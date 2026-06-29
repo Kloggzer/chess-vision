@@ -1,0 +1,51 @@
+[project]
+name = "chesslab"
+version = "0.1.0"
+description = "Auto-labeled chess piece dataset builder (per-square 13-class classification)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.12",
+    "opencv-python>=4.8",
+    "numpy>=1.24",
+    "pillow>=10.0",
+    "python-chess>=1.10",
+    "pyyaml>=6.0",
+    "fastapi>=0.104",
+    "uvicorn[standard]>=0.24",
+    # Windows-ROCm-Trainingsstack: auf lokale Wheels (wheels/) gepinnt, damit `uv sync`
+    # sie NICHT entfernt, sondern aus den Wheels neu installiert. Auf Linux/macOS per
+    # Marker ausgeschlossen (Rig nutzt seine eigene ROCm-Umgebung).
+    "torch==2.9.1+rocm7.2.1 ; sys_platform == 'win32' and python_full_version >= '3.12' and python_full_version < '3.13'",
+    "torchvision==0.24.1+rocm7.2.1 ; sys_platform == 'win32' and python_full_version >= '3.12' and python_full_version < '3.13'",
+    "rocm-sdk-core==7.2.1 ; sys_platform == 'win32' and python_full_version >= '3.12' and python_full_version < '3.13'",
+    "rocm-sdk-devel==7.2.1 ; sys_platform == 'win32' and python_full_version >= '3.12' and python_full_version < '3.13'",
+    "rocm-sdk-libraries-custom==7.2.1 ; sys_platform == 'win32' and python_full_version >= '3.12' and python_full_version < '3.13'",
+    "rocm==7.2.1 ; sys_platform == 'win32' and python_full_version >= '3.12' and python_full_version < '3.13'",
+]
+
+[tool.uv.sources]
+torch = { path = "wheels/torch-2.9.1+rocm7.2.1-cp312-cp312-win_amd64.whl" }
+torchvision = { path = "wheels/torchvision-0.24.1+rocm7.2.1-cp312-cp312-win_amd64.whl" }
+"rocm-sdk-core" = { path = "wheels/rocm_sdk_core-7.2.1-py3-none-win_amd64.whl" }
+"rocm-sdk-devel" = { path = "wheels/rocm_sdk_devel-7.2.1-py3-none-win_amd64.whl" }
+"rocm-sdk-libraries-custom" = { path = "wheels/rocm_sdk_libraries_custom-7.2.1-py3-none-win_amd64.whl" }
+rocm = { path = "wheels/rocm-7.2.1.tar.gz" }
+
+[project.scripts]
+chesslab = "chesslab.cli:main"
+
+# uv-native dev dependencies (PEP 735). Installed by default on `uv sync`,
+# excluded from the published package. Use `uv sync --no-dev` for a runtime-only env.
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/chesslab"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
