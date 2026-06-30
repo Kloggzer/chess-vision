@@ -146,9 +146,12 @@ def compute_class_weights(counts: dict) -> dict:
 
 # --- Split (sessionbasiert) -----------------------------------------------------------
 
-def assign_sessions_to_splits(sizes: dict, val_frac: float, test_frac: float, seed: int) -> dict:
+def assign_sessions_to_splits(sizes: dict, val_frac: float, test_frac: float, seed: int,
+                              force_train=None) -> dict:
     """Ganze Sessions greedy (größte zuerst) auf train/val/test verteilen, um die
-    Crop-Anteile zu treffen. Niemals eine Session aufteilen."""
+    Crop-Anteile zu treffen. Niemals eine Session aufteilen. `force_train`: Session-IDs, die fix in
+    train müssen (z.B. die vollständigste bei wenig Sessions, damit val keine ungesehene Klasse hat)."""
+    force_train = set(force_train or ())
     total = sum(sizes.values())
     target_val = val_frac * total
     target_test = test_frac * total
@@ -157,9 +160,11 @@ def assign_sessions_to_splits(sizes: dict, val_frac: float, test_frac: float, se
     rng.shuffle(items)                       # deterministischer Tiebreak
     items.sort(key=lambda kv: kv[1], reverse=True)
 
-    splits = {"train": [], "val": [], "test": []}
+    splits = {"train": [s for s in sizes if s in force_train], "val": [], "test": []}
     val_sum = test_sum = 0
     for sid, sz in items:
+        if sid in force_train:
+            continue
         need_val = target_val - val_sum
         need_test = target_test - test_sum
         if need_val <= 0 and need_test <= 0:
@@ -180,10 +185,16 @@ def make_split(
     max_empty_ratio: float | None = config.DEFAULT_MAX_EMPTY_RATIO,
     seed: int = config.SEED,
     max_class_ratio: float | None = None,
+    force_train=None,
+    precomputed_splits=None,
 ) -> dict:
-    # Sessions auf Basis der VOLLEN Crop-Zahlen zuteilen (Fraktionen = roher Crop-Anteil).
-    sizes = Counter(r["session_id"] for r in rows)
-    splits = assign_sessions_to_splits(dict(sizes), val_frac, test_frac, seed)
+    # Sessions zuteilen. `precomputed_splits` (von build_dataset auf den ROHEN, vollständigen Daten
+    # bestimmt) gewinnt -> so wird Train gedupt/augmentiert, Val/Test bleiben vollständig.
+    if precomputed_splits is not None:
+        splits = {k: list(precomputed_splits.get(k, [])) for k in ("train", "val", "test")}
+    else:
+        sizes = Counter(r["session_id"] for r in rows)
+        splits = assign_sessions_to_splits(dict(sizes), val_frac, test_frac, seed, force_train=force_train)
     split_of = {s: name for name, sids in splits.items() for s in sids}
 
     # Subsampling NUR auf train; val/test bleiben vollständig (echte Board-Accuracy).

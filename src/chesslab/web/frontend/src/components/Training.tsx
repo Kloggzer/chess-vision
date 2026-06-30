@@ -82,7 +82,7 @@ export default function Training() {
   ];
   const lossMax = Math.max(0.5, ...metrics.map((m) => Math.max(m.train_loss || 0, m.val_loss || 0)));
   const metricSeries = [
-    { name: "val_acc", color: "#38bdf8", data: metrics.map((m) => ({ x: m.epoch, y: m.val_acc ?? 0 })) },
+    { name: "square_acc", color: "#38bdf8", data: metrics.map((m) => ({ x: m.epoch, y: m.val_acc ?? 0 })) },
     { name: "macro_recall", color: "#22c55e", data: metrics.map((m) => ({ x: m.epoch, y: m.val_macro_recall ?? 0 })) },
     { name: "board_acc", color: "#e4e4e7", data: metrics.map((m) => ({ x: m.epoch, y: m.val_board_acc ?? 0 })) },
   ];
@@ -138,7 +138,8 @@ export default function Training() {
               <thead><tr className="text-zinc-500">
                 <th className="text-left font-normal">Run</th><th className="text-left font-normal">Backbone</th>
                 <th className="text-left font-normal">Datensatz</th><th className="text-right font-normal">Kl.</th>
-                <th className="text-right font-normal">Ep.</th><th className="text-right font-normal" title="bestes val board_acc">board_acc</th>
+                <th className="text-right font-normal">Ep.</th><th className="text-right font-normal" title="bestes val board_acc (alle 64 Felder korrekt)">board_acc</th>
+                <th className="text-right font-normal" title="bestes val square_acc (Anteil korrekter Einzelfelder — treibt board_acc ≈ square_acc^64)">square_acc</th>
                 <th className="text-right font-normal" title="bestes val macro_recall">macro_rec</th>
                 <th className="text-right font-normal" title="Test-Set board_acc (nach eval)">test</th>
                 <th className="text-right font-normal">Aktion</th>
@@ -155,6 +156,7 @@ export default function Training() {
                     <td className="text-right tabular-nums text-zinc-400">{r.n_classes}</td>
                     <td className="text-right tabular-nums text-zinc-400">{r.epochs_done}</td>
                     <td className="text-right tabular-nums text-zinc-300">{pct(r.best_board_acc)}</td>
+                    <td className="text-right tabular-nums text-zinc-300">{pct(r.best_square_acc)}</td>
                     <td className="text-right tabular-nums text-zinc-300">{pct(r.best_macro_recall)}</td>
                     <td className="text-right tabular-nums text-zinc-300">{pct(r.test_board_acc)}</td>
                     <td className="py-1"><div className="flex justify-end gap-1.5">

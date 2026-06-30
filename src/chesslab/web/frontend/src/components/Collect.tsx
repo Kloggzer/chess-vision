@@ -13,6 +13,8 @@ export default function Collect() {
   const [passes, setPasses] = useState(1);    // sweep: Rotations-Durchläufe je Farbe
   const [pieces, setPieces] = useState("special");  // sweep: special | pawn | all
   const [together, setTogether] = useState(true);   // sweep: beide Farben gleichzeitig (halbe Fotos)
+  const [offset, setOffset] = useState(0);          // sweep: Linien→Figur verschieben
+  const [autoOffset, setAutoOffset] = useState(true); // sweep: Offset automatisch (zyklisch)
   const [profile, setProfile] = useState("default");
   const [cam, setCam] = useState(0);
   const coverage = strategy === "coverage";
@@ -33,6 +35,7 @@ export default function Collect() {
     try {
       const s = await post("/api/collect/start", {
         strategy, max_plies: maxPlies, profile, camera: cam, sets, count, passes, pieces, together,
+        offset, auto_offset: autoOffset,
       });
       setSt(s);
       clearInterval(timer.current);
@@ -74,12 +77,18 @@ export default function Collect() {
                   <option value="pawn">pawn (Bauern)</option>
                   <option value="all">all</option>
                 </Select></label>
-              <label className="flex items-center gap-2 text-sm text-zinc-400" title="Rotations-Durchläufe je Farbe: je Pass 8 Fotos (Rang 1–8); mehr Pässe = jedes Feld sieht mehr Klassen.">Pässe
+              <label className="flex items-center gap-2 text-sm text-zinc-400" title="Wiederholungen (je Pass 8 Fotos, Rang 1–8) — z.B. mit anderem Licht. Keine Figuren-Umstellung.">Pässe
                 <input type="number" min={1} value={passes} onChange={(e) => setPasses(+e.target.value)} className={`${input} w-16`} /></label>
               <label className="flex items-center gap-2 text-sm text-zinc-400" title="Anzahl physischer Figurensätze: mit 2 Sätzen sind doppelt so viele Figuren je Foto möglich.">Sätze
                 <input type="number" min={1} value={sets} onChange={(e) => setSets(+e.target.value)} className={`${input} w-16`} /></label>
               <label className="flex items-center gap-2 text-sm text-zinc-400" title="Weiß und Schwarz gleichzeitig aufs Brett (Weiß vorne, Schwarz 4 Ränge versetzt) → halbe Fotozahl, jedes Feld bekommt beide Farben.">
                 <input type="checkbox" checked={together} onChange={(e) => setTogether(e.target.checked)} /> beide Farben gleichzeitig</label>
+              <label className="flex items-center gap-2 text-sm text-zinc-400" title="Offset automatisch: zählt bisherige Sweep-Sessions und nimmt den nächsten Offset → jede Figur landet über mehrere Sessions auf verschiedenen Linien (gegen Positions-Overfitting).">
+                <input type="checkbox" checked={autoOffset} onChange={(e) => setAutoOffset(e.target.checked)} /> Offset auto</label>
+              {!autoOffset && (
+                <label className="flex items-center gap-2 text-sm text-zinc-400" title="Verschiebt die Linien→Figur-Zuordnung, fix für diese Session. 0: a=König,b=Dame,…  1: a=Dame,b=Turm,…">Offset
+                  <input type="number" min={0} max={7} value={offset} onChange={(e) => setOffset(+e.target.value)} className={`${input} w-16`} /></label>
+              )}
             </>
           ) : (
             <label className="flex items-center gap-2 text-sm text-zinc-400">Halbzüge

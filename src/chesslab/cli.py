@@ -147,9 +147,11 @@ def collect_play(
     target: int = typer.Option(config.UI_TARGET_PER_CLASS, "--target"),
     sets: int = typer.Option(1, "--sets", help="Anzahl physischer Figurensätze (coverage/sweep): ×N je Klasse."),
     count: int = typer.Option(20, "--count", help="Anzahl dichter Aufbauten (nur strategy=coverage)."),
-    passes: int = typer.Option(1, "--passes", help="sweep: Rotations-Durchläufe je Farbe (je Pass 8 Fotos)."),
+    passes: int = typer.Option(1, "--passes", help="sweep: Wiederholungen je Farbe (je Pass 8 Fotos)."),
     pieces: str = typer.Option("special", "--pieces", help="sweep: special | pawn | all."),
     together: bool = typer.Option(False, "--together", help="sweep: beide Farben gleichzeitig (halbe Fotozahl)."),
+    offset: int = typer.Option(0, "--offset", help="sweep: Linien→Figur-Zuordnung verschieben (0..7)."),
+    auto_offset: bool = typer.Option(False, "--auto-offset", help="sweep: Offset automatisch (zyklisch über Sessions)."),
 ) -> None:
     """Engine spielt die Partie (random/stockfish), coverage: dichte Aufbauten gegen seltene Klassen,
     oder sweep: Figurenreihe wandert systematisch übers Brett. Du stellst nach und fotografierst."""
@@ -157,7 +159,8 @@ def collect_play(
                                               stockfish_path=stockfish_path, start_fen=start_fen,
                                               profile=profile, camera=camera, session=session,
                                               ui=ui, target=target, sets=sets, count=count,
-                                              passes=passes, pieces=pieces, together=together))
+                                              passes=passes, pieces=pieces, together=together,
+                                              offset=offset, auto_offset=auto_offset))
 
 
 @app.command("ui")
@@ -207,17 +210,19 @@ def experiment_run(
     geometries: str = typer.Option(",".join(config.EXP_GEOMETRIES), "--geometries", help="z.B. warp,box3d."),
     photometries: str = typer.Option(",".join(config.PHOTOMETRY_METHODS), "--photometries",
                                      help="z.B. none,clahe,grayworld,gamma."),
+    heads: str = typer.Option("combined", "--heads", help="Modell-Köpfe: combined,factored."),
     epochs: int = typer.Option(config.DEFAULT_EPOCHS, "--epochs"),
     seed: int = typer.Option(config.SEED, "--seed"),
     backbone: str = typer.Option(config.DEFAULT_BACKBONE, "--backbone"),
+    eval_split: str = typer.Option("test", "--eval-split", help="Metrik-Split: test | val (bei <3 Sessions val)."),
     force: bool = typer.Option(False, "--force", help="alle Stages neu (sonst fertige überspringen)."),
 ) -> None:
-    """Volles Grid Geometrie×Photometrie trainieren + Vergleichstabelle nach Board-Accuracy."""
+    """Volles Grid Geometrie×Photometrie×Kopf trainieren + Vergleichstabelle nach Board-Accuracy."""
     from . import experiment as experiment_mod
 
     raise typer.Exit(experiment_mod.run_experiment(
-        _csv_list(sessions), _csv_list(geometries), _csv_list(photometries),
-        epochs=epochs, seed=seed, backbone=backbone, force=force))
+        _csv_list(sessions), _csv_list(geometries), _csv_list(photometries), _csv_list(heads),
+        epochs=epochs, seed=seed, backbone=backbone, eval_split=eval_split, force=force))
 
 
 @experiment_app.command("table")
@@ -225,12 +230,15 @@ def experiment_table(
     sessions: str = typer.Option(..., "--sessions", help="Komma-getrennte Session-IDs."),
     geometries: str = typer.Option(",".join(config.EXP_GEOMETRIES), "--geometries"),
     photometries: str = typer.Option(",".join(config.PHOTOMETRY_METHODS), "--photometries"),
+    heads: str = typer.Option("combined", "--heads"),
+    eval_split: str = typer.Option("test", "--eval-split"),
 ) -> None:
     """Vergleichstabelle aus bereits trainierten Runs neu schreiben (kein Re-Training)."""
     from . import experiment as experiment_mod
 
     raise typer.Exit(experiment_mod.rebuild_table(
-        _csv_list(sessions), _csv_list(geometries), _csv_list(photometries)))
+        _csv_list(sessions), _csv_list(geometries), _csv_list(photometries), _csv_list(heads),
+        eval_split=eval_split))
 
 
 @experiment_app.command("list")
@@ -238,12 +246,13 @@ def experiment_list(
     sessions: str = typer.Option("", "--sessions", help="(optional, für die Tabellen-Spalten irrelevant)."),
     geometries: str = typer.Option(",".join(config.EXP_GEOMETRIES), "--geometries"),
     photometries: str = typer.Option(",".join(config.PHOTOMETRY_METHODS), "--photometries"),
+    heads: str = typer.Option("combined", "--heads"),
 ) -> None:
     """Status je Variante: sliced / dataset / train / eval."""
     from . import experiment as experiment_mod
 
     raise typer.Exit(experiment_mod.variant_status(
-        _csv_list(sessions), _csv_list(geometries), _csv_list(photometries)))
+        _csv_list(sessions), _csv_list(geometries), _csv_list(photometries), _csv_list(heads)))
 
 
 @app.command("stats")

@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import random
 import shutil
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -153,6 +154,7 @@ def build_dataset(
     paths: config.Paths = config.DATA,
     source_manifest: Path | None = None,
     variant_tag: str | None = None,
+    force_train=None,
 ) -> dict:
     """Datensatz <name> aus `session_ids` bauen: filtern -> dedup -> rotation -> manifest+split+stats.
 
@@ -175,22 +177,34 @@ def build_dataset(
     if not rows:
         raise ValueError("keine Crops für die gewählten Sessions (erst slicen?).")
 
-    rows = dedup_metadata(rows, per_cell_cap, seed)
+    # Split-Zuteilung auf den ROHEN, VOLLSTÄNDIGEN Daten bestimmen (vollständige 64er-Boards). Dedup +
+    # Rotation danach NUR auf Train — Val/Test bleiben komplett (genau 64 Crops/Frame, rot 0), sonst
+    # rechnet board_accuracy auf unvollständigen/duplizierten Boards (Bug).
+    sizes = Counter(r["session_id"] for r in rows)
+    splits = dataset_mod.assign_sessions_to_splits(dict(sizes), val_frac, test_frac, seed,
+                                                   force_train=force_train)
+    split_of = {s: name for name, sids in splits.items() for s in sids}
+    train_raw = [r for r in rows if split_of.get(r["session_id"]) == "train"]
+    holdout = [r for r in rows if split_of.get(r["session_id"]) in ("val", "test")]  # vollständig, rot 0
+
+    train_rows = dedup_metadata(train_raw, per_cell_cap, seed)
     if phash_enabled:
-        rows = dedup_phash(rows, phash_hamming)
-    n_dedup = len(rows)
+        train_rows = dedup_phash(train_rows, phash_hamming)
+    n_dedup = len(train_rows) + len(holdout)
 
     ds = paths.datasets / name
     if ds.exists():
         shutil.rmtree(ds)                       # sauberer Rebuild (alte Rotationen weg)
     ds.mkdir(parents=True, exist_ok=True)
-    rows = _apply_rotations(rows, rotations, ds / "squares")
+    train_rows = _apply_rotations(train_rows, rotations, ds / "squares")   # Rotation NUR auf Train
+    rows = train_rows + holdout
     n_final = len(rows)
 
     (ds / "manifest.jsonl").write_text(
         "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + ("\n" if rows else ""),
         encoding="utf-8")
-    split = dataset_mod.make_split(rows, val_frac, test_frac, max_empty_ratio, seed, max_class_ratio)
+    split = dataset_mod.make_split(rows, val_frac, test_frac, max_empty_ratio, seed, max_class_ratio,
+                                   force_train=force_train, precomputed_splits=splits)
     (ds / "split.json").write_text(json.dumps(split, ensure_ascii=False, indent=2), encoding="utf-8")
     stats = dataset_mod.compute_stats(rows)
     (ds / "stats.json").write_text(json.dumps(stats, ensure_ascii=False), encoding="utf-8")

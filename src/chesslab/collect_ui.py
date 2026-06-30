@@ -203,25 +203,29 @@ def _sweep_types(order: tuple[str, ...], inv: dict[str, int]) -> list[str]:
 
 
 def sweep_plan(colors: tuple[str, ...] = ("w", "b"), pieces: str = "special", passes: int = 1,
-               inventory: dict[str, int] | None = None, together: bool = False) -> list[dict]:
+               inventory: dict[str, int] | None = None, together: bool = False,
+               offset: int = 0) -> list[dict]:
     """Systematischer Coverage-Sweep: eine Reihe Figuren marschiert Rang für Rang übers Brett
     (je eine Figur pro Linie a–h). Jede Figur durchläuft so alle 8 Ränge ihrer Linie (hell/dunkel
-    automatisch). Pro Pass wird die Linien→Figur-Zuordnung rotiert, damit jedes Feld über mehrere
-    Pässe verschiedene Figurenklassen sieht.
+    automatisch).
 
     `together=False`: erst Weiß komplett (8 Fotos/Pass), dann Schwarz. `together=True`: BEIDE Farben
     gleichzeitig — Weiß auf Rang r, Schwarz auf Rang (r+4) (immer 4 auseinander, nie Kollision) →
     nur 8 Fotos/Pass, jedes Feld bekommt ein weißes UND ein schwarzes Beispiel (halbe Fotozahl).
 
-    **Keine Rotation:** jede Figur bleibt über alle Frames/Pässe auf IHRER Linie — du stellst einmal
-    auf und schiebst nur die Reihe(n) nach hinten, tauschst nie Figuren. `passes` = bloße Wiederholung
-    (z.B. mit anderem Licht). Für Figuren auf ANDEREN Linien: eigene Session mit anderer Aufstellung.
+    **`offset`:** verschiebt die Linien→Figur-Zuordnung **einmal** (konstant für die GANZE Session, NIE
+    mitten drin — du stellst einmal auf und schiebst nur die Reihe(n) nach hinten). offset=0 →
+    a=K,b=Q,…; offset=1 → a=Q,b=R,…  Über mehrere Sessions mit verschiedenem Offset sieht jede Figur
+    verschiedene Linien/Felder → verhindert „Linie⇒Figur"-Overfitting. `passes` = bloße Wiederholung.
 
     `pieces`: "special" (Nicht-Bauern K,Q,R,B,N — Default-Inventar = 8 = genau eine je Linie),
     "pawn" oder "all". Rückgabe: [{'ply','san','fen','note'}] für den Aufnahme-Loop (1 Frame je Pos.).
     """
     inv = inventory or config.DEFAULT_INVENTORY
     specials = _sweep_types(("K", "Q", "R", "B", "N"), inv)
+    if specials and offset:                       # Linien→Figur-Zuordnung EINMAL verschieben
+        k = int(offset) % len(specials)
+        specials = specials[k:] + specials[:k]
     pawns = _sweep_types(("P",), inv)
     # Eine Figur je Linie -> max 8 je Reihe. "all" packt Specials UND Bauern als BLOCK auf
     # benachbarte Ränge (wie die Grundstellung) und schiebt beides zusammen -> beides in jedem
@@ -264,6 +268,28 @@ def sweep_plan(colors: tuple[str, ...] = ("w", "b"), pieces: str = "special", pa
                     out.append({"ply": ply, "san": None, "fen": _fen_from_placement(placement),
                                 "note": f"{color}-{pieces} pass{p + 1} rank{rank + 1}"})
     return out
+
+
+def auto_sweep_offset(sessions_dir, n_files: int = 8) -> int:
+    """Nächster Offset für den 'auto'-Modus: zählt bisherige Sweep-Sessions (`notes` enthält 'sweep')
+    und gibt `count % n_files` zurück — so durchläuft man über mehrere Sessions zyklisch alle
+    Linien-Aufstellungen (jede Figur landet nach und nach auf jeder Linie)."""
+    import yaml
+
+    cnt = 0
+    p = Path(sessions_dir)
+    if p.exists():
+        for d in p.iterdir():
+            sy = d / "session.yaml"
+            if not sy.exists():
+                continue
+            try:
+                m = yaml.safe_load(sy.read_text(encoding="utf-8")) or {}
+            except Exception:  # noqa: BLE001
+                continue
+            if "sweep" in str(m.get("notes", "")):
+                cnt += 1
+    return cnt % max(1, n_files)
 
 
 def recommend(coverage: dict, target_per_class: int = config.UI_TARGET_PER_CLASS,

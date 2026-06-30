@@ -14,7 +14,8 @@ from .data import filter_rows_by_split, load_manifest, load_split
 def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               no_amp: bool, seed: int, out: str | None, patience: int,
               num_workers: int | None = None, norm: str | None = None,
-              dataset: str | None = None, resume: str | None = None) -> int:
+              dataset: str | None = None, resume: str | None = None,
+              head: str = "combined") -> int:
     # GPU-Vorbedingung (Stufe 0 Validierungspfad) — Pflicht, sonst Abbruch. Dieser Check
     # ist torch-frei sicher und läuft VOR jedem torch-Import, damit ein fehlender/kaputter
     # Build hier klar gemeldet wird statt als ImportError-Stacktrace.
@@ -97,8 +98,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # BatchNorm ist auf ROCm-Windows (MIOpen/HIPRTC) defekt -> dort default GroupNorm.
     norm_eff = norm or ("groupnorm" if sys.platform.startswith("win") else "batchnorm")
     device = get_device(require_gpu=True)
-    model = build_model(backbone, len(classes), pretrained=(backbone != "smallcnn"), norm=norm_eff).to(device)
-    print(f"[OK] Backbone {backbone}, norm={norm_eff}")
+    model = build_model(backbone, len(classes), pretrained=(backbone != "smallcnn"), norm=norm_eff,
+                        head=head, classes=classes).to(device)
+    print(f"[OK] Backbone {backbone}, norm={norm_eff}, head={head}")
 
     # Weiter-Trainieren (Warm-Start): Gewichte aus einem früheren Run laden. Passende Tensoren
     # werden übernommen, nicht-passende (z.B. der Klassifizierungs-Kopf bei geänderter Klassenzahl,
@@ -142,7 +144,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     (run_dir / "config.json").write_text(json.dumps({
         "backbone": backbone, "epochs": epochs, "batch_size": batch_size, "lr": lr,
         "seed": seed, "amp": amp, "norm": norm_eff, "classes": classes, "out_size": list(out_size),
-        "dataset": dataset, "resumed_from": resumed_from,
+        "dataset": dataset, "resumed_from": resumed_from, "head": head,
         "normalize": {"mean": list(config.NORMALIZE_MEAN), "std": list(config.NORMALIZE_STD)},
     }, indent=2), encoding="utf-8")
     metrics_path = run_dir / "metrics.jsonl"

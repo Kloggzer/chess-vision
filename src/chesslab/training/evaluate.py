@@ -15,7 +15,8 @@ def _load_run(run_dir: Path):
     from .model import build_model
 
     cfg = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
-    model = build_model(cfg["backbone"], len(cfg["classes"]), norm=cfg.get("norm", "batchnorm"))
+    model = build_model(cfg["backbone"], len(cfg["classes"]), norm=cfg.get("norm", "batchnorm"),
+                        head=cfg.get("head", "combined"), classes=cfg["classes"])
     ckpt = run_dir / "best.pt"
     if not ckpt.exists():
         ckpt = run_dir / "last.pt"

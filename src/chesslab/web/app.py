@@ -360,6 +360,7 @@ def create_app():
                 "has_occluded": "occluded" in cfg.get("classes", []),
                 "epochs_done": len(metrics),
                 "best_board_acc": max((m.get("val_board_acc", 0) for m in metrics), default=0),
+                "best_square_acc": max((m.get("val_acc", 0) for m in metrics), default=0),
                 "best_macro_recall": max((m.get("val_macro_recall", 0) for m in metrics), default=0),
                 "test_board_acc": test_board,
                 "last": metrics[-1] if metrics else None,
@@ -671,6 +672,7 @@ def create_app():
                       profile: str = Body("default"), camera: int = Body(0),
                       sets: int = Body(1), count: int = Body(20), passes: int = Body(1),
                       pieces: str = Body("special"), together: bool = Body(False),
+                      offset: int = Body(0), auto_offset: bool = Body(False),
                       target: int = Body(config.UI_TARGET_PER_CLASS)):
         try:
             prof = load_profile(profile)
@@ -693,12 +695,15 @@ def create_app():
             show_target = True
         elif strategy == "sweep":
             # Systematischer Sweep: eine Figurenreihe wandert Rang für Rang übers Brett (je eine je
-            # Linie), erst Weiß, dann Schwarz. Jede Figur durchläuft alle 8 Ränge ihrer Linie.
-            from ..collect_ui import sweep_plan
+            # Linie). `offset` verschiebt die Linien→Figur-Zuordnung (konstant je Session); `auto`
+            # zählt bisherige Sweep-Sessions und nimmt den nächsten Offset -> jede Figur über mehrere
+            # Sessions auf verschiedenen Linien (gegen Positions-Overfitting).
+            from ..collect_ui import auto_sweep_offset, sweep_plan
 
+            sweep_offset = auto_sweep_offset(config.DATA.sessions) if auto_offset else int(offset)
             inventory = {k: v * max(sets, 1) for k, v in config.DEFAULT_INVENTORY.items()}
             positions = sweep_plan(pieces=pieces, passes=max(1, passes), inventory=inventory,
-                                   together=together)
+                                   together=together, offset=sweep_offset)
             if not positions:
                 raise HTTPException(400, "Sweep leer — Inventar/pieces prüfen (special|pawn|all).")
             show_target = True
@@ -725,8 +730,10 @@ def create_app():
 
         sid = generate_session_id()
         CAMERA.ensure(camera)
+        notes = (f"web:sweep offset={sweep_offset} pieces={pieces} together={together}"
+                 if strategy == "sweep" else f"web:{strategy}")
         writer = SessionWriter(config.DATA.sessions / sid, session_id=sid, profile=profile, mode="play",
-                               camera_index=camera, frame_size=prof.frame_size, notes=f"web:{strategy}")
+                               camera_index=camera, frame_size=prof.frame_size, notes=notes)
         _COLLECT.update({"writer": writer, "positions": positions, "i": 0, "profile": prof,
                          "camera": camera, "board": BoardTracker(prof), "show_target": show_target})
         return _collect_state()

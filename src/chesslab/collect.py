@@ -159,7 +159,8 @@ def collect_play(strategy: str, max_plies: int, seed: int, stockfish_path: str |
                  session: str | None = None, ui: bool = False,
                  target: int = config.UI_TARGET_PER_CLASS,
                  sets: int = 1, count: int = 20,
-                 passes: int = 1, pieces: str = "special", together: bool = False) -> int:
+                 passes: int = 1, pieces: str = "special", together: bool = False,
+                 offset: int = 0, auto_offset: bool = False) -> int:
     """Eine Engine spielt die Zugfolge (random/stockfish) ODER der Coverage-Generator baut
     dichte Setups (coverage); du stellst sie physisch nach und fotografierst."""
     from .state import random_game_positions, stockfish_game_positions
@@ -192,18 +193,21 @@ def collect_play(strategy: str, max_plies: int, seed: int, stockfish_path: str |
 
     # sweep: Figurenreihe wandert Rang für Rang übers Brett (systematische Feld×Klasse-Abdeckung).
     if strategy == "sweep":
-        from .collect_ui import sweep_plan
+        from .collect_ui import auto_sweep_offset, sweep_plan
 
+        off = auto_sweep_offset(config.DATA.sessions) if auto_offset else int(offset)
         inventory = {k: v * max(sets, 1) for k, v in config.DEFAULT_INVENTORY.items()}
-        steps = sweep_plan(pieces=pieces, passes=max(1, passes), inventory=inventory, together=together)
+        steps = sweep_plan(pieces=pieces, passes=max(1, passes), inventory=inventory,
+                           together=together, offset=off)
         if not steps:
             print(f"[FAIL] Sweep leer — pieces={pieces!r} (special|pawn|all) / Inventar prüfen.")
             return 1
         mode_txt = "beide Farben gleichzeitig" if together else "Weiß, dann Schwarz"
-        print(f"[OK] Sweep-Plan: {len(steps)} Aufbauten ({pieces}, {passes} Pass(es), {mode_txt}). "
-              "Stelle jede Reihe nach, fotografiere, dann `n` für die nächste.")
+        print(f"[OK] Sweep-Plan: {len(steps)} Aufbauten ({pieces}, offset={off}, {passes} Pass(es), "
+              f"{mode_txt}). Stelle jede Reihe nach, fotografiere, dann `n` für die nächste.")
         return _replay_capture(steps, prof, profile, camera, mode="play", source_pgn=None,
-                               session=session, notes=f"sweep pieces={pieces} passes={passes} together={together}",
+                               session=session,
+                               notes=f"sweep offset={off} pieces={pieces} passes={passes} together={together}",
                                ui=ui, target=target, title="chesslab collect (play:sweep)")
 
     try:

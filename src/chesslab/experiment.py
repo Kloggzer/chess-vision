@@ -42,24 +42,32 @@ _RECALL_COLS = ("wQ", "bQ", "wK", "bK")
 class Variant:
     geometry: str
     photometry: str
+    head: str = "combined"
     piece_height_cells: float = config.EXP_PIECE_HEIGHT_CELLS
 
     @property
-    def tag(self) -> str:
+    def data_tag(self) -> str:
+        """Identität der CROPS/Daten — nur Geometrie×Photometrie (der Kopf ändert die Daten NICHT,
+        daher teilen sich Kopf-Varianten Crops + Dataset)."""
         return f"{self.geometry}-{self.photometry}"
 
     @property
+    def tag(self) -> str:
+        """Identität des Modell-LAUFS — inkl. Kopf."""
+        return f"{self.geometry}-{self.photometry}-{self.head}"
+
+    @property
     def dataset_name(self) -> str:
-        return f"{config.EXP_PREFIX}__{self.tag}"
+        return f"{config.EXP_PREFIX}__{self.data_tag}"
 
     @property
     def run_dir(self) -> Path:
         return config.DATA.models / f"exp-{self.tag}"
 
 
-def variant_grid(geometries, photometries) -> list[Variant]:
-    """Volles Kreuzprodukt (Baseline `warp-none` ist enthalten, sofern in den Listen)."""
-    return [Variant(g, p) for g in geometries for p in photometries]
+def variant_grid(geometries, photometries, heads=("combined",)) -> list[Variant]:
+    """Volles Kreuzprodukt Geometrie×Photometrie×Kopf (Baseline `warp-none-combined` enthalten)."""
+    return [Variant(g, p, h) for g in geometries for p in photometries for h in heads]
 
 
 def session_profile_map(session_ids: list[str]) -> dict[str, str]:
@@ -77,7 +85,7 @@ def session_profile_map(session_ids: list[str]) -> dict[str, str]:
 
 def slice_variant(v: Variant, session_ids: list[str], *, force: bool = False) -> dict:
     """Alle Sessions variantengetaggt slicen. Gibt Crops/Fallback-Statistik zurück."""
-    manifest_path, squares_root = variant_paths(v.tag)
+    manifest_path, squares_root = variant_paths(v.data_tag)
     corrections = load_corrections(config.DATA.corrections)
     have = set()
     if manifest_path.exists() and not force:
@@ -107,10 +115,26 @@ def build_variant(v: Variant, session_ids: list[str], *, seed: int, force: bool 
     """Datensatz der Variante bauen — phash AUS + keine Rotation (identische Crop-Menge je Variante)."""
     if dataset_dir(v.dataset_name).exists() and not force:
         return
-    manifest_path, _ = variant_paths(v.tag)
+    manifest_path, _ = variant_paths(v.data_tag)
+    n = len(session_ids)
+    force_train = None
+    if 2 <= n < 3:
+        # <3 Sessions: kein sauberer 3-Wege-Split -> je 1 Session in Train/Val (kein Test-Fold).
+        # Die VOLLSTÄNDIGSTE Session (meiste Klassen) muss in Train, sonst hätte val ungesehene
+        # Klassen (z.B. Bauern) -> Board-Acc=0 überall, kein Signal.
+        labels_per: dict[str, set] = {}
+        for line in manifest_path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                r = json.loads(line)
+                labels_per.setdefault(r["session_id"], set()).add(r["label"])
+        if labels_per:
+            force_train = {max(session_ids, key=lambda s: len(labels_per.get(s, set())))}
+    val_frac = config.DEFAULT_VAL_FRAC if n >= 3 else (0.25 if n >= 2 else 0.0)
+    test_frac = config.DEFAULT_TEST_FRAC if n >= 3 else 0.0
     build_dataset(
-        v.dataset_name, session_ids, source_manifest=manifest_path, variant_tag=v.tag, seed=seed,
-        phash_enabled=False, rotations=(0,))
+        v.dataset_name, session_ids, source_manifest=manifest_path, variant_tag=v.data_tag, seed=seed,
+        phash_enabled=False, rotations=(0,), val_frac=val_frac, test_frac=test_frac,
+        force_train=force_train)
 
 
 def train_variant(v: Variant, *, epochs: int, seed: int, backbone: str, force: bool = False) -> int:
@@ -123,7 +147,7 @@ def train_variant(v: Variant, *, epochs: int, seed: int, backbone: str, force: b
     return run_train(
         backbone=backbone, epochs=epochs, batch_size=config.DEFAULT_BATCH_SIZE, lr=config.DEFAULT_LR,
         no_amp=False, seed=seed, out=str(v.run_dir), patience=config.DEFAULT_PATIENCE,
-        dataset=v.dataset_name)
+        dataset=v.dataset_name, head=v.head)
 
 
 def fallback_rate_from_manifest(manifest_path: Path) -> float:
@@ -156,8 +180,10 @@ def collect_metrics(v: Variant, session_profile: dict[str, str], split_name: str
     split = load_split(dd / "split.json")
     rows = filter_rows_by_split(manifest, split, split_name)
     if not rows:
-        return {"board_acc": 0.0, "macro_f1": 0.0, "recall": {}, "session_spread": 0.0,
-                "cam_spread": 0.0, "per_camera": {}, "n_test": 0}
+        return {"variant": v.tag, "geometry": v.geometry, "photometry": v.photometry, "head": v.head,
+                "split": split_name, "board_acc": 0.0, "macro_f1": 0.0, "recall": {},
+                "session_spread": 0.0, "cam_spread": 0.0, "per_camera": {}, "fallback_rate": 0.0,
+                "n_test": 0}
 
     device = get_device(require_gpu=False)
     model.to(device)
@@ -174,11 +200,13 @@ def collect_metrics(v: Variant, session_profile: dict[str, str], split_name: str
     recall = {c: float(x) for c, x in zip(classes, per_class_recall(cm))}
     per_session = grouped_board_acc(items, "session_id")
     per_camera = grouped_board_acc(items, "camera")
-    manifest_path, _ = variant_paths(v.tag)
+    manifest_path, _ = variant_paths(v.data_tag)
     return {
         "variant": v.tag,
         "geometry": v.geometry,
         "photometry": v.photometry,
+        "head": v.head,
+        "split": split_name,
         "board_acc": board,
         "macro_f1": macro_f1(trues, preds, len(classes)),
         "recall": recall,
@@ -192,9 +220,11 @@ def collect_metrics(v: Variant, session_profile: dict[str, str], split_name: str
 
 # --- Orchestrierung ---------------------------------------------------------------------
 
-def run_experiment(session_ids: list[str], geometries, photometries, *, epochs: int, seed: int,
-                   backbone: str, force: bool = False) -> int:
-    """Volles Grid: je Variante slice->build->train->eval, dann Vergleichstabelle schreiben."""
+def run_experiment(session_ids: list[str], geometries, photometries, heads=("combined",), *,
+                   epochs: int, seed: int, backbone: str, eval_split: str = "test",
+                   force: bool = False) -> int:
+    """Volles Grid Geometrie×Photometrie×Kopf: je Variante slice->build->train->eval(`eval_split`),
+    dann Vergleichstabelle schreiben."""
     from . import doctor
 
     ok, checks = doctor.validate_gpu()
@@ -207,51 +237,52 @@ def run_experiment(session_ids: list[str], geometries, photometries, *, epochs: 
         return 1
 
     sp = session_profile_map(session_ids)
-    variants = variant_grid(geometries, photometries)
+    variants = variant_grid(geometries, photometries, heads)
     print(f"[OK] {len(variants)} Varianten über {len(session_ids)} Sessions "
-          f"({len(set(sp.values()))} Kamera(s)).")
+          f"({len(set(sp.values()))} Kamera(s)); Eval-Split='{eval_split}'.")
 
     results: list[dict] = []
     for v in variants:
         print(f"\n=== Variante {v.tag} (piece_height={v.piece_height_cells}) ===")
-        s = slice_variant(v, session_ids, force=force)
+        s = slice_variant(v, session_ids, force=force)   # idempotent je data_tag (Kopf teilt Crops)
         print(f"  slice: {s['crops']} Crops, fallback_rate {s['fallback_rate']:.3f}")
         build_variant(v, session_ids, seed=seed, force=force)
         if train_variant(v, epochs=epochs, seed=seed, backbone=backbone, force=force) != 0:
             print(f"[FAIL] Training {v.tag} fehlgeschlagen — Variante übersprungen.")
             continue
-        m = collect_metrics(v, sp)   # enthält variant/geometry/photometry/fallback_rate
+        m = collect_metrics(v, sp, split_name=eval_split)
         results.append(m)
-        print(f"  board_acc {m['board_acc']:.4f} | macro_f1 {m['macro_f1']:.4f} "
+        print(f"  {eval_split}-board_acc {m['board_acc']:.4f} | macro_f1 {m['macro_f1']:.4f} "
               f"| cam_spread {m['cam_spread']:.4f}")
 
     if not results:
         print("[FAIL] keine Variante erfolgreich.")
         return 1
-    write_comparison(results, session_ids, geometries, photometries)
+    write_comparison(results, session_ids, geometries, photometries, heads, eval_split=eval_split)
     return 0
 
 
-def rebuild_table(session_ids: list[str], geometries, photometries) -> int:
+def rebuild_table(session_ids: list[str], geometries, photometries, heads=("combined",),
+                  eval_split: str = "test") -> int:
     """Vergleichstabelle aus bereits trainierten Runs neu schreiben — ohne Re-Training (nur Eval, CPU)."""
     sp = session_profile_map(session_ids)
     results = []
-    for v in variant_grid(geometries, photometries):
+    for v in variant_grid(geometries, photometries, heads):
         if not (v.run_dir / "best.pt").exists():
             print(f"[skip] {v.tag}: nicht trainiert.")
             continue
-        results.append(collect_metrics(v, sp))
+        results.append(collect_metrics(v, sp, split_name=eval_split))
     if not results:
         print("[FAIL] keine trainierten Varianten gefunden.")
         return 1
-    write_comparison(results, session_ids, geometries, photometries)
+    write_comparison(results, session_ids, geometries, photometries, heads, eval_split=eval_split)
     return 0
 
 
-def variant_status(session_ids: list[str], geometries, photometries) -> int:
+def variant_status(session_ids: list[str], geometries, photometries, heads=("combined",)) -> int:
     """Status je Variante: sliced / dataset gebaut / trainiert / evaluiert."""
-    for v in variant_grid(geometries, photometries):
-        manifest_path, _ = variant_paths(v.tag)
+    for v in variant_grid(geometries, photometries, heads):
+        manifest_path, _ = variant_paths(v.data_tag)
         sliced = manifest_path.exists()
         built = dataset_dir(v.dataset_name).exists()
         trained = (v.run_dir / "best.pt").exists()
@@ -269,30 +300,35 @@ def _worst_cam(m: dict) -> float:
     return min(pc.values()) if pc else m["board_acc"]
 
 
-def write_comparison(results: list[dict], session_ids, geometries, photometries,
-                     out_dir: Path | None = None) -> Path:
-    """comparison.md/.csv/variants.json schreiben; sortiert nach Test-Board-Acc absteigend."""
+def write_comparison(results: list[dict], session_ids, geometries, photometries, heads=("combined",),
+                     out_dir: Path | None = None, eval_split: str = "test") -> Path:
+    """comparison.md/.csv/variants.json schreiben; sortiert nach Board-Acc (auf `eval_split`) absteigend."""
     out_dir = out_dir or (config.DATA.experiments / config.EXP_PREFIX)
     out_dir.mkdir(parents=True, exist_ok=True)
-    ranked = sorted(results, key=lambda m: (m["board_acc"], _worst_cam(m)), reverse=True)
+    # Board-Acc primär; macro_f1 als Tiebreaker (bei dünnen Daten ist board_acc oft 0 -> sonst kein Ranking).
+    ranked = sorted(results, key=lambda m: (m["board_acc"], _worst_cam(m), m["macro_f1"]), reverse=True)
     best = ranked[0]["variant"] if ranked else None
     robust = max(results, key=_worst_cam)["variant"] if results else None
 
-    cols = ["variant", "board_acc", "macro_f1", *[f"recall_{c}" for c in _RECALL_COLS],
+    cols = ["variant", "geometry", "photometry", "head", "board_acc", "macro_f1",
+            *[f"recall_{c}" for c in _RECALL_COLS],
             "session_spread", "cam_spread", "fallback_rate", "n_test"]
 
     def cell(m: dict, c: str):
-        if c == "variant":
-            return m["variant"]
         if c.startswith("recall_"):
             return f"{m['recall'].get(c[len('recall_'):], 0.0):.3f}"
         v = m.get(c, 0.0)
         return f"{v:.4f}" if isinstance(v, float) else str(v)
 
-    # Markdown
-    md = [f"# Bake-Off — {len(results)} Varianten, {len(session_ids)} Sessions",
-          "", f"**Beste Board-Accuracy:** `{best}`  |  **Robusteste (Worst-Case über Kameras):** "
-          f"`{robust}`", "",
+    multi = len(set(heads)) > 1
+    note = (f"_Eval auf **{eval_split}**; {len(session_ids)} Session(s). "
+            + ("Bei 2 Sessions kein Test-Fold (Train+Val); gleiche Linien-Aufstellung → "
+               "Positions-Overfitting möglich, Zahlen optimistisch._" if len(session_ids) < 3
+               else "_"))
+    md = [f"# Bake-Off — {len(results)} Varianten, {len(session_ids)} Session(s)", "", note, "",
+          f"**Beste Board-Acc ({eval_split}):** `{best}`  |  **Robusteste (Worst-Case über Kameras):** "
+          f"`{robust}`"
+          + ("  |  Kopf-Achse: kombiniert vs faktorisiert" if multi else ""), "",
           "| " + " | ".join(cols) + " |", "|" + "|".join(["---"] * len(cols)) + "|"]
     for m in ranked:
         mark = "  <- best" if m["variant"] == best else ""
@@ -312,7 +348,8 @@ def write_comparison(results: list[dict], session_ids, geometries, photometries,
 
     (out_dir / "variants.json").write_text(json.dumps({
         "session_ids": list(session_ids), "geometries": list(geometries),
-        "photometries": list(photometries), "best": best, "robust": robust, "results": ranked,
+        "photometries": list(photometries), "heads": list(heads), "eval_split": eval_split,
+        "best": best, "robust": robust, "results": ranked,
     }, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"\n[OK] Vergleich: {out_dir / 'comparison.md'} (best={best}, robust={robust})")
     return out_dir / "comparison.md"
