@@ -31,6 +31,9 @@ app.add_typer(collect_app, name="collect")
 dataset_app = typer.Typer(help="Stufe 4 — Datensatz-Konsistenz.", no_args_is_help=True)
 app.add_typer(dataset_app, name="dataset")
 
+experiment_app = typer.Typer(help="Stufe 7 — Geometrie×Photometrie Bake-Off.", no_args_is_help=True)
+app.add_typer(experiment_app, name="experiment")
+
 
 @app.callback()
 def _root() -> None:
@@ -132,7 +135,7 @@ def collect_live(
 
 @collect_app.command("play")
 def collect_play(
-    strategy: str = typer.Option("random", "--strategy", help="random | stockfish | coverage"),
+    strategy: str = typer.Option("random", "--strategy", help="random | stockfish | coverage | sweep"),
     max_plies: int = typer.Option(40, "--max-plies", help="max. Halbzüge der generierten Partie (random/stockfish)."),
     seed: int = typer.Option(config.SEED, "--seed", help="Seed für strategy=random."),
     stockfish_path: str = typer.Option(None, "--stockfish-path", help="Pfad zum UCI-Binary (für stockfish)."),
@@ -142,15 +145,19 @@ def collect_play(
     session: str = typer.Option(None, "--session"),
     ui: bool = typer.Option(False, "--ui", help="Live-Dashboard (Stufe 6) anzeigen."),
     target: int = typer.Option(config.UI_TARGET_PER_CLASS, "--target"),
-    sets: int = typer.Option(1, "--sets", help="Anzahl physischer Figurensätze (coverage): ×N je Klasse pro Aufbau."),
+    sets: int = typer.Option(1, "--sets", help="Anzahl physischer Figurensätze (coverage/sweep): ×N je Klasse."),
     count: int = typer.Option(20, "--count", help="Anzahl dichter Aufbauten (nur strategy=coverage)."),
+    passes: int = typer.Option(1, "--passes", help="sweep: Rotations-Durchläufe je Farbe (je Pass 8 Fotos)."),
+    pieces: str = typer.Option("special", "--pieces", help="sweep: special | pawn | all."),
+    together: bool = typer.Option(False, "--together", help="sweep: beide Farben gleichzeitig (halbe Fotozahl)."),
 ) -> None:
-    """Engine spielt die Partie (random/stockfish) ODER coverage: dichte Aufbauten, die gezielt
-    deine seltenen Klassen füllen statt eine Partie nachzuspielen. Du stellst nach und fotografierst."""
+    """Engine spielt die Partie (random/stockfish), coverage: dichte Aufbauten gegen seltene Klassen,
+    oder sweep: Figurenreihe wandert systematisch übers Brett. Du stellst nach und fotografierst."""
     raise typer.Exit(collect_mod.collect_play(strategy=strategy, max_plies=max_plies, seed=seed,
                                               stockfish_path=stockfish_path, start_fen=start_fen,
                                               profile=profile, camera=camera, session=session,
-                                              ui=ui, target=target, sets=sets, count=count))
+                                              ui=ui, target=target, sets=sets, count=count,
+                                              passes=passes, pieces=pieces, together=together))
 
 
 @app.command("ui")
@@ -174,12 +181,69 @@ def slice_cmd(
     pad_side: float = typer.Option(None, "--pad-side", help="seitliche Crop-Erweiterung überschreiben."),
     out_size: str = typer.Option(None, "--out-size", help="Crop-Größe WxH, z.B. 96x128."),
     preview: str = typer.Option(None, "--preview", help="Session-ID: Label vs. Crop visuell prüfen."),
+    geometry: str = typer.Option("warp", "--geometry", help="Crop-Geometrie: warp | box3d."),
+    photometry: str = typer.Option("none", "--photometry", help="Filter: none | clahe | grayworld | gamma."),
+    piece_height: float = typer.Option(config.EXP_PIECE_HEIGHT_CELLS, "--piece-height",
+                                       help="box3d: Extrusionshöhe in Zellen."),
+    variant_tag: str = typer.Option(None, "--variant-tag",
+                                    help="Crops/Manifest variantengetaggt ablegen (squares__<tag>/)."),
 ) -> None:
     """Session-Logs -> 64 gelabelte Square-Crops je Stellung + Manifest."""
     raise typer.Exit(labeling_mod.run_slice(
         session=session, slice_all=all_sessions, profile=profile,
         pad_up=pad_up, pad_side=pad_side, out_size=out_size, preview=preview,
+        geometry_mode=geometry, photometry=photometry, piece_height_cells=piece_height,
+        variant_tag=variant_tag,
     ))
+
+
+def _csv_list(s: str) -> list[str]:
+    return [x.strip() for x in s.split(",") if x.strip()]
+
+
+@experiment_app.command("run")
+def experiment_run(
+    sessions: str = typer.Option(..., "--sessions", help="Komma-getrennte Session-IDs."),
+    geometries: str = typer.Option(",".join(config.EXP_GEOMETRIES), "--geometries", help="z.B. warp,box3d."),
+    photometries: str = typer.Option(",".join(config.PHOTOMETRY_METHODS), "--photometries",
+                                     help="z.B. none,clahe,grayworld,gamma."),
+    epochs: int = typer.Option(config.DEFAULT_EPOCHS, "--epochs"),
+    seed: int = typer.Option(config.SEED, "--seed"),
+    backbone: str = typer.Option(config.DEFAULT_BACKBONE, "--backbone"),
+    force: bool = typer.Option(False, "--force", help="alle Stages neu (sonst fertige überspringen)."),
+) -> None:
+    """Volles Grid Geometrie×Photometrie trainieren + Vergleichstabelle nach Board-Accuracy."""
+    from . import experiment as experiment_mod
+
+    raise typer.Exit(experiment_mod.run_experiment(
+        _csv_list(sessions), _csv_list(geometries), _csv_list(photometries),
+        epochs=epochs, seed=seed, backbone=backbone, force=force))
+
+
+@experiment_app.command("table")
+def experiment_table(
+    sessions: str = typer.Option(..., "--sessions", help="Komma-getrennte Session-IDs."),
+    geometries: str = typer.Option(",".join(config.EXP_GEOMETRIES), "--geometries"),
+    photometries: str = typer.Option(",".join(config.PHOTOMETRY_METHODS), "--photometries"),
+) -> None:
+    """Vergleichstabelle aus bereits trainierten Runs neu schreiben (kein Re-Training)."""
+    from . import experiment as experiment_mod
+
+    raise typer.Exit(experiment_mod.rebuild_table(
+        _csv_list(sessions), _csv_list(geometries), _csv_list(photometries)))
+
+
+@experiment_app.command("list")
+def experiment_list(
+    sessions: str = typer.Option("", "--sessions", help="(optional, für die Tabellen-Spalten irrelevant)."),
+    geometries: str = typer.Option(",".join(config.EXP_GEOMETRIES), "--geometries"),
+    photometries: str = typer.Option(",".join(config.PHOTOMETRY_METHODS), "--photometries"),
+) -> None:
+    """Status je Variante: sliced / dataset / train / eval."""
+    from . import experiment as experiment_mod
+
+    raise typer.Exit(experiment_mod.variant_status(
+        _csv_list(sessions), _csv_list(geometries), _csv_list(photometries)))
 
 
 @app.command("stats")
@@ -301,8 +365,29 @@ def export_cmd(
 def web_cmd(
     host: str = typer.Option(config.DEFAULT_WEB_HOST, "--host"),
     port: int = typer.Option(config.DEFAULT_WEB_PORT, "--port"),
+    source: str | None = typer.Option(
+        None, "--source",
+        help="Kameraquelle als URL statt lokalem Index (z.B. IP-/Handy-Cam "
+             "https://host:4444/video/m.jpeg). Überschreibt den UI-Index für ALLE Kamera-Pfade. "
+             "Für flüssige Vorschau den MJPEG-Stream nehmen."),
+    capture_source: str | None = typer.Option(
+        None, "--capture-source",
+        help="Optionale HOCHAUFLÖSENDE Snapshot-URL fürs Speichern (z.B. "
+             "https://host:4444/video/snapshot). Vorschau bleibt am flüssigen --source-Stream, "
+             "gespeicherte Frames kommen scharf vom Snapshot (Ecken werden darauf neu erkannt)."),
 ) -> None:
     """Lokale Web-UI: Datensatz einsehen, relabeln, Training steuern (braucht `--extra web`)."""
+    import os
+
+    from .web.camera import CAMERA_CAPTURE_ENV, CAMERA_SOURCE_ENV
+
+    if source:
+        os.environ[CAMERA_SOURCE_ENV] = source   # vom Web-Kamera-Pfad (effective_source) gelesen
+        print(f"Kameraquelle (Vorschau): {source}")
+    if capture_source:
+        os.environ[CAMERA_CAPTURE_ENV] = capture_source
+        print(f"Capture-Quelle (Speichern, hochauflösend): {capture_source}")
+
     from .web.app import run as run_web
 
     raise typer.Exit(run_web(host=host, port=port))

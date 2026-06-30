@@ -61,14 +61,26 @@ def test_white_pov_false_flips_board():
     assert a8_flipped == h1_pov
 
 
-def test_crop_box_default_is_square_cell():
-    """Default (pad_up=pad_side=0): die Box ist exakt die quadratische Zelle (board_size/8)."""
+def test_crop_box_zero_pad_is_square_cell():
+    """pad_up=pad_side=0: die Box ist exakt die quadratische Zelle (board_size/8)."""
     prof = _make_profile()
+    prof.crop.pad_side = 0.0
+    prof.crop.pad_up = 0.0
     bs = prof.board_size
     cell = bs / 8.0
     x0, y0, x1, y1 = square_to_crop_box("e2", prof)
     assert 0 <= x0 < x1 <= bs and 0 <= y0 < y1 <= bs
     assert abs((x1 - x0) - cell) <= 1 and abs((y1 - y0) - cell) <= 1   # quadratisch, eine Zelle
+
+
+def test_crop_box_pad_side_symmetric():
+    """pad_side weitet die Zelle SYMMETRISCH in alle 4 Richtungen (Default 0.05 = 5% je Seite)."""
+    prof = _make_profile()
+    prof.crop.pad_side = 0.05
+    prof.crop.pad_up = 0.0
+    cell = prof.board_size / 8.0
+    x0, y0, x1, y1 = square_to_crop_box("e4", prof, clamp=False)   # Innenfeld -> kein Clamp
+    assert abs((x1 - x0) - cell * 1.10) <= 1 and abs((y1 - y0) - cell * 1.10) <= 1
 
 
 def test_crop_extends_upward_when_pad_up_set():

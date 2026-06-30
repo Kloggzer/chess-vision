@@ -12,7 +12,10 @@ from chesslab.collect_ui import (
     coverage_from_sessions,
     coverage_plan,
     recommend,
+    sweep_plan,
 )
+from chesslab.labeling import all_squares
+from chesslab.state import GameState
 
 START_FEN = chess.Board().fen()
 
@@ -103,3 +106,52 @@ def test_coverage_plan_packs_rare_classes_and_converges():
     assert plan[0]["gains"] >= 20
     # konvergiert: bei target=4 und vollem Inventar sind nach wenigen Aufbauten alle Ziele erfüllt
     assert len(plan) < 50
+
+
+def test_sweep_plan_separate_covers_each_special_down_the_files():
+    """sweep (special, passes=1, getrennt): 16 Fotos; jede Sonderfigur läuft eine Linie runter,
+    jedes Feld bekommt eine Sonderfigur, K/Q je 8x (eine Linie über 8 Ränge)."""
+    plan = sweep_plan(passes=1, together=False)
+    assert len(plan) == 16                         # 8 Weiß + 8 Schwarz
+    cov = {}
+    for pos in plan:
+        gs = GameState(pos["fen"])
+        for sq in all_squares():
+            lab = gs.label_for(sq)
+            if lab != "empty":
+                cov[lab] = cov.get(lab, 0) + 1
+    assert cov["wK"] == 8 and cov["bK"] == 8       # König: 1 Linie x 8 Ränge je Farbe
+    assert cov["wQ"] == 8 and cov["bQ"] == 8
+    assert cov["wR"] == 16 and cov["wN"] == 16     # 2 Linien je 8 Ränge
+
+
+def test_sweep_plan_together_halves_frames_and_covers_both_colors():
+    """sweep together=True: nur 8 Fotos, aber JEDES Feld sieht eine weiße UND eine schwarze Figur."""
+    plan = sweep_plan(passes=1, together=True)
+    assert len(plan) == 8                          # halbe Fotozahl
+    seen = {sq: set() for sq in all_squares()}
+    for pos in plan:
+        gs = GameState(pos["fen"])
+        for sq in all_squares():
+            lab = gs.label_for(sq)
+            if lab != "empty":
+                seen[sq].add(lab[0])               # 'w' / 'b'
+    assert all(s == {"w", "b"} for s in seen.values())   # alle 64 Felder beide Farben
+
+
+def test_sweep_plan_all_is_block_with_pawns_and_specials_each_frame():
+    """pieces='all' (together): Specials + Bauern als BLOCK -> nur 8 Fotos, und JEDES Foto zeigt
+    Specials UND Bauern (der Overlay-Bug: vorher kamen Bauern erst in späteren Frames)."""
+    plan = sweep_plan(pieces="all", passes=1, together=True)
+    assert len(plan) == 8                          # Block -> halbe Fotozahl
+    cov = {}
+    for pos in plan:
+        gs = GameState(pos["fen"])
+        labs = [gs.label_for(sq) for sq in all_squares()]
+        kinds = {lab[1] for lab in labs if lab != "empty"}
+        assert "P" in kinds and ({"K", "Q", "R", "B", "N"} & kinds)   # beide je Frame
+        for lab in labs:
+            if lab != "empty":
+                cov[lab] = cov.get(lab, 0) + 1
+    assert cov["wP"] == 64 and cov["bP"] == 64     # Bauern voll abgedeckt
+    assert cov["wK"] == 8 and cov["bQ"] == 8       # Specials voll abgedeckt

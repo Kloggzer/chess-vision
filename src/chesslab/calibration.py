@@ -183,10 +183,13 @@ def square_to_crop_box(square: str, profile: CalibrationProfile,
     pad_up = profile.crop.pad_up
     pad_side = profile.crop.pad_side
 
+    # `pad_side` weitet die Zelle SYMMETRISCH in alle 4 Richtungen (etwas mehr Figur sichtbar,
+    # nicht hart an der Feldkante abgeschnitten). `pad_up` verlängert ZUSÄTZLICH nach oben für
+    # den 3D-Lean. Bei pad_side=pad_up=0 = exakte Zelle (rückwärtskompatibel).
     x0 = col * cell - pad_side * cell
     x1 = (col + 1) * cell + pad_side * cell
-    y1 = (row + 1) * cell                      # untere Feldkante = Anker
-    y0 = y1 - cell * (1.0 + pad_up)            # nach oben verlängert
+    y0 = row * cell - pad_side * cell - pad_up * cell
+    y1 = (row + 1) * cell + pad_side * cell
 
     def fix(v: float) -> int:
         return int(round(max(0.0, min(float(bs), v)) if clamp else v))
@@ -199,6 +202,15 @@ def square_center(square: str, profile: CalibrationProfile) -> tuple[int, int]:
     col, row = _square_to_col_row(square, profile.white_pov)
     cell = profile.board_size / 8.0
     return int((col + 0.5) * cell), int((row + 0.5) * cell)
+
+
+def crop_border_px(profile: CalibrationProfile) -> int:
+    """Rand (in Pixeln), mit dem das Brett für den DATEN-Crop mitentzerrt wird, damit Randfelder
+    Inhalt für ihre pad_side/pad_up-Erweiterung haben. Wächst automatisch mit den Pads (mind.
+    `config.CROP_WARP_BORDER_CELLS`). 0 -> kein Rand (Anzeige-Verhalten)."""
+    cell = profile.board_size / 8.0
+    border_cells = max(config.CROP_WARP_BORDER_CELLS, profile.crop.pad_side, profile.crop.pad_up)
+    return int(round(border_cells * cell))
 
 
 def compute_homography(image_corners, board_size: int, margin: float = 0.0) -> list[list[float]]:
@@ -216,8 +228,12 @@ def compute_homography(image_corners, board_size: int, margin: float = 0.0) -> l
     return H.tolist()
 
 
-def draw_calibration_overlay(frame, marker_pts, profile: CalibrationProfile):
-    """Auf dem Kamerabild: Marker-Box (außen, orange) + echtes Spielfeld + Raster (innen, grün)."""
+def draw_calibration_overlay(frame, marker_pts, profile: CalibrationProfile, labels: bool = False):
+    """Auf dem Kamerabild: Marker-Box (außen, orange) + echtes Spielfeld + Raster (innen, grün).
+
+    `labels=True` beschriftet zusätzlich jedes der 64 Felder (a1..h8) an seiner Zellmitte —
+    auflösungs-adaptiv, damit es im Web-UI bei jeder Stream-/Snapshot-Größe lesbar bleibt.
+    """
     img = frame.copy()
     bs = profile.board_size
     h_inv = np.linalg.inv(np.array(profile.homography, dtype=np.float64))
@@ -226,19 +242,35 @@ def draw_calibration_overlay(frame, marker_pts, profile: CalibrationProfile):
         a = np.array(board_pts, dtype=np.float32).reshape(-1, 1, 2)
         return cv2.perspectiveTransform(a, h_inv).reshape(-1, 2)
 
+    cell = bs / 8.0
+    # Zellgröße in Bildpixeln schätzen -> Linienstärke/Schrift skalieren (Stream vs Snapshot).
+    o, ex = to_img([[0.0, 0.0]])[0], to_img([[cell, 0.0]])[0]
+    cell_px = float(np.hypot(*(ex - o))) or 40.0
+    grid_th = max(1, int(round(cell_px / 60)))
     for i in range(9):  # 8x8-Raster zurückprojizieren
-        p = i * bs / 8.0
+        p = i * cell
         v = to_img([[p, 0], [p, bs]]).astype(int)
         hh = to_img([[0, p], [bs, p]]).astype(int)
-        cv2.line(img, tuple(v[0]), tuple(v[1]), (0, 200, 0), 1, cv2.LINE_AA)
-        cv2.line(img, tuple(hh[0]), tuple(hh[1]), (0, 200, 0), 1, cv2.LINE_AA)
+        cv2.line(img, tuple(v[0]), tuple(v[1]), (0, 200, 0), grid_th, cv2.LINE_AA)
+        cv2.line(img, tuple(hh[0]), tuple(hh[1]), (0, 200, 0), grid_th, cv2.LINE_AA)
     field = to_img([[0, 0], [bs, 0], [bs, bs], [0, bs]]).astype(np.int32)
-    cv2.polylines(img, [field], True, (0, 255, 0), 2, cv2.LINE_AA)          # Spielfeld (grün)
+    cv2.polylines(img, [field], True, (0, 255, 0), grid_th + 1, cv2.LINE_AA)  # Spielfeld (grün)
+
+    if labels:
+        fs = max(0.3, cell_px / 150.0)            # Schriftgröße ~ Zellgröße
+        th = max(1, int(round(cell_px / 90)))
+        off = int(cell_px * 0.18)
+        for rank in range(1, 9):
+            for fl in _FILES:
+                col, row = _square_to_col_row(f"{fl}{rank}", profile.white_pov)
+                c = to_img([[(col + 0.5) * cell, (row + 0.5) * cell]])[0].astype(int)
+                cv2.putText(img, f"{fl}{rank}", (c[0] - off, c[1] + off // 2),
+                            cv2.FONT_HERSHEY_SIMPLEX, fs, (0, 0, 255), th, cv2.LINE_AA)
 
     mb = np.array(marker_pts, dtype=np.int32)
-    cv2.polylines(img, [mb], True, (0, 180, 255), 2, cv2.LINE_AA)           # Marker-Box (orange)
+    cv2.polylines(img, [mb], True, (0, 180, 255), grid_th + 1, cv2.LINE_AA)   # Marker-Box (orange)
     for p in marker_pts:
-        cv2.circle(img, (int(p[0]), int(p[1])), 6, (0, 180, 255), -1, cv2.LINE_AA)
+        cv2.circle(img, (int(p[0]), int(p[1])), max(4, int(cell_px / 18)), (0, 180, 255), -1, cv2.LINE_AA)
     return img
 
 
@@ -504,13 +536,28 @@ def board_corners_for_frame(frame, profile: CalibrationProfile, tracker: "Marker
 
 
 def warp_from_corners(frame, profile: CalibrationProfile, corners):
-    """Brett entzerren aus 4 Frame-Ecken (a8,h8,h1,a1) — wendet `profile.margin` an.
+    """Brett **randlos** entzerren aus 4 Frame-Ecken (a8,h8,h1,a1) — Spielfeld füllt [0, board_size].
 
-    Reine Transformation ohne Marker-Detektion: dieselbe Geometrie, die zur Aufnahmezeit
-    angezeigt/gespeichert wurde, reproduziert das Slicing damit exakt.
+    Das ist der **Anzeige-Warp** (Web-Frontend legt sein 8×8-Overlay exakt auf die Spielfeldkante).
+    Für den DATEN-Crop siehe `warp_board_for_crops` (mit Rand). Reine Transformation ohne
+    Marker-Detektion; reproduziert dieselbe Geometrie wie zur Aufnahmezeit.
     """
     h = np.array(compute_homography(corners, profile.board_size, profile.margin), dtype=np.float64)
     return cv2.warpPerspective(frame, h, (profile.board_size, profile.board_size))
+
+
+def warp_board_for_crops(frame, profile: CalibrationProfile, corners):
+    """Brett **mit Rand** entzerren — der DATEN-Crop-Warp. Canvas `board_size + 2B` mit
+    `B = crop_border_px(profile)`, Homographie um B translatiert. So haben RANDFELDER echten
+    Brett-/Randinhalt für ihre pad_side/pad_up-Erweiterung (statt schwarzem Rand an der
+    Spielfeldkante). Geometrie ist identisch zum randlosen Warp, nur um B verschoben; `crop_square`
+    verschiebt seine Box passend um +B.
+    """
+    bs = profile.board_size
+    b = crop_border_px(profile)
+    h = np.array(compute_homography(corners, bs, profile.margin), dtype=np.float64)
+    t = np.array([[1.0, 0.0, b], [0.0, 1.0, b], [0.0, 0.0, 1.0]], dtype=np.float64)
+    return cv2.warpPerspective(frame, t @ h, (bs + 2 * b, bs + 2 * b))
 
 
 def warp_board_markers(frame, profile: CalibrationProfile, tracker: "MarkerTracker",

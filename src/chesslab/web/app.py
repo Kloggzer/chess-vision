@@ -237,12 +237,13 @@ def create_app():
         return s
 
     @app.get("/api/class/{cls}")
-    def class_crops(cls: str, offset: int = 0, limit: int = 60):
+    def class_crops(cls: str, offset: int = 0, limit: int = 60, dataset: str | None = Query(None)):
         if cls not in config.CLASSES:
             raise HTTPException(404, f"unbekannte Klasse {cls}")
-        rows = [r for r in _manifest() if r["label"] == cls]
+        # `dataset` gesetzt -> die echten Crops DIESES Datensatzes; sonst der globale Pool.
+        rows = [r for r in _dataset_manifest(dataset) if r["label"] == cls]
         page = rows[offset: offset + limit]
-        return {"label": cls, "total": len(rows),
+        return {"label": cls, "total": len(rows), "dataset": dataset,
                 "crops": [{"url": _img_url(r["path"]), "session_id": r["session_id"],
                            "frame": r["frame"], "square": r["square"]} for r in page]}
 
@@ -578,6 +579,20 @@ def create_app():
             margin=margin, marker_dict="DICT_4X4_50",
         )
 
+    def _capture_frame_corners(prof, board):
+        """(frame, corners) fürs SPEICHERN. Ist eine hochauflösende Capture-Quelle gesetzt
+        (`--source` ist der flüssige Stream, `CHESSLAB_CAMERA_CAPTURE` der scharfe Snapshot),
+        wird der Snapshot geholt und die Ecken DARAUF neu erkannt (andere Auflösung/Orientierung
+        als die Vorschau). Sonst Live-Frame + die im Stream verifizierten Ecken."""
+        f, hires = CAMERA.grab_capture()
+        if f is None:
+            return None, None
+        if hires:
+            mk = detect_board_markers(f, prof.marker_dict)
+            res = resolve_board_corners(mk, board_size=prof.board_size) if len(mk) >= 4 else None
+            return f, (res[0] if res else None)
+        return f, (board.last_corners if board else None)
+
     @app.get("/api/camera/calibrate.mjpg")
     def camera_calibrate(camera: int = 0, board_size: int = config.DEFAULT_BOARD_SIZE):
         CAMERA.ensure(camera)
@@ -600,7 +615,8 @@ def create_app():
                 res = resolve_board_corners(tracker.last, board_size=board_size) if seen >= 4 else None
                 if res is not None:
                     pts, n = res
-                    img = draw_calibration_overlay(f, pts, _build_profile(f, pts, board_size, m, camera))
+                    img = draw_calibration_overlay(f, pts, _build_profile(f, pts, board_size, m, camera),
+                                                   labels=True)
                     held_txt = f"  ({held} gehalten)" if held else ""
                     cv2.putText(img, f"margin={m:.3f}  {n}/4 Marker{held_txt}", (10, 28),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2, cv2.LINE_AA)
@@ -653,7 +669,8 @@ def create_app():
     def collect_start(strategy: str = Body("random"), max_plies: int = Body(40), seed: int = Body(42),
                       stockfish_path: str = Body(None), start_fen: str = Body(None),
                       profile: str = Body("default"), camera: int = Body(0),
-                      sets: int = Body(1), count: int = Body(20),
+                      sets: int = Body(1), count: int = Body(20), passes: int = Body(1),
+                      pieces: str = Body("special"), together: bool = Body(False),
                       target: int = Body(config.UI_TARGET_PER_CLASS)):
         try:
             prof = load_profile(profile)
@@ -673,6 +690,17 @@ def create_app():
                 raise HTTPException(400, f"Alle Klassen erreichen bereits das Ziel ({target}/Klasse) "
                                          "— nichts zu generieren. Ziel im Feld erhöhen oder eine "
                                          "Spiel-Engine wählen.")
+            show_target = True
+        elif strategy == "sweep":
+            # Systematischer Sweep: eine Figurenreihe wandert Rang für Rang übers Brett (je eine je
+            # Linie), erst Weiß, dann Schwarz. Jede Figur durchläuft alle 8 Ränge ihrer Linie.
+            from ..collect_ui import sweep_plan
+
+            inventory = {k: v * max(sets, 1) for k, v in config.DEFAULT_INVENTORY.items()}
+            positions = sweep_plan(pieces=pieces, passes=max(1, passes), inventory=inventory,
+                                   together=together)
+            if not positions:
+                raise HTTPException(400, "Sweep leer — Inventar/pieces prüfen (special|pawn|all).")
             show_target = True
         else:
             engine_path = None
@@ -716,14 +744,12 @@ def create_app():
         pos, i = _COLLECT["positions"], _COLLECT["i"]
         if i >= len(pos):
             return _collect_state()
-        f = CAMERA.read()
+        # Vorschau läuft über den Stream; gespeichert wird (falls Capture-Quelle gesetzt) der
+        # hochauflösende Snapshot mit auf IHM neu erkannten Ecken — sonst Live-Frame + Stream-Ecken.
+        f, corners = _capture_frame_corners(_COLLECT["profile"], _COLLECT["board"])
         if f is None:
             raise HTTPException(400, "kein Frame von der Kamera.")
-        # Die live im Stream angezeigte (verifizierte) Brett-Geometrie mitspeichern, damit
-        # `slice` exakt dasselbe entzerrt statt neu zu detektieren.
-        board = _COLLECT["board"]
-        w.capture(f, pos[i]["ply"], pos[i]["fen"], pos[i]["san"],
-                  corners=board.last_corners if board else None)
+        w.capture(f, pos[i]["ply"], pos[i]["fen"], pos[i]["san"], corners=corners)
         _COLLECT["i"] = i + 1
         return _collect_state()
 
@@ -806,9 +832,12 @@ def create_app():
         if not (config.DATA.models / run / "config.json").exists():
             raise HTTPException(400, f"Modell-Run '{run}' nicht gefunden.")
         CAMERA.ensure(camera)
+        geometry, photometry, piece_height = labeling_mod.variant_of_run(config.DATA.models / run)
         _INFER.update({"profile": prof, "board": BoardTracker(prof),
-                       "run": run, "camera": camera, "last": None})
-        return {"ok": True, "run": run}
+                       "run": run, "camera": camera, "last": None,
+                       "geometry": geometry, "photometry": photometry, "piece_height": piece_height})
+        print(f"[OK] Inference '{run}': geometry={geometry} photometry={photometry}")
+        return {"ok": True, "run": run, "geometry": geometry, "photometry": photometry}
 
     @app.get("/api/inference/state")
     def inference_state():
@@ -827,15 +856,18 @@ def create_app():
                 if f is None or prof is None or board is None or run is None:
                     yield None
                     continue
-                warped, corners = board.process(f)   # geteilter BoardTracker (Ecken/Warp)
-                if warped is None:
+                warped, corners = board.process(f)   # geteilter BoardTracker (Ecken/Warp, edge-to-edge fürs Display)
+                if warped is None or corners is None:
                     img = f.copy()
                     cv2.putText(img, "warte auf Marker...", (10, 28), cv2.FONT_HERSHEY_SIMPLEX,
                                 0.6, (0, 0, 255), 2, cv2.LINE_AA)
                     yield img
                     continue
                 squares = labeling_mod.all_squares()
-                crops = [labeling_mod.crop_square(warped, sq, prof, tuple(prof.crop.out_size)) for sq in squares]
+                # Crops EXAKT wie beim Training der Variante (gebordeter warp/box3d + Photometrie).
+                crops = labeling_mod.crops_for_frame(
+                    f, corners, prof, geometry=_INFER["geometry"], photometry=_INFER["photometry"],
+                    piece_height_cells=_INFER["piece_height"], out_size=tuple(prof.crop.out_size))
                 try:
                     preds = predict_arrays(config.DATA.models / run, crops, device="cpu")
                 except Exception as e:  # noqa: BLE001
@@ -934,14 +966,14 @@ def create_app():
         w, board = _MANUAL["writer"], _MANUAL["board"]
         if w is None:
             raise HTTPException(400, "keine aktive manuelle Sitzung — erst Start.")
-        f = CAMERA.read()
+        f, corners = _capture_frame_corners(_MANUAL["profile"], board)
         if f is None:
             raise HTTPException(400, "kein Frame von der Kamera.")
         clean = {str(sq): str(lab) for sq, lab in (labels or {}).items() if lab and lab != "empty"}
-        # FEN ist nur Platzhalter (slice nutzt die expliziten labels); live-verifizierte Ecken
-        # mitspeichern, damit slice exakt dieselbe Geometrie warpt.
+        # FEN ist nur Platzhalter (slice nutzt die expliziten labels). Ecken: hochauflösender
+        # Snapshot -> auf ihm neu erkannt, sonst die im Stream verifizierten.
         w.capture(f, ply=0, fen=_labels_to_fen(clean) + " w - - 0 1",
-                  corners=board.last_corners if board else None, labels=clean)
+                  corners=corners, labels=clean)
         return _manual_state()
 
     @app.post("/api/manual/undo")

@@ -7,16 +7,140 @@ nutzen alle dasselbe hier — kein kopierter Kamera-/Ecken-/Encode-Code mehr.
 
 from __future__ import annotations
 
+import os
+import ssl
 import threading
 import time
+import urllib.request
 
 import cv2
+import numpy as np
 
 from ..calibration import (
     CalibrationProfile, board_corners_for_frame, make_tracker, open_camera, warp_from_corners,
 )
 
 _BOUNDARY = b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
+
+# Env-Override: ist diese Variable gesetzt (z.B. eine IP-Cam-URL), nutzen ALLE Kamera-Pfade der
+# Web-UI diese Quelle statt des per UI gewählten Integer-Index. So lässt sich eine Handy-/Netzwerk-
+# Kamera ohne Frontend-Änderung anschließen. Beispiel:
+#   set CHESSLAB_CAMERA_SOURCE=https://192.168.178.23:4444/video/snapshot   (Android IP Camera)
+CAMERA_SOURCE_ENV = "CHESSLAB_CAMERA_SOURCE"
+
+
+class _UrlSnapshotCapture:
+    """cv2.VideoCapture-kompatibler Frame-Holer für eine JPEG-Snapshot-URL (z.B. Android IP Camera
+    `/video/snapshot`). `cv2.VideoCapture` scheitert an selbstsigniertem HTTPS — daher die Bytes
+    selbst per urllib (TLS-Prüfung aus) holen und mit `cv2.imdecode` dekodieren. Pollt je `read()`
+    ein Einzelbild (für Kalibrier-/Sammel-Preview mit ein paar FPS ausreichend)."""
+
+    def __init__(self, url: str, timeout: float = 4.0) -> None:
+        self.url = url
+        self.timeout = timeout
+        self._ctx = ssl.create_default_context()
+        self._ctx.check_hostname = False
+        self._ctx.verify_mode = ssl.CERT_NONE     # selbstsigniertes Zert akzeptieren
+        self._ok = True
+
+    def isOpened(self) -> bool:
+        return self._ok
+
+    def read(self):
+        if not self._ok:
+            return False, None
+        try:
+            data = urllib.request.urlopen(self.url, timeout=self.timeout, context=self._ctx).read()
+            img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+            return (img is not None), img
+        except Exception:  # noqa: BLE001 — Netz/Timeout: wie ein leerer Frame behandeln
+            return False, None
+
+    def release(self) -> None:
+        self._ok = False
+
+
+class _UrlMjpegCapture:
+    """cv2.VideoCapture-kompatibler Leser für einen MJPEG-Stream (multipart/x-mixed-replace),
+    z.B. Android IP Camera `/video/m.jpeg`. Hält EINE offene Verbindung (selbstsigniertes HTTPS
+    via urllib, TLS-Prüfung aus) und schneidet je `read()` das nächste JPEG anhand der SOI/EOI-
+    Marker (0xFFD8 … 0xFFD9) aus dem Puffer — deutlich flüssiger als Einzel-Snapshots."""
+
+    def __init__(self, url: str, timeout: float = 10.0) -> None:
+        self.url = url
+        self.timeout = timeout
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        self._stream = urllib.request.urlopen(url, timeout=timeout, context=ctx)
+        self._buf = bytearray()
+        self._ok = True
+
+    def isOpened(self) -> bool:
+        return self._ok
+
+    def read(self):
+        if not self._ok:
+            return False, None
+        try:
+            while True:
+                a = self._buf.find(b"\xff\xd8")               # JPEG-Start
+                b = self._buf.find(b"\xff\xd9", a + 2) if a != -1 else -1  # JPEG-Ende
+                if a != -1 and b != -1:
+                    jpg = bytes(self._buf[a:b + 2])
+                    del self._buf[:b + 2]
+                    img = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
+                    return (img is not None), img
+                chunk = self._stream.read(16384)
+                if not chunk:
+                    return False, None
+                self._buf.extend(chunk)
+        except Exception:  # noqa: BLE001 — Netz/Timeout: wie leerer Frame
+            return False, None
+
+    def release(self) -> None:
+        self._ok = False
+        try:
+            self._stream.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _is_url(source) -> bool:
+    return isinstance(source, str) and "://" in source
+
+
+def _open_source(source):
+    """Quelle öffnen: URL -> MJPEG-Stream-Leser bzw. Snapshot-Holer (beide HTTPS/selbstsigniert-
+    tauglich); sonst lokaler Index/Pfad über `open_camera` (DSHOW unter Windows). Enthält die URL
+    'snapshot' -> Einzelbild-Poll, sonst Multipart-MJPEG-Stream (flüssiger)."""
+    if _is_url(source):
+        if "snapshot" in source.lower():
+            return _UrlSnapshotCapture(source)
+        return _UrlMjpegCapture(source)
+    return open_camera(source)
+
+
+def effective_source(index):
+    """Wirksame Quelle für einen per UI gewählten Index: Env-Override (URL) gewinnt, sonst der Index.
+    Rückgabe ist ein hashbarer Schlüssel (URL-String oder int)."""
+    env = os.environ.get(CAMERA_SOURCE_ENV, "").strip()
+    if env:
+        return env
+    return index
+
+
+# Optionale HOCHAUFLÖSENDE Capture-Quelle: die Live-Vorschau läuft flüssig über den (ggf.
+# runterskalierten) Stream, aber GESPEICHERTE Frames werden aus dieser Snapshot-URL gezogen
+# (volle Sensorauflösung). Marker werden beim Capture auf dem Snapshot NEU erkannt -> Stream- und
+# Capture-Quelle dürfen sich in Auflösung/Orientierung unterscheiden. Beispiel:
+#   set CHESSLAB_CAMERA_CAPTURE=https://192.168.178.23:4444/video/snapshot
+CAMERA_CAPTURE_ENV = "CHESSLAB_CAMERA_CAPTURE"
+
+
+def capture_url() -> str | None:
+    """Hochauflösende Snapshot-URL fürs Speichern, falls gesetzt; sonst None (-> Live-Frame)."""
+    return os.environ.get(CAMERA_CAPTURE_ENV, "").strip() or None
 
 
 class Camera:
@@ -32,14 +156,15 @@ class Camera:
         self.markers_live = 0
         self.markers_held = 0
 
-    def ensure(self, index: int) -> None:
+    def ensure(self, index) -> None:
+        src = effective_source(index)   # Env-Override (IP-Cam-URL) gewinnt über den UI-Index
         with self.lock:
-            if self.cap is not None and self.index == index:
+            if self.cap is not None and self.index == src:
                 return
             if self.cap is not None:
                 self.cap.release()
-            self.cap = open_camera(index)
-            self.index = index
+            self.cap = _open_source(src)
+            self.index = src
 
     def read(self):
         with self.lock:
@@ -47,6 +172,19 @@ class Camera:
                 return None
             ok, f = self.cap.read()
             return f if ok else None
+
+    def grab_capture(self):
+        """Frame fürs SPEICHERN holen -> (frame, is_hires). Ist eine Capture-URL gesetzt
+        (`CHESSLAB_CAMERA_CAPTURE`), wird daraus ein einzelner hochaufgelöster Snapshot geholt
+        (is_hires=True); sonst der aktuelle Live-Frame (is_hires=False). Bei is_hires MUSS der
+        Aufrufer die Marker/Ecken auf DIESEM Frame neu bestimmen (andere Auflösung/Orientierung
+        als die Vorschau)."""
+        url = capture_url()
+        if url:
+            ok, f = _UrlSnapshotCapture(url, timeout=6.0).read()
+            if ok and f is not None:
+                return f, True
+        return self.read(), False
 
     def release(self) -> None:
         with self.lock:

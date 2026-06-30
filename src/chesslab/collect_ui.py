@@ -187,6 +187,85 @@ def coverage_plan(light: dict, dark: dict, target: int, count: int,
     return out
 
 
+def _fen_from_placement(placement: dict[int, tuple[str, bool]]) -> str:
+    """{chess_square: (Figurentyp 'K'.., is_white)} -> FEN (ohne Legalitätsprüfung; reine Label-Quelle)."""
+    board = chess.Board(None)
+    for sq, (ptype, white) in placement.items():
+        board.set_piece_at(sq, chess.Piece(_TYPEMAP[ptype], chess.WHITE if white else chess.BLACK))
+    return board.fen()
+
+
+def _sweep_types(order: tuple[str, ...], inv: dict[str, int]) -> list[str]:
+    types: list[str] = []
+    for t in order:
+        types += [t] * inv.get(t, 0)
+    return types[:8]   # eine Figur je Linie, max 8 Linien
+
+
+def sweep_plan(colors: tuple[str, ...] = ("w", "b"), pieces: str = "special", passes: int = 1,
+               inventory: dict[str, int] | None = None, together: bool = False) -> list[dict]:
+    """Systematischer Coverage-Sweep: eine Reihe Figuren marschiert Rang für Rang übers Brett
+    (je eine Figur pro Linie a–h). Jede Figur durchläuft so alle 8 Ränge ihrer Linie (hell/dunkel
+    automatisch). Pro Pass wird die Linien→Figur-Zuordnung rotiert, damit jedes Feld über mehrere
+    Pässe verschiedene Figurenklassen sieht.
+
+    `together=False`: erst Weiß komplett (8 Fotos/Pass), dann Schwarz. `together=True`: BEIDE Farben
+    gleichzeitig — Weiß auf Rang r, Schwarz auf Rang (r+4) (immer 4 auseinander, nie Kollision) →
+    nur 8 Fotos/Pass, jedes Feld bekommt ein weißes UND ein schwarzes Beispiel (halbe Fotozahl).
+
+    **Keine Rotation:** jede Figur bleibt über alle Frames/Pässe auf IHRER Linie — du stellst einmal
+    auf und schiebst nur die Reihe(n) nach hinten, tauschst nie Figuren. `passes` = bloße Wiederholung
+    (z.B. mit anderem Licht). Für Figuren auf ANDEREN Linien: eigene Session mit anderer Aufstellung.
+
+    `pieces`: "special" (Nicht-Bauern K,Q,R,B,N — Default-Inventar = 8 = genau eine je Linie),
+    "pawn" oder "all". Rückgabe: [{'ply','san','fen','note'}] für den Aufnahme-Loop (1 Frame je Pos.).
+    """
+    inv = inventory or config.DEFAULT_INVENTORY
+    specials = _sweep_types(("K", "Q", "R", "B", "N"), inv)
+    pawns = _sweep_types(("P",), inv)
+    # Eine Figur je Linie -> max 8 je Reihe. "all" packt Specials UND Bauern als BLOCK auf
+    # benachbarte Ränge (wie die Grundstellung) und schiebt beides zusammen -> beides in jedem
+    # Foto, halbe Fotozahl. (layer_types, rang_offset_im_block)
+    blocks = {"special": [(specials, 0)],
+              "pawn": [(pawns, 0)],
+              "all": [(specials, 0), (pawns, 1)]}.get(pieces)
+    if blocks is None:
+        raise ValueError(f"pieces muss special|pawn|all sein, nicht {pieces!r}")
+    blocks = [(t, off) for t, off in blocks if t]
+    if not blocks:
+        return []
+
+    def place(placement: dict, base_rank: int, white: bool) -> None:
+        # KEINE Rotation: jede Figur bleibt auf IHRER Linie über alle Pässe/Frames hinweg. Du stellst
+        # die Figuren EINMAL auf und schiebst die Reihe(n) nur nach hinten — nie Figuren tauschen.
+        for types, off in blocks:
+            for fi, t in enumerate(types):
+                placement[chess.square(fi, (base_rank + off) % 8)] = (t, white)
+
+    out: list[dict] = []
+    ply = 0
+    if together:
+        for p in range(max(1, passes)):                    # passes = Wiederholung (z.B. anderes Licht)
+            for rank in range(8):
+                placement: dict = {}
+                place(placement, rank, True)               # Weiß vorne
+                place(placement, rank + 4, False)          # Schwarz 4 Ränge versetzt -> nie Kollision
+                ply += 1
+                out.append({"ply": ply, "san": None, "fen": _fen_from_placement(placement),
+                            "note": f"wb-{pieces} pass{p + 1} rank{rank + 1}"})
+    else:
+        for color in colors:
+            white = color == "w"
+            for p in range(max(1, passes)):
+                for rank in range(8):
+                    placement = {}
+                    place(placement, rank, white)
+                    ply += 1
+                    out.append({"ply": ply, "san": None, "fen": _fen_from_placement(placement),
+                                "note": f"{color}-{pieces} pass{p + 1} rank{rank + 1}"})
+    return out
+
+
 def recommend(coverage: dict, target_per_class: int = config.UI_TARGET_PER_CLASS,
               warn_frac: float = config.UI_WARN_FRAC) -> dict | None:
     counts, light, dark = coverage["counts"], coverage["light"], coverage["dark"]

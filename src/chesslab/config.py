@@ -31,7 +31,10 @@ SEED: int = 42
 
 # --- Calibration / crop defaults (Stage 1) --------------------------------------------
 DEFAULT_PROFILE: str = "default"
-DEFAULT_BOARD_SIZE: int = 800  # edge length of the rectified board square, in px
+DEFAULT_BOARD_SIZE: int = 1600  # Kantenlänge des entzerrten Bretts (px) = 200 px/Feld. An hoch-
+                                # auflösende Quellen (Handy ~209 px/Feld) angepasst: der Daten-Warp
+                                # darf NICHT unter die Quellauflösung downsampeln, sonst werden die
+                                # 128er-Crops hochskaliert = pixelig. >Quelle bringt nichts (nur größer).
 
 
 @dataclass(frozen=True)
@@ -42,13 +45,45 @@ class CropDefaults:
     cameras flat enough that 3D pieces lean into the rank behind; `crop_square` keeps the
     aspect ratio (letterbox) so any pad value stays distortion-free. Overridable per `slice`."""
 
-    pad_up: float = 0.0      # 0 = exact cell; >0 extends upward (cell·(1+pad_up)), anchored low
-    pad_side: float = 0.0    # lateral extension per side, * cell
+    pad_up: float = 0.0      # ZUSÄTZLICHE Erweiterung nur nach oben (3D-Lean), * cell
+    pad_side: float = 0.05   # symmetrische Erweiterung in ALLE 4 Richtungen, * cell (5% = mehr Figur
+                             # sichtbar statt hart an der grünen Feldkante abgeschnitten)
     out_w: int = 128
     out_h: int = 128         # square: matches the square board cell -> no stretching
 
 
 CROP = CropDefaults()
+
+# Beim Slicen wird das Brett mit einem Rand (in Zellen) mitentzerrt, damit RANDFELDER echten
+# Bildinhalt für die pad_side/pad_up-Erweiterung haben (statt schwarzem Rand an der Spielfeldkante).
+# Wirkt nur im Daten-/Crop-Pfad; die Web-Anzeige bleibt edge-to-edge. Wächst automatisch mit den Pads.
+CROP_WARP_BORDER_CELLS: float = 0.1
+
+
+# --- Photometrie (Stufe 7, geteilt zwischen Slicing und späterer Live-Inferenz) -------
+# Eine deterministische Aufbereitung, die beim Slicen IN die PNGs gebacken wird und von der
+# Live-App identisch aufgerufen werden muss (Parität). Nur deterministische Methoden.
+@dataclass(frozen=True)
+class PhotometryDefaults:
+    clahe_clip: float = 2.0    # CLAHE clipLimit (lokaler Kontrast; höher = aggressiver)
+    clahe_tile: int = 8        # CLAHE Kachelgröße (tileGridSize = tile x tile)
+    gamma: float = 1.3         # > 1 hellt Schatten auf (aktuelles Schmerzproblem: dunkle Ecken)
+
+
+PHOTOMETRY = PhotometryDefaults()
+PHOTOMETRY_METHODS: tuple[str, ...] = ("none", "clahe", "grayworld", "gamma")
+
+# --- 3D-Box-Geometrie & Bake-Off (Stufe 7) --------------------------------------------
+# `box3d`: Kamerapose pro Frame (solvePnP aus Markern/Ecken), pro Feld eine nach oben
+# extrudierte Zelle in den scharfen Originalframe projizieren statt Top-Down zu warpen.
+EXP_GEOMETRIES: tuple[str, ...] = ("warp", "box3d")
+EXP_PHOTOMETRIES: tuple[str, ...] = PHOTOMETRY_METHODS
+EXP_PIECE_HEIGHT_CELLS: float = 1.6   # Extrusion der Feld-Grundfläche nach oben in Zellen (König
+                                      # ~1.5 hoch); zu groß fängt Marker/Hintergrund, zu klein kappt
+EXP_BOX3D_FOV_DEG: float = 60.0       # Näherungs-Intrinsics, falls Profil keine camera_matrix hat
+EXP_BOX3D_PAD_SIDE_CELLS: float = 0.15  # seitlicher Spielraum der 3D-Box je Seite (in Zellen)
+EXP_MARKER_LEN_CELLS: float = 0.6     # gedruckte Markerkanten-Länge in Zell-Einheiten (PnP-Skala)
+EXP_PREFIX: str = "bakeoff"           # Namenspräfix für variantengetaggte Datasets/Experimente
 
 
 @dataclass(frozen=True)
@@ -229,6 +264,11 @@ class Paths:
     @property
     def models(self) -> Path:
         return self.root / "models"
+
+    @property
+    def experiments(self) -> Path:
+        """Bake-Off-Ausgaben (Vergleichstabellen je Geometrie×Photometrie-Lauf)."""
+        return self.root / "experiments"
 
     @property
     def squares_aug(self) -> Path:

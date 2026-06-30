@@ -8,11 +8,15 @@ const input = "rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm
 export default function Collect() {
   const [strategy, setStrategy] = useState("random");
   const [maxPlies, setMaxPlies] = useState(40);
-  const [sets, setSets] = useState(1);       // coverage: Anzahl physischer Figurensätze
+  const [sets, setSets] = useState(1);       // coverage/sweep: Anzahl physischer Figurensätze
   const [count, setCount] = useState(20);     // coverage: Anzahl dichter Aufbauten
+  const [passes, setPasses] = useState(1);    // sweep: Rotations-Durchläufe je Farbe
+  const [pieces, setPieces] = useState("special");  // sweep: special | pawn | all
+  const [together, setTogether] = useState(true);   // sweep: beide Farben gleichzeitig (halbe Fotos)
   const [profile, setProfile] = useState("default");
   const [cam, setCam] = useState(0);
   const coverage = strategy === "coverage";
+  const sweep = strategy === "sweep";
   const [st, setSt] = useState<any>({ active: false });
   const [msg, setMsg] = useState("");
   const timer = useRef<any>(null);
@@ -28,7 +32,7 @@ export default function Collect() {
     setMsg("");
     try {
       const s = await post("/api/collect/start", {
-        strategy, max_plies: maxPlies, profile, camera: cam, sets, count,
+        strategy, max_plies: maxPlies, profile, camera: cam, sets, count, passes, pieces, together,
       });
       setSt(s);
       clearInterval(timer.current);
@@ -53,6 +57,7 @@ export default function Collect() {
             <option value="random">random (eingebaut)</option>
             <option value="stockfish">stockfish (automatisch erkannt)</option>
             <option value="coverage">coverage (gegen seltene Klassen)</option>
+            <option value="sweep">sweep (Figuren laufen übers Brett)</option>
           </Select>
           {coverage ? (
             <>
@@ -60,6 +65,21 @@ export default function Collect() {
                 <input type="number" min={1} value={sets} onChange={(e) => setSets(+e.target.value)} className={`${input} w-16`} /></label>
               <label className="flex items-center gap-2 text-sm text-zinc-400" title="Anzahl dichter Aufbauten, die gegen deine schwächsten Klassen erzeugt werden.">Aufbauten
                 <input type="number" min={1} value={count} onChange={(e) => setCount(+e.target.value)} className={`${input} w-20`} /></label>
+            </>
+          ) : sweep ? (
+            <>
+              <label className="flex items-center gap-2 text-sm text-zinc-400" title="Welche Figuren übers Brett wandern: special = Nicht-Bauern (K,Q,R,B,N), pawn = nur Bauern, all = alle.">Figuren
+                <Select label="" value={pieces} onChange={(e) => setPieces(e.target.value)}>
+                  <option value="special">special (K,Q,R,B,N)</option>
+                  <option value="pawn">pawn (Bauern)</option>
+                  <option value="all">all</option>
+                </Select></label>
+              <label className="flex items-center gap-2 text-sm text-zinc-400" title="Rotations-Durchläufe je Farbe: je Pass 8 Fotos (Rang 1–8); mehr Pässe = jedes Feld sieht mehr Klassen.">Pässe
+                <input type="number" min={1} value={passes} onChange={(e) => setPasses(+e.target.value)} className={`${input} w-16`} /></label>
+              <label className="flex items-center gap-2 text-sm text-zinc-400" title="Anzahl physischer Figurensätze: mit 2 Sätzen sind doppelt so viele Figuren je Foto möglich.">Sätze
+                <input type="number" min={1} value={sets} onChange={(e) => setSets(+e.target.value)} className={`${input} w-16`} /></label>
+              <label className="flex items-center gap-2 text-sm text-zinc-400" title="Weiß und Schwarz gleichzeitig aufs Brett (Weiß vorne, Schwarz 4 Ränge versetzt) → halbe Fotozahl, jedes Feld bekommt beide Farben.">
+                <input type="checkbox" checked={together} onChange={(e) => setTogether(e.target.checked)} /> beide Farben gleichzeitig</label>
             </>
           ) : (
             <label className="flex items-center gap-2 text-sm text-zinc-400">Halbzüge

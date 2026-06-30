@@ -158,7 +158,8 @@ def collect_play(strategy: str, max_plies: int, seed: int, stockfish_path: str |
                  start_fen: str | None, profile: str, camera: int,
                  session: str | None = None, ui: bool = False,
                  target: int = config.UI_TARGET_PER_CLASS,
-                 sets: int = 1, count: int = 20) -> int:
+                 sets: int = 1, count: int = 20,
+                 passes: int = 1, pieces: str = "special", together: bool = False) -> int:
     """Eine Engine spielt die Zugfolge (random/stockfish) ODER der Coverage-Generator baut
     dichte Setups (coverage); du stellst sie physisch nach und fotografierst."""
     from .state import random_game_positions, stockfish_game_positions
@@ -188,6 +189,22 @@ def collect_play(strategy: str, max_plies: int, seed: int, stockfish_path: str |
         return _replay_capture(positions, prof, profile, camera, mode="play", source_pgn=None,
                                session=session, notes=f"coverage target={target} sets={sets}",
                                ui=ui, target=target, title="chesslab collect (play:coverage)")
+
+    # sweep: Figurenreihe wandert Rang für Rang übers Brett (systematische Feld×Klasse-Abdeckung).
+    if strategy == "sweep":
+        from .collect_ui import sweep_plan
+
+        inventory = {k: v * max(sets, 1) for k, v in config.DEFAULT_INVENTORY.items()}
+        steps = sweep_plan(pieces=pieces, passes=max(1, passes), inventory=inventory, together=together)
+        if not steps:
+            print(f"[FAIL] Sweep leer — pieces={pieces!r} (special|pawn|all) / Inventar prüfen.")
+            return 1
+        mode_txt = "beide Farben gleichzeitig" if together else "Weiß, dann Schwarz"
+        print(f"[OK] Sweep-Plan: {len(steps)} Aufbauten ({pieces}, {passes} Pass(es), {mode_txt}). "
+              "Stelle jede Reihe nach, fotografiere, dann `n` für die nächste.")
+        return _replay_capture(steps, prof, profile, camera, mode="play", source_pgn=None,
+                               session=session, notes=f"sweep pieces={pieces} passes={passes} together={together}",
+                               ui=ui, target=target, title="chesslab collect (play:sweep)")
 
     try:
         if strategy == "stockfish":

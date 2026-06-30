@@ -151,8 +151,15 @@ def build_dataset(
     max_class_ratio: float | None = None,
     seed: int = config.SEED,
     paths: config.Paths = config.DATA,
+    source_manifest: Path | None = None,
+    variant_tag: str | None = None,
 ) -> dict:
-    """Datensatz <name> aus `session_ids` bauen: filtern -> dedup -> rotation -> manifest+split+stats."""
+    """Datensatz <name> aus `session_ids` bauen: filtern -> dedup -> rotation -> manifest+split+stats.
+
+    `source_manifest`: Crop-Pool, aus dem gefiltert wird (Default `data/manifests/squares.jsonl`).
+    Für den Bake-Off zeigt jede Variante auf ihr eigenes `squares__<tag>.jsonl`; bei identischen
+    `session_ids`+`seed` ist der sessionbasierte Split byte-identisch über alle Varianten.
+    """
     name = _safe_name(name)
     d = config.DEDUP
     per_cell_cap = d.per_cell_cap if per_cell_cap is None else per_cell_cap
@@ -160,7 +167,8 @@ def build_dataset(
     phash_hamming = d.phash_hamming if phash_hamming is None else phash_hamming
     rotations = d.rotations if rotations is None else tuple(rotations)
 
-    manifest = dataset_mod.load_manifest(paths.manifests / "squares.jsonl")
+    src = Path(source_manifest) if source_manifest else (paths.manifests / "squares.jsonl")
+    manifest = dataset_mod.load_manifest(src)
     wanted = set(session_ids)
     rows = [r for r in manifest if r["session_id"] in wanted]
     n_raw = len(rows)
@@ -191,6 +199,8 @@ def build_dataset(
         "name": name,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "session_ids": list(session_ids),
+        "variant_tag": variant_tag,
+        "source_manifest": str(src.as_posix()),
         "dedup": {"per_cell_cap": per_cell_cap, "phash_enabled": bool(phash_enabled),
                   "phash_hamming": phash_hamming},
         "rotations": list(rotations),
