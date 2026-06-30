@@ -25,6 +25,35 @@
 
 ---
 
+## Zweistufiger Occupancy→Piece-Kopf (neu, Recherche-Best-Practice)
+
+Aus der Deep-Research (chesscog/Wölflein & Bringmann, ChessReD, LiveChess2FEN): der größte Hebel für
+Board-Accuracy bei wenig Daten ist eine **zweistufige Architektur** — erst Occupancy (leer/besetzt,
+sehr leicht), dann Figur nur auf besetzten Feldern. Umgesetzt als neuer **Kopf `twostage`**
+(`HierarchicalHead`, geteiltes Backbone + Occupancy-Kopf[2] + Figuren-Kopf[13]). Trick wie beim
+faktorisierten Kopf: die Ausgabe sind **rekonstruierte 14-Klassen-Log-Probs**, daher bleibt **alles
+Nachgelagerte (Dataset, Manifest, board_acc, Eval, Inferenz, FEN) unverändert** — `CrossEntropyLoss`
+darauf ist exakt die zweistufige Joint-NLL, der Figuren-Kopf bekommt **automatisch nur auf besetzten
+Feldern Gradient** (kein Loss-Sonderfall im Trainingsloop). Wählbar via `train --head twostage`,
+Web-Training-Dropdown und `experiment run --heads …,twostage`; Default bleibt `combined`.
+
+**Neue Diagnose** (kopf-unabhängig, in `eval` + Bake-Off-Tabelle): `occ_acc`, `occ_board_acc`,
+`piece_acc`, `type_err`, `color_err` — zeigt, WO die Fehler sitzen (Occupancy vs. Typ vs. Farbe).
+
+**Erster fairer 3-Kopf-Vergleich** (warp/none, 30 Epochen, Eval=val, 2 Sessions):
+
+| head | macro_f1 | occ_acc | piece_acc | type_err | color_err |
+|---|---|---|---|---|---|
+| combined | **0.420** | 0.783 | 0.477 | 0.516 | 0.008 |
+| twostage | 0.339 | **0.914** | 0.406 | 0.555 | 0.039 |
+| factored | 0.250 | 0.768 | 0.344 | 0.594 | 0.063 |
+
+- **twostage gewinnt die Occupancy klar (0.914 vs 0.78)** — genau die Recherche-Prämisse. Auf den
+  dünnen 2 Sessions schlägt der kombinierte Kopf insgesamt (macro_f1) aber noch leicht.
+- **Der Engpass ist überall der TYP-Fehler (~0.52–0.59), nicht die Farbe (~0.01–0.06)** und nicht die
+  Occupancy. Das ist das konkrete nächste Ziel. board_acc bleibt 0 (Daten zu dünn — s. u.).
+- Belastbarer Kopf-Vergleich erst mit ≥3 Sessions/anderen Aufstellungen (`--eval-split test`).
+
 ## Bake-Off-Ergebnisse
 
 **Lauf:** `chesslab experiment run --sessions 20260630-010216,20260630-014453 --geometries warp,box3d

@@ -70,6 +70,14 @@ def run_eval(run: str, split_name: str = "test") -> int:
 
     # 1. Board-Accuracy (Hauptmetrik)
     print(f"Board-Accuracy ({split_name}): {res['board_acc']:.4f}")
+    # 1b. Occupancy/Figur-Diagnose: WO sitzen die Fehler (Occupancy vs. Typ vs. Farbe)?
+    from .data import occupancy_board_acc, occupancy_piece_breakdown
+
+    bd = occupancy_piece_breakdown(classes, list(res["trues"]), list(res["preds"]))
+    occ_bacc = occupancy_board_acc(rows, classes, list(res["trues"]), list(res["preds"]))
+    print(f"Occupancy: square {bd['occ_acc']:.4f} | board {occ_bacc:.4f}   "
+          f"Figur (auf besetzt): {bd['piece_acc']:.4f}   "
+          f"Fehler: Typ {bd['type_err']:.3f} / Farbe {bd['color_err']:.3f}")
     # 2. Per-Klassen-Recall
     cm = confusion_matrix(res["trues"], res["preds"], len(classes))
     recall = per_class_recall(cm)
@@ -85,6 +93,8 @@ def run_eval(run: str, split_name: str = "test") -> int:
     print(f"[OK] Confusion gespeichert: {run_dir / ('confusion_' + split_name + '.txt')} (+ .png)")
 
     summary = {"split": split_name, "board_acc": res["board_acc"], "square_acc": res["square_acc"],
+               "occ_acc": bd["occ_acc"], "occ_board_acc": occ_bacc, "piece_acc": bd["piece_acc"],
+               "type_err": bd["type_err"], "color_err": bd["color_err"],
                "recall": {c: float(r) for c, r in zip(classes, recall)}}
     (run_dir / f"eval_{split_name}.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     return 0

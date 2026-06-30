@@ -210,7 +210,7 @@ def experiment_run(
     geometries: str = typer.Option(",".join(config.EXP_GEOMETRIES), "--geometries", help="z.B. warp,box3d."),
     photometries: str = typer.Option(",".join(config.PHOTOMETRY_METHODS), "--photometries",
                                      help="z.B. none,clahe,grayworld,gamma."),
-    heads: str = typer.Option("combined", "--heads", help="Modell-Köpfe: combined,factored."),
+    heads: str = typer.Option("combined", "--heads", help="Modell-Köpfe: combined,factored,twostage."),
     epochs: int = typer.Option(config.DEFAULT_EPOCHS, "--epochs"),
     seed: int = typer.Option(config.SEED, "--seed"),
     backbone: str = typer.Option(config.DEFAULT_BACKBONE, "--backbone"),
@@ -339,13 +339,15 @@ def train_cmd(
     norm: Optional[str] = typer.Option(None, "--norm", help="batchnorm | groupnorm | none (Default: groupnorm auf Windows, sonst batchnorm)."),
     dataset: Optional[str] = typer.Option(None, "--dataset", help="Benannter Datensatz (sonst globales Manifest/Split)."),
     resume: Optional[str] = typer.Option(None, "--resume", help="Run-Name, dessen Gewichte als Warm-Start geladen werden (weiter-trainieren)."),
+    head: str = typer.Option("combined", "--head", help="combined | factored | twostage (zweistufig Occupancy→Piece)."),
 ) -> None:
     """Per-Square-CNN auf der ROCm-GPU trainieren (Board-Accuracy = Checkpoint-Metrik)."""
     from .training.train import run_train
 
     raise typer.Exit(run_train(backbone=backbone, epochs=epochs, batch_size=batch_size, lr=lr,
                                no_amp=no_amp, seed=seed, out=out, patience=patience,
-                               num_workers=num_workers, norm=norm, dataset=dataset, resume=resume))
+                               num_workers=num_workers, norm=norm, dataset=dataset, resume=resume,
+                               head=head))
 
 
 @app.command("eval")

@@ -86,6 +86,61 @@ def macro_f1(trues: list[int], preds: list[int], n_classes: int) -> float:
     return sum(f1s) / len(f1s)
 
 
+def _piece_type(label: str) -> str:
+    """'wP'->'P', 'bN'->'N', 'empty'/'occluded' bleiben sie selbst."""
+    return label if label in ("empty", "occluded") else label[1]
+
+
+def _piece_color(label: str) -> str | None:
+    """'wP'->'w', 'bN'->'b', leer/verdeckt -> None (keine Farbe)."""
+    return None if label in ("empty", "occluded") else label[0]
+
+
+def occupancy_piece_breakdown(classes: list[str], trues: list[int], preds: list[int]) -> dict:
+    """Kopf-UNABHÄNGIGE Fehler-Diagnose aus dem 14-Klassen-Output — zeigt, WO die Fehler sitzen
+    (die zentrale Frage aus der Recherche: Occupancy vs. Typ vs. Farbe).
+
+    - `occ_acc`: leer-vs-besetzt pro Feld korrekt (Güte der Occupancy-Stufe; `occluded` zählt als besetzt).
+    - `piece_acc`: unter den WAHR besetzten Feldern die Figur exakt richtig (Güte der Figuren-Stufe).
+    - `type_err` / `color_err`: Anteil der wahren ECHTEN Figuren (12 Klassen) mit Typ- bzw. reiner
+      Farb-Verwechslung (`wB→wN` = Typ; `wB→bB` = Farbe). Summe ≤ (1−piece_acc auf echten Figuren).
+    """
+    occ_ok = occ_n = 0
+    piece_ok = occ_total = 0          # über WAHR besetzte Felder (inkl. occluded)
+    real_n = type_err_n = color_err_n = 0   # über wahre echte Figuren (12)
+    for t, p in zip(trues, preds):
+        tl, pl = classes[t], classes[p]
+        t_occ, p_occ = tl != "empty", pl != "empty"
+        occ_n += 1
+        occ_ok += int(t_occ == p_occ)
+        if t_occ:
+            occ_total += 1
+            piece_ok += int(t == p)
+            if tl != "occluded":                       # wahre echte Figur -> Typ/Farbe definiert
+                real_n += 1
+                if _piece_type(pl) != _piece_type(tl):
+                    type_err_n += 1
+                elif _piece_color(pl) != _piece_color(tl):
+                    color_err_n += 1
+    return {
+        "occ_acc": occ_ok / occ_n if occ_n else 0.0,
+        "piece_acc": piece_ok / occ_total if occ_total else 0.0,
+        "type_err": type_err_n / real_n if real_n else 0.0,
+        "color_err": color_err_n / real_n if real_n else 0.0,
+        "n_occupied": occ_total,
+        "n_pieces": real_n,
+    }
+
+
+def occupancy_board_acc(rows: list[dict], classes: list[str], trues: list[int], preds: list[int]) -> float:
+    """Board-Accuracy NUR auf der Occupancy-Stufe: ein Board ist korrekt, wenn alle 64 Felder
+    leer-vs-besetzt richtig sind (deutlich leichter als die volle Board-Accuracy)."""
+    items = [((r["session_id"], str(r["frame"])),
+              (classes[t] != "empty") == (classes[p] != "empty"))
+             for r, t, p in zip(rows, trues, preds)]
+    return board_accuracy(items)
+
+
 def grouped_board_acc(rows: list[dict], group_key: str) -> dict[str, float]:
     """Board-Accuracy je Gruppe (z.B. `session_id` oder `camera`/`profile`). Boards bleiben über
     (session_id, frame) definiert; nur die Aggregation wird nach `group_key` aufgeteilt.

@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chess Move-Tracker</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #0b0b0e; color: #e4e4e7; font: 14px/1.5 system-ui, sans-serif; }
+  header { padding: 12px 16px; border-bottom: 1px solid #27272a; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  h1 { font-size: 16px; margin: 0 12px 0 0; }
+  input, button { background: #18181b; color: #e4e4e7; border: 1px solid #3f3f46; border-radius: 8px; padding: 6px 10px; font: inherit; }
+  input.url { width: 360px; }
+  button { cursor: pointer; }
+  button.primary { background: #0ea5e9; border-color: #0ea5e9; color: #04121b; font-weight: 600; }
+  button:hover { border-color: #0ea5e9; }
+  main { display: grid; grid-template-columns: minmax(0, 520px) 520px; gap: 16px; padding: 16px; align-items: start; }
+  .card { background: #111114; border: 1px solid #27272a; border-radius: 12px; padding: 12px; }
+  .card h2 { font-size: 13px; color: #a1a1aa; margin: 0 0 8px; font-weight: 500; }
+  img.feed { width: 100%; max-width: 480px; border-radius: 8px; border: 1px solid #27272a; display: block; }
+  img.board { width: 480px; max-width: 100%; border-radius: 8px; }
+  .row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .moving { background: #7f1d1d; color: #fecaca; }
+  .waiting { background: #14532d; color: #bbf7d0; }
+  .move { background: #1e3a8a; color: #bfdbfe; }
+  .note { color: #a1a1aa; }
+  table.moves { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  table.moves td { padding: 2px 8px; border-top: 1px solid #1f1f23; }
+  table.moves td.n { color: #71717a; width: 32px; }
+  code { color: #93c5fd; word-break: break-all; }
+  .muted { color: #71717a; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>♟ Move-Tracker</h1>
+  <label class="muted">Profil <input id="profile" value="phone" style="width:90px" /></label>
+  <label class="muted">Quelle <input id="source" class="url" value="https://192.168.178.23:4444/video/m.jpeg" /></label>
+  <button class="primary" onclick="start()">Start</button>
+  <button onclick="reset()">Startstellung neu (Referenz)</button>
+  <button onclick="undo()">Undo</button>
+  <button onclick="toggleCalib()" id="calibBtn">Kamera-Ausrichtung</button>
+  <span id="status" class="badge waiting">—</span>
+  <span id="note" class="note"></span>
+</header>
+<main>
+  <div class="card">
+    <h2>Live-Kamera — was der Computer GLAUBT (Figurenbuchstaben + letzter Zug)</h2>
+    <img class="feed" src="/warped.mjpg" alt="Live" />
+    <div id="calibWrap" style="display:none; margin-top:10px">
+      <h2>Echtes Kamerabild — Ausrichtung (grün = Raster/Spielfeld, orange = Marker)</h2>
+      <img id="calib" class="feed" style="max-width:360px" alt="Ausrichtung" />
+    </div>
+  </div>
+  <div class="card">
+    <h2>Rekonstruiertes Brett</h2>
+    <div class="row" style="margin-bottom:8px">
+      <span>Am Zug: <b id="turn">—</b></span>
+      <span id="check" style="color:#f87171"></span>
+      <span id="result" style="color:#34d399"></span>
+    </div>
+    <img id="board" class="board" src="/board.svg" alt="Brett" />
+    <h2 style="margin-top:12px">Züge</h2>
+    <table class="moves"><tbody id="moves"></tbody></table>
+    <div class="muted" style="margin-top:10px">FEN: <code id="fen">—</code></div>
+    <div class="row" style="margin-top:8px">
+      <input id="fenInput" placeholder="FEN zum Resyncen…" style="flex:1; min-width:220px" />
+      <button onclick="fillCurrentFen()" title="aktuelle FEN ins Feld übernehmen">↧ aktuelle</button>
+      <button class="primary" onclick="resyncFen()">Auf FEN resyncen</button>
+    </div>
+  </div>
+</main>
+<script>
+let lastFen = "";
+async function post(url, body) {
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  return r.json();
+}
+async function start() {
+  document.getElementById("note").textContent = "starte…";
+  await post("/api/start", { profile: profile.value, source: source.value });
+}
+async function reset() { await post("/api/reset", {}); }
+async function undo() { await post("/api/undo", {}); }
+
+function fillCurrentFen() {               // aktuelle Stellung ins Feld zum Bearbeiten holen
+  document.getElementById("fenInput").value = document.getElementById("fen").textContent;
+}
+async function resyncFen() {              // auf beliebige bekannte Stellung resyncen
+  const fen = document.getElementById("fenInput").value.trim();
+  if (!fen) return;
+  const r = await post("/api/reset", { fen });
+  document.getElementById("note").textContent =
+    (r && r.ok === false) ? (r.error || "Resync fehlgeschlagen") : "auf FEN resynct";
+  lastFen = "";                          // Brett-SVG sofort neu laden
+}
+
+let calibTimer = null;
+function toggleCalib() {                 // nur bei aktivem Toggle laden (kein Dauer-Stream)
+  const wrap = document.getElementById("calibWrap");
+  const btn = document.getElementById("calibBtn");
+  const img = document.getElementById("calib");
+  if (calibTimer) {
+    clearInterval(calibTimer); calibTimer = null;
+    wrap.style.display = "none"; img.src = ""; btn.classList.remove("primary");
+  } else {
+    wrap.style.display = "block"; btn.classList.add("primary");
+    const tick = () => { img.src = "/calib.jpg?t=" + Date.now(); };
+    tick(); calibTimer = setInterval(tick, 800);
+  }
+}
+
+function renderMoves(history) {
+  const tb = document.getElementById("moves");
+  let rows = "";
+  for (let i = 0; i < history.length; i += 2) {
+    const n = i / 2 + 1;
+    rows += `<tr><td class="n">${n}.</td><td>${history[i] || ""}</td><td>${history[i + 1] || ""}</td></tr>`;
+  }
+  tb.innerHTML = rows || `<tr><td class="muted" colspan="3">noch keine Züge</td></tr>`;
+}
+
+async function poll() {
+  try {
+    const s = await fetch("/api/status").then(r => r.json());
+    if (!s.active) { document.getElementById("note").textContent = "nicht gestartet — Quelle/Profil wählen, Start drücken."; return; }
+    const badge = document.getElementById("status");
+    badge.textContent = s.state;
+    badge.className = "badge " + (s.state === "moving" ? "moving" : s.state === "move" ? "move" : "waiting");
+    document.getElementById("note").textContent = s.note || "";
+    document.getElementById("turn").textContent = s.turn === "white" ? "Weiß" : "Schwarz";
+    document.getElementById("check").textContent = s.in_check ? "Schach!" : "";
+    document.getElementById("result").textContent = s.game_over ? ("Ende: " + s.result) : "";
+    document.getElementById("fen").textContent = s.fen;
+    renderMoves(s.history);
+    if (s.fen !== lastFen) {           // Brett nur bei Änderung neu laden (kein Flackern)
+      lastFen = s.fen;
+      document.getElementById("board").src = "/board.svg?t=" + Date.now();
+    }
+  } catch (e) { /* Server evtl. noch nicht bereit */ }
+}
+setInterval(poll, 500);
+poll();
+</script>
+</body>
+</html>

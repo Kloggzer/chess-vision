@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 def _gn_groups(channels: int) -> int:
@@ -97,11 +98,51 @@ class FactoredHead(nn.Module):
         return out + color_term * self.c_mask                      # Farbe nur für echte Figuren
 
 
-class DecoupledModel(nn.Module):
-    """Backbone als Feature-Extraktor + `FactoredHead`. Gibt 14 Klassen-Logits aus (wie der
-    kombinierte Kopf), nur intern in Typ×Farbe faktorisiert."""
+class HierarchicalHead(nn.Module):
+    """Zweistufiger Kopf (Occupancy→Piece): ein Occupancy-Kopf (2: leer/besetzt) + ein Figuren-Kopf
+    (13: die besetzten Klassen, d.h. alle außer `empty`, inkl. `occluded`). Die Ausgabe sind
+    **rekonstruierte Log-Wahrscheinlichkeiten** über die 14 `classes` in genau ihrer Reihenfolge:
 
-    def __init__(self, backbone: str, classes: list[str], pretrained: bool, norm: str) -> None:
+        out[empty]    = log P(empty)                          = log_softmax(occ)[leer]
+        out[piece c]  = log P(besetzt) + log P(c | besetzt)   = log_softmax(occ)[besetzt]
+                                                                 + log_softmax(piece)[c]
+
+    Damit gilt `exp(out)` summiert je Zeile zu 1, `softmax(out)=P` (Inferenz unverändert) und
+    `CrossEntropyLoss(out, y)` ist exakt die zweistufige Joint-NLL: für `empty`-Ziele hängt der Loss
+    nur am Occupancy-Kopf, für besetzte Ziele an beiden — der Figuren-Kopf bekommt also **nur auf
+    besetzten Feldern Gradient** (das chesscog-Prinzip), ganz ohne Sonderfall im Trainingsloop.
+    """
+
+    def __init__(self, feat_dim: int, classes: list[str]) -> None:
+        super().__init__()
+        piece_classes = [c for c in classes if c != "empty"]   # 13 besetzte Klassen, Reihenfolge wie classes
+        self.occ_head = nn.Linear(feat_dim, 2)                  # [B, 2] leer / besetzt
+        self.piece_head = nn.Linear(feat_dim, len(piece_classes))  # [B, 13]
+        occ_idx, piece_idx, occ_mask = [], [], []
+        for c in classes:
+            if c == "empty":
+                occ_idx.append(0); piece_idx.append(0); occ_mask.append(0.0)
+            else:
+                occ_idx.append(1); piece_idx.append(piece_classes.index(c)); occ_mask.append(1.0)
+        self.register_buffer("occ_idx", torch.tensor(occ_idx, dtype=torch.long))      # [14] -> {0,1}
+        self.register_buffer("piece_idx", torch.tensor(piece_idx, dtype=torch.long))  # [14] -> 0..12
+        self.register_buffer("occ_mask", torch.tensor(occ_mask, dtype=torch.float32)) # [14] 0 für empty
+
+    def forward(self, feat: torch.Tensor) -> torch.Tensor:
+        occ = F.log_softmax(self.occ_head(feat), dim=1)            # [B, 2]
+        pc = F.log_softmax(self.piece_head(feat), dim=1)           # [B, 13]
+        occ_term = occ.index_select(1, self.occ_idx)               # [B, 14] log P(leer/besetzt)
+        piece_term = pc.index_select(1, self.piece_idx)            # [B, 14] log P(c | besetzt)
+        return occ_term + piece_term * self.occ_mask               # [B, 14] Log-Probs
+
+
+class DecoupledModel(nn.Module):
+    """Backbone als Feature-Extraktor + entkoppelter Kopf (`FactoredHead` Typ×Farbe oder
+    `HierarchicalHead` Occupancy→Piece). Gibt in jedem Fall 14 Werte pro Feld aus (Logits bzw.
+    Log-Probs), sodass alles Nachgelagerte (Loss/Board-Acc/Eval/Inferenz) unverändert bleibt."""
+
+    def __init__(self, backbone: str, classes: list[str], pretrained: bool, norm: str,
+                 head: str = "factored") -> None:
         super().__init__()
         if backbone == "smallcnn":
             base = SmallCNN(len(classes), norm=norm)
@@ -119,7 +160,7 @@ class DecoupledModel(nn.Module):
             self._mobile, self.features, self.pool = m, None, None
         else:
             raise ValueError(f"unbekanntes backbone {backbone!r} (smallcnn | mobilenet_v3_small).")
-        self.head = FactoredHead(feat_dim, classes)
+        self.head = HierarchicalHead(feat_dim, classes) if head == "twostage" else FactoredHead(feat_dim, classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         feat = self._mobile(x) if self._mobile is not None else self.pool(self.features(x)).flatten(1)
@@ -129,14 +170,15 @@ class DecoupledModel(nn.Module):
 def build_model(backbone: str, num_classes: int, pretrained: bool = False,
                 norm: str = "batchnorm", head: str = "combined",
                 classes: list[str] | None = None) -> nn.Module:
-    """`head="combined"`: ein 14-Klassen-Linear-Kopf. `head="factored"`: entkoppelter Typ+Farbe-Kopf
-    (`DecoupledModel`, braucht die `classes`-Liste für das Typ/Farbe-Mapping)."""
-    if head == "factored":
+    """`head="combined"`: ein 14-Klassen-Linear-Kopf. `head="factored"`: entkoppelter Typ+Farbe-Kopf.
+    `head="twostage"`: zweistufiger Occupancy→Piece-Kopf (`HierarchicalHead`). `factored`/`twostage`
+    brauchen die `classes`-Liste für das Index-Mapping."""
+    if head in ("factored", "twostage"):
         from .. import config
 
-        return DecoupledModel(backbone, classes or config.CLASSES, pretrained, norm)
+        return DecoupledModel(backbone, classes or config.CLASSES, pretrained, norm, head=head)
     if head != "combined":
-        raise ValueError(f"unbekannter head {head!r} (combined | factored).")
+        raise ValueError(f"unbekannter head {head!r} (combined | factored | twostage).")
     if backbone == "smallcnn":
         return SmallCNN(num_classes, norm=norm)
     if backbone == "mobilenet_v3_small":

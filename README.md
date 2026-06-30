@@ -239,6 +239,14 @@ The **checkpoint metric is board-accuracy** (all 64 squares correct), not square
 (ImageNet-pretrained). `model_card.json` carries the class list, `out_size`, normalization,
 metrics and torch/ROCm version — the clean handoff to the inference app.
 
+**Model heads (`--head`).** Three interchangeable heads, all emitting 14-class outputs so eval/
+inference are identical: `combined` (one flat 14-class head, default), `factored` (decoupled
+type×color), and `twostage` (hierarchical **Occupancy→Piece**: a binary empty/occupied head + a
+13-class piece head, reconstructed to 14-class log-probs — the piece head trains only on occupied
+squares). `eval` and the bake-off report an occupancy/piece breakdown (`occ_acc`, `occ_board_acc`,
+`piece_acc`, `type_err`, `color_err`) so you can see *where* errors are (occupancy vs. type vs.
+color). Compare heads fairly with `chesslab experiment run --heads combined,factored,twostage`.
+
 ## Stage 6 — collection dashboard (`--ui` / `chesslab ui`)
 
 A second OpenCV window assisting data collection: live class coverage (green/yellow/red

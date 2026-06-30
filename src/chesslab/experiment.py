@@ -32,6 +32,8 @@ from .training.data import (
     load_manifest,
     load_split,
     macro_f1,
+    occupancy_board_acc,
+    occupancy_piece_breakdown,
 )
 
 # Per-Klassen-Recall-Spalten in der Vergleichstabelle (die Engpässe: Damen/Könige).
@@ -200,6 +202,8 @@ def collect_metrics(v: Variant, session_profile: dict[str, str], split_name: str
     recall = {c: float(x) for c, x in zip(classes, per_class_recall(cm))}
     per_session = grouped_board_acc(items, "session_id")
     per_camera = grouped_board_acc(items, "camera")
+    bd = occupancy_piece_breakdown(classes, trues, preds)   # WO sitzen die Fehler: Occ vs Typ vs Farbe
+    occ_bacc = occupancy_board_acc(rows, classes, trues, preds)
     manifest_path, _ = variant_paths(v.data_tag)
     return {
         "variant": v.tag,
@@ -209,6 +213,11 @@ def collect_metrics(v: Variant, session_profile: dict[str, str], split_name: str
         "split": split_name,
         "board_acc": board,
         "macro_f1": macro_f1(trues, preds, len(classes)),
+        "occ_acc": bd["occ_acc"],
+        "occ_board_acc": occ_bacc,
+        "piece_acc": bd["piece_acc"],
+        "type_err": bd["type_err"],
+        "color_err": bd["color_err"],
         "recall": recall,
         "session_spread": board_acc_spread(per_session),
         "cam_spread": board_acc_spread(per_camera),
@@ -311,6 +320,7 @@ def write_comparison(results: list[dict], session_ids, geometries, photometries,
     robust = max(results, key=_worst_cam)["variant"] if results else None
 
     cols = ["variant", "geometry", "photometry", "head", "board_acc", "macro_f1",
+            "occ_acc", "occ_board_acc", "piece_acc", "type_err", "color_err",
             *[f"recall_{c}" for c in _RECALL_COLS],
             "session_spread", "cam_spread", "fallback_rate", "n_test"]
 
@@ -328,7 +338,7 @@ def write_comparison(results: list[dict], session_ids, geometries, photometries,
     md = [f"# Bake-Off — {len(results)} Varianten, {len(session_ids)} Session(s)", "", note, "",
           f"**Beste Board-Acc ({eval_split}):** `{best}`  |  **Robusteste (Worst-Case über Kameras):** "
           f"`{robust}`"
-          + ("  |  Kopf-Achse: kombiniert vs faktorisiert" if multi else ""), "",
+          + ("  |  Kopf-Achse: " + " vs ".join(sorted(set(heads))) if multi else ""), "",
           "| " + " | ".join(cols) + " |", "|" + "|".join(["---"] * len(cols)) + "|"]
     for m in ranked:
         mark = "  <- best" if m["variant"] == best else ""

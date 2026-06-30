@@ -4,12 +4,16 @@ The actual train/eval/export need torch (ROCm build) and run on the rig; these c
 logic that must be correct regardless of hardware.
 """
 
+import pytest
+
 from chesslab import config
 from chesslab.training.data import (
     board_accuracy,
     build_model_card,
     filter_rows_by_split,
     group_frames,
+    occupancy_board_acc,
+    occupancy_piece_breakdown,
 )
 
 
@@ -65,3 +69,81 @@ def test_build_model_card_has_required_fields():
     assert card["rocm_hip"] == "6.2"
     assert set(card["exported_formats"]) == {"torchscript", "onnx"}
     assert "created_at" in card
+
+
+# --- Occupancy/Figur-Diagnose (kopf-unabhängig, torch-frei) --------------------------------
+
+def _ci(label: str) -> int:
+    return config.CLASSES.index(label)
+
+
+def test_occupancy_piece_breakdown_splits_error_sources():
+    pairs = [
+        ("empty", "empty"),      # occ ok, leer
+        ("empty", "wP"),         # occ falsch (leer -> besetzt)
+        ("wP", "wP"),            # occ ok, Figur ok
+        ("wB", "wN"),            # occ ok, TYP-Fehler (B->N, Farbe gleich)
+        ("wB", "bB"),            # occ ok, FARB-Fehler (B==B, w->b)
+        ("wK", "empty"),         # occ falsch (besetzt -> leer), zählt als Typfehler
+        ("occluded", "occluded"),  # occ ok, besetzt, aber keine echte Figur -> kein Typ/Farb-Zähler
+    ]
+    trues = [_ci(t) for t, _ in pairs]
+    preds = [_ci(p) for _, p in pairs]
+    bd = occupancy_piece_breakdown(config.CLASSES, trues, preds)
+    assert bd["occ_acc"] == pytest.approx(5 / 7)
+    assert bd["n_occupied"] == 5            # wP,wB,wB,wK,occluded
+    assert bd["piece_acc"] == pytest.approx(2 / 5)   # wP und occluded exakt richtig
+    assert bd["n_pieces"] == 4              # echte Figuren: wP,wB,wB,wK
+    assert bd["type_err"] == pytest.approx(2 / 4)    # wB->wN und wK->empty
+    assert bd["color_err"] == pytest.approx(1 / 4)   # wB->bB
+
+
+def test_occupancy_board_acc_is_easier_than_full_board():
+    rows = [_crop("s0", "0", sq, "empty") for sq in ("a1", "a2")]
+    classes = config.CLASSES
+    # wahres Brett: a1 besetzt (wP), a2 leer. Vorhersage verwechselt nur die FIGUR auf a1 (wP->wN),
+    # trifft aber Occupancy überall -> volle Board-Acc 0, Occupancy-Board-Acc 1.
+    trues = [_ci("wP"), _ci("empty")]
+    preds = [_ci("wN"), _ci("empty")]
+    assert occupancy_board_acc(rows, classes, trues, preds) == 1.0
+    full = board_accuracy([((r["session_id"], str(r["frame"])), t == p)
+                           for r, t, p in zip(rows, trues, preds)])
+    assert full == 0.0
+
+
+# --- Zweistufiger Kopf (braucht torch) ----------------------------------------------------
+
+def test_twostage_head_outputs_valid_logprobs():
+    torch = pytest.importorskip("torch")
+    from chesslab.training.model import build_model
+
+    model = build_model("smallcnn", len(config.CLASSES), head="twostage", classes=config.CLASSES)
+    out = model(torch.randn(4, 3, 128, 128))
+    assert out.shape == (4, len(config.CLASSES))
+    # gültige Log-Wahrscheinlichkeiten: exp(out) summiert je Zeile zu 1
+    assert torch.allclose(out.exp().sum(1), torch.ones(4), atol=1e-4)
+    # softmax(out) == exp(out) und argmax stimmt überein (Inferenz-Parität)
+    assert torch.allclose(torch.softmax(out, dim=1), out.exp(), atol=1e-5)
+    assert bool((out.argmax(1) == torch.softmax(out, dim=1).argmax(1)).all())
+
+
+def test_twostage_piece_head_only_learns_on_occupied():
+    torch = pytest.importorskip("torch")
+    import torch.nn.functional as F
+
+    from chesslab.training.model import build_model
+
+    model = build_model("smallcnn", len(config.CLASSES), head="twostage", classes=config.CLASSES)
+    x = torch.randn(4, 3, 128, 128)
+
+    def piece_grad_for(label: str) -> float:
+        model.zero_grad()
+        F.cross_entropy(model(x), torch.full((4,), _ci(label), dtype=torch.long)).backward()
+        return model.head.piece_head.weight.grad.abs().sum().item()
+
+    g_empty = piece_grad_for("empty")
+    g_piece = piece_grad_for("wP")
+    # Auf besetzten Feldern lernt der Figuren-Kopf kräftig; auf leeren praktisch nicht
+    # (winziger Rest nur durch die CE-Renormierung der bereits normierten Log-Probs).
+    assert g_piece > 1e-3
+    assert g_empty < g_piece * 1e-3

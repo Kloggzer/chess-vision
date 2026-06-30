@@ -16,6 +16,7 @@ export default function Training() {
   const [status, setStatus] = useState<any>({ running: false });
   const [err, setErr] = useState("");
   const [backbone, setBackbone] = useState("smallcnn");
+  const [head, setHead] = useState("combined");   // combined | factored | twostage (Occupancy→Piece)
   const [epochs, setEpochs] = useState(30);
   const [batchSize, setBatchSize] = useState(256);
   const [lr, setLr] = useState(0.0003);
@@ -51,7 +52,7 @@ export default function Training() {
     setErr("");
     if (!dataset) { setErr("Kein Datensatz — erst im Tab Datensätze einen bauen."); return; }
     try {
-      await post("/api/train", { backbone, epochs, batch_size: batchSize, lr, patience, no_amp: true, dataset, resume: resume || undefined });
+      await post("/api/train", { backbone, head, epochs, batch_size: batchSize, lr, patience, no_amp: true, dataset, resume: resume || undefined });
       clearInterval(timer.current);
       timer.current = setInterval(poll, 2500); poll();
     } catch (e: any) { setErr(e.message); }
@@ -98,6 +99,11 @@ export default function Training() {
           <Select label="Backbone" value={backbone} onChange={(e) => setBackbone(e.target.value)}>
             <option value="smallcnn">smallcnn</option>
             <option value="mobilenet_v3_small">mobilenet_v3_small</option>
+          </Select>
+          <Select label="Kopf" value={head} onChange={(e) => setHead(e.target.value)}>
+            <option value="combined">combined</option>
+            <option value="factored">factored</option>
+            <option value="twostage">twostage (Occ→Piece)</option>
           </Select>
           <label className="flex flex-col text-xs text-zinc-400">Epochs<input type="number" min={1} value={epochs} onChange={(e) => setEpochs(+e.target.value)} className={inp} /></label>
           <label className="flex flex-col text-xs text-zinc-400">Batch<input type="number" min={1} value={batchSize} onChange={(e) => setBatchSize(+e.target.value)} className={inp} /></label>

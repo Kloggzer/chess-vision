@@ -447,7 +447,8 @@ def create_app():
     def train(backbone: str = Body("smallcnn"), epochs: int = Body(config.DEFAULT_EPOCHS),
               batch_size: int = Body(32), no_amp: bool = Body(True),
               lr: float = Body(config.DEFAULT_LR), dataset: str | None = Body(None),
-              resume: str | None = Body(None), patience: int = Body(config.DEFAULT_PATIENCE)):
+              resume: str | None = Body(None), patience: int = Body(config.DEFAULT_PATIENCE),
+              head: str = Body("combined")):
         if _TRAIN["proc"] is not None and _TRAIN["proc"].poll() is None:
             raise HTTPException(409, "es läuft bereits ein Training.")
         if resume and not (config.DATA.models / resume / "config.json").exists():
@@ -464,7 +465,7 @@ def create_app():
                                     "Sessions (Split pro Session gegen Data Leakage).")
             cmd = [sys.executable, "-m", "chesslab.cli", "train", "--backbone", backbone,
                    "--epochs", str(epochs), "--batch-size", str(batch_size), "--lr", str(lr),
-                   "--patience", str(patience), "--dataset", dataset]
+                   "--patience", str(patience), "--dataset", dataset, "--head", head]
             if resume:
                 cmd += ["--resume", resume]
             if no_amp:
@@ -512,7 +513,7 @@ def create_app():
                 "brauchst du mind. 2–3 getrennte Aufnahme-Sessions. Nimm weitere Partien auf, slice "
                 "sie und starte erneut.")
         cmd = [sys.executable, "-m", "chesslab.cli", "train", "--backbone", backbone,
-               "--epochs", str(epochs), "--batch-size", str(batch_size)]
+               "--epochs", str(epochs), "--batch-size", str(batch_size), "--head", head]
         if no_amp:
             cmd.append("--no-amp")
         log_path = config.DATA.models / "web_train.log"
