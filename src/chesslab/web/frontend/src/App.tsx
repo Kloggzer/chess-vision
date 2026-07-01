@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate, NavLink } from "react-router-dom";
-import { Camera, Crosshair, Database, SquarePen, LineChart, Crown, ScanEye, Hand } from "lucide-react";
+import { Camera, Crosshair, Database, SquarePen, LineChart, Crown, ScanEye, Hand, Box } from "lucide-react";
 import Calibrate from "./components/Calibrate";
 import Collect from "./components/Collect";
 import ManualLabel from "./components/ManualLabel";
@@ -7,10 +7,12 @@ import { DatasetLayout, SessionsPanel, DatasetsPanel, StatsPanel } from "./compo
 import Review from "./components/Review";
 import Training from "./components/Training";
 import Inference from "./components/Inference";
+import Scan from "./components/Scan";
 
 const TABS = [
   { to: "/kalibrieren", label: "Kalibrieren", icon: Crosshair },
   { to: "/sammeln", label: "Sammeln", icon: Camera },
+  { to: "/scan", label: "Scan", icon: Box },
   { to: "/manuell", label: "Manuell labeln", icon: Hand },
   { to: "/datensaetze", label: "Datensätze", icon: Database },
   { to: "/inference", label: "Inference", icon: ScanEye },
@@ -44,6 +46,7 @@ export default function App() {
             <Route path="/" element={<Navigate to="/kalibrieren" replace />} />
             <Route path="/kalibrieren" element={<Calibrate />} />
             <Route path="/sammeln" element={<Collect />} />
+            <Route path="/scan" element={<Scan />} />
             <Route path="/manuell" element={<ManualLabel />} />
             <Route path="/datensaetze" element={<DatasetLayout />}>
               <Route index element={<Navigate to="sessions" replace />} />

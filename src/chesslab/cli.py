@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -282,6 +283,43 @@ def split_cmd(
 def dataset_verify() -> None:
     """Konsistenz-Checks: Dateien existieren/ladbar, out_size, Labels, Split-Disjunktheit."""
     raise typer.Exit(dataset_mod.run_verify())
+
+
+@app.command("ingest")
+def ingest_cmd(
+    adapter: str = typer.Argument(..., help="chesscog | chessred (externer Datensatz)."),
+    root: str = typer.Argument(..., help="Pfad zum lokal entpackten Datensatz."),
+    tag: Optional[str] = typer.Option(None, "--tag", help="Name für Sessions/Datensatz (Default: pretrain-<adapter>)."),
+    geometry: str = typer.Option("warp", "--geometry", help="warp (empfohlen, keine Intrinsics) | box3d."),
+    photometry: str = typer.Option("none", "--photometry", help="none | clahe | grayworld | gamma — muss zum Finetune-Datensatz passen."),
+    board_size: int = typer.Option(900, "--board-size", help="Warp-Auflösung (px). Moderat halten (Handy-Quelle), sonst Hochskalier-Unschärfe."),
+    limit: Optional[int] = typer.Option(None, "--limit", help="Nur die ersten N Bilder (Schnelltest)."),
+    debug_overlay: int = typer.Option(0, "--debug-overlay", help="N Frames warpen + FEN-Labels einblenden (Sichtprüfung gegen Label-Vertauschung)."),
+    no_build: bool = typer.Option(False, "--no-build", help="Nur slicen, keinen Datensatz bauen."),
+) -> None:
+    """Externen Datensatz (chesscog/ChessReD2K) in unser Crop-Format ingestieren → Pretrain-Datensatz.
+
+    Danach: `chesslab train --dataset <tag> --head twostage --backbone mobilenet_v3_small`, dann auf
+    den eigenen Sessions `train --dataset <deine> --resume <pretrain-run>`. WICHTIG: vor dem großen
+    Lauf mit `--debug-overlay 8` die Orientierung prüfen (falsche Ecken vertauschen alle Labels still)."""
+    from . import ingest as ingest_mod
+
+    t = tag or f"pretrain-{adapter.lower()}"
+    try:
+        summary = ingest_mod.run_ingest(
+            adapter, root, tag=t, geometry=geometry, photometry=photometry, board_size=board_size,
+            limit=limit, debug_overlay_n=debug_overlay, build=not no_build)
+    except (ValueError, FileNotFoundError) as e:
+        print(f"[FAIL] {e}")
+        raise typer.Exit(1)
+    print(f"[OK] {summary['adapter']}: {summary['items']} Bilder, {summary['sessions']} Sessions, "
+          f"{summary['crops']} Crops -> {summary['manifest']}")
+    if summary.get("overlays"):
+        print(f"[OK] Sichtprüfung: {len(summary['overlays'])} Overlay-PNGs in "
+              f"{Path(summary['overlays'][0]).parent} — bitte ansehen, BEVOR du das große Pretrain startest.")
+    if summary.get("dataset"):
+        print(f"[OK] Datensatz '{summary['dataset']}' gebaut: {summary.get('dataset_counts')}")
+    raise typer.Exit(0)
 
 
 @dataset_app.command("build")
