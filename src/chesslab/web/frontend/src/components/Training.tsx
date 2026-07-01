@@ -111,7 +111,16 @@ export default function Training() {
           <label className="flex flex-col text-xs text-zinc-400" title="Early Stopping: Epochen ohne macro_recall-Fortschritt, bevor abgebrochen wird.">Geduld<input type="number" min={1} value={patience} onChange={(e) => setPatience(+e.target.value)} className={inp} /></label>
           <Select label="Weiter ab" value={resume} onChange={(e) => setResume(e.target.value)}>
             <option value="">von Grund auf</option>
-            {runs.map((r) => <option key={r.run} value={r.run}>{r.run}</option>)}
+            {runs.some((r) => String(r.dataset || "").startsWith("pretrain-")) && (
+              <optgroup label="Basis-Modelle (vortrainiert)">
+                {runs.filter((r) => String(r.dataset || "").startsWith("pretrain-"))
+                  .map((r) => <option key={r.run} value={r.run}>🔹 Basis · {r.run}</option>)}
+              </optgroup>
+            )}
+            <optgroup label="Eigene Runs">
+              {runs.filter((r) => !String(r.dataset || "").startsWith("pretrain-"))
+                .map((r) => <option key={r.run} value={r.run}>{r.run}</option>)}
+            </optgroup>
           </Select>
           <Button variant="primary" onClick={start} disabled={status.running || !dataset}>
             {status.running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Training starten

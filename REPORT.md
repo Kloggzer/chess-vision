@@ -206,6 +206,25 @@ chesslab experiment list  --heads combined,factored      # Status je Variante
 
 ---
 
+## Externe Datensätze ingestieren → Pretrain → Finetune (neu, Weg A)
+
+Gegen den Typ-Engpass: Transfer-Learning. Neuer Befehl **`chesslab ingest <chesscog|chessred> <pfad>`**
+überführt fremde Voll-Brett-Datensätze (Fotos mit bekannten Ecken + FEN) in unser Per-Feld-Crop-Format
+— **ohne jede Änderung an der Kern-Pipeline**: jedes Bild wird als **synthetische Session** geschrieben
+(`session.yaml`/`log.jsonl` zeigt auf das Originalbild + seine 4 Ecken), dann läuft das bestehende
+`slice → build_dataset`. Keine Marker, keine Intrinsics nötig (Warp aus den 4 Ecken).
+
+- **Adapter:** `chesscog` (gerendert, ~5k, JSON pro Bild mit `corners`/`fen`/`white_turn` — exakt
+  geparst inkl. 180°-Drehung bei Schwarz-unten) und `chessred` (ChessReD2K, ~2k echte Fotos, CC-BY-4.0;
+  Figuren→FEN solide, **Eck-Schema gegen den Download final zu bestätigen**).
+- **3-stufiges Curriculum:** chesscog → ChessReD2K (`--resume`) → eigene Sessions (`--resume`); gleiches
+  Backbone + `--head twostage` → voller Warm-Start.
+- **Sicherheitsnetz `--debug-overlay N`:** warpt N Frames + blendet FEN-Labels ein → Sichtprüfung gegen
+  **stille Label-Vertauschung** (falsche Eck-Reihenfolge spiegelt alle Labels). VOR dem großen Pretrain.
+- **Neue Dateien:** `src/chesslab/ingest.py`, `src/chesslab/ingest_adapters/{chesscog,chessred}.py`,
+  `tests/test_ingest.py`. **Tests: 100 grün** (neu: 7 Ingest-Tests inkl. End-to-End Synthbild→Slice mit
+  Orientierungs- und Label-Prüfung). Kern-Pipeline-Dateien **unverändert**, nur genutzt.
+
 ## Git-Stand
 
 - Das **Preprocessing-System** (box3d, Photometrie, geborderter Crop, board_size, IP-Cam-Hybrid,

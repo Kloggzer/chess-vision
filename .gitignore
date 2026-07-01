@@ -4,6 +4,10 @@ data/
 # Downloaded engine binaries + ROCm/torch wheels (large, platform-specific)
 tools/
 wheels/
+scans/
+
+# Wegwerf-Artefakte (Debug-Frames, Zwischenstände)
+tmp/
 
 # Python
 __pycache__/

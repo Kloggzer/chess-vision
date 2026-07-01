@@ -38,6 +38,7 @@ _TRAIN: dict = {"proc": None, "log": None, "cmd": None, "state": "idle"}
 
 # --- Kamera: EINE geteilte Instanz + Geometrie-Helfer (siehe web/camera.py) ------------
 from .camera import CAMERA, BoardTracker, mjpeg
+from .scan import SCANNER
 
 CALIB_STATE: dict = {"margin": 0.06, "tracker": None}
 
@@ -1007,6 +1008,50 @@ def create_app():
             except Exception:  # noqa: BLE001 - Auto-Slice ist Komfort, kein harter Fehler
                 sliced = 0
         return {"ok": True, "captures": n, "session": sid, "sliced": sliced}
+
+    # -- Turntable-Scan (Tab „Scan"): Photogrammetrie-Frames für RealityScan aufnehmen ------------
+    @app.get("/api/scan/status")
+    def scan_status():
+        return SCANNER.status()
+
+    @app.post("/api/scan/open")
+    def scan_open(source: str = Body(...), width: int = Body(3840), height: int = Body(2160)):
+        try:
+            return SCANNER.open(source, width, height)
+        except Exception as e:  # noqa: BLE001 — Nutzerfehler (Quelle/URL) sauber ans Frontend
+            raise HTTPException(400, str(e))
+
+    @app.post("/api/scan/config")
+    def scan_config(crop: list[int] | None = Body(None), interval: float | None = Body(None),
+                    count: int | None = Body(None), quality: int | None = Body(None),
+                    out: str | None = Body(None)):
+        return SCANNER.configure(crop=crop, interval=interval, count=count, quality=quality, out=out)
+
+    @app.post("/api/scan/start")
+    def scan_start(out: str | None = Body(None, embed=True)):
+        try:
+            return SCANNER.start(out)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(400, str(e))
+
+    @app.post("/api/scan/stop")
+    def scan_stop():
+        return SCANNER.stop()
+
+    @app.post("/api/scan/close")
+    def scan_close():
+        SCANNER.close()
+        return SCANNER.status()
+
+    @app.get("/api/scan/preview.mjpg")
+    def scan_preview():
+        def frames():
+            last = -1
+            while True:
+                img, fid = SCANNER.preview(last_id=last)
+                last = fid
+                yield img          # None -> mjpeg wartet kurz (kein neuer Frame)
+        return mjpeg(frames())
 
     # SPA-Catch-all (MUSS zuletzt stehen): Deep-Links/F5 auf Client-Routen (/datensaetze ...)
     # liefern index.html; React-Router übernimmt. /api/* hier ist unbekannt -> 404.

@@ -140,6 +140,8 @@ class AugmentPolicy:
     jitter_translate: float = 0.03  # ± fraction of crop size (small homography drift)
     jitter_scale: float = 0.03
     color_jitter: float = 0.1
+    noise_std: float = 0.03       # additive Gaussian noise on the [0,1] tensor (p=0.5); bricht den
+                                  # "zu sauberen" Render-/Synthetik-Look und macht robuster
     allow_flip: bool = False        # explicitly forbidden
     allow_rotate90: bool = False    # explicitly forbidden
 

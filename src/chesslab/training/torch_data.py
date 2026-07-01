@@ -26,6 +26,16 @@ class _RandomGamma:
         return TF.adjust_gamma(img, random.uniform(self.lo, self.hi))
 
 
+class _GaussianNoise:
+    """Additives Gauß-Rauschen auf dem [0,1]-Tensor (nach ToTensor, vor Normalize)."""
+
+    def __init__(self, std: float) -> None:
+        self.std = std
+
+    def __call__(self, t):
+        return (t + torch.randn_like(t) * self.std).clamp_(0.0, 1.0)
+
+
 def build_transform(out_size, train: bool, policy=config.AUGMENT,
                     mean=config.NORMALIZE_MEAN, std=config.NORMALIZE_STD):
     from torchvision import transforms as T
@@ -42,7 +52,10 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
                            translate=(policy.jitter_translate, policy.jitter_translate),
                            scale=(1.0 - policy.jitter_scale, 1.0 + policy.jitter_scale)),
         ]
-    ops += [T.ToTensor(), T.Normalize(mean, std)]
+    ops += [T.ToTensor()]
+    if train and getattr(policy, "noise_std", 0.0) > 0:
+        ops += [T.RandomApply([_GaussianNoise(policy.noise_std)], p=0.5)]
+    ops += [T.Normalize(mean, std)]
     return T.Compose(ops)
 
 

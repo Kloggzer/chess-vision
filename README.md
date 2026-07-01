@@ -247,6 +247,24 @@ squares). `eval` and the bake-off report an occupancy/piece breakdown (`occ_acc`
 `piece_acc`, `type_err`, `color_err`) so you can see *where* errors are (occupancy vs. type vs.
 color). Compare heads fairly with `chesslab experiment run --heads combined,factored,twostage`.
 
+**Transfer learning from external datasets (`chesslab ingest`).** Pretrain on large, diverse public
+chess datasets, then `--resume`-finetune on your own fixed-camera sessions — the biggest lever against
+piece-**type** confusion with little own data. `ingest` converts a third-party dataset (full-board
+photos with known corners + FEN) into our per-square crop format with **no core-pipeline changes**: it
+writes each image as a synthetic session (`session.yaml`/`log.jsonl` pointing at the original image +
+its 4 corners), then runs the normal `slice -> build_dataset`. No ArUco markers and no camera intrinsics
+are needed (warp from the 4 given corners). Adapters: `chesscog` (rendered, ~5k imgs) and `chessred`
+(ChessReD2K real photos, ~2k imgs, CC-BY-4.0) — download them yourself, then:
+
+```bash
+# verify orientation FIRST (wrong corner order silently transposes all labels):
+chesslab ingest chessred <path> --tag pretrain-chessred --board-size 900 --debug-overlay 8
+# 3-stage curriculum (synthetic -> real -> yours), same backbone + head throughout:
+chesslab train --dataset pretrain-chesscog --head twostage --backbone mobilenet_v3_small --epochs 20 --out data/models/pre-chesscog
+chesslab train --dataset pretrain-chessred --resume pre-chesscog --head twostage --backbone mobilenet_v3_small --epochs 15 --out data/models/pre-chessred
+chesslab train --dataset <your-sessions>   --resume pre-chessred --head twostage --backbone mobilenet_v3_small --epochs 15
+```
+
 ## Stage 6 — collection dashboard (`--ui` / `chesslab ui`)
 
 A second OpenCV window assisting data collection: live class coverage (green/yellow/red
