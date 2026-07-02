@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 import sys
 from pathlib import Path
@@ -13,6 +14,7 @@ from ..schemas import SplitRequest, TrainRequest
 from ..state import TRAIN, train_derive_and_update
 from ..util import _img_url, _manifest, _read_jsonl, _run_dirs
 
+log = logging.getLogger("chesslab.web")
 router = APIRouter()
 
 
@@ -70,9 +72,6 @@ def train(req: TrainRequest):
         return {"ok": True, "cmd": TRAIN.get("cmd")}
 
     # Legacy-Pfad (globales Manifest/Split) — bleibt für Rückwärtskompatibilität.
-    import logging
-    log = logging.getLogger("chesslab.web")
-
     manifest_sessions = {r["session_id"] for r in _manifest()}
     if not manifest_sessions:
         raise HTTPException(400, "Kein Datensatz — erst im Tab 'Sammeln' aufnehmen und slicen.")
@@ -147,9 +146,6 @@ def train_status():
 def train_stop():
     """Laufendes (oder nach einem GPU/MIOpen-Crash hängendes) Training beenden + Zustand lösen.
     Das Run-Verzeichnis mit den bis dahin geschriebenen Metriken bleibt erhalten (Teil-Fortschritt)."""
-    import logging
-    log = logging.getLogger("chesslab.web")
-
     proc = TRAIN.get("proc")
     killed = False
     if proc is not None and proc.poll() is None:

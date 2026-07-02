@@ -1,6 +1,7 @@
 """FastAPI-Backend der lokalen chesslab-Web-UI.
 
-Bedient drei Bereiche über JSON-APIs: Datensatz-Einsicht, Review/Relabeln und Training.
+Bedient alle Tabs über JSON-APIs: Kalibrierung, Sammeln, Manuelles Labeln,
+Inference, Scan, Sessions/Datensätze und Training.
 Nutzt die vorhandene chesslab-Logik wieder (dataset, labeling, training). Bilder werden als
 statische Dateien aus `data/` ausgeliefert.
 

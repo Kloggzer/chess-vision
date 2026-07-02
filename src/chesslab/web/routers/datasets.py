@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import json
-
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from ..schemas import DatasetCreateRequest
 from ..util import _img_url, _manifest
