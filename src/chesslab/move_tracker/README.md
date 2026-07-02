@@ -44,6 +44,10 @@ Die Defaults leben in **einer** Stelle: dem `MoveTracker(...)`-Konstruktor in `t
 | `live_align`      | `True`         | Marker-Tracker live nachführen oder Kalibrier-Geometrie einfrieren.      | Kamera/Statik verschiebt sich über die Session (Marker halten dagegen). | Stativ-Kamera, fest verankert (keine Drift). | `tracker.py`, CLI `--no-live-align` |
 | `avg_frames`      | `3`            | Gleitendes Mittel über N ruhige Graubilder (denoised) für die Per-Feld-Differenz. | Sensor-/Lichtrauschen hoch, plötzliche Belichtungssprünge. | Latenz soll minimal sein.                   | `tracker.py`, CLI `--avg-frames` |
 | `max_changed`     | `6`            | Maximal geänderte Felder, bevor der Frame als „verdeckt/instabil" verworfen wird. | Hand löst viele Felder aus, die fälschlich als Zug erkannt werden. | Rochade (4 Felder + Schatten) wird unterdrückt. | `tracker.py`, CLI `--max-changed` |
+| `cnn_run`         | `run-20260626-163320` | Modell-Run für CNN-Recovery/-Kontrolle; `''`/fehlt auf Platte = Feature aus. | —                              | —                                           | CLI `--cnn-run`, API-Body |
+| `cnn_conf_thr`    | `0.85`         | Ab welcher Softmax-Konfidenz ein Feld für die Occupancy-Auswertung zählt (occluded zählt nie). | CNN „sieht" Züge, die keine sind (unsicheres Modell). | Zu wenige Felder confident → CNN sagt nie etwas. | `tracker.py` |
+| `cnn_cooldown_s`  | `2.0`          | Mindestabstand zwischen Recovery-Beobachtungen (CPU ~100–300 ms je Beobachtung). | CPU-Last stört den Stream.                  | Recovery soll schneller nachsetzen.         | `tracker.py` |
+| `cnn_check_interval_s` | `10.0`    | Intervall der periodischen CNN-Kontrolle bei ruhigem Brett.              | Dauerlast unerwünscht.                      | Abweichungen sollen schneller auffallen.    | `tracker.py` |
 | `--host`/`--port` | `127.0.0.1`/`8001` | Adresse des Web-UI.                                                  | —                                           | —                                           | CLI |
 
 **Beispiele:**
@@ -65,15 +69,33 @@ curl -X POST http://127.0.0.1:8001/api/start \
 > Hinweis: `confirm_frames` und `ambiguity_margin` sind aktuell nur über `tracker.py` (Konstruktor-Default)
 > einstellbar, nicht über CLI/API. `motion_thr`/`change_thr` gehen beides.
 
+## CNN-Recovery & -Kontrolle (automatisch)
+
+Mit gesetztem `cnn_run` (Default: bestes vorhandenes Modell) läuft neben der Frame-Diff-Erkennung
+ein CNN-Beobachter, der **nur die Occupancy** je Feld auswertet (leer/besetzt/verdeckt — die
+Figurenidentität kennt der Tracker aus der Zughistorie; verdeckte Felder zählen NIE als besetzt):
+
+- **Automatische Recovery:** Bleibt der Diff-Pfad hängen („kein legaler Zug passt" oder
+  „viel Veränderung"), beobachtet das CNN das Brett und schlägt den legalen Zug vor, dessen
+  resultierende Occupancy die Beobachtung am besten erklärt (Schlag/Rochade/en passant inklusive).
+  Committet wird erst nach `confirm_frames` übereinstimmenden Beobachtungen (kein Single-Shot),
+  mit Note `Zug per CNN-Recovery erkannt: …`.
+- **Periodische Kontrolle:** Bei ruhigem Brett prüft das CNN alle `cnn_check_interval_s`, ob
+  Spielzustand und Brett noch übereinstimmen. Ein eindeutig erklärender Zug wird (per Voting)
+  übernommen; sonst warnt das UI-Badge **CNN: weicht ab** mit den Konflikt-Feldern in der Note.
+- **Manuell:** Button **Resync per CNN** (bzw. `POST /api/resync_cnn`) prüft sofort und wendet
+  einen eindeutigen Zug direkt an; ohne eindeutigen Zug werden die Konflikt-Felder gemeldet.
+- Promotion-Varianten sind auf Occupancy-Ebene identisch → bewusst keine Entscheidung
+  (Nutzer-Hinweis statt Raten). Fehlt der Modell-Run auf Platte, deaktiviert sich das Feature
+  still (Note beim ersten Versuch).
+
 ## Grenzen (Prototyp)
 
-- Startstellung muss bekannt sein (Grundstellung; beliebige Stellung später per CNN-Resync).
-- Bei Desync (verschobene Figur, Wackler) hilft aktuell nur **Undo**/**Startstellung neu**.
+- Startstellung muss bekannt sein (Grundstellung oder FEN-Resync; das CNN liefert Occupancy,
+  keine Figurenidentität — beliebige Stellungen einlesen bleibt Folgearbeit).
 - Schwellen sind heuristisch — siehe Tabelle, an Licht/Brett anpassen.
 
 ## Nächste Schritte
 
-- **CNN-Resync** (chesslab-Modell) als Sicherheitsnetz: bei „kein legaler Zug passt" das Brett neu
-  klassifizieren und den Zustand korrigieren.
-- Beliebige Startstellung per CNN einlesen statt Grundstellung.
+- Beliebige Startstellung per CNN einlesen (volle Klassifikation statt nur Occupancy).
 - PGN-Export / Stockfish-Analyse der laufenden Partie.

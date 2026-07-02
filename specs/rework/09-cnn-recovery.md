@@ -31,7 +31,11 @@ class OccupancyObservation:
 class CnnRecovery:
     def __init__(self, run_dir: Path, profile, device: str = "cpu",
                  conf_thr: float = 0.85, min_agreement: float = 0.97,
-                 margin: float = 0.02): ...
+                 margin_squares: int = 1): ...
+    # ÄNDERUNG bei Implementierung (2026-07-02): Margin in FELDERN statt als Anteil —
+    # ein Schlag unterscheidet sich vom Nicht-Schlag auf Occupancy-Ebene um genau EIN
+    # Feld; ein Bruchteil-Margin (0.02 ≈ 1.3/64) verwarf Schläge fälschlich als mehrdeutig.
+    # margin_squares=1: strikt besser reicht; 0 Felder Unterschied (Promotionen) ⇒ None.
     def observe(self, frame, corners) -> OccupancyObservation
         # serving.predict_frame(run_dir, frame, corners, profile, return_probs=True)
         # → Softmax je Feld auf (p_occ, p_empty, p_occluded) kollabieren

@@ -1,0 +1,361 @@
+"""Tests für die CNN-Occupancy-Recovery des Move-Trackers (specs/rework/09-cnn-recovery.md).
+
+Kern torch-frei: Beobachtungen werden von Hand gebaut. Integration über einen Stub-CnnRecovery
+im headless MoveTracker (FakeCapture-Muster aus test_move_tracker.py).
+"""
+
+from __future__ import annotations
+
+import chess
+import pytest
+
+from chesslab.move_tracker.cnn_recovery import (
+    CnnRecovery, OccupancyObservation, expected_occupancy, observation_from_probs,
+)
+
+_ALL = [f"{f}{r}" for r in range(1, 9) for f in "abcdefgh"]
+
+
+def _obs_for_board(board: chess.Board, conf: float = 0.99,
+                   occluded: set[str] | None = None,
+                   flip: set[str] | None = None) -> OccupancyObservation:
+    """Beobachtung, die exakt zur Stellung passt; `flip` invertiert Felder,
+    `occluded` macht Felder verdeckt-dominant (nie confident)."""
+    occluded = occluded or set()
+    flip = flip or set()
+    p_occ, p_empty, p_occl = {}, {}, {}
+    truth = expected_occupancy(board)
+    for sq in _ALL:
+        if sq in occluded:
+            p_occ[sq], p_empty[sq], p_occl[sq] = 0.05, 0.05, 0.90
+            continue
+        occupied = truth[sq] != (sq in flip)
+        p_occ[sq] = conf if occupied else 1.0 - conf
+        p_empty[sq] = 1.0 - conf if occupied else conf
+        p_occl[sq] = 0.0
+    return OccupancyObservation(p_occ=p_occ, p_empty=p_empty, p_occluded=p_occl)
+
+
+def _recovery(tmp_path, **kw) -> CnnRecovery:
+    """CnnRecovery ohne Modell auf Platte — nur die pure Auswertung wird getestet."""
+    run = tmp_path / "run"
+    run.mkdir(exist_ok=True)
+    (run / "config.json").write_text("{}", encoding="utf-8")
+    return CnnRecovery(run, profile=None, **kw)
+
+
+# ---------------------------------------------------------------------------
+# score_moves — der Kern: welcher legale Zug erklärt die Beobachtung?
+# ---------------------------------------------------------------------------
+
+def test_score_moves_simple_move(tmp_path):
+    board = chess.Board()
+    after = chess.Board(); after.push_san("e4")
+    obs = _obs_for_board(after)
+    mv, best, second = _recovery(tmp_path).score_moves(board, obs)
+    assert mv is not None and mv.uci() == "e2e4"
+    assert best == pytest.approx(1.0)
+    assert best > second
+
+
+def test_score_moves_capture(tmp_path):
+    board = chess.Board()
+    for san in ("e4", "d5"):
+        board.push_san(san)
+    after = board.copy(); after.push_san("exd5")
+    obs = _obs_for_board(after)
+    mv, best, _ = _recovery(tmp_path).score_moves(board, obs)
+    assert mv is not None and mv.uci() == "e4d5"
+    assert best == pytest.approx(1.0)
+
+
+def test_score_moves_castling_signature(tmp_path):
+    board = chess.Board("r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4")
+    after = board.copy(); after.push_san("O-O")
+    obs = _obs_for_board(after)
+    mv, best, _ = _recovery(tmp_path).score_moves(board, obs)
+    assert mv is not None and mv.uci() == "e1g1"
+    assert best == pytest.approx(1.0)
+
+
+def test_score_moves_en_passant(tmp_path):
+    board = chess.Board()
+    for san in ("e4", "a6", "e5", "d5"):
+        board.push_san(san)
+    after = board.copy(); after.push_san("exd6")
+    obs = _obs_for_board(after)
+    mv, best, _ = _recovery(tmp_path).score_moves(board, obs)
+    assert mv is not None and mv.uci() == "e5d6"
+    assert best == pytest.approx(1.0)
+
+
+def test_score_moves_ambiguous_promotion_returns_none(tmp_path):
+    """Promotion-Varianten (e8q vs. e8r …) sind occupancy-identisch → margin-Regel liefert None."""
+    board = chess.Board("4k3/P7/8/8/8/8/8/4K3 w - - 0 1")
+    after = board.copy(); after.push_san("a8=Q")
+    obs = _obs_for_board(after)
+    mv, best, second = _recovery(tmp_path).score_moves(board, obs)
+    assert mv is None                      # a8=Q/R/B/N erklären die Beobachtung gleich gut
+    assert best == pytest.approx(second)   # … exakt gleich gut
+
+
+def test_score_moves_low_confidence_returns_none(tmp_path):
+    board = chess.Board()
+    after = chess.Board(); after.push_san("e4")
+    obs = _obs_for_board(after, conf=0.6)  # unter conf_thr → kein Feld confident
+    mv, best, second = _recovery(tmp_path).score_moves(board, obs)
+    assert mv is None and best == 0.0 and second == 0.0
+
+
+def test_score_moves_all_occluded_returns_none(tmp_path):
+    """Hand über dem Brett: alles verdeckt → keine confident-Felder → keine Aussage."""
+    board = chess.Board()
+    obs = _obs_for_board(board, occluded=set(_ALL))
+    mv, best, second = _recovery(tmp_path).score_moves(board, obs)
+    assert mv is None
+
+
+def test_score_moves_below_min_agreement_returns_none(tmp_path):
+    """Beobachtung passt zu KEINEM legalen Zug gut genug (zwei zusätzliche Felder falsch)."""
+    board = chess.Board()
+    after = chess.Board(); after.push_san("e4")
+    obs = _obs_for_board(after, flip={"a5", "h5"})   # e2e4 erklärt a5/h5 nicht
+    mv, best, _ = _recovery(tmp_path).score_moves(board, obs)
+    assert mv is None
+    assert best < 0.97
+
+
+# ---------------------------------------------------------------------------
+# Softmax-Kollaps + confident()
+# ---------------------------------------------------------------------------
+
+def test_observation_from_probs_collapse():
+    classes = ["empty", "wP", "wN", "wB", "wR", "wQ", "wK",
+               "bP", "bN", "bB", "bR", "bQ", "bK", "occluded"]
+    probs = {sq: [0.0] * 14 for sq in _ALL}
+    probs["e2"][1] = 0.9; probs["e2"][0] = 0.05; probs["e2"][13] = 0.05   # klar wP
+    probs["e4"][0] = 0.95; probs["e4"][13] = 0.03                         # klar leer
+    probs["d4"][13] = 0.9; probs["d4"][0] = 0.05                          # verdeckt-dominant
+    for sq in _ALL:
+        if sq not in ("e2", "e4", "d4"):
+            probs[sq][0] = 1.0
+    obs = observation_from_probs(probs, classes)
+    assert obs.occupied("e2") and obs.p_occ["e2"] == pytest.approx(0.9)
+    assert not obs.occupied("e4")
+    conf = obs.confident(0.85)
+    assert conf["e2"] and conf["e4"]
+    assert not conf["d4"]                 # occluded-dominant ist NIE confident
+
+
+def test_observation_from_probs_13_classes_without_occluded():
+    classes = ["empty", "wP", "wN", "wB", "wR", "wQ", "wK",
+               "bP", "bN", "bB", "bR", "bQ", "bK"]
+    probs = {sq: [1.0] + [0.0] * 12 for sq in _ALL}
+    probs["e2"] = [0.1, 0.9] + [0.0] * 11
+    obs = observation_from_probs(probs, classes)
+    assert obs.occupied("e2")
+    assert obs.p_occluded["e2"] == 0.0    # 13-Klassen-Run: kein occluded, Index nicht geraten
+
+
+# ---------------------------------------------------------------------------
+# resync_check — der Button/die Kontrolle
+# ---------------------------------------------------------------------------
+
+def test_resync_check_match(tmp_path):
+    board = chess.Board()
+    res = _recovery(tmp_path).resync_check(board, _obs_for_board(board))
+    assert res["match"] is True and res["conflicts"] == [] and res["move"] is None
+
+
+def test_resync_check_unique_move(tmp_path):
+    board = chess.Board()
+    after = chess.Board(); after.push_san("Nf3")
+    res = _recovery(tmp_path).resync_check(board, _obs_for_board(after))
+    assert res["match"] is False
+    assert set(res["conflicts"]) == {"g1", "f3"}
+    assert res["move"] == "g1f3"
+
+
+def test_resync_check_conflicts_without_move(tmp_path):
+    """Verstellte Figur (kein legaler Zug erklärt es) → Konflikte melden, nichts raten."""
+    board = chess.Board()
+    obs = _obs_for_board(board, flip={"a3", "h6", "d5"})   # wildes Muster
+    res = _recovery(tmp_path).resync_check(board, obs)
+    assert res["match"] is False
+    assert set(res["conflicts"]) == {"a3", "h6", "d5"}
+    assert res["move"] is None
+
+
+# ---------------------------------------------------------------------------
+# Tracker-Integration (Stub-Recovery, FakeCapture — kein torch)
+# ---------------------------------------------------------------------------
+
+class _StubRecovery:
+    """Liefert eine feste resync_check-Antwort; zählt observe-Aufrufe."""
+
+    def __init__(self, result: dict):
+        self.result = result
+        self.observe_calls = 0
+
+    def observe(self, frame, corners):
+        self.observe_calls += 1
+        return "obs"
+
+    def resync_check(self, board, obs):
+        return dict(self.result)
+
+
+def _identity_profile(board_size: int = 400):
+    """Identitäts-Profil (Muster aus test_move_tracker.py)."""
+    from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
+
+    corners = [[0, 0], [board_size, 0], [board_size, board_size], [0, board_size]]
+    return CalibrationProfile(
+        profile="test-identity", camera_index=0, frame_size=(board_size, board_size),
+        board_size=board_size, image_corners=corners,
+        homography=compute_homography(corners, board_size),
+        white_pov=True, crop=CropParams.default(board_size))
+
+
+def _headless_tracker(monkeypatch, **kw):
+    """MoveTracker ohne Kamera/echtes Profil (Muster aus test_move_tracker.py Teil 2)."""
+    import numpy as np
+
+    from chesslab.move_tracker import tracker as trk
+
+    class FakeCapture:
+        def read(self):
+            return True, np.zeros((400, 400, 3), dtype=np.uint8)
+
+        def release(self):
+            pass
+
+    prof = _identity_profile()
+    monkeypatch.setattr(trk, "load_profile", lambda name: prof)
+    monkeypatch.setattr(trk, "open_source", lambda src: FakeCapture())
+    return trk.MoveTracker(profile="t", source="0", live_align=False, **kw)
+
+
+def test_tracker_cnn_recovery_commits_via_voting(monkeypatch):
+    """Diff-Pfad stuck → Stub-Recovery schlägt Zug vor → Commit erst nach confirm_frames Votes."""
+    t = _headless_tracker(monkeypatch, cnn_run="stub-run", confirm_frames=2,
+                          cnn_cooldown_s=0.0, settle_frames=1)
+    stub = _StubRecovery({"match": False, "conflicts": ["e2", "e4"],
+                          "move": "e2e4", "agreement": 1.0})
+    t.recovery = stub                       # lazy _ensure_cnn wird nie gebraucht
+    t._last_corners = [[0, 0], [820, 0], [820, 820], [0, 820]]
+    t._gray_buf.extend([None] * t.avg_frames)   # „stabil genug" fürs Gate
+    t.state = "waiting"
+    # stuck markieren wie der Diff-Pfad es täte
+    with t.lock:
+        t._mark_stuck("no_legal_move")
+        t._mark_stuck("no_legal_move")
+
+    import numpy as np
+    frame = np.zeros((820, 820, 3), dtype=np.uint8)
+    t._cnn_tick(frame)                      # Vote 1 → noch kein Commit
+    assert t.history == []
+    assert "CNN-Recovery prüft" in t.note
+    with t.lock:
+        t._mark_stuck("no_legal_move")      # weiterhin stuck
+    t._cnn_tick(frame)                      # Vote 2 → Commit
+    assert t.history == ["e4"]
+    assert t.recovered_last is True
+    assert t.status()["cnn_active"] is True
+    assert stub.observe_calls == 2
+
+
+def test_tracker_cnn_tick_respects_cooldown(monkeypatch):
+    t = _headless_tracker(monkeypatch, cnn_run="stub-run", confirm_frames=1,
+                          cnn_cooldown_s=3600.0, settle_frames=1)
+    stub = _StubRecovery({"match": False, "conflicts": ["e2", "e4"],
+                          "move": "e2e4", "agreement": 1.0})
+    t.recovery = stub
+    t._last_corners = [[0, 0], [820, 0], [820, 820], [0, 820]]
+    t._gray_buf.extend([None] * t.avg_frames)
+    import time as _time
+    t._last_cnn_ts = _time.time()           # gerade erst beobachtet
+    with t.lock:
+        t._mark_stuck("no_legal_move")
+        t._mark_stuck("no_legal_move")
+    import numpy as np
+    t._cnn_tick(np.zeros((820, 820, 3), dtype=np.uint8))
+    assert stub.observe_calls == 0          # Cooldown greift
+
+
+def test_tracker_cnn_tick_discards_on_board_change(monkeypatch):
+    """FEN ändert sich während der Beobachtung → Ergebnis verwerfen."""
+    t = _headless_tracker(monkeypatch, cnn_run="stub-run", confirm_frames=1,
+                          cnn_cooldown_s=0.0, settle_frames=1)
+
+    class MutatingStub(_StubRecovery):
+        def __init__(self, tracker, result):
+            super().__init__(result)
+            self._t = tracker
+
+        def observe(self, frame, corners):
+            self._t.board.push_san("a3")     # Board mutiert „während" der Inference
+            return super().observe(frame, corners)
+
+    stub = MutatingStub(t, {"match": False, "conflicts": ["e2", "e4"],
+                            "move": "e2e4", "agreement": 1.0})
+    t.recovery = stub
+    t._last_corners = [[0, 0], [820, 0], [820, 820], [0, 820]]
+    t._gray_buf.extend([None] * t.avg_frames)
+    with t.lock:
+        t._mark_stuck("no_legal_move")
+        t._mark_stuck("no_legal_move")
+    import numpy as np
+    t._cnn_tick(np.zeros((820, 820, 3), dtype=np.uint8))
+    assert t.history == []                  # verworfen, nichts committet
+
+
+def test_tracker_periodic_control_warns_without_guessing(monkeypatch):
+    """Periodische Kontrolle: Abweichung ohne eindeutigen Zug → Warnung, kein Commit."""
+    t = _headless_tracker(monkeypatch, cnn_run="stub-run", confirm_frames=1,
+                          cnn_cooldown_s=0.0, cnn_check_interval_s=0.0, settle_frames=1)
+    stub = _StubRecovery({"match": False, "conflicts": ["a3", "h6", "d5"],
+                          "move": None, "agreement": 0.4})
+    t.recovery = stub
+    t._last_corners = [[0, 0], [820, 0], [820, 820], [0, 820]]
+    t._gray_buf.extend([None] * t.avg_frames)
+    t.state = "waiting"                     # ruhig, NICHT stuck → periodischer Trigger
+    import numpy as np
+    t._cnn_tick(np.zeros((820, 820, 3), dtype=np.uint8))
+    assert t.history == []
+    assert t.cnn_status == "mismatch"
+    assert "weicht ab" in t.note
+    assert t.status()["cnn_conflicts"] == ["a3", "h6", "d5"]
+
+
+def test_resync_cnn_endpoint(monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+
+    from chesslab.move_tracker.app import _STATE, create_app
+
+    t_stub = _headless_tracker(monkeypatch, cnn_run="stub-run", confirm_frames=1)
+    t_stub.recovery = _StubRecovery({"match": True, "conflicts": [], "move": None, "agreement": 1.0})
+    import numpy as np
+    t_stub._last_frame = np.zeros((820, 820, 3), dtype=np.uint8)
+    t_stub._last_corners = [[0, 0], [820, 0], [820, 820], [0, 820]]
+
+    client = TestClient(create_app())
+    old = _STATE.get("tracker")
+    try:
+        _STATE.update(tracker=None)
+        r = client.post("/api/resync_cnn").json()
+        assert r["ok"] is False and "nicht gestartet" in r["error"]
+
+        _STATE.update(tracker=t_stub)
+        r = client.post("/api/resync_cnn").json()
+        assert r["ok"] is True and r["match"] is True
+    finally:
+        _STATE.update(tracker=old)
+
+
+def test_resync_cnn_without_model(monkeypatch):
+    t = _headless_tracker(monkeypatch)      # cnn_run=None
+    r = t.resync_cnn()
+    assert r["ok"] is False and "nicht konfiguriert" in r["error"]

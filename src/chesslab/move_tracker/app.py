@@ -41,7 +41,8 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
 
     @app.post("/api/start")
     def start(profile: str = Body("phone"), source: str = Body("0"),
-              motion_thr: float = Body(3.0), change_thr: float = Body(16.0)):
+              motion_thr: float = Body(3.0), change_thr: float = Body(16.0),
+              cnn_run: str | None = Body(None)):
         # Atomic swap: take old tracker out under lock, stop+join OUTSIDE lock,
         # start new one, put in under lock. Double-start leaves exactly one thread.
         old = _STATE.get("tracker")
@@ -50,12 +51,25 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
         if old is not None:
             old.stop()
 
+        kwargs = dict(tk)
+        if cnn_run is not None:                      # Body überschreibt CLI-Default ("" = aus)
+            kwargs["cnn_run"] = cnn_run or None
         t = MoveTracker(profile=profile, source=source, motion_thr=motion_thr,
-                        change_thr=change_thr, **tk)
+                        change_thr=change_thr, **kwargs)
         t.reset_to_start()
         t.start()
         _STATE.update(tracker=t)
-        return {"ok": True, "profile": profile, "source": source}
+        return {"ok": True, "profile": profile, "source": source,
+                "cnn_run": kwargs.get("cnn_run")}
+
+    @app.post("/api/resync_cnn")
+    def resync_cnn():
+        """Manuelle CNN-Kontrolle: Occupancy des Bretts gegen den Spielzustand prüfen;
+        ein EINDEUTIG erklärender Zug wird direkt übernommen, sonst Konflikt-Felder melden."""
+        t = _STATE.get("tracker")
+        if t is None:
+            return {"ok": False, "error": "nicht gestartet"}
+        return t.resync_cnn()
 
     @app.post("/api/reset")
     def reset(fen: str = Body(None, embed=True)):
@@ -147,6 +161,9 @@ if __name__ == "__main__":
     ap.add_argument("--max-changed", type=int, default=6)
     ap.add_argument("--avg-frames", type=int, default=3)
     ap.add_argument("--no-live-align", action="store_true")
+    from .. import config as _config
+    ap.add_argument("--cnn-run", default=_config.MOVE_TRACKER_DEFAULT_RUN,
+                    help="Modell-Run für CNN-Recovery/-Kontrolle ('' = aus)")
     a = ap.parse_args()
 
     runner_tk = {
@@ -156,7 +173,8 @@ if __name__ == "__main__":
             "avg_frames": a.avg_frames,
             "live_align": not a.no_live_align,
         }.items() if v is not None
-    } | {"motion_thr": a.motion_thr, "change_thr": a.change_thr}
+    } | {"motion_thr": a.motion_thr, "change_thr": a.change_thr,
+         "cnn_run": (a.cnn_run or None)}
 
     run(host=a.host, port=a.port, default_profile=a.profile, default_source=a.source,
         tracker_kwargs=runner_tk)

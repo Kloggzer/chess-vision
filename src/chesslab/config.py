@@ -343,6 +343,11 @@ DEFAULT_WEB_PORT: int = 8000
 DEFAULT_TRACK_HOST: str = "127.0.0.1"
 DEFAULT_TRACK_PORT: int = 8001
 
+# Default-Modell für die CNN-Recovery des Move-Trackers (bestes vorhandenes Modell laut
+# docs/architecture-review/training-accuracy-improvements.md §5: val_acc 0.84, combined-Head,
+# Photometrie none — binär auf Occupancy kollabiert robust). None/„fehlt auf Platte" ⇒ Feature aus.
+MOVE_TRACKER_DEFAULT_RUN: str = "run-20260626-163320"
+
 
 def ensure_dirs(paths: Paths = DATA) -> list[Path]:
     """Create all runtime data directories if missing; return the list."""
