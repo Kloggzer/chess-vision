@@ -24,6 +24,10 @@ type PrepStatus = {
   state: "idle" | "running" | "done" | "failed";
   piece: string | null; report?: any; level?: string; messages?: string[]; log_tail?: string;
 };
+type ReconStatus = {
+  state: "idle" | "running" | "done" | "failed";
+  dir: string | null; mesh?: string | null; log_tail?: string;
+};
 
 const PIECES = ["P", "N", "B", "R", "Q", "K", "wP", "wN", "wB", "wR", "wQ", "wK",
                 "bP", "bN", "bB", "bR", "bQ", "bK"];
@@ -36,14 +40,30 @@ function PreparePanel() {
   const [tris, setTris] = useState(20000);
   const [smooth, setSmooth] = useState(10);
   const [prep, setPrep] = useState<PrepStatus | null>(null);
+  const [recon, setRecon] = useState<ReconStatus | null>(null);
   const [msg, setMsg] = useState("");
   const timer = useRef<any>(null);
+  const reconTimer = useRef<any>(null);
 
   const refresh = () => api<Models>("/api/scan/models").then((m) => {
     setModels(m);
     if (!dir && m.scans.length) setDir(m.scans[0].dir);
   }).catch(() => {});
-  useEffect(() => { refresh(); return () => clearInterval(timer.current); }, []);
+  useEffect(() => { refresh(); return () => { clearInterval(timer.current); clearInterval(reconTimer.current); }; }, []);
+
+  const pollRecon = () => api<ReconStatus>("/api/scan/reconstruct/status").then((s) => {
+    setRecon(s);
+    if (s.state !== "running") { clearInterval(reconTimer.current); refresh(); }
+  }).catch(() => {});
+  async function reconstruct() {
+    setMsg("");
+    try {
+      await post("/api/scan/reconstruct", { dir });
+      setRecon({ state: "running", dir });
+      clearInterval(reconTimer.current);
+      reconTimer.current = setInterval(pollRecon, 3000);
+    } catch (e: any) { setMsg("Fehler: " + e.message); }
+  }
 
   const pollPrep = () => api<PrepStatus>("/api/scan/prepare/status").then((s) => {
     setPrep(s);
@@ -61,15 +81,32 @@ function PreparePanel() {
   }
 
   const rep = prep?.report;
+  const cur = models?.scans.find((s) => s.dir === dir);
+  const hasMesh = !!cur?.mesh;
   return (
-    <Card title="3D-Modell vorbereiten (isolieren · dezimieren · Qualität)">
-      <div className="flex flex-wrap items-end gap-3">
+    <Card title="Scan → 3D-Modell (rekonstruieren · isolieren · dezimieren · Qualität)">
+      <div className="mb-3 flex flex-wrap items-end gap-3 border-b border-zinc-800 pb-3">
         <label className="flex flex-col gap-1 text-sm text-zinc-400">Scan-Ordner
           <select value={dir} onChange={(e) => setDir(e.target.value)} className={input}>
             {(models?.scans ?? []).map((s) => (
-              <option key={s.dir} value={s.dir}>{s.dir} · {s.mesh}{s.texture ? "" : " (ohne Textur!)"}</option>
+              <option key={s.dir} value={s.dir}>
+                {s.dir} · {s.photos} Fotos · {s.mesh ? "Mesh ✓" : "noch kein Mesh"}
+              </option>
             ))}
           </select></label>
+        <Button onClick={reconstruct} disabled={!dir || recon?.state === "running"}
+          title="RealityScan headless: Fotos → 3D-Mesh + Textur">
+          <Wand2 className="h-4 w-4" /> {recon?.state === "running" ? "RealityScan läuft…" : "1. Rekonstruieren"}</Button>
+        <span className="text-xs text-zinc-500">
+          {recon?.state === "running" && "● RealityScan rekonstruiert — dauert einige Minuten…"}
+          {recon?.state === "done" && `✓ Mesh erstellt: ${recon.mesh ?? ""}`}
+          {recon?.state === "failed" && "Rekonstruktion fehlgeschlagen (Log prüfen)"}
+          {!recon && (hasMesh ? "Mesh vorhanden — direkt vorbereiten, oder neu rekonstruieren." : "erst rekonstruieren")}
+        </span>
+      </div>
+
+      <div className="mb-1 text-xs text-zinc-500">2. Vorbereiten{!hasMesh && " (braucht ein Mesh)"}:</div>
+      <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 text-sm text-zinc-400">Figur
           <select value={piece} onChange={(e) => setPiece(e.target.value)} className={input}>
             {PIECES.map((p) => <option key={p}>{p}</option>)}
@@ -78,7 +115,7 @@ function PreparePanel() {
           <input type="number" value={tris} onChange={(e) => setTris(+e.target.value)} className={`${input} w-28`} /></label>
         <label className="flex flex-col gap-1 text-sm text-zinc-400" title="Laplacian-Glättung gegen Scan-Bumps. 10 mild, 25–40 stark, 0 = aus.">Glättung
           <input type="number" value={smooth} onChange={(e) => setSmooth(+e.target.value)} className={`${input} w-20`} /></label>
-        <Button variant="primary" onClick={run} disabled={!dir || prep?.state === "running"}>
+        <Button variant="primary" onClick={run} disabled={!dir || !hasMesh || prep?.state === "running"}>
           <Wand2 className="h-4 w-4" /> {prep?.state === "running" ? "läuft…" : "Vorbereiten"}</Button>
         <span className="text-xs text-zinc-500">{msg}</span>
       </div>

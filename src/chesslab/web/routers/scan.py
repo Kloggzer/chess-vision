@@ -22,6 +22,8 @@ log = logging.getLogger("chesslab.web")
 # Vorbereitungs-Job (ein Lauf gleichzeitig, Muster wie TRAIN): `chesslab synth prepare`
 # als Subprozess, damit Blender das Web nicht blockiert.
 PREPARE = LockedState(proc=None, piece=None, log=None, state="idle")
+# Rekonstruktions-Job (RealityScan headless, ein Lauf gleichzeitig).
+RECON = LockedState(proc=None, dir=None, log=None, state="idle")
 _PIECE = re.compile(r"^[wb]?[PNBRQK]$")
 
 
@@ -95,12 +97,13 @@ def scan_models():
         for d in sorted(p for p in SCANS_ROOT.iterdir() if p.is_dir()):
             objs = sorted(d.glob("*.obj"))
             glbs = sorted([*d.glob("*.glb"), *d.glob("*.gltf")])
-            if not objs and not glbs:
-                continue                        # noch nicht rekonstruiert (nur Fotos)
+            photos = sum(1 for _ in d.glob("[0-9]*.jpg"))
+            if not objs and not glbs and photos == 0:
+                continue                        # leerer/irrelevanter Ordner
+            mesh = (objs or glbs)
             tex = _pick_texture(d)
-            scans.append({"dir": d.name, "mesh": (objs or glbs)[0].name,
-                          "texture": tex.name if tex else None,
-                          "photos": sum(1 for _ in d.glob("[0-9]*.jpg"))})
+            scans.append({"dir": d.name, "mesh": mesh[0].name if mesh else None,
+                          "texture": tex.name if tex else None, "photos": photos})
     pieces = []
     pdir = _repo_root() / "synth_pieces"
     if pdir.is_dir():
@@ -178,3 +181,57 @@ def scan_prepare_preview(piece: str):
     if not p.exists():
         return Response(status_code=204)
     return FileResponse(str(p), media_type="image/png")
+
+
+# --- Photogrammetrie: RealityScan headless anstoßen ------------------------------------
+
+@router.post("/api/scan/reconstruct")
+def scan_reconstruct(dir: str = Body(..., embed=True)):
+    """RealityScan headless auf einem Scan-Ordner starten (align → Mesh + Textur → .obj export)."""
+    from ... import config
+
+    exe = config.find_realityscan()
+    if not exe:
+        raise HTTPException(400, "RealityScan nicht gefunden — CHESSLAB_REALITYSCAN setzen "
+                                 "(Pfad zur RealityScan.exe).")
+    proc = RECON.get("proc")
+    if proc is not None and proc.poll() is None:
+        raise HTTPException(409, "es läuft bereits eine Rekonstruktion.")
+    d = SCANS_ROOT / dir
+    n_photos = sum(1 for _ in d.glob("[0-9]*.jpg"))
+    if n_photos < 20:
+        raise HTTPException(400, f"nur {n_photos} Fotos in scans/{dir} — für Photogrammetrie zu wenig "
+                                 "(mind. ~20, besser 60+).")
+    out_obj = d / f"mesh_{dir.lower()}.obj"
+    cmd = [exe, "-headless", "-addFolder", str(d), "-align", "-setReconstructionRegionAuto",
+           "-calculateNormalModel", "-calculateTexture", "-exportSelectedModel", str(out_obj), "-quit"]
+    log_path = d / "_reconstruct.log"
+    log_fh = open(log_path, "w", encoding="utf-8")
+    p = subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT)
+    log_fh.close()   # Kind hält sein eigenes dupliziertes Handle (Windows-Sperre)
+    RECON.update(proc=p, dir=dir, log=log_path, state="running")
+    log.info("RealityScan gestartet: %s (%d Fotos)", dir, n_photos)
+    return {"ok": True, "dir": dir, "photos": n_photos, "cmd": " ".join(cmd)}
+
+
+@router.get("/api/scan/reconstruct/status")
+def scan_reconstruct_status():
+    s = RECON.snapshot()
+    proc, dir_ = s.get("proc"), s.get("dir")
+    rc = proc.poll() if proc is not None else None
+    if proc is not None and rc is None:
+        state = "running"
+    elif proc is not None:
+        state = "done" if rc == 0 else "failed"
+        RECON.update(state=state)
+    else:
+        state = s.get("state", "idle")
+    out = {"state": state, "dir": dir_}
+    if dir_ and state in ("done", "failed"):
+        d = SCANS_ROOT / dir_
+        out["mesh"] = next((p.name for p in sorted(d.glob("*.obj"))), None)
+        log_path = s.get("log")
+        if state == "failed" and log_path and Path(log_path).exists():
+            out["log_tail"] = "\n".join(
+                Path(log_path).read_text(encoding="utf-8", errors="replace").splitlines()[-10:])
+    return out
