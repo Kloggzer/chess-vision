@@ -7,7 +7,7 @@ Zustandsmaschine pro Frame:
     beobachtete Änderung am besten erklären -> Zug anwenden, Referenz aktualisieren.
 
 Reuse aus chesslab: Profil/Geometrie (load_profile, _square_to_col_row, board_corners_for_frame,
-make_tracker, warp_from_corners) und Kamera (web.camera._open_source: int|URL inkl. IP-Cam).
+make_tracker, warp_from_corners) und Kamera (web.camera.open_source: int|URL inkl. IP-Cam).
 """
 
 from __future__ import annotations
@@ -15,12 +15,13 @@ from __future__ import annotations
 import threading
 import time
 from collections import deque
+from typing import NamedTuple
 
 import chess
 import cv2
 import numpy as np
 
-from chesslab.calibration import (
+from ..calibration import (
     _square_to_col_row,
     board_corners_for_frame,
     draw_calibration_overlay,
@@ -28,7 +29,7 @@ from chesslab.calibration import (
     make_tracker,
     warp_from_corners,
 )
-from chesslab.web.camera import _open_source
+from ..web.camera import open_source
 
 _FILES = "abcdefgh"
 _ALL = [f"{f}{r}" for r in range(1, 9) for f in _FILES]
@@ -118,6 +119,62 @@ def best_legal_move(board: chess.Board, diffs: dict[str, float], change_thr: flo
     return best, best_score, second_score, changed
 
 
+# =======================================================================================
+# Observer-Seam (Spec 06/09)
+# =======================================================================================
+
+class Observation(NamedTuple):
+    """Eine Erkennungs-Beobachtung, die ein Observer (Diff/CNN) zurückgibt."""
+    move: chess.Move | None
+    score: float
+    second: float
+    changed: frozenset[str]
+    source: str                 # "diff" | "cnn"
+    note: str = ""
+
+
+def diff_observer(board: chess.Board, diffs: dict[str, float], change_thr: float) -> Observation:
+    """Pure: normalize_diffs → best_legal_move, extrahiert aus dem heutigen _try_detect.
+    Keine Verhaltensänderung — nur Struktur für den Observer-Seam (Spec 09 hängt CNN hier ein)."""
+    diffs = normalize_diffs(diffs)
+    mv, score, second, changed = best_legal_move(board, diffs, change_thr)
+    return Observation(move=mv, score=score, second=second,
+                       changed=frozenset(changed), source="diff")
+
+
+class Confirmer:
+    """Extrahiertes confirm_frames-Voting (heutiges self._cand-Tupel).
+
+    Gleicher uci × confirm_frames → feed() returns True (bestätigt/committen).
+    Anderer uci dazwischen oder feed(None) → Reset.
+    """
+
+    def __init__(self, confirm_frames: int) -> None:
+        self._confirm_frames = confirm_frames
+        self._cand: tuple[str, int] | None = None
+
+    def feed(self, uci: str | None) -> bool:
+        """True = bestätigt (committen!). Kein Reset bei None → explizit reset() aufrufen."""
+        if uci is None:
+            self._cand = None
+            return False
+        cnt = (self._cand[1] + 1) if (self._cand and self._cand[0] == uci) else 1
+        self._cand = (uci, cnt)
+        return cnt >= self._confirm_frames
+
+    def reset(self) -> None:
+        self._cand = None
+
+    @property
+    def count(self) -> int:
+        """Aktueller Zähler (0 wenn kein Kandidat)."""
+        return self._cand[1] if self._cand else 0
+
+
+# =======================================================================================
+# MoveTracker
+# =======================================================================================
+
 class MoveTracker:
     """Liest die Kamera, hält den Spielzustand und das letzte Overlay-Bild (thread-sicher)."""
 
@@ -126,7 +183,7 @@ class MoveTracker:
                  confirm_frames: int = 2, ambiguity_margin: float | None = None,
                  live_align: bool = True, avg_frames: int = 3, max_changed: int = 6) -> None:
         self.profile = load_profile(profile)
-        self.cap = _open_source(source if not str(source).isdigit() else int(source))
+        self.cap = open_source(source if not str(source).isdigit() else int(source))
         self.marker_tracker = make_tracker(self.profile)
         self.board = chess.Board()
         self.motion_thr = motion_thr
@@ -138,8 +195,12 @@ class MoveTracker:
         self.live_align = live_align                  # True: Marker live nachführen; False: Kalib. einfrieren
         self.avg_frames = max(1, avg_frames)          # gleitendes Mittel über N ruhige Frames (Denoise)
         self.max_changed = max_changed                # mehr geänderte Felder => verdeckt/instabil, kein Zug
-        self._cand = None                             # (uci, count) – laufender Bestätigungs-Kandidat
+        self._confirmer = Confirmer(confirm_frames)   # extrahiertes Voting (ersetzt self._cand)
         self._gray_buf = deque(maxlen=self.avg_frames)  # Ring der letzten ruhigen Graubilder
+
+        # Observer-Seam-Slots für Spec 09 (hier nur anlegen, nicht befüllen)
+        self.extra_observers: list = []
+        self.recovery = None
 
         self.lock = threading.Lock()
         self.ref_gray = None          # entzerrtes (gemitteltes) Graubild der Stellung NACH dem letzten Zug
@@ -185,7 +246,7 @@ class MoveTracker:
             self.history, self.last_move, self.note = [], None, "Referenz gesetzt"
             self.ref_gray = None
             self.state = "waiting"
-            self._cand = None
+            self._confirmer.reset()
             self._gray_buf.clear()
 
     def start(self):
@@ -196,46 +257,54 @@ class MoveTracker:
         self._thread.start()
 
     def stop(self):
+        """Signal zum Beenden setzen und auf Thread-Ende warten (NIEMALS unter self.lock joinen)."""
         self._running = False
+        if self._thread is not None and self._thread.is_alive():
+            self._thread.join(timeout=2)
 
     # -- Hauptschleife --
     def _loop(self):
-        while self._running:
-            ok, frame = self.cap.read() if hasattr(self.cap, "read") else (False, None)
-            if not ok or frame is None:
-                time.sleep(0.03)
-                continue
-            warped = self._warp(frame)
-            if warped is None:
+        try:
+            while self._running:
+                ok, frame = self.cap.read() if hasattr(self.cap, "read") else (False, None)
+                if not ok or frame is None:
+                    time.sleep(0.03)
+                    continue
+                warped = self._warp(frame)
+                if warped is None:
+                    with self.lock:
+                        self.note = "warte auf Marker…"
+                    time.sleep(0.02)
+                    continue
+                gray = self._gray(warped)
+
                 with self.lock:
-                    self.note = "warte auf Marker…"
+                    self._last_frame = frame
+                    self.prev_gray = gray if self.prev_gray is None else self.prev_gray
+                    motion = float(cv2.absdiff(gray, self.prev_gray).mean())
+                    self.prev_gray = gray
+
+                    if motion > self.motion_thr:       # Hand/Kamera in Bewegung -> Puffer verwerfen
+                        self.state, self.stable_count = "moving", 0
+                        self._confirmer.reset()
+                        self._gray_buf.clear()
+                    else:
+                        self.stable_count += 1
+                        self._gray_buf.append(gray)
+                        if len(self._gray_buf) >= self.avg_frames:
+                            cur = self._mean_gray()    # gleitendes Mittel über N ruhige Frames (denoised)
+                            if self.ref_gray is None:  # erste ruhige Sicht -> (gemittelte) Referenz
+                                self.ref_gray = cur
+                            elif self.stable_count >= self.settle_frames and self.state != "move":
+                                self._try_detect(cur)  # committet erst nach Mehr-Frame-Bestätigung
+                        if self.state != "move":
+                            self.state = "waiting"
+
+                    self._overlay_jpeg = self._encode_overlay(warped)
                 time.sleep(0.02)
-                continue
-            gray = self._gray(warped)
-
-            with self.lock:
-                self._last_frame = frame
-                self.prev_gray = gray if self.prev_gray is None else self.prev_gray
-                motion = float(cv2.absdiff(gray, self.prev_gray).mean())
-                self.prev_gray = gray
-
-                if motion > self.motion_thr:       # Hand/Kamera in Bewegung -> Puffer verwerfen
-                    self.state, self.stable_count, self._cand = "moving", 0, None
-                    self._gray_buf.clear()
-                else:
-                    self.stable_count += 1
-                    self._gray_buf.append(gray)
-                    if len(self._gray_buf) >= self.avg_frames:
-                        cur = self._mean_gray()    # gleitendes Mittel über N ruhige Frames (denoised)
-                        if self.ref_gray is None:  # erste ruhige Sicht -> (gemittelte) Referenz
-                            self.ref_gray = cur
-                        elif self.stable_count >= self.settle_frames and self.state != "move":
-                            self._try_detect(cur)  # committet erst nach Mehr-Frame-Bestätigung
-                    if self.state != "move":
-                        self.state = "waiting"
-
-                self._overlay_jpeg = self._encode_overlay(warped)
-            time.sleep(0.02)
+        finally:
+            if hasattr(self.cap, "release"):
+                self.cap.release()
 
     def _mean_gray(self):
         """Gleitendes Mittel der gepufferten ruhigen Graubilder -> dämpft Sensor-/Lichtrauschen und
@@ -244,45 +313,56 @@ class MoveTracker:
         return np.mean(np.stack(list(self._gray_buf)), axis=0).astype(np.uint8)
 
     def _try_detect(self, cur):
+        # --- Compute & normalize diffs ---
         diffs = per_square_diff(self.ref_gray, cur, self.profile.board_size, self.profile.white_pov)
-        diffs = normalize_diffs(diffs)              # Belichtungs-/Helligkeitsdrift abziehen
-        changed = [s for s, v in diffs.items() if v >= self.change_thr]
+
+        # --- Empty changed set → ref refresh (absorbiert Restdrift) ---
+        changed = {s for s, v in diffs.items() if v >= self.change_thr}
         if not changed:
-            self._cand = None
-            self.ref_gray = cur                     # ruhig & unverändert -> Referenz nachziehen:
-            return                                  # absorbiert Restdrift/abgeklungenes Wackeln
-        # Verdeckungs-/Instabilitäts-Gate: ein echter Zug berührt höchstens 4 Felder (Rochade). Mehr
-        # geänderte Felder => Hand über dem Brett oder Geometrie wackelt -> NUR melden, KEINEN Zug raten.
+            self._confirmer.reset()
+            self.ref_gray = cur
+            return
+
+        # --- max_changed gate: Verdeckungs-/Instabilitäts-Gate ---
+        # Hook für Spec 09: reason "too_many_changed"
         if len(changed) > self.max_changed:
-            self._cand = None
+            self._confirmer.reset()
             self.note = f"viel Veränderung ({len(changed)} Felder) — verdeckt/instabil, kein Zug"
             return
-        mv, score, second, _ = best_legal_move(self.board, diffs, self.change_thr)
-        if mv is None or score < 0:
-            self._cand = None
+
+        # --- Diff observer (pure: normalize + best_legal_move) ---
+        obs = diff_observer(self.board, diffs, self.change_thr)
+        # Hook für Spec 09 recovery: obs.source == "diff" and obs.move is None ...
+
+        # --- score < 0 gate ---
+        # Hook für Spec 09: reason "no_legal_move"
+        if obs.move is None or obs.score < 0:
+            self._confirmer.reset()
             self.note = f"Änderung auf {len(changed)} Feldern, aber kein legaler Zug passt — Resync nötig?"
             return
-        if score - second < self.ambiguity_margin:  # zwei Züge erklären die Änderung fast gleich gut
-            self._cand = None
+
+        # --- ambiguity gate ---
+        if obs.score - obs.second < self.ambiguity_margin:
+            self._confirmer.reset()
             self.note = "mehrdeutige Änderung — bitte sauber ziehen / kurz warten"
             return
 
-        # Mehr-Frame-Bestätigung: derselbe Zug muss über confirm_frames ruhige Frames stabil sein,
-        # damit ein einzelner verrauschter Frame keinen Geisterzug committet.
-        uci = mv.uci()
-        cnt = (self._cand[1] + 1) if (self._cand and self._cand[0] == uci) else 1
-        self._cand = (uci, cnt)
-        if cnt < self.confirm_frames:
-            self.note = f"erkenne {self.board.san(mv)}… ({cnt}/{self.confirm_frames})"
+        # --- Confirmer voting ---
+        uci = obs.move.uci()
+        if not self._confirmer.feed(uci):
+            cnt = self._confirmer.count
+            san = self.board.san(obs.move)
+            self.note = f"erkenne {san}… ({cnt}/{self.confirm_frames})"
             return
 
-        san = self.board.san(mv)
-        self.board.push(mv)
+        # --- Commit ---
+        san = self.board.san(obs.move)
+        self.board.push(obs.move)
         self.history.append(san)
-        self.last_move = mv.uci()
+        self.last_move = obs.move.uci()
         self.ref_gray = cur                         # neue (gemittelte) Referenz = Stellung nach dem Zug
         self.state = "move"
-        self._cand = None
+        self._confirmer.reset()
         self.note = f"Zug erkannt: {san}"
         if self.board.is_checkmate():
             self.note += " — Schachmatt!"
@@ -357,6 +437,6 @@ class MoveTracker:
                 self.history.pop()
                 self.last_move = None
                 self.ref_gray = None                # Referenz neu aufnehmen
-                self._cand = None
+                self._confirmer.reset()
                 self._gray_buf.clear()
                 self.note = "letzter Zug rückgängig"

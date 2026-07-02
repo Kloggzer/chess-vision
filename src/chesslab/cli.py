@@ -450,6 +450,31 @@ def web_cmd(
     raise typer.Exit(run_web(host=host, port=port))
 
 
+@app.command("track")
+def track_cmd(
+    profile: str = typer.Option("phone", "--profile", help="chesslab-Kalibrierprofil."),
+    source: str = typer.Option("0", "--source", help="Kamera: 0=Webcam, URL=IP-Cam."),
+    host: str = typer.Option(config.DEFAULT_TRACK_HOST, "--host"),
+    port: int = typer.Option(config.DEFAULT_TRACK_PORT, "--port"),
+    motion_thr: float = typer.Option(3.0, "--motion-thr", help="Bewegungs-Schwelle für Motion-Gating."),
+    change_thr: float = typer.Option(16.0, "--change-thr", help="Helligkeitsdifferenz-Schwelle je Feld."),
+    confirm_frames: int = typer.Option(2, "--confirm-frames", help="Bestätigungs-Frames pro Zug."),
+    max_changed: int = typer.Option(6, "--max-changed", help="Maximal geänderte Felder (Gate)."),
+    avg_frames: int = typer.Option(3, "--avg-frames", help="Gleitendes Mittel über N ruhige Frames."),
+    no_live_align: bool = typer.Option(False, "--no-live-align", help="Marker-Nachführung deaktivieren."),
+) -> None:
+    """Move-Tracker: Brett-Digitalisierung per Frame-Differenz + Legalität (Web-UI)."""
+    from .move_tracker.app import run as run_track
+
+    tracker_kwargs = {
+        "motion_thr": motion_thr, "change_thr": change_thr,
+        "confirm_frames": confirm_frames, "max_changed": max_changed,
+        "avg_frames": avg_frames, "live_align": not no_live_align,
+    }
+    raise typer.Exit(run_track(host=host, port=port, default_profile=profile,
+                               default_source=source, tracker_kwargs=tracker_kwargs))
+
+
 def main() -> None:
     # Ensure non-ASCII report glyphs (—, umlauts) render on Windows consoles too.
     for stream in (sys.stdout, sys.stderr):

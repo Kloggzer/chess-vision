@@ -1,8 +1,9 @@
 """Web-UI des Move-Trackers: links die Live-Kamera mit dem, was der Computer GLAUBT (Figuren +
 letzter Zug eingeblendet), rechts das rekonstruierte Brett (python-chess-SVG) + Zugliste.
 
-Start:  python -m move_tracker.app --profile phone --source https://192.168.178.23:4444/video/m.jpeg
+Start:  chesslab track --profile phone --source https://192.168.178.23:4444/video/m.jpeg
         (oder --source 0 für lokale Kamera). Dann http://127.0.0.1:8001
+        python -m chesslab.move_tracker.app funktioniert ebenfalls.
 """
 
 from __future__ import annotations
@@ -13,15 +14,24 @@ from pathlib import Path
 import chess
 import chess.svg
 
+from ..web.state import LockedState
 from .tracker import MoveTracker
 
 _STATIC = Path(__file__).parent / "static"
-_STATE: dict = {"tracker": None}
+_STATE = LockedState(tracker=None, default_profile="phone", default_source="0")
 
 
-def create_app():
+def create_app(default_profile: str = "phone", default_source: str = "0",
+               tracker_kwargs: dict | None = None):
+    """Erzeugt die FastAPI-App mit festen Defaults für Profil/Quelle/Tracker-Parameter."""
     from fastapi import Body, FastAPI
     from fastapi.responses import FileResponse, Response, StreamingResponse
+
+    # Tracker-Tunable-Defaults (für die Start-API)
+    tk = tracker_kwargs or {}
+
+    # Update module-level state with this app's defaults
+    _STATE.update(default_profile=default_profile, default_source=default_source)
 
     app = FastAPI(title="chess move-tracker")
 
@@ -32,13 +42,19 @@ def create_app():
     @app.post("/api/start")
     def start(profile: str = Body("phone"), source: str = Body("0"),
               motion_thr: float = Body(3.0), change_thr: float = Body(16.0)):
-        t = _STATE.get("tracker")
-        if t is not None:
-            t.stop()
-        t = MoveTracker(profile=profile, source=source, motion_thr=motion_thr, change_thr=change_thr)
+        # Atomic swap: take old tracker out under lock, stop+join OUTSIDE lock,
+        # start new one, put in under lock. Double-start leaves exactly one thread.
+        old = _STATE.get("tracker")
+        if old is not None:
+            _STATE.update(tracker=None)
+        if old is not None:
+            old.stop()
+
+        t = MoveTracker(profile=profile, source=source, motion_thr=motion_thr,
+                        change_thr=change_thr, **tk)
         t.reset_to_start()
         t.start()
-        _STATE["tracker"] = t
+        _STATE.update(tracker=t)
         return {"ok": True, "profile": profile, "source": source}
 
     @app.post("/api/reset")
@@ -63,7 +79,11 @@ def create_app():
     def status():
         t = _STATE.get("tracker")
         if t is None:
-            return {"active": False}
+            return {
+                "active": False,
+                "default_profile": _STATE.get("default_profile", default_profile),
+                "default_source": _STATE.get("default_source", default_source),
+            }
         s = t.status()
         s["active"] = True
         return s
@@ -100,11 +120,16 @@ def create_app():
     return app
 
 
-def run(host: str = "127.0.0.1", port: int = 8001) -> int:
+def run(host: str = "127.0.0.1", port: int = 8001,
+        default_profile: str = "phone", default_source: str = "0",
+        tracker_kwargs: dict | None = None) -> int:
     import uvicorn
 
+    _STATE.update(default_profile=default_profile, default_source=default_source)
     print(f"move-tracker UI: http://{host}:{port}")
-    uvicorn.run(create_app(), host=host, port=port, log_level="warning")
+    uvicorn.run(create_app(default_profile=default_profile, default_source=default_source,
+                           tracker_kwargs=tracker_kwargs),
+                host=host, port=port, log_level="warning")
     return 0
 
 
@@ -116,8 +141,22 @@ if __name__ == "__main__":
     ap.add_argument("--source", default="0")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8001)
+    ap.add_argument("--motion-thr", type=float, default=3.0)
+    ap.add_argument("--change-thr", type=float, default=16.0)
+    ap.add_argument("--confirm-frames", type=int, default=2)
+    ap.add_argument("--max-changed", type=int, default=6)
+    ap.add_argument("--avg-frames", type=int, default=3)
+    ap.add_argument("--no-live-align", action="store_true")
     a = ap.parse_args()
-    # Quelle vorab als Default in die Start-API legen, damit der „Start"-Button sie nutzt.
-    _STATE["default_source"] = a.source
-    _STATE["default_profile"] = a.profile
-    run(host=a.host, port=a.port)
+
+    runner_tk = {
+        k: v for k, v in {
+            "confirm_frames": a.confirm_frames,
+            "max_changed": a.max_changed,
+            "avg_frames": a.avg_frames,
+            "live_align": not a.no_live_align,
+        }.items() if v is not None
+    } | {"motion_thr": a.motion_thr, "change_thr": a.change_thr}
+
+    run(host=a.host, port=a.port, default_profile=a.profile, default_source=a.source,
+        tracker_kwargs=runner_tk)

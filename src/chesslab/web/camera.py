@@ -110,7 +110,7 @@ def _is_url(source) -> bool:
     return isinstance(source, str) and "://" in source
 
 
-def _open_source(source):
+def open_source(source):
     """Quelle öffnen: URL -> MJPEG-Stream-Leser bzw. Snapshot-Holer (beide HTTPS/selbstsigniert-
     tauglich); sonst lokaler Index/Pfad über `open_camera` (DSHOW unter Windows). Enthält die URL
     'snapshot' -> Einzelbild-Poll, sonst Multipart-MJPEG-Stream (flüssiger)."""
@@ -119,6 +119,9 @@ def _open_source(source):
             return _UrlSnapshotCapture(source)
         return _UrlMjpegCapture(source)
     return open_camera(source)
+
+
+_open_source = open_source  # backward-compat alias (move_tracker used this before phase 06)
 
 
 def effective_source(index):

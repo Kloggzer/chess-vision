@@ -12,9 +12,13 @@ Zug anwenden, Referenz aktualisieren.
 
 ```bash
 # Handy-IP-Cam (MJPEG) – oder --source 0 für lokale Kamera
-python -m move_tracker.app --profile phone --source https://192.168.178.23:4444/video/m.jpeg
+chesslab track --profile phone --source https://192.168.178.23:4444/video/m.jpeg
 # dann:  http://127.0.0.1:8001
 ```
+
+> **Migration:** Bis Rework-Phase 06 lag der Tracker als `python -m move_tracker.app` auf Repo-Root.
+> Jetzt ist er Teil des `chesslab`-Pakets: `chesslab track` (CLI) oder `python -m chesslab.move_tracker.app`
+> (direkter Modul-Start).
 
 Im UI: **Start** (beginnt aus der Grundstellung) · **Startstellung neu** (= „ich habe gerade die
 Grundstellung aufgebaut", setzt die Referenz) · **Undo**. Links Live-Kamera mit dem, was der Computer
@@ -26,24 +30,27 @@ erscheint der Zug rechts. Verrutscht etwas / Zug nicht erkannt → **Undo** oder
 ## Parameter (alle Stellschrauben)
 
 Die Defaults leben in **einer** Stelle: dem `MoveTracker(...)`-Konstruktor in `tracker.py`. Dort dauerhaft
-ändern, oder pro Lauf per CLI-Flag (`app.py`) bzw. API-Body (`POST /api/start`) überschreiben.
+ändern, oder pro Lauf per CLI-Flag (`chesslab track`) bzw. API-Body (`POST /api/start`) überschreiben.
 
 | Parameter         | Default        | Wirkung                                                                 | Hochsetzen, wenn …                          | Runtersetzen, wenn …                        | Wo einstellbar |
 |-------------------|----------------|-------------------------------------------------------------------------|---------------------------------------------|---------------------------------------------|----------------|
 | `profile`         | `"phone"`      | chesslab-Kalibrierprofil (Geometrie/Warp). Datei `data/calibration/<name>.yaml`. | —                                           | —                                           | CLI `--profile`, API-Body |
 | `source`          | `"0"`          | Kamera: `0`/`1` = lokale Webcam, URL = IP-Cam (MJPEG `…/video/m.jpeg`).  | —                                           | —                                           | CLI `--source`, API-Body |
-| `motion_thr`      | `3.0`          | Bewegungs-Schwelle (mittlere Frame-zu-Frame-Differenz) für „Hand im Bild". | Erkennung bleibt fälschlich auf „moving" (Licht-/Sensorrauschen). | Züge werden erkannt, *während* die Hand noch über dem Brett ist. | `tracker.py`, API-Body |
-| `change_thr`      | `16.0`         | Ab welcher Helligkeits­differenz (0–255) ein Feld als „geändert" gilt.   | Geisterzüge durch Schatten/Licht.           | Echte Züge werden übersehen (zu wenig Kontrast Figur↔Feld). | `tracker.py`, API-Body |
+| `motion_thr`      | `3.0`          | Bewegungs-Schwelle (mittlere Frame-zu-Frame-Differenz) für „Hand im Bild". | Erkennung bleibt fälschlich auf „moving" (Licht-/Sensorrauschen). | Züge werden erkannt, *während* die Hand noch über dem Brett ist. | `tracker.py`, CLI `--motion-thr`, API-Body |
+| `change_thr`      | `16.0`         | Ab welcher Helligkeitsdifferenz (0–255) ein Feld als „geändert" gilt.   | Geisterzüge durch Schatten/Licht.           | Echte Züge werden übersehen (zu wenig Kontrast Figur↔Feld). | `tracker.py`, CLI `--change-thr`, API-Body |
 | `settle_frames`   | `4`            | Wie viele ruhige Frames vergehen müssen, bis überhaupt geprüft wird.     | Es wird zu früh geprüft (Brett noch nicht ganz ruhig). | Erkennung fühlt sich träge an.              | `tracker.py` |
-| `confirm_frames`  | `2`            | Wie oft derselbe Zug in Folge bestätigt sein muss, bevor er committet.   | Noch Geisterzüge durch einzelne Rausch-Frames. | Erkennung soll schneller/sofort reagieren (`1`). | `tracker.py` |
+| `confirm_frames`  | `2`            | Wie oft derselbe Zug in Folge bestätigt sein muss, bevor er committet.   | Noch Geisterzüge durch einzelne Rausch-Frames. | Erkennung soll schneller/sofort reagieren (`1`). | `tracker.py`, CLI `--confirm-frames` |
 | `ambiguity_margin`| `= change_thr` | Mindest-Score-Abstand zum zweitbesten Zug; sonst „mehrdeutig", kein Commit. | Zu oft „mehrdeutig" bei eindeutigen Zügen.  | Zwei ähnliche Züge werden verwechselt.      | `tracker.py` |
+| `live_align`      | `True`         | Marker-Tracker live nachführen oder Kalibrier-Geometrie einfrieren.      | Kamera/Statik verschiebt sich über die Session (Marker halten dagegen). | Stativ-Kamera, fest verankert (keine Drift). | `tracker.py`, CLI `--no-live-align` |
+| `avg_frames`      | `3`            | Gleitendes Mittel über N ruhige Graubilder (denoised) für die Per-Feld-Differenz. | Sensor-/Lichtrauschen hoch, plötzliche Belichtungssprünge. | Latenz soll minimal sein.                   | `tracker.py`, CLI `--avg-frames` |
+| `max_changed`     | `6`            | Maximal geänderte Felder, bevor der Frame als „verdeckt/instabil" verworfen wird. | Hand löst viele Felder aus, die fälschlich als Zug erkannt werden. | Rochade (4 Felder + Schatten) wird unterdrückt. | `tracker.py`, CLI `--max-changed` |
 | `--host`/`--port` | `127.0.0.1`/`8001` | Adresse des Web-UI.                                                  | —                                           | —                                           | CLI |
 
 **Beispiele:**
 
 ```bash
-# pro Lauf via CLI (Geometriequelle):
-python -m move_tracker.app --profile phone --source 1 --port 8002
+# pro Lauf via CLI:
+chesslab track --profile phone --source 1 --port 8002
 
 # Heuristik dauerhaft anpassen → in tracker.py, MoveTracker.__init__:
 #   motion_thr=3.0  change_thr=16.0  settle_frames=4  confirm_frames=2  ambiguity_margin=None
@@ -70,5 +77,3 @@ curl -X POST http://127.0.0.1:8001/api/start \
   klassifizieren und den Zustand korrigieren.
 - Beliebige Startstellung per CNN einlesen statt Grundstellung.
 - PGN-Export / Stockfish-Analyse der laufenden Partie.
-</content>
-</invoke>

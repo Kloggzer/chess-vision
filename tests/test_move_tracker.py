@@ -1,4 +1,4 @@
-"""Sicherheitsnetz-Tests für move_tracker/tracker.py — pure, headless, keine Kamera.
+"""Sicherheitsnetz-Tests für chesslab.move_tracker.tracker — pure, headless, keine Kamera.
 
 Deckt die Kernfunktionen, deren Verhalten in Spec 06/09 umgebaut wird. Diese Tests
 PINNEN das IST-Verhalten (Regel 7 in entry.md): kein „Fix" der getesteten Funktionen.
@@ -10,7 +10,7 @@ import chess
 import numpy as np
 import pytest
 
-from move_tracker.tracker import (
+from chesslab.move_tracker.tracker import (
     best_legal_move,
     move_touched_squares,
     normalize_diffs,
@@ -23,7 +23,7 @@ from move_tracker.tracker import (
 
 def _diffs(values: dict[str, float], default: float = 1.0) -> dict[str, float]:
     """Build a 64-field diff dict: `values` overrides, rest gets `default`."""
-    from move_tracker.tracker import _ALL
+    from chesslab.move_tracker.tracker import _ALL
 
     d = {sq: default for sq in _ALL}
     d.update(values)
@@ -36,7 +36,7 @@ def _diffs(values: dict[str, float], default: float = 1.0) -> dict[str, float]:
 
 def test_normalize_diffs_all_equal_suppresses_global_shift():
     """64 Felder gleicher Wert (globaler Belichtungs-Shift) → alle ≈ 0."""
-    from move_tracker.tracker import _ALL
+    from chesslab.move_tracker.tracker import _ALL
 
     diffs = {sq: 20.0 for sq in _ALL}
     result = normalize_diffs(diffs)
@@ -46,7 +46,7 @@ def test_normalize_diffs_all_equal_suppresses_global_shift():
 
 def test_normalize_diffs_isolates_hot_fields():
     """62 Felder ≈ 2.0, e2/e4 = 40.0 → e2/e4 bleiben ≈ 38, Rest ≈ 0."""
-    from move_tracker.tracker import _ALL
+    from chesslab.move_tracker.tracker import _ALL
 
     diffs = {sq: 2.0 for sq in _ALL}
     diffs["e2"] = 40.0
@@ -253,3 +253,231 @@ def test_square_region_white_pov_a1_bottom_left():
 
     x0, y0, x1, y1 = square_region("h8", bs, white_pov=True)
     assert y1 < bs * 0.25  # h8 → row=0 → im oberen Viertel
+
+
+# =======================================================================================
+# Teil 2 — Confirmer, headless E2E, TestClient (Spec 06)
+# =======================================================================================
+
+
+class TestConfirmer:
+    """Extrahiertes confirm_frames-Voting aus tracker.py."""
+
+    def test_same_uci_confirm_frames_times_commits(self):
+        from chesslab.move_tracker.tracker import Confirmer
+
+        c = Confirmer(confirm_frames=3)
+        assert c.feed("e2e4") is False  # 1/3
+        assert c.feed("e2e4") is False  # 2/3
+        assert c.feed("e2e4") is True   # 3/3
+
+    def test_different_uci_resets_count(self):
+        from chesslab.move_tracker.tracker import Confirmer
+
+        c = Confirmer(confirm_frames=3)
+        c.feed("e2e4")  # 1/3
+        c.feed("e2e4")  # 2/3
+        assert c.feed("d2d4") is False  # reset → 1/3 for d2d4
+        assert c.count == 1
+
+    def test_none_resets(self):
+        from chesslab.move_tracker.tracker import Confirmer
+
+        c = Confirmer(confirm_frames=3)
+        c.feed("e2e4")
+        c.feed("e2e4")
+        assert c.feed(None) is False
+        assert c.count == 0
+
+    def test_explicit_reset(self):
+        from chesslab.move_tracker.tracker import Confirmer
+
+        c = Confirmer(confirm_frames=2)
+        c.feed("e2e4")
+        c.reset()
+        assert c.count == 0
+        assert c.feed("e2e4") is False  # fresh start
+
+    def test_confirm_frames_one_immediate(self):
+        from chesslab.move_tracker.tracker import Confirmer
+
+        c = Confirmer(confirm_frames=1)
+        assert c.feed("e2e4") is True
+
+
+# --- headless E2E helpers ---------------------------------------------------------------
+
+def _make_identity_profile(board_size=400, white_pov=True):
+    """Identity calibration profile: image exactly maps to board_size square."""
+    import cv2
+
+    from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
+
+    corners = [[0.0, 0.0], [float(board_size), 0.0],
+               [float(board_size), float(board_size)], [0.0, float(board_size)]]
+    H = compute_homography(corners, board_size)
+    return CalibrationProfile(
+        profile="test-identity", camera_index=0,
+        frame_size=(board_size, board_size),
+        board_size=board_size,
+        image_corners=corners, homography=H,
+        white_pov=white_pov,
+        crop=CropParams.default(board_size),
+    )
+
+
+class FakeCapture:
+    """Pretend camera: reads from a list of BGR frames, then repeats the last one."""
+
+    def __init__(self, frames):
+        self.frames = [f.copy() for f in frames]
+        self.i = 0
+
+    def read(self):
+        if self.i < len(self.frames):
+            f = self.frames[self.i]
+            self.i += 1
+            return True, f.copy()
+        if self.frames:
+            return True, self.frames[-1].copy()
+        return False, None
+
+    def isOpened(self):
+        return True
+
+    def release(self):
+        pass
+
+
+def _bgr_frame(blob_squares, board_size=400, white_pov=True) -> np.ndarray:
+    """Gray BGR frame with bright 40×40 blob(s) on given square(s)."""
+    from chesslab.move_tracker.tracker import square_region
+
+    img = np.full((board_size, board_size, 3), 128, dtype=np.uint8)
+    for sq in blob_squares:
+        x0, y0, x1, y1 = square_region(sq, board_size, white_pov)
+        img[y0:y1, x0:x1] = (220, 220, 220)
+    return img
+
+
+class TestMoveTrackerHeadless:
+    """End-to-end: MoveTracker with FakeCapture, identity profile, no live camera."""
+
+    def test_single_move_detected(self, monkeypatch):
+        from chesslab.move_tracker.tracker import MoveTracker
+
+        board_size = 400
+        prof = _make_identity_profile(board_size=board_size)
+
+        # Frames: 10 "start" frames (blob on e2), then 20 "after" frames (blob on e4)
+        start = _bgr_frame(["e2"], board_size=board_size)
+        after = _bgr_frame(["e4"], board_size=board_size)
+        fake = FakeCapture([start] * 10 + [after] * 20)
+
+        monkeypatch.setattr("chesslab.move_tracker.tracker.open_source", lambda s: fake)
+        monkeypatch.setattr("chesslab.move_tracker.tracker.load_profile", lambda p: prof)
+
+        mt = MoveTracker(profile="phone", source="0", live_align=False,
+                         motion_thr=100, settle_frames=3, confirm_frames=3,
+                         change_thr=10, avg_frames=2, max_changed=6)
+        mt.reset_to_start()
+        mt.start()
+
+        # Poll until a move is detected or timeout
+        import time as _time
+        deadline = _time.time() + 5.0
+        detected = False
+        while _time.time() < deadline:
+            s = mt.status()
+            if s["history"]:
+                detected = True
+                break
+            _time.sleep(0.05)
+
+        mt.stop()
+        s = mt.status()
+
+        assert detected, f"no move detected after timeout; state={s['state']} note={s['note']}"
+
+        # At least one move, ideally e2e4
+        assert len(s["history"]) >= 1
+        # history stores SAN (e.g. "e4"); last_move stores UCI (e.g. "e2e4")
+        assert s["last_move"] is not None
+        assert "e2" in s["last_move"] and "e4" in s["last_move"]
+
+    def test_stop_joins_within_timeout(self, monkeypatch):
+        from chesslab.move_tracker.tracker import MoveTracker
+
+        board_size = 400
+        prof = _make_identity_profile(board_size=board_size)
+
+        frame = _bgr_frame(["e2"], board_size=board_size)
+        fake = FakeCapture([frame] * 5)
+
+        monkeypatch.setattr("chesslab.move_tracker.tracker.open_source", lambda s: fake)
+        monkeypatch.setattr("chesslab.move_tracker.tracker.load_profile", lambda p: prof)
+
+        mt = MoveTracker(profile="phone", source="0", live_align=False, settle_frames=10)
+        mt.reset_to_start()
+        mt.start()
+        import time as _time
+        _time.sleep(0.2)  # let loop run a few iterations
+        mt.stop()
+        assert mt._thread is not None
+        assert not mt._thread.is_alive()
+
+
+class TestAppEndpoints:
+    """TestClient on create_app() — contract freeze."""
+
+    def test_status_inactive_contains_defaults(self):
+        from chesslab.move_tracker.app import create_app
+
+        # Must not import TestClient at module level (fastapi lazy)
+        from fastapi.testclient import TestClient
+
+        client = TestClient(create_app(default_profile="testp", default_source="99"))
+        r = client.get("/api/status")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["active"] is False
+        assert data.get("default_profile") == "testp"
+        assert data.get("default_source") == "99"
+
+    def test_double_start_one_thread(self, monkeypatch):
+        from chesslab.move_tracker.app import create_app
+        from fastapi.testclient import TestClient
+
+        board_size = 400
+        prof = _make_identity_profile(board_size=board_size)
+        frame = _bgr_frame(["e2"], board_size=board_size)
+        fake = FakeCapture([frame] * 5)
+
+        monkeypatch.setattr("chesslab.move_tracker.tracker.open_source", lambda s: fake)
+        monkeypatch.setattr("chesslab.move_tracker.tracker.load_profile", lambda p: prof)
+
+        app = create_app(default_profile="testp", default_source="0",
+                         tracker_kwargs={"live_align": False, "settle_frames": 10})
+        client = TestClient(app)
+
+        # Start twice quickly
+        r1 = client.post("/api/start", json={"profile": "testp", "source": "0"})
+        assert r1.status_code == 200
+        r2 = client.post("/api/start", json={"profile": "testp", "source": "0"})
+        assert r2.status_code == 200
+
+        # Status should be active
+        r = client.get("/api/status")
+        assert r.json()["active"] is True
+
+    def test_reset_invalid_fen(self):
+        from chesslab.move_tracker.app import create_app
+        from fastapi.testclient import TestClient
+
+        client = TestClient(create_app())
+        r = client.post("/api/reset", json={"fen": "invalid-fen-string"})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ok"] is False
+        assert "error" in data
+        assert "ungültige FEN" in data["error"]
