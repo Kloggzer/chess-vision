@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .. import config, doctor
-from .data import filter_rows_by_split, load_manifest, load_split
+from .data import checkpoint_score, filter_rows_by_split, load_manifest, load_split, occupancy_piece_breakdown
 
 
 def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
@@ -161,11 +161,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     }, indent=2), encoding="utf-8")
     metrics_path = run_dir / "metrics.jsonl"
 
-    # Checkpoint/Early-Stopping nach (macro_recall, board_acc): macro_recall ist das glatte,
-    # klassenbalancierte Signal. board_acc (alle 64 Felder korrekt) ist v.a. bei wenig Daten
-    # extrem verrauscht — als Primärmetrik würde ein früher board_acc-Peak das Training stoppen,
-    # obwohl es noch lernt (loss runter, recall hoch). board_acc dient nur als Tiebreak.
-    best_score = (-1.0, -1.0)   # (macro_recall, board_acc)
+    # Checkpoint/Early-Stopping über Occupancy-first-Score: occ_board_acc (alle 64 Felder
+    # leer/besetzt korrekt) ist das Signal, das der move_tracker primär braucht — robuster
+    # als die volle Board-Accuracy bei wenig Val-Daten. occ_acc + macro_recall als Tiebreaker.
+    best_score = (-1.0, -1.0, -1.0)   # (occ_board_acc, occ_acc, macro_recall)
     epochs_no_improve = 0
     print(f"[OK] GPU bereit ({device}); Run-Verzeichnis: {run_dir}")
     for epoch in range(epochs):
@@ -186,6 +185,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         scheduler.step()
 
         val = evaluate_dataset(model, val_ds, device, criterion=criterion, batch_size=batch_size, num_workers=nw)
+        score = checkpoint_score(val_rows, classes, val["trues"].tolist(), val["preds"].tolist())
+        bd = occupancy_piece_breakdown(classes, val["trues"].tolist(), val["preds"].tolist())
         rec = {
             "epoch": epoch,
             "train_loss": running / max(seen, 1),
@@ -193,15 +194,17 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             "val_acc": val["square_acc"],
             "val_macro_recall": val["macro_recall"],
             "val_board_acc": val["board_acc"],
+            "val_occ_acc": bd["occ_acc"],
+            "val_occ_board_acc": score[0],
+            "val_piece_acc": bd["piece_acc"],
             "lr": scheduler.get_last_lr()[0],
         }
         with metrics_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec) + "\n")
         print(f"epoch {epoch:>3} | train_loss {rec['train_loss']:.4f} | val_acc {rec['val_acc']:.4f} "
-              f"| macro_recall {rec['val_macro_recall']:.4f} | board_acc {rec['val_board_acc']:.4f}")
+              f"| macro_recall {rec['val_macro_recall']:.4f} | occ_board_acc {score[0]:.4f}")
 
         torch.save(model.state_dict(), run_dir / "last.pt")
-        score = (val["macro_recall"], val["board_acc"])   # macro_recall primär, board_acc Tiebreak
         if score > best_score:
             best_score = score
             epochs_no_improve = 0
@@ -209,9 +212,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         else:
             epochs_no_improve += 1
             if epochs_no_improve >= patience:
-                print(f"[OK] Early stopping (kein Fortschritt in macro_recall seit {patience} Epochen). "
+                print(f"[OK] Early stopping (kein Fortschritt in occ_board_acc seit {patience} Epochen). "
                       "Mehr Geduld: `--patience N` erhöhen.")
                 break
 
-    print(f"[OK] fertig. beste (macro_recall, board_acc)={best_score[0]:.4f}/{best_score[1]:.4f}; best.pt in {run_dir}")
+    print(f"[OK] fertig. beste nach occ_board_acc={best_score[0]:.4f} (occ_acc={best_score[1]:.4f}, "
+          f"macro_recall={best_score[2]:.4f}); best.pt in {run_dir}")
     return 0

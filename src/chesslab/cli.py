@@ -35,6 +35,9 @@ app.add_typer(dataset_app, name="dataset")
 experiment_app = typer.Typer(help="Stufe 7 — Geometrie×Photometrie Bake-Off.", no_args_is_help=True)
 app.add_typer(experiment_app, name="experiment")
 
+synth_app = typer.Typer(help="Synthetische Daten-Pipeline (Blender-Renderer).", no_args_is_help=True)
+app.add_typer(synth_app, name="synth")
+
 
 @app.callback()
 def _root() -> None:
@@ -289,7 +292,7 @@ def dataset_verify() -> None:
 
 @app.command("ingest")
 def ingest_cmd(
-    adapter: str = typer.Argument(..., help="chesscog | chessred (externer Datensatz)."),
+    adapter: str = typer.Argument(..., help="chesscog | chessred | synthetic (externer/synthetischer Datensatz)."),
     root: str = typer.Argument(..., help="Pfad zum lokal entpackten Datensatz."),
     tag: Optional[str] = typer.Option(None, "--tag", help="Name für Sessions/Datensatz (Default: pretrain-<adapter>)."),
     geometry: str = typer.Option("warp", "--geometry", help="warp (empfohlen, keine Intrinsics) | box3d."),
@@ -473,6 +476,44 @@ def track_cmd(
     }
     raise typer.Exit(run_track(host=host, port=port, default_profile=profile,
                                default_source=source, tracker_kwargs=tracker_kwargs))
+
+
+@synth_app.command("render")
+def synth_render(
+    out: str = typer.Option(..., "--out", help="Zielverzeichnis (Pflicht)."),
+    blend: str = typer.Option(None, "--blend", help="Blender-Szene (Default: synth_assets/Chess Scene.blend)."),
+    pieces_dir: str = typer.Option(None, "--pieces-dir", help="Gescannte Figuren-Vorlagen (Default: synth_pieces/)."),
+    n: int = typer.Option(200, "--n", help="Anzahl zu rendernder Stellungen."),
+    seed: int = typer.Option(42, "--seed"),
+    fens: str | None = typer.Option(None, "--fens", help="FEN-Liste (sonst Fallback Grundstellung)."),
+    res: int = typer.Option(1024, "--res", help="Render-Auflösung (px)."),
+    blender: str | None = typer.Option(None, "--blender", help="Blender-Executable (Default: blender, via CHESSLAB_BLENDER)."),
+) -> None:
+    """Synthetische Brett-Renderings mit Blender erzeugen (PNG + JSON mit fen/corners)."""
+    import subprocess
+
+    from .config import SYNTH, build_blender_cmd
+
+    repo_root = Path(__file__).resolve().parents[2]
+    script = repo_root / "synth" / "render_chessboard.py"
+
+    b = Path(blend) if blend else SYNTH.blend
+    p = Path(pieces_dir) if pieces_dir else SYNTH.pieces_dir if SYNTH.pieces_dir.exists() else None
+    o = Path(out).resolve()
+    fe = Path(fens).resolve() if fens else None
+    bl = blender or SYNTH.blender_cmd()
+    cmd = build_blender_cmd(bl, b, script, o, n=n, seed=seed, fens=fe, pieces=p, res=res)
+
+    print(" ".join(cmd))
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError:
+        print("[FAIL] Blender-Render fehlgeschlagen.")
+        raise typer.Exit(1)
+    except FileNotFoundError:
+        print(f"[FAIL] Blender nicht gefunden ('{bl}'). Pfad prüfen oder CHESSLAB_BLENDER setzen.")
+        raise typer.Exit(1)
+    print(f"[OK] synth render: {o}")
 
 
 def main() -> None:

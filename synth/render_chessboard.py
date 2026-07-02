@@ -2,7 +2,7 @@
 
 Aufruf:
     blender --background "synth_assets/Chess Scene.blend" --python synth/render_chessboard.py \
-            -- <out_dir> <n> <seed> [fens_file]
+            -- --out <pfad> --n 200 --seed 42 --res 1024 [--fens pfad] [--pieces pfad]
 
 Pro Sample: Stellung aus FEN aufbauen, top-down-Kamera (≈senkrecht + Jitter), Licht/Material
 randomisieren, rendern -> out/<i>.png, und **Labels per Projektion** (bekannte 3D-Brettecken ->
@@ -20,6 +20,8 @@ from pathlib import Path
 import bpy
 from bpy_extras.object_utils import world_to_camera_view
 from mathutils import Vector
+
+from render_args import parse_render_args
 
 # --- Brett-Geometrie (aus der Szene gemessen): 48x48 zentriert am Ursprung, 6 Einheiten/Feld ---
 CELL = 6.0
@@ -292,32 +294,34 @@ def set_engine_fast():
 
 
 def main():
-    args = argv_after_dashes()
-    pieces_dir = None
-    if "--pieces" in args:                            # gescannte Figuren-Vorlagen
-        k = args.index("--pieces")
-        pieces_dir = args[k + 1]
-        args = args[:k] + args[k + 2:]
-    out_dir = Path(args[0]) if args else Path("data/synth_raw")
-    n = int(args[1]) if len(args) > 1 else 4
-    seed = int(args[2]) if len(args) > 2 else 42
-    fens_file = args[3] if len(args) > 3 else None
-    out_dir.mkdir(parents=True, exist_ok=True)
+    args_after = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+    ra = parse_render_args(args_after)
+    out_dir = ra.out
+    n = ra.n
+    seed = ra.seed
+    fens_file = ra.fens
+    pieces_dir = str(ra.pieces) if ra.pieces else None
 
-    if fens_file and Path(fens_file).exists():
-        fens = [l.strip() for l in Path(fens_file).read_text().splitlines() if l.strip()]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    print(f"[synth] out={out_dir}")
+    print(f"[synth] n={n}  seed={seed}  res={ra.res}")
+    print(f"[synth] fens={fens_file or 'none'}")
+    print(f"[synth] pieces={pieces_dir or 'prozedural'}")
+
+    if fens_file and fens_file.exists():
+        fens = [l.strip() for l in fens_file.read_text().splitlines() if l.strip()]
     else:
         fens = ["rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR"]   # Fallback: Grundstellung
     rng = random.Random(seed)
 
     scene = bpy.context.scene
     eng = set_engine_fast()
-    scene.render.resolution_x = scene.render.resolution_y = 1024
+    scene.render.resolution_x = scene.render.resolution_y = ra.res
     scene.render.image_settings.file_format = "PNG"
     templates, base_z = build_templates(pieces_dir)
     style_board()
     cam = setup_camera()
-    print(f"[synth] engine={eng}, n={n}, fens={len(fens)}, pieces={pieces_dir or 'prozedural'}, out={out_dir}")
+    print(f"[synth] engine={eng}, fens={len(fens)}")
 
     for i in range(n):
         fen = fens[i % len(fens)] if fens else "8/8/8/8/8/8/8/8"

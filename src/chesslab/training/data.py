@@ -135,6 +135,28 @@ def occupancy_piece_breakdown(classes: list[str], trues: list[int], preds: list[
     }
 
 
+def _macro_recall(trues: list[int], preds: list[int], n_classes: int) -> float:
+    """Per-Klassen-Recall, gemittelt über alle Klassen mit Support (true>0)."""
+    per_class_correct = [0] * n_classes
+    per_class_total = [0] * n_classes
+    for t, p in zip(trues, preds):
+        per_class_total[t] += 1
+        if t == p:
+            per_class_correct[t] += 1
+    recalls = [per_class_correct[i] / per_class_total[i] for i in range(n_classes) if per_class_total[i] > 0]
+    return sum(recalls) / len(recalls) if recalls else 0.0
+
+
+def checkpoint_score(rows: list[dict], classes: list[str],
+                     trues: list[int], preds: list[int]) -> tuple[float, float, float]:
+    """Sortierbarer Score für Checkpoint/Early-Stopping:
+    (occ_board_acc, occ_acc, macro_recall) — Occupancy zuerst, macro_recall als Tiebreaker."""
+    occ_ba = occupancy_board_acc(rows, classes, trues, preds)
+    bd = occupancy_piece_breakdown(classes, trues, preds)
+    mr = _macro_recall(trues, preds, len(classes))
+    return (occ_ba, bd["occ_acc"], mr)
+
+
 def occupancy_board_acc(rows: list[dict], classes: list[str], trues: list[int], preds: list[int]) -> float:
     """Board-Accuracy NUR auf der Occupancy-Stufe: ein Board ist korrekt, wenn alle 64 Felder
     leer-vs-besetzt richtig sind (deutlich leichter als die volle Board-Accuracy)."""

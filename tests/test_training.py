@@ -8,8 +8,10 @@ import pytest
 
 from chesslab import config
 from chesslab.training.data import (
+    _macro_recall,
     board_accuracy,
     build_model_card,
+    checkpoint_score,
     filter_rows_by_split,
     group_frames,
     occupancy_board_acc,
@@ -147,3 +149,43 @@ def test_twostage_piece_head_only_learns_on_occupied():
     # (winziger Rest nur durch die CE-Renormierung der bereits normierten Log-Probs).
     assert g_piece > 1e-3
     assert g_empty < g_piece * 1e-3
+
+
+# --- checkpoint_score (torch-frei) -------------------------------------------------------
+
+
+def _crop_row(session="s0", frame=0, square="a1"):
+    return {"session_id": session, "frame": frame, "square": square, "label": "empty",
+            "out_size": [128, 128], "path": f"{session}_{frame}_{square}.png"}
+
+
+def test_checkpoint_score_occ_perfect_types_wrong():
+    """Occupancy perfekt, alle Typen falsch → occ_board_acc == 1.0 (Score hoch)."""
+    classes = config.CLASSES
+    # 64 Felder, alle occupied, alle Figuren falsch geraten
+    rows = [_crop_row(frame=0, square=f"{(chr(97+c//8))}{8-(c%8)}") for c in range(64)]
+    # Alle wahr besetzt (wP), Vorhersage rät andere Figuren — Occupancy bleibt korrekt
+    trues = [classes.index("wP")] * 64
+    preds = [classes.index("wN")] * 64
+    occ_ba, occ_acc, mr = checkpoint_score(rows, classes, trues, preds)
+    assert occ_ba == 1.0  # alle Felder occupancy-korrekt
+    assert mr < 1.0       # Typen falsch → macro_recall nicht perfekt
+
+
+def test_checkpoint_score_one_occ_flip_per_frame():
+    """Genau ein Occupancy-Flip pro Frame → occ_board_acc == 0.0."""
+    classes = config.CLASSES
+    # 4 frames, je 1 Feld. Alle 4 Frames haben einen occ-Flip (empty→besetzt).
+    rows = [_crop_row(frame=i, square="a1") for i in range(4)]
+    trues = [classes.index("empty")] * 4
+    preds = [classes.index("wP")] * 4
+    occ_ba, occ_acc, mr = checkpoint_score(rows, classes, trues, preds)
+    assert occ_ba == 0.0
+    assert occ_acc == 0.0  # alle Felder occupancy-falsch
+
+
+def test_checkpoint_score_tuple_ordering_sortable():
+    """Score-Tupel lassen sich korrekt vergleichen (lexikografisch)."""
+    assert (1.0, 0.5, 0.3) > (0.9, 0.9, 0.9)  # occ_board_acc sticht
+    assert (0.8, 0.9, 0.3) > (0.8, 0.8, 0.9)  # bei gleichem occ_ba: occ_acc sticht
+    assert (0.8, 0.8, 0.5) > (0.8, 0.8, 0.3)  # macro_recall als letzter Tiebreaker

@@ -133,10 +133,10 @@ class AugmentPolicy:
     rotation are forbidden (they would falsify field colour and geometry). Applied in
     Stage 5 (train only); val/test get deterministic resize/normalize only."""
 
-    brightness: float = 0.2       # ± fraction (lighting variance — the biggest real lever)
-    contrast: float = 0.2
-    gamma: tuple[float, float] = (0.8, 1.2)
-    blur_sigma_max: float = 0.8   # light Gaussian blur / sharpness
+    brightness: float = 0.35      # ± fraction (lighting variance — the biggest real lever)
+    contrast: float = 0.35
+    gamma: tuple[float, float] = (0.6, 1.8)
+    blur_sigma_max: float = 1.5   # Gaussian blur / sharpness (real camera variance)
     jitter_translate: float = 0.03  # ± fraction of crop size (small homography drift)
     jitter_scale: float = 0.03
     color_jitter: float = 0.1
@@ -286,6 +286,54 @@ class Paths:
 
 
 DATA = Paths()
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+@dataclass(frozen=True)
+class SynthDefaults:
+    """Defaults für die synthetische Render-Pipeline (chesslab synth render)."""
+
+    blend: Path = _REPO_ROOT / "synth_assets/Chess Scene.blend"
+    pieces_dir: Path = _REPO_ROOT / "synth_pieces"
+    out_dir: Path = DATA.root / "synth_raw"
+    res: int = 1024
+    blender_exe: str = "blender"  # überschreibbar via Env CHESSLAB_BLENDER
+
+    def blender_cmd(self) -> str:
+        return os.environ.get("CHESSLAB_BLENDER", self.blender_exe)
+
+
+SYNTH = SynthDefaults()
+
+
+def build_blender_cmd(
+    blender: str,
+    blend: Path,
+    script: Path,
+    out: Path,
+    n: int = 200,
+    seed: int = 42,
+    fens: Path | None = None,
+    pieces: Path | None = None,
+    res: int = 1024,
+) -> list[str]:
+    """Erzeugt die Blender-Kommandozeile (reine Funktion, kein subprocess)."""
+    cmd = [
+        blender, "--background", str(blend),
+        "--python", str(script),
+        "--",
+        "--out", str(out),
+        "--n", str(n),
+        "--seed", str(seed),
+        "--res", str(res),
+    ]
+    if fens is not None:
+        cmd.extend(["--fens", str(fens)])
+    if pieces is not None:
+        cmd.extend(["--pieces", str(pieces)])
+    return cmd
+
 
 # --- Web-UI defaults (local app) ------------------------------------------------------
 DEFAULT_WEB_HOST: str = "127.0.0.1"
