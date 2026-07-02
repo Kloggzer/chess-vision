@@ -139,6 +139,17 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
                               num_workers=nw, pin_memory=True, drop_last=False)
 
+    # Runs werden self-describing: Geometrie/Photometrie/Extrusionshöhe aus der ersten
+    # Manifest-Zeile (gleiche Herleitung wie `labeling.variant_of_run`, das Alt-Runs ohne
+    # dieses Feld über einen Manifest-Scan versorgt). So kennt `serving.run_spec` die
+    # Preprocessing-Variante ohne Manifest-Zugriff.
+    first_row = manifest[0] if manifest else {}
+    variant = {
+        "geometry": first_row.get("geometry", "warp"),
+        "photometry": first_row.get("photometry", "none"),
+        "piece_height_cells": float(first_row.get("piece_height_cells", config.EXP_PIECE_HEIGHT_CELLS)),
+    }
+
     run_dir = Path(out) if out else config.DATA.models / f"run-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "config.json").write_text(json.dumps({
@@ -146,6 +157,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "seed": seed, "amp": amp, "norm": norm_eff, "classes": classes, "out_size": list(out_size),
         "dataset": dataset, "resumed_from": resumed_from, "head": head,
         "normalize": {"mean": list(config.NORMALIZE_MEAN), "std": list(config.NORMALIZE_STD)},
+        "variant": variant,
     }, indent=2), encoding="utf-8")
     metrics_path = run_dir / "metrics.jsonl"
 

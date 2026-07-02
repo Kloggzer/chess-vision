@@ -18,6 +18,7 @@ from .. import config
 from .. import dataset as dataset_mod
 from .. import dataset_build as dataset_build_mod
 from .. import labeling as labeling_mod
+from .. import serving
 from .. import sessions as sessions_mod
 from ..calibration import (
     CalibrationProfile, CropParams, MarkerTracker, compute_homography, detect_board_markers,
@@ -374,6 +375,7 @@ def create_app():
         d = config.DATA.models / run
         if "/" in run or "\\" in run or ".." in run or not (d / "config.json").exists():
             raise HTTPException(404, f"Run '{run}' nicht gefunden.")
+        serving.clear_cache()
         shutil.rmtree(d)
         return {"ok": True, "run": run}
 
@@ -841,12 +843,13 @@ def create_app():
         if not (config.DATA.models / run / "config.json").exists():
             raise HTTPException(400, f"Modell-Run '{run}' nicht gefunden.")
         CAMERA.ensure(camera)
-        geometry, photometry, piece_height = labeling_mod.variant_of_run(config.DATA.models / run)
+        spec = serving.run_spec(config.DATA.models / run)
         _INFER.update({"profile": prof, "board": BoardTracker(prof),
                        "run": run, "camera": camera, "last": None,
-                       "geometry": geometry, "photometry": photometry, "piece_height": piece_height})
-        print(f"[OK] Inference '{run}': geometry={geometry} photometry={photometry}")
-        return {"ok": True, "run": run, "geometry": geometry, "photometry": photometry}
+                       "geometry": spec.geometry, "photometry": spec.photometry,
+                       "piece_height": spec.piece_height_cells})
+        print(f"[OK] Inference '{run}': geometry={spec.geometry} photometry={spec.photometry}")
+        return {"ok": True, "run": run, "geometry": spec.geometry, "photometry": spec.photometry}
 
     @app.get("/api/inference/state")
     def inference_state():
@@ -857,7 +860,6 @@ def create_app():
     @app.get("/api/camera/inference.mjpg")
     def camera_inference():
         def frames():
-            from .inference import predict_arrays
             CONF_COL = lambda c: (0, 200, 0) if c >= 0.8 else (0, 215, 255) if c >= 0.5 else (0, 0, 255)
             while True:
                 f = CAMERA.read()
@@ -873,22 +875,19 @@ def create_app():
                     yield img
                     continue
                 squares = labeling_mod.all_squares()
-                # Crops EXAKT wie beim Training der Variante (gebordeter warp/box3d + Photometrie).
-                crops = labeling_mod.crops_for_frame(
-                    f, corners, prof, geometry=_INFER["geometry"], photometry=_INFER["photometry"],
-                    piece_height_cells=_INFER["piece_height"], out_size=tuple(prof.crop.out_size))
+                # Crops + Vorhersage: kanonische Pipeline aus `serving.predict_frame`.
                 try:
-                    preds = predict_arrays(config.DATA.models / run, crops, device="cpu")
+                    preds = serving.predict_frame(config.DATA.models / run, f, corners, prof, device="cpu")
                 except Exception as e:  # noqa: BLE001
                     img = warped.copy()
                     cv2.putText(img, f"Modell-Fehler: {e}", (10, 28), cv2.FONT_HERSHEY_SIMPLEX,
                                 0.6, (0, 0, 255), 2, cv2.LINE_AA)
                     yield img
                     continue
-                labels = {sq: p["pred_label"] for sq, p in zip(squares, preds)}
+                labels = {p["square"]: p["pred_label"] for p in preds}
                 img = draw_board_grid(warped, prof)
-                for sq, p in zip(squares, preds):
-                    lab, conf = p["pred_label"], p["confidence"]
+                for p in preds:
+                    sq, lab, conf = p["square"], p["pred_label"], p["confidence"]
                     if lab == "empty":
                         continue
                     ch = "#" if lab == "occluded" else _label_to_fen_char(lab) or "?"
