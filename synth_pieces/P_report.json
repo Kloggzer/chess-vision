@@ -1,23 +1,23 @@
 {
   "piece": "P",
-  "verts": 10013,
-  "tris_before": 257948,
-  "tris_after": 19997,
+  "verts": 10019,
+  "tris_before": 450130,
+  "tris_after": 19998,
   "decimated": true,
   "target_tris": 20000,
   "smooth_iters": 10,
   "keep_radius": 1.9,
   "components_removed": 0,
   "filled_holes": true,
-  "pattern_margin": 11.25,
-  "piece_vertex_frac": 0.076,
-  "boundary_edges": 46,
-  "nonmanifold_edges": 24,
+  "pattern_margin": 9.8,
+  "piece_vertex_frac": 0.151,
+  "boundary_edges": 52,
+  "nonmanifold_edges": 31,
   "dims": [
-    8.9947,
-    9.245,
-    14.8553
+    13.9225,
+    13.8291,
+    23.1092
   ],
-  "height_ratio": 1.607,
+  "height_ratio": 1.66,
   "preview": "C:\\Users\\mariu\\project\\chess-vision\\synth_pieces\\P_preview.png"
 }
