@@ -135,6 +135,103 @@ def test_verify_flags_missing_file_size_and_split_overlap(tmp_path):
     assert any("UND" in p for p in problems)
 
 
+# --- validate_split -------------------------------------------------------------------
+
+def test_validate_split_class_only_in_one_session():
+    """Klasse nur in einer Session -> Error."""
+    from chesslab.dataset import validate_split
+
+    rows = []
+    # s0: 2 sessions, wQ nur in s0
+    for k in range(5):
+        rows.append(_row("wQ", "s0", "d1", "dark"))
+    rows.append(_row("wQ", "s0", "e1", "dark"))
+    # wK in beiden Sessions
+    for k in range(5):
+        rows.append(_row("wK", "s0", "e1", "dark"))
+        rows.append(_row("wK", "s1", "e1", "dark"))
+    # empty füllen
+    for k in range(30):
+        rows.append(_row("empty", "s0", "c4", "light"))
+        rows.append(_row("empty", "s1", "c4", "light"))
+
+    split = {
+        "splits": {"train": ["s0"], "val": [], "test": ["s1"]},
+        "counts": {"train": 2 + 5 + 5 + 30, "val": 0, "test": 5 + 30},
+        "warnings": [],
+    }
+    errors, warnings = validate_split(split, rows)
+    assert any("wQ" in e and "s0" in e for e in errors)
+    assert any("Val-Split ist leer" in e for e in errors)
+
+
+def test_validate_split_zero_errors():
+    """≥3 Sessions, jede Klasse in ≥2 Sessions, nichtleeres Val+Test -> 0 Errors."""
+    from chesslab.dataset import validate_split
+
+    rows = []
+    for si in ["s0", "s1", "s2"]:
+        for k in range(3):
+            rows.append(_row("wQ", si, "d1", "dark"))
+            rows.append(_row("wK", si, "e1", "dark"))
+            rows.append(_row("empty", si, "c4", "light"))
+
+    split = {
+        "splits": {"train": ["s0"], "val": ["s2"], "test": ["s1"]},
+        "counts": {"train": 9, "val": 9, "test": 9},
+        "warnings": [],
+    }
+    errors, warnings = validate_split(split, rows)
+    assert errors == []
+
+
+def test_validate_split_occluded_absent_globally_no_error():
+    """occluded global nicht vorhanden -> kein Error (optional)."""
+    from chesslab.dataset import validate_split
+
+    rows = []
+    for si in ["s0", "s1", "s2"]:
+        for k in range(3):
+            rows.append(_row("wQ", si, "d1", "dark"))
+            rows.append(_row("wK", si, "e1", "dark"))
+            rows.append(_row("empty", si, "c4", "light"))
+
+    split = {
+        "splits": {"train": ["s0"], "val": ["s2"], "test": ["s1"]},
+        "counts": {"train": 9, "val": 9, "test": 9},
+        "warnings": [],
+    }
+    errors, warnings = validate_split(split, rows)
+    assert not any("occluded" in e for e in errors)
+
+
+def test_run_split_allow_degenerate_stores_errors(tmp_path, monkeypatch):
+    """allow_degenerate=True -> läuft durch, split.json hat degenerate_errors."""
+    from chesslab.dataset import run_split
+    from chesslab import config
+
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    config.DATA.manifests.mkdir(parents=True)
+
+    # wQ nur in s0
+    rows = []
+    for k in range(5):
+        rows.append(_row("wQ", "s0", "d1", "dark"))
+    rows.append(_row("wK", "s1", "e1", "dark"))
+    rows.append(_row("empty", "s1", "c4", "light"))
+
+    import json
+    (config.DATA.manifests / "squares.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+
+    rc = run_split(val_frac=0.3, test_frac=0.3, max_empty_ratio=99.0, seed=42,
+                   allow_degenerate=True)
+    assert rc == 0
+    split = json.loads((config.DATA.manifests / "split.json").read_text(encoding="utf-8"))
+    assert "degenerate_errors" in split
+    assert any("wQ" in e for e in split["degenerate_errors"])
+
+
 def test_verify_clean_dataset(tmp_path):
     f = tmp_path / "c.png"
     cv2.imwrite(str(f), np.zeros((128, 96, 3), dtype=np.uint8))

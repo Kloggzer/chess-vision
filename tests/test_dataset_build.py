@@ -83,7 +83,8 @@ def test_build_dataset_filters_dedups_rotates(tmp_path):
     _global_manifest(paths, rows)
 
     res = DB.build_dataset("set-a", ["s1"], per_cell_cap=2, phash_enabled=False,
-                           rotations=(0, 90), val_frac=0.0, test_frac=0.0, paths=paths)
+                           rotations=(0, 90), val_frac=0.0, test_frac=0.0, paths=paths,
+                           allow_degenerate=True)
     ds = paths.datasets / "set-a"
     built = [json.loads(l) for l in (ds / "manifest.jsonl").read_text().splitlines() if l.strip()]
     # nur s1; wP auf 2 gedeckelt + wK = 3 Basis-Crops; x2 Rotationen = 6 Zeilen
@@ -107,7 +108,8 @@ def test_build_with_occluded_class(tmp_path):
             _row(paths, "occluded", "s2", "0000", "d4", (10, 10, 10))]
     _global_manifest(paths, rows)
     res = DB.build_dataset("occ", ["s1", "s2"], per_cell_cap=4, phash_enabled=False,
-                           rotations=(0,), val_frac=0.0, test_frac=0.0, paths=paths)
+                           rotations=(0,), val_frac=0.0, test_frac=0.0, paths=paths,
+                           allow_degenerate=True)
     assert res["counts"]["final"] == 3
     stats = json.loads((paths.datasets / "occ" / "stats.json").read_text())
     assert stats["counts"]["occluded"] == 2
@@ -115,12 +117,38 @@ def test_build_with_occluded_class(tmp_path):
     assert not any("occluded" in w for w in stats["warnings"])
 
 
+def test_build_dataset_raises_on_degenerate(tmp_path):
+    """Degenerierte Daten -> ValueError; allow_degenerate=True -> ok."""
+    paths = config.Paths(root=tmp_path)
+    rows = [
+        _row(paths, "wQ", "s1", "0000", "d1", (180, 180, 180)),
+        _row(paths, "wQ", "s1", "0001", "e1", (180, 180, 180)),
+        _row(paths, "wK", "s2", "0000", "e1", (90, 90, 90)),
+        _row(paths, "empty", "s2", "0000", "c4", (70, 70, 70)),
+    ]
+    _global_manifest(paths, rows)
+
+    import pytest
+    with pytest.raises(ValueError, match="wQ"):
+        DB.build_dataset("solo", ["s1", "s2"], rotations=(0,), val_frac=0.5, test_frac=0.5,
+                         paths=paths, allow_degenerate=False)
+    assert not (paths.datasets / "solo").exists()   # kein halbfertiger Zombie-Datensatz
+
+    # mit allow_degenerate geht es durch und dokumentiert die Fehler im Split
+    res = DB.build_dataset("solo-ok", ["s1", "s2"], rotations=(0,), val_frac=0.5, test_frac=0.5,
+                          paths=paths, allow_degenerate=True)
+    assert res["counts"]["final"] == 4
+    split = json.loads((paths.datasets / "solo-ok" / "split.json").read_text(encoding="utf-8"))
+    assert any("wQ" in e for e in split["degenerate_errors"])
+
+
 def test_list_get_delete_dataset(tmp_path):
     paths = config.Paths(root=tmp_path)
     rows = [_row(paths, "wP", "s1", "0000", "e2", (180, 180, 180)),
             _row(paths, "wK", "s1", "0001", "e1", (90, 90, 90))]
     _global_manifest(paths, rows)
-    DB.build_dataset("d1", ["s1"], rotations=(0,), val_frac=0.0, test_frac=0.0, paths=paths)
+    DB.build_dataset("d1", ["s1"], rotations=(0,), val_frac=0.0, test_frac=0.0, paths=paths,
+                    allow_degenerate=True)
     lst = DB.list_datasets(paths)
     assert len(lst) == 1 and lst[0]["name"] == "d1"
     got = DB.get_dataset("d1", paths)

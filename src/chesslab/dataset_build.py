@@ -38,8 +38,8 @@ def _safe_name(name: str) -> str:
     return n
 
 
-def dataset_dir(name: str, paths: config.Paths = config.DATA) -> Path:
-    return paths.datasets / _safe_name(name)
+def dataset_dir(name: str, paths: config.Paths | None = None) -> Path:
+    return (paths or config.DATA).datasets / _safe_name(name)
 
 
 # --- Perceptual hash (dhash, 64-bit) --------------------------------------------------
@@ -151,9 +151,10 @@ def build_dataset(
     max_empty_ratio: float | None = config.DEFAULT_MAX_EMPTY_RATIO,
     max_class_ratio: float | None = None,
     seed: int = config.SEED,
-    paths: config.Paths = config.DATA,
+    paths: config.Paths | None = None,
     source_manifest: Path | None = None,
     variant_tag: str | None = None,
+    allow_degenerate: bool = False,
     force_train=None,
 ) -> dict:
     """Datensatz <name> aus `session_ids` bauen: filtern -> dedup -> rotation -> manifest+split+stats.
@@ -163,6 +164,9 @@ def build_dataset(
     `session_ids`+`seed` ist der sessionbasierte Split byte-identisch über alle Varianten.
     """
     name = _safe_name(name)
+    # Auflösung zur Laufzeit (nicht als Default-Arg): Default-Args binden beim Import und
+    # ignorieren ein später gepatchtes/geändertes config.DATA (Testbarkeit).
+    paths = paths or config.DATA
     d = config.DEDUP
     per_cell_cap = d.per_cell_cap if per_cell_cap is None else per_cell_cap
     phash_enabled = d.phash_enabled if phash_enabled is None else phash_enabled
@@ -205,6 +209,12 @@ def build_dataset(
         encoding="utf-8")
     split = dataset_mod.make_split(rows, val_frac, test_frac, max_empty_ratio, seed, max_class_ratio,
                                    force_train=force_train, precomputed_splits=splits)
+    errors, _warnings = dataset_mod.validate_split(split, rows)
+    if errors:
+        if not allow_degenerate:
+            shutil.rmtree(ds, ignore_errors=True)   # kein halbfertiger Zombie-Datensatz
+            raise ValueError("\n".join(errors))
+        split["degenerate_errors"] = errors          # bewusst zugelassen -> im Split dokumentieren
     (ds / "split.json").write_text(json.dumps(split, ensure_ascii=False, indent=2), encoding="utf-8")
     stats = dataset_mod.compute_stats(rows)
     (ds / "stats.json").write_text(json.dumps(stats, ensure_ascii=False), encoding="utf-8")
@@ -239,8 +249,8 @@ def _read_yaml(p: Path) -> dict:
         return yaml.safe_load(fh) or {}
 
 
-def list_datasets(paths: config.Paths = config.DATA) -> list[dict]:
-    root = paths.datasets
+def list_datasets(paths: config.Paths | None = None) -> list[dict]:
+    root = (paths or config.DATA).datasets
     if not root.exists():
         return []
     out: list[dict] = []
@@ -261,7 +271,7 @@ def list_datasets(paths: config.Paths = config.DATA) -> list[dict]:
     return out
 
 
-def get_dataset(name: str, paths: config.Paths = config.DATA) -> dict:
+def get_dataset(name: str, paths: config.Paths | None = None) -> dict:
     d = dataset_dir(name, paths)
     if not (d / "dataset.yaml").exists():
         raise FileNotFoundError(f"Datensatz '{name}' nicht gefunden.")
@@ -272,7 +282,7 @@ def get_dataset(name: str, paths: config.Paths = config.DATA) -> dict:
             "split": {k: split.get(k) for k in ("splits", "counts", "warnings", "class_weights")}}
 
 
-def delete_dataset(name: str, paths: config.Paths = config.DATA) -> dict:
+def delete_dataset(name: str, paths: config.Paths | None = None) -> dict:
     d = dataset_dir(name, paths)
     if not d.exists():
         raise FileNotFoundError(f"Datensatz '{name}' nicht gefunden.")

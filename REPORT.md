@@ -225,6 +225,16 @@ Gegen den Typ-Engpass: Transfer-Learning. Neuer Befehl **`chesslab ingest <chess
   `tests/test_ingest.py`. **Tests: 100 grün** (neu: 7 Ingest-Tests inkl. End-to-End Synthbild→Slice mit
   Orientierungs- und Label-Prüfung). Kern-Pipeline-Dateien **unverändert**, nur genutzt.
 
+## 2026-07-02 — Harte Split-Validierung
+
+Split-Validierung ist ab jetzt hart: Eine Klasse, die im Gesamtbestand vorkommt, aber nur
+in **einer** Session, führt zu einem Fehler (rc 1 / ValueError / HTTP 400) — ebenso ein
+leerer Val- oder Test-Split. Alt-Datensätze sind degeneriert und brauchen
+`--allow-degenerate` oder neue Sessions (zufällige Figur-Linien-Zuordnung). Die Escape-Hatch
+(`--allow-degenerate`) ist in CLI (split/dataset build) und Web-API verfügbar;
+`split.json` bekommt additiv das Feld `degenerate_errors`.
+
+---
 ## Git-Stand
 
 - Das **Preprocessing-System** (box3d, Photometrie, geborderter Crop, board_size, IP-Cam-Hybrid,
