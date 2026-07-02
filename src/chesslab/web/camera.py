@@ -227,19 +227,29 @@ def mjpeg(frames, idle: float = 0.05):
 class BoardTracker:
     """Pro Stream: aus dem Profil geseedeter Marker-Tracker + zuletzt bekannte Ecken.
 
-    `process(frame)` -> (warped | None, corners | None). Genau **eine** Stelle für die
+    ``process(frame)`` -> (warped | None, corners | None). Genau **eine** Stelle für die
     Ecken-Erkennung und das Entzerren — Sammeln und Inference teilen sich diese Logik, und die
-    zuletzt live gezeigten Ecken (`last_corners`) sind das, was beim Capturen gespeichert wird.
+    zuletzt live gezeigten Ecken (``last_corners``) sind das, was beim Capturen gespeichert wird.
+
+    Thread-sicher: ``last_corners`` wird unter eigenem Lock geschrieben; ``corners()`` liefert
+    eine Kopie.
     """
 
     def __init__(self, profile: CalibrationProfile) -> None:
         self.profile = profile
         self.tracker = make_tracker(profile)
+        self._lock = threading.Lock()
         self.last_corners = None
 
     def process(self, frame):
         corners = board_corners_for_frame(frame, self.profile, self.tracker)
         if corners is not None:
-            self.last_corners = corners
+            with self._lock:
+                self.last_corners = corners
         warped = warp_from_corners(frame, self.profile, corners) if corners is not None else None
         return warped, corners
+
+    def corners(self):
+        """Kopie der zuletzt bekannten Ecken (thread-sicher)."""
+        with self._lock:
+            return list(self.last_corners) if self.last_corners is not None else None
