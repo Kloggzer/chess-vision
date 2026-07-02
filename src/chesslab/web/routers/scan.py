@@ -1,4 +1,4 @@
-"""Scanner-Router: /api/scan/* — Turntable-Aufnahme + 3D-Modell-Vorbereitung (synth prepare)."""
+"""Scanner-Router: /api/scan/* — Turntable-Aufnahme + 3D-Modell-Vorbereitung (v2: meshprep in-process)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 import logging
 import re
 import subprocess
-import sys
+import threading
 from pathlib import Path
 
 from fastapi import APIRouter, Body, HTTPException
@@ -20,8 +20,9 @@ router = APIRouter()
 log = logging.getLogger("chesslab.web")
 
 # Vorbereitungs-Job (ein Lauf gleichzeitig, Muster wie TRAIN): `chesslab synth prepare`
-# als Subprozess, damit Blender das Web nicht blockiert. `dir` = Quell-Scan (für Per-Karte-Status).
-PREPARE = LockedState(proc=None, piece=None, dir=None, log=None, state="idle")
+# jetzt in-process über meshprep.prepare_scan() in einem Hintergrund-Thread.
+# `dir` = Quell-Scan (für Per-Karte-Status).
+PREPARE = LockedState(proc=None, piece=None, dir=None, log=None, state="idle", error=None)
 # Rekonstruktions-Job (RealityScan headless, ein Lauf gleichzeitig).
 RECON = LockedState(proc=None, dir=None, log=None, state="idle")
 _PIECE = re.compile(r"^[wb]?[PNBRQK]$")
@@ -90,7 +91,7 @@ def scan_preview():
 @router.get("/api/scan/models")
 def scan_models():
     """Scan-Ordner mit Mesh (rekonstruiert) + bereits vorbereitete Figuren auflisten."""
-    from ...synth_prepare import _pick_texture
+    from ...scan_discover import _pick_texture
 
     scans = []
     if SCANS_ROOT.is_dir():
@@ -128,15 +129,17 @@ def scan_models():
 @router.post("/api/scan/prepare")
 def scan_prepare(dir: str = Body(...), piece: str = Body(...),
                  target_tris: int = Body(20000), smooth_iters: int = Body(10),
-                 keep_radius: float = Body(1.9)):
-    """`chesslab synth prepare` für EINEN Scan-Ordner starten (Blender headless, async)."""
-    from ... import config
-    from ...synth_prepare import ScanItem, _pick_texture, build_isolate_cmd
+                 plane_eps: float | None = Body(None),
+                 plate_diameter_mm: float | None = Body(None),
+                 fill_holes: bool = Body(True)):
+    """`chesslab synth prepare` für EINEN Scan-Ordner starten (v2: meshprep in-process, async per Thread)."""
+    from ...meshprep import prepare_scan
+    from ...scan_discover import ScanItem, _pick_texture
 
     if not _PIECE.match(piece):
         raise HTTPException(400, f"ungültiger Figurenname {piece!r} (P/N/B/R/Q/K, optional w/b-Präfix)")
-    proc = PREPARE.get("proc")
-    if proc is not None and proc.poll() is None:
+    state = PREPARE.get("state")
+    if state == "running":
         raise HTTPException(409, "es läuft bereits eine Vorbereitung.")
     d = SCANS_ROOT / dir
     objs = sorted([*d.glob("*.obj"), *d.glob("*.glb"), *d.glob("*.gltf")])
@@ -144,30 +147,42 @@ def scan_prepare(dir: str = Body(...), piece: str = Body(...),
         raise HTTPException(404, f"kein Mesh in scans/{dir} — erst in RealityScan rekonstruieren/exportieren.")
     item = ScanItem(name=piece, obj=objs[0], tex=_pick_texture(d))
     out = _repo_root() / "synth_pieces"
-    script = _repo_root() / "synth" / "isolate_piece.py"
-    cmd = build_isolate_cmd(config.SYNTH.blender_cmd(), script, item, out,
-                            target_tris, smooth_iters, keep_radius)
-    (out / f"{piece}.src").write_text(dir, encoding="utf-8")   # Figur ↔ Quell-Scan verknüpfen
-    log_path = out / "_prepare.log"
-    log_fh = open(log_path, "w", encoding="utf-8")
-    p = subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT)
-    log_fh.close()   # Kind hält sein eigenes dupliziertes Handle (Windows-Sperre)
-    PREPARE.update(proc=p, piece=piece, dir=dir, log=log_path, state="running")
-    log.info("synth prepare gestartet: %s -> %s", dir, piece)
-    return {"ok": True, "piece": piece, "cmd": " ".join(cmd)}
+    (out / f"{piece}.src").write_text(dir, encoding="utf-8")  # Figur ↔ Quell-Scan verknüpfen
+
+    eps = plane_eps if plane_eps is not None else 0.1     # meshprep default
+
+    PREPARE.update(proc=None, piece=piece, dir=dir, log=None, state="running", error=None)
+
+    def _run():
+        try:
+            prepare_scan(item, out, target_tris=target_tris, plane_eps=eps,
+                         plate_diameter_mm=plate_diameter_mm, fill_holes=fill_holes,
+                         smooth_iters=smooth_iters, make_preview=True)
+            PREPARE.update(state="done")
+        except Exception as exc:
+            PREPARE.update(state="failed", error=str(exc))
+            log.exception("synth prepare fehlgeschlagen: %s", piece)
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    PREPARE.update(proc=t)  # Thread als "proc" ablegen, damit isnull check funktioniert
+    log.info("synth prepare gestartet (v2 meshprep): %s -> %s", dir, piece)
+    return {"ok": True, "piece": piece, "pipeline": "meshprep"}
 
 
 @router.get("/api/scan/prepare/status")
 def scan_prepare_status():
-    from ...synth_prepare import assess_report, load_report
+    from ...scan_discover import assess_report, load_report
 
     s = PREPARE.snapshot()
     proc, piece = s.get("proc"), s.get("piece")
-    rc = proc.poll() if proc is not None else None
-    if proc is not None and rc is None:
+    # proc is now a threading.Thread (not a subprocess.Popen)
+    is_running = proc is not None and proc.is_alive() if hasattr(proc, "is_alive") else False
+    if is_running:
         state = "running"
     elif proc is not None:
-        state = "done" if rc == 0 else "failed"
+        # Thread finished — state already set by the worker
+        state = s.get("state", "done")
         PREPARE.update(state=state)
     else:
         state = s.get("state", "idle")
@@ -176,11 +191,12 @@ def scan_prepare_status():
         report = load_report(_repo_root() / "synth_pieces", piece)
         if report:
             level, msgs = assess_report(report)
-            out.update(report=report, level=level, messages=msgs)
-        log_path = s.get("log")
-        if state == "failed" and log_path and Path(log_path).exists():
-            out["log_tail"] = "\n".join(
-                Path(log_path).read_text(encoding="utf-8", errors="replace").splitlines()[-8:])
+            out.update(report=report, level=level, messages=msgs,
+                       center_component_frac=report.get("center_component_frac"),
+                       scale_mm_per_unit=report.get("scale_mm_per_unit"))
+        err = s.get("error")
+        if state == "failed" and err:
+            out["log_tail"] = str(err)[-500:]
     return out
 
 
@@ -216,7 +232,7 @@ def scan_reconstruct(dir: str = Body(..., embed=True)):
     if n_photos < 20:
         raise HTTPException(400, f"nur {n_photos} Fotos in scans/{dir} — für Photogrammetrie zu wenig "
                                  "(mind. ~20, besser 60+).")
-    out_obj = d / f"mesh_{dir.lower()}.obj"
+    out_obj = (d / f"mesh_{dir.lower()}.obj").resolve()  # absolut, damit RealityScan nicht in sein Arbeitsverzeichnis exportiert
     cmd = [exe, "-headless", "-addFolder", str(d), "-align", "-setReconstructionRegionAuto",
            "-calculateNormalModel", "-calculateTexture", "-exportSelectedModel", str(out_obj), "-quit"]
     log_path = d / "_reconstruct.log"
