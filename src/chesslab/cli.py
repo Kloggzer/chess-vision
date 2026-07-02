@@ -272,11 +272,13 @@ def split_cmd(
     max_empty_ratio: float = typer.Option(config.DEFAULT_MAX_EMPTY_RATIO, "--max-empty-ratio"),
     max_class_ratio: Optional[float] = typer.Option(None, "--max-class-ratio", help="Jede Figurenklasse auf R * kleinste Figurenklasse deckeln (balanciert Bauern herunter; nur train)."),
     seed: int = typer.Option(config.SEED, "--seed"),
+    allow_degenerate: bool = typer.Option(False, "--allow-degenerate", help="Degenerierten Split zulassen (Klasse nur in einer Session o.ä.)."),
 ) -> None:
     """Sessionbasierter Split (gegen Data Leakage) + Klassen-Balancing (nur train) -> split.json."""
     raise typer.Exit(dataset_mod.run_split(val_frac=val_frac, test_frac=test_frac,
                                            max_empty_ratio=max_empty_ratio, seed=seed,
-                                           max_class_ratio=max_class_ratio))
+                                           max_class_ratio=max_class_ratio,
+                                           allow_degenerate=allow_degenerate))
 
 
 @dataset_app.command("verify")
@@ -330,13 +332,19 @@ def dataset_build_cmd(
     no_phash: bool = typer.Option(False, "--no-phash", help="Perceptual-Hash-Dedup abschalten."),
     hamming: int = typer.Option(config.DEDUP.phash_hamming, "--hamming"),
     rotate: bool = typer.Option(True, "--rotate/--no-rotate", help="90/180/270°-Augmentation (Default an)."),
+    allow_degenerate: bool = typer.Option(False, "--allow-degenerate", help="Degenerierten Datensatz zulassen (Klasse nur in einer Session o.ä.)."),
 ) -> None:
     """Benannten Datensatz aus einer Session-Auswahl bauen (filtern -> dedup -> rotation -> split)."""
     from . import dataset_build as db
 
     sids = [s.strip() for s in sessions.split(",") if s.strip()]
-    res = db.build_dataset(name, sids, per_cell_cap=per_cell_cap, phash_enabled=not no_phash,
-                           phash_hamming=hamming, rotations=(config.DEDUP.rotations if rotate else (0,)))
+    try:
+        res = db.build_dataset(name, sids, per_cell_cap=per_cell_cap, phash_enabled=not no_phash,
+                               phash_hamming=hamming, rotations=(config.DEDUP.rotations if rotate else (0,)),
+                               allow_degenerate=allow_degenerate)
+    except ValueError as e:
+        print(f"[FAIL] {e}")
+        raise typer.Exit(1)
     c = res["counts"]
     print(f"[OK] Datensatz '{res['name']}': roh {c['raw']} -> dedup {c['after_dedup']} -> "
           f"final {c['final']}. Split: {res['split_counts']}.")

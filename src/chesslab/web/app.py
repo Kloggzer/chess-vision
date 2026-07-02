@@ -319,12 +319,14 @@ def create_app():
                        phash_hamming: int = Body(config.DEDUP.phash_hamming),
                        rotate: bool = Body(True),
                        max_empty_ratio: float = Body(config.DEFAULT_MAX_EMPTY_RATIO),
-                       seed: int = Body(config.SEED)):
+                       seed: int = Body(config.SEED),
+                       allow_degenerate: bool = Body(False)):
         try:
             return dataset_build_mod.build_dataset(
                 name, session_ids, per_cell_cap=per_cell_cap, phash_enabled=phash_enabled,
                 phash_hamming=phash_hamming, rotations=(config.DEDUP.rotations if rotate else (0,)),
-                max_empty_ratio=max_empty_ratio, seed=seed)
+                max_empty_ratio=max_empty_ratio, seed=seed,
+                allow_degenerate=allow_degenerate)
         except (ValueError, FileNotFoundError) as e:
             raise HTTPException(400, str(e))
 
@@ -335,11 +337,14 @@ def create_app():
         except FileNotFoundError as e:
             raise HTTPException(404, str(e))
         d, sp = cfg.get("dedup", {}), cfg.get("split", {})
-        return dataset_build_mod.build_dataset(
+        res = dataset_build_mod.build_dataset(
             name, cfg.get("session_ids", []), per_cell_cap=d.get("per_cell_cap"),
             phash_enabled=d.get("phash_enabled"), phash_hamming=d.get("phash_hamming"),
-            rotations=tuple(cfg.get("rotations", (0,))), max_empty_ratio=sp.get("max_empty_ratio"),
+            rotations=tuple(cfg.get("rotations", (0,))),
+            max_empty_ratio=sp.get("max_empty_ratio"),
+            allow_degenerate=True,   # rebuild: original split war bereits akzeptiert
             seed=sp.get("seed", config.SEED))
+        return res
 
     @app.delete("/api/datasets/{name}")
     def dataset_delete(name: str):
@@ -441,10 +446,14 @@ def create_app():
     @app.post("/api/split")
     def split(max_empty_ratio: float = Body(config.DEFAULT_MAX_EMPTY_RATIO),
               max_class_ratio: float | None = Body(None),
-              seed: int = Body(config.SEED)):
+              seed: int = Body(config.SEED),
+              allow_degenerate: bool = Body(False)):
         rc = dataset_mod.run_split(val_frac=config.DEFAULT_VAL_FRAC, test_frac=config.DEFAULT_TEST_FRAC,
-                                   max_empty_ratio=max_empty_ratio, seed=seed, max_class_ratio=max_class_ratio)
-        return {"ok": rc == 0}
+                                   max_empty_ratio=max_empty_ratio, seed=seed, max_class_ratio=max_class_ratio,
+                                   allow_degenerate=allow_degenerate)
+        if rc != 0:
+            raise HTTPException(400, "Split fehlgeschlagen — Datensatzdegenerierung (--allow-degenerate im Web-Tab setzen).")
+        return {"ok": True}
 
     @app.post("/api/train")
     def train(backbone: str = Body("smallcnn"), epochs: int = Body(config.DEFAULT_EPOCHS),
@@ -504,9 +513,12 @@ def create_app():
         if _split_sessions() != manifest_sessions:
             rc = dataset_mod.run_split(val_frac=config.DEFAULT_VAL_FRAC, test_frac=config.DEFAULT_TEST_FRAC,
                                        max_empty_ratio=config.DEFAULT_MAX_EMPTY_RATIO, seed=config.SEED,
-                                       max_class_ratio=None)
+                                       max_class_ratio=None, allow_degenerate=False)
             if rc != 0:
-                raise HTTPException(400, "Split fehlgeschlagen — Datensatz im Tab 'Datensatz' prüfen.")
+                raise HTTPException(400,
+                    "Split fehlgeschlagen — Datensatz ist degeneriert (Klassen nur in einer Session oder "
+                    "Val/Test-Split leer). Mehr Sessions mit zufälliger Figur-Linien-Zuordnung aufnehmen, "
+                    "oder im Datensätze-Tab mit 'Degeneriert zulassen' neu bauen.")
 
         split = json.loads(split_file.read_text(encoding="utf-8"))
         if split["counts"]["train"] == 0:

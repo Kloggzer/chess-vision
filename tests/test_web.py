@@ -168,7 +168,70 @@ def test_train_guards_too_few_sessions(tmp_path, monkeypatch):
     r = client.post("/api/train", json={})
     assert r.status_code == 400
     assert "Sessions" in r.json()["detail"]
-    assert (config.DATA.manifests / "split.json").exists()  # split was auto-created
+    # Seit Rework 02 (harte Split-Validierung) wird ein degenerierter Split NICHT mehr
+    # geschrieben — der 400-Text leitet stattdessen zur Datenaufnahme an.
+    assert not (config.DATA.manifests / "split.json").exists()
+
+
+def test_dataset_api_degenerate_guard(tmp_path, monkeypatch):
+    """POST /api/datasets mit degenerierten Sessions -> 400, detail enthält Klassennamen.
+    Mit allow_degenerate -> 200."""
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+
+    from chesslab import config
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    config.DATA.manifests.mkdir(parents=True)
+    config.DATA.squares.mkdir(parents=True)
+    for cls in config.CLASSES:
+        (config.DATA.squares / cls).mkdir(parents=True, exist_ok=True)
+
+    # wQ nur in s1, wK in s1+s2
+    rows = [
+        {"path": (config.DATA.squares / "wQ" / "x.png").as_posix(), "label": "wQ",
+         "session_id": "s1", "frame": "0000", "ply": 0, "square": "d1",
+         "square_color": "dark", "fen": "x", "out_size": [96, 128], "ts": "t"},
+        {"path": (config.DATA.squares / "wK" / "x.png").as_posix(), "label": "wK",
+         "session_id": "s1", "frame": "0000", "ply": 0, "square": "e1",
+         "square_color": "dark", "fen": "x", "out_size": [96, 128], "ts": "t"},
+        {"path": (config.DATA.squares / "wK" / "x.png").as_posix(), "label": "wK",
+         "session_id": "s2", "frame": "0000", "ply": 0, "square": "e1",
+         "square_color": "dark", "fen": "x", "out_size": [96, 128], "ts": "t"},
+        {"path": (config.DATA.squares / "empty" / "x.png").as_posix(), "label": "empty",
+         "session_id": "s2", "frame": "0000", "ply": 0, "square": "c4",
+         "square_color": "light", "fen": "x", "out_size": [96, 128], "ts": "t"},
+        # dritte Session, damit der sessionbasierte Split überhaupt zugeteilt werden kann
+        # (mindestens-3-Sessions-Guard) und wirklich validate_split den Fehler liefert.
+        {"path": (config.DATA.squares / "wK" / "x.png").as_posix(), "label": "wK",
+         "session_id": "s3", "frame": "0000", "ply": 0, "square": "e1",
+         "square_color": "dark", "fen": "x", "out_size": [96, 128], "ts": "t"},
+        {"path": (config.DATA.squares / "empty" / "x.png").as_posix(), "label": "empty",
+         "session_id": "s3", "frame": "0000", "ply": 0, "square": "c5",
+         "square_color": "dark", "fen": "x", "out_size": [96, 128], "ts": "t"},
+    ]
+    import json, cv2, numpy as np
+    for r in rows:
+        cv2.imwrite(r["path"], np.zeros((128, 96, 3), dtype=np.uint8))
+    (config.DATA.manifests / "squares.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+
+    from chesslab.web.app import create_app
+    client = TestClient(create_app())
+
+    # ohne allow_degenerate -> 400, kein Zombie-Datensatz auf Platte
+    r = client.post("/api/datasets", json={"name": "deg", "session_ids": ["s1", "s2", "s3"]})
+    assert r.status_code == 400
+    assert "wQ" in r.json()["detail"]
+    assert not (config.DATA.datasets / "deg").exists()
+
+    # mit allow_degenerate -> 200, Fehler im Split dokumentiert
+    r = client.post("/api/datasets", json={"name": "deg2", "session_ids": ["s1", "s2", "s3"],
+                                           "allow_degenerate": True, "rotate": False})
+    assert r.status_code == 200
+    assert r.json()["counts"]["final"] == 6
+    split = json.loads((config.DATA.datasets / "deg2" / "split.json").read_text(encoding="utf-8"))
+    assert any("wQ" in e for e in split["degenerate_errors"])
 
 
 def test_calibrate_endpoints_no_camera(tmp_path, monkeypatch):

@@ -246,6 +246,49 @@ def make_split(
     }
 
 
+def validate_split(split: dict, rows: list[dict]) -> tuple[list[str], list[str]]:
+    """(errors, warnings). Errors = degeneriert, saubere Evaluierung unmöglich."""
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    split_of = {s: name for name, sids in split["splits"].items() for s in sids}
+
+    # Session-Menge pro Klasse
+    class_sessions: dict[str, set] = {c: set() for c in CLASSES}
+    for r in rows:
+        class_sessions[r["label"]].add(r["session_id"])
+
+    # Global vorhandene Klassen
+    global_present = {c for c in CLASSES if class_sessions[c]}
+    # occluded nur prüfen, wenn global vorhanden
+    check_classes = [c for c in CLASSES if c != "occluded" or "occluded" in global_present]
+
+    for c in check_classes:
+        n_sessions = len(class_sessions[c])
+        if n_sessions == 0:
+            continue
+        if n_sessions == 1:
+            sid = next(iter(class_sessions[c]))
+            errors.append(
+                f"Klasse {c} existiert nur in Session {sid} — "
+                "neue Session mit zufälliger Figur-Linien-Zuordnung aufnehmen, "
+                "oder --allow-degenerate setzen."
+            )
+
+    # Test/Val leer
+    if split["counts"]["test"] == 0:
+        errors.append("Test-Split ist leer — mindestens 3 Sessions nötig (sessionbasierter Split).")
+    if split["counts"]["val"] == 0:
+        errors.append("Val-Split ist leer — mindestens 3 Sessions nötig (sessionbasierter Split).")
+
+    # Warnings aus make_split übernehmen (Klasse fehlt in Val/Test)
+    for w in split.get("warnings", []):
+        if w not in errors:                   # kein doppeltes Reporting
+            warnings.append(w)
+
+    return errors, warnings
+
+
 # --- verify ---------------------------------------------------------------------------
 
 def verify(rows: list[dict], *, split: dict | None = None, check_files: bool = True) -> list[str]:
@@ -317,7 +360,7 @@ def run_stats(manifest: str | None = None, json_out: bool = False) -> int:
 
 
 def run_split(val_frac: float, test_frac: float, max_empty_ratio: float, seed: int,
-              max_class_ratio: float | None = None) -> int:
+              max_class_ratio: float | None = None, allow_degenerate: bool = False) -> int:
     manifest_path = config.DATA.manifests / "squares.jsonl"
     try:
         rows = load_manifest(manifest_path)
@@ -326,6 +369,16 @@ def run_split(val_frac: float, test_frac: float, max_empty_ratio: float, seed: i
         return 1
     split = make_split(rows, val_frac=val_frac, test_frac=test_frac, max_empty_ratio=max_empty_ratio,
                        seed=seed, max_class_ratio=max_class_ratio)
+    errors, warnings = validate_split(split, rows)
+    if errors:
+        if allow_degenerate:
+            split["degenerate_errors"] = errors
+            for e in errors:
+                print(f"[WARN] {e}")
+        else:
+            for e in errors:
+                print(f"[FAIL] {e}")
+            return 1
     out = config.DATA.manifests / "split.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(split, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -338,7 +391,7 @@ def run_split(val_frac: float, test_frac: float, max_empty_ratio: float, seed: i
     for c in CLASSES:
         if tcc[c]:
             print(f"       {c:<7}{tcc[c]:>6}")
-    for w in split["warnings"]:
+    for w in warnings:
         print(f"     ! {w}")
     return 0
 

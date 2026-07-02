@@ -38,7 +38,10 @@ chesslab = "chesslab.cli:main"
 # uv-native dev dependencies (PEP 735). Installed by default on `uv sync`,
 # excluded from the published package. Use `uv sync --no-dev` for a runtime-only env.
 [dependency-groups]
-dev = ["pytest>=8.0"]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=8.0",
+]
 
 [build-system]
 requires = ["hatchling"]
