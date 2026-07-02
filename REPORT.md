@@ -225,6 +225,17 @@ Gegen den Typ-Engpass: Transfer-Learning. Neuer Befehl **`chesslab ingest <chess
   `tests/test_ingest.py`. **Tests: 100 grün** (neu: 7 Ingest-Tests inkl. End-to-End Synthbild→Slice mit
   Orientierungs- und Label-Prüfung). Kern-Pipeline-Dateien **unverändert**, nur genutzt.
 
+## 2026-07-02 — Occupancy-first Checkpoint + kamerarealistische Augmentierung
+
+Checkpoint-Kriterium ab 2026-07-02: **occupancy-first** — best.pt wird nach
+`(occ_board_acc, occ_acc, macro_recall)` gewählt statt nach `(macro_recall, board_acc)`.
+**best.pt neuer Runs ist nicht mit Bake-off-Ära-Runs vergleichbar** (anderes Kriterium wählt
+andere Epoche aus). Alte Metriken (`val_acc`, `val_macro_recall`, `val_board_acc`) werden
+weiterhin geloggt; neu hinzugekommen: `val_occ_acc`, `val_occ_board_acc`, `val_piece_acc`.
+
+Augmentierung auf realistischere Kamera-Varianz angehoben: `brightness=0.35`, `contrast=0.35`,
+`gamma=(0.6, 1.8)`, `blur_sigma_max=1.5`. Rotation/Flip bleiben verboten.
+
 ## 2026-07-02 — Harte Split-Validierung
 
 Split-Validierung ist ab jetzt hart: Eine Klasse, die im Gesamtbestand vorkommt, aber nur

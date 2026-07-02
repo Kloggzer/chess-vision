@@ -12,6 +12,17 @@ def test_find_stockfish_env_override_file(tmp_path, monkeypatch):
     assert config.find_stockfish() == os.path.abspath(str(fake))
 
 
+def test_augment_policy_values_pinned():
+    """Schützt vor versehentlichem Revert auf alte Augmentierungswerte."""
+    from chesslab.config import AUGMENT
+    assert AUGMENT.brightness == 0.35
+    assert AUGMENT.contrast == 0.35
+    assert AUGMENT.gamma == (0.6, 1.8)
+    assert AUGMENT.blur_sigma_max == 1.5
+    assert AUGMENT.allow_flip is False
+    assert AUGMENT.allow_rotate90 is False
+
+
 def test_find_stockfish_finds_bundled(monkeypatch):
     """When no override is set, a bundled tools/stockfish/ binary is discovered."""
     monkeypatch.delenv(config.ENGINE_ENV_VAR, raising=False)
