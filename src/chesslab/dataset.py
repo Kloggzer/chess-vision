@@ -20,14 +20,12 @@ CLASSES = config.CLASSES
 # --- Manifest laden -------------------------------------------------------------------
 
 def load_manifest(path: Path) -> list[dict]:
+    from .ioutil import read_jsonl
+
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Manifest nicht gefunden: {path}. Erst `chesslab slice` ausführen.")
-    rows = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            rows.append(json.loads(line))
-    return rows
+    return read_jsonl(path)
 
 
 # --- stats ----------------------------------------------------------------------------

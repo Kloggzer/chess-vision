@@ -14,11 +14,11 @@ from chesslab.labeling import load_corrections, slice_session, upsert_correction
 
 def test_labels_to_fen_estimation():
     """Inference-Overlay: 64 Per-Feld-Labels -> FEN-Stellungsteil (occluded zählt als leer)."""
-    from chesslab.web.app import _labels_to_fen
+    from chesslab.labeling import labels_to_fen
 
     labels = {f"{f}{r}": "empty" for r in range(1, 9) for f in "abcdefgh"}
     labels["e1"] = "wK"; labels["e8"] = "bK"; labels["a1"] = "wR"; labels["d4"] = "occluded"
-    fen = _labels_to_fen(labels)
+    fen = labels_to_fen(labels)
     assert fen == "4k3/8/8/8/8/8/8/R3K3"          # d4 (occluded) bleibt leer
     import chess
     assert chess.Board(fen + " w - - 0 1").piece_at(chess.E1).symbol() == "K"
@@ -26,7 +26,7 @@ def test_labels_to_fen_estimation():
 
 def test_draw_target_pieces_writes_names_for_dense_fen():
     """coverage-Overlay: ganze (auch ILLEGALE) Stellung als Figurennamen aufs Brett zeichnen."""
-    from chesslab.web.app import _PIECE_NAMES_DE, _draw_target_pieces
+    from chesslab.web.util import _PIECE_NAMES_DE, _draw_target_pieces
 
     bs = 800
     corners = [[0, 0], [bs, 0], [bs, bs], [0, bs]]
