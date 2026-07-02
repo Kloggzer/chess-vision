@@ -1,12 +1,12 @@
 C:\Users\mariu\project\chess-vision\synth\isolate_piece.py:300: DeprecationWarning: 'Material.use_nodes' is expected to be removed in Blender 6.0
   tmat = bpy.data.materials.new("tex"); tmat.use_nodes = True
-00:25.110  render           | Saved: 'C:\Users\mariu\project\chess-vision\synth_pieces\P_preview.png'
+00:51.422  render           | Saved: 'C:\Users\mariu\project\chess-vision\synth_pieces\P_preview.png'
 C:\Users\mariu\project\chess-vision\synth\isolate_piece.py:307: DeprecationWarning: 'Material.use_nodes' is expected to be removed in Blender 6.0
   cmat = bpy.data.materials.new("clay"); cmat.use_nodes = True
-00:25.219  render           | Saved: 'C:\Users\mariu\project\chess-vision\synth_pieces\P_preview_clay.png'
-[isolate] kept 225072 verts, dims=(98.24, 41.83, 111.21)
+00:51.765  render           | Saved: 'C:\Users\mariu\project\chess-vision\synth_pieces\P_preview_clay.png'
+[isolate] kept 128977 verts, dims=(68.2, 20.65, 80.54)
 [isolate] Löcher gefüllt (Basis geschlossen); offene Kanten übrig: 0
-[isolate] dezimiert: 450130 → 19998 Dreiecke
+[isolate] dezimiert: 257948 → 19997 Dreiecke
 [isolate] geglättet (Laplacian, 10 Iterationen, Volumen erhalten)
 Info: File exported successfully
 [isolate] wrote C:\Users\mariu\project\chess-vision\synth_pieces\P.obj + C:\Users\mariu\project\chess-vision\synth_pieces\P.png
@@ -14,8 +14,8 @@ Info: File exported successfully
 [isolate] preview C:\Users\mariu\project\chess-vision\synth_pieces\P_preview.png
 [isolate] preview C:\Users\mariu\project\chess-vision\synth_pieces\P_preview_clay.png
 Blender 5.1.2 (hash ec6e62d40fa9 built 2026-05-19 01:37:34)
-OBJ import of 'mesh_Model_1.obj' took 1330.04 ms
+OBJ import of 'mesh_Model_2.obj' took 1922.65 ms
 Writing to C:\Users\mariu\project\chess-vision\synth_pieces\P.obj
-OBJ export of 'P.obj' took 17.52 ms
+OBJ export of 'P.obj' took 37.11 ms
 
 Blender quit

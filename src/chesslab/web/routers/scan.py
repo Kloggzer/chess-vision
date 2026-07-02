@@ -20,8 +20,8 @@ router = APIRouter()
 log = logging.getLogger("chesslab.web")
 
 # Vorbereitungs-Job (ein Lauf gleichzeitig, Muster wie TRAIN): `chesslab synth prepare`
-# als Subprozess, damit Blender das Web nicht blockiert.
-PREPARE = LockedState(proc=None, piece=None, log=None, state="idle")
+# als Subprozess, damit Blender das Web nicht blockiert. `dir` = Quell-Scan (für Per-Karte-Status).
+PREPARE = LockedState(proc=None, piece=None, dir=None, log=None, state="idle")
 # Rekonstruktions-Job (RealityScan headless, ein Lauf gleichzeitig).
 RECON = LockedState(proc=None, dir=None, log=None, state="idle")
 _PIECE = re.compile(r"^[wb]?[PNBRQK]$")
@@ -109,11 +109,20 @@ def scan_models():
     if pdir.is_dir():
         for o in sorted(pdir.glob("*.obj")):
             rep = pdir / f"{o.stem}_report.json"
+            src = pdir / f"{o.stem}.src"          # Quell-Scan-Ordner (beim Vorbereiten geschrieben)
             pieces.append({"piece": o.stem,
+                           "source_dir": src.read_text(encoding="utf-8").strip() if src.exists() else None,
                            "has_preview": (pdir / f"{o.stem}_preview.png").exists(),
                            "has_clay": (pdir / f"{o.stem}_preview_clay.png").exists(),
                            "report": json.loads(rep.read_text(encoding="utf-8")) if rep.exists() else None})
-    return {"scans": scans, "pieces": pieces}
+    # Aktuell laufende Jobs (für Per-Karte-Status im UI)
+    r, pp = RECON.snapshot(), PREPARE.snapshot()
+    jobs = {}
+    if r.get("proc") is not None and r["proc"].poll() is None:
+        jobs["reconstruct"] = r.get("dir")
+    if pp.get("proc") is not None and pp["proc"].poll() is None:
+        jobs["prepare"] = pp.get("dir")
+    return {"scans": scans, "pieces": pieces, "jobs": jobs}
 
 
 @router.post("/api/scan/prepare")
@@ -138,11 +147,12 @@ def scan_prepare(dir: str = Body(...), piece: str = Body(...),
     script = _repo_root() / "synth" / "isolate_piece.py"
     cmd = build_isolate_cmd(config.SYNTH.blender_cmd(), script, item, out,
                             target_tris, smooth_iters, keep_radius)
+    (out / f"{piece}.src").write_text(dir, encoding="utf-8")   # Figur ↔ Quell-Scan verknüpfen
     log_path = out / "_prepare.log"
     log_fh = open(log_path, "w", encoding="utf-8")
     p = subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT)
     log_fh.close()   # Kind hält sein eigenes dupliziertes Handle (Windows-Sperre)
-    PREPARE.update(proc=p, piece=piece, log=log_path, state="running")
+    PREPARE.update(proc=p, piece=piece, dir=dir, log=log_path, state="running")
     log.info("synth prepare gestartet: %s -> %s", dir, piece)
     return {"ok": True, "piece": piece, "cmd": " ".join(cmd)}
 
@@ -161,7 +171,7 @@ def scan_prepare_status():
         PREPARE.update(state=state)
     else:
         state = s.get("state", "idle")
-    out = {"state": state, "piece": piece}
+    out = {"state": state, "piece": piece, "dir": s.get("dir")}
     if piece and state in ("done", "failed"):
         report = load_report(_repo_root() / "synth_pieces", piece)
         if report:
@@ -270,7 +280,7 @@ def piece_delete(piece: str):
         raise HTTPException(400, "ungültiger Figurenname")
     pdir = _repo_root() / "synth_pieces"
     removed = []
-    for suffix in (".obj", ".png", "_preview.png", "_preview_clay.png", "_report.json"):
+    for suffix in (".obj", ".png", "_preview.png", "_preview_clay.png", "_report.json", ".src"):
         p = pdir / f"{piece}{suffix}"
         if p.exists():
             p.unlink()
