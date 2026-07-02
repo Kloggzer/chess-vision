@@ -26,6 +26,7 @@ import numpy as np
 
 from . import config
 from .calibration import _square_to_col_row
+from .imgops import resize_keep_aspect
 
 
 # --- Intrinsics -----------------------------------------------------------------------
@@ -156,5 +157,4 @@ def crop_square_3d(frame_bgr: np.ndarray, square: str, K, dist, rvec, tvec, prof
     region = frame_bgr[y0:y1, x0:x1]
     if region.size == 0:
         return None
-    from .labeling import _resize_keep_aspect  # lazy: vermeidet Import-Zyklus (labeling -> geometry3d)
-    return _resize_keep_aspect(region, out_size)
+    return resize_keep_aspect(region, out_size)

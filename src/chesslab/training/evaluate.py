@@ -9,7 +9,12 @@ from .. import config
 from .data import filter_rows_by_split, load_manifest, load_split
 
 
-def _load_run(run_dir: Path):
+def load_run(run_dir: Path):
+    """Modell + Run-config aus einem Run-Verzeichnis laden (best.pt, sonst last.pt).
+
+    Öffentlich, weil `chesslab.serving.load_run` (die kanonische Inference-Facade,
+    siehe specs/rework/01-serving-facade.md) diese Funktion mit einem Cache davor aufruft.
+    """
     import torch
 
     from .model import build_model
@@ -22,6 +27,10 @@ def _load_run(run_dir: Path):
         ckpt = run_dir / "last.pt"
     model.load_state_dict(torch.load(ckpt, map_location="cpu"))
     return model, cfg
+
+
+# Übergangsalias: bisheriger privater Name, falls noch irgendwo referenziert.
+_load_run = load_run
 
 
 def run_eval(run: str, split_name: str = "test") -> int:

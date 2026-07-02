@@ -28,6 +28,7 @@ from .calibration import (
     square_to_crop_box,
     warp_board_for_crops,
 )
+from .imgops import resize_keep_aspect
 from .state import GameState
 
 _FILES = "abcdefgh"
@@ -54,21 +55,10 @@ def all_squares() -> list[str]:
     return [f"{f}{r}" for r in range(1, 9) for f in _FILES]
 
 
-def _resize_keep_aspect(img, out_size: tuple[int, int]):
-    """Auf out_size (W,H) skalieren OHNE Verzerrung: gleichmäßig skalieren, Rest mittig mit
-    Schwarz auffüllen (Letterbox). Bei gleichem Seitenverhältnis ist das eine randlose Skalierung."""
-    ow, oh = int(out_size[0]), int(out_size[1])
-    h, w = img.shape[:2]
-    if w == 0 or h == 0:
-        return np.zeros((oh, ow, 3), dtype=np.uint8)
-    s = min(ow / w, oh / h)
-    nw, nh = max(1, round(w * s)), max(1, round(h * s))
-    interp = cv2.INTER_AREA if s < 1 else cv2.INTER_LINEAR
-    r = cv2.resize(img, (nw, nh), interpolation=interp)
-    canvas = np.zeros((oh, ow, 3), dtype=np.uint8)
-    x, y = (ow - nw) // 2, (oh - nh) // 2
-    canvas[y:y + nh, x:x + nw] = r
-    return canvas
+# Rückwärtskompatibler Alias: `resize_keep_aspect` lebt jetzt in `imgops` (löst den
+# Import-Zyklus mit `geometry3d`). Wer noch `labeling._resize_keep_aspect` referenziert,
+# funktioniert unverändert weiter.
+_resize_keep_aspect = resize_keep_aspect
 
 
 def crop_square(board_warped, square: str, profile: CalibrationProfile, out_size: tuple[int, int]):
@@ -93,16 +83,21 @@ def crop_square(board_warped, square: str, profile: CalibrationProfile, out_size
     if pad_t or pad_b or pad_l or pad_r:       # überstehende Bereiche schwarz auffüllen
         region = cv2.copyMakeBorder(region, pad_t, pad_b, pad_l, pad_r,
                                     cv2.BORDER_CONSTANT, value=(0, 0, 0))
-    return _resize_keep_aspect(region, out_size)
+    return resize_keep_aspect(region, out_size)
 
 
 def crops_for_frame(frame, corners, profile: CalibrationProfile, *, geometry: str = "warp",
                     photometry: str = "none",
                     piece_height_cells: float = config.EXP_PIECE_HEIGHT_CELLS,
-                    out_size: tuple[int, int] | None = None) -> list:
+                    out_size: tuple[int, int] | None = None,
+                    with_meta: bool = False):
     """64 Crops (Reihenfolge `all_squares()`) für EINEN Frame — IDENTISCH zum Trainings-Slice:
     gebordeter warp ODER box3d, dann `preprocess_crop`. Single Source für die Live-Inferenz, damit
     das Modell live exakt denselben Crop sieht wie beim Training.
+
+    `with_meta=True`: gibt (crops, meta) zurück, wobei meta = {"used_box3d": list[bool]} je Feld
+    angibt, ob der Crop über box3d (True) oder warp (False) erzeugt wurde. Wird von `slice_session`
+    für die `pose_ok`-Kennzeichnung im Manifest konsumiert (De-Duplikation, Rework 01).
     """
     out = tuple(out_size) if out_size else tuple(profile.crop.out_size)
     box3d = geometry == "box3d"
@@ -120,18 +115,22 @@ def crops_for_frame(frame, corners, profile: CalibrationProfile, *, geometry: st
     ps_units = config.EXP_BOX3D_PAD_SIDE_CELLS * cell
     warped = warp_board_for_crops(frame, profile, corners)   # warp-Crop + box3d-Fallback
     crops = []
+    used_box3d = []
     for square in all_squares():
         crop = None
+        is_box3d = False
         if box3d and pose is not None:
             crop = geometry3d.crop_square_3d(frame, square, K, dist, pose[0], pose[1], profile,
                                              piece_height_units=ph_units, pad_side_units=ps_units,
                                              up=up, out_size=out)
+            is_box3d = crop is not None
         if crop is None:
             crop = crop_square(warped, square, profile, out)
         if photometry != "none":
             crop = photometric.preprocess_crop(crop, photometry)
         crops.append(crop)
-    return crops
+        used_box3d.append(is_box3d)
+    return (crops, {"used_box3d": used_box3d}) if with_meta else crops
 
 
 def variant_of_run(run_dir: Path) -> tuple[str, str, float]:
@@ -260,10 +259,6 @@ def slice_session(
     prof = _effective_profile(profile, pad_up, pad_side)
     out = tuple(out_size) if out_size else tuple(prof.crop.out_size)
     box3d = geometry_mode == "box3d"
-    cell = prof.board_size / 8.0
-    ph_units = float(piece_height_cells) * cell
-    ps_units = config.EXP_BOX3D_PAD_SIDE_CELLS * cell
-    K = dist = None   # box3d: einmal je Session aus erster Frame-Größe / Profil-Intrinsics
 
     new_lines: list[str] = []
     n_crops = 0
@@ -283,42 +278,27 @@ def slice_session(
             if corners is None:
                 n_skipped += 1   # keine Marker im Frame -> nicht verwertbar, überspringen
                 continue
-        # Daten-Crop-Warp ist IMMER gebordert (Randfelder bekommen Inhalt); box3d nutzt es als Fallback.
-        warped = warp_board_for_crops(frame, prof, corners)
 
-        pose = None
-        up = 1.0
-        if box3d and corners:
-            if K is None:
-                fh, fw = frame.shape[:2]
-                K, dist = geometry3d.intrinsics(prof, (fw, fh))
-            pose = geometry3d.estimate_pose(corners, K, dist, prof.board_size, prof.margin)
-            if pose is not None:
-                up = geometry3d.up_sign(pose[0], pose[1])
+        # crops_for_frame als Single Source (Rework 01: De-Duplikation).
+        crops, meta = crops_for_frame(
+            frame, corners, prof, geometry=geometry_mode, photometry=photometry,
+            piece_height_cells=piece_height_cells, out_size=out, with_meta=True)
+        used_box3d_list = meta["used_box3d"]
+        if box3d:
+            n_fallback += sum(1 for v in used_box3d_list if not v)
 
         explicit = entry.get("labels")          # Inference/Active-Learning: explizite 64 Labels
         gs = None if explicit else GameState(entry["fen"])
         frame_stem = Path(entry["frame"]).stem  # '0007'
-        for square in all_squares():
+        squares = all_squares()
+        for i, square in enumerate(squares):
             label = explicit.get(square, "empty") if explicit else gs.label_for(square)
             if label_overrides:
                 corrected = label_overrides.get((session_id, frame_stem, square))
                 if corrected is not None and corrected != label:
                     label = corrected
                     n_overrides += 1
-            used_box3d = False
-            crop = None
-            if box3d and pose is not None:
-                crop = geometry3d.crop_square_3d(
-                    frame, square, K, dist, pose[0], pose[1], prof,
-                    piece_height_units=ph_units, pad_side_units=ps_units, up=up, out_size=out)
-                used_box3d = crop is not None
-            if crop is None:
-                crop = crop_square(warped, square, prof, out)  # warp bzw. box3d-Fallback
-                if box3d:
-                    n_fallback += 1
-            if photometry != "none":
-                crop = photometric.preprocess_crop(crop, photometry)
+            crop = crops[i]
             out_dir = squares_root / label
             out_dir.mkdir(parents=True, exist_ok=True)
             fname = f"{session_id}_{frame_stem}_{square}.png"
@@ -339,7 +319,7 @@ def slice_session(
             }
             if box3d:
                 row["piece_height_cells"] = float(piece_height_cells)
-                row["pose_ok"] = used_box3d
+                row["pose_ok"] = used_box3d_list[i]
             new_lines.append(json.dumps(row, ensure_ascii=False))
             n_crops += 1
 
