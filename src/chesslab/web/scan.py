@@ -58,6 +58,14 @@ class ScanController:
         self.thread: threading.Thread | None = None
         self.stop_flag = False
 
+        # Bedarfs-Steuerung: die physische Kamera wird nur gegriffen, wenn Vorschau angezeigt
+        # oder aufgenommen wird. `configured` = Quelle ausgewählt (UI-Panel offen); die echte
+        # `cap` wird lazy geöffnet/nach `idle_timeout` Sekunden Leerlauf wieder freigegeben.
+        self.configured = False
+        self._cfg = ("0", 3840, 2160)          # (source, width, height) fürs Lazy-Reopen
+        self._last_demand = 0.0                # letzter Preview-Abruf (Aufnahme = Dauerbedarf)
+        self.idle_timeout = 12.0
+
         self.frame = None                 # letzter Full-Res-BGR-Frame
         self.frame_size = (0, 0)          # (w, h) der Quelle
         self.frame_id = 0
@@ -78,8 +86,10 @@ class ScanController:
 
     # -- Quelle öffnen / schließen -------------------------------------------------
     def open(self, source, width: int = 3840, height: int = 2160) -> dict:
+        """Quelle AUSWÄHLEN + einmal testen. Danach hält der Loop die Kamera nur bei Bedarf
+        (Vorschau/Aufnahme) und gibt sie im Leerlauf automatisch frei."""
         self.close()
-        cap = _open(source, width, height)
+        cap = _open(source, width, height)     # Testöffnung: schlägt früh fehl, wenn die Quelle streikt
         ok, img = cap.read()
         if not ok or img is None:
             try:
@@ -88,13 +98,16 @@ class ScanController:
                 pass
             raise RuntimeError(f"Keine Frames von {source!r}. Quelle/URL/App prüfen.")
         with self.lock:
-            self.cap = cap
+            self.cap = cap                     # bleibt erstmal offen (Vorschau startet sofort)
+            self.configured = True
+            self._cfg = (str(source), int(width), int(height))
             self.source = str(source)
             self.frame = img
             self.frame_size = (img.shape[1], img.shape[0])
             self.frame_id += 1
             self.error = ""
             self.stop_flag = False
+            self._last_demand = time.time()
         self.thread = threading.Thread(target=self._loop, daemon=True)
         self.thread.start()
         return self.status()
@@ -106,20 +119,51 @@ class ScanController:
             t.join(timeout=2.0)
         with self.lock:
             self.recording = False
-            if self.cap is not None:
-                try:
-                    self.cap.release()
-                except Exception:  # noqa: BLE001
-                    pass
-            self.cap = None
+            self.configured = False
+            self._release_cap_locked()
             self.thread = None
+
+    def _release_cap_locked(self) -> None:
+        if self.cap is not None:
+            try:
+                self.cap.release()
+            except Exception:  # noqa: BLE001
+                pass
+        self.cap = None
 
     # -- Grab-/Speicher-Schleife ---------------------------------------------------
     def _loop(self) -> None:
         while not self.stop_flag:
-            cap = self.cap
-            if cap is None:
-                break
+            now = time.time()
+            with self.lock:
+                demand = self.recording or (now - self._last_demand) < self.idle_timeout
+                cap = self.cap
+                if not demand and cap is not None:      # Leerlauf -> Kamera freigeben
+                    self._release_cap_locked()
+                    self.frame = None                   # Vorschau soll nicht altes Bild zeigen
+                    cap = None
+
+            if demand and cap is None:                  # Bedarf, aber Kamera frei -> lazy öffnen
+                try:
+                    new = _open(*self._cfg)
+                    ok, img = new.read()
+                    if not ok or img is None:
+                        new.release()
+                        raise RuntimeError("kein Frame")
+                except Exception as e:  # noqa: BLE001
+                    with self.lock:
+                        self.error = f"Reopen fehlgeschlagen: {e}"
+                    time.sleep(0.3)
+                    continue
+                with self.lock:
+                    self.cap = new
+                    self.error = ""
+                cap = new
+
+            if cap is None:                             # geparkt: warten bis wieder Bedarf besteht
+                time.sleep(0.15)
+                continue
+
             ok, img = cap.read()
             if not ok or img is None:
                 with self.lock:
@@ -131,8 +175,7 @@ class ScanController:
                 self.frame_size = (img.shape[1], img.shape[0])
                 self.frame_id += 1
                 self.error = ""
-                rec = self.recording
-                due = rec and (time.time() - self._last_save) >= self.interval
+                due = self.recording and (time.time() - self._last_save) >= self.interval
                 if due:
                     self._save_locked(img)
 
@@ -176,7 +219,7 @@ class ScanController:
 
     def start(self, out: str | None = None) -> dict:
         with self.lock:
-            if self.cap is None:
+            if not self.configured:
                 raise RuntimeError("keine Quelle offen — erst Verbinden.")
             name = (out or self.out_name).strip()
             if not name:
@@ -202,6 +245,7 @@ class ScanController:
         """(bgr_image, frame_id) des letzten Frames, runterskaliert + Crop-Rahmen eingezeichnet.
         Gibt (None, id) zurück, wenn kein neuer Frame vorliegt (Aufrufer wartet dann kurz)."""
         with self.lock:
+            self._last_demand = time.time()    # Vorschau-Abruf = Bedarf (hält die Kamera wach)
             img = self.frame
             fid = self.frame_id
             crop = self.crop
@@ -221,7 +265,8 @@ class ScanController:
         with self.lock:
             total = len(list(self.out_dir.glob("*.jpg"))) if self.out_dir else 0
             return {
-                "open": self.cap is not None,
+                "open": self.configured,        # Quelle ausgewählt (UI-Panel offen)
+                "grabbing": self.cap is not None,  # Kamera gerade physisch aktiv (sonst geparkt)
                 "source": self.source,
                 "frame_size": list(self.frame_size),
                 "recording": self.recording,
