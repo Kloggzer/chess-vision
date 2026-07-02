@@ -56,7 +56,8 @@ def test_build_isolate_cmd_argv(tmp_path):
 def _good_report(**over):
     r = {"piece": "P", "verts": 15000, "tris_before": 2_000_000, "tris_after": 19000,
          "decimated": True, "target_tris": 20000, "boundary_edges": 12,
-         "nonmanifold_edges": 3, "dims": [1.0, 1.0, 2.2], "height_ratio": 2.2}
+         "nonmanifold_edges": 3, "dims": [1.0, 1.0, 2.2], "height_ratio": 2.2,
+         "pattern_margin": 6.5, "piece_vertex_frac": 0.24}
     r.update(over)
     return r
 
@@ -78,6 +79,21 @@ def test_assess_report_flags_overweight_and_thin():
     assert level == "warn"
     assert any("über Ziel" in m for m in msgs)
     assert any("Vertices übrig" in m for m in msgs)
+
+
+def test_assess_report_flags_small_pattern_margin():
+    """Figur größer als Drehteller: kaum mitdrehendes Muster sichtbar → Warnung."""
+    level, msgs = assess_report(_good_report(pattern_margin=1.2))
+    assert level == "warn"
+    assert any("Muster" in m and "Scheibe" in m for m in msgs)
+
+
+def test_assess_report_pattern_margin_missing_is_ok():
+    """Alte Reports ohne das Feld (vor diesem Feature) lösen keine Warnung aus."""
+    r = _good_report()
+    del r["pattern_margin"]
+    level, _ = assess_report(r)
+    assert level == "ok"
 
 
 def test_load_report_roundtrip(tmp_path):

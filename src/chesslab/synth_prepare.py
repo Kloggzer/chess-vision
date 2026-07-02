@@ -20,6 +20,8 @@ _MAX_BOUNDARY_EDGES = 300      # offene Kanten ≈ Löcher im Scan
 _MAX_NONMANIFOLD = 500
 _MIN_VERTS = 1000              # weniger übrig ⇒ Isolierung hat zu viel weggeschnitten
 _HEIGHT_RATIO_RANGE = (0.9, 4.0)   # Höhe/Basis — außerhalb: PCA-Aufrichtung prüfen (Springer!)
+_MIN_PATTERN_MARGIN = 1.5      # Unterlage muss mind. so viele Figuren-Radien sichtbar sein
+                               # (Figur größer als Drehteller ⇒ zu wenig mitdrehendes Muster)
 
 
 @dataclass(frozen=True)
@@ -119,6 +121,11 @@ def assess_report(report: dict) -> tuple[str, list[str]]:
     if tgt and report.get("tris_after", 0) > 1.5 * tgt:
         msgs.append(f"tris_after={report.get('tris_after')} deutlich über Ziel {tgt} — "
                     "Decimate hat nicht gegriffen?")
+    pm = report.get("pattern_margin")
+    if pm is not None and pm < _MIN_PATTERN_MARGIN:
+        msgs.append(f"pattern_margin={pm} < {_MIN_PATTERN_MARGIN} — wenig mitdrehendes Muster "
+                    "um die Figur sichtbar (Figur zu groß für den Teller?): größere Scheibe "
+                    "mit Kritzel-Muster auf den Drehteller legen")
     return ("warn" if msgs else "ok"), msgs
 
 
