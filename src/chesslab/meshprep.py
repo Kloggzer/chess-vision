@@ -44,6 +44,7 @@ def prepare_scan(
     smooth_iters: int = 10,
     make_preview: bool = True,
     seed: int = 42,
+    isolate: bool = True,
 ) -> dict:
     """Prepare a single scanned piece for the render pipeline.
 
@@ -75,6 +76,12 @@ def prepare_scan(
         an OpenGL-capable environment; skipped with a warning otherwise.
     seed:
         Seed for RANSAC and other random operations.
+    isolate:
+        When True (default), fit a plane to the substrate, mask below-plane
+        vertices, and keep the connected component nearest the plate centroid.
+        When False, the mesh is assumed to be a pre-cut single piece (no
+        paper/plate) — skip the plane-based masking but still keep the largest
+        connected component, remove outliers, and upright via base-plane fit.
 
     Returns
     -------
@@ -95,39 +102,74 @@ def prepare_scan(
 
     _log.info("loaded %s: %d verts, %d tris", item.name, len(mesh.vertices), tris_before)
 
-    # ---- 2. RANSAC plane fit + above-plane mask -------------------------------
-    plane_normal, plane_d, inlier_mask = _fit_plane(mesh.vertices, rng)
-    plane_inliers = int(inlier_mask.sum())
-    _log.info("plane fit: %d inliers", plane_inliers)
+    if isolate:
+        # ==================================================================
+        # ISOLATION PIPELINE (existing): plane fit → above-plane mask →
+        # keep center component → upright via plate plane
+        # ==================================================================
 
-    signed = mesh.vertices @ plane_normal + plane_d
-    fig_side = 1 if signed.max() > abs(signed.min()) else -1
-    if fig_side < 0:
-        plane_normal = -plane_normal
-        plane_d = -plane_d
-        signed = -signed
+        # ---- 2. RANSAC plane fit + above-plane mask ---------------------------
+        plane_normal, plane_d, inlier_mask = _fit_plane(mesh.vertices, rng)
+        plane_inliers = int(inlier_mask.sum())
+        _log.info("plane fit: %d inliers", plane_inliers)
 
-    # Above-plane = vertices with signed distance > plane_eps AND not a plane inlier.
-    above_mask = (signed > plane_eps) & (~inlier_mask)
-    _log.info("above-plane vertices: %d / %d", above_mask.sum(), len(mesh.vertices))
+        signed = mesh.vertices @ plane_normal + plane_d
+        fig_side = 1 if signed.max() > abs(signed.min()) else -1
+        if fig_side < 0:
+            plane_normal = -plane_normal
+            plane_d = -plane_d
+            signed = -signed
 
-    # ---- 3. Pre-isolation metrics (must run before mesh is truncated) ----------
-    pattern_margin, piece_vertex_frac = _compute_pattern_margin(
-        mesh, plane_normal, plane_d, above_mask, inlier_mask)
+        # Above-plane = vertices with signed distance > plane_eps AND not a plane inlier.
+        above_mask = (signed > plane_eps) & (~inlier_mask)
+        _log.info("above-plane vertices: %d / %d", above_mask.sum(), len(mesh.vertices))
 
-    # Optional scale (must use original mesh + inlier_mask)
-    scale_mm = None
-    if plate_diameter_mm is not None:
-        scale_mm = _compute_scale(mesh, inlier_mask, plane_normal, plane_d, plate_diameter_mm)
-        _log.info("scale: %.3f mm/unit", scale_mm)
+        # ---- 3. Pre-isolation metrics (must run before mesh is truncated) ------
+        pattern_margin, piece_vertex_frac = _compute_pattern_margin(
+            mesh, plane_normal, plane_d, above_mask, inlier_mask)
 
-    # ---- 4. Keep largest connected component near the rotation axis -----------
-    mesh, center_component_frac = _keep_center_component(mesh, above_mask, inlier_mask,
-                                                         plane_normal, plane_d)
-    _log.info("center component frac: %.3f", center_component_frac)
+        # Optional scale (must use original mesh + inlier_mask)
+        scale_mm = None
+        if plate_diameter_mm is not None:
+            scale_mm = _compute_scale(mesh, inlier_mask, plane_normal, plane_d, plate_diameter_mm)
+            _log.info("scale: %.3f mm/unit", scale_mm)
 
-    # ---- 5. Upright + re-center -----------------------------------------------
-    mesh = _upright(mesh, plane_normal)
+        # ---- 4. Keep largest connected component near the rotation axis -------
+        mesh, center_component_frac = _keep_center_component(
+            mesh, above_mask, inlier_mask, plane_normal, plane_d)
+        _log.info("center component frac: %.3f", center_component_frac)
+
+        # ---- 5. Upright + re-center -------------------------------------------
+        mesh = _upright(mesh, plane_normal)
+    else:
+        # ==================================================================
+        # NO-ISOLATION PIPELINE: pre-cut single piece, no paper/plate.
+        # Keep largest component, remove outliers, upright via base-plane fit.
+        # ==================================================================
+
+        plane_inliers = 0
+        pattern_margin = None
+        piece_vertex_frac = 1.0
+        scale_mm = None
+
+        # Keep largest connected component (drops stray debris)
+        mesh, center_component_frac = _keep_largest_component(mesh)
+        _log.info("largest component frac: %.3f", center_component_frac)
+
+        # Fit plane to bottom ~15% of vertices for uprighting only
+        base_normal, base_d, base_inlier_mask = _fit_plane(mesh.vertices, rng)
+        plane_inliers = int(base_inlier_mask.sum())
+        _log.info("base plane fit for upright: %d inliers", plane_inliers)
+
+        # Ensure normal points +Z (figure side)
+        signed = mesh.vertices @ base_normal + base_d
+        fig_side = 1 if signed.max() > abs(signed.min()) else -1
+        if fig_side < 0:
+            base_normal = -base_normal
+            base_d = -base_d
+
+        # Upright + re-center using the base plane
+        mesh = _upright(mesh, base_normal)
 
     # ---- 6. PyMeshLab: close holes, decimate, smooth -------------------------
     mesh, out_obj, tex_dst = _pymeshlab_process(
@@ -143,7 +185,7 @@ def prepare_scan(
     dims, height_ratio = _compute_dims_ratio(mesh)
 
     # ---- 10. Report -----------------------------------------------------------
-    report = {
+    report: dict = {
         "piece": item.name,
         "verts": len(mesh.vertices),
         "tris_before": int(tris_before),
@@ -155,7 +197,6 @@ def prepare_scan(
         "fill_holes": fill_holes,
         "plane_inliers": int(plane_inliers),
         "center_component_frac": round(float(center_component_frac), 3),
-        "pattern_margin": round(float(pattern_margin), 3),
         "piece_vertex_frac": round(float(piece_vertex_frac), 3),
         "scale_mm_per_unit": round(scale_mm, 3) if scale_mm is not None else None,
         "plate_diameter_mm": plate_diameter_mm,
@@ -163,6 +204,8 @@ def prepare_scan(
         "dims": [round(float(d), 4) for d in dims],
         "height_ratio": round(float(height_ratio), 3),
     }
+    if pattern_margin is not None:
+        report["pattern_margin"] = round(float(pattern_margin), 3)
     report_path = out_dir / f"{item.name}_report.json"
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     _log.info("wrote %s", report_path)
@@ -312,6 +355,91 @@ def _fit_plane(vertices: np.ndarray, rng: np.random.Generator):
     inlier_mask = np.abs(signed) < tolerance
 
     return normal, d, inlier_mask
+
+
+def _keep_largest_component(mesh):
+    """Keep only the largest connected component of the entire mesh.
+
+    Used in the ``isolate=False`` pipeline for pre-cut single-piece meshes
+    with no substrate/plate.
+
+    Returns ``(new_mesh, kept_fraction)`` where *kept_fraction* is the ratio
+    of kept triangles to total triangles.
+    """
+    import open3d as o3d
+
+    faces = mesh.faces
+    if len(faces) == 0:
+        raise RuntimeError("Mesh has no faces")
+
+    # Build Open3D mesh for clustering
+    o3d_mesh = o3d.geometry.TriangleMesh()
+    o3d_mesh.vertices = o3d.utility.Vector3dVector(np.array(mesh.vertices))
+    o3d_mesh.triangles = o3d.utility.Vector3iVector(np.array(faces))
+
+    triangle_clusters, cluster_counts, _ = o3d_mesh.cluster_connected_triangles()
+    n_clusters = len(cluster_counts)
+
+    if n_clusters == 0:
+        raise RuntimeError("No connected components found in mesh")
+
+    cluster_sizes = np.array(cluster_counts, dtype=int)
+    best_cluster = int(np.argmax(cluster_sizes))
+    total_tris = len(faces)
+    best_tris = int(cluster_sizes[best_cluster])
+    kept_fraction = best_tris / total_tris if total_tris > 0 else 1.0
+
+    _log.info("selected cluster %d/%d (size=%d tris, %.1f%%)",
+              best_cluster, n_clusters, best_tris, 100 * kept_fraction)
+
+    # Keep only best cluster triangles
+    best_mask = np.asarray(triangle_clusters) == best_cluster
+    best_tri_indices = faces[best_mask]
+    best_vert_idx = np.unique(best_tri_indices.flatten())
+
+    # Compact remap
+    v2 = {int(old): new for new, old in enumerate(best_vert_idx)}
+    final_faces = np.array([[v2[vi] for vi in tri] for tri in best_tri_indices], dtype=np.int32)
+    final_verts = mesh.vertices[best_vert_idx]
+
+    # Remove statistical outliers (lenient)
+    clean_verts = final_verts
+    clean_tris = final_faces
+    if len(final_verts) > 500:
+        try:
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(final_verts)
+            pcd, ind = pcd.remove_statistical_outlier(nb_neighbors=50, std_ratio=3.0)
+            kept_frac = len(ind) / len(final_verts)
+            if kept_frac > 0.3:
+                clean_verts = np.asarray(pcd.points)
+                clean_idx_set = set(ind)
+                clean_tris = np.array([tri for tri in final_faces if all(v in clean_idx_set for v in tri)], dtype=np.int32)
+                _log.info("outlier removal kept %.1f%% of vertices", 100 * kept_frac)
+        except Exception:
+            pass
+
+    # Remap
+    new_vert_map = {old: new for new, old in enumerate(sorted(set(v for tri in clean_tris for v in tri)))}
+    clean_tris_mapped = np.array([[new_vert_map[vi] for vi in tri] for tri in clean_tris], dtype=np.int32)
+
+    # Carry over vertex attributes (UVs only if no outlier filtering, to keep mapping simple)
+    import trimesh
+    kwargs = {}
+    orig_visual = mesh.visual
+    if clean_verts is final_verts:
+        # No outlier removal → simple UV remap through best_vert_idx
+        orig_uv = getattr(orig_visual, "uv", None)
+        if orig_uv is not None and len(orig_uv) == len(mesh.vertices):
+            kwargs["visual"] = trimesh.visual.texture.TextureVisuals(uv=orig_uv[best_vert_idx])
+        elif hasattr(orig_visual, "vertex_colors") and orig_visual.vertex_colors is not None:
+            vc = orig_visual.vertex_colors
+            if len(vc) == len(mesh.vertices):
+                kwargs["vertex_colors"] = vc[best_vert_idx]
+
+    result = trimesh.Trimesh(vertices=clean_verts, faces=clean_tris_mapped,
+                             process=False, **kwargs)
+    return result, kept_fraction
 
 
 def _keep_center_component(mesh, above_mask: np.ndarray, inlier_mask: np.ndarray,
@@ -548,6 +676,18 @@ def _pymeshlab_process(mesh, name: str, out_dir: Path, tex_img,
     out_obj = out_dir / f"{name}.obj"
     tex_dst = out_dir / f"{name}.png"
 
+    # Nur die größte zusammenhängende Komponente behalten (UV-erhaltend) — entfernt
+    # kleine schwebende Scan-Debris-Fragmente, damit das Ergebnis EIN sauberes Solid ist.
+    try:
+        comps = mesh.split(only_watertight=False)
+        if len(comps) > 1:
+            biggest = max(comps, key=lambda c: len(c.vertices))
+            _log.info("keep largest component: %d/%d verts (dropped %d Fragmente)",
+                      len(biggest.vertices), len(mesh.vertices), len(comps) - 1)
+            mesh = biggest
+    except Exception as e:  # pragma: no cover - defensiv
+        _log.warning("keep-largest-component übersprungen (%s)", e)
+
     # Ensure mesh has TextureVisuals with material.image so OBJ export
     # writes vt coords → PyMeshLab gets per‑wedge texture coords and
     # the texture‑preserving decimator actually runs.
@@ -603,6 +743,21 @@ def _pymeshlab_process(mesh, name: str, out_dir: Path, tex_img,
             ms.meshing_close_holes(maxholesize=5000)
         except Exception as e:
             _log.warning("close_holes failed (%s) — continuing without", e)
+
+    # Kleine Komponenten entfernen: die Dezimierung kann dünne Verbindungen (z.B. den
+    # Bauern-Hals) kollabieren lassen → schwebende Splitter. Nur Komponenten unterhalb
+    # eines Bruchteils der Gesamtfläche wegwerfen (der Figurkörper bleibt).
+    try:
+        fn = ms.current_mesh().face_number()
+        thresh = max(64, int(0.03 * fn))
+        for fname in ("meshing_remove_connected_component_by_face_number",
+                      "remove_isolated_pieces_wrt_face_num"):
+            if hasattr(ms, fname):
+                getattr(ms, fname)(mincomponentsize=thresh, removeunref=True)
+                _log.info("removed components < %d faces (of %d)", thresh, fn)
+                break
+    except Exception as e:
+        _log.warning("remove small components failed (%s) — continuing", e)
 
     # ---- Write clean OBJ ourselves (BUG 1 fix: bypass broken PyMeshLab writer) ----
     _write_clean_obj(ms, out_obj, name)
@@ -702,6 +857,36 @@ def _ensure_texture_visual(mesh, tex_img, tex_fallback):
     mesh.visual = trimesh.visual.texture.TextureVisuals(uv=uv, material=mat)
 
 
+def _largest_component_mask(faces: "np.ndarray", n_verts: int) -> "np.ndarray":
+    """Boolean face-mask selecting the connected component with the most faces.
+
+    Union-Find über geteilte Vertices — deterministisch, unabhängig von
+    PyMeshLabs Lösch-Semantik. Entfernt schwebende Debris-/Dezimierungssplitter.
+    """
+    parent = np.arange(n_verts)
+
+    def find(x):
+        root = x
+        while parent[root] != root:
+            root = parent[root]
+        while parent[x] != root:
+            parent[x], x = root, parent[x]
+        return root
+
+    for f in faces:
+        a = find(int(f[0]))
+        for vi in (int(f[1]), int(f[2])):
+            b = find(vi)
+            if a != b:
+                parent[b] = a
+    roots = np.array([find(int(f[0])) for f in faces])
+    if len(roots) == 0:
+        return np.ones(len(faces), dtype=bool)
+    uniq, counts = np.unique(roots, return_counts=True)
+    best_root = uniq[int(np.argmax(counts))]
+    return roots == best_root
+
+
 def _write_clean_obj(ms, out_obj: Path, name: str):
     """Extract final geometry from PyMeshLab and write a clean OBJ.
 
@@ -725,6 +910,25 @@ def _write_clean_obj(ms, out_obj: Path, name: str):
             uv_matrix = np.asarray(cm.vertex_tex_coord_matrix())
         except Exception:
             pass
+
+    # Nur die größte zusammenhängende Komponente behalten (Debris weg), mit
+    # korrekter UV-Mitführung und Vertex-Remap.
+    if len(faces) > 0:
+        fmask = _largest_component_mask(faces, len(verts))
+        if not fmask.all():
+            n_before = len(faces)
+            if has_wedge_uvs and uv_matrix is not None and len(uv_matrix) == 3 * n_before:
+                uv_matrix = uv_matrix.reshape(n_before, 3, -1)[fmask].reshape(-1, uv_matrix.shape[1])
+            faces = faces[fmask]
+            used = np.unique(faces.reshape(-1))
+            remap = np.full(len(verts), -1, dtype=np.int64)
+            remap[used] = np.arange(len(used))
+            verts = verts[used]
+            if uv_matrix is not None and not has_wedge_uvs and len(uv_matrix) == len(remap):
+                uv_matrix = uv_matrix[used]
+            faces = remap[faces]
+            _log.info("keep largest component (writer): %d/%d Faces, %d Fragmente weg",
+                      len(faces), n_before, len(fmask) - int(fmask.sum()))
 
     lines: list[str] = []
     lines.append(f"mtllib {name}.mtl")

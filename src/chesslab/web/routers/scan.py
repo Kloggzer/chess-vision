@@ -9,7 +9,7 @@ import subprocess
 import threading
 from pathlib import Path
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 
 from ..camera import mjpeg
@@ -86,25 +86,73 @@ def scan_preview():
     return mjpeg(frames())
 
 
+# --- Mesh-Upload (fertige .obj/.glb/.gltf Dateien hochladen) --------------------------
+
+_MESH_EXTENSIONS = {".obj", ".glb", ".gltf"}
+_TEXTURE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
+_SAFE_NAME = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+@router.post("/api/scan/upload")
+async def scan_upload(
+    name: str = Form(...),
+    mesh: UploadFile = File(...),
+    texture: UploadFile | None = File(None),
+):
+    """Mesh-Datei + optionale Textur hochladen (bereits freigestelltes Einzelstück).
+
+    Schreibt einen ``.clean``-Marker damit die UI ``isolate=False`` vorschlägt.
+    """
+    if not _SAFE_NAME.match(name):
+        raise HTTPException(400, f"Name {name!r} enthält ungültige Zeichen (nur a-Z, 0-9, _, -).")
+    mesh_ext = Path(mesh.filename or "").suffix.lower()
+    if mesh_ext not in _MESH_EXTENSIONS:
+        raise HTTPException(400, f"Mesh-Format {mesh_ext} nicht unterstützt ({sorted(_MESH_EXTENSIONS)}).")
+
+    d = SCANS_ROOT / name
+    d.mkdir(parents=True, exist_ok=True)
+    mesh_data = await mesh.read()
+    mesh_path = d / f"mesh_{name}{mesh_ext}"
+    mesh_path.write_bytes(mesh_data)
+    log.info("upload mesh: %s (%d bytes)", mesh_path, len(mesh_data))
+
+    tex_path: Path | None = None
+    if texture is not None:
+        tex_ext = Path(texture.filename or "").suffix.lower()
+        if tex_ext not in _TEXTURE_EXTENSIONS:
+            raise HTTPException(400, f"Textur-Format {tex_ext} nicht unterstützt ({sorted(_TEXTURE_EXTENSIONS)}).")
+        tex_data = await texture.read()
+        tex_path = d / f"mesh_{name}_diffuse{tex_ext}"
+        tex_path.write_bytes(tex_data)
+        log.info("upload texture: %s (%d bytes)", tex_path, len(tex_data))
+
+    # Marker: uploaded meshes are pre-isolated
+    (d / ".clean").touch()
+    return {"ok": True, "dir": name, "mesh": mesh_path.name,
+            "texture": tex_path.name if tex_path else None,
+            "clean": True}
+
+
 # --- 3D-Modell-Vorbereitung (Scan → renderfertige Figur, headless Blender) -------------
 
 @router.get("/api/scan/models")
 def scan_models():
     """Scan-Ordner mit Mesh (rekonstruiert) + bereits vorbereitete Figuren auflisten."""
-    from ...scan_discover import _pick_texture
+    from ...scan_discover import _pick_texture, pick_mesh
 
     scans = []
     if SCANS_ROOT.is_dir():
         for d in sorted(p for p in SCANS_ROOT.iterdir() if p.is_dir()):
-            objs = sorted(d.glob("*.obj"))
-            glbs = sorted([*d.glob("*.glb"), *d.glob("*.gltf")])
+            mesh_path = pick_mesh(d)
             photos = sum(1 for _ in d.glob("[0-9]*.jpg"))
-            if not objs and not glbs and photos == 0:
+            if mesh_path is None and photos == 0:
                 continue                        # leerer/irrelevanter Ordner
-            mesh = (objs or glbs)
             tex = _pick_texture(d)
-            scans.append({"dir": d.name, "mesh": mesh[0].name if mesh else None,
-                          "texture": tex.name if tex else None, "photos": photos})
+            scans.append({"dir": d.name,
+                          "mesh": mesh_path.name if mesh_path else None,
+                          "texture": tex.name if tex else None,
+                          "photos": photos,
+                          "clean": (d / ".clean").exists()})
     pieces = []
     pdir = _repo_root() / "synth_pieces"
     if pdir.is_dir():
@@ -133,10 +181,11 @@ def scan_prepare(dir: str = Body(...), piece: str = Body(...),
                  target_tris: int = Body(20000), smooth_iters: int = Body(10),
                  plane_eps: float | None = Body(None),
                  plate_diameter_mm: float | None = Body(None),
-                 fill_holes: bool = Body(True)):
+                 fill_holes: bool = Body(True),
+                 isolate: bool = Body(True)):
     """`chesslab synth prepare` für EINEN Scan-Ordner starten (v2: meshprep in-process, async per Thread)."""
     from ...meshprep import prepare_scan
-    from ...scan_discover import ScanItem, _pick_texture
+    from ...scan_discover import ScanItem, _pick_texture, pick_mesh
 
     if not _PIECE.match(piece):
         raise HTTPException(400, f"ungültiger Figurenname {piece!r} (P/N/B/R/Q/K, optional w/b-Präfix)")
@@ -144,10 +193,10 @@ def scan_prepare(dir: str = Body(...), piece: str = Body(...),
     if state == "running":
         raise HTTPException(409, "es läuft bereits eine Vorbereitung.")
     d = SCANS_ROOT / dir
-    objs = sorted([*d.glob("*.obj"), *d.glob("*.glb"), *d.glob("*.gltf")])
-    if not objs:
+    obj_path = pick_mesh(d)
+    if obj_path is None:
         raise HTTPException(404, f"kein Mesh in scans/{dir} — erst in RealityScan rekonstruieren/exportieren.")
-    item = ScanItem(name=piece, obj=objs[0], tex=_pick_texture(d))
+    item = ScanItem(name=piece, obj=obj_path, tex=_pick_texture(d))
     out = _repo_root() / "synth_pieces"
     (out / f"{piece}.src").write_text(dir, encoding="utf-8")  # Figur ↔ Quell-Scan verknüpfen
 
@@ -159,7 +208,8 @@ def scan_prepare(dir: str = Body(...), piece: str = Body(...),
         try:
             prepare_scan(item, out, target_tris=target_tris, plane_eps=eps,
                          plate_diameter_mm=plate_diameter_mm, fill_holes=fill_holes,
-                         smooth_iters=smooth_iters, make_preview=True)
+                         smooth_iters=smooth_iters, make_preview=True,
+                         isolate=isolate)
             PREPARE.update(state="done")
         except Exception as exc:
             PREPARE.update(state="failed", error=str(exc))

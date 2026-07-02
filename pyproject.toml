@@ -26,6 +26,7 @@ dependencies = [
     "pymeshlab>=2025.7.post1",
     "trimesh>=4.12.2",
     "pygltflib>=1.16.5",
+    "python-multipart>=0.0.32",
 ]
 
 [tool.uv.sources]
