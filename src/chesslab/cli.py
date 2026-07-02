@@ -587,6 +587,41 @@ def synth_prepare_cmd(
     raise typer.Exit(1 if any(lv == "fail" for _, lv, _ in results) else 0)
 
 
+@synth_app.command("preview")
+def synth_preview(
+    obj: str = typer.Option(..., "--obj", help="Vorbereitete Figur (.obj, Z-up aus `synth prepare`)."),
+    out: str = typer.Option(..., "--out", help="Ziel-PNG."),
+    tex: str | None = typer.Option(None, "--tex", help="Textur-PNG (Default: <obj>.png daneben; --clay ignoriert sie)."),
+    clay: bool = typer.Option(False, "--clay", help="Ohne Textur rendern (Geometrie pur — Bumps/Löcher am besten sichtbar)."),
+    blender: str | None = typer.Option(None, "--blender", help="Blender-Executable (Default: auto-erkannt)."),
+) -> None:
+    """Einzelne Figur hübsch rendern (orthografische 3/4-Ansicht, aufrecht, zwei Lichtquellen)."""
+    import subprocess
+
+    from .config import SYNTH
+
+    repo_root = Path(__file__).resolve().parents[2]
+    script = repo_root / "synth" / "render_piece.py"
+    obj_p = Path(obj).resolve()
+    tex_p = None if clay else (Path(tex).resolve() if tex else obj_p.with_suffix(".png"))
+    if tex_p is not None and not tex_p.exists():
+        print(f"[WARN] Textur {tex_p} fehlt — rendere Clay.")
+        tex_p = None
+    bl = blender or SYNTH.blender_cmd()
+    cmd = [bl, "--background", "--python-exit-code", "1", "--python", str(script), "--",
+           str(obj_p), str(Path(out).resolve()), str(tex_p) if tex_p else "-"]
+    print(" ".join(cmd))
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except FileNotFoundError:
+        print(f"[FAIL] Blender nicht gefunden ('{bl}'). CHESSLAB_BLENDER setzen.")
+        raise typer.Exit(1)
+    except subprocess.CalledProcessError as e:
+        print("[FAIL] Render fehlgeschlagen:\n" + "\n".join((e.stdout or "").splitlines()[-6:]))
+        raise typer.Exit(1)
+    print(f"[OK] synth preview: {out}")
+
+
 def main() -> None:
     # Ensure non-ASCII report glyphs (—, umlauts) render on Windows consoles too.
     for stream in (sys.stdout, sys.stderr):

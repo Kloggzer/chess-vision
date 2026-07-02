@@ -253,8 +253,12 @@ def isolate(obj_path, tex_path, out_obj, preview=None, smooth_iters=10, target_t
             except Exception:
                 pass
         sc.render.resolution_x = sc.render.resolution_y = 600
-        lo = bpy.data.objects.new("L", bpy.data.lights.new("L", "SUN")); sc.collection.objects.link(lo)
-        lo.rotation_euler = (0.5, 0.2, 0.4); lo.data.energy = 4
+        # Key + Fill: mit nur EINER Sonne verschwinden Einschnürungen im Schatten und sehen
+        # aus wie Scan-Löcher (falscher Alarm beim Bauern-Hals).
+        for nm, rot, en in (("key", (0.5, 0.2, 0.4), 4.0), ("fill", (1.0, -0.3, -2.4), 1.5)):
+            lo = bpy.data.objects.new(nm, bpy.data.lights.new(nm, "SUN"))
+            sc.collection.objects.link(lo)
+            lo.rotation_euler = rot; lo.data.energy = en
         cam = bpy.data.objects.new("C", bpy.data.cameras.new("C")); sc.collection.objects.link(cam)
         cam.data.clip_end = size * 100; sc.camera = cam
         # Orthografische Seitenansicht (Blick entlang +Y): narrensicher zentriert, und genau die
