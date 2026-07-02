@@ -8,6 +8,7 @@ statische Dateien aus `data/` ausgeliefert. Kamera ist in v1 NICHT dabei.
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 import sys
 from pathlib import Path
@@ -33,29 +34,30 @@ from ..state import (
 
 _STATIC = Path(__file__).parent / "static"
 
-# Sehr einfacher Trainings-Job-Manager (ein Lauf gleichzeitig).
-_TRAIN: dict = {"proc": None, "log": None, "cmd": None, "state": "idle"}
-
+log = logging.getLogger("chesslab.web")
 
 # --- Kamera: EINE geteilte Instanz + Geometrie-Helfer (siehe web/camera.py) ------------
 from .camera import CAMERA, BoardTracker, mjpeg
 from .scan import SCANNER
 
-CALIB_STATE: dict = {"margin": 0.06, "tracker": None}
+# Geteilter, gelockter Zustand (TRAIN/COLLECT/INFER/MANUAL/CALIB) lebt in web/state.py.
+# Request-Handler schreiben via update()/mutate(); MJPEG-Generatoren lesen genau EINEN
+# snapshot() pro Frame-Iteration (Rework 04, specs/rework/04-web-hardening.md).
+from .state import CALIB, COLLECT, INFER, MANUAL, TRAIN, train_derive_and_update
 
-# Aufnahme-Sitzung (für den Sammeln-Tab): generierte Stellungen + SessionWriter.
-# `board` = BoardTracker (Ecken/Warp, hält `last_corners`).
-# `show_target`: ganze Ziel-Stellung als Figurennamen einblenden (coverage-Modus: kein
-# Einzelzug, sondern frisch aufbauen). Spielmodi (random/stockfish) nutzen den Zug-Pfeil.
-_COLLECT: dict = {"writer": None, "positions": [], "i": 0, "profile": None, "camera": 0,
-                  "board": None, "show_target": False}
+# Nach so vielen None-Frames in Folge zeigt der Stream ein Fehlerbild statt still zu idlen.
+_NONE_FRAME_LIMIT = 50
 
-# Live-Inference-Sitzung (für den Inference-Tab): gewähltes Modell + letzte Vorhersagen.
-_INFER: dict = {"profile": None, "board": None, "run": None, "camera": 0, "last": None}
 
-# Manuelle Label-Sitzung (für den "Manuell labeln"-Tab): Figuren frei aufs Brett stellen, in der
-# UI pro Feld labeln, Aufnehmen -> expliziter, gelabelter Eintrag (keine FEN/Legalität nötig).
-_MANUAL: dict = {"profile": None, "board": None, "camera": 0, "writer": None}
+def _camera_error_frame(width: int = 960, height: int = 540):
+    """Gerendertes Fehlerbild für Streams, deren Kamera keine Frames liefert."""
+    import cv2
+    import numpy as np
+
+    img = np.zeros((height, width, 3), dtype=np.uint8)
+    cv2.putText(img, "Kamera liefert keine Frames — Quelle pruefen", (20, height // 2),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2, cv2.LINE_AA)
+    return img
 
 
 def _label_to_fen_char(label: str) -> str | None:
@@ -85,10 +87,11 @@ def _labels_to_fen(labels: dict) -> str:
 
 
 def _collect_state() -> dict:
-    w = _COLLECT["writer"]
+    c = COLLECT.snapshot()
+    w = c["writer"]
     if w is None:
         return {"active": False}
-    pos, i = _COLLECT["positions"], _COLLECT["i"]
+    pos, i = c["positions"], c["i"]
     n = len(pos)
     cur = pos[min(i, n - 1)]
     return {
@@ -97,7 +100,7 @@ def _collect_state() -> dict:
         # Zug, um die aktuell zu fotografierende Stellung zu erreichen (None = Startstellung).
         "move_san": (pos[i]["san"] if 0 <= i < n else None),
         # coverage-Modus: ganze Stellung neu aufbauen (Namen im Bild), kein Einzelzug.
-        "build_target": bool(_COLLECT.get("show_target")),
+        "build_target": bool(c.get("show_target")),
         "gains": (cur.get("gains") if isinstance(cur, dict) else None),
         "captures": w.count,
     }
@@ -168,8 +171,8 @@ def _draw_move_arrow(view, prof, fen, san):
             d = 16
             cv2.line(view, (e[0] - d, e[1] - d), (e[0] + d, e[1] + d), (0, 0, 255), 3, cv2.LINE_AA)
             cv2.line(view, (e[0] - d, e[1] + d), (e[0] + d, e[1] - d), (0, 0, 255), 3, cv2.LINE_AA)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception:  # noqa: BLE001 — reine Overlay-Deko, darf den Stream nie reißen
+        log.debug("Zug-Pfeil-Overlay übersprungen (FEN/SAN nicht zeichenbar)", exc_info=True)
 
 
 # --- Hilfen ---------------------------------------------------------------------------
@@ -461,7 +464,8 @@ def create_app():
               lr: float = Body(config.DEFAULT_LR), dataset: str | None = Body(None),
               resume: str | None = Body(None), patience: int = Body(config.DEFAULT_PATIENCE),
               head: str = Body("combined")):
-        if _TRAIN["proc"] is not None and _TRAIN["proc"].poll() is None:
+        t_proc = TRAIN.get("proc")
+        if t_proc is not None and t_proc.poll() is None:
             raise HTTPException(409, "es läuft bereits ein Training.")
         if resume and not (config.DATA.models / resume / "config.json").exists():
             raise HTTPException(400, f"Resume-Run '{resume}' nicht gefunden.")
@@ -485,11 +489,12 @@ def create_app():
             config.DATA.models.mkdir(parents=True, exist_ok=True)
             before = {d.name for d in _run_dirs()}
             log_path = config.DATA.models / "web_train.log"
-            log = open(log_path, "w", encoding="utf-8")
-            proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, cwd=str(Path.cwd()))
-            _TRAIN.update({"proc": proc, "log": log_path, "cmd": " ".join(cmd), "before": before,
-                           "state": "running"})
-            return {"ok": True, "cmd": _TRAIN["cmd"]}
+            log_fh = open(log_path, "w", encoding="utf-8")
+            proc = subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT, cwd=str(Path.cwd()))
+            log_fh.close()   # Kind hält sein eigenes dupliziertes Handle; Windows-Sperre weg (H3)
+            TRAIN.update(proc=proc, log=log_path, cmd=" ".join(cmd), before=before,
+                         state="running")
+            return {"ok": True, "cmd": TRAIN.get("cmd")}
 
         # Legacy-Pfad (globales Manifest/Split) — bleibt für Rückwärtskompatibilität.
         # Split ist eine abgeleitete Backend-Datei; der Frontend-Nutzer legt sie nicht selbst an.
@@ -508,6 +513,7 @@ def create_app():
                 sp = json.loads(split_file.read_text(encoding="utf-8"))
                 return {s for sids in sp["splits"].values() for s in sids}
             except Exception:  # noqa: BLE001
+                log.warning("split.json nicht lesbar — wird neu erzeugt.", exc_info=True)
                 return None
 
         if _split_sessions() != manifest_sessions:
@@ -534,25 +540,22 @@ def create_app():
         log_path = config.DATA.models / "web_train.log"
         config.DATA.models.mkdir(parents=True, exist_ok=True)
         before = {d.name for d in _run_dirs()}
-        log = open(log_path, "w", encoding="utf-8")
-        proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, cwd=str(Path.cwd()))
-        _TRAIN.update({"proc": proc, "log": log_path, "cmd": " ".join(cmd), "before": before,
-                       "state": "running"})
-        return {"ok": True, "cmd": _TRAIN["cmd"]}
+        log_fh = open(log_path, "w", encoding="utf-8")
+        proc = subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT, cwd=str(Path.cwd()))
+        log_fh.close()   # Kind hält sein eigenes dupliziertes Handle; Windows-Sperre weg (H3)
+        TRAIN.update(proc=proc, log=log_path, cmd=" ".join(cmd), before=before,
+                     state="running")
+        return {"ok": True, "cmd": TRAIN.get("cmd")}
 
     @app.get("/api/train/status")
     def train_status():
-        proc = _TRAIN["proc"]
+        # Zustandsableitung (running/done/crashed/stopped/idle) lebt atomar in web/state.py —
+        # ein abnormal beendetes Training (Abbruch/Crash) muss erkennbar bleiben, damit das
+        # Frontend den Teil-Fortschritt weiter zeigt statt ihn (wegen rc!=0) zu verstecken.
+        t = train_derive_and_update()
+        state = t["_derived_state"]
+        proc = t.get("proc")
         rc = proc.poll() if proc is not None else None
-        # State ableiten: ein abnormal beendetes Training (Abbruch/Crash) muss erkennbar bleiben,
-        # damit das Frontend den Teil-Fortschritt weiter zeigt statt ihn (wegen rc!=0) zu verstecken.
-        if proc is not None and rc is None:
-            state = "running"
-        elif proc is not None:                       # Prozess von selbst beendet -> fertig oder Crash
-            state = "done" if rc == 0 else "crashed"
-            _TRAIN["state"] = state                  # merken, auch nachdem proc weg ist
-        else:
-            state = _TRAIN.get("state", "idle")      # "stopped" (manuell) / "done" / "crashed" / "idle"
         running = state == "running"
         # Neuestes Run-Verzeichnis (ggf. das gerade gestartete) + dessen Metriken.
         run, metrics = None, []
@@ -561,8 +564,8 @@ def create_app():
             run = dirs[-1].name
             metrics = _read_jsonl(dirs[-1] / "metrics.jsonl")
         tail = ""
-        if _TRAIN["log"] and Path(_TRAIN["log"]).exists():
-            tail = "\n".join(Path(_TRAIN["log"]).read_text(encoding="utf-8").splitlines()[-8:])
+        if t.get("log") and Path(t["log"]).exists():
+            tail = "\n".join(Path(t["log"]).read_text(encoding="utf-8").splitlines()[-8:])
         return {"running": running, "state": state, "run": run, "metrics": metrics,
                 "log_tail": tail, "returncode": rc}
 
@@ -570,20 +573,21 @@ def create_app():
     def train_stop():
         """Laufendes (oder nach einem GPU/MIOpen-Crash hängendes) Training beenden + Zustand lösen.
         Das Run-Verzeichnis mit den bis dahin geschriebenen Metriken bleibt erhalten (Teil-Fortschritt)."""
-        proc = _TRAIN["proc"]
+        proc = TRAIN.get("proc")
         killed = False
         if proc is not None and proc.poll() is None:
             proc.terminate()
             try:
                 proc.wait(timeout=3)
             except Exception:  # noqa: BLE001
+                log.warning("Trainingsprozess reagierte nicht auf terminate — kill.")
                 proc.kill()
             killed = True
         # Letztes (gerade abgebrochenes) Run-Verzeichnis zurückgeben, damit das Frontend dessen
         # Teil-Metriken nachladen kann.
         dirs = _run_dirs()
         run = dirs[-1].name if dirs else None
-        _TRAIN.update({"proc": None, "state": "stopped"})
+        TRAIN.update(proc=None, state="stopped")
         return {"ok": True, "killed": killed, "run": run}
 
     # -- Kamera / Live-Kalibrierung --
@@ -614,34 +618,42 @@ def create_app():
     def camera_calibrate(camera: int = 0, board_size: int = config.DEFAULT_BOARD_SIZE):
         CAMERA.ensure(camera)
         tracker = MarkerTracker()
-        CALIB_STATE["tracker"] = tracker
+        CALIB.update(tracker=tracker)
 
         def frames():
-            while True:
-                f = CAMERA.read()
-                if f is None:
-                    yield None
-                    continue
-                tracker.update(detect_board_markers(f, "DICT_4X4_50", corner="center"))
-                seen, held = len(tracker.last), tracker.n_held()
-                CAMERA.markers_found = seen >= 4
-                CAMERA.markers_count = seen
-                CAMERA.markers_live = tracker.n_live()
-                CAMERA.markers_held = held
-                m = CALIB_STATE["margin"]
-                res = resolve_board_corners(tracker.last, board_size=board_size) if seen >= 4 else None
-                if res is not None:
-                    pts, n = res
-                    img = draw_calibration_overlay(f, pts, _build_profile(f, pts, board_size, m, camera),
-                                                   labels=True)
-                    held_txt = f"  ({held} gehalten)" if held else ""
-                    cv2.putText(img, f"margin={m:.3f}  {n}/4 Marker{held_txt}", (10, 28),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2, cv2.LINE_AA)
-                else:
-                    img = f.copy()
-                    cv2.putText(img, f"Warte auf alle 4 Marker ({seen}/4)...", (10, 28),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2, cv2.LINE_AA)
-                yield img
+            none_count = 0
+            try:
+                while True:
+                    f = CAMERA.read()
+                    if f is None:
+                        none_count += 1
+                        yield _camera_error_frame() if none_count == _NONE_FRAME_LIMIT else None
+                        if none_count >= _NONE_FRAME_LIMIT:
+                            none_count = 0
+                        continue
+                    none_count = 0
+                    tracker.update(detect_board_markers(f, "DICT_4X4_50", corner="center"))
+                    seen, held = len(tracker.last), tracker.n_held()
+                    CAMERA.markers_found = seen >= 4
+                    CAMERA.markers_count = seen
+                    CAMERA.markers_live = tracker.n_live()
+                    CAMERA.markers_held = held
+                    m = CALIB.get("margin")
+                    res = resolve_board_corners(tracker.last, board_size=board_size) if seen >= 4 else None
+                    if res is not None:
+                        pts, n = res
+                        img = draw_calibration_overlay(f, pts, _build_profile(f, pts, board_size, m, camera),
+                                                       labels=True)
+                        held_txt = f"  ({held} gehalten)" if held else ""
+                        cv2.putText(img, f"margin={m:.3f}  {n}/4 Marker{held_txt}", (10, 28),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2, cv2.LINE_AA)
+                    else:
+                        img = f.copy()
+                        cv2.putText(img, f"Warte auf alle 4 Marker ({seen}/4)...", (10, 28),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2, cv2.LINE_AA)
+                    yield img
+            finally:
+                log.info("Stream beendet: calibrate")
 
         return mjpeg(frames())
 
@@ -649,7 +661,7 @@ def create_app():
     def camera_status():
         return {"open": CAMERA.cap is not None, "markers_found": CAMERA.markers_found,
                 "markers_count": CAMERA.markers_count, "markers_live": CAMERA.markers_live,
-                "markers_held": CAMERA.markers_held, "margin": CALIB_STATE["margin"]}
+                "markers_held": CAMERA.markers_held, "margin": CALIB.get("margin")}
 
     @app.post("/api/camera/release")
     def camera_release():
@@ -658,8 +670,8 @@ def create_app():
 
     @app.post("/api/calibrate/margin")
     def calibrate_margin(margin: float = Body(..., embed=True)):
-        CALIB_STATE["margin"] = max(0.0, float(margin))
-        return {"margin": CALIB_STATE["margin"]}
+        CALIB.update(margin=max(0.0, float(margin)))
+        return {"margin": CALIB.get("margin")}
 
     @app.post("/api/calibrate/markers")
     def calibrate_markers():
@@ -669,14 +681,14 @@ def create_app():
     @app.post("/api/calibrate/save")
     def calibrate_save(profile: str = Body("default"), board_size: int = Body(config.DEFAULT_BOARD_SIZE),
                        margin: float = Body(None), camera: int = Body(0)):
-        tracker = CALIB_STATE.get("tracker")
+        tracker = CALIB.get("tracker")
         if tracker is None or len(tracker.last) < 4:
             raise HTTPException(400, "noch nicht alle 4 Marker erkannt (kurz die Hand wegnehmen).")
         f = CAMERA.read()
         if f is None:
             raise HTTPException(400, "Kamera nicht aktiv / kein Frame.")
         pts = resolve_board_corners(tracker.last, board_size=board_size)[0]
-        m = CALIB_STATE["margin"] if margin is None else float(margin)
+        m = CALIB.get("margin") if margin is None else float(margin)
         prof = _build_profile(f, pts, board_size, m, camera, name=profile)
         prof.save(profile_path(profile))
         return {"ok": True, "profile": profile, "margin": m}
@@ -750,8 +762,8 @@ def create_app():
                  if strategy == "sweep" else f"web:{strategy}")
         writer = SessionWriter(config.DATA.sessions / sid, session_id=sid, profile=profile, mode="play",
                                camera_index=camera, frame_size=prof.frame_size, notes=notes)
-        _COLLECT.update({"writer": writer, "positions": positions, "i": 0, "profile": prof,
-                         "camera": camera, "board": BoardTracker(prof), "show_target": show_target})
+        COLLECT.update(writer=writer, positions=positions, i=0, profile=prof,
+                       camera=camera, board=BoardTracker(prof), show_target=show_target)
         return _collect_state()
 
     @app.get("/api/collect/state")
@@ -761,64 +773,76 @@ def create_app():
     @app.post("/api/collect/shoot")
     def collect_shoot():
         # Ein Klick: aktuelle Stellung fotografieren UND weiterschalten. Sofort gespeichert.
-        w = _COLLECT["writer"]
+        c = COLLECT.snapshot()
+        w = c["writer"]
         if w is None:
             raise HTTPException(400, "keine aktive Aufnahme-Session.")
-        pos, i = _COLLECT["positions"], _COLLECT["i"]
+        pos, i = c["positions"], c["i"]
         if i >= len(pos):
             return _collect_state()
         # Vorschau läuft über den Stream; gespeichert wird (falls Capture-Quelle gesetzt) der
         # hochauflösende Snapshot mit auf IHM neu erkannten Ecken — sonst Live-Frame + Stream-Ecken.
-        f, corners = _capture_frame_corners(_COLLECT["profile"], _COLLECT["board"])
+        # (Kamera-I/O bewusst OHNE Lock — Locks schützen nur den Zustands-Zugriff.)
+        f, corners = _capture_frame_corners(c["profile"], c["board"])
         if f is None:
             raise HTTPException(400, "kein Frame von der Kamera.")
         w.capture(f, pos[i]["ply"], pos[i]["fen"], pos[i]["san"], corners=corners)
-        _COLLECT["i"] = i + 1
+        COLLECT.mutate(lambda d: d.update(i=d["i"] + 1))
         return _collect_state()
 
     @app.post("/api/collect/skip")
     def collect_skip():
-        if _COLLECT["i"] < len(_COLLECT["positions"]):
-            _COLLECT["i"] += 1
+        COLLECT.mutate(lambda d: d.update(i=d["i"] + 1) if d["i"] < len(d["positions"]) else None)
         return _collect_state()
 
     @app.post("/api/collect/undo")
     def collect_undo():
-        w = _COLLECT["writer"]
+        w = COLLECT.get("writer")
         if w is not None:
             w.undo()
-            _COLLECT["i"] = max(0, _COLLECT["i"] - 1)
+            COLLECT.mutate(lambda d: d.update(i=max(0, d["i"] - 1)))
         return _collect_state()
 
     @app.post("/api/collect/finish")
     def collect_finish():
-        w = _COLLECT["writer"]
+        w = COLLECT.get("writer")
         if w is None:
             return {"ok": True, "captures": 0}
         w.close()
         n, sid = w.count, w.session_id
-        _COLLECT.update({"writer": None, "positions": [], "i": 0, "profile": None})
+        COLLECT.update(writer=None, positions=[], i=0, profile=None)
         # Mechanischen Schritt automatisieren: die gerade beendete Session direkt slicen,
         # damit die Crops sofort im Datensätze-Tab verfügbar sind.
-        sliced = 0
+        sliced, sliced_error = 0, None
         if n > 0:
             try:
                 labeling_mod.run_slice(session=sid)
                 sliced = sum(1 for r in _manifest() if r.get("session_id") == sid)
-            except Exception:  # noqa: BLE001 - Auto-Slice ist Komfort, kein harter Fehler
-                sliced = 0
-        return {"ok": True, "captures": n, "session": sid, "sliced": sliced}
+            except Exception as e:  # noqa: BLE001 — Komfortschritt, aber der Fehler muss sichtbar sein (H2)
+                log.exception("Auto-Slice nach Collect-Finish fehlgeschlagen (Session %s)", sid)
+                sliced_error = f"Auto-Slice fehlgeschlagen: {e}"
+        resp = {"ok": True, "captures": n, "session": sid, "sliced": sliced}
+        if sliced_error:
+            resp["sliced_error"] = sliced_error
+        return resp
 
     @app.get("/api/camera/collect.mjpg")
     def camera_collect():
         def frames():
-            while True:
+            none_count = 0
+            try:
+              while True:
                 f = CAMERA.read()
-                prof, board, pos, i = _COLLECT["profile"], _COLLECT["board"], _COLLECT["positions"], _COLLECT["i"]
-                show_target = _COLLECT.get("show_target")
+                c = COLLECT.snapshot()   # genau EIN Snapshot pro Frame (H1)
+                prof, board, pos, i = c["profile"], c["board"], c["positions"], c["i"]
+                show_target = c.get("show_target")
                 if f is None:
-                    yield None
+                    none_count += 1
+                    yield _camera_error_frame() if none_count == _NONE_FRAME_LIMIT else None
+                    if none_count >= _NONE_FRAME_LIMIT:
+                        none_count = 0
                     continue
+                none_count = 0
                 if prof is None or board is None:
                     img = f.copy()
                     cv2.putText(img, "keine Aufnahme aktiv — Start druecken", (10, 28),
@@ -837,6 +861,8 @@ def create_app():
                         elif 0 < i < len(pos):   # Spielmodus: Zug, der zur aktuellen Stellung führt
                             _draw_move_arrow(img, prof, pos[i - 1]["fen"], pos[i]["san"])
                 yield img
+            finally:
+                log.info("Stream beendet: collect")
 
         return mjpeg(frames())
 
@@ -856,27 +882,38 @@ def create_app():
             raise HTTPException(400, f"Modell-Run '{run}' nicht gefunden.")
         CAMERA.ensure(camera)
         spec = serving.run_spec(config.DATA.models / run)
-        _INFER.update({"profile": prof, "board": BoardTracker(prof),
-                       "run": run, "camera": camera, "last": None,
-                       "geometry": spec.geometry, "photometry": spec.photometry,
-                       "piece_height": spec.piece_height_cells})
-        print(f"[OK] Inference '{run}': geometry={spec.geometry} photometry={spec.photometry}")
+        INFER.update(profile=prof, board=BoardTracker(prof),
+                     run=run, camera=camera, last=None,
+                     geometry=spec.geometry, photometry=spec.photometry,
+                     piece_height=spec.piece_height_cells)
+        log.info("Inference '%s': geometry=%s photometry=%s", run, spec.geometry, spec.photometry)
         return {"ok": True, "run": run, "geometry": spec.geometry, "photometry": spec.photometry}
 
     @app.get("/api/inference/state")
     def inference_state():
-        last = _INFER.get("last")
-        return {"active": _INFER["run"] is not None, "run": _INFER["run"],
+        s = INFER.snapshot()
+        last = s.get("last")
+        return {"active": s["run"] is not None, "run": s["run"],
                 "fen": last["fen"] if last else None, "mean_conf": last["mean_conf"] if last else None}
 
     @app.get("/api/camera/inference.mjpg")
     def camera_inference():
         def frames():
             CONF_COL = lambda c: (0, 200, 0) if c >= 0.8 else (0, 215, 255) if c >= 0.5 else (0, 0, 255)
-            while True:
+            none_count = 0
+            try:
+              while True:
                 f = CAMERA.read()
-                prof, board, run = _INFER["profile"], _INFER["board"], _INFER["run"]
-                if f is None or prof is None or board is None or run is None:
+                s = INFER.snapshot()   # genau EIN Snapshot pro Frame (H1)
+                prof, board, run = s["profile"], s["board"], s["run"]
+                if f is None:
+                    none_count += 1
+                    yield _camera_error_frame() if none_count == _NONE_FRAME_LIMIT else None
+                    if none_count >= _NONE_FRAME_LIMIT:
+                        none_count = 0
+                    continue
+                none_count = 0
+                if prof is None or board is None or run is None:
                     yield None
                     continue
                 warped, corners = board.process(f)   # geteilter BoardTracker (Ecken/Warp, edge-to-edge fürs Display)
@@ -886,11 +923,12 @@ def create_app():
                                 0.6, (0, 0, 255), 2, cv2.LINE_AA)
                     yield img
                     continue
-                squares = labeling_mod.all_squares()
                 # Crops + Vorhersage: kanonische Pipeline aus `serving.predict_frame`.
+                # (Inference bewusst OHNE Lock — Locks schützen nur den Zustands-Zugriff.)
                 try:
                     preds = serving.predict_frame(config.DATA.models / run, f, corners, prof, device="cpu")
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:  # noqa: BLE001 — Fehler wird im Stream sichtbar gemacht
+                    log.warning("Live-Inference fehlgeschlagen: %s", e)
                     img = warped.copy()
                     cv2.putText(img, f"Modell-Fehler: {e}", (10, 28), cv2.FONT_HERSHEY_SIMPLEX,
                                 0.6, (0, 0, 255), 2, cv2.LINE_AA)
@@ -909,21 +947,24 @@ def create_app():
                 fen = _labels_to_fen(labels)
                 cv2.putText(img, fen, (8, prof.board_size - 10), cv2.FONT_HERSHEY_SIMPLEX,
                             0.5, (255, 255, 0), 1, cv2.LINE_AA)
-                _INFER["last"] = {"corners": corners, "frame": f.copy(), "labels": labels,
-                                  "fen": fen, "mean_conf": round(sum(p["confidence"] for p in preds) / len(preds), 3)}
+                INFER.update(last={"corners": corners, "frame": f.copy(), "labels": labels,
+                                   "fen": fen, "mean_conf": round(sum(p["confidence"] for p in preds) / len(preds), 3)})
                 yield img
+            finally:
+                log.info("Stream beendet: inference")
 
         return mjpeg(frames())
 
     @app.post("/api/inference/capture")
     def inference_capture():
-        last = _INFER.get("last")
+        s = INFER.snapshot()
+        last = s.get("last")
         if not last:
             raise HTTPException(400, "noch keine Vorhersage — Stream offen lassen, bis Marker stehen.")
-        prof, profile_name = _INFER["profile"], None
+        prof = s["profile"]
         sid = generate_session_id() + "-inf"
         w = SessionWriter(config.DATA.sessions / sid, session_id=sid, profile="default", mode="inference",
-                          camera_index=_INFER["camera"], frame_size=prof.frame_size, notes=f"inference:{_INFER['run']}")
+                          camera_index=s["camera"], frame_size=prof.frame_size, notes=f"inference:{s['run']}")
         w.capture(last["frame"], ply=0, fen=_labels_to_fen(last["labels"]) + " w - - 0 1",
                   corners=last["corners"], labels=last["labels"])
         w.close()
@@ -934,7 +975,7 @@ def create_app():
 
     # -- Manuelles Labeln (Figuren frei stellen + pro Feld labeln -> Eintrag) --
     def _manual_state() -> dict:
-        w = _MANUAL["writer"]
+        w = MANUAL.get("writer")
         return {"active": w is not None, "session": w.session_id if w else None,
                 "captures": w.count if w else 0}
 
@@ -949,7 +990,7 @@ def create_app():
         writer = SessionWriter(config.DATA.sessions / sid, session_id=sid, profile=profile,
                                mode="manual", camera_index=camera, frame_size=prof.frame_size,
                                notes="manual")
-        _MANUAL.update({"profile": prof, "board": BoardTracker(prof), "camera": camera, "writer": writer})
+        MANUAL.update(profile=prof, board=BoardTracker(prof), camera=camera, writer=writer)
         return _manual_state()
 
     @app.get("/api/manual/state")
@@ -959,12 +1000,19 @@ def create_app():
     @app.get("/api/camera/manual.mjpg")
     def camera_manual():
         def frames():
-            while True:
+            none_count = 0
+            try:
+              while True:
                 f = CAMERA.read()
-                prof, board = _MANUAL["profile"], _MANUAL["board"]
+                m = MANUAL.snapshot()   # genau EIN Snapshot pro Frame (H1)
+                prof, board = m["profile"], m["board"]
                 if f is None:
-                    yield None
+                    none_count += 1
+                    yield _camera_error_frame() if none_count == _NONE_FRAME_LIMIT else None
+                    if none_count >= _NONE_FRAME_LIMIT:
+                        none_count = 0
                     continue
+                none_count = 0
                 if prof is None or board is None:
                     img = f.copy()
                     cv2.putText(img, "keine Sitzung — Start druecken", (10, 28),
@@ -978,15 +1026,18 @@ def create_app():
                     else:
                         img = draw_board_grid(warped, prof)   # nur das 8x8-Raster, kein Zug-Pfeil
                 yield img
+            finally:
+                log.info("Stream beendet: manual")
 
         return mjpeg(frames())
 
     @app.post("/api/manual/capture")
     def manual_capture(labels: dict = Body(default={}, embed=True)):
-        w, board = _MANUAL["writer"], _MANUAL["board"]
+        m = MANUAL.snapshot()
+        w, board = m["writer"], m["board"]
         if w is None:
             raise HTTPException(400, "keine aktive manuelle Sitzung — erst Start.")
-        f, corners = _capture_frame_corners(_MANUAL["profile"], board)
+        f, corners = _capture_frame_corners(m["profile"], board)
         if f is None:
             raise HTTPException(400, "kein Frame von der Kamera.")
         clean = {str(sq): str(lab) for sq, lab in (labels or {}).items() if lab and lab != "empty"}
@@ -998,27 +1049,31 @@ def create_app():
 
     @app.post("/api/manual/undo")
     def manual_undo():
-        w = _MANUAL["writer"]
+        w = MANUAL.get("writer")
         if w is not None:
             w.undo()
         return _manual_state()
 
     @app.post("/api/manual/finish")
     def manual_finish():
-        w = _MANUAL["writer"]
+        w = MANUAL.get("writer")
         if w is None:
             return {"ok": True, "captures": 0}
         w.close()
         n, sid = w.count, w.session_id
-        _MANUAL.update({"writer": None, "profile": None, "board": None})
-        sliced = 0
+        MANUAL.update(writer=None, profile=None, board=None)
+        sliced, sliced_error = 0, None
         if n > 0:
             try:
                 labeling_mod.run_slice(session=sid)
                 sliced = sum(1 for r in _manifest() if r.get("session_id") == sid)
-            except Exception:  # noqa: BLE001 - Auto-Slice ist Komfort, kein harter Fehler
-                sliced = 0
-        return {"ok": True, "captures": n, "session": sid, "sliced": sliced}
+            except Exception as e:  # noqa: BLE001 — Komfortschritt, aber der Fehler muss sichtbar sein (H2)
+                log.exception("Auto-Slice nach Manual-Finish fehlgeschlagen (Session %s)", sid)
+                sliced_error = f"Auto-Slice fehlgeschlagen: {e}"
+        resp = {"ok": True, "captures": n, "session": sid, "sliced": sliced}
+        if sliced_error:
+            resp["sliced_error"] = sliced_error
+        return resp
 
     # -- Turntable-Scan (Tab „Scan"): Photogrammetrie-Frames für RealityScan aufnehmen ------------
     @app.get("/api/scan/status")
@@ -1058,10 +1113,14 @@ def create_app():
     def scan_preview():
         def frames():
             last = -1
-            while True:
-                img, fid = SCANNER.preview(last_id=last)
-                last = fid
-                yield img          # None -> mjpeg wartet kurz (kein neuer Frame)
+            try:
+                while True:
+                    img, fid = SCANNER.preview(last_id=last)
+                    last = fid
+                    yield img      # None -> mjpeg wartet kurz (kein neuer Frame, kein Fehlerbild:
+                                   # der Scanner liefert bewusst nur bei neuen Frames)
+            finally:
+                log.info("Stream beendet: scan-preview")
         return mjpeg(frames())
 
     # SPA-Catch-all (MUSS zuletzt stehen): Deep-Links/F5 auf Client-Routen (/datensaetze ...)
@@ -1088,6 +1147,8 @@ def run(host: str = config.DEFAULT_WEB_HOST, port: int = config.DEFAULT_WEB_PORT
     except ImportError:
         print("[FAIL] fastapi/uvicorn fehlen. Installieren mit:  uv sync --extra web")
         return 1
+    # Für Direktstarts ohne CLI (python -m …): Logger sichtbar machen (no-op, wenn schon konfiguriert).
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     print(f"chesslab Web-UI: http://{host}:{port}")
     uvicorn.run(create_app(), host=host, port=port, log_level="warning")
     return 0
