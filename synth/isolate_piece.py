@@ -143,7 +143,15 @@ def isolate(obj_path, tex_path, out_obj, preview=None, smooth_iters=10, target_t
     top = pd > 0.55 * pd.max()                        # eindeutig Figur (hoch erhaben)
     ca, cb = a[top].mean(), b[top].mean()
     rad = np.percentile(np.sqrt((a[top] - ca) ** 2 + (b[top] - cb) ** 2), 95)
-    keep = (np.sqrt((a - ca) ** 2 + (b - cb) ** 2) <= rad * keep_radius) & (pd > 0.0)
+    inplane_r = np.sqrt((a - ca) ** 2 + (b - cb) ** 2)
+    keep = (inplane_r <= rad * keep_radius) & (pd > 0.0)
+
+    # Frühindikator „zu wenig mitdrehendes Muster": Wie weit reicht die Unterlage über die
+    # Figur hinaus (in Figuren-Radien)? Bei zu großer Figur auf zu kleinem Teller sieht die
+    # Photogrammetrie kaum rotierende Features → Ausrichtung wird instabil.
+    plane_r95 = float(np.percentile(inplane_r[~keep], 95)) if (~keep).any() else 0.0
+    pattern_margin = round(plane_r95 / rad, 2) if rad > 0 else 0.0
+    piece_vertex_frac = round(float(keep.mean()), 3)
 
     base_z = pd[keep].min()
     me.vertices.foreach_set("co", np.column_stack([a - ca, b - cb, pd - base_z]).ravel())
@@ -228,6 +236,8 @@ def isolate(obj_path, tex_path, out_obj, preview=None, smooth_iters=10, target_t
         "keep_radius": keep_radius,
         "components_removed": components_removed,
         "filled_holes": bool(fill_holes),
+        "pattern_margin": pattern_margin,        # Unterlagen-Radius / Figuren-Radius (roh, vor Cut)
+        "piece_vertex_frac": piece_vertex_frac,  # Anteil Figur-Vertices am Gesamt-Scan
         **_mesh_quality(me),
         "dims": [round(d, 4) for d in dims],
         "height_ratio": round(height_ratio, 3),   # Höhe / max(Breite,Tiefe) — Schachfigur ~1.0–3.5
