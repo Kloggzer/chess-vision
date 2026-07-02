@@ -14,18 +14,23 @@ export function ModelViewer({ piece, textured = true, size = 320 }: {
     if (!el) return;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a0a0b);
+    scene.background = new THREE.Color(0x14141a);
     const cam = new THREE.PerspectiveCamera(35, 1, 0.01, 5000);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(size, size);
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
     el.appendChild(renderer.domElement);
 
-    // Key + Fill + Ambient — gleiche Idee wie beim Preview, damit Einschnürungen nicht als
-    // Löcher erscheinen.
-    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-    const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(2, 3, 2); scene.add(key);
-    const fill = new THREE.DirectionalLight(0xffffff, 0.8); fill.position.set(-2, 1, -1.5); scene.add(fill);
+    // Rundum-Beleuchtung, damit keine Seite absäuft: HemiLight (Himmel/Boden) + Ambient +
+    // Key/Fill/Rim aus drei Richtungen. Vorher war die abgewandte Seite zu dunkel.
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x404050, 1.1));
+    scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+    const key = new THREE.DirectionalLight(0xffffff, 2.4); key.position.set(3, 4, 2); scene.add(key);
+    const fill = new THREE.DirectionalLight(0xffffff, 1.1); fill.position.set(-3, 1, -1); scene.add(fill);
+    const rim = new THREE.DirectionalLight(0xffffff, 0.8); rim.position.set(0, 2, -4); scene.add(rim);
 
     const controls = new OrbitControls(cam, renderer.domElement);
     controls.enableDamping = true;

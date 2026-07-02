@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Plug, Play, Square, Crop as CropIcon, RotateCcw, Wand2, Boxes, Camera,
-  Loader2, CheckCircle2, AlertTriangle, ChevronDown, Settings2, Trash2, Box, Image as ImageIcon,
+  Loader2, CheckCircle2, AlertTriangle, ChevronDown, Settings2, Trash2, Box, Image as ImageIcon, Maximize2,
 } from "lucide-react";
 import { api, post, del } from "../api";
 import { Card, Button } from "./ui";
@@ -20,13 +20,17 @@ type Status = {
 
 type Drag = { x0: number; y0: number; x1: number; y1: number } | null;
 
+type Piece = {
+  piece: string; source_dir: string | null; has_preview: boolean; has_clay: boolean; report: any;
+};
 type Models = {
   scans: { dir: string; mesh: string | null; texture: string | null; photos: number }[];
-  pieces: { piece: string; has_preview: boolean; has_clay: boolean; report: any }[];
+  pieces: Piece[];
+  jobs?: { reconstruct?: string | null; prepare?: string | null };
 };
 type PrepStatus = {
   state: "idle" | "running" | "done" | "failed";
-  piece: string | null; report?: any; level?: string; messages?: string[]; log_tail?: string;
+  piece: string | null; dir?: string | null; report?: any; level?: string; messages?: string[]; log_tail?: string;
 };
 type ReconStatus = {
   state: "idle" | "running" | "done" | "failed";
@@ -54,9 +58,12 @@ function pieceLabel(p: string): string {
 
 type Scan = Models["scans"][number];
 type Stage = "photos" | "mesh" | "done";
-function scanStage(s: Scan, pieces: Models["pieces"]): { stage: Stage; piece: string | null } {
+function scanStage(s: Scan, pieces: Piece[]): { stage: Stage; piece: string | null } {
+  // Verknüpfung Figur↔Scan: primär über die beim Vorbereiten gespeicherte Quelle (source_dir),
+  // sonst über den Ordnernamen (wK→wK) — so findet auch „pawn_phone" seine Figur „P".
   const sug = suggestPiece(s.dir);
-  const prepared = sug && pieces.find((p) => p.piece.toLowerCase() === sug.toLowerCase());
+  const prepared = pieces.find((p) => p.source_dir === s.dir)
+    ?? (sug ? pieces.find((p) => p.piece.toLowerCase() === sug.toLowerCase() && !p.source_dir) : undefined);
   if (prepared) return { stage: "done", piece: prepared.piece };
   if (s.mesh) return { stage: "mesh", piece: sug };
   return { stage: "photos", piece: sug };
@@ -74,6 +81,7 @@ function PreparePanel() {
   const [recon, setRecon] = useState<ReconStatus | null>(null);
   const [msg, setMsg] = useState("");
   const [variant, setVariant] = useState<"textured" | "clay">("textured");   // Ansicht der Vorschau
+  const [view3d, setView3d] = useState<string | null>(null);                  // Vollbild-3D für Figur
   const timer = useRef<any>(null);
   const reconTimer = useRef<any>(null);
 
@@ -180,33 +188,44 @@ function PreparePanel() {
           sie erscheinen dann hier als Karte.</p>
       )}
 
-      {/* Figuren-Karten: eine pro Scan-Ordner, mit Stufe */}
+      {/* Figuren-Karten: eine pro Scan-Ordner, mit Stufe + Live-Status + Löschen */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
         {scans.map((s) => {
           const info = scanStage(s, models?.pieces ?? []);
           const active = s.dir === dir;
-          const badge = {
-            photos: ["Nur Fotos", "bg-amber-500/15 text-amber-300"],
-            mesh: ["Mesh bereit", "bg-sky-500/15 text-sky-300"],
-            done: ["Fertig", "bg-green-500/15 text-green-300"],
-          }[info.stage];
+          // Live-Status: aus dem laufenden Job (gepollt) ODER dem Snapshot beim Laden (jobs).
+          const jobRecon = (recon?.state === "running" && recon.dir === s.dir) || models?.jobs?.reconstruct === s.dir;
+          const jobPrep = (prep?.state === "running" && prep.dir === s.dir) || models?.jobs?.prepare === s.dir;
+          const busy = jobRecon || jobPrep;
+          const badge = busy
+            ? [jobRecon ? "rekonstruiert…" : "wird vorbereitet…", "bg-sky-500/20 text-sky-300"]
+            : {
+                photos: ["Nur Fotos", "bg-amber-500/15 text-amber-300"],
+                mesh: ["Mesh bereit", "bg-sky-500/15 text-sky-300"],
+                done: ["Fertig", "bg-green-500/15 text-green-300"],
+              }[info.stage];
           const prep_ = info.piece && info.stage === "done";
           return (
-            <button key={s.dir} onClick={() => selectScan(s)}
-              className={`flex flex-col rounded-xl border p-2 text-left transition ${
+            <div key={s.dir} onClick={() => selectScan(s)}
+              className={`group relative flex cursor-pointer flex-col rounded-xl border p-2 text-left transition ${
                 active ? "border-sky-500 bg-sky-500/5" : "border-zinc-800 hover:border-zinc-600"}`}>
               <div className="relative mb-1.5 aspect-square overflow-hidden rounded-lg bg-zinc-950">
                 {prep_
                   ? <img src={`/api/scan/prepare/preview/${info.piece}`} className="h-full w-full object-contain" />
                   : <div className="grid h-full place-items-center text-zinc-700">
                       <Camera className="h-8 w-8" /></div>}
-                <span className={`absolute left-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${badge[1]}`}>
-                  {badge[0]}</span>
+                <span className={`absolute left-1 top-1 flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${badge[1]}`}>
+                  {busy && <Loader2 className="h-3 w-3 animate-spin" />}{badge[0]}</span>
+                {/* Löschen auf Hover */}
+                <button onClick={(e) => { e.stopPropagation(); deleteScan(s.dir); }}
+                  title="Scan-Ordner löschen"
+                  className="absolute right-1 top-1 hidden rounded bg-zinc-900/80 p-1 text-zinc-400 hover:text-red-400 group-hover:block">
+                  <Trash2 className="h-3.5 w-3.5" /></button>
               </div>
               <div className="text-sm font-medium text-zinc-200">{s.dir}</div>
               <div className="text-[11px] text-zinc-500">
                 {s.photos} Fotos{info.piece ? ` · ${pieceLabel(info.piece)}` : ""}</div>
-            </button>
+            </div>
           );
         })}
       </div>
@@ -296,18 +315,66 @@ function PreparePanel() {
             level={prep?.state === "done" ? prep.level : undefined}
             messages={prep?.state === "done" ? prep.messages : undefined}
             hasClay={!!models?.pieces.find((p) => p.piece === (prep?.piece ?? curInfo?.piece))?.has_clay}
-            variant={variant} setVariant={setVariant} onDelete={deletePiece} />
+            variant={variant} setVariant={setVariant} onDelete={deletePiece} onFullscreen={setView3d} />
         </div>
       )}
+
+      {/* Alle fertigen Figuren — unabhängig vom Ordnernamen sichtbar & löschbar */}
+      {!!models?.pieces.length && (
+        <div className="mt-4 border-t border-zinc-800 pt-3">
+          <div className="mb-2 text-xs text-zinc-500">Fertige Figuren ({models.pieces.length}) — Klick öffnet 3D:</div>
+          <div className="flex flex-wrap gap-2">
+            {models.pieces.map((p) => (
+              <div key={p.piece} className="group relative">
+                <button onClick={() => setView3d(p.piece)}
+                  className="flex w-24 flex-col items-center rounded-lg border border-zinc-800 p-1.5 hover:border-sky-500">
+                  {p.has_preview
+                    ? <img src={`/api/scan/prepare/preview/${p.piece}`} className="h-20 w-20 rounded object-contain bg-zinc-950" />
+                    : <div className="grid h-20 w-20 place-items-center text-zinc-600"><Box className="h-7 w-7" /></div>}
+                  <div className="mt-1 text-xs font-medium text-zinc-300">{p.piece}</div>
+                </button>
+                <button onClick={() => deletePiece(p.piece)} title="Figur löschen"
+                  className="absolute right-1 top-1 hidden rounded bg-zinc-900/80 p-1 text-zinc-400 hover:text-red-400 group-hover:block">
+                  <Trash2 className="h-3.5 w-3.5" /></button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {view3d && <ModelModal piece={view3d} textured={variant === "textured"} onClose={() => setView3d(null)} />}
     </Card>
   );
 }
 
+/** Vollbild-3D-Ansicht (Modal). */
+function ModelModal({ piece, textured, onClose }: { piece: string; textured: boolean; onClose: () => void }) {
+  const [tex, setTex] = useState(textured);
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+  return (
+    <div onClick={onClose}
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/85 p-6">
+      <div onClick={(e) => e.stopPropagation()} className="flex flex-col items-center gap-3">
+        <ModelViewer piece={piece} textured={tex} size={Math.min(720, window.innerHeight - 160)} />
+        <div className="flex items-center gap-3 text-sm text-zinc-300">
+          <span className="font-medium">{piece}</span>
+          <VariantToggle value={tex ? "textured" : "clay"} onChange={(v) => setTex(v === "textured")} />
+          <span className="text-xs text-zinc-500">ziehen = drehen · Rad = zoomen · Esc = schließen</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Ergebnis-Ansicht einer fertigen Figur: Preview-Bild ODER interaktiver 3D-Viewer + Qualität. */
-function PieceResult({ piece, report, level, messages, hasClay, variant, setVariant, onDelete }: {
+function PieceResult({ piece, report, level, messages, hasClay, variant, setVariant, onDelete, onFullscreen }: {
   piece: string | null; report: any; level?: string; messages?: string[];
   hasClay: boolean; variant: "textured" | "clay"; setVariant: (v: "textured" | "clay") => void;
-  onDelete: (p: string) => void;
+  onDelete: (p: string) => void; onFullscreen: (p: string) => void;
 }) {
   const [mode, setMode] = useState<"image" | "3d">("image");
   if (!piece) return null;
@@ -329,6 +396,9 @@ function PieceResult({ piece, report, level, messages, hasClay, variant, setVari
               className={`px-2.5 py-1 ${mode === "3d" ? "bg-sky-600 text-white" : "text-zinc-400 hover:bg-zinc-700"}`}>
               <Box className="h-3.5 w-3.5" /></button>
           </div>
+          <button onClick={() => onFullscreen(piece)} title="Vollbild"
+            className="rounded-lg border border-zinc-700 px-2.5 py-1 text-zinc-400 hover:bg-zinc-700">
+            <Maximize2 className="h-3.5 w-3.5" /></button>
         </div>
         {mode === "3d" && <div className="mt-1 text-[11px] text-zinc-500">ziehen = drehen · Rad = zoomen</div>}
       </div>
