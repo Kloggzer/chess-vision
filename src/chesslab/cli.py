@@ -486,26 +486,38 @@ def synth_render(
     out: str = typer.Option(..., "--out", help="Zielverzeichnis (Pflicht)."),
     blend: str = typer.Option(None, "--blend", help="Blender-Szene (Default: synth_assets/Chess Scene.blend)."),
     pieces_dir: str = typer.Option(None, "--pieces-dir", help="Gescannte Figuren-Vorlagen (Default: synth_pieces/)."),
+    board_texture: str | None = typer.Option(None, "--board-texture",
+                                             help="Rektifizierte Brett-Foto-Textur (Default: synth_pieces/board_texture.png"
+                                                  " falls vorhanden, sonst prozedurales Holz)."),
     n: int = typer.Option(200, "--n", help="Anzahl zu rendernder Stellungen."),
     seed: int = typer.Option(42, "--seed"),
     fens: str | None = typer.Option(None, "--fens", help="FEN-Liste (sonst Fallback Grundstellung)."),
     res: int = typer.Option(1024, "--res", help="Render-Auflösung (px)."),
     blender: str | None = typer.Option(None, "--blender", help="Blender-Executable (Default: blender, via CHESSLAB_BLENDER)."),
 ) -> None:
-    """Synthetische Brett-Renderings mit Blender erzeugen (PNG + JSON mit fen/corners)."""
+    """Synthetische Brett-Renderings mit Blender/EEVEE erzeugen (v2: Brett-Textur + prozeduraler Fallback)."""
     import subprocess
 
     from .config import SYNTH, build_blender_cmd
 
     repo_root = Path(__file__).resolve().parents[2]
-    script = repo_root / "synth" / "render_chessboard.py"
+    script = repo_root / "synth" / "render_board_v2.py"
 
     b = Path(blend) if blend else SYNTH.blend
     p = Path(pieces_dir) if pieces_dir else SYNTH.pieces_dir if SYNTH.pieces_dir.exists() else None
     o = Path(out).resolve()
     fe = Path(fens).resolve() if fens else None
     bl = blender or SYNTH.blender_cmd()
-    cmd = build_blender_cmd(bl, b, script, o, n=n, seed=seed, fens=fe, pieces=p, res=res)
+
+    # Board-Textur: explizites --board-texture > Default-Pfad (falls vorhanden) > None (= prozedural)
+    bt: Path | None = None
+    if board_texture:
+        bt = Path(board_texture).resolve()
+    elif SYNTH.board_texture.exists():
+        bt = SYNTH.board_texture
+
+    cmd = build_blender_cmd(bl, b, script, o, n=n, seed=seed, fens=fe, pieces=p, res=res,
+                            board_texture=bt)
 
     print(" ".join(cmd))
     try:
@@ -521,63 +533,53 @@ def synth_render(
 
 @synth_app.command("prepare")
 def synth_prepare_cmd(
-    in_dir: str = typer.Option(..., "--in", help="RealityScan-Exporte: je Unterordner <Figur>/ mit .obj + Textur."),
+    in_dir: str = typer.Option(..., "--in", help="RealityScan-Exporte: je Unterordner <Figur>/ mit .obj/.glb + Textur."),
     out_dir: str = typer.Option(None, "--out", help="Zielverzeichnis (Default: synth_pieces/)."),
     target_tris: int = typer.Option(20000, "--target-tris",
                                     help="Dreiecks-Ziel je Figur (Decimate; 20k reicht für 1024px-Renders; 0 = aus)."),
     smooth_iters: int = typer.Option(10, "--smooth-iters",
-                                     help="Laplacian-Glättung gegen Scan-Bumps (10 mild, 25–40 stark; 0 = aus)."),
-    keep_radius: float = typer.Option(1.9, "--keep-radius",
-                                      help="Isolations-Zylinder um die Figur (größer = mehr behalten)."),
-    keep_largest: bool = typer.Option(True, "--keep-largest/--no-keep-largest",
-                                      help="Nur größte zusammenhängende Komponente behalten (Scan-Trümmer weg)."),
+                                     help="Taubin/Laplacian-Glättung gegen Scan-Bumps (10 mild, 25–40 stark; 0 = aus)."),
+    plane_eps: float | None = typer.Option(None, "--plane-eps",
+                                           help="Ebenen-Schwellwert in Mesh-Einheiten (Default: 0.1 ≈ 1 mm). "
+                                                "Größer = toleranter gegen strukturierte Unterlage."),
+    plate_diameter_mm: float | None = typer.Option(None, "--plate-diameter-mm",
+                                                    help="Teller-Durchmesser in mm → korrekter Maßstab im Renderer."),
     fill_holes: bool = typer.Option(True, "--fill-holes/--no-fill-holes",
                                     help="Offene Ränder/Basis schließen (gegen ausgefranste Silhouette)."),
-    blender: str | None = typer.Option(None, "--blender", help="Blender-Executable (Default: auto-erkannt)."),
 ) -> None:
     """Gescannte Figuren batch-vorbereiten: isolieren, dezimieren, Qualitäts-Report + Preview.
 
-    Blender läuft headless — du musst es nie öffnen. Danach `<out>/<Figur>_preview.png`
-    ansehen und die [WARN]-Hinweise prüfen."""
-    import subprocess
-
+    Läuft komplett in-process (Open3D + PyMeshLab) — kein Blender nötig.
+    Danach `<out>/<Figur>_preview.png` ansehen und die [WARN]-Hinweise prüfen."""
     from .config import SYNTH
-    from .synth_prepare import assess_report, build_isolate_cmd, discover_scans, load_report
+    from .meshprep import prepare_scan
+    from .scan_discover import assess_report, discover_scans, load_report
 
-    repo_root = Path(__file__).resolve().parents[2]
-    script = repo_root / "synth" / "isolate_piece.py"
     out = Path(out_dir).resolve() if out_dir else SYNTH.pieces_dir
-    bl = blender or SYNTH.blender_cmd()
 
     items, warnings = discover_scans(Path(in_dir))
     for w in warnings:
         print(f"[WARN] {w}")
     if not items:
-        print("[FAIL] keine Scans gefunden (erwartet: <in>/<Figur>/*.obj + Textur).")
+        print("[FAIL] keine Scans gefunden (erwartet: <in>/<Figur>/*.glb/.obj + Textur).")
         raise typer.Exit(1)
 
     results: list[tuple[str, str, list[str]]] = []
     for item in items:
-        cmd = build_isolate_cmd(bl, script, item, out, target_tris, smooth_iters, keep_radius,
-                                keep_largest=keep_largest, fill_holes=fill_holes)
-        print(f"--- {item.name}: {item.obj.name} + {item.tex.name if item.tex else 'Textur eingebettet'}")
+        print(f"--- {item.name}: {item.obj.name}" + (f" + {item.tex.name}" if item.tex else " (Textur eingebettet)"))
+        eps = plane_eps if plane_eps is not None else 0.1  # meshprep default
         try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True)
-        except FileNotFoundError:
-            print(f"[FAIL] Blender nicht gefunden ('{bl}'). CHESSLAB_BLENDER setzen.")
-            raise typer.Exit(1)
-        except subprocess.CalledProcessError as e:
-            tail = "\n".join((e.stdout or "").splitlines()[-6:])
-            results.append((item.name, "fail", [f"Blender-Lauf fehlgeschlagen:\n{tail}"]))
-            continue
-        report = load_report(out, item.name)
-        if report is None:
-            results.append((item.name, "fail", ["kein Report geschrieben — Blender-Log prüfen"]))
+            report = prepare_scan(item, out, target_tris=target_tris,
+                                  plane_eps=eps, plate_diameter_mm=plate_diameter_mm,
+                                  fill_holes=fill_holes, smooth_iters=smooth_iters,
+                                  make_preview=True)
+        except Exception as e:
+            results.append((item.name, "fail", [str(e)]))
             continue
         level, msgs = assess_report(report)
         results.append((item.name, level, msgs))
         print(f"    {report['tris_before']} → {report['tris_after']} Dreiecke, "
-              f"Löcher/offen: {report['boundary_edges']}, height_ratio: {report['height_ratio']}")
+              f"Löcher/offen: {report.get('boundary_edges', '?')}, height_ratio: {report.get('height_ratio', '?')}")
 
     print("\nZusammenfassung:")
     for name, level, msgs in results:
@@ -619,6 +621,27 @@ def synth_frames_cmd(
     if stats["written"] and stats["min_sharpness"] < stats["mean_sharpness"] * 0.4:
         print("[WARN] einzelne Fenster deutlich unschärfer — Drehteller langsamer/mehr Licht "
               "(kürzere Belichtung) hilft.")
+
+
+@synth_app.command("board-texture")
+def synth_board_texture(
+    image: str = typer.Option(..., "--image", help="Brett-Foto (JPG/PNG) mit 4 ArUco-Markern an den Ecken."),
+    out: str = typer.Option(None, "--out", help="Ziel-Pfad (Default: synth_pieces/board_texture.png)."),
+    size: int = typer.Option(1024, "--size", help="Quadratische Ausgabegröße (px)."),
+    dict_name: str = typer.Option("DICT_4X4_50", "--dict", help="ArUco-Dictionary."),
+    margin: float = typer.Option(0.04, "--margin", help="Marker-zu-Raster-Einzug (Fraction)."),
+) -> None:
+    """Brett-Foto zu rektifizierter quadratischer Textur entzerren (für `synth render --board-texture`)."""
+    from synth.board_texture import rectify
+
+    from .config import SYNTH
+
+    out_path = Path(out) if out else SYNTH.board_texture
+    try:
+        result = rectify(image, str(out_path), size=size, dict_name=dict_name, margin=margin)
+        print(f"[OK] board-texture: {result}")
+    except SystemExit as e:
+        raise typer.Exit(e.code)
 
 
 @synth_app.command("preview")

@@ -324,6 +324,11 @@ class SynthDefaults:
     res: int = 1024
     blender_exe: str = "blender"  # überschreibbar via Env CHESSLAB_BLENDER
 
+    @property
+    def board_texture(self) -> Path:
+        """Default board texture path (pieces_dir/board_texture.png) if it exists."""
+        return self.pieces_dir / "board_texture.png"
+
     def blender_cmd(self) -> str:
         """Blender-Executable auflösen: Env CHESSLAB_BLENDER → PATH → übliche Windows-
         Installationsorte (neueste Version zuerst). Fallback: der nackte Name."""
@@ -353,6 +358,7 @@ def build_blender_cmd(
     fens: Path | None = None,
     pieces: Path | None = None,
     res: int = 1024,
+    board_texture: Path | None = None,
 ) -> list[str]:
     """Erzeugt die Blender-Kommandozeile (reine Funktion, kein subprocess)."""
     cmd = [
@@ -368,6 +374,8 @@ def build_blender_cmd(
         cmd.extend(["--fens", str(fens)])
     if pieces is not None:
         cmd.extend(["--pieces", str(pieces)])
+    if board_texture is not None:
+        cmd.extend(["--board-texture", str(board_texture)])
     return cmd
 
 
