@@ -42,9 +42,18 @@ export function ModelViewer({ piece, textured = true, size = 320 }: {
     const loader = new OBJLoader();
     loader.load(`/api/scan/model/${piece}.obj`, (obj) => {
       if (disposed) return;
-      // Material: Textur oder Clay
-      const applyMat = (mat: THREE.Material) =>
+      // Normalen sicherstellen (Scan-Meshes können fehlende/inkonsistente Normalen haben).
+      obj.traverse((c) => {
+        const m = c as THREE.Mesh;
+        if (m.isMesh) m.geometry.computeVertexNormals();
+      });
+      // Material: Textur oder Clay. side=DoubleSide ist bei gescannten Meshes PFLICHT — sonst
+      // werden bei nach innen zeigenden Normalen die Vorderflächen weggecullt und man schaut
+      // durch die Figur (der „Wireframe"-Effekt).
+      const applyMat = (mat: THREE.Material) => {
+        mat.side = THREE.DoubleSide;
         obj.traverse((c) => { if ((c as THREE.Mesh).isMesh) (c as THREE.Mesh).material = mat; });
+      };
       if (textured) {
         new THREE.TextureLoader().load(`/api/scan/model/${piece}.png`, (tex) => {
           tex.colorSpace = THREE.SRGBColorSpace;

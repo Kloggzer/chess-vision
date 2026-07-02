@@ -97,12 +97,13 @@ def _keep_largest_component(me) -> int:
     return len(comp) - 1
 
 
-def _fill_holes(me, passes: int = 3) -> int:
+def _fill_holes(me, passes: int = 4) -> int:
     """Offene Ränder schließen (Basis-Öffnung, Scan-Löcher) — macht die Silhouette sauber
-    statt ausgefranst. Mehrere Durchgänge: verschachtelte Löcher schließen sich teils erst,
-    wenn ihre Nachbarn zu sind. `holes_fill` (n-gon) + `triangle_fill` als Fallback für Ränder,
-    die holes_fill nicht als geschlossene Schleife erkennt. Danach Normalen nach außen richten.
-    Rückgabe: verbleibende offene Kanten."""
+    statt ausgefranst. NUR `holes_fill` (n-gon): das füllt ausschließlich echte, geschlossene
+    Rand-Schleifen. Mehrere Durchgänge, weil verschachtelte Löcher sich erst schließen, wenn
+    ihre Nachbarn zu sind. Bewusst KEIN `triangle_fill` — das verbindet unzusammenhängende Löcher
+    (Basis-Öffnung ↔ Loch oben) mit langen Spike-Dreiecken quer durch die Figur.
+    Danach Normalen nach außen richten. Rückgabe: verbleibende offene Kanten."""
     bm = bmesh.new(); bm.from_mesh(me)
     prev = -1
     for _ in range(max(1, passes)):
@@ -111,10 +112,6 @@ def _fill_holes(me, passes: int = 3) -> int:
             break
         prev = len(open_edges)
         bmesh.ops.holes_fill(bm, edges=open_edges, sides=0)
-        bm.edges.ensure_lookup_table()
-        rest = [e for e in bm.edges if e.is_boundary]
-        if rest:                                   # was holes_fill nicht schafft: triangulieren
-            bmesh.ops.triangle_fill(bm, edges=rest, use_beauty=True)
         bm.edges.ensure_lookup_table()
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     remaining = sum(1 for e in bm.edges if e.is_boundary)
