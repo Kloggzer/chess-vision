@@ -18,6 +18,7 @@ class RenderArgs:
     fens: Path | None = None
     pieces: Path | None = None
     res: int = 1024
+    board_texture: Path | None = None
 
 
 def parse_render_args(argv: list[str]) -> RenderArgs:
@@ -29,6 +30,7 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
     fens = None
     pieces = None
     res = 1024
+    board_texture = None
 
     i = 0
     while i < len(args):
@@ -63,6 +65,11 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
             if i >= len(args):
                 raise SystemExit("ERROR: --res benötigt einen Wert.")
             res = int(args[i])
+        elif a == "--board-texture":
+            i += 1
+            if i >= len(args):
+                raise SystemExit("ERROR: --board-texture benötigt einen Pfad.")
+            board_texture = Path(args[i]).resolve()
         else:
             print(f"WARN: unbekanntes Flag ignoriert: {a}", file=sys.stderr)
         i += 1
@@ -70,4 +77,5 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
     if out is None:
         raise SystemExit("ERROR: --out ist Pflicht (Zielverzeichnis).")
 
-    return RenderArgs(out=out, n=n, seed=seed, fens=fens, pieces=pieces, res=res)
+    return RenderArgs(out=out, n=n, seed=seed, fens=fens, pieces=pieces, res=res,
+                      board_texture=board_texture)
