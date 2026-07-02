@@ -32,13 +32,19 @@ Fotos hochladen → Mesh + Textur herunterladen. Ausgabe ist eine `.obj` + `.png
 
 ## 3. Isolierung in Blender
 
-Figur aufrecht stellen, Basis auf z=0, exportieren:
+Papier-Ebene per PCA finden → Figur-Cluster behalten → aufrecht stellen (Basis auf z=0,
+Figur-Achse = +Z), exportieren. Argumente sind POSITIONAL: `<scan.obj> <textur> <ziel.obj> [preview.png]`:
 
 ```bash
-blender --background --python synth/isolate_piece.py -- --in scan.obj --out synth_pieces/P.obj
+blender --background --python synth/isolate_piece.py -- \
+    scan.obj scan.jpg "synth_pieces/P.obj" "synth_pieces/P_preview.png"
 ```
 
+Das Preview-PNG IMMER erzeugen und ansehen (steht die Figur aufrecht? Basis sauber?).
 Textur manuell in `synth_pieces/P.png` kopieren/konvertieren (RealityScan liefert meist JPG).
+Bei asymmetrischen Figuren (v. a. Springer) kann die PCA-Aufrichtung danebenliegen —
+dann in der Blender-GUI nachdrehen und neu exportieren. Die absolute Größe ist egal:
+der Renderer normiert auf Zielhöhe (`_load_scanned_mesh(target_h)`).
 
 ## 4. FEN-Liste erzeugen
 
