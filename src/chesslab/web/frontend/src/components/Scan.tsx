@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Plug, Play, Square, Crop as CropIcon, RotateCcw, Wand2 } from "lucide-react";
+import {
+  Plug, Play, Square, Crop as CropIcon, RotateCcw, Wand2, Boxes, Camera,
+  Loader2, CheckCircle2, AlertTriangle, ChevronDown, Settings2,
+} from "lucide-react";
 import { api, post } from "../api";
 import { Card, Button } from "./ui";
 
@@ -31,26 +34,58 @@ type ReconStatus = {
 
 const PIECES = ["P", "N", "B", "R", "Q", "K", "wP", "wN", "wB", "wR", "wQ", "wK",
                 "bP", "bN", "bB", "bR", "bQ", "bK"];
+const PIECE_NAMES: Record<string, string> = {
+  P: "Bauer", N: "Springer", B: "Läufer", R: "Turm", Q: "Dame", K: "König",
+};
 
-/** 3D-Modell-Vorbereitung: rekonstruierter Scan → renderfertige Figur (Blender headless). */
+/** Aus dem Ordnernamen einen kanonischen Figurnamen ableiten (wK, bN, P …) oder null. */
+function suggestPiece(folder: string): string | null {
+  const m = folder.match(/^([wb]?)([PNBRQK])$/i);
+  if (!m) return null;
+  const type = m[2].toUpperCase();
+  return m[1] ? m[1].toLowerCase() + type : type;
+}
+function pieceLabel(p: string): string {
+  const type = p.length === 2 ? p[1] : p[0];
+  const col = p.length === 2 ? (p[0] === "w" ? "weiß " : "schwarz ") : "";
+  return col + (PIECE_NAMES[type] ?? p);
+}
+
+type Scan = Models["scans"][number];
+type Stage = "photos" | "mesh" | "done";
+function scanStage(s: Scan, pieces: Models["pieces"]): { stage: Stage; piece: string | null } {
+  const sug = suggestPiece(s.dir);
+  const prepared = sug && pieces.find((p) => p.piece.toLowerCase() === sug.toLowerCase());
+  if (prepared) return { stage: "done", piece: prepared.piece };
+  if (s.mesh) return { stage: "mesh", piece: sug };
+  return { stage: "photos", piece: sug };
+}
+
+/** Figuren-Werkstatt: Fotos → Mesh (RealityScan) → renderfertige Figur (Blender). */
 function PreparePanel() {
   const [models, setModels] = useState<Models | null>(null);
   const [dir, setDir] = useState("");
   const [piece, setPiece] = useState("P");
   const [tris, setTris] = useState(20000);
   const [smooth, setSmooth] = useState(10);
+  const [advanced, setAdvanced] = useState(false);
   const [prep, setPrep] = useState<PrepStatus | null>(null);
   const [recon, setRecon] = useState<ReconStatus | null>(null);
   const [msg, setMsg] = useState("");
   const [variant, setVariant] = useState<"textured" | "clay">("textured");   // Ansicht der Vorschau
-  const [sel, setSel] = useState<string | null>(null);                        // ausgewählte Galerie-Figur
   const timer = useRef<any>(null);
   const reconTimer = useRef<any>(null);
 
   const refresh = () => api<Models>("/api/scan/models").then((m) => {
     setModels(m);
-    if (!dir && m.scans.length) setDir(m.scans[0].dir);
+    if (!dir && m.scans.length) selectScan(m.scans[0], m.pieces);
   }).catch(() => {});
+
+  function selectScan(s: Scan, pieces = models?.pieces ?? []) {
+    setDir(s.dir);
+    const { piece: sug } = scanStage(s, pieces);
+    setPiece(sug ?? "P");
+  }
 
   const pollRecon = () => api<ReconStatus>("/api/scan/reconstruct/status").then((s) => {
     setRecon(s);
@@ -101,111 +136,185 @@ function PreparePanel() {
     } catch (e: any) { setMsg("Fehler: " + e.message); }
   }
 
-  const rep = prep?.report;
-  const cur = models?.scans.find((s) => s.dir === dir);
-  const hasMesh = !!cur?.mesh;
+  const scans = models?.scans ?? [];
+  const cur = scans.find((s) => s.dir === dir);
+  const curInfo = cur ? scanStage(cur, models?.pieces ?? []) : null;
+  const stage = curInfo?.stage;
+  const busyRecon = recon?.state === "running" && recon.dir === dir;
+  const busyPrep = prep?.state === "running";
+  // aktive Stufe für den Stepper (1 Foto · 2 Mesh · 3 Figur)
+  const step = stage === "done" ? 3 : stage === "mesh" ? 2 : 1;
+
   return (
-    <Card title="Scan → 3D-Modell (rekonstruieren · isolieren · dezimieren · Qualität)">
-      <div className="mb-3 flex flex-wrap items-end gap-3 border-b border-zinc-800 pb-3">
-        <label className="flex flex-col gap-1 text-sm text-zinc-400">Scan-Ordner
-          <select value={dir} onChange={(e) => setDir(e.target.value)} className={input}>
-            {(models?.scans ?? []).map((s) => (
-              <option key={s.dir} value={s.dir}>
-                {s.dir} · {s.photos} Fotos · {s.mesh ? "Mesh ✓" : "noch kein Mesh"}
-              </option>
-            ))}
-          </select></label>
-        <Button onClick={reconstruct} disabled={!dir || recon?.state === "running"}
-          title="RealityScan headless: Fotos → 3D-Mesh + Textur">
-          <Wand2 className="h-4 w-4" /> {recon?.state === "running" ? "RealityScan läuft…" : "1. Rekonstruieren"}</Button>
-        <span className="text-xs text-zinc-500">
-          {recon?.state === "running" && "● RealityScan rekonstruiert — dauert einige Minuten…"}
-          {recon?.state === "done" && `✓ Mesh erstellt: ${recon.mesh ?? ""}`}
-          {recon?.state === "failed" && "Rekonstruktion fehlgeschlagen (Log prüfen)"}
-          {!recon && (hasMesh ? "Mesh vorhanden — direkt vorbereiten, oder neu rekonstruieren." : "erst rekonstruieren")}
-        </span>
-      </div>
-
-      <div className="mb-1 text-xs text-zinc-500">2. Vorbereiten{!hasMesh && " (braucht ein Mesh)"}:</div>
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1 text-sm text-zinc-400">Figur
-          <select value={piece} onChange={(e) => setPiece(e.target.value)} className={input}>
-            {PIECES.map((p) => <option key={p}>{p}</option>)}
-          </select></label>
-        <label className="flex flex-col gap-1 text-sm text-zinc-400" title="Dreiecks-Ziel (Decimate). 0 = aus.">Ziel-Dreiecke
-          <input type="number" value={tris} onChange={(e) => setTris(+e.target.value)} className={`${input} w-28`} /></label>
-        <label className="flex flex-col gap-1 text-sm text-zinc-400" title="Laplacian-Glättung gegen Scan-Bumps. 10 mild, 25–40 stark, 0 = aus.">Glättung
-          <input type="number" value={smooth} onChange={(e) => setSmooth(+e.target.value)} className={`${input} w-20`} /></label>
-        <Button variant="primary" onClick={run} disabled={!dir || !hasMesh || prep?.state === "running"}>
-          <Wand2 className="h-4 w-4" /> {prep?.state === "running" ? "läuft…" : "Vorbereiten"}</Button>
-        <span className="text-xs text-zinc-500">{msg}</span>
-      </div>
-
-      {prep && prep.state !== "idle" && (
-        <div className="mt-3 rounded-lg bg-zinc-800 p-3 text-sm">
-          {prep.state === "running" && <span className="text-sky-400">● Blender arbeitet — dauert je nach Scan 1–5 min…</span>}
-          {prep.state === "failed" && (
-            <div className="text-red-400">Fehlgeschlagen.{prep.log_tail && <pre className="mt-1 whitespace-pre-wrap text-xs text-zinc-500">{prep.log_tail}</pre>}</div>
-          )}
-          {prep.state === "done" && rep && (
-            <div className="flex flex-wrap items-start gap-4">
-              <div>
-                <img src={`/api/scan/prepare/preview/${prep.piece}?variant=${variant}&t=${Date.now()}`}
-                  className="w-48 rounded-lg border border-zinc-700 bg-zinc-900" />
-                <VariantToggle value={variant} onChange={setVariant} />
+    <Card title="Figuren-Werkstatt — Fotos → 3D-Figur">
+      {/* Stepper: das mentale Modell der Pipeline */}
+      <div className="mb-4 flex items-center gap-1 text-xs">
+        {[[1, "Fotografieren", Camera], [2, "Rekonstruieren", Boxes], [3, "Vorbereiten", Wand2]].map(
+          ([n, label, Icon]: any, i) => (
+            <div key={n} className="flex items-center gap-1">
+              <div className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 ${
+                step >= n ? "bg-sky-500/15 text-sky-300" : "bg-zinc-800 text-zinc-500"}`}>
+                <Icon className="h-3.5 w-3.5" /> <span>{label}</span>
               </div>
-              <div className="space-y-1 text-xs text-zinc-400">
-                <div className={prep.level === "ok" ? "text-green-500" : "text-amber-400"}>
-                  {prep.level === "ok" ? "✓ Qualität OK" : "⚠ Prüfen:"}</div>
-                {(prep.messages ?? []).map((m, i) => <div key={i}>• {m}</div>)}
-                <div>{rep.tris_before} → {rep.tris_after} Dreiecke · offene Kanten: {rep.boundary_edges} · height_ratio: {rep.height_ratio}</div>
-                <div className="text-zinc-500">gespeichert als synth_pieces/{prep.piece}.obj — bereit für „synth render".</div>
-              </div>
+              {i < 2 && <div className={`h-px w-4 ${step > n ? "bg-sky-500/40" : "bg-zinc-700"}`} />}
             </div>
-          )}
-        </div>
+          ))}
+      </div>
+
+      {scans.length === 0 && (
+        <p className="text-sm text-zinc-500">Noch keine Scans. Nimm oben Fotos einer Figur auf —
+          sie erscheinen dann hier als Karte.</p>
       )}
 
-      {!!models?.pieces?.length && (
-        <div className="mt-4 border-t border-zinc-800 pt-3">
-          <div className="mb-2 text-xs text-zinc-500">Vorbereitete Figuren — anklicken für große Ansicht:</div>
-          <div className="flex flex-wrap gap-2">
-            {models.pieces.map((p) => (
-              <button key={p.piece} onClick={() => setSel(sel === p.piece ? null : p.piece)}
-                className={`rounded-lg border p-2 text-center transition ${
-                  sel === p.piece ? "border-sky-500 bg-sky-500/10" : "border-zinc-800 hover:border-zinc-600"}`}>
-                {p.has_preview
-                  ? <img src={`/api/scan/prepare/preview/${p.piece}`} className="h-20 w-20 rounded object-contain bg-zinc-900" />
-                  : <div className="grid h-20 w-20 place-items-center text-2xl text-zinc-600">{p.piece}</div>}
-                <div className="mt-1 text-xs font-medium text-zinc-300">{p.piece}
-                  {p.report && <span className="text-zinc-500"> · {p.report.tris_after}△</span>}</div>
-              </button>
-            ))}
+      {/* Figuren-Karten: eine pro Scan-Ordner, mit Stufe */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+        {scans.map((s) => {
+          const info = scanStage(s, models?.pieces ?? []);
+          const active = s.dir === dir;
+          const badge = {
+            photos: ["Nur Fotos", "bg-amber-500/15 text-amber-300"],
+            mesh: ["Mesh bereit", "bg-sky-500/15 text-sky-300"],
+            done: ["Fertig", "bg-green-500/15 text-green-300"],
+          }[info.stage];
+          const prep_ = info.piece && info.stage === "done";
+          return (
+            <button key={s.dir} onClick={() => selectScan(s)}
+              className={`flex flex-col rounded-xl border p-2 text-left transition ${
+                active ? "border-sky-500 bg-sky-500/5" : "border-zinc-800 hover:border-zinc-600"}`}>
+              <div className="relative mb-1.5 aspect-square overflow-hidden rounded-lg bg-zinc-950">
+                {prep_
+                  ? <img src={`/api/scan/prepare/preview/${info.piece}`} className="h-full w-full object-contain" />
+                  : <div className="grid h-full place-items-center text-zinc-700">
+                      <Camera className="h-8 w-8" /></div>}
+                <span className={`absolute left-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${badge[1]}`}>
+                  {badge[0]}</span>
+              </div>
+              <div className="text-sm font-medium text-zinc-200">{s.dir}</div>
+              <div className="text-[11px] text-zinc-500">
+                {s.photos} Fotos{info.piece ? ` · ${pieceLabel(info.piece)}` : ""}</div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Aktions-/Detail-Bereich für die ausgewählte Figur */}
+      {cur && (
+        <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/50 p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium text-zinc-100">{cur.dir}</div>
+              <div className="text-xs text-zinc-500">{cur.photos} Fotos
+                {cur.mesh ? " · Mesh vorhanden" : " · noch kein Mesh"}
+                {!cur.texture && cur.mesh ? " · ⚠ ohne Textur" : ""}</div>
+            </div>
+            {/* Die EINE passende Aktion für die aktuelle Stufe */}
+            {stage === "photos" && (
+              <Button variant="primary" onClick={reconstruct} disabled={busyRecon}>
+                {busyRecon ? <Loader2 className="h-4 w-4 animate-spin" /> : <Boxes className="h-4 w-4" />}
+                {busyRecon ? "RealityScan läuft…" : "Rekonstruieren"}</Button>
+            )}
+            {stage !== "photos" && (
+              <div className="flex items-center gap-2">
+                <Button onClick={reconstruct} disabled={busyRecon} title="Mesh neu aus den Fotos berechnen">
+                  {busyRecon ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                  Neu rekonstruieren</Button>
+                <Button variant="primary" onClick={run} disabled={busyPrep}>
+                  {busyPrep ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+                  {busyPrep ? "läuft…" : stage === "done" ? "Neu vorbereiten" : "Vorbereiten"}</Button>
+              </div>
+            )}
           </div>
 
-          {sel && (() => {
-            const p = models.pieces.find((x) => x.piece === sel)!;
-            return (
-              <div className="mt-3 flex flex-wrap items-start gap-4 rounded-lg bg-zinc-800 p-3">
-                <div>
-                  <img src={`/api/scan/prepare/preview/${sel}?variant=${variant}`}
-                    className="w-56 rounded-lg border border-zinc-700 bg-zinc-900" />
-                  <VariantToggle value={variant} onChange={setVariant} clayDisabled={!p.has_clay} />
+          {/* Figurname + Einstellungen (nur relevant fürs Vorbereiten) */}
+          {stage !== "photos" && (
+            <div className="mb-3 flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-sm text-zinc-400">Figur
+                <select value={piece} onChange={(e) => setPiece(e.target.value)} className={input}>
+                  {PIECES.map((p) => <option key={p} value={p}>{p} — {pieceLabel(p)}</option>)}
+                </select></label>
+              <button onClick={() => setAdvanced(!advanced)}
+                className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300">
+                <Settings2 className="h-3.5 w-3.5" /> Einstellungen
+                <ChevronDown className={`h-3 w-3 transition ${advanced ? "rotate-180" : ""}`} /></button>
+              {advanced && (
+                <div className="flex items-center gap-3 text-xs text-zinc-400">
+                  <label className="flex items-center gap-1" title="Dreiecks-Ziel (Decimate). 0 = aus.">
+                    Ziel-△ <input type="number" value={tris} onChange={(e) => setTris(+e.target.value)}
+                      className={`${input} w-24`} /></label>
+                  <label className="flex items-center gap-1" title="Laplacian-Glättung gegen Bumps. 10 mild, 25–40 stark.">
+                    Glättung <input type="number" value={smooth} onChange={(e) => setSmooth(+e.target.value)}
+                      className={`${input} w-16`} /></label>
                 </div>
-                {p.report && (
-                  <div className="space-y-1 text-xs text-zinc-400">
-                    <div className="text-sm font-medium text-zinc-200">{sel}</div>
-                    <div>{p.report.tris_after} Dreiecke · offene Kanten: {p.report.boundary_edges}</div>
-                    <div>height_ratio: {p.report.height_ratio} · pattern_margin: {p.report.pattern_margin}</div>
-                    <div className="text-zinc-500">synth_pieces/{sel}.obj</div>
-                  </div>
-                )}
-              </div>
-            );
-          })()}
+              )}
+              {msg && <span className="text-xs text-red-400">{msg}</span>}
+            </div>
+          )}
+
+          {/* Live-Status der Rekonstruktion */}
+          {busyRecon && (
+            <div className="flex items-center gap-2 rounded-lg bg-sky-500/10 p-3 text-sm text-sky-300">
+              <Loader2 className="h-4 w-4 animate-spin" /> RealityScan rekonstruiert aus {cur.photos} Fotos —
+              das dauert einige Minuten…</div>
+          )}
+          {recon?.state === "failed" && recon.dir === dir && (
+            <div className="rounded-lg bg-red-500/10 p-3 text-sm text-red-300">
+              <div className="flex items-center gap-2"><AlertTriangle className="h-4 w-4" /> Rekonstruktion fehlgeschlagen.</div>
+              {recon.log_tail && <pre className="mt-1 whitespace-pre-wrap text-xs text-red-400/70">{recon.log_tail}</pre>}</div>
+          )}
+
+          {/* Live-Status / Ergebnis der Vorbereitung */}
+          {busyPrep && (
+            <div className="flex items-center gap-2 rounded-lg bg-sky-500/10 p-3 text-sm text-sky-300">
+              <Loader2 className="h-4 w-4 animate-spin" /> Blender isoliert & bereinigt die Figur — ca. 1–3 min…</div>
+          )}
+          {prep?.state === "failed" && (
+            <div className="rounded-lg bg-red-500/10 p-3 text-sm text-red-300">
+              <div className="flex items-center gap-2"><AlertTriangle className="h-4 w-4" /> Vorbereitung fehlgeschlagen.</div>
+              {prep.log_tail && <pre className="mt-1 whitespace-pre-wrap text-xs text-red-400/70">{prep.log_tail}</pre>}</div>
+          )}
+          <PieceResult piece={curInfo?.stage === "done" ? curInfo.piece : (prep?.state === "done" ? prep.piece : null)}
+            report={prep?.state === "done" ? prep.report : models?.pieces.find((p) => p.piece === curInfo?.piece)?.report}
+            level={prep?.state === "done" ? prep.level : undefined}
+            messages={prep?.state === "done" ? prep.messages : undefined}
+            hasClay={!!models?.pieces.find((p) => p.piece === (prep?.piece ?? curInfo?.piece))?.has_clay}
+            variant={variant} setVariant={setVariant} />
         </div>
       )}
     </Card>
+  );
+}
+
+/** Ergebnis-Ansicht einer fertigen Figur: großes Preview (Textur/Clay) + Qualität. */
+function PieceResult({ piece, report, level, messages, hasClay, variant, setVariant }: {
+  piece: string | null; report: any; level?: string; messages?: string[];
+  hasClay: boolean; variant: "textured" | "clay"; setVariant: (v: "textured" | "clay") => void;
+}) {
+  if (!piece) return null;
+  return (
+    <div className="mt-3 flex flex-wrap items-start gap-4 rounded-lg bg-zinc-800/60 p-3">
+      <div>
+        <img src={`/api/scan/prepare/preview/${piece}?variant=${variant}&t=${report?.tris_after ?? ""}`}
+          className="w-56 rounded-lg border border-zinc-700 bg-zinc-950" />
+        <VariantToggle value={variant} onChange={setVariant} clayDisabled={!hasClay} />
+      </div>
+      {report && (
+        <div className="space-y-1.5 text-xs text-zinc-400">
+          {level && (
+            <div className={`flex items-center gap-1.5 text-sm ${level === "ok" ? "text-green-400" : "text-amber-400"}`}>
+              {level === "ok" ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
+              {level === "ok" ? "Qualität OK" : "Bitte prüfen"}</div>
+          )}
+          {(messages ?? []).map((m, i) => <div key={i} className="text-amber-300/90">• {m}</div>)}
+          <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 pt-1">
+            <span className="text-zinc-500">Dreiecke</span><span>{report.tris_after}</span>
+            <span className="text-zinc-500">offene Kanten</span><span>{report.boundary_edges}</span>
+            <span className="text-zinc-500">Höhe/Basis</span><span>{report.height_ratio}</span>
+            <span className="text-zinc-500">Muster-Rand</span><span>{report.pattern_margin}</span>
+          </div>
+          <div className="pt-1 text-zinc-500">→ synth_pieces/{piece}.obj · bereit für „synth render"</div>
+        </div>
+      )}
+    </div>
   );
 }
 
