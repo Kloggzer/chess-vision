@@ -1,0 +1,23 @@
+{
+  "piece": "wN",
+  "verts": 10008,
+  "tris_before": 74270,
+  "tris_after": 19996,
+  "decimated": true,
+  "target_tris": 20000,
+  "smooth_iters": 10,
+  "keep_radius": 1.9,
+  "components_removed": 1,
+  "filled_holes": true,
+  "pattern_margin": 8.13,
+  "piece_vertex_frac": 0.099,
+  "boundary_edges": 28,
+  "nonmanifold_edges": 17,
+  "dims": [
+    10.7647,
+    9.4713,
+    20.8331
+  ],
+  "height_ratio": 1.935,
+  "preview": "C:\\Users\\mariu\\project\\chess-vision\\synth_pieces\\wN_preview.png"
+}

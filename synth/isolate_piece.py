@@ -97,14 +97,29 @@ def _keep_largest_component(me) -> int:
     return len(comp) - 1
 
 
-def _fill_holes(me) -> None:
+def _fill_holes(me, passes: int = 3) -> int:
     """Offene Ränder schließen (Basis-Öffnung, Scan-Löcher) — macht die Silhouette sauber
-    statt ausgefranst. Danach Normalen konsistent nach außen richten: frisch gefüllte
-    Flächen zeigen sonst oft nach innen und rendern schwarz."""
+    statt ausgefranst. Mehrere Durchgänge: verschachtelte Löcher schließen sich teils erst,
+    wenn ihre Nachbarn zu sind. `holes_fill` (n-gon) + `triangle_fill` als Fallback für Ränder,
+    die holes_fill nicht als geschlossene Schleife erkennt. Danach Normalen nach außen richten.
+    Rückgabe: verbleibende offene Kanten."""
     bm = bmesh.new(); bm.from_mesh(me)
-    bmesh.ops.holes_fill(bm, edges=bm.edges, sides=0)
+    prev = -1
+    for _ in range(max(1, passes)):
+        open_edges = [e for e in bm.edges if e.is_boundary]
+        if not open_edges or len(open_edges) == prev:
+            break
+        prev = len(open_edges)
+        bmesh.ops.holes_fill(bm, edges=open_edges, sides=0)
+        bm.edges.ensure_lookup_table()
+        rest = [e for e in bm.edges if e.is_boundary]
+        if rest:                                   # was holes_fill nicht schafft: triangulieren
+            bmesh.ops.triangle_fill(bm, edges=rest, use_beauty=True)
+        bm.edges.ensure_lookup_table()
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    remaining = sum(1 for e in bm.edges if e.is_boundary)
     bm.to_mesh(me); bm.free(); me.update()
+    return remaining
 
 
 def isolate(obj_path, tex_path, out_obj, preview=None, smooth_iters=10, target_tris=20000,
@@ -168,8 +183,8 @@ def isolate(obj_path, tex_path, out_obj, preview=None, smooth_iters=10, target_t
         if components_removed:
             print(f"[isolate] {components_removed} lose Komponente(n) entfernt")
     if fill_holes:                                    # Basis-Öffnung + Scan-Löcher schließen
-        _fill_holes(me)
-        print("[isolate] Löcher gefüllt (Basis geschlossen)")
+        rest = _fill_holes(me)
+        print(f"[isolate] Löcher gefüllt (Basis geschlossen); offene Kanten übrig: {rest}")
 
     for o in bpy.context.scene.objects:
         o.select_set(o == obj)
