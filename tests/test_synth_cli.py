@@ -129,8 +129,11 @@ def test_synth_defaults_blender_env_override(monkeypatch):
     assert SYNTH.blender_cmd() == "/custom/blender"
 
     monkeypatch.delenv("CHESSLAB_BLENDER", raising=False)
-    # re-read doesn't work with frozen dataclass, but blender_cmd reads env live
-    assert SYNTH.blender_cmd() == "blender"
+    # Ohne Env-Var: PATH-Lookup oder Auto-Detektion üblicher Installationsorte —
+    # das Ergebnis muss ein aufrufbarer Name ODER ein existierendes blender.exe sein.
+    from pathlib import Path
+    resolved = SYNTH.blender_cmd()
+    assert resolved == "blender" or Path(resolved).exists()
 
 
 # --- RenderArgs dataclass ----------------------------------------------------------------

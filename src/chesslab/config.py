@@ -301,7 +301,19 @@ class SynthDefaults:
     blender_exe: str = "blender"  # überschreibbar via Env CHESSLAB_BLENDER
 
     def blender_cmd(self) -> str:
-        return os.environ.get("CHESSLAB_BLENDER", self.blender_exe)
+        """Blender-Executable auflösen: Env CHESSLAB_BLENDER → PATH → übliche Windows-
+        Installationsorte (neueste Version zuerst). Fallback: der nackte Name."""
+        env = os.environ.get("CHESSLAB_BLENDER")
+        if env:
+            return env
+        if shutil.which(self.blender_exe):
+            return self.blender_exe
+        for base in (Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Blender Foundation",):
+            if base.is_dir():
+                hits = sorted(base.glob("Blender */blender.exe"), reverse=True)
+                if hits:
+                    return str(hits[0])
+        return self.blender_exe
 
 
 SYNTH = SynthDefaults()
