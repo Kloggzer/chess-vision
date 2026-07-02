@@ -220,6 +220,30 @@ def find_stockfish() -> str | None:
     return shutil.which("stockfish")
 
 
+def find_realityscan() -> str | None:
+    """RealityScan-Executable finden (für den Photogrammetrie-Anstoß aus dem Scan-Tab).
+
+    Reihenfolge: Env CHESSLAB_REALITYSCAN → PATH → übliche Windows-Installationsorte.
+    """
+    env = os.environ.get("CHESSLAB_REALITYSCAN", "").strip()
+    if env:
+        if os.path.isfile(env):
+            return os.path.abspath(env)
+        on_path = shutil.which(env)
+        if on_path:
+            return on_path
+    on_path = shutil.which("RealityScan")
+    if on_path:
+        return on_path
+    for base in (r"D:\Program Files\Epic Games", r"C:\Program Files\Epic Games"):
+        b = Path(base)
+        if b.is_dir():
+            hits = sorted(b.glob("RealityScan_*/RealityScan.exe"), reverse=True)
+            if hits:
+                return str(hits[0])
+    return None
+
+
 def label_from_piece(symbol: str | None) -> str:
     """Map a python-chess piece symbol (FEN letter) to a class label.
 
