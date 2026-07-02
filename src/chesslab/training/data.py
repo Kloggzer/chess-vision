@@ -17,11 +17,14 @@ from .. import config
 
 
 def load_manifest(path: Path) -> list[dict]:
-    rows = []
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            rows.append(json.loads(line))
-    return rows
+    from ..ioutil import read_jsonl
+
+    p = Path(path)
+    if not p.exists():
+        # Semantik wie vor Rework 05: fehlendes Manifest ist ein harter Fehler, kein leerer
+        # Datensatz — sonst „trainiert" man still auf nichts.
+        raise FileNotFoundError(f"Manifest nicht gefunden: {p}")
+    return read_jsonl(p)
 
 
 def load_split(path: Path) -> dict:

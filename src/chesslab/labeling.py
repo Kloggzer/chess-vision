@@ -34,6 +34,35 @@ from .state import GameState
 _FILES = "abcdefgh"
 
 
+def label_to_fen_char(label: str) -> str | None:
+    """Klassenlabel -> FEN-Figurenbuchstabe ('wP'->'P', 'bN'->'n'); empty/occluded/leer -> None."""
+    if not label or label in ("empty", "occluded") or len(label) != 2:
+        return None
+    return label[1].upper() if label[0] == "w" else label[1].lower()
+
+
+def labels_to_fen(labels: dict) -> str:
+    """64 Per-Feld-Labels -> FEN-Stellungsteil (occluded zählt als leer).
+
+    Gegenstück zu ``config.label_from_piece`` (Piece → Label); hier Label → FEN-String.
+    """
+    rows = []
+    for rank in range(8, 0, -1):
+        run_empty, row = 0, ""
+        for f in "abcdefgh":
+            ch = label_to_fen_char(labels.get(f"{f}{rank}", "empty"))
+            if ch is None:
+                run_empty += 1
+            else:
+                if run_empty:
+                    row += str(run_empty); run_empty = 0
+                row += ch
+        if run_empty:
+            row += str(run_empty)
+        rows.append(row)
+    return "/".join(rows)
+
+
 def parse_out_size(s: str) -> tuple[int, int]:
     """'96x128' -> (96, 128) = (W, H)."""
     try:
@@ -165,14 +194,12 @@ def read_session_meta(session_dir: Path) -> dict:
 
 
 def read_log(session_dir: Path) -> list[dict]:
+    from .ioutil import read_jsonl
+
     p = session_dir / "log.jsonl"
     if not p.exists():
         raise FileNotFoundError(f"log.jsonl fehlt in {session_dir}")
-    out = []
-    for line in p.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            out.append(json.loads(line))
-    return out
+    return read_jsonl(p)
 
 
 def _effective_profile(profile: CalibrationProfile, pad_up, pad_side) -> CalibrationProfile:
