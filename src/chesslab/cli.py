@@ -465,6 +465,8 @@ def track_cmd(
     max_changed: int = typer.Option(6, "--max-changed", help="Maximal geänderte Felder (Gate)."),
     avg_frames: int = typer.Option(3, "--avg-frames", help="Gleitendes Mittel über N ruhige Frames."),
     no_live_align: bool = typer.Option(False, "--no-live-align", help="Marker-Nachführung deaktivieren."),
+    cnn_run: str = typer.Option(config.MOVE_TRACKER_DEFAULT_RUN, "--cnn-run",
+                                help="Modell-Run für automatische CNN-Recovery/-Kontrolle ('' = aus)."),
 ) -> None:
     """Move-Tracker: Brett-Digitalisierung per Frame-Differenz + Legalität (Web-UI)."""
     from .move_tracker.app import run as run_track
@@ -473,6 +475,7 @@ def track_cmd(
         "motion_thr": motion_thr, "change_thr": change_thr,
         "confirm_frames": confirm_frames, "max_changed": max_changed,
         "avg_frames": avg_frames, "live_align": not no_live_align,
+        "cnn_run": (cnn_run or None),   # '' oder fehlender Run auf Platte ⇒ Feature still aus
     }
     raise typer.Exit(run_track(host=host, port=port, default_profile=profile,
                                default_source=source, tracker_kwargs=tracker_kwargs))

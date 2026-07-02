@@ -12,6 +12,7 @@ make_tracker, warp_from_corners) und Kamera (web.camera.open_source: int|URL ink
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections import deque
@@ -20,6 +21,8 @@ from typing import NamedTuple
 import chess
 import cv2
 import numpy as np
+
+log = logging.getLogger("chesslab.move_tracker")
 
 from ..calibration import (
     _square_to_col_row,
@@ -181,7 +184,9 @@ class MoveTracker:
     def __init__(self, profile: str = "phone", source="0",
                  motion_thr: float = 3.0, settle_frames: int = 4, change_thr: float = 16.0,
                  confirm_frames: int = 2, ambiguity_margin: float | None = None,
-                 live_align: bool = True, avg_frames: int = 3, max_changed: int = 6) -> None:
+                 live_align: bool = True, avg_frames: int = 3, max_changed: int = 6,
+                 cnn_run: str | None = None, cnn_conf_thr: float = 0.85,
+                 cnn_cooldown_s: float = 2.0, cnn_check_interval_s: float = 10.0) -> None:
         self.profile = load_profile(profile)
         self.cap = open_source(source if not str(source).isdigit() else int(source))
         self.marker_tracker = make_tracker(self.profile)
@@ -198,9 +203,26 @@ class MoveTracker:
         self._confirmer = Confirmer(confirm_frames)   # extrahiertes Voting (ersetzt self._cand)
         self._gray_buf = deque(maxlen=self.avg_frames)  # Ring der letzten ruhigen Graubilder
 
-        # Observer-Seam-Slots für Spec 09 (hier nur anlegen, nicht befüllen)
+        # Observer-Seam-Slots (Spec 06); `recovery` wird bei gesetztem cnn_run lazy befüllt.
         self.extra_observers: list = []
         self.recovery = None
+
+        # CNN-Recovery/-Kontrolle (Spec 09): automatischer Beobachter, der (a) bei
+        # festgefahrener Diff-Erkennung den Zug per Occupancy findet und (b) periodisch
+        # kontrolliert, ob Spielzustand und Brett noch übereinstimmen. torch bleibt aus,
+        # solange cnn_run None ist oder nie beobachtet wird.
+        self.cnn_run = cnn_run
+        self.cnn_conf_thr = cnn_conf_thr
+        self.cnn_cooldown_s = cnn_cooldown_s              # Mindestabstand zwischen Recovery-Beobachtungen
+        self.cnn_check_interval_s = cnn_check_interval_s  # Intervall der periodischen Kontrolle
+        self._cnn_failed = False                          # Modell fehlt/kaputt -> Feature still aus
+        self._recovery_confirmer = Confirmer(confirm_frames)  # kein Single-Shot-Commit (Voting)
+        self._stuck_reason: str | None = None             # "no_legal_move" | "too_many_changed"
+        self._stuck_count = 0                             # wie viele ruhige Frames in Folge stuck
+        self._last_cnn_ts = 0.0
+        self.recovered_last = False                       # letzter Zug kam aus der CNN-Recovery
+        self.cnn_status: str | None = None                # None | "ok" | "mismatch"
+        self.cnn_conflicts: list[str] = []                # Felder, die der Kontrolle widersprechen
 
         self.lock = threading.Lock()
         self.ref_gray = None          # entzerrtes (gemitteltes) Graubild der Stellung NACH dem letzten Zug
@@ -248,6 +270,9 @@ class MoveTracker:
             self.state = "waiting"
             self._confirmer.reset()
             self._gray_buf.clear()
+            self._clear_stuck()
+            self.recovered_last = False
+            self.cnn_status, self.cnn_conflicts = None, []
 
     def start(self):
         if self._running:
@@ -301,10 +326,146 @@ class MoveTracker:
                             self.state = "waiting"
 
                     self._overlay_jpeg = self._encode_overlay(warped)
+
+                # CNN-Recovery/-Kontrolle AUSSERHALB des Locks (Inference ~100–300 ms CPU).
+                if self.cnn_run and not self._cnn_failed:
+                    self._cnn_tick(frame)
                 time.sleep(0.02)
         finally:
             if hasattr(self.cap, "release"):
                 self.cap.release()
+
+    # -- CNN-Recovery & periodische Kontrolle (Spec 09) --
+    def _ensure_cnn(self):
+        """CnnRecovery lazy bauen; bei fehlendem/kaputtem Run Feature still deaktivieren.
+        NIE unter self.lock aufrufen."""
+        if self.recovery is not None:
+            return self.recovery
+        try:
+            from .. import config
+            from .cnn_recovery import CnnRecovery
+
+            self.recovery = CnnRecovery(config.DATA.models / self.cnn_run, self.profile,
+                                        conf_thr=self.cnn_conf_thr)
+            return self.recovery
+        except Exception as e:  # noqa: BLE001 — Feature aus, Tracker läuft normal weiter
+            self._cnn_failed = True
+            with self.lock:
+                self.note = f"CNN-Recovery deaktiviert: {e}"
+            return None
+
+    def _cnn_tick(self, frame) -> None:
+        """Ein Beobachtungs-Zyklus, eventgetrieben — nie im Per-Frame-Hot-Path:
+        - Recovery: Diff-Pfad persistent stuck (no_legal_move/too_many_changed) + Cooldown.
+        - Kontrolle: Brett ruhig und seit cnn_check_interval_s nicht mehr geprüft.
+        Ablauf: Snapshot unter Lock → observe OHNE Lock → unter Lock FEN revalidieren + werten."""
+        now = time.time()
+        with self.lock:
+            stable = len(self._gray_buf) >= self.avg_frames and self.state in ("waiting", "move")
+            stuck = (self._stuck_reason is not None and self._stuck_count >= self.settle_frames
+                     and (now - self._last_cnn_ts) >= self.cnn_cooldown_s)
+            periodic = stable and (now - self._last_cnn_ts) >= self.cnn_check_interval_s
+            if not (stuck or periodic):
+                return
+            fen = self.board.fen()
+            corners = self._last_corners
+        if corners is None:
+            return
+        recovery = self._ensure_cnn()
+        if recovery is None:
+            return
+        try:
+            obs = recovery.observe(frame, corners)          # teuer, bewusst ohne Lock
+        except Exception as e:  # noqa: BLE001 — einzelner Fehlversuch, Feature bleibt an
+            with self.lock:
+                self._last_cnn_ts = now
+            log.warning("CNN-Beobachtung fehlgeschlagen: %s", e)
+            return
+        with self.lock:
+            self._last_cnn_ts = now
+            if self.board.fen() != fen:                     # Zustand hat sich geändert → verwerfen
+                self._recovery_confirmer.reset()
+                return
+            res = recovery.resync_check(self.board, obs)
+            if res["match"]:
+                self.cnn_status, self.cnn_conflicts = "ok", []
+                self._recovery_confirmer.reset()
+                return
+            self.cnn_status, self.cnn_conflicts = "mismatch", res["conflicts"]
+            uci = res["move"]
+            if uci is None:
+                # Kein eindeutiger erklärender Zug: nur warnen (Kontrolle), nie raten.
+                shown = ", ".join(res["conflicts"][:4]) + ("…" if len(res["conflicts"]) > 4 else "")
+                self.note = f"CNN-Kontrolle: Brett weicht ab ({shown}) — Figuren prüfen oder Resync"
+                self._recovery_confirmer.reset()
+                return
+            mv = chess.Move.from_uci(uci)
+            if not self._recovery_confirmer.feed(uci):      # Voting statt Single-Shot
+                san = self.board.san(mv)
+                self.note = (f"CNN-Recovery prüft {san}… "
+                             f"({self._recovery_confirmer.count}/{self.confirm_frames})")
+                return
+            san = self.board.san(mv)
+            self.board.push(mv)
+            self.history.append(san)
+            self.last_move = uci
+            self.ref_gray = None                            # Referenz auf neue Stellung neu aufnehmen
+            self._gray_buf.clear()
+            self.state = "move"
+            self.recovered_last = True
+            self.cnn_status, self.cnn_conflicts = "ok", []
+            self._confirmer.reset()
+            self._clear_stuck()
+            self.note = f"Zug per CNN-Recovery erkannt: {san} (Übereinstimmung {res['agreement']:.0%})"
+
+    def resync_cnn(self) -> dict:
+        """Manueller „Resync per CNN"-Button: einmalige Kontrolle, wendet einen EINDEUTIG
+        erklärenden Zug direkt an (bewusst Single-Shot — expliziter Nutzerwunsch)."""
+        if not self.cnn_run or self._cnn_failed:
+            return {"ok": False, "error": "CNN nicht konfiguriert (--cnn-run) oder deaktiviert"}
+        with self.lock:
+            frame = None if self._last_frame is None else self._last_frame.copy()
+            corners = self._last_corners
+            fen = self.board.fen()
+        if frame is None or corners is None:
+            return {"ok": False, "error": "kein Kamerabild/keine Ecken — Tracker gestartet?"}
+        recovery = self._ensure_cnn()
+        if recovery is None:
+            return {"ok": False, "error": "CNN-Recovery deaktiviert (Modell fehlt/kaputt)"}
+        try:
+            obs = recovery.observe(frame, corners)
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": f"CNN-Beobachtung fehlgeschlagen: {e}"}
+        with self.lock:
+            self._last_cnn_ts = time.time()
+            if self.board.fen() != fen:
+                return {"ok": False, "error": "Brett hat sich während der Analyse geändert"}
+            res = recovery.resync_check(self.board, obs)
+            if res["match"]:
+                self.cnn_status, self.cnn_conflicts = "ok", []
+                self.note = "CNN-Resync: Brett stimmt mit dem Spielzustand überein"
+                return {"ok": True, "match": True, "conflicts": [], "move": None,
+                        "agreement": res["agreement"], "note": self.note}
+            self.cnn_status, self.cnn_conflicts = "mismatch", res["conflicts"]
+            if res["move"]:
+                mv = chess.Move.from_uci(res["move"])
+                san = self.board.san(mv)
+                self.board.push(mv)
+                self.history.append(san)
+                self.last_move = res["move"]
+                self.ref_gray = None
+                self._gray_buf.clear()
+                self.state = "move"
+                self.recovered_last = True
+                self.cnn_status, self.cnn_conflicts = "ok", []
+                self._confirmer.reset()
+                self._clear_stuck()
+                self.note = f"CNN-Resync: Zug übernommen: {san} (Übereinstimmung {res['agreement']:.0%})"
+            else:
+                shown = ", ".join(res["conflicts"][:4]) + ("…" if len(res["conflicts"]) > 4 else "")
+                self.note = f"CNN-Resync: kein eindeutiger Zug — Konflikte auf {shown}"
+            return {"ok": True, "match": False, "conflicts": res["conflicts"],
+                    "move": res["move"], "agreement": res["agreement"], "note": self.note}
 
     def _mean_gray(self):
         """Gleitendes Mittel der gepufferten ruhigen Graubilder -> dämpft Sensor-/Lichtrauschen und
@@ -320,24 +481,24 @@ class MoveTracker:
         changed = {s for s, v in diffs.items() if v >= self.change_thr}
         if not changed:
             self._confirmer.reset()
+            self._clear_stuck()
             self.ref_gray = cur
             return
 
         # --- max_changed gate: Verdeckungs-/Instabilitäts-Gate ---
-        # Hook für Spec 09: reason "too_many_changed"
         if len(changed) > self.max_changed:
             self._confirmer.reset()
+            self._mark_stuck("too_many_changed")   # Spec 09: Recovery-Trigger via _cnn_tick
             self.note = f"viel Veränderung ({len(changed)} Felder) — verdeckt/instabil, kein Zug"
             return
 
         # --- Diff observer (pure: normalize + best_legal_move) ---
         obs = diff_observer(self.board, diffs, self.change_thr)
-        # Hook für Spec 09 recovery: obs.source == "diff" and obs.move is None ...
 
         # --- score < 0 gate ---
-        # Hook für Spec 09: reason "no_legal_move"
         if obs.move is None or obs.score < 0:
             self._confirmer.reset()
+            self._mark_stuck("no_legal_move")      # Spec 09: Recovery-Trigger via _cnn_tick
             self.note = f"Änderung auf {len(changed)} Feldern, aber kein legaler Zug passt — Resync nötig?"
             return
 
@@ -363,9 +524,20 @@ class MoveTracker:
         self.ref_gray = cur                         # neue (gemittelte) Referenz = Stellung nach dem Zug
         self.state = "move"
         self._confirmer.reset()
+        self._clear_stuck()
+        self.recovered_last = False
         self.note = f"Zug erkannt: {san}"
         if self.board.is_checkmate():
             self.note += " — Schachmatt!"
+
+    # -- Stuck-Buchhaltung (unter self.lock aufrufen) --
+    def _mark_stuck(self, reason: str) -> None:
+        self._stuck_count = (self._stuck_count + 1) if self._stuck_reason == reason else 1
+        self._stuck_reason = reason
+
+    def _clear_stuck(self) -> None:
+        self._stuck_reason, self._stuck_count = None, 0
+        self._recovery_confirmer.reset()
 
     # -- Overlay fürs Web (zeigt, was der Tracker GLAUBT) --
     def _encode_overlay(self, warped):
@@ -408,6 +580,11 @@ class MoveTracker:
                 "game_over": self.board.is_game_over(),
                 "result": self.board.result() if self.board.is_game_over() else None,
                 "fullmove": self.board.fullmove_number,
+                # CNN-Recovery/-Kontrolle (additiv, Spec 09)
+                "cnn_active": bool(self.cnn_run) and not self._cnn_failed,
+                "recovered_last": self.recovered_last,
+                "cnn_status": self.cnn_status,
+                "cnn_conflicts": list(self.cnn_conflicts),
             }
 
     def overlay_jpeg(self):
@@ -439,4 +616,6 @@ class MoveTracker:
                 self.ref_gray = None                # Referenz neu aufnehmen
                 self._confirmer.reset()
                 self._gray_buf.clear()
+                self._clear_stuck()
+                self.recovered_last = False
                 self.note = "letzter Zug rückgängig"

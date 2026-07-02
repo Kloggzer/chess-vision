@@ -42,6 +42,7 @@
   <button onclick="undo()">Undo</button>
   <button onclick="toggleCalib()" id="calibBtn">Kamera-Ausrichtung</button>
   <span id="status" class="badge waiting">—</span>
+  <span id="cnn" class="badge" style="display:none">CNN</span>
   <span id="note" class="note"></span>
 </header>
 <main>
@@ -68,6 +69,9 @@
       <input id="fenInput" placeholder="FEN zum Resyncen…" style="flex:1; min-width:220px" />
       <button onclick="fillCurrentFen()" title="aktuelle FEN ins Feld übernehmen">↧ aktuelle</button>
       <button class="primary" onclick="resyncFen()">Auf FEN resyncen</button>
+      <button onclick="resyncCnn()" id="cnnBtn"
+              title="Brett per CNN gegen den Spielzustand prüfen; eindeutiger Zug wird übernommen">
+        Resync per CNN</button>
     </div>
   </div>
 </main>
@@ -94,6 +98,13 @@ async function resyncFen() {              // auf beliebige bekannte Stellung res
   document.getElementById("note").textContent =
     (r && r.ok === false) ? (r.error || "Resync fehlgeschlagen") : "auf FEN resynct";
   lastFen = "";                          // Brett-SVG sofort neu laden
+}
+async function resyncCnn() {             // Brett per CNN gegen den Spielzustand prüfen
+  document.getElementById("note").textContent = "CNN prüft das Brett…";
+  const r = await post("/api/resync_cnn", {});
+  document.getElementById("note").textContent =
+    (r && r.ok === false) ? (r.error || "CNN-Resync fehlgeschlagen") : (r.note || "CNN-Resync fertig");
+  lastFen = "";                          // Brett-SVG ggf. neu laden (Zug übernommen)
 }
 
 let calibTimer = null;
@@ -128,6 +139,12 @@ async function poll() {
     const badge = document.getElementById("status");
     badge.textContent = s.state;
     badge.className = "badge " + (s.state === "moving" ? "moving" : s.state === "move" ? "move" : "waiting");
+    const cnn = document.getElementById("cnn");   // CNN-Kontrolle: grün = stimmt, rot = weicht ab
+    if (s.cnn_active) {
+      cnn.style.display = "";
+      cnn.textContent = s.cnn_status === "mismatch" ? "CNN: weicht ab" : "CNN";
+      cnn.className = "badge " + (s.cnn_status === "mismatch" ? "moving" : "waiting");
+    } else { cnn.style.display = "none"; }
     document.getElementById("note").textContent = s.note || "";
     document.getElementById("turn").textContent = s.turn === "white" ? "Weiß" : "Schwarz";
     document.getElementById("check").textContent = s.in_check ? "Schach!" : "";
