@@ -43,6 +43,16 @@ BOARD_CORNERS_3D = {
     "a8": (HALF, -HALF), "h8": (HALF, HALF), "h1": (-HALF, HALF), "a1": (-HALF, -HALF),
 }
 
+# Warm-Tint für die Brett-Foto-Textur: der dunkle Brett-Lack fotografiert sich neutral-grau.
+# COLOR-Blend drückt dem Bild die HUE+Sättigung dieses Holztons auf (Helligkeit bleibt) →
+# aus neutralem Grau wird echtes Braun. BOARD_WARM_FAC 0=aus, 1=voll durchbraun.
+BOARD_WARM_TINT = (0.45, 0.29, 0.14)  # Holz-Braun (Ziel-Hue)
+BOARD_WARM_FAC = 0.55
+# Dunkle Felder haben niedrige Albedo + Glanz → sie spiegeln das (kühle) Umgebungslicht
+# und wirken grau. Höhere Roughness macht sie matt → die (warme) Grundfarbe dominiert.
+BOARD_ROUGHNESS = 0.85
+PIECE_ROUGHNESS = 0.7   # Figuren matt halten, damit ihre echte Holzfarbe zeigt (kein Grau-Glanz)
+
 
 def argv_after_dashes():
     return sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
@@ -153,10 +163,22 @@ def make_textured_board_material(texture_path):
     nt.nodes.clear()
     out = nt.nodes.new("ShaderNodeOutputMaterial")
     bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
-    bsdf.inputs["Roughness"].default_value = 0.4
+    bsdf.inputs["Roughness"].default_value = BOARD_ROUGHNESS
+    if "Specular IOR Level" in bsdf.inputs:
+        bsdf.inputs["Specular IOR Level"].default_value = 0.2
+    elif "Specular" in bsdf.inputs:
+        bsdf.inputs["Specular"].default_value = 0.2
     tx = nt.nodes.new("ShaderNodeTexImage")
     tx.image = img
-    nt.links.new(tx.outputs["Color"], bsdf.inputs["Base Color"])
+    # Warm-Tint: der dunkle Brett-Lack fotografiert sich neutral-grau -> per MULTIPLY
+    # mit einem warmen Ton Richtung Braun ziehen (dunkle Felder werden wärmer, helle
+    # bleiben nahezu unverändert). BOARD_WARM_TINT/BOARD_WARM_FAC oben anpassbar.
+    warm = nt.nodes.new("ShaderNodeMixRGB")
+    warm.blend_type = "COLOR"
+    warm.inputs["Fac"].default_value = BOARD_WARM_FAC
+    warm.inputs["Color2"].default_value = (*BOARD_WARM_TINT, 1.0)
+    nt.links.new(tx.outputs["Color"], warm.inputs["Color1"])
+    nt.links.new(warm.outputs["Color"], bsdf.inputs["Base Color"])
     nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
     return mat
 
@@ -244,6 +266,14 @@ def _scanned_material(png, darken=1.0):
     img = bpy.data.images.load(str(png))
     mat = bpy.data.materials.new("scan"); mat.use_nodes = True
     nt = mat.node_tree; bsdf = nt.nodes.get("Principled BSDF")
+    # Matt + wenig Specular: sonst spiegeln die glänzenden Figuren das kühle Umgebungslicht
+    # und wirken lavendel-grau statt in ihrer echten Holzfarbe (gleiches Problem wie das Brett).
+    if bsdf is not None:
+        bsdf.inputs["Roughness"].default_value = PIECE_ROUGHNESS
+        if "Specular IOR Level" in bsdf.inputs:
+            bsdf.inputs["Specular IOR Level"].default_value = 0.2
+        elif "Specular" in bsdf.inputs:
+            bsdf.inputs["Specular"].default_value = 0.2
     tx = nt.nodes.new("ShaderNodeTexImage"); tx.image = img
     if darken < 0.999:
         try:
@@ -348,6 +378,9 @@ def randomize_lights(rng):
     for o in bpy.data.objects:
         if o.type == "LIGHT":
             o.data.energy *= rng.uniform(0.6, 1.5)
+            # Warm-biased Lichtfarbe (Innenraum-Licht ist warm) – sonst wirken helle
+            # Figuren kühl/lavendel. Bleibt randomisiert (Domain-Randomization).
+            o.data.color = (1.0, rng.uniform(0.85, 0.98), rng.uniform(0.7, 0.9))
             if o.data.type == "SUN":
                 o.rotation_euler = (rng.uniform(0, 0.5), rng.uniform(0, 0.5), rng.uniform(0, 2 * math.pi))
     world = bpy.context.scene.world
@@ -355,6 +388,8 @@ def randomize_lights(rng):
         bg = world.node_tree.nodes.get("Background")
         if bg:
             bg.inputs[1].default_value = rng.uniform(0.3, 1.2)
+            # World-Ambient ebenfalls warm-biased statt neutral-kühl.
+            bg.inputs[0].default_value = (1.0, rng.uniform(0.82, 0.95), rng.uniform(0.62, 0.82), 1.0)
 
 
 def place_from_fen(fen, templates, base_z, rng):
