@@ -1,0 +1,21 @@
+{
+  "piece": "wQ",
+  "verts": 10002,
+  "tris_before": 236686,
+  "tris_after": 19997,
+  "decimated": true,
+  "target_tris": 20000,
+  "smooth_iters": 10,
+  "keep_radius": 1.9,
+  "components_removed": 1,
+  "filled_holes": true,
+  "boundary_edges": 22,
+  "nonmanifold_edges": 11,
+  "dims": [
+    7.3175,
+    6.9324,
+    14.4552
+  ],
+  "height_ratio": 1.975,
+  "preview": "C:\\Users\\mariu\\.claude\\jobs\\b1cc5573\\tmp\\wq_proc\\wQ_preview.png"
+}

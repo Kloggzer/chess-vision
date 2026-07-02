@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Plug, Play, Square, Crop as CropIcon, RotateCcw } from "lucide-react";
+import { Plug, Play, Square, Crop as CropIcon, RotateCcw, Wand2 } from "lucide-react";
 import { api, post } from "../api";
 import { Card, Button } from "./ui";
 
@@ -15,6 +15,112 @@ type Status = {
 };
 
 type Drag = { x0: number; y0: number; x1: number; y1: number } | null;
+
+type Models = {
+  scans: { dir: string; mesh: string; texture: string | null; photos: number }[];
+  pieces: { piece: string; has_preview: boolean; report: any }[];
+};
+type PrepStatus = {
+  state: "idle" | "running" | "done" | "failed";
+  piece: string | null; report?: any; level?: string; messages?: string[]; log_tail?: string;
+};
+
+const PIECES = ["P", "N", "B", "R", "Q", "K", "wP", "wN", "wB", "wR", "wQ", "wK",
+                "bP", "bN", "bB", "bR", "bQ", "bK"];
+
+/** 3D-Modell-Vorbereitung: rekonstruierter Scan → renderfertige Figur (Blender headless). */
+function PreparePanel() {
+  const [models, setModels] = useState<Models | null>(null);
+  const [dir, setDir] = useState("");
+  const [piece, setPiece] = useState("P");
+  const [tris, setTris] = useState(20000);
+  const [smooth, setSmooth] = useState(10);
+  const [prep, setPrep] = useState<PrepStatus | null>(null);
+  const [msg, setMsg] = useState("");
+  const timer = useRef<any>(null);
+
+  const refresh = () => api<Models>("/api/scan/models").then((m) => {
+    setModels(m);
+    if (!dir && m.scans.length) setDir(m.scans[0].dir);
+  }).catch(() => {});
+  useEffect(() => { refresh(); return () => clearInterval(timer.current); }, []);
+
+  const pollPrep = () => api<PrepStatus>("/api/scan/prepare/status").then((s) => {
+    setPrep(s);
+    if (s.state !== "running") { clearInterval(timer.current); refresh(); }
+  }).catch(() => {});
+
+  async function run() {
+    setMsg("");
+    try {
+      await post("/api/scan/prepare", { dir, piece, target_tris: tris, smooth_iters: smooth });
+      setPrep({ state: "running", piece });
+      clearInterval(timer.current);
+      timer.current = setInterval(pollPrep, 2000);
+    } catch (e: any) { setMsg("Fehler: " + e.message); }
+  }
+
+  const rep = prep?.report;
+  return (
+    <Card title="3D-Modell vorbereiten (isolieren · dezimieren · Qualität)">
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1 text-sm text-zinc-400">Scan-Ordner
+          <select value={dir} onChange={(e) => setDir(e.target.value)} className={input}>
+            {(models?.scans ?? []).map((s) => (
+              <option key={s.dir} value={s.dir}>{s.dir} · {s.mesh}{s.texture ? "" : " (ohne Textur!)"}</option>
+            ))}
+          </select></label>
+        <label className="flex flex-col gap-1 text-sm text-zinc-400">Figur
+          <select value={piece} onChange={(e) => setPiece(e.target.value)} className={input}>
+            {PIECES.map((p) => <option key={p}>{p}</option>)}
+          </select></label>
+        <label className="flex flex-col gap-1 text-sm text-zinc-400" title="Dreiecks-Ziel (Decimate). 0 = aus.">Ziel-Dreiecke
+          <input type="number" value={tris} onChange={(e) => setTris(+e.target.value)} className={`${input} w-28`} /></label>
+        <label className="flex flex-col gap-1 text-sm text-zinc-400" title="Laplacian-Glättung gegen Scan-Bumps. 10 mild, 25–40 stark, 0 = aus.">Glättung
+          <input type="number" value={smooth} onChange={(e) => setSmooth(+e.target.value)} className={`${input} w-20`} /></label>
+        <Button variant="primary" onClick={run} disabled={!dir || prep?.state === "running"}>
+          <Wand2 className="h-4 w-4" /> {prep?.state === "running" ? "läuft…" : "Vorbereiten"}</Button>
+        <span className="text-xs text-zinc-500">{msg}</span>
+      </div>
+
+      {prep && prep.state !== "idle" && (
+        <div className="mt-3 rounded-lg bg-zinc-800 p-3 text-sm">
+          {prep.state === "running" && <span className="text-sky-400">● Blender arbeitet — dauert je nach Scan 1–5 min…</span>}
+          {prep.state === "failed" && (
+            <div className="text-red-400">Fehlgeschlagen.{prep.log_tail && <pre className="mt-1 whitespace-pre-wrap text-xs text-zinc-500">{prep.log_tail}</pre>}</div>
+          )}
+          {prep.state === "done" && rep && (
+            <div className="flex flex-wrap items-start gap-4">
+              <img src={`/api/scan/prepare/preview/${prep.piece}?t=${Date.now()}`}
+                className="w-48 rounded-lg border border-zinc-700" />
+              <div className="space-y-1 text-xs text-zinc-400">
+                <div className={prep.level === "ok" ? "text-green-500" : "text-amber-400"}>
+                  {prep.level === "ok" ? "✓ Qualität OK" : "⚠ Prüfen:"}</div>
+                {(prep.messages ?? []).map((m, i) => <div key={i}>• {m}</div>)}
+                <div>{rep.tris_before} → {rep.tris_after} Dreiecke · offene Kanten: {rep.boundary_edges} · height_ratio: {rep.height_ratio}</div>
+                <div className="text-zinc-500">gespeichert als synth_pieces/{prep.piece}.obj — bereit für „synth render".</div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!!models?.pieces?.length && (
+        <div className="mt-3">
+          <div className="mb-1 text-xs text-zinc-500">Vorbereitete Figuren:</div>
+          <div className="flex flex-wrap gap-3">
+            {models.pieces.map((p) => (
+              <div key={p.piece} className="rounded-lg border border-zinc-800 p-2 text-center">
+                {p.has_preview && <img src={`/api/scan/prepare/preview/${p.piece}`} className="h-24 w-24 rounded object-cover" />}
+                <div className="mt-1 text-xs text-zinc-400">{p.piece}{p.report ? ` · ${p.report.tris_after}△` : ""}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
 
 export default function Scan() {
   const [source, setSource] = useState(PHONE);
@@ -188,6 +294,8 @@ export default function Scan() {
           Die Fotos landen in <b>scans/&lt;Ordner&gt;</b> — bereit für RealityScan.
         </p>
       )}
+
+      <PreparePanel />
     </div>
   );
 }
