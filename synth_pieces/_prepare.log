@@ -1,0 +1,17 @@
+C:\Users\mariu\project\chess-vision\synth\isolate_piece.py:252: DeprecationWarning: 'Material.use_nodes' is expected to be removed in Blender 6.0
+  mat = bpy.data.materials.new("s"); mat.use_nodes = True
+00:05.625  render           | Saved: 'C:\Users\mariu\project\chess-vision\synth_pieces\wB_preview.png'
+[isolate] kept 71864 verts, dims=(62.4, 24.03, 53.05)
+[isolate] Löcher gefüllt (Basis geschlossen)
+[isolate] dezimiert: 143722 → 19999 Dreiecke
+[isolate] geglättet (Laplacian, 10 Iterationen, Volumen erhalten)
+Info: File exported successfully
+[isolate] wrote C:\Users\mariu\project\chess-vision\synth_pieces\wB.obj + C:\Users\mariu\project\chess-vision\synth_pieces\wB.png
+[isolate] report C:\Users\mariu\project\chess-vision\synth_pieces\wB_report.json
+[isolate] preview C:\Users\mariu\project\chess-vision\synth_pieces\wB_preview.png
+Blender 5.1.2 (hash ec6e62d40fa9 built 2026-05-19 01:37:34)
+OBJ import of 'mesh_wb.obj' took 253.38 ms
+Writing to C:\Users\mariu\project\chess-vision\synth_pieces\wB.obj
+OBJ export of 'wB.obj' took 10.37 ms
+
+Blender quit

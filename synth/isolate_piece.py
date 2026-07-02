@@ -248,12 +248,9 @@ def isolate(obj_path, tex_path, out_obj, preview=None, smooth_iters=10, target_t
     print(f"[isolate] report {report_path}")
 
     if preview:
-        img = tex_img
-        mat = bpy.data.materials.new("s"); mat.use_nodes = True
-        bsdf = mat.node_tree.nodes.get("Principled BSDF")
-        tx = mat.node_tree.nodes.new("ShaderNodeTexImage"); tx.image = img
-        mat.node_tree.links.new(tx.outputs["Color"], bsdf.inputs["Base Color"])
-        me.materials.clear(); me.materials.append(mat)
+        import math
+
+        # Szene/Kamera/Licht (material-unabhängig) einmal aufbauen.
         P = np.array([list(v.co) for v in me.vertices]); mn, mx = P.min(0), P.max(0)
         center = Vector((mn + mx) / 2); size = float((mx - mn).max()) or 1.0
         sc = bpy.context.scene
@@ -273,14 +270,31 @@ def isolate(obj_path, tex_path, out_obj, preview=None, smooth_iters=10, target_t
         cam.data.clip_end = size * 100; sc.camera = cam
         # Orthografische Seitenansicht (Blick entlang +Y): narrensicher zentriert, und genau die
         # Ansicht, in der man Aufrecht-Stehen, Basis und Silhouette am besten beurteilt.
-        import math
         cam.data.type = "ORTHO"
         cam.data.ortho_scale = size * 1.3
         cam.location = center + Vector((0.0, -size * 3.0, 0.0))
         cam.rotation_euler = (math.radians(90), 0.0, 0.0)
-        sc.render.filepath = preview
-        bpy.ops.render.render(write_still=True)
-        print(f"[isolate] preview {preview}")
+
+        def _render_with(mat, path):
+            me.materials.clear(); me.materials.append(mat)
+            sc.render.filepath = path
+            bpy.ops.render.render(write_still=True)
+            print(f"[isolate] preview {path}")
+
+        # Texturiert (Figur wie sie ist) …
+        tmat = bpy.data.materials.new("tex"); tmat.use_nodes = True
+        tb = tmat.node_tree.nodes.get("Principled BSDF")
+        tx = tmat.node_tree.nodes.new("ShaderNodeTexImage"); tx.image = tex_img
+        tmat.node_tree.links.new(tx.outputs["Color"], tb.inputs["Base Color"])
+        _render_with(tmat, preview)
+
+        # … und Clay (neutrale Oberfläche — zeigt Bumps/Löcher/Geometrie ohne Textur-Ablenkung).
+        cmat = bpy.data.materials.new("clay"); cmat.use_nodes = True
+        cb = cmat.node_tree.nodes.get("Principled BSDF")
+        cb.inputs["Base Color"].default_value = (0.75, 0.75, 0.78, 1.0)
+        cb.inputs["Roughness"].default_value = 0.6
+        clay_path = str(Path(preview).with_name(Path(preview).stem + "_clay.png"))
+        _render_with(cmat, clay_path)
 
 
 def main():

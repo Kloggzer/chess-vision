@@ -9,6 +9,8 @@
   "keep_radius": 1.9,
   "components_removed": 1,
   "filled_holes": true,
+  "pattern_margin": 6.55,
+  "piece_vertex_frac": 0.244,
   "boundary_edges": 22,
   "nonmanifold_edges": 11,
   "dims": [
@@ -17,5 +19,5 @@
     14.4552
   ],
   "height_ratio": 1.975,
-  "preview": "C:\\Users\\mariu\\.claude\\jobs\\b1cc5573\\tmp\\wq_proc\\wQ_preview.png"
+  "preview": "C:\\Users\\mariu\\project\\chess-vision\\synth_pieces\\wQ_preview.png"
 }

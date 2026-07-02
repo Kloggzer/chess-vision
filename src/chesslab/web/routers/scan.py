@@ -111,6 +111,7 @@ def scan_models():
             rep = pdir / f"{o.stem}_report.json"
             pieces.append({"piece": o.stem,
                            "has_preview": (pdir / f"{o.stem}_preview.png").exists(),
+                           "has_clay": (pdir / f"{o.stem}_preview_clay.png").exists(),
                            "report": json.loads(rep.read_text(encoding="utf-8")) if rep.exists() else None})
     return {"scans": scans, "pieces": pieces}
 
@@ -174,10 +175,13 @@ def scan_prepare_status():
 
 
 @router.get("/api/scan/prepare/preview/{piece}")
-def scan_prepare_preview(piece: str):
+def scan_prepare_preview(piece: str, variant: str = "textured"):
+    """Vorschau einer vorbereiteten Figur. variant=textured|clay (clay zeigt die reine
+    Geometrie — Bumps/Löcher ohne Textur-Ablenkung)."""
     if not _PIECE.match(piece):
         raise HTTPException(404, "unbekannte Figur")
-    p = _repo_root() / "synth_pieces" / f"{piece}_preview.png"
+    stem = f"{piece}_preview" + ("_clay" if variant == "clay" else "")
+    p = _repo_root() / "synth_pieces" / f"{stem}.png"
     if not p.exists():
         return Response(status_code=204)
     return FileResponse(str(p), media_type="image/png")

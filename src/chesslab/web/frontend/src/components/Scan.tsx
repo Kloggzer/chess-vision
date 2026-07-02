@@ -17,8 +17,8 @@ type Status = {
 type Drag = { x0: number; y0: number; x1: number; y1: number } | null;
 
 type Models = {
-  scans: { dir: string; mesh: string; texture: string | null; photos: number }[];
-  pieces: { piece: string; has_preview: boolean; report: any }[];
+  scans: { dir: string; mesh: string | null; texture: string | null; photos: number }[];
+  pieces: { piece: string; has_preview: boolean; has_clay: boolean; report: any }[];
 };
 type PrepStatus = {
   state: "idle" | "running" | "done" | "failed";
@@ -42,6 +42,8 @@ function PreparePanel() {
   const [prep, setPrep] = useState<PrepStatus | null>(null);
   const [recon, setRecon] = useState<ReconStatus | null>(null);
   const [msg, setMsg] = useState("");
+  const [variant, setVariant] = useState<"textured" | "clay">("textured");   // Ansicht der Vorschau
+  const [sel, setSel] = useState<string | null>(null);                        // ausgewählte Galerie-Figur
   const timer = useRef<any>(null);
   const reconTimer = useRef<any>(null);
 
@@ -128,8 +130,11 @@ function PreparePanel() {
           )}
           {prep.state === "done" && rep && (
             <div className="flex flex-wrap items-start gap-4">
-              <img src={`/api/scan/prepare/preview/${prep.piece}?t=${Date.now()}`}
-                className="w-48 rounded-lg border border-zinc-700" />
+              <div>
+                <img src={`/api/scan/prepare/preview/${prep.piece}?variant=${variant}&t=${Date.now()}`}
+                  className="w-48 rounded-lg border border-zinc-700 bg-zinc-900" />
+                <VariantToggle value={variant} onChange={setVariant} />
+              </div>
               <div className="space-y-1 text-xs text-zinc-400">
                 <div className={prep.level === "ok" ? "text-green-500" : "text-amber-400"}>
                   {prep.level === "ok" ? "✓ Qualität OK" : "⚠ Prüfen:"}</div>
@@ -143,19 +148,63 @@ function PreparePanel() {
       )}
 
       {!!models?.pieces?.length && (
-        <div className="mt-3">
-          <div className="mb-1 text-xs text-zinc-500">Vorbereitete Figuren:</div>
-          <div className="flex flex-wrap gap-3">
+        <div className="mt-4 border-t border-zinc-800 pt-3">
+          <div className="mb-2 text-xs text-zinc-500">Vorbereitete Figuren — anklicken für große Ansicht:</div>
+          <div className="flex flex-wrap gap-2">
             {models.pieces.map((p) => (
-              <div key={p.piece} className="rounded-lg border border-zinc-800 p-2 text-center">
-                {p.has_preview && <img src={`/api/scan/prepare/preview/${p.piece}`} className="h-24 w-24 rounded object-cover" />}
-                <div className="mt-1 text-xs text-zinc-400">{p.piece}{p.report ? ` · ${p.report.tris_after}△` : ""}</div>
-              </div>
+              <button key={p.piece} onClick={() => setSel(sel === p.piece ? null : p.piece)}
+                className={`rounded-lg border p-2 text-center transition ${
+                  sel === p.piece ? "border-sky-500 bg-sky-500/10" : "border-zinc-800 hover:border-zinc-600"}`}>
+                {p.has_preview
+                  ? <img src={`/api/scan/prepare/preview/${p.piece}`} className="h-20 w-20 rounded object-contain bg-zinc-900" />
+                  : <div className="grid h-20 w-20 place-items-center text-2xl text-zinc-600">{p.piece}</div>}
+                <div className="mt-1 text-xs font-medium text-zinc-300">{p.piece}
+                  {p.report && <span className="text-zinc-500"> · {p.report.tris_after}△</span>}</div>
+              </button>
             ))}
           </div>
+
+          {sel && (() => {
+            const p = models.pieces.find((x) => x.piece === sel)!;
+            return (
+              <div className="mt-3 flex flex-wrap items-start gap-4 rounded-lg bg-zinc-800 p-3">
+                <div>
+                  <img src={`/api/scan/prepare/preview/${sel}?variant=${variant}`}
+                    className="w-56 rounded-lg border border-zinc-700 bg-zinc-900" />
+                  <VariantToggle value={variant} onChange={setVariant} clayDisabled={!p.has_clay} />
+                </div>
+                {p.report && (
+                  <div className="space-y-1 text-xs text-zinc-400">
+                    <div className="text-sm font-medium text-zinc-200">{sel}</div>
+                    <div>{p.report.tris_after} Dreiecke · offene Kanten: {p.report.boundary_edges}</div>
+                    <div>height_ratio: {p.report.height_ratio} · pattern_margin: {p.report.pattern_margin}</div>
+                    <div className="text-zinc-500">synth_pieces/{sel}.obj</div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
     </Card>
+  );
+}
+
+/** Umschalter Textur ↔ Clay (Clay zeigt die reine Geometrie). */
+function VariantToggle({ value, onChange, clayDisabled }: {
+  value: "textured" | "clay"; onChange: (v: "textured" | "clay") => void; clayDisabled?: boolean;
+}) {
+  return (
+    <div className="mt-2 flex overflow-hidden rounded-lg border border-zinc-700 text-xs">
+      <button onClick={() => onChange("textured")}
+        className={`px-3 py-1 ${value === "textured" ? "bg-sky-600 text-white" : "text-zinc-400 hover:bg-zinc-700"}`}>
+        Textur</button>
+      <button onClick={() => onChange("clay")} disabled={clayDisabled}
+        title={clayDisabled ? "kein Clay-Bild (Figur vor diesem Update vorbereitet)" : "reine Geometrie"}
+        className={`px-3 py-1 ${value === "clay" ? "bg-sky-600 text-white" : "text-zinc-400 hover:bg-zinc-700"} ${
+          clayDisabled ? "cursor-not-allowed opacity-40" : ""}`}>
+        Clay</button>
+    </div>
   );
 }
 
