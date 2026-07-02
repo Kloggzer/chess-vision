@@ -52,6 +52,3 @@ packages = ["src/chesslab"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Repo-Root auf sys.path: tests importieren das Root-Paket `move_tracker`
-# (zieht in Rework-Phase 06 nach src/chesslab/ um, dann entbehrlich).
-pythonpath = ["."]

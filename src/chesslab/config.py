@@ -291,6 +291,10 @@ DATA = Paths()
 DEFAULT_WEB_HOST: str = "127.0.0.1"
 DEFAULT_WEB_PORT: int = 8000
 
+# --- Move-Tracker defaults -------------------------------------------------------------
+DEFAULT_TRACK_HOST: str = "127.0.0.1"
+DEFAULT_TRACK_PORT: int = 8001
+
 
 def ensure_dirs(paths: Paths = DATA) -> list[Path]:
     """Create all runtime data directories if missing; return the list."""
