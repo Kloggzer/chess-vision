@@ -30,21 +30,42 @@ Weißabgleich und Belichtung fixieren (kein Automatik-Modus). Kamera auf Stativ.
 
 Fotos hochladen → Mesh + Textur herunterladen. Ausgabe ist eine `.obj` + `.png`/`.jpg`.
 
-## 3. Isolierung in Blender
+## 3. Vorbereiten (isolieren + dezimieren + Qualitäts-Report) — `chesslab synth prepare`
 
-Papier-Ebene per PCA finden → Figur-Cluster behalten → aufrecht stellen (Basis auf z=0,
-Figur-Achse = +Z), exportieren. Argumente sind POSITIONAL: `<scan.obj> <textur> <ziel.obj> [preview.png]`:
+**Empfohlener Weg — Blender muss nie geöffnet werden.** Scans nach `<in>/<Figur>/` legen
+(Figurenname = Ordnername: `P`, `wN`, …; darin die RealityScan-Ausgabe — bevorzugt das rohe
+`.obj` + `*_diffuse.png`; `.glb` geht auch, referenziert seine Textur aber meist extern,
+also die diffuse-PNG mit in den Ordner):
+
+```bash
+uv run chesslab synth prepare --in scans_export/ --out synth_pieces/
+```
+
+Je Figur passiert automatisch (alle Schritte als Toggles):
+- **Isolieren:** Unterlage per PCA finden, Figur-Cluster behalten (`--keep-radius`, Default 1.9),
+  aufrecht stellen (Basis z=0, Achse +Z).
+- **Aufräumen:** nur größte zusammenhängende Komponente (`--no-keep-largest` schaltet ab),
+  offene Ränder/Basis schließen + Normalen nach außen (`--no-fill-holes`).
+- **Dezimieren:** auf `--target-tris` (Default 20000; `0` = aus). RealityScan liefert Millionen
+  Dreiecke — 32 Figuren davon sind unrenderbar; 20k pro Figur reichen für 1024px-Renders locker.
+- **Glätten:** Laplacian mit Volumenerhalt gegen Scan-Bumps (`--smooth-iters`, 10 mild,
+  25–40 stark, `0` = aus).
+- **Qualität:** `<Figur>_report.json` (Dreiecke, Löcher, Proportionen) + `<Figur>_preview.png`
+  (orthografische Seitenansicht). Die Zusammenfassung markiert [WARN] mit konkretem Hinweis.
+
+**Qualität beurteilen:** Preview ansehen (aufrecht? Basis unten? Lücken?) + [WARN]-Hinweise lesen.
+`height_ratio` außerhalb ~0.9–4.0 heißt fast immer: Isolierung hat den Hintergrund erwischt
+(gewölbte Unterlage!) oder die Figur liegt — Unterlage flacher machen bzw. `--keep-radius` anpassen.
+Viele `boundary_edges` = echte Scan-Löcher: zusätzliche Foto-Durchgänge auf 2–3 Kamerahöhen machen
+(besonders flach für Einschnürungen wie den Bauern-Hals). Die absolute Größe ist egal: der
+Renderer normiert auf Zielhöhe.
+
+Manuell (ein einzelner Scan, gleiche Flags):
 
 ```bash
 blender --background --python synth/isolate_piece.py -- \
-    scan.obj scan.jpg "synth_pieces/P.obj" "synth_pieces/P_preview.png"
+    scan.obj diffuse.png "synth_pieces/P.obj" "synth_pieces/P_preview.png" --target-tris 20000
 ```
-
-Das Preview-PNG IMMER erzeugen und ansehen (steht die Figur aufrecht? Basis sauber?).
-Textur manuell in `synth_pieces/P.png` kopieren/konvertieren (RealityScan liefert meist JPG).
-Bei asymmetrischen Figuren (v. a. Springer) kann die PCA-Aufrichtung danebenliegen —
-dann in der Blender-GUI nachdrehen und neu exportieren. Die absolute Größe ist egal:
-der Renderer normiert auf Zielhöhe (`_load_scanned_mesh(target_h)`).
 
 ## 4. FEN-Liste erzeugen
 
