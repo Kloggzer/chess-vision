@@ -119,9 +119,11 @@ def scan_models():
     # Aktuell laufende Jobs (für Per-Karte-Status im UI)
     r, pp = RECON.snapshot(), PREPARE.snapshot()
     jobs = {}
-    if r.get("proc") is not None and r["proc"].poll() is None:
+    if r.get("proc") is not None and hasattr(r["proc"], "poll") and r["proc"].poll() is None:
         jobs["reconstruct"] = r.get("dir")
-    if pp.get("proc") is not None and pp["proc"].poll() is None:
+    # prepare läuft jetzt als Thread (kein .poll()) → is_alive() bzw. state
+    pproc = pp.get("proc")
+    if pp.get("state") == "running" or (pproc is not None and getattr(pproc, "is_alive", lambda: False)()):
         jobs["prepare"] = pp.get("dir")
     return {"scans": scans, "pieces": pieces, "jobs": jobs}
 
