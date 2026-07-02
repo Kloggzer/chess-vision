@@ -51,12 +51,31 @@ function PreparePanel() {
     setModels(m);
     if (!dir && m.scans.length) setDir(m.scans[0].dir);
   }).catch(() => {});
-  useEffect(() => { refresh(); return () => { clearInterval(timer.current); clearInterval(reconTimer.current); }; }, []);
 
   const pollRecon = () => api<ReconStatus>("/api/scan/reconstruct/status").then((s) => {
     setRecon(s);
     if (s.state !== "running") { clearInterval(reconTimer.current); refresh(); }
   }).catch(() => {});
+  const pollPrep2 = () => api<PrepStatus>("/api/scan/prepare/status").then((s) => {
+    setPrep(s);
+    if (s.state !== "running") { clearInterval(timer.current); refresh(); }
+  }).catch(() => {});
+
+  // Beim Öffnen des Tabs prüfen, ob im Hintergrund schon ein Job läuft (aus einer früheren
+  // Sitzung / anderem Browser-Tab), und die Fortschrittsanzeige direkt fortsetzen.
+  useEffect(() => {
+    refresh();
+    api<ReconStatus>("/api/scan/reconstruct/status").then((s) => {
+      if (s.state === "running") {
+        setRecon(s); if (s.dir) setDir(s.dir);
+        reconTimer.current = setInterval(pollRecon, 3000);
+      } else if (s.state !== "idle") { setRecon(s); }
+    }).catch(() => {});
+    api<PrepStatus>("/api/scan/prepare/status").then((s) => {
+      if (s.state === "running") { setPrep(s); timer.current = setInterval(pollPrep2, 2000); }
+    }).catch(() => {});
+    return () => { clearInterval(timer.current); clearInterval(reconTimer.current); };
+  }, []);
   async function reconstruct() {
     setMsg("");
     try {
