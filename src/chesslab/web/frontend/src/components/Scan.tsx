@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Plug, Play, Square, Crop as CropIcon, RotateCcw, Wand2, Boxes, Camera,
-  Loader2, CheckCircle2, AlertTriangle, ChevronDown, Settings2,
+  Loader2, CheckCircle2, AlertTriangle, ChevronDown, Settings2, Trash2, Box, Image as ImageIcon,
 } from "lucide-react";
-import { api, post } from "../api";
+import { api, post, del } from "../api";
 import { Card, Button } from "./ui";
+import { ModelViewer } from "./ModelViewer";
 
 const input =
   "rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-100 outline-none focus:border-sky-500";
@@ -85,6 +86,19 @@ function PreparePanel() {
     setDir(s.dir);
     const { piece: sug } = scanStage(s, pieces);
     setPiece(sug ?? "P");
+  }
+
+  async function deleteScan(d: string) {
+    if (!confirm(`Scan „${d}" mit allen Fotos und Mesh wirklich löschen?`)) return;
+    await del(`/api/scan/scan/${d}`).catch(() => {});
+    if (dir === d) setDir("");
+    refresh();
+  }
+  async function deletePiece(p: string) {
+    if (!confirm(`Vorbereitete Figur „${p}" löschen? (Der Scan bleibt erhalten.)`)) return;
+    await del(`/api/scan/piece/${p}`).catch(() => {});
+    setPrep(null);
+    refresh();
   }
 
   const pollRecon = () => api<ReconStatus>("/api/scan/reconstruct/status").then((s) => {
@@ -201,11 +215,16 @@ function PreparePanel() {
       {cur && (
         <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/50 p-4">
           <div className="mb-3 flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium text-zinc-100">{cur.dir}</div>
-              <div className="text-xs text-zinc-500">{cur.photos} Fotos
-                {cur.mesh ? " · Mesh vorhanden" : " · noch kein Mesh"}
-                {!cur.texture && cur.mesh ? " · ⚠ ohne Textur" : ""}</div>
+            <div className="flex items-center gap-2">
+              <div>
+                <div className="text-sm font-medium text-zinc-100">{cur.dir}</div>
+                <div className="text-xs text-zinc-500">{cur.photos} Fotos
+                  {cur.mesh ? " · Mesh vorhanden" : " · noch kein Mesh"}
+                  {!cur.texture && cur.mesh ? " · ⚠ ohne Textur" : ""}</div>
+              </div>
+              <button onClick={() => deleteScan(cur.dir)} title="Scan löschen (Fotos + Mesh)"
+                className="rounded-lg p-1.5 text-zinc-500 hover:bg-red-500/10 hover:text-red-400">
+                <Trash2 className="h-4 w-4" /></button>
             </div>
             {/* Die EINE passende Aktion für die aktuelle Stufe */}
             {stage === "photos" && (
@@ -277,25 +296,41 @@ function PreparePanel() {
             level={prep?.state === "done" ? prep.level : undefined}
             messages={prep?.state === "done" ? prep.messages : undefined}
             hasClay={!!models?.pieces.find((p) => p.piece === (prep?.piece ?? curInfo?.piece))?.has_clay}
-            variant={variant} setVariant={setVariant} />
+            variant={variant} setVariant={setVariant} onDelete={deletePiece} />
         </div>
       )}
     </Card>
   );
 }
 
-/** Ergebnis-Ansicht einer fertigen Figur: großes Preview (Textur/Clay) + Qualität. */
-function PieceResult({ piece, report, level, messages, hasClay, variant, setVariant }: {
+/** Ergebnis-Ansicht einer fertigen Figur: Preview-Bild ODER interaktiver 3D-Viewer + Qualität. */
+function PieceResult({ piece, report, level, messages, hasClay, variant, setVariant, onDelete }: {
   piece: string | null; report: any; level?: string; messages?: string[];
   hasClay: boolean; variant: "textured" | "clay"; setVariant: (v: "textured" | "clay") => void;
+  onDelete: (p: string) => void;
 }) {
+  const [mode, setMode] = useState<"image" | "3d">("image");
   if (!piece) return null;
   return (
     <div className="mt-3 flex flex-wrap items-start gap-4 rounded-lg bg-zinc-800/60 p-3">
       <div>
-        <img src={`/api/scan/prepare/preview/${piece}?variant=${variant}&t=${report?.tris_after ?? ""}`}
-          className="w-56 rounded-lg border border-zinc-700 bg-zinc-950" />
-        <VariantToggle value={variant} onChange={setVariant} clayDisabled={!hasClay} />
+        {mode === "3d"
+          ? <ModelViewer piece={piece} textured={variant === "textured"} size={224} />
+          : <img src={`/api/scan/prepare/preview/${piece}?variant=${variant}&t=${report?.tris_after ?? ""}`}
+              className="h-56 w-56 rounded-lg border border-zinc-700 bg-zinc-950 object-contain" />}
+        <div className="mt-2 flex items-center gap-2">
+          <VariantToggle value={variant} onChange={setVariant} clayDisabled={!hasClay && mode === "image"} />
+          {/* Bild ↔ 3D umschalten */}
+          <div className="flex overflow-hidden rounded-lg border border-zinc-700 text-xs">
+            <button onClick={() => setMode("image")} title="Standbild"
+              className={`px-2.5 py-1 ${mode === "image" ? "bg-sky-600 text-white" : "text-zinc-400 hover:bg-zinc-700"}`}>
+              <ImageIcon className="h-3.5 w-3.5" /></button>
+            <button onClick={() => setMode("3d")} title="Interaktiv drehen (3D)"
+              className={`px-2.5 py-1 ${mode === "3d" ? "bg-sky-600 text-white" : "text-zinc-400 hover:bg-zinc-700"}`}>
+              <Box className="h-3.5 w-3.5" /></button>
+          </div>
+        </div>
+        {mode === "3d" && <div className="mt-1 text-[11px] text-zinc-500">ziehen = drehen · Rad = zoomen</div>}
       </div>
       {report && (
         <div className="space-y-1.5 text-xs text-zinc-400">
@@ -311,7 +346,10 @@ function PieceResult({ piece, report, level, messages, hasClay, variant, setVari
             <span className="text-zinc-500">Höhe/Basis</span><span>{report.height_ratio}</span>
             <span className="text-zinc-500">Muster-Rand</span><span>{report.pattern_margin}</span>
           </div>
-          <div className="pt-1 text-zinc-500">→ synth_pieces/{piece}.obj · bereit für „synth render"</div>
+          <div className="pt-1 text-zinc-500">→ synth_pieces/{piece}.obj</div>
+          <button onClick={() => onDelete(piece)}
+            className="mt-1 flex items-center gap-1 text-red-400/80 hover:text-red-400">
+            <Trash2 className="h-3.5 w-3.5" /> Figur löschen</button>
         </div>
       )}
     </div>

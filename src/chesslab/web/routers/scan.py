@@ -239,3 +239,63 @@ def scan_reconstruct_status():
             out["log_tail"] = "\n".join(
                 Path(log_path).read_text(encoding="utf-8", errors="replace").splitlines()[-10:])
     return out
+
+
+# --- Löschen + 3D-Modell-Dateien für den Viewer ---------------------------------------
+
+def _safe_seg(name: str) -> str:
+    """Pfad-Segment absichern (kein Traversal)."""
+    if not name or "/" in name or "\\" in name or ".." in name:
+        raise HTTPException(400, f"ungültiger Name: {name!r}")
+    return name
+
+
+@router.delete("/api/scan/scan/{dir}")
+def scan_delete(dir: str):
+    """Kompletten Scan-Ordner (Fotos + Mesh) löschen."""
+    import shutil
+
+    d = SCANS_ROOT / _safe_seg(dir)
+    if not d.is_dir():
+        raise HTTPException(404, f"Scan '{dir}' nicht gefunden.")
+    shutil.rmtree(d)
+    log.info("Scan gelöscht: %s", dir)
+    return {"ok": True, "dir": dir}
+
+
+@router.delete("/api/scan/piece/{piece}")
+def piece_delete(piece: str):
+    """Vorbereitete Figur löschen (obj + Textur + Previews + Report)."""
+    if not _PIECE.match(piece):
+        raise HTTPException(400, "ungültiger Figurenname")
+    pdir = _repo_root() / "synth_pieces"
+    removed = []
+    for suffix in (".obj", ".png", "_preview.png", "_preview_clay.png", "_report.json"):
+        p = pdir / f"{piece}{suffix}"
+        if p.exists():
+            p.unlink()
+            removed.append(p.name)
+    if not removed:
+        raise HTTPException(404, f"Figur '{piece}' nicht gefunden.")
+    log.info("Figur gelöscht: %s (%s)", piece, ", ".join(removed))
+    return {"ok": True, "piece": piece, "removed": removed}
+
+
+@router.get("/api/scan/model/{piece}.obj")
+def piece_obj(piece: str):
+    if not _PIECE.match(piece):
+        raise HTTPException(404, "unbekannte Figur")
+    p = _repo_root() / "synth_pieces" / f"{piece}.obj"
+    if not p.exists():
+        raise HTTPException(404, "kein Mesh")
+    return FileResponse(str(p), media_type="text/plain")
+
+
+@router.get("/api/scan/model/{piece}.png")
+def piece_tex(piece: str):
+    if not _PIECE.match(piece):
+        raise HTTPException(404, "unbekannte Figur")
+    p = _repo_root() / "synth_pieces" / f"{piece}.png"
+    if not p.exists():
+        return Response(status_code=204)
+    return FileResponse(str(p), media_type="image/png")
