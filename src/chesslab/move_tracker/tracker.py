@@ -1,10 +1,13 @@
 """Kern des Move-Trackers: Warp -> Per-Feld-Differenz -> bester legaler Zug -> Spielzustand.
+Optional CNN-gestützte Occupancy-Recovery bei festgefahrener Diff-Erkennung (Spec 09).
 
 Zustandsmaschine pro Frame:
   - Motion-Gating: Frame-zu-Frame-Differenz hoch -> "Hand im Bild" (MOVING), nicht detektieren.
   - Wird es ruhig (STABLE) und unterscheidet sich vom Referenzbild (= Brett nach dem letzten Zug),
     dann: Per-Feld-Differenz -> unter allen LEGALEN Zügen den wählen, dessen berührte Felder die
     beobachtete Änderung am besten erklären -> Zug anwenden, Referenz aktualisieren.
+  - CNN-Recovery (optional): bei stuck/no_legal_move/too_many_changed oder periodisch
+    kontrolliert das CNN (cnn_recovery.py) die Occupancy und findet/korrigiert den Zug.
 
 Reuse aus chesslab: Profil/Geometrie (load_profile, _square_to_col_row, board_corners_for_frame,
 make_tracker, warp_from_corners) und Kamera (web.camera.open_source: int|URL inkl. IP-Cam).

@@ -560,23 +560,6 @@ def warp_board_for_crops(frame, profile: CalibrationProfile, corners):
     return cv2.warpPerspective(frame, t @ h, (bs + 2 * b, bs + 2 * b))
 
 
-def warp_board_markers(frame, profile: CalibrationProfile, tracker: "MarkerTracker",
-                       min_markers: int | None = None):
-    """Pro-Frame-Warp aus den Markern (mit Tracker-Resilienz). Gibt (warped | None, n_bekannt).
-
-    Sind alle 4 Ecken bekannt (live, gehalten oder geseedet), wird die **exakte Perspektive**
-    benutzt. Sind es weniger, aber mindestens `min_markers` (Default `config.TRACKER`), wird
-    geometrisch genähert (Affin/Ähnlichkeit) — bei schrägem Winkel ungenau, daher nur Notnagel.
-    Unter `min_markers` -> None. (Aufnahme/Slicing bevorzugen die gespeicherten Ecken; dieser
-    Pfad ist Live-Vorschau und Fallback für Alt-Sessions ohne gespeicherte Geometrie.)
-    """
-    corners = board_corners_for_frame(frame, profile, tracker, min_markers)
-    n = len(tracker.points())
-    if corners is None:
-        return None, n
-    return warp_from_corners(frame, profile, corners), n
-
-
 def generate_markers(out_path, dict_name: str = "DICT_4X4_50", ids: tuple[int, ...] = (0, 1, 2, 3),
                      marker_px: int = 300, quiet: int | None = None, gap: int = 70):
     """Druckbares 2x2-Blatt: jeder Marker mit weißer Ruhezone in einer gleich großen Schnitt-Box.

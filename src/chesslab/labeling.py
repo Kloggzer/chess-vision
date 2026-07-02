@@ -84,9 +84,9 @@ def all_squares() -> list[str]:
     return [f"{f}{r}" for r in range(1, 9) for f in _FILES]
 
 
-# Rückwärtskompatibler Alias: `resize_keep_aspect` lebt jetzt in `imgops` (löst den
-# Import-Zyklus mit `geometry3d`). Wer noch `labeling._resize_keep_aspect` referenziert,
-# funktioniert unverändert weiter.
+# Übergangsalias: `resize_keep_aspect` lebt jetzt in `imgops` (löst den
+# Import-Zyklus mit `geometry3d`). Wird von niemandem mehr referenziert; kann beim
+# nächsten Cleanup-Durchgang entfernt werden.
 _resize_keep_aspect = resize_keep_aspect
 
 

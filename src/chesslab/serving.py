@@ -1,7 +1,7 @@
 """Kanonischer Inference-Einstieg: Run-Spezifikation, Laden, Crops & Vorhersage.
 
 Dies ist die **einzige** unterstützte öffentliche Facade für Modell-Inferenz.
-Konsumenten (Web-Inference, künftige CNN-Recovery im move_tracker, CLI-Evaluation)
+Konsumenten (Web-Inference, CNN-Recovery im move_tracker, CLI-Evaluation)
 nutzen ausschließlich dieses Modul. Es stellt sicher, dass **dieselbe** Crop-/Photometrie-
 Pipeline verwendet wird wie beim Training des Modells — so ist die Train/Serve-Parität
 garantiert.
