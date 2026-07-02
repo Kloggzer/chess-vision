@@ -44,6 +44,32 @@ class ScanItem:
     tex: Path | None   # texture file (.obj only; .glb → None = auto-extract from material)
 
 
+def pick_mesh(d: Path) -> Path | None:
+    """Pick the best mesh from a scan directory.
+
+    Prefers ``.glb`` / ``.gltf``; else an ``.obj`` named ``mesh_<dir>.obj`` or
+    ``<dir>.obj``; else the newest ``.obj`` by modification time.
+
+    Callers must NOT use ``sorted()[0]`` — that picks ``mesh_Model_*.obj``
+    (capital M) before ``mesh_bauer2.obj`` on stale RealityScan folders.
+    """
+    glbs = sorted([*d.glob("*.glb"), *d.glob("*.gltf")])
+    if glbs:
+        return glbs[0]
+
+    objs = sorted(d.glob("*.obj"))
+    if not objs:
+        return None
+
+    dir_name = d.name
+    for pattern in (f"mesh_{dir_name}.obj", f"{dir_name}.obj"):
+        for o in objs:
+            if o.name == pattern:
+                return o
+
+    return max(objs, key=lambda p: p.stat().st_mtime)
+
+
 def _pick_texture(d: Path) -> Path | None:
     """Find texture image in a scan directory.
 
@@ -98,9 +124,13 @@ def discover_scans(root: Path) -> tuple[list[ScanItem], list[str]]:
                 f"{d.name}: skipped (need .glb OR .obj + texture, "
                 f"found: {len(objs)} obj, texture: {tex})")
             continue
+        chosen = pick_mesh(d)
+        if chosen is None:
+            warnings.append(f"{d.name}: no mesh found")
+            continue
         if len(objs) > 1:
-            warnings.append(f"{d.name}: multiple .obj — taking {objs[0].name}")
-        items.append(ScanItem(name=canonical, obj=objs[0], tex=tex))
+            warnings.append(f"{d.name}: multiple .obj — taking {chosen.name}")
+        items.append(ScanItem(name=canonical, obj=chosen, tex=tex))
     return items, warnings
 
 

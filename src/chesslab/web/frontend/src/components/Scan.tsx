@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Plug, Play, Square, Crop as CropIcon, RotateCcw, Wand2, Boxes, Camera,
   Loader2, CheckCircle2, AlertTriangle, ChevronDown, Settings2, Trash2, Box, Image as ImageIcon, Maximize2,
+  Upload,
 } from "lucide-react";
 import { api, post, del } from "../api";
 import { Card, Button } from "./ui";
@@ -24,7 +25,7 @@ type Piece = {
   piece: string; source_dir: string | null; has_preview: boolean; has_clay: boolean; report: any;
 };
 type Models = {
-  scans: { dir: string; mesh: string | null; texture: string | null; photos: number }[];
+  scans: { dir: string; mesh: string | null; texture: string | null; photos: number; clean?: boolean }[];
   pieces: Piece[];
   jobs?: { reconstruct?: string | null; prepare?: string | null };
 };
@@ -82,6 +83,11 @@ function PreparePanel() {
   const [msg, setMsg] = useState("");
   const [variant, setVariant] = useState<"textured" | "clay">("textured");   // Ansicht der Vorschau
   const [view3d, setView3d] = useState<string | null>(null);                  // Vollbild-3D für Figur
+  const [meshFile, setMeshFile] = useState<File | null>(null);                // Upload: Mesh-Datei
+  const [texFile, setTexFile] = useState<File | null>(null);                  // Upload: optionale Textur
+  const [uploadName, setUploadName] = useState("");                           // Upload: Zielname
+  const [uploading, setUploading] = useState(false);
+  const [isolate, setIsolate] = useState(true);                               // Vorbereiten: Isolation
   const timer = useRef<any>(null);
   const reconTimer = useRef<any>(null);
 
@@ -94,6 +100,7 @@ function PreparePanel() {
     setDir(s.dir);
     const { piece: sug } = scanStage(s, pieces);
     setPiece(sug ?? "P");
+    setIsolate(!s.clean);  // uploaded/clean meshes → isolate=false by default
   }
 
   async function deleteScan(d: string) {
@@ -107,6 +114,26 @@ function PreparePanel() {
     await del(`/api/scan/piece/${p}`).catch(() => {});
     setPrep(null);
     refresh();
+  }
+
+  async function doUpload() {
+    if (!meshFile || !uploadName) return;
+    setUploading(true);
+    setMsg("");
+    try {
+      const form = new FormData();
+      form.append("name", uploadName);
+      form.append("mesh", meshFile);
+      if (texFile) form.append("texture", texFile);
+      const r = await fetch("/api/scan/upload", { method: "POST", body: form });
+      if (!r.ok) throw new Error(((await r.json()) as any)?.detail || `HTTP ${r.status}`);
+      await refresh();
+      setDir(uploadName);
+      setUploadName("");
+      setMeshFile(null);
+      setTexFile(null);
+    } catch (e: any) { setMsg("Upload: " + e.message); }
+    setUploading(false);
   }
 
   const pollRecon = () => api<ReconStatus>("/api/scan/reconstruct/status").then((s) => {
@@ -151,7 +178,7 @@ function PreparePanel() {
   async function run() {
     setMsg("");
     try {
-      await post("/api/scan/prepare", { dir, piece, target_tris: tris, smooth_iters: smooth });
+      await post("/api/scan/prepare", { dir, piece, target_tris: tris, smooth_iters: smooth, isolate });
       setPrep({ state: "running", piece });
       clearInterval(timer.current);
       timer.current = setInterval(pollPrep, 2000);
@@ -187,6 +214,34 @@ function PreparePanel() {
         <p className="text-sm text-zinc-500">Noch keine Scans. Nimm oben Fotos einer Figur auf —
           sie erscheinen dann hier als Karte.</p>
       )}
+
+      {/* Upload: fertiges Mesh (bereits freigestellt, kein RealityScan) */}
+      <div className="mt-3 rounded-xl border border-dashed border-zinc-700 bg-zinc-950/30 p-3">
+        <div className="mb-2 text-xs font-medium text-zinc-400">Oder fertiges Mesh hochladen:</div>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="flex flex-col gap-0.5 text-xs text-zinc-500">
+            Name
+            <input value={uploadName} onChange={(e) => setUploadName(e.target.value)}
+              placeholder="z.B. wK" className={`${input} w-24`} />
+          </label>
+          <label className="flex flex-col gap-0.5 text-xs text-zinc-500">
+            Mesh (.obj/.glb/.gltf)
+            <input type="file" accept=".obj,.glb,.gltf"
+              onChange={(e) => setMeshFile(e.target.files?.[0] ?? null)}
+              className="text-xs text-zinc-300 file:mr-1 file:rounded file:border-0 file:bg-zinc-700 file:px-2 file:py-0.5 file:text-xs file:text-zinc-200" />
+          </label>
+          <label className="flex flex-col gap-0.5 text-xs text-zinc-500">
+            Textur (.png/.jpg, optional)
+            <input type="file" accept=".png,.jpg,.jpeg"
+              onChange={(e) => setTexFile(e.target.files?.[0] ?? null)}
+              className="text-xs text-zinc-300 file:mr-1 file:rounded file:border-0 file:bg-zinc-700 file:px-2 file:py-0.5 file:text-xs file:text-zinc-200" />
+          </label>
+          <Button variant="primary" onClick={doUpload} disabled={uploading || !meshFile || !uploadName}>
+            {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            Hochladen
+          </Button>
+        </div>
+      </div>
 
       {/* Figuren-Karten: eine pro Scan-Ordner, mit Stufe + Live-Status + Löschen */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
@@ -282,6 +337,11 @@ function PreparePanel() {
                   <label className="flex items-center gap-1" title="Laplacian-Glättung gegen Bumps. 10 mild, 25–40 stark.">
                     Glättung <input type="number" value={smooth} onChange={(e) => setSmooth(+e.target.value)}
                       className={`${input} w-16`} /></label>
+                  <label className="flex items-center gap-1 cursor-pointer"
+                    title="Deaktivieren für bereits freigestellte Meshes (Uploads ohne Papier/Teller). Bei Scans mit Untergrund aktiviert lassen.">
+                    <input type="checkbox" checked={isolate} onChange={(e) => setIsolate(e.target.checked)}
+                      className="rounded border-zinc-600 bg-zinc-700" />
+                    Figur isolieren (plane-fit)</label>
                 </div>
               )}
               {msg && <span className="text-xs text-red-400">{msg}</span>}

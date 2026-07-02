@@ -546,6 +546,9 @@ def synth_prepare_cmd(
                                                     help="Teller-Durchmesser in mm → korrekter Maßstab im Renderer."),
     fill_holes: bool = typer.Option(True, "--fill-holes/--no-fill-holes",
                                     help="Offene Ränder/Basis schließen (gegen ausgefranste Silhouette)."),
+    isolate: bool = typer.Option(True, "--isolate/--no-isolate",
+                                 help="Figur vom Untergrund isolieren (plane-fit + Komponenten-Trennung). "
+                                      "--no-isolate für bereits freigestellte Meshes (kein Papier/Teller)."),
 ) -> None:
     """Gescannte Figuren batch-vorbereiten: isolieren, dezimieren, Qualitäts-Report + Preview.
 
@@ -572,7 +575,7 @@ def synth_prepare_cmd(
             report = prepare_scan(item, out, target_tris=target_tris,
                                   plane_eps=eps, plate_diameter_mm=plate_diameter_mm,
                                   fill_holes=fill_holes, smooth_iters=smooth_iters,
-                                  make_preview=True)
+                                  make_preview=True, isolate=isolate)
         except Exception as e:
             results.append((item.name, "fail", [str(e)]))
             continue

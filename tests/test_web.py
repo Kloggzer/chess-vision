@@ -253,3 +253,130 @@ def test_calibrate_endpoints_no_camera(tmp_path, monkeypatch):
     assert cv2.imread(str(config.DATA.calibration / "markers.png")) is not None
     # camera status without an open camera
     assert client.get("/api/camera/status").json()["open"] is False
+
+
+def test_scan_upload_endpoint(tmp_path, monkeypatch):
+    """POST /api/scan/upload accepts a mesh file + optional texture, writes .clean marker."""
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+
+    from chesslab.web.scan import SCANS_ROOT as _REAL_SCANS_ROOT
+    monkeypatch.setattr("chesslab.web.routers.scan.SCANS_ROOT", tmp_path / "scans")
+    monkeypatch.setattr("chesslab.web.scan.SCANS_ROOT", tmp_path / "scans")  # also patch the module-level ref
+    from chesslab.web.app import create_app
+    client = TestClient(create_app())
+
+    # Valid upload
+    r = client.post("/api/scan/upload", data={"name": "testK"},
+                    files={"mesh": ("test.obj", b"fake mesh data", "application/octet-stream")})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["ok"] is True
+    assert data["dir"] == "testK"
+    assert data["mesh"] == "mesh_testK.obj"
+    assert data["clean"] is True
+    assert (tmp_path / "scans" / "testK" / ".clean").exists()
+    assert (tmp_path / "scans" / "testK" / "mesh_testK.obj").exists()
+
+    # With texture
+    r2 = client.post("/api/scan/upload", data={"name": "testQ"},
+                     files={"mesh": ("test.glb", b"glb", "application/octet-stream"),
+                            "texture": ("tex.png", b"png", "image/png")})
+    assert r2.status_code == 200
+    assert r2.json()["texture"] == "mesh_testQ_diffuse.png"
+    assert (tmp_path / "scans" / "testQ" / "mesh_testQ_diffuse.png").exists()
+
+    # Invalid name (special chars)
+    r3 = client.post("/api/scan/upload", data={"name": "bad/name"},
+                     files={"mesh": ("x.obj", b"x", "application/octet-stream")})
+    assert r3.status_code == 400
+
+    # Invalid extension
+    r4 = client.post("/api/scan/upload", data={"name": "bad"},
+                     files={"mesh": ("x.stl", b"x", "application/octet-stream")})
+    assert r4.status_code == 400
+
+    # Missing mesh
+    r5 = client.post("/api/scan/upload", data={"name": "bad"})
+    assert r5.status_code == 422  # FastAPI validation error
+
+
+def test_scan_models_includes_clean(tmp_path, monkeypatch):
+    """GET /api/scan/models surfaces .clean marker for uploaded meshes."""
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+
+    scans_dir = tmp_path / "scans"
+    monkeypatch.setattr("chesslab.web.routers.scan.SCANS_ROOT", scans_dir)
+    monkeypatch.setattr("chesslab.web.scan.SCANS_ROOT", scans_dir)
+
+    d = scans_dir / "uploadedP"
+    d.mkdir(parents=True)
+    (d / "mesh_uploadedP.obj").write_text("obj")
+    (d / "diffuse.png").write_text("tex")
+    (d / ".clean").touch()
+
+    d2 = scans_dir / "scannedQ"
+    d2.mkdir(parents=True)
+    (d2 / "mesh_scannedQ.obj").write_text("obj")
+    (d2 / "tex.png").write_text("tex")
+    # NO .clean marker
+
+    from chesslab.web.app import create_app
+    client = TestClient(create_app())
+    r = client.get("/api/scan/models")
+    assert r.status_code == 200
+    scans = r.json()["scans"]
+    by_dir = {s["dir"]: s for s in scans}
+    assert by_dir["uploadedP"]["clean"] is True
+    assert by_dir["scannedQ"]["clean"] is False
+
+
+def test_scan_prepare_isolate_flag(tmp_path, monkeypatch):
+    """POST /api/scan/prepare accepts isolate flag and passes it through."""
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+
+    scans_dir = tmp_path / "scans"
+    monkeypatch.setattr("chesslab.web.routers.scan.SCANS_ROOT", scans_dir)
+    monkeypatch.setattr("chesslab.web.scan.SCANS_ROOT", scans_dir)
+    # Also patch _repo_root so synth_pieces is in tmp_path
+    monkeypatch.setattr("chesslab.web.routers.scan._repo_root", lambda: tmp_path)
+    (tmp_path / "synth_pieces").mkdir(parents=True)
+
+    from chesslab.scan_discover import ScanItem
+    from chesslab.meshprep import prepare_scan as _real_prepare
+
+    d = scans_dir / "wP"
+    d.mkdir(parents=True)
+    (d / "mesh_wP.obj").write_text("obj")
+    (d / "tex.png").write_text("tex")
+
+    # We mock prepare_scan to check isolate was passed through
+    captured_isolate = []
+    def _fake_prepare(item, out_dir, *, isolate=True, **kw):
+        captured_isolate.append(isolate)
+        return {"piece": item.name, "verts": 100, "tris_before": 50, "tris_after": 50,
+                "decimated": False, "target_tris": 20000, "smooth_iters": 10,
+                "plane_eps": 0.1, "fill_holes": True, "plane_inliers": 0,
+                "center_component_frac": 1.0, "piece_vertex_frac": 1.0,
+                "scale_mm_per_unit": None, "plate_diameter_mm": None,
+                "boundary_edges": 0, "nonmanifold_edges": 0,
+                "dims": [1.0, 1.0, 1.0], "height_ratio": 1.0, "pattern_margin": 3.0}
+    monkeypatch.setattr("chesslab.meshprep.prepare_scan", _fake_prepare)
+
+    from chesslab.web.app import create_app
+    client = TestClient(create_app())
+
+    # isolate=true (default)
+    r1 = client.post("/api/scan/prepare", json={"dir": "wP", "piece": "wP"})
+    assert r1.status_code == 200
+    assert captured_isolate[-1] is True
+
+    # isolate=false
+    r2 = client.post("/api/scan/prepare", json={"dir": "wP", "piece": "wP", "isolate": False})
+    assert r2.status_code == 200
+    assert captured_isolate[-1] is False
