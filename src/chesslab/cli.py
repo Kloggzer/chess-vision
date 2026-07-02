@@ -587,6 +587,40 @@ def synth_prepare_cmd(
     raise typer.Exit(1 if any(lv == "fail" for _, lv, _ in results) else 0)
 
 
+@synth_app.command("frames")
+def synth_frames_cmd(
+    video: str = typer.Option(..., "--video", help="Turntable-Video (mp4 o. ä.)."),
+    out: str = typer.Option(..., "--out", help="Scan-Ordner, z. B. scans/WQ2 (hängt an bestehende Fotos an)."),
+    n: int = typer.Option(120, "--n", help="Anzahl zu extrahierender Frames (je Fenster der schärfste)."),
+    quality: int = typer.Option(95, "--quality", help="JPEG-Qualität."),
+    crop: str | None = typer.Option(None, "--crop", help="x0,y0,x1,y1 — statischen Hintergrund wegschneiden."),
+) -> None:
+    """Die schärfsten N Frames aus einem Turntable-Video extrahieren (für RealityScan).
+
+    Besser als RealityScans eigener Video-Import: bewegungsunscharfe Frames werden
+    aussortiert (Schärfe = Laplacian-Varianz je Zeitfenster)."""
+    from .synth_frames import extract_frames
+
+    c = None
+    if crop:
+        parts = [int(x) for x in crop.replace(" ", "").split(",")]
+        if len(parts) != 4:
+            print("[FAIL] --crop braucht 4 Werte: x0,y0,x1,y1")
+            raise typer.Exit(1)
+        c = tuple(parts)
+    try:
+        stats = extract_frames(Path(video), Path(out), n=n, quality=quality, crop=c)
+    except ValueError as e:
+        print(f"[FAIL] {e}")
+        raise typer.Exit(1)
+    print(f"[OK] {stats['written']} Frames -> {out} (ab {stats['start_index']:03d}.jpg, "
+          f"aus {stats['total_frames']} Video-Frames; Schärfe mean={stats['mean_sharpness']} "
+          f"min={stats['min_sharpness']})")
+    if stats["written"] and stats["min_sharpness"] < stats["mean_sharpness"] * 0.4:
+        print("[WARN] einzelne Fenster deutlich unschärfer — Drehteller langsamer/mehr Licht "
+              "(kürzere Belichtung) hilft.")
+
+
 @synth_app.command("preview")
 def synth_preview(
     obj: str = typer.Option(..., "--obj", help="Vorbereitete Figur (.obj, Z-up aus `synth prepare`)."),
