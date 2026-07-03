@@ -83,6 +83,87 @@ def test_verify_move_too_few_confident_returns_zero(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Identitäts-Pfad: pred_label je Feld statt nur besetzt/leer
+# ---------------------------------------------------------------------------
+
+def _ident_obs(board: chess.Board, conf: float = 0.99,
+               occluded: set[str] | None = None,
+               overrides: dict[str, str] | None = None) -> OccupancyObservation:
+    """Identitäts-Beobachtung, die exakt zur Stellung passt; `overrides` setzt einzelne
+    Felder auf ein abweichendes Label; `occluded` macht Felder verdeckt (nicht confident)."""
+    from chesslab.move_tracker.cnn_recovery import expected_labels
+    occluded = occluded or set()
+    labels = dict(expected_labels(board))
+    labels.update(overrides or {})
+    p_occ, p_empty, p_occl, conf_d, label = {}, {}, {}, {}, {}
+    for sq in _ALL:
+        if sq in occluded:
+            label[sq], conf_d[sq] = "occluded", conf
+            p_occ[sq], p_empty[sq], p_occl[sq] = 0.05, 0.05, 0.90
+            continue
+        lab = labels[sq]
+        label[sq], conf_d[sq] = lab, conf
+        if lab == "empty":
+            p_empty[sq], p_occ[sq], p_occl[sq] = conf, 1.0 - conf, 0.0
+        else:
+            p_occ[sq], p_empty[sq], p_occl[sq] = conf, 1.0 - conf, 0.0
+    return OccupancyObservation(p_occ=p_occ, p_empty=p_empty, p_occluded=p_occl,
+                                label=label, conf=conf_d)
+
+
+def test_board_matches_identity_true_when_unchanged(tmp_path):
+    board = chess.Board()
+    res = _recovery(tmp_path).board_matches_identity(board, _ident_obs(board))
+    assert res["match"] is True and res["conflicts"] == []
+
+
+def test_board_matches_identity_false_on_conflict(tmp_path):
+    board = chess.Board()
+    obs = _ident_obs(board, overrides={"e2": "empty"})     # ein Feld weicht ab
+    res = _recovery(tmp_path).board_matches_identity(board, obs)
+    assert res["match"] is False and "e2" in res["conflicts"]
+
+
+def test_derive_move_identity_simple(tmp_path):
+    board = chess.Board()
+    after = chess.Board(); after.push_san("e4")
+    mv, best, second = _recovery(tmp_path).derive_move_identity(board, _ident_obs(after))
+    assert mv is not None and mv.uci() == "e2e4" and best > second
+
+
+def test_derive_move_identity_capture(tmp_path):
+    board = chess.Board()
+    for san in ("e4", "d5"):
+        board.push_san(san)
+    after = board.copy(); after.push_san("exd5")
+    mv, _b, _s = _recovery(tmp_path).derive_move_identity(board, _ident_obs(after))
+    assert mv is not None and mv.uci() == "e4d5"           # Zielfeld-Identität = weißer Bauer
+
+
+def test_derive_move_identity_promotion(tmp_path):
+    board = chess.Board("8/P6k/8/8/8/8/7K/8 w - - 0 1")    # weißer Bauer a7, kann umwandeln
+    after = board.copy(); after.push_san("a8=Q")
+    mv, _b, _s = _recovery(tmp_path).derive_move_identity(board, _ident_obs(after))
+    assert mv is not None and mv.uci() == "a7a8q"          # Dame, nicht Turm/Läufer/Springer
+
+
+def test_verify_move_identity_agrees(tmp_path):
+    board = chess.Board()
+    after = chess.Board(); after.push_san("e4")
+    agree, n = _recovery(tmp_path).verify_move_identity(
+        board, chess.Move.from_uci("e2e4"), _ident_obs(after))
+    assert agree == pytest.approx(1.0) and n == 2
+
+
+def test_verify_move_identity_low_for_wrong(tmp_path):
+    board = chess.Board()
+    after = chess.Board(); after.push_san("e4")
+    agree, _n = _recovery(tmp_path).verify_move_identity(
+        board, chess.Move.from_uci("d2d4"), _ident_obs(after))
+    assert agree < 1.0
+
+
+# ---------------------------------------------------------------------------
 # score_moves — der Kern: welcher legale Zug erklärt die Beobachtung?
 # ---------------------------------------------------------------------------
 

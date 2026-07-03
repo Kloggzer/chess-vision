@@ -472,10 +472,10 @@ def track_cmd(
                                 help="Modell-Run für CNN-Verifikation/-Recovery ('' = aus)."),
     cnn_conf_thr: float = typer.Option(0.85, "--cnn-conf-thr",
                                        help="Konfidenz-Schwelle, ab der ein CNN-Feld als belastbar gilt."),
-    census_thr: float = typer.Option(40.0, "--census-thr",
+    census_thr: float = typer.Option(55.0, "--census-thr",
                                      help="Schwelle für STRUKTURELLE Änderung (Census); < = Schatten-Kandidat."),
-    cnn_verify: bool = typer.Option(False, "--cnn-verify",
-                                    help="Jeden Zug vor Commit per CNN prüfen (Default aus: CNN nur für Recovery)."),
+    cnn_verify: bool = typer.Option(True, "--cnn-verify/--no-cnn-verify",
+                                    help="Jeden Zug per CNN-Identität prüfen (Default an, nicht blockierend; Diff gewinnt bei Konflikt)."),
     device: str = typer.Option("auto", "--device", help="Torch-Device für das CNN: auto|cpu|cuda."),
 ) -> None:
     """Move-Tracker: Brett-Digitalisierung per Frame-Differenz + CNN-Verifikation (Web-UI)."""

@@ -18,6 +18,8 @@ from pathlib import Path
 
 import chess
 
+from .. import config
+
 log = logging.getLogger("chesslab.move_tracker")
 
 _FILES = "abcdefgh"
@@ -26,11 +28,17 @@ _ALL = [f"{f}{r}" for r in range(1, 9) for f in _FILES]
 
 @dataclass(frozen=True)
 class OccupancyObservation:
-    """Kollabierte CNN-Sicht auf das Brett: je Feld p(besetzt), p(leer), p(verdeckt)."""
+    """CNN-Sicht auf das Brett. Trägt Occupancy (p_besetzt/leer/verdeckt) UND — soweit
+    verfügbar — die volle Figuren-Identität je Feld (`label` = vorhergesagte Klasse,
+    `conf` = Top-Klassen-Konfidenz). Occupancy ist aus der Identität abgeleitet; die
+    Identität erlaubt es, Schläge/Umwandlungen/„welche Figur zog" zu unterscheiden und
+    Schatten (Identität unverändert) zuverlässig von echten Zügen zu trennen."""
 
     p_occ: dict[str, float]
     p_empty: dict[str, float]
     p_occluded: dict[str, float]
+    label: dict[str, str] | None = None       # vorhergesagte Klasse je Feld (z.B. 'wP','bK','empty')
+    conf: dict[str, float] | None = None       # Konfidenz der Top-Klasse je Feld
 
     def occupied(self, sq: str) -> bool:
         return self.p_occ[sq] > self.p_empty[sq]
@@ -43,23 +51,37 @@ class OccupancyObservation:
                      and self.p_occluded[sq] < (1.0 - thr))
                 for sq in self.p_occ}
 
+    def label_confident(self, thr: float) -> dict[str, bool]:
+        """Felder, deren IDENTITÄTS-Aussage belastbar ist: Top-Konfidenz ≥ thr und nicht
+        `occluded` (Hand/Verdeckung). Leer, wenn der Run keine Identität liefert."""
+        if self.label is None or self.conf is None:
+            return {sq: False for sq in self.p_occ}
+        return {sq: (self.conf[sq] >= thr and self.label[sq] != "occluded")
+                for sq in self.label}
+
 
 def observation_from_probs(per_square_probs: dict[str, list[float]],
                            classes: list[str]) -> OccupancyObservation:
-    """Voller Softmax je Feld → binäre Occupancy. Klassenindizes IMMER aus der
+    """Voller Softmax je Feld → Occupancy + Identität. Klassenindizes IMMER aus der
     `classes`-Liste der Run-config ableiten (13- und 14-Klassen-Runs, nie Positionen raten)."""
     i_empty = classes.index("empty")
     i_occl = classes.index("occluded") if "occluded" in classes else None
     p_occ: dict[str, float] = {}
     p_empty: dict[str, float] = {}
     p_occluded: dict[str, float] = {}
+    label: dict[str, str] = {}
+    conf: dict[str, float] = {}
     for sq, probs in per_square_probs.items():
         pe = float(probs[i_empty])
         po = float(probs[i_occl]) if i_occl is not None else 0.0
         p_empty[sq] = pe
         p_occluded[sq] = po
         p_occ[sq] = max(0.0, 1.0 - pe - po)     # Summe der 12 Figurenklassen
-    return OccupancyObservation(p_occ=p_occ, p_empty=p_empty, p_occluded=p_occluded)
+        top = max(range(len(probs)), key=lambda i: probs[i])   # Identität = argmax-Klasse
+        label[sq] = classes[top]
+        conf[sq] = float(probs[top])
+    return OccupancyObservation(p_occ=p_occ, p_empty=p_empty, p_occluded=p_occluded,
+                                label=label, conf=conf)
 
 
 def _move_touched_squares(board: chess.Board, move: chess.Move) -> set[str]:
@@ -81,6 +103,16 @@ def _move_touched_squares(board: chess.Board, move: chess.Move) -> set[str]:
 def expected_occupancy(board: chess.Board) -> dict[str, bool]:
     """Occupancy je Feld, wie sie laut Spielzustand sein müsste."""
     return {sq: board.piece_at(chess.parse_square(sq)) is not None for sq in _ALL}
+
+
+def expected_labels(board: chess.Board) -> dict[str, str]:
+    """Erwartete Figuren-Klasse je Feld laut Spielzustand ('wP','bK','empty', …) im
+    Modell-Vokabular (nutzt `config.label_from_piece`)."""
+    out: dict[str, str] = {}
+    for sq in _ALL:
+        piece = board.piece_at(chess.parse_square(sq))
+        out[sq] = config.label_from_piece(piece.symbol() if piece else None)
+    return out
 
 
 class CnnRecovery:
@@ -168,6 +200,67 @@ class CnnRecovery:
             return 0.0, len(checked)
         hits = sum(1 for sq in checked
                    if obs.occupied(sq) == (b2.piece_at(chess.parse_square(sq)) is not None))
+        return hits / len(checked), len(checked)
+
+    # -- Identitäts-basierte Auswertung (nutzt pro-Feld pred_label, nicht nur besetzt/leer) --
+    @staticmethod
+    def _label_at(board: chess.Board, sq: str) -> str:
+        piece = board.piece_at(chess.parse_square(sq))
+        return config.label_from_piece(piece.symbol() if piece else None)
+
+    def board_matches_identity(self, board: chess.Board, obs: OccupancyObservation) -> dict:
+        """Liegen laut CNN auf allen belastbaren Feldern DIESELBEN Figuren wie geglaubt?
+        Der zuverlässige „kein Zug / Schatten"-Detektor: ein Schatten ändert keine Identität.
+        {match, conflicts, n, inconclusive}. Zu wenige belastbare Felder → inconclusive."""
+        lc = obs.label_confident(self.conf_thr)
+        exp = expected_labels(board)
+        checked = [sq for sq in _ALL if lc.get(sq)]
+        if len(checked) < self.min_confident:
+            return {"match": False, "conflicts": [], "n": len(checked), "inconclusive": True}
+        conflicts = [sq for sq in checked if obs.label[sq] != exp[sq]]
+        return {"match": not conflicts, "conflicts": conflicts,
+                "n": len(checked), "inconclusive": False}
+
+    def derive_move_identity(self, board: chess.Board,
+                             obs: OccupancyObservation) -> tuple[chess.Move | None, float, float]:
+        """Den legalen Zug wählen, dessen Ergebnis-Identitäten am besten zur CNN-Beobachtung
+        passen (über die belastbaren Felder). Löst Schlag (Zielfeld-Identität), „welche Figur"
+        und Umwandlung (Promo-Figur aus dem Zielfeld-Label). (None, best, second) wenn nicht
+        eindeutig genug."""
+        lc = obs.label_confident(self.conf_thr)
+        conf_squares = [sq for sq, ok in lc.items() if ok]
+        n = len(conf_squares)
+        if n < self.min_confident:
+            return None, 0.0, 0.0
+        best_mv, best_hits, second_hits = None, -1, -1
+        for mv in board.legal_moves:
+            b2 = board.copy(stack=False)
+            b2.push(mv)
+            hits = sum(1 for sq in conf_squares if obs.label[sq] == self._label_at(b2, sq))
+            if hits > best_hits:
+                best_hits, second_hits, best_mv = hits, best_hits, mv
+            elif hits > second_hits:
+                second_hits = hits
+        best = best_hits / n if best_hits >= 0 else 0.0
+        second = second_hits / n if second_hits >= 0 else 0.0
+        if best_mv is None or best < self.min_agreement \
+           or (best_hits - second_hits) < self.margin_squares:
+            return None, best, second
+        return best_mv, best, second
+
+    def verify_move_identity(self, board: chess.Board, move: chess.Move,
+                             obs: OccupancyObservation) -> tuple[float, int]:
+        """Pre-Commit-Check eines Kandidatenzugs über die IDENTITÄT der berührten Felder
+        (from wird geräumt/leer, to trägt die erwartete Figur; + Turm/en-passant). Beide
+        Endpunkte müssen belastbar sein, sonst (noch) unbestätigt (0.0)."""
+        lc = obs.label_confident(self.conf_thr)
+        touched = _move_touched_squares(board, move)
+        b2 = board.copy(stack=False)
+        b2.push(move)
+        checked = [sq for sq in touched if lc.get(sq)]
+        if len(checked) < 2:
+            return 0.0, len(checked)
+        hits = sum(1 for sq in checked if obs.label[sq] == self._label_at(b2, sq))
         return hits / len(checked), len(checked)
 
     def resync_check(self, board: chess.Board, obs: OccupancyObservation) -> dict:
