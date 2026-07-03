@@ -52,7 +52,15 @@ def pick_mesh(d: Path) -> Path | None:
 
     Callers must NOT use ``sorted()[0]`` — that picks ``mesh_Model_*.obj``
     (capital M) before ``mesh_bauer2.obj`` on stale RealityScan folders.
+
+    A user-cropped ``cropped.obj`` (written by /api/scan/crop) ALWAYS wins —
+    it's the deliberate manual isolation and must not be overridden by the raw
+    ``.glb`` still lying in the folder.
     """
+    cropped = d / "cropped.obj"
+    if cropped.exists():
+        return cropped
+
     glbs = sorted([*d.glob("*.glb"), *d.glob("*.gltf")])
     if glbs:
         return glbs[0]
