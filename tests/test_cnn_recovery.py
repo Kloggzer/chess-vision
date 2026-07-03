@@ -48,6 +48,41 @@ def _recovery(tmp_path, **kw) -> CnnRecovery:
 
 
 # ---------------------------------------------------------------------------
+# verify_move — Pre-Commit-Check eines konkreten Kandidatenzugs
+# ---------------------------------------------------------------------------
+
+def test_verify_move_agrees_for_real_move(tmp_path):
+    """Beobachtung passt zur Stellung NACH e2e4 → hohes Agreement für e2e4."""
+    board = chess.Board()
+    after = chess.Board(); after.push_san("e4")
+    obs = _obs_for_board(after)
+    agree, n = _recovery(tmp_path).verify_move(board, chess.Move.from_uci("e2e4"), obs)
+    assert agree == pytest.approx(1.0)
+    assert n == 2                     # nur die berührten Felder (e2, e4)
+
+
+def test_verify_move_low_for_wrong_move(tmp_path):
+    """Beobachtung passt zu e2e4, geprüft wird aber d2d4 → Agreement < 1 (2 Felder falsch)."""
+    board = chess.Board()
+    after = chess.Board(); after.push_san("e4")
+    obs = _obs_for_board(after)
+    agree, _ = _recovery(tmp_path).verify_move(board, chess.Move.from_uci("d2d4"), obs)
+    assert agree < 1.0
+
+
+def test_verify_move_too_few_confident_returns_zero(tmp_path):
+    """Fast alles verdeckt (< min_confident confident-Felder) → 0.0."""
+    board = chess.Board()
+    after = chess.Board(); after.push_san("e4")
+    occluded = set(_ALL[:60])                        # nur 4 Felder confident
+    obs = _obs_for_board(after, occluded=occluded)
+    agree, n = _recovery(tmp_path, min_confident=8).verify_move(
+        board, chess.Move.from_uci("e2e4"), obs)
+    assert agree == 0.0
+    assert n < 8
+
+
+# ---------------------------------------------------------------------------
 # score_moves — der Kern: welcher legale Zug erklärt die Beobachtung?
 # ---------------------------------------------------------------------------
 

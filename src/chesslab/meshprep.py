@@ -36,16 +36,31 @@ def prepare_scan(
     *,
     make_preview: bool = True,
     seed: int = 42,
+    process: bool = False,
 ) -> dict:
-    """Prepare a single scanned piece for the render pipeline.
+    """Import a scanned piece into the render pipeline.
 
-    Minimal pipeline: loads the mesh, keeps the largest connected component
-    (drops stray debris), uprights via base-plane fit, writes a clean OBJ
-    (v + vt + vn + single usemtl) directly from trimesh, and renders two
-    orthographic Blender previews (textured + clay).
+    Output layout is one folder per canonical piece with one file-set per
+    variant: ``<out_dir>/<item.name>/<item.variant>.{obj,mtl,png,_report.json,
+    _preview.png,_preview_clay.png}``.  This lets several scans of the same piece
+    (e.g. two white pawns, one black) coexist as ``v1``/``v2``/… inside ``wP/``.
+
+    ``process=False`` (default) is a **verbatim import**: the model the user
+    supplies is copied unchanged and rendered as-is — no uprighting, no component
+    filtering, no re-export.  Use this when you provide already-clean, upright,
+    correctly-scaled models and only want them rendered.
+
+    ``process=True`` runs the legacy minimal cleanup (largest component + base-plane
+    uprighting + clean OBJ re-export).  Handy for raw RealityScan dumps, but it can
+    distort an already-finished model, so it is no longer the default.
     """
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    piece_dir = Path(out_dir) / item.name
+    piece_dir.mkdir(parents=True, exist_ok=True)
+    stem = item.variant
+
+    if not process:
+        return _import_verbatim(item, piece_dir, stem, make_preview=make_preview)
+
     rng = np.random.default_rng(seed)
 
     # ---- 1. Load mesh
@@ -70,8 +85,8 @@ def prepare_scan(
     mesh = _upright(mesh, base_normal)
 
     # ---- 5. Write clean OBJ directly from trimesh
-    tex_dst = out_dir / f"{item.name}.png"
-    _write_trimesh_obj(mesh, item.name, out_dir, tex_img, tex_dst)
+    tex_dst = piece_dir / f"{stem}.png"
+    _write_trimesh_obj(mesh, stem, piece_dir, tex_img, tex_dst)
 
     # ---- 6. Mesh quality
     quality = _mesh_quality(mesh)
@@ -82,6 +97,7 @@ def prepare_scan(
     # ---- 8. Report
     report: dict = {
         "piece": item.name,
+        "variant": stem,
         "verts": len(mesh.vertices),
         "tris": int(tris_before),
         "center_component_frac": round(float(center_component_frac), 3),
@@ -89,14 +105,82 @@ def prepare_scan(
         "dims": [round(float(d), 4) for d in dims],
         "height_ratio": round(float(height_ratio), 3),
     }
-    report_path = out_dir / f"{item.name}_report.json"
+    report_path = piece_dir / f"{stem}_report.json"
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     _log.info("wrote %s", report_path)
 
     if make_preview:
-        _render_previews(mesh, item.name, out_dir, tex_dst)
+        _render_previews(mesh, stem, piece_dir, tex_dst)
 
     return report
+
+
+# ==============================================================================
+# Verbatim import (no geometry processing — the default)
+# ==============================================================================
+def _import_verbatim(item: ScanItem, piece_dir: Path, stem: str, *, make_preview: bool) -> dict:
+    """Place a render-ready model as ``<piece>/<variant>`` WITHOUT touching geometry.
+
+    ``.obj`` → byte-for-byte copy (only the ``mtllib``/``usemtl`` lines are
+    normalised so a sibling ``<stem>.mtl`` + ``<stem>.png`` are found).  ``.glb`` →
+    a one-off convert-to-OBJ (geometry preserved, texture extracted; still no
+    uprighting).  Then a Blender preview of the written file.
+    """
+    import shutil
+
+    obj_dst = piece_dir / f"{stem}.obj"
+    tex_dst = piece_dir / f"{stem}.png"
+    ext = item.obj.suffix.lower()
+
+    if ext in (".glb", ".gltf"):
+        import trimesh
+
+        loaded = trimesh.load(str(item.obj), force="mesh")
+        if isinstance(loaded, trimesh.Scene):
+            loaded = max(loaded.geometry.values(), key=lambda m: len(m.vertices))
+        tex_img = _extract_glb_texture(loaded)
+        # _write_trimesh_obj re-exports faces/normals/UVs but applies NO transform.
+        _write_trimesh_obj(loaded, stem, piece_dir, tex_img, tex_dst)
+    else:
+        _copy_obj_verbatim(item.obj, obj_dst, stem)
+        _write_clean_mtl(piece_dir, stem)
+        if item.tex is not None and Path(item.tex).exists():
+            shutil.copyfile(item.tex, tex_dst)
+
+    report = {"piece": item.name, "variant": stem, "verbatim": True}
+    (piece_dir / f"{stem}_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    _log.info("verbatim import -> %s", obj_dst)
+
+    if make_preview:
+        _render_previews(None, stem, piece_dir, tex_dst)
+    return report
+
+
+def _copy_obj_verbatim(src: Path, dst: Path, stem: str) -> None:
+    """Copy an OBJ unchanged, only pointing its ``mtllib``/``usemtl`` at ``<stem>``.
+
+    All geometry lines (``v``/``vt``/``vn``/``f``/groups) are preserved exactly;
+    the renderer ignores materials anyway, but a standalone viewer needs the
+    sibling ``<stem>.mtl`` to find the texture.
+    """
+    lines = Path(src).read_text(encoding="utf-8", errors="replace").splitlines()
+    out: list[str] = []
+    seen_mtllib = False
+    for ln in lines:
+        if ln.startswith("mtllib "):
+            if not seen_mtllib:
+                out.append(f"mtllib {stem}.mtl")
+                seen_mtllib = True
+        elif ln.startswith("usemtl "):
+            out.append("usemtl piece")
+        else:
+            out.append(ln)
+    if not seen_mtllib:
+        i = 0
+        while i < len(out) and out[i].startswith("#"):
+            i += 1
+        out.insert(i, f"mtllib {stem}.mtl")
+    Path(dst).write_text("\n".join(out) + "\n", encoding="utf-8")
 
 
 # ==============================================================================
@@ -612,7 +696,10 @@ def _render_previews(mesh, name: str, out_dir: Path, tex_path: Path | None):
         _log.info("Blender not found — previews via matplotlib fallback")
 
     # ---- Matplotlib fallback -----------------------------------------------
-    _render_previews_matplotlib(mesh, out_dir, preview_dst, clay_dst)
+    # Verbatim imports pass mesh=None (no in-memory mesh); the Blender path above
+    # renders straight from the OBJ file, so only fall back when we have a mesh.
+    if mesh is not None:
+        _render_previews_matplotlib(mesh, out_dir, preview_dst, clay_dst)
 
 
 def _render_previews_matplotlib(mesh, out_dir: Path, preview_dst: Path, clay_dst: Path):

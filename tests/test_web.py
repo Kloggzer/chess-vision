@@ -359,8 +359,45 @@ def test_scan_prepare_endpoint(tmp_path, monkeypatch):
     from chesslab.web.app import create_app
     client = TestClient(create_app())
 
-    r = client.post("/api/scan/prepare", json={"dir": "wP", "piece": "wP"})
+    r = client.post("/api/scan/prepare", json={"dir": "wP", "piece": "wP2"})
     assert r.status_code == 200
-    assert r.json()["ok"] is True
+    body = r.json()
+    assert body["ok"] is True
+    assert body["piece"] == "wP" and body["variant"] == "v2"
+    # Provenance .src is written into the piece folder under the variant stem.
+    assert (tmp_path / "synth_pieces" / "wP" / "v2.src").read_text() == "wP"
+
+
+def test_scan_models_and_files_variant_aware(tmp_path, monkeypatch):
+    """models/preview/obj/delete address pieces by <piece>/<variant>."""
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr("chesslab.web.routers.scan.SCANS_ROOT", tmp_path / "scans")
+    monkeypatch.setattr("chesslab.web.routers.scan._repo_root", lambda: tmp_path)
+    piece_dir = tmp_path / "synth_pieces" / "wP"
+    piece_dir.mkdir(parents=True)
+    (piece_dir / "v1.obj").write_text("obj-bytes")
+    (piece_dir / "v1.png").write_text("tex")
+    (piece_dir / "v1_preview.png").write_text("prev")
+    (piece_dir / "v1_report.json").write_text('{"piece": "wP", "variant": "v1", "verts": 5000}')
+    (piece_dir / "v1.src").write_text("pawn_scan")
+
+    from chesslab.web.app import create_app
+    client = TestClient(create_app())
+
+    pieces = client.get("/api/scan/models").json()["pieces"]
+    entry = next(p for p in pieces if p["id"] == "wP/v1")
+    assert entry["piece"] == "wP" and entry["variant"] == "v1"
+    assert entry["source_dir"] == "pawn_scan" and entry["has_preview"] is True
+
+    assert client.get("/api/scan/model/wP/v1.obj").text == "obj-bytes"
+    assert client.get("/api/scan/prepare/preview/wP/v1").status_code == 200
+    assert client.get("/api/scan/prepare/preview/wP/v1?kind=clay").status_code == 204
+
+    r = client.delete("/api/scan/piece/wP/v1")
+    assert r.status_code == 200 and "v1.obj" in r.json()["removed"]
+    assert not piece_dir.exists()  # empty folder pruned
 
 

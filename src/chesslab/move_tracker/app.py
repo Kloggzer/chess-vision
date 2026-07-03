@@ -42,7 +42,7 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
     @app.post("/api/start")
     def start(profile: str = Body("phone"), source: str = Body("0"),
               motion_thr: float = Body(3.0), change_thr: float = Body(16.0),
-              cnn_run: str | None = Body(None)):
+              cnn_run: str | None = Body(None), device: str | None = Body(None)):
         # Atomic swap: take old tracker out under lock, stop+join OUTSIDE lock,
         # start new one, put in under lock. Double-start leaves exactly one thread.
         old = _STATE.get("tracker")
@@ -52,10 +52,14 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
             old.stop()
 
         kwargs = dict(tk)
+        # Body-Werte gewinnen über die CLI-Defaults in `tk` (sonst doppeltes Keyword-Argument):
+        kwargs["motion_thr"] = motion_thr
+        kwargs["change_thr"] = change_thr
         if cnn_run is not None:                      # Body überschreibt CLI-Default ("" = aus)
             kwargs["cnn_run"] = cnn_run or None
-        t = MoveTracker(profile=profile, source=source, motion_thr=motion_thr,
-                        change_thr=change_thr, **kwargs)
+        if device is not None:
+            kwargs["device"] = device
+        t = MoveTracker(profile=profile, source=source, **kwargs)
         t.reset_to_start()
         t.start()
         _STATE.update(tracker=t)
@@ -157,24 +161,31 @@ if __name__ == "__main__":
     ap.add_argument("--port", type=int, default=8001)
     ap.add_argument("--motion-thr", type=float, default=3.0)
     ap.add_argument("--change-thr", type=float, default=16.0)
-    ap.add_argument("--confirm-frames", type=int, default=2)
+    ap.add_argument("--confirm-frames", type=int, default=None)
+    ap.add_argument("--settle-frames", type=int, default=None)
     ap.add_argument("--max-changed", type=int, default=6)
-    ap.add_argument("--avg-frames", type=int, default=3)
+    ap.add_argument("--avg-frames", type=int, default=None)
     ap.add_argument("--no-live-align", action="store_true")
+    ap.add_argument("--cnn-conf-thr", type=float, default=0.85)
+    ap.add_argument("--census-thr", type=float, default=40.0)
+    ap.add_argument("--cnn-verify", action="store_true")
+    ap.add_argument("--device", default="auto", help="Torch-Device fürs CNN: auto|cpu|cuda")
     from .. import config as _config
     ap.add_argument("--cnn-run", default=_config.MOVE_TRACKER_DEFAULT_RUN,
-                    help="Modell-Run für CNN-Recovery/-Kontrolle ('' = aus)")
+                    help="Modell-Run für CNN-Verifikation/-Recovery ('' = aus)")
     a = ap.parse_args()
 
     runner_tk = {
         k: v for k, v in {
             "confirm_frames": a.confirm_frames,
+            "settle_frames": a.settle_frames,
             "max_changed": a.max_changed,
             "avg_frames": a.avg_frames,
             "live_align": not a.no_live_align,
         }.items() if v is not None
     } | {"motion_thr": a.motion_thr, "change_thr": a.change_thr,
-         "cnn_run": (a.cnn_run or None)}
+         "cnn_run": (a.cnn_run or None), "cnn_conf_thr": a.cnn_conf_thr,
+         "device": a.device, "census_thr": a.census_thr, "cnn_verify": a.cnn_verify}
 
     run(host=a.host, port=a.port, default_profile=a.profile, default_source=a.source,
         tracker_kwargs=runner_tk)

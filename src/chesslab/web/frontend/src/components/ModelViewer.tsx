@@ -4,8 +4,8 @@ import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 /** Interaktiver 3D-Viewer für eine vorbereitete Figur (OBJ + Textur, drehbar/zoombar). */
-export function ModelViewer({ piece, textured = true, size = 320 }: {
-  piece: string; textured?: boolean; size?: number;
+export function ModelViewer({ piece, variant, textured = true, size = 320 }: {
+  piece: string; variant: string; textured?: boolean; size?: number;
 }) {
   const host = useRef<HTMLDivElement>(null);
 
@@ -40,7 +40,7 @@ export function ModelViewer({ piece, textured = true, size = 320 }: {
     let raf = 0;
     let disposed = false;
     const loader = new OBJLoader();
-    loader.load(`/api/scan/model/${piece}.obj`, (obj) => {
+    loader.load(`/api/scan/model/${piece}/${variant}.obj`, (obj) => {
       if (disposed) return;
       // Normalen sicherstellen (Scan-Meshes können fehlende/inkonsistente Normalen haben).
       obj.traverse((c) => {
@@ -52,7 +52,7 @@ export function ModelViewer({ piece, textured = true, size = 320 }: {
       // durch die Figur (der „Wireframe"-Effekt).
       const applyMat = (mat: THREE.Material) => applyMeshMaterial(obj, mat);
       if (textured) {
-        new THREE.TextureLoader().load(`/api/scan/model/${piece}.png`, (tex) => {
+        new THREE.TextureLoader().load(`/api/scan/model/${piece}/${variant}.png`, (tex) => {
           tex.colorSpace = THREE.SRGBColorSpace;
           applyMat(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6 }));
         }, undefined, () => applyMat(new THREE.MeshStandardMaterial({ color: 0xb0b0b8, roughness: 0.6 })));
@@ -84,7 +84,7 @@ export function ModelViewer({ piece, textured = true, size = 320 }: {
       renderer.dispose();
       el.removeChild(renderer.domElement);
     };
-  }, [piece, textured, size]);
+  }, [piece, variant, textured, size]);
 
   return <div ref={host} style={{ width: size, height: size }}
     className="rounded-lg border border-zinc-700 bg-zinc-950 [&>canvas]:rounded-lg" />;

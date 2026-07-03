@@ -8,7 +8,39 @@ from chesslab.scan_discover import (
     discover_scans,
     load_report,
     normalize_name,
+    parse_piece_name,
 )
+
+
+class TestParsePieceName:
+    def test_plain_piece_is_v1(self):
+        assert parse_piece_name("wP") == ("wP", "v1")
+
+    def test_no_prefix_gets_white_and_v1(self):
+        assert parse_piece_name("P") == ("wP", "v1")
+
+    def test_numeric_suffix_is_variant(self):
+        assert parse_piece_name("wP2") == ("wP", "v2")
+
+    def test_label_suffix_is_variant(self):
+        assert parse_piece_name("wP_glass") == ("wP", "glass")
+        assert parse_piece_name("bN-old") == ("bN", "old")
+
+    def test_case_insensitive_canonical(self):
+        assert parse_piece_name("WQ") == ("wQ", "v1")
+
+    def test_non_piece_is_none(self):
+        assert parse_piece_name("not_a_piece") is None
+
+    def test_discover_scans_carries_variant(self, tmp_path):
+        for folder in ("wP", "wP2", "bP"):
+            d = tmp_path / folder
+            d.mkdir()
+            (d / f"{folder}.glb").write_text("fake")
+            (d / "diffuse.png").write_text("tex")
+        items, _ = discover_scans(tmp_path)
+        got = {(i.name, i.variant) for i in items}
+        assert got == {("wP", "v1"), ("wP", "v2"), ("bP", "v1")}
 
 
 class TestNormalizeName:
@@ -125,6 +157,49 @@ class TestDiscoverScans:
         items, _ = discover_scans(tmp_path)
         names = [i.name for i in items]
         assert names == sorted(names)
+
+
+class TestVerbatimImport:
+    def test_obj_copied_unchanged(self, tmp_path):
+        from chesslab.meshprep import prepare_scan
+        from chesslab.scan_discover import ScanItem
+
+        scan = tmp_path / "scan"
+        scan.mkdir()
+        obj = scan / "m.obj"
+        obj.write_text("# header\nmtllib old.mtl\no thing\n"
+                       "v 0.0 1.0 2.0\nvn 0 0 1\nusemtl foo\nf 1//1 1//1 1//1\n")
+        tex = scan / "t.png"
+        tex.write_bytes(b"PNGDATA")
+        item = ScanItem(name="wP", obj=obj, tex=tex, variant="v2")
+
+        rep = prepare_scan(item, tmp_path / "out", make_preview=False)
+
+        pdir = tmp_path / "out" / "wP"
+        text = (pdir / "v2.obj").read_text()
+        assert rep["verbatim"] is True and rep["variant"] == "v2"
+        assert "v 0.0 1.0 2.0" in text and "f 1//1 1//1 1//1" in text  # geometry intact
+        assert "mtllib v2.mtl" in text and "usemtl piece" in text
+        assert "old.mtl" not in text
+        assert (pdir / "v2.png").read_bytes() == b"PNGDATA"
+        assert (pdir / "v2.mtl").read_text().strip().endswith("map_Kd v2.png")
+
+
+class TestNextVariant:
+    def test_first_slot_is_v1(self, tmp_path):
+        from chesslab.scan_discover import next_variant
+        assert next_variant(tmp_path) == "v1"
+
+    def test_skips_existing(self, tmp_path):
+        from chesslab.scan_discover import next_variant
+        (tmp_path / "v1.obj").write_text("x")
+        (tmp_path / "v2.obj").write_text("x")
+        assert next_variant(tmp_path) == "v3"
+
+    def test_bare_vs_explicit(self):
+        from chesslab.scan_discover import is_bare_piece
+        assert is_bare_piece("wP") and is_bare_piece("P")
+        assert not is_bare_piece("wP2") and not is_bare_piece("wP_glass")
 
 
 class TestPickTexture:

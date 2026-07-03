@@ -30,6 +30,13 @@
   table.moves td.n { color: #71717a; width: 32px; }
   code { color: #93c5fd; word-break: break-all; }
   .muted { color: #71717a; font-size: 12px; }
+  .card.debug { grid-column: 1 / -1; }
+  .dbg { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px 20px; }
+  .dbg h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: #71717a; margin: 4px 0 6px; }
+  .kv { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; border-top: 1px solid #1f1f23; }
+  .kv span:first-child { color: #a1a1aa; white-space: nowrap; }
+  .kv span.dv { font-variant-numeric: tabular-nums; color: #e4e4e7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 65%; text-align: right; }
+  .kv b.ok { color: #34d399; } .kv b.bad { color: #f87171; } .kv b.warn { color: #fbbf24; }
 </style>
 </head>
 <body>
@@ -49,6 +56,11 @@
   <div class="card">
     <h2>Live-Kamera — was der Computer GLAUBT (Figurenbuchstaben + letzter Zug)</h2>
     <img class="feed" src="/warped.mjpg" alt="Live" />
+    <div class="muted" style="margin-top:6px">
+      <span style="color:#ff2fff">■</span> erkannte Änderung &nbsp;·&nbsp;
+      <span style="color:#00ffff">■</span> als Schatten verworfen &nbsp;·&nbsp;
+      <span style="color:#ffd700">■</span> letzter Zug
+    </div>
     <div id="calibWrap" style="display:none; margin-top:10px">
       <h2>Echtes Kamerabild — Ausrichtung (grün = Raster/Spielfeld, orange = Marker)</h2>
       <img id="calib" class="feed" style="max-width:360px" alt="Ausrichtung" />
@@ -73,6 +85,10 @@
               title="Brett per CNN gegen den Spielzustand prüfen; eindeutiger Zug wird übernommen">
         Resync per CNN</button>
     </div>
+  </div>
+  <div class="card debug">
+    <h2>Debug — Live-Metriken (Erkennung &amp; CNN)</h2>
+    <div class="dbg" id="dbg"><div class="muted">warte auf Daten…</div></div>
   </div>
 </main>
 <script>
@@ -132,6 +148,59 @@ function renderMoves(history) {
   tb.innerHTML = rows || `<tr><td class="muted" colspan="3">noch keine Züge</td></tr>`;
 }
 
+// Debug-Card EINMAL aufbauen (feste DOM), danach nur Wert-Felder aktualisieren ->
+// kein innerHTML-Neuaufbau je Poll, kein Reflow/Springen der Seite.
+const DBG_LAYOUT = [
+  ["Timing", [["FPS", "fps"], ["Diff-Rechenzeit", "diff_ms"], ["CNN-Inferenz", "infer_ms"], ["Device", "device"]]],
+  ["Deterministik", [["Motion / Schwelle", "motion"], ["Stable-Count", "stable_count"],
+    ["Frames gemittelt", "frames_used"], ["Settle-Frames", "settle_frames"],
+    ["Geänderte Felder", "nchanged"], ["Change-Schwelle", "change_thr"], ["Feld-Werte", "fieldvals"],
+    ["Schatten verworfen", "shadow"],
+    ["Best / 2nd Score", "scores"], ["Margin", "margin"], ["Kandidat (Diff)", "candidate"],
+    ["Confirmer", "confirmer"], ["Stuck", "stuck"]]],
+  ["CNN-Verifikation", [["Verify-Status", "verify_state"], ["Pending-Zug", "pending"],
+    ["Verify-Frames", "verify_frames"], ["Verify-Votes", "votes"], ["CNN-Sicherheit", "agreement"],
+    ["CNN-Vorschlag", "cnn_best"], ["Conf-Schwelle", "cnn_conf_thr"]]],
+];
+let dbgBuilt = false;
+function buildDebug() {
+  document.getElementById("dbg").innerHTML = DBG_LAYOUT.map(([title, items]) =>
+    `<div><h3>${title}</h3>` + items.map(([label, key]) =>
+      `<div class="kv"><span>${label}</span><span class="dv" id="dbg_${key}">—</span></div>`).join("") + `</div>`
+  ).join("");
+  dbgBuilt = true;
+}
+function set(key, html) { const e = document.getElementById("dbg_" + key); if (e && e.innerHTML !== html) e.innerHTML = html; }
+function fieldVals(vals, thr) {   // "sq: wert" — grün wenn über der Change-Schwelle, sonst grau
+  if (!vals || !vals.length) return "—";
+  return vals.map(([sq, v]) =>
+    `<code style="color:${v >= thr ? '#34d399' : '#71717a'}">${sq}:${v}</code>`).join(" ");
+}
+function renderDebug(d) {
+  if (!d) return;
+  if (!dbgBuilt) buildDebug();
+  const vs = d.verify_state;
+  const vsCls = vs === "confirmed" ? "ok" : vs === "ghost" ? "bad" : vs === "verifying" ? "warn" : "";
+  set("fps", d.fps); set("diff_ms", d.diff_ms + " ms"); set("infer_ms", d.infer_ms + " ms");
+  set("device", "<code>" + d.device + "</code>");
+  set("motion", `<b class="${d.motion > d.motion_thr ? 'warn' : ''}">${d.motion}</b> / ${d.motion_thr}`);
+  set("stable_count", d.stable_count); set("frames_used", d.frames_used); set("settle_frames", d.settle_frames);
+  set("nchanged", `${d.n_changed} / max ${d.max_changed}`); set("change_thr", d.change_thr);
+  set("fieldvals", fieldVals(d.changed_vals, d.change_thr));
+  set("shadow", (d.shadow_vetoed && d.shadow_vetoed.length)
+    ? `<code style="color:#22d3ee">${d.shadow_vetoed.join(" ")}</code>` : "—");
+  set("scores", `${d.best_score} / ${d.second_score}`); set("margin", d.margin);
+  set("candidate", "<code>" + (d.candidate || "—") + "</code>");
+  set("confirmer", `${d.confirm_count} / ${d.confirm_frames}`);
+  set("stuck", d.stuck_reason ? `${d.stuck_reason} (${d.stuck_count})` : "—");
+  set("verify_state", vs ? `<b class="${vsCls}">${vs}</b>` : "—");
+  set("pending", "<code>" + (d.pending_move || "—") + "</code>");
+  set("verify_frames", d.verify_frames); set("votes", `${d.verify_votes} / ${d.confirm_frames}`);
+  set("agreement", (d.cnn_agreement != null) ? (d.cnn_agreement * 100).toFixed(1) + "%" : "—");
+  set("cnn_best", "<code>" + (d.cnn_best_move || "—") + "</code>");
+  set("cnn_conf_thr", d.cnn_conf_thr);
+}
+
 async function poll() {
   try {
     const s = await fetch("/api/status").then(r => r.json());
@@ -151,13 +220,14 @@ async function poll() {
     document.getElementById("result").textContent = s.game_over ? ("Ende: " + s.result) : "";
     document.getElementById("fen").textContent = s.fen;
     renderMoves(s.history);
+    renderDebug(s.debug);
     if (s.fen !== lastFen) {           // Brett nur bei Änderung neu laden (kein Flackern)
       lastFen = s.fen;
       document.getElementById("board").src = "/board.svg?t=" + Date.now();
     }
   } catch (e) { /* Server evtl. noch nicht bereit */ }
 }
-setInterval(poll, 500);
+setInterval(poll, 250);
 poll();
 </script>
 </body>
