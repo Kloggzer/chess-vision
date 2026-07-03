@@ -13,7 +13,7 @@ Kamera + Display.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import cv2
@@ -43,7 +43,7 @@ class CropParams:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "CropParams":
+    def from_dict(cls, d: dict) -> CropParams:
         return cls(
             cell=float(d["cell"]),
             pad_up=float(d["pad_up"]),
@@ -52,7 +52,7 @@ class CropParams:
         )
 
     @classmethod
-    def default(cls, board_size: int) -> "CropParams":
+    def default(cls, board_size: int) -> CropParams:
         c = config.CROP
         return cls(
             cell=board_size / 8.0,
@@ -72,16 +72,16 @@ class CalibrationProfile:
     homography: list[list[float]]        # 3x3, row-major
     white_pov: bool
     crop: CropParams
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     # Marker-basiert (Pflicht): Slicing/Aufnahme kalibrieren pro Frame aus den ArUco-Markern.
     # image_corners/homography sind nur der Snapshot von der Kalibrierung (Fallback/Vorschau).
     margin: float = 0.0
     marker_dict: str = "DICT_4X4_50"
     # Multi-Cam: optionale Quelle (URL/Pfad statt camera_index) und echte Intrinsics. Fehlen sie,
     # nutzt geometry3d eine Näherung aus frame_size. So ist jede Kamera ein geschlossenes Profil.
-    source: "str | None" = None
-    camera_matrix: "list[list[float]] | None" = None
-    dist_coeffs: "list[float] | None" = None
+    source: str | None = None
+    camera_matrix: list[list[float]] | None = None
+    dist_coeffs: list[float] | None = None
 
     # -- serialization --
     def to_dict(self) -> dict:
@@ -104,7 +104,7 @@ class CalibrationProfile:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "CalibrationProfile":
+    def from_dict(cls, d: dict) -> CalibrationProfile:
         cm = d.get("camera_matrix")
         dc = d.get("dist_coeffs")
         return cls(
@@ -131,7 +131,7 @@ class CalibrationProfile:
         return path
 
     @classmethod
-    def load(cls, path: Path) -> "CalibrationProfile":
+    def load(cls, path: Path) -> CalibrationProfile:
         with Path(path).open("r", encoding="utf-8") as fh:
             return cls.from_dict(yaml.safe_load(fh))
 
@@ -298,7 +298,7 @@ def draw_board_grid(board_img, profile: CalibrationProfile, labels: bool = True)
 
 # --- Kamera-Helfer --------------------------------------------------------------------
 
-def open_camera(source: "int | str"):
+def open_camera(source: int | str):
     """Kamera/Quelle öffnen. `int` = lokaler Index (Windows: stabileres DSHOW-Backend); `str` =
     URL/Pfad (z. B. Handy-IP-Webcam `http://.../video`) -> Standard-Backend, kein DSHOW. So läuft
     eine Netzwerk-/Handy-Kamera mit identischem Code wie eine USB-Kamera."""
@@ -320,7 +320,7 @@ def _aruco_dictionary(dict_name: str):
     return cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, dict_name))
 
 
-def _detect_marker_quads(frame, dict_name: str, ids: tuple[int, ...]) -> dict[int, "np.ndarray"]:
+def _detect_marker_quads(frame, dict_name: str, ids: tuple[int, ...]) -> dict[int, np.ndarray]:
     """Roh-Detektion: {id: (4,2)-Eckarray} je gefundenem Marker (Reihenfolge wie von ArUco)."""
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
     params = cv2.aruco.DetectorParameters()
@@ -333,7 +333,7 @@ def _detect_marker_quads(frame, dict_name: str, ids: tuple[int, ...]) -> dict[in
 
 
 def detect_board_marker_quads(frame, dict_name: str = "DICT_4X4_50",
-                              ids: tuple[int, ...] = (0, 1, 2, 3)) -> dict[int, "np.ndarray"]:
+                              ids: tuple[int, ...] = (0, 1, 2, 3)) -> dict[int, np.ndarray]:
     """Volle 4-Eck-Quads je gefundenem Marker — für Pose/PnP (geometry3d). `detect_board_markers`
     kollabiert auf einen Punkt je Marker; hier bleiben alle 4 Ecken als 2D-3D-Korrespondenzen erhalten."""
     return _detect_marker_quads(frame, dict_name, ids)
@@ -415,7 +415,7 @@ class MarkerTracker:
       Box bei fixer Kamera sofort und perspektivtreu steht — eine Live-Detektion ersetzt den Seed.
     """
 
-    def __init__(self, params: "config.TrackerDefaults | None" = None) -> None:
+    def __init__(self, params: config.TrackerDefaults | None = None) -> None:
         self.p = params or config.TRACKER
         self.pos: dict[int, list[float]] = {}                  # geglättete/gehaltene Position
         self.age: dict[int, int] = {}                          # Frames seit letzter Live-Detektion
@@ -503,7 +503,7 @@ class MarkerTracker:
         return self.points()
 
 
-def make_tracker(profile: "CalibrationProfile | None" = None) -> MarkerTracker:
+def make_tracker(profile: CalibrationProfile | None = None) -> MarkerTracker:
     """Tracker erzeugen, bei vorhandenem Profil aus dessen 4 Eckpunkten geseedet.
 
     `profile.image_corners` sind exakt die 4 Marker-Zentren (a8,h8,h1,a1) der Kalibrierung.
@@ -516,7 +516,7 @@ def make_tracker(profile: "CalibrationProfile | None" = None) -> MarkerTracker:
     return t
 
 
-def board_corners_for_frame(frame, profile: CalibrationProfile, tracker: "MarkerTracker",
+def board_corners_for_frame(frame, profile: CalibrationProfile, tracker: MarkerTracker,
                             min_markers: int | None = None) -> list[list[float]] | None:
     """Die 4 Brett-Ecken (a8,h8,h1,a1) in **Frame-Pixeln** für diesen Frame.
 

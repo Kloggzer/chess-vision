@@ -34,9 +34,9 @@ _TYPEMAP = {"P": chess.PAWN, "N": chess.KNIGHT, "B": chess.BISHOP,
 # --- Aggregation (headless, getestet) -------------------------------------------------
 
 def aggregate_fens(fens: list[str]) -> tuple[dict, dict, dict]:
-    counts = {c: 0 for c in CLASSES}
-    light = {c: 0 for c in CLASSES}
-    dark = {c: 0 for c in CLASSES}
+    counts = dict.fromkeys(CLASSES, 0)
+    light = dict.fromkeys(CLASSES, 0)
+    dark = dict.fromkeys(CLASSES, 0)
     for fen in fens:
         for square, label in GameState(fen).labels().items():
             counts[label] += 1
@@ -383,8 +383,8 @@ class CollectDashboard:
 
     def _render(self):
         cov = self.coverage or {"frames": 0, "sessions": 0, "total_crops": 0,
-                                 "counts": {c: 0 for c in CLASSES}, "light": {c: 0 for c in CLASSES},
-                                 "dark": {c: 0 for c in CLASSES}}
+                                 "counts": dict.fromkeys(CLASSES, 0), "light": dict.fromkeys(CLASSES, 0),
+                                 "dark": dict.fromkeys(CLASSES, 0)}
         W, H = 900, 700
         img = np.full((H, W, 3), 30, dtype=np.uint8)
 

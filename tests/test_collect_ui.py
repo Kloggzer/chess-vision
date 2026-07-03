@@ -60,9 +60,9 @@ def test_build_recommendation_fen_places_piece_on_requested_color():
 
 def test_recommend_prioritizes_missing_color_then_low_count():
     # only the white king has been seen, all on dark -> wK missing on light is a ✗
-    counts = {c: 0 for c in config.CLASSES}
-    light = {c: 0 for c in config.CLASSES}
-    dark = {c: 0 for c in config.CLASSES}
+    counts = dict.fromkeys(config.CLASSES, 0)
+    light = dict.fromkeys(config.CLASSES, 0)
+    dark = dict.fromkeys(config.CLASSES, 0)
     counts["wK"] = 5
     dark["wK"] = 5
     cov = {"counts": counts, "light": light, "dark": dark}
@@ -74,17 +74,17 @@ def test_recommend_prioritizes_missing_color_then_low_count():
 
 
 def test_recommend_none_when_all_covered():
-    counts = {c: 500 for c in config.CLASSES}
-    light = {c: 250 for c in config.CLASSES}
-    dark = {c: 250 for c in config.CLASSES}
+    counts = dict.fromkeys(config.CLASSES, 500)
+    light = dict.fromkeys(config.CLASSES, 250)
+    dark = dict.fromkeys(config.CLASSES, 250)
     cov = {"counts": counts, "light": light, "dark": dark}
     assert recommend(cov, target_per_class=200) is None
 
 
 def test_build_coverage_fen_respects_inventory_and_prefers_deficit_colour():
     # alles voll AUSSER bQ auf dunklen Feldern -> der eine schwarze Damen-Slot muss dorthin
-    light = {c: 999 for c in config.CLASSES}
-    dark = {c: 999 for c in config.CLASSES}
+    light = dict.fromkeys(config.CLASSES, 999)
+    dark = dict.fromkeys(config.CLASSES, 999)
     dark["bQ"] = 0
     fen, placements = build_coverage_fen(light, dark, target=200)
     board = chess.Board(fen)
@@ -99,7 +99,7 @@ def test_build_coverage_fen_respects_inventory_and_prefers_deficit_colour():
 
 
 def test_coverage_plan_packs_rare_classes_and_converges():
-    zero = {c: 0 for c in config.CLASSES}
+    zero = dict.fromkeys(config.CLASSES, 0)
     plan = coverage_plan(dict(zero), dict(zero), target=4, count=50)
     assert plan and all(p["fen"] for p in plan)
     # erster Aufbau ist dicht (viele Ziel-Crops), nicht 1-2 wie beim Partie-Replay

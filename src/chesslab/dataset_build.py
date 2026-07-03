@@ -22,7 +22,7 @@ import json
 import random
 import shutil
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from . import config
@@ -221,7 +221,7 @@ def build_dataset(
 
     cfg = {
         "name": name,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "session_ids": list(session_ids),
         "variant_tag": variant_tag,
         "source_manifest": str(src.as_posix()),

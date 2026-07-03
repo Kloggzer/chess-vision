@@ -42,7 +42,7 @@ me.materials.clear(); me.materials.append(mat)
 
 P = np.array([list(v.co) for v in me.vertices])
 mn, mx = P.min(0), P.max(0)
-center = Vector(((mn + mx) / 2))
+center = Vector((mn + mx) / 2)
 size = float((mx - mn).max()) or 1.0
 
 sc = bpy.context.scene

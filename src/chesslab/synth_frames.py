@@ -51,7 +51,7 @@ def extract_frames(video: Path, out_dir: Path, n: int = 120, quality: int = 95,
     n = max(1, min(n, total))
 
     # Fenstergrenzen: Frame i gehört zu Fenster floor(i * n / total).
-    best: list[tuple[float, "np.ndarray | None"]] = [(-1.0, None)] * n
+    best: list[tuple[float, np.ndarray | None]] = [(-1.0, None)] * n
     i = 0
     while True:
         ok, frame = cap.read()

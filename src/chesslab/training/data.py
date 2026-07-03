@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .. import config
@@ -205,5 +205,5 @@ def build_model_card(
         "torch_version": torch_version,
         "rocm_hip": hip_version,
         "exported_formats": list(exported_formats),
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
     }

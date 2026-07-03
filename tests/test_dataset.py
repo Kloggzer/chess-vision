@@ -62,7 +62,7 @@ def test_subsample_empty_caps_and_is_seed_stable():
 
 
 def test_class_weights_largest_class_has_smallest_weight():
-    counts = {c: 0 for c in config.CLASSES}
+    counts = dict.fromkeys(config.CLASSES, 0)
     counts["empty"] = 1000
     counts["wP"] = 100
     counts["wK"] = 10

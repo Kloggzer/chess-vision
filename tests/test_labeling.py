@@ -126,7 +126,7 @@ def test_slice_uses_explicit_labels_incl_occluded(tmp_path):
     (sdir / "frames").mkdir(parents=True)
     cv2.imwrite(str(sdir / "frames" / "0000.png"), np.full((480, 640, 3), 200, dtype=np.uint8))
     corners = [[0, 0], [640, 0], [640, 480], [0, 480]]
-    labels = {s: "empty" for s in all_squares()}
+    labels = dict.fromkeys(all_squares(), "empty")
     labels["e1"] = "wK"; labels["d4"] = "occluded"
     (sdir / "log.jsonl").write_text(
         json.dumps({"frame": "frames/0000.png", "ply": 0, "fen": "x", "move_san": None,

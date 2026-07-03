@@ -24,7 +24,7 @@ def _diffs(values: dict[str, float], default: float = 1.0) -> dict[str, float]:
     """Build a 64-field diff dict: `values` overrides, rest gets `default`."""
     from chesslab.move_tracker.tracker import _ALL
 
-    d = {sq: default for sq in _ALL}
+    d = dict.fromkeys(_ALL, default)
     d.update(values)
     return d
 
@@ -37,7 +37,7 @@ def test_normalize_diffs_all_equal_suppresses_global_shift():
     """64 Felder gleicher Wert (globaler Belichtungs-Shift) → alle ≈ 0."""
     from chesslab.move_tracker.tracker import _ALL
 
-    diffs = {sq: 20.0 for sq in _ALL}
+    diffs = dict.fromkeys(_ALL, 20.0)
     result = normalize_diffs(diffs)
     for v in result.values():
         assert v == pytest.approx(0.0)
@@ -47,7 +47,7 @@ def test_normalize_diffs_isolates_hot_fields():
     """62 Felder ≈ 2.0, e2/e4 = 40.0 → e2/e4 bleiben ≈ 38, Rest ≈ 0."""
     from chesslab.move_tracker.tracker import _ALL
 
-    diffs = {sq: 2.0 for sq in _ALL}
+    diffs = dict.fromkeys(_ALL, 2.0)
     diffs["e2"] = 40.0
     diffs["e4"] = 40.0
     result = normalize_diffs(diffs)

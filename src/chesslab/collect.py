@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import chess
@@ -32,7 +32,7 @@ from .state import GameState, castling_rook_squares, en_passant_captured_square,
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def generate_session_id() -> str:
@@ -465,7 +465,7 @@ def collect_live(start_fen: str | None, profile: str, camera: int,
             import queue
             import threading
 
-            inbox: "queue.Queue" = queue.Queue()
+            inbox: queue.Queue = queue.Queue()
 
             def _reader() -> None:
                 try:
