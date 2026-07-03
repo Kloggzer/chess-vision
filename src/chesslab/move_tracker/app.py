@@ -167,8 +167,9 @@ if __name__ == "__main__":
     ap.add_argument("--avg-frames", type=int, default=None)
     ap.add_argument("--no-live-align", action="store_true")
     ap.add_argument("--cnn-conf-thr", type=float, default=0.85)
-    ap.add_argument("--census-thr", type=float, default=40.0)
-    ap.add_argument("--cnn-verify", action="store_true")
+    ap.add_argument("--census-thr", type=float, default=55.0)
+    ap.add_argument("--no-cnn-verify", dest="cnn_verify", action="store_false")
+    ap.set_defaults(cnn_verify=True)
     ap.add_argument("--device", default="auto", help="Torch-Device fürs CNN: auto|cpu|cuda")
     from .. import config as _config
     ap.add_argument("--cnn-run", default=_config.MOVE_TRACKER_DEFAULT_RUN,

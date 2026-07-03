@@ -254,7 +254,7 @@ class MoveTracker:
                  cnn_run: str | None = None, cnn_conf_thr: float = 0.85,
                  cnn_cooldown_s: float = 2.0, cnn_check_interval_s: float = 10.0,
                  device: str = "auto", verify_window: int = 8,
-                 census_thr: float = 40.0, cnn_verify: bool = False) -> None:
+                 census_thr: float = 55.0, cnn_verify: bool = True) -> None:
         self.profile = load_profile(profile)
         _src = source if not str(source).isdigit() else int(source)
         _cap = open_source(_src)
@@ -309,7 +309,7 @@ class MoveTracker:
         # Pre-Commit-Verifikation: ein bestätigter Diff-Kandidat wartet, bis das CNN ihn
         # über eine (adaptive) Mehr-Frame-Abstimmung bestätigt oder als Ghost verwirft.
         self.verify_window = verify_window                # max. Frames, die das CNN befragt wird
-        self.cnn_verify = cnn_verify                      # Pre-Commit-Verify AN? (Default aus: nicht blockieren)
+        self.cnn_verify = cnn_verify                      # Identitäts-Verify pro Zug AN? (Default an, nicht blockierend)
         self._pending: dict | None = None                 # {"uci","fen","frames"} oder None
 
         # -- Debug-Metriken (nur Anzeige; unter self.lock gepflegt) --
@@ -536,19 +536,34 @@ class MoveTracker:
                 self._last_cnn_ts = now
             log.warning("CNN-Beobachtung fehlgeschlagen: %s", e)
             return
+        # Identitäts-basierte Auswertung (rein) — Fallback auf Occupancy, wenn der Run keine
+        # Figuren-Identität liefert (obs.label is None).
+        has_identity = getattr(obs, "label", None) is not None
+        if has_identity:
+            matches = recovery.board_matches_identity(self.board, obs)
+            cnn_mv, agreement, _second = recovery.derive_move_identity(self.board, obs)
+            conflicts = matches["conflicts"]
+            match_ok = matches["match"]
+            inconclusive = matches["inconclusive"]
+        else:
+            res = recovery.resync_check(self.board, obs)
+            cnn_mv = chess.Move.from_uci(res["move"]) if res["move"] else None
+            agreement, conflicts = res["agreement"], res["conflicts"]
+            match_ok, inconclusive = res["match"], False
+
         with self.lock:
             self._last_cnn_ts = now
             if self.board.fen() != fen:                     # Zustand hat sich geändert → verwerfen
                 self._recovery_confirmer.reset()
                 return
-            res = recovery.resync_check(self.board, obs)
-            if res["match"]:
+            self._cnn_agreement = agreement
+            self._cnn_best_move = cnn_mv.uci() if cnn_mv else None
+
+            if match_ok:
+                # „Nichts-verändert": CNN bestätigt, dass das Brett dem Spielzustand entspricht.
+                # Der Diff hing an Schatten/Drift fest -> Referenz nachziehen, KEIN Zug.
                 self.cnn_status, self.cnn_conflicts = "ok", []
                 self._recovery_confirmer.reset()
-                # „Nichts-verändert"-Recover: der Diff hatte etwas als geändert markiert
-                # (Schatten/Drift/Wackeln) und hängt fest, aber das CNN bestätigt: die
-                # Occupancy stimmt noch mit dem Spielzustand überein -> KEIN Zug, sondern
-                # Referenz aufs aktuelle Bild nachziehen, damit der Diff nicht ewig stuck bleibt.
                 if self._stuck_reason is not None and self._last_cur is not None:
                     self._set_ref(self._last_cur, self._last_cur_bgr)
                     self._clear_stuck()
@@ -556,22 +571,25 @@ class MoveTracker:
                     self._verify_state = "resynced"
                     self.note = "CNN: Brett unverändert — Referenz nachgezogen (kein Zug)"
                 return
-            self.cnn_status, self.cnn_conflicts = "mismatch", res["conflicts"]
-            uci = res["move"]
-            if uci is None:
-                # Kein eindeutiger erklärender Zug: nur warnen (Kontrolle), nie raten.
-                shown = ", ".join(res["conflicts"][:4]) + ("…" if len(res["conflicts"]) > 4 else "")
+
+            if inconclusive:                                # zu viel verdeckt → keine Aussage
+                self._recovery_confirmer.reset()
+                return
+
+            self.cnn_status, self.cnn_conflicts = "mismatch", conflicts
+            if cnn_mv is None:
+                shown = ", ".join(conflicts[:4]) + ("…" if len(conflicts) > 4 else "")
                 self.note = f"CNN-Kontrolle: Brett weicht ab ({shown}) — Figuren prüfen oder Resync"
                 self._recovery_confirmer.reset()
                 return
-            mv = chess.Move.from_uci(uci)
+            uci = cnn_mv.uci()
             if not self._recovery_confirmer.feed(uci):      # Voting statt Single-Shot
-                san = self.board.san(mv)
+                san = self.board.san(cnn_mv)
                 self.note = (f"CNN-Recovery prüft {san}… "
                              f"({self._recovery_confirmer.count}/{self.confirm_frames})")
                 return
-            san = self.board.san(mv)
-            self.board.push(mv)
+            san = self.board.san(cnn_mv)
+            self.board.push(cnn_mv)
             self.history.append(san)
             self.last_move = uci
             self.ref_gray = self.ref_bgr = None             # Referenz auf neue Stellung neu aufnehmen
@@ -582,7 +600,7 @@ class MoveTracker:
             self.cnn_status, self.cnn_conflicts = "ok", []
             self._confirmer.reset()
             self._clear_stuck()
-            self.note = f"Zug per CNN-Recovery erkannt: {san} (Übereinstimmung {res['agreement']:.0%})"
+            self.note = f"Zug per CNN-Recovery erkannt: {san} (Übereinstimmung {agreement:.0%})"
 
     def _verify_tick(self, frame) -> None:
         """Pre-Commit-Verifikation eines Diff-Kandidaten (`self._pending`) durchs CNN, autonom
@@ -618,46 +636,61 @@ class MoveTracker:
         except Exception as e:  # noqa: BLE001 — einzelner Fehlversuch, nächster Frame erneut
             log.warning("CNN-Verify-Beobachtung fehlgeschlagen: %s", e)
             return
-        # Auswertung (rein) außerhalb des Locks vorbereiten.
+        # Auswertung (rein, per IDENTITÄT) außerhalb des Locks vorbereiten.
         pend_mv = chess.Move.from_uci(pending["uci"])
-        agree, _n = recovery.verify_move(self.board, pend_mv, obs)
-        cnn_mv, best, _second = recovery.score_moves(self.board, obs)
+        agree, n = recovery.verify_move_identity(self.board, pend_mv, obs)
+        matches = recovery.board_matches_identity(self.board, obs)
+        cnn_mv, _best, _second = recovery.derive_move_identity(self.board, obs)
         cnn_uci = cnn_mv.uci() if cnn_mv else None
 
         with self.lock:
             self._infer_ms = infer_ms
-            self._cnn_agreement = max(agree, best)
+            self._cnn_agreement = agree
             self._cnn_best_move = cnn_uci
             if self._pending is not pending or self.board.fen() != pending["fen"]:
                 return                                      # Zustand hat sich geändert → verwerfen
             pending["frames"] += 1
 
-            # Entscheiden, wofür dieser Frame stimmt (oder None = unsicher).
-            vote: str | None = None
-            recovered = False
-            if agree >= recovery.min_agreement and cnn_uci in (pending["uci"], None):
-                vote = pending["uci"]
-            elif cnn_uci is not None and cnn_uci != pending["uci"]:
-                vote, recovered = cnn_uci, True             # Diff war Ghost; CNN kennt echten Zug
+            def _commit(note_suffix: str, state: str, status: str, conflicts=None):
+                self.cnn_status = status
+                self.cnn_conflicts = conflicts or []
+                self._commit_move(pend_mv, pending["cur"], pending.get("cur_bgr"))
+                self._verify_state = state
+                if note_suffix:
+                    self.note += note_suffix
 
-            if vote is not None and self._recovery_confirmer.feed(vote):
-                self._commit_move(chess.Move.from_uci(vote), pending["cur"],
-                                  pending.get("cur_bgr"), recovered=recovered)
-                if recovered:
-                    self.note += "  (Diff-Ghost korrigiert)"
+            # 1) Schatten / kein Zug: CNN sieht das GEGLAUBTE Brett unverändert (Identität gleich)
+            #    → NICHT committen, sondern Referenz nachziehen. Zuverlässiger Schatten-Killer.
+            if matches["match"]:
+                self._pending = None
+                self._confirmer.reset()
+                self._recovery_confirmer.reset()
+                self._clear_stuck()
+                self._set_ref(pending["cur"], pending.get("cur_bgr"))
+                self._verify_state = "shadow"
+                self.cnn_status, self.cnn_conflicts = "shadow", []
+                self.note = "Schatten/kein Zug (CNN: Brett unverändert)"
                 return
-            if vote is not None:
-                san = self.board.san(chess.Move.from_uci(vote))
-                self.note = (f"CNN prüft {san}… "
-                             f"({self._recovery_confirmer.count}/{self.confirm_frames})")
 
-            # Timeout: bleibt das CNN unentschieden (z.B. Verdeckung/geringe Konfidenz) →
-            # NICHT blockieren, sondern dem Diff vertrauen und committen. Das CNN kann einen
-            # Zug nur noch KORRIGIEREN (anderer eindeutiger Zug), nicht dauerhaft verhindern.
-            if pending["frames"] >= self.verify_window and self._recovery_confirmer.count == 0:
-                self._commit_move(chess.Move.from_uci(pending["uci"]), pending["cur"],
-                                  pending.get("cur_bgr"), recovered=False)
-                self.note += "  (CNN unsicher — Diff übernommen)"
+            # 2) Diff durch Identität bestätigt → Commit.
+            if agree >= recovery.min_agreement:
+                _commit("", "confirmed", "ok")
+                return
+
+            # 3) Berührte Felder belastbar, aber Identität passt NICHT → Diff gewinnt (Nutzer-
+            #    Entscheidung), CNN warnt nur (mismatch, Alternative in der Debug-Card).
+            if n >= 2:
+                _commit("  (CNN unstimmig — Diff übernommen)", "mismatch", "mismatch",
+                        [] if cnn_uci is None else [cnn_uci])
+                return
+
+            # 4) Verdeckung/geringe Konfidenz auf den Endpunkten → nicht blockieren: warten,
+            #    nach `verify_window` dem Diff vertrauen.
+            if pending["frames"] >= self.verify_window:
+                _commit("  (CNN unsicher — Diff übernommen)", "confirmed", "ok")
+            else:
+                self.note = (f"prüfe {self.board.san(pend_mv)} per CNN… "
+                             f"({pending['frames']}/{self.verify_window})")
 
     def resync_cnn(self) -> dict:
         """Manueller „Resync per CNN"-Button: einmalige Kontrolle, wendet einen EINDEUTIG

@@ -504,70 +504,90 @@ class TestBaseTruthDetect:
 
 
 class _FakeRecovery:
-    """Stub für CnnRecovery: liefert vorgegebene verify/score-Ergebnisse ohne torch."""
+    """Stub für CnnRecovery (Identitätspfad): liefert vorgegebene Ergebnisse ohne torch."""
 
-    def __init__(self, verify_agree, cnn_move, min_agreement=0.97):
-        self._va, self._cm = verify_agree, cnn_move
-        self.min_agreement = min_agreement
+    def __init__(self, matches=False, verify_agree=0.0, verify_n=2, derive_move=None,
+                 min_agreement=0.97):
+        self.matches, self.verify_agree, self.verify_n = matches, verify_agree, verify_n
+        self.derive_move, self.min_agreement = derive_move, min_agreement
 
     def observe(self, frame, corners):
         return "OBS"
 
-    def verify_move(self, board, move, obs):
-        return self._va, 40
+    def board_matches_identity(self, board, obs):
+        return {"match": self.matches, "conflicts": [], "n": 20, "inconclusive": False}
 
-    def score_moves(self, board, obs):
-        if self._cm is None:
-            return None, 0.4, 0.2
-        return chess.Move.from_uci(self._cm), 0.99, 0.3
+    def verify_move_identity(self, board, move, obs):
+        return self.verify_agree, self.verify_n
+
+    def derive_move_identity(self, board, obs):
+        if self.derive_move is None:
+            return None, 0.0, 0.0
+        return chess.Move.from_uci(self.derive_move), 0.99, 0.3
 
 
-def _pending_tracker(monkeypatch, verify_agree, cnn_move, **kw):
+def _pending_tracker(monkeypatch, **fake_kw):
     """Tracker mit aktivem (gestubbtem) CNN und einem Pending-Kandidaten e2e4."""
+    win = fake_kw.pop("verify_window", None)
+    kw = {} if win is None else {"verify_window": win}
     mt = _make_tracker(monkeypatch, cnn_run="stub", **kw)
-    mt.recovery = _FakeRecovery(verify_agree, cnn_move)   # _ensure_cnn gibt das zurück
+    mt.recovery = _FakeRecovery(**fake_kw)                 # _ensure_cnn gibt das zurück
     mt._last_corners = [[0, 0], [400, 0], [400, 400], [0, 400]]
     mt.ref_gray = _gray_frame(["e2"])
     mt.ref_fen = mt.board.fen()
-    mt._pending = {"uci": "e2e4", "fen": mt.board.fen(), "cur": _gray_frame(["e4"]), "frames": 0}
+    mt._pending = {"uci": "e2e4", "fen": mt.board.fen(),
+                   "cur": _gray_frame(["e4"]), "cur_bgr": None, "frames": 0}
     mt._verify_state = "verifying"
     return mt
 
 
 class TestCnnVerify:
-    """Pre-Commit-Verifikation eines Diff-Kandidaten durchs (gestubbte) CNN."""
+    """Identitäts-Verify eines Diff-Kandidaten durchs (gestubbte) CNN."""
 
-    def test_cnn_confirms_pending_commits(self, monkeypatch):
-        mt = _pending_tracker(monkeypatch, verify_agree=0.99, cnn_move="e2e4")
+    def test_shadow_suppressed_no_commit(self, monkeypatch):
+        """CNN sieht das Brett unverändert (Identität gleich) → kein Zug, Referenz nachgezogen."""
+        mt = _pending_tracker(monkeypatch, matches=True)
+        mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        assert mt.history == []
+        assert mt._pending is None
+        assert mt._verify_state == "shadow"
+        assert mt.cnn_status == "shadow"
+
+    def test_identity_confirms_commit(self, monkeypatch):
+        """Identität bestätigt den Diff-Zug → Commit."""
+        mt = _pending_tracker(monkeypatch, matches=False, verify_agree=1.0, verify_n=2)
         mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
         assert mt.history == ["e4"]
         assert mt.last_move == "e2e4"
         assert mt._pending is None
         assert mt._verify_state == "confirmed"
-        assert mt.ref_fen == mt.board.fen()
         assert mt.recovered_last is False
 
-    def test_cnn_disagrees_applies_own_move(self, monkeypatch):
-        """Diff schlug e2e4 vor, CNN kennt eindeutig d2d4 → d2d4 wird committet (Ghost korrigiert)."""
-        mt = _pending_tracker(monkeypatch, verify_agree=0.5, cnn_move="d2d4")
+    def test_diff_wins_with_warning_on_mismatch(self, monkeypatch):
+        """Identität passt NICHT (Felder belastbar), CNN sieht anderen Zug → Diff gewinnt,
+        CNN warnt nur (mismatch)."""
+        mt = _pending_tracker(monkeypatch, matches=False, verify_agree=0.0, verify_n=2,
+                              derive_move="d2d4")
         mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
-        assert mt.history == ["d4"]
-        assert mt.last_move == "d2d4"
-        assert mt.recovered_last is True
-        assert mt._pending is None
+        assert mt.history == ["e4"]                        # Diff-Zug committet (nicht d4)
+        assert mt.last_move == "e2e4"
+        assert mt.cnn_status == "mismatch"
+        assert mt._cnn_best_move == "d2d4"                 # Alternative sichtbar
 
-    def test_cnn_unsure_commits_diff_not_blocking(self, monkeypatch):
-        """CNN bleibt unsicher → nach verify_window Frames wird der Diff-Zug übernommen
-        (NICHT blockieren). Das CNN kann nur korrigieren, nicht dauerhaft verhindern."""
-        mt = _pending_tracker(monkeypatch, verify_agree=0.5, cnn_move=None, verify_window=3)
-        for _ in range(3):
+    def test_occlusion_waits_then_commits_diff(self, monkeypatch):
+        """Endpunkte verdeckt (verify_n<2) → nicht blockieren: nach verify_window Diff committen."""
+        mt = _pending_tracker(monkeypatch, matches=False, verify_agree=0.0, verify_n=0,
+                              verify_window=3)
+        mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        assert mt.history == []                            # noch am Warten
+        for _ in range(2):
             mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
         assert mt.history == ["e4"]
         assert mt._pending is None
 
     def test_cnn_unavailable_commits_pending(self, monkeypatch):
         """_ensure_cnn liefert None (Modell weg) → Fallback: Pending direkt committen."""
-        mt = _pending_tracker(monkeypatch, verify_agree=0.99, cnn_move="e2e4")
+        mt = _pending_tracker(monkeypatch, matches=False, verify_agree=1.0)
         monkeypatch.setattr(mt, "_ensure_cnn", lambda: None)
         mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
         assert mt.history == ["e4"]
