@@ -290,14 +290,18 @@ def _extract_glb_texture(mesh) -> Path | None:
 
     import trimesh
 
+    import PIL.Image
+
     visual = mesh.visual
     if hasattr(visual, "material") and hasattr(visual.material, "baseColorTexture"):
         tex = visual.material.baseColorTexture
         if tex is not None:
-            import PIL.Image
-
-            img = PIL.Image.open(io.BytesIO(tex))
-            return img  # return as PIL Image for later saving
+            # trimesh liefert je nach Version ein PIL.Image, ein ndarray oder Bytes.
+            if isinstance(tex, PIL.Image.Image):
+                return tex
+            if isinstance(tex, np.ndarray):
+                return PIL.Image.fromarray(tex)
+            return PIL.Image.open(io.BytesIO(tex))
 
     # Try trimesh's own texture extraction
     if isinstance(visual, trimesh.visual.texture.TextureVisuals):
