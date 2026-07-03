@@ -31,9 +31,9 @@ def load_manifest(path: Path) -> list[dict]:
 # --- stats ----------------------------------------------------------------------------
 
 def compute_stats(rows: list[dict], min_samples: int = config.MIN_CLASS_SAMPLES) -> dict:
-    counts = {c: 0 for c in CLASSES}
-    light = {c: 0 for c in CLASSES}
-    dark = {c: 0 for c in CLASSES}
+    counts = dict.fromkeys(CLASSES, 0)
+    light = dict.fromkeys(CLASSES, 0)
+    dark = dict.fromkeys(CLASSES, 0)
     per_session: Counter = Counter()
 
     for r in rows:
@@ -132,7 +132,7 @@ def subsample_empty(rows: list[dict], max_empty_ratio: float | None, seed: int) 
 def compute_class_weights(counts: dict) -> dict:
     """Invers zur Häufigkeit. Größte Klasse -> kleinstes Gewicht. Absente Klassen -> 0.0."""
     present = {c: n for c, n in counts.items() if n > 0}
-    weights = {c: 0.0 for c in CLASSES}
+    weights = dict.fromkeys(CLASSES, 0.0)
     if not present:
         return weights
     total = sum(present.values())
@@ -203,7 +203,7 @@ def make_split(
     counts_split = {"train": len(train_kept), "val": len(val_rows), "test": len(test_rows)}
 
     # Klassenverteilung + Gewichte aus dem (balancierten) TRAIN-Set.
-    train_counts = {c: 0 for c in CLASSES}
+    train_counts = dict.fromkeys(CLASSES, 0)
     for r in train_kept:
         train_counts[r["label"]] += 1
 

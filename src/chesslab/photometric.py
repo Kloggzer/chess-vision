@@ -23,7 +23,7 @@ PHOTOMETRY_METHODS: tuple[str, ...] = config.PHOTOMETRY_METHODS
 
 
 def preprocess_crop(bgr: np.ndarray, method: str = "none",
-                    params: "config.PhotometryDefaults | None" = None) -> np.ndarray:
+                    params: config.PhotometryDefaults | None = None) -> np.ndarray:
     """Deterministische photometrische Normierung eines BGR-uint8-Crops -> BGR uint8.
 
     `method`:

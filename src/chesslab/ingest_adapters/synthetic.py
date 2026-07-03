@@ -10,8 +10,8 @@ Gruppierung in Blöcke (`synth-NNN`) → mehrere Sessions → sessionbasierter S
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 
 from ..ingest import ImportItem
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import copy
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import cv2
@@ -249,7 +249,7 @@ def upsert_corrections(items: list[dict], path: Path) -> int:
     with path.open("w", encoding="utf-8") as fh:
         for (sid, frame, square), label in merged.items():
             fh.write(json.dumps({"session_id": sid, "frame": frame, "square": square,
-                                 "label": label, "ts": datetime.now(timezone.utc).isoformat()},
+                                 "label": label, "ts": datetime.now(UTC).isoformat()},
                                 ensure_ascii=False) + "\n")
     return len(merged)
 
@@ -341,7 +341,7 @@ def slice_session(
                 "out_size": [out[0], out[1]],
                 "geometry": geometry_mode,
                 "photometry": photometry,
-                "ts": datetime.now(timezone.utc).isoformat(),
+                "ts": datetime.now(UTC).isoformat(),
             }
             if box3d:
                 row["piece_height_cells"] = float(piece_height_cells)

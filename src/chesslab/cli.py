@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 import typer
 
@@ -47,7 +46,7 @@ def _root() -> None:
 @app.command()
 def doctor(
     gpu: bool = typer.Option(False, "--gpu", help="Zusätzlich die ROCm/PyTorch-GPU-Validierung (Pflicht vor Training)."),
-    camera: Optional[int] = typer.Option(None, "--camera", help="Kamera-Check für Index N (öffnen + ein Frame lesen)."),
+    camera: int | None = typer.Option(None, "--camera", help="Kamera-Check für Index N (öffnen + ein Frame lesen)."),
     json_out: bool = typer.Option(False, "--json", help="Maschinenlesbaren JSON-Report zusätzlich ausgeben."),
 ) -> None:
     """Pre-flight: Python, App-Deps, optional GPU (ROCm) und Kamera validieren."""
@@ -273,7 +272,7 @@ def split_cmd(
     val_frac: float = typer.Option(config.DEFAULT_VAL_FRAC, "--val-frac"),
     test_frac: float = typer.Option(config.DEFAULT_TEST_FRAC, "--test-frac"),
     max_empty_ratio: float = typer.Option(config.DEFAULT_MAX_EMPTY_RATIO, "--max-empty-ratio"),
-    max_class_ratio: Optional[float] = typer.Option(None, "--max-class-ratio", help="Jede Figurenklasse auf R * kleinste Figurenklasse deckeln (balanciert Bauern herunter; nur train)."),
+    max_class_ratio: float | None = typer.Option(None, "--max-class-ratio", help="Jede Figurenklasse auf R * kleinste Figurenklasse deckeln (balanciert Bauern herunter; nur train)."),
     seed: int = typer.Option(config.SEED, "--seed"),
     allow_degenerate: bool = typer.Option(False, "--allow-degenerate", help="Degenerierten Split zulassen (Klasse nur in einer Session o.ä.)."),
 ) -> None:
@@ -294,11 +293,11 @@ def dataset_verify() -> None:
 def ingest_cmd(
     adapter: str = typer.Argument(..., help="chesscog | chessred | synthetic (externer/synthetischer Datensatz)."),
     root: str = typer.Argument(..., help="Pfad zum lokal entpackten Datensatz."),
-    tag: Optional[str] = typer.Option(None, "--tag", help="Name für Sessions/Datensatz (Default: pretrain-<adapter>)."),
+    tag: str | None = typer.Option(None, "--tag", help="Name für Sessions/Datensatz (Default: pretrain-<adapter>)."),
     geometry: str = typer.Option("warp", "--geometry", help="warp (empfohlen, keine Intrinsics) | box3d."),
     photometry: str = typer.Option("none", "--photometry", help="none | clahe | grayworld | gamma — muss zum Finetune-Datensatz passen."),
     board_size: int = typer.Option(900, "--board-size", help="Warp-Auflösung (px). Moderat halten (Handy-Quelle), sonst Hochskalier-Unschärfe."),
-    limit: Optional[int] = typer.Option(None, "--limit", help="Nur die ersten N Bilder (Schnelltest)."),
+    limit: int | None = typer.Option(None, "--limit", help="Nur die ersten N Bilder (Schnelltest)."),
     debug_overlay: int = typer.Option(0, "--debug-overlay", help="N Frames warpen + FEN-Labels einblenden (Sichtprüfung gegen Label-Vertauschung)."),
     no_build: bool = typer.Option(False, "--no-build", help="Nur slicen, keinen Datensatz bauen."),
 ) -> None:
@@ -384,10 +383,10 @@ def train_cmd(
     seed: int = typer.Option(config.SEED, "--seed"),
     out: str = typer.Option(None, "--out", help="Run-Verzeichnis (Default: data/models/run-<ts>)."),
     patience: int = typer.Option(config.DEFAULT_PATIENCE, "--patience", help="Early-Stopping-Geduld."),
-    num_workers: Optional[int] = typer.Option(None, "--num-workers", help="DataLoader-Worker (Default: 0 auf Windows, 4 sonst)."),
-    norm: Optional[str] = typer.Option(None, "--norm", help="batchnorm | groupnorm | none (Default: groupnorm auf Windows, sonst batchnorm)."),
-    dataset: Optional[str] = typer.Option(None, "--dataset", help="Benannter Datensatz (sonst globales Manifest/Split)."),
-    resume: Optional[str] = typer.Option(None, "--resume", help="Run-Name, dessen Gewichte als Warm-Start geladen werden (weiter-trainieren)."),
+    num_workers: int | None = typer.Option(None, "--num-workers", help="DataLoader-Worker (Default: 0 auf Windows, 4 sonst)."),
+    norm: str | None = typer.Option(None, "--norm", help="batchnorm | groupnorm | none (Default: groupnorm auf Windows, sonst batchnorm)."),
+    dataset: str | None = typer.Option(None, "--dataset", help="Benannter Datensatz (sonst globales Manifest/Split)."),
+    resume: str | None = typer.Option(None, "--resume", help="Run-Name, dessen Gewichte als Warm-Start geladen werden (weiter-trainieren)."),
     head: str = typer.Option("combined", "--head", help="combined | factored | twostage (zweistufig Occupancy→Piece)."),
 ) -> None:
     """Per-Square-CNN auf der ROCm-GPU trainieren (Board-Accuracy = Checkpoint-Metrik)."""

@@ -20,10 +20,10 @@ eigenen Fix-Cam-Sessions).
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable, Iterable
 
 from . import config
 
@@ -97,7 +97,7 @@ def ingestion_profile(tag: str, board_size: int, out_size: tuple[int, int] | Non
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _safe_group(group: str) -> str:

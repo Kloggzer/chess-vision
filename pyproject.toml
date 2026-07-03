@@ -67,12 +67,17 @@ src = ["src", "tests", "synth"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "C4"]
-# B904: raise-without-from-inside-except — noisy in existing code; leave opt-in.
-ignore = ["B904"]
+ignore = [
+    "B904",   # raise-without-from-inside-except — noisy in existing code
+    "E501",   # line-too-long — Formatter/Stil-Sache, kein Bug (405 Treffer)
+    "E702",   # multiple-statements-semicolon — bewusster Kompakt-Stil im Repo
+]
 
 [tool.ruff.lint.per-file-ignores]
-# Synth files import bpy (unresolved external)
-"synth/**" = ["F403", "F405"]
+# Synth files import bpy (unresolved external) + Blender-Globals
+"synth/**" = ["F403", "F405", "F821"]
+# FastAPI: Body(...)/File(...)/Depends(...) in Default-Argumenten ist gewollt
+"src/chesslab/web/**" = ["B008"]
 
 [tool.ruff.format]
 # Black-compatible line-ending style

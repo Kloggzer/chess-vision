@@ -88,7 +88,7 @@ class GameState:
 def load_pgn_game(source: str | Path) -> chess.pgn.Game:
     """PGN aus Dateipfad ODER PGN-Text laden; gibt die erste Partie zurück."""
     if isinstance(source, (str, Path)) and os.path.exists(source):
-        with open(source, "r", encoding="utf-8") as fh:
+        with open(source, encoding="utf-8") as fh:
             game = chess.pgn.read_game(fh)
     else:
         game = chess.pgn.read_game(io.StringIO(str(source)))

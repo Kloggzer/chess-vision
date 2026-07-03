@@ -256,7 +256,7 @@ def _load_and_extract(item: ScanItem, rng: np.random.Generator):
     return mesh, tex_img
 
 
-def _ensure_z_up(mesh) -> "trimesh.Trimesh":
+def _ensure_z_up(mesh) -> trimesh.Trimesh:
     """If the mesh appears to be Y-up, rotate to Z-up (-90° around X).
 
     glTF / .glb spec mandates Y-up.  trimesh loads in the file's native coordinates,
@@ -779,7 +779,7 @@ def _pymeshlab_process(mesh, name: str, out_dir: Path, tex_img,
 # ---------------------------------------------------------------------------
 
 
-def _generate_spherical_uvs(verts: "np.ndarray") -> "np.ndarray":
+def _generate_spherical_uvs(verts: np.ndarray) -> np.ndarray:
     """Generate simple spherical UVs from vertex positions.
 
     Maps vertices onto a unit sphere centred at the mesh centroid and derives
@@ -855,7 +855,7 @@ def _ensure_texture_visual(mesh, tex_img, tex_fallback):
     mesh.visual = trimesh.visual.texture.TextureVisuals(uv=uv, material=mat)
 
 
-def _largest_component_mask(faces: "np.ndarray", n_verts: int) -> "np.ndarray":
+def _largest_component_mask(faces: np.ndarray, n_verts: int) -> np.ndarray:
     """Boolean face-mask selecting the connected component with the most faces.
 
     Union-Find über geteilte Vertices — deterministisch, unabhängig von
