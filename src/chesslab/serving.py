@@ -189,7 +189,7 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
         probs = torch.softmax(logits, dim=1)
         conf, idx = probs.max(dim=1)
     results: list[dict] = []
-    for i, (c, ix) in enumerate(zip(conf.tolist(), idx.tolist())):
+    for i, (c, ix) in enumerate(zip(conf.tolist(), idx.tolist(), strict=False)):
         entry: dict = {"pred_label": classes[int(ix)], "confidence": round(float(c), 4)}
         if return_probs:
             entry["probs"] = [round(float(p), 6) for p in probs[i].tolist()]
@@ -219,7 +219,7 @@ def predict_rows(run_dir: Path, rows: list[dict], device: str = "cpu",
             x = x.to(device)
             probs = torch.softmax(model(x), dim=1)
             conf, idx = probs.max(dim=1)
-            for c, i in zip(conf.tolist(), idx.tolist()):
+            for c, i in zip(conf.tolist(), idx.tolist(), strict=False):
                 results.append({"pred_label": classes[int(i)], "confidence": round(float(c), 4)})
     return results
 
@@ -234,4 +234,4 @@ def predict_frame(run_dir: Path, frame: np.ndarray, corners, profile,
     crops = crops_for_model(frame, corners, profile, spec)
     preds = predict_arrays(run_dir, crops, device=device, return_probs=return_probs)
     squares = labeling.all_squares()
-    return [{"square": sq, **p} for sq, p in zip(squares, preds)]
+    return [{"square": sq, **p} for sq, p in zip(squares, preds, strict=False)]

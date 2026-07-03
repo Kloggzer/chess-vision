@@ -142,15 +142,15 @@ def test_validate_split_class_only_in_one_session():
 
     rows = []
     # s0: 2 sessions, wQ nur in s0
-    for k in range(5):
+    for _ in range(5):
         rows.append(_row("wQ", "s0", "d1", "dark"))
     rows.append(_row("wQ", "s0", "e1", "dark"))
     # wK in beiden Sessions
-    for k in range(5):
+    for _ in range(5):
         rows.append(_row("wK", "s0", "e1", "dark"))
         rows.append(_row("wK", "s1", "e1", "dark"))
     # empty füllen
-    for k in range(30):
+    for _ in range(30):
         rows.append(_row("empty", "s0", "c4", "light"))
         rows.append(_row("empty", "s1", "c4", "light"))
 
@@ -170,7 +170,7 @@ def test_validate_split_zero_errors():
 
     rows = []
     for si in ["s0", "s1", "s2"]:
-        for k in range(3):
+        for _ in range(3):
             rows.append(_row("wQ", si, "d1", "dark"))
             rows.append(_row("wK", si, "e1", "dark"))
             rows.append(_row("empty", si, "c4", "light"))
@@ -190,7 +190,7 @@ def test_validate_split_occluded_absent_globally_no_error():
 
     rows = []
     for si in ["s0", "s1", "s2"]:
-        for k in range(3):
+        for _ in range(3):
             rows.append(_row("wQ", si, "d1", "dark"))
             rows.append(_row("wK", si, "e1", "dark"))
             rows.append(_row("empty", si, "c4", "light"))
@@ -214,7 +214,7 @@ def test_run_split_allow_degenerate_stores_errors(tmp_path, monkeypatch):
 
     # wQ nur in s0
     rows = []
-    for k in range(5):
+    for _ in range(5):
         rows.append(_row("wQ", "s0", "d1", "dark"))
     rows.append(_row("wK", "s1", "e1", "dark"))
     rows.append(_row("empty", "s1", "c4", "light"))

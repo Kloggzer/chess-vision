@@ -86,7 +86,7 @@ def test_build_dataset_filters_dedups_rotates(tmp_path):
                            rotations=(0, 90), val_frac=0.0, test_frac=0.0, paths=paths,
                            allow_degenerate=True)
     ds = paths.datasets / "set-a"
-    built = [json.loads(l) for l in (ds / "manifest.jsonl").read_text().splitlines() if l.strip()]
+    built = [json.loads(line) for line in (ds / "manifest.jsonl").read_text().splitlines() if line.strip()]
     # nur s1; wP auf 2 gedeckelt + wK = 3 Basis-Crops; x2 Rotationen = 6 Zeilen
     assert all(r["session_id"] == "s1" for r in built)
     assert res["counts"]["raw"] == 7 and res["counts"]["after_dedup"] == 3 and res["counts"]["final"] == 6

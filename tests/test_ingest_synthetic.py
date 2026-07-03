@@ -177,7 +177,7 @@ def test_synthetic_ingest_orientation(tmp_path):
     assert res["crops"] == 64
 
     manifest_path = paths.manifests / "squares__orientation.jsonl"
-    rows = [json.loads(l) for l in manifest_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    rows = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     by_sq = {r["square"]: r for r in rows}
 
     # Labels aus der Grundstellungs-FEN korrekt zugeordnet
@@ -231,7 +231,7 @@ def test_synthetic_ingest_rotated_corners_fails(tmp_path):
     ig.slice_imported(sids, profile=prof, variant_tag="rotated", paths=paths)
 
     manifest_path = paths.manifests / "squares__rotated.jsonl"
-    rows = [json.loads(l) for l in manifest_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    rows = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     by_sq = {r["square"]: r for r in rows}
 
     def center_color(sq: str) -> np.ndarray:

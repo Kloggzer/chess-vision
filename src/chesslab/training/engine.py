@@ -53,7 +53,7 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
 
     # Board-Accuracy: Crops über (session, frame) gruppieren (dataset.rows ist ausgerichtet).
     items = [((r["session_id"], str(r["frame"])), bool(t == p))
-             for r, t, p in zip(dataset.rows, trues, preds)]
+             for r, t, p in zip(dataset.rows, trues, preds, strict=False)]
     board_acc = board_accuracy(items)
 
     return {
@@ -68,7 +68,7 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
 
 def confusion_matrix(trues: np.ndarray, preds: np.ndarray, n_classes: int) -> np.ndarray:
     cm = np.zeros((n_classes, n_classes), dtype=np.int64)
-    for t, p in zip(trues, preds):
+    for t, p in zip(trues, preds, strict=False):
         cm[t, p] += 1
     return cm
 

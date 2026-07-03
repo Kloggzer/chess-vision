@@ -329,7 +329,7 @@ def _detect_marker_quads(frame, dict_name: str, ids: tuple[int, ...]) -> dict[in
     found_corners, found_ids, _ = detector.detectMarkers(gray)
     if found_ids is None:
         return {}
-    return {int(i): c.reshape(4, 2) for c, i in zip(found_corners, found_ids.flatten()) if int(i) in ids}
+    return {int(i): c.reshape(4, 2) for c, i in zip(found_corners, found_ids.flatten(), strict=False) if int(i) in ids}
 
 
 def detect_board_marker_quads(frame, dict_name: str = "DICT_4X4_50",
@@ -575,7 +575,7 @@ def generate_markers(out_path, dict_name: str = "DICT_4X4_50", ids: tuple[int, .
     cell = box + 2 * gap + label_h
     sheet = np.full((cell * 2, cell * 2, 3), 255, dtype=np.uint8)
     pos = [(0, 0), (0, 1), (1, 1), (1, 0)]           # a8, h8, h1, a1
-    for (r, c), mid, lab in zip(pos, ids, _ARUCO_LABELS):
+    for (r, c), mid, lab in zip(pos, ids, _ARUCO_LABELS, strict=False):
         bx0, by0 = c * cell + gap, r * cell + gap    # obere linke Ecke der Schnitt-Box
         marker = cv2.cvtColor(cv2.aruco.generateImageMarker(d, mid, marker_px), cv2.COLOR_GRAY2BGR)
         sheet[by0 + quiet:by0 + quiet + marker_px, bx0 + quiet:bx0 + quiet + marker_px] = marker

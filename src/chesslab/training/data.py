@@ -72,7 +72,7 @@ def macro_f1(trues: list[int], preds: list[int], n_classes: int) -> float:
     fp = defaultdict(int)
     fn = defaultdict(int)
     present: set[int] = set()
-    for t, p in zip(trues, preds):
+    for t, p in zip(trues, preds, strict=False):
         present.add(t)
         present.add(p)
         if t == p:
@@ -111,7 +111,7 @@ def occupancy_piece_breakdown(classes: list[str], trues: list[int], preds: list[
     occ_ok = occ_n = 0
     piece_ok = occ_total = 0          # über WAHR besetzte Felder (inkl. occluded)
     real_n = type_err_n = color_err_n = 0   # über wahre echte Figuren (12)
-    for t, p in zip(trues, preds):
+    for t, p in zip(trues, preds, strict=False):
         tl, pl = classes[t], classes[p]
         t_occ, p_occ = tl != "empty", pl != "empty"
         occ_n += 1
@@ -139,7 +139,7 @@ def _macro_recall(trues: list[int], preds: list[int], n_classes: int) -> float:
     """Per-Klassen-Recall, gemittelt über alle Klassen mit Support (true>0)."""
     per_class_correct = [0] * n_classes
     per_class_total = [0] * n_classes
-    for t, p in zip(trues, preds):
+    for t, p in zip(trues, preds, strict=False):
         per_class_total[t] += 1
         if t == p:
             per_class_correct[t] += 1
@@ -162,7 +162,7 @@ def occupancy_board_acc(rows: list[dict], classes: list[str], trues: list[int], 
     leer-vs-besetzt richtig sind (deutlich leichter als die volle Board-Accuracy)."""
     items = [((r["session_id"], str(r["frame"])),
               (classes[t] != "empty") == (classes[p] != "empty"))
-             for r, t, p in zip(rows, trues, preds)]
+              for r, t, p in zip(rows, trues, preds, strict=False)]
     return board_accuracy(items)
 
 

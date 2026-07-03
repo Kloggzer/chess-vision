@@ -309,7 +309,7 @@ def main():
     print(f"[synth] pieces={pieces_dir or 'prozedural'}")
 
     if fens_file and fens_file.exists():
-        fens = [l.strip() for l in fens_file.read_text().splitlines() if l.strip()]
+        fens = [line.strip() for line in fens_file.read_text().splitlines() if line.strip()]
     else:
         fens = ["rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR"]   # Fallback: Grundstellung
     rng = random.Random(seed)

@@ -113,7 +113,7 @@ def test_photometry_none_is_identical(tmp_path):
         piece_height_cells=1.6, out_size=(96, 128),
     )
     assert len(via_model) == len(direct)
-    for i, (a, b) in enumerate(zip(via_model, direct)):
+    for i, (a, b) in enumerate(zip(via_model, direct, strict=False)):
         assert np.array_equal(a, b), f"Crop {i} ({labeling.all_squares()[i]}) nicht identisch"
 
 
@@ -139,7 +139,7 @@ def test_photometry_clahe_differs_from_raw(tmp_path):
     raw_crops = serving.crops_for_model(frame, corners, prof, spec_none)
     clahe_crops = serving.crops_for_model(frame, corners, prof, spec_clahe)
     # Mindestens ein Crop muss sich unterscheiden (nicht alle Felder sind gleich einfarbig)
-    diffs = sum(1 for a, b in zip(raw_crops, clahe_crops) if not np.array_equal(a, b))
+    diffs = sum(1 for a, b in zip(raw_crops, clahe_crops, strict=False) if not np.array_equal(a, b))
     assert diffs > 0, "CLAHE sollte sich von none unterscheiden"
 
 
@@ -185,7 +185,7 @@ def test_slice_parity_crops_vs_slice_session(tmp_path):
 
     # 3. Jedes Crop muss pixel-identisch mit dem von slice_session geschriebenen PNG sein
     squares = labeling.all_squares()
-    manifest_rows = [json.loads(l) for l in manifest.read_text(encoding="utf-8").splitlines() if l.strip()]
+    manifest_rows = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip()]
     by_sq = {r["square"]: r for r in manifest_rows}
     for i, sq in enumerate(squares):
         png = cv2.imread(by_sq[sq]["path"])
@@ -222,7 +222,7 @@ def test_slice_parity_with_clahe(tmp_path):
         pytest.fail("crops_for_frame with_meta fehlt noch — labeling.py refactoren (Schritt 5).")
 
     squares = labeling.all_squares()
-    manifest_rows = [json.loads(l) for l in manifest.read_text(encoding="utf-8").splitlines() if l.strip()]
+    manifest_rows = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip()]
     by_sq = {r["square"]: r for r in manifest_rows}
     for i, sq in enumerate(squares):
         png = cv2.imread(by_sq[sq]["path"])

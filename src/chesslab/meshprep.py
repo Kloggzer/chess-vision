@@ -12,10 +12,14 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from chesslab.scan_discover import ScanItem
+
+if TYPE_CHECKING:
+    import trimesh
 
 _log = logging.getLogger(__name__)
 
@@ -419,7 +423,7 @@ def _keep_largest_component(mesh):
             pass
 
     # Remap
-    new_vert_map = {old: new for new, old in enumerate(sorted(set(v for tri in clean_tris for v in tri)))}
+    new_vert_map = {old: new for new, old in enumerate(sorted({v for tri in clean_tris for v in tri}))}
     clean_tris_mapped = np.array([[new_vert_map[vi] for vi in tri] for tri in clean_tris], dtype=np.int32)
 
     # Carry over vertex attributes (UVs only if no outlier filtering, to keep mapping simple)
@@ -544,7 +548,7 @@ def _keep_center_component(mesh, above_mask: np.ndarray, inlier_mask: np.ndarray
             pass
 
     # Remap
-    new_vert_map = {old: new for new, old in enumerate(sorted(set(v for tri in clean_tris for v in tri)))}
+    new_vert_map = {old: new for new, old in enumerate(sorted({v for tri in clean_tris for v in tri}))}
     clean_tris_mapped = np.array([[new_vert_map[vi] for vi in tri] for tri in clean_tris], dtype=np.int32)
 
     # Carry over vertex attributes (UVs, colors) from the compact mesh

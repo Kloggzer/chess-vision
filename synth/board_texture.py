@@ -51,7 +51,7 @@ def _detect_lenient(img, dict_name, ids):
         return {}
     target = set(ids)
     out = {}
-    for c, i in zip(found_corners, found_ids.flatten()):
+    for c, i in zip(found_corners, found_ids.flatten(), strict=False):
         i = int(i)
         if i in target:
             quad = c.reshape(4, 2)
@@ -121,7 +121,7 @@ def rectify(image_path: str, out_path: str, size: int = 1024,
         raise SystemExit("ERROR: resolve_board_corners returned None")
     image_corners, n_used = res
     print(f"[board_texture] resolved corners (n={n_used} used, full perspective):")
-    for label, (x, y) in zip(("a8", "h8", "h1", "a1"), image_corners):
+    for label, (x, y) in zip(("a8", "h8", "h1", "a1"), image_corners, strict=False):
         print(f"  {label}: ({x:.1f}, {y:.1f})")
 
     # 3. Compute homography: marker corners → square texture with playing-surface inset
