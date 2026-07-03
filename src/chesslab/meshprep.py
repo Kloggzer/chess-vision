@@ -932,13 +932,19 @@ def _write_clean_obj(ms, out_obj: Path, name: str):
             _log.info("keep largest component (writer): %d/%d Faces, %d Fragmente weg",
                       len(faces), n_before, len(fmask) - int(fmask.sum()))
 
+    # Per-Vertex-Normalen berechnen (flächengewichtet) — three.js schattiert Meshes
+    # ohne `vn` unzuverlässig (Wireframe/dunkel-Look). vn-Index == v-Index.
+    normals = _vertex_normals(verts, faces)
+
     lines: list[str] = []
     lines.append(f"mtllib {name}.mtl")
     lines.append(f"o {name}")
     for v in verts:
         lines.append(f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f}")
+    for nrm in normals:
+        lines.append(f"vn {nrm[0]:.6f} {nrm[1]:.6f} {nrm[2]:.6f}")
 
-    # Texture coords + faces
+    # Texture coords + faces (vn-Index = v-Index, da Normalen pro Vertex)
     if uv_matrix is not None and uv_matrix.size > 0:
         uvs_raw = uv_matrix[:, :2]  # discard optional third column (w)
         if has_wedge_uvs and len(uvs_raw) == 3 * len(faces):
@@ -950,7 +956,7 @@ def _write_clean_obj(ms, out_obj: Path, name: str):
             for fi in range(len(faces)):
                 vi0, vi1, vi2 = int(faces[fi, 0]) + 1, int(faces[fi, 1]) + 1, int(faces[fi, 2]) + 1
                 vt0, vt1, vt2 = int(uv_idx[3 * fi]) + 1, int(uv_idx[3 * fi + 1]) + 1, int(uv_idx[3 * fi + 2]) + 1
-                lines.append(f"f {vi0}/{vt0} {vi1}/{vt1} {vi2}/{vt2}")
+                lines.append(f"f {vi0}/{vt0}/{vi0} {vi1}/{vt1}/{vi1} {vi2}/{vt2}/{vi2}")
         elif not has_wedge_uvs and len(uvs_raw) == len(verts):
             # per‑vertex UVs
             uv_unique, uv_idx = np.unique(uvs_raw, axis=0, return_inverse=True)
@@ -960,21 +966,39 @@ def _write_clean_obj(ms, out_obj: Path, name: str):
             for fi in range(len(faces)):
                 f0, f1, f2 = int(faces[fi, 0]), int(faces[fi, 1]), int(faces[fi, 2])
                 lines.append(
-                    f"f {f0 + 1}/{int(uv_idx[f0]) + 1}"
-                    f" {f1 + 1}/{int(uv_idx[f1]) + 1}"
-                    f" {f2 + 1}/{int(uv_idx[f2]) + 1}"
+                    f"f {f0 + 1}/{int(uv_idx[f0]) + 1}/{f0 + 1}"
+                    f" {f1 + 1}/{int(uv_idx[f1]) + 1}/{f1 + 1}"
+                    f" {f2 + 1}/{int(uv_idx[f2]) + 1}/{f2 + 1}"
                 )
         else:
             lines.append("usemtl piece")
             for fi in range(len(faces)):
-                lines.append(f"f {int(faces[fi, 0]) + 1} {int(faces[fi, 1]) + 1} {int(faces[fi, 2]) + 1}")
+                a, b, c = int(faces[fi, 0]) + 1, int(faces[fi, 1]) + 1, int(faces[fi, 2]) + 1
+                lines.append(f"f {a}//{a} {b}//{b} {c}//{c}")
     else:
         lines.append("usemtl piece")
         for fi in range(len(faces)):
-            lines.append(f"f {int(faces[fi, 0]) + 1} {int(faces[fi, 1]) + 1} {int(faces[fi, 2]) + 1}")
+            a, b, c = int(faces[fi, 0]) + 1, int(faces[fi, 1]) + 1, int(faces[fi, 2]) + 1
+            lines.append(f"f {a}//{a} {b}//{b} {c}//{c}")
 
     out_obj.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    _log.info("wrote clean OBJ: %d verts, %d faces", len(verts), len(faces))
+    _log.info("wrote clean OBJ: %d verts, %d faces (+vn)", len(verts), len(faces))
+
+
+def _vertex_normals(verts: "np.ndarray", faces: "np.ndarray") -> "np.ndarray":
+    """Flächengewichtete Per-Vertex-Normalen (nach außen), normalisiert."""
+    verts = np.asarray(verts, dtype=np.float64)
+    normals = np.zeros_like(verts)
+    if len(faces) == 0:
+        normals[:, 2] = 1.0
+        return normals
+    tri = verts[faces]
+    fn = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])  # area-weighted face normals
+    for i in range(3):
+        np.add.at(normals, faces[:, i], fn)
+    ln = np.linalg.norm(normals, axis=1, keepdims=True)
+    ln[ln < 1e-12] = 1.0
+    return normals / ln
 
 
 def _write_clean_mtl(out_dir: Path, name: str):
