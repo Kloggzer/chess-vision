@@ -165,7 +165,7 @@ export default function Review() {
               return (
                 <button key={f + r} onClick={(e) => onCell(cell.square, e)}
                   className={`relative aspect-square overflow-hidden rounded-md bg-black ring-2 ${ring} ${edit?.square === cell.square ? "ring-sky-300" : ""} hover:ring-sky-300`}>
-                  <img src={cell.url} className="h-full w-full object-cover" />
+                  <img src={cell.url} alt={`Feld ${cell.square}`} className="h-full w-full object-cover" />
                   <span className="absolute left-0.5 top-0.5 rounded bg-black/55 px-1 text-[9px] text-zinc-400">{f + r}</span>
                   {cell.pred_label && <span className="absolute right-0 top-0 inline-flex items-center gap-0.5 rounded-bl bg-black/60 px-1 text-[10px] text-zinc-300"><Glyph label={cell.pred_label} /> {Math.round((cell.confidence || 0) * 100)}%</span>}
                   <span className="absolute inset-x-0 bottom-0 bg-black/65 py-0.5 text-center text-lg font-bold"><Glyph label={cur(cell)} /></span>
@@ -180,7 +180,8 @@ export default function Review() {
       {/* Suchbares Dropdown (Combobox) am angeklickten Feld */}
       {edit && editCell && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => { setEdit(null); setQuery(""); }} />
+          <div className="fixed inset-0 z-40" role="presentation"
+            onClick={() => { setEdit(null); setQuery(""); }} />
           <div className="fixed z-50 w-56 rounded-lg border border-zinc-700 bg-zinc-900 p-2 shadow-xl"
             style={{ left: Math.min(edit.x, window.innerWidth - 240), top: Math.min(edit.y, window.innerHeight - 320) }}>
             <div className="mb-1 flex items-center justify-between text-xs text-zinc-400">
@@ -189,7 +190,7 @@ export default function Review() {
             </div>
             <div className="mb-1 flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2">
               <Search className="h-3.5 w-3.5 text-zinc-500" />
-              <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)}
+              <input value={query} onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter" && filtered[0]) { setLabel(edit.square, filtered[0]); } if (e.key === "Escape") { setEdit(null); setQuery(""); } }}
                 placeholder="suchen: könig, bN, leer…" className="w-full bg-transparent py-1.5 text-sm text-zinc-100 outline-none" />
             </div>

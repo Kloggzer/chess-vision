@@ -63,7 +63,7 @@ export default function Calibrate() {
       <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
         <Card title="Live-Kamera">
           {streaming
-            ? <img src={`/api/camera/calibrate.mjpg?camera=${cam}&board_size=${boardSize}`}
+            ? <img src={`/api/camera/calibrate.mjpg?camera=${cam}&board_size=${boardSize}`} alt="Kalibrierung Live-Bild"
                 className="w-full rounded-lg border border-zinc-800" />
             : <div className="flex h-72 items-center justify-center text-zinc-500">Kamera nicht gestartet</div>}
         </Card>
@@ -87,7 +87,7 @@ export default function Calibrate() {
 
       {markerUrl && (
         <Card title="Marker-Blatt — drucken, an den Boxen schneiden, an die 4 Außenecken kleben">
-          <img src={markerUrl} className="max-w-md rounded-lg border border-zinc-800 bg-white p-2" />
+          <img src={markerUrl} alt="Marker-Blatt" className="max-w-md rounded-lg border border-zinc-800 bg-white p-2" />
         </Card>
       )}
     </div>

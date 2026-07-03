@@ -240,7 +240,7 @@ export function StatsPanel() {
       <Card title={`Crops durchblättern (${statsOfDs})`} right={<span className="flex items-center gap-1 text-xs text-zinc-500"><Images className="h-3.5 w-3.5" />{browse ? `${browse.label} (${browse.crops.length})` : "Klasse anklicken"}</span>}>
         {browse ? (
           <div className="grid grid-cols-[repeat(auto-fill,56px)] gap-1.5">
-            {browse.crops.map((c: any, i: number) => <img key={i} src={c.url} title={`${c.session_id} ${c.frame} ${c.square}`} className="h-[74px] w-[56px] rounded border border-zinc-800 object-cover" />)}
+            {browse.crops.map((c: any, i: number) => <img key={i} src={c.url} title={`${c.session_id} ${c.frame} ${c.square}`} alt={`Feld ${c.square}`} className="h-[74px] w-[56px] rounded border border-zinc-800 object-cover" />)}
           </div>
         ) : <span className="text-sm text-zinc-500">Wähle links eine Klasse, um die Crops zu sehen.</span>}
       </Card>

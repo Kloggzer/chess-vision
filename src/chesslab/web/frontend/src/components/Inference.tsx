@@ -70,7 +70,7 @@ export default function Inference() {
       <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
         <Card title="Live-Auswertung">
           {active
-            ? <img src="/api/camera/inference.mjpg" className="w-full rounded-lg border border-zinc-800" />
+            ? <img src="/api/camera/inference.mjpg" alt="Live-Inferenz" className="w-full rounded-lg border border-zinc-800" />
             : <div className="flex h-72 items-center justify-center text-zinc-500"><Cam className="mr-2 h-5 w-5" /> Auswertung nicht gestartet</div>}
         </Card>
         <Card title="Erkannte Stellung">

@@ -112,7 +112,7 @@ export default function ManualLabel() {
         <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
           <Card title="Live-Brett — Felder anklicken zum Labeln">
             <div ref={imgRef} className="relative mx-auto w-full max-w-[680px]">
-              <img src="/api/camera/manual.mjpg" className="block w-full rounded-lg border border-zinc-800" />
+              <img src="/api/camera/manual.mjpg" alt="Live-Brett manuelles Labeln" className="block w-full rounded-lg border border-zinc-800" />
               {/* edge-to-edge 8x8-Overlay: deckt sich mit draw_board_grid (board_size-Bild) */}
               <div className="absolute inset-0 grid grid-cols-8">
                 {RANKS.map((r) => FILES.map((f) => {
@@ -149,13 +149,14 @@ export default function ManualLabel() {
       {/* Suchbares Dropdown (Combobox) am angeklickten Feld */}
       {edit && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => { setEdit(null); setQuery(""); }} />
+          <div className="fixed inset-0 z-40" role="presentation"
+            onClick={() => { setEdit(null); setQuery(""); }} />
           <div className="fixed z-50 w-56 rounded-lg border border-zinc-700 bg-zinc-900 p-2 shadow-xl"
             style={{ left: Math.min(edit.x, window.innerWidth - 240), top: Math.min(edit.y, window.innerHeight - 320) }}>
             <div className="mb-1 text-xs text-zinc-400">Feld <b className="text-zinc-200">{edit.square}</b></div>
             <div className="mb-1 flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2">
               <Search className="h-3.5 w-3.5 text-zinc-500" />
-              <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)}
+              <input value={query} onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter" && filtered[0]) { setSquare(edit.square, filtered[0]); } if (e.key === "Escape") { setEdit(null); setQuery(""); } }}
                 placeholder="suchen: könig, bN, leer…" className="w-full bg-transparent py-1.5 text-sm text-zinc-100 outline-none" />
             </div>

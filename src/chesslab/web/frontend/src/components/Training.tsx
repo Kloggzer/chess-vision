@@ -210,7 +210,7 @@ export default function Training() {
                     board_acc <b>{(e.board_acc * 100).toFixed(1)}%</b> · square_acc {(e.square_acc * 100).toFixed(1)}%
                   </div>
                   <div className="text-xs text-zinc-500">schwächste Klassen: {worst.map(([k, v]) => `${k} ${(v * 100).toFixed(0)}%`).join(", ")}</div>
-                  {e.confusion_png && <img src={e.confusion_png} className="mt-2 max-w-md rounded-lg border border-zinc-800" />}
+                  {e.confusion_png && <img src={e.confusion_png} alt="Confusion Matrix" className="mt-2 max-w-md rounded-lg border border-zinc-800" />}
                 </div>
               );
             })}

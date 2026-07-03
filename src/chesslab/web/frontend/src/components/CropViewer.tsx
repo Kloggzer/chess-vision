@@ -262,7 +262,9 @@ export function CropViewer({ dir, onDone }: { dir: string; onDone: () => void })
   const btnCls = "flex items-center gap-1.5 rounded-lg border border-zinc-600 px-3 py-1.5 text-xs font-medium hover:border-zinc-400 disabled:opacity-40";
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black/90" onClick={(e) => { if (e.target === e.currentTarget) onDone(); }}>
+    <div className="fixed inset-0 z-50 flex flex-col bg-black/90" role="button" tabIndex={0}
+      onClick={(e) => { if (e.target === e.currentTarget) onDone(); }}
+      onKeyDown={(e) => { if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onDone(); } }}>
       {/* Toolbar */}
       <div className="flex items-center gap-2 border-b border-zinc-800 bg-zinc-950 px-3 py-2">
         <span className="mr-2 text-sm font-medium text-zinc-200">Zuschneiden: {dir}</span>

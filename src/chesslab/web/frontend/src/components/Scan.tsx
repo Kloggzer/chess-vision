@@ -378,12 +378,13 @@ function ScanCardGrid({ scans, models, dir, selectScan, deleteScan, recon, prep 
             } as Record<string, [string, string]>)[info.stage];
         const prep_ = info.piece && info.stage === "done";
         return (
-          <div key={s.dir} onClick={() => selectScan(s)}
+          <div key={s.dir} onClick={() => selectScan(s)} role="button" tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectScan(s); } }}
             className={`group relative flex cursor-pointer flex-col rounded-xl border p-2 text-left transition ${
               active ? "border-sky-500 bg-sky-500/5" : "border-zinc-800 hover:border-zinc-600"}`}>
             <div className="relative mb-1.5 aspect-square overflow-hidden rounded-lg bg-zinc-950">
               {prep_
-                ? <img src={`/api/scan/prepare/preview/${info.piece}`} className="h-full w-full object-contain" />
+                ? <img src={`/api/scan/prepare/preview/${info.piece}`} alt={`${pieceLabel(info.piece)} Vorschau`} className="h-full w-full object-contain" />
                 : <div className="grid h-full place-items-center text-zinc-700"><Camera className="h-8 w-8" /></div>}
               <span className={`absolute left-1 top-1 flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${badge[1]}`}>
                 {busy && <Loader2 className="h-3 w-3 animate-spin" />}{badge[0]}</span>
@@ -411,9 +412,12 @@ function ModelModal({ piece, textured, onClose }: { piece: string; textured: boo
     return () => window.removeEventListener("keydown", h);
   }, [onClose]);
   return (
-    <div onClick={onClose}
+    <div onClick={onClose} role="button" tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClose(); } }}
       className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/85 p-6">
-      <div onClick={(e) => e.stopPropagation()} className="flex flex-col items-center gap-3">
+      <div onClick={(e) => e.stopPropagation()} role="presentation"
+        onKeyDown={(e) => e.stopPropagation()}
+        className="flex flex-col items-center gap-3">
         <ModelViewer piece={piece} textured={tex} size={Math.min(720, window.innerHeight - 160)} />
         <div className="flex items-center gap-3 text-sm text-zinc-300">
           <span className="font-medium">{piece}</span>
@@ -470,7 +474,7 @@ function FinishedPiecesGrid({ pieces, setView3d, deletePiece }: {
             <button onClick={() => setView3d(p.piece)}
               className="flex w-24 flex-col items-center rounded-lg border border-zinc-800 p-1.5 hover:border-sky-500">
               {p.has_preview
-                ? <img src={`/api/scan/prepare/preview/${p.piece}`} className="h-20 w-20 rounded object-contain bg-zinc-950" />
+                ? <img src={`/api/scan/prepare/preview/${p.piece}`} alt={`${p.piece} Vorschau`} className="h-20 w-20 rounded object-contain bg-zinc-950" />
                 : <div className="grid h-20 w-20 place-items-center text-zinc-600"><Box className="h-7 w-7" /></div>}
               <div className="mt-1 text-xs font-medium text-zinc-300">{p.piece}</div>
             </button>
@@ -498,6 +502,7 @@ function PieceResult({ piece, report, level, messages, hasClay, variant, setVari
         {mode === "3d"
           ? <ModelViewer piece={piece} textured={variant === "textured"} size={224} />
           : <img src={`/api/scan/prepare/preview/${piece}?variant=${variant}&t=${report?.tris_after ?? ""}`}
+              alt={`${piece} Vorschau`}
               className="h-56 w-56 rounded-lg border border-zinc-700 bg-zinc-950 object-contain" />}
         <div className="mt-2 flex items-center gap-2">
           <VariantToggle value={variant} onChange={setVariant} clayDisabled={!hasClay && mode === "image"} />
@@ -673,7 +678,7 @@ export default function Scan() {
         <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
           <Card title="Live · Crop mit der Maus aufziehen">
             <div className="relative inline-block select-none leading-none">
-              <img ref={imgRef} src="/api/scan/preview.mjpg" draggable={false}
+              <img ref={imgRef} src="/api/scan/preview.mjpg" alt="Scan Vorschau" draggable={false}
                 className="w-full rounded-lg border border-zinc-800" />
               <div className="absolute inset-0 cursor-crosshair"
                 onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}>
