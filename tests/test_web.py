@@ -380,3 +380,90 @@ def test_scan_prepare_isolate_flag(tmp_path, monkeypatch):
     r2 = client.post("/api/scan/prepare", json={"dir": "wP", "piece": "wP", "isolate": False})
     assert r2.status_code == 200
     assert captured_isolate[-1] is False
+
+
+def test_crop_math_two_cubes_box_local():
+    """Unit-check: two separated cubes, crop box around one → only that cube's faces remain,
+    output in box-local coords (centroid at origin, axis-aligned)."""
+    import trimesh
+
+    from chesslab.web.routers.scan import _quat_to_matrix
+
+    # Build two separated unit cubes: cube A centered at (0, 0, 0), cube B at (5, 0, 0)
+    def make_cube(cx: float):
+        v = np.array([
+            [cx - 0.5, -0.5, -0.5], [cx + 0.5, -0.5, -0.5],
+            [cx + 0.5,  0.5, -0.5], [cx - 0.5,  0.5, -0.5],
+            [cx - 0.5, -0.5,  0.5], [cx + 0.5, -0.5,  0.5],
+            [cx + 0.5,  0.5,  0.5], [cx - 0.5,  0.5,  0.5],
+        ], dtype=np.float64)
+        f = np.array([
+            [0, 1, 2], [0, 2, 3], [4, 6, 5], [4, 7, 6],
+            [0, 4, 5], [0, 5, 1], [1, 5, 6], [1, 6, 2],
+            [2, 6, 7], [2, 7, 3], [3, 7, 4], [3, 4, 0],
+        ], dtype=np.int32)
+        return trimesh.Trimesh(vertices=v, faces=f, process=False)
+
+    a = make_cube(0)
+    b = make_cube(5)
+    merged = trimesh.util.concatenate([a, b])
+
+    # Crop box: centered at (0, 0, 0), half-extents (0.6, 0.6, 0.6), no rotation
+    center = np.array([0.0, 0.0, 0.0])
+    half_ext = np.array([0.6, 0.6, 0.6])
+    q = np.array([0.0, 0.0, 0.0, 1.0])  # identity quaternion
+    R = _quat_to_matrix(q)
+
+    # Verify identity matrix
+    assert np.allclose(R, np.eye(3), atol=1e-10)
+
+    vertices = np.asarray(merged.vertices, dtype=np.float64)
+    local = (vertices - center) @ R
+
+    face_local = local[merged.faces]
+    face_centroids = face_local.mean(axis=1)
+    inside = np.all(np.abs(face_centroids) <= half_ext, axis=1)
+    kept_faces = merged.faces[inside]
+
+    # Only cube A's 12 triangles should remain (cube B is at x=5, far outside 0.6)
+    assert len(kept_faces) == 12, f"expected 12 faces from cube A, got {len(kept_faces)}"
+
+    # Re-express in box-local coords
+    kept_vert_idx = np.unique(kept_faces.flatten())
+    old_to_new = {int(vi): ni for ni, vi in enumerate(kept_vert_idx)}
+    new_faces = np.array([[old_to_new[vi] for vi in tri] for tri in kept_faces], dtype=np.int32)
+    new_verts = local[kept_vert_idx]
+
+    # Verify: all vertices are within half_ext in each axis
+    assert np.all(np.abs(new_verts[:, 0]) <= half_ext[0] + 1e-10)
+    assert np.all(np.abs(new_verts[:, 1]) <= half_ext[1] + 1e-10)
+    assert np.all(np.abs(new_verts[:, 2]) <= half_ext[2] + 1e-10)
+
+    # Verify: vertex coordinates match the original cube A (centered at origin) in box-local
+    # Cube A vertices should be at ±0.5 in each axis
+    assert np.allclose(np.abs(new_verts), 0.5, atol=1e-10)
+    # Should have 8 unique vertices
+    assert len(new_verts) == 8
+
+    # Verify the centroid is at origin (since center=(0,0,0) and cube is centered)
+    centroid = new_verts.mean(axis=0)
+    assert np.allclose(centroid, [0, 0, 0], atol=1e-10)
+
+
+def test_quat_to_matrix_orthogonal():
+    """_quat_to_matrix produces orthonormal rotation matrices."""
+    from chesslab.web.routers.scan import _quat_to_matrix
+
+    # 90° rotation around Z axis
+    angle = np.pi / 2
+    q = np.array([0, 0, np.sin(angle / 2), np.cos(angle / 2)])  # [x, y, z, w]
+    R = _quat_to_matrix(q)
+
+    # R should be orthonormal: R^T @ R = I
+    assert np.allclose(R.T @ R, np.eye(3), atol=1e-10)
+    # det should be 1
+    assert np.allclose(np.linalg.det(R), 1.0, atol=1e-10)
+
+    # Applying R to [1, 0, 0] should give [0, 1, 0] (90° CCW around Z)
+    v = R @ np.array([1.0, 0.0, 0.0])
+    assert np.allclose(v, [0, 1, 0], atol=1e-10)
