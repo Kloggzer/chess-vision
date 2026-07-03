@@ -124,7 +124,8 @@ class CnnRecovery:
 
     def __init__(self, run_dir: Path, profile, device: str = "cpu",
                  conf_thr: float = 0.85, min_agreement: float = 0.97,
-                 margin_squares: int = 1, min_confident: int = 8) -> None:
+                 margin_squares: int = 1, min_confident_board: int = 32,
+                 min_confident_recovery: int = 8) -> None:
         self.run_dir = Path(run_dir)
         self.profile = profile
         self.device = device
@@ -135,7 +136,11 @@ class CnnRecovery:
         # schon besetzt) — ein Bruchteil-Margin würde Schläge fälschlich als mehrdeutig verwerfen.
         # margin_squares=1: strikt besser reicht; 0 Felder Unterschied (Promotion-Varianten) ⇒ None.
         self.margin_squares = margin_squares
-        self.min_confident = min_confident       # unter so vielen confident-Feldern: keine Aussage
+        # min_confident GESPLITTET (Spec 10, Teil 6): der Whole-Board-Match darf die Referenz
+        # nur bei viel freier Sicht nachziehen (sonst Re-Anchor gegen ein verdecktes Brett);
+        # die Recovery dagegen muss gerade bei Teilverdeckung handlungsfähig bleiben.
+        self.min_confident_board = min_confident_board
+        self.min_confident_recovery = min_confident_recovery
         self._classes: list[str] | None = None   # lazy aus run_spec (einmal, nicht je observe)
         if not (self.run_dir / "config.json").exists():
             raise FileNotFoundError(f"Modell-Run nicht gefunden: {self.run_dir}")
@@ -159,7 +164,7 @@ class CnnRecovery:
         conf = obs.confident(self.conf_thr)
         conf_squares = [sq for sq, ok in conf.items() if ok]
         n = len(conf_squares)
-        if n < self.min_confident:
+        if n < self.min_confident_recovery:
             return None, 0.0, 0.0
         best_mv, best_hits, second_hits = None, -1, -1
         for mv in board.legal_moves:
@@ -215,38 +220,75 @@ class CnnRecovery:
         lc = obs.label_confident(self.conf_thr)
         exp = expected_labels(board)
         checked = [sq for sq in _ALL if lc.get(sq)]
-        if len(checked) < self.min_confident:
+        if len(checked) < self.min_confident_board:
             return {"match": False, "conflicts": [], "n": len(checked), "inconclusive": True}
         conflicts = [sq for sq in checked if obs.label[sq] != exp[sq]]
         return {"match": not conflicts, "conflicts": conflicts,
                 "n": len(checked), "inconclusive": False}
 
-    def derive_move_identity(self, board: chess.Board,
-                             obs: OccupancyObservation) -> tuple[chess.Move | None, float, float]:
-        """Den legalen Zug wählen, dessen Ergebnis-Identitäten am besten zur CNN-Beobachtung
-        passen (über die belastbaren Felder). Löst Schlag (Zielfeld-Identität), „welche Figur"
-        und Umwandlung (Promo-Figur aus dem Zielfeld-Label). (None, best, second) wenn nicht
-        eindeutig genug."""
+    def derive_moves_identity(self, board: chess.Board, obs: OccupancyObservation,
+                              max_plies: int = 1) -> tuple[list[chess.Move], float, float]:
+        """Die legale ZUGFOLGE (1 oder — bei max_plies=2 — 2 Halbzüge) wählen, deren
+        Ergebnis-Identitäten am besten zur CNN-Beobachtung passen. Einzelzüge werden bevorzugt;
+        Zugpaare retten den Fall „Antwortzug kam vor dem Commit" (Blitz). Die Reihenfolge im
+        Paar ist durch side-to-move fixiert (erst die Seite am Zug, dann die Antwort) —
+        keine Order-Ambiguität. ~35×35 ≈ 1200 Paar-Kandidaten sind reine Auswertung, unkritisch.
+
+        Rückgabe ([], best, second) wenn nichts eindeutig genug ist (min_agreement /
+        margin_squares / zu wenige belastbare Felder)."""
         lc = obs.label_confident(self.conf_thr)
         conf_squares = [sq for sq, ok in lc.items() if ok]
         n = len(conf_squares)
-        if n < self.min_confident:
-            return None, 0.0, 0.0
-        best_mv, best_hits, second_hits = None, -1, -1
+        if n < self.min_confident_recovery:
+            return [], 0.0, 0.0
+
+        def _hits(b: chess.Board) -> int:
+            return sum(1 for sq in conf_squares if obs.label[sq] == self._label_at(b, sq))
+
+        def _pick(candidates) -> tuple[list[chess.Move], int, int]:
+            best_seq, best_hits, second_hits = [], -1, -1
+            for seq, b in candidates:
+                h = _hits(b)
+                if h > best_hits:
+                    best_hits, second_hits, best_seq = h, best_hits, seq
+                elif h > second_hits:
+                    second_hits = h
+            return best_seq, best_hits, second_hits
+
+        singles = []
         for mv in board.legal_moves:
             b2 = board.copy(stack=False)
             b2.push(mv)
-            hits = sum(1 for sq in conf_squares if obs.label[sq] == self._label_at(b2, sq))
-            if hits > best_hits:
-                best_hits, second_hits, best_mv = hits, best_hits, mv
-            elif hits > second_hits:
-                second_hits = hits
+            singles.append(([mv], b2))
+        seq, best_hits, second_hits = _pick(singles)
         best = best_hits / n if best_hits >= 0 else 0.0
         second = second_hits / n if second_hits >= 0 else 0.0
-        if best_mv is None or best < self.min_agreement \
-           or (best_hits - second_hits) < self.margin_squares:
-            return None, best, second
-        return best_mv, best, second
+        if seq and best >= self.min_agreement and (best_hits - second_hits) >= self.margin_squares:
+            return seq, best, second
+
+        if max_plies >= 2:
+            pairs = []
+            for mv1, b2 in ((s[0][0], s[1]) for s in singles):
+                for mv2 in b2.legal_moves:
+                    b3 = b2.copy(stack=False)
+                    b3.push(mv2)
+                    pairs.append(([mv1, mv2], b3))
+            pseq, p_hits, p_second = _pick(pairs)
+            p_best = p_hits / n if p_hits >= 0 else 0.0
+            # Das Paar muss eindeutig sein: Margin gegen das zweitbeste Paar UND gegen den
+            # besten Einzelzug (sonst wäre der Einzelzug die sparsamere Erklärung).
+            if pseq and p_best >= self.min_agreement \
+               and (p_hits - max(p_second, best_hits)) >= self.margin_squares:
+                return pseq, p_best, max(p_second, best_hits) / n
+        return [], best, second
+
+    def derive_move_identity(self, board: chess.Board,
+                             obs: OccupancyObservation) -> tuple[chess.Move | None, float, float]:
+        """1-Ply-Wrapper um `derive_moves_identity` (Pre-Commit-Verify braucht genau einen Zug).
+        Löst Schlag (Zielfeld-Identität), „welche Figur" und Umwandlung (Promo-Figur aus dem
+        Zielfeld-Label). (None, best, second) wenn nicht eindeutig genug."""
+        seq, best, second = self.derive_moves_identity(board, obs, max_plies=1)
+        return (seq[0] if seq else None), best, second
 
     def verify_move_identity(self, board: chess.Board, move: chess.Move,
                              obs: OccupancyObservation) -> tuple[float, int]:

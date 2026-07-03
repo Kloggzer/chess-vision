@@ -80,9 +80,14 @@ def score_move_loglik(move_touched, z, k=1.0) -> float:
   entspricht ~e²-Faktor) — beleuchtungsunabhängig.
 - Das Schatten-Veto (HSV+Census) läuft **vor** dem Scoring wie bisher: vetoed Felder werden
   auf z=0 gesetzt statt entfernt.
+- **Viabilitäts-Filter** (ersetzt die −1000-Strafe weich): ein Zug ist nur Kandidat, wenn
+  BEIDE Endpunkte mindestens z ≥ z_thr/2 tragen — sonst scort ein einzelnes heißes Feld
+  (Nudge!) Züge mit völlig kalten Zielfeldern netto-positiv. Weiß-auf-weiß (Ziel knapp
+  unter z_thr) bleibt viabel.
 - „empty changed → re-anchor" wird **verschärft**, nicht nur übersetzt: Re-Anchor nur, wenn
   (a) kein Feld z > z_thr hat UND (b) der beste Legal-Move-LL-Score unter einem Floor liegt
-  (`reanchor_ll_floor`, Default −8.0, analog `nudge_ll_floor`). Grund: ein weißer Läufer auf
+  (`reanchor_ll_floor`, Default −4.0 — bei k=1, z_thr=3 liegt ein komplett ruhiges Brett
+  bei ≈ −6, ein schwacher echter Zug deutlich darüber). Grund: ein weißer Läufer auf
   weißem Feld hebt evtl. kein Feld über z_thr — ein voreiliger Re-Anchor backt die
   Zug-Evidenz dauerhaft in die Base-Truth ein, bevor das LL-Scoring je läuft (würde das
   erste DoD-Kriterium untergraben). Schwache, aber zugkonsistente Evidenz (z. B. z > 1.5
@@ -103,6 +108,8 @@ def move_prior(board, move) -> float:
     #   Schlagzug +0.5, Schachgebot +0.3, Vorwärtszug > Rückwärtszug +0.2.
     # Stufe B (optional, --engine PATH): flacher Stockfish-Eval (depth 6, multipv=4);
     #   prior = 0.8 * softmax-Gewicht des Zugs unter den Top-Kandidaten.
+    # UMSETZUNGSSTAND (2026-07-04): Stufe A implementiert; Stufe B bewusst VERSCHOBEN
+    # (Engine-Aufruf im Hot-Path unter Lock wäre blockierend — braucht eigenes Design).
 ```
 
 - Prior-Gewicht klein halten: er darf nur echte Beinahe-Gleichstände entscheiden, nie
@@ -141,8 +148,9 @@ Neuer Pfad in `_try_detect`, greift wenn **kein** CNN-Run konfiguriert ist (mit 
 die bestehende Recovery zuständig):
 
 - Bedingung: 1–2 Felder persistent über z_thr, seit ≥ `nudge_timeout_s` (Default 5.0)
-  unverändert stuck, UND kein legaler Zug erreicht auch nur schwachen Score
-  (best < `nudge_ll_floor`, Default −8.0), UND das Diff-Muster ist „belegungs-neutral
+  unverändert stuck, UND kein VIABLER Zug mit netto-positiver LL (der Viabilitäts-Filter
+  aus Teil 1 übernimmt die Rolle des separaten `nudge_ll_floor`),
+  UND das Diff-Muster ist „belegungs-neutral
   plausibel" (Feld war laut Spielzustand belegt — eine verrückte Figur ändert Aussehen,
   nicht Belegung; ein leeres Feld, das sich ändert, ist dagegen verdächtig → kein Re-Anchor).
 - Aktion: Referenz auf diesen Feldern nachziehen (nur die betroffenen Zellen in `ref_gray`

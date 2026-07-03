@@ -1,13 +1,16 @@
-"""Kern des Move-Trackers: Warp -> Per-Feld-Differenz -> bester legaler Zug -> Spielzustand.
-Optional CNN-gestützte Occupancy-Recovery bei festgefahrener Diff-Erkennung (Spec 09).
+"""Kern des Move-Trackers: Warp -> z-Scores (Rauschmodell) -> LL-Score je legalem Zug -> Spielzustand.
+Optional CNN-Verify/-Recovery (Spec 09) und probabilistisches Scoring v2 (Spec 10).
 
 Zustandsmaschine pro Frame:
-  - Motion-Gating: Frame-zu-Frame-Differenz hoch -> "Hand im Bild" (MOVING), nicht detektieren.
-  - Wird es ruhig (STABLE) und unterscheidet sich vom Referenzbild (= Brett nach dem letzten Zug),
-    dann: Per-Feld-Differenz -> unter allen LEGALEN Zügen den wählen, dessen berührte Felder die
-    beobachtete Änderung am besten erklären -> Zug anwenden, Referenz aktualisieren.
-  - CNN-Recovery (optional): bei stuck/no_legal_move/too_many_changed oder periodisch
-    kontrolliert das CNN (cnn_recovery.py) die Occupancy und findet/korrigiert den Zug.
+  - Motion-Gating: Frame-zu-Frame-Differenz hoch (Brett ODER erweitertes ROI um das Brett)
+    -> "Hand im Bild" (MOVING), nicht detektieren.
+  - Wird es ruhig (STABLE): Per-Feld-Diff vs. Base-Truth -> Median-Normalisierung -> z-Scores
+    gegen ein laufendes per-Feld-Rauschmodell -> Log-Likelihood je legalem Zug (relativ zu
+    „kein Zug"); Ambiguität wird per Heuristik-Prior aufgelöst oder dem Nutzer gezeigt.
+  - CNN-Recovery (optional): bei stuck oder periodisch prüft das CNN (cnn_recovery.py) die
+    Identität/Occupancy, findet Züge bis 2 Halbzüge tief und kann einen Diff-Kandidaten
+    im Pre-Commit-Verify überstimmen. Ohne CNN: Nudge-/Drift-Zellen-Patch der Referenz.
+Vollbild: docs/move-tracker-flow.md (Mermaid).
 
 Reuse aus chesslab: Profil/Geometrie (load_profile, _square_to_col_row, board_corners_for_frame,
 make_tracker, warp_from_corners) und Kamera (web.camera.open_source: int|URL inkl. IP-Cam).
@@ -41,13 +44,17 @@ _FILES = "abcdefgh"
 _ALL = [f"{f}{r}" for r in range(1, 9) for f in _FILES]
 
 
-def square_region(square: str, board_size: int, white_pov: bool, inset: float = 0.16):
+def square_region(square: str, board_size: int, white_pov: bool, inset: float = 0.16,
+                  extend_up: float = 0.0):
     """Pixel-Box (x0,y0,x1,y1) der Zelle im entzerrten board_size-Bild, leicht nach innen versetzt
-    (gegen Grid-Linien-/Nachbar-Rauschen)."""
+    (gegen Grid-Linien-/Nachbar-Rauschen). `extend_up` (Anteil Zelle) erweitert die Box Richtung
+    Bild-oben (hintere Reihe): 3D-Figuren ragen bei schräger Kamera dorthin über (CLAUDE.md-Fallstrick);
+    erweiterte Zellen dürfen überlappen — das weiche LL-Scoring verträgt das."""
     col, row = _square_to_col_row(square, white_pov)
     cell = board_size / 8.0
     m = cell * inset
-    return (int(col * cell + m), int(row * cell + m),
+    y0 = row * cell + m - extend_up * cell
+    return (int(col * cell + m), max(0, int(y0)),
             int((col + 1) * cell - m), int((row + 1) * cell - m))
 
 
@@ -57,12 +64,13 @@ def square_center(square: str, board_size: int, white_pov: bool):
     return int((col + 0.5) * cell), int((row + 0.5) * cell)
 
 
-def per_square_diff(gray_a, gray_b, board_size: int, white_pov: bool) -> dict[str, float]:
+def per_square_diff(gray_a, gray_b, board_size: int, white_pov: bool,
+                    extend_up: float = 0.0) -> dict[str, float]:
     """Mittlere absolute Helligkeitsdifferenz je Feld zwischen zwei entzerrten Graustufenbildern."""
     d = cv2.absdiff(gray_a, gray_b)
     out: dict[str, float] = {}
     for sq in _ALL:
-        x0, y0, x1, y1 = square_region(sq, board_size, white_pov)
+        x0, y0, x1, y1 = square_region(sq, board_size, white_pov, extend_up=extend_up)
         out[sq] = float(d[y0:y1, x0:x1].mean()) if (y1 > y0 and x1 > x0) else 0.0
     return out
 
@@ -75,15 +83,18 @@ def census_transform(gray) -> np.ndarray:
     """3×3-Census-Transform: je Pixel ein 8-Bit-Code „Zentrum heller als Nachbar?".
     Invariant gegen MONOTONE Helligkeitsänderungen (Schatten dunkeln monoton ab → Code bleibt
     gleich), erfasst aber Struktur/Kanten (echte Figur → Code ändert sich)."""
-    g = gray.astype(np.int16)
-    code = np.zeros(g.shape, dtype=np.uint8)
+    # Rand REPLICATE-padden statt np.roll: roll würde Randpixel gegen die GEGENSEITE des
+    # Bildes vergleichen (Reihe 8 gegen Reihe 1) und die Census-Scores der Randfelder verfälschen.
+    g = cv2.copyMakeBorder(gray, 1, 1, 1, 1, cv2.BORDER_REPLICATE).astype(np.int16)
+    center = g[1:-1, 1:-1]
+    code = np.zeros(center.shape, dtype=np.uint8)
     bit = 0
     for dy in (-1, 0, 1):
         for dx in (-1, 0, 1):
             if dx == 0 and dy == 0:
                 continue
-            nb = np.roll(np.roll(g, dy, axis=0), dx, axis=1)
-            code |= (g > nb).astype(np.uint8) << bit
+            nb = g[1 + dy:g.shape[0] - 1 + dy, 1 + dx:g.shape[1] - 1 + dx]
+            code |= (center > nb).astype(np.uint8) << bit
             bit += 1
     return code
 
@@ -157,32 +168,64 @@ def normalize_diffs(diffs: dict[str, float]) -> dict[str, float]:
     return {s: max(0.0, v - baseline) for s, v in diffs.items()}
 
 
-def best_legal_move(board: chess.Board, diffs: dict[str, float], change_thr: float):
-    """Den legalen Zug wählen, dessen berührte Felder die beobachtete Änderung am besten erklären.
+class SquareNoise:
+    """Laufendes Rauschmodell des per-Feld-Diffs (EMA von Mittel und Streuung), aktualisiert
+    NUR in stabilen, ereignislosen Phasen und auf den bereits median-normalisierten Diffs
+    (sonst springen die z-Scores bei jedem Belichtungswechsel). Absorbiert langsamen,
+    räumlich ungleichmäßigen Lichtdrift, den der globale Median-Abzug nicht erwischt.
+    Der std-Floor ist zwingend: gegen eine frische Referenz ist diff ≈ 0 und die EMA
+    würde sonst kollabieren (z-Scores explodieren)."""
 
-    Score = Summe(diff über berührte Felder) − 0.6·Summe(diff über stark geänderte, NICHT erklärte
-    Felder). So gewinnt der Zug, der die Änderung deckt, ohne unberührte Großänderungen zu ignorieren.
-    Gibt (move|None, score, second_score, changed_set) zurück; `second_score` ist der zweitbeste Score
-    (für eine Mehrdeutigkeits-Prüfung), None wenn nichts hinreichend passt.
-    """
-    changed = {s for s, v in diffs.items() if v >= change_thr}
-    if not changed:
-        return None, 0.0, -1e9, changed
-    best, best_score, second_score = None, -1e9, -1e9
-    for mv in board.legal_moves:
-        touched = move_touched_squares(board, mv)
-        covered = sum(diffs[s] for s in touched)
-        unexplained = sum(diffs[s] for s in changed if s not in touched)
-        score = covered - 0.6 * unexplained
-        # Beide Endpunkte müssen sich spürbar geändert haben (sonst ist es nicht dieser Zug).
-        if diffs[chess.square_name(mv.from_square)] < change_thr or \
-           diffs[chess.square_name(mv.to_square)] < change_thr:
-            score -= 1000
-        if score > best_score:
-            best_score, second_score, best = score, best_score, mv
-        elif score > second_score:
-            second_score = score
-    return best, best_score, second_score, changed
+    def __init__(self, alpha: float = 0.05, init_std: float = 4.0, std_floor: float = 1.5) -> None:
+        self.alpha = alpha
+        self.std_floor = std_floor
+        self.mean: dict[str, float] = dict.fromkeys(_ALL, 0.0)
+        self.std: dict[str, float] = dict.fromkeys(_ALL, init_std)
+
+    def update(self, diffs: dict[str, float]) -> None:
+        a = self.alpha
+        for sq, d in diffs.items():
+            m = self.mean[sq]
+            self.mean[sq] = (1 - a) * m + a * d
+            dev = abs(d - m)
+            self.std[sq] = max(self.std_floor, (1 - a) * self.std[sq] + a * dev)
+
+    def z(self, diffs: dict[str, float]) -> dict[str, float]:
+        return {sq: (d - self.mean[sq]) / self.std[sq] for sq, d in diffs.items()}
+
+
+def loglik_scores(board: chess.Board, z: dict[str, float],
+                  z_thr: float = 3.0, k: float = 1.0) -> list[tuple[chess.Move, float]]:
+    """Log-Likelihood-Score je legalem Zug, relativ zur Hypothese „kein Zug".
+
+    p(Feld geändert) = sigmoid(k·(z − z_thr)); ein Zug „erklärt" seine berührten Felder.
+    Relativ zu „kein Zug" trägt jeder Zug Σ logit(p) über seine touched-Felder bei —
+    heiße unberührte Felder bestrafen damit automatisch alle Züge, die sie nicht erklären
+    (relativ zu Zügen, die es tun). Kein harter Cutoff mehr: ein schwaches Zielfeld
+    (weiße Figur auf weißem Feld) senkt den Score, eliminiert den Zug aber nicht.
+    Rückgabe absteigend sortiert; leere Liste, wenn keine legalen Züge existieren."""
+    # logit(sigmoid(x)) == x: der Beitrag eines Feldes ist direkt k·(z − z_thr), geklippt
+    # gegen Ausreißer (ein einzelnes extrem heißes Feld soll nicht alles dominieren).
+    logit = {sq: float(np.clip(k * (v - z_thr), -12.0, 12.0)) for sq, v in z.items()}
+    scored = [(mv, sum(logit[s] for s in move_touched_squares(board, mv)))
+              for mv in board.legal_moves]
+    scored.sort(key=lambda t: -t[1])
+    return scored
+
+
+def move_prior(board: chess.Board, move: chess.Move) -> float:
+    """Kleiner Plausibilitäts-Prior in LL-Einheiten (Stufe A, ohne Engine): entscheidet NUR
+    echte Beinahe-Gleichstände, nie gegen klare Bild-Evidenz (Deckelung |prior| ≤ 1.0).
+    Schlagzug +0.5, Schachgebot +0.3, Vorwärtszug +0.2."""
+    p = 0.0
+    if board.is_capture(move):
+        p += 0.5
+    if board.gives_check(move):
+        p += 0.3
+    fwd = chess.square_rank(move.to_square) - chess.square_rank(move.from_square)
+    if (fwd > 0) == (board.turn == chess.WHITE) and fwd != 0:
+        p += 0.2
+    return min(p, 1.0)
 
 
 # =======================================================================================
@@ -199,16 +242,17 @@ class Observation(NamedTuple):
     note: str = ""
 
 
-def diff_observer(board: chess.Board, diffs: dict[str, float], change_thr: float,
-                  normalize: bool = True) -> Observation:
-    """Pure: normalize_diffs → best_legal_move, extrahiert aus dem heutigen _try_detect.
-    Keine Verhaltensänderung — nur Struktur für den Observer-Seam (Spec 09 hängt CNN hier ein).
-    `normalize=False`, wenn der Aufrufer die Diffs bereits normalisiert hat (Doppelabzug vermeiden)."""
-    if normalize:
-        diffs = normalize_diffs(diffs)
-    mv, score, second, changed = best_legal_move(board, diffs, change_thr)
-    return Observation(move=mv, score=score, second=second,
-                       changed=frozenset(changed), source="diff")
+def diff_observer(board: chess.Board, z: dict[str, float], z_thr: float,
+                  k: float = 1.0) -> Observation:
+    """Pure: LL-Scoring auf z-Scores → beste/zweitbeste Hypothese (Observer-Seam, Spec 06/10).
+    `changed` = Felder über z_thr (nur Gate-/Debug-Info; das Scoring selbst ist weich)."""
+    changed = frozenset(s for s, v in z.items() if v >= z_thr)
+    scored = loglik_scores(board, z, z_thr, k)
+    if not scored:
+        return Observation(move=None, score=-1e9, second=-1e9, changed=changed, source="diff")
+    second = scored[1][1] if len(scored) > 1 else -1e9
+    return Observation(move=scored[0][0], score=scored[0][1], second=second,
+                       changed=changed, source="diff")
 
 
 class Confirmer:
@@ -248,13 +292,21 @@ class MoveTracker:
     """Liest die Kamera, hält den Spielzustand und das letzte Overlay-Bild (thread-sicher)."""
 
     def __init__(self, profile: str = "phone", source="0",
-                 motion_thr: float = 3.0, settle_frames: int | None = None, change_thr: float = 16.0,
-                 confirm_frames: int | None = None, ambiguity_margin: float | None = None,
+                 motion_thr: float = 3.0, settle_frames: int | None = None,
+                 change_thr: float | None = None,          # DEPRECATED (Spec 10): ersetzt durch z_thr
+                 confirm_frames: int | None = None,
+                 ambiguity_margin: float | None = None,    # DEPRECATED (Spec 10): ersetzt durch ambiguity_margin_ll
                  live_align: bool = True, avg_frames: int | None = None, max_changed: int = 6,
                  cnn_run: str | None = None, cnn_conf_thr: float = 0.85,
                  cnn_cooldown_s: float = 2.0, cnn_check_interval_s: float = 10.0,
                  device: str = "auto", verify_window: int = 8,
-                 census_thr: float = 55.0, cnn_verify: bool = True) -> None:
+                 census_thr: float = 55.0, cnn_verify: bool = True,
+                 z_thr: float = 3.0, ll_k: float = 1.0, ambiguity_margin_ll: float = 2.0,
+                 reanchor_ll_floor: float = -4.0, nudge_timeout_s: float = 5.0,
+                 drift_window_s: float = 30.0, use_prior: bool = True,
+                 cnn_min_agreement: float = 0.97, cnn_margin_squares: int = 1,
+                 min_confident_board: int = 32, min_confident_recovery: int = 8,
+                 motion_margin: float = 0.12, overhang: float = 0.0) -> None:
         self.profile = load_profile(profile)
         _src = source if not str(source).isdigit() else int(source)
         _cap = open_source(_src)
@@ -271,10 +323,28 @@ class MoveTracker:
         self.settle_frames = settle_frames if settle_frames is not None else (2 if _cnn else 4)
         avg_frames = avg_frames if avg_frames is not None else (2 if _cnn else 3)
         confirm_frames = confirm_frames if confirm_frames is not None else (1 if _cnn else 2)
-        self.change_thr = change_thr
+        if change_thr is not None or ambiguity_margin is not None:
+            log.warning("change_thr/ambiguity_margin sind deprecated (Spec 10) — "
+                        "das Scoring läuft über z_thr/ambiguity_margin_ll.")
         self.confirm_frames = confirm_frames          # gleicher Zug muss N ruhige Frames bestätigt sein
-        # Zweitbester Zug muss mind. so viel schlechter sein, sonst gilt die Lage als mehrdeutig:
-        self.ambiguity_margin = ambiguity_margin if ambiguity_margin is not None else change_thr
+        # -- probabilistisches Scoring (Spec 10, Teil 1) --
+        self.z_thr = z_thr                            # z-Score, ab dem ein Feld als „geändert" gilt
+        self.ll_k = ll_k                              # Sigmoid-Steilheit des LL-Scorings
+        self.ambiguity_margin_ll = ambiguity_margin_ll  # best − second in LL-Einheiten (lichtunabhängig)
+        self.reanchor_ll_floor = reanchor_ll_floor    # Re-Anchor NUR wenn auch best-LL darunter liegt
+        self.noise = SquareNoise()                    # per-Feld-Rauschmodell (EMA, nur in Ruhe geupdatet)
+        self.use_prior = use_prior                    # Heuristik-Prior als Ambiguitäts-Tie-Break (Teil 2)
+        self.prior_last = False                       # letzter Zug wurde per Prior entschieden (Undo-Hinweis)
+        # -- Nudge-/Drift-Re-Anchor ohne CNN (Teil 4) --
+        self.nudge_timeout_s = nudge_timeout_s
+        self.drift_window_s = drift_window_s
+        self._anomaly_since: float | None = None      # seit wann dieselben 1–2 Felder unerklärt stuck sind
+        self._anomaly_key: frozenset[str] | None = None
+        # -- Promotion ohne CNN (Teil 5): wartet auf Nutzerwahl via choose_promotion() --
+        self._promo_pending: dict | None = None       # {"from","to","cur","cur_bgr","fen"}
+        self.motion_margin = motion_margin            # Motion-ROI über den Brettrand hinaus (Anteil)
+        self._prev_roi = None                         # voriges ROI-Graubild fürs erweiterte Motion-Gate
+        self.overhang = overhang                      # Diff-Zellen nach oben erweitern (Anteil Zelle)
         self.live_align = live_align                  # True: Marker live nachführen; False: Kalib. einfrieren
         self.avg_frames = max(1, avg_frames)          # gleitendes Mittel über N ruhige Frames (Denoise)
         self.max_changed = max_changed                # mehr geänderte Felder => verdeckt/instabil, kein Zug
@@ -293,6 +363,12 @@ class MoveTracker:
         # solange cnn_run None ist oder nie beobachtet wird.
         self.cnn_run = cnn_run
         self.cnn_conf_thr = cnn_conf_thr
+        self.cnn_min_agreement = cnn_min_agreement
+        self.cnn_margin_squares = cnn_margin_squares
+        # min_confident gesplittet (Spec 10): Whole-Board-Match braucht viel freie Sicht (32),
+        # Recovery muss gerade bei Teilverdeckung handlungsfähig bleiben (8).
+        self.min_confident_board = min_confident_board
+        self.min_confident_recovery = min_confident_recovery
         self.cnn_cooldown_s = cnn_cooldown_s              # Mindestabstand zwischen Recovery-Beobachtungen
         self.cnn_check_interval_s = cnn_check_interval_s  # Intervall der periodischen Kontrolle
         self.device = device                             # "auto" | "cpu" | "cuda" (lazy aufgelöst)
@@ -368,6 +444,29 @@ class MoveTracker:
         g = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
         return cv2.GaussianBlur(g, (5, 5), 0)
 
+    def _roi_motion(self, frame) -> float:
+        """Bewegung in einem um `motion_margin` erweiterten Ausschnitt des ROHEN Frames —
+        erfasst die Hand, bevor sie ein Feld verdeckt (Poggi). Downsampled (billig im Hot-Path).
+        Nur vom Loop-Thread benutzt (kein Lock nötig für _prev_roi)."""
+        corners = self._last_corners
+        if not corners:
+            return 0.0
+        xs = [float(p[0]) for p in corners]
+        ys = [float(p[1]) for p in corners]
+        mx = (max(xs) - min(xs)) * self.motion_margin
+        my = (max(ys) - min(ys)) * self.motion_margin
+        h, w = frame.shape[:2]
+        x0, x1 = max(0, int(min(xs) - mx)), min(w, int(max(xs) + mx))
+        y0, y1 = max(0, int(min(ys) - my)), min(h, int(max(ys) + my))
+        if x1 - x0 < 8 or y1 - y0 < 8:
+            return 0.0
+        roi = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY)
+        roi = cv2.resize(roi, (160, max(8, int(160 * (y1 - y0) / (x1 - x0)))))
+        prev, self._prev_roi = self._prev_roi, roi
+        if prev is None or prev.shape != roi.shape:
+            return 0.0
+        return float(cv2.absdiff(roi, prev).mean())
+
     # -- Steuerung --
     def reset_to_start(self, fen: str | None = None):
         """Brett auf Start/FEN setzen und das aktuelle Kamerabild als Referenz nehmen
@@ -384,6 +483,9 @@ class MoveTracker:
             self.recovered_last = False
             self.cnn_status, self.cnn_conflicts = None, []
             self._pending, self._verify_state = None, None
+            self._promo_pending = None
+            self._anomaly_since = self._anomaly_key = None
+            self.prior_last = False
 
     def start(self):
         if self._running:
@@ -413,6 +515,9 @@ class MoveTracker:
                     time.sleep(0.02)
                     continue
                 gray = self._gray(warped)
+                # Erweitertes Motion-Gate (Spec 10, Teil 6): Bewegung auch im Rand UM das Brett
+                # erfassen — die Hand wird so gesehen, BEVOR sie ein Feld verdeckt.
+                motion_roi = self._roi_motion(frame)
 
                 now = time.time()
                 with self.lock:
@@ -425,7 +530,7 @@ class MoveTracker:
                     self._last_loop_ts = now
 
                     self.prev_gray = gray if self.prev_gray is None else self.prev_gray
-                    motion = float(cv2.absdiff(gray, self.prev_gray).mean())
+                    motion = max(float(cv2.absdiff(gray, self.prev_gray).mean()), motion_roi)
                     self.prev_gray = gray
                     self._motion = motion
 
@@ -501,7 +606,11 @@ class MoveTracker:
             from .cnn_recovery import CnnRecovery
 
             self.recovery = CnnRecovery(config.DATA.models / self.cnn_run, self.profile,
-                                        device=self._resolve_device(), conf_thr=self.cnn_conf_thr)
+                                        device=self._resolve_device(), conf_thr=self.cnn_conf_thr,
+                                        min_agreement=self.cnn_min_agreement,
+                                        margin_squares=self.cnn_margin_squares,
+                                        min_confident_board=self.min_confident_board,
+                                        min_confident_recovery=self.min_confident_recovery)
             return self.recovery
         except Exception as e:  # noqa: BLE001 — Feature aus, Tracker läuft normal weiter
             self._cnn_failed = True
@@ -541,13 +650,16 @@ class MoveTracker:
         has_identity = getattr(obs, "label", None) is not None
         if has_identity:
             matches = recovery.board_matches_identity(self.board, obs)
-            cnn_mv, agreement, _second = recovery.derive_move_identity(self.board, obs)
+            # 2-Ply-Suche (Spec 10, Teil 3): erklärt kein einzelner Zug die Beobachtung,
+            # werden Zugpaare probiert — rettet den Fall „Antwortzug kam vor dem Commit".
+            cnn_moves, agreement, _second = recovery.derive_moves_identity(self.board, obs,
+                                                                           max_plies=2)
             conflicts = matches["conflicts"]
             match_ok = matches["match"]
             inconclusive = matches["inconclusive"]
         else:
             res = recovery.resync_check(self.board, obs)
-            cnn_mv = chess.Move.from_uci(res["move"]) if res["move"] else None
+            cnn_moves = [chess.Move.from_uci(res["move"])] if res["move"] else []
             agreement, conflicts = res["agreement"], res["conflicts"]
             match_ok, inconclusive = res["match"], False
 
@@ -557,7 +669,7 @@ class MoveTracker:
                 self._recovery_confirmer.reset()
                 return
             self._cnn_agreement = agreement
-            self._cnn_best_move = cnn_mv.uci() if cnn_mv else None
+            self._cnn_best_move = " ".join(m.uci() for m in cnn_moves) if cnn_moves else None
 
             if match_ok:
                 # „Nichts-verändert": CNN bestätigt, dass das Brett dem Spielzustand entspricht.
@@ -577,30 +689,40 @@ class MoveTracker:
                 return
 
             self.cnn_status, self.cnn_conflicts = "mismatch", conflicts
-            if cnn_mv is None:
+            if not cnn_moves:
                 shown = ", ".join(conflicts[:4]) + ("…" if len(conflicts) > 4 else "")
                 self.note = f"CNN-Kontrolle: Brett weicht ab ({shown}) — Figuren prüfen oder Resync"
                 self._recovery_confirmer.reset()
                 return
-            uci = cnn_mv.uci()
-            if not self._recovery_confirmer.feed(uci):      # Voting statt Single-Shot
-                san = self.board.san(cnn_mv)
-                self.note = (f"CNN-Recovery prüft {san}… "
+            key = " ".join(m.uci() for m in cnn_moves)      # Zugfolge als Voting-Schlüssel
+            if not self._recovery_confirmer.feed(key):      # Voting statt Single-Shot
+                self.note = (f"CNN-Recovery prüft {key}… "
                              f"({self._recovery_confirmer.count}/{self.confirm_frames})")
                 return
-            san = self.board.san(cnn_mv)
-            self.board.push(cnn_mv)
-            self.history.append(san)
-            self.last_move = uci
-            self.ref_gray = self.ref_bgr = None             # Referenz auf neue Stellung neu aufnehmen
-            self.ref_fen = None
-            self._gray_buf.clear()
+            # Atomarer Commit der Zugfolge (1 oder 2 Halbzüge, Reihenfolge durch side-to-move fixiert).
+            sans = []
+            for mv in cnn_moves:
+                sans.append(self.board.san(mv))
+                self.board.push(mv)
+            self.history.extend(sans)
+            self.last_move = cnn_moves[-1].uci()
+            # Referenz NICHT verwerfen (Spec 10, Teil 3): der Frame, auf dem die Recovery
+            # entschieden hat, ist per FEN-Revalidierung stellungsaktuell → sofort als
+            # Base-Truth setzen, statt blind auf die nächste Settle-Phase zu warten.
+            if self._last_cur is not None:
+                self._set_ref(self._last_cur, self._last_cur_bgr)
+            else:
+                self.ref_gray = self.ref_bgr = None
+                self.ref_fen = None
+                self._gray_buf.clear()
             self.state = "move"
             self.recovered_last = True
+            self.prior_last = False
             self.cnn_status, self.cnn_conflicts = "ok", []
             self._confirmer.reset()
             self._clear_stuck()
-            self.note = f"Zug per CNN-Recovery erkannt: {san} (Übereinstimmung {agreement:.0%})"
+            self.note = (f"Zug per CNN-Recovery erkannt: {' + '.join(sans)} "
+                         f"(Übereinstimmung {agreement:.0%})")
 
     def _verify_tick(self, frame) -> None:
         """Pre-Commit-Verifikation eines Diff-Kandidaten (`self._pending`) durchs CNN, autonom
@@ -651,10 +773,12 @@ class MoveTracker:
                 return                                      # Zustand hat sich geändert → verwerfen
             pending["frames"] += 1
 
-            def _commit(note_suffix: str, state: str, status: str, conflicts=None):
+            def _commit(note_suffix: str, state: str, status: str, conflicts=None,
+                        move: chess.Move | None = None):
                 self.cnn_status = status
                 self.cnn_conflicts = conflicts or []
-                self._commit_move(pend_mv, pending["cur"], pending.get("cur_bgr"))
+                self._commit_move(move or pend_mv, pending["cur"], pending.get("cur_bgr"),
+                                  prior_used=pending.get("prior_used", False))
                 self._verify_state = state
                 if note_suffix:
                     self.note += note_suffix
@@ -677,14 +801,26 @@ class MoveTracker:
                 _commit("", "confirmed", "ok")
                 return
 
-            # 3) Berührte Felder belastbar, aber Identität passt NICHT → Diff gewinnt (Nutzer-
+            # 3) Gegenkandidat (Spec 10, Teil 5): das CNN sieht eindeutig einen ANDEREN legalen
+            #    Zug und dessen berührte Felder bestätigen ihn belastbar → CNN überstimmt den
+            #    Diff-Kandidaten (statt „Diff gewinnt immer"). Löst u.a. Promotion-Varianten
+            #    (Zielfeld-Label) und ähnlich aussehende Züge.
+            if cnn_mv is not None and cnn_uci != pending["uci"]:
+                agree_alt, n_alt = recovery.verify_move_identity(self.board, cnn_mv, obs)
+                if agree_alt >= recovery.min_agreement and n_alt >= 2:
+                    old_san = self.board.san(pend_mv)
+                    _commit(f"  (CNN hat {old_san} überstimmt)", "overruled", "ok", move=cnn_mv)
+                    log.info("CNN hat Diff-Kandidat überstimmt: %s → %s", pending["uci"], cnn_uci)
+                    return
+
+            # 4) Berührte Felder belastbar, aber Identität passt NICHT → Diff gewinnt (Nutzer-
             #    Entscheidung), CNN warnt nur (mismatch, Alternative in der Debug-Card).
             if n >= 2:
                 _commit("  (CNN unstimmig — Diff übernommen)", "mismatch", "mismatch",
                         [] if cnn_uci is None else [cnn_uci])
                 return
 
-            # 4) Verdeckung/geringe Konfidenz auf den Endpunkten → nicht blockieren: warten,
+            # 5) Verdeckung/geringe Konfidenz auf den Endpunkten → nicht blockieren: warten,
             #    nach `verify_window` dem Diff vertrauen.
             if pending["frames"] >= self.verify_window:
                 _commit("  (CNN unsicher — Diff übernommen)", "confirmed", "ok")
@@ -762,7 +898,8 @@ class MoveTracker:
             return None
         return np.mean(np.stack(list(self._bgr_buf)), axis=0).astype(np.uint8)
 
-    def _commit_move(self, move: chess.Move, cur, cur_bgr=None, recovered: bool = False) -> None:
+    def _commit_move(self, move: chess.Move, cur, cur_bgr=None, recovered: bool = False,
+                     prior_used: bool = False) -> None:
         """Zug anwenden und Base-Truth = (Bild, FEN nach Zug) setzen. Unter self.lock.
         Von beiden Pfaden genutzt: Direkt-Commit (kein CNN) und verifizierter Verify-Commit."""
         san = self.board.san(move)
@@ -774,16 +911,20 @@ class MoveTracker:
         self._confirmer.reset()
         self._clear_stuck()          # setzt auch _recovery_confirmer zurück
         self._pending = None
+        self._anomaly_since = self._anomaly_key = None
         self._verify_state = "confirmed"
         self.recovered_last = recovered
-        self.note = f"Zug erkannt: {san}" + (" (CNN-Recovery)" if recovered else "")
+        # Prior-Entscheidungen sichtbar machen (Spec 10, Teil 2): der Prior kann bei echtem
+        # Bild-Gleichstand raten — der Nutzer soll sehen, dass Undo naheliegt.
+        self.prior_last = prior_used
+        self.note = f"Zug erkannt: {san}" + (" (CNN-Recovery)" if recovered else "") \
+            + (" (per Prior entschieden — ggf. Undo)" if prior_used else "")
         if self.board.is_checkmate():
             self.note += " — Schachmatt!"
 
     def _try_detect(self, cur, cur_bgr=None):
-        # --- Pending-Verifikation läuft: keinen neuen Kandidaten erzeugen (wird gerade
-        #     vom CNN über mehrere Frames geprüft). ---
-        if self._pending is not None:
+        # --- Pending-Verifikation/-Promotion läuft: keinen neuen Kandidaten erzeugen. ---
+        if self._pending is not None or self._promo_pending is not None:
             return
 
         # --- Invariante: Base-Truth ist (Bild, FEN). Passt die FEN nicht mehr zum
@@ -794,27 +935,27 @@ class MoveTracker:
             self.ref_fen = None
             return
 
-        # --- Compute diffs und EINMAL oben normalisieren: alle Gates (Empty, max_changed)
-        #     und die Zugsuche arbeiten auf DENSELBEN normalisierten Diffs, damit ein
-        #     globaler Belichtungssprung (Handy-AutoExposure) nicht fälschlich als
-        #     „zu viel geändert / verdeckt" zählt. ---
+        # --- Diffs → Median-Normalisierung (globaler Belichtungssprung) → z-Scores
+        #     (per-Feld-Rauschmodell; lokaler Drift/Feld-Charakteristik). Alle Gates und
+        #     das LL-Scoring arbeiten auf DENSELBEN z-Werten. ---
         _t0 = time.perf_counter()
-        diffs = per_square_diff(self.ref_gray, cur, self.profile.board_size, self.profile.white_pov)
+        diffs = per_square_diff(self.ref_gray, cur, self.profile.board_size,
+                                self.profile.white_pov, extend_up=self.overhang)
         diffs = normalize_diffs(diffs)
+        z = self.noise.z(diffs)
         self._diff_ms = (time.perf_counter() - _t0) * 1000.0
 
-        # --- Kandidaten-Felder (Grau-Diff über Schwelle) ---
-        changed = {s for s, v in diffs.items() if v >= self.change_thr}
-        # Top-Felder inkl. Wert (auch knapp unter der Schwelle: ab change_thr/2) fürs Tuning:
-        # so sieht man live, wie „stark" ein echter Zug vs. Tischwackeln ausschlägt.
+        # --- Kandidaten-Felder (z über Schwelle); Debug zeigt auch knapp darunter ---
+        changed = {s for s, v in z.items() if v >= self.z_thr}
         self._changed_vals = sorted(
-            ((s, round(v, 1)) for s, v in diffs.items() if v >= self.change_thr * 0.5),
+            ((s, round(v, 1)) for s, v in z.items() if v >= self.z_thr * 0.5),
             key=lambda kv: -kv[1])[:8]
 
         # --- Cast-Shadow-Veto (HSV nach Cucchiara) + Census-Bestätigung ---
-        # Ein Feld wird als Schatten verworfen, wenn es (a) farblich wie ein Schatten aussieht
-        # (Hue gleich, dunkler) UND (b) Census keine strukturelle Änderung sieht. Nur beides
-        # zusammen -> echte Figuren (andere Farbe/Struktur) bleiben immer erhalten.
+        # Vetoed Felder verlassen nur die changed-Menge (Gates); ihre z-Werte bleiben fürs
+        # Scoring erhalten. WICHTIG: ein GERÄUMTES Feld sieht dem HSV-Test oft wie eine
+        # Abdunkelung aus (Figur weg → Brettfarbe) — würde man z nullen, verlöre der echte
+        # Zug seine from-Evidenz. Bewährte Semantik aus v1 beibehalten.
         self._shadow_vetoed = []
         if cur_bgr is not None and self.ref_bgr is not None and changed:
             cens = per_square_census_change(self.ref_gray, cur, self.profile.board_size,
@@ -826,63 +967,174 @@ class MoveTracker:
                 changed -= veto
                 self._shadow_vetoed = sorted(veto)
 
-        self._changed = sorted(changed)   # nach Veto: für Overlay/Debug (auch bei den Gates unten)
-        if not changed:
-            self._confirmer.reset()
-            self._clear_stuck()
-            self._set_ref(cur, cur_bgr)
-            return
+        self._changed = sorted(changed)
 
         # --- max_changed gate: Verdeckungs-/Instabilitäts-Gate (Base-Truth bleibt) ---
         if len(changed) > self.max_changed:
             self._confirmer.reset()
+            self._anomaly_since = self._anomaly_key = None
             self._mark_stuck("too_many_changed")   # Spec 09: Recovery-Trigger via _cnn_tick
             self.note = (f"viel Veränderung ({len(changed)} Felder) — verdeckt/instabil, "
                          f"kein Zug übernommen (Base-Truth unverändert)")
             return
 
-        # --- Diff observer (bereits normalisiert -> normalize=False, kein Doppelabzug) ---
-        obs = diff_observer(self.board, diffs, self.change_thr, normalize=False)
-        # Debug: Kandidat + Scores für die Debug-Card festhalten.
-        self._best_score, self._second_score = obs.score, obs.second
-        self._candidate_uci = obs.move.uci() if obs.move else None
+        # --- LL-Scoring: beste/zweitbeste Hypothese relativ zu „kein Zug". Viabel ist ein
+        #     Zug nur, wenn BEIDE Endpunkte wenigstens schwache Evidenz tragen (z ≥ z_thr/2,
+        #     Spec 10 Teil 1): sonst würde ein einzelnes heißes Feld (Nudge!) Züge mit völlig
+        #     kalten Zielfeldern netto-positiv scoren. Weiß-auf-weiß (Ziel knapp unter z_thr)
+        #     bleibt viabel — genau der Fall, den der alte −1000-Cutoff gekillt hat. ---
+        scored = loglik_scores(self.board, z, self.z_thr, self.ll_k)
+        soft = self.z_thr * 0.5
+        viable = [(mv, s) for mv, s in scored
+                  if z[chess.square_name(mv.from_square)] >= soft
+                  and z[chess.square_name(mv.to_square)] >= soft]
+        obs_move, best = viable[0] if viable else (None, -1e9)
+        second = viable[1][1] if len(viable) > 1 else -1e9
+        self._best_score = best if viable else (scored[0][1] if scored else 0.0)
+        self._second_score = second
+        self._candidate_uci = obs_move.uci() if obs_move else None
 
-        # --- score < 0 gate ---
-        if obs.move is None or obs.score < 0:
+        # --- Ruhe / Re-Anchor (verschärft, Spec 10 Teil 1): nichts über z_thr UND kein
+        #     viabler Kandidat mit netto-positiver Evidenz. Ein voreiliger Re-Anchor würde
+        #     schwache Zug-Evidenz dauerhaft in die Base-Truth einbacken.
+        #     Nur hier lernt das Rauschmodell. ---
+        if not changed:
+            if obs_move is None or best < self.reanchor_ll_floor:
+                self.noise.update(diffs)
+                self._confirmer.reset()
+                self._clear_stuck()
+                self._anomaly_since = self._anomaly_key = None
+                self._set_ref(cur, cur_bgr)
+                return
+            if best < 0.0:
+                # schwache, aber zugkonsistente Evidenz (weiß-auf-weiß?) → Referenz HALTEN,
+                # weder re-anchorn noch stuck melden; der Confirmer sammelt weiter.
+                self.note = f"schwache Zugevidenz ({self.board.san(obs_move)}?) — warte"
+                return
+
+        # --- kein Zug erklärt die Änderung ---
+        if obs_move is None or best < 0.0:
             self._confirmer.reset()
             self._mark_stuck("no_legal_move")      # Spec 09: Recovery-Trigger via _cnn_tick
-            self.note = (f"Änderung auf {len(changed)} Feldern, aber kein legaler Zug passt — "
-                         f"möglicher Fehlzug, Base-Truth unverändert (Resync nötig?)")
+            self._maybe_patch_anomaly(changed, best, cur, cur_bgr)   # Nudge/Drift ohne CNN (Teil 4)
+            if self._stuck_reason is not None:
+                self.note = (f"Änderung auf {len(changed)} Feldern, aber kein legaler Zug passt — "
+                             f"möglicher Fehlzug, Base-Truth unverändert (Resync nötig?)")
             return
+        self._anomaly_since = self._anomaly_key = None
 
-        # --- ambiguity gate ---
-        if obs.score - obs.second < self.ambiguity_margin:
-            self._confirmer.reset()
-            self.note = "mehrdeutige Änderung — bitte sauber ziehen / kurz warten"
-            return
+        # --- ambiguity gate (LL-Einheiten, lichtunabhängig) + Prior-Tie-Break (Teil 2) ---
+        prior_used = False
+        if best - second < self.ambiguity_margin_ll:
+            near = [(mv, s) for mv, s in viable if best - s < self.ambiguity_margin_ll]
+            # Promotion-Sonderfall: alle nahen Kandidaten sind Promo-Varianten desselben Zuges
+            # → Diff kann sie prinzipiell nicht unterscheiden. Mit CNN entscheidet das Verify
+            # (Zielfeld-Label); ohne CNN fragt die UI den Nutzer (choose_promotion).
+            if all(mv.promotion for mv, _ in near) and \
+               len({(mv.from_square, mv.to_square) for mv, _ in near}) == 1:
+                if not (self.cnn_verify and self.cnn_run and not self._cnn_failed):
+                    self._promo_pending = {
+                        "from": chess.square_name(near[0][0].from_square),
+                        "to": chess.square_name(near[0][0].to_square),
+                        "cur": cur, "cur_bgr": cur_bgr, "fen": self.board.fen()}
+                    self.note = "Umwandlung erkannt — bitte Figur wählen (Q/R/B/N)"
+                    return
+                # mit CNN: beste Variante (Default Dame) weiterreichen, Verify korrigiert per Label
+            elif self.use_prior:
+                rescored = sorted(((mv, s + move_prior(self.board, mv)) for mv, s in near),
+                                  key=lambda t: -t[1])
+                if len(rescored) > 1 and rescored[0][1] - rescored[1][1] >= self.ambiguity_margin_ll:
+                    obs_move, prior_used = rescored[0][0], True
+                else:
+                    self._confirmer.reset()
+                    self.note = ("mehrdeutig: " + " / ".join(
+                        f"{self.board.san(mv)} ({s:+.1f})" for mv, s in near[:3])
+                        + " — bitte sauber ziehen / kurz warten")
+                    return
+            else:
+                self._confirmer.reset()
+                self.note = "mehrdeutige Änderung — bitte sauber ziehen / kurz warten"
+                return
 
         # --- Confirmer voting ---
-        uci = obs.move.uci()
+        uci = obs_move.uci()
         if not self._confirmer.feed(uci):
-            cnt = self._confirmer.count
-            san = self.board.san(obs.move)
-            self.note = f"erkenne {san}… ({cnt}/{self.confirm_frames})"
+            self.note = f"erkenne {self.board.san(obs_move)}… ({self._confirmer.count}/{self.confirm_frames})"
             return
 
         # --- Bestätigter Diff-Kandidat ---
-        san = self.board.san(obs.move)
+        san = self.board.san(obs_move)
         if self.cnn_verify and self.cnn_run and not self._cnn_failed:
-            # NUR wenn Pre-Commit-Verify explizit AN ist: zur CNN-Prüfung anmelden.
-            # (Default aus — das CNN soll nicht jeden Zug aufhalten, sondern nur bei Stuck helfen.)
             self._pending = {"uci": uci, "fen": self.board.fen(),
-                             "cur": cur, "cur_bgr": cur_bgr, "frames": 0}
+                             "cur": cur, "cur_bgr": cur_bgr, "frames": 0,
+                             "prior_used": prior_used}
             self._recovery_confirmer.reset()
             self._verify_state = "verifying"
             self.note = f"prüfe {san} per CNN…"
             return
         # Standard: Diff committet direkt (schnell). Schatten sind bereits per HSV-Veto raus;
         # bei Stuck/Abweichung greift die CNN-Recovery/-Kontrolle in _cnn_tick.
-        self._commit_move(obs.move, cur, cur_bgr, recovered=False)
+        self._commit_move(obs_move, cur, cur_bgr, recovered=False, prior_used=prior_used)
+
+    def _maybe_patch_anomaly(self, changed: set[str], best_ll: float, cur, cur_bgr) -> None:
+        """Nudge-/Drift-Re-Anchor ohne CNN (Spec 10, Teil 4). Unter self.lock aufrufen.
+
+        Greift nur, wenn KEIN CNN konfiguriert ist (mit CNN erledigt das die Recovery schneller):
+        1–2 Felder persistent unerklärt (kein legaler Zug auch nur schwach plausibel) →
+        Referenz NUR auf diesen Zellen nachziehen (patchen), nicht komplett neu aufnehmen.
+        - Belegte Felder (Nudge/j'adoube: Aussehen ändert sich, Belegung nicht) nach nudge_timeout_s.
+        - Leere Felder (lokaler Lichtdrift) erst nach drift_window_s — konservativer, weil ein
+          sich änderndes leeres Feld auch ein stiller Fehlzug sein könnte."""
+        if self.cnn_run and not self._cnn_failed:
+            return
+        if not changed or len(changed) > 2 or best_ll >= 0.0:
+            self._anomaly_since = self._anomaly_key = None
+            return
+        key = frozenset(changed)
+        now = time.time()
+        if key != self._anomaly_key:
+            self._anomaly_key, self._anomaly_since = key, now
+            return
+        elapsed = now - (self._anomaly_since or now)
+        occupied = all(self.board.piece_at(chess.parse_square(s)) is not None for s in changed)
+        needed = self.nudge_timeout_s if occupied else self.drift_window_s
+        if elapsed < needed:
+            return
+        # Zellen in der Referenz patchen (Graubild + Farbe fürs Schatten-Veto).
+        for sq in changed:
+            x0, y0, x1, y1 = square_region(sq, self.profile.board_size, self.profile.white_pov,
+                                           inset=0.0)
+            self.ref_gray[y0:y1, x0:x1] = cur[y0:y1, x0:x1]
+            if cur_bgr is not None and self.ref_bgr is not None:
+                self.ref_bgr[y0:y1, x0:x1] = cur_bgr[y0:y1, x0:x1]
+        shown = ", ".join(sorted(changed))
+        why = "Figur verrückt (j'adoube)" if occupied else "Licht gedriftet"
+        self.note = f"Referenz nachgezogen ({shown}): {why} — kein Zug"
+        log.info("Referenz-Zellen gepatcht: %s (%s)", shown, why)
+        self._anomaly_since = self._anomaly_key = None
+        self._clear_stuck()
+        self._confirmer.reset()
+
+    def choose_promotion(self, piece: str) -> dict:
+        """Nutzerwahl der Umwandlungsfigur (Q/R/B/N) für einen wartenden Promotion-Zug ohne CNN."""
+        piece = (piece or "").lower().strip()
+        symbols = {"q": chess.QUEEN, "r": chess.ROOK, "b": chess.BISHOP, "n": chess.KNIGHT}
+        if piece not in symbols:
+            return {"ok": False, "error": f"ungültige Figur: {piece!r} (q/r/b/n)"}
+        with self.lock:
+            pp = self._promo_pending
+            if pp is None:
+                return {"ok": False, "error": "keine Umwandlung offen"}
+            if self.board.fen() != pp["fen"]:
+                self._promo_pending = None
+                return {"ok": False, "error": "Stellung hat sich geändert"}
+            mv = chess.Move(chess.parse_square(pp["from"]), chess.parse_square(pp["to"]),
+                            promotion=symbols[piece])
+            if mv not in self.board.legal_moves:
+                return {"ok": False, "error": f"{mv.uci()} ist nicht legal"}
+            self._promo_pending = None
+            self._commit_move(mv, pp["cur"], pp.get("cur_bgr"))
+            return {"ok": True, "move": mv.uci(), "san": self.history[-1]}
 
     # -- Stuck-Buchhaltung (unter self.lock aufrufen) --
     def _mark_stuck(self, reason: str) -> None:
@@ -900,7 +1152,7 @@ class MoveTracker:
         cell = bs / 8.0
         for i in range(9):
             p = int(i * cell)
-            cv2.line(img, (p, 0), (bs, p) if False else (p, bs), (0, 180, 0), 1)
+            cv2.line(img, (p, 0), (p, bs), (0, 180, 0), 1)
             cv2.line(img, (0, p), (bs, p), (0, 180, 0), 1)
         # Vom Diff-Algorithmus AKTUELL als „geändert" erkannte Felder (magenta) — zeigt live,
         # worauf die Erkennung reagiert (Schatten/Ghosts sofort sichtbar → Tuning-Hilfe).
@@ -949,6 +1201,11 @@ class MoveTracker:
                 "recovered_last": self.recovered_last,
                 "cnn_status": self.cnn_status,
                 "cnn_conflicts": list(self.cnn_conflicts),
+                # Promotion wartet auf Nutzerwahl (nur ohne CNN-Verify): {"from","to"} | None
+                "promotion_pending": (None if self._promo_pending is None else
+                                      {"from": self._promo_pending["from"],
+                                       "to": self._promo_pending["to"]}),
+                "prior_last": self.prior_last,
                 # Base-Truth-Diagnose: welche FEN das Referenzbild zeigt (None = Neu-Aufnahme läuft)
                 "ref_fen": self.ref_fen,
                 # Debug-Card: alle relevanten Live-Metriken (nur Anzeige).
@@ -967,11 +1224,15 @@ class MoveTracker:
                     "changed_vals": [[s, v] for s, v in self._changed_vals],
                     "shadow_vetoed": list(self._shadow_vetoed),
                     "max_changed": self.max_changed,
-                    "change_thr": self.change_thr,
+                    "z_thr": self.z_thr,
                     "census_thr": self.census_thr,
+                    # Rauschmodell-Heatmap-Daten (Mittel/Streuung je Feld, gerundet)
+                    "noise_mean": {s: round(v, 1) for s, v in self.noise.mean.items()},
+                    "noise_std": {s: round(v, 1) for s, v in self.noise.std.items()},
                     "best_score": round(self._best_score, 1),
                     "second_score": round(self._second_score, 1),
                     "margin": round(self._best_score - self._second_score, 1),
+                    "ambiguity_margin_ll": self.ambiguity_margin_ll,
                     "candidate": self._candidate_uci,
                     "confirm_count": self._confirmer.count,
                     "confirm_frames": self.confirm_frames,
@@ -1021,4 +1282,7 @@ class MoveTracker:
                 self._clear_stuck()
                 self.recovered_last = False
                 self._pending, self._verify_state = None, None
+                self._promo_pending = None
+                self._anomaly_since = self._anomaly_key = None
+                self.prior_last = False
                 self.note = "letzter Zug rückgängig"

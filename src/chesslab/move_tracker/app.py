@@ -41,7 +41,7 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
 
     @app.post("/api/start")
     def start(profile: str = Body("phone"), source: str = Body("0"),
-              motion_thr: float = Body(3.0), change_thr: float = Body(16.0),
+              motion_thr: float | None = Body(None), z_thr: float | None = Body(None),
               cnn_run: str | None = Body(None), device: str | None = Body(None)):
         # Atomic swap: take old tracker out under lock, stop+join OUTSIDE lock,
         # start new one, put in under lock. Double-start leaves exactly one thread.
@@ -53,8 +53,10 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
 
         kwargs = dict(tk)
         # Body-Werte gewinnen über die CLI-Defaults in `tk` (sonst doppeltes Keyword-Argument):
-        kwargs["motion_thr"] = motion_thr
-        kwargs["change_thr"] = change_thr
+        if motion_thr is not None:
+            kwargs["motion_thr"] = motion_thr
+        if z_thr is not None:
+            kwargs["z_thr"] = z_thr
         if cnn_run is not None:                      # Body überschreibt CLI-Default ("" = aus)
             kwargs["cnn_run"] = cnn_run or None
         if device is not None:
@@ -85,6 +87,14 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
         except ValueError as e:
             return {"ok": False, "error": f"ungültige FEN: {e}"}
         return {"ok": True}
+
+    @app.post("/api/promote")
+    def promote(piece: str = Body(..., embed=True)):
+        """Umwandlungsfigur wählen (Promotion ohne CNN wartet auf Nutzer-Input, Spec 10)."""
+        t = _STATE.get("tracker")
+        if t is None:
+            return {"ok": False, "error": "nicht gestartet"}
+        return t.choose_promotion(piece)
 
     @app.post("/api/undo")
     def undo():
@@ -160,7 +170,7 @@ if __name__ == "__main__":
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8001)
     ap.add_argument("--motion-thr", type=float, default=3.0)
-    ap.add_argument("--change-thr", type=float, default=16.0)
+    ap.add_argument("--z-thr", type=float, default=3.0)
     ap.add_argument("--confirm-frames", type=int, default=None)
     ap.add_argument("--settle-frames", type=int, default=None)
     ap.add_argument("--max-changed", type=int, default=6)
@@ -184,7 +194,7 @@ if __name__ == "__main__":
             "avg_frames": a.avg_frames,
             "live_align": not a.no_live_align,
         }.items() if v is not None
-    } | {"motion_thr": a.motion_thr, "change_thr": a.change_thr,
+    } | {"motion_thr": a.motion_thr, "z_thr": a.z_thr,
          "cnn_run": (a.cnn_run or None), "cnn_conf_thr": a.cnn_conf_thr,
          "device": a.device, "census_thr": a.census_thr, "cnn_verify": a.cnn_verify}
 
