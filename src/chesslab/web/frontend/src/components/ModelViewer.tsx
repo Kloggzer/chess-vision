@@ -50,10 +50,7 @@ export function ModelViewer({ piece, textured = true, size = 320 }: {
       // Material: Textur oder Clay. side=DoubleSide ist bei gescannten Meshes PFLICHT — sonst
       // werden bei nach innen zeigenden Normalen die Vorderflächen weggecullt und man schaut
       // durch die Figur (der „Wireframe"-Effekt).
-      const applyMat = (mat: THREE.Material) => {
-        mat.side = THREE.DoubleSide;
-        obj.traverse((c) => { if ((c as THREE.Mesh).isMesh) (c as THREE.Mesh).material = mat; });
-      };
+      const applyMat = (mat: THREE.Material) => applyMeshMaterial(obj, mat);
       if (textured) {
         new THREE.TextureLoader().load(`/api/scan/model/${piece}.png`, (tex) => {
           tex.colorSpace = THREE.SRGBColorSpace;
@@ -91,4 +88,10 @@ export function ModelViewer({ piece, textured = true, size = 320 }: {
 
   return <div ref={host} style={{ width: size, height: size }}
     className="rounded-lg border border-zinc-700 bg-zinc-950 [&>canvas]:rounded-lg" />;
+}
+
+/** Alle Meshes im Objekt auf das gegebene Material umstellen (DoubleSide). */
+function applyMeshMaterial(obj: THREE.Group, mat: THREE.Material) {
+  mat.side = THREE.DoubleSide;
+  obj.traverse((c) => { if ((c as THREE.Mesh).isMesh) { (c as THREE.Mesh).material = mat; } });
 }

@@ -62,7 +62,7 @@ export default function Review() {
 
   function setLabel(square: string, label: string) {
     const base = map[square]?.label;
-    setChanges((ch) => { const n = { ...ch }; if (label === base) delete n[square]; else n[square] = label; return n; });
+    setChanges((ch) => { const n = { ...ch }; if (label === base) { delete n[square]; } else { n[square] = label; } return n; });
     setEdit(null); setQuery("");
   }
   function onCell(square: string, e: React.MouseEvent) {
@@ -72,7 +72,7 @@ export default function Review() {
   }
   function acceptPredictions() {
     if (!data?.cells) return;
-    setChanges((ch) => { const n = { ...ch }; for (const c of data.cells) if (c.pred_label && c.pred_label !== c.label) n[c.square] = c.pred_label; return n; });
+    setChanges((ch) => { const n = { ...ch }; for (const c of data.cells) { if (c.pred_label && c.pred_label !== c.label) { n[c.square] = c.pred_label; } } return n; });
     setInfo("Modell-Vorschläge übernommen — prüfen & speichern.");
   }
   function step(delta: number) {
@@ -140,9 +140,11 @@ export default function Review() {
           ))}
         </div>
         <p className="mt-2 text-xs text-zinc-500">
-          {info || (reviewQ.isError ? "keine Crops für diese Session/Frame (erst slicen?)"
-            : paint ? `Pinsel „${paint}" aktiv — Felder anklicken setzt direkt (Esc = aus).`
-            : "Pinsel wählen zum schnellen Malen, oder Feld anklicken → Suchfeld · ◀▶/Pfeiltasten steppen.")}
+          {info || (() => {
+            if (reviewQ.isError) return "keine Crops für diese Session/Frame (erst slicen?)";
+            if (paint) return `Pinsel „${paint}" aktiv — Felder anklicken setzt direkt (Esc = aus).`;
+            return "Pinsel wählen zum schnellen Malen, oder Feld anklicken → Suchfeld · ◀▶/Pfeiltasten steppen.";
+          })()}
           {!info && !reviewQ.isError && <> <span className="text-red-400">Rot</span>=Modell widerspricht · <span className="text-amber-400">Gelb</span>=unsicher · <span className="text-sky-400">Blau</span>=geändert.</>}
         </p>
       </Card>
@@ -155,8 +157,11 @@ export default function Review() {
               if (!cell) return <div key={f + r} />;
               const changed = cell.square in changes;
               const ring = changed ? "ring-sky-400"
-                : cell.disagree ? "ring-red-500"
-                : cell.confidence != null && cell.confidence < 0.6 ? "ring-amber-400" : "ring-zinc-700";
+                : (() => {
+                    if (cell.disagree) return "ring-red-500";
+                    if (cell.confidence != null && cell.confidence < 0.6) return "ring-amber-400";
+                    return "ring-zinc-700";
+                  })();
               return (
                 <button key={f + r} onClick={(e) => onCell(cell.square, e)}
                   className={`relative aspect-square overflow-hidden rounded-md bg-black ring-2 ${ring} ${edit?.square === cell.square ? "ring-sky-300" : ""} hover:ring-sky-300`}>
@@ -185,7 +190,7 @@ export default function Review() {
             <div className="mb-1 flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2">
               <Search className="h-3.5 w-3.5 text-zinc-500" />
               <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && filtered[0]) setLabel(edit.square, filtered[0]); if (e.key === "Escape") { setEdit(null); setQuery(""); } }}
+                onKeyDown={(e) => { if (e.key === "Enter" && filtered[0]) { setLabel(edit.square, filtered[0]); } if (e.key === "Escape") { setEdit(null); setQuery(""); } }}
                 placeholder="suchen: könig, bN, leer…" className="w-full bg-transparent py-1.5 text-sm text-zinc-100 outline-none" />
             </div>
             <div className="max-h-56 overflow-auto">

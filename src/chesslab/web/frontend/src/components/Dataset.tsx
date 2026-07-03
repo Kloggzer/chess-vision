@@ -176,15 +176,27 @@ export function StatsPanel() {
   const statsOf = params.get("ds") ?? "";
   const [browse, setBrowse] = useState<{ label: string; crops: any[] } | null>(null);
   const datasetsQ = useQuery({ queryKey: ["datasets"], queryFn: () => api("/api/datasets") });
-  const statsQ = useQuery({ queryKey: ["stats", statsOf], queryFn: () => api(`/api/stats${statsOf ? `?dataset=${encodeURIComponent(statsOf)}` : ""}`) });
+  const statsQ = useQuery({ queryKey: ["stats", statsOf], queryFn: () => {
+    const qs = statsOf ? `?dataset=${encodeURIComponent(statsOf)}` : "";
+    return api(`/api/stats${qs}`);
+  } });
   const datasets: any[] = datasetsQ.data ?? [];
   const s = statsQ.data;
   if (statsQ.isLoading || !s) return <Card>Stats laden…</Card>;
 
+  const statsOfDs = statsOf ? `Datensatz „${statsOf}"` : "globaler Pool";
   const max = Math.max(1, ...Object.values<number>(s.counts ?? { x: 1 }));
   const barColor = (c: string, n: number) =>
-    c === "empty" || c === "occluded" ? "#38bdf8" : n < s.min_samples * 0.5 ? "#ef4444" : n < s.min_samples ? "#eab308" : "#22c55e";
-  const openClass = (c: string) => api(`/api/class/${c}?limit=120${statsOf ? `&dataset=${encodeURIComponent(statsOf)}` : ""}`).then((d) => setBrowse({ label: c, crops: d.crops }));
+    (() => {
+      if (c === "empty" || c === "occluded") return "#38bdf8";
+      if (n < s.min_samples * 0.5) return "#ef4444";
+      if (n < s.min_samples) return "#eab308";
+      return "#22c55e";
+    })();
+  const openClass = (c: string) => {
+    const qs = statsOf ? `&dataset=${encodeURIComponent(statsOf)}` : "";
+    return api(`/api/class/${c}?limit=120${qs}`).then((d) => setBrowse({ label: c, crops: d.crops }));
+  };
 
   return (
     <div className="space-y-4">
@@ -225,7 +237,7 @@ export function StatsPanel() {
         {s.warnings.length ? <ul className="space-y-1 text-sm">{s.warnings.map((w: string, i: number) => <li key={i} className="flex items-center gap-2 text-amber-400"><AlertTriangle className="h-4 w-4 shrink-0" /> {w}</li>)}</ul> : <span className="text-sm text-green-500">keine</span>}
       </Card>
 
-      <Card title={`Crops durchblättern (${statsOf ? `Datensatz „${statsOf}"` : "globaler Pool"})`} right={<span className="flex items-center gap-1 text-xs text-zinc-500"><Images className="h-3.5 w-3.5" />{browse ? `${browse.label} (${browse.crops.length})` : "Klasse anklicken"}</span>}>
+      <Card title={`Crops durchblättern (${statsOfDs})`} right={<span className="flex items-center gap-1 text-xs text-zinc-500"><Images className="h-3.5 w-3.5" />{browse ? `${browse.label} (${browse.crops.length})` : "Klasse anklicken"}</span>}>
         {browse ? (
           <div className="grid grid-cols-[repeat(auto-fill,56px)] gap-1.5">
             {browse.crops.map((c: any, i: number) => <img key={i} src={c.url} title={`${c.session_id} ${c.frame} ${c.square}`} className="h-[74px] w-[56px] rounded border border-zinc-800 object-cover" />)}

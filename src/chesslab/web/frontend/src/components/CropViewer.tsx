@@ -3,9 +3,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
-import { Button } from "./ui";
 import { api, post } from "../api";
-import { Crop, RotateCcw, Wand2, Loader2, Move, RotateCw, Maximize2 } from "lucide-react";
+import { Crop, RotateCcw, Loader2, Move, RotateCw, Maximize2 } from "lucide-react";
 
 type AABB = { min: number[]; max: number[] };
 type Mode = "translate" | "rotate" | "scale";
@@ -238,9 +237,13 @@ export function CropViewer({ dir, onDone }: { dir: string; onDone: () => void })
       setStatus(`Cropped (${r.faces_kept}/${r.faces_total} faces). Bereite vor…`);
 
       // Auto-Prepare mit isolate=false (das Mesh ist bereits freigestellt)
-      const pieceName = dir.match(/^([wb]?)([PNBRQK])$/i)
-        ? (dir[0].toLowerCase() === dir[0] ? dir[0].toLowerCase() + dir.slice(1).toUpperCase() : dir.toUpperCase())
-        : dir;
+      const pieceName = (() => {
+        const m = dir.match(/^([wb]?)([PNBRQK])$/i);
+        if (!m) return dir;
+        return dir[0].toLowerCase() === dir[0]
+          ? dir[0].toLowerCase() + dir.slice(1).toUpperCase()
+          : dir.toUpperCase();
+      })();
       await post("/api/scan/prepare", {
         dir,
         piece: pieceName.length === 1 ? "w" + pieceName : pieceName,

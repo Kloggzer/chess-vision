@@ -36,6 +36,11 @@ export default function ManualLabel() {
   const nSet = Object.keys(labels).length;
   const filtered = CLASSES.filter((c) => matches(c, query.trim().toLowerCase()));
 
+  function getCellLabel(square: string, currentLabel: string | undefined): string {
+    if (paint) return paint === currentLabel ? "empty" : paint;
+    return currentLabel ?? "empty";
+  }
+
   function setSquare(square: string, label: string) {
     setLabels((m) => {
       const n = { ...m };
@@ -46,7 +51,7 @@ export default function ManualLabel() {
     setEdit(null); setQuery("");
   }
   function onCell(square: string, e: React.MouseEvent) {
-    if (paint) { setSquare(square, paint === labels[square] ? "empty" : paint); return; }  // Pinsel: setzen/toggeln
+    if (paint) { setSquare(square, getCellLabel(square, labels[square])); return; }  // Pinsel: setzen/toggeln
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     setQuery(""); setEdit({ square, x: r.left, y: r.bottom + 4 });   // ohne Pinsel: Suchfeld
   }
@@ -93,10 +98,12 @@ export default function ManualLabel() {
           ))}
         </div>
         <p className="mt-2 text-xs text-zinc-500">
-          {st.active
-            ? (paint ? `Pinsel „${paint}" aktiv — Feld anklicken setzt (nochmal = leeren).`
-              : "Feld anklicken → Suchfeld. ")
-            : "Starten, dann Figuren aufs reale Brett stellen und die belegten Felder markieren."}
+          {(() => {
+            if (!st.active) return "Starten, dann Figuren aufs reale Brett stellen und die belegten Felder markieren.";
+            return paint
+              ? `Pinsel „${paint}" aktiv — Feld anklicken setzt (nochmal = leeren).`
+              : "Feld anklicken → Suchfeld. ";
+          })()}
           {" "}Nicht markierte Felder zählen als <b>leer</b>. Labels bleiben nach „Aufnehmen" erhalten → mehrere Frames mit wechselndem Licht.
         </p>
       </Card>
@@ -149,7 +156,7 @@ export default function ManualLabel() {
             <div className="mb-1 flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2">
               <Search className="h-3.5 w-3.5 text-zinc-500" />
               <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && filtered[0]) setSquare(edit.square, filtered[0]); if (e.key === "Escape") { setEdit(null); setQuery(""); } }}
+                onKeyDown={(e) => { if (e.key === "Enter" && filtered[0]) { setSquare(edit.square, filtered[0]); } if (e.key === "Escape") { setEdit(null); setQuery(""); } }}
                 placeholder="suchen: könig, bN, leer…" className="w-full bg-transparent py-1.5 text-sm text-zinc-100 outline-none" />
             </div>
             <div className="max-h-56 overflow-auto">
