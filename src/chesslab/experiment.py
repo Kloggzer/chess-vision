@@ -100,8 +100,8 @@ def slice_variant(v: Variant, session_ids: list[str], *, force: bool = False) ->
         meta = read_session_meta(sdir)
         prof = load_profile(meta["profile"])
         if sid in have:   # schon gesliced (idempotenter Resume) -> Crops zählen, nicht neu schneiden
-            crops += sum(1 for l in manifest_path.read_text(encoding="utf-8").splitlines()
-                         if l.strip() and json.loads(l)["session_id"] == sid)
+            crops += sum(1 for line in manifest_path.read_text(encoding="utf-8").splitlines()
+                         if line.strip() and json.loads(line)["session_id"] == sid)
             continue
         stats = slice_session(
             sdir, profile=prof, manifest_path=manifest_path, squares_root=squares_root,
@@ -196,10 +196,10 @@ def collect_metrics(v: Variant, session_profile: dict[str, str], split_name: str
 
     items = [{"session_id": r["session_id"], "frame": str(r["frame"]),
               "camera": session_profile.get(r["session_id"], "?"), "correct": t == p}
-             for r, t, p in zip(rows, trues, preds)]
+              for r, t, p in zip(rows, trues, preds, strict=False)]
     board = board_accuracy([((it["session_id"], it["frame"]), it["correct"]) for it in items])
     cm = confusion_matrix(res["trues"], res["preds"], len(classes))
-    recall = {c: float(x) for c, x in zip(classes, per_class_recall(cm))}
+    recall = {c: float(x) for c, x in zip(classes, per_class_recall(cm), strict=False)}
     per_session = grouped_board_acc(items, "session_id")
     per_camera = grouped_board_acc(items, "camera")
     bd = occupancy_piece_breakdown(classes, trues, preds)   # WO sitzen die Fehler: Occ vs Typ vs Farbe

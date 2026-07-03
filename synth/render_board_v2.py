@@ -26,11 +26,11 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
-import bpy
-from bpy_extras.object_utils import world_to_camera_view
-from mathutils import Vector
+import bpy  # noqa: E402
+from bpy_extras.object_utils import world_to_camera_view  # noqa: E402
+from mathutils import Vector  # noqa: E402
 
-from render_args import parse_render_args
+from render_args import parse_render_args  # noqa: E402
 
 # --- Brett-Geometrie (identisch zu render_chessboard.py) ---
 CELL = 6.0
@@ -450,7 +450,7 @@ def main():
     print(f"[v2] board-texture={board_tex or 'procedural'}")
 
     if fens_file and fens_file.exists():
-        fens = [l.strip() for l in fens_file.read_text().splitlines() if l.strip()]
+        fens = [line.strip() for line in fens_file.read_text().splitlines() if line.strip()]
     else:
         fens = ["rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR"]
     rng = random.Random(seed)

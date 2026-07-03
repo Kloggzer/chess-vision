@@ -108,7 +108,7 @@ def test_occupancy_board_acc_is_easier_than_full_board():
     preds = [_ci("wN"), _ci("empty")]
     assert occupancy_board_acc(rows, classes, trues, preds) == 1.0
     full = board_accuracy([((r["session_id"], str(r["frame"])), t == p)
-                           for r, t, p in zip(rows, trues, preds)])
+                           for r, t, p in zip(rows, trues, preds, strict=False)])
     assert full == 0.0
 
 

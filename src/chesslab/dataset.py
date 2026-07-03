@@ -249,8 +249,6 @@ def validate_split(split: dict, rows: list[dict]) -> tuple[list[str], list[str]]
     errors: list[str] = []
     warnings: list[str] = []
 
-    split_of = {s: name for name, sids in split["splits"].items() for s in sids}
-
     # Session-Menge pro Klasse
     class_sessions: dict[str, set] = {c: set() for c in CLASSES}
     for r in rows:

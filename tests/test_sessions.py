@@ -56,8 +56,8 @@ def test_archive_removes_crops_and_manifest_then_restore(tmp_path):
     r = S.archive_session("s1", paths)
     assert r["removed_crops"] == 1
     assert not (paths.sessions / "s1").exists() and (paths.sessions_archive / "s1").exists()
-    kept = [json.loads(l)["session_id"] for l in (paths.manifests / "squares.jsonl")
-            .read_text(encoding="utf-8").splitlines() if l.strip()]
+    kept = [json.loads(line)["session_id"] for line in (paths.manifests / "squares.jsonl")
+            .read_text(encoding="utf-8").splitlines() if line.strip()]
     assert kept == ["s2"]                                  # nur s2 bleibt im Manifest
     assert not (paths.squares / "wK" / "s1_0000_e1.png").exists()
     assert (paths.squares / "wK" / "s2_0000_e1.png").exists()  # andere Session unberührt
@@ -79,10 +79,10 @@ def test_delete_removes_dir_crops_manifest_and_corrections(tmp_path):
     r = S.delete_session("s1", paths)
     assert r["deleted"] and r["removed_crops"] == 1
     assert not (paths.sessions / "s1").exists()
-    assert [json.loads(l)["session_id"] for l in (paths.manifests / "squares.jsonl")
-            .read_text(encoding="utf-8").splitlines() if l.strip()] == ["s2"]
-    assert [json.loads(l)["session_id"] for l in cp.read_text(encoding="utf-8").splitlines()
-            if l.strip()] == ["s2"]
+    assert [json.loads(line)["session_id"] for line in (paths.manifests / "squares.jsonl")
+            .read_text(encoding="utf-8").splitlines() if line.strip()] == ["s2"]
+    assert [json.loads(line)["session_id"] for line in cp.read_text(encoding="utf-8").splitlines()
+            if line.strip()] == ["s2"]
 
 
 def test_invalid_id_and_missing(tmp_path):

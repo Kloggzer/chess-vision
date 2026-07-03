@@ -53,11 +53,16 @@ def inference_state():
 def camera_inference():
     import cv2
 
-    from ... import serving
+    from ... import config, serving
     from ...calibration import draw_board_grid, square_center
 
     def frames():
-        CONF_COL = lambda c: (0, 200, 0) if c >= 0.8 else (0, 215, 255) if c >= 0.5 else (0, 0, 255)
+        def _conf_col(c: float) -> tuple[int, int, int]:
+            if c >= 0.8:
+                return (0, 200, 0)
+            if c >= 0.5:
+                return (0, 215, 255)
+            return (0, 0, 255)
         none_count = 0
         try:
           while True:
@@ -101,7 +106,7 @@ def camera_inference():
                 ch = "#" if lab == "occluded" else label_to_fen_char(lab) or "?"
                 cx, cy = square_center(sq, prof)
                 cv2.putText(img, ch, (cx - 8, cy + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
-                            CONF_COL(conf), 2, cv2.LINE_AA)
+                            _conf_col(conf), 2, cv2.LINE_AA)
             fen = labels_to_fen(labels)
             cv2.putText(img, fen, (8, prof.board_size - 10), cv2.FONT_HERSHEY_SIMPLEX,
                         0.5, (255, 255, 0), 1, cv2.LINE_AA)

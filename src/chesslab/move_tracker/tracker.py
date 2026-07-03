@@ -27,7 +27,7 @@ import numpy as np
 
 log = logging.getLogger("chesslab.move_tracker")
 
-from ..calibration import (
+from ..calibration import (  # noqa: E402
     _square_to_col_row,
     board_corners_for_frame,
     draw_calibration_overlay,
@@ -35,7 +35,7 @@ from ..calibration import (
     make_tracker,
     warp_from_corners,
 )
-from ..web.camera import open_source
+from ..web.camera import open_source  # noqa: E402
 
 _FILES = "abcdefgh"
 _ALL = [f"{f}{r}" for r in range(1, 9) for f in _FILES]

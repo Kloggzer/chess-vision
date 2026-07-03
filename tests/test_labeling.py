@@ -85,7 +85,7 @@ def test_slice_start_position(tmp_path):
     stats = slice_session(sdir, profile=_identity_profile(), manifest_path=manifest, squares_root=squares_root)
 
     assert stats["session_id"] == "sess1" and stats["frames"] == 1 and stats["crops"] == 64
-    rows = [json.loads(l) for l in manifest.read_text(encoding="utf-8").splitlines() if l.strip()]
+    rows = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert len(rows) == 64
 
     by_label = {}
@@ -139,7 +139,7 @@ def test_slice_uses_explicit_labels_incl_occluded(tmp_path):
     stats = slice_session(sdir, profile=_identity_profile(board_size), manifest_path=manifest,
                           squares_root=tmp_path / "squares")
     rows = {r["square"]: r["label"] for r in
-            (json.loads(l) for l in manifest.read_text(encoding="utf-8").splitlines() if l.strip())}
+            (json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip())}
     assert stats["crops"] == 64
     assert rows["e1"] == "wK" and rows["d4"] == "occluded" and rows["a7"] == "empty"
 
@@ -178,7 +178,7 @@ def test_reslice_with_new_params_is_reproducible(tmp_path):
     # Re-slice with different crop params; no re-capture needed.
     slice_session(sdir, profile=prof, manifest_path=manifest, squares_root=squares_root,
                   pad_up=3.0, out_size=(64, 64))
-    rows = [json.loads(l) for l in manifest.read_text(encoding="utf-8").splitlines() if l.strip()]
+    rows = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert len(rows) == 64                          # session replaced, not duplicated
     assert all(r["out_size"] == [64, 64] for r in rows)
     img = cv2.imread(str(squares_root / "wK" / "sess1_0000_e1.png"))

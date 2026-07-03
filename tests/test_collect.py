@@ -28,7 +28,7 @@ def test_capture_writes_frames_and_log(tmp_path):
     w.capture(_frame(), ply=2, fen="fen-b", move_san="e5")
     assert (w.dir / "frames/0000.png").exists()
     assert (w.dir / "frames/0001.png").exists()
-    lines = [l for l in w.log_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    lines = [line for line in w.log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert len(lines) == 2
     assert json.loads(lines[0])["fen"] == "fen-a"
     assert w.count == 2
@@ -41,13 +41,13 @@ def test_capture_persists_corners(tmp_path):
     corners = [[10, 10], [54, 10], [54, 38], [10, 38]]   # a8,h8,h1,a1 in Frame-Pixeln
     w.capture(_frame(), ply=1, fen="fen-a", corners=corners)
     w.capture(_frame(), ply=2, fen="fen-b")               # ohne Geometrie -> kein Feld
-    lines = [json.loads(l) for l in w.log_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    lines = [json.loads(line) for line in w.log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert lines[0]["corners"] == corners
     assert "corners" not in lines[1]
     # undo schreibt die Einträge konsistent (inkl. corners) zurück
     w.capture(_frame(), 3, "fen-c")
     w.undo()
-    lines = [json.loads(l) for l in w.log_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    lines = [json.loads(line) for line in w.log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert lines[0]["corners"] == corners and len(lines) == 2
 
 
@@ -68,7 +68,7 @@ def test_undo_removes_frame_and_log_line(tmp_path):
     assert removed["fen"] == "fen-b"
     assert not (w.dir / "frames/0001.png").exists()
     assert (w.dir / "frames/0000.png").exists()
-    lines = [l for l in w.log_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    lines = [line for line in w.log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert len(lines) == 1
     assert w.count == 1
     # next capture reuses the freed index

@@ -90,7 +90,7 @@ def run_eval(run: str, split_name: str = "test") -> int:
     cm = confusion_matrix(res["trues"], res["preds"], len(classes))
     recall = per_class_recall(cm)
     print("Per-Klassen-Recall:")
-    for c, r in zip(classes, recall):
+    for c, r in zip(classes, recall, strict=False):
         print(f"  {c:<6} {r:.3f}")
     # 3. Confusion (Text + PNG), Blick auf König<->Dame und Figur<->empty
     txt = render_confusion_text(cm, classes)
@@ -103,7 +103,7 @@ def run_eval(run: str, split_name: str = "test") -> int:
     summary = {"split": split_name, "board_acc": res["board_acc"], "square_acc": res["square_acc"],
                "occ_acc": bd["occ_acc"], "occ_board_acc": occ_bacc, "piece_acc": bd["piece_acc"],
                "type_err": bd["type_err"], "color_err": bd["color_err"],
-               "recall": {c: float(r) for c, r in zip(classes, recall)}}
+               "recall": {c: float(r) for c, r in zip(classes, recall, strict=False)}}
     (run_dir / f"eval_{split_name}.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     return 0
 

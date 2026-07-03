@@ -60,8 +60,8 @@ def test_manual_capture_explicit_labels_produce_entries(tmp_path):
     w.close()
 
     manifest = tmp_path / "m.jsonl"
-    stats = slice_session(sdir, profile=prof, manifest_path=manifest, squares_root=tmp_path / "sq")
-    rows = [json.loads(l) for l in manifest.read_text(encoding="utf-8").splitlines() if l.strip()]
+    slice_session(sdir, profile=prof, manifest_path=manifest, squares_root=tmp_path / "sq")
+    rows = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip()]
     by_sq = {r["square"]: r["label"] for r in rows}
     assert len(rows) == 64
     assert by_sq["e4"] == "wB" and by_sq["d5"] == "bN" and by_sq["h1"] == "occluded"
@@ -112,7 +112,7 @@ def test_slice_applies_label_override(tmp_path):
     stats = slice_session(sdir, profile=prof, manifest_path=manifest, squares_root=squares,
                           label_overrides=overrides)
     assert stats["overrides"] == 1
-    rows = [json.loads(l) for l in manifest.read_text(encoding="utf-8").splitlines() if l.strip()]
+    rows = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip()]
     e2 = next(r for r in rows if r["square"] == "e2")
     assert e2["label"] == "empty"
     assert (squares / "empty" / "s1_0000_e2.png").exists()
@@ -430,8 +430,6 @@ def test_crop_math_two_cubes_box_local():
 
     # Re-express in box-local coords
     kept_vert_idx = np.unique(kept_faces.flatten())
-    old_to_new = {int(vi): ni for ni, vi in enumerate(kept_vert_idx)}
-    new_faces = np.array([[old_to_new[vi] for vi in tri] for tri in kept_faces], dtype=np.int32)
     new_verts = local[kept_vert_idx]
 
     # Verify: all vertices are within half_ext in each axis

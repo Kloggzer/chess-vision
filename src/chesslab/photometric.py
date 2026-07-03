@@ -49,10 +49,10 @@ def preprocess_crop(bgr: np.ndarray, method: str = "none",
 def _clahe(bgr: np.ndarray, clip: float, tile: int) -> np.ndarray:
     """CLAHE nur auf der Luminanz (LAB-L) — Kontrast lokal anheben, Farbton unangetastet."""
     lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
-    l, a, b = cv2.split(lab)
+    l_ch, a, b = cv2.split(lab)
     clahe = cv2.createCLAHE(clipLimit=float(clip), tileGridSize=(int(tile), int(tile)))
-    l = clahe.apply(l)
-    return cv2.cvtColor(cv2.merge((l, a, b)), cv2.COLOR_LAB2BGR)
+    l_ch = clahe.apply(l_ch)
+    return cv2.cvtColor(cv2.merge((l_ch, a, b)), cv2.COLOR_LAB2BGR)
 
 
 def _grayworld(bgr: np.ndarray) -> np.ndarray:
