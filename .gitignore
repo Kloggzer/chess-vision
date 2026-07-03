@@ -27,3 +27,10 @@ venv/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+
+# Agent-Workspaces / Scratch
+.deepseek/
+_fix_*.py
+ruff_raw_output.txt
+eslint_output.txt
+nul
