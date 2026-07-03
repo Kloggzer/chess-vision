@@ -64,6 +64,7 @@ export function CropViewer({ dir, onDone }: { dir: string; onDone: () => void })
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.15;
+    el.appendChild(renderer.domElement);
 
     const cam = new THREE.PerspectiveCamera(35, 1, 0.001, 5000);
 

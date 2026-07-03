@@ -430,19 +430,27 @@ def _keep_largest_component(mesh):
     new_vert_map = {old: new for new, old in enumerate(sorted({v for tri in clean_tris for v in tri}))}
     clean_tris_mapped = np.array([[new_vert_map[vi] for vi in tri] for tri in clean_tris], dtype=np.int32)
 
-    # Carry over vertex attributes (UVs only if no outlier filtering, to keep mapping simple)
+    # Carry over vertex attributes (UVs, colors) through the entire vertex remap chain
     import trimesh
     kwargs = {}
     orig_visual = mesh.visual
+    orig_uv = getattr(orig_visual, "uv", None)
+    orig_vc = getattr(orig_visual, "vertex_colors", None)
     if clean_verts is final_verts:
         # No outlier removal → simple UV remap through best_vert_idx
-        orig_uv = getattr(orig_visual, "uv", None)
         if orig_uv is not None and len(orig_uv) == len(mesh.vertices):
             kwargs["visual"] = trimesh.visual.texture.TextureVisuals(uv=orig_uv[best_vert_idx])
-        elif hasattr(orig_visual, "vertex_colors") and orig_visual.vertex_colors is not None:
-            vc = orig_visual.vertex_colors
-            if len(vc) == len(mesh.vertices):
-                kwargs["vertex_colors"] = vc[best_vert_idx]
+        elif orig_vc is not None and len(orig_vc) == len(mesh.vertices):
+            kwargs["vertex_colors"] = orig_vc[best_vert_idx]
+    else:
+        # Outlier removal was applied → map UVs through best_vert_idx then ind
+        # (ind is defined by remove_statistical_outlier inside the try block above,
+        #  and clean_verts is final_verts[ind])
+        if orig_uv is not None and len(orig_uv) == len(mesh.vertices):
+            mapped_uv = orig_uv[best_vert_idx][list(ind)]
+            kwargs["visual"] = trimesh.visual.texture.TextureVisuals(uv=mapped_uv)
+        elif orig_vc is not None and len(orig_vc) == len(mesh.vertices):
+            kwargs["vertex_colors"] = orig_vc[best_vert_idx][list(ind)]
 
     result = trimesh.Trimesh(vertices=clean_verts, faces=clean_tris_mapped,
                              process=False, **kwargs)
@@ -559,15 +567,21 @@ def _keep_center_component(mesh, above_mask: np.ndarray, inlier_mask: np.ndarray
     import trimesh
     kwargs = {}
     orig_visual = mesh.visual
-    if hasattr(orig_visual, "uv") and orig_visual.uv is not None:
-        # UVs are per-vertex in trimesh — map through kept_vert_indices -> best_vert_idx -> ind
-        orig_uv = orig_visual.uv
-        if len(orig_uv) == len(mesh.vertices):
+    orig_uv = getattr(orig_visual, "uv", None)
+    orig_vc = getattr(orig_visual, "vertex_colors", None)
+    if clean_verts is final_verts:
+        # No outlier removal → UVs map through kept_vert_indices → best_vert_idx
+        if orig_uv is not None and len(orig_uv) == len(mesh.vertices):
+            mapped_uv = orig_uv[kept_vert_indices][best_vert_idx]
+            kwargs["visual"] = trimesh.visual.texture.TextureVisuals(uv=mapped_uv)
+        elif orig_vc is not None and len(orig_vc) == len(mesh.vertices):
+            kwargs["vertex_colors"] = orig_vc[kept_vert_indices][best_vert_idx]
+    else:
+        # Outlier removal was applied → UVs map through kept_vert_indices → best_vert_idx → ind
+        if orig_uv is not None and len(orig_uv) == len(mesh.vertices):
             mapped_uv = orig_uv[kept_vert_indices][best_vert_idx][list(ind)]
             kwargs["visual"] = trimesh.visual.texture.TextureVisuals(uv=mapped_uv)
-    elif hasattr(orig_visual, "vertex_colors") and orig_visual.vertex_colors is not None:
-        orig_vc = orig_visual.vertex_colors
-        if len(orig_vc) == len(mesh.vertices):
+        elif orig_vc is not None and len(orig_vc) == len(mesh.vertices):
             mapped_vc = orig_vc[kept_vert_indices][best_vert_idx][list(ind)]
             kwargs["vertex_colors"] = mapped_vc
 
