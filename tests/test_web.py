@@ -210,7 +210,10 @@ def test_dataset_api_degenerate_guard(tmp_path, monkeypatch):
          "session_id": "s3", "frame": "0000", "ply": 0, "square": "c5",
          "square_color": "dark", "fen": "x", "out_size": [96, 128], "ts": "t"},
     ]
-    import json, cv2, numpy as np
+    import json
+
+    import cv2
+    import numpy as np
     for r in rows:
         cv2.imwrite(r["path"], np.zeros((128, 96, 3), dtype=np.uint8))
     (config.DATA.manifests / "squares.jsonl").write_text(
@@ -261,7 +264,6 @@ def test_scan_upload_endpoint(tmp_path, monkeypatch):
     pytest.importorskip("httpx")
     from fastapi.testclient import TestClient
 
-    from chesslab.web.scan import SCANS_ROOT as _REAL_SCANS_ROOT
     monkeypatch.setattr("chesslab.web.routers.scan.SCANS_ROOT", tmp_path / "scans")
     monkeypatch.setattr("chesslab.web.scan.SCANS_ROOT", tmp_path / "scans")  # also patch the module-level ref
     from chesslab.web.app import create_app
@@ -347,8 +349,6 @@ def test_scan_prepare_isolate_flag(tmp_path, monkeypatch):
     monkeypatch.setattr("chesslab.web.routers.scan._repo_root", lambda: tmp_path)
     (tmp_path / "synth_pieces").mkdir(parents=True)
 
-    from chesslab.scan_discover import ScanItem
-    from chesslab.meshprep import prepare_scan as _real_prepare
 
     d = scans_dir / "wP"
     d.mkdir(parents=True)

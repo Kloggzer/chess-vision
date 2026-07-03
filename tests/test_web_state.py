@@ -7,15 +7,16 @@ Alle Tests laufen headless (kein GPU/Kamera/Blender nötig).
 import json
 import subprocess
 import threading
-import time
 
 import pytest
 
 from chesslab import config
 from chesslab.web.state import (
-    CALIB, COLLECT, INFER, LockedState, MANUAL, TRAIN, train_derive_and_update,
+    COLLECT,
+    TRAIN,
+    LockedState,
+    train_derive_and_update,
 )
-
 
 # ---------------------------------------------------------------------------
 # 1. LockedState Grundlagen
@@ -180,8 +181,9 @@ def test_collect_finish_sliced_error(tmp_path, monkeypatch):
     COLLECT.update(writer=None, positions=[], i=0, profile=None, board=None)
 
     # collect_start braucht eine Session – wir fälschen den COLLECT-Zustand direkt
-    from chesslab.collect import SessionWriter
     import numpy as np
+
+    from chesslab.collect import SessionWriter
     sid = "test-sliced-error"
     sdir = config.DATA.sessions / sid
     sdir.mkdir(parents=True)

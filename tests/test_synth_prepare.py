@@ -3,7 +3,11 @@
 from pathlib import Path
 
 from chesslab.synth_prepare import (
-    ScanItem, assess_report, build_isolate_cmd, discover_scans, load_report,
+    ScanItem,
+    assess_report,
+    build_isolate_cmd,
+    discover_scans,
+    load_report,
 )
 
 

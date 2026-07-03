@@ -8,7 +8,6 @@ import pytest
 
 from chesslab import config
 from chesslab.training.data import (
-    _macro_recall,
     board_accuracy,
     build_model_card,
     checkpoint_score,

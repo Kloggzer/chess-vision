@@ -19,8 +19,14 @@ import chess
 
 from . import config
 from .calibration import (
-    board_corners_for_frame, draw_board_grid, load_profile, make_tracker, open_camera,
-    square_center, warp_board, warp_from_corners,
+    board_corners_for_frame,
+    draw_board_grid,
+    load_profile,
+    make_tracker,
+    open_camera,
+    square_center,
+    warp_board,
+    warp_from_corners,
 )
 from .state import GameState, castling_rook_squares, en_passant_captured_square, pgn_positions
 

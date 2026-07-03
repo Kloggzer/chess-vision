@@ -7,7 +7,6 @@ mit dem RunSpec-Vertrag übereinstimmt und der slice_session-Umbau byte-identisc
 from __future__ import annotations
 
 import json
-import logging
 
 import cv2
 import numpy as np
@@ -16,7 +15,6 @@ import yaml
 
 from chesslab import config, labeling, serving
 from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
-
 
 # ---------------------------------------------------------------------------
 # Helfer
@@ -272,9 +270,9 @@ def test_run_spec_legacy_fallback(tmp_path):
         encoding="utf-8",
     )
 
-    from chesslab import config as cfg_mod
     # Monkeypatch: config.DATA.manifests zeigt auf unser temp dir
     import chesslab.config
+    from chesslab import config as cfg_mod
     orig = chesslab.config.DATA
     try:
         chesslab.config.DATA = cfg_mod.Paths(root=tmp_path)

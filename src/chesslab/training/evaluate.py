@@ -34,7 +34,6 @@ _load_run = load_run
 
 
 def run_eval(run: str, split_name: str = "test") -> int:
-    import numpy as np
 
     from .engine import (
         confusion_matrix,

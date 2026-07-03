@@ -16,7 +16,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import cv2
-import numpy as np
 
 from . import config, geometry3d, photometric
 from .calibration import (

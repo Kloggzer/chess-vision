@@ -10,7 +10,10 @@ import chess
 import pytest
 
 from chesslab.move_tracker.cnn_recovery import (
-    CnnRecovery, OccupancyObservation, expected_occupancy, observation_from_probs,
+    CnnRecovery,
+    OccupancyObservation,
+    expected_occupancy,
+    observation_from_probs,
 )
 
 _ALL = [f"{f}{r}" for r in range(1, 9) for f in "abcdefgh"]

@@ -16,12 +16,10 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-import pytest
 
 from chesslab import config
 from chesslab import ingest as ig
 from chesslab.ingest_adapters import synthetic
-
 
 # --- Fixture-Pfad & Ecken ----------------------------------------------------------------
 

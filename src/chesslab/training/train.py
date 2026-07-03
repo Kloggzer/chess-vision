@@ -8,7 +8,13 @@ from datetime import datetime
 from pathlib import Path
 
 from .. import config, doctor
-from .data import checkpoint_score, filter_rows_by_split, load_manifest, load_split, occupancy_piece_breakdown
+from .data import (
+    checkpoint_score,
+    filter_rows_by_split,
+    load_manifest,
+    load_split,
+    occupancy_piece_breakdown,
+)
 
 
 def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
@@ -27,11 +33,11 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         return 1
 
     import numpy as np
-    from .engine import evaluate_dataset, get_device
     import torch
     import torch.nn as nn
     from torch.utils.data import DataLoader
 
+    from .engine import evaluate_dataset, get_device
     from .model import build_model
     from .torch_data import SquareDataset, build_transform, class_weights_tensor
 

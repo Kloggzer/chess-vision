@@ -16,7 +16,6 @@ from chesslab import config
 from chesslab import ingest as ig
 from chesslab.ingest_adapters import chesscog, chessred
 
-
 # --- reine Helfer ------------------------------------------------------------------------
 
 def test_fen_from_squares_places_pieces_on_correct_ranks():

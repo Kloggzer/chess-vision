@@ -8,14 +8,14 @@ from fastapi import APIRouter, Body, HTTPException
 
 from ..camera import CAMERA, mjpeg
 from ..state import CALIB
-from ..util import _camera_error_frame, _img_url, _NONE_FRAME_LIMIT
+from ..util import _NONE_FRAME_LIMIT, _camera_error_frame, _img_url
 
 router = APIRouter()
 log = logging.getLogger("chesslab.web")
 
 
 def _build_profile(f, pts, board_size, margin, camera, name="_live"):
-    from ...calibration import CalibrationProfile, compute_homography, CropParams
+    from ...calibration import CalibrationProfile, CropParams, compute_homography
 
     return CalibrationProfile(
         profile=name, camera_index=camera, frame_size=(f.shape[1], f.shape[0]),
@@ -28,10 +28,14 @@ def _build_profile(f, pts, board_size, margin, camera, name="_live"):
 
 @router.get("/api/camera/calibrate.mjpg")
 def camera_calibrate(camera: int = 0, board_size: int = 1600):
-    from ... import config
-    from ...calibration import MarkerTracker, detect_board_markers, draw_calibration_overlay, resolve_board_corners
-
     import cv2
+
+    from ...calibration import (
+        MarkerTracker,
+        detect_board_markers,
+        draw_calibration_overlay,
+        resolve_board_corners,
+    )
 
     CAMERA.ensure(camera)
     tracker = MarkerTracker()
@@ -106,7 +110,6 @@ def calibrate_markers():
 @router.post("/api/calibrate/save")
 def calibrate_save(profile: str = Body("default"), board_size: int = Body(1600),
                    margin: float = Body(None), camera: int = Body(0)):
-    from ... import config
     from ...calibration import profile_path, resolve_board_corners
 
     tracker = CALIB.get("tracker")

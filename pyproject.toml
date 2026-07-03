@@ -46,6 +46,8 @@ chesslab = "chesslab.cli:main"
 dev = [
     "httpx>=0.28.1",
     "pytest>=8.0",
+    "ruff>=0.15.20",
+    "vulture>=2.16",
 ]
 
 [build-system]
@@ -57,3 +59,21 @@ packages = ["src/chesslab"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests", "synth"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4"]
+# B904: raise-without-from-inside-except — noisy in existing code; leave opt-in.
+ignore = ["B904"]
+
+[tool.ruff.lint.per-file-ignores]
+# Synth files import bpy (unresolved external)
+"synth/**" = ["F403", "F405"]
+
+[tool.ruff.format]
+# Black-compatible line-ending style
+quote-style = "double"

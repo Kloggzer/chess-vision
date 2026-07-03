@@ -1,13 +1,12 @@
 """Stage 4 — dataset stats / split / verify (headless)."""
 
-import json
+
+from collections import Counter
 
 import cv2
 import numpy as np
 
 from chesslab import config
-from collections import Counter
-
 from chesslab.dataset import (
     compute_class_weights,
     compute_stats,
@@ -207,8 +206,8 @@ def test_validate_split_occluded_absent_globally_no_error():
 
 def test_run_split_allow_degenerate_stores_errors(tmp_path, monkeypatch):
     """allow_degenerate=True -> läuft durch, split.json hat degenerate_errors."""
-    from chesslab.dataset import run_split
     from chesslab import config
+    from chesslab.dataset import run_split
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
     config.DATA.manifests.mkdir(parents=True)

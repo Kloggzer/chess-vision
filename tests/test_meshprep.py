@@ -1,12 +1,8 @@
 """Tests for scan_discover + meshprep — pure Python, NO Blender / GPU needed."""
 
 import json
-from pathlib import Path
-
-import pytest
 
 from chesslab.scan_discover import (
-    ScanItem,
     _pick_texture,
     assess_report,
     discover_scans,

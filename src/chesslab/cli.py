@@ -556,7 +556,7 @@ def synth_prepare_cmd(
     Danach `<out>/<Figur>_preview.png` ansehen und die [WARN]-Hinweise prüfen."""
     from .config import SYNTH
     from .meshprep import prepare_scan
-    from .scan_discover import assess_report, discover_scans, load_report
+    from .scan_discover import assess_report, discover_scans
 
     out = Path(out_dir).resolve() if out_dir else SYNTH.pieces_dir
 

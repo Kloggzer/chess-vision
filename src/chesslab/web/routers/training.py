@@ -8,7 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, HTTPException
 
 from ..schemas import SplitRequest, TrainRequest
 from ..state import TRAIN, train_derive_and_update
@@ -37,7 +37,6 @@ def train(req: TrainRequest):
     from ... import config
     from ... import dataset as dataset_mod
     from ... import dataset_build as dataset_build_mod
-    from ... import serving
 
     t_proc = TRAIN.get("proc")
     if t_proc is not None and t_proc.poll() is None:
@@ -168,7 +167,6 @@ def train_stop():
 def runs():
     import json
 
-    from ... import serving
 
     out = []
     for d in _run_dirs():

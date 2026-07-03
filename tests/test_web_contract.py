@@ -73,6 +73,7 @@ EXPECTED_API_ROUTES = {
 
 def _current_routes() -> set[tuple[str, str]]:
     from fastapi.routing import _IncludedRouter
+
     from chesslab.web.app import create_app
 
     app = create_app()

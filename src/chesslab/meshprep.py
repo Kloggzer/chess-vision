@@ -90,7 +90,6 @@ def prepare_scan(
         ``plane_inliers``, ``scale_mm_per_unit``, ``center_component_frac``).
         Also written to ``<out_dir>/<name>_report.json``.
     """
-    import trimesh
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -808,7 +807,6 @@ def _ensure_texture_visual(mesh, tex_img, tex_fallback):
     or if no texture source is available.
     """
     import PIL.Image
-
     import trimesh
 
     # Already has a material with an image → nothing to do
@@ -1119,7 +1117,7 @@ def _render_previews(mesh, name: str, out_dir: Path, tex_path: Path | None):
     """
     import subprocess
 
-    from chesslab.config import SYNTH, _REPO_ROOT
+    from chesslab.config import _REPO_ROOT, SYNTH
 
     out_obj = (out_dir / f"{name}.obj").resolve()
     render_script = (_REPO_ROOT / "synth" / "render_piece.py").resolve()

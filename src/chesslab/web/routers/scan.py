@@ -433,9 +433,9 @@ def scan_preview_mesh(dir: str):
     sodass Box-Koordinaten aus dem Viewer 1:1 auf das Full-Res-Mesh abbilden.
     """
     import io
-    import trimesh
 
     import open3d as o3d
+    import trimesh
 
     d = SCANS_ROOT / _safe_seg(dir)
     if not d.is_dir():
