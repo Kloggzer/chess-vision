@@ -344,7 +344,8 @@ def _apply_texture_to_trimesh(mesh, tex_src, max_tex_size: int = 1024):
     import trimesh
     from PIL import Image
 
-    img = Image.open(tex_src)
+    # tex_src kann ein Pfad/str, Bytes ODER bereits ein PIL.Image sein (GLB-Extrakt)
+    img = tex_src if isinstance(tex_src, Image.Image) else Image.open(tex_src)
     w, h = img.size
     if max(w, h) > max_tex_size:
         ratio = max_tex_size / max(w, h)
