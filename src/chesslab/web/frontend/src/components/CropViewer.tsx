@@ -88,7 +88,8 @@ export function CropViewer({ dir, onDone }: { dir: string; onDone: () => void })
     tc.space = "local";
     tc.size = 0.8;
     tcRef.current = tc;
-    scene.add(tc);
+    // three r169+: TransformControls ist KEIN Object3D mehr → den Helper adden
+    scene.add(tc.getHelper());
 
     // Box-Dragging pausiert OrbitControls
     tc.addEventListener("dragging-changed", (ev: any) => {
@@ -186,9 +187,10 @@ export function CropViewer({ dir, onDone }: { dir: string; onDone: () => void })
       window.removeEventListener("keydown", onKey);
       controls.dispose();
       tc.detach();
+      scene.remove(tc.getHelper());
       tc.dispose();
       renderer.dispose();
-      el.removeChild(renderer.domElement);
+      if (renderer.domElement.parentNode === el) el.removeChild(renderer.domElement);
     };
   }, [dir]);
 
