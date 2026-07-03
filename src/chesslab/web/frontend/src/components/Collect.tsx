@@ -31,12 +31,12 @@ function StrategyControls({ coverage, sweep, sets, setSets, count, setCount, pas
   if (sweep) {
     return (
       <>
-        <label className="flex items-center gap-2 text-sm text-zinc-400" title="Welche Figuren übers Brett wandern: special = Nicht-Bauern (K,Q,R,B,N), pawn = nur Bauern, all = alle.">Figuren
+        <div className="flex items-center gap-2 text-sm text-zinc-400" title="Welche Figuren übers Brett wandern: special = Nicht-Bauern (K,Q,R,B,N), pawn = nur Bauern, all = alle.">Figuren
           <Select label="" value={pieces} onChange={(e) => setPieces(e.target.value)}>
             <option value="special">special (K,Q,R,B,N)</option>
             <option value="pawn">pawn (Bauern)</option>
             <option value="all">all</option>
-          </Select></label>
+          </Select></div>
         <label className="flex items-center gap-2 text-sm text-zinc-400" title="Wiederholungen (je Pass 8 Fotos, Rang 1–8) — z.B. mit anderem Licht. Keine Figuren-Umstellung.">Pässe
           <input type="number" min={1} value={passes} onChange={(e) => setPasses(+e.target.value)} className={`${inputCls} w-16`} /></label>
         <label className="flex items-center gap-2 text-sm text-zinc-400" title="Anzahl physischer Figurensätze: mit 2 Sätzen sind doppelt so viele Figuren je Foto möglich.">Sätze
@@ -135,7 +135,7 @@ export default function Collect() {
       {st.active && (
         <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
           <Card title="Live-Kamera">
-            <img src="/api/camera/collect.mjpg" className="w-full rounded-lg border border-zinc-800" />
+            <img src="/api/camera/collect.mjpg" alt="Aufnahme Live-Bild" className="w-full rounded-lg border border-zinc-800" />
           </Card>
           <Card title="Aufnahme">
             <div className="space-y-3">
