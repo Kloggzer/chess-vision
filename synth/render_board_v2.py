@@ -252,14 +252,28 @@ def _mesh_base_diameter_units(mesh):
     return max(2.0 * r95, 1e-6)
 
 
-def _find_scan(pdir, names):
+def _variant_objs(pdir, canonical):
+    """All prepared variant OBJs for a canonical piece (``wP``, ``bN``, …).
+
+    New layout: ``<pdir>/<canonical>/<variant>.obj`` (one folder per piece, one
+    file-set per variant).  Legacy flat fallback: ``<pdir>/<canonical>.obj`` and,
+    for white, the old unprefixed ``<pdir>/<type>.obj``.
+    """
     if pdir is None:
-        return None
-    for n in names:
-        p = pdir / f"{n}.obj"
-        if p.exists():
-            return p
-    return None
+        return []
+    d = pdir / canonical
+    if d.is_dir():
+        objs = sorted(d.glob("*.obj"))
+        if objs:
+            return objs
+    flat = pdir / f"{canonical}.obj"
+    if flat.exists():
+        return [flat]
+    if canonical.startswith("w"):
+        legacy = pdir / f"{canonical[1:]}.obj"
+        if legacy.exists():
+            return [legacy]
+    return []
 
 
 def _scanned_material(png, darken=1.0):
@@ -321,22 +335,27 @@ def build_templates(pieces_dir=None):
     pdir = Path(pieces_dir) if pieces_dir else None
     white_mat = make_wood_material("WoodWhite", (0.80, 0.64, 0.42), (0.62, 0.46, 0.27))
     black_mat = make_wood_material("WoodBlack", (0.17, 0.10, 0.055), (0.05, 0.027, 0.013))
+    def _scanned_meshes(objs, t, darken):
+        """One mesh datablock per variant OBJ, each with its own textured material."""
+        out = []
+        for o in objs:
+            m = _load_scanned_mesh(o, t)
+            m.materials.clear()
+            m.materials.append(_scanned_material(o.with_suffix(".png"), darken))
+            out.append(m)
+        return out
+
     templates, base_z = {}, {}
     for t, name in TEMPLATE_NAMES.items():
-        scan_w = _find_scan(pdir, [f"w{t}", t])
-        scan_b = _find_scan(pdir, [f"b{t}", t])
-        if scan_w:
+        w_objs = _variant_objs(pdir, f"w{t}")
+        b_objs = _variant_objs(pdir, f"b{t}")
+        if w_objs or b_objs:
             base_z[t] = 0.0
-            mw = _load_scanned_mesh(scan_w, t)
-            mw.materials.clear(); mw.materials.append(_scanned_material(scan_w.with_suffix(".png")))
-            templates[("w", t)] = mw
-            if scan_b and scan_b != scan_w:
-                mb = _load_scanned_mesh(scan_b, t)
-                mb.materials.clear(); mb.materials.append(_scanned_material(scan_b.with_suffix(".png")))
-            else:
-                mb = _load_scanned_mesh(scan_w, t)
-                mb.materials.clear(); mb.materials.append(_scanned_material(scan_w.with_suffix(".png"), 0.2))
-            templates[("b", t)] = mb
+            # White: own scans if present, else the black scans (rare: black-only).
+            templates[("w", t)] = _scanned_meshes(w_objs or b_objs, t, 1.0)
+            # Black: own scans if present, else the white scans recolored dark.
+            templates[("b", t)] = (_scanned_meshes(b_objs, t, 1.0) if b_objs
+                                   else _scanned_meshes(w_objs, t, 0.2))
         else:
             src = bpy.data.objects[name]
             base_z[t] = float(src.location.z)
@@ -344,7 +363,7 @@ def build_templates(pieces_dir=None):
                 m = src.data.copy(); m.materials.clear(); m.materials.append(mat)
                 for p in m.polygons:
                     p.use_smooth = True
-                templates[(color, t)] = m
+                templates[(color, t)] = [m]
     for o in list(bpy.data.objects):
         if o.type == "MESH" and o.name not in BOARD_KEEP:
             bpy.data.objects.remove(o, do_unlink=True)
@@ -397,9 +416,11 @@ def place_from_fen(fen, templates, base_z, rng):
     for fi, ri, sym in parse_fen_placement(fen):
         color = "w" if sym.isupper() else "b"
         t = sym.upper()
-        mesh = templates.get((color, t))
-        if mesh is None:
+        variants = templates.get((color, t))
+        if not variants:
             continue
+        # Random variant per square → visual diversity across the dataset.
+        mesh = variants[0] if len(variants) == 1 else variants[int(rng.integers(len(variants)))]
         x, y = square_center(fi, ri)
         o = bpy.data.objects.new(f"pc_{fi}{ri}", mesh)
         o.location = (x + rng.uniform(-0.4, 0.4), y + rng.uniform(-0.4, 0.4), base_z[t])

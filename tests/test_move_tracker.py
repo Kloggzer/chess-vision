@@ -7,6 +7,7 @@ PINNEN das IST-Verhalten (Regel 7 in entry.md): kein „Fix" der getesteten Funk
 from __future__ import annotations
 
 import chess
+import cv2
 import numpy as np
 import pytest
 
@@ -423,6 +424,244 @@ class TestMoveTrackerHeadless:
         mt.stop()
         assert mt._thread is not None
         assert not mt._thread.is_alive()
+
+
+def _gray_frame(blob_squares, board_size=400, white_pov=True, base=128) -> np.ndarray:
+    """2D-Graubild (uint8) mit hellen Blobs auf gegebenen Feldern — direkt für _try_detect."""
+    from chesslab.move_tracker.tracker import square_region
+
+    img = np.full((board_size, board_size), base, dtype=np.uint8)
+    for sq in blob_squares:
+        x0, y0, x1, y1 = square_region(sq, board_size, white_pov)
+        img[y0:y1, x0:x1] = 220
+    return img
+
+
+def _make_tracker(monkeypatch, **kwargs):
+    """MoveTracker mit identity-Profil + FakeCapture bauen, OHNE den Thread zu starten."""
+    from chesslab.move_tracker.tracker import MoveTracker
+
+    prof = _make_identity_profile(board_size=kwargs.pop("board_size", 400))
+    fake = FakeCapture([_bgr_frame(["e2"])])
+    monkeypatch.setattr("chesslab.move_tracker.tracker.open_source", lambda s: fake)
+    monkeypatch.setattr("chesslab.move_tracker.tracker.load_profile", lambda p: prof)
+    defaults = dict(profile="phone", source="0", live_align=False,
+                    change_thr=10, max_changed=6, confirm_frames=1, avg_frames=1)
+    defaults.update(kwargs)
+    return MoveTracker(**defaults)
+
+
+class TestBaseTruthDetect:
+    """Direkte _try_detect-Tests: Base-Truth = (Bild, FEN), normalisierte Gates."""
+
+    def test_global_exposure_shift_not_stuck(self, monkeypatch):
+        """Globaler Belichtungssprung (alle 64 Felder heller) → KEIN too_many_changed,
+        Base-Truth wird per Drift-Refresh übernommen (Fix: Gates auf normalisierten Diffs)."""
+        mt = _make_tracker(monkeypatch)
+        mt.ref_gray = _gray_frame([], base=128)
+        mt.ref_fen = mt.board.fen()
+        cur = _gray_frame([], base=170)          # gesamtes Brett +42
+        mt._try_detect(cur)
+        assert mt._stuck_reason is None
+        assert mt.history == []
+        assert mt.ref_gray is cur                # Referenz aufgefrischt
+        assert mt.ref_fen == mt.board.fen()
+
+    def test_hand_over_pieces_keeps_base_truth(self, monkeypatch):
+        """Viele veränderte Felder (Hand) → too_many_changed, Base-Truth bleibt unverändert."""
+        mt = _make_tracker(monkeypatch, max_changed=6)
+        ref = _gray_frame([], base=128)
+        mt.ref_gray = ref
+        mt.ref_fen = mt.board.fen()
+        # 10 Felder verdeckt (unterschiedliche Helligkeit, damit Median niedrig bleibt)
+        cur = _gray_frame(["a1", "b1", "c1", "d1", "e1", "f1", "g1", "h1", "a2", "b2"], base=128)
+        mt._try_detect(cur)
+        assert mt._stuck_reason == "too_many_changed"
+        assert mt.history == []
+        assert mt.ref_gray is ref                # Base-Truth NICHT korrumpiert
+
+    def test_valid_move_advances_base_truth_with_fen(self, monkeypatch):
+        """Sauberer e2e4: Commit, Base-Truth = Nach-Zug-Bild, ref_fen == board.fen()."""
+        mt = _make_tracker(monkeypatch, confirm_frames=1)
+        mt.ref_gray = _gray_frame(["e2"], base=128)   # Figur auf e2
+        mt.ref_fen = mt.board.fen()
+        cur = _gray_frame(["e4"], base=128)           # Figur jetzt auf e4
+        mt._try_detect(cur)
+        assert mt.history == ["e4"]
+        assert mt.last_move == "e2e4"
+        assert mt.ref_gray is cur
+        assert mt.ref_fen == mt.board.fen()           # Paar bleibt konsistent
+
+    def test_stale_ref_fen_forces_recapture(self, monkeypatch):
+        """ref_fen passt nicht zur aktuellen FEN → ref wird verworfen (Neu-Aufnahme)."""
+        mt = _make_tracker(monkeypatch)
+        mt.ref_gray = _gray_frame([], base=128)
+        mt.ref_fen = "invalid/stale fen not matching board"
+        mt._try_detect(_gray_frame(["e4"], base=128))
+        assert mt.ref_gray is None
+        assert mt.ref_fen is None
+        assert mt.history == []
+
+
+class _FakeRecovery:
+    """Stub für CnnRecovery: liefert vorgegebene verify/score-Ergebnisse ohne torch."""
+
+    def __init__(self, verify_agree, cnn_move, min_agreement=0.97):
+        self._va, self._cm = verify_agree, cnn_move
+        self.min_agreement = min_agreement
+
+    def observe(self, frame, corners):
+        return "OBS"
+
+    def verify_move(self, board, move, obs):
+        return self._va, 40
+
+    def score_moves(self, board, obs):
+        if self._cm is None:
+            return None, 0.4, 0.2
+        return chess.Move.from_uci(self._cm), 0.99, 0.3
+
+
+def _pending_tracker(monkeypatch, verify_agree, cnn_move, **kw):
+    """Tracker mit aktivem (gestubbtem) CNN und einem Pending-Kandidaten e2e4."""
+    mt = _make_tracker(monkeypatch, cnn_run="stub", **kw)
+    mt.recovery = _FakeRecovery(verify_agree, cnn_move)   # _ensure_cnn gibt das zurück
+    mt._last_corners = [[0, 0], [400, 0], [400, 400], [0, 400]]
+    mt.ref_gray = _gray_frame(["e2"])
+    mt.ref_fen = mt.board.fen()
+    mt._pending = {"uci": "e2e4", "fen": mt.board.fen(), "cur": _gray_frame(["e4"]), "frames": 0}
+    mt._verify_state = "verifying"
+    return mt
+
+
+class TestCnnVerify:
+    """Pre-Commit-Verifikation eines Diff-Kandidaten durchs (gestubbte) CNN."""
+
+    def test_cnn_confirms_pending_commits(self, monkeypatch):
+        mt = _pending_tracker(monkeypatch, verify_agree=0.99, cnn_move="e2e4")
+        mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        assert mt.history == ["e4"]
+        assert mt.last_move == "e2e4"
+        assert mt._pending is None
+        assert mt._verify_state == "confirmed"
+        assert mt.ref_fen == mt.board.fen()
+        assert mt.recovered_last is False
+
+    def test_cnn_disagrees_applies_own_move(self, monkeypatch):
+        """Diff schlug e2e4 vor, CNN kennt eindeutig d2d4 → d2d4 wird committet (Ghost korrigiert)."""
+        mt = _pending_tracker(monkeypatch, verify_agree=0.5, cnn_move="d2d4")
+        mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        assert mt.history == ["d4"]
+        assert mt.last_move == "d2d4"
+        assert mt.recovered_last is True
+        assert mt._pending is None
+
+    def test_cnn_unsure_commits_diff_not_blocking(self, monkeypatch):
+        """CNN bleibt unsicher → nach verify_window Frames wird der Diff-Zug übernommen
+        (NICHT blockieren). Das CNN kann nur korrigieren, nicht dauerhaft verhindern."""
+        mt = _pending_tracker(monkeypatch, verify_agree=0.5, cnn_move=None, verify_window=3)
+        for _ in range(3):
+            mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        assert mt.history == ["e4"]
+        assert mt._pending is None
+
+    def test_cnn_unavailable_commits_pending(self, monkeypatch):
+        """_ensure_cnn liefert None (Modell weg) → Fallback: Pending direkt committen."""
+        mt = _pending_tracker(monkeypatch, verify_agree=0.99, cnn_move="e2e4")
+        monkeypatch.setattr(mt, "_ensure_cnn", lambda: None)
+        mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        assert mt.history == ["e4"]
+        assert mt._pending is None
+
+    def test_no_cnn_commits_directly(self, monkeypatch):
+        """Ohne cnn_run committet _try_detect direkt (kein Pending, Fallback-Pfad)."""
+        mt = _make_tracker(monkeypatch, cnn_run=None, confirm_frames=1)
+        mt.ref_gray = _gray_frame(["e2"])
+        mt.ref_fen = mt.board.fen()
+        mt._try_detect(_gray_frame(["e4"]))
+        assert mt.history == ["e4"]
+        assert mt._pending is None
+
+
+class TestShadowRobustness:
+    """Census-Metrik + HSV-Cast-Shadow-Veto (schatten-robuste Erkennung)."""
+
+    def _bgr(self, squares, base_bgr=(120, 120, 120), fill_bgr=(30, 40, 200), board_size=400):
+        """Farb-Warp: Grundfarbe grau, auf `squares` ein farbiger (rötlicher) Block."""
+        from chesslab.move_tracker.tracker import square_region
+        img = np.full((board_size, board_size, 3), base_bgr, dtype=np.uint8)
+        for sq in squares:
+            x0, y0, x1, y1 = square_region(sq, board_size, True)
+            img[y0:y1, x0:x1] = fill_bgr
+        return img
+
+    def test_hsv_shadow_detects_uniform_darkening(self):
+        """Gleiche Farbe, gleichmäßig dunkler → als Schatten erkannt."""
+        from chesslab.move_tracker.tracker import hsv_shadow_squares
+        ref = self._bgr([], base_bgr=(120, 120, 120))
+        cur = self._bgr([], base_bgr=(70, 70, 70))          # abgedunkelt, gleiche (graue) Chroma
+        shadows = hsv_shadow_squares(ref, cur, 400, True, ["e4", "d5"])
+        assert "e4" in shadows and "d5" in shadows
+
+    def test_hsv_shadow_ignores_real_piece(self):
+        """Farbiger Block (neue Figur) → NICHT als Schatten (andere Chroma)."""
+        from chesslab.move_tracker.tracker import hsv_shadow_squares
+        ref = self._bgr([])
+        cur = self._bgr(["e4"], fill_bgr=(30, 40, 200))     # kräftig rot auf e4
+        shadows = hsv_shadow_squares(ref, cur, 400, True, ["e4"])
+        assert "e4" not in shadows
+
+    def test_census_low_for_uniform_darkening(self):
+        """Census ≈ 0 bei reiner Helligkeitsänderung (keine Struktur)."""
+        from chesslab.move_tracker.tracker import per_square_census_change
+        ref = np.full((400, 400), 120, np.uint8)
+        cur = np.full((400, 400), 70, np.uint8)
+        cens = per_square_census_change(ref, cur, 400, True)
+        assert cens["e4"] < 5.0
+
+    def test_shadow_veto_removes_hand_shadow_in_detect(self, monkeypatch):
+        """Handschatten (gleiche Farbe, dunkler) auf mehreren Feldern → weggefiltert,
+        Base-Truth bleibt statt too_many_changed."""
+        mt = _make_tracker(monkeypatch, cnn_run=None, change_thr=10)
+        sqs = ["a3", "b3", "c3", "d3", "e3", "f3", "g3", "h3"]   # 8 Felder „verschattet"
+        mt.ref_bgr = self._bgr([], base_bgr=(120, 120, 120))
+        mt.ref_gray = cv2.cvtColor(mt.ref_bgr, cv2.COLOR_BGR2GRAY)
+        mt.ref_fen = mt.board.fen()
+        cur_bgr = self._bgr([], base_bgr=(72, 72, 72))          # gleichmäßig dunkler = Schatten
+        cur_gray = cv2.cvtColor(cur_bgr, cv2.COLOR_BGR2GRAY)
+        mt._try_detect(cur_gray, cur_bgr)
+        assert mt._stuck_reason != "too_many_changed"
+        assert set(sqs).issubset(set(mt._shadow_vetoed)) or mt._changed == []
+
+
+class TestLatestFrame:
+    """Grab-Latest-Wrapper: liefert immer den neuesten Frame; sauberes release()."""
+
+    def test_reads_newest_and_releases(self):
+        from chesslab.web.camera import LatestFrame
+
+        class Counting:
+            def __init__(self):
+                self.i, self.released = 0, False
+
+            def read(self):
+                self.i += 1
+                return True, np.array([[self.i]], dtype=np.int32)
+
+            def release(self):
+                self.released = True
+
+        cap = Counting()
+        lf = LatestFrame(cap)
+        import time as _t
+        _t.sleep(0.05)
+        ok1, f1 = lf.read()
+        _t.sleep(0.03)
+        ok2, f2 = lf.read()
+        assert ok1 and ok2
+        assert int(f2[0, 0]) >= int(f1[0, 0]) >= 1   # monoton wachsend = neuester Frame
+        lf.release()
+        assert cap.released is True
 
 
 class TestAppEndpoints:

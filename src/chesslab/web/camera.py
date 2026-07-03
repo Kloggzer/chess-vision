@@ -110,6 +110,52 @@ class _UrlMjpegCapture:
             pass
 
 
+class LatestFrame:
+    """Grab-Latest-Wrapper: liest im Hintergrund permanent von einer `cv2.VideoCapture`-
+    kompatiblen Quelle und hält nur den NEUESTEN Frame in einem Ein-Slot-Puffer. So bekommt
+    ein langsamer Konsument (Move-Tracker mit CNN/Encode) immer das aktuellste Bild, statt
+    einen mit der Zeit anwachsenden Rückstand aus dem Socket-/JPEG-Puffer abzuarbeiten.
+
+    `read()` gibt sofort `(ok, frame)` des letzten Frames zurück (kein Blockieren auf Netz);
+    `release()` stoppt den Reader-Thread und gibt die zugrunde liegende Quelle frei."""
+
+    def __init__(self, cap, poll: float = 0.001) -> None:
+        self._cap = cap
+        self._poll = poll
+        self._lock = threading.Lock()
+        self._frame = None
+        self._ok = False
+        self._running = True
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def _loop(self) -> None:
+        while self._running:
+            ok, f = self._cap.read()
+            if ok and f is not None:
+                with self._lock:
+                    self._frame, self._ok = f, True
+            else:
+                # Quelle (noch) leer/kaputt: kurz warten, damit die Schleife nicht heißdreht.
+                time.sleep(0.01)
+
+    def isOpened(self) -> bool:
+        return getattr(self._cap, "isOpened", lambda: True)()
+
+    def read(self):
+        with self._lock:
+            if not self._ok or self._frame is None:
+                return False, None
+            return True, self._frame.copy()
+
+    def release(self) -> None:
+        self._running = False
+        if self._thread.is_alive():
+            self._thread.join(timeout=1.0)
+        if hasattr(self._cap, "release"):
+            self._cap.release()
+
+
 def _is_url(source) -> bool:
     return isinstance(source, str) and "://" in source
 

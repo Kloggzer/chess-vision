@@ -460,21 +460,35 @@ def track_cmd(
     port: int = typer.Option(config.DEFAULT_TRACK_PORT, "--port"),
     motion_thr: float = typer.Option(3.0, "--motion-thr", help="Bewegungs-Schwelle für Motion-Gating."),
     change_thr: float = typer.Option(16.0, "--change-thr", help="Helligkeitsdifferenz-Schwelle je Feld."),
-    confirm_frames: int = typer.Option(2, "--confirm-frames", help="Bestätigungs-Frames pro Zug."),
+    confirm_frames: int | None = typer.Option(None, "--confirm-frames",
+                                              help="Bestätigungs-Frames pro Zug (Default: 1 mit CNN, sonst 2)."),
+    settle_frames: int | None = typer.Option(None, "--settle-frames",
+                                             help="Ruhige Frames vor Erkennung (Default: 2 mit CNN, sonst 4)."),
     max_changed: int = typer.Option(6, "--max-changed", help="Maximal geänderte Felder (Gate)."),
-    avg_frames: int = typer.Option(3, "--avg-frames", help="Gleitendes Mittel über N ruhige Frames."),
+    avg_frames: int | None = typer.Option(None, "--avg-frames",
+                                          help="Gleitendes Mittel über N ruhige Frames (Default: 2 mit CNN, sonst 3)."),
     no_live_align: bool = typer.Option(False, "--no-live-align", help="Marker-Nachführung deaktivieren."),
     cnn_run: str = typer.Option(config.MOVE_TRACKER_DEFAULT_RUN, "--cnn-run",
-                                help="Modell-Run für automatische CNN-Recovery/-Kontrolle ('' = aus)."),
+                                help="Modell-Run für CNN-Verifikation/-Recovery ('' = aus)."),
+    cnn_conf_thr: float = typer.Option(0.85, "--cnn-conf-thr",
+                                       help="Konfidenz-Schwelle, ab der ein CNN-Feld als belastbar gilt."),
+    census_thr: float = typer.Option(40.0, "--census-thr",
+                                     help="Schwelle für STRUKTURELLE Änderung (Census); < = Schatten-Kandidat."),
+    cnn_verify: bool = typer.Option(False, "--cnn-verify",
+                                    help="Jeden Zug vor Commit per CNN prüfen (Default aus: CNN nur für Recovery)."),
+    device: str = typer.Option("auto", "--device", help="Torch-Device für das CNN: auto|cpu|cuda."),
 ) -> None:
-    """Move-Tracker: Brett-Digitalisierung per Frame-Differenz + Legalität (Web-UI)."""
+    """Move-Tracker: Brett-Digitalisierung per Frame-Differenz + CNN-Verifikation (Web-UI)."""
     from .move_tracker.app import run as run_track
 
     tracker_kwargs = {
         "motion_thr": motion_thr, "change_thr": change_thr,
-        "confirm_frames": confirm_frames, "max_changed": max_changed,
-        "avg_frames": avg_frames, "live_align": not no_live_align,
+        "confirm_frames": confirm_frames, "settle_frames": settle_frames,
+        "max_changed": max_changed, "avg_frames": avg_frames,
+        "live_align": not no_live_align,
         "cnn_run": (cnn_run or None),   # '' oder fehlender Run auf Platte ⇒ Feature still aus
+        "cnn_conf_thr": cnn_conf_thr, "device": device, "census_thr": census_thr,
+        "cnn_verify": cnn_verify,
     }
     raise typer.Exit(run_track(host=host, port=port, default_profile=profile,
                                default_source=source, tracker_kwargs=tracker_kwargs))
@@ -558,24 +572,23 @@ def synth_prepare_cmd(
 
     results: list[tuple[str, str, list[str]]] = []
     for item in items:
-        print(f"--- {item.name}: {item.obj.name}" + (f" + {item.tex.name}" if item.tex else " (Textur eingebettet)"))
+        pid = f"{item.name}/{item.variant}"
+        print(f"--- {pid}: {item.obj.name}" + (f" + {item.tex.name}" if item.tex else " (Textur eingebettet)"))
         try:
-            report = prepare_scan(item, out, target_tris=target_tris,
-                                  fill_holes=fill_holes, smooth_iters=smooth_iters,
-                                  make_preview=True)
+            report = prepare_scan(item, out, make_preview=True)
         except Exception as e:
-            results.append((item.name, "fail", [str(e)]))
+            results.append((pid, "fail", [str(e)]))
             continue
         level, msgs = assess_report(report)
-        results.append((item.name, level, msgs))
-        print(f"    {report['tris_before']} → {report['tris_after']} Dreiecke, "
+        results.append((pid, level, msgs))
+        print(f"    {report.get('tris', '?')} Dreiecke, "
               f"Löcher/offen: {report.get('boundary_edges', '?')}, height_ratio: {report.get('height_ratio', '?')}")
 
     print("\nZusammenfassung:")
-    for name, level, msgs in results:
+    for pid, level, msgs in results:
         glyph = {"ok": "[OK]  ", "warn": "[WARN]", "fail": "[FAIL]"}[level]
-        print(f"{glyph} {name}" + ("" if not msgs else " — " + "; ".join(msgs)))
-    print(f"\nPreviews ansehen: {out}\\<Figur>_preview.png — dann `chesslab synth render …`")
+        print(f"{glyph} {pid}" + ("" if not msgs else " — " + "; ".join(msgs)))
+    print(f"\nPreviews ansehen: {out}\\<Figur>\\<Variante>_preview.png — dann `chesslab synth render …`")
     raise typer.Exit(1 if any(lv == "fail" for _, lv, _ in results) else 0)
 
 

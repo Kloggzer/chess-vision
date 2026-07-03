@@ -18,12 +18,26 @@ from ..state import LockedState
 router = APIRouter()
 log = logging.getLogger("chesslab.web")
 
-PREPARE = LockedState(proc=None, piece=None, dir=None, log=None, state="idle", error=None)
+PREPARE = LockedState(proc=None, piece=None, variant=None, dir=None, log=None,
+                      state="idle", error=None)
 _PIECE = re.compile(r"^[wb]?[PNBRQK]$")
+_VARIANT = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[4]
+
+
+def _piece_dir(piece: str, variant: str) -> Path:
+    """Validated ``synth_pieces/<piece>/`` dir, with a checked variant stem.
+
+    Raises 404 on a bad piece name and 400 on a path-unsafe variant.
+    """
+    if not _PIECE.match(piece):
+        raise HTTPException(404, "unbekannte Figur")
+    if not _VARIANT.match(variant):
+        raise HTTPException(400, f"ungültige Variante: {variant!r}")
+    return _repo_root() / "synth_pieces" / piece
 
 
 # --- Turntable-Foto-Aufnahme (Capture) -------------------------------------------
@@ -146,14 +160,20 @@ def scan_models():
     pieces = []
     pdir = _repo_root() / "synth_pieces"
     if pdir.is_dir():
-        for o in sorted(pdir.glob("*.obj")):
-            rep = pdir / f"{o.stem}_report.json"
-            src = pdir / f"{o.stem}.src"
-            pieces.append({"piece": o.stem,
-                           "source_dir": src.read_text(encoding="utf-8").strip() if src.exists() else None,
-                           "has_preview": (pdir / f"{o.stem}_preview.png").exists(),
-                           "has_clay": (pdir / f"{o.stem}_preview_clay.png").exists(),
-                           "report": json.loads(rep.read_text(encoding="utf-8")) if rep.exists() else None})
+        # New layout: one folder per canonical piece, one file-set per variant.
+        for d in sorted(p for p in pdir.iterdir() if p.is_dir()):
+            for o in sorted(d.glob("*.obj")):
+                stem = o.stem  # variant slot, e.g. "v1"
+                rep = d / f"{stem}_report.json"
+                src = d / f"{stem}.src"
+                pieces.append({
+                    "piece": d.name,
+                    "variant": stem,
+                    "id": f"{d.name}/{stem}",
+                    "source_dir": src.read_text(encoding="utf-8").strip() if src.exists() else None,
+                    "has_preview": (d / f"{stem}_preview.png").exists(),
+                    "has_clay": (d / f"{stem}_preview_clay.png").exists(),
+                    "report": json.loads(rep.read_text(encoding="utf-8")) if rep.exists() else None})
     pp = PREPARE.snapshot()
     jobs = {}
     pproc = pp.get("proc")
@@ -166,10 +186,20 @@ def scan_models():
 def scan_prepare(dir: str = Body(...), piece: str = Body(...)):
     """Vorbereitung für EINEN Scan-Ordner starten (meshprep in-process)."""
     from ...meshprep import prepare_scan
-    from ...scan_discover import ScanItem, _pick_texture, pick_mesh
+    from ...scan_discover import (
+        ScanItem,
+        _pick_texture,
+        is_bare_piece,
+        next_variant,
+        parse_piece_name,
+        pick_mesh,
+    )
 
-    if not _PIECE.match(piece):
-        raise HTTPException(400, f"ungültiger Figurenname {piece!r} (P/N/B/R/Q/K, optional w/b-Präfix)")
+    parsed = parse_piece_name(piece)
+    if parsed is None:
+        raise HTTPException(400, f"ungültiger Figurenname {piece!r} (P/N/B/R/Q/K, optional "
+                                 "w/b-Präfix, optionaler Varianten-Suffix wie wP2 / wP_glas)")
+    canonical, variant = parsed
     state = PREPARE.get("state")
     if state == "running":
         raise HTTPException(409, "es läuft bereits eine Vorbereitung.")
@@ -177,11 +207,18 @@ def scan_prepare(dir: str = Body(...), piece: str = Body(...)):
     obj_path = pick_mesh(d)
     if obj_path is None:
         raise HTTPException(404, f"kein Mesh in scans/{dir} — erst hochladen.")
-    item = ScanItem(name=piece, obj=obj_path, tex=_pick_texture(d))
     out = _repo_root() / "synth_pieces"
-    (out / f"{piece}.src").write_text(dir, encoding="utf-8")
+    piece_folder = out / canonical
+    piece_folder.mkdir(parents=True, exist_ok=True)
+    # A bare name ("wP") means "add a new version" → take the next free slot instead
+    # of clobbering v1.  An explicit suffix ("wP2") targets that exact slot.
+    if is_bare_piece(piece):
+        variant = next_variant(piece_folder)
+    item = ScanItem(name=canonical, obj=obj_path, tex=_pick_texture(d), variant=variant)
+    (piece_folder / f"{variant}.src").write_text(dir, encoding="utf-8")
 
-    PREPARE.update(proc=None, piece=piece, dir=dir, log=None, state="running", error=None)
+    PREPARE.update(proc=None, piece=canonical, variant=variant, dir=dir, log=None,
+                   state="running", error=None)
 
     def _run():
         try:
@@ -189,13 +226,13 @@ def scan_prepare(dir: str = Body(...), piece: str = Body(...)):
             PREPARE.update(state="done")
         except Exception as exc:
             PREPARE.update(state="failed", error=str(exc))
-            log.exception("synth prepare fehlgeschlagen: %s", piece)
+            log.exception("synth prepare fehlgeschlagen: %s/%s", canonical, variant)
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
     PREPARE.update(proc=t)
-    log.info("synth prepare gestartet (meshprep): %s -> %s", dir, piece)
-    return {"ok": True, "piece": piece, "pipeline": "meshprep"}
+    log.info("synth prepare gestartet (meshprep): %s -> %s/%s", dir, canonical, variant)
+    return {"ok": True, "piece": canonical, "variant": variant, "pipeline": "meshprep"}
 
 
 @router.get("/api/scan/prepare/status")
@@ -203,7 +240,7 @@ def scan_prepare_status():
     from ...scan_discover import assess_report, load_report
 
     s = PREPARE.snapshot()
-    proc, piece = s.get("proc"), s.get("piece")
+    proc, piece, variant = s.get("proc"), s.get("piece"), s.get("variant") or "v1"
     is_running = proc is not None and proc.is_alive() if hasattr(proc, "is_alive") else False
     if is_running:
         state = "running"
@@ -212,9 +249,9 @@ def scan_prepare_status():
         PREPARE.update(state=state)
     else:
         state = s.get("state", "idle")
-    out = {"state": state, "piece": piece, "dir": s.get("dir")}
+    out = {"state": state, "piece": piece, "variant": variant, "dir": s.get("dir")}
     if piece and state in ("done", "failed"):
-        report = load_report(_repo_root() / "synth_pieces", piece)
+        report = load_report(_repo_root() / "synth_pieces" / piece, variant)
         if report:
             level, msgs = assess_report(report)
             out.update(report=report, level=level, messages=msgs,
@@ -225,13 +262,12 @@ def scan_prepare_status():
     return out
 
 
-@router.get("/api/scan/prepare/preview/{piece}")
-def scan_prepare_preview(piece: str, variant: str = "textured"):
-    """Vorschau einer vorbereiteten Figur. variant=textured|clay."""
-    if not _PIECE.match(piece):
-        raise HTTPException(404, "unbekannte Figur")
-    stem = f"{piece}_preview" + ("_clay" if variant == "clay" else "")
-    p = _repo_root() / "synth_pieces" / f"{stem}.png"
+@router.get("/api/scan/prepare/preview/{piece}/{variant}")
+def scan_prepare_preview(piece: str, variant: str, kind: str = "textured"):
+    """Vorschau einer vorbereiteten Figur-Variante. kind=textured|clay."""
+    pdir = _piece_dir(piece, variant)
+    stem = f"{variant}_preview" + ("_clay" if kind == "clay" else "")
+    p = pdir / f"{stem}.png"
     if not p.exists():
         return Response(status_code=204)
     return FileResponse(str(p), media_type="image/png")
@@ -258,41 +294,39 @@ def scan_delete(dir: str):
     return {"ok": True, "dir": dir}
 
 
-@router.delete("/api/scan/piece/{piece}")
-def piece_delete(piece: str):
-    """Vorbereitete Figur löschen (obj + Textur + Previews + Report)."""
-    if not _PIECE.match(piece):
-        raise HTTPException(400, "ungültiger Figurenname")
-    pdir = _repo_root() / "synth_pieces"
+@router.delete("/api/scan/piece/{piece}/{variant}")
+def piece_delete(piece: str, variant: str):
+    """Eine vorbereitete Figur-Variante löschen (obj + mtl + Textur + Previews + Report)."""
+    pdir = _piece_dir(piece, variant)
     removed = []
-    for suffix in (".obj", ".png", "_preview.png", "_preview_clay.png", "_report.json", ".src"):
-        p = pdir / f"{piece}{suffix}"
+    for suffix in (".obj", ".mtl", ".png", "_preview.png", "_preview_clay.png",
+                   "_report.json", ".src"):
+        p = pdir / f"{variant}{suffix}"
         if p.exists():
             p.unlink()
             removed.append(p.name)
     if not removed:
-        raise HTTPException(404, f"Figur '{piece}' nicht gefunden.")
-    log.info("Figur gelöscht: %s (%s)", piece, ", ".join(removed))
-    return {"ok": True, "piece": piece, "removed": removed}
+        raise HTTPException(404, f"Figur '{piece}/{variant}' nicht gefunden.")
+    # Prune the piece folder once its last variant is gone.
+    if pdir.is_dir() and not any(pdir.iterdir()):
+        pdir.rmdir()
+    log.info("Figur-Variante gelöscht: %s/%s (%s)", piece, variant, ", ".join(removed))
+    return {"ok": True, "piece": piece, "variant": variant, "removed": removed}
 
 
 # --- 3D-Modell-Dateien für den Viewer -----------------------------------------
 
-@router.get("/api/scan/model/{piece}.obj")
-def piece_obj(piece: str):
-    if not _PIECE.match(piece):
-        raise HTTPException(404, "unbekannte Figur")
-    p = _repo_root() / "synth_pieces" / f"{piece}.obj"
+@router.get("/api/scan/model/{piece}/{variant}.obj")
+def piece_obj(piece: str, variant: str):
+    p = _piece_dir(piece, variant) / f"{variant}.obj"
     if not p.exists():
         raise HTTPException(404, "kein Mesh")
     return FileResponse(str(p), media_type="text/plain")
 
 
-@router.get("/api/scan/model/{piece}.png")
-def piece_tex(piece: str):
-    if not _PIECE.match(piece):
-        raise HTTPException(404, "unbekannte Figur")
-    p = _repo_root() / "synth_pieces" / f"{piece}.png"
+@router.get("/api/scan/model/{piece}/{variant}.png")
+def piece_tex(piece: str, variant: str):
+    p = _piece_dir(piece, variant) / f"{variant}.png"
     if not p.exists():
         return Response(status_code=204)
     return FileResponse(str(p), media_type="image/png")

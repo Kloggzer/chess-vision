@@ -62,6 +62,22 @@ def observation_from_probs(per_square_probs: dict[str, list[float]],
     return OccupancyObservation(p_occ=p_occ, p_empty=p_empty, p_occluded=p_occluded)
 
 
+def _move_touched_squares(board: chess.Board, move: chess.Move) -> set[str]:
+    """Felder, die ein Zug physisch verändert: from, to, + Turm bei Rochade, + geschlagener
+    Bauer bei en passant. (Spiegelt tracker.move_touched_squares, ohne Zirkularimport.)"""
+    sqs = {chess.square_name(move.from_square), chess.square_name(move.to_square)}
+    if board.is_castling(move):
+        rank = chess.square_rank(move.from_square)
+        if chess.square_file(move.to_square) > chess.square_file(move.from_square):
+            sqs |= {chess.square_name(chess.square(7, rank)), chess.square_name(chess.square(5, rank))}
+        else:
+            sqs |= {chess.square_name(chess.square(0, rank)), chess.square_name(chess.square(3, rank))}
+    if board.is_en_passant(move):
+        sqs.add(chess.square_name(chess.square(chess.square_file(move.to_square),
+                                               chess.square_rank(move.from_square))))
+    return sqs
+
+
 def expected_occupancy(board: chess.Board) -> dict[str, bool]:
     """Occupancy je Feld, wie sie laut Spielzustand sein müsste."""
     return {sq: board.piece_at(chess.parse_square(sq)) is not None for sq in _ALL}
@@ -131,6 +147,28 @@ class CnnRecovery:
             # (0 Felder Unterschied) → bewusst None (Nutzer-Hinweis statt Raten).
             return None, best, second
         return best_mv, best, second
+
+    def verify_move(self, board: chess.Board, move: chess.Move,
+                    obs: OccupancyObservation) -> tuple[float, int]:
+        """Pre-Commit-Check eines konkreten Kandidatenzugs — LOKAL statt Ganzbrett:
+        Es zählt nur die Occupancy der Felder, die der Zug physisch verändert (from wird leer,
+        to wird besetzt; + Turm bei Rochade, + geschlagener Bauer bei en passant). Das ist genau
+        die Definition eines Zuges und robust gegen Schatten/Verdeckung auf dem restlichen Brett.
+
+        Rückgabe (agreement, n): Anteil der berührten & belastbaren Felder, deren beobachtete
+        Occupancy zur Stellung NACH dem Zug passt. Beide Endpunkte müssen belastbar (confident)
+        sein — ist z.B. das Zielfeld noch von einer Hand verdeckt, gilt der Zug (noch) als
+        unbestätigt (agreement 0.0), und die Mehr-Frame-Prüfung wartet auf einen freien Blick."""
+        conf = obs.confident(self.conf_thr)
+        touched = _move_touched_squares(board, move)
+        b2 = board.copy(stack=False)
+        b2.push(move)
+        checked = [sq for sq in touched if conf.get(sq)]
+        if len(checked) < 2:                      # mind. Start- UND Zielfeld müssen belastbar sein
+            return 0.0, len(checked)
+        hits = sum(1 for sq in checked
+                   if obs.occupied(sq) == (b2.piece_at(chess.parse_square(sq)) is not None))
+        return hits / len(checked), len(checked)
 
     def resync_check(self, board: chess.Board, obs: OccupancyObservation) -> dict:
         """Geglaubte vs. beobachtete Occupancy diffen (nur confident-Felder).

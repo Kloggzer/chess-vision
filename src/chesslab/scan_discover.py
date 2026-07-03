@@ -12,9 +12,32 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-# Valid piece names: P/N/B/R/Q/K, optional w/b color prefix, case-insensitive.
-# Normalized to canonical form: lowercase prefix + UPPER type letter.
-_PIECE_NAME = re.compile(r"^[wb]?[PNBRQK]$", re.IGNORECASE)
+# Valid piece names: P/N/B/R/Q/K, optional w/b color prefix (case-insensitive),
+# optional variant suffix (a number ``2`` or a ``_label`` / ``-label``).
+# Normalized to canonical piece ``w/b + UPPER type`` plus a variant slot:
+#   wP → (wP, v1)   wP2 → (wP, v2)   wP_glass → (wP, glass)   WQ → (wQ, v1)
+_PIECE_NAME = re.compile(r"^([wb]?)([pnbrqk])([0-9]*|[-_].*)?$", re.IGNORECASE)
+
+
+def parse_piece_name(raw: str) -> tuple[str, str] | None:
+    """Parse a scan-folder name into ``(canonical_piece, variant)`` or *None*.
+
+    Canonical piece = lowercase color prefix (default ``w``) + UPPER type letter.
+    Variant = ``v<n>`` for a numeric suffix, the bare label for a ``_``/``-`` suffix,
+    else ``v1``.  Lets several scans of the same piece coexist as ``v1``, ``v2``, ….
+    """
+    m = _PIECE_NAME.match(raw)
+    if not m:
+        return None
+    prefix, letter, suffix = m.group(1), m.group(2), (m.group(3) or "").strip()
+    canonical = (prefix.lower() or "w") + letter.upper()
+    if not suffix:
+        variant = "v1"
+    elif suffix.isdigit():
+        variant = f"v{suffix}"
+    else:
+        variant = suffix.lstrip("-_") or "v1"
+    return canonical, variant
 
 # --- Assessment thresholds for quality reports -----------------------------------
 _MAX_BOUNDARY_EDGES = 300       # open edges ≈ holes in the scan
@@ -29,18 +52,35 @@ def normalize_name(raw: str) -> str:
 
     ``WQ`` / ``wq`` → ``wQ``, ``BK`` / ``bk`` → ``bK``, ``P`` → ``wP`` (no-prefix = white).
     """
-    if len(raw) == 2:
-        return raw[0].lower() + raw[1].upper()
-    return "w" + raw.upper()
+    parsed = parse_piece_name(raw)
+    return parsed[0] if parsed else raw
+
+
+def is_bare_piece(raw: str) -> bool:
+    """True if ``raw`` is a plain piece name with NO variant suffix (``wP``, ``P``).
+
+    A bare name means "add a new version" — the caller should pick the next free
+    variant slot instead of clobbering ``v1``.  ``wP2`` / ``wP_glass`` are explicit.
+    """
+    return bool(re.fullmatch(r"[wb]?[pnbrqk]", raw, re.IGNORECASE))
+
+
+def next_variant(piece_dir: Path) -> str:
+    """Next free ``v<n>`` slot in a piece folder (``v1`` if empty, else ``v2``, …)."""
+    n = 1
+    while (Path(piece_dir) / f"v{n}.obj").exists():
+        n += 1
+    return f"v{n}"
 
 
 @dataclass(frozen=True)
 class ScanItem:
     """One discovered scan ready for preparation."""
 
-    name: str          # canonical piece name, e.g. "wQ" or "wP"
-    obj: Path          # .glb/.gltf (texture embedded) or .obj
-    tex: Path | None   # texture file (.obj only; .glb → None = auto-extract from material)
+    name: str              # canonical piece name, e.g. "wQ" or "wP"
+    obj: Path              # .glb/.gltf (texture embedded) or .obj
+    tex: Path | None       # texture file (.obj only; .glb → None = auto-extract from material)
+    variant: str = "v1"    # variant slot inside the piece folder (v1, v2, glass, …)
 
 
 def pick_mesh(d: Path) -> Path | None:
@@ -111,19 +151,20 @@ def discover_scans(root: Path) -> tuple[list[ScanItem], list[str]]:
     for d in sorted(p for p in root.iterdir() if p.is_dir()):
         glbs = sorted([*d.glob("*.glb"), *d.glob("*.gltf")])
         objs = sorted(d.glob("*.obj"))
-        matched = _PIECE_NAME.match(d.name)
-        if not matched and (glbs or objs):
+        parsed = parse_piece_name(d.name)
+        if parsed is None and (glbs or objs):
             warnings.append(
-                f"{d.name}: not a piece name (P/N/B/R/Q/K, optional w/b prefix) — "
-                "the renderer won't find this template")
-        canonical = normalize_name(d.name) if matched else d.name
+                f"{d.name}: not a piece name (P/N/B/R/Q/K, optional w/b prefix, "
+                "optional variant suffix) — the renderer won't find this template")
+        canonical, variant = parsed if parsed else (d.name, "v1")
         if glbs:                                     # preferred: RealityScan-simplified .glb
             if len(glbs) > 1:
                 warnings.append(f"{d.name}: multiple .glb — taking {glbs[0].name}")
             # RealityScan .glb often references the texture EXTERNALLY
             # (_diffuse.png next to it) — pass the fallback; embedded textures win
             # automatically in prepare_scan().
-            items.append(ScanItem(name=canonical, obj=glbs[0], tex=_pick_texture(d)))
+            items.append(ScanItem(name=canonical, obj=glbs[0], tex=_pick_texture(d),
+                                  variant=variant))
             continue
         tex = _pick_texture(d)
         if not objs or tex is None:
@@ -137,7 +178,7 @@ def discover_scans(root: Path) -> tuple[list[ScanItem], list[str]]:
             continue
         if len(objs) > 1:
             warnings.append(f"{d.name}: multiple .obj — taking {chosen.name}")
-        items.append(ScanItem(name=canonical, obj=chosen, tex=tex))
+        items.append(ScanItem(name=canonical, obj=chosen, tex=tex, variant=variant))
     return items, warnings
 
 

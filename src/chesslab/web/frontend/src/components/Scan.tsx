@@ -22,7 +22,8 @@ type Status = {
 type Drag = { x0: number; y0: number; x1: number; y1: number } | null;
 
 type Piece = {
-  piece: string; source_dir: string | null; has_preview: boolean; has_clay: boolean; report: any;
+  piece: string; variant: string; id: string;
+  source_dir: string | null; has_preview: boolean; has_clay: boolean; report: any;
 };
 type Models = {
   scans: { dir: string; mesh: string | null; texture: string | null; photos: number; clean?: boolean }[];
@@ -31,7 +32,7 @@ type Models = {
 };
 type PrepStatus = {
   state: "idle" | "running" | "done" | "failed";
-  piece: string | null; dir?: string | null; report?: any; level?: string; messages?: string[]; log_tail?: string;
+  piece: string | null; variant?: string | null; dir?: string | null; report?: any; level?: string; messages?: string[]; log_tail?: string;
 };
 
 const PIECES = ["P", "N", "B", "R", "Q", "K", "wP", "wN", "wB", "wR", "wQ", "wK",
@@ -57,13 +58,13 @@ function pieceLabel(p: string): string {
 
 type Scan = Models["scans"][number];
 type Stage = "mesh" | "done";
-function scanStage(s: Scan, pieces: Piece[]): { stage: Stage; piece: string | null } {
+function scanStage(s: Scan, pieces: Piece[]): { stage: Stage; piece: string | null; variant: string | null } {
   const sug = suggestPiece(s.dir);
   const prepared = pieces.find((p) => p.source_dir === s.dir)
     ?? (sug ? pieces.find((p) => p.piece.toLowerCase() === sug.toLowerCase() && !p.source_dir) : undefined);
-  if (prepared) return { stage: "done", piece: prepared.piece };
-  if (s.mesh) return { stage: "mesh", piece: sug };
-  return { stage: "mesh", piece: sug };
+  if (prepared) return { stage: "done", piece: prepared.piece, variant: prepared.variant };
+  if (s.mesh) return { stage: "mesh", piece: sug, variant: null };
+  return { stage: "mesh", piece: sug, variant: null };
 }
 
 /** Figuren-Werkstatt: Upload → vorbereiten → renderfertige Figur. */
@@ -87,8 +88,8 @@ export default function Scan() {
   const [dir, setDir] = useState("");
   const [piece, setPiece] = useState("P");
   const [prep, setPrep] = useState<PrepStatus | null>(null);
-  const [variant, setVariant] = useState<"textured" | "clay">("textured");
-  const [view3d, setView3d] = useState<string | null>(null);
+  const [kind, setKind] = useState<"textured" | "clay">("textured");
+  const [view3d, setView3d] = useState<{ piece: string; variant: string } | null>(null);
   const [meshFile, setMeshFile] = useState<File | null>(null);
   const [texFile, setTexFile] = useState<File | null>(null);
   const [uploadName, setUploadName] = useState("");
@@ -187,9 +188,9 @@ export default function Scan() {
     if (dir === d) setDir("");
     refresh();
   }
-  async function deletePiece(p: string) {
-    if (!confirm(`Vorbereitete Figur „${p}" löschen? (Der Scan bleibt erhalten.)`)) return;
-    await del(`/api/scan/piece/${p}`).catch(() => {});
+  async function deletePiece(piece: string, variant: string) {
+    if (!confirm(`Vorbereitete Figur „${piece}/${variant}" löschen? (Der Scan bleibt erhalten.)`)) return;
+    await del(`/api/scan/piece/${piece}/${variant}`).catch(() => {});
     setPrep(null);
     refresh();
   }
@@ -230,8 +231,8 @@ export default function Scan() {
   async function run() {
     setMsg("");
     try {
-      await post("/api/scan/prepare", { dir, piece });
-      setPrep({ state: "running", piece });
+      const r = await post<{ variant?: string }>("/api/scan/prepare", { dir, piece });
+      setPrep({ state: "running", piece, variant: r?.variant });
       clearInterval(prepTimer.current);
       prepTimer.current = setInterval(pollPrep, 2000);
     } catch (e: any) { setMsg("Fehler: " + e.message); }
@@ -393,11 +394,11 @@ export default function Scan() {
 
         {/* Fertige Figuren-Galerie */}
         <FinishedPiecesGrid pieces={models?.pieces} setView3d={setView3d} deletePiece={deletePiece}
-          prep={prep} variant={variant} setVariant={setVariant} />
+          prep={prep} kind={kind} setKind={setKind} />
       </Card>
 
       {/* 3D-Vollbild */}
-      {view3d && <ModelModal piece={view3d} textured={variant === "textured"} onClose={() => setView3d(null)} />}
+      {view3d && <ModelModal piece={view3d.piece} variant={view3d.variant} textured={kind === "textured"} onClose={() => setView3d(null)} />}
     </div>
   );
 }
@@ -461,7 +462,7 @@ function ScanCardGrid({ scans, models, dir, selectScan, deleteScan, prep }: {
               active ? "border-sky-500 bg-sky-500/5" : "border-zinc-800 hover:border-zinc-600"}`}>
             <div className="relative mb-1.5 aspect-square overflow-hidden rounded-lg bg-zinc-950">
               {prep_
-                ? <img src={`/api/scan/prepare/preview/${info.piece}`} alt={`${pieceLabel(info.piece!)} Vorschau`} className="h-full w-full object-contain" />
+                ? <img src={`/api/scan/prepare/preview/${info.piece}/${info.variant}?kind=textured`} alt={`${pieceLabel(info.piece!)} Vorschau`} className="h-full w-full object-contain" />
                 : <div className="grid h-full place-items-center text-zinc-700"><Camera className="h-8 w-8" /></div>}
               <span className={`absolute left-1 top-1 flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${badge[1]}`}>
                 {busy && <Loader2 className="h-3 w-3 animate-spin" />}{badge[0]}</span>
@@ -480,7 +481,7 @@ function ScanCardGrid({ scans, models, dir, selectScan, deleteScan, prep }: {
   );
 }
 
-function ModelModal({ piece, textured, onClose }: { piece: string; textured: boolean; onClose: () => void }) {
+function ModelModal({ piece, variant, textured, onClose }: { piece: string; variant: string; textured: boolean; onClose: () => void }) {
   const [tex, setTex] = useState(textured);
   useEffect(() => {
     const h = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -494,9 +495,9 @@ function ModelModal({ piece, textured, onClose }: { piece: string; textured: boo
       <div onClick={(e) => e.stopPropagation()} role="presentation"
         onKeyDown={(e) => e.stopPropagation()}
         className="flex flex-col items-center gap-3">
-        <ModelViewer piece={piece} textured={tex} size={Math.min(720, window.innerHeight - 160)} />
+        <ModelViewer piece={piece} variant={variant} textured={tex} size={Math.min(720, window.innerHeight - 160)} />
         <div className="flex items-center gap-3 text-sm text-zinc-300">
-          <span className="font-medium">{piece}</span>
+          <span className="font-medium">{piece}/{variant}</span>
           <VariantToggle value={tex ? "textured" : "clay"} onChange={(v) => setTex(v === "textured")} />
           <span className="text-xs text-zinc-500">ziehen = drehen · Rad = zoomen · Esc = schließen</span>
         </div>
@@ -523,9 +524,10 @@ function ReconPrepStatus({ cur, busyPrep, prep }: {
   );
 }
 
-function FinishedPiecesGrid({ pieces, setView3d, deletePiece, prep, variant, setVariant }: {
-  pieces: Piece[] | undefined; setView3d: (p: string) => void; deletePiece: (p: string) => void;
-  prep: PrepStatus | null; variant: "textured" | "clay"; setVariant: (v: "textured" | "clay") => void;
+function FinishedPiecesGrid({ pieces, setView3d, deletePiece, prep, kind, setKind }: {
+  pieces: Piece[] | undefined; setView3d: (p: { piece: string; variant: string }) => void;
+  deletePiece: (piece: string, variant: string) => void;
+  prep: PrepStatus | null; kind: "textured" | "clay"; setKind: (v: "textured" | "clay") => void;
 }) {
   if (!pieces?.length) return null;
   return (
@@ -533,27 +535,27 @@ function FinishedPiecesGrid({ pieces, setView3d, deletePiece, prep, variant, set
       <div className="mb-2 text-xs font-medium text-zinc-400">Fertige Figuren (synth_pieces/)</div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         {pieces.map((p) => {
-          const busyThis = prep?.state === "running" && prep.piece === p.piece;
+          const busyThis = prep?.state === "running" && prep.piece === p.piece && prep.variant === p.variant;
           return (
-            <div key={p.piece}
+            <div key={p.id}
               className="relative rounded-xl border border-zinc-800 bg-zinc-900/50 p-2">
               <div className="relative mb-2 aspect-square overflow-hidden rounded-lg bg-zinc-950">
                 {p.has_preview
-                  ? <img src={`/api/scan/prepare/preview/${p.piece}${variant === "clay" ? "?variant=clay" : ""}`}
+                  ? <img src={`/api/scan/prepare/preview/${p.piece}/${p.variant}?kind=${kind}`}
                     alt={`${pieceLabel(p.piece)}`} className="h-full w-full object-contain" />
                   : <div className="grid h-full place-items-center text-zinc-700"><ImageIcon className="h-8 w-8" /></div>}
-                <button onClick={() => setView3d(p.piece)}
+                <button onClick={() => setView3d({ piece: p.piece, variant: p.variant })}
                   title="3D-Ansicht öffnen"
                   className="absolute right-1 top-1 rounded bg-zinc-900/80 p-1 text-zinc-400 hover:text-white">
                   <Maximize2 className="h-3.5 w-3.5" /></button>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-zinc-200">{pieceLabel(p.piece)}</span>
+                <span className="text-sm font-medium text-zinc-200">{pieceLabel(p.piece)} · {p.variant}</span>
                 {busyThis && <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-400" />}
               </div>
-              <VariantToggle value={variant} onChange={setVariant} clayDisabled={!p.has_clay} />
+              <VariantToggle value={kind} onChange={setKind} clayDisabled={!p.has_clay} />
               {p.report && (
-                <ReportSection piece={p.piece} report={p.report} level={p.report?.level}
+                <ReportSection piece={p.piece} variant={p.variant} report={p.report} level={p.report?.level}
                   messages={p.report?.messages} onDelete={deletePiece} />
               )}
             </div>
@@ -564,8 +566,9 @@ function FinishedPiecesGrid({ pieces, setView3d, deletePiece, prep, variant, set
   );
 }
 
-function ReportSection({ piece, report, level, messages, onDelete }: {
-  piece: string; report: any; level: string | undefined; messages: string[] | undefined; onDelete: (p: string) => void;
+function ReportSection({ piece, variant, report, level, messages, onDelete }: {
+  piece: string; variant: string; report: any; level: string | undefined; messages: string[] | undefined;
+  onDelete: (piece: string, variant: string) => void;
 }) {
   if (!report || !report.tris) return null;
   return (
@@ -582,8 +585,8 @@ function ReportSection({ piece, report, level, messages, onDelete }: {
         <span className="text-zinc-500">offene Kanten</span><span>{report.boundary_edges}</span>
         <span className="text-zinc-500">Höhe/Basis</span><span>{report.height_ratio}</span>
       </div>
-      <div className="pt-1 text-zinc-500">→ synth_pieces/{piece}.obj</div>
-      <button onClick={() => onDelete(piece)}
+      <div className="pt-1 text-zinc-500">→ synth_pieces/{piece}/{variant}.obj</div>
+      <button onClick={() => onDelete(piece, variant)}
         className="mt-1 flex items-center gap-1 text-red-400/80 hover:text-red-400">
         <Trash2 className="h-3.5 w-3.5" /> Figur löschen</button>
     </div>
