@@ -73,6 +73,13 @@
       <span id="check" style="color:#f87171"></span>
       <span id="result" style="color:#34d399"></span>
     </div>
+    <div id="promoRow" class="row" style="display:none; margin-bottom:8px">
+      <span style="color:#fbbf24">Umwandlung <b id="promoSq"></b> — Figur wählen:</span>
+      <button onclick="promote('q')">♕ Dame</button>
+      <button onclick="promote('r')">♖ Turm</button>
+      <button onclick="promote('b')">♗ Läufer</button>
+      <button onclick="promote('n')">♘ Springer</button>
+    </div>
     <img id="board" class="board" src="/board.svg" alt="Brett" />
     <h2 style="margin-top:12px">Züge</h2>
     <table class="moves"><tbody id="moves"></tbody></table>
@@ -103,6 +110,10 @@ async function start() {
 }
 async function reset() { await post("/api/reset", {}); }
 async function undo() { await post("/api/undo", {}); }
+async function promote(p) {               // Umwandlungsfigur wählen (Promotion ohne CNN)
+  const r = await post("/api/promote", { piece: p });
+  if (r && r.ok === false) document.getElementById("note").textContent = r.error || "Promotion fehlgeschlagen";
+}
 
 function fillCurrentFen() {               // aktuelle Stellung ins Feld zum Bearbeiten holen
   document.getElementById("fenInput").value = document.getElementById("fen").textContent;
@@ -154,7 +165,7 @@ const DBG_LAYOUT = [
   ["Timing", [["FPS", "fps"], ["Diff-Rechenzeit", "diff_ms"], ["CNN-Inferenz", "infer_ms"], ["Device", "device"]]],
   ["Deterministik", [["Motion / Schwelle", "motion"], ["Stable-Count", "stable_count"],
     ["Frames gemittelt", "frames_used"], ["Settle-Frames", "settle_frames"],
-    ["Geänderte Felder", "nchanged"], ["Change-Schwelle", "change_thr"], ["Feld-Werte", "fieldvals"],
+    ["Geänderte Felder", "nchanged"], ["z-Schwelle", "z_thr"], ["Feld-z-Werte", "fieldvals"],
     ["Schatten verworfen", "shadow"],
     ["Best / 2nd Score", "scores"], ["Margin", "margin"], ["Kandidat (Diff)", "candidate"],
     ["Confirmer", "confirmer"], ["Stuck", "stuck"]]],
@@ -185,11 +196,12 @@ function renderDebug(d) {
   set("device", "<code>" + d.device + "</code>");
   set("motion", `<b class="${d.motion > d.motion_thr ? 'warn' : ''}">${d.motion}</b> / ${d.motion_thr}`);
   set("stable_count", d.stable_count); set("frames_used", d.frames_used); set("settle_frames", d.settle_frames);
-  set("nchanged", `${d.n_changed} / max ${d.max_changed}`); set("change_thr", d.change_thr);
-  set("fieldvals", fieldVals(d.changed_vals, d.change_thr));
+  set("nchanged", `${d.n_changed} / max ${d.max_changed}`); set("z_thr", d.z_thr);
+  set("fieldvals", fieldVals(d.changed_vals, d.z_thr));
   set("shadow", (d.shadow_vetoed && d.shadow_vetoed.length)
     ? `<code style="color:#22d3ee">${d.shadow_vetoed.join(" ")}</code>` : "—");
-  set("scores", `${d.best_score} / ${d.second_score}`); set("margin", d.margin);
+  set("scores", `${d.best_score} / ${d.second_score}`);
+  set("margin", `${d.margin} (min ${d.ambiguity_margin_ll})`);
   set("candidate", "<code>" + (d.candidate || "—") + "</code>");
   set("confirmer", `${d.confirm_count} / ${d.confirm_frames}`);
   set("stuck", d.stuck_reason ? `${d.stuck_reason} (${d.stuck_count})` : "—");
@@ -219,6 +231,11 @@ async function poll() {
     document.getElementById("check").textContent = s.in_check ? "Schach!" : "";
     document.getElementById("result").textContent = s.game_over ? ("Ende: " + s.result) : "";
     document.getElementById("fen").textContent = s.fen;
+    const promo = document.getElementById("promoRow");   // Promotion wartet auf Nutzerwahl?
+    if (s.promotion_pending) {
+      promo.style.display = "";
+      document.getElementById("promoSq").textContent = s.promotion_pending.from + "→" + s.promotion_pending.to;
+    } else { promo.style.display = "none"; }
     renderMoves(s.history);
     renderDebug(s.debug);
     if (s.fen !== lastFen) {           // Brett nur bei Änderung neu laden (kein Flackern)

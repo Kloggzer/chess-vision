@@ -392,6 +392,29 @@ DEFAULT_TRACK_PORT: int = 8001
 # Photometrie none — binär auf Occupancy kollabiert robust). None/„fehlt auf Platte" ⇒ Feature aus.
 MOVE_TRACKER_DEFAULT_RUN: str = "run-20260626-163320"
 
+# Move-Tracker-Detektions-Defaults (specs/rework/10-move-detection-v2.md) — Single Source
+# für CLI und App; keine Magic Numbers in tracker.py-Aufrufern.
+TRACK_DEFAULTS: dict = {
+    "motion_thr": 3.0,             # Motion-Gate (mittlere Frame-zu-Frame-Differenz)
+    "z_thr": 3.0,                  # z-Score, ab dem ein Feld als „geändert" gilt
+    "ambiguity_margin_ll": 2.0,    # best − second in Log-Likelihood-Einheiten (~e²-Faktor)
+    "reanchor_ll_floor": -4.0,     # Re-Anchor nur, wenn auch die beste Zug-LL darunter liegt
+    "nudge_timeout_s": 5.0,        # Nudge-Patch (belegte Felder) nach so vielen Sekunden stuck
+    "drift_window_s": 30.0,        # Drift-Patch (leere Felder) — konservativer
+    "max_changed": 6,              # Verdeckungs-Gate
+    "census_thr": 55.0,            # strukturelle Änderung (Census, 0..255)
+    "cnn_conf_thr": 0.85,          # CNN-Feld-Konfidenz „belastbar"
+    "cnn_cooldown_s": 2.0,         # Mindestabstand zwischen Recovery-Beobachtungen
+    "cnn_check_interval_s": 10.0,  # periodische CNN-Kontrolle
+    "verify_window": 8,            # max. CNN-Frames pro Pre-Commit-Verify
+    "cnn_min_agreement": 0.97,     # Recovery-/Verify-Agreement-Schwelle
+    "cnn_margin_squares": 1,       # Recovery-Margin in FELDERN (Schlag = 1 Feld Unterschied)
+    "min_confident_board": 32,     # Whole-Board-Match braucht viel freie Sicht
+    "min_confident_recovery": 8,   # Recovery bleibt bei Teilverdeckung handlungsfähig
+    "motion_margin": 0.12,         # Motion-ROI über den Brettrand hinaus (Anteil Brettkante)
+    "overhang": 0.0,               # Diff-Zellen nach oben erweitern (Anteil Zelle; 0 = aus)
+}
+
 
 def ensure_dirs(paths: Paths = DATA) -> list[Path]:
     """Create all runtime data directories if missing; return the list."""

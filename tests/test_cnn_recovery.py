@@ -76,7 +76,7 @@ def test_verify_move_too_few_confident_returns_zero(tmp_path):
     after = chess.Board(); after.push_san("e4")
     occluded = set(_ALL[:60])                        # nur 4 Felder confident
     obs = _obs_for_board(after, occluded=occluded)
-    agree, n = _recovery(tmp_path, min_confident=8).verify_move(
+    agree, n = _recovery(tmp_path, min_confident_recovery=8).verify_move(
         board, chess.Move.from_uci("e2e4"), obs)
     assert agree == 0.0
     assert n < 8
@@ -478,3 +478,33 @@ def test_resync_cnn_without_model(monkeypatch):
     t = _headless_tracker(monkeypatch)      # cnn_run=None
     r = t.resync_cnn()
     assert r["ok"] is False and "nicht konfiguriert" in r["error"]
+
+# ---------------------------------------------------------------------------
+# derive_moves_identity — 2-Ply-Suche (Spec 10, Teil 3)
+# ---------------------------------------------------------------------------
+
+def test_derive_moves_identity_single_preferred(tmp_path):
+    """Erklaert EIN Zug die Beobachtung, wird KEIN Paar zurueckgegeben (sparsamste Erklaerung)."""
+    board = chess.Board()
+    after = chess.Board(); after.push_san("e4")
+    seq, best, _s = _recovery(tmp_path).derive_moves_identity(board, _ident_obs(after), max_plies=2)
+    assert [m.uci() for m in seq] == ["e2e4"]
+
+
+def test_derive_moves_identity_pair_for_two_moves(tmp_path):
+    """Beobachtung entspricht ZWEI Halbzuegen (e4 + e5) -> Zugpaar in richtiger Reihenfolge."""
+    board = chess.Board()
+    after = chess.Board()
+    after.push_san("e4"); after.push_san("e5")
+    seq, best, _s = _recovery(tmp_path).derive_moves_identity(board, _ident_obs(after), max_plies=2)
+    assert [m.uci() for m in seq] == ["e2e4", "e7e5"]
+    assert best == pytest.approx(1.0)
+
+
+def test_derive_moves_identity_pair_disabled_with_one_ply(tmp_path):
+    """max_plies=1: Zwei-Zuege-Beobachtung ist nicht erklaerbar -> leere Folge."""
+    board = chess.Board()
+    after = chess.Board()
+    after.push_san("e4"); after.push_san("e5")
+    seq, _b, _s = _recovery(tmp_path).derive_moves_identity(board, _ident_obs(after), max_plies=1)
+    assert seq == []
