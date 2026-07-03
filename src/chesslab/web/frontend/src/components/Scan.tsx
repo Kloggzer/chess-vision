@@ -54,7 +54,10 @@ function suggestPiece(folder: string): string | null {
 }
 function pieceLabel(p: string): string {
   const type = p.length === 2 ? p[1] : p[0];
-  const col = p.length === 2 ? (p[0] === "w" ? "weiß " : "schwarz ") : "";
+  let col = "";
+  if (p.length === 2) {
+    col = p[0] === "w" ? "weiß " : "schwarz ";
+  }
   return col + (PIECE_NAMES[type] ?? p);
 }
 
@@ -142,7 +145,7 @@ function PreparePanel() {
     setRecon(s);
     if (s.state !== "running") { clearInterval(reconTimer.current); refresh(); }
   }).catch(() => {});
-  const pollPrep2 = () => api<PrepStatus>("/api/scan/prepare/status").then((s) => {
+  const pollPrep = () => api<PrepStatus>("/api/scan/prepare/status").then((s) => {
     setPrep(s);
     if (s.state !== "running") { clearInterval(timer.current); refresh(); }
   }).catch(() => {});
@@ -158,7 +161,7 @@ function PreparePanel() {
       } else if (s.state !== "idle") { setRecon(s); }
     }).catch(() => {});
     api<PrepStatus>("/api/scan/prepare/status").then((s) => {
-      if (s.state === "running") { setPrep(s); timer.current = setInterval(pollPrep2, 2000); }
+      if (s.state === "running") { setPrep(s); timer.current = setInterval(pollPrep, 2000); }
     }).catch(() => {});
     return () => { clearInterval(timer.current); clearInterval(reconTimer.current); };
   }, []);
@@ -171,11 +174,6 @@ function PreparePanel() {
       reconTimer.current = setInterval(pollRecon, 3000);
     } catch (e: any) { setMsg("Fehler: " + e.message); }
   }
-
-  const pollPrep = () => api<PrepStatus>("/api/scan/prepare/status").then((s) => {
-    setPrep(s);
-    if (s.state !== "running") { clearInterval(timer.current); refresh(); }
-  }).catch(() => {});
 
   async function run() {
     setMsg("");
@@ -194,7 +192,19 @@ function PreparePanel() {
   const busyRecon = recon?.state === "running" && recon.dir === dir;
   const busyPrep = prep?.state === "running";
   // aktive Stufe für den Stepper (1 Foto · 2 Mesh · 3 Figur)
-  const step = stage === "done" ? 3 : stage === "mesh" ? 2 : 1;
+  const step = (() => {
+    if (stage === "done") return 3;
+    if (stage === "mesh") return 2;
+    return 1;
+  })();
+  let prepButtonLabel: string;
+  if (busyPrep) { prepButtonLabel = "läuft…"; }
+  else if (stage === "done") { prepButtonLabel = "Neu vorbereiten"; }
+  else { prepButtonLabel = "Vorbereiten"; }
+  let resultPiece: string | null;
+  if (curInfo?.stage === "done") { resultPiece = curInfo.piece; }
+  else if (prep?.state === "done") { resultPiece = prep.piece; }
+  else { resultPiece = null; }
 
   return (
     <Card title="Figuren-Werkstatt — Fotos → 3D-Figur">
@@ -217,77 +227,13 @@ function PreparePanel() {
           sie erscheinen dann hier als Karte.</p>
       )}
 
-      {/* Upload: fertiges Mesh (bereits freigestellt, kein RealityScan) */}
-      <div className="mt-3 rounded-xl border border-dashed border-zinc-700 bg-zinc-950/30 p-3">
-        <div className="mb-2 text-xs font-medium text-zinc-400">Oder fertiges Mesh hochladen:</div>
-        <div className="flex flex-wrap items-end gap-2">
-          <label className="flex flex-col gap-0.5 text-xs text-zinc-500">
-            Name
-            <input value={uploadName} onChange={(e) => setUploadName(e.target.value)}
-              placeholder="z.B. wK" className={`${input} w-24`} />
-          </label>
-          <label className="flex flex-col gap-0.5 text-xs text-zinc-500">
-            Mesh (.obj/.glb/.gltf)
-            <input type="file" accept=".obj,.glb,.gltf"
-              onChange={(e) => setMeshFile(e.target.files?.[0] ?? null)}
-              className="text-xs text-zinc-300 file:mr-1 file:rounded file:border-0 file:bg-zinc-700 file:px-2 file:py-0.5 file:text-xs file:text-zinc-200" />
-          </label>
-          <label className="flex flex-col gap-0.5 text-xs text-zinc-500">
-            Textur (.png/.jpg, optional)
-            <input type="file" accept=".png,.jpg,.jpeg"
-              onChange={(e) => setTexFile(e.target.files?.[0] ?? null)}
-              className="text-xs text-zinc-300 file:mr-1 file:rounded file:border-0 file:bg-zinc-700 file:px-2 file:py-0.5 file:text-xs file:text-zinc-200" />
-          </label>
-          <Button variant="primary" onClick={doUpload} disabled={uploading || !meshFile || !uploadName}>
-            {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-            Hochladen
-          </Button>
-        </div>
-      </div>
+      <MeshUploadSection uploadName={uploadName} setUploadName={setUploadName}
+        meshFile={meshFile} setMeshFile={setMeshFile} texFile={texFile} setTexFile={setTexFile}
+        uploading={uploading} doUpload={doUpload} input={input} />
 
-      {/* Figuren-Karten: eine pro Scan-Ordner, mit Stufe + Live-Status + Löschen */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-        {scans.map((s) => {
-          const info = scanStage(s, models?.pieces ?? []);
-          const active = s.dir === dir;
-          // Live-Status: aus dem laufenden Job (gepollt) ODER dem Snapshot beim Laden (jobs).
-          const jobRecon = (recon?.state === "running" && recon.dir === s.dir) || models?.jobs?.reconstruct === s.dir;
-          const jobPrep = (prep?.state === "running" && prep.dir === s.dir) || models?.jobs?.prepare === s.dir;
-          const busy = jobRecon || jobPrep;
-          const badge = busy
-            ? [jobRecon ? "rekonstruiert…" : "wird vorbereitet…", "bg-sky-500/20 text-sky-300"]
-            : {
-                photos: ["Nur Fotos", "bg-amber-500/15 text-amber-300"],
-                mesh: ["Mesh bereit", "bg-sky-500/15 text-sky-300"],
-                done: ["Fertig", "bg-green-500/15 text-green-300"],
-              }[info.stage];
-          const prep_ = info.piece && info.stage === "done";
-          return (
-            <div key={s.dir} onClick={() => selectScan(s)}
-              className={`group relative flex cursor-pointer flex-col rounded-xl border p-2 text-left transition ${
-                active ? "border-sky-500 bg-sky-500/5" : "border-zinc-800 hover:border-zinc-600"}`}>
-              <div className="relative mb-1.5 aspect-square overflow-hidden rounded-lg bg-zinc-950">
-                {prep_
-                  ? <img src={`/api/scan/prepare/preview/${info.piece}`} className="h-full w-full object-contain" />
-                  : <div className="grid h-full place-items-center text-zinc-700">
-                      <Camera className="h-8 w-8" /></div>}
-                <span className={`absolute left-1 top-1 flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${badge[1]}`}>
-                  {busy && <Loader2 className="h-3 w-3 animate-spin" />}{badge[0]}</span>
-                {/* Löschen auf Hover */}
-                <button onClick={(e) => { e.stopPropagation(); deleteScan(s.dir); }}
-                  title="Scan-Ordner löschen"
-                  className="absolute right-1 top-1 hidden rounded bg-zinc-900/80 p-1 text-zinc-400 hover:text-red-400 group-hover:block">
-                  <Trash2 className="h-3.5 w-3.5" /></button>
-              </div>
-              <div className="text-sm font-medium text-zinc-200">{s.dir}</div>
-              <div className="text-[11px] text-zinc-500">
-                {s.photos} Fotos{info.piece ? ` · ${pieceLabel(info.piece)}` : ""}</div>
-            </div>
-          );
-        })}
-      </div>
+      <ScanCardGrid scans={scans} models={models} dir={dir} selectScan={selectScan} deleteScan={deleteScan}
+        recon={recon} prep={prep} />
 
-      {/* Aktions-/Detail-Bereich für die ausgewählte Figur */}
       {cur && (
         <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/50 p-4">
           <div className="mb-3 flex items-center justify-between">
@@ -302,7 +248,6 @@ function PreparePanel() {
                 className="rounded-lg p-1.5 text-zinc-500 hover:bg-red-500/10 hover:text-red-400">
                 <Trash2 className="h-4 w-4" /></button>
             </div>
-            {/* Die EINE passende Aktion für die aktuelle Stufe */}
             {stage === "photos" && (
               <Button variant="primary" onClick={reconstruct} disabled={busyRecon}>
                 {busyRecon ? <Loader2 className="h-4 w-4 animate-spin" /> : <Boxes className="h-4 w-4" />}
@@ -315,7 +260,7 @@ function PreparePanel() {
                   Neu rekonstruieren</Button>
                 <Button variant="primary" onClick={run} disabled={busyPrep}>
                   {busyPrep ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-                  {busyPrep ? "läuft…" : stage === "done" ? "Neu vorbereiten" : "Vorbereiten"}</Button>
+                  {prepButtonLabel}</Button>
                 <Button onClick={() => setCropDir(cur.dir)}
                   title="3D-Box um die Figur positionieren, zuschneiden und vorbereiten">
                   <CropIcon className="h-4 w-4" /> Zuschneiden (3D-Box)</Button>
@@ -323,7 +268,6 @@ function PreparePanel() {
             )}
           </div>
 
-          {/* Figurname + Einstellungen (nur relevant fürs Vorbereiten) */}
           {stage !== "photos" && (
             <div className="mb-3 flex flex-wrap items-center gap-3">
               <label className="flex items-center gap-2 text-sm text-zinc-400">Figur
@@ -353,29 +297,9 @@ function PreparePanel() {
             </div>
           )}
 
-          {/* Live-Status der Rekonstruktion */}
-          {busyRecon && (
-            <div className="flex items-center gap-2 rounded-lg bg-sky-500/10 p-3 text-sm text-sky-300">
-              <Loader2 className="h-4 w-4 animate-spin" /> RealityScan rekonstruiert aus {cur.photos} Fotos —
-              das dauert einige Minuten…</div>
-          )}
-          {recon?.state === "failed" && recon.dir === dir && (
-            <div className="rounded-lg bg-red-500/10 p-3 text-sm text-red-300">
-              <div className="flex items-center gap-2"><AlertTriangle className="h-4 w-4" /> Rekonstruktion fehlgeschlagen.</div>
-              {recon.log_tail && <pre className="mt-1 whitespace-pre-wrap text-xs text-red-400/70">{recon.log_tail}</pre>}</div>
-          )}
-
-          {/* Live-Status / Ergebnis der Vorbereitung */}
-          {busyPrep && (
-            <div className="flex items-center gap-2 rounded-lg bg-sky-500/10 p-3 text-sm text-sky-300">
-              <Loader2 className="h-4 w-4 animate-spin" /> Blender isoliert & bereinigt die Figur — ca. 1–3 min…</div>
-          )}
-          {prep?.state === "failed" && (
-            <div className="rounded-lg bg-red-500/10 p-3 text-sm text-red-300">
-              <div className="flex items-center gap-2"><AlertTriangle className="h-4 w-4" /> Vorbereitung fehlgeschlagen.</div>
-              {prep.log_tail && <pre className="mt-1 whitespace-pre-wrap text-xs text-red-400/70">{prep.log_tail}</pre>}</div>
-          )}
-          <PieceResult piece={curInfo?.stage === "done" ? curInfo.piece : (prep?.state === "done" ? prep.piece : null)}
+          <ReconPrepStatus cur={cur} dir={dir} busyRecon={busyRecon} recon={recon}
+            busyPrep={busyPrep} prep={prep} />
+          <PieceResult piece={resultPiece}
             report={prep?.state === "done" ? prep.report : models?.pieces.find((p) => p.piece === curInfo?.piece)?.report}
             level={prep?.state === "done" ? prep.level : undefined}
             messages={prep?.state === "done" ? prep.messages : undefined}
@@ -383,33 +307,98 @@ function PreparePanel() {
             variant={variant} setVariant={setVariant} onDelete={deletePiece} onFullscreen={setView3d} />
         </div>
       )}
-
+      
       {/* Alle fertigen Figuren — unabhängig vom Ordnernamen sichtbar & löschbar */}
-      {!!models?.pieces.length && (
-        <div className="mt-4 border-t border-zinc-800 pt-3">
-          <div className="mb-2 text-xs text-zinc-500">Fertige Figuren ({models.pieces.length}) — Klick öffnet 3D:</div>
-          <div className="flex flex-wrap gap-2">
-            {models.pieces.map((p) => (
-              <div key={p.piece} className="group relative">
-                <button onClick={() => setView3d(p.piece)}
-                  className="flex w-24 flex-col items-center rounded-lg border border-zinc-800 p-1.5 hover:border-sky-500">
-                  {p.has_preview
-                    ? <img src={`/api/scan/prepare/preview/${p.piece}`} className="h-20 w-20 rounded object-contain bg-zinc-950" />
-                    : <div className="grid h-20 w-20 place-items-center text-zinc-600"><Box className="h-7 w-7" /></div>}
-                  <div className="mt-1 text-xs font-medium text-zinc-300">{p.piece}</div>
-                </button>
-                <button onClick={() => deletePiece(p.piece)} title="Figur löschen"
-                  className="absolute right-1 top-1 hidden rounded bg-zinc-900/80 p-1 text-zinc-400 hover:text-red-400 group-hover:block">
-                  <Trash2 className="h-3.5 w-3.5" /></button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <FinishedPiecesGrid pieces={models?.pieces} setView3d={setView3d} deletePiece={deletePiece} />
 
       {view3d && <ModelModal piece={view3d} textured={variant === "textured"} onClose={() => setView3d(null)} />}
       {cropDir && <CropViewer dir={cropDir} onDone={() => { setCropDir(null); refresh(); }} />}
     </Card>
+  );
+}
+
+/** Upload-Bereich für fertige Meshes (Mesh + optionale Textur). */
+function MeshUploadSection({ uploadName, setUploadName, meshFile, setMeshFile, texFile, setTexFile, uploading, doUpload, input }: {
+  uploadName: string; setUploadName: (v: string) => void;
+  meshFile: File | null; setMeshFile: (f: File | null) => void;
+  texFile: File | null; setTexFile: (f: File | null) => void;
+  uploading: boolean; doUpload: () => Promise<void>;
+  input: string;
+}) {
+  return (
+    <div className="mt-3 rounded-xl border border-dashed border-zinc-700 bg-zinc-950/30 p-3">
+      <div className="mb-2 text-xs font-medium text-zinc-400">Oder fertiges Mesh hochladen:</div>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-0.5 text-xs text-zinc-500">
+          Name
+          <input value={uploadName} onChange={(e) => setUploadName(e.target.value)}
+            placeholder="z.B. wK" className={`${input} w-24`} />
+        </label>
+        <label className="flex flex-col gap-0.5 text-xs text-zinc-500">
+          Mesh (.obj/.glb/.gltf)
+          <input type="file" accept=".obj,.glb,.gltf"
+            onChange={(e) => setMeshFile(e.target.files?.[0] ?? null)}
+            className="text-xs text-zinc-300 file:mr-1 file:rounded file:border-0 file:bg-zinc-700 file:px-2 file:py-0.5 file:text-xs file:text-zinc-200" />
+        </label>
+        <label className="flex flex-col gap-0.5 text-xs text-zinc-500">
+          Textur (.png/.jpg, optional)
+          <input type="file" accept=".png,.jpg,.jpeg"
+            onChange={(e) => setTexFile(e.target.files?.[0] ?? null)}
+            className="text-xs text-zinc-300 file:mr-1 file:rounded file:border-0 file:bg-zinc-700 file:px-2 file:py-0.5 file:text-xs file:text-zinc-200" />
+        </label>
+        <Button variant="primary" onClick={doUpload} disabled={uploading || !meshFile || !uploadName}>
+          {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+          Hochladen
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Raster der Scan-Karten für die Figuren-Werkstatt. */
+function ScanCardGrid({ scans, models, dir, selectScan, deleteScan, recon, prep }: {
+  scans: Models["scans"]; models: Models | null; dir: string;
+  selectScan: (s: Scan, pieces?: Piece[]) => void; deleteScan: (d: string) => void;
+  recon: ReconStatus | null; prep: PrepStatus | null;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+      {scans.map((s) => {
+        const info = scanStage(s, models?.pieces ?? []);
+        const active = s.dir === dir;
+        const jobRecon = (recon?.state === "running" && recon.dir === s.dir) || models?.jobs?.reconstruct === s.dir;
+        const jobPrep = (prep?.state === "running" && prep.dir === s.dir) || models?.jobs?.prepare === s.dir;
+        const busy = jobRecon || jobPrep;
+        const badge = busy
+          ? [jobRecon ? "rekonstruiert…" : "wird vorbereitet…", "bg-sky-500/20 text-sky-300"]
+          : ({
+              photos: ["Nur Fotos", "bg-amber-500/15 text-amber-300"],
+              mesh: ["Mesh bereit", "bg-sky-500/15 text-sky-300"],
+              done: ["Fertig", "bg-green-500/15 text-green-300"],
+            } as Record<string, [string, string]>)[info.stage];
+        const prep_ = info.piece && info.stage === "done";
+        return (
+          <div key={s.dir} onClick={() => selectScan(s)}
+            className={`group relative flex cursor-pointer flex-col rounded-xl border p-2 text-left transition ${
+              active ? "border-sky-500 bg-sky-500/5" : "border-zinc-800 hover:border-zinc-600"}`}>
+            <div className="relative mb-1.5 aspect-square overflow-hidden rounded-lg bg-zinc-950">
+              {prep_
+                ? <img src={`/api/scan/prepare/preview/${info.piece}`} className="h-full w-full object-contain" />
+                : <div className="grid h-full place-items-center text-zinc-700"><Camera className="h-8 w-8" /></div>}
+              <span className={`absolute left-1 top-1 flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${badge[1]}`}>
+                {busy && <Loader2 className="h-3 w-3 animate-spin" />}{badge[0]}</span>
+              <button onClick={(e) => { e.stopPropagation(); deleteScan(s.dir); }}
+                title="Scan-Ordner löschen"
+                className="absolute right-1 top-1 hidden rounded bg-zinc-900/80 p-1 text-zinc-400 hover:text-red-400 group-hover:block">
+                <Trash2 className="h-3.5 w-3.5" /></button>
+            </div>
+            <div className="text-sm font-medium text-zinc-200">{s.dir}</div>
+            <div className="text-[11px] text-zinc-500">
+              {s.photos} Fotos{info.piece ? ` · ${pieceLabel(info.piece)}` : ""}</div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -431,6 +420,65 @@ function ModelModal({ piece, textured, onClose }: { piece: string; textured: boo
           <VariantToggle value={tex ? "textured" : "clay"} onChange={(v) => setTex(v === "textured")} />
           <span className="text-xs text-zinc-500">ziehen = drehen · Rad = zoomen · Esc = schließen</span>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Status-Bereich für Rekonstruktion und Vorbereitung (Live + Fehler). */
+function ReconPrepStatus({ cur, dir, busyRecon, recon, busyPrep, prep }: {
+  cur: Scan; dir: string; busyRecon: boolean; recon: ReconStatus | null;
+  busyPrep: boolean; prep: PrepStatus | null;
+}) {
+  return (
+    <>
+      {busyRecon && (
+        <div className="flex items-center gap-2 rounded-lg bg-sky-500/10 p-3 text-sm text-sky-300">
+          <Loader2 className="h-4 w-4 animate-spin" /> RealityScan rekonstruiert aus {cur.photos} Fotos —
+          das dauert einige Minuten…</div>
+      )}
+      {recon?.state === "failed" && recon.dir === dir && (
+        <div className="rounded-lg bg-red-500/10 p-3 text-sm text-red-300">
+          <div className="flex items-center gap-2"><AlertTriangle className="h-4 w-4" /> Rekonstruktion fehlgeschlagen.</div>
+          {recon.log_tail && <pre className="mt-1 whitespace-pre-wrap text-xs text-red-400/70">{recon.log_tail}</pre>}</div>
+      )}
+
+      {busyPrep && (
+        <div className="flex items-center gap-2 rounded-lg bg-sky-500/10 p-3 text-sm text-sky-300">
+          <Loader2 className="h-4 w-4 animate-spin" /> Blender isoliert & bereinigt die Figur — ca. 1–3 min…</div>
+      )}
+      {prep?.state === "failed" && (
+        <div className="rounded-lg bg-red-500/10 p-3 text-sm text-red-300">
+          <div className="flex items-center gap-2"><AlertTriangle className="h-4 w-4" /> Vorbereitung fehlgeschlagen.</div>
+          {prep.log_tail && <pre className="mt-1 whitespace-pre-wrap text-xs text-red-400/70">{prep.log_tail}</pre>}</div>
+      )}
+    </>
+  );
+}
+
+/** Raster der fertigen Figuren (unabhängig vom Scan-Ordner sichtbar & löschbar). */
+function FinishedPiecesGrid({ pieces, setView3d, deletePiece }: {
+  pieces: Piece[] | undefined; setView3d: (p: string) => void; deletePiece: (p: string) => void;
+}) {
+  if (!pieces?.length) return null;
+  return (
+    <div className="mt-4 border-t border-zinc-800 pt-3">
+      <div className="mb-2 text-xs text-zinc-500">Fertige Figuren ({pieces.length}) — Klick öffnet 3D:</div>
+      <div className="flex flex-wrap gap-2">
+        {pieces.map((p) => (
+          <div key={p.piece} className="group relative">
+            <button onClick={() => setView3d(p.piece)}
+              className="flex w-24 flex-col items-center rounded-lg border border-zinc-800 p-1.5 hover:border-sky-500">
+              {p.has_preview
+                ? <img src={`/api/scan/prepare/preview/${p.piece}`} className="h-20 w-20 rounded object-contain bg-zinc-950" />
+                : <div className="grid h-20 w-20 place-items-center text-zinc-600"><Box className="h-7 w-7" /></div>}
+              <div className="mt-1 text-xs font-medium text-zinc-300">{p.piece}</div>
+            </button>
+            <button onClick={() => deletePiece(p.piece)} title="Figur löschen"
+              className="absolute right-1 top-1 hidden rounded bg-zinc-900/80 p-1 text-zinc-400 hover:text-red-400 group-hover:block">
+              <Trash2 className="h-3.5 w-3.5" /></button>
+          </div>
+        ))}
       </div>
     </div>
   );

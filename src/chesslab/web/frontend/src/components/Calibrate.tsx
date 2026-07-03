@@ -19,12 +19,12 @@ export default function Calibrate() {
   function start() {
     setStreaming(true);
     clearInterval(timer.current);
-    timer.current = setInterval(() => api("/api/camera/status").then(setStatus).catch(() => {}), 1000);
+    timer.current = setInterval(() => api("/api/camera/status").then(setStatus).catch(() => { /* ignore */ }), 1000);
   }
   async function stop() {
     setStreaming(false);
     clearInterval(timer.current);
-    try { await post("/api/camera/release"); } catch {}
+    try { await post("/api/camera/release"); } catch { /* ignore */ }
   }
   function changeMargin(v: number) {
     setMargin(v);

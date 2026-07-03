@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Play, Loader2, Square, Trash2, Eye } from "lucide-react";
 import { api, post, del } from "../api";
@@ -29,13 +29,13 @@ export default function Training() {
   const picked = datasets.find((d) => d.name === dataset);
   useEffect(() => { if (datasets.length && !dataset) setDataset(datasets[0].name); }, [datasets]);
 
-  useEffect(() => { refreshRuns(); return () => clearInterval(timer.current); }, []);
-
-  async function refreshRuns() {
+  const refreshRuns = useCallback(async () => {
     const rs = await api("/api/runs");   // neueste zuerst
     setRuns(rs);
     if (rs.length && !run) showRun(rs[0].run);
-  }
+  }, [run]);
+
+  useEffect(() => { refreshRuns(); return () => clearInterval(timer.current); }, [refreshRuns]);
   async function showRun(r: string) {
     setRun(r);
     setMetrics((await api(`/api/runs/${r}/metrics`)).metrics);
@@ -64,7 +64,7 @@ export default function Training() {
     if (!s.running) { clearInterval(timer.current); refreshRuns(); }
   }
   async function stop() {
-    try { await post("/api/train/stop"); } catch {}
+    try { await post("/api/train/stop"); } catch { /* ignore */ }
     clearInterval(timer.current);
     // Endstand des abgebrochenen Runs holen, damit der Teil-Fortschritt sichtbar bleibt
     // (das Run-Verzeichnis mit den geschriebenen Metriken existiert weiter).
@@ -131,7 +131,11 @@ export default function Training() {
         {(status.running || metrics.length > 0) && (
           <div className="mt-3">
             <div className="mb-1 flex justify-between text-xs text-zinc-400">
-              <span>{status.running ? `läuft… (${status.run})` : (status.state === "stopped" || status.state === "crashed" ? "abgebrochen" : "Fortschritt")} · Epoche {metrics.length}/{epochs}</span>
+              <span>{(() => {
+                if (status.running) return `läuft… (${status.run})`;
+                if (status.state === "stopped" || status.state === "crashed") return "abgebrochen";
+                return "Fortschritt";
+              })()} · Epoche {metrics.length}/{epochs}</span>
               <span>board_acc {metrics.length ? ((metrics[metrics.length - 1].val_board_acc ?? 0) * 100).toFixed(1) + " %" : "—"}</span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-zinc-800"><div className={`h-full rounded-full transition-all ${status.state === "stopped" || status.state === "crashed" ? "bg-amber-500" : "bg-sky-500"}`} style={{ width: `${Math.min(100, (metrics.length / Math.max(1, epochs)) * 100)}%` }} /></div>

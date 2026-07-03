@@ -31,7 +31,7 @@ export default function Inference() {
   }
   async function stop() {
     setActive(false); clearInterval(timer.current);
-    try { await post("/api/camera/release"); } catch {}
+    try { await post("/api/camera/release"); } catch { /* ignore */ }
   }
   async function capture() {
     try {
