@@ -9,8 +9,11 @@ from fastapi import APIRouter, Body, HTTPException
 from ..camera import CAMERA, BoardTracker, mjpeg
 from ..state import INFER
 from ..util import (
-    _camera_error_frame, _capture_frame_corners, _img_url, _manifest,
-    _NONE_FRAME_LIMIT, label_to_fen_char, labels_to_fen,
+    _NONE_FRAME_LIMIT,
+    _camera_error_frame,
+    _manifest,
+    label_to_fen_char,
+    labels_to_fen,
 )
 
 router = APIRouter()
@@ -19,8 +22,7 @@ log = logging.getLogger("chesslab.web")
 
 @router.post("/api/inference/start")
 def inference_start(run: str = Body(...), profile: str = Body("default"), camera: int = Body(0)):
-    from ... import config
-    from ... import serving
+    from ... import config, serving
     from ...calibration import load_profile
 
     try:

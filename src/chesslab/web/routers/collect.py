@@ -9,8 +9,13 @@ from fastapi import APIRouter, Body, HTTPException
 from ..camera import CAMERA, BoardTracker, mjpeg
 from ..state import COLLECT
 from ..util import (
-    _camera_error_frame, _capture_frame_corners, _collect_state, _draw_move_arrow,
-    _draw_target_pieces, _img_url, _manifest, _NONE_FRAME_LIMIT,
+    _NONE_FRAME_LIMIT,
+    _camera_error_frame,
+    _capture_frame_corners,
+    _collect_state,
+    _draw_move_arrow,
+    _draw_target_pieces,
+    _manifest,
 )
 
 router = APIRouter()
@@ -29,7 +34,9 @@ def collect_start(strategy: str = Body("random"), max_plies: int = Body(40), see
     from ...calibration import load_profile
     from ...collect import SessionWriter, generate_session_id
     from ...state import (
-        GameState, random_game_positions, stockfish_game_positions,
+        GameState,
+        random_game_positions,
+        stockfish_game_positions,
     )
 
     try:

@@ -94,7 +94,7 @@ class CnnRecovery:
 
     # -- Beobachtung (torch, teuer — nie unter Lock) --
     def observe(self, frame, corners) -> OccupancyObservation:
-        from .. import serving   # lazy: torch bleibt aus, solange nicht beobachtet wird
+        from .. import serving  # lazy: torch bleibt aus, solange nicht beobachtet wird
 
         preds = serving.predict_frame(self.run_dir, frame, corners, self.profile,
                                       device=self.device, return_probs=True)

@@ -17,7 +17,11 @@ import cv2
 import numpy as np
 
 from ..calibration import (
-    CalibrationProfile, board_corners_for_frame, make_tracker, open_camera, warp_from_corners,
+    CalibrationProfile,
+    board_corners_for_frame,
+    make_tracker,
+    open_camera,
+    warp_from_corners,
 )
 
 _BOUNDARY = b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"

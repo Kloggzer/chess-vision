@@ -285,3 +285,23 @@ keyboard (single OpenCV key stream). `pyperclip` is optional (used only for `g` 
 ```bash
 uv run pytest           # Stage 0 smoke tests (no GPU/camera needed)
 ```
+
+### Code Quality
+
+```bash
+# Frontend (Vite + React)
+cd src/chesslab/web/frontend
+npm run lint            # ESLint (flat config, TS + React)
+npm run lint:fix        # safe autofix only
+npm run knip            # dead-code / unused-export detection
+npm run build           # verify no regressions
+
+# Python
+uv run ruff check src tests synth   # lint (E, F, I, UP, B, C4)
+uv run ruff format --check src tests synth  # formatting diff
+uv run ruff check --fix --select I,F401      # safe autofix: import sort + unused imports
+uv run vulture src --min-confidence 80        # dead-code analysis (heuristic)
+
+# SonarQube (requires external server + sonar-scanner + SONAR_TOKEN)
+# Config in sonar-project.properties at repo root.
+```

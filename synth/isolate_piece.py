@@ -16,8 +16,8 @@ import json
 import sys
 from pathlib import Path
 
-import bpy
 import bmesh
+import bpy
 import numpy as np
 from mathutils import Vector
 

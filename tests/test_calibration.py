@@ -5,7 +5,6 @@ The interactive new/check flows need a camera + display and are exercised on the
 
 import numpy as np
 
-from chesslab import config
 from chesslab.calibration import (
     CalibrationProfile,
     CropParams,
@@ -224,8 +223,13 @@ def test_marker_tracker_ages_to_stale():
 
 def test_marker_tracker_seed_and_make_tracker():
     """Geseedeter Tracker kennt alle 4 Ecken sofort; Live-Detektion ersetzt den Seed."""
-    from chesslab.calibration import MarkerTracker, make_tracker
-    from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
+    from chesslab.calibration import (
+        CalibrationProfile,
+        CropParams,
+        MarkerTracker,
+        compute_homography,
+        make_tracker,
+    )
 
     t = MarkerTracker()
     t.seed({0: [0, 0], 1: [100, 0], 2: [100, 100], 3: [0, 100]})
@@ -253,8 +257,15 @@ def test_resolve_board_corners_too_few():
 
 def test_board_corners_for_frame_and_warp_from_corners():
     import cv2
-    from chesslab.calibration import (CalibrationProfile, CropParams, MarkerTracker,
-                                      board_corners_for_frame, compute_homography, warp_from_corners)
+
+    from chesslab.calibration import (
+        CalibrationProfile,
+        CropParams,
+        MarkerTracker,
+        board_corners_for_frame,
+        compute_homography,
+        warp_from_corners,
+    )
 
     d = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
     frame = np.full((600, 800, 3), 255, dtype=np.uint8)

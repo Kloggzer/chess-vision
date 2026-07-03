@@ -28,7 +28,6 @@ from . import config
 from .calibration import _square_to_col_row
 from .imgops import resize_keep_aspect
 
-
 # --- Intrinsics -----------------------------------------------------------------------
 
 def approx_intrinsics(frame_size: tuple[int, int], fov_deg: float = 60.0) -> np.ndarray:

@@ -18,7 +18,6 @@ from chesslab.move_tracker.tracker import (
     square_region,
 )
 
-
 # --- helpers ---------------------------------------------------------------------------
 
 def _diffs(values: dict[str, float], default: float = 1.0) -> dict[str, float]:
@@ -309,7 +308,6 @@ class TestConfirmer:
 
 def _make_identity_profile(board_size=400, white_pov=True):
     """Identity calibration profile: image exactly maps to board_size square."""
-    import cv2
 
     from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
 
@@ -431,10 +429,10 @@ class TestAppEndpoints:
     """TestClient on create_app() — contract freeze."""
 
     def test_status_inactive_contains_defaults(self):
-        from chesslab.move_tracker.app import create_app
-
         # Must not import TestClient at module level (fastapi lazy)
         from fastapi.testclient import TestClient
+
+        from chesslab.move_tracker.app import create_app
 
         client = TestClient(create_app(default_profile="testp", default_source="99"))
         r = client.get("/api/status")
@@ -445,8 +443,9 @@ class TestAppEndpoints:
         assert data.get("default_source") == "99"
 
     def test_double_start_one_thread(self, monkeypatch):
-        from chesslab.move_tracker.app import create_app
         from fastapi.testclient import TestClient
+
+        from chesslab.move_tracker.app import create_app
 
         board_size = 400
         prof = _make_identity_profile(board_size=board_size)
@@ -471,8 +470,9 @@ class TestAppEndpoints:
         assert r.json()["active"] is True
 
     def test_reset_invalid_fen(self):
-        from chesslab.move_tracker.app import create_app
         from fastapi.testclient import TestClient
+
+        from chesslab.move_tracker.app import create_app
 
         client = TestClient(create_app())
         r = client.post("/api/reset", json={"fen": "invalid-fen-string"})

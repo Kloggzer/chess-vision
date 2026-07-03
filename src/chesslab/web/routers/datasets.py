@@ -11,8 +11,8 @@ router = APIRouter()
 
 
 def _dataset_manifest(name: str | None) -> list[dict]:
-    from ... import dataset_build as dataset_build_mod
     from ... import dataset as dataset_mod
+    from ... import dataset_build as dataset_build_mod
 
     if not name:
         return _manifest()

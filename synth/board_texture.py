@@ -20,7 +20,6 @@ regions. Requires all 4 markers for a clean full-perspective rectification.
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 import cv2

@@ -9,8 +9,11 @@ from fastapi import APIRouter, Body, HTTPException
 from ..camera import CAMERA, BoardTracker, mjpeg
 from ..state import MANUAL
 from ..util import (
-    _camera_error_frame, _capture_frame_corners, _manifest,
-    _NONE_FRAME_LIMIT, labels_to_fen,
+    _NONE_FRAME_LIMIT,
+    _camera_error_frame,
+    _capture_frame_corners,
+    _manifest,
+    labels_to_fen,
 )
 
 router = APIRouter()
