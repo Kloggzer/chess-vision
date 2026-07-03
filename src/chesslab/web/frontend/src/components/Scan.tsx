@@ -7,6 +7,7 @@ import {
 import { api, post, del } from "../api";
 import { Card, Button } from "./ui";
 import { ModelViewer } from "./ModelViewer";
+import { CropViewer } from "./CropViewer";
 
 const input =
   "rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-100 outline-none focus:border-sky-500";
@@ -88,6 +89,7 @@ function PreparePanel() {
   const [uploadName, setUploadName] = useState("");                           // Upload: Zielname
   const [uploading, setUploading] = useState(false);
   const [isolate, setIsolate] = useState(true);                               // Vorbereiten: Isolation
+  const [cropDir, setCropDir] = useState<string | null>(null);                // OBB-Crop-Modal
   const timer = useRef<any>(null);
   const reconTimer = useRef<any>(null);
 
@@ -314,6 +316,9 @@ function PreparePanel() {
                 <Button variant="primary" onClick={run} disabled={busyPrep}>
                   {busyPrep ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
                   {busyPrep ? "läuft…" : stage === "done" ? "Neu vorbereiten" : "Vorbereiten"}</Button>
+                <Button onClick={() => setCropDir(cur.dir)}
+                  title="3D-Box um die Figur positionieren, zuschneiden und vorbereiten">
+                  <CropIcon className="h-4 w-4" /> Zuschneiden (3D-Box)</Button>
               </div>
             )}
           </div>
@@ -403,6 +408,7 @@ function PreparePanel() {
       )}
 
       {view3d && <ModelModal piece={view3d} textured={variant === "textured"} onClose={() => setView3d(null)} />}
+      {cropDir && <CropViewer dir={cropDir} onDone={() => { setCropDir(null); refresh(); }} />}
     </Card>
   );
 }
