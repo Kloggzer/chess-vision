@@ -151,11 +151,7 @@ class TestAssessReport:
             "boundary_edges": 100,
             "nonmanifold_edges": 50,
             "height_ratio": 2.0,
-            "tris_after": 15000,
-            "target_tris": 20000,
-            "pattern_margin": 3.0,
             "center_component_frac": 0.95,
-            "scale_mm_per_unit": 12.5,
         }
         level, msgs = assess_report(report)
         assert level == "ok"
@@ -193,33 +189,18 @@ class TestAssessReport:
             "boundary_edges": 10,
             "nonmanifold_edges": 10,
             "height_ratio": 2.0,
-            "pattern_margin": 3.0,
-            "scale_mm_per_unit": 10.0,
         }
         level, msgs = assess_report(report)
         assert level == "warn"
         assert any("center_component_frac" in m for m in msgs)
 
-    def test_warn_scale_missing(self):
-        report = {
-            "verts": 5000,
-            "boundary_edges": 10,
-            "nonmanifold_edges": 10,
-            "height_ratio": 2.0,
-            "pattern_margin": 3.0,
-            "center_component_frac": 0.9,
-        }
-        level, msgs = assess_report(report)
-        assert level == "warn"
-        assert any("scale_mm_per_unit" in m for m in msgs)
-
     def test_boundary_edges_exactly_at_threshold_not_warn(self):
-        report = {"verts": 5000, "boundary_edges": 300, "scale_mm_per_unit": 10.0}
+        report = {"verts": 5000, "boundary_edges": 300}
         level, _ = assess_report(report)
         assert level == "ok"
 
     def test_boundary_edges_just_above_warns(self):
-        report = {"verts": 5000, "boundary_edges": 301, "scale_mm_per_unit": 10.0}
+        report = {"verts": 5000, "boundary_edges": 301}
         level, _ = assess_report(report)
         assert level == "warn"
 
@@ -230,8 +211,6 @@ class TestAssessReport:
             "boundary_edges": 10,
             "nonmanifold_edges": 10,
             "height_ratio": 2.0,
-            "pattern_margin": 3.0,
-            "scale_mm_per_unit": 10.0,
         }
         level, _ = assess_report(report)
         assert level == "ok"

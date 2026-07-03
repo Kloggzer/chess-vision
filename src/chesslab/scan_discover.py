@@ -19,9 +19,8 @@ _PIECE_NAME = re.compile(r"^[wb]?[PNBRQK]$", re.IGNORECASE)
 # --- Assessment thresholds for quality reports -----------------------------------
 _MAX_BOUNDARY_EDGES = 300       # open edges ≈ holes in the scan
 _MAX_NONMANIFOLD = 500
-_MIN_VERTS = 1000               # fewer leftover ⇒ isolation was too aggressive
+_MIN_VERTS = 1000               # suspiciously few vertices
 _HEIGHT_RATIO_RANGE = (0.9, 4.0)  # Height/Base — outside: upright check (knight!)
-_MIN_PATTERN_MARGIN = 1.5       # plate must be at least this many piece-radii visible
 _MIN_CENTER_COMPONENT_FRAC = 0.5  # below ⇒ figure fragmented across multiple components
 
 
@@ -153,12 +152,11 @@ def assess_report(report: dict) -> tuple[str, list[str]]:
 
     if report.get("verts", 0) < _MIN_VERTS:
         msgs.append(
-            f"only {report.get('verts')} vertices left — isolation too aggressive? "
+            f"only {report.get('verts')} vertices — suspiciously few "
             "(check scan/preview)")
     if report.get("boundary_edges", 0) > _MAX_BOUNDARY_EDGES:
         msgs.append(
-            f"{report['boundary_edges']} open edges — holes in scan "
-            "(more turntable photos / different angle)")
+            f"{report['boundary_edges']} open edges — holes in scan")
     if report.get("nonmanifold_edges", 0) > _MAX_NONMANIFOLD:
         msgs.append(f"{report['nonmanifold_edges']} non-manifold edges — scan artifacts")
 
@@ -174,24 +172,11 @@ def assess_report(report: dict) -> tuple[str, list[str]]:
             f"tris_after={report.get('tris_after')} well above target {tgt} — "
             "decimate didn't take effect?")
 
-    pm = report.get("pattern_margin")
-    if pm is not None and pm < _MIN_PATTERN_MARGIN:
-        msgs.append(
-            f"pattern_margin={pm} < {_MIN_PATTERN_MARGIN} — little rotating pattern "
-            "visible around figure (figure too large for plate?): "
-            "put a larger disc with scribble pattern on the turntable")
-
-    # --- v2 additions -----------------------------------------------------------
     ccf = report.get("center_component_frac")
     if ccf is not None and ccf < _MIN_CENTER_COMPONENT_FRAC:
         msgs.append(
             f"center_component_frac={ccf} < {_MIN_CENTER_COMPONENT_FRAC} — "
-            "figure fragmented across multiple components; may need lower --plane-eps")
-
-    if report.get("scale_mm_per_unit") is None:
-        msgs.append(
-            "scale_mm_per_unit missing — consider passing --plate-diameter-mm "
-            "for correct relative figure sizes in the renderer")
+            "figure fragmented across multiple components")
 
     return ("warn" if msgs else "ok"), msgs
 
