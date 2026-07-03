@@ -3,7 +3,7 @@ Routen. Der Test friert das Inventar als Literal ein — jede entfernte oder umb
 schlägt hier fehl (Wächter für den Router-Split, Rework 05). Neue Routen sind erlaubt
 (Obermenge), fehlende nicht.
 
-Aufgenommen am 2026-07-02 aus dem Live-App-Objekt (Stand Commit ed25b63, vor dem Router-Split).
+Aufgenommen am 2026-07-03 nach dem Scan-Pipeline-Cleanup (Turntable/Reconstruct/Crop entfernt).
 """
 
 import pytest
@@ -31,8 +31,6 @@ EXPECTED_API_ROUTES = {
     ("GET", "/api/runs"),
     ("GET", "/api/runs/{run}/eval"),
     ("GET", "/api/runs/{run}/metrics"),
-    ("GET", "/api/scan/preview.mjpg"),
-    ("GET", "/api/scan/status"),
     ("GET", "/api/sessions"),
     ("GET", "/api/sessions/manage"),
     ("GET", "/api/stats"),
@@ -56,11 +54,6 @@ EXPECTED_API_ROUTES = {
     ("POST", "/api/manual/start"),
     ("POST", "/api/manual/undo"),
     ("POST", "/api/reslice"),
-    ("POST", "/api/scan/close"),
-    ("POST", "/api/scan/config"),
-    ("POST", "/api/scan/open"),
-    ("POST", "/api/scan/start"),
-    ("POST", "/api/scan/stop"),
     ("POST", "/api/sessions/{sid}/archive"),
     ("POST", "/api/sessions/{sid}/restore"),
     ("POST", "/api/sessions/{sid}/slice"),

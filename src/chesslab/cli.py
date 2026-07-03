@@ -532,24 +532,14 @@ def synth_render(
 
 @synth_app.command("prepare")
 def synth_prepare_cmd(
-    in_dir: str = typer.Option(..., "--in", help="RealityScan-Exporte: je Unterordner <Figur>/ mit .obj/.glb + Textur."),
+    in_dir: str = typer.Option(..., "--in", help="Scans: je Unterordner <Figur>/ mit .obj/.glb + Textur."),
     out_dir: str = typer.Option(None, "--out", help="Zielverzeichnis (Default: synth_pieces/)."),
-    target_tris: int = typer.Option(20000, "--target-tris",
-                                    help="Dreiecks-Ziel je Figur (Decimate; 20k reicht für 1024px-Renders; 0 = aus)."),
-    smooth_iters: int = typer.Option(10, "--smooth-iters",
-                                     help="Taubin/Laplacian-Glättung gegen Scan-Bumps (10 mild, 25–40 stark; 0 = aus)."),
-    plane_eps: float | None = typer.Option(None, "--plane-eps",
-                                           help="Ebenen-Schwellwert in Mesh-Einheiten (Default: 0.1 ≈ 1 mm). "
-                                                "Größer = toleranter gegen strukturierte Unterlage."),
-    plate_diameter_mm: float | None = typer.Option(None, "--plate-diameter-mm",
-                                                    help="Teller-Durchmesser in mm → korrekter Maßstab im Renderer."),
+    target_tris: int = typer.Option(20000, "--target-tris", help="Ziel-Dreieckszahl (0 = keine Dezimierung)."),
+    smooth_iters: int = typer.Option(10, "--smooth-iters", help="Glättungs-Iterationen (0 = keine)."),
     fill_holes: bool = typer.Option(True, "--fill-holes/--no-fill-holes",
-                                    help="Offene Ränder/Basis schließen (gegen ausgefranste Silhouette)."),
-    isolate: bool = typer.Option(True, "--isolate/--no-isolate",
-                                 help="Figur vom Untergrund isolieren (plane-fit + Komponenten-Trennung). "
-                                      "--no-isolate für bereits freigestellte Meshes (kein Papier/Teller)."),
+                                    help="Offene Ränder/Basis schließen."),
 ) -> None:
-    """Gescannte Figuren batch-vorbereiten: isolieren, dezimieren, Qualitäts-Report + Preview.
+    """Gescannte Figuren batch-vorbereiten: aufrichten, dezimieren, Qualitäts-Report + Preview.
 
     Läuft komplett in-process (Open3D + PyMeshLab) — kein Blender nötig.
     Danach `<out>/<Figur>_preview.png` ansehen und die [WARN]-Hinweise prüfen."""
@@ -569,12 +559,10 @@ def synth_prepare_cmd(
     results: list[tuple[str, str, list[str]]] = []
     for item in items:
         print(f"--- {item.name}: {item.obj.name}" + (f" + {item.tex.name}" if item.tex else " (Textur eingebettet)"))
-        eps = plane_eps if plane_eps is not None else 0.1  # meshprep default
         try:
             report = prepare_scan(item, out, target_tris=target_tris,
-                                  plane_eps=eps, plate_diameter_mm=plate_diameter_mm,
                                   fill_holes=fill_holes, smooth_iters=smooth_iters,
-                                  make_preview=True, isolate=isolate)
+                                  make_preview=True)
         except Exception as e:
             results.append((item.name, "fail", [str(e)]))
             continue
@@ -589,40 +577,6 @@ def synth_prepare_cmd(
         print(f"{glyph} {name}" + ("" if not msgs else " — " + "; ".join(msgs)))
     print(f"\nPreviews ansehen: {out}\\<Figur>_preview.png — dann `chesslab synth render …`")
     raise typer.Exit(1 if any(lv == "fail" for _, lv, _ in results) else 0)
-
-
-@synth_app.command("frames")
-def synth_frames_cmd(
-    video: str = typer.Option(..., "--video", help="Turntable-Video (mp4 o. ä.)."),
-    out: str = typer.Option(..., "--out", help="Scan-Ordner, z. B. scans/WQ2 (hängt an bestehende Fotos an)."),
-    n: int = typer.Option(120, "--n", help="Anzahl zu extrahierender Frames (je Fenster der schärfste)."),
-    quality: int = typer.Option(95, "--quality", help="JPEG-Qualität."),
-    crop: str | None = typer.Option(None, "--crop", help="x0,y0,x1,y1 — statischen Hintergrund wegschneiden."),
-) -> None:
-    """Die schärfsten N Frames aus einem Turntable-Video extrahieren (für RealityScan).
-
-    Besser als RealityScans eigener Video-Import: bewegungsunscharfe Frames werden
-    aussortiert (Schärfe = Laplacian-Varianz je Zeitfenster)."""
-    from .synth_frames import extract_frames
-
-    c = None
-    if crop:
-        parts = [int(x) for x in crop.replace(" ", "").split(",")]
-        if len(parts) != 4:
-            print("[FAIL] --crop braucht 4 Werte: x0,y0,x1,y1")
-            raise typer.Exit(1)
-        c = tuple(parts)
-    try:
-        stats = extract_frames(Path(video), Path(out), n=n, quality=quality, crop=c)
-    except ValueError as e:
-        print(f"[FAIL] {e}")
-        raise typer.Exit(1)
-    print(f"[OK] {stats['written']} Frames -> {out} (ab {stats['start_index']:03d}.jpg, "
-          f"aus {stats['total_frames']} Video-Frames; Schärfe mean={stats['mean_sharpness']} "
-          f"min={stats['min_sharpness']})")
-    if stats["written"] and stats["min_sharpness"] < stats["mean_sharpness"] * 0.4:
-        print("[WARN] einzelne Fenster deutlich unschärfer — Drehteller langsamer/mehr Licht "
-              "(kürzere Belichtung) hilft.")
 
 
 @synth_app.command("board-texture")
