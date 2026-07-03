@@ -759,9 +759,8 @@ class TestNudgePatch:
         mt.ref_gray = _gray_frame([], base=128)
         mt.ref_fen = mt.board.fen()
         cur = _gray_frame(["e2"], base=128)      # e2 (belegt) sieht anders aus: Figur verrueckt
-        mt._try_detect(cur)                       # 1. Sichtung: Anomalie merken
-        assert mt._anomaly_key == frozenset({"e2"})
-        mt._try_detect(cur)                       # 2. Sichtung: timeout 0 -> patchen
+        mt._try_detect(cur)                       # 1. Sichtung: Timer startet, timeout 0 -> patchen
+        mt._try_detect(cur)
         assert mt._stuck_reason is None
         assert mt.history == []
         # Referenz-Zelle uebernommen -> naechster Frame ist ruhig

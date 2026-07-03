@@ -413,6 +413,7 @@ TRACK_DEFAULTS: dict = {
     "min_confident_recovery": 8,   # Recovery bleibt bei Teilverdeckung handlungsfähig
     "motion_margin": 0.12,         # Motion-ROI über den Brettrand hinaus (Anteil Brettkante)
     "overhang": 0.0,               # Diff-Zellen nach oben erweitern (Anteil Zelle; 0 = aus)
+    "corner_jump_px": 6.0,         # Warp-Ecken-Sprung ⇒ Base-Truth geometrisch invalid → neu aufnehmen
 }
 
 

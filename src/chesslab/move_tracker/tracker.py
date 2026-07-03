@@ -169,22 +169,31 @@ def normalize_diffs(diffs: dict[str, float]) -> dict[str, float]:
 
 
 class SquareNoise:
-    """Laufendes Rauschmodell des per-Feld-Diffs (EMA von Mittel und Streuung), aktualisiert
-    NUR in stabilen, ereignislosen Phasen und auf den bereits median-normalisierten Diffs
-    (sonst springen die z-Scores bei jedem Belichtungswechsel). Absorbiert langsamen,
+    """Laufendes Rauschmodell des per-Feld-Diffs (EMA von Mittel und Streuung) auf den
+    bereits median-normalisierten Diffs (sonst springen die z-Scores bei jedem
+    Belichtungswechsel). Absorbiert Marker-Jitter, Belichtungsflackern und langsamen,
     räumlich ungleichmäßigen Lichtdrift, den der globale Median-Abzug nicht erwischt.
-    Der std-Floor ist zwingend: gegen eine frische Referenz ist diff ≈ 0 und die EMA
-    würde sonst kollabieren (z-Scores explodieren)."""
 
-    def __init__(self, alpha: float = 0.05, init_std: float = 4.0, std_floor: float = 1.5) -> None:
+    Lernen läuft auf JEDEM stabilen Frame, aber nur für Felder unterhalb der Schwelle
+    (`exclude` = aktuelle Kandidaten): sonst friert das Modell im Stuck-Zustand ein und
+    kann Jitter nie wieder wegadaptieren. Der std-Floor ist zwingend: gegen eine frische
+    Referenz ist diff ≈ 0 und die EMA würde sonst kollabieren (z-Scores explodieren).
+    Floor 3.0 (≈ 9 Graustufen bei z_thr=3) ist bewusst EMPFINDLICHER als v1 (16):
+    clip01-Replay zeigte, dass Floor 5 kontrastarme Züge (schwarzer Bauer auf dunklem
+    Feld) verliert; die dadurch möglichen Phantom-Felder (Hand-Reste, AE-Flackern)
+    heilt der per-Feld-Anomalie-Patcher in _maybe_patch_anomaly."""
+
+    def __init__(self, alpha: float = 0.05, init_std: float = 6.0, std_floor: float = 3.0) -> None:
         self.alpha = alpha
         self.std_floor = std_floor
         self.mean: dict[str, float] = dict.fromkeys(_ALL, 0.0)
         self.std: dict[str, float] = dict.fromkeys(_ALL, init_std)
 
-    def update(self, diffs: dict[str, float]) -> None:
+    def update(self, diffs: dict[str, float], exclude: set[str] = frozenset()) -> None:
         a = self.alpha
         for sq, d in diffs.items():
+            if sq in exclude:
+                continue
             m = self.mean[sq]
             self.mean[sq] = (1 - a) * m + a * d
             dev = abs(d - m)
@@ -306,7 +315,8 @@ class MoveTracker:
                  drift_window_s: float = 30.0, use_prior: bool = True,
                  cnn_min_agreement: float = 0.97, cnn_margin_squares: int = 1,
                  min_confident_board: int = 32, min_confident_recovery: int = 8,
-                 motion_margin: float = 0.12, overhang: float = 0.0) -> None:
+                 motion_margin: float = 0.12, overhang: float = 0.0,
+                 corner_jump_px: float = 6.0) -> None:
         self.profile = load_profile(profile)
         _src = source if not str(source).isdigit() else int(source)
         _cap = open_source(_src)
@@ -338,13 +348,14 @@ class MoveTracker:
         # -- Nudge-/Drift-Re-Anchor ohne CNN (Teil 4) --
         self.nudge_timeout_s = nudge_timeout_s
         self.drift_window_s = drift_window_s
-        self._anomaly_since: float | None = None      # seit wann dieselben 1–2 Felder unerklärt stuck sind
-        self._anomaly_key: frozenset[str] | None = None
+        self._anomaly_since: dict[str, float] = {}    # je Feld: seit wann persistent unerklärt geändert
         # -- Promotion ohne CNN (Teil 5): wartet auf Nutzerwahl via choose_promotion() --
         self._promo_pending: dict | None = None       # {"from","to","cur","cur_bgr","fen"}
         self.motion_margin = motion_margin            # Motion-ROI über den Brettrand hinaus (Anteil)
         self._prev_roi = None                         # voriges ROI-Graubild fürs erweiterte Motion-Gate
         self.overhang = overhang                      # Diff-Zellen nach oben erweitern (Anteil Zelle)
+        self.corner_jump_px = corner_jump_px          # Ecken-Sprung ⇒ Base-Truth geometrisch invalid
+        self._ref_corners: list | None = None         # Warp-Ecken zum Zeitpunkt der Referenzaufnahme
         self.live_align = live_align                  # True: Marker live nachführen; False: Kalib. einfrieren
         self.avg_frames = max(1, avg_frames)          # gleitendes Mittel über N ruhige Frames (Denoise)
         self.max_changed = max_changed                # mehr geänderte Felder => verdeckt/instabil, kein Zug
@@ -484,7 +495,7 @@ class MoveTracker:
             self.cnn_status, self.cnn_conflicts = None, []
             self._pending, self._verify_state = None, None
             self._promo_pending = None
-            self._anomaly_since = self._anomaly_key = None
+            self._anomaly_since = {}
             self.prior_last = False
 
     def start(self):
@@ -880,11 +891,25 @@ class MoveTracker:
 
     def _set_ref(self, cur, cur_bgr=None) -> None:
         """Base-Truth als (Bild, FEN)-Paar setzen: ref_gray/ref_bgr und ref_fen bleiben gekoppelt.
-        Immer unter self.lock aufrufen."""
+        Merkt sich auch die Warp-Ecken der Aufnahme (Geometrie-Invalidierung). Unter self.lock."""
         self.ref_gray = cur
         if cur_bgr is not None:
             self.ref_bgr = cur_bgr
         self.ref_fen = self.board.fen()
+        self._ref_corners = None if self._last_corners is None else \
+            [[float(x), float(y)] for x, y in self._last_corners]
+
+    def _corners_jumped(self) -> bool:
+        """True, wenn sich eine Warp-Ecke seit der Referenzaufnahme um > corner_jump_px bewegt
+        hat (Marker verloren/wiedergefunden, Kamera angestoßen). Dann ist die Base-Truth
+        geometrisch UNBRAUCHBAR — gegen sie zu diffen erzeugt Phantom-Änderungen auf halben
+        Rängen (beobachtet in clip03: a1-Marker intermittierend, ~130 px Sprung)."""
+        if self._ref_corners is None or self._last_corners is None:
+            return False
+        for (rx, ry), (cx, cy) in zip(self._ref_corners, self._last_corners):
+            if abs(float(cx) - rx) > self.corner_jump_px or abs(float(cy) - ry) > self.corner_jump_px:
+                return True
+        return False
 
     def _mean_gray(self):
         """Gleitendes Mittel der gepufferten ruhigen Graubilder -> dämpft Sensor-/Lichtrauschen und
@@ -906,12 +931,16 @@ class MoveTracker:
         self.board.push(move)
         self.history.append(san)
         self.last_move = move.uci()
+        # Referenz aus dem Erkennungs-Frame: kann Hand-Reste enthalten (langsame Hand unterm
+        # Motion-Gate), aber Neu-Aufnahme erwischt bei schnellem Spiel dieselben Hände und
+        # macht den Tracker zusätzlich blind (clip01-Replay: schlechter). Reste heilt der
+        # per-Feld-Anomalie-Patcher (_maybe_patch_anomaly) bzw. die CNN-Recovery.
         self._set_ref(cur, cur_bgr)
         self.state = "move"
         self._confirmer.reset()
         self._clear_stuck()          # setzt auch _recovery_confirmer zurück
         self._pending = None
-        self._anomaly_since = self._anomaly_key = None
+        self._anomaly_since = {}
         self._verify_state = "confirmed"
         self.recovered_last = recovered
         # Prior-Entscheidungen sichtbar machen (Spec 10, Teil 2): der Prior kann bei echtem
@@ -933,6 +962,18 @@ class MoveTracker:
         if self.ref_gray is None or self.ref_fen != self.board.fen():
             self.ref_gray = self.ref_bgr = None
             self.ref_fen = None
+            return
+
+        # --- Geometrie-Invalidierung: Warp-Ecken sind seit der Referenzaufnahme gesprungen
+        #     (Marker wiedergefunden/Kamera bewegt) → Base-Truth neu aufnehmen statt Phantom-
+        #     Diffs zu jagen. Zug-Evidenz geht dabei nicht verloren: der Zug bleibt auf dem
+        #     Brett sichtbar und wird gegen die NEUE Referenz beim nächsten Zug erkannt. ---
+        if self._corners_jumped():
+            self.ref_gray = self.ref_bgr = None
+            self.ref_fen = None
+            self._confirmer.reset()
+            self._clear_stuck()
+            self.note = "Brett-Geometrie verschoben (Marker/Kamera) — Referenz wird neu aufgenommen"
             return
 
         # --- Diffs → Median-Normalisierung (globaler Belichtungssprung) → z-Scores
@@ -968,15 +1009,9 @@ class MoveTracker:
                 self._shadow_vetoed = sorted(veto)
 
         self._changed = sorted(changed)
-
-        # --- max_changed gate: Verdeckungs-/Instabilitäts-Gate (Base-Truth bleibt) ---
-        if len(changed) > self.max_changed:
-            self._confirmer.reset()
-            self._anomaly_since = self._anomaly_key = None
-            self._mark_stuck("too_many_changed")   # Spec 09: Recovery-Trigger via _cnn_tick
-            self.note = (f"viel Veränderung ({len(changed)} Felder) — verdeckt/instabil, "
-                         f"kein Zug übernommen (Base-Truth unverändert)")
-            return
+        # Rauschmodell lernt auf JEDEM stabilen Frame die Nicht-Kandidaten-Felder — auch im
+        # Stuck-Zustand, sonst kann Jitter (Marker/Belichtung) nie wegadaptiert werden.
+        self.noise.update(diffs, exclude=changed)
 
         # --- LL-Scoring: beste/zweitbeste Hypothese relativ zu „kein Zug". Viabel ist ein
         #     Zug nur, wenn BEIDE Endpunkte wenigstens schwache Evidenz tragen (z ≥ z_thr/2,
@@ -994,16 +1029,27 @@ class MoveTracker:
         self._second_score = second
         self._candidate_uci = obs_move.uci() if obs_move else None
 
+        # --- max_changed gate: Verdeckungs-/Instabilitäts-Gate (Base-Truth bleibt). Läuft
+        #     NACH dem Scoring, damit der Anomalie-Patcher weiß, ob ein viabler Zug die Lage
+        #     erklärt (dann niemals patchen). ---
+        if len(changed) > self.max_changed:
+            self._confirmer.reset()
+            self._mark_stuck("too_many_changed")   # Spec 09: Recovery-Trigger via _cnn_tick
+            self._maybe_patch_anomaly(changed, best, cur, cur_bgr)
+            if self._stuck_reason is not None:
+                self.note = (f"viel Veränderung ({len(changed)} Felder) — verdeckt/instabil, "
+                             f"kein Zug übernommen (Base-Truth unverändert)")
+            return
+
         # --- Ruhe / Re-Anchor (verschärft, Spec 10 Teil 1): nichts über z_thr UND kein
         #     viabler Kandidat mit netto-positiver Evidenz. Ein voreiliger Re-Anchor würde
         #     schwache Zug-Evidenz dauerhaft in die Base-Truth einbacken.
         #     Nur hier lernt das Rauschmodell. ---
         if not changed:
             if obs_move is None or best < self.reanchor_ll_floor:
-                self.noise.update(diffs)
                 self._confirmer.reset()
                 self._clear_stuck()
-                self._anomaly_since = self._anomaly_key = None
+                self._anomaly_since = {}
                 self._set_ref(cur, cur_bgr)
                 return
             if best < 0.0:
@@ -1021,7 +1067,7 @@ class MoveTracker:
                 self.note = (f"Änderung auf {len(changed)} Feldern, aber kein legaler Zug passt — "
                              f"möglicher Fehlzug, Base-Truth unverändert (Resync nötig?)")
             return
-        self._anomaly_since = self._anomaly_key = None
+        self._anomaly_since = {}
 
         # --- ambiguity gate (LL-Einheiten, lichtunabhängig) + Prior-Tie-Break (Teil 2) ---
         prior_used = False
@@ -1077,43 +1123,44 @@ class MoveTracker:
         self._commit_move(obs_move, cur, cur_bgr, recovered=False, prior_used=prior_used)
 
     def _maybe_patch_anomaly(self, changed: set[str], best_ll: float, cur, cur_bgr) -> None:
-        """Nudge-/Drift-Re-Anchor ohne CNN (Spec 10, Teil 4). Unter self.lock aufrufen.
+        """Nudge-/Drift-Selbstheilung der Referenz ohne CNN (Spec 10, Teil 4). Unter self.lock.
 
-        Greift nur, wenn KEIN CNN konfiguriert ist (mit CNN erledigt das die Recovery schneller):
-        1–2 Felder persistent unerklärt (kein legaler Zug auch nur schwach plausibel) →
-        Referenz NUR auf diesen Zellen nachziehen (patchen), nicht komplett neu aufnehmen.
-        - Belegte Felder (Nudge/j'adoube: Aussehen ändert sich, Belegung nicht) nach nudge_timeout_s.
-        - Leere Felder (lokaler Lichtdrift) erst nach drift_window_s — konservativer, weil ein
-          sich änderndes leeres Feld auch ein stiller Fehlzug sein könnte."""
-        if self.cnn_run and not self._cnn_failed:
-            return
-        if not changed or len(changed) > 2 or best_ll >= 0.0:
-            self._anomaly_since = self._anomaly_key = None
-            return
-        key = frozenset(changed)
+        Per-Feld-Timer: ein Feld, das persistent „geändert" ist, obwohl KEIN viabler Zug die
+        Lage erklärt (best_ll < 0), wird nach Ablauf seiner Frist einzeln in der Referenz
+        nachgezogen (Zellen-Patch) statt die ganze Base-Truth zu verwerfen:
+        - belegte Felder (Nudge/j'adoube, Hand-Rest auf der Commit-Referenz): nudge_timeout_s
+        - leere Felder (lokaler Lichtdrift): drift_window_s — konservativer, weil ein sich
+          änderndes leeres Feld auch ein stiller Fehlzug sein könnte.
+        Schutz gegen ruhende Hände: bei mehr als max_changed+2 Feldern wird nie gepatcht."""
         now = time.time()
-        if key != self._anomaly_key:
-            self._anomaly_key, self._anomaly_since = key, now
+        # Timer pflegen (auch mit CNN, für Debug): neue Felder starten, verschwundene löschen.
+        self._anomaly_since = {sq: self._anomaly_since.get(sq, now) for sq in changed}
+        if self.cnn_run and not self._cnn_failed:
+            return                                  # mit CNN heilt die Recovery schneller/sicherer
+        if not changed or best_ll >= 0.0 or len(changed) > self.max_changed + 2:
             return
-        elapsed = now - (self._anomaly_since or now)
-        occupied = all(self.board.piece_at(chess.parse_square(s)) is not None for s in changed)
-        needed = self.nudge_timeout_s if occupied else self.drift_window_s
-        if elapsed < needed:
-            return
-        # Zellen in der Referenz patchen (Graubild + Farbe fürs Schatten-Veto).
-        for sq in changed:
+        patched, why = [], ""
+        for sq in sorted(changed):
+            occupied = self.board.piece_at(chess.parse_square(sq)) is not None
+            needed = self.nudge_timeout_s if occupied else self.drift_window_s
+            if now - self._anomaly_since[sq] < needed:
+                continue
             x0, y0, x1, y1 = square_region(sq, self.profile.board_size, self.profile.white_pov,
                                            inset=0.0)
             self.ref_gray[y0:y1, x0:x1] = cur[y0:y1, x0:x1]
             if cur_bgr is not None and self.ref_bgr is not None:
                 self.ref_bgr[y0:y1, x0:x1] = cur_bgr[y0:y1, x0:x1]
-        shown = ", ".join(sorted(changed))
-        why = "Figur verrückt (j'adoube)" if occupied else "Licht gedriftet"
-        self.note = f"Referenz nachgezogen ({shown}): {why} — kein Zug"
-        log.info("Referenz-Zellen gepatcht: %s (%s)", shown, why)
-        self._anomaly_since = self._anomaly_key = None
-        self._clear_stuck()
-        self._confirmer.reset()
+            patched.append(sq)
+            why = "Figur verrückt/Hand-Rest" if occupied else "Licht gedriftet"
+        if not patched:
+            return
+        for sq in patched:
+            self._anomaly_since.pop(sq, None)
+        self.note = f"Referenz nachgezogen ({', '.join(patched)}): {why} — kein Zug"
+        log.info("Referenz-Zellen gepatcht: %s (%s)", patched, why)
+        if len(patched) == len(changed):
+            self._clear_stuck()
+            self._confirmer.reset()
 
     def choose_promotion(self, piece: str) -> dict:
         """Nutzerwahl der Umwandlungsfigur (Q/R/B/N) für einen wartenden Promotion-Zug ohne CNN."""
@@ -1283,6 +1330,6 @@ class MoveTracker:
                 self.recovered_last = False
                 self._pending, self._verify_state = None, None
                 self._promo_pending = None
-                self._anomaly_since = self._anomaly_key = None
+                self._anomaly_since = {}
                 self.prior_last = False
                 self.note = "letzter Zug rückgängig"

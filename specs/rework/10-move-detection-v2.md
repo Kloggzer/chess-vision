@@ -147,7 +147,9 @@ noch stellungsaktuell). Fällt der Buffer weg (Motion), gilt das bisherige Verha
 Neuer Pfad in `_try_detect`, greift wenn **kein** CNN-Run konfiguriert ist (mit CNN bleibt
 die bestehende Recovery zuständig):
 
-- Bedingung: 1–2 Felder persistent über z_thr, seit ≥ `nudge_timeout_s` (Default 5.0)
+- Bedingung: 1–4 Felder persistent über z_thr (4 statt 2 seit Clip-Replay: eine
+  zurückweichende Hand kontaminiert die Commit-Referenz auf bis zu 4 Nachbarfeldern),
+  seit ≥ `nudge_timeout_s` (Default 5.0)
   unverändert stuck, UND kein VIABLER Zug mit netto-positiver LL (der Viabilitäts-Filter
   aus Teil 1 übernimmt die Rolle des separaten `nudge_ll_floor`),
   UND das Diff-Muster ist „belegungs-neutral
