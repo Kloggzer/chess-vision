@@ -1,22 +1,14 @@
 import { BrowserRouter, Routes, Route, Navigate, NavLink } from "react-router-dom";
-import { Camera, Crosshair, Database, SquarePen, LineChart, Crown, ScanEye, Hand, Box } from "lucide-react";
-import Calibrate from "./components/Calibrate";
+import { Camera, Database, LineChart, Crown, Box } from "lucide-react";
 import Collect from "./components/Collect";
-import ManualLabel from "./components/ManualLabel";
 import { DatasetLayout, SessionsPanel, DatasetsPanel, StatsPanel } from "./components/Dataset";
-import Review from "./components/Review";
 import Training from "./components/Training";
-import Inference from "./components/Inference";
 import Scan from "./components/Scan";
 
 const TABS = [
-  { to: "/kalibrieren", label: "Kalibrieren", icon: Crosshair },
-  { to: "/sammeln", label: "Sammeln", icon: Camera },
+  { to: "/collect", label: "Collect", icon: Camera },
   { to: "/scan", label: "Scan", icon: Box },
-  { to: "/manuell", label: "Manuell labeln", icon: Hand },
-  { to: "/datensaetze", label: "Datensätze", icon: Database },
-  { to: "/inference", label: "Inference", icon: ScanEye },
-  { to: "/review", label: "Review / Relabel", icon: SquarePen },
+  { to: "/datasets", label: "Datasets", icon: Database },
   { to: "/training", label: "Training", icon: LineChart },
 ];
 
@@ -43,21 +35,17 @@ export default function App() {
         </header>
         <main className="mx-auto max-w-7xl px-5 py-6">
           <Routes>
-            <Route path="/" element={<Navigate to="/kalibrieren" replace />} />
-            <Route path="/kalibrieren" element={<Calibrate />} />
-            <Route path="/sammeln" element={<Collect />} />
+            <Route path="/" element={<Navigate to="/collect" replace />} />
+            <Route path="/collect" element={<Collect />} />
             <Route path="/scan" element={<Scan />} />
-            <Route path="/manuell" element={<ManualLabel />} />
-            <Route path="/datensaetze" element={<DatasetLayout />}>
+            <Route path="/datasets" element={<DatasetLayout />}>
               <Route index element={<Navigate to="sessions" replace />} />
               <Route path="sessions" element={<SessionsPanel />} />
-              <Route path="kuratiert" element={<DatasetsPanel />} />
-              <Route path="statistik" element={<StatsPanel />} />
+              <Route path="curated" element={<DatasetsPanel />} />
+              <Route path="stats" element={<StatsPanel />} />
             </Route>
-            <Route path="/inference" element={<Inference />} />
-            <Route path="/review" element={<Review />} />
             <Route path="/training" element={<Training />} />
-            <Route path="*" element={<Navigate to="/kalibrieren" replace />} />
+            <Route path="*" element={<Navigate to="/collect" replace />} />
           </Routes>
         </main>
       </div>

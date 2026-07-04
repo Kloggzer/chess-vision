@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Plug, Play, Square, Crop as CropIcon, RotateCcw, Wand2, Camera,
-  Loader2, CheckCircle2, AlertTriangle, Trash2, Box, Image as ImageIcon, Maximize2,
+  Loader2, CheckCircle2, AlertTriangle, Trash2, Image as ImageIcon, Maximize2,
   Upload,
 } from "lucide-react";
 import { api, post, del } from "../api";
@@ -11,8 +11,8 @@ import { ModelViewer } from "./ModelViewer";
 const input =
   "rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-100 outline-none focus:border-sky-500";
 
-const PHONE = "https://192.168.178.23:4444/video/m.jpeg";       // flüssige Live-Vorschau (Stream)
-const PHONE_SNAP = "https://192.168.178.23:4444/video/snapshot"; // Speicher-Foto (sauberes Einzelbild)
+const PHONE = "https://<PHONE-IP>:4444/video/m.jpeg";       // smooth live preview stream
+const PHONE_SNAP = "https://<PHONE-IP>:4444/video/snapshot"; // Speicher-Foto (sauberes Einzelbild)
 
 type Status = {
   open: boolean; source: string; capture_source: string; frame_size: [number, number]; recording: boolean;
@@ -40,7 +40,7 @@ type PrepStatus = {
 const PIECES = ["P", "N", "B", "R", "Q", "K", "wP", "wN", "wB", "wR", "wQ", "wK",
                 "bP", "bN", "bB", "bR", "bQ", "bK"];
 const PIECE_NAMES: Record<string, string> = {
-  P: "Bauer", N: "Springer", B: "Läufer", R: "Turm", Q: "Dame", K: "König",
+  P: "Pawn", N: "Knight", B: "Bishop", R: "Rook", Q: "Queen", K: "King",
 };
 
 function suggestPiece(folder: string): string | null {
@@ -53,7 +53,7 @@ function pieceLabel(p: string): string {
   const type = p.length === 2 ? p[1] : p[0];
   let col = "";
   if (p.length === 2) {
-    col = p[0] === "w" ? "weiß " : "schwarz ";
+    col = p[0] === "w" ? "white " : "black ";
   }
   return col + (PIECE_NAMES[type] ?? p);
 }
@@ -69,7 +69,7 @@ function scanStage(s: Scan, pieces: Piece[]): { stage: Stage; piece: string | nu
   return { stage: "mesh", piece: sug, variant: null };
 }
 
-/** Figuren-Werkstatt: Upload → vorbereiten → renderfertige Figur. */
+/** Piece workshop: Upload -> prepare -> render-ready piece. */
 export default function Scan() {
   // --- Photo-Capture State ---
   const [source, setSource] = useState(PHONE);
@@ -256,9 +256,9 @@ export default function Scan() {
   const busyPrep = prep?.state === "running";
   const step = stage === "done" ? 2 : 1;
   let prepButtonLabel: string;
-  if (busyPrep) { prepButtonLabel = "läuft…"; }
-  else if (stage === "done") { prepButtonLabel = "Neu vorbereiten"; }
-  else { prepButtonLabel = "Vorbereiten"; }
+  if (busyPrep) { prepButtonLabel = "running…"; }
+  else if (stage === "done") { prepButtonLabel = "Re-prepare"; }
+  else { prepButtonLabel = "Prepare"; }
   let resultPiece: string | null;
   if (curInfo?.stage === "done") { resultPiece = curInfo.piece; }
   else if (prep?.state === "done") { resultPiece = prep.piece; }
@@ -269,18 +269,18 @@ export default function Scan() {
       {/* ── Photo-Capture Panel ── */}
       <Card>
         <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2 text-sm text-zinc-400" title="Flüssige Live-Vorschau (MJPEG-Stream, …/video/m.jpeg) oder USB-Index.">Vorschau
+          <label className="flex items-center gap-2 text-sm text-zinc-400" title="Live preview stream (MJPEG, …/video/m.jpeg) or USB index.">Preview
             <input value={source} onChange={(e) => setSource(e.target.value)} className={`${input} w-96`}
               placeholder="Stream-URL (…/video/m.jpeg) oder USB-Index (0/1)" /></label>
-          <label className="flex items-center gap-2 text-sm text-zinc-400" title="Speicher-Foto pro Aufnahme (Snapshot-URL, …/video/snapshot). Leer = Foto aus dem Live-Frame.">Foto
+          <label className="flex items-center gap-2 text-sm text-zinc-400" title="Photo to save per capture (snapshot URL, …/video/snapshot). Empty = use live frame.">Photo
             <input value={capture} onChange={(e) => setCapture(e.target.value)} className={`${input} w-96`}
               placeholder="Snapshot-URL (…/video/snapshot), leer = Live-Frame" /></label>
-          <label className="flex items-center gap-2 text-sm text-zinc-400" title="Nur für USB-Cam: angeforderte Auflösung (MJPG).">USB-Res
+          <label className="flex items-center gap-2 text-sm text-zinc-400" title="For USB cam only: requested resolution (MJPG).">USB Res
             <input type="number" value={width} onChange={(e) => setWidth(+e.target.value)} className={`${input} w-20`} />×
             <input type="number" value={height} onChange={(e) => setHeight(+e.target.value)} className={`${input} w-20`} /></label>
           {!st?.open
-            ? <Button variant="primary" onClick={connect}><Plug className="h-4 w-4" /> Verbinden</Button>
-            : <Button onClick={disconnect}><Plug className="h-4 w-4" /> Trennen</Button>}
+            ? <Button variant="primary" onClick={connect}><Plug className="h-4 w-4" /> Connect</Button>
+            : <Button onClick={disconnect}><Plug className="h-4 w-4" /> Disconnect</Button>}
           <span className="text-xs text-zinc-500">{msg}{st?.error ? ` · ${st.error}` : ""}</span>
         </div>
       </Card>
@@ -302,36 +302,36 @@ export default function Scan() {
             <div className="mt-2 flex items-center gap-3 text-xs text-zinc-500">
               <span>Quelle {st.frame_size[0]}×{st.frame_size[1]}</span>
               <span>Crop: {st.crop ? st.crop.join(", ") : "—"}</span>
-              <Button onClick={clearCrop} className="px-2 py-1 text-xs"><RotateCcw className="h-3 w-3" /> Crop zurücksetzen</Button>
+              <Button onClick={clearCrop} className="px-2 py-1 text-xs"><RotateCcw className="h-3 w-3" /> Reset crop</Button>
             </div>
           </Card>
 
           <Card title="Aufnahme">
             <div className="space-y-3">
-              <label className="flex items-center justify-between gap-2 text-sm text-zinc-400">Ziel-Ordner
+              <label className="flex items-center justify-between gap-2 text-sm text-zinc-400">Target folder
                 <input value={out} onChange={(e) => setOut(e.target.value)} className={`${input} w-40`} /></label>
               <label className="flex items-center justify-between gap-2 text-sm text-zinc-400" title="Sekunden zwischen zwei Fotos. Beim Handy ist ~0.8s das Limit (HTTPS-Fetch).">Intervall (s)
                 <input type="number" step={0.1} min={0} value={interval} onChange={(e) => setIntervalS(+e.target.value)} className={`${input} w-24`} /></label>
               <label className="flex items-center justify-between gap-2 text-sm text-zinc-400" title="Fotos pro Aufnahme-Lauf. 0 = bis Stop.">Anzahl (0=∞)
                 <input type="number" min={0} value={count} onChange={(e) => setCount(+e.target.value)} className={`${input} w-24`} /></label>
-              <label className="flex items-center justify-between gap-2 text-sm text-zinc-400">JPEG-Qualität
+              <label className="flex items-center justify-between gap-2 text-sm text-zinc-400">JPEG quality
                 <input type="number" min={50} max={100} value={quality} onChange={(e) => setQuality(+e.target.value)} className={`${input} w-24`} /></label>
 
               <div className="flex flex-wrap gap-2 pt-1">
                 {!recording
                   ? <Button variant="primary" onClick={start}><Play className="h-4 w-4" /> Aufnahme starten</Button>
                   : <Button onClick={stop}><Square className="h-4 w-4" /> Stop</Button>}
-                <Button onClick={pushConfig} title="Intervall/Anzahl/Qualität übernehmen ohne Aufnahme"><CropIcon className="h-4 w-4" /> Übernehmen</Button>
+                <Button onClick={pushConfig} title="Apply interval/count/quality without capturing"><CropIcon className="h-4 w-4" /> Apply</Button>
               </div>
 
               <div className="rounded-lg bg-zinc-800 p-3 text-sm">
                 {recording
-                  ? <span className="font-medium text-green-500">● Aufnahme läuft — {st.saved_run}{st.count ? ` / ${st.count}` : ""} Fotos</span>
+                  ? <span className="font-medium text-green-500">● Capture running — {st.saved_run}{st.count ? ` / ${st.count}` : ""} Fotos</span>
                   : <span className="text-zinc-400">bereit</span>}
-                <div className="mt-1 text-xs text-zinc-500">Im Ordner <b className="text-zinc-300">{st.out || out}</b>: {st.total} Fotos gesamt (nächste Nr. {st.index})</div>
+                <div className="mt-1 text-xs text-zinc-500">Im Ordner <b className="text-zinc-300">{st.out || out}</b>: {st.total} photos total (next no. {st.index})</div>
               </div>
               <p className="text-xs text-zinc-500">
-                Motor an, Handy/Cam <b>fest</b>, Hände weg. „Aufnahme starten" hängt an bestehende Fotos an
+                Motor on, phone/cam <b>fixed</b>, hands off. "Start capture" appends to existing photos
                 (Ring 2/3 einfach neu positionieren + wieder starten).
               </p>
             </div>
@@ -343,7 +343,7 @@ export default function Scan() {
         <p className="text-xs text-zinc-500">
           Verbinde eine Quelle (Handy-IP-Cam-URL oder USB-Index), zieh im Live-Bild den <b>Crop</b> um Figur +
           Drehteller (statischer Hintergrund raus), stell <b>Intervall</b> und <b>Anzahl</b> ein und nimm auf.
-          Die Fotos landen in <b>scans/&lt;Ordner&gt;</b> — bereit für RealityScan.
+          Photos go to <b>scans/&lt;folder&gt;</b> — ready for RealityScan.
         </p>
       )}
 
@@ -351,7 +351,7 @@ export default function Scan() {
       <Card title="Figuren-Werkstatt — 3D-Scan → Figur">
         {/* Stepper */}
         <div className="mb-4 flex items-center gap-1 text-xs">
-          {[[1, "Upload", Upload], [2, "Vorbereiten", Wand2]].map(
+          {[[1, "Upload", Upload], [2, "Prepare", Wand2]].map(
             ([n, label, Icon]: any, i) => (
               <div key={n} className="flex items-center gap-1">
                 <div className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 ${
@@ -383,9 +383,9 @@ export default function Scan() {
                   <div className="text-sm font-medium text-zinc-100">{cur.dir}</div>
                   <div className="text-xs text-zinc-500">
                     {cur.mesh ? "Mesh vorhanden" : "noch kein Mesh"}
-                    {!cur.texture && cur.mesh ? " · ⚠ ohne Textur" : ""}</div>
+                    {!cur.texture && cur.mesh ? " · ⚠ ohne Textured" : ""}</div>
                 </div>
-                <button onClick={() => deleteScan(cur.dir)} title="Scan löschen"
+                <button onClick={() => deleteScan(cur.dir)} title="Delete scan"
                   className="rounded-lg p-1.5 text-zinc-500 hover:bg-red-500/10 hover:text-red-400">
                   <Trash2 className="h-4 w-4" /></button>
               </div>
@@ -429,7 +429,7 @@ function MeshUploadSection({ uploadName, setUploadName, meshFile, setMeshFile, t
             className="text-xs text-zinc-300 file:mr-1 file:rounded file:border-0 file:bg-zinc-700 file:px-2 file:py-0.5 file:text-xs file:text-zinc-200" />
         </label>
         <label className="flex flex-col gap-1 text-xs text-zinc-500">
-          Textur (optional)
+          Textured (optional)
           <input type="file" accept=".png,.jpg,.jpeg" onChange={(e) => setTexFile(e.target.files?.[0] ?? null)}
             className="text-xs text-zinc-300 file:mr-1 file:rounded file:border-0 file:bg-zinc-700 file:px-2 file:py-0.5 file:text-xs file:text-zinc-200" />
         </label>
@@ -474,7 +474,7 @@ function ScanCardGrid({ scans, models, dir, selectScan, deleteScan, prep }: {
               <span className={`absolute left-1 top-1 flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${badge[1]}`}>
                 {busy && <Loader2 className="h-3 w-3 animate-spin" />}{badge[0]}</span>
               <button onClick={(e) => { e.stopPropagation(); deleteScan(s.dir); }}
-                title="Scan-Ordner löschen"
+                title="Delete scan folder"
                 className="absolute right-1 top-1 hidden rounded bg-zinc-900/80 p-1 text-zinc-400 hover:text-red-400 group-hover:block">
                 <Trash2 className="h-3.5 w-3.5" /></button>
             </div>
@@ -506,7 +506,7 @@ function ModelModal({ piece, variant, textured, onClose }: { piece: string; vari
         <div className="flex items-center gap-3 text-sm text-zinc-300">
           <span className="font-medium">{piece}/{variant}</span>
           <VariantToggle value={tex ? "textured" : "clay"} onChange={(v) => setTex(v === "textured")} />
-          <span className="text-xs text-zinc-500">ziehen = drehen · Rad = zoomen · Esc = schließen</span>
+          <span className="text-xs text-zinc-500">drag to rotate · scroll to zoom · Esc to close</span>
         </div>
       </div>
     </div>
@@ -520,11 +520,11 @@ function ReconPrepStatus({ cur, busyPrep, prep }: {
     <>
       {busyPrep && (
         <div className="flex items-center gap-2 rounded-lg bg-sky-500/10 p-3 text-sm text-sky-300">
-          <Loader2 className="h-4 w-4 animate-spin" /> Figur wird vorbereitet — ca. 1–3 min…</div>
+          <Loader2 className="h-4 w-4 animate-spin" /> Piece is being prepared — about 1-3 min…</div>
       )}
       {prep?.state === "failed" && (
         <div className="rounded-lg bg-red-500/10 p-3 text-sm text-red-300">
-          <div className="flex items-center gap-2"><AlertTriangle className="h-4 w-4" /> Vorbereitung fehlgeschlagen.</div>
+          <div className="flex items-center gap-2"><AlertTriangle className="h-4 w-4" /> Preparation failed.</div>
           {prep.log_tail && <pre className="mt-1 whitespace-pre-wrap text-xs text-red-400/70">{prep.log_tail}</pre>}</div>
       )}
     </>
@@ -539,7 +539,7 @@ function FinishedPiecesGrid({ pieces, setView3d, deletePiece, prep, kind, setKin
   if (!pieces?.length) return null;
   return (
     <div className="mt-4 border-t border-zinc-800 pt-3">
-      <div className="mb-2 text-xs font-medium text-zinc-400">Fertige Figuren (synth_pieces/)</div>
+      <div className="mb-2 text-xs font-medium text-zinc-400">Finished pieces (synth_pieces/)</div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         {pieces.map((p) => {
           const busyThis = prep?.state === "running" && prep.piece === p.piece && prep.variant === p.variant;
@@ -552,7 +552,7 @@ function FinishedPiecesGrid({ pieces, setView3d, deletePiece, prep, kind, setKin
                     alt={`${pieceLabel(p.piece)}`} className="h-full w-full object-contain" />
                   : <div className="grid h-full place-items-center text-zinc-700"><ImageIcon className="h-8 w-8" /></div>}
                 <button onClick={() => setView3d({ piece: p.piece, variant: p.variant })}
-                  title="3D-Ansicht öffnen"
+                  title="Open 3D view"
                   className="absolute right-1 top-1 rounded bg-zinc-900/80 p-1 text-zinc-400 hover:text-white">
                   <Maximize2 className="h-3.5 w-3.5" /></button>
               </div>
@@ -584,18 +584,18 @@ function ReportSection({ piece, variant, report, level, messages, onDelete }: {
         <div className={`mb-1 flex items-center gap-1 font-medium ${
           level === "ok" ? "text-green-400" : "text-amber-400"}`}>
           {level === "ok" ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
-          {level === "ok" ? "Qualität OK" : "Bitte prüfen"}</div>
+          {level === "ok" ? "Quality OK" : "Please check"}</div>
       )}
       {(messages ?? []).map((m, i) => <div key={i} className="text-amber-300/90">• {m}</div>)}
       <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 pt-1">
-        <span className="text-zinc-500">Dreiecke</span><span>{report.tris}</span>
-        <span className="text-zinc-500">offene Kanten</span><span>{report.boundary_edges}</span>
-        <span className="text-zinc-500">Höhe/Basis</span><span>{report.height_ratio}</span>
+        <span className="text-zinc-500">Triangles</span><span>{report.tris}</span>
+        <span className="text-zinc-500">open edges</span><span>{report.boundary_edges}</span>
+        <span className="text-zinc-500">Height/Base</span><span>{report.height_ratio}</span>
       </div>
       <div className="pt-1 text-zinc-500">→ synth_pieces/{piece}/{variant}.obj</div>
       <button onClick={() => onDelete(piece, variant)}
         className="mt-1 flex items-center gap-1 text-red-400/80 hover:text-red-400">
-        <Trash2 className="h-3.5 w-3.5" /> Figur löschen</button>
+        <Trash2 className="h-3.5 w-3.5" /> Delete piece</button>
     </div>
   );
 }
@@ -607,9 +607,9 @@ function VariantToggle({ value, onChange, clayDisabled }: {
     <div className="mt-2 flex overflow-hidden rounded-lg border border-zinc-700 text-xs">
       <button onClick={() => onChange("textured")}
         className={`px-3 py-1 ${value === "textured" ? "bg-sky-600 text-white" : "text-zinc-400 hover:bg-zinc-700"}`}>
-        Textur</button>
+        Textured</button>
       <button onClick={() => onChange("clay")} disabled={clayDisabled}
-        title={clayDisabled ? "kein Clay-Bild (Figur vor diesem Update vorbereitet)" : "reine Geometrie"}
+        title={clayDisabled ? "no clay image (piece prepared before this update)" : "geometry only"}
         className={`px-3 py-1 ${value === "clay" ? "bg-sky-600 text-white" : "text-zinc-400 hover:bg-zinc-700"} ${
           clayDisabled ? "cursor-not-allowed opacity-40" : ""}`}>
         Clay</button>

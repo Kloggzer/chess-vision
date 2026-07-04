@@ -16,18 +16,11 @@ EXPECTED_API_ROUTES = {
     ("DELETE", "/api/datasets/{name}"),
     ("DELETE", "/api/runs/{run}"),
     ("DELETE", "/api/sessions/{sid}"),
-    ("GET", "/api/camera/calibrate.mjpg"),
     ("GET", "/api/camera/collect.mjpg"),
-    ("GET", "/api/camera/inference.mjpg"),
-    ("GET", "/api/camera/manual.mjpg"),
-    ("GET", "/api/camera/status"),
     ("GET", "/api/class/{cls}"),
     ("GET", "/api/collect/state"),
     ("GET", "/api/datasets"),
     ("GET", "/api/datasets/{name}"),
-    ("GET", "/api/inference/state"),
-    ("GET", "/api/manual/state"),
-    ("GET", "/api/review"),
     ("GET", "/api/runs"),
     ("GET", "/api/runs/{run}/eval"),
     ("GET", "/api/runs/{run}/metrics"),
@@ -35,24 +28,13 @@ EXPECTED_API_ROUTES = {
     ("GET", "/api/sessions/manage"),
     ("GET", "/api/stats"),
     ("GET", "/api/train/status"),
-    ("POST", "/api/calibrate/margin"),
-    ("POST", "/api/calibrate/markers"),
-    ("POST", "/api/calibrate/save"),
-    ("POST", "/api/camera/release"),
     ("POST", "/api/collect/finish"),
     ("POST", "/api/collect/shoot"),
     ("POST", "/api/collect/skip"),
     ("POST", "/api/collect/start"),
     ("POST", "/api/collect/undo"),
-    ("POST", "/api/corrections"),
     ("POST", "/api/datasets"),
     ("POST", "/api/datasets/{name}/rebuild"),
-    ("POST", "/api/inference/capture"),
-    ("POST", "/api/inference/start"),
-    ("POST", "/api/manual/capture"),
-    ("POST", "/api/manual/finish"),
-    ("POST", "/api/manual/start"),
-    ("POST", "/api/manual/undo"),
     ("POST", "/api/reslice"),
     ("POST", "/api/sessions/{sid}/archive"),
     ("POST", "/api/sessions/{sid}/restore"),
@@ -99,7 +81,7 @@ def test_new_routes_are_intentional():
 
 
 def test_spa_catch_all_last():
-    """SPA-Catch-all liefert index.html für Client-Routen, unbekannte /api/* geben 404."""
+    """SPA catch-all returns index.html for client routes, unknown /api/* return 404."""
     pytest.importorskip("httpx")
     from fastapi.testclient import TestClient
 
@@ -108,6 +90,6 @@ def test_spa_catch_all_last():
     client = TestClient(create_app())
     r = client.get("/api/nope-does-not-exist")
     assert r.status_code == 404
-    r = client.get("/datensaetze")   # Client-Route -> index.html (SPA)
+    r = client.get("/datensaetze")   # Client route -> index.html (SPA)
     assert r.status_code == 200
     assert "html" in r.headers.get("content-type", "")

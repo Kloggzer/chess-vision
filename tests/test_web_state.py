@@ -23,7 +23,7 @@ from chesslab.web.state import (
 # ---------------------------------------------------------------------------
 
 def test_snapshot_is_copy():
-    """snapshot() liefert eine flache Kopie — Skalare sind unabhängig."""
+    """snapshot() returns a shallow copy — scalars are independent."""
     ls = LockedState(a=1, b=[1, 2, 3])
     snap = ls.snapshot()
     snap["a"] = 999
@@ -120,7 +120,7 @@ class _FakeProc:
 
 
 def test_train_derive_running():
-    """proc läuft (poll() → None) → 'running'."""
+    """proc running (poll() → None) → 'running'."""
     TRAIN.update(proc=_FakeProc(None), state="idle")
     d = train_derive_and_update()
     assert d["_derived_state"] == "running"
@@ -180,7 +180,7 @@ def test_collect_finish_sliced_error(tmp_path, monkeypatch):
     # Singleton-Zustand bereinigen (Modul-Level, teilen sich Tests)
     COLLECT.update(writer=None, positions=[], i=0, profile=None, board=None)
 
-    # collect_start braucht eine Session – wir fälschen den COLLECT-Zustand direkt
+    # collect_start needs a session – we fake the COLLECT state directly
     import numpy as np
 
     from chesslab.collect import SessionWriter
@@ -218,7 +218,7 @@ def test_collect_finish_sliced_error(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_train_log_handle_reopenable(tmp_path, monkeypatch):
-    """Nach Train-Start lässt sich web_train.log erneut öffnen (Windows-Dateisperre)."""
+    """After train start, web_train.log can be reopened (Windows file lock)."""
     pytest.importorskip("fastapi")
     pytest.importorskip("httpx")
     from fastapi.testclient import TestClient
@@ -229,7 +229,7 @@ def test_train_log_handle_reopenable(tmp_path, monkeypatch):
     config.DATA.manifests.mkdir(parents=True)
     config.DATA.models.mkdir(parents=True)
     config.DATA.sessions.mkdir(parents=True)
-    # Manifest + Session-Dirs + Split anlegen, damit train-Endpoint den Legacy-Pfad durchläuft
+    # Create manifest + session dirs + split so the train endpoint runs the legacy path
     rows = []
     for sid in ("s1", "s2"):
         (config.DATA.sessions / sid).mkdir(parents=True)
@@ -245,7 +245,7 @@ def test_train_log_handle_reopenable(tmp_path, monkeypatch):
                      max_class_ratio=None, allow_degenerate=True)
     TRAIN.update(proc=None, state="idle")
 
-    # Stub Popen: gibt ein Fake-Proc zurück, das nicht wirklich läuft
+    # Stub Popen: returns a fake proc that doesn’t actually run
 
     class _FakePopen:
         def __init__(self, *args, **kwargs):
@@ -264,7 +264,7 @@ def test_train_log_handle_reopenable(tmp_path, monkeypatch):
         r = client.post("/api/train", json={"backbone": "smallcnn", "epochs": 1, "batch_size": 2, "no_amp": True})
         assert r.status_code == 200
 
-        # Jetzt sollte web_train.log existieren und erneut ohne PermissionError öffbar sein
+        # Now web_train.log should exist and be reopenable without PermissionError
         log_path = config.DATA.models / "web_train.log"
         # Das Handle wurde geschlossen → reopen muss klappen
         with open(log_path, "w", encoding="utf-8") as fh:
@@ -272,11 +272,11 @@ def test_train_log_handle_reopenable(tmp_path, monkeypatch):
         content = log_path.read_text(encoding="utf-8")
         assert "reopen ok" in content
     finally:
-        # Aufräumen: Fake-Proc aus TRAIN entfernen
+        # Clean up: remove fake proc from TRAIN
         TRAIN.update(proc=None, state="idle")
 
 
 # ---------------------------------------------------------------------------
-# 6. Bestehende Tests bleiben grün (Contract-Freeze)
-#   → Kein separater Test nötig — die existierende tests/test_web.py muss unverändert passen.
+# 6. Existing tests stay green (Contract-Freeze)
+#   → No separate test needed — existing tests/test_web.py must pass unchanged.
 # ---------------------------------------------------------------------------

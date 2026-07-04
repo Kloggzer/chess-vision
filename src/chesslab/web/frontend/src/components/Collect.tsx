@@ -5,7 +5,7 @@ import { Card, Button, Select } from "./ui";
 
 const input = "rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-100 outline-none focus:border-sky-500";
 
-/** Strategie-spezifische Steuerelemente (coverage / sweep / default). */
+/** Strategy-specific controls (coverage / sweep / default). */
 function StrategyControls({ coverage, sweep, sets, setSets, count, setCount, passes, setPasses, pieces, setPieces, together, setTogether, offset, setOffset, autoOffset, setAutoOffset, maxPlies, setMaxPlies, input: inputCls }: {
   coverage: boolean; sweep: boolean;
   sets: number; setSets: (v: number) => void;
@@ -23,7 +23,7 @@ function StrategyControls({ coverage, sweep, sets, setSets, count, setCount, pas
       <>
         <label className="flex items-center gap-2 text-sm text-zinc-400" title="Anzahl physischer Figurensätze: mit 2 Sätzen kommen Damen/Könige doppelt so schnell zusammen.">Sätze
           <input type="number" min={1} value={sets} onChange={(e) => setSets(+e.target.value)} className={`${inputCls} w-16`} /></label>
-        <label className="flex items-center gap-2 text-sm text-zinc-400" title="Anzahl dichter Aufbauten, die gegen deine schwächsten Klassen erzeugt werden.">Aufbauten
+        <label className="flex items-center gap-2 text-sm text-zinc-400" title="Anzahl dichter Setupten, die gegen deine schwächsten Klassen erzeugt werden.">Setupten
           <input type="number" min={1} value={count} onChange={(e) => setCount(+e.target.value)} className={`${inputCls} w-20`} /></label>
       </>
     );
@@ -62,7 +62,7 @@ export default function Collect() {
   const [strategy, setStrategy] = useState("random");
   const [maxPlies, setMaxPlies] = useState(40);
   const [sets, setSets] = useState(1);       // coverage/sweep: Anzahl physischer Figurensätze
-  const [count, setCount] = useState(20);     // coverage: Anzahl dichter Aufbauten
+  const [count, setCount] = useState(20);     // coverage: Anzahl dichter Setupten
   const [passes, setPasses] = useState(1);    // sweep: Rotations-Durchläufe je Farbe
   const [pieces, setPieces] = useState("special");  // sweep: special | pawn | all
   const [together, setTogether] = useState(true);   // sweep: beide Farben gleichzeitig (halbe Fotos)
@@ -102,7 +102,7 @@ export default function Collect() {
     const r = await post("/api/collect/finish");
     clearInterval(timer.current);
     setSt({ active: false });
-    setMsg(`Session beendet: ${r.captures} Aufnahmen, ${r.sliced ?? 0} Crops gesliced → Tab „Datensätze".`);
+    setMsg(`Session beendet: ${r.captures} Captures, ${r.sliced ?? 0} Crops gesliced → Tab „Datensätze".`);
   }
 
   return (
@@ -126,8 +126,8 @@ export default function Collect() {
           <label className="flex items-center gap-2 text-sm text-zinc-400">Kamera
             <input type="number" value={cam} onChange={(e) => setCam(+e.target.value)} className={`${input} w-16`} /></label>
           {!st.active
-            ? <Button variant="primary" onClick={start}><Play className="h-4 w-4" /> Partie starten</Button>
-            : <Button onClick={finish}><CheckCircle2 className="h-4 w-4" /> Fertig</Button>}
+            ? <Button variant="primary" onClick={start}><Play className="h-4 w-4" /> Start game</Button>
+            : <Button onClick={finish}><CheckCircle2 className="h-4 w-4" /> Done</Button>}
           <span className="text-xs text-zinc-500">{msg}</span>
         </div>
       </Card>
@@ -135,12 +135,12 @@ export default function Collect() {
       {st.active && (
         <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
           <Card title="Live-Kamera">
-            <img src="/api/camera/collect.mjpg" alt="Aufnahme Live-Bild" className="w-full rounded-lg border border-zinc-800" />
+            <img src="/api/camera/collect.mjpg" alt="Live capture" className="w-full rounded-lg border border-zinc-800" />
           </Card>
-          <Card title="Aufnahme">
+          <Card title="Capture">
             <div className="space-y-3">
               {st.done ? (
-                <div className="font-medium text-green-500">✓ Alle {st.n_positions} Stellungen aufgenommen.</div>
+                <div className="font-medium text-green-500">✓ Alle {st.n_positions} Positionen aufgenommen.</div>
               ) : (
                 <>
                   <CaptureStatus st={st} />
@@ -151,35 +151,35 @@ export default function Collect() {
                   </div>
                 </>
               )}
-              <div className="text-sm">Aufnahmen: <b className="text-sky-400">{st.captures}</b>
+              <div className="text-sm">Captures: <b className="text-sky-400">{st.captures}</b>
                 <span className="ml-1 text-xs text-green-500">· sofort gespeichert ✓</span></div>
-              <p className="text-xs text-zinc-500">Jede Aufnahme ist <b>sofort gespeichert</b> — du kannst jederzeit „Fertig" (oben) drücken oder einfach aufhören; nichts geht verloren.</p>
+              <p className="text-xs text-zinc-500">Jede Capture ist <b>sofort gespeichert</b> — du kannst jederzeit „Done" (oben) drücken oder einfach aufhören; nichts geht verloren.</p>
             </div>
           </Card>
         </div>
       )}
 
       <p className="text-xs text-zinc-500">
-        Nach „Fertig" wird die Session automatisch gesliced. Kuratierte Datensätze (Dedup,
+        Nach „Done" wird die Session automatisch gesliced. Kuratierte Datensätze (Dedup,
         Rotation, Split) baust du im Tab <b className="text-zinc-300">Datensätze</b>.
       </p>
     </div>
   );
 }
 
-/** Hilfskomponente für den Status-Text während der Aufnahme. */
+/** Hilfskomponente für den Status-Text während der Capture. */
 function CaptureStatus({ st }: { st: any }) {
   const pos = Math.min(st.index + 1, st.n_positions);
-  const label = st.build_target ? "Aufbau" : "Stellung";
-  const gainsHint = st.build_target && st.gains ? <span className="ml-1 text-xs text-zinc-500">· {st.gains} Ziel-Felder</span> : null;
+  const label = st.build_target ? "Setup" : "Position";
+  const gainsHint = st.build_target && st.gains ? <span className="ml-1 text-xs text-zinc-500">· {st.gains} target squares</span> : null;
 
   let instruction: JSX.Element;
   if (st.build_target) {
-    instruction = <>Stellung <b>frisch aufbauen</b> — die <b className="text-sky-300">Figurennamen</b> sind ins Live-Bild eingeblendet (weiß = helle Schrift, schwarz = dunkle),</>;
+    instruction = <>Position <b>set up fresh</b> — die <b className="text-sky-300">Figurennamen</b> sind ins Live-Bild eingeblendet (weiß = helle Schrift, schwarz = dunkle),</>;
   } else if (st.index === 0) {
     instruction = <>Brett in die <b>Startstellung</b> bringen,</>;
   } else {
-    instruction = <>Diesen Zug ziehen: <b className="text-base text-sky-300">{st.move_san}</b> <span className="text-zinc-400">(roter Pfeil)</span>,</>;
+    instruction = <>Diesen Zug ziehen: <b className="text-base text-sky-300">{st.move_san}</b> <span className="text-zinc-400">(red arrow)</span>,</>;
   }
   const extra = st.build_target ? <>(gern mehrere mit wechselndem Licht)</> : null;
 

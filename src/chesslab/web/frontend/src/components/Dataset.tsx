@@ -19,8 +19,8 @@ export function DatasetLayout() {
     <div className="space-y-4">
       <nav className="flex gap-1 rounded-xl border border-zinc-800 bg-zinc-900 p-1.5">
         <NavLink to="sessions" className={subLink}>Sessions</NavLink>
-        <NavLink to="kuratiert" className={subLink}>Kuratierte Datensätze</NavLink>
-        <NavLink to="statistik" className={subLink}>Statistik</NavLink>
+        <NavLink to="curated" className={subLink}>Curated datasets</NavLink>
+        <NavLink to="stats" className={subLink}>Statistics</NavLink>
       </nav>
       <Outlet />
     </div>
@@ -40,20 +40,20 @@ export function SessionsPanel() {
   const sessions: any[] = sessionsQ.data ?? [];
 
   const onOk = (msg: string) => { setNote(msg); invalidate("sessions-manage", "stats", "datasets"); };
-  const onErr = (e: any) => setNote("Fehler: " + e.message);
+  const onErr = (e: any) => setNote("Error: " + e.message);
   const sliceM = useMutation({ mutationFn: (sid: string) => post(`/api/sessions/${sid}/slice`), onSuccess: (r: any) => onOk(`„${r.session}" gesliced: ${r.crops} Crops.`), onError: onErr });
-  const archiveM = useMutation({ mutationFn: (sid: string) => post(`/api/sessions/${sid}/archive`), onSuccess: () => onOk("archiviert."), onError: onErr });
-  const restoreM = useMutation({ mutationFn: (sid: string) => post(`/api/sessions/${sid}/restore`), onSuccess: () => onOk("wiederhergestellt — neu slicen."), onError: onErr });
-  const deleteM = useMutation({ mutationFn: (sid: string) => del(`/api/sessions/${sid}`), onSuccess: () => onOk("gelöscht."), onError: onErr });
+  const archiveM = useMutation({ mutationFn: (sid: string) => post(`/api/sessions/${sid}/archive`), onSuccess: () => onOk("archived."), onError: onErr });
+  const restoreM = useMutation({ mutationFn: (sid: string) => post(`/api/sessions/${sid}/restore`), onSuccess: () => onOk("restored — re-slice."), onError: onErr });
+  const deleteM = useMutation({ mutationFn: (sid: string) => del(`/api/sessions/${sid}`), onSuccess: () => onOk("deleted."), onError: onErr });
 
   return (
-    <Card title="Sessions (Rohmaterial)" right={<span className="text-xs text-zinc-500">{sessions.length} Session(s) · {note}</span>}>
-      {sessions.length === 0 ? <span className="text-sm text-zinc-500">Noch keine Sessions — im Tab „Sammeln" aufnehmen.</span> : (
+    <Card title="Sessions (Rohmaterial)" right={<span className="text-xs text-zinc-500">{sessions.length} session(s) · {note}</span>}>
+      {sessions.length === 0 ? <span className="text-sm text-zinc-500">Noch none Sessions — im Tab „Sammeln" aufnehmen.</span> : (
         <table className="w-full text-sm">
           <thead><tr className="text-zinc-500">
-            <th className="text-left font-normal">Session</th><th className="text-left font-normal">Modus</th>
+            <th className="text-left font-normal">Session</th><th className="text-left font-normal">Mode</th>
             <th className="text-right font-normal">Frames</th><th className="text-right font-normal">Crops</th>
-            <th className="text-right font-normal">Aktion</th>
+            <th className="text-right font-normal">Action</th>
           </tr></thead>
           <tbody>
             {sessions.map((m) => (
@@ -66,11 +66,11 @@ export function SessionsPanel() {
                 <td className="text-right tabular-nums text-zinc-400">{m.n_frames}</td>
                 <td className="text-right tabular-nums text-zinc-400">{m.archived ? "—" : m.n_crops}</td>
                 <td className="py-1"><div className="flex justify-end gap-1.5">
-                  {!m.archived && <Button onClick={() => sliceM.mutate(m.session_id)} className="px-2 py-1 text-xs"><Scissors className="h-3.5 w-3.5" /> {m.n_crops ? "Neu slicen" : "Slicen"}</Button>}
+                  {!m.archived && <Button onClick={() => sliceM.mutate(m.session_id)} className="px-2 py-1 text-xs"><Scissors className="h-3.5 w-3.5" /> {m.n_crops ? "Neu slicen" : "Slice"}</Button>}
                   {m.archived
                     ? <Button onClick={() => restoreM.mutate(m.session_id)} className="px-2 py-1 text-xs"><ArchiveRestore className="h-3.5 w-3.5" /> Wiederherstellen</Button>
-                    : <Button onClick={() => archiveM.mutate(m.session_id)} className="px-2 py-1 text-xs"><Archive className="h-3.5 w-3.5" /> Archivieren</Button>}
-                  <Button onClick={() => window.confirm(`Session „${m.session_id}" endgültig löschen?`) && deleteM.mutate(m.session_id)} className="px-2 py-1 text-xs text-red-300 hover:text-red-200"><Trash2 className="h-3.5 w-3.5" /> Löschen</Button>
+                    : <Button onClick={() => archiveM.mutate(m.session_id)} className="px-2 py-1 text-xs"><Archive className="h-3.5 w-3.5" /> Archive</Button>}
+                  <Button onClick={() => window.confirm(`Session „${m.session_id}" endgültig löschen?`) && deleteM.mutate(m.session_id)} className="px-2 py-1 text-xs text-red-300 hover:text-red-200"><Trash2 className="h-3.5 w-3.5" /> Delete</Button>
                 </div></td>
               </tr>
             ))}
@@ -81,7 +81,7 @@ export function SessionsPanel() {
   );
 }
 
-// --- Panel 2: Kuratierte Datensätze --------------------------------------------------
+// --- Panel 2: Curated datasets --------------------------------------------------
 export function DatasetsPanel() {
   const invalidate = useInvalidate();
   const [note, setNote] = useState("");
@@ -103,19 +103,19 @@ export function DatasetsPanel() {
   const buildM = useMutation({
     mutationFn: (body: any) => post("/api/datasets", body),
     onSuccess: (r: any) => { setNote(`„${r.name}" gebaut: roh ${r.counts.raw} → dedup ${r.counts.after_dedup} → final ${r.counts.final}.`); setOpen(false); setName(""); setSel({}); invalidate("datasets", "stats"); },
-    onError: (e: any) => setNote("Fehler: " + e.message),
+    onError: (e: any) => setNote("Error: " + e.message),
   });
-  const dsDeleteM = useMutation({ mutationFn: (n: string) => del(`/api/datasets/${n}`), onSuccess: () => { setNote("gelöscht."); invalidate("datasets"); } });
-  const dsRebuildM = useMutation({ mutationFn: (n: string) => post(`/api/datasets/${n}/rebuild`), onSuccess: (r: any) => { setNote(`„${r.name}" neu gebaut: ${r.counts?.final} Crops.`); invalidate("datasets", "stats"); }, onError: (e: any) => setNote("Fehler: " + e.message) });
+  const dsDeleteM = useMutation({ mutationFn: (n: string) => del(`/api/datasets/${n}`), onSuccess: () => { setNote("deleted."); invalidate("datasets"); } });
+  const dsRebuildM = useMutation({ mutationFn: (n: string) => post(`/api/datasets/${n}/rebuild`), onSuccess: (r: any) => { setNote(`„${r.name}" neu gebaut: ${r.counts?.final} Crops.`); invalidate("datasets", "stats"); }, onError: (e: any) => setNote("Error: " + e.message) });
 
   function build() {
     const session_ids = active.filter((s: any) => sel[s.session_id]).map((s: any) => s.session_id);
-    if (!name.trim() || session_ids.length === 0) { setNote("Name und mind. eine Session wählen."); return; }
+    if (!name.trim() || session_ids.length === 0) { setNote("Name and at least one session required."); return; }
     buildM.mutate({ name: name.trim(), session_ids, per_cell_cap: cap, phash_enabled: phash, phash_hamming: hamming, rotate, val_frac: valFrac, test_frac: testFrac });
   }
 
   return (
-    <Card title="Kuratierte Datensätze" right={<div className="flex items-center gap-2"><span className="text-xs text-zinc-500">{note}</span><Button onClick={() => setOpen((o) => !o)} className="px-2 py-1 text-xs"><Boxes className="h-3.5 w-3.5" /> Neuer Datensatz</Button></div>}>
+    <Card title="Curated datasets" right={<div className="flex items-center gap-2"><span className="text-xs text-zinc-500">{note}</span><Button onClick={() => setOpen((o) => !o)} className="px-2 py-1 text-xs"><Boxes className="h-3.5 w-3.5" /> Neuer Dataset</Button></div>}>
       {open && (
         <div className="mb-4 space-y-3 rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
           <div className="flex flex-wrap items-center gap-3">
@@ -128,9 +128,9 @@ export function DatasetsPanel() {
             <label className="flex items-center gap-1 text-xs text-zinc-400">test<input type="number" step={0.05} min={0} max={0.5} value={testFrac} onChange={(e) => setTestFrac(+e.target.value)} className={`${input} w-14`} /></label>
           </div>
           <div>
-            <div className="mb-1 text-xs text-zinc-500">Sessions (Teilmenge frei wählbar — Datensätze dürfen sich überschneiden):</div>
+            <div className="mb-1 text-xs text-zinc-500">Sessions (freely selectable subset — datasets may overlap):</div>
             <div className="flex flex-wrap gap-2">
-              {active.length === 0 ? <span className="text-xs text-zinc-500">keine aktiven Sessions</span> : active.map((s: any) => (
+              {active.length === 0 ? <span className="text-xs text-zinc-500">none aktiven Sessions</span> : active.map((s: any) => (
                 <label key={s.session_id} className="flex items-center gap-1.5 rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300">
                   <input type="checkbox" checked={!!sel[s.session_id]} onChange={(e) => setSel((p) => ({ ...p, [s.session_id]: e.target.checked }))} />
                   {s.session_id} <span className="text-zinc-500">({s.n_crops})</span>
@@ -138,16 +138,16 @@ export function DatasetsPanel() {
               ))}
             </div>
           </div>
-          <Button variant="primary" onClick={build} disabled={buildM.isPending}><Hammer className="h-4 w-4" /> {buildM.isPending ? "Baue…" : "Bauen"}</Button>
+          <Button variant="primary" onClick={build} disabled={buildM.isPending}><Hammer className="h-4 w-4" /> {buildM.isPending ? "Baue…" : "Build"}</Button>
         </div>
       )}
 
-      {datasets.length === 0 ? <span className="text-sm text-zinc-500">Noch kein Datensatz gebaut.</span> : (
+      {datasets.length === 0 ? <span className="text-sm text-zinc-500">Noch kein Dataset gebaut.</span> : (
         <table className="w-full text-sm">
           <thead><tr className="text-zinc-500">
-            <th className="text-left font-normal">Datensatz</th><th className="text-right font-normal">Sessions</th>
+            <th className="text-left font-normal">Dataset</th><th className="text-right font-normal">Sessions</th>
             <th className="text-right font-normal">roh→dedup→final</th><th className="text-right font-normal">train/val/test</th>
-            <th className="text-right font-normal">Aktion</th>
+            <th className="text-right font-normal">Action</th>
           </tr></thead>
           <tbody>
             {datasets.map((d: any) => (
@@ -157,9 +157,9 @@ export function DatasetsPanel() {
                 <td className="text-right tabular-nums text-zinc-400">{d.counts?.raw}→{d.counts?.after_dedup}→{d.counts?.final}</td>
                 <td className="text-right tabular-nums text-zinc-400">{d.split_counts?.train ?? "?"}/{d.split_counts?.val ?? "?"}/{d.split_counts?.test ?? "?"}</td>
                 <td className="py-1"><div className="flex justify-end gap-1.5">
-                  <NavLink to={`../statistik?ds=${encodeURIComponent(d.name)}`} className="inline-flex items-center gap-1 rounded-lg bg-zinc-800 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-700">Stats</NavLink>
-                  <Button onClick={() => dsRebuildM.mutate(d.name)} className="px-2 py-1 text-xs"><Hammer className="h-3.5 w-3.5" /> Neu bauen</Button>
-                  <Button onClick={() => window.confirm(`Datensatz „${d.name}" löschen?`) && dsDeleteM.mutate(d.name)} className="px-2 py-1 text-xs text-red-300 hover:text-red-200"><Trash2 className="h-3.5 w-3.5" /> Löschen</Button>
+                  <NavLink to={`../stats?ds=${encodeURIComponent(d.name)}`} className="inline-flex items-center gap-1 rounded-lg bg-zinc-800 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-700">Stats</NavLink>
+                  <Button onClick={() => dsRebuildM.mutate(d.name)} className="px-2 py-1 text-xs"><Hammer className="h-3.5 w-3.5" /> Rebuild</Button>
+                  <Button onClick={() => window.confirm(`Dataset „${d.name}" löschen?`) && dsDeleteM.mutate(d.name)} className="px-2 py-1 text-xs text-red-300 hover:text-red-200"><Trash2 className="h-3.5 w-3.5" /> Delete</Button>
                 </div></td>
               </tr>
             ))}
@@ -184,7 +184,7 @@ export function StatsPanel() {
   const s = statsQ.data;
   if (statsQ.isLoading || !s) return <Card>Stats laden…</Card>;
 
-  const statsOfDs = statsOf ? `Datensatz „${statsOf}"` : "globaler Pool";
+  const statsOfDs = statsOf ? `Dataset „${statsOf}"` : "global pool";
   const max = Math.max(1, ...Object.values<number>(s.counts ?? { x: 1 }));
   const barColor = (c: string, n: number) =>
     (() => {
@@ -201,12 +201,12 @@ export function StatsPanel() {
   return (
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card title="Klassenverteilung" className="lg:col-span-2" right={
+        <Card title="Class distribution" className="lg:col-span-2" right={
           <select value={statsOf} onChange={(e) => setParams(e.target.value ? { ds: e.target.value } : {})} className={input}>
-            <option value="">globaler Pool</option>
+            <option value="">global pool</option>
             {datasets.map((d: any) => <option key={d.name} value={d.name}>{d.name}</option>)}
           </select>}>
-          <div className="mb-2 text-xs text-zinc-500">{s.total} Crops · {s.num_sessions} Sessions{statsOf ? ` · Datensatz „${statsOf}"` : " · roh"}</div>
+          <div className="mb-2 text-xs text-zinc-500">{s.total} Crops · {s.num_sessions} Sessions{statsOf ? ` · Dataset „${statsOf}"` : " · roh"}</div>
           <div className="space-y-1.5">
             {s.classes.map((c: string) => {
               const n = s.counts[c] || 0;
@@ -220,7 +220,7 @@ export function StatsPanel() {
             })}
           </div>
         </Card>
-        <Card title="Hell / Dunkel">
+        <Card title="Light / Dark">
           <table className="w-full text-sm">
             <thead><tr className="text-zinc-500"><th className="text-left font-normal">Klasse</th><th>hell</th><th>dunkel</th></tr></thead>
             <tbody>
@@ -233,16 +233,16 @@ export function StatsPanel() {
         </Card>
       </div>
 
-      <Card title="Warnungen">
-        {s.warnings.length ? <ul className="space-y-1 text-sm">{s.warnings.map((w: string, i: number) => <li key={i} className="flex items-center gap-2 text-amber-400"><AlertTriangle className="h-4 w-4 shrink-0" /> {w}</li>)}</ul> : <span className="text-sm text-green-500">keine</span>}
+      <Card title="Warnings">
+        {s.warnings.length ? <ul className="space-y-1 text-sm">{s.warnings.map((w: string, i: number) => <li key={i} className="flex items-center gap-2 text-amber-400"><AlertTriangle className="h-4 w-4 shrink-0" /> {w}</li>)}</ul> : <span className="text-sm text-green-500">none</span>}
       </Card>
 
-      <Card title={`Crops durchblättern (${statsOfDs})`} right={<span className="flex items-center gap-1 text-xs text-zinc-500"><Images className="h-3.5 w-3.5" />{browse ? `${browse.label} (${browse.crops.length})` : "Klasse anklicken"}</span>}>
+      <Card title={`Browse crops (${statsOfDs})`} right={<span className="flex items-center gap-1 text-xs text-zinc-500"><Images className="h-3.5 w-3.5" />{browse ? `${browse.label} (${browse.crops.length})` : "Click a class"}</span>}>
         {browse ? (
           <div className="grid grid-cols-[repeat(auto-fill,56px)] gap-1.5">
             {browse.crops.map((c: any, i: number) => <img key={i} src={c.url} title={`${c.session_id} ${c.frame} ${c.square}`} alt={`Feld ${c.square}`} className="h-[74px] w-[56px] rounded border border-zinc-800 object-cover" />)}
           </div>
-        ) : <span className="text-sm text-zinc-500">Wähle links eine Klasse, um die Crops zu sehen.</span>}
+        ) : <span className="text-sm text-zinc-500">Select a class on the left to view crops.</span>}
       </Card>
     </div>
   );

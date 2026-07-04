@@ -16,7 +16,7 @@ from pathlib import Path
 
 import cv2
 
-from .camera import _UrlSnapshotCapture, _open_source
+from .camera import _open_source, _UrlSnapshotCapture
 
 # scans/ liegt auf Repo-Ebene (neben data/) — cwd-unabhängig über die Dateilage ankern.
 SCANS_ROOT = Path(__file__).resolve().parents[3] / "scans"

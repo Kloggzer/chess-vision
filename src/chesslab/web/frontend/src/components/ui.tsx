@@ -1,8 +1,8 @@
 import { ReactNode, SelectHTMLAttributes, ButtonHTMLAttributes, MouseEvent, useState } from "react";
 import { Loader2 } from "lucide-react";
 
-// Einheitliche, FARBIGE Figuren: gleiche (gefüllte) Glyphe für beide Farben, weiß bzw. schwarz
-// eingefärbt — mit Kontur, damit weiße Figur auf hellem und schwarze auf dunklem Grund sichtbar ist.
+// Uniform, COLORED pieces: same (filled) glyph for both colors, colored white/black
+// with outline so white shows on light and black shows on dark backgrounds.
 const SOLID: Record<string, string> = {
   K: "♚", Q: "♛", R: "♜", B: "♝", N: "♞", P: "♟",
 };
@@ -35,9 +35,9 @@ export function Card({ title, right, children, className = "" }: {
   );
 }
 
-// Button mit automatischem Busy-Zustand: gibt der onClick-Handler ein Promise zurück, deaktiviert
-// sich der Button selbst und zeigt einen Spinner, bis die Aktion fertig ist (verhindert Doppelklicks
-// und gibt klares Feedback bei jeder asynchronen Aktion — gilt damit für alle Tabs).
+// Button with automatic busy state: if onClick returns a Promise, the button
+// disables itself and shows a spinner until done (prevents double-clicks
+// and provides clear feedback for all async actions — applies to all tabs).
 type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onClick"> & {
   variant?: "primary" | "ghost";
   onClick?: (e: MouseEvent<HTMLButtonElement>) => void | Promise<unknown>;

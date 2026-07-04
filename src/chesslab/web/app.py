@@ -18,14 +18,6 @@ from pathlib import Path
 _STATIC = Path(__file__).parent / "static"
 
 
-def labeling_predict(run: str, rows: list[dict]) -> list[dict]:
-    """Wrapper, damit der torch-Import lazy bleibt (Web läuft auch ohne Modell-Ansicht)."""
-    from .. import config
-    from .inference import predict_rows
-
-    return predict_rows(config.DATA.models / run, rows, device="cpu")
-
-
 def create_app():
     from fastapi import FastAPI, HTTPException
     from fastapi.responses import FileResponse

@@ -29,7 +29,7 @@ _BOUNDARY = b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
 # Env-Override: ist diese Variable gesetzt (z.B. eine IP-Cam-URL), nutzen ALLE Kamera-Pfade der
 # Web-UI diese Quelle statt des per UI gewählten Integer-Index. So lässt sich eine Handy-/Netzwerk-
 # Kamera ohne Frontend-Änderung anschließen. Beispiel:
-#   set CHESSLAB_CAMERA_SOURCE=https://192.168.178.23:4444/video/snapshot   (Android IP Camera)
+#   set CHESSLAB_CAMERA_SOURCE=https://<PHONE-IP>:4444/video/snapshot   (Android IP Camera)
 CAMERA_SOURCE_ENV = "CHESSLAB_CAMERA_SOURCE"
 
 
@@ -187,7 +187,7 @@ def effective_source(index):
 # runterskalierten) Stream, aber GESPEICHERTE Frames werden aus dieser Snapshot-URL gezogen
 # (volle Sensorauflösung). Marker werden beim Capture auf dem Snapshot NEU erkannt -> Stream- und
 # Capture-Quelle dürfen sich in Auflösung/Orientierung unterscheiden. Beispiel:
-#   set CHESSLAB_CAMERA_CAPTURE=https://192.168.178.23:4444/video/snapshot
+#   set CHESSLAB_CAMERA_CAPTURE=https://<PHONE-IP>:4444/video/snapshot
 CAMERA_CAPTURE_ENV = "CHESSLAB_CAMERA_CAPTURE"
 
 
