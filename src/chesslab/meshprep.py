@@ -138,11 +138,10 @@ def _import_verbatim(item: ScanItem, piece_dir: Path, stem: str, *, make_preview
         loaded = trimesh.load(str(item.obj), force="mesh")
         if isinstance(loaded, trimesh.Scene):
             loaded = max(loaded.geometry.values(), key=lambda m: len(m.vertices))
-        # Explizite *_diffuse.png gewinnt über die .glb-Referenz (kann auf unwrap zeigen).
-        if item.tex is not None and "diffuse" in Path(item.tex).stem.lower():
-            tex_img = item.tex
-        else:
-            tex_img = _extract_glb_texture(loaded)
+        # Priorität wie in _load_and_extract: GLB-Referenz → zugehörige Diffusen
+        # (Debug-Muster werden inhaltlich aussortiert) → eingebettete Textur.
+        tex_img = _first_real_texture(_texture_candidates(item)) \
+            or _extract_glb_texture(loaded)
         # _write_trimesh_obj re-exports faces/normals/UVs but applies NO transform.
         _write_trimesh_obj(loaded, stem, piece_dir, tex_img, tex_dst)
     else:
@@ -217,14 +216,9 @@ def _load_and_extract(item: ScanItem, rng: np.random.Generator):
     # Extract texture. Eine EXPLIZITE *_diffuse.png im Scan-Ordner gewinnt IMMER über die
     # .glb-Referenz: RealityScan-GLBs verweisen z.T. auf die *_unwrap.png (UV-Debug-Muster,
     # beobachtet bei scans/bP) — dann käme sonst das Schachbrettmuster statt Holz.
-    tex_img = None
-    ext = item.obj.suffix.lower()
-    if item.tex is not None and "diffuse" in Path(item.tex).stem.lower():
-        tex_img = item.tex
-    elif ext in (".glb", ".gltf"):
-        tex_img = _extract_glb_texture(mesh)
-    elif ext == ".obj" and item.tex is not None:
-        tex_img = item.tex
+    tex_img = _first_real_texture(_texture_candidates(item))
+    if tex_img is None and item.obj.suffix.lower() in (".glb", ".gltf"):
+        tex_img = _extract_glb_texture(mesh)          # letzte Rettung: eingebettet
 
     return mesh, tex_img
 
@@ -248,6 +242,80 @@ def _ensure_z_up(mesh) -> trimesh.Trimesh:
         ext2 = mesh.vertices.max(axis=0) - mesh.vertices.min(axis=0)
         _log.info("extents after rotation: X=%.3f Y=%.3f Z=%.3f", *ext2)
     return mesh
+
+
+def _looks_like_debug_texture(path: Path) -> bool:
+    """True, wenn eine Bilddatei nach RealityScans UV-Debug-Muster aussieht (knallige
+    Vollton-Flächen, „Texture 0 / A1…H8"-Kacheln) statt nach einer echten Foto-Textur.
+
+    RealityScan schreibt auch OHNE gerechneten Texture-Schritt eine *_diffuse.png —
+    dann mit dem Debug-Muster als Inhalt (beobachtet bei wB). Unterscheidung über die
+    mittlere Sättigung: Debug ≈ reine RGB-Primärfarben (S hoch), Holz/Foto entsättigt."""
+    try:
+        import PIL.Image
+
+        img = PIL.Image.open(path).convert("HSV").resize((64, 64))
+        s = np.asarray(img)[:, :, 1].astype(np.float32) / 255.0
+        return float(s.mean()) > 0.5
+    except Exception:  # noqa: BLE001 — unlesbares Bild: lieber nicht verwerfen
+        return False
+
+
+def _first_real_texture(candidates) -> Path | None:
+    """Erste Kandidatin (Pfad), die existiert und KEIN Debug-Muster ist."""
+    for c in candidates:
+        if c is None:
+            continue
+        p = Path(c)
+        if p.exists() and not _looks_like_debug_texture(p):
+            return p
+    return None
+
+
+def _texture_candidates(item: ScanItem) -> list[Path | None]:
+    """Textur-Kandidaten in Prioritätsreihenfolge: GLB-referenzierte Kachel (UV-korrekt)
+    → zum Mesh gehörende *diffuse*-Dateien (größte zuerst; deckt Re-Exporte wie
+    wB_…_diffuse_2.png ab) → explizit entdeckte Textur. Bewertung (Debug-Filter)
+    übernimmt _first_real_texture."""
+    cands: list[Path | None] = []
+    if item.obj.suffix.lower() in (".glb", ".gltf"):
+        cands.append(_glb_texture_uri(item.obj))
+    stem = item.obj.stem.lower()
+    cands.extend(sorted(
+        (p for p in item.obj.parent.glob("*diffuse*")
+         if p.suffix.lower() in (".png", ".jpg", ".jpeg")
+         and p.stem.lower().startswith(stem)),
+        key=lambda p: -p.stat().st_size))
+    if item.tex is not None:
+        cands.append(Path(item.tex))
+    return cands
+
+
+def _glb_texture_uri(glb_path: Path) -> Path | None:
+    """Die extern referenzierte Textur aus dem GLB-JSON lesen (images[].uri).
+
+    RealityScan exportiert pro Scan MEHRERE UV-Kacheln (*_u0_v0_*, *_u1_v1_*) — nur die
+    im GLB referenzierte passt zum UV-Layout des Meshes; die falsche Kachel liefert
+    Farben von der falschen Atlas-Stelle (beobachtet: brauner schwarzer König).
+    *_unwrap.png-Referenzen (UV-Debug) werden ignoriert. None wenn nichts Nutzbares."""
+    import struct
+
+    try:
+        b = glb_path.read_bytes()
+        if b[:4] != b"glTF":
+            return None
+        ln = struct.unpack("<I", b[12:16])[0]
+        doc = json.loads(b[20:20 + ln])
+        for img in doc.get("images", []):
+            uri = img.get("uri")
+            if not uri or uri.startswith("data:") or "unwrap" in uri.lower():
+                continue
+            p = glb_path.parent / uri
+            if p.exists():
+                return p
+    except Exception:  # noqa: BLE001 — defekte/abweichende GLBs: Fallback-Kette greift
+        return None
+    return None
 
 
 def _extract_glb_texture(mesh) -> Path | None:

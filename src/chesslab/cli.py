@@ -650,9 +650,14 @@ def synth_board_texture(
     margin: float = typer.Option(0.04, "--margin", help="Marker-zu-Raster-Einzug (Fraction)."),
 ) -> None:
     """Brett-Foto zu rektifizierter quadratischer Textur entzerren (für `synth render --board-texture`)."""
-    from synth.board_texture import rectify
+    import sys as _sys
 
-    from .config import SYNTH
+    from .config import _REPO_ROOT, SYNTH
+
+    # synth/ liegt im Repo-Root (kein installiertes Paket) — für den CLI-Aufruf nachrüsten.
+    if str(_REPO_ROOT) not in _sys.path:
+        _sys.path.insert(0, str(_REPO_ROOT))
+    from synth.board_texture import rectify
 
     out_path = Path(out) if out else SYNTH.board_texture
     try:
