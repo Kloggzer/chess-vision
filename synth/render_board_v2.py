@@ -335,13 +335,20 @@ def build_templates(pieces_dir=None):
     pdir = Path(pieces_dir) if pieces_dir else None
     white_mat = make_wood_material("WoodWhite", (0.80, 0.64, 0.42), (0.62, 0.46, 0.27))
     black_mat = make_wood_material("WoodBlack", (0.17, 0.10, 0.055), (0.05, 0.027, 0.013))
-    def _scanned_meshes(objs, t, darken):
-        """One mesh datablock per variant OBJ, each with its own textured material."""
+    def _scanned_meshes(objs, t, color, darken):
+        """One mesh datablock per variant OBJ, each with its own textured material.
+        Ohne <variant>.png (Scan ohne Textur-Export): prozedurales Holz in der Zielfarbe
+        statt Abbruch — die GEOMETRIE des Scans ist trotzdem wertvoll."""
         out = []
         for o in objs:
             m = _load_scanned_mesh(o, t)
             m.materials.clear()
-            m.materials.append(_scanned_material(o.with_suffix(".png"), darken))
+            png = o.with_suffix(".png")
+            if png.exists():
+                m.materials.append(_scanned_material(png, darken))
+            else:
+                print(f"[WARN] {o}: keine Textur ({png.name} fehlt) — prozedurales Holz")
+                m.materials.append(white_mat if color == "w" else black_mat)
             out.append(m)
         return out
 
@@ -352,10 +359,10 @@ def build_templates(pieces_dir=None):
         if w_objs or b_objs:
             base_z[t] = 0.0
             # White: own scans if present, else the black scans (rare: black-only).
-            templates[("w", t)] = _scanned_meshes(w_objs or b_objs, t, 1.0)
+            templates[("w", t)] = _scanned_meshes(w_objs or b_objs, t, "w", 1.0)
             # Black: own scans if present, else the white scans recolored dark.
-            templates[("b", t)] = (_scanned_meshes(b_objs, t, 1.0) if b_objs
-                                   else _scanned_meshes(w_objs, t, 0.2))
+            templates[("b", t)] = (_scanned_meshes(b_objs, t, "b", 1.0) if b_objs
+                                   else _scanned_meshes(w_objs, t, "b", 0.2))
         else:
             src = bpy.data.objects[name]
             base_z[t] = float(src.location.z)

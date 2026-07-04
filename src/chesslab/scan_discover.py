@@ -125,6 +125,8 @@ def _pick_texture(d: Path) -> Path | None:
     then fall back to the largest non-numeric filename (photos are ``000.jpg``, …).
     """
     imgs = [*d.glob("*.png"), *d.glob("*.jpg"), *d.glob("*.jpeg")]
+    # UV-Debug-Muster nie als Textur nehmen (RealityScan exportiert *_unwrap.png daneben).
+    imgs = [p for p in imgs if "unwrap" not in p.stem.lower()]
     named = [p for p in imgs if re.search(r"diffuse|albedo|tex", p.stem, re.IGNORECASE)]
     if named:
         return max(named, key=lambda p: p.stat().st_size)
