@@ -34,3 +34,6 @@ _fix_*.py
 ruff_raw_output.txt
 eslint_output.txt
 nul
+
+# Turntable-Scan-Meshes (RealityScan): riesig, lokal erzeugt -> nie committen
+synth_pieces/
