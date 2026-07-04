@@ -45,34 +45,25 @@ class VideoCap:
         self.cap.release()
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("clip")
-    ap.add_argument("--profile", default="phone")
-    ap.add_argument("--no-cnn", action="store_true")
-    ap.add_argument("--realtime", action="store_true")
-    ap.add_argument("--no-live-align", action="store_true")
-    a = ap.parse_args()
-
-    from chesslab import config
+def replay(clip: str, profile: str = "phone", cnn_run: str | None = None,
+           realtime: bool = False, live_align: bool = True,
+           start_fen: str | None = None, max_wall_s: float = 900.0) -> dict:
+    """Clip headless durch den MoveTracker spielen. Gibt {history, fen, note, events} zurück.
+    Auch vom pytest-Harness (`tests/test_clips.py`, Marker `clips`) genutzt."""
     from chesslab.move_tracker import tracker as trk
 
-    cap = VideoCap(a.clip, realtime=a.realtime)
+    cap = VideoCap(clip, realtime=realtime)
     trk.open_source = lambda src: cap                    # Kamera-Patch
 
-    mt = trk.MoveTracker(
-        profile=a.profile, source="0",
-        live_align=not a.no_live_align,
-        cnn_run=None if a.no_cnn else config.MOVE_TRACKER_DEFAULT_RUN,
-    )
-    mt.reset_to_start()
+    mt = trk.MoveTracker(profile=profile, source="0", live_align=live_align, cnn_run=cnn_run)
+    mt.reset_to_start(start_fen)
     mt.start()
 
     events: list[str] = []
     last_note, last_hist = "", 0
     last_tick = 0.0
     t0 = time.time()
-    while not cap.done and time.time() - t0 < 900:
+    while not cap.done and time.time() - t0 < max_wall_s:
         time.sleep(0.05)
         s = mt.status()
         dbg = s["debug"]
@@ -94,15 +85,32 @@ def main() -> int:
                 f"stable={dbg['stable_count']} stuck={dbg['stuck_reason']}")
     time.sleep(1.0)
     mt.stop()
-
     s = mt.status()
+    return {"history": s["history"], "fen": s["fen"], "note": s["note"], "events": events}
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("clip")
+    ap.add_argument("--profile", default="phone")
+    ap.add_argument("--no-cnn", action="store_true")
+    ap.add_argument("--realtime", action="store_true")
+    ap.add_argument("--no-live-align", action="store_true")
+    ap.add_argument("--start-fen", default=None)
+    a = ap.parse_args()
+
+    from chesslab import config
+
+    res = replay(a.clip, profile=a.profile,
+                 cnn_run=None if a.no_cnn else config.MOVE_TRACKER_DEFAULT_RUN,
+                 realtime=a.realtime, live_align=not a.no_live_align, start_fen=a.start_fen)
     print("=" * 78)
     print(f"CLIP: {a.clip}")
-    print(f"Züge ({len(s['history'])}): {' '.join(s['history']) or '—'}")
-    print(f"End-FEN: {s['fen']}")
-    print(f"Letzte Note: {s['note']}")
+    print(f"Züge ({len(res['history'])}): {' '.join(res['history']) or '—'}")
+    print(f"End-FEN: {res['fen']}")
+    print(f"Letzte Note: {res['note']}")
     print("-" * 78)
-    for e in events:
+    for e in res["events"]:
         print(e)
     return 0
 

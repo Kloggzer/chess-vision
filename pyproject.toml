@@ -59,6 +59,10 @@ packages = ["src/chesslab"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "clips: Replay-Tests gegen lokale Videoclips in data/testclips (skip wenn nicht vorhanden)",
+]
+addopts = "-m 'not clips'"
 
 [tool.ruff]
 line-length = 100
