@@ -555,6 +555,13 @@ def synth_render(
     seed: int = typer.Option(42, "--seed"),
     fens: str | None = typer.Option(None, "--fens", help="FEN-Liste (sonst Fallback Grundstellung)."),
     res: int = typer.Option(1024, "--res", help="Render-Auflösung (px)."),
+    views_per_scene: int = typer.Option(1, "--views-per-scene",
+                                        help="Views (Kamera+Licht) pro Figurenaufstellung. >1 = Szenen-Reuse: "
+                                             "gleiche Szene mehrfach rendern → deutlich schneller."),
+    samples: int = typer.Option(24, "--samples", help="EEVEE TAA-Render-Samples (niedriger = schneller)."),
+    max_obliqueness: float = typer.Option(0.20, "--max-obliqueness",
+                                          help="Max. Kamera-Schräglage (Offset/Höhe). An echte ~0.06-Top-Down-Kamera "
+                                               "gematcht; Bild wird beim Ingest per Homographie auf Top-Down reprojiziert."),
     blender: str | None = typer.Option(None, "--blender", help="Blender-Executable (Default: blender, via CHESSLAB_BLENDER)."),
 ) -> None:
     """Synthetische Brett-Renderings mit Blender/EEVEE erzeugen (v2: Brett-Textur + prozeduraler Fallback)."""
@@ -579,7 +586,8 @@ def synth_render(
         bt = SYNTH.board_texture
 
     cmd = build_blender_cmd(bl, b, script, o, n=n, seed=seed, fens=fe, pieces=p, res=res,
-                            board_texture=bt)
+                            board_texture=bt, views_per_scene=views_per_scene,
+                            samples=samples, max_obliqueness=max_obliqueness)
 
     print(" ".join(cmd))
     try:

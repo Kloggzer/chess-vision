@@ -44,6 +44,20 @@ def test_parse_render_args_all_flags_parsed(tmp_path):
     assert ra.res == 512
 
 
+def test_parse_render_args_speed_flags(tmp_path):
+    ra = parse_render_args([
+        "--out", str(tmp_path / "o"),
+        "--views-per-scene", "4",
+        "--samples", "16",
+        "--max-obliqueness", "0.15",
+        "--fallback-subsurf", "0",
+    ])
+    assert ra.views_per_scene == 4
+    assert ra.samples == 16
+    assert ra.max_obliqueness == 0.15
+    assert ra.fallback_subsurf == 0
+
+
 def test_parse_render_args_paths_absolute(tmp_path):
     out = tmp_path / "sub" / "out"
     argv = ["--out", str(out)]
@@ -59,6 +73,10 @@ def test_parse_render_args_defaults():
     assert ra.fens is None
     assert ra.pieces is None
     assert ra.res == 1024
+    assert ra.views_per_scene == 1
+    assert ra.samples == 24
+    assert ra.max_obliqueness == 0.20
+    assert ra.fallback_subsurf == 1
 
 
 # --- build_blender_cmd -------------------------------------------------------------------
@@ -76,6 +94,9 @@ def test_build_blender_cmd_minimal():
         "--n", "200",
         "--seed", "42",
         "--res", "1024",
+        "--views-per-scene", "1",
+        "--samples", "24",
+        "--max-obliqueness", "0.2",
     ]
 
 
@@ -85,6 +106,7 @@ def test_build_blender_cmd_all_flags():
     cmd = build_blender_cmd(
         "blender", Path("b.blend"), Path("s.py"), Path("out"),
         n=10, seed=99, fens=Path("fens.txt"), pieces=Path("pieces"), res=512,
+        views_per_scene=4, samples=16, max_obliqueness=0.15,
     )
     assert "--" in cmd
     sep = cmd.index("--")
@@ -94,6 +116,9 @@ def test_build_blender_cmd_all_flags():
         "--n", "10",
         "--seed", "99",
         "--res", "512",
+        "--views-per-scene", "4",
+        "--samples", "16",
+        "--max-obliqueness", "0.15",
         "--fens", str(Path("fens.txt")),
         "--pieces", str(Path("pieces")),
     ]

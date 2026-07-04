@@ -51,6 +51,12 @@ for eng in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE"):
         sc.render.engine = eng; break
     except Exception:
         pass
+# View-Transform "Standard": Blenders AgX-Default entsättigt die Foto-Texturen —
+# schwarze Figuren wirken grau, weiße gelbstichig (Nutzer-Feedback 2026-07-04).
+try:
+    sc.view_settings.view_transform = "Standard"
+except Exception as e:
+    print(f"[render] view_transform unchanged ({e})")
 sc.render.resolution_x = sc.render.resolution_y = 800
 sc.render.film_transparent = False
 world = bpy.data.worlds.new("w"); sc.world = world

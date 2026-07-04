@@ -353,6 +353,7 @@ def build_templates(pieces_dir=None):
         return out
 
     templates, base_z = {}, {}
+    procedural_types = set()  # Typen mit Low-Poly-Staunton-Fallback (brauchen Subsurf).
     for t, name in TEMPLATE_NAMES.items():
         w_objs = _variant_objs(pdir, f"w{t}")
         b_objs = _variant_objs(pdir, f"b{t}")
@@ -364,6 +365,7 @@ def build_templates(pieces_dir=None):
             templates[("b", t)] = (_scanned_meshes(b_objs, t, "b", 1.0) if b_objs
                                    else _scanned_meshes(w_objs, t, "b", 0.2))
         else:
+            procedural_types.add(t)
             src = bpy.data.objects[name]
             base_z[t] = float(src.location.z)
             for color, mat in (("w", white_mat), ("b", black_mat)):
@@ -374,7 +376,7 @@ def build_templates(pieces_dir=None):
     for o in list(bpy.data.objects):
         if o.type == "MESH" and o.name not in BOARD_KEEP:
             bpy.data.objects.remove(o, do_unlink=True)
-    return templates, base_z
+    return templates, base_z, procedural_types
 
 
 def setup_camera():
@@ -391,9 +393,12 @@ def setup_camera():
     return cam
 
 
-def place_camera(cam, rng):
+def place_camera(cam, rng, max_obliqueness=0.10):
     H = 150.0 + rng.uniform(-10, 10)
-    off = rng.uniform(0.04, 0.10) * H
+    # Obliqueness = horizontaler Offset / Höhe. Untergrenze 0.04 (nie perfekt senkrecht),
+    # Obergrenze aus max_obliqueness — im gematchten Regime der echten ~0.06-Top-Down-Kamera.
+    lo = min(0.04, max_obliqueness)
+    off = rng.uniform(lo, max_obliqueness) * H
     ang = rng.uniform(0, 2 * math.pi)
     cam.location = Vector((off * math.cos(ang), off * math.sin(ang), H))
     direction = Vector((0, 0, 0)) - cam.location
@@ -418,7 +423,7 @@ def randomize_lights(rng):
             bg.inputs[0].default_value = (1.0, rng.uniform(0.82, 0.95), rng.uniform(0.62, 0.82), 1.0)
 
 
-def place_from_fen(fen, templates, base_z, rng):
+def place_from_fen(fen, templates, base_z, rng, procedural_types=frozenset(), fallback_subsurf=1):
     created = []
     for fi, ri, sym in parse_fen_placement(fen):
         color = "w" if sym.isupper() else "b"
@@ -432,9 +437,12 @@ def place_from_fen(fen, templates, base_z, rng):
         o = bpy.data.objects.new(f"pc_{fi}{ri}", mesh)
         o.location = (x + rng.uniform(-0.4, 0.4), y + rng.uniform(-0.4, 0.4), base_z[t])
         o.rotation_euler = (0, 0, rng.uniform(0, 2 * math.pi))
-        sub = o.modifiers.new("subsurf", "SUBSURF")
-        sub.levels = 1
-        sub.render_levels = 2
+        # Subsurf NUR für die Low-Poly-Staunton-Fallback-Figuren. Gescannte Meshes sind bereits
+        # dicht (~35k tris, decimate_pieces.py) → Subsurf verdoppelte nur die GPU-Last ohne Nutzen.
+        if t in procedural_types and fallback_subsurf > 0:
+            sub = o.modifiers.new("subsurf", "SUBSURF")
+            sub.levels = min(1, fallback_subsurf)
+            sub.render_levels = fallback_subsurf
         bpy.context.scene.collection.objects.link(o)
         created.append(o)
     return created
@@ -449,15 +457,22 @@ def corners_px(scene, cam):
     return out
 
 
-def set_engine_fast():
+def set_engine_fast(samples=24):
     scene = bpy.context.scene
-    for eng in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE"):
+    eng = scene.render.engine
+    for candidate in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE"):
         try:
-            scene.render.engine = eng
-            return eng
+            scene.render.engine = candidate
+            eng = candidate
+            break
         except Exception:
             continue
-    return scene.render.engine
+    # EEVEE TAA-Render-Samples: bestimmt Anti-Aliasing/Rausch-Qualität und ist der Haupt-Speed-Hebel.
+    try:
+        scene.eevee.taa_render_samples = samples
+    except (AttributeError, TypeError) as e:  # pragma: no cover - Blender-Version
+        print(f"[v2] taa_render_samples unchanged ({e})")
+    return eng
 
 
 def main():
@@ -483,36 +498,53 @@ def main():
         fens = ["rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR"]
     rng = random.Random(seed)
 
+    views = ra.views_per_scene
+    max_ob = ra.max_obliqueness
+    fb_subsurf = ra.fallback_subsurf
+
     scene = bpy.context.scene
-    eng = set_engine_fast()
+    eng = set_engine_fast(ra.samples)
     scene.render.resolution_x = scene.render.resolution_y = ra.res
     scene.render.image_settings.file_format = "PNG"
+    # Mesh/BVH/GPU-Buffer zwischen Renders halten → Folge-Views einer Szene (nur Kamera+Licht
+    # geändert) rendern ohne teuren Szenen-Neuaufbau. Zentraler Speed-Hebel des Szenen-Reuse.
+    scene.render.use_persistent_data = True
     # View-Transform auf "Standard": AgX/Filmic entsättigt die warme Holz-Foto-Textur
     # zu Grau. "Standard" (reines sRGB) ist zudem treuer zur echten Webcam-JPEG-Farbe.
     try:
         scene.view_settings.view_transform = "Standard"
     except (AttributeError, TypeError) as e:  # pragma: no cover - Blender-Version
         print(f"[v2] view_transform unchanged ({e})")
-    templates, base_z = build_templates(pieces_dir)
+    templates, base_z, procedural_types = build_templates(pieces_dir)
     style_board_v2(board_tex)
     cam = setup_camera()
-    print(f"[v2] engine={eng}, fens={len(fens)}")
+    print(f"[v2] engine={eng}, samples={ra.samples}, views_per_scene={views}, "
+          f"max_obliqueness={max_ob}, fens={len(fens)}")
 
-    for i in range(n):
-        fen = fens[i % len(fens)] if fens else "8/8/8/8/8/8/8/8"
-        place_camera(cam, rng)
-        randomize_lights(rng)
-        pieces = place_from_fen(fen, templates, base_z, rng)
+    # Szene = eine Figurenaufstellung, EINMAL gebaut; darüber `views` Kamera/Licht-Varianten.
+    i = 0
+    scene_idx = 0
+    while i < n:
+        fen = fens[scene_idx % len(fens)] if fens else "8/8/8/8/8/8/8/8"
+        pieces = place_from_fen(fen, templates, base_z, rng, procedural_types, fb_subsurf)
 
-        scene.render.filepath = str((out_dir / f"{i:06d}.png").resolve())
-        bpy.ops.render.render(write_still=True)
-        corners = corners_px(scene, cam)
-        (out_dir / f"{i:06d}.json").write_text(json.dumps({"fen": fen, "corners": corners}))
-        in_frame = all(0 <= c[0] <= scene.render.resolution_x and 0 <= c[1] <= scene.render.resolution_y for c in corners)
-        print(f"[v2] {i+1}/{n} pieces={len(pieces)} corners_in_frame={in_frame}")
+        for _ in range(views):
+            if i >= n:
+                break
+            place_camera(cam, rng, max_ob)
+            randomize_lights(rng)
+
+            scene.render.filepath = str((out_dir / f"{i:06d}.png").resolve())
+            bpy.ops.render.render(write_still=True)
+            corners = corners_px(scene, cam)
+            (out_dir / f"{i:06d}.json").write_text(json.dumps({"fen": fen, "corners": corners}))
+            in_frame = all(0 <= c[0] <= scene.render.resolution_x and 0 <= c[1] <= scene.render.resolution_y for c in corners)
+            print(f"[v2] {i+1}/{n} scene={scene_idx} pieces={len(pieces)} corners_in_frame={in_frame}")
+            i += 1
 
         for o in pieces:
             bpy.data.objects.remove(o, do_unlink=True)
+        scene_idx += 1
     print("[v2] DONE")
 
 
