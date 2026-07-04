@@ -9,7 +9,7 @@ import threading
 from pathlib import Path
 
 from fastapi import APIRouter, Body, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, Response
 
 from ..camera import mjpeg
 from ..scan import SCANNER, SCANS_ROOT

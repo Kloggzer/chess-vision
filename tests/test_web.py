@@ -34,7 +34,7 @@ def test_draw_target_pieces_writes_names_for_dense_fen():
                               image_corners=corners, homography=compute_homography(corners, bs),
                               white_pov=True, crop=CropParams.default(bs))
     img = np.zeros((bs, bs, 3), dtype=np.uint8)
-    # bewusst illegale, dichte Stellung (3 weiße Damen) — der Klassifikator braucht keine Legalität
+    # deliberately illegal, dense position (3 white queens) — the classifier needs no legality
     _draw_target_pieces(img, prof, "QQQ5/8/8/8/8/8/8/8 w - - 0 1")
     assert img.any()                                  # es wurde tatsächlich etwas gezeichnet
     assert _PIECE_NAMES_DE["Q"] == "Dame"
@@ -235,27 +235,6 @@ def test_dataset_api_degenerate_guard(tmp_path, monkeypatch):
     assert r.json()["counts"]["final"] == 6
     split = json.loads((config.DATA.datasets / "deg2" / "split.json").read_text(encoding="utf-8"))
     assert any("wQ" in e for e in split["degenerate_errors"])
-
-
-def test_calibrate_endpoints_no_camera(tmp_path, monkeypatch):
-    pytest.importorskip("fastapi")
-    pytest.importorskip("httpx")
-    import cv2
-    from fastapi.testclient import TestClient
-
-    from chesslab import config
-    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    from chesslab.web.app import create_app
-    client = TestClient(create_app())
-
-    # margin update
-    assert client.post("/api/calibrate/margin", json={"margin": 0.09}).json()["margin"] == 0.09
-    # marker sheet generation (no camera needed) -> served under /img
-    url = client.post("/api/calibrate/markers").json()["url"]
-    assert url.startswith("/img/")
-    assert cv2.imread(str(config.DATA.calibration / "markers.png")) is not None
-    # camera status without an open camera
-    assert client.get("/api/camera/status").json()["open"] is False
 
 
 def test_scan_upload_endpoint(tmp_path, monkeypatch):

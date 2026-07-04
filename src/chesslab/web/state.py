@@ -52,11 +52,8 @@ TRAIN = LockedState(proc=None, log=None, cmd=None, state="idle", before=set())
 COLLECT = LockedState(writer=None, positions=[], i=0, profile=None, camera=0,
                       board=None, show_target=False)
 
-INFER = LockedState(profile=None, board=None, run=None, camera=0, last=None)
 
-MANUAL = LockedState(profile=None, board=None, camera=0, writer=None)
 
-CALIB = LockedState(margin=0.06, tracker=None)
 
 
 # --- Domain-Methoden (Read-Modify-Write atomar) --------------------------------

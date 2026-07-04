@@ -20,7 +20,7 @@ export default function Training() {
   const [epochs, setEpochs] = useState(30);
   const [batchSize, setBatchSize] = useState(256);
   const [lr, setLr] = useState(0.0003);
-  const [patience, setPatience] = useState(7);   // Early-Stopping-Geduld (Epochen ohne macro_recall-Fortschritt)
+  const [patience, setPatience] = useState(7);   // Early stopping patience (epochs without macro_recall progress)
   const [resume, setResume] = useState("");   // "" = von Grund auf; sonst Run-Name als Warm-Start
   const timer = useRef<any>(null);
 
@@ -50,7 +50,7 @@ export default function Training() {
   const pct = (v: number | null | undefined) => (v == null ? "—" : (v * 100).toFixed(1) + " %");
   async function start() {
     setErr("");
-    if (!dataset) { setErr("Kein Datensatz — erst im Tab Datensätze einen bauen."); return; }
+    if (!dataset) { setErr("No dataset — build one in the Datasets tab first."); return; }
     try {
       await post("/api/train", { backbone, head, epochs, batch_size: batchSize, lr, patience, no_amp: true, dataset, resume: resume || undefined });
       clearInterval(timer.current);
@@ -132,7 +132,7 @@ export default function Training() {
           <div className="mt-3">
             <div className="mb-1 flex justify-between text-xs text-zinc-400">
               <span>{(() => {
-                if (status.running) return `läuft… (${status.run})`;
+                if (status.running) return `running… (${status.run})`;
                 if (status.state === "stopped" || status.state === "crashed") return "abgebrochen";
                 return "Fortschritt";
               })()} · Epoche {metrics.length}/{epochs}</span>
@@ -167,7 +167,7 @@ export default function Training() {
                 {runs.map((r) => (
                   <tr key={r.run} className={`border-t border-zinc-800 ${run === r.run ? "bg-zinc-800/50" : ""}`}>
                     <td className="py-1.5 text-zinc-200">{r.run}
-                      {r.resumed_from && <span className="ml-1 text-[10px] text-zinc-500" title={`weiter ab ${r.resumed_from}`}>↻</span>}
+                      {r.resumed_from && <span className="ml-1 text-[10px] text-zinc-500" title={`resumed from ${r.resumed_from}`}>↻</span>}
                       {r.has_occluded && <span className="ml-1 rounded bg-zinc-700 px-1 text-[9px] text-amber-300">+occ</span>}
                     </td>
                     <td className="text-zinc-400">{r.backbone}</td>
@@ -179,8 +179,8 @@ export default function Training() {
                     <td className="text-right tabular-nums text-zinc-300">{pct(r.best_macro_recall)}</td>
                     <td className="text-right tabular-nums text-zinc-300">{pct(r.test_board_acc)}</td>
                     <td className="py-1"><div className="flex justify-end gap-1.5">
-                      <Button onClick={() => showRun(r.run)} className="px-2 py-1 text-xs"><Eye className="h-3.5 w-3.5" /> Anzeigen</Button>
-                      <Button onClick={() => delRun(r.run)} className="px-2 py-1 text-xs text-red-300 hover:text-red-200"><Trash2 className="h-3.5 w-3.5" /> Löschen</Button>
+                      <Button onClick={() => showRun(r.run)} className="px-2 py-1 text-xs"><Eye className="h-3.5 w-3.5" /> View</Button>
+                      <Button onClick={() => delRun(r.run)} className="px-2 py-1 text-xs text-red-300 hover:text-red-200"><Trash2 className="h-3.5 w-3.5" /> Delete</Button>
                     </div></td>
                   </tr>
                 ))}
@@ -188,12 +188,12 @@ export default function Training() {
             </table>
           </div>
         )}
-        <p className="mt-2 text-xs text-zinc-500">„Anzeigen" lädt Kurven & Eval unten · „test" erscheint nach <code>chesslab eval --run …</code> · ↻ = weiter-trainiert · +occ = Modell kennt die Klasse „verdeckt".</p>
+        <p className="mt-2 text-xs text-zinc-500">"View" loads curves & eval below · "test" appears after <code>chesslab eval --run …</code> · ↻ = continued training · +occ = model knows "occluded" class.</p>
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title="Loss"><LineChart series={lossSeries} yMin={0} yMax={lossMax} /></Card>
-        <Card title="Metriken (0–1) — macro_recall ist die ehrliche Zahl">
+        <Card title="Metrics (0-1) — macro_recall is the honest number">
           <LineChart series={metricSeries} yMin={0} yMax={1} />
         </Card>
       </div>
@@ -209,13 +209,13 @@ export default function Training() {
                     <span className="font-medium uppercase text-zinc-400">{split}</span> ·
                     board_acc <b>{(e.board_acc * 100).toFixed(1)}%</b> · square_acc {(e.square_acc * 100).toFixed(1)}%
                   </div>
-                  <div className="text-xs text-zinc-500">schwächste Klassen: {worst.map(([k, v]) => `${k} ${(v * 100).toFixed(0)}%`).join(", ")}</div>
+                  <div className="text-xs text-zinc-500">weakest classes: {worst.map(([k, v]) => `${k} ${(v * 100).toFixed(0)}%`).join(", ")}</div>
                   {e.confusion_png && <img src={e.confusion_png} alt="Confusion Matrix" className="mt-2 max-w-md rounded-lg border border-zinc-800" />}
                 </div>
               );
             })}
           </div>
-        ) : <span className="text-sm text-zinc-500">Noch keine eval — <code>chesslab eval --run …</code></span>}
+        ) : <span className="text-sm text-zinc-500">No eval yet — <code>chesslab eval --run …</code></span>}
       </Card>
 
       {status.log_tail && (

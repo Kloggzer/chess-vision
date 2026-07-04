@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
-/** Interaktiver 3D-Viewer für eine vorbereitete Figur (OBJ + Textur, drehbar/zoombar). */
+/** Interactive 3D viewer for a prepared piece (OBJ + texture, rotatable/zoomable). */
 export function ModelViewer({ piece, variant, textured = true, size = 320 }: {
   piece: string; variant: string; textured?: boolean; size?: number;
 }) {
@@ -24,8 +24,8 @@ export function ModelViewer({ piece, variant, textured = true, size = 320 }: {
     renderer.toneMappingExposure = 1.15;
     el.appendChild(renderer.domElement);
 
-    // Rundum-Beleuchtung, damit keine Seite absäuft: HemiLight (Himmel/Boden) + Ambient +
-    // Key/Fill/Rim aus drei Richtungen. Vorher war die abgewandte Seite zu dunkel.
+    // Surround lighting so no side is dark: HemiLight (sky/ground) + Ambient +
+    // Key/Fill/Rim from three directions. Previously the far side was too dark.
     scene.add(new THREE.HemisphereLight(0xffffff, 0x404050, 1.1));
     scene.add(new THREE.AmbientLight(0xffffff, 0.35));
     const key = new THREE.DirectionalLight(0xffffff, 2.4); key.position.set(3, 4, 2); scene.add(key);
@@ -42,14 +42,14 @@ export function ModelViewer({ piece, variant, textured = true, size = 320 }: {
     const loader = new OBJLoader();
     loader.load(`/api/scan/model/${piece}/${variant}.obj`, (obj) => {
       if (disposed) return;
-      // Normalen sicherstellen (Scan-Meshes können fehlende/inkonsistente Normalen haben).
+      // Ensure normals exist (scan meshes may have missing/inconsistent normals).
       obj.traverse((c) => {
         const m = c as THREE.Mesh;
         if (m.isMesh) m.geometry.computeVertexNormals();
       });
-      // Material: Textur oder Clay. side=DoubleSide ist bei gescannten Meshes PFLICHT — sonst
-      // werden bei nach innen zeigenden Normalen die Vorderflächen weggecullt und man schaut
-      // durch die Figur (der „Wireframe"-Effekt).
+      // Material: texture or clay. side=DoubleSide is MANDATORY for scanned meshes — otherwise
+      // inward-facing normals get front-face culled and you look
+      // through the piece ("wireframe" effect).
       const applyMat = (mat: THREE.Material) => applyMeshMaterial(obj, mat);
       if (textured) {
         new THREE.TextureLoader().load(`/api/scan/model/${piece}/${variant}.png`, (tex) => {
@@ -60,7 +60,7 @@ export function ModelViewer({ piece, variant, textured = true, size = 320 }: {
         applyMat(new THREE.MeshStandardMaterial({ color: 0xc0c0c6, roughness: 0.65 }));
       }
 
-      // Zentrieren + Kamera passend setzen (Figur ist Z-up aus isolate_piece → als Y-up drehen).
+      // Center + set camera appropriately (piece is Z-up from isolate_piece -> rotate to Y-up).
       obj.rotation.x = -Math.PI / 2;
       const box = new THREE.Box3().setFromObject(obj);
       const c = box.getCenter(new THREE.Vector3());
