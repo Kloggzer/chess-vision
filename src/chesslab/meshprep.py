@@ -325,9 +325,8 @@ def _extract_glb_texture(mesh) -> Path | None:
     """
     import io
 
-    import trimesh
-
     import PIL.Image
+    import trimesh
 
     visual = mesh.visual
     if hasattr(visual, "material") and hasattr(visual.material, "baseColorTexture"):
@@ -538,7 +537,7 @@ def _rotation_between(a: np.ndarray, b: np.ndarray):
     T[:3, :3] = R
     return T
 
-def _vertex_normals(verts: "np.ndarray", faces: "np.ndarray") -> "np.ndarray":
+def _vertex_normals(verts: np.ndarray, faces: np.ndarray) -> np.ndarray:
     """Flächengewichtete Per-Vertex-Normalen (nach außen), normalisiert."""
     verts = np.asarray(verts, dtype=np.float64)
     normals = np.zeros_like(verts)

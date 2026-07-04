@@ -1,7 +1,7 @@
 """Web-UI des Move-Trackers: links die Live-Kamera mit dem, was der Computer GLAUBT (Figuren +
 letzter Zug eingeblendet), rechts das rekonstruierte Brett (python-chess-SVG) + Zugliste.
 
-Start:  chesslab track --profile phone --source https://192.168.178.23:4444/video/m.jpeg
+Start:  chesslab track --profile phone --source https://<PHONE-IP>:4444/video/m.jpeg
         (oder --source 0 für lokale Kamera). Dann http://127.0.0.1:8001
         python -m chesslab.move_tracker.app funktioniert ebenfalls.
 """

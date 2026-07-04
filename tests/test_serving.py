@@ -21,7 +21,7 @@ from chesslab.calibration import CalibrationProfile, CropParams, compute_homogra
 # ---------------------------------------------------------------------------
 
 def _identity_profile(bs: int = 800):
-    """Identitäts-Kalibrierprofil (Bildecken = Brettecken)."""
+    """Identity calibration profile (image corners = board corners)."""
     corners = [[0, 0], [bs, 0], [bs, bs], [0, bs]]
     return CalibrationProfile(
         profile="t", camera_index=0, frame_size=(bs, bs), board_size=bs,
@@ -31,7 +31,7 @@ def _identity_profile(bs: int = 800):
 
 
 def _synthetic_frame(bs: int = 800) -> np.ndarray:
-    """Einfaches Farbbrett: jedes Feld hat eine eigene Farbe (col,row) → Orientierung prüfbar."""
+    """Simple color board: each square has its own color (col,row) → orientation checkable."""
     cell = bs // 8
     img = np.zeros((bs, bs, 3), dtype=np.uint8)
     for col in range(8):
@@ -67,7 +67,7 @@ def _synthetic_session(tmp_path, bs: int = 800):
 # ---------------------------------------------------------------------------
 
 def test_crops_for_model_count_and_order(tmp_path):
-    """crops_for_model liefert 64 Crops in all_squares()-Reihenfolge, jede mit spec.out_size."""
+    """crops_for_model returns 64 crops in all_squares() order, each with spec.out_size."""
     bs = 640
     prof = _identity_profile(bs)
     frame = _synthetic_frame(bs)
@@ -82,7 +82,7 @@ def test_crops_for_model_count_and_order(tmp_path):
     for c in crops:
         assert c.shape[1] == 96 and c.shape[0] == 128   # (W=96, H=128)
 
-    # Reihenfolge prüfen: a1 sollte col=0,row=7 sein
+    # check order: a1 should be col=0,row=7
     squares = labeling.all_squares()
     a8_crop = crops[squares.index("a8")]
     h1_crop = crops[squares.index("h1")]
@@ -93,7 +93,7 @@ def test_crops_for_model_count_and_order(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Test 2: Identitätsgarde
+# Test 2: Identity guard
 # ---------------------------------------------------------------------------
 
 def test_photometry_none_is_identical(tmp_path):
@@ -118,7 +118,7 @@ def test_photometry_none_is_identical(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Test 3: Skew-Fix wirksam
+# Test 3: Skew fix effective
 # ---------------------------------------------------------------------------
 
 def test_photometry_clahe_differs_from_raw(tmp_path):
@@ -144,7 +144,7 @@ def test_photometry_clahe_differs_from_raw(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Test 4: Slice-Parität (VOR dem Refactoring von slice_session)
+# Test 4: Slice parity (BEFORE the slice_session refactoring)
 # ---------------------------------------------------------------------------
 
 def test_slice_parity_crops_vs_slice_session(tmp_path):
@@ -154,7 +154,7 @@ def test_slice_parity_crops_vs_slice_session(tmp_path):
     prof = _identity_profile(640)
     out_size = (96, 128)
 
-    # 1. Session mit OLD logic slicen (warp, none — der Default)
+    # 1. Slice session with OLD logic (warp, none — the default)
     manifest = tmp_path / "m.jsonl"
     squares_root = tmp_path / "sq"
     stats = labeling.slice_session(
@@ -163,8 +163,8 @@ def test_slice_parity_crops_vs_slice_session(tmp_path):
     )
 
     # 2. crops_for_frame mit with_meta=True aufrufen (das existiert NOCH nicht —
-    #    dieser Test ist der Wächter: er wird FEHLSCHLAGEN, bis crops_for_frame den
-    #    with_meta-Parameter bekommt. Nach dem Refactoring muss er GRÜN sein.)
+    #    this test is the sentinel: it will FAIL until crops_for_frame gets the
+    #    with_meta parameter. After the refactoring it must be GREEN.)
     frame = cv2.imread(str(sdir / "frames" / "0000.png"))
     corners = [[0, 0], [640, 0], [640, 640], [0, 640]]
     try:
@@ -180,10 +180,10 @@ def test_slice_parity_crops_vs_slice_session(tmp_path):
 
     assert len(crops) == 64
     assert len(meta["used_box3d"]) == 64
-    # warp mode → alle used_box3d sind False, n_fallback zählt 0
+    # warp mode → all used_box3d are False, n_fallback counts 0
     assert all(not v for v in meta["used_box3d"])
 
-    # 3. Jedes Crop muss pixel-identisch mit dem von slice_session geschriebenen PNG sein
+    # 3. Each crop must be pixel-identical to the PNG written by slice_session
     squares = labeling.all_squares()
     manifest_rows = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip()]
     by_sq = {r["square"]: r for r in manifest_rows}
@@ -198,7 +198,7 @@ def test_slice_parity_crops_vs_slice_session(tmp_path):
 
 
 def test_slice_parity_with_clahe(tmp_path):
-    """Slice-Parität auch mit photometry='clahe' — die Photometrie wird IN crops_for_frame
+    """Slice parity also with photometry='clahe' — photometry is applied IN crops_for_frame
     angewandt, also muss sie in den PNGs und in den crops identisch sein."""
     sdir = _synthetic_session(tmp_path, bs=640)
     prof = _identity_profile(640)
@@ -235,7 +235,7 @@ def test_slice_parity_with_clahe(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_run_spec_with_variant_field(tmp_path):
-    """config.json mit 'variant' → direkt gelesen (kein Fallback)."""
+    """config.json with 'variant' → read directly (no fallback)."""
     run_dir = tmp_path / "run1"
     run_dir.mkdir()
     (run_dir / "config.json").write_text(json.dumps({
@@ -253,7 +253,7 @@ def test_run_spec_with_variant_field(tmp_path):
 
 
 def test_run_spec_legacy_fallback(tmp_path):
-    """config.json ohne 'variant' + Manifest mit tags → Fallback über variant_of_run greift."""
+    """config.json without 'variant' + manifest with tags → fallback via variant_of_run kicks in."""
     run_dir = tmp_path / "run2"
     run_dir.mkdir()
     (run_dir / "config.json").write_text(json.dumps({
@@ -262,7 +262,7 @@ def test_run_spec_legacy_fallback(tmp_path):
         "dataset": None,   # → squares.jsonl (default)
     }), encoding="utf-8")
 
-    # Manifest mit tags (wie sie labeling.variant_of_run erwartet)
+    # Manifest with tags (as labeling.variant_of_run expects)
     manifests_dir = tmp_path / "manifests"
     manifests_dir.mkdir(parents=True)
     (manifests_dir / "squares.jsonl").write_text(
@@ -270,7 +270,7 @@ def test_run_spec_legacy_fallback(tmp_path):
         encoding="utf-8",
     )
 
-    # Monkeypatch: config.DATA.manifests zeigt auf unser temp dir
+    # Monkeypatch: config.DATA.manifests points to our temp dir
     import chesslab.config
     from chesslab import config as cfg_mod
     orig = chesslab.config.DATA
@@ -285,7 +285,7 @@ def test_run_spec_legacy_fallback(tmp_path):
 
 
 def test_run_spec_no_variant_no_manifest(tmp_path):
-    """Weder variant noch Manifest → Default (warp, none, EXP_PIECE_HEIGHT_CELLS) ohne Exception."""
+    """Neither variant nor manifest → default (warp, none, EXP_PIECE_HEIGHT_CELLS) without exception."""
     run_dir = tmp_path / "run3"
     run_dir.mkdir()
     (run_dir / "config.json").write_text(json.dumps({
@@ -299,7 +299,7 @@ def test_run_spec_no_variant_no_manifest(tmp_path):
     orig = chesslab.config.DATA
     try:
         chesslab.config.DATA = cfg_mod.Paths(root=tmp_path)
-        # kein Manifest → Fallback-Fallback
+        # no manifest → fallback-fallback
         spec = serving.run_spec(run_dir)
         assert spec.geometry == "warp"
         assert spec.photometry == "none"
@@ -309,7 +309,7 @@ def test_run_spec_no_variant_no_manifest(tmp_path):
 
 
 def test_run_spec_missing_config(tmp_path):
-    """Kein config.json → FileNotFoundError."""
+    """No config.json → FileNotFoundError."""
     with pytest.raises(FileNotFoundError):
         serving.run_spec(tmp_path / "gibt_es_nicht")
 

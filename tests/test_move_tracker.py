@@ -37,7 +37,7 @@ def _diffs(values: dict[str, float], default: float = 1.0) -> dict[str, float]:
 # =======================================================================================
 
 def test_normalize_diffs_all_equal_suppresses_global_shift():
-    """64 Felder gleicher Wert (globaler Belichtungs-Shift) → alle ≈ 0."""
+    """64 squares same value (global exposure shift) → all ≈ 0."""
     from chesslab.move_tracker.tracker import _ALL
 
     diffs = dict.fromkeys(_ALL, 20.0)
@@ -47,7 +47,7 @@ def test_normalize_diffs_all_equal_suppresses_global_shift():
 
 
 def test_normalize_diffs_isolates_hot_fields():
-    """62 Felder ≈ 2.0, e2/e4 = 40.0 → e2/e4 bleiben ≈ 38, Rest ≈ 0."""
+    """62 squares ≈ 2.0, e2/e4 = 40.0 → e2/e4 stay ≈ 38, rest ≈ 0."""
     from chesslab.move_tracker.tracker import _ALL
 
     diffs = dict.fromkeys(_ALL, 2.0)
@@ -77,7 +77,7 @@ def _z(values: dict[str, float], default: float = 0.0) -> dict[str, float]:
 
 class TestSquareNoise:
     def test_std_floor_prevents_collapse(self):
-        """Viele Updates mit diff ≈ 0 → std kollabiert NICHT unter den Floor."""
+        """Many updates with diff ≈ 0 → std does NOT collapse below the floor."""
         n = SquareNoise()
         quiet = _diffs({}, default=0.0)
         for _ in range(200):
@@ -85,7 +85,7 @@ class TestSquareNoise:
         assert min(n.std.values()) >= n.std_floor
 
     def test_mean_absorbs_local_drift(self):
-        """Persistenter lokaler Offset auf e4 wird ins Mittel gelernt → z sinkt gegen 0."""
+        """Persistent local offset on e4 is learned into the mean → z drops toward 0."""
         n = SquareNoise()
         drifted = _diffs({"e4": 10.0}, default=0.0)
         for _ in range(200):
@@ -136,10 +136,10 @@ class TestLoglikScores:
         """Heißes unberührtes Feld drückt Züge, die es NICHT erklären, unter den Zug, der es deckt."""
         board = chess.Board()
         z = _z({"e2": 8.0, "e4": 8.0, "a3": 8.0})   # a3 heiß, aber nur a2a3/b1a3 decken es
-        scored = dict((mv.uci(), s) for mv, s in loglik_scores(board, z))
+        scored = {mv.uci(): s for mv, s in loglik_scores(board, z)}
         assert scored["e2e4"] > scored["d2d4"]      # d2d4 erklärt gar nichts Heißes
         # e2e4 lässt a3 unerklärt → sein Score ist niedriger als ohne das Störfeld
-        clean = dict((mv.uci(), s) for mv, s in loglik_scores(board, _z({"e2": 8.0, "e4": 8.0})))
+        clean = {mv.uci(): s for mv, s in loglik_scores(board, _z({"e2": 8.0, "e4": 8.0}))}
         assert scored["e2e4"] == pytest.approx(clean["e2e4"])   # relativ: Störfeld trifft alle gleich
 
     def test_quiet_board_all_negative(self):
@@ -240,7 +240,7 @@ def test_per_square_diff_detects_changed_cell():
 
 
 def test_square_region_returns_in_bounds():
-    """square_region liefert Box innerhalb von [0, board_size] mit positiver Fläche."""
+    """square_region returns box within [0, board_size] with positive area."""
     bs = 800
     for sq in ("a1", "e4", "h8", "d5"):
         x0, y0, x1, y1 = square_region(sq, bs, white_pov=True)
@@ -249,7 +249,7 @@ def test_square_region_returns_in_bounds():
 
 
 def test_square_region_white_pov_a1_bottom_left():
-    """Bei white_pov=True liegt a1 (col=0,row=7) im unteren Viertel, h8 (col=7,row=0) oben."""
+    """With white_pov=True, a1 (col=0,row=7) is in the lower quarter, h8 (col=7,row=0) at top."""
     bs = 800
     x0, y0, x1, y1 = square_region("a1", bs, white_pov=True)
     assert y0 > bs * 0.75  # a1 → row=7 → im unteren Viertel
@@ -259,12 +259,12 @@ def test_square_region_white_pov_a1_bottom_left():
 
 
 # =======================================================================================
-# Teil 2 — Confirmer, headless E2E, TestClient (Spec 06)
+# Part 2 — Confirmer, headless E2E, TestClient (Spec 06)
 # =======================================================================================
 
 
 class TestConfirmer:
-    """Extrahiertes confirm_frames-Voting aus tracker.py."""
+    """Extracted confirm_frames voting from tracker.py."""
 
     def test_same_uci_confirm_frames_times_commits(self):
         from chesslab.move_tracker.tracker import Confirmer
@@ -448,8 +448,8 @@ def _make_tracker(monkeypatch, **kwargs):
     fake = FakeCapture([_bgr_frame(["e2"])])
     monkeypatch.setattr("chesslab.move_tracker.tracker.open_source", lambda s: fake)
     monkeypatch.setattr("chesslab.move_tracker.tracker.load_profile", lambda p: prof)
-    defaults = dict(profile="phone", source="0", live_align=False,
-                    max_changed=6, confirm_frames=1, avg_frames=1)
+    defaults = {"profile": "phone", "source": "0", "live_align": False,
+                    "max_changed": 6, "confirm_frames": 1, "avg_frames": 1}
     defaults.update(kwargs)
     return MoveTracker(**defaults)
 
@@ -607,10 +607,10 @@ class TestCnnVerify:
 
 
 class TestShadowRobustness:
-    """Census-Metrik + HSV-Cast-Shadow-Veto (schatten-robuste Erkennung)."""
+    """Census metric + HSV cast-shadow veto (shadow-robust detection)."""
 
     def _bgr(self, squares, base_bgr=(120, 120, 120), fill_bgr=(30, 40, 200), board_size=400):
-        """Farb-Warp: Grundfarbe grau, auf `squares` ein farbiger (rötlicher) Block."""
+        """Color warp: base color gray, on `squares` a colored (reddish) block."""
         from chesslab.move_tracker.tracker import square_region
         img = np.full((board_size, board_size, 3), base_bgr, dtype=np.uint8)
         for sq in squares:
@@ -619,7 +619,7 @@ class TestShadowRobustness:
         return img
 
     def test_hsv_shadow_detects_uniform_darkening(self):
-        """Gleiche Farbe, gleichmäßig dunkler → als Schatten erkannt."""
+        """Same color, uniformly darker → detected as shadow."""
         from chesslab.move_tracker.tracker import hsv_shadow_squares
         ref = self._bgr([], base_bgr=(120, 120, 120))
         cur = self._bgr([], base_bgr=(70, 70, 70))          # abgedunkelt, gleiche (graue) Chroma
@@ -627,7 +627,7 @@ class TestShadowRobustness:
         assert "e4" in shadows and "d5" in shadows
 
     def test_hsv_shadow_ignores_real_piece(self):
-        """Farbiger Block (neue Figur) → NICHT als Schatten (andere Chroma)."""
+        """Colored block (new piece) → NOT a shadow (different chroma)."""
         from chesslab.move_tracker.tracker import hsv_shadow_squares
         ref = self._bgr([])
         cur = self._bgr(["e4"], fill_bgr=(30, 40, 200))     # kräftig rot auf e4
@@ -635,7 +635,7 @@ class TestShadowRobustness:
         assert "e4" not in shadows
 
     def test_census_low_for_uniform_darkening(self):
-        """Census ≈ 0 bei reiner Helligkeitsänderung (keine Struktur)."""
+        """Census ≈ 0 for pure brightness change (no structure)."""
         from chesslab.move_tracker.tracker import per_square_census_change
         ref = np.full((400, 400), 120, np.uint8)
         cur = np.full((400, 400), 70, np.uint8)
@@ -658,7 +658,7 @@ class TestShadowRobustness:
 
 
 class TestLatestFrame:
-    """Grab-Latest-Wrapper: liefert immer den neuesten Frame; sauberes release()."""
+    """Grab-Latest-Wrapper: always returns the latest frame; clean release()."""
 
     def test_reads_newest_and_releases(self):
         from chesslab.web.camera import LatestFrame
@@ -753,7 +753,7 @@ class TestNudgePatch:
     """Nicht-CNN-Re-Anchor fuer erklaerbare Stoerungen (Spec 10, Teil 4)."""
 
     def test_nudge_patches_occupied_square(self, monkeypatch):
-        """1 belegtes Feld persistent unerklaert -> nach nudge_timeout_s wird die
+        """1 occupied square persistently unexplained -> after nudge_timeout_s the
         Referenz-Zelle gepatcht, Tracker laeuft weiter (kein stuck)."""
         mt = _make_tracker(monkeypatch, cnn_run=None, nudge_timeout_s=0.0)
         mt.ref_gray = _gray_frame([], base=128)
@@ -763,7 +763,7 @@ class TestNudgePatch:
         mt._try_detect(cur)
         assert mt._stuck_reason is None
         assert mt.history == []
-        # Referenz-Zelle uebernommen -> naechster Frame ist ruhig
+        # Reference cell adopted -> next frame is quiet
         mt._try_detect(cur)
         assert mt._changed == []
 
@@ -828,10 +828,10 @@ class TestWeakEvidenceHold:
         ref = _gray_frame([], base=128)
         mt.ref_gray = ref
         mt.ref_fen = mt.board.fen()
-        # z-Scores direkt einspeisen: e2 (2.5) und e4 (1.5) BEIDE unter z_thr, aber beide
+        # Feed z-scores directly: e2 (2.5) and e4 (1.5) BOTH below z_thr, but both
         # ueber z_thr/2 -> e2e4 viabel, best-LL = -2 (zwischen Floor -4 und 0) -> HALTEN.
         monkeypatch.setattr(trk, "per_square_diff",
-                            lambda *a, **k: {s: 0.0 for s in trk._ALL})
+                            lambda *a, **k: dict.fromkeys(trk._ALL, 0.0))
         monkeypatch.setattr(mt.noise, "z",
                             lambda diffs: {s: {"e2": 2.5, "e4": 1.5}.get(s, 0.0)
                                            for s in trk._ALL})
@@ -842,7 +842,7 @@ class TestWeakEvidenceHold:
         assert "schwache Zugevidenz" in mt.note
 
 class TestPairScores:
-    """Diff-seitige 2-Halbzug-Erkennung (schnelles Spiel ohne CNN)."""
+    """Diff-side 2-half-move detection (fast play without CNN)."""
 
     def test_pair_explains_two_moves(self):
         from chesslab.move_tracker.tracker import loglik_pair_scores

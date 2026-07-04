@@ -1,7 +1,7 @@
 """Turntable-Aufnahme für Photogrammetrie — pro ENTER ein High-Res-Snapshot von der (IP-)Cam.
 
 Aufruf (im EIGENEN Terminal, damit die ENTER-Eingabe funktioniert):
-    uv run python synth/capture_turntable.py --source https://192.168.178.23:4444/video/snapshot --out scans/king
+    uv run python synth/capture_turntable.py --source https://<PHONE-IP>:4444/video/snapshot --out scans/king
 
 ENTER  = Foto aufnehmen (du drehst den Teller ~15°, dann ENTER)
 r      = neuen Ring markieren (nur Hinweis; Kamera-Höhe ändern)

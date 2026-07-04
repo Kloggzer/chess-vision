@@ -6,7 +6,7 @@ das Profil für jeden Frame deterministisch die 64 Square-Crops.
 
 Die reine Mapping-Funktion `square_to_crop_box` lebt hier zentral (Profil-gebunden) und
 wird von Stufe 3 (`labeling.py`) importiert. Profil-Laden/-Speichern und die Geometrie
-sind headless (ohne Kamera/GUI) nutzbar und getestet; nur `calibrate new`/`check` brauchen
+sind headless (ohne Kamera/GUI) nutzbar und getestet; nur `calibrate auto`/`check` brauchen
 Kamera + Display.
 """
 
@@ -332,13 +332,6 @@ def _detect_marker_quads(frame, dict_name: str, ids: tuple[int, ...]) -> dict[in
     return {int(i): c.reshape(4, 2) for c, i in zip(found_corners, found_ids.flatten(), strict=False) if int(i) in ids}
 
 
-def detect_board_marker_quads(frame, dict_name: str = "DICT_4X4_50",
-                              ids: tuple[int, ...] = (0, 1, 2, 3)) -> dict[int, np.ndarray]:
-    """Volle 4-Eck-Quads je gefundenem Marker — für Pose/PnP (geometry3d). `detect_board_markers`
-    kollabiert auf einen Punkt je Marker; hier bleiben alle 4 Ecken als 2D-3D-Korrespondenzen erhalten."""
-    return _detect_marker_quads(frame, dict_name, ids)
-
-
 def detect_board_markers(frame, dict_name: str = "DICT_4X4_50", ids: tuple[int, ...] = (0, 1, 2, 3),
                          corner: str = "center") -> dict[int, list[float]]:
     """Erkennt die Marker und gibt {id: [x,y]} der GEFUNDENEN zurück (center bzw. innere Ecke)."""
@@ -515,7 +508,7 @@ def _cluster_two_angle_families(lines) -> tuple[list, list]:
     crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-3)
     _c, labels, _ctr = cv2.kmeans(pts, 2, None, crit, 5, cv2.KMEANS_PP_CENTERS)
     fam = [[], []]
-    for (r, t), lab in zip(lines, labels.ravel()):
+    for (r, t), lab in zip(lines, labels.ravel(), strict=False):
         fam[int(lab)].append((float(r), float(t)))
     return fam[0], fam[1]
 
@@ -910,102 +903,6 @@ def calibrate_auto(camera: int, profile: str, board_size: int, dict_name: str = 
 # --- Interaktive Befehle (brauchen Kamera + Display) ----------------------------------
 
 _WIN = "chesslab calibrate"
-_HELP_NEW = "c=capture  Klick 4 Ecken (a8,h8,h1,a1)  u=undo  r=reset  o=POV  s=save  q=quit"
-
-
-def calibrate_new(camera: int, profile: str, board_size: int) -> int:
-    """Interaktive Profilerstellung. Gibt einen Exit-Code zurück."""
-    out_path = profile_path(profile)
-    if out_path.exists():
-        import typer
-
-        if not typer.confirm(f"Profil '{profile}' existiert bereits ({out_path}). Überschreiben?"):
-            print("Abgebrochen.")
-            return 1
-
-    cap = open_camera(camera)
-    if not cap.isOpened():
-        print(f"[FAIL] Kamera {camera} konnte nicht geöffnet werden — anderen Index probieren (0,1,2…).")
-        return 1
-
-    points: list[list[float]] = []
-    frozen = None
-    white_pov = True
-
-    def on_mouse(event, x, y, flags, _param):
-        if frozen is not None and event == cv2.EVENT_LBUTTONDOWN and len(points) < 4:
-            points.append([float(x), float(y)])
-
-    cv2.namedWindow(_WIN, cv2.WINDOW_NORMAL)
-    cv2.setMouseCallback(_WIN, on_mouse)
-
-    try:
-        while True:
-            if frozen is None:
-                ok, frame = cap.read()
-                if not ok or frame is None:
-                    print("[FAIL] kein Frame von der Kamera gelesen.")
-                    return 1
-                view = frame.copy()
-                cv2.putText(view, "c = capture (Standbild einfrieren)", (10, 24),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2, cv2.LINE_AA)
-            else:
-                view = frozen.copy()
-                for i, (px, py) in enumerate(points):
-                    cv2.circle(view, (int(px), int(py)), 5, (0, 0, 255), -1)
-                    cv2.putText(view, f"{i}:{['a8','h8','h1','a1'][i]}", (int(px) + 6, int(py) - 6),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
-                cv2.putText(view, _HELP_NEW, (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1, cv2.LINE_AA)
-                cv2.putText(view, f"white_pov={white_pov}", (10, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-                            (0, 255, 255), 1, cv2.LINE_AA)
-
-            cv2.imshow(_WIN, view)
-            key = cv2.waitKey(20) & 0xFF
-
-            if key == ord("q"):
-                print("Abgebrochen (q).")
-                return 1
-            if key == ord("c") and frozen is None:
-                frozen = frame.copy()
-            elif key == ord("u") and points:
-                points.pop()
-            elif key == ord("r"):
-                points.clear()
-            elif key == ord("o"):
-                white_pov = not white_pov
-            elif key == ord("s"):
-                if len(points) != 4:
-                    print(f"[WARN] genau 4 Ecken nötig (aktuell {len(points)}).")
-                    continue
-                h, w = frozen.shape[:2]
-                H = compute_homography(points, board_size)
-                prof = CalibrationProfile(
-                    profile=profile,
-                    camera_index=camera,
-                    frame_size=(w, h),
-                    board_size=board_size,
-                    image_corners=points,
-                    homography=H,
-                    white_pov=white_pov,
-                    crop=CropParams.default(board_size),
-                )
-                preview = draw_board_grid(warp_board(frozen, prof), prof)
-                cv2.imshow(_WIN, preview)
-                cv2.putText(preview, "s=save bestätigen, q=verwerfen", (10, 24),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2, cv2.LINE_AA)
-                cv2.imshow(_WIN, preview)
-                k2 = cv2.waitKey(0) & 0xFF
-                if k2 == ord("s"):
-                    prof.save(out_path)
-                    print(f"[OK] Profil gespeichert: {out_path}")
-                    return 0
-                # sonst zurück zum Editieren
-        return 1
-    finally:
-        cap.release()
-        cv2.destroyAllWindows()
-
-
 def calibrate_check(camera: int, profile: str) -> int:
     """Live-Overlay des Rasters auf das entzerrte Kamerabild."""
     try:

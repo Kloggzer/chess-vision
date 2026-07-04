@@ -137,19 +137,19 @@ def test_verify_flags_missing_file_size_and_split_overlap(tmp_path):
 # --- validate_split -------------------------------------------------------------------
 
 def test_validate_split_class_only_in_one_session():
-    """Klasse nur in einer Session -> Error."""
+    """Class only in one session -> Error."""
     from chesslab.dataset import validate_split
 
     rows = []
-    # s0: 2 sessions, wQ nur in s0
+    # s0: 2 sessions, wQ only in s0
     for _ in range(5):
         rows.append(_row("wQ", "s0", "d1", "dark"))
     rows.append(_row("wQ", "s0", "e1", "dark"))
-    # wK in beiden Sessions
+    # wK in both sessions
     for _ in range(5):
         rows.append(_row("wK", "s0", "e1", "dark"))
         rows.append(_row("wK", "s1", "e1", "dark"))
-    # empty füllen
+    # empty fill
     for _ in range(30):
         rows.append(_row("empty", "s0", "c4", "light"))
         rows.append(_row("empty", "s1", "c4", "light"))
@@ -165,7 +165,7 @@ def test_validate_split_class_only_in_one_session():
 
 
 def test_validate_split_zero_errors():
-    """≥3 Sessions, jede Klasse in ≥2 Sessions, nichtleeres Val+Test -> 0 Errors."""
+    """≥3 sessions, each class in ≥2 sessions, non-empty Val+Test -> 0 Errors."""
     from chesslab.dataset import validate_split
 
     rows = []
@@ -185,7 +185,7 @@ def test_validate_split_zero_errors():
 
 
 def test_validate_split_occluded_absent_globally_no_error():
-    """occluded global nicht vorhanden -> kein Error (optional)."""
+    """occluded globally not present -> no Error (optional)."""
     from chesslab.dataset import validate_split
 
     rows = []
@@ -205,14 +205,14 @@ def test_validate_split_occluded_absent_globally_no_error():
 
 
 def test_run_split_allow_degenerate_stores_errors(tmp_path, monkeypatch):
-    """allow_degenerate=True -> läuft durch, split.json hat degenerate_errors."""
+    """allow_degenerate=True -> runs through, split.json has degenerate_errors."""
     from chesslab import config
     from chesslab.dataset import run_split
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
     config.DATA.manifests.mkdir(parents=True)
 
-    # wQ nur in s0
+    # wQ only in s0
     rows = []
     for _ in range(5):
         rows.append(_row("wQ", "s0", "d1", "dark"))

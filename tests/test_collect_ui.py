@@ -104,12 +104,12 @@ def test_coverage_plan_packs_rare_classes_and_converges():
     assert plan and all(p["fen"] for p in plan)
     # erster Aufbau ist dicht (viele Ziel-Crops), nicht 1-2 wie beim Partie-Replay
     assert plan[0]["gains"] >= 20
-    # konvergiert: bei target=4 und vollem Inventar sind nach wenigen Aufbauten alle Ziele erfüllt
+    # converges: at target=4 with a full inventory, all targets are met after a few setups
     assert len(plan) < 50
 
 
 def test_sweep_plan_separate_covers_each_special_down_the_files():
-    """sweep (special, passes=1, getrennt): 16 Fotos; jede Sonderfigur läuft eine Linie runter,
+    """sweep (special, passes=1, separate): 16 photos; each special piece runs down a file,
     jedes Feld bekommt eine Sonderfigur, K/Q je 8x (eine Linie über 8 Ränge)."""
     plan = sweep_plan(passes=1, together=False)
     assert len(plan) == 16                         # 8 Weiß + 8 Schwarz
@@ -126,7 +126,7 @@ def test_sweep_plan_separate_covers_each_special_down_the_files():
 
 
 def test_sweep_plan_together_halves_frames_and_covers_both_colors():
-    """sweep together=True: nur 8 Fotos, aber JEDES Feld sieht eine weiße UND eine schwarze Figur."""
+    """sweep together=True: only 8 photos, but EACH square sees a white AND a black piece."""
     plan = sweep_plan(passes=1, together=True)
     assert len(plan) == 8                          # halbe Fotozahl
     seen = {sq: set() for sq in all_squares()}

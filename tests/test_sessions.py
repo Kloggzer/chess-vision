@@ -58,9 +58,9 @@ def test_archive_removes_crops_and_manifest_then_restore(tmp_path):
     assert not (paths.sessions / "s1").exists() and (paths.sessions_archive / "s1").exists()
     kept = [json.loads(line)["session_id"] for line in (paths.manifests / "squares.jsonl")
             .read_text(encoding="utf-8").splitlines() if line.strip()]
-    assert kept == ["s2"]                                  # nur s2 bleibt im Manifest
+    assert kept == ["s2"]                                  # only s2 stays in the manifest
     assert not (paths.squares / "wK" / "s1_0000_e1.png").exists()
-    assert (paths.squares / "wK" / "s2_0000_e1.png").exists()  # andere Session unberührt
+    assert (paths.squares / "wK" / "s2_0000_e1.png").exists()  # other session untouched
 
     S.restore_session("s1", paths)
     assert (paths.sessions / "s1").exists() and not (paths.sessions_archive / "s1").exists()

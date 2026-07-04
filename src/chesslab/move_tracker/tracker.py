@@ -781,7 +781,7 @@ class MoveTracker:
           - sonst unsicher → kein Vote (nächster Frame = neues Bild).
         `_recovery_confirmer` sammelt gleiche Votes bis confirm_frames → Commit. Bleibt es über
         `verify_window` Frames unentschieden → Kandidat als Ghost verwerfen, Base-Truth bleibt."""
-        now = time.time()
+        time.time()
         with self.lock:
             pending = self._pending
             if pending is None or self.board.fen() != pending["fen"]:
@@ -940,7 +940,7 @@ class MoveTracker:
         Rängen (beobachtet in clip03: a1-Marker intermittierend, ~130 px Sprung)."""
         if self._ref_corners is None or self._last_corners is None:
             return False
-        for (rx, ry), (cx, cy) in zip(self._ref_corners, self._last_corners):
+        for (rx, ry), (cx, cy) in zip(self._ref_corners, self._last_corners, strict=False):
             if abs(float(cx) - rx) > self.corner_jump_px or abs(float(cy) - ry) > self.corner_jump_px:
                 return True
         return False

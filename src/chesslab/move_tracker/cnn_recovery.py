@@ -55,7 +55,7 @@ class OccupancyObservation:
         """Felder, deren IDENTITÄTS-Aussage belastbar ist: Top-Konfidenz ≥ thr und nicht
         `occluded` (Hand/Verdeckung). Leer, wenn der Run keine Identität liefert."""
         if self.label is None or self.conf is None:
-            return {sq: False for sq in self.p_occ}
+            return dict.fromkeys(self.p_occ, False)
         return {sq: (self.conf[sq] >= thr and self.label[sq] != "occluded")
                 for sq in self.label}
 
