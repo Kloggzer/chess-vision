@@ -13,6 +13,7 @@ import cv2
 
 from chesslab.calibration import (
     board_corners_for_frame,
+    board_corners_from_lines,
     load_profile,
     make_tracker,
     warp_from_corners,
@@ -25,6 +26,8 @@ def main() -> int:
     ap.add_argument("second", type=float)
     ap.add_argument("outprefix")
     ap.add_argument("--profile", default="phone")
+    ap.add_argument("--lines", action="store_true",
+                    help="markerlose Linien-Erkennung statt ArUco (Spec 11)")
     a = ap.parse_args()
 
     prof = load_profile(a.profile)
@@ -36,9 +39,13 @@ def main() -> int:
         print("Frame nicht lesbar", file=sys.stderr)
         return 1
 
-    tracker = make_tracker(prof)
-    corners = board_corners_for_frame(frame, prof, tracker)
-    print("Marker-Ecken gefunden:", corners is not None)
+    if a.lines:
+        corners = board_corners_from_lines(frame, prof)
+        print("Linien-Ecken gefunden:", corners is not None)
+    else:
+        tracker = make_tracker(prof)
+        corners = board_corners_for_frame(frame, prof, tracker)
+        print("Marker-Ecken gefunden:", corners is not None)
     raw = frame.copy()
     use = corners if corners is not None else prof.image_corners
     print("verwendete Ecken:", [[round(float(x), 1), round(float(y), 1)] for x, y in use])

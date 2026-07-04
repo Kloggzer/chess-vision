@@ -16,7 +16,7 @@ from pathlib import Path
 
 import cv2
 
-from .camera import _open_source
+from .camera import _UrlSnapshotCapture, _open_source
 
 # scans/ liegt auf Repo-Ebene (neben data/) — cwd-unabhängig über die Dateilage ankern.
 SCANS_ROOT = Path(__file__).resolve().parents[3] / "scans"
@@ -58,11 +58,19 @@ class ScanController:
         self.thread: threading.Thread | None = None
         self.stop_flag = False
 
+        # Getrennte SPEICHER-Quelle: die Live-Vorschau läuft über den flüssigen Stream
+        # (`source`, i.d.R. …/video/m.jpeg), GESPEICHERTE Fotos werden aber aus dieser
+        # Snapshot-URL gezogen (…/video/snapshot, saubere Einzelbilder). Leer -> Fotos
+        # kommen aus dem Live-Frame. Der im Vorschaubild gezogene Crop wird dabei auf die
+        # Snapshot-Auflösung skaliert (falls sie sich vom Stream unterscheidet).
+        self.capture_source = ""
+        self.capture_cap = None
+
         # Bedarfs-Steuerung: die physische Kamera wird nur gegriffen, wenn Vorschau angezeigt
         # oder aufgenommen wird. `configured` = Quelle ausgewählt (UI-Panel offen); die echte
         # `cap` wird lazy geöffnet/nach `idle_timeout` Sekunden Leerlauf wieder freigegeben.
         self.configured = False
-        self._cfg = ("0", 3840, 2160)          # (source, width, height) fürs Lazy-Reopen
+        self._cfg = ("0", 2880, 2160)          # (source, width, height) fürs Lazy-Reopen
         self._last_demand = 0.0                # letzter Preview-Abruf (Aufnahme = Dauerbedarf)
         self.idle_timeout = 12.0
 
@@ -85,9 +93,12 @@ class ScanController:
         self.quality = 92
 
     # -- Quelle öffnen / schließen -------------------------------------------------
-    def open(self, source, width: int = 3840, height: int = 2160) -> dict:
+    def open(self, source, width: int = 2880, height: int = 2160, capture_source: str = "") -> dict:
         """Quelle AUSWÄHLEN + einmal testen. Danach hält der Loop die Kamera nur bei Bedarf
-        (Vorschau/Aufnahme) und gibt sie im Leerlauf automatisch frei."""
+        (Vorschau/Aufnahme) und gibt sie im Leerlauf automatisch frei.
+
+        `capture_source` (optional): Snapshot-URL, aus der beim Aufnehmen gespeichert wird —
+        die Vorschau bleibt am flüssigen `source`-Stream."""
         self.close()
         cap = _open(source, width, height)     # Testöffnung: schlägt früh fehl, wenn die Quelle streikt
         ok, img = cap.read()
@@ -97,11 +108,25 @@ class ScanController:
             except Exception:  # noqa: BLE001
                 pass
             raise RuntimeError(f"Keine Frames von {source!r}. Quelle/URL/App prüfen.")
+        cap_src = str(capture_source or "").strip()
+        capture_cap = None
+        if cap_src:
+            probe = _UrlSnapshotCapture(cap_src)   # Snapshot einmal testen -> früher, klarer Fehler
+            ok_s, _ = probe.read()
+            if not ok_s:
+                try:
+                    cap.release()
+                except Exception:  # noqa: BLE001
+                    pass
+                raise RuntimeError(f"Snapshot-Quelle {cap_src!r} liefert kein Bild. URL prüfen.")
+            capture_cap = probe
         with self.lock:
             self.cap = cap                     # bleibt erstmal offen (Vorschau startet sofort)
             self.configured = True
             self._cfg = (str(source), int(width), int(height))
             self.source = str(source)
+            self.capture_source = cap_src
+            self.capture_cap = capture_cap
             self.frame = img
             self.frame_size = (img.shape[1], img.shape[0])
             self.frame_id += 1
@@ -121,6 +146,12 @@ class ScanController:
             self.recording = False
             self.configured = False
             self._release_cap_locked()
+            if self.capture_cap is not None:
+                try:
+                    self.capture_cap.release()
+                except Exception:  # noqa: BLE001
+                    pass
+            self.capture_cap = None
             self.thread = None
 
     def _release_cap_locked(self) -> None:
@@ -170,30 +201,65 @@ class ScanController:
                     self.error = "kein Frame"
                 time.sleep(0.1)
                 continue
+            ctx = None
             with self.lock:
                 self.frame = img
                 self.frame_size = (img.shape[1], img.shape[0])
                 self.frame_id += 1
                 self.error = ""
-                due = self.recording and (time.time() - self._last_save) >= self.interval
-                if due:
-                    self._save_locked(img)
+                if self.recording and (time.time() - self._last_save) >= self.interval:
+                    ctx = (self.crop, self.frame_size, self.out_dir,
+                           self.index, self.quality, self.capture_cap)
+            if ctx is not None:
+                self._save_photo(img, *ctx)     # Snapshot-Fetch + Write OHNE Lock
 
-    def _save_locked(self, img) -> None:
-        """Crop speichern (Aufrufer hält den Lock). Beendet den Lauf, wenn count erreicht."""
-        crop = img
-        if self.crop is not None:
-            x0, y0, x1, y1 = self._clamp(self.crop, img.shape[1], img.shape[0])
-            if x1 - x0 >= 8 and y1 - y0 >= 8:
-                crop = img[y0:y1, x0:x1]
-        assert self.out_dir is not None
-        cv2.imwrite(str(self.out_dir / f"{self.index:03d}.jpg"), crop,
-                    [cv2.IMWRITE_JPEG_QUALITY, int(self.quality)])
-        self.index += 1
-        self.saved_run += 1
-        self._last_save = time.time()
-        if self.count and self.saved_run >= self.count:
-            self.recording = False
+    def _save_photo(self, live_img, crop, prev_size, out_dir, index, quality, capture_cap) -> None:
+        """Ein Foto speichern. Ist eine Snapshot-Quelle gesetzt (`capture_cap`), kommt das
+        gespeicherte Bild von dort und der auf der Vorschau gezogene Crop wird auf die
+        Snapshot-Größe skaliert; sonst wird der Live-Frame gespeichert. Läuft bewusst OHNE
+        Lock (Netz-Fetch), Zähler werden am Ende unter Lock fortgeschrieben."""
+        img = live_img
+        sx = sy = 1.0
+        if capture_cap is not None:
+            ok, snap = capture_cap.read()
+            if ok and snap is not None:
+                img = snap
+                pw, ph = prev_size
+                if pw and ph:                    # Crop (Vorschau-Koords) -> Snapshot-Koords
+                    sx, sy = snap.shape[1] / pw, snap.shape[0] / ph
+            else:
+                with self.lock:
+                    self.error = "Snapshot fehlgeschlagen — Live-Frame gespeichert"
+        out = img
+        if crop is not None:
+            pw, ph = prev_size
+            ap = (pw / ph) if ph else 0.0
+            asp = (img.shape[1] / img.shape[0]) if img.shape[0] else 0.0
+            # Nur beim Snapshot-Pfad relevant: passt die Snapshot-Orientierung nicht zur
+            # Vorschau (z.B. Vorschau quer, Snapshot hoch), würde der Vorschau-Crop verzerrt
+            # und falsch platziert. Dann lieber das volle Snapshot speichern + warnen, statt
+            # still Müll zu croppen. Beim Live-Frame (kein capture_cap) sind die Koords immer
+            # deckungsgleich -> kein Check nötig.
+            aspect_mismatch = (capture_cap is not None and ap and asp
+                               and abs(ap - asp) > 0.15 * asp)
+            if aspect_mismatch:
+                with self.lock:
+                    self.error = ("Vorschau/Snapshot unterschiedlich orientiert — volles Snapshot "
+                                  "gespeichert. Beide Quellen auf gleiche Auflösung/Orientierung stellen.")
+            else:
+                box = (crop[0] * sx, crop[1] * sy, crop[2] * sx, crop[3] * sy)
+                x0, y0, x1, y1 = self._clamp(box, img.shape[1], img.shape[0])
+                if x1 - x0 >= 8 and y1 - y0 >= 8:
+                    out = img[y0:y1, x0:x1]
+        assert out_dir is not None
+        cv2.imwrite(str(out_dir / f"{index:03d}.jpg"), out,
+                    [cv2.IMWRITE_JPEG_QUALITY, int(quality)])
+        with self.lock:
+            self.index += 1
+            self.saved_run += 1
+            self._last_save = time.time()
+            if self.count and self.saved_run >= self.count:
+                self.recording = False
 
     @staticmethod
     def _clamp(box, w, h):
@@ -268,6 +334,7 @@ class ScanController:
                 "open": self.configured,        # Quelle ausgewählt (UI-Panel offen)
                 "grabbing": self.cap is not None,  # Kamera gerade physisch aktiv (sonst geparkt)
                 "source": self.source,
+                "capture_source": self.capture_source,
                 "frame_size": list(self.frame_size),
                 "recording": self.recording,
                 "out": self.out_name,
@@ -279,8 +346,8 @@ class ScanController:
                 "total": total,
                 "index": self.index,
                 "error": self.error,
-                "default_source": os.environ.get("CHESSLAB_CAMERA_SOURCE", "").strip()
-                or os.environ.get("CHESSLAB_CAMERA_CAPTURE", "").strip(),
+                "default_source": os.environ.get("CHESSLAB_CAMERA_SOURCE", "").strip(),
+                "default_capture": os.environ.get("CHESSLAB_CAMERA_CAPTURE", "").strip(),
             }
 
 

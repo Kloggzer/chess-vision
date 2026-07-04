@@ -840,3 +840,26 @@ class TestWeakEvidenceHold:
         assert mt.ref_gray is ref                 # NICHT re-anchored
         assert mt._stuck_reason is None
         assert "schwache Zugevidenz" in mt.note
+
+class TestPairScores:
+    """Diff-seitige 2-Halbzug-Erkennung (schnelles Spiel ohne CNN)."""
+
+    def test_pair_explains_two_moves(self):
+        from chesslab.move_tracker.tracker import loglik_pair_scores
+
+        board = chess.Board()
+        z = _z({"e2": 8.0, "e4": 8.0, "e7": 8.0, "e5": 8.0})
+        pairs = loglik_pair_scores(board, z)
+        assert pairs, "keine Paare gefunden"
+        best_seq, best = pairs[0]
+        assert [m.uci() for m in best_seq] == ["e2e4", "e7e5"]
+        assert best > 0
+
+    def test_pair_requires_endpoint_evidence(self):
+        from chesslab.move_tracker.tracker import loglik_pair_scores
+
+        board = chess.Board()
+        z = _z({"e2": 8.0, "e4": 8.0})          # nur EIN Zug hat Evidenz
+        pairs = loglik_pair_scores(board, z)
+        # zulaessige Paare muessen alle 4 Endpunkte tragen -> hier keine
+        assert pairs == []

@@ -503,6 +503,211 @@ class MarkerTracker:
         return self.points()
 
 
+# =======================================================================================
+# Markerlose Brett-Erkennung über die Brettlinien (Spec 11, chesscog-Stil, KEIN DL)
+# =======================================================================================
+
+def _cluster_two_angle_families(lines) -> tuple[list, list]:
+    """Hough-Linien (rho, theta) in zwei Winkel-Familien teilen (k-means auf dem
+    verdoppelten Winkel, weil theta und theta+pi dieselbe Linienrichtung sind)."""
+    import numpy as _np
+    pts = _np.array([[_np.cos(2 * t), _np.sin(2 * t)] for _r, t in lines], dtype=_np.float32)
+    crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-3)
+    _c, labels, _ctr = cv2.kmeans(pts, 2, None, crit, 5, cv2.KMEANS_PP_CENTERS)
+    fam = [[], []]
+    for (r, t), lab in zip(lines, labels.ravel()):
+        fam[int(lab)].append((float(r), float(t)))
+    return fam[0], fam[1]
+
+
+def _family_positions(family) -> tuple[float, list[tuple[float, float, float]]]:
+    """Je Familie: mittlerer Winkel + 1D-Position jeder Linie entlang der Familien-Normalen.
+    rho-Vorzeichen wird auf den mittleren Winkel normalisiert (theta vs. theta+pi)."""
+    import numpy as _np
+    ref = float(_np.arctan2(_np.mean([_np.sin(2 * t) for _r, t in family]),
+                            _np.mean([_np.cos(2 * t) for _r, t in family])) / 2.0) % _np.pi
+    out = []
+    for r, t in family:
+        # Linie auf Referenzrichtung normalisieren: |theta - ref| > pi/2 → Linie umklappen.
+        d = (t - ref + _np.pi / 2) % _np.pi - _np.pi / 2
+        rr = r if abs(d) <= _np.pi / 2 else -r
+        out.append((float(rr), r, t))
+    return ref, out
+
+
+def _merge_positions(pos_lines, tol: float) -> list[tuple[float, float, float]]:
+    """Nahezu identische Hough-Linien (mehrfach getroffene Brettlinie) zu einer mitteln."""
+    merged = []
+    for p, r, t in sorted(pos_lines):
+        if merged and abs(p - merged[-1][0]) <= tol:
+            mp, mr, mt, n = merged[-1]
+            merged[-1] = ((mp * n + p) / (n + 1), (mr * n + r) / (n + 1),
+                          (mt * n + t) / (n + 1), n + 1)
+        else:
+            merged.append((p, r, t, 1))
+    return [(p, r, t) for p, r, t, _n in merged]
+
+
+def _grid_progression(positions: list[float]) -> tuple[float, float] | None:
+    """RANSAC über Linienpositionen: die 9er-arithmetische Folge (Brettraster) finden.
+
+    Zählt DISTINKTE Slots (zwei Linien im selben Slot zählen einmal) und normiert den
+    Fehler aufs Spacing — sonst gewinnen große Spacings automatisch (große Toleranz
+    fängt alles). Spacing ist auf ein plausibles Verhältnis zur Positions-Spannweite
+    begrenzt (mind. 5 der 9 Linien sichtbar → span/8 ≤ s ≤ span/4).
+    Rückgabe (erste_position, spacing) der Außenlinien-Slots 0 und 8, sonst None."""
+    n = len(positions)
+    if n < 6:                                    # mind. 6 der 9 Rasterlinien nötig
+        return None
+    best = None                                  # (slots, -fehler/s, base, s)
+    span = max(positions) - min(positions)
+    s_lo, s_hi = span / 9.0, span / 4.0
+    for i in range(n):
+        for j in range(i + 1, n):
+            gap = positions[j] - positions[i]
+            for k in range(1, 9):                # Hypothese: Linien i,j liegen k Slots auseinander
+                s = gap / k
+                if s <= 2 or not (s_lo <= s <= s_hi):
+                    continue
+                for shift in range(0, 9 - k):    # Slot-Offset: Linie i auf Slot `shift`
+                    base = positions[i] - shift * s
+                    slots: dict[int, float] = {}
+                    for q in positions:
+                        m = round((q - base) / s)
+                        e = abs(q - (base + m * s))
+                        if 0 <= m <= 8 and e <= s * 0.15:
+                            slots[m] = min(e, slots.get(m, 1e9))
+                    if len(slots) < 6:
+                        continue
+                    cand = (len(slots), -sum(slots.values()) / s, base, s)
+                    if best is None or cand > best:
+                        best = cand
+    if best is None:
+        return None
+    return best[2], best[3]
+
+
+def board_corners_from_lines(frame, profile: CalibrationProfile | None = None,
+                             work_width: int = 960) -> list[list[float]] | None:
+    """Die 4 Brett-Ecken OHNE Marker aus den Brettlinien schätzen (Spec 11).
+
+    Klassische Pipeline: Canny → HoughLines → zwei Winkel-Familien → je Familie die
+    9er-Rasterprogression der Linienpositionen (RANSAC) → Außenlinien schneiden = Ecken.
+    Funktioniert bei mäßiger Perspektive (Kamera grob über dem Brett); die Zuordnung zu
+    (a8,h8,h1,a1) übernimmt — wo vorhanden — die Nähe zu `profile.image_corners`, sonst
+    die Standard-Leserichtung. Rückgabe None, wenn kein konsistentes Raster gefunden wird."""
+    import numpy as _np
+
+    h, w = frame.shape[:2]
+    scale = min(1.0, work_width / float(w))
+    small = cv2.resize(frame, (int(w * scale), int(h * scale))) if scale < 1.0 else frame
+    gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(gray, 40, 120)
+    # Hough-Schwelle adaptiv absenken, bis BEIDE Familien genug Rasterlinien tragen —
+    # vertikale Brettlinien sind oft schwächer (Figuren unterbrechen sie); zu niedrige
+    # Schwellen fluten dagegen mit Diagonal-Kanten (clip02-Empirie: 0.30 → B nur 5 Linien,
+    # 0.18 → 4400 Linien Clutter). Die Progression-Suche selbst ist der Qualitätsfilter.
+    quad = None
+    for thr_frac in (0.30, 0.24, 0.19):
+        raw = cv2.HoughLines(edges, 1, _np.pi / 360,
+                             threshold=int(min(small.shape[:2]) * thr_frac))
+        if raw is None or len(raw) < 12:
+            continue
+        lines = [(float(r), float(t)) for r, t in raw[:, 0, :]][:250]
+        quad = _quad_from_lines(lines)
+        if quad is not None:
+            break
+    if quad is None:
+        return None
+    quad = [[x / scale, y / scale] for x, y in quad]
+    return _finish_quad(quad, w, h, profile)
+
+
+def _quad_from_lines(lines) -> list[list[float]] | None:
+    """Aus Hough-Linien die 4 Außen-Ecken des Rasters (in Arbeitsauflösung) oder None."""
+    import numpy as _np
+
+    fam_a, fam_b = _cluster_two_angle_families(lines)
+    # Familien müssen klar verschiedene Richtungen haben (sonst ist eine nur Clutter).
+    def _ref(fam):
+        return float(_np.arctan2(_np.mean([_np.sin(2 * t) for _r, t in fam]),
+                                 _np.mean([_np.cos(2 * t) for _r, t in fam])) / 2.0) % _np.pi
+    if len(fam_a) < 6 or len(fam_b) < 6:
+        return None
+    dref = abs(_ref(fam_a) - _ref(fam_b)) % _np.pi
+    if min(dref, _np.pi - dref) < _np.radians(35):
+        return None
+    borders = []
+    for fam in (fam_a, fam_b):
+        ref, pos_lines = _family_positions(fam)
+        span = max(p for p, _r, _t in pos_lines) - min(p for p, _r, _t in pos_lines)
+        merged = _merge_positions(pos_lines, tol=max(3.0, span / 40.0))
+        prog = _grid_progression([p for p, _r, _t in merged])
+        if prog is None:
+            return None
+        base, s = prog
+        # Außenlinien: echte Linie nahe Slot 0/8 bevorzugen, sonst mit dem Familienwinkel
+        # extrapolieren (Position p ist per Definition das rho einer Linie mit theta=ref).
+        pair = []
+        for slot in (0, 8):
+            target = base + slot * s
+            near = min(merged, key=lambda m: abs(m[0] - target))
+            pair.append((near[1], near[2]) if abs(near[0] - target) <= s * 0.15
+                        else (target, ref))
+        borders.append(pair)
+
+    def _intersect(l1, l2):
+        r1, t1 = l1
+        r2, t2 = l2
+        a = _np.array([[_np.cos(t1), _np.sin(t1)], [_np.cos(t2), _np.sin(t2)]])
+        b = _np.array([r1, r2])
+        if abs(_np.linalg.det(a)) < 1e-9:
+            return None
+        x, y = _np.linalg.solve(a, b)
+        return [float(x), float(y)]
+
+    quad = []
+    for la in borders[0]:
+        for lb in borders[1]:
+            p = _intersect(la, lb)
+            if p is None:
+                return None
+            quad.append(p)
+    # quad = [A0B0, A0B8, A8B0, A8B8] → als konvexes Viereck ordnen (Winkel um den Schwerpunkt).
+    cx = sum(p[0] for p in quad) / 4.0
+    cy = sum(p[1] for p in quad) / 4.0
+    quad.sort(key=lambda p: _np.arctan2(p[1] - cy, p[0] - cx))
+    return quad
+
+
+def _finish_quad(quad, w: int, h: int,
+                 profile: CalibrationProfile | None) -> list[list[float]] | None:
+    """Plausibilität (im Bild, Mindestfläche) + Zuordnung zu (a8,h8,h1,a1): Rotation wählen,
+    die den Kalibrier-Ecken am nächsten kommt — Linien allein können 90°/180°-Drehungen
+    nicht unterscheiden. Ohne Profil: Reihenfolge wie sortiert (Nutzer prüft Overlay)."""
+    for x, y in quad:
+        if not (-0.2 * w <= x <= 1.2 * w and -0.2 * h <= y <= 1.2 * h):
+            return None
+    area = 0.0
+    for i in range(4):
+        x1, y1 = quad[i]
+        x2, y2 = quad[(i + 1) % 4]
+        area += x1 * y2 - x2 * y1
+    if abs(area) / 2.0 < 0.05 * w * h:
+        return None
+    if profile is not None and profile.image_corners and len(profile.image_corners) >= 4:
+        ref = profile.image_corners
+        best_rot, best_cost = 0, None
+        for rot in range(4):
+            rq = quad[rot:] + quad[:rot]
+            cost = sum((rq[i][0] - ref[i][0]) ** 2 + (rq[i][1] - ref[i][1]) ** 2 for i in range(4))
+            if best_cost is None or cost < best_cost:
+                best_rot, best_cost = rot, cost
+        quad = quad[best_rot:] + quad[:best_rot]
+    return quad
+
+
 def make_tracker(profile: CalibrationProfile | None = None) -> MarkerTracker:
     """Tracker erzeugen, bei vorhandenem Profil aus dessen 4 Eckpunkten geseedet.
 
@@ -531,6 +736,19 @@ def board_corners_for_frame(frame, profile: CalibrationProfile, tracker: MarkerT
     pts = tracker.points()
     if len(pts) < min_markers:
         return None
+    # Genau EINE Ecke ist nur-Seed (Marker nie live gesehen — z.B. am Bildrand angeschnitten,
+    # clip02: a8 0% Detektionsrate)? Dann aus den drei ECHTEN Ecken als Parallelogramm
+    # vervollständigen statt den Seed einer womöglich anderen Kameralage zu verwenden
+    # (der versetzte Seed verzerrt sonst dauerhaft ein Viertel des Warps).
+    status = tracker.status()
+    seeded = [i for i, s in status.items() if s == "seed"]
+    if len(seeded) == 1 and len(pts) >= 4:
+        m = seeded[0]
+        prev_i, next_i, opp_i = (m - 1) % 4, (m + 1) % 4, (m + 2) % 4
+        if all(i in pts for i in (prev_i, next_i, opp_i)):
+            pts = dict(pts)
+            pts[m] = [pts[prev_i][0] + pts[next_i][0] - pts[opp_i][0],
+                      pts[prev_i][1] + pts[next_i][1] - pts[opp_i][1]]
     res = resolve_board_corners(pts, board_size=profile.board_size)
     return res[0] if res is not None else None
 
