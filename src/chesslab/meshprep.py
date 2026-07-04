@@ -138,7 +138,11 @@ def _import_verbatim(item: ScanItem, piece_dir: Path, stem: str, *, make_preview
         loaded = trimesh.load(str(item.obj), force="mesh")
         if isinstance(loaded, trimesh.Scene):
             loaded = max(loaded.geometry.values(), key=lambda m: len(m.vertices))
-        tex_img = _extract_glb_texture(loaded)
+        # Explizite *_diffuse.png gewinnt über die .glb-Referenz (kann auf unwrap zeigen).
+        if item.tex is not None and "diffuse" in Path(item.tex).stem.lower():
+            tex_img = item.tex
+        else:
+            tex_img = _extract_glb_texture(loaded)
         # _write_trimesh_obj re-exports faces/normals/UVs but applies NO transform.
         _write_trimesh_obj(loaded, stem, piece_dir, tex_img, tex_dst)
     else:
@@ -210,10 +214,14 @@ def _load_and_extract(item: ScanItem, rng: np.random.Generator):
     # Z-up = Y-up rotated -90° around X
     mesh = _ensure_z_up(mesh)
 
-    # Extract texture
+    # Extract texture. Eine EXPLIZITE *_diffuse.png im Scan-Ordner gewinnt IMMER über die
+    # .glb-Referenz: RealityScan-GLBs verweisen z.T. auf die *_unwrap.png (UV-Debug-Muster,
+    # beobachtet bei scans/bP) — dann käme sonst das Schachbrettmuster statt Holz.
     tex_img = None
     ext = item.obj.suffix.lower()
-    if ext in (".glb", ".gltf"):
+    if item.tex is not None and "diffuse" in Path(item.tex).stem.lower():
+        tex_img = item.tex
+    elif ext in (".glb", ".gltf"):
         tex_img = _extract_glb_texture(mesh)
     elif ext == ".obj" and item.tex is not None:
         tex_img = item.tex
