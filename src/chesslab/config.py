@@ -359,6 +359,9 @@ def build_blender_cmd(
     pieces: Path | None = None,
     res: int = 1024,
     board_texture: Path | None = None,
+    views_per_scene: int = 1,
+    samples: int = 24,
+    max_obliqueness: float = 0.20,
 ) -> list[str]:
     """Erzeugt die Blender-Kommandozeile (reine Funktion, kein subprocess)."""
     cmd = [
@@ -369,6 +372,9 @@ def build_blender_cmd(
         "--n", str(n),
         "--seed", str(seed),
         "--res", str(res),
+        "--views-per-scene", str(views_per_scene),
+        "--samples", str(samples),
+        "--max-obliqueness", str(max_obliqueness),
     ]
     if fens is not None:
         cmd.extend(["--fens", str(fens)])

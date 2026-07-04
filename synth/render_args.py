@@ -19,6 +19,14 @@ class RenderArgs:
     pieces: Path | None = None
     res: int = 1024
     board_texture: Path | None = None
+    # Szenen-Reuse: gleiche Figurenaufstellung unter mehreren Kamera-/Licht-Views rendern.
+    views_per_scene: int = 1
+    # EEVEE TAA-Render-Samples (konservativ = sauberere Texturen, höher = langsamer).
+    samples: int = 24
+    # Max. Kamera-Obliqueness (horizontaler Offset / Höhe); an echte ~0.06-Kamera gematcht.
+    max_obliqueness: float = 0.20
+    # Subsurf-Level NUR für prozedurale Staunton-Fallback-Figuren (gescannte Meshes: kein Subsurf).
+    fallback_subsurf: int = 1
 
 
 def parse_render_args(argv: list[str]) -> RenderArgs:
@@ -31,6 +39,10 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
     pieces = None
     res = 1024
     board_texture = None
+    views_per_scene = 1
+    samples = 24
+    max_obliqueness = 0.20
+    fallback_subsurf = 1
 
     i = 0
     while i < len(args):
@@ -70,6 +82,26 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
             if i >= len(args):
                 raise SystemExit("ERROR: --board-texture benötigt einen Pfad.")
             board_texture = Path(args[i]).resolve()
+        elif a == "--views-per-scene":
+            i += 1
+            if i >= len(args):
+                raise SystemExit("ERROR: --views-per-scene benötigt einen Wert.")
+            views_per_scene = max(1, int(args[i]))
+        elif a == "--samples":
+            i += 1
+            if i >= len(args):
+                raise SystemExit("ERROR: --samples benötigt einen Wert.")
+            samples = max(1, int(args[i]))
+        elif a == "--max-obliqueness":
+            i += 1
+            if i >= len(args):
+                raise SystemExit("ERROR: --max-obliqueness benötigt einen Wert.")
+            max_obliqueness = float(args[i])
+        elif a == "--fallback-subsurf":
+            i += 1
+            if i >= len(args):
+                raise SystemExit("ERROR: --fallback-subsurf benötigt einen Wert.")
+            fallback_subsurf = max(0, int(args[i]))
         else:
             print(f"WARN: unbekanntes Flag ignoriert: {a}", file=sys.stderr)
         i += 1
@@ -78,4 +110,6 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
         raise SystemExit("ERROR: --out ist Pflicht (Zielverzeichnis).")
 
     return RenderArgs(out=out, n=n, seed=seed, fens=fens, pieces=pieces, res=res,
-                      board_texture=board_texture)
+                      board_texture=board_texture, views_per_scene=views_per_scene,
+                      samples=samples, max_obliqueness=max_obliqueness,
+                      fallback_subsurf=fallback_subsurf)

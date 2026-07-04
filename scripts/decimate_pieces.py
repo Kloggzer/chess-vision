@@ -40,9 +40,14 @@ def decimate(obj: Path, target_tris: int, smooth_steps: int = 0) -> None:
             ms.meshing_decimation_quadric_edge_collapse(
                 targetfacenum=target_tris, preserveboundary=True, preservenormal=True)
     # Smooth-Shading: Vertex-Normalen nach der Dezimierung neu berechnen und MIT
-    # exportieren — sonst rendern Viewer die Figur facettiert.
+    # exportieren — sonst rendern Viewer die Figur facettiert. save_wedge_texcoord
+    # EXPLIZIT an: sonst können die UVs verloren gehen (bP wurde dadurch strukturlos
+    # grau — ohne UVs sampelt jede Fläche denselben Texel).
     ms.compute_normal_per_vertex(weightmode=2)      # 2 = by angle (glatteste Übergänge)
-    ms.save_current_mesh(str(obj), save_textures=False, save_vertex_normal=True)
+    ms.save_current_mesh(str(obj), save_textures=False, save_vertex_normal=True,
+                         save_wedge_texcoord=True)
+    if (m.has_wedge_tex_coord() or m.has_vertex_tex_coord()) is False:
+        print(f"  [WARN] {obj}: Mesh hat keine UV-Koordinaten (Textur wird flach gesampelt)")
     print(f"  {obj}: {before} -> {ms.current_mesh().face_number()} Dreiecke")
 
 
