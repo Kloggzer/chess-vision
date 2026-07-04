@@ -3,7 +3,15 @@ name = "chesslab"
 version = "0.1.0"
 description = "Auto-labeled chess piece dataset builder (per-square 13-class classification)"
 readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Games/Entertainment :: Board Games",
+]
 dependencies = [
     "typer>=0.12",
     "opencv-python>=4.8",
@@ -25,9 +33,14 @@ dependencies = [
     "open3d>=0.19.0",
     "pymeshlab>=2025.7.post1",
     "trimesh>=4.12.2",
-    "pygltflib>=1.16.5",
     "python-multipart>=0.0.32",
+    # imported directly (web/schemas.py), otherwise only transitive via fastapi
+    "pydantic>=2.0",
 ]
+# Optional (lazy, with fallback): matplotlib (meshprep preview), pyperclip (UI clipboard)
+
+[project.urls]
+Repository = "https://github.com/Kloggzer/chess-vision"
 
 [tool.uv.sources]
 torch = { path = "wheels/torch-2.9.1+rocm7.2.1-cp312-cp312-win_amd64.whl" }
