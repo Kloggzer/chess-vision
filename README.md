@@ -126,6 +126,11 @@ from the ArUco markers at the board edge — robust against board/camera movemen
 static profile that can drift. The markers must therefore **stay on the board for the
 whole capture**.
 
+**A separate calibration step is optional:** if the profile is missing, `chesslab track`
+and `collect` auto-create it from the first frames of their own camera source
+(`ensure_profile`, ArUco). Run `calibrate auto --preview` only when you want to tune the
+`--margin` interactively.
+
 ```bash
 uv run chesslab calibrate markers --out data/calibration/markers.png  # print the marker sheet
 #   -> cut along the boxes, tape one marker to each OUTER corner

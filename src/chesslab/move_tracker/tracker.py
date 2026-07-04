@@ -34,7 +34,7 @@ from ..calibration import (  # noqa: E402
     _square_to_col_row,
     board_corners_for_frame,
     draw_calibration_overlay,
-    load_profile,
+    ensure_profile,
     make_tracker,
     warp_from_corners,
 )
@@ -351,7 +351,8 @@ class MoveTracker:
                  min_confident_board: int = 32, min_confident_recovery: int = 8,
                  motion_margin: float = 0.12, overhang: float = 0.0,
                  corner_jump_px: float = 6.0) -> None:
-        self.profile = load_profile(profile)
+        # Auto-create a missing profile from the first frames of this source (ArUco).
+        self.profile = ensure_profile(profile, source)
         _src = source if not str(source).isdigit() else int(source)
         _cap = open_source(_src)
         # Grab-Latest NUR für Netz-Streams (URL): killt den akkumulierenden MJPEG-Rückstau

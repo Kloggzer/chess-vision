@@ -143,8 +143,81 @@ def profile_path(name: str) -> Path:
 def load_profile(name: str) -> CalibrationProfile:
     p = profile_path(name)
     if not p.exists():
-        raise FileNotFoundError(f"Kalibrierungsprofil '{name}' nicht gefunden ({p}).")
+        raise FileNotFoundError(f"calibration profile '{name}' not found ({p}).")
     return CalibrationProfile.load(p)
+
+
+def profile_from_frame(frame, profile: str, *, board_size: int = 1000, margin: float = 0.06,
+                       dict_name: str = "DICT_4X4_50", white_pov: bool = True,
+                       camera_index: int = -1) -> CalibrationProfile | None:
+    """Build a profile headlessly from a single frame via ArUco markers.
+
+    Returns None if too few markers are visible (at least 2 needed for the
+    geometric reconstruction; 4 for full accuracy)."""
+    pts = detect_board_markers(frame, dict_name, corner="center")
+    res = resolve_board_corners(pts, board_size=board_size)
+    if res is None:
+        return None
+    corners, _n_used = res
+    h, w = frame.shape[:2]
+    return CalibrationProfile(
+        profile=profile,
+        camera_index=camera_index,
+        frame_size=(w, h),
+        board_size=board_size,
+        image_corners=corners,
+        homography=compute_homography(corners, board_size, margin),
+        white_pov=white_pov,
+        crop=CropParams.default(board_size),
+        margin=margin,
+        marker_dict=dict_name,
+    )
+
+
+def ensure_profile(profile: str, source: int | str | None = None, *,
+                   save: bool = True, attempts: int = 30, **kwargs) -> CalibrationProfile:
+    """Load `profile`; if it does not exist, auto-calibrate it from `source` via ArUco.
+
+    This removes the mandatory separate calibration step: `track`/`collect` can create a
+    missing profile from the first frames of their own camera source, as long as the
+    markers are on the board. `calibrate auto` stays available for interactive margin
+    tuning. Raises FileNotFoundError if the profile is missing and no usable source or
+    no markers are found."""
+    try:
+        return load_profile(profile)
+    except FileNotFoundError:
+        if source is None:
+            raise
+
+    src = int(source) if isinstance(source, str) and source.isdigit() else source
+    cap = open_camera(src)
+    prof: CalibrationProfile | None = None
+    try:
+        if not cap.isOpened():
+            raise FileNotFoundError(
+                f"profile '{profile}' missing and source {source!r} could not be opened "
+                "for auto-calibration.")
+        for _ in range(attempts):
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                continue
+            prof = profile_from_frame(frame, profile, camera_index=src if isinstance(src, int) else -1,
+                                      **kwargs)
+            if prof is not None:
+                break
+    finally:
+        cap.release()
+    if prof is None:
+        raise FileNotFoundError(
+            f"profile '{profile}' missing and auto-calibration from {source!r} found no "
+            "ArUco markers — tape the markers to the board (calibrate markers) or run "
+            "'chesslab calibrate auto'.")
+    if save:
+        out = profile_path(profile)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        prof.save(out)
+        print(f"[OK] profile '{profile}' auto-calibrated from the camera source -> {out}")
+    return prof
 
 
 # --- Reine Geometrie (headless, getestet) ---------------------------------------------

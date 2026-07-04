@@ -31,7 +31,7 @@ def collect_start(strategy: str = Body("random"), max_plies: int = Body(40), see
                   offset: int = Body(0), auto_offset: bool = Body(False),
                   target: int = Body(200)):
     from ... import config
-    from ...calibration import load_profile
+    from ...calibration import ensure_profile
     from ...collect import SessionWriter, generate_session_id
     from ...state import (
         GameState,
@@ -40,7 +40,7 @@ def collect_start(strategy: str = Body("random"), max_plies: int = Body(40), see
     )
 
     try:
-        prof = load_profile(profile)
+        prof = ensure_profile(profile, camera)
     except FileNotFoundError as e:
         raise HTTPException(400, str(e))
 

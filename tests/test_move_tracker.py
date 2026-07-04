@@ -377,7 +377,7 @@ class TestMoveTrackerHeadless:
         fake = FakeCapture([start] * 10 + [after] * 20)
 
         monkeypatch.setattr("chesslab.move_tracker.tracker.open_source", lambda s: fake)
-        monkeypatch.setattr("chesslab.move_tracker.tracker.load_profile", lambda p: prof)
+        monkeypatch.setattr("chesslab.move_tracker.tracker.ensure_profile", lambda *a, **k: prof)
 
         mt = MoveTracker(profile="phone", source="0", live_align=False,
                          motion_thr=100, settle_frames=3, confirm_frames=3,
@@ -417,7 +417,7 @@ class TestMoveTrackerHeadless:
         fake = FakeCapture([frame] * 5)
 
         monkeypatch.setattr("chesslab.move_tracker.tracker.open_source", lambda s: fake)
-        monkeypatch.setattr("chesslab.move_tracker.tracker.load_profile", lambda p: prof)
+        monkeypatch.setattr("chesslab.move_tracker.tracker.ensure_profile", lambda *a, **k: prof)
 
         mt = MoveTracker(profile="phone", source="0", live_align=False, settle_frames=10)
         mt.reset_to_start()
@@ -447,7 +447,7 @@ def _make_tracker(monkeypatch, **kwargs):
     prof = _make_identity_profile(board_size=kwargs.pop("board_size", 400))
     fake = FakeCapture([_bgr_frame(["e2"])])
     monkeypatch.setattr("chesslab.move_tracker.tracker.open_source", lambda s: fake)
-    monkeypatch.setattr("chesslab.move_tracker.tracker.load_profile", lambda p: prof)
+    monkeypatch.setattr("chesslab.move_tracker.tracker.ensure_profile", lambda *a, **k: prof)
     defaults = {"profile": "phone", "source": "0", "live_align": False,
                     "max_changed": 6, "confirm_frames": 1, "avg_frames": 1}
     defaults.update(kwargs)
@@ -715,7 +715,7 @@ class TestAppEndpoints:
         fake = FakeCapture([frame] * 5)
 
         monkeypatch.setattr("chesslab.move_tracker.tracker.open_source", lambda s: fake)
-        monkeypatch.setattr("chesslab.move_tracker.tracker.load_profile", lambda p: prof)
+        monkeypatch.setattr("chesslab.move_tracker.tracker.ensure_profile", lambda *a, **k: prof)
 
         app = create_app(default_profile="testp", default_source="0",
                          tracker_kwargs={"live_align": False, "settle_frames": 10})

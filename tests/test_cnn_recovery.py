@@ -350,7 +350,7 @@ def _headless_tracker(monkeypatch, **kw):
             pass
 
     prof = _identity_profile()
-    monkeypatch.setattr(trk, "load_profile", lambda name: prof)
+    monkeypatch.setattr(trk, "ensure_profile", lambda *a, **k: prof)
     monkeypatch.setattr(trk, "open_source", lambda src: FakeCapture())
     return trk.MoveTracker(profile="t", source="0", live_align=False, **kw)
 

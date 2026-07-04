@@ -314,3 +314,61 @@ def test_homography_maps_clicked_corner_to_origin():
     mapped = H @ a8
     mapped = mapped[:2] / mapped[2]
     assert np.allclose(mapped, [0.0, 0.0], atol=1e-3)
+def _marker_frame():
+    """Synthetic frame with all 4 ArUco markers at known centers."""
+    import cv2
+    import numpy as np
+
+    d = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
+    frame = np.full((600, 800, 3), 255, dtype=np.uint8)
+    known = {0: (150, 120), 1: (650, 120), 2: (650, 480), 3: (150, 480)}
+    s = 80
+    for mid, (cx, cy) in known.items():
+        m = cv2.cvtColor(cv2.aruco.generateImageMarker(d, mid, s), cv2.COLOR_GRAY2BGR)
+        frame[cy - s // 2:cy + s // 2, cx - s // 2:cx + s // 2] = m
+    return frame
+
+
+def test_profile_from_frame_builds_profile():
+    import numpy as np
+
+    from chesslab.calibration import profile_from_frame
+
+    prof = profile_from_frame(_marker_frame(), "authoprofile", board_size=800, margin=0.05)
+    assert prof is not None
+    assert prof.board_size == 800 and prof.margin == 0.05
+    assert len(prof.image_corners) == 4
+    # no markers -> None
+    blank = np.full((600, 800, 3), 255, dtype=np.uint8)
+    assert profile_from_frame(blank, "authoprofile") is None
+
+
+def test_ensure_profile_loads_existing_and_autocreates(tmp_path, monkeypatch):
+    import cv2
+
+    from chesslab import config
+    from chesslab.calibration import ensure_profile, load_profile
+
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+
+    # missing + no source -> FileNotFoundError
+    import pytest
+    with pytest.raises(FileNotFoundError):
+        ensure_profile("nope")
+
+    # auto-create from an image-file source (open_camera opens paths via VideoCapture)
+    img_path = tmp_path / "frame.png"
+    cv2.imwrite(str(img_path), _marker_frame())
+    prof = ensure_profile("autocal", str(img_path), board_size=800)
+    assert prof.profile == "autocal" and len(prof.image_corners) == 4
+    # was saved -> loadable, and a second call loads instead of re-detecting
+    assert load_profile("autocal").board_size == 800
+    prof2 = ensure_profile("autocal", None)
+    assert prof2.board_size == 800
+
+    # missing profile + markerless source -> FileNotFoundError
+    import numpy as np
+    blank_path = tmp_path / "blank.png"
+    cv2.imwrite(str(blank_path), np.full((600, 800, 3), 255, dtype=np.uint8))
+    with pytest.raises(FileNotFoundError):
+        ensure_profile("nomarkers", str(blank_path), attempts=3)
