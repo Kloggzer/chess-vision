@@ -21,7 +21,7 @@ from . import config
 from .calibration import (
     board_corners_for_frame,
     draw_board_grid,
-    load_profile,
+    ensure_profile,
     make_tracker,
     open_camera,
     square_center,
@@ -146,7 +146,7 @@ def collect_pgn(pgn: str, profile: str, camera: int, every: int = 1,
                 session: str | None = None, notes: str = "",
                 ui: bool = False, target: int = config.UI_TARGET_PER_CLASS) -> int:
     try:
-        prof = load_profile(profile)
+        prof = ensure_profile(profile, camera)
     except FileNotFoundError as e:
         print(f"[FAIL] {e}")
         return 1
@@ -172,7 +172,7 @@ def collect_play(strategy: str, max_plies: int, seed: int, stockfish_path: str |
     from .state import random_game_positions, stockfish_game_positions
 
     try:
-        prof = load_profile(profile)
+        prof = ensure_profile(profile, camera)
     except FileNotFoundError as e:
         print(f"[FAIL] {e}")
         return 1
@@ -364,7 +364,7 @@ def collect_live(start_fen: str | None, profile: str, camera: int,
     import cv2
 
     try:
-        prof = load_profile(profile)
+        prof = ensure_profile(profile, camera)
     except FileNotFoundError as e:
         print(f"[FAIL] {e}")
         return 1
