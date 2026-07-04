@@ -1,101 +1,106 @@
-# Move-Tracker (Prototyp) — Brett-Digitalisierung ohne CNN
+# Move Tracker (experimental) — board digitization without a CNN
 
-Verfolgt deine Partie auf dem **fest montierten** Brett: aus der bekannten Startstellung wird jeder Zug
-per **Frame-Differenz + Legalität** (python-chess) bestimmt — **kein neuronales Netz, keine Trainingsdaten**.
+Tracks your game on a **fixed-mounted** board: starting from a known position, every move
+is determined via **frame differencing + legality** (python-chess) — **no neural network,
+no training data required**.
 
-**Ablauf je Frame:** Warp aufs Brett (fixe Geometrie aus dem chesslab-Profil) → Motion-Gating (Hand im
-Bild? → warten) → bei Ruhe Per-Feld-Differenz zum Referenzbild → unter allen **legalen** Zügen den
-wählen, dessen berührte Felder die Änderung am besten erklären (Rochade/En-passant/Schlag inklusive) →
-Zug anwenden, Referenz aktualisieren.
+**Per-frame flow:** warp onto the board (geometry from the chesslab profile) → motion
+gating (hand in view? → wait) → when calm, per-square difference against the reference
+image → among all **legal** moves pick the one whose touched squares best explain the
+change (castling/en passant/captures included) → apply the move, update the reference.
 
 ## Start
 
 ```bash
-# Handy-IP-Cam (MJPEG) – oder --source 0 für lokale Kamera
-chesslab track --profile phone --source https://192.168.178.23:4444/video/m.jpeg
-# dann:  http://127.0.0.1:8001
+# Phone IP cam (MJPEG) — or --source 0 for a local camera.
+# Phone app: https://github.com/DigitallyRefined/android-ip-camera
+# (install the app, enter the URL it displays)
+chesslab track --profile phone --source https://<PHONE-IP>:4444/video/m.jpeg
+# then open:  http://127.0.0.1:8001
 ```
 
-> **Migration:** Bis Rework-Phase 06 lag der Tracker als `python -m move_tracker.app` auf Repo-Root.
-> Jetzt ist er Teil des `chesslab`-Pakets: `chesslab track` (CLI) oder `python -m chesslab.move_tracker.app`
-> (direkter Modul-Start).
+In the UI: **Start** (begins from the initial position) · **Reset reference** (= "I just
+set up the initial position", resets the reference) · **Undo**. Left: live camera with
+what the computer believes (piece letters + last move in yellow); right: the
+reconstructed board + move list + FEN.
 
-Im UI: **Start** (beginnt aus der Grundstellung) · **Startstellung neu** (= „ich habe gerade die
-Grundstellung aufgebaut", setzt die Referenz) · **Undo**. Links Live-Kamera mit dem, was der Computer
-glaubt (Figurenbuchstaben + letzter Zug gelb), rechts das rekonstruierte Brett + Zugliste + FEN.
+**Usage:** set up the initial position → **Start** → play normally. After each move (hand
+away, board calm) the move appears on the right. If something slips / a move is missed →
+**Undo** or **Reset reference**.
 
-**Bedienung:** Grundstellung aufbauen → **Start** → normal ziehen. Nach jedem Zug (Hand weg, Brett ruhig)
-erscheint der Zug rechts. Verrutscht etwas / Zug nicht erkannt → **Undo** oder **Startstellung neu**.
+## Parameters (all tuning knobs)
 
-## Parameter (alle Stellschrauben)
+Defaults live in **one** place: the `MoveTracker(...)` constructor in `tracker.py`.
+Change them there permanently, or override per run via CLI flag (`chesslab track`) or API
+body (`POST /api/start`).
 
-Die Defaults leben in **einer** Stelle: dem `MoveTracker(...)`-Konstruktor in `tracker.py`. Dort dauerhaft
-ändern, oder pro Lauf per CLI-Flag (`chesslab track`) bzw. API-Body (`POST /api/start`) überschreiben.
+| Parameter | Default | Effect | Increase when … | Decrease when … | Where |
+|---|---|---|---|---|---|
+| `profile` | `"phone"` | chesslab calibration profile (geometry/warp). File `data/calibration/<name>.yaml`. | — | — | CLI `--profile`, API body |
+| `source` | `"0"` | Camera: `0`/`1` = local webcam, URL = IP cam (MJPEG `…/video/m.jpeg`). | — | — | CLI `--source`, API body |
+| `motion_thr` | `3.0` | Motion threshold (mean frame-to-frame difference) for "hand in view". | Detection is stuck on "moving" (light/sensor noise). | Moves get detected *while* the hand is still over the board. | `tracker.py`, CLI `--motion-thr`, API body |
+| `change_thr` | `16.0` | Brightness difference (0–255) at which a square counts as "changed". | Ghost moves from shadows/light. | Real moves are missed (low piece↔square contrast). | `tracker.py`, CLI `--change-thr`, API body |
+| `settle_frames` | `4` | How many calm frames must pass before checking at all. | Checks happen too early (board not fully calm). | Detection feels sluggish. | `tracker.py` |
+| `confirm_frames` | `2` | How often the same move must be confirmed in a row before committing. | Still ghost moves from single noise frames. | Detection should react faster (`1`). | `tracker.py`, CLI `--confirm-frames` |
+| `ambiguity_margin` | `= change_thr` | Minimum score gap to the second-best move; otherwise "ambiguous", no commit. | Too often "ambiguous" on clear moves. | Two similar moves get confused. | `tracker.py` |
+| `live_align` | `True` | Track markers live vs. freeze the calibration geometry. | Camera/setup drifts over the session (markers compensate). | Tripod camera, firmly anchored (no drift). | `tracker.py`, CLI `--no-live-align` |
+| `avg_frames` | `3` | Moving average over N calm gray frames (denoised) for the per-square diff. | High sensor/light noise, sudden exposure jumps. | Latency should be minimal. | `tracker.py`, CLI `--avg-frames` |
+| `max_changed` | `6` | Max changed squares before the frame is discarded as "occluded/unstable". | Hand triggers many squares that get misread as a move. | Castling (4 squares + shadow) gets suppressed. | `tracker.py`, CLI `--max-changed` |
+| `cnn_run` | `run-20260626-163320` | Model run for CNN recovery/verification; `''` or missing on disk = feature off. | — | — | CLI `--cnn-run`, API body |
+| `cnn_conf_thr` | `0.85` | Softmax confidence above which a square counts for occupancy evaluation (occluded never counts). | The CNN "sees" moves that aren't (uncertain model). | Too few confident squares → the CNN never speaks up. | `tracker.py` |
+| `cnn_cooldown_s` | `2.0` | Minimum gap between recovery observations (CPU ~100–300 ms each). | CPU load disturbs the stream. | Recovery should retry faster. | `tracker.py` |
+| `cnn_check_interval_s` | `10.0` | Interval of the periodic CNN verification on a calm board. | Constant load unwanted. | Deviations should surface faster. | `tracker.py` |
+| `--host`/`--port` | `127.0.0.1`/`8001` | Web UI address. | — | — | CLI |
 
-| Parameter         | Default        | Wirkung                                                                 | Hochsetzen, wenn …                          | Runtersetzen, wenn …                        | Wo einstellbar |
-|-------------------|----------------|-------------------------------------------------------------------------|---------------------------------------------|---------------------------------------------|----------------|
-| `profile`         | `"phone"`      | chesslab-Kalibrierprofil (Geometrie/Warp). Datei `data/calibration/<name>.yaml`. | —                                           | —                                           | CLI `--profile`, API-Body |
-| `source`          | `"0"`          | Kamera: `0`/`1` = lokale Webcam, URL = IP-Cam (MJPEG `…/video/m.jpeg`).  | —                                           | —                                           | CLI `--source`, API-Body |
-| `motion_thr`      | `3.0`          | Bewegungs-Schwelle (mittlere Frame-zu-Frame-Differenz) für „Hand im Bild". | Erkennung bleibt fälschlich auf „moving" (Licht-/Sensorrauschen). | Züge werden erkannt, *während* die Hand noch über dem Brett ist. | `tracker.py`, CLI `--motion-thr`, API-Body |
-| `change_thr`      | `16.0`         | Ab welcher Helligkeitsdifferenz (0–255) ein Feld als „geändert" gilt.   | Geisterzüge durch Schatten/Licht.           | Echte Züge werden übersehen (zu wenig Kontrast Figur↔Feld). | `tracker.py`, CLI `--change-thr`, API-Body |
-| `settle_frames`   | `4`            | Wie viele ruhige Frames vergehen müssen, bis überhaupt geprüft wird.     | Es wird zu früh geprüft (Brett noch nicht ganz ruhig). | Erkennung fühlt sich träge an.              | `tracker.py` |
-| `confirm_frames`  | `2`            | Wie oft derselbe Zug in Folge bestätigt sein muss, bevor er committet.   | Noch Geisterzüge durch einzelne Rausch-Frames. | Erkennung soll schneller/sofort reagieren (`1`). | `tracker.py`, CLI `--confirm-frames` |
-| `ambiguity_margin`| `= change_thr` | Mindest-Score-Abstand zum zweitbesten Zug; sonst „mehrdeutig", kein Commit. | Zu oft „mehrdeutig" bei eindeutigen Zügen.  | Zwei ähnliche Züge werden verwechselt.      | `tracker.py` |
-| `live_align`      | `True`         | Marker-Tracker live nachführen oder Kalibrier-Geometrie einfrieren.      | Kamera/Statik verschiebt sich über die Session (Marker halten dagegen). | Stativ-Kamera, fest verankert (keine Drift). | `tracker.py`, CLI `--no-live-align` |
-| `avg_frames`      | `3`            | Gleitendes Mittel über N ruhige Graubilder (denoised) für die Per-Feld-Differenz. | Sensor-/Lichtrauschen hoch, plötzliche Belichtungssprünge. | Latenz soll minimal sein.                   | `tracker.py`, CLI `--avg-frames` |
-| `max_changed`     | `6`            | Maximal geänderte Felder, bevor der Frame als „verdeckt/instabil" verworfen wird. | Hand löst viele Felder aus, die fälschlich als Zug erkannt werden. | Rochade (4 Felder + Schatten) wird unterdrückt. | `tracker.py`, CLI `--max-changed` |
-| `cnn_run`         | `run-20260626-163320` | Modell-Run für CNN-Recovery/-Kontrolle; `''`/fehlt auf Platte = Feature aus. | —                              | —                                           | CLI `--cnn-run`, API-Body |
-| `cnn_conf_thr`    | `0.85`         | Ab welcher Softmax-Konfidenz ein Feld für die Occupancy-Auswertung zählt (occluded zählt nie). | CNN „sieht" Züge, die keine sind (unsicheres Modell). | Zu wenige Felder confident → CNN sagt nie etwas. | `tracker.py` |
-| `cnn_cooldown_s`  | `2.0`          | Mindestabstand zwischen Recovery-Beobachtungen (CPU ~100–300 ms je Beobachtung). | CPU-Last stört den Stream.                  | Recovery soll schneller nachsetzen.         | `tracker.py` |
-| `cnn_check_interval_s` | `10.0`    | Intervall der periodischen CNN-Kontrolle bei ruhigem Brett.              | Dauerlast unerwünscht.                      | Abweichungen sollen schneller auffallen.    | `tracker.py` |
-| `--host`/`--port` | `127.0.0.1`/`8001` | Adresse des Web-UI.                                                  | —                                           | —                                           | CLI |
-
-**Beispiele:**
+**Examples:**
 
 ```bash
-# pro Lauf via CLI:
+# per run via CLI:
 chesslab track --profile phone --source 1 --port 8002
 
-# Heuristik dauerhaft anpassen → in tracker.py, MoveTracker.__init__:
+# change heuristics permanently → tracker.py, MoveTracker.__init__:
 #   motion_thr=3.0  change_thr=16.0  settle_frames=4  confirm_frames=2  ambiguity_margin=None
-# (ambiguity_margin=None bedeutet „= change_thr")
+# (ambiguity_margin=None means "= change_thr")
 
-# live ohne Neustart via API (motion_thr/change_thr werden vom Start-Button gesendet):
+# live without restart via API (motion_thr/change_thr are sent by the Start button):
 curl -X POST http://127.0.0.1:8001/api/start \
   -H 'Content-Type: application/json' \
-  -d '{"profile":"phone","source":"https://192.168.178.23:4444/video/m.jpeg","motion_thr":4,"change_thr":20}'
+  -d '{"profile":"phone","source":"https://<PHONE-IP>:4444/video/m.jpeg","motion_thr":4,"change_thr":20}'
 ```
 
-> Hinweis: `confirm_frames` und `ambiguity_margin` sind aktuell nur über `tracker.py` (Konstruktor-Default)
-> einstellbar, nicht über CLI/API. `motion_thr`/`change_thr` gehen beides.
+> Note: `confirm_frames` and `ambiguity_margin` are currently only adjustable via
+> `tracker.py` (constructor default), not via CLI/API. `motion_thr`/`change_thr` support
+> both.
 
-## CNN-Recovery & -Kontrolle (automatisch)
+## CNN recovery & verification (automatic)
 
-Mit gesetztem `cnn_run` (Default: bestes vorhandenes Modell) läuft neben der Frame-Diff-Erkennung
-ein CNN-Beobachter, der **nur die Occupancy** je Feld auswertet (leer/besetzt/verdeckt — die
-Figurenidentität kennt der Tracker aus der Zughistorie; verdeckte Felder zählen NIE als besetzt):
+With `cnn_run` set (default: best available model), a CNN observer runs alongside the
+frame-diff detection and evaluates **only the occupancy** per square (empty/occupied/
+occluded — the tracker knows piece identity from the move history; occluded squares NEVER
+count as occupied):
 
-- **Automatische Recovery:** Bleibt der Diff-Pfad hängen („kein legaler Zug passt" oder
-  „viel Veränderung"), beobachtet das CNN das Brett und schlägt den legalen Zug vor, dessen
-  resultierende Occupancy die Beobachtung am besten erklärt (Schlag/Rochade/en passant inklusive).
-  Committet wird erst nach `confirm_frames` übereinstimmenden Beobachtungen (kein Single-Shot),
-  mit Note `Zug per CNN-Recovery erkannt: …`.
-- **Periodische Kontrolle:** Bei ruhigem Brett prüft das CNN alle `cnn_check_interval_s`, ob
-  Spielzustand und Brett noch übereinstimmen. Ein eindeutig erklärender Zug wird (per Voting)
-  übernommen; sonst warnt das UI-Badge **CNN: weicht ab** mit den Konflikt-Feldern in der Note.
-- **Manuell:** Button **Resync per CNN** (bzw. `POST /api/resync_cnn`) prüft sofort und wendet
-  einen eindeutigen Zug direkt an; ohne eindeutigen Zug werden die Konflikt-Felder gemeldet.
-- Promotion-Varianten sind auf Occupancy-Ebene identisch → bewusst keine Entscheidung
-  (Nutzer-Hinweis statt Raten). Fehlt der Modell-Run auf Platte, deaktiviert sich das Feature
-  still (Note beim ersten Versuch).
+- **Automatic recovery:** if the diff path gets stuck ("no legal move fits" or "too much
+  change"), the CNN observes the board and proposes the legal move whose resulting
+  occupancy best explains the observation (capture/castling/en passant included). Commits
+  only after `confirm_frames` consistent observations (no single-shot).
+- **Periodic verification:** on a calm board the CNN checks every `cnn_check_interval_s`
+  whether game state and board still agree. An unambiguously explaining move is adopted
+  (via voting); otherwise the UI badge **CNN: deviates** warns with the conflicting
+  squares in the note.
+- **Manual:** the **Resync via CNN** button (or `POST /api/resync_cnn`) checks immediately
+  and applies an unambiguous move directly; without one, the conflicting squares are
+  reported.
+- Promotion variants are identical at the occupancy level → deliberately no decision
+  (user hint instead of guessing). If the model run is missing on disk, the feature
+  disables itself silently (note on first attempt).
 
-## Grenzen (Prototyp)
+## Limitations (experimental)
 
-- Startstellung muss bekannt sein (Grundstellung oder FEN-Resync; das CNN liefert Occupancy,
-  keine Figurenidentität — beliebige Stellungen einlesen bleibt Folgearbeit).
-- Schwellen sind heuristisch — siehe Tabelle, an Licht/Brett anpassen.
+- The starting position must be known (initial position or FEN resync; the CNN provides
+  occupancy, not piece identity — reading arbitrary positions remains future work).
+- Thresholds are heuristic — see the table; adapt to your light/board.
 
-## Nächste Schritte
+## Next steps
 
-- Beliebige Startstellung per CNN einlesen (volle Klassifikation statt nur Occupancy).
-- PGN-Export / Stockfish-Analyse der laufenden Partie.
+- Read an arbitrary starting position via CNN (full classification instead of occupancy).
+- PGN export / Stockfish analysis of the running game.

@@ -1,18 +1,14 @@
 # chesslab
 
 Build a high-quality, **auto-labeled** image dataset for recognizing chess pieces on a
-physical board filmed by a fixed USB webcam, then train a per-square 13-class classifier.
+physical board filmed by a fixed camera, then train a per-square classifier.
 Labels are not annotated by hand — they are derived from the known game state (FEN, via
 `python-chess`). One photo of a position yields 64 labeled training examples.
 
-See [`CLAUDE.md`](CLAUDE.md) for the full design and [`specs/`](specs/) for the staged
-specifications. Build proceeds stage by stage.
+Project status: **alpha**. See [`specs/`](specs/) for the staged specifications and
+[`docs/architecture-review/`](docs/architecture-review/) for the architecture documentation.
 
 ## Install
-
-PyTorch is **not** installed by this package — the ROCm build (AMD Radeon RX 7900 XTX) is
-expected to be pre-installed from `https://download.pytorch.org/whl/rocm6.x`. `chesslab`
-only validates it.
 
 ```bash
 uv sync                 # creates .venv, installs runtime + dev deps from uv.lock
@@ -20,92 +16,89 @@ uv sync                 # creates .venv, installs runtime + dev deps from uv.loc
 
 Run commands through the env with `uv run` (e.g. `uv run chesslab doctor`).
 
-> **PyTorch (ROCm) ist in `uv.lock` gepinnt** — auf die lokalen Wheels in `wheels/` mit
-> Windows+Python-3.12-Marker. Dadurch ist **`uv sync` sicher**: es installiert/behält
-> torch + ROCm-SDK aus den Wheels, statt sie zu entfernen. `uv sync` ist der
-> Setup-/Reparatur-Befehl (siehe `repair-env.ps1`).
->
-> Voraussetzungen: die Wheels müssen in `wheels/` liegen (git-ignored, lokal — siehe
-> „PyTorch (ROCm)"-Hinweis unten) und Python **3.12**. Kommt „Zugriff verweigert" auf eine
-> ROCm-DLL, sperrt ein laufender Python-Prozess sie → Terminals schließen / neu starten,
-> dann `uv sync`. Auf Linux/Rig schließt der Marker torch aus (eigene ROCm-Umgebung dort).
+PyTorch is **not** installed as a regular dependency — see
+[`docs/setup/`](docs/setup/README.md) for the GPU/PyTorch setup (AMD **ROCm**, NVIDIA
+**CUDA**, or CPU-only). On this project's development machine (Windows + Python 3.12) the
+ROCm stack is pinned to local wheels in `wheels/` (git-ignored); on other platforms
+install the matching PyTorch build yourself, then validate with `uv run chesslab doctor --gpu`.
 
-## Schnellstart — die 3 wichtigsten Befehle (Windows / ROCm)
+## Quick start — the 3 essential commands
 
 ```powershell
-# 1) Daten sammeln mit Live-Dashboard (zeigt Klassen-Lücken), dann zu gelabelten Crops slicen
+# 1) Collect data with the live dashboard (shows class gaps), then slice into labeled crops
 uv run chesslab collect play --strategy random --max-plies 60 --ui
 uv run chesslab slice --all
 
-# 2) Split MIT Klassen-Balancing: empty + Bauern runter, jede Figur <= 3x die seltenste (nur train)
+# 2) Split WITH class balancing: cap empty + pawns, each piece <= 3x the rarest (train only)
 uv run chesslab split --max-empty-ratio 1.5 --max-class-ratio 3
 
-# 3) Training (stabile ROCm-Windows-Konfig: GroupNorm-Default, kleine Batch, ohne AMP)
+# 3) Training (stable ROCm-on-Windows config: GroupNorm default, small batch, no AMP)
 uv run chesslab train --backbone smallcnn --epochs 30 --batch-size 32 --no-amp
 ```
 
-Danach evaluieren: `uv run chesslab eval --run data/models/run-<ts> --split test`
-(`<ts>` = das von `train` ausgegebene Run-Verzeichnis). Beim Training auf **`macro_recall`**
-achten (nicht `val_acc` — die ist durch `empty` verzerrt).
+Then evaluate: `uv run chesslab eval --run data/models/run-<ts> --split test`
+(`<ts>` = the run directory printed by `train`). During training watch **`macro_recall`**
+(not `val_acc`, which is inflated by `empty`).
 
-## Web-UI (lokal)
+## Web UI (local)
 
-Eine kleine Browser-Oberfläche für **Datensatz-Einsicht, Relabeln und Training** —
-deutlich angenehmer als die OpenCV-Fenster. Nutzt die bestehende Pipeline; keine Kamera.
+A small browser front end for **collecting, scanning, dataset curation and training** —
+much nicer than the OpenCV windows. It reuses the existing pipeline.
 
 ```powershell
-uv run chesslab web                          # -> http://127.0.0.1:8000  (fastapi/uvicorn sind in den Deps)
+uv run chesslab web                          # -> http://127.0.0.1:8000
 ```
 
-- **Datensätze:** zwei Phasen. **Sessions (Rohmaterial):** je Session *Slicen/Neu slicen*,
-  *Archivieren* (aus dem Datensatz nehmen, Frames bleiben, umkehrbar) / *Löschen*. Nach dem
-  Sammeln wird automatisch gesliced. **Kuratierte Datensätze:** benannte Datensätze aus einer
-  frei wählbaren **Session-Menge** (Teilmenge/alle/disjunkt/überlappend) bauen — mit **Dedup**
-  (Cap je `(Session,Feld,Figur)` **+** Perceptual-Hash gegen nie bewegte Figuren) und optionaler
-  **Rotation 90/180/270°** (4× Crops; Toggle, A/B-testbar — widerspricht der Fixkamera-Annahme).
-  Logik in `dataset_build.py`, je Datensatz `data/datasets/<name>/{manifest.jsonl,split.json,stats.json}`;
-  Crops für rot=0 referenzieren den globalen Pool (kein Kopieren). Training/Eval zeigen auf einen
-  Datensatz (`train --dataset <name>`) → der `split.json`-Fehler beim Training ohne Split ist weg.
+Four tabs:
+
+- **Collect** (`/collect`): camera capture with strategy selector
+  (`random | stockfish | coverage | sweep`), live board overlay and session handling.
+  Sessions are sliced automatically when finished.
+- **Scan** (`/scan`): turntable capture and mesh workshop for the synthetic-piece
+  pipeline (see [`synth/README.md`](synth/README.md)).
+- **Datasets** (`/datasets`): two phases. **Sessions (raw material):** per session
+  *slice/re-slice*, *archive* (remove from dataset, frames kept, reversible) / *delete*.
+  **Curated datasets:** build named datasets from any set of sessions — with **dedup**
+  (cap per `(session, square, piece)` **+** perceptual hash against never-moved pieces)
+  and optional **90/180/270° rotation** (4× crops; toggle, A/B-testable). Logic in
+  `dataset_build.py`; each dataset gets `data/datasets/<name>/{manifest.jsonl,split.json,stats.json}`.
   CLI: `chesslab dataset build <name> --sessions s1,s2 [--cap 4] [--no-phash] [--no-rotate]`.
-  (Die alte Session-Verwaltung lebt weiter in `sessions.py`, Archiv unter `data/sessions_archive/`.)
-- **Inference (Active Learning):** Modell wählen → Live-Auswertung der Kamera: pro Feld
-  Vorhersage-Glyph + Confidence-Farbe + geschätzte FEN. „Snapshot als Trainingsdaten" speichert
-  die Stellung als `mode="inference"`-Session (mit den vorhergesagten Labels) und sliced sie —
-  danach im Review korrigieren (v.a. **verdeckte Felder**) und neu bauen. So wächst der Datensatz.
-- **Review/Relabel:** Session + Frame + Modell wählen → größeres 8×8-Brett, **Auto-Load**,
-  **◀ ▶ / Pfeiltasten**. **Label-Palette + Pinsel** (Klasse wählen → Felder klicken setzt direkt;
-  Tasten `e`=leer `x`=verdeckt `p/n/b/r/q/k`=Figur, `Esc`=Cyceln), **„Vorschläge übernehmen"**
-  (alle Modell-Labels als Korrektur). Speichern → `corrections.jsonl` → neu slicen. Inferenz CPU.
-- **Training:** **Datensatz** + Hyperparameter (Backbone / Epochs / Batch / LR) wählen;
-  Fortschrittsbalken (Epoche i/N, board_acc); Metrik-Kurven, Eval + Confusion-Matrix.
-  **Weiter-trainieren:** „Weiter ab" = Warm-Start aus einem früheren Run (`train --resume <run>`)
-  — passende Gewichte werden übernommen, ein bei geänderter Klassenzahl (z.B. neue Klasse
-  `occluded`) inkompatibler Kopf wird neu initialisiert (Rumpf transferiert). Ergebnis landet in
-  einem **neuen** Run (`resumed_from` in dessen `config.json`), der alte bleibt erhalten.
+- **Training** (`/training`): pick a **dataset** + hyperparameters (backbone / epochs /
+  batch / LR); progress bar (epoch i/N, board_acc), metric curves, eval + confusion
+  matrix. **Continue training:** warm-start from an earlier run (`train --resume <run>`)
+  — compatible weights are transferred; a head that became incompatible (e.g. new class
+  `occluded`) is re-initialized. The result lands in a **new** run (`resumed_from` in its
+  `config.json`).
 
-**14. Klasse `occluded`** (Feld von Hand/Objekt verdeckt): kommt **nie aus der FEN**, nur über
-Inference/Review-Labels; `empty`/`occluded` sind „dürfen fehlen"-Klassen (keine Warnung). Modell/
-Training/Eval skalieren automatisch über `len(classes)`; alte 13-Klassen-Runs bleiben gültig.
+**14th class `occluded`** (square covered by a hand/object): never comes from FEN, only
+from manual labels; `empty`/`occluded` are "may be missing" classes (no warning). Model/
+training/eval scale automatically via `len(classes)`; old 13-class runs stay valid.
 
-Die Oberfläche ist eine **React + Tailwind + lucide-react + TanStack Query + react-router**-App
-(Quelle in `src/chesslab/web/frontend/`, gebaut nach `src/chesslab/web/static/`). Jede Ansicht hat
-eine **URL** (`/datensaetze/statistik` …) → **F5 bleibt**, Browser-Zurück funktioniert (FastAPI
-liefert für Client-Routen `index.html`). Daten laden beim View-Wechsel automatisch — **kein
-Hard-Reload** nötig. Das gebaute Frontend ist eingecheckt — zum Ändern:
+The front end is a **React + Tailwind + lucide-react + TanStack Query + react-router**
+app (source in `src/chesslab/web/frontend/`, built into `src/chesslab/web/static/`).
+Every view has a **URL** → F5 and browser-back work (FastAPI serves `index.html` for
+client routes). The built front end is checked in — to change it:
 
 ```bash
 cd src/chesslab/web/frontend && npm install && npm run build
 ```
 
+## Move tracker (experimental)
+
+`chesslab track` digitizes a live game from the fixed camera **without a CNN**: per-frame
+board warp (ArUco), motion gating, per-square diff against a reference image, and picking
+the **legal** move that best explains the change (castling/en passant/captures included),
+with an optional CNN safeguard. Web UI on `http://127.0.0.1:8001`. Details and parameters:
+[`src/chesslab/move_tracker/README.md`](src/chesslab/move_tracker/README.md).
 
 ## Stages
 
 | Stage | Command(s) | Status |
 |-------|------------|--------|
 | 0 — Pre-flight | `chesslab doctor [--gpu] [--camera N] [--json]` | ✅ implemented |
-| 1 — Calibration | `chesslab calibrate new\|check\|list` | ✅ implemented |
+| 1 — Calibration | `chesslab calibrate auto\|check\|list\|markers` | ✅ implemented |
 | 2 — Game state | (library) | ✅ implemented |
-| 3 — Capture & label | `chesslab collect pgn\|live`, `chesslab slice` | ✅ implemented |
+| 3 — Capture & label | `chesslab collect pgn\|play\|live`, `chesslab slice` | ✅ implemented |
 | 4 — Dataset | `chesslab stats\|split`, `chesslab dataset verify` | ✅ implemented |
 | 5 — Training | `chesslab train\|eval\|export` | ✅ implemented |
 | 6 — Collection UI | `chesslab collect ... --ui`, `chesslab ui` | ✅ implemented |
@@ -117,58 +110,50 @@ mandatory checks pass.
 
 ```bash
 chesslab doctor                 # Python, app deps, data dirs
-chesslab doctor --gpu           # + ROCm/PyTorch GPU validation incl. a real matmul test
+chesslab doctor --gpu           # + PyTorch GPU validation incl. a real matmul test
 chesslab doctor --camera 0      # + open camera index 0 and read a frame
 chesslab doctor --gpu --json    # add a machine-readable JSON report
 ```
 
-Each line is `[PASS] / [WARN] / [FAIL] <check> — <detail>`. A wrong (CUDA) PyTorch build
+Each line is `[PASS] / [WARN] / [FAIL] <check> — <detail>`. A mismatched PyTorch build
 produces a clear FAIL naming the build as the cause; the GPU path (`validate_gpu()`) is
 reused by `train` so it aborts loudly instead of silently falling back to CPU.
 
-## Stage 1 — `calibrate` (ArUco-Marker, Pflicht)
+## Stage 1 — `calibrate` (ArUco markers, required)
 
-**Marker sind Pflicht.** Kalibrierung, Aufnahme und Slicing kalibrieren sich **pro Frame
-selbst** aus den ArUco-Markern am Brettrand — robust gegen Brett-/Kamerabewegung, kein
-statisches Profil mehr, das danebenliegen kann. Die Marker müssen also **während der
-ganzen Aufnahme am Brett bleiben**.
+**Markers are mandatory.** Calibration, capture and slicing self-calibrate **per frame**
+from the ArUco markers at the board edge — robust against board/camera movement, no
+static profile that can drift. The markers must therefore **stay on the board for the
+whole capture**.
 
 ```bash
-uv run chesslab calibrate markers --out data/calibration/markers.png  # Marker-Blatt drucken
-#   -> entlang der Schnitt-Boxen ausschneiden, je einen Marker an eine AUSSEN-Ecke kleben
-uv run chesslab calibrate auto --camera 0 --profile default --preview # Live: Marker-Box + Spielfeld-Box
-#   w = Spielfeld-Box groesser, e/- = kleiner, s = speichern, q = abbrechen
-uv run chesslab calibrate check --profile default                     # Raster-Overlay zur Kontrolle
+uv run chesslab calibrate markers --out data/calibration/markers.png  # print the marker sheet
+#   -> cut along the boxes, tape one marker to each OUTER corner
+uv run chesslab calibrate auto --camera 0 --profile default --preview # live: marker box + playing-field box
+#   w = grow the playing-field box, e = shrink, s = save, q = abort
+uv run chesslab calibrate check --profile default                     # grid overlay for verification
 ```
 
-**Resilient gegen Verdeckung & Jitter:** Der `MarkerTracker` verfolgt jede Markerposition
-**geglättet** (EMA) mit **Dead-Zone**, damit die Box bei Jitter nicht zuckt. Die zuletzt
-bekannte Position wird **gehalten**, wenn ein Marker (z. B. von deiner Hand) verdeckt ist —
-die Kalibrierung bleibt **stabil und perspektivtreu** (Ecken aus dem Gedächtnis, echter
-Winkel). Ein **einzelner** Ausreißer-Sprung wird verworfen; erst ein über mehrere Frames
-**bestätigtes** Verschieben setzt die Ecke neu (**Selbstkorrektur** statt ewig falsch). Eine
-nur lange gehaltene Ecke wird als *veraltet* markiert (Anzeige „N gehalten").
+**Resilient to occlusion & jitter:** the `MarkerTracker` tracks each marker position
+**smoothed** (EMA) with a **dead zone**, so the box doesn't twitch on jitter. The last
+known position is **held** when a marker is occluded (e.g. by your hand) — calibration
+stays **stable and perspective-true**. A **single** outlier jump is rejected; only a move
+**confirmed** over several frames re-seats the corner (**self-correction** instead of
+staying wrong). A corner that has only been held for a long time is marked *stale*.
 
-**Weniger als 4 sichtbar reicht** — sobald ein **Profil** existiert: Aufnahme/Slicing seeden
-den Tracker aus den 4 kalibrierten Ecken (`make_tracker(profile)`), die Box steht damit
-sofort und perspektivtreu, auch wenn gerade nur 2–3 Marker im Bild sind. Die alte verzerrende
-2/3-Rekonstruktion (4 = Perspektive, 3 = Affin, 2 = Ähnlichkeit) wird nur noch als **Notnagel**
-benutzt, wenn nie 4 Ecken bekannt waren (z. B. Kalibrier-Vorschau ohne Profil). Schwelle über
-`calibrate auto --min-markers N` bzw. `config.TRACKER.default_min_markers`. Beim **Kalibrieren**
-gibt es keinen Seed: dort werden weiter **alle 4** Marker live gebraucht, bevor du speicherst.
-`--margin` (im Preview live mit `w`/`e`) rückt die Spielfeld-Box gegenüber der Marker-Box ein —
-so klebst du die Marker bequem **neben** das Feld, nicht darauf.
+**Fewer than 4 visible markers is fine** — once a **profile** exists: capture/slicing
+seed the tracker from the 4 calibrated corners (`make_tracker(profile)`), so the box is
+available immediately and perspective-true even with only 2–3 markers in view. Threshold
+via `calibrate auto --min-markers N` or `config.TRACKER.default_min_markers`. During
+**calibration** there is no seed: all 4 markers must be live before you save.
+`--margin` (live in the preview with `w`/`e`) insets the playing-field box relative to
+the marker box — so you can tape the markers **next to** the field, not on it.
 
-Die reine Geometrie (`square_to_crop_box`, `resolve_board_corners`, `MarkerTracker` in
-`calibration.py`) ist headless getestet. **Crops sind standardmäßig quadratisch** (ein Feld =
-`board_size/8`, out_size `128×128`) und werden **verzerrungsfrei** geschnitten (`crop_square`
-hält das Seitenverhältnis, füllt überstehende Bereiche mit Rand statt zu stauchen). Für sehr
-**schräge** Kameras kann man die Box mit `pad_up` nach oben verlängern (für hohe 3D-Figuren) —
-das out_size-Verhältnis wird dann per Letterbox beibehalten, ohne zu strecken.
-
-> Hinweis: `calibrate new` (4 Ecken klicken) existiert noch, erzeugt aber ein statisches
-> Profil **ohne** Marker-Selbstkalibrierung — beim marker-basierten Slicing werden Frames
-> ohne erkennbare Marker übersprungen. Nutze daher `calibrate auto` + Marker am Brett.
+The pure geometry (`square_to_crop_box`, `resolve_board_corners`, `MarkerTracker` in
+`calibration.py`) is tested headless. **Crops are square by default** (one square =
+`board_size/8`, out_size `128×128`) and cut **distortion-free** (`crop_square` keeps the
+aspect ratio and pads instead of squashing). For very **oblique** cameras, extend the box
+upward with `pad_up` (for tall 3D pieces) — the out_size ratio is kept via letterboxing.
 
 ## Stage 3 — `collect` + `slice` (capture, then auto-label)
 
@@ -176,24 +161,21 @@ Capture and slicing are **separate** so slicing is reproducible. `collect` write
 frames + FEN **+ the live-verified board corners** to a session log; `slice` turns those
 into labeled crops and can be re-run with different crop params without re-capturing.
 
-> **Aufnahme-Geometrie wird mitgespeichert.** `collect` schreibt zu jedem Frame die 4
-> Brett-Ecken (`a8,h8,h1,a1`, Frame-Pixel), die in der Live-Vorschau gerade als korrekt zu
-> sehen waren (Feld `"corners"` im Log). `slice` entzerrt **aus genau diesen Ecken**
-> (`warp_from_corners`) — also exakt das, was bei der Aufnahme angezeigt wurde, statt die
-> Marker neu zu detektieren (was bei schrägem Winkel driftet). Das macht die Crops
-> deckungsgleich mit der Live-Vorschau und immun gegen einen im Standbild verdeckten Marker.
->
-> Alt-Sessions ohne `"corners"` (vor diesem Feature aufgenommen) fallen auf die alte
-> Pro-Frame-Marker-Detektion zurück (`warp_board_markers`); Frames ganz ohne erkennbare
-> Marker werden dann übersprungen. Für deckungsgleiche Crops solche Sessions **neu aufnehmen**.
+> **Capture geometry is stored with the session.** `collect` writes the 4 board corners
+> (`a8,h8,h1,a1`, frame pixels) that were visibly correct in the live preview to each
+> frame (field `"corners"` in the log). `slice` warps **from exactly these corners**
+> (`warp_from_corners`) — i.e. exactly what was shown during capture, instead of
+> re-detecting markers (which drifts at oblique angles). Old sessions without
+> `"corners"` fall back to per-frame marker detection; frames without detectable markers
+> are skipped.
 
 ```bash
 # Capture (on the rig — camera + display)
 uv run chesslab collect pgn --pgn game.pgn --profile default   # Space=capture, n=next, s=skip, u=undo, q=quit
 uv run chesslab collect play --strategy random --max-plies 60  # engine generates the game (no PGN needed)
 uv run chesslab collect play --strategy stockfish --stockfish-path /usr/bin/stockfish
-uv run chesslab collect play --strategy coverage --ui          # dichte Aufbauten gegen die seltensten Klassen
-uv run chesslab collect play --strategy coverage --sets 2 --count 30  # mit 2 Figurensätzen -> Damen/Könige 2x/Aufbau
+uv run chesslab collect play --strategy coverage --ui          # dense setups targeting the rarest classes
+uv run chesslab collect play --strategy coverage --sets 2 --count 30  # with 2 piece sets -> queens/kings 2x per setup
 uv run chesslab collect live --start-fen "<FEN>"               # type SAN/UCI | cap | undo | fen <FEN> | done
 
 # Slice (pure, reproducible — no hardware needed)
@@ -210,7 +192,7 @@ frame, ply, square, square_color, fen, out_size, ts).
 ## Stage 4 — `stats` / `split` / `dataset verify`
 
 ```bash
-uv run chesslab stats                              # 13-class distribution + light/dark coverage + warnings
+uv run chesslab stats                              # class distribution + light/dark coverage + warnings
 uv run chesslab split --val-frac 0.15 --test-frac 0.15 --max-empty-ratio 1.5 --seed 42
 uv run chesslab dataset verify                     # files exist/loadable, out_size, labels, split disjoint
 ```
@@ -223,10 +205,11 @@ session's near-identical crops, which would leak). It caps `empty` at
 contrast / gamma / light blur / small jitter allowed; **flips and 90/180° rotation
 forbidden** (the camera is fixed).
 
-## Stage 5 — `train` / `eval` / `export` (on the ROCm rig)
+## Stage 5 — `train` / `eval` / `export`
 
-Needs the ROCm PyTorch build. `train` calls the Stage 0 GPU validation first and
-**aborts** (no silent CPU fallback) if the GPU isn't usable.
+Needs a working PyTorch GPU build (see [`docs/setup/`](docs/setup/README.md)). `train`
+runs the Stage 0 GPU validation first and **aborts** (no silent CPU fallback) if the GPU
+isn't usable.
 
 ```bash
 uv run chesslab train --backbone smallcnn --epochs 30 --batch-size 256   # checkpoints by board-accuracy
@@ -236,25 +219,25 @@ uv run chesslab export --run data/models/run-<ts> --format all          # TorchS
 
 The **checkpoint metric is board-accuracy** (all 64 squares correct), not square-accuracy
 (which `empty` inflates). Backbones: `smallcnn` (default) or `mobilenet_v3_small`
-(ImageNet-pretrained). `model_card.json` carries the class list, `out_size`, normalization,
-metrics and torch/ROCm version — the clean handoff to the inference app.
+(ImageNet-pretrained). `model_card.json` carries the class list, `out_size`,
+normalization, metrics and torch version — the clean handoff to an inference app.
 
-**Model heads (`--head`).** Three interchangeable heads, all emitting 14-class outputs so eval/
-inference are identical: `combined` (one flat 14-class head, default), `factored` (decoupled
-type×color), and `twostage` (hierarchical **Occupancy→Piece**: a binary empty/occupied head + a
-13-class piece head, reconstructed to 14-class log-probs — the piece head trains only on occupied
-squares). `eval` and the bake-off report an occupancy/piece breakdown (`occ_acc`, `occ_board_acc`,
-`piece_acc`, `type_err`, `color_err`) so you can see *where* errors are (occupancy vs. type vs.
-color). Compare heads fairly with `chesslab experiment run --heads combined,factored,twostage`.
+**Model heads (`--head`).** Three interchangeable heads, all emitting 14-class outputs so
+eval/inference are identical: `combined` (one flat 14-class head, default), `factored`
+(decoupled type×color), and `twostage` (hierarchical **occupancy→piece**: a binary
+empty/occupied head + a 13-class piece head, reconstructed to 14-class log-probs — the
+piece head trains only on occupied squares). `eval` and the bake-off report an
+occupancy/piece breakdown (`occ_acc`, `occ_board_acc`, `piece_acc`, `type_err`,
+`color_err`). Compare heads fairly with
+`chesslab experiment run --heads combined,factored,twostage`.
 
-**Transfer learning from external datasets (`chesslab ingest`).** Pretrain on large, diverse public
-chess datasets, then `--resume`-finetune on your own fixed-camera sessions — the biggest lever against
-piece-**type** confusion with little own data. `ingest` converts a third-party dataset (full-board
-photos with known corners + FEN) into our per-square crop format with **no core-pipeline changes**: it
-writes each image as a synthetic session (`session.yaml`/`log.jsonl` pointing at the original image +
-its 4 corners), then runs the normal `slice -> build_dataset`. No ArUco markers and no camera intrinsics
-are needed (warp from the 4 given corners). Adapters: `chesscog` (rendered, ~5k imgs) and `chessred`
-(ChessReD2K real photos, ~2k imgs, CC-BY-4.0) — download them yourself, then:
+**Transfer learning from external datasets (`chesslab ingest`).** Pretrain on large,
+diverse public chess datasets, then `--resume`-finetune on your own fixed-camera sessions
+— the biggest lever against piece-**type** confusion with little own data. `ingest`
+converts a third-party dataset (full-board photos with known corners + FEN) into the
+per-square crop format with **no core-pipeline changes**. Adapters: `chesscog` (rendered,
+~5k imgs), `chessred` (ChessReD2K real photos, ~2k imgs, CC-BY-4.0) and `synthetic`
+(this repo's Blender renderer, see [`docs/synth-pipeline.md`](docs/synth-pipeline.md)):
 
 ```bash
 # verify orientation FIRST (wrong corner order silently transposes all labels):
@@ -280,28 +263,44 @@ Coverage is derived from **session logs** (FEN → 64 labels), so it reflects wh
 captured — *before* any `slice`. The dashboard is render-only; the capture loop owns the
 keyboard (single OpenCV key stream). `pyperclip` is optional (used only for `g` / `rec`).
 
-## Develop
+## Development
 
 ```bash
-uv run pytest           # Stage 0 smoke tests (no GPU/camera needed)
-```
+uv run pytest -q        # full test suite (no GPU/camera needed)
 
-### Code Quality
-
-```bash
 # Frontend (Vite + React)
 cd src/chesslab/web/frontend
 npm run lint            # ESLint (flat config, TS + React)
-npm run lint:fix        # safe autofix only
 npm run knip            # dead-code / unused-export detection
 npm run build           # verify no regressions
 
 # Python
-uv run ruff check src tests synth   # lint (E, F, I, UP, B, C4)
-uv run ruff format --check src tests synth  # formatting diff
-uv run ruff check --fix --select I,F401      # safe autofix: import sort + unused imports
+uv run ruff check src tests synth             # lint (E, F, I, UP, B, C4)
+uv run ruff format --check src tests synth    # formatting diff
 uv run vulture src --min-confidence 80        # dead-code analysis (heuristic)
-
-# SonarQube (requires external server + sonar-scanner + SONAR_TOKEN)
-# Config in sonar-project.properties at repo root.
 ```
+
+Utility scripts are documented in [`scripts/README.md`](scripts/README.md).
+
+## License
+
+This project is licensed under the **GNU General Public License v3.0 or later**
+(see [`LICENSE`](LICENSE)). The core dependency `python-chess` is GPL-3.0+, which is
+the deciding factor for the project license.
+
+## Attribution
+
+No third-party source code was copied into this repository; the following works provided
+concepts and algorithmic inspiration:
+
+- **Cucchiara et al.** — HSV-based cast-shadow detection (shadow veto in the move tracker)
+- **Zabih & Woodfill** — census transform (structure check in the shadow veto)
+- **Wölflein & Arandjelović, *chesscog* (2021)** — per-square pipeline, line-based board
+  detection
+- **Wang & Green (IVCNZ 2013)**, **A. Poggi (*ACMR*)**, ***LiveChess2FEN* (Quintana et
+  al.)** — algorithmic precursors for diff tracking / legality matching
+- **Reinhard et al. (2001)** — color transfer (`scripts/match_texture_tone.py`)
+- **Taubin (1995)** — volume-preserving mesh smoothing (via pymeshlab)
+
+Dataset credit: **ChessReD** (CC-BY-4.0) and **chesscog** datasets are supported via
+`chesslab ingest` but are not distributed with this repository.
