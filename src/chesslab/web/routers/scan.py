@@ -48,9 +48,10 @@ def scan_status():
 
 
 @router.post("/api/scan/open")
-def scan_open(source: str = Body(...), width: int = Body(3840), height: int = Body(2160)):
+def scan_open(source: str = Body(...), width: int = Body(2880), height: int = Body(2160),
+              capture: str = Body("")):
     try:
-        return SCANNER.open(source, width, height)
+        return SCANNER.open(source, width, height, capture_source=capture)
     except Exception as e:  # noqa: BLE001 — Nutzerfehler (Quelle/URL) sauber ans Frontend
         raise HTTPException(400, str(e))
 

@@ -222,6 +222,40 @@ def loglik_scores(board: chess.Board, z: dict[str, float],
     return scored
 
 
+def loglik_pair_scores(board: chess.Board, z: dict[str, float],
+                       z_thr: float = 3.0, k: float = 1.0,
+                       soft: float | None = None) -> list[tuple[list[chess.Move], float]]:
+    """LL-Score für ZUGPAARE (Halbzug + Antwort) — rettet schnelles Spiel ohne CNN:
+    fällt die Antwort in den Diff, bevor der erste Zug bestätigt ist, erklärt kein
+    Einzelzug mehr die Änderung, ein Paar aber schon. Reihenfolge ist durch side-to-move
+    fixiert. Nur Paare, deren SÄMTLICHE from/to-Endpunkte wenigstens schwache Evidenz
+    tragen (z ≥ soft), sind Kandidaten — sonst explodiert der Suchraum in Rauschen.
+    Rückgabe absteigend sortiert (kann leer sein)."""
+    soft = z_thr * 0.5 if soft is None else soft
+    logit = {sq: float(np.clip(k * (v - z_thr), -12.0, 12.0)) for sq, v in z.items()}
+
+    def _ok(b, mv):
+        return (z[chess.square_name(mv.from_square)] >= soft
+                and z[chess.square_name(mv.to_square)] >= soft)
+
+    scored: list[tuple[list[chess.Move], float]] = []
+    for mv1 in board.legal_moves:
+        if not _ok(board, mv1):
+            continue
+        t1 = move_touched_squares(board, mv1)
+        b2 = board.copy(stack=False)
+        b2.push(mv1)
+        for mv2 in b2.legal_moves:
+            # Zielfeld von mv1 darf von mv2 wieder benutzt werden (Schlagabtausch) —
+            # die Endpunkt-Evidenz von mv2 gilt trotzdem.
+            if not _ok(b2, mv2):
+                continue
+            touched = t1 | move_touched_squares(b2, mv2)
+            scored.append(([mv1, mv2], sum(logit[s] for s in touched)))
+    scored.sort(key=lambda t: -t[1])
+    return scored
+
+
 def move_prior(board: chess.Board, move: chess.Move) -> float:
     """Kleiner Plausibilitäts-Prior in LL-Einheiten (Stufe A, ohne Engine): entscheidet NUR
     echte Beinahe-Gleichstände, nie gegen klare Bild-Evidenz (Deckelung |prior| ≤ 1.0).
@@ -1033,6 +1067,10 @@ class MoveTracker:
         #     NACH dem Scoring, damit der Anomalie-Patcher weiß, ob ein viabler Zug die Lage
         #     erklärt (dann niemals patchen). ---
         if len(changed) > self.max_changed:
+            # Zugpaar-Versuch (schnelles Spiel: 2 Halbzüge = bis zu ~8 geänderte Felder),
+            # bevor die Lage als verdeckt/instabil gilt.
+            if len(changed) <= self.max_changed + 2 and self._try_pair(z, best, cur, cur_bgr):
+                return
             self._confirmer.reset()
             self._mark_stuck("too_many_changed")   # Spec 09: Recovery-Trigger via _cnn_tick
             self._maybe_patch_anomaly(changed, best, cur, cur_bgr)
@@ -1058,8 +1096,11 @@ class MoveTracker:
                 self.note = f"schwache Zugevidenz ({self.board.san(obs_move)}?) — warte"
                 return
 
-        # --- kein Zug erklärt die Änderung ---
+        # --- kein Einzelzug erklärt die Änderung → erst Zugpaar probieren (schnelles
+        #     Spiel), dann stuck + Nudge/Drift-Selbstheilung (Teil 4) ---
         if obs_move is None or best < 0.0:
+            if self._try_pair(z, best, cur, cur_bgr):
+                return
             self._confirmer.reset()
             self._mark_stuck("no_legal_move")      # Spec 09: Recovery-Trigger via _cnn_tick
             self._maybe_patch_anomaly(changed, best, cur, cur_bgr)   # Nudge/Drift ohne CNN (Teil 4)
@@ -1121,6 +1162,45 @@ class MoveTracker:
         # Standard: Diff committet direkt (schnell). Schatten sind bereits per HSV-Veto raus;
         # bei Stuck/Abweichung greift die CNN-Recovery/-Kontrolle in _cnn_tick.
         self._commit_move(obs_move, cur, cur_bgr, recovered=False, prior_used=prior_used)
+
+    def _try_pair(self, z: dict[str, float], best_single: float, cur, cur_bgr) -> bool:
+        """Diff-seitige 2-Halbzug-Erkennung (schnelles Spiel ohne CNN). Unter self.lock.
+
+        True = Lage behandelt (Paar wird bestätigt oder wurde committet) — Aufrufer
+        markiert dann NICHT stuck. Ein Paar muss klar besser sein als der beste Einzelzug
+        UND als das zweitbeste Paar (LL-Margin), sonst greift die normale Stuck-Logik
+        (mit CNN übernimmt dort die verifizierte 2-Ply-Recovery)."""
+        pairs = loglik_pair_scores(self.board, z, self.z_thr, self.ll_k)
+        if not pairs:
+            return False
+        seq, best = pairs[0]
+        second = pairs[1][1] if len(pairs) > 1 else -1e9
+        if best < 0.0 or best - max(second, best_single) < self.ambiguity_margin_ll:
+            return False
+        key = " ".join(m.uci() for m in seq)
+        self._candidate_uci = key
+        self._best_score, self._second_score = best, max(second, best_single)
+        if not self._confirmer.feed(key):
+            self.note = f"erkenne Doppelzug {key}… ({self._confirmer.count}/{self.confirm_frames})"
+            return True
+        sans = []
+        for mv in seq:
+            sans.append(self.board.san(mv))
+            self.board.push(mv)
+        self.history.extend(sans)
+        self.last_move = seq[-1].uci()
+        self._set_ref(cur, cur_bgr)
+        self.state = "move"
+        self._confirmer.reset()
+        self._clear_stuck()
+        self._pending = None
+        self._anomaly_since = {}
+        self.prior_last = False
+        self.recovered_last = False
+        self.note = f"Doppelzug erkannt: {' + '.join(sans)} (schnelles Spiel)"
+        if self.board.is_checkmate():
+            self.note += " — Schachmatt!"
+        return True
 
     def _maybe_patch_anomaly(self, changed: set[str], best_ll: float, cur, cur_bgr) -> None:
         """Nudge-/Drift-Selbstheilung der Referenz ohne CNN (Spec 10, Teil 4). Unter self.lock.

@@ -11,12 +11,14 @@ import { ModelViewer } from "./ModelViewer";
 const input =
   "rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-100 outline-none focus:border-sky-500";
 
-const PHONE = "https://192.168.178.23:4444/video/snapshot";
+const PHONE = "https://192.168.178.23:4444/video/m.jpeg";       // flüssige Live-Vorschau (Stream)
+const PHONE_SNAP = "https://192.168.178.23:4444/video/snapshot"; // Speicher-Foto (sauberes Einzelbild)
 
 type Status = {
-  open: boolean; source: string; frame_size: [number, number]; recording: boolean;
+  open: boolean; source: string; capture_source: string; frame_size: [number, number]; recording: boolean;
   out: string; crop: number[] | null; interval: number; count: number; quality: number;
-  saved_run: number; total: number; index: number; error: string; default_source: string;
+  saved_run: number; total: number; index: number; error: string;
+  default_source: string; default_capture: string;
 };
 
 type Drag = { x0: number; y0: number; x1: number; y1: number } | null;
@@ -71,7 +73,8 @@ function scanStage(s: Scan, pieces: Piece[]): { stage: Stage; piece: string | nu
 export default function Scan() {
   // --- Photo-Capture State ---
   const [source, setSource] = useState(PHONE);
-  const [width, setWidth] = useState(3840);
+  const [capture, setCapture] = useState(PHONE_SNAP);
+  const [width, setWidth] = useState(2880);
   const [height, setHeight] = useState(2160);
   const [out, setOut] = useState("pawn");
   const [interval, setIntervalS] = useState(0.8);
@@ -101,6 +104,7 @@ export default function Scan() {
     api<Status>("/api/scan/status").then((s) => {
       setSt(s);
       if (s.default_source) setSource(s.default_source);
+      if (s.default_capture) setCapture(s.default_capture);
       if (s.out) setOut(s.out);
     }).catch(() => {});
     return () => clearInterval(pollTimer.current);
@@ -115,7 +119,7 @@ export default function Scan() {
   async function connect() {
     setMsg("");
     try {
-      const s = await post<Status>("/api/scan/open", { source, width, height });
+      const s = await post<Status>("/api/scan/open", { source, width, height, capture });
       setSt(s);
       startPolling();
     } catch (e: any) { setMsg("Fehler: " + e.message); }
@@ -265,9 +269,12 @@ export default function Scan() {
       {/* ── Photo-Capture Panel ── */}
       <Card>
         <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2 text-sm text-zinc-400">Quelle
+          <label className="flex items-center gap-2 text-sm text-zinc-400" title="Flüssige Live-Vorschau (MJPEG-Stream, …/video/m.jpeg) oder USB-Index.">Vorschau
             <input value={source} onChange={(e) => setSource(e.target.value)} className={`${input} w-96`}
-              placeholder="IP-Cam-URL oder USB-Index (0/1)" /></label>
+              placeholder="Stream-URL (…/video/m.jpeg) oder USB-Index (0/1)" /></label>
+          <label className="flex items-center gap-2 text-sm text-zinc-400" title="Speicher-Foto pro Aufnahme (Snapshot-URL, …/video/snapshot). Leer = Foto aus dem Live-Frame.">Foto
+            <input value={capture} onChange={(e) => setCapture(e.target.value)} className={`${input} w-96`}
+              placeholder="Snapshot-URL (…/video/snapshot), leer = Live-Frame" /></label>
           <label className="flex items-center gap-2 text-sm text-zinc-400" title="Nur für USB-Cam: angeforderte Auflösung (MJPG).">USB-Res
             <input type="number" value={width} onChange={(e) => setWidth(+e.target.value)} className={`${input} w-20`} />×
             <input type="number" value={height} onChange={(e) => setHeight(+e.target.value)} className={`${input} w-20`} /></label>
