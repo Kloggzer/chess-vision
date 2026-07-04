@@ -1,4 +1,4 @@
-"""Tests für den kanonischen JSONL-Reader `chesslab.ioutil.read_jsonl` (Rework 05)."""
+"""Tests for the canonical JSONL reader `chesslab.ioutil.read_jsonl` (Rework 05)."""
 
 from __future__ import annotations
 

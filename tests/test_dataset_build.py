@@ -1,4 +1,4 @@
-"""Benannte Datensätze: Dedup (Metadaten + pHash), Rotation, Build — headless mit tmp-Pfaden."""
+"""Named datasets: Dedup (metadata + pHash), rotation, build — headless with temp paths."""
 
 import json
 
@@ -101,7 +101,7 @@ def test_build_dataset_filters_dedups_rotates(tmp_path):
 
 
 def test_build_with_occluded_class(tmp_path):
-    """Datensatz mit occluded-Zeilen baut/splittet sauber (14 Klassen, keine occluded-Warnung)."""
+    """Dataset with occluded rows builds/splits cleanly (14 classes, no occluded warning)."""
     paths = config.Paths(root=tmp_path)
     rows = [_row(paths, "wP", "s1", "0000", "e2", (180, 180, 180)),
             _row(paths, "occluded", "s1", "0001", "d4", (10, 10, 10)),
@@ -113,12 +113,12 @@ def test_build_with_occluded_class(tmp_path):
     assert res["counts"]["final"] == 3
     stats = json.loads((paths.datasets / "occ" / "stats.json").read_text())
     assert stats["counts"]["occluded"] == 2
-    # occluded ist optional -> taucht NICHT als "0 Beispiele"/Untersampling-Warnung auf, wenn da
+    # occluded is optional -> does NOT appear as "0 examples"/undersampling warning when present
     assert not any("occluded" in w for w in stats["warnings"])
 
 
 def test_build_dataset_raises_on_degenerate(tmp_path):
-    """Degenerierte Daten -> ValueError; allow_degenerate=True -> ok."""
+    """Degenerate data -> ValueError; allow_degenerate=True -> ok."""
     paths = config.Paths(root=tmp_path)
     rows = [
         _row(paths, "wQ", "s1", "0000", "d1", (180, 180, 180)),
@@ -134,7 +134,7 @@ def test_build_dataset_raises_on_degenerate(tmp_path):
                          paths=paths, allow_degenerate=False)
     assert not (paths.datasets / "solo").exists()   # kein halbfertiger Zombie-Datensatz
 
-    # mit allow_degenerate geht es durch und dokumentiert die Fehler im Split
+    # with allow_degenerate it goes through and documents the errors in the split
     res = DB.build_dataset("solo-ok", ["s1", "s2"], rotations=(0,), val_frac=0.5, test_frac=0.5,
                           paths=paths, allow_degenerate=True)
     assert res["counts"]["final"] == 4

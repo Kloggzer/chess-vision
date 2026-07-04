@@ -1,7 +1,7 @@
-"""Tests für die CNN-Occupancy-Recovery des Move-Trackers (specs/rework/09-cnn-recovery.md).
+"""Tests for CNN occupancy recovery of the Move-Tracker (specs/rework/09-cnn-recovery.md).
 
-Kern torch-frei: Beobachtungen werden von Hand gebaut. Integration über einen Stub-CnnRecovery
-im headless MoveTracker (FakeCapture-Muster aus test_move_tracker.py).
+Core torch-free: observations are built by hand. Integration via a Stub-CnnRecovery
+in the headless MoveTracker (FakeCapture pattern from test_move_tracker.py).
 """
 
 from __future__ import annotations
@@ -22,8 +22,8 @@ _ALL = [f"{f}{r}" for r in range(1, 9) for f in "abcdefgh"]
 def _obs_for_board(board: chess.Board, conf: float = 0.99,
                    occluded: set[str] | None = None,
                    flip: set[str] | None = None) -> OccupancyObservation:
-    """Beobachtung, die exakt zur Stellung passt; `flip` invertiert Felder,
-    `occluded` macht Felder verdeckt-dominant (nie confident)."""
+    """Observation that exactly matches the position; `flip` inverts squares,
+    `occluded` makes squares occluded-dominant (never confident)."""
     occluded = occluded or set()
     flip = flip or set()
     p_occ, p_empty, p_occl = {}, {}, {}
@@ -40,7 +40,7 @@ def _obs_for_board(board: chess.Board, conf: float = 0.99,
 
 
 def _recovery(tmp_path, **kw) -> CnnRecovery:
-    """CnnRecovery ohne Modell auf Platte — nur die pure Auswertung wird getestet."""
+    """CnnRecovery without a model on disk — only the pure evaluation is tested."""
     run = tmp_path / "run"
     run.mkdir(exist_ok=True)
     (run / "config.json").write_text("{}", encoding="utf-8")
@@ -48,21 +48,21 @@ def _recovery(tmp_path, **kw) -> CnnRecovery:
 
 
 # ---------------------------------------------------------------------------
-# verify_move — Pre-Commit-Check eines konkreten Kandidatenzugs
+# verify_move — pre-commit check of a concrete candidate move
 # ---------------------------------------------------------------------------
 
 def test_verify_move_agrees_for_real_move(tmp_path):
-    """Beobachtung passt zur Stellung NACH e2e4 → hohes Agreement für e2e4."""
+    """Observation matches position AFTER e2e4 → high agreement for e2e4."""
     board = chess.Board()
     after = chess.Board(); after.push_san("e4")
     obs = _obs_for_board(after)
     agree, n = _recovery(tmp_path).verify_move(board, chess.Move.from_uci("e2e4"), obs)
     assert agree == pytest.approx(1.0)
-    assert n == 2                     # nur die berührten Felder (e2, e4)
+    assert n == 2                     # only the touched squares (e2, e4)
 
 
 def test_verify_move_low_for_wrong_move(tmp_path):
-    """Beobachtung passt zu e2e4, geprüft wird aber d2d4 → Agreement < 1 (2 Felder falsch)."""
+    """Observation matches e2e4, but d2d4 is checked → agreement < 1 (2 squares wrong)."""
     board = chess.Board()
     after = chess.Board(); after.push_san("e4")
     obs = _obs_for_board(after)
@@ -71,10 +71,10 @@ def test_verify_move_low_for_wrong_move(tmp_path):
 
 
 def test_verify_move_too_few_confident_returns_zero(tmp_path):
-    """Fast alles verdeckt (< min_confident confident-Felder) → 0.0."""
+    """Almost everything occluded (< min_confident confident squares) → 0.0."""
     board = chess.Board()
     after = chess.Board(); after.push_san("e4")
-    occluded = set(_ALL[:60])                        # nur 4 Felder confident
+    occluded = set(_ALL[:60])                        # only 4 confident squares
     obs = _obs_for_board(after, occluded=occluded)
     agree, n = _recovery(tmp_path, min_confident_recovery=8).verify_move(
         board, chess.Move.from_uci("e2e4"), obs)
@@ -83,14 +83,14 @@ def test_verify_move_too_few_confident_returns_zero(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Identitäts-Pfad: pred_label je Feld statt nur besetzt/leer
+# Identity path: pred_label per square instead of just occupied/empty
 # ---------------------------------------------------------------------------
 
 def _ident_obs(board: chess.Board, conf: float = 0.99,
                occluded: set[str] | None = None,
                overrides: dict[str, str] | None = None) -> OccupancyObservation:
-    """Identitäts-Beobachtung, die exakt zur Stellung passt; `overrides` setzt einzelne
-    Felder auf ein abweichendes Label; `occluded` macht Felder verdeckt (nicht confident)."""
+    """Identity observation that exactly matches the position; `overrides` sets individual
+    squares to a different label; `occluded` makes squares occluded (not confident)."""
     from chesslab.move_tracker.cnn_recovery import expected_labels
     occluded = occluded or set()
     labels = dict(expected_labels(board))
@@ -119,7 +119,7 @@ def test_board_matches_identity_true_when_unchanged(tmp_path):
 
 def test_board_matches_identity_false_on_conflict(tmp_path):
     board = chess.Board()
-    obs = _ident_obs(board, overrides={"e2": "empty"})     # ein Feld weicht ab
+    obs = _ident_obs(board, overrides={"e2": "empty"})     # one square deviates
     res = _recovery(tmp_path).board_matches_identity(board, obs)
     assert res["match"] is False and "e2" in res["conflicts"]
 
@@ -137,14 +137,14 @@ def test_derive_move_identity_capture(tmp_path):
         board.push_san(san)
     after = board.copy(); after.push_san("exd5")
     mv, _b, _s = _recovery(tmp_path).derive_move_identity(board, _ident_obs(after))
-    assert mv is not None and mv.uci() == "e4d5"           # Zielfeld-Identität = weißer Bauer
+    assert mv is not None and mv.uci() == "e4d5"           # target square identity = white pawn
 
 
 def test_derive_move_identity_promotion(tmp_path):
-    board = chess.Board("8/P6k/8/8/8/8/7K/8 w - - 0 1")    # weißer Bauer a7, kann umwandeln
+    board = chess.Board("8/P6k/8/8/8/8/7K/8 w - - 0 1")    # white pawn a7, can promote
     after = board.copy(); after.push_san("a8=Q")
     mv, _b, _s = _recovery(tmp_path).derive_move_identity(board, _ident_obs(after))
-    assert mv is not None and mv.uci() == "a7a8q"          # Dame, nicht Turm/Läufer/Springer
+    assert mv is not None and mv.uci() == "a7a8q"          # queen, not rook/bishop/knight
 
 
 def test_verify_move_identity_agrees(tmp_path):
@@ -164,7 +164,7 @@ def test_verify_move_identity_low_for_wrong(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# score_moves — der Kern: welcher legale Zug erklärt die Beobachtung?
+# score_moves — the core: which legal move explains the observation?
 # ---------------------------------------------------------------------------
 
 def test_score_moves_simple_move(tmp_path):
@@ -209,7 +209,7 @@ def test_score_moves_en_passant(tmp_path):
 
 
 def test_score_moves_ambiguous_promotion_returns_none(tmp_path):
-    """Promotion-Varianten (e8q vs. e8r …) sind occupancy-identisch → margin-Regel liefert None."""
+    """Promotion variants (e8q vs. e8r …) are occupancy-identical → margin rule yields None."""
     board = chess.Board("4k3/P7/8/8/8/8/8/4K3 w - - 0 1")
     after = board.copy(); after.push_san("a8=Q")
     obs = _obs_for_board(after)
@@ -227,7 +227,7 @@ def test_score_moves_low_confidence_returns_none(tmp_path):
 
 
 def test_score_moves_all_occluded_returns_none(tmp_path):
-    """Hand über dem Brett: alles verdeckt → keine confident-Felder → keine Aussage."""
+    """Hand over the board: everything occluded → no confident squares → no statement."""
     board = chess.Board()
     obs = _obs_for_board(board, occluded=set(_ALL))
     mv, best, second = _recovery(tmp_path).score_moves(board, obs)
@@ -238,14 +238,14 @@ def test_score_moves_below_min_agreement_returns_none(tmp_path):
     """Beobachtung passt zu KEINEM legalen Zug gut genug (zwei zusätzliche Felder falsch)."""
     board = chess.Board()
     after = chess.Board(); after.push_san("e4")
-    obs = _obs_for_board(after, flip={"a5", "h5"})   # e2e4 erklärt a5/h5 nicht
+    obs = _obs_for_board(after, flip={"a5", "h5"})   # e2e4 does not explain a5/h5
     mv, best, _ = _recovery(tmp_path).score_moves(board, obs)
     assert mv is None
     assert best < 0.97
 
 
 # ---------------------------------------------------------------------------
-# Softmax-Kollaps + confident()
+# Softmax collapse + confident()
 # ---------------------------------------------------------------------------
 
 def test_observation_from_probs_collapse():
@@ -263,7 +263,7 @@ def test_observation_from_probs_collapse():
     assert not obs.occupied("e4")
     conf = obs.confident(0.85)
     assert conf["e2"] and conf["e4"]
-    assert not conf["d4"]                 # occluded-dominant ist NIE confident
+    assert not conf["d4"]                 # occluded-dominant is NEVER confident
 
 
 def test_observation_from_probs_13_classes_without_occluded():
@@ -273,11 +273,11 @@ def test_observation_from_probs_13_classes_without_occluded():
     probs["e2"] = [0.1, 0.9] + [0.0] * 11
     obs = observation_from_probs(probs, classes)
     assert obs.occupied("e2")
-    assert obs.p_occluded["e2"] == 0.0    # 13-Klassen-Run: kein occluded, Index nicht geraten
+    assert obs.p_occluded["e2"] == 0.0    # 13-class run: no occluded, index not guessed
 
 
 # ---------------------------------------------------------------------------
-# resync_check — der Button/die Kontrolle
+# resync_check — the button/the control
 # ---------------------------------------------------------------------------
 
 def test_resync_check_match(tmp_path):
@@ -296,9 +296,9 @@ def test_resync_check_unique_move(tmp_path):
 
 
 def test_resync_check_conflicts_without_move(tmp_path):
-    """Verstellte Figur (kein legaler Zug erklärt es) → Konflikte melden, nichts raten."""
+    """Displaced piece (no legal move explains it) → report conflicts, don’t guess."""
     board = chess.Board()
-    obs = _obs_for_board(board, flip={"a3", "h6", "d5"})   # wildes Muster
+    obs = _obs_for_board(board, flip={"a3", "h6", "d5"})   # random pattern
     res = _recovery(tmp_path).resync_check(board, obs)
     assert res["match"] is False
     assert set(res["conflicts"]) == {"a3", "h6", "d5"}
@@ -310,7 +310,7 @@ def test_resync_check_conflicts_without_move(tmp_path):
 # ---------------------------------------------------------------------------
 
 class _StubRecovery:
-    """Liefert eine feste resync_check-Antwort; zählt observe-Aufrufe."""
+    """Returns a fixed resync_check response; counts observe calls."""
 
     def __init__(self, result: dict):
         self.result = result
@@ -325,7 +325,7 @@ class _StubRecovery:
 
 
 def _identity_profile(board_size: int = 400):
-    """Identitäts-Profil (Muster aus test_move_tracker.py)."""
+    """Identity profile (pattern from test_move_tracker.py)."""
     from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
 
     corners = [[0, 0], [board_size, 0], [board_size, board_size], [0, board_size]]
@@ -337,7 +337,7 @@ def _identity_profile(board_size: int = 400):
 
 
 def _headless_tracker(monkeypatch, **kw):
-    """MoveTracker ohne Kamera/echtes Profil (Muster aus test_move_tracker.py Teil 2)."""
+    """MoveTracker without camera/real profile (pattern from test_move_tracker.py part 2)."""
     import numpy as np
 
     from chesslab.move_tracker import tracker as trk
@@ -356,12 +356,12 @@ def _headless_tracker(monkeypatch, **kw):
 
 
 def test_tracker_cnn_recovery_commits_via_voting(monkeypatch):
-    """Diff-Pfad stuck → Stub-Recovery schlägt Zug vor → Commit erst nach confirm_frames Votes."""
+    """Diff path stuck → Stub-Recovery proposes move → Commit only after confirm_frames votes."""
     t = _headless_tracker(monkeypatch, cnn_run="stub-run", confirm_frames=2,
                           cnn_cooldown_s=0.0, settle_frames=1)
     stub = _StubRecovery({"match": False, "conflicts": ["e2", "e4"],
                           "move": "e2e4", "agreement": 1.0})
-    t.recovery = stub                       # lazy _ensure_cnn wird nie gebraucht
+    t.recovery = stub                       # lazy _ensure_cnn is never needed
     t._last_corners = [[0, 0], [820, 0], [820, 820], [0, 820]]
     t._gray_buf.extend([None] * t.avg_frames)   # „stabil genug" fürs Gate
     t.state = "waiting"
@@ -403,7 +403,7 @@ def test_tracker_cnn_tick_respects_cooldown(monkeypatch):
 
 
 def test_tracker_cnn_tick_discards_on_board_change(monkeypatch):
-    """FEN ändert sich während der Beobachtung → Ergebnis verwerfen."""
+    """FEN changes during observation → discard result."""
     t = _headless_tracker(monkeypatch, cnn_run="stub-run", confirm_frames=1,
                           cnn_cooldown_s=0.0, settle_frames=1)
 
@@ -430,7 +430,7 @@ def test_tracker_cnn_tick_discards_on_board_change(monkeypatch):
 
 
 def test_tracker_periodic_control_warns_without_guessing(monkeypatch):
-    """Periodische Kontrolle: Abweichung ohne eindeutigen Zug → Warnung, kein Commit."""
+    """Periodic check: deviation without clear move → warning, no commit."""
     t = _headless_tracker(monkeypatch, cnn_run="stub-run", confirm_frames=1,
                           cnn_cooldown_s=0.0, cnn_check_interval_s=0.0, settle_frames=1)
     stub = _StubRecovery({"match": False, "conflicts": ["a3", "h6", "d5"],
@@ -438,7 +438,7 @@ def test_tracker_periodic_control_warns_without_guessing(monkeypatch):
     t.recovery = stub
     t._last_corners = [[0, 0], [820, 0], [820, 820], [0, 820]]
     t._gray_buf.extend([None] * t.avg_frames)
-    t.state = "waiting"                     # ruhig, NICHT stuck → periodischer Trigger
+    t.state = "waiting"                     # quiet, NOT stuck → periodic trigger
     import numpy as np
     t._cnn_tick(np.zeros((820, 820, 3), dtype=np.uint8))
     assert t.history == []
@@ -484,7 +484,7 @@ def test_resync_cnn_without_model(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_derive_moves_identity_single_preferred(tmp_path):
-    """Erklaert EIN Zug die Beobachtung, wird KEIN Paar zurueckgegeben (sparsamste Erklaerung)."""
+    """One move explains the observation, no pair is returned (most parsimonious explanation)."""
     board = chess.Board()
     after = chess.Board(); after.push_san("e4")
     seq, best, _s = _recovery(tmp_path).derive_moves_identity(board, _ident_obs(after), max_plies=2)
@@ -492,7 +492,7 @@ def test_derive_moves_identity_single_preferred(tmp_path):
 
 
 def test_derive_moves_identity_pair_for_two_moves(tmp_path):
-    """Beobachtung entspricht ZWEI Halbzuegen (e4 + e5) -> Zugpaar in richtiger Reihenfolge."""
+    """Observation matches TWO half-moves (e4 + e5) -> move pair in correct order."""
     board = chess.Board()
     after = chess.Board()
     after.push_san("e4"); after.push_san("e5")
@@ -502,7 +502,7 @@ def test_derive_moves_identity_pair_for_two_moves(tmp_path):
 
 
 def test_derive_moves_identity_pair_disabled_with_one_ply(tmp_path):
-    """max_plies=1: Zwei-Zuege-Beobachtung ist nicht erklaerbar -> leere Folge."""
+    """max_plies=1: Two-move observation is not explainable -> empty sequence."""
     board = chess.Board()
     after = chess.Board()
     after.push_san("e4"); after.push_san("e5")

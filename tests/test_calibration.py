@@ -83,14 +83,14 @@ def test_crop_box_pad_side_symmetric():
 
 
 def test_crop_extends_upward_when_pad_up_set():
-    """Mit pad_up>0 wird die Box nach oben verlängert (für hohe 3D-Figuren bei schräger Kamera)."""
+    """With pad_up>0 the box is extended upward (for tall 3D pieces with an angled camera)."""
     prof = _make_profile()
     prof.crop.pad_up = 1.0
     bs = prof.board_size
     cell = bs / 8.0
-    x0, y0, x1, y1 = square_to_crop_box("e2", prof)          # e2: nicht am oberen Rand
-    assert (y1 - y0) > cell                                   # nach oben verlängert
-    # roh (clamp=False) darf über den Rand ragen; crop_square füllt dann auf
+    x0, y0, x1, y1 = square_to_crop_box("e2", prof)          # e2: not at the top edge
+    assert (y1 - y0) > cell                                   # extended upward
+    # raw (clamp=False) may extend beyond the edge; crop_square fills in
     _, y0u, _, _ = square_to_crop_box("e8", prof, clamp=False)
     assert y0u < 0
 
@@ -127,7 +127,7 @@ def test_aruco_detect_corners_roundtrip():
         kx, ky = known[i]
         assert abs(x - kx) < 3 and abs(y - ky) < 3
 
-    # inner mode -> each point pulled toward the board centroid (für Kleben neben das Feld)
+    # inner mode -> each point pulled toward the board centroid (for gluing next to the square)
     import math
     pts_i = detect_board_corners_aruco(frame, corner="inner")
     cen = (sum(k[0] for k in known.values()) / 4, sum(k[1] for k in known.values()) / 4)
@@ -198,7 +198,7 @@ def test_marker_tracker_smooths_real_motion():
 
 
 def test_marker_tracker_rejects_then_confirms_jump():
-    """Ausreißer (ein Frame) wird gehalten; ein echtes Verschieben (mehrere Frames) gesetzt."""
+    """Outlier (one frame) is held; a true shift (multiple frames) is committed."""
     from chesslab.calibration import MarkerTracker
 
     t = MarkerTracker()

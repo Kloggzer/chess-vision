@@ -36,15 +36,15 @@ def test_capture_writes_frames_and_log(tmp_path):
 
 
 def test_capture_persists_corners(tmp_path):
-    """Die zur Aufnahmezeit verifizierte Brett-Geometrie wird ins Log geschrieben."""
+    """The board geometry verified at capture time is written into the log."""
     w = _writer(tmp_path)
-    corners = [[10, 10], [54, 10], [54, 38], [10, 38]]   # a8,h8,h1,a1 in Frame-Pixeln
+    corners = [[10, 10], [54, 10], [54, 38], [10, 38]]   # a8,h8,h1,a1 in frame pixels
     w.capture(_frame(), ply=1, fen="fen-a", corners=corners)
-    w.capture(_frame(), ply=2, fen="fen-b")               # ohne Geometrie -> kein Feld
+    w.capture(_frame(), ply=2, fen="fen-b")               # without geometry -> no corners
     lines = [json.loads(line) for line in w.log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert lines[0]["corners"] == corners
     assert "corners" not in lines[1]
-    # undo schreibt die Einträge konsistent (inkl. corners) zurück
+    # undo writes the entries back consistently (incl. corners)
     w.capture(_frame(), 3, "fen-c")
     w.undo()
     lines = [json.loads(line) for line in w.log_path.read_text(encoding="utf-8").splitlines() if line.strip()]

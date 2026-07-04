@@ -1,8 +1,8 @@
-"""Ingestion externer Datensätze (chesslab.ingest + Adapter), headless.
+"""Ingestion of external datasets (chesslab.ingest + adapters), headless.
 
-Beweist die ganze Kette OHNE echten Download: synthetisches Brettbild + bekannte Ecken + FEN →
-synthetische Session → bestehendes `slice_session` → 64 korrekt gelabelte Crops, und — via farbig
-kodierter Felder — die richtige **Orientierung** (a1 unten-links, h8 oben-rechts).
+Proves the full chain WITHOUT real download: synthetic board image + known corners + FEN →
+synthetic session → existing `slice_session` → 64 correctly labeled crops, and — via color-coded
+squares — the correct **orientation** (a1 bottom-left, h8 top-right).
 """
 
 from __future__ import annotations
@@ -71,12 +71,12 @@ def test_chessred_adapter_parses_real_schema(tmp_path):
 
 
 def test_chesscog_corner_ordering_white_and_black_pov():
-    # geometrisches Quadrat: TL,TR,BR,BL = [a8,h8,h1,a1] bei Weiß unten
+    # geometric square: TL,TR,BR,BL = [a8,h8,h1,a1] with white at bottom
     sq = [[0, 0], [10, 0], [10, 10], [0, 10]]
     assert chesscog.order_corners(sq, white_turn=True) == [[0, 0], [10, 0], [10, 10], [0, 10]]
-    # Schwarz unten -> um 180° gedreht
+    # Black at bottom -> rotated 180°
     assert chesscog.order_corners(sq, white_turn=False) == [[10, 10], [0, 10], [0, 0], [10, 0]]
-    # unsortierte Eingabe wird trotzdem korrekt zu [TL,TR,BR,BL] geordnet
+    # unsorted input still gets correctly ordered to [TL,TR,BR,BL]
     shuffled = [[10, 10], [0, 0], [0, 10], [10, 0]]
     assert chesscog.order_corners(shuffled, white_turn=True) == [[0, 0], [10, 0], [10, 10], [0, 10]]
 
@@ -84,8 +84,8 @@ def test_chesscog_corner_ordering_white_and_black_pov():
 # --- End-to-End: synthetisches Brett -> Session -> slice ---------------------------------
 
 def _synthetic_board(bs: int) -> np.ndarray:
-    """8×8-Brett, jedes Feld eindeutig eingefärbt nach (col,row): so lässt sich nach dem Slicen
-    prüfen, dass ein Feld-Crop wirklich aus der richtigen Bildregion stammt (Orientierung)."""
+    """8×8 board, each square uniquely colored by (col,row): after slicing this allows
+    checking that a square crop truly originates from the correct image region (orientation)."""
     import cv2  # noqa: F401  (nur sicherstellen, dass cv2 da ist)
 
     cell = bs // 8
@@ -147,7 +147,7 @@ def test_ingest_end_to_end_labels_and_orientation(tmp_path):
 
 
 def test_run_ingest_with_chesscog_fixture(tmp_path):
-    """run_ingest über den chesscog-Adapter (gefälschte <id>.png/.json), ohne build_dataset."""
+    """run_ingest via the chesscog adapter (fake <id>.png/.json), without build_dataset."""
     import cv2
 
     paths = config.Paths(root=tmp_path)

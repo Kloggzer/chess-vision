@@ -72,7 +72,7 @@ def test_build_model_card_has_required_fields():
     assert "created_at" in card
 
 
-# --- Occupancy/Figur-Diagnose (kopf-unabhängig, torch-frei) --------------------------------
+# --- Occupancy/piece diagnostics (head-independent, torch-free) --------------------------------
 
 def _ci(label: str) -> int:
     return config.CLASSES.index(label)
@@ -159,7 +159,7 @@ def _crop_row(session="s0", frame=0, square="a1"):
 
 
 def test_checkpoint_score_occ_perfect_types_wrong():
-    """Occupancy perfekt, alle Typen falsch → occ_board_acc == 1.0 (Score hoch)."""
+    """Occupancy perfect, all types wrong → occ_board_acc == 1.0 (high score)."""
     classes = config.CLASSES
     # 64 Felder, alle occupied, alle Figuren falsch geraten
     rows = [_crop_row(frame=0, square=f"{(chr(97+c//8))}{8-(c%8)}") for c in range(64)]
@@ -172,7 +172,7 @@ def test_checkpoint_score_occ_perfect_types_wrong():
 
 
 def test_checkpoint_score_one_occ_flip_per_frame():
-    """Genau ein Occupancy-Flip pro Frame → occ_board_acc == 0.0."""
+    """Exactly one occupancy flip per frame → occ_board_acc == 0.0."""
     classes = config.CLASSES
     # 4 frames, je 1 Feld. Alle 4 Frames haben einen occ-Flip (empty→besetzt).
     rows = [_crop_row(frame=i, square="a1") for i in range(4)]

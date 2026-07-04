@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-# render_args ist im synth/-Ordner außerhalb des Pakets → Pfad temporär ergänzen
+# render_args is in the synth/ directory outside the package → temporarily add to path
 _SYNTH_DIR = Path(__file__).resolve().parents[1] / "synth"
 sys.path.insert(0, str(_SYNTH_DIR))
 from render_args import RenderArgs, parse_render_args  # noqa: E402
@@ -153,8 +153,8 @@ def test_synth_defaults_blender_env_override(monkeypatch):
     assert SYNTH.blender_cmd() == "/custom/blender"
 
     monkeypatch.delenv("CHESSLAB_BLENDER", raising=False)
-    # Ohne Env-Var: PATH-Lookup oder Auto-Detektion üblicher Installationsorte —
-    # das Ergebnis muss ein aufrufbarer Name ODER ein existierendes blender.exe sein.
+    # Without Env-Var: PATH lookup or auto-detection of usual install locations —
+    # the result must be an invocable name OR an existing blender.exe.
     from pathlib import Path
     resolved = SYNTH.blender_cmd()
     assert resolved == "blender" or Path(resolved).exists()

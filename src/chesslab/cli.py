@@ -54,16 +54,6 @@ def doctor(
     raise typer.Exit(code)
 
 
-@calibrate_app.command("new")
-def calibrate_new(
-    camera: int = typer.Option(0, "--camera", help="Kamera-Index."),
-    profile: str = typer.Option(config.DEFAULT_PROFILE, "--profile", help="Profilname."),
-    board_size: int = typer.Option(config.DEFAULT_BOARD_SIZE, "--board-size", help="Kantenlänge des entzerrten Bretts (px)."),
-) -> None:
-    """Interaktiv: 4 Ecken klicken (a8,h8,h1,a1), Homographie speichern."""
-    raise typer.Exit(calibration_mod.calibrate_new(camera=camera, profile=profile, board_size=board_size))
-
-
 @calibrate_app.command("check")
 def calibrate_check(
     profile: str = typer.Option(config.DEFAULT_PROFILE, "--profile", help="Profilname."),

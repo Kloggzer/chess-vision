@@ -3,7 +3,7 @@
 Fixtures: `tests/data/synth_sample/000000.json` (unregelmäßiges Viereck, keine Symmetrie).
 Das PNG wird im Test generiert, nie eingecheckt.
 
-**Contract-Wächter:** Der `synth/render_chessboard.py`-Renderer schreibt das JSON-Format
+**Contract sentinel:** The `synth/render_chessboard.py` renderer writes the JSON format
 `{fen, corners: [[a8],[h8],[h1],[a1]]}`. Dieser Test prüft, dass die volle Ingest→Slice-Kette
 die korrekte Orientierung erhält — eine vertauschte Eck-Reihenfolge würde **alle** synthetischen
 Labels stillschweigend rotieren/spiegeln.
@@ -27,7 +27,7 @@ FIXTURE_JSON = Path(__file__).resolve().parent / "data" / "synth_sample" / "0000
 
 
 def _fixture_corners() -> list[list[float]]:
-    """Liest die unregelmäßigen Ecken [a8,h8,h1,a1] aus dem Fixture-JSON."""
+    """Reads the irregular corners [a8,h8,h1,a1] from the fixture JSON."""
     d = json.loads(FIXTURE_JSON.read_text(encoding="utf-8"))
     return d["corners"]
 
@@ -51,7 +51,7 @@ def _synthetic_board(bs: int) -> np.ndarray:
 
 
 def _cell_color(col: int, row: int) -> tuple[int, int, int]:
-    """Erwartete BGR-Farbe der Zelle (col,row) im synthetischen Brett (col 0=a..7=h, row 0=8..7=1)."""
+    """Expected BGR color of the cell (col,row) in the synthetic board (col 0=a..7=h, row 0=8..7=1)."""
     return (col * 30 + 10, row * 30 + 10, 100)
 
 
@@ -74,7 +74,7 @@ def _warp_board_to_fixture(board_img: np.ndarray, corners: list[list[float]],
 # =======================================================================================
 
 def test_iter_items_parses_fixture(tmp_path):
-    """iter_items erzeugt ImportItem mit float-Ecken und korrektem FEN aus dem Fixture-JSON."""
+    """iter_items creates ImportItem with float corners and correct FEN from the fixture JSON."""
     corners = _fixture_corners()
     fen = _fixture_fen()
 
@@ -204,7 +204,7 @@ def test_synthetic_ingest_orientation(tmp_path):
 
 
 def test_synthetic_ingest_rotated_corners_fails(tmp_path):
-    """Negativprobe: rotierte Eck-Reihenfolge [h1,a1,a8,h8] → Farben passen NICHT.
+    """Negative test: rotated corner order [h1,a1,a8,h8] → colors do NOT match.
 
     Dies beweist, dass der Test Fehlermodi erkennt: eine vertauschte Reihenfolge
     würde im Normalbetrieb still alle Labels rotieren. Dieser Test schlägt fehl,
@@ -248,7 +248,7 @@ def test_synthetic_ingest_rotated_corners_fails(tmp_path):
 # --- Contract-Dokumentation --------------------------------------------------------------
 
 def test_synthetic_contract_documented():
-    """Dokumentiert den Eck-Reihenfolge-Contract als Sicherheitsanker.
+    """Documents the corner-order contract as a safety anchor.
 
     Der Renderer `synth/render_chessboard.py` schreibt `[a8,h8,h1,a1]` (= top-left, top-right,
     bottom-right, bottom-left aus Weiß-Sicht). Der `synthetic`-Adapter (`iter_items`) verlässt

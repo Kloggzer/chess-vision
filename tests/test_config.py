@@ -13,7 +13,7 @@ def test_find_stockfish_env_override_file(tmp_path, monkeypatch):
 
 
 def test_augment_policy_values_pinned():
-    """Schützt vor versehentlichem Revert auf alte Augmentierungswerte."""
+    """Protects against accidental revert to old augmentation values."""
     from chesslab.config import AUGMENT
     assert AUGMENT.brightness == 0.35
     assert AUGMENT.contrast == 0.35

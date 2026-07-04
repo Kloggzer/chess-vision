@@ -39,7 +39,7 @@ def _replay(entry: dict) -> dict:
 @pytest.mark.parametrize("entry", _entries() or [None],
                          ids=lambda e: e["file"] if e else "keine-clips")
 def test_clip_erwartete_zugliste(entry):
-    """Clips mit `erwartete_zugliste` im Manifest müssen exakt diese SAN-Folge liefern."""
+    """Clips with `erwartete_zugliste` in the manifest must produce exactly this SAN sequence."""
     if entry is None:
         pytest.skip("data/testclips fehlt (Clips sind lokal, nicht committet)")
     expected = entry.get("erwartete_zugliste")
