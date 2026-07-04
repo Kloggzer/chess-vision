@@ -45,6 +45,9 @@ def test_clip_erwartete_zugliste(entry):
     expected = entry.get("erwartete_zugliste")
     if not expected:
         pytest.skip(f"{entry['file']}: keine erwartete_zugliste im Manifest")
+    if entry.get("marker") is False:
+        pytest.skip(f"{entry['file']}: ohne ArUco-Marker — wartet auf markerlose "
+                    f"Brett-Erkennung (specs/rework/11-markerless-board-detection.md)")
     res = _replay(entry)
     assert res["history"] == list(expected), \
         f"{entry['file']}: erkannt {res['history']}, erwartet {expected}\nletzte Note: {res['note']}"
