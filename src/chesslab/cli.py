@@ -479,7 +479,7 @@ def track_cmd(
                                         help="Motion-ROI über den Brettrand hinaus (Anteil Brettkante)."),
     overhang: float = typer.Option(config.TRACK_DEFAULTS["overhang"], "--overhang",
                                    help="Diff-Zellen Richtung hintere Reihe erweitern (Anteil Zelle)."),
-    cnn_run: str = typer.Option(config.MOVE_TRACKER_DEFAULT_RUN, "--cnn-run",
+    cnn_run: str = typer.Option(config.default_tracker_run() or "", "--cnn-run",
                                 help="Modell-Run für CNN-Verifikation/-Recovery ('' = aus)."),
     cnn_conf_thr: float = typer.Option(config.TRACK_DEFAULTS["cnn_conf_thr"], "--cnn-conf-thr",
                                        help="Konfidenz-Schwelle, ab der ein CNN-Feld als belastbar gilt."),

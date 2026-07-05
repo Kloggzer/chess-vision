@@ -103,6 +103,18 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
             t.undo()
         return {"ok": True}
 
+    @app.get("/api/runs")
+    def runs():
+        """Selectable CNN model runs (weights on disk), newest first + the active one."""
+        from .. import config as _cfg
+
+        active = None
+        t = _STATE.get("tracker")
+        if t is not None:
+            active = getattr(t, "cnn_run", None)
+        return {"runs": [r["run"] for r in _cfg.list_model_runs()],
+                "default": _cfg.default_tracker_run(), "active": active}
+
     @app.get("/api/status")
     def status():
         t = _STATE.get("tracker")
@@ -182,7 +194,7 @@ if __name__ == "__main__":
     ap.set_defaults(cnn_verify=True)
     ap.add_argument("--device", default="auto", help="Torch-Device fürs CNN: auto|cpu|cuda")
     from .. import config as _config
-    ap.add_argument("--cnn-run", default=_config.MOVE_TRACKER_DEFAULT_RUN,
+    ap.add_argument("--cnn-run", default=_config.default_tracker_run() or "",
                     help="Modell-Run für CNN-Verifikation/-Recovery ('' = aus)")
     a = ap.parse_args()
 
