@@ -362,6 +362,7 @@ def build_blender_cmd(
     views_per_scene: int = 1,
     samples: int = 24,
     max_obliqueness: float = 0.20,
+    piece_scale: float = 1.0,
 ) -> list[str]:
     """Build the Blender command line (pure function, no subprocess)."""
     cmd = [
@@ -375,6 +376,7 @@ def build_blender_cmd(
         "--views-per-scene", str(views_per_scene),
         "--samples", str(samples),
         "--max-obliqueness", str(max_obliqueness),
+        "--piece-scale", str(piece_scale),
     ]
     if fens is not None:
         cmd.extend(["--fens", str(fens)])

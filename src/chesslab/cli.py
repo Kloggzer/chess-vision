@@ -552,6 +552,8 @@ def synth_render(
     max_obliqueness: float = typer.Option(0.20, "--max-obliqueness",
                                           help="Max camera obliqueness (offset/height). Matched to real ~0.06 top-down "
                                                "camera; image is reprojected to top-down via homography during ingest."),
+    piece_scale: float = typer.Option(1.0, "--piece-scale",
+                                      help="Global piece scale factor (match crop fill to the real camera; >1 = larger)."),
     blender: str | None = typer.Option(None, "--blender", help="Blender executable (default: blender, via CHESSLAB_BLENDER)."),
 ) -> None:
     """Generate synthetic board renderings with Blender/EEVEE (v2: board texture + procedural fallback)."""
@@ -577,7 +579,7 @@ def synth_render(
 
     cmd = build_blender_cmd(bl, b, script, o, n=n, seed=seed, fens=fe, pieces=p, res=res,
                             board_texture=bt, views_per_scene=views_per_scene,
-                            samples=samples, max_obliqueness=max_obliqueness)
+                            samples=samples, max_obliqueness=max_obliqueness, piece_scale=piece_scale)
 
     print(" ".join(cmd))
     try:
