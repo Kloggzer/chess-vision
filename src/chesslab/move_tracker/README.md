@@ -46,7 +46,7 @@ body (`POST /api/start`).
 | `live_align` | `True` | Track markers live vs. freeze the calibration geometry. | Camera/setup drifts over the session (markers compensate). | Tripod camera, firmly anchored (no drift). | `tracker.py`, CLI `--no-live-align` |
 | `avg_frames` | `3` | Moving average over N calm gray frames (denoised) for the per-square diff. | High sensor/light noise, sudden exposure jumps. | Latency should be minimal. | `tracker.py`, CLI `--avg-frames` |
 | `max_changed` | `6` | Max changed squares before the frame is discarded as "occluded/unstable". | Hand triggers many squares that get misread as a move. | Castling (4 squares + shadow) gets suppressed. | `tracker.py`, CLI `--max-changed` |
-| `cnn_run` | `run-20260626-163320` | Model run for CNN recovery/verification; `''` or missing on disk = feature off. | — | — | CLI `--cnn-run`, API body |
+| `cnn_run` | newest run with weights | Model run for CNN recovery/verification; selectable in the UI dropdown; `''` = feature off. | — | — | UI select, CLI `--cnn-run`, API body |
 | `cnn_conf_thr` | `0.85` | Softmax confidence above which a square counts for occupancy evaluation (occluded never counts). | The CNN "sees" moves that aren't (uncertain model). | Too few confident squares → the CNN never speaks up. | `tracker.py` |
 | `cnn_cooldown_s` | `2.0` | Minimum gap between recovery observations (CPU ~100–300 ms each). | CPU load disturbs the stream. | Recovery should retry faster. | `tracker.py` |
 | `cnn_check_interval_s` | `10.0` | Interval of the periodic CNN verification on a calm board. | Constant load unwanted. | Deviations should surface faster. | `tracker.py` |
