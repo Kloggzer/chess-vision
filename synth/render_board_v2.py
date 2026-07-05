@@ -240,6 +240,10 @@ def style_board_v2(board_texture_path=None):
 # Skalierung in ECHTEN Millimetern. Feld = 35 mm = CELL Einheiten.
 SQUARE_MM = 35.0
 MM_PER_UNIT = SQUARE_MM / CELL  # 5.833 mm pro Brett-Einheit
+# Echte Kamera-Distanz zum Brett (Nutzer: Fotos bei 55 cm). Bestimmt die Perspektive: näher =
+# stärkere Perspektive → hohe Figuren kippen/füllen den Crop wie bei der echten Kamera. Vorher
+# stand die Cam bei ~150 Einheiten (~87 cm) = zu top-down.
+CAM_DISTANCE_MM = 550.0
 
 # Reale Basis-DURCHMESSER (mm) je Typ — für eine Top-Down-Kamera ist die Grundfläche
 # das entscheidende Maß. ALLE vom Nutzer real gemessen (2026-07-05, Zelle 35 mm). Da der Scan
@@ -417,7 +421,9 @@ def setup_camera():
         cam_data = bpy.data.cameras.new("Camera")
         cam = bpy.data.objects.new("Camera", cam_data)
         bpy.context.scene.collection.objects.link(cam)
-    cam.data.lens = 50.0
+    # 28 mm @ 36 mm Sensor ≈ 65° Blickwinkel — passt zu einer echten Webcam und lässt das ganze
+    # Brett bei 55 cm Distanz (auch schräg) ins Bild. Vorher 50 mm (~40°) = zu eng bei der Nähe.
+    cam.data.lens = 28.0
     cam.data.sensor_width = 36.0
     cam.data.clip_start = 1.0
     cam.data.clip_end = 10000.0
@@ -426,7 +432,7 @@ def setup_camera():
 
 
 def place_camera(cam, rng, max_obliqueness=0.10):
-    H = 150.0 + rng.uniform(-10, 10)
+    H = CAM_DISTANCE_MM / MM_PER_UNIT + rng.uniform(-6, 6)   # ~94 Einheiten = 55 cm
     # Obliqueness = horizontaler Offset / Höhe. Untergrenze 0.04 (nie perfekt senkrecht),
     # Obergrenze aus max_obliqueness — im gematchten Regime der echten ~0.06-Top-Down-Kamera.
     lo = min(0.04, max_obliqueness)
