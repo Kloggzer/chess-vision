@@ -55,7 +55,7 @@ BOARD_WARM_FAC = 0.0
 # und wirken grau. Höhere Roughness macht sie matt → die (warme) Grundfarbe dominiert.
 BOARD_ROUGHNESS = 0.85
 # Board-Sättigung: das echte Brettfoto ist warm-gelblich → leicht entsättigen zieht das Gelb raus.
-BOARD_SATURATION = 0.72
+BOARD_SATURATION = 0.92
 # Figuren leicht glänzend (echtes lackiertes Holz fängt Glanzlichter, die die 3D-Form verraten →
 # hilft, N/B/R von oben zu unterscheiden). Frühere 0.7/Specular 0.2 waren ZU matt (formarm).
 PIECE_ROUGHNESS = 0.45
@@ -66,8 +66,11 @@ PIECE_SPECULAR = 0.4
 PIECE_SCALE = 1.0
 # Weiß-Figuren-Korrektur: Scan-Textur ist zu orange/dunkel vs. reale blass-cremige Figuren.
 # Sättigung runter (orange raus) + Value hoch (heller). Nur auf weiße Figuren angewandt.
-PIECE_WHITE_SAT = 0.50
-PIECE_WHITE_VAL = 1.46
+# Weiße Figuren = dasselbe Birkenholz wie die HELLEN Brettfelder → sollen die Tile-Farbe (warmes
+# Tan) haben, nicht blass-weiß. Nur den ÜBERSCHUSS-Orange der Scan-Textur leicht dämpfen + minimal
+# aufhellen; Sättigung hoch halten, damit die Holzwärme bleibt.
+PIECE_WHITE_SAT = 0.82
+PIECE_WHITE_VAL = 1.62
 
 
 def argv_after_dashes():

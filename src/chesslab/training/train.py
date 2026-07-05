@@ -21,7 +21,11 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               no_amp: bool, seed: int, out: str | None, patience: int,
               num_workers: int | None = None, norm: str | None = None,
               dataset: str | None = None, resume: str | None = None,
-              head: str = "combined") -> int:
+              head: str = "combined", scales: list[int] | None = None) -> int:
+    """`scales`: Multi-Scale-Training (YOLO-Stil). Ist eine Liste wie [64,96,128] gesetzt, wird
+    JEDER Batch zufällig auf eine dieser Eingabegrößen skaliert → das size-agnostische Modell
+    (AdaptiveAvgPool) lernt alle Auflösungen in EINEM Lauf. So deckt das Training die
+    Deployment-Auflösung ab (FixRes) und man kann danach bei beliebiger Größe inferieren."""
     # GPU precondition (Stage 0 validation path) — mandatory, otherwise abort. This check
     # is torch-free safe and runs BEFORE any torch import, so a missing/broken
     # build is reported clearly here instead of as an ImportError stacktrace.
@@ -168,7 +172,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "seed": seed, "amp": amp, "norm": norm_eff, "classes": classes, "out_size": list(out_size),
         "dataset": dataset, "resumed_from": resumed_from, "head": head,
         "normalize": {"mean": list(config.NORMALIZE_MEAN), "std": list(config.NORMALIZE_STD)},
-        "variant": variant,
+        "variant": variant, "scales": scales,
     }, indent=2), encoding="utf-8")
     metrics_path = run_dir / "metrics.jsonl"
 
@@ -185,6 +189,12 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         for x, y in train_loader:
             x = x.to(device, non_blocking=True)
             y = y.to(device, non_blocking=True)
+            if scales:
+                # Multi-Scale: gesamten Batch auf eine zufällige Eingabegröße bringen (uniform je
+                # Batch, damit stapelbar). Modell ist size-agnostisch → lernt alle Auflösungen.
+                s = int(np.random.choice(scales))
+                if s != x.shape[-1]:
+                    x = torch.nn.functional.interpolate(x, size=(s, s), mode="bilinear", align_corners=False)
             optimizer.zero_grad(set_to_none=True)
             with torch.autocast(device_type="cuda", enabled=amp):
                 loss = criterion(model(x), y)
