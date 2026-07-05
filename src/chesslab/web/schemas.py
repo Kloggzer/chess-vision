@@ -1,8 +1,8 @@
-"""Pydantic-Request-Modelle für die Web-API.
+"""Pydantic request models for the web API.
 
-Nur Endpoints, deren ``Body(...)``-Parameter ohnehin ein einzelnes JSON-Objekt bilden,
-bekommen ein Schema — Feldnamen und Defaults sind 1:1 aus den heutigen Signaturen kopiert.
-Endpoints mit ``Body(..., embed=True)`` bleiben unverändert (embed-Shape würde sich ändern).
+Only endpoints whose ``Body(...)`` parameter already forms a single JSON object
+get a schema — field names and defaults are copied 1:1 from the current signatures.
+Endpoints with ``Body(..., embed=True)`` remain unchanged (embed shape would change).
 """
 
 from __future__ import annotations
@@ -13,8 +13,8 @@ from .. import config
 
 
 class TrainRequest(BaseModel):
-    """Felder 1:1 aus der bisherigen ``/api/train``-Signatur; Defaults aus config
-    (Konfig vor Code — keine duplizierten Literale)."""
+    """Fields 1:1 from the existing ``/api/train`` signature; defaults from config
+    (config before code — no duplicated literals)."""
     backbone: str = "smallcnn"
     epochs: int = config.DEFAULT_EPOCHS
     batch_size: int = 32
@@ -27,7 +27,7 @@ class TrainRequest(BaseModel):
 
 
 class SplitRequest(BaseModel):
-    """Felder 1:1 aus der bisherigen ``/api/split``-Signatur."""
+    """Fields 1:1 from the existing ``/api/split`` signature."""
     max_empty_ratio: float = config.DEFAULT_MAX_EMPTY_RATIO
     max_class_ratio: float | None = None
     seed: int = config.SEED
@@ -35,7 +35,7 @@ class SplitRequest(BaseModel):
 
 
 class DatasetCreateRequest(BaseModel):
-    """Felder 1:1 aus der bisherigen ``POST /api/datasets``-Signatur."""
+    """Fields 1:1 from the existing ``POST /api/datasets`` signature."""
     name: str
     session_ids: list[str]
     per_cell_cap: int = config.DEDUP.per_cell_cap

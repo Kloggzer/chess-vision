@@ -1,7 +1,7 @@
-"""Stufe 5 — torch-gebundene Daten: Dataset + Transforms (Policy aus Stufe 4).
+"""Stage 5 — torch-bound data: dataset + transforms (policy from Stage 4).
 
-Augmentation NUR auf train (Helligkeit/Kontrast/Gamma, leichter Blur, kleines Jitter;
-**kein** Flip/Rotation). Val/Test: nur Resize + Normalize.
+Augmentation ONLY on train (brightness/contrast/gamma, slight blur, small jitter;
+**no** flip/rotation). Val/test: only resize + normalize.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ class _RandomGamma:
 
 
 class _GaussianNoise:
-    """Additives Gauß-Rauschen auf dem [0,1]-Tensor (nach ToTensor, vor Normalize)."""
+    """Additive Gaussian noise on the [0,1] tensor (after ToTensor, before Normalize)."""
 
     def __init__(self, std: float) -> None:
         self.std = std
@@ -47,7 +47,7 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
             T.ColorJitter(brightness=policy.brightness, contrast=policy.contrast, saturation=policy.color_jitter),
             _RandomGamma(*policy.gamma),
             T.RandomApply([T.GaussianBlur(3, sigma=(0.1, policy.blur_sigma_max))], p=0.3),
-            # degrees=0 -> KEINE Rotation; kein Flip -> Feldfarbe/Geometrie bleiben gültig.
+            # degrees=0 -> NO rotation; no flip -> square color/geometry remain valid.
             T.RandomAffine(degrees=0,
                            translate=(policy.jitter_translate, policy.jitter_translate),
                            scale=(1.0 - policy.jitter_scale, 1.0 + policy.jitter_scale)),

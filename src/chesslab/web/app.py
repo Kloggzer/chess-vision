@@ -1,13 +1,13 @@
-"""FastAPI-Backend der lokalen chesslab-Web-UI.
+"""FastAPI backend for the local chesslab web UI.
 
-Bedient alle Tabs über JSON-APIs: Kalibrierung, Sammeln, Manuelles Labeln,
-Inference, Scan, Sessions/Datensätze und Training.
-Nutzt die vorhandene chesslab-Logik wieder (dataset, labeling, training). Bilder werden als
-statische Dateien aus `data/` ausgeliefert.
+Serves all tabs via JSON APIs: calibration, collect, manual labeling,
+inference, scan, sessions/datasets and training.
+Reuses the existing chesslab logic (dataset, labeling, training). Images are served
+as static files from `data/`.
 
-Die Endpoint-Logik lebt in ``web/routers/`` (Feature-Router, eine Datei pro Tab) und
-``web/util.py`` (gemeinsame Hilfen). Diese Datei enthält nur noch den App-Aufbau:
-Mounts, Router-Includes und den SPA-Catch-all.
+Endpoint logic lives in ``web/routers/`` (feature routers, one file per tab) and
+``web/util.py`` (shared helpers). This file only contains the app setup:
+mounts, router includes, and the SPA catch-all.
 """
 
 from __future__ import annotations
@@ -35,18 +35,18 @@ def create_app():
     def index():
         return FileResponse(str(_STATIC / "index.html"))
 
-    # Router lazy importieren (cv2-lazy-Konvention: kein Router öffnet beim Import eine Kamera).
+    # Lazy-import routers (cv2-lazy convention: no router opens a camera on import).
     from .routers import ALL_ROUTERS
 
     for router in ALL_ROUTERS:
         app.include_router(router)
 
-    # SPA-Catch-all (MUSS zuletzt stehen): Deep-Links/F5 auf Client-Routen (/datensaetze ...)
-    # liefern index.html; React-Router übernimmt. /api/* hier ist unbekannt -> 404.
+    # SPA catch-all (MUST be last): deep links / F5 on client routes (/datensaetze ...)
+    # serve index.html; React-Router handles them. /api/* is unknown here -> 404.
     @app.get("/{full_path:path}")
     def spa(full_path: str):
         if full_path.startswith("api/"):
-            raise HTTPException(404, "unbekannter API-Endpunkt")
+            raise HTTPException(404, "unknown API endpoint")
         return FileResponse(str(_STATIC / "index.html"))
 
     return app
@@ -60,11 +60,11 @@ def run(host: str | None = None, port: int | None = None) -> int:
     try:
         import uvicorn
     except ImportError:
-        print("[FAIL] fastapi/uvicorn fehlen. Installieren mit:  uv sync --extra web")
+        print("[FAIL] fastapi/uvicorn missing. Install with:  uv sync --extra web")
         return 1
-    # Für Direktstarts ohne CLI (python -m …): Logger sichtbar machen (no-op, wenn schon konfiguriert).
+    # For direct starts without CLI (python -m …): make logger visible (no-op if already configured).
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    print(f"chesslab Web-UI: http://{host}:{port}")
+    print(f"chesslab web UI: http://{host}:{port}")
     # timeout_graceful_shutdown: the MJPEG camera streams are endless generators —
     # without a cap, Ctrl+C waits forever for those connections to finish.
     uvicorn.run(create_app(), host=host, port=port, log_level="warning",

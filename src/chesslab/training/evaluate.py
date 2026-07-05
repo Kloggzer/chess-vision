@@ -1,4 +1,4 @@
-"""Stufe 5 — Evaluation. Board-Accuracy als Hauptmetrik, plus Per-Klassen-Recall + Confusion."""
+"""Stage 5 — Evaluation. Board accuracy as main metric, plus per-class recall + confusion."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from .data import filter_rows_by_split, load_manifest, load_split
 
 
 def load_run(run_dir: Path):
-    """Modell + Run-config aus einem Run-Verzeichnis laden (best.pt, sonst last.pt).
+    """Load model + run config from a run directory (best.pt, otherwise last.pt).
 
-    Öffentlich, weil `chesslab.serving.load_run` (die kanonische Inference-Facade,
-    siehe specs/rework/01-serving-facade.md) diese Funktion mit einem Cache davor aufruft.
+    Public because `chesslab.serving.load_run` (the canonical inference facade,
+    see specs/rework/01-serving-facade.md) calls this function with a cache in front.
     """
     import torch
 
@@ -29,7 +29,7 @@ def load_run(run_dir: Path):
     return model, cfg
 
 
-# Übergangsalias: bisheriger privater Name, falls noch irgendwo referenziert.
+# Transition alias: previous private name, in case still referenced somewhere.
 _load_run = load_run
 
 
@@ -47,7 +47,7 @@ def run_eval(run: str, split_name: str = "test") -> int:
 
     run_dir = Path(run)
     if not (run_dir / "config.json").exists():
-        print(f"[FAIL] kein config.json in {run_dir} — erst `chesslab train`.")
+        print(f"[FAIL] no config.json in {run_dir} — first run `chesslab train`.")
         return 1
     model, cfg = _load_run(run_dir)
     classes = cfg["classes"]
@@ -62,13 +62,13 @@ def run_eval(run: str, split_name: str = "test") -> int:
         manifest_path = config.DATA.manifests / "squares.jsonl"
         split_path = config.DATA.manifests / "split.json"
     if not manifest_path.exists() or not split_path.exists():
-        print(f"[FAIL] Manifest/Split fehlen ({manifest_path}). Datensatz erst bauen/splitten.")
+        print(f"[FAIL] Manifest/split missing ({manifest_path}). Build/split dataset first.")
         return 1
     manifest = load_manifest(manifest_path)
     split = load_split(split_path)
     rows = filter_rows_by_split(manifest, split, split_name)
     if not rows:
-        print(f"[FAIL] {split_name}-Split ist leer.")
+        print(f"[FAIL] {split_name} split is empty.")
         return 1
 
     device = get_device(require_gpu=False)
@@ -77,8 +77,8 @@ def run_eval(run: str, split_name: str = "test") -> int:
     res = evaluate_dataset(model, ds, device, batch_size=256)
 
     # 1. Board-Accuracy (Hauptmetrik)
-    print(f"Board-Accuracy ({split_name}): {res['board_acc']:.4f}")
-    # 1b. Occupancy/Figur-Diagnose: WO sitzen die Fehler (Occupancy vs. Typ vs. Farbe)?
+    print(f"Board accuracy ({split_name}): {res['board_acc']:.4f}")
+    # 1b. Occupancy/piece diagnosis: WHERE are the errors (occupancy vs. type vs. color)?
     from .data import occupancy_board_acc, occupancy_piece_breakdown
 
     bd = occupancy_piece_breakdown(classes, list(res["trues"]), list(res["preds"]))
@@ -89,7 +89,7 @@ def run_eval(run: str, split_name: str = "test") -> int:
     # 2. Per-Klassen-Recall
     cm = confusion_matrix(res["trues"], res["preds"], len(classes))
     recall = per_class_recall(cm)
-    print("Per-Klassen-Recall:")
+    print("Per-class recall:")
     for c, r in zip(classes, recall, strict=False):
         print(f"  {c:<6} {r:.3f}")
     # 3. Confusion (Text + PNG), Blick auf König<->Dame und Figur<->empty
@@ -137,7 +137,7 @@ def run_export(run: str, fmt: str = "torchscript") -> int:
                               opset_version=17)
             written.append("onnx")
         else:
-            print(f"[FAIL] unbekanntes Format {f!r} (torchscript | onnx | all).")
+            print(f"[FAIL] unknown format {f!r} (torchscript | onnx | all).")
             return 1
 
     metrics = {}

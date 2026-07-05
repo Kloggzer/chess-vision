@@ -1,11 +1,11 @@
-"""Stufe 3 (Teil 1) — Aufnahme.
+"""Stage 3 (Part 1) — Capture.
 
-Schreibt Rohframe + FEN je bestätigter Stellung in ein Session-Log. **Kein Slicing hier**
-(das macht `labeling.slice_session` reproduzierbar). Zwei Modi teilen sich die
-`SessionWriter`-Logik: `collect pgn` (PGN-Replay) und `collect live` (freies Spiel).
+Writes raw frame + FEN per confirmed position to a session log. **No slicing here**
+(`labeling.slice_session` does that reproducibly). Two modes share the
+`SessionWriter` logic: `collect pgn` (PGN replay) and `collect live` (free play).
 
-`SessionWriter` ist headless testbar; die Aufnahme-Loops brauchen Kamera + Display und
-laufen auf dem Rig.
+`SessionWriter` is headless-testable; the capture loops need camera + display and
+run on the rig.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ def generate_session_id() -> str:
 
 
 class SessionWriter:
-    """Verwaltet ein Session-Verzeichnis: Frames, log.jsonl, session.yaml + konsistentes undo."""
+    """Manages a session directory: frames, log.jsonl, session.yaml + consistent undo."""
 
     def __init__(
         self,
@@ -68,7 +68,7 @@ class SessionWriter:
         self.created_at = _now_iso()
         self.entries: list[dict] = []
         self._frame_idx = 0
-        # frisches Log
+        # fresh log
         self.log_path.write_text("", encoding="utf-8")
         self._write_session_yaml()
 
@@ -98,12 +98,12 @@ class SessionWriter:
         cv2.imwrite(str(self.dir / rel), frame)
         entry = {"frame": rel, "ply": ply, "fen": fen, "ts": _now_iso(), "move_san": move_san}
         if corners is not None:
-            # Brett-Ecken (a8,h8,h1,a1) in Frame-Pixeln, zur Aufnahmezeit live verifiziert.
-            # `slice` warpt daraus exakt dieselbe Geometrie (statt neu zu detektieren).
+            # Board corners (a8,h8,h1,a1) in frame pixels, verified live at capture time.
+            # `slice` warps the exact same geometry from these (instead of re-detecting).
             entry["corners"] = [[float(x), float(y)] for x, y in corners]
         if labels is not None:
-            # Explizite Per-Feld-Labels (Inference/Active-Learning): `slice` nutzt diese statt
-            # der FEN-Ableitung. Erlaubt Klassen wie `occluded`, die es in der FEN nicht gibt.
+            # Explicit per-square labels (Inference/Active-Learning): `slice` uses these instead
+            # of FEN derivation. Allows classes like `occluded` that don't exist in FEN.
             entry["labels"] = {str(k): str(v) for k, v in labels.items()}
         self.entries.append(entry)
         with self.log_path.open("a", encoding="utf-8") as fh:
@@ -112,7 +112,7 @@ class SessionWriter:
         return rel
 
     def undo(self) -> dict | None:
-        """Letzte Aufnahme zurücknehmen: Frame-Datei + Log-Zeile konsistent entfernen."""
+        """Undo last capture: consistently remove frame file + log line."""
         if not self.entries:
             return None
         last = self.entries.pop()
@@ -135,7 +135,7 @@ class SessionWriter:
         self._write_session_yaml()
 
 
-# --- Interaktive Loops (Kamera + Display, laufen auf dem Rig) --------------------------
+# --- Interactive Loops (camera + display, run on the rig) --------------------------
 
 def _resolve_session_dir(session: str | None) -> tuple[str, Path]:
     sid = session or generate_session_id()
@@ -154,8 +154,8 @@ def collect_pgn(pgn: str, profile: str, camera: int, every: int = 1,
     start = GameState()
     positions = [{"ply": 0, "san": None, "fen": start.fen()}] + pgn_positions(pgn, every=every)
     if len(positions) <= 1:
-        print(f"[WARN] '{pgn}' enthielt keine Züge — nur die Startstellung ist verfügbar. "
-              "Prüfe den --pgn-Pfad/-Inhalt (z.B. games/test.pgn).")
+        print(f"[WARN] '{pgn}' contains no moves — only the starting position is available. "
+              "Check the --pgn path/content (e.g. games/test.pgn).")
     return _replay_capture(positions, prof, profile, camera, mode="pgn", source_pgn=str(pgn),
                            session=session, notes=notes, ui=ui, target=target, title="chesslab collect (pgn)")
 
@@ -167,8 +167,8 @@ def collect_play(strategy: str, max_plies: int, seed: int, stockfish_path: str |
                  sets: int = 1, count: int = 20,
                  passes: int = 1, pieces: str = "special", together: bool = False,
                  offset: int = 0, auto_offset: bool = False) -> int:
-    """Eine Engine spielt die Zugfolge (random/stockfish) ODER der Coverage-Generator baut
-    dichte Setups (coverage); du stellst sie physisch nach und fotografierst."""
+    """An engine plays the move sequence (random/stockfish) OR the coverage generator builds
+    dense setups (coverage); you physically set them up and photograph."""
     from .state import random_game_positions, stockfish_game_positions
 
     try:
@@ -177,7 +177,7 @@ def collect_play(strategy: str, max_plies: int, seed: int, stockfish_path: str |
         print(f"[FAIL] {e}")
         return 1
 
-    # coverage: keine Partie, sondern dichte Aufbauten aus der aktuellen Klassenabdeckung.
+    # coverage: not a game, but dense setups from the current class coverage.
     if strategy == "coverage":
         from .collect_ui import coverage_from_sessions, coverage_plan
 
@@ -185,19 +185,19 @@ def collect_play(strategy: str, max_plies: int, seed: int, stockfish_path: str |
         inventory = {k: v * max(sets, 1) for k, v in config.DEFAULT_INVENTORY.items()}
         steps = coverage_plan(cov["light"], cov["dark"], target, count, inventory=inventory)
         if not steps:
-            print(f"[OK] Alle Klassen erreichen bereits das Ziel ({target}/Klasse) — nichts "
-                  "zu generieren. `chesslab stats` prüfen oder --target erhöhen.")
+            print(f"[OK] All classes already reach the target ({target}/class) — nothing "
+                  "to generate. Check `chesslab stats` or raise --target.")
             return 0
         gained = sum(s["gains"] for s in steps)
-        print(f"[OK] Coverage-Plan: {len(steps)} dichte Aufbauten, ~{gained} Ziel-Crops je Frame "
-              f"(Inventar ×{sets}). Stelle jeden Aufbau nach, fotografiere (gern mehrere Frames "
-              "mit wechselndem Licht), dann `n` für den nächsten.")
+        print(f"[OK] Coverage plan: {len(steps)} dense setups, ~{gained} target crops per frame "
+              f"(inventory ×{sets}). Set up each arrangement, photograph (feel free to take multiple frames "
+              "with varying lighting), then `n` for the next.")
         positions = steps
         return _replay_capture(positions, prof, profile, camera, mode="play", source_pgn=None,
                                session=session, notes=f"coverage target={target} sets={sets}",
                                ui=ui, target=target, title="chesslab collect (play:coverage)")
 
-    # sweep: Figurenreihe wandert Rang für Rang übers Brett (systematische Feld×Klasse-Abdeckung).
+    # sweep: a piece row walks rank by rank across the board (systematic square×class coverage).
     if strategy == "sweep":
         from .collect_ui import auto_sweep_offset, sweep_plan
 
@@ -206,11 +206,11 @@ def collect_play(strategy: str, max_plies: int, seed: int, stockfish_path: str |
         steps = sweep_plan(pieces=pieces, passes=max(1, passes), inventory=inventory,
                            together=together, offset=off)
         if not steps:
-            print(f"[FAIL] Sweep leer — pieces={pieces!r} (special|pawn|all) / Inventar prüfen.")
+            print(f"[FAIL] Sweep empty — pieces={pieces!r} (special|pawn|all) / check inventory.")
             return 1
-        mode_txt = "beide Farben gleichzeitig" if together else "Weiß, dann Schwarz"
-        print(f"[OK] Sweep-Plan: {len(steps)} Aufbauten ({pieces}, offset={off}, {passes} Pass(es), "
-              f"{mode_txt}). Stelle jede Reihe nach, fotografiere, dann `n` für die nächste.")
+        mode_txt = "both colors simultaneously" if together else "White, then Black"
+        print(f"[OK] Sweep plan: {len(steps)} setups ({pieces}, offset={off}, {passes} pass(es), "
+              f"{mode_txt}). Set up each row, photograph, then `n` for the next.")
         return _replay_capture(steps, prof, profile, camera, mode="play", source_pgn=None,
                                session=session,
                                notes=f"sweep offset={off} pieces={pieces} passes={passes} together={together}",
@@ -219,18 +219,18 @@ def collect_play(strategy: str, max_plies: int, seed: int, stockfish_path: str |
     try:
         if strategy == "stockfish":
             if not stockfish_path:
-                print("[FAIL] --stockfish-path <binary> nötig für strategy=stockfish.")
+                print("[FAIL] --stockfish-path <binary> required for strategy=stockfish.")
                 return 1
             steps = stockfish_game_positions(stockfish_path, max_plies=max_plies, start_fen=start_fen)
         else:
             steps = random_game_positions(max_plies=max_plies, seed=seed, start_fen=start_fen)
     except Exception as e:  # noqa: BLE001
-        print(f"[FAIL] Engine-Partie fehlgeschlagen: {e}")
+        print(f"[FAIL] Engine game failed: {e}")
         return 1
 
     start = GameState(start_fen) if start_fen else GameState()
     positions = [{"ply": start.ply(), "san": None, "fen": start.fen()}] + steps
-    print(f"[OK] {strategy}-Partie generiert: {len(steps)} Halbzüge.")
+    print(f"[OK] {strategy} game generated: {len(steps)} half-moves.")
     return _replay_capture(positions, prof, profile, camera, mode="play", source_pgn=None,
                            session=session, notes=f"engine:{strategy} seed={seed}", ui=ui, target=target,
                            title=f"chesslab collect (play:{strategy})")
@@ -239,12 +239,12 @@ def collect_play(strategy: str, max_plies: int, seed: int, stockfish_path: str |
 def _replay_capture(positions: list[dict], prof, profile: str, camera: int, *,
                     mode: str, source_pgn: str | None, session: str | None, notes: str,
                     ui: bool, target: int, title: str) -> int:
-    """Gemeinsamer Aufnahme-Loop für PGN- und Engine-Modus: Pfeil-Overlay, Tasten, Capture."""
+    """Shared capture loop for PGN and engine mode: arrow overlay, keys, capture."""
     import cv2
 
     cap = open_camera(camera)
     if not cap.isOpened():
-        print(f"[FAIL] Kamera {camera} konnte nicht geöffnet werden.")
+        print(f"[FAIL] Camera {camera} could not be opened.")
         return 1
 
     sid, sdir = _resolve_session_dir(session)
@@ -260,24 +260,24 @@ def _replay_capture(positions: list[dict], prof, profile: str, camera: int, *,
         dash = CollectDashboard(config.DATA.sessions, target_per_class=target, mode_label=mode, session_id=sid)
         dash.update()
 
-    print("WICHTIG: zuerst das Kamerafenster anklicken, damit Tasten ankommen.")
-    print("Space=capture  n/Enter=nächste Stellung  s=skip  u=undo" + ("  g=FEN kopieren" if ui else "") + "  q=quit")
+    print("IMPORTANT: first click the camera window so key presses register.")
+    print("Space=capture  n/Enter=next position  s=skip  u=undo" + ("  g=copy FEN" if ui else "") + "  q=quit")
     cv2.namedWindow(title, cv2.WINDOW_NORMAL)
-    tracker = make_tracker(prof)   # Live-Ansicht wie beim Slicing: aus Profil geseedeter Marker-Tracker
-    last_corners = None            # zuletzt angezeigte Brett-Ecken -> werden beim Capture mitgespeichert
+    tracker = make_tracker(prof)   # Live view like slicing: marker tracker seeded from profile
+    last_corners = None            # last displayed board corners -> saved with capture
     i = 0
     try:
         while True:
             ok, frame = cap.read()
             if not ok or frame is None:
-                print("[FAIL] kein Frame gelesen.")
+                print("[FAIL] no frame read.")
                 return 1
             corners = board_corners_for_frame(frame, prof, tracker)
             if corners is not None:
                 last_corners = corners
             warped = warp_from_corners(frame, prof, last_corners) if last_corners is not None else warp_board(frame, prof)
             view = draw_board_grid(warped, prof)
-            # Den gewollten nächsten Zug als Pfeil aufs Brett zeichnen.
+            # Draw the intended next move as an arrow on the board.
             if i + 1 < len(positions):
                 try:
                     b = chess.Board(positions[i]["fen"])
@@ -286,34 +286,34 @@ def _replay_capture(positions: list[dict], prof, profile: str, camera: int, *,
                     c1 = square_center(chess.square_name(mv.to_square), prof)
                     cv2.arrowedLine(view, c0, c1, (0, 0, 255), 3, cv2.LINE_AA, tipLength=0.25)
                     cv2.circle(view, c0, 10, (0, 200, 255), 2, cv2.LINE_AA)
-                    # Bei Rochade auch den Turm anzeigen (zweiter Pfeil, orange).
+                    # For castling also show the rook (second arrow, orange).
                     rook = castling_rook_squares(b, mv)
                     if rook is not None:
                         r0 = square_center(chess.square_name(rook[0]), prof)
                         r1 = square_center(chess.square_name(rook[1]), prof)
                         cv2.arrowedLine(view, r0, r1, (0, 165, 255), 3, cv2.LINE_AA, tipLength=0.25)
                         cv2.circle(view, r0, 10, (0, 215, 255), 2, cv2.LINE_AA)
-                    # Bei en passant das zu entfernende Bauernfeld mit rotem X markieren.
+                    # For en passant mark the captured pawn square with red X.
                     ep = en_passant_captured_square(b, mv)
                     if ep is not None:
                         e = square_center(chess.square_name(ep), prof)
                         d = 16
                         cv2.line(view, (e[0] - d, e[1] - d), (e[0] + d, e[1] + d), (0, 0, 255), 3, cv2.LINE_AA)
                         cv2.line(view, (e[0] - d, e[1] + d), (e[0] + d, e[1] - d), (0, 0, 255), 3, cv2.LINE_AA)
-                except Exception:  # noqa: BLE001 - Pfeil ist optional
+                except Exception:  # noqa: BLE001 - arrow is optional
                     pass
-            nxt = positions[i + 1]["san"] if i + 1 < len(positions) else "Ende"
+            nxt = positions[i + 1]["san"] if i + 1 < len(positions) else "End"
             for j, txt in enumerate([
-                f"Stellung {i + 1}/{len(positions)}  ply={positions[i]['ply']}",
-                f"naechster Zug: {nxt}",
-                f"Aufnahmen: {writer.count}",
+                f"Position {i + 1}/{len(positions)}  ply={positions[i]['ply']}",
+                f"next move: {nxt}",
+                f"Captures: {writer.count}",
             ]):
                 cv2.putText(view, txt, (10, 22 + 22 * j), cv2.FONT_HERSHEY_SIMPLEX, 0.55,
                             (0, 255, 255), 1, cv2.LINE_AA)
             cv2.imshow(title, view)
             key = cv2.waitKey(20) & 0xFF
             if key == 255:
-                continue  # keine Taste
+                continue  # no key pressed
             if key == ord("q"):
                 break
             elif key == ord(" "):
@@ -321,45 +321,45 @@ def _replay_capture(positions: list[dict], prof, profile: str, camera: int, *,
                                corners=last_corners)
                 if dash:
                     dash.update()
-                print(f"  Foto {writer.count} (Stellung {i + 1}/{len(positions)}, ply {positions[i]['ply']})")
-            elif key in (ord("n"), 13, 10):  # n oder Enter
+                print(f"  Photo {writer.count} (Position {i + 1}/{len(positions)}, ply {positions[i]['ply']})")
+            elif key in (ord("n"), 13, 10):  # n or Enter
                 if i + 1 < len(positions):
                     i += 1
-                    nxt = positions[i + 1]["san"] if i + 1 < len(positions) else "Ende"
-                    print(f"  -> Stellung {i + 1}/{len(positions)} | nächster Zug: {nxt}")
+                    nxt = positions[i + 1]["san"] if i + 1 < len(positions) else "End"
+                    print(f"  -> Position {i + 1}/{len(positions)} | next move: {nxt}")
                 else:
-                    print("  bereits letzte Stellung.")
+                    print("  already last position.")
             elif key == ord("s"):
                 if i + 1 < len(positions):
                     i += 1
-                    print(f"  übersprungen -> Stellung {i + 1}/{len(positions)}")
+                    print(f"  skipped -> Position {i + 1}/{len(positions)}")
                 else:
-                    print("  bereits letzte Stellung.")
+                    print("  already last position.")
             elif key == ord("u"):
                 removed = writer.undo()
                 if dash:
                     dash.update()
-                print("  letzte Aufnahme zurückgenommen." if removed else "  nichts zurückzunehmen.")
+                print("  last capture undone." if removed else "  nothing to undo.")
             elif key == ord("g") and dash is not None:
                 fen = dash.recommended_fen()
                 if fen:
-                    print(("  kopiert: " if copy_fn(fen) else "  Empfehlung: ") + fen)
+                    print(("  copied: " if copy_fn(fen) else "  Recommendation: ") + fen)
     finally:
         writer.close()
         if dash:
             dash.close()
         cap.release()
         cv2.destroyAllWindows()
-    print(f"[OK] Session {sid}: {writer.count} Aufnahmen -> {sdir}")
+    print(f"[OK] Session {sid}: {writer.count} captures -> {sdir}")
     return 0
 
 
 def collect_live(start_fen: str | None, profile: str, camera: int,
                  session: str | None = None, notes: str = "",
                  ui: bool = False, target: int = config.UI_TARGET_PER_CLASS) -> int:
-    """Terminal-getriebener Loop: Zug eintippen -> validieren -> Frame aufnehmen.
+    """Terminal-driven loop: type move -> validate -> capture frame.
 
-    Befehle: <SAN/UCI> = Zug + Aufnahme, `cap` = Extra-Frame, `undo`, `fen <FEN>`, `done`.
+    Commands: <SAN/UCI> = move + capture, `cap` = extra frame, `undo`, `fen <FEN>`, `done`.
     """
     import cv2
 
@@ -371,7 +371,7 @@ def collect_live(start_fen: str | None, profile: str, camera: int,
 
     cap = open_camera(camera)
     if not cap.isOpened():
-        print(f"[FAIL] Kamera {camera} konnte nicht geöffnet werden.")
+        print(f"[FAIL] Camera {camera} could not be opened.")
         return 1
 
     gs = GameState(start_fen) if start_fen else GameState()
@@ -388,16 +388,16 @@ def collect_live(start_fen: str | None, profile: str, camera: int,
         dash = CollectDashboard(config.DATA.sessions, target_per_class=target, mode_label="live", session_id=sid)
         dash.update()
 
-    tracker = make_tracker(prof)   # Brett-Ecken pro Aufnahme aus den Markern (geseedet, Hold-last)
+    tracker = make_tracker(prof)   # Board corners per capture from markers (seeded, hold-last)
 
     def grab():
         ok, frame = cap.read()
         return frame if ok else None
 
-    print("Befehle: <SAN/UCI> | cap | undo | fen <FEN>" + (" | rec" if ui else "") + " | done")
+    print("Commands: <SAN/UCI> | cap | undo | fen <FEN>" + (" | rec" if ui else "") + " | done")
 
     def handle(line: str) -> bool:
-        """Eine Eingabezeile verarbeiten. Rückgabe False -> Loop beenden."""
+        """Process one input line. Returns False -> exit loop."""
         line = line.strip()
         if not line:
             return True
@@ -405,8 +405,8 @@ def collect_live(start_fen: str | None, profile: str, camera: int,
             return False
         if line == "rec" and dash is not None:
             fen = dash.recommended_fen()
-            print("  " + (("kopiert: " if copy_fn(fen) else "Empfehlung: ") + fen) if fen
-                  else "  alle Klassen ausreichend abgedeckt")
+            print("  " + (("copied: " if copy_fn(fen) else "Recommendation: ") + fen) if fen
+                  else "  all classes sufficiently covered")
             return True
         if line == "cap":
             f = grab()
@@ -415,7 +415,7 @@ def collect_live(start_fen: str | None, profile: str, camera: int,
                 writer.capture(f, gs.ply(), gs.fen(), None, corners=corners)
                 if dash:
                     dash.update()
-                print(f"  Aufnahme {writer.count}" + ("" if corners else "  [WARN: keine Marker -> ohne Geometrie]"))
+                print(f"  Capture {writer.count}" + ("" if corners else "  [WARN: no markers -> without geometry]"))
             return True
         if line == "undo":
             try:
@@ -423,15 +423,15 @@ def collect_live(start_fen: str | None, profile: str, camera: int,
                 writer.undo()
                 if dash:
                     dash.update()
-                print("  zurückgenommen")
+                print("  undone")
             except IndexError:
-                print("  nichts zurückzunehmen")
+                print("  nothing to undo")
             return True
         if line.startswith("fen "):
             try:
                 gs.set_fen(line[4:].strip())
             except ValueError as e:
-                print(f"  ungültige FEN: {e}")
+                print(f"  invalid FEN: {e}")
             return True
         try:
             try:
@@ -439,19 +439,19 @@ def collect_live(start_fen: str | None, profile: str, camera: int,
             except ValueError:
                 gs.push_uci(line)
         except ValueError:
-            print("  illegaler/ungültiger Zug — erneut versuchen.")
+            print("  illegal/invalid move — try again.")
             return True
         f = grab()
         if f is not None:
             writer.capture(f, gs.ply(), gs.fen(), line)
             if dash:
                 dash.update()
-            print(f"  Aufnahme {writer.count}")
+            print(f"  Capture {writer.count}")
         return True
 
     try:
         if dash is None:
-            # Kein Fenster -> einfacher blockierender Eingabe-Loop.
+            # No window -> simple blocking input loop.
             while True:
                 print(f"FEN: {gs.fen()}")
                 try:
@@ -460,8 +460,8 @@ def collect_live(start_fen: str | None, profile: str, camera: int,
                 except EOFError:
                     break
         else:
-            # Mit Dashboard: stdin in einem Thread lesen, damit der Hauptthread das
-            # OpenCV-Fenster fortlaufend pumpt (sonst friert es zwischen Eingaben ein).
+            # With dashboard: read stdin in a thread so the main thread can continuously
+            # pump the OpenCV window (otherwise it freezes between inputs).
             import queue
             import threading
 
@@ -477,12 +477,12 @@ def collect_live(start_fen: str | None, profile: str, camera: int,
 
             threading.Thread(target=_reader, daemon=True).start()
             print(f"FEN: {gs.fen()}")
-            print("> Eingabe im Terminal; das Dashboard-Fenster bleibt aktiv (g dort = FEN kopieren).")
+            print("> Input in terminal; the dashboard window stays active (g there = copy FEN).")
             while True:
                 if (cv2.waitKey(50) & 0xFF) == ord("g"):
                     fen = dash.recommended_fen()
                     if fen:
-                        print("  " + ("kopiert: " if copy_fn(fen) else "Empfehlung: ") + fen)
+                        print("  " + ("copied: " if copy_fn(fen) else "Recommendation: ") + fen)
                 try:
                     line = inbox.get_nowait()
                 except queue.Empty:
@@ -495,5 +495,5 @@ def collect_live(start_fen: str | None, profile: str, camera: int,
         if dash:
             dash.close()
         cap.release()
-    print(f"[OK] Session {sid}: {writer.count} Aufnahmen -> {sdir}")
+    print(f"[OK] Session {sid}: {writer.count} captures -> {sdir}")
     return 0

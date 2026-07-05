@@ -1,20 +1,20 @@
-"""Stufe 7 (Teil 2) — 3D-bewusster Square-Crop (`box3d`).
+"""Stage 7 (Part 2) — 3D-aware square crop (`box3d`).
 
-**Problem:** Die Kamera ist nicht orthografisch (Lochkamera, oft nah/overhead). Eine Homographie
-bildet nur die Brett**ebene** (z=0) korrekt ab; eine hohe Figur ragt aus ihrer Zelle und projiziert
-ihre Spitze **radial vom Bildmittelpunkt nach außen** — je nach Position in *jede* Richtung. Der
-Top-Down-Warp verschmiert hohe Figuren zusätzlich beim Resampling.
+**Problem:** The camera is not orthographic (pinhole, often close/overhead). A homography
+only maps the board **plane** (z=0) correctly; a tall piece protrudes from its cell and projects
+its top **radially outward from the image center** — depending on position, in *any* direction.
+The top-down warp additionally smears tall pieces during resampling.
 
-**Lösung:** Kamerapose pro Frame aus den 4 Brettecken/Markern (`solvePnP`, planar/IPPE) schätzen,
-pro Feld eine **3D-Box** definieren (Zellen-Grundfläche auf z=0, nach oben auf Figurenhöhe
-extrudiert) und alle **8 Eckpunkte** in den **scharfen Originalframe** projizieren. Die achsen-
-parallele Bounding-Box dieser 8 Punkte ist der Crop — fängt die Figur in jeder Lehnrichtung und
-bewahrt das native Detail (kein Warp-Upsampling).
+**Solution:** Estimate camera pose per frame from the 4 board corners/markers (`solvePnP`, planar/IPPE),
+define a **3D box** per square (cell base at z=0, extruded upward to piece height) and
+project all **8 corner points** into the **sharp original frame**. The axis-aligned
+bounding box of these 8 points is the crop — captures the piece in every lean direction and
+preserves the native detail (no warp upsampling).
 
-Brettmodell identisch zu `calibration.compute_homography`: Ebene z=0, Spielfeld [0, board_size];
-Marker/gespeicherte Ecken (a8,h8,h1,a1) liegen um `margin·board_size` AUSSERHALB. Die (col,row)-
-Abbildung inkl. `white_pov`-Flip wird aus `calibration._square_to_col_row` **wiederverwendet**
-(eine Quelle der Wahrheit — sonst werden Felder still vertauscht).
+Board model identical to `calibration.compute_homography`: plane z=0, playing field [0, board_size];
+markers/stored corners (a8,h8,h1,a1) lie `margin·board_size` OUTSIDE. The (col,row)
+mapping including `white_pov` flip is **reused** from `calibration._square_to_col_row`
+(single source of truth — otherwise squares get silently swapped).
 
 Headless, kein torch.
 """
@@ -31,10 +31,10 @@ from .imgops import resize_keep_aspect
 # --- Intrinsics -----------------------------------------------------------------------
 
 def approx_intrinsics(frame_size: tuple[int, int], fov_deg: float = 60.0) -> np.ndarray:
-    """Näherungs-Kameramatrix K aus der Bildgröße: fx=fy=0.5·W/tan(FOV/2), Hauptpunkt = Mitte.
+    """Approximate camera matrix K from image size: fx=fy=0.5·W/tan(FOV/2), principal point = center.
 
-    Grob (keine echte Kalibrierung), aber für einen planaren PnP plausibel. Der Bake-Off misst,
-    ob es reicht; echte `cv2.calibrateCamera`-Intrinsics kommen über `profile.camera_matrix` rein.
+    Rough (no real calibration), but plausible for a planar PnP. The bake-off measures
+    whether it suffices; real `cv2.calibrateCamera` intrinsics come via `profile.camera_matrix`.
     """
     w, h = float(frame_size[0]), float(frame_size[1])
     f = 0.5 * w / float(np.tan(np.radians(fov_deg) / 2.0))
@@ -56,8 +56,8 @@ def intrinsics(profile, frame_wh: tuple[int, int], fov_deg: float | None = None
 # --- Pose -----------------------------------------------------------------------------
 
 def board_corner_object_points(board_size: int, margin: float) -> np.ndarray:
-    """3D-Brettpunkte (z=0) für die gespeicherten Ecken/Marker a8,h8,h1,a1 — Reihenfolge & Lage
-    identisch zu `compute_homography`s dst (Marker um m=margin·bs nach außen versetzt)."""
+    """3D board points (z=0) for the stored corners/markers a8,h8,h1,a1 — order & position
+    identical to `compute_homography`'s dst (markers offset outward by m=margin·bs)."""
     bs = float(board_size)
     m = float(margin) * bs
     return np.array([[-m, -m, 0.0], [bs + m, -m, 0.0], [bs + m, bs + m, 0.0], [-m, bs + m, 0.0]],
@@ -66,10 +66,10 @@ def board_corner_object_points(board_size: int, margin: float) -> np.ndarray:
 
 def estimate_pose(image_corners, K: np.ndarray, dist: np.ndarray, board_size: int, margin: float
                   ) -> tuple[np.ndarray, np.ndarray] | None:
-    """(rvec, tvec) aus den 4 Brettecken (a8,h8,h1,a1, Frame-Pixel) via planarem solvePnP (IPPE).
+    """(rvec, tvec) from the 4 board corners (a8,h8,h1,a1, frame pixels) via planar solvePnP (IPPE).
 
-    Gleiche 4 Punkte, aus denen der Baseline-Warp seine Homographie bildet → fairer A/B
-    (Unterschied warp↔box3d = Resample vs 3D-Projektion). Gibt None bei !=4 Punkten / Solve-Fehler.
+    Same 4 points that the baseline warp uses for its homography → fair A/B
+    (difference warp↔box3d = resample vs 3D projection). Returns None when !=4 points / solve error.
     """
     img = np.asarray(image_corners, dtype=np.float64).reshape(-1, 2)
     if img.shape[0] != 4:
@@ -85,10 +85,10 @@ def estimate_pose(image_corners, K: np.ndarray, dist: np.ndarray, board_size: in
 
 
 def up_sign(rvec: np.ndarray, tvec: np.ndarray) -> float:
-    """Vorzeichen der Extrusion entlang der Brettnormalen: Figuren ragen ZUR Kamera. Bestimmt aus
-    der Kameraposition C = -Rᵀt im Brett-Frame: +1, wenn die Kamera auf der +z-Seite steht.
+    """Sign of extrusion along the board normal: pieces protrude TOWARD the camera. Determined from
+    the camera position C = -Rᵀt in the board frame: +1 if the camera is on the +z side.
 
-    Löst die IPPE-Pose-Mehrdeutigkeit eindeutig (sonst projizierte man die Box ggf. unter das Brett).
+    Resolves the IPPE pose ambiguity uniquely (otherwise the box might be projected below the board).
     """
     R, _ = cv2.Rodrigues(rvec)
     C = (-R.T @ tvec).reshape(3)
@@ -99,10 +99,10 @@ def up_sign(rvec: np.ndarray, tvec: np.ndarray) -> float:
 
 def square_box_3d(square: str, board_size: int, white_pov: bool, piece_height_units: float,
                   pad_side_units: float, up: float) -> np.ndarray:
-    """8 Eckpunkte (4,3)+(4,3) der extrudierten Zelle: Grundfläche z=0, Deckel z=up·height.
+    """8 corner points (4,3)+(4,3) of the extruded cell: base at z=0, top at z=up·height.
 
-    (col,row) aus `_square_to_col_row` (inkl. white_pov-Flip). `pad_side_units` weitet die
-    Grundfläche in der Brettebene je Seite; `up` aus `up_sign` (Richtung zur Kamera)."""
+    (col,row) from `_square_to_col_row` (incl. white_pov flip). `pad_side_units` expands the
+    base in the board plane per side; `up` from `up_sign` (direction toward camera)."""
     col, row = _square_to_col_row(square, white_pov)
     cell = board_size / 8.0
     ps = float(pad_side_units)
@@ -115,7 +115,7 @@ def square_box_3d(square: str, board_size: int, white_pov: bool, piece_height_un
 
 
 def project_points(obj_pts: np.ndarray, K, dist, rvec, tvec) -> np.ndarray:
-    """3D-Brettpunkte -> 2D-Frame-Pixel (N,2)."""
+    """3D board points -> 2D frame pixels (N,2)."""
     pts = np.asarray(obj_pts, dtype=np.float64).reshape(-1, 1, 3)
     img, _ = cv2.projectPoints(pts, rvec, tvec, K, dist)
     return img.reshape(-1, 2)
@@ -124,8 +124,8 @@ def project_points(obj_pts: np.ndarray, K, dist, rvec, tvec) -> np.ndarray:
 def square_bbox(square: str, K, dist, rvec, tvec, profile, *, piece_height_units: float,
                 pad_side_units: float, up: float, frame_wh: tuple[int, int]
                 ) -> tuple[int, int, int, int] | None:
-    """Achsenparallele Bounding-Box (x0,y0,x1,y1) der 8 projizierten Box-Ecken, auf den Frame
-    geklammert. None, wenn die Box vollständig außerhalb / entartet ist."""
+    """Axis-aligned bounding box (x0,y0,x1,y1) of the 8 projected box corners, clamped to the
+    frame. None if the box is completely outside / degenerate."""
     box = square_box_3d(square, profile.board_size, profile.white_pov, piece_height_units,
                         pad_side_units, up)
     pj = project_points(box, K, dist, rvec, tvec)
@@ -144,9 +144,9 @@ def square_bbox(square: str, K, dist, rvec, tvec, profile, *, piece_height_units
 def crop_square_3d(frame_bgr: np.ndarray, square: str, K, dist, rvec, tvec, profile, *,
                    piece_height_units: float, pad_side_units: float, up: float,
                    out_size: tuple[int, int]) -> np.ndarray | None:
-    """Einen Feld-Crop aus dem **Originalframe** schneiden: 3D-Box projizieren -> BBox -> Region ->
-    verzerrungsfreies Letterbox auf out_size. None, wenn die Box nicht auf den Frame fällt (Caller
-    fällt dann auf den warp-Crop zurück)."""
+    """Cut a square crop from the **original frame**: project 3D box -> bbox -> region ->
+    distortion-free letterbox to out_size. None if the box does not fall on the frame (caller
+    then falls back to the warp crop)."""
     h, w = frame_bgr.shape[:2]
     bb = square_bbox(square, K, dist, rvec, tvec, profile, piece_height_units=piece_height_units,
                      pad_side_units=pad_side_units, up=up, frame_wh=(w, h))

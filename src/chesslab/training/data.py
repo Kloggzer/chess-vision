@@ -1,8 +1,8 @@
-"""Stufe 5 — torch-freie Datensatz-Logik.
+"""Stage 5 — torch-free dataset logic.
 
-Hier liegt alles, was OHNE PyTorch funktioniert und damit headless testbar ist:
-Split-Filterung, Frame-Gruppierung, **Board-Accuracy**-Rekonstruktion und der
-Model-Card-Aufbau. Die torch-gebundenen Teile (Dataset, Transforms) leben in
+Everything that works WITHOUT PyTorch and is therefore testable headless:
+split filtering, frame grouping, **board accuracy** reconstruction, and
+model card construction. The torch-bound parts (dataset, transforms) live in
 `torch_data.py`.
 """
 
@@ -21,9 +21,9 @@ def load_manifest(path: Path) -> list[dict]:
 
     p = Path(path)
     if not p.exists():
-        # Semantik wie vor Rework 05: fehlendes Manifest ist ein harter Fehler, kein leerer
-        # Datensatz — sonst „trainiert" man still auf nichts.
-        raise FileNotFoundError(f"Manifest nicht gefunden: {p}")
+        # Semantics as before Rework 05: missing manifest is a hard error, not an empty
+        # dataset — otherwise one silently "trains" on nothing.
+        raise FileNotFoundError(f"Manifest not found: {p}")
     return read_jsonl(p)
 
 
@@ -65,9 +65,9 @@ def board_accuracy(items: list[tuple[tuple, bool]]) -> float:
 
 
 def macro_f1(trues: list[int], preds: list[int], n_classes: int) -> float:
-    """Makro-F1 über die Klassen: ungewichteter Mittelwert der Per-Klassen-F1. Anders als die
-    rohe Accuracy lässt die empty-Dominanz so nicht das Bild kippen. Gemittelt über alle Klassen
-    mit Support (true-count>0) oder Vorhersage — abwesende Klassen verzerren den Schnitt nicht."""
+    """Macro-F1 over classes: unweighted mean of per-class F1. Unlike raw
+    accuracy, this prevents the empty dominance from skewing the picture. Averaged over all classes
+    with support (true-count>0) or prediction — absent classes don't distort the average."""
     tp = defaultdict(int)
     fp = defaultdict(int)
     fn = defaultdict(int)

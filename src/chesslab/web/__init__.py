@@ -1,1 +1,1 @@
-"""Lokale Web-UI für chesslab (Datensatz-Einsicht, Relabeln, Training). FastAPI + Vanilla-JS."""
+"""Local web UI for chesslab (dataset review, relabeling, training). FastAPI + Vanilla-JS."""

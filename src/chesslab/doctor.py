@@ -1,4 +1,4 @@
-"""Stufe 0 — Pre-flight environment validation.
+"""Stage 0 — Pre-flight environment validation.
 
 Validates (does NOT install) Python, app dependencies, the ROCm/PyTorch GPU stack
 (AMD Radeon RX 7900 XTX) and the camera. Reports PASS/WARN/FAIL per check with
@@ -35,7 +35,7 @@ def check_python() -> Check:
     s = f"{v.major}.{v.minor}.{v.micro}"
     if (v.major, v.minor) >= (3, 11):
         return Check("python.version", PASS, s)
-    return Check("python.version", FAIL, f"{s} < 3.11 — Python 3.11+ erforderlich.")
+    return Check("python.version", FAIL, f"{s} < 3.11 — Python 3.11+ required.")
 
 
 # (import-name, distribution-name) for the mandatory app dependencies.
@@ -57,7 +57,7 @@ def check_app_deps() -> list[Check]:
             ver = getattr(m, "__version__", "?")
             out.append(Check(f"dep.{dist}", PASS, str(ver)))
         except Exception as e:  # noqa: BLE001 - report, never raise
-            out.append(Check(f"dep.{dist}", FAIL, f"Import fehlgeschlagen: {e!r}. `uv add {dist}`."))
+            out.append(Check(f"dep.{dist}", FAIL, f"Import failed: {e!r}. `uv add {dist}`."))
     return out
 
 
@@ -84,15 +84,15 @@ def gpu_checks() -> list[Check]:
             Check(
                 "torch.import",
                 FAIL,
-                f"torch nicht importierbar: {e!r}. ROCm-Build erwartet "
-                "(Index download.pytorch.org/whl/rocm6.x) — NICHT automatisch installieren.",
+                f"torch not importable: {e!r}. ROCm build expected "
+                "(Index download.pytorch.org/whl/rocm6.x) — do NOT install automatically.",
             )
         )
         return checks
 
     ver = str(getattr(torch, "__version__", "?"))
 
-    # 1. ROCm vs CUDA build (häufigster Stolperstein)
+    # 1. ROCm vs CUDA build (most common pitfall)
     if "+rocm" in ver:
         checks.append(Check("torch.rocm_build", PASS, ver))
     elif "+cu" in ver:
@@ -100,12 +100,12 @@ def gpu_checks() -> list[Check]:
             Check(
                 "torch.rocm_build",
                 FAIL,
-                f"CUDA-Build installiert ({ver}) — FALSCHER Build. ROCm-Wheel von "
-                "download.pytorch.org/whl/rocm6.x nötig (nur nach Rücksprache neu installieren).",
+                f"CUDA build installed ({ver}) — WRONG build. ROCm wheel from "
+                "download.pytorch.org/whl/rocm6.x needed (only reinstall after consultation).",
             )
         )
     else:
-        checks.append(Check("torch.rocm_build", WARN, f"Version ohne +rocm/+cu Suffix ({ver}); Build unklar."))
+        checks.append(Check("torch.rocm_build", WARN, f"Version without +rocm/+cu suffix ({ver}); build unclear."))
 
     # 2. HIP confirms ROCm build
     hip = getattr(torch.version, "hip", None)
@@ -114,7 +114,7 @@ def gpu_checks() -> list[Check]:
         checks.append(Check("torch.version.hip", PASS, f"hip={hip} (cuda={cuda_ver})"))
     else:
         checks.append(
-            Check("torch.version.hip", FAIL, f"torch.version.hip is None (cuda={cuda_ver}) -> kein ROCm-Build.")
+            Check("torch.version.hip", FAIL, f"torch.version.hip is None (cuda={cuda_ver}) -> no ROCm build.")
         )
 
     # 3. is_available (ROCm reuses the torch.cuda.* API on purpose)
@@ -125,18 +125,18 @@ def gpu_checks() -> list[Check]:
         checks.append(Check("torch.cuda.is_available", FAIL, f"Exception: {e!r}"))
     else:
         if avail:
-            checks.append(Check("torch.cuda.is_available", PASS, "true (ROCm nutzt die torch.cuda-API bewusst wieder)"))
+            checks.append(Check("torch.cuda.is_available", PASS, "true (ROCm knowingly reuses the torch.cuda API)"))
         else:
             checks.append(
                 Check(
                     "torch.cuda.is_available",
                     FAIL,
-                    "false — oft Treiber/Permissions (Gruppen render/video, Zugriff auf /dev/kfd & /dev/dri).",
+                    "false — often driver/permissions (groups render/video, access to /dev/kfd & /dev/dri).",
                 )
             )
 
     if not avail:
-        checks.append(Check("gpu.compute", FAIL, "übersprungen — keine nutzbare GPU."))
+        checks.append(Check("gpu.compute", FAIL, "skipped — no usable GPU."))
         return checks
 
     # 4. device_count
@@ -152,7 +152,7 @@ def gpu_checks() -> list[Check]:
         if any(k in name for k in ("7900", "Radeon", "AMD")):
             checks.append(Check("gpu.name", PASS, name))
         else:
-            checks.append(Check("gpu.name", WARN, f"{name} (Name evtl. generisch je Treiber)."))
+            checks.append(Check("gpu.name", WARN, f"{name} (name may be generic per driver)."))
     except Exception as e:  # noqa: BLE001
         checks.append(Check("gpu.name", WARN, repr(e)))
 
@@ -174,19 +174,19 @@ def gpu_checks() -> list[Check]:
         torch.cuda.synchronize()
         ok = math.isfinite(z)
         checks.append(
-            Check("gpu.compute", PASS if ok else FAIL, f"matmul 2048x2048 -> sum={z:.3e}" if ok else "Ergebnis nicht endlich")
+            Check("gpu.compute", PASS if ok else FAIL, f"matmul 2048x2048 -> sum={z:.3e}" if ok else "result not finite")
         )
     except Exception as e:  # noqa: BLE001
         checks.append(
             Check(
                 "gpu.compute",
                 FAIL,
-                f"matmul crash: {e!r}. Häufig gfx-Mismatch — die 7900 XTX ist gfx1100 und in "
-                "aktuellem ROCm offiziell unterstützt; HSA_OVERRIDE_GFX_VERSION nur als allerletzter Fallback.",
+                f"matmul crash: {e!r}. Often gfx mismatch — the 7900 XTX is gfx1100 and officially "
+                "supported in current ROCm; HSA_OVERRIDE_GFX_VERSION only as last resort.",
             )
         )
 
-    # 8. Optionaler System-Check (nur Info)
+    # 8. Optional system check (info only)
     checks.extend(_rocm_system_info())
     return checks
 
@@ -199,7 +199,7 @@ def _rocm_system_info() -> list[Check]:
     for tool in ("rocm-smi", "rocminfo"):
         path = shutil.which(tool)
         if not path:
-            out.append(Check(f"system.{tool}", WARN, "nicht gefunden (nur Info; PyTorch-Checks sind maßgeblich)."))
+            out.append(Check(f"system.{tool}", WARN, "not found (info only; PyTorch checks are authoritative)."))
             continue
         try:
             args = [path, "--version"] if tool == "rocm-smi" else [path]
@@ -225,39 +225,39 @@ def camera_checks(index: int) -> list[Check]:
     try:
         import cv2
     except Exception as e:  # noqa: BLE001
-        return [Check("camera.cv2", FAIL, f"cv2 nicht importierbar: {e!r}")]
+        return [Check("camera.cv2", FAIL, f"cv2 not importable: {e!r}")]
 
     if sys.platform.startswith("win") and hasattr(cv2, "CAP_DSHOW"):
-        cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)  # stabileres Backend unter Windows
+        cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)  # more stable backend on Windows
     else:
         cap = cv2.VideoCapture(index)
 
     try:
         if not cap.isOpened():
             out.append(
-                Check(f"camera.open[{index}]", FAIL, "konnte nicht geöffnet werden — andere Indizes probieren (0,1,2…).")
+                Check(f"camera.open[{index}]", FAIL, "could not be opened — try other indices (0,1,2…).")
             )
             return out
         ok, frame = cap.read()
         if not ok or frame is None:
-            out.append(Check(f"camera.read[{index}]", FAIL, "geöffnet, aber kein Frame gelesen."))
+            out.append(Check(f"camera.read[{index}]", FAIL, "opened, but no frame read."))
         else:
             h, w = frame.shape[:2]
             out.append(Check(f"camera.read[{index}]", PASS, f"{w}x{h}"))
     finally:
         cap.release()
 
-    # DISPLAY ist nur unter Linux relevant (cv2.imshow in Stufe 1/3 braucht GUI-Session).
+    # DISPLAY is only relevant on Linux (cv2.imshow in Stage 1/3 needs GUI session).
     if sys.platform.startswith("linux"):
         disp = os.environ.get("DISPLAY")
         if disp:
             out.append(Check("camera.display", PASS, disp))
         else:
             out.append(
-                Check("camera.display", WARN, "DISPLAY nicht gesetzt — Kalibrierung/Aufnahme braucht eine GUI-Session.")
+                Check("camera.display", WARN, "DISPLAY not set — calibration/recording needs a GUI session.")
             )
     else:
-        out.append(Check("camera.display", PASS, f"GUI verfügbar ({sys.platform})"))
+        out.append(Check("camera.display", PASS, f"GUI available ({sys.platform})"))
     return out
 
 

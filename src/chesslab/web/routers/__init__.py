@@ -1,8 +1,8 @@
-"""Router-Registrierung in der Reihenfolge, wie sie in ``create_app()`` inkludiert werden.
+"""Router registration in the order they are included in ``create_app()``.
 
-ALLE Router müssen VOR dem SPA-Catch-all registriert sein — sonst frisst der Catch-all
-die API-Pfade. Die Reihenfolge untereinander ist egal (eindeutige Pfade), aber die
-alphabetische Sortierung hilft beim Auffinden.
+ALL routers must be registered BEFORE the SPA catch-all — otherwise the catch-all
+consumes the API paths. The order among them does not matter (unique paths), but
+alphabetical sorting helps with discovery.
 """
 
 from __future__ import annotations

@@ -1,8 +1,8 @@
-"""Stufe 4 — Datensatz-Management.
+"""Level 4 — Dataset management.
 
-Aus den gelabelten Crops einen trainierbaren Datensatz machen: Statistik, Klassenbalance,
-**sessionbasierter** Split (gegen Data Leakage) und eine Augmentation-Policy. Die reinen
-Funktionen sind headless getestet; die CLI-Wrapper lösen Pfade aus `config`.
+From labeled crops create a trainable dataset: statistics, class balance,
+**session-based** split (against data leakage) and an augmentation policy. The pure
+functions are tested headless; the CLI wrappers resolve paths from `config`.
 """
 
 from __future__ import annotations
@@ -17,14 +17,14 @@ from . import config
 CLASSES = config.CLASSES
 
 
-# --- Manifest laden -------------------------------------------------------------------
+# --- Load manifest -------------------------------------------------------------------
 
 def load_manifest(path: Path) -> list[dict]:
     from .ioutil import read_jsonl
 
     path = Path(path)
     if not path.exists():
-        raise FileNotFoundError(f"Manifest nicht gefunden: {path}. Erst `chesslab slice` ausführen.")
+        raise FileNotFoundError(f"Manifest not found: {path}. Run `chesslab slice` first.")
     return read_jsonl(path)
 
 
@@ -47,16 +47,16 @@ def compute_stats(rows: list[dict], min_samples: int = config.MIN_CLASS_SAMPLES)
 
     warnings: list[str] = []
     for c in CLASSES:
-        if c in config.OPTIONAL_CLASSES:    # empty/occluded dürfen fehlen (nicht aus FEN)
+        if c in config.OPTIONAL_CLASSES:    # empty/occluded may be missing (not from FEN)
             continue
         n = counts[c]
         if n == 0:
-            warnings.append(f"Klasse {c}: 0 Beispiele.")
+            warnings.append(f"Class {c}: 0 samples.")
         elif n < min_samples:
-            warnings.append(f"Klasse {c}: nur {n} (< {min_samples}).")
+            warnings.append(f"Class {c}: only {n} (< {min_samples}).")
         if n > 0 and (light[c] == 0 or dark[c] == 0):
-            only = "dunkel" if light[c] == 0 else "hell"
-            warnings.append(f"Klasse {c}: nur auf {only}en Feldern vorhanden.")
+            only = "dark" if light[c] == 0 else "light"
+            warnings.append(f"Class {c}: only on {only} squares.")
 
     return {
         "total": len(rows),
@@ -71,29 +71,29 @@ def compute_stats(rows: list[dict], min_samples: int = config.MIN_CLASS_SAMPLES)
 
 def render_stats(stats: dict) -> str:
     lines = [
-        f"Crops gesamt: {stats['total']}  |  Sessions: {stats['num_sessions']}",
-        f"{'Klasse':<7}{'count':>8}{'hell':>8}{'dunkel':>8}",
+        f"Crops total: {stats['total']}  |  Sessions: {stats['num_sessions']}",
+        f"{'Class':<7}{'count':>8}{'light':>8}{'dark':>8}",
     ]
     for c in CLASSES:
         lines.append(f"{c:<7}{stats['counts'][c]:>8}{stats['light'][c]:>8}{stats['dark'][c]:>8}")
     if stats["warnings"]:
-        lines.append("Warnungen:")
+        lines.append("Warnings:")
         lines.extend(f"  ! {w}" for w in stats["warnings"])
     else:
-        lines.append("Keine Warnungen.")
+        lines.append("No warnings.")
     return "\n".join(lines)
 
 
-# --- Klassenbalance -------------------------------------------------------------------
+# --- Class balance -------------------------------------------------------------------
 
 def subsample_classes(rows: list[dict], max_empty_ratio: float | None = None,
                       max_class_ratio: float | None = None, seed: int = config.SEED) -> list[dict]:
-    """Überrepräsentierte Klassen seeded herunterregeln, um die Verteilung auszugleichen.
+    """Seed-downsample overrepresented classes to balance distribution.
 
-    - `max_class_ratio R`: jede **Figuren**klasse auf höchstens R * kleinste Figurenklasse
-      begrenzen (regelt z.B. die Bauern zu den seltenen Figuren herunter).
-    - `max_empty_ratio R`: `empty` auf R * größte (gedeckelte) Figurenklasse begrenzen.
-    Reihenfolge: erst Figuren deckeln, dann `empty` relativ zur neuen größten Figurenklasse.
+    - `max_class_ratio R`: cap each **piece** class to at most R * smallest piece class
+      (e.g. reduces pawns down to the rare pieces).
+    - `max_empty_ratio R`: cap `empty` to R * largest (capped) piece class.
+    Order: first cap pieces, then `empty` relative to the new largest piece class.
     """
     rng = random.Random(seed)
     by_label: dict[str, list] = {}
@@ -125,12 +125,12 @@ def subsample_classes(rows: list[dict], max_empty_ratio: float | None = None,
 
 
 def subsample_empty(rows: list[dict], max_empty_ratio: float | None, seed: int) -> list[dict]:
-    """Nur `empty` deckeln (Kompatibilitäts-Wrapper um subsample_classes)."""
+    """Only cap `empty` (compatibility wrapper around subsample_classes)."""
     return subsample_classes(rows, max_empty_ratio=max_empty_ratio, max_class_ratio=None, seed=seed)
 
 
 def compute_class_weights(counts: dict) -> dict:
-    """Invers zur Häufigkeit. Größte Klasse -> kleinstes Gewicht. Absente Klassen -> 0.0."""
+    """Inverse frequency. Largest class -> smallest weight. Absent classes -> 0.0."""
     present = {c: n for c, n in counts.items() if n > 0}
     weights = dict.fromkeys(CLASSES, 0.0)
     if not present:
@@ -142,20 +142,20 @@ def compute_class_weights(counts: dict) -> dict:
     return weights
 
 
-# --- Split (sessionbasiert) -----------------------------------------------------------
+# --- Split (session-based) -----------------------------------------------------------
 
 def assign_sessions_to_splits(sizes: dict, val_frac: float, test_frac: float, seed: int,
                               force_train=None) -> dict:
-    """Ganze Sessions greedy (größte zuerst) auf train/val/test verteilen, um die
-    Crop-Anteile zu treffen. Niemals eine Session aufteilen. `force_train`: Session-IDs, die fix in
-    train müssen (z.B. die vollständigste bei wenig Sessions, damit val keine ungesehene Klasse hat)."""
+    """Greedily assign whole sessions (largest first) to train/val/test to hit the
+    crop ratios. Never split a single session. `force_train`: session IDs that must be in
+    train (e.g. the most complete one when there are few sessions, so val has no unseen class)."""
     force_train = set(force_train or ())
     total = sum(sizes.values())
     target_val = val_frac * total
     target_test = test_frac * total
     rng = random.Random(seed)
     items = list(sizes.items())
-    rng.shuffle(items)                       # deterministischer Tiebreak
+    rng.shuffle(items)                       # deterministic tiebreak
     items.sort(key=lambda kv: kv[1], reverse=True)
 
     splits = {"train": [s for s in sizes if s in force_train], "val": [], "test": []}
@@ -186,8 +186,8 @@ def make_split(
     force_train=None,
     precomputed_splits=None,
 ) -> dict:
-    # Sessions zuteilen. `precomputed_splits` (von build_dataset auf den ROHEN, vollständigen Daten
-    # bestimmt) gewinnt -> so wird Train gedupt/augmentiert, Val/Test bleiben vollständig.
+    # Assign sessions. `precomputed_splits` (determined by build_dataset on the RAW, complete data)
+    # wins -> this way Train gets duped/augmented, Val/Test stay complete.
     if precomputed_splits is not None:
         splits = {k: list(precomputed_splits.get(k, [])) for k in ("train", "val", "test")}
     else:
@@ -195,14 +195,14 @@ def make_split(
         splits = assign_sessions_to_splits(dict(sizes), val_frac, test_frac, seed, force_train=force_train)
     split_of = {s: name for name, sids in splits.items() for s in sids}
 
-    # Subsampling NUR auf train; val/test bleiben vollständig (echte Board-Accuracy).
+    # Subsampling ONLY on train; val/test stay complete (real board accuracy).
     train_full = [r for r in rows if split_of.get(r["session_id"]) == "train"]
     train_kept = subsample_classes(train_full, max_empty_ratio, max_class_ratio, seed)
     val_rows = [r for r in rows if split_of.get(r["session_id"]) == "val"]
     test_rows = [r for r in rows if split_of.get(r["session_id"]) == "test"]
     counts_split = {"train": len(train_kept), "val": len(val_rows), "test": len(test_rows)}
 
-    # Klassenverteilung + Gewichte aus dem (balancierten) TRAIN-Set.
+    # Class distribution + weights from the (balanced) TRAIN set.
     train_counts = dict.fromkeys(CLASSES, 0)
     for r in train_kept:
         train_counts[r["label"]] += 1
@@ -218,14 +218,14 @@ def make_split(
         if c in config.OPTIONAL_CLASSES or len(class_sessions[c]) == 0:
             continue
         if len(class_sessions[c]) == 1:
-            warnings.append(f"Klasse {c} nur in einer Session -> saubere Evaluierung unmöglich.")
+            warnings.append(f"Class {c} only in one session -> clean evaluation impossible.")
         for name in ("val", "test"):
             if c not in labels_in[name]:
-                warnings.append(f"Klasse {c} fehlt im {name}-Split.")
+                warnings.append(f"Class {c} missing in {name} split.")
     if counts_split["val"] == 0:
-        warnings.append("val-Split ist leer (zu wenige Sessions).")
+        warnings.append("val split is empty (too few sessions).")
     if counts_split["test"] == 0:
-        warnings.append("test-Split ist leer (zu wenige Sessions).")
+        warnings.append("test split is empty (too few sessions).")
 
     return {
         "seed": seed,
@@ -245,18 +245,18 @@ def make_split(
 
 
 def validate_split(split: dict, rows: list[dict]) -> tuple[list[str], list[str]]:
-    """(errors, warnings). Errors = degeneriert, saubere Evaluierung unmöglich."""
+    """(errors, warnings). Errors = degenerate, clean evaluation impossible."""
     errors: list[str] = []
     warnings: list[str] = []
 
-    # Session-Menge pro Klasse
+    # Session set per class
     class_sessions: dict[str, set] = {c: set() for c in CLASSES}
     for r in rows:
         class_sessions[r["label"]].add(r["session_id"])
 
-    # Global vorhandene Klassen
+    # Globally present classes
     global_present = {c for c in CLASSES if class_sessions[c]}
-    # occluded nur prüfen, wenn global vorhanden
+    # only check occluded if present globally
     check_classes = [c for c in CLASSES if c != "occluded" or "occluded" in global_present]
 
     for c in check_classes:
@@ -266,20 +266,20 @@ def validate_split(split: dict, rows: list[dict]) -> tuple[list[str], list[str]]
         if n_sessions == 1:
             sid = next(iter(class_sessions[c]))
             errors.append(
-                f"Klasse {c} existiert nur in Session {sid} — "
-                "neue Session mit zufälliger Figur-Linien-Zuordnung aufnehmen, "
-                "oder --allow-degenerate setzen."
+                f"Class {c} exists only in session {sid} — "
+                "record a new session with random piece-line assignment, "
+                "or set --allow-degenerate."
             )
 
-    # Test/Val leer
+    # Test/Val empty
     if split["counts"]["test"] == 0:
-        errors.append("Test-Split ist leer — mindestens 3 Sessions nötig (sessionbasierter Split).")
+        errors.append("Test split is empty — at least 3 sessions needed (session-based split).")
     if split["counts"]["val"] == 0:
-        errors.append("Val-Split ist leer — mindestens 3 Sessions nötig (sessionbasierter Split).")
+        errors.append("Val split is empty — at least 3 sessions needed (session-based split).")
 
-    # Warnings aus make_split übernehmen (Klasse fehlt in Val/Test)
+    # Adopt warnings from make_split (class missing in Val/Test)
     for w in split.get("warnings", []):
-        if w not in errors:                   # kein doppeltes Reporting
+        if w not in errors:                   # no duplicate reporting
             warnings.append(w)
 
     return errors, warnings
@@ -293,32 +293,32 @@ def verify(rows: list[dict], *, split: dict | None = None, check_files: bool = T
     problems: list[str] = []
     for r in rows:
         if r["label"] not in CLASSES:
-            problems.append(f"unbekanntes Label {r['label']!r} ({r.get('path')}).")
+            problems.append(f"unknown label {r['label']!r} ({r.get('path')}).")
         if check_files:
             p = Path(r["path"])
             if not p.exists():
-                problems.append(f"Datei fehlt: {p}")
+                problems.append(f"file missing: {p}")
                 continue
             img = cv2.imread(str(p))
             if img is None:
-                problems.append(f"Datei nicht ladbar: {p}")
+                problems.append(f"file not loadable: {p}")
                 continue
             w, h = r["out_size"]
             if (img.shape[0], img.shape[1]) != (h, w):
-                problems.append(f"out_size {img.shape[1]}x{img.shape[0]} != erwartet {w}x{h} ({p}).")
+                problems.append(f"out_size {img.shape[1]}x{img.shape[0]} != expected {w}x{h} ({p}).")
 
     if split:
         seen: dict[str, str] = {}
         for name, sids in split["splits"].items():
             for s in sids:
                 if s in seen:
-                    problems.append(f"Session {s} in '{seen[s]}' UND '{name}'.")
+                    problems.append(f"Session {s} in '{seen[s]}' AND '{name}'.")
                 else:
                     seen[s] = name
     return problems
 
 
-# --- Augmentation-Policy als Konfig ---------------------------------------------------
+# --- Augmentation policy as config ---------------------------------------------------
 
 def write_augment_yaml(path: Path) -> Path:
     import yaml
@@ -331,7 +331,7 @@ def write_augment_yaml(path: Path) -> Path:
             "jitter_scale": a.jitter_scale, "color_jitter": a.color_jitter,
         },
         "forbidden": {"flip": not a.allow_flip, "rotate90_180": not a.allow_rotate90},
-        "val_test": "nur deterministisches Resize + Normalize",
+        "val_test": "only deterministic resize + normalize",
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as fh:
@@ -339,7 +339,7 @@ def write_augment_yaml(path: Path) -> Path:
     return path
 
 
-# --- CLI-Ebene ------------------------------------------------------------------------
+# --- CLI level ------------------------------------------------------------------------
 
 def run_stats(manifest: str | None = None, json_out: bool = False) -> int:
     path = Path(manifest) if manifest else config.DATA.manifests / "squares.jsonl"
@@ -379,10 +379,10 @@ def run_split(val_frac: float, test_frac: float, max_empty_ratio: float, seed: i
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(split, ensure_ascii=False, indent=2), encoding="utf-8")
     write_augment_yaml(config.DATA.manifests / "augment.yaml")
-    print(f"[OK] split.json: train={split['counts']['train']} (balanciert) val={split['counts']['val']} test={split['counts']['test']}")
+    print(f"[OK] split.json: train={split['counts']['train']} (balanced) val={split['counts']['val']} test={split['counts']['test']}")
     print(f"     Sessions: train={len(split['splits']['train'])} val={len(split['splits']['val'])} test={len(split['splits']['test'])}")
     print(f"     max_empty_ratio={max_empty_ratio} max_class_ratio={max_class_ratio}")
-    print("     TRAIN-Verteilung (nach Balancing):")
+    print("     TRAIN distribution (after balancing):")
     tcc = split["train_class_counts"]
     for c in CLASSES:
         if tcc[c]:
@@ -403,11 +403,11 @@ def run_verify() -> int:
     split = json.loads(split_path.read_text(encoding="utf-8")) if split_path.exists() else None
     problems = verify(rows, split=split)
     if not problems:
-        print(f"[OK] {len(rows)} Crops verifiziert, keine Probleme.")
+        print(f"[OK] {len(rows)} Crops verified, no problems.")
         return 0
-    print(f"[FAIL] {len(problems)} Problem(e):")
+    print(f"[FAIL] {len(problems)} problem(s):")
     for p in problems[:50]:
         print(f"  - {p}")
     if len(problems) > 50:
-        print(f"  … und {len(problems) - 50} weitere.")
+        print(f"  … and {len(problems) - 50} more.")
     return 1

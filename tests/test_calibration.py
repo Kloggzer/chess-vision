@@ -194,7 +194,7 @@ def test_marker_tracker_smooths_real_motion():
     t.update({0: [40, 0]})                          # echte Bewegung (>Dead-Zone, <Sprung) -> EMA
     a = config.TRACKER.smooth_alpha
     assert abs(t.last[0][0] - 40 * a) < 1e-6
-    assert 0 < t.last[0][0] < 40                    # geglättet, liegt zwischen alt und neu
+    assert 0 < t.last[0][0] < 40                    # smoothed, lies between old and new
 
 
 def test_marker_tracker_rejects_then_confirms_jump():
@@ -205,7 +205,7 @@ def test_marker_tracker_rejects_then_confirms_jump():
     t.update({0: [10, 10]})
     t.update({0: [300, 300]})                       # >jump_reject_px, einmalig -> verworfen
     assert t.last[0] == [10, 10]
-    t.update({0: [300, 300]})                       # zweiter Frame bestätigt -> jetzt übernehmen (EMA)
+    t.update({0: [300, 300]})                       # second frame confirmed -> now adopt (EMA)
     assert t.last[0][0] > 10                         # Selbstkorrektur greift
 
 
@@ -235,7 +235,7 @@ def test_marker_tracker_seed_and_make_tracker():
     t.seed({0: [0, 0], 1: [100, 0], 2: [100, 100], 3: [0, 100]})
     assert set(t.points()) == {0, 1, 2, 3}
     assert all(s == "seed" for s in t.status().values())
-    t.update({0: [0, 0]})                           # marker 0 live bestätigt
+    t.update({0: [0, 0]})                           # marker 0 confirmed live
     assert t.status()[0] == "live" and t.status()[1] == "seed"
 
     corners = [[0, 0], [100, 0], [100, 100], [0, 100]]

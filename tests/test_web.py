@@ -13,19 +13,19 @@ from chesslab.labeling import load_corrections, slice_session, upsert_correction
 
 
 def test_labels_to_fen_estimation():
-    """Inference-Overlay: 64 Per-Feld-Labels -> FEN-Stellungsteil (occluded zählt als leer)."""
+    """Inference overlay: 64 per-square labels -> FEN position part (occluded counts as empty)."""
     from chesslab.labeling import labels_to_fen
 
     labels = {f"{f}{r}": "empty" for r in range(1, 9) for f in "abcdefgh"}
     labels["e1"] = "wK"; labels["e8"] = "bK"; labels["a1"] = "wR"; labels["d4"] = "occluded"
     fen = labels_to_fen(labels)
-    assert fen == "4k3/8/8/8/8/8/8/R3K3"          # d4 (occluded) bleibt leer
+    assert fen == "4k3/8/8/8/8/8/8/R3K3"          # d4 (occluded) stays empty
     import chess
     assert chess.Board(fen + " w - - 0 1").piece_at(chess.E1).symbol() == "K"
 
 
 def test_draw_target_pieces_writes_names_for_dense_fen():
-    """coverage-Overlay: ganze (auch ILLEGALE) Stellung als Figurennamen aufs Brett zeichnen."""
+    """coverage overlay: whole (even ILLEGAL) position drawn as piece names on the board."""
     from chesslab.web.util import _PIECE_NAMES_DE, _draw_target_pieces
 
     bs = 800
@@ -36,13 +36,13 @@ def test_draw_target_pieces_writes_names_for_dense_fen():
     img = np.zeros((bs, bs, 3), dtype=np.uint8)
     # deliberately illegal, dense position (3 white queens) — the classifier needs no legality
     _draw_target_pieces(img, prof, "QQQ5/8/8/8/8/8/8/8 w - - 0 1")
-    assert img.any()                                  # es wurde tatsächlich etwas gezeichnet
+    assert img.any()                                  # something was actually drawn
     assert _PIECE_NAMES_DE["Q"] == "Dame"
 
 
 def test_manual_capture_explicit_labels_produce_entries(tmp_path):
-    """Manuell-Labeln: frei platzierte Figuren werden per expliziter Per-Feld-Labels gesliced
-    (keine FEN nötig); nicht markierte Felder werden empty."""
+    """Manual labeling: freely placed pieces are sliced via explicit per-square labels
+    (no FEN needed); unmarked squares become empty."""
     from chesslab.collect import SessionWriter
 
     bs = 800
@@ -54,7 +54,7 @@ def test_manual_capture_explicit_labels_produce_entries(tmp_path):
     sdir = tmp_path / "sessions" / "man1"
     w = SessionWriter(sdir, session_id="man1", profile="t", mode="manual",
                       camera_index=0, frame_size=(bs, bs), notes="manual")
-    # corners mitgeben -> slice warpt daraus (kein Marker-Detect nötig); occluded geht hier mit
+    # supply corners -> slice warps from them (no marker detect needed); occluded works here
     w.capture(frame, ply=0, fen="8/8/8/8/8/8/8/8 w - - 0 1", corners=corners,
               labels={"e4": "wB", "d5": "bN", "h1": "occluded"})
     w.close()
@@ -65,7 +65,7 @@ def test_manual_capture_explicit_labels_produce_entries(tmp_path):
     by_sq = {r["square"]: r["label"] for r in rows}
     assert len(rows) == 64
     assert by_sq["e4"] == "wB" and by_sq["d5"] == "bN" and by_sq["h1"] == "occluded"
-    assert by_sq["a1"] == "empty"                      # nicht markiert -> leer
+    assert by_sq["a1"] == "empty"                      # not marked -> empty
     assert sum(1 for v in by_sq.values() if v == "empty") == 61
 
 
@@ -157,7 +157,7 @@ def test_train_guards_too_few_sessions(tmp_path, monkeypatch):
     # No manifest at all -> guided 400, no crash.
     r = client.post("/api/train", json={})
     assert r.status_code == 400
-    assert "Datensatz" in r.json()["detail"]
+    assert "dataset" in r.json()["detail"]
 
     # One session only -> per-session split yields an empty train set -> clear 400.
     rows = [{"path": f"data/squares/{lab}/x{i}.png", "label": lab, "session_id": "s1",
@@ -167,15 +167,15 @@ def test_train_guards_too_few_sessions(tmp_path, monkeypatch):
         "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
     r = client.post("/api/train", json={})
     assert r.status_code == 400
-    assert "Sessions" in r.json()["detail"]
-    # Seit Rework 02 (harte Split-Validierung) wird ein degenerierter Split NICHT mehr
-    # geschrieben — der 400-Text leitet stattdessen zur Datenaufnahme an.
+    assert "sessions" in r.json()["detail"]
+    # Since Rework 02 (hard split validation) a degenerate split is NO longer
+    # written — the 400 text instead guides toward data collection.
     assert not (config.DATA.manifests / "split.json").exists()
 
 
 def test_dataset_api_degenerate_guard(tmp_path, monkeypatch):
-    """POST /api/datasets mit degenerierten Sessions -> 400, detail enthält Klassennamen.
-    Mit allow_degenerate -> 200."""
+    """POST /api/datasets with degenerate sessions -> 400, detail contains class names.
+    With allow_degenerate -> 200."""
     pytest.importorskip("fastapi")
     pytest.importorskip("httpx")
     from fastapi.testclient import TestClient
@@ -187,7 +187,7 @@ def test_dataset_api_degenerate_guard(tmp_path, monkeypatch):
     for cls in config.CLASSES:
         (config.DATA.squares / cls).mkdir(parents=True, exist_ok=True)
 
-    # wQ nur in s1, wK in s1+s2
+    # wQ only in s1, wK in s1+s2
     rows = [
         {"path": (config.DATA.squares / "wQ" / "x.png").as_posix(), "label": "wQ",
          "session_id": "s1", "frame": "0000", "ply": 0, "square": "d1",
@@ -201,8 +201,8 @@ def test_dataset_api_degenerate_guard(tmp_path, monkeypatch):
         {"path": (config.DATA.squares / "empty" / "x.png").as_posix(), "label": "empty",
          "session_id": "s2", "frame": "0000", "ply": 0, "square": "c4",
          "square_color": "light", "fen": "x", "out_size": [96, 128], "ts": "t"},
-        # dritte Session, damit der sessionbasierte Split überhaupt zugeteilt werden kann
-        # (mindestens-3-Sessions-Guard) und wirklich validate_split den Fehler liefert.
+        # third session so the session-based split can actually be assigned
+        # (minimum-3-sessions guard) and validate_split really produces the error.
         {"path": (config.DATA.squares / "wK" / "x.png").as_posix(), "label": "wK",
          "session_id": "s3", "frame": "0000", "ply": 0, "square": "e1",
          "square_color": "dark", "fen": "x", "out_size": [96, 128], "ts": "t"},
@@ -222,13 +222,13 @@ def test_dataset_api_degenerate_guard(tmp_path, monkeypatch):
     from chesslab.web.app import create_app
     client = TestClient(create_app())
 
-    # ohne allow_degenerate -> 400, kein Zombie-Datensatz auf Platte
+    # ohne allow_degenerate -> 400, no zombie dataset on disk
     r = client.post("/api/datasets", json={"name": "deg", "session_ids": ["s1", "s2", "s3"]})
     assert r.status_code == 400
     assert "wQ" in r.json()["detail"]
     assert not (config.DATA.datasets / "deg").exists()
 
-    # mit allow_degenerate -> 200, Fehler im Split dokumentiert
+    # with allow_degenerate -> 200, error documented in split
     r = client.post("/api/datasets", json={"name": "deg2", "session_ids": ["s1", "s2", "s3"],
                                            "allow_degenerate": True, "rotate": False})
     assert r.status_code == 200

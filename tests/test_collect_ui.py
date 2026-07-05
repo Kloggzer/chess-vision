@@ -82,16 +82,16 @@ def test_recommend_none_when_all_covered():
 
 
 def test_build_coverage_fen_respects_inventory_and_prefers_deficit_colour():
-    # alles voll AUSSER bQ auf dunklen Feldern -> der eine schwarze Damen-Slot muss dorthin
+    # all full EXCEPT bQ on dark squares -> the one black queen slot must go there
     light = dict.fromkeys(config.CLASSES, 999)
     dark = dict.fromkeys(config.CLASSES, 999)
     dark["bQ"] = 0
     fen, placements = build_coverage_fen(light, dark, target=200)
     board = chess.Board(fen)
     qsq = [s for s, lab in placements.items() if lab == "bQ"]
-    assert len(qsq) == 1                                   # nur 1 Dame im Inventar
-    assert (chess.square_file(qsq[0]) + chess.square_rank(qsq[0])) % 2 == 0   # dunkel
-    # FEN ist parsebar und keine Bauern auf der Grundreihe
+    assert len(qsq) == 1                                   # only 1 queen in inventory
+    assert (chess.square_file(qsq[0]) + chess.square_rank(qsq[0])) % 2 == 0   # dark
+    # FEN is parseable and no pawns on the back rank
     for s in chess.SQUARES:
         p = board.piece_at(s)
         if p and p.piece_type == chess.PAWN:
@@ -102,7 +102,7 @@ def test_coverage_plan_packs_rare_classes_and_converges():
     zero = dict.fromkeys(config.CLASSES, 0)
     plan = coverage_plan(dict(zero), dict(zero), target=4, count=50)
     assert plan and all(p["fen"] for p in plan)
-    # erster Aufbau ist dicht (viele Ziel-Crops), nicht 1-2 wie beim Partie-Replay
+    # first setup is dense (many target crops), not 1-2 like in game replay
     assert plan[0]["gains"] >= 20
     # converges: at target=4 with a full inventory, all targets are met after a few setups
     assert len(plan) < 50
@@ -110,9 +110,9 @@ def test_coverage_plan_packs_rare_classes_and_converges():
 
 def test_sweep_plan_separate_covers_each_special_down_the_files():
     """sweep (special, passes=1, separate): 16 photos; each special piece runs down a file,
-    jedes Feld bekommt eine Sonderfigur, K/Q je 8x (eine Linie über 8 Ränge)."""
+    each square gets a special piece, K/Q 8x each (one file across 8 ranks)."""
     plan = sweep_plan(passes=1, together=False)
-    assert len(plan) == 16                         # 8 Weiß + 8 Schwarz
+    assert len(plan) == 16                         # 8 white + 8 black
     cov = {}
     for pos in plan:
         gs = GameState(pos["fen"])
@@ -120,15 +120,15 @@ def test_sweep_plan_separate_covers_each_special_down_the_files():
             lab = gs.label_for(sq)
             if lab != "empty":
                 cov[lab] = cov.get(lab, 0) + 1
-    assert cov["wK"] == 8 and cov["bK"] == 8       # König: 1 Linie x 8 Ränge je Farbe
+    assert cov["wK"] == 8 and cov["bK"] == 8       # King: 1 file x 8 ranks per color
     assert cov["wQ"] == 8 and cov["bQ"] == 8
-    assert cov["wR"] == 16 and cov["wN"] == 16     # 2 Linien je 8 Ränge
+    assert cov["wR"] == 16 and cov["wN"] == 16     # 2 files each x 8 ranks
 
 
 def test_sweep_plan_together_halves_frames_and_covers_both_colors():
     """sweep together=True: only 8 photos, but EACH square sees a white AND a black piece."""
     plan = sweep_plan(passes=1, together=True)
-    assert len(plan) == 8                          # halbe Fotozahl
+    assert len(plan) == 8                          # half the photo count
     seen = {sq: set() for sq in all_squares()}
     for pos in plan:
         gs = GameState(pos["fen"])
@@ -136,22 +136,22 @@ def test_sweep_plan_together_halves_frames_and_covers_both_colors():
             lab = gs.label_for(sq)
             if lab != "empty":
                 seen[sq].add(lab[0])               # 'w' / 'b'
-    assert all(s == {"w", "b"} for s in seen.values())   # alle 64 Felder beide Farben
+    assert all(s == {"w", "b"} for s in seen.values())   # all 64 squares both colors
 
 
 def test_sweep_plan_all_is_block_with_pawns_and_specials_each_frame():
     """pieces='all' (together): Specials + Bauern als BLOCK -> nur 8 Fotos, und JEDES Foto zeigt
-    Specials UND Bauern (der Overlay-Bug: vorher kamen Bauern erst in späteren Frames)."""
+    specials AND pawns (the overlay bug: previously pawns only appeared in later frames)."""
     plan = sweep_plan(pieces="all", passes=1, together=True)
-    assert len(plan) == 8                          # Block -> halbe Fotozahl
+    assert len(plan) == 8                          # Block -> half the photo count
     cov = {}
     for pos in plan:
         gs = GameState(pos["fen"])
         labs = [gs.label_for(sq) for sq in all_squares()]
         kinds = {lab[1] for lab in labs if lab != "empty"}
-        assert "P" in kinds and ({"K", "Q", "R", "B", "N"} & kinds)   # beide je Frame
+        assert "P" in kinds and ({"K", "Q", "R", "B", "N"} & kinds)   # both per frame
         for lab in labs:
             if lab != "empty":
                 cov[lab] = cov.get(lab, 0) + 1
-    assert cov["wP"] == 64 and cov["bP"] == 64     # Bauern voll abgedeckt
-    assert cov["wK"] == 8 and cov["bQ"] == 8       # Specials voll abgedeckt
+    assert cov["wP"] == 64 and cov["bP"] == 64     # pawns fully covered
+    assert cov["wK"] == 8 and cov["bQ"] == 8       # specials fully covered

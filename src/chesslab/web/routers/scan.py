@@ -1,4 +1,4 @@
-"""Scan router: /api/scan/* — Mesh-Upload + 3D-Vorbereitung (meshprep in-process)."""
+"""Scan router: /api/scan/* — Mesh upload + 3D preparation (meshprep in-process)."""
 
 from __future__ import annotations
 
@@ -34,13 +34,13 @@ def _piece_dir(piece: str, variant: str) -> Path:
     Raises 404 on a bad piece name and 400 on a path-unsafe variant.
     """
     if not _PIECE.match(piece):
-        raise HTTPException(404, "unbekannte Figur")
+        raise HTTPException(404, "unknown piece")
     if not _VARIANT.match(variant):
-        raise HTTPException(400, f"ungültige Variante: {variant!r}")
+        raise HTTPException(400, f"invalid variant: {variant!r}")
     return _repo_root() / "synth_pieces" / piece
 
 
-# --- Turntable-Foto-Aufnahme (Capture) -------------------------------------------
+# --- Turntable photo capture ------------------------------------------------
 
 @router.get("/api/scan/status")
 def scan_status():
@@ -52,7 +52,7 @@ def scan_open(source: str = Body(...), width: int = Body(2880), height: int = Bo
               capture: str = Body("")):
     try:
         return SCANNER.open(source, width, height, capture_source=capture)
-    except Exception as e:  # noqa: BLE001 — Nutzerfehler (Quelle/URL) sauber ans Frontend
+    except Exception as e:  # noqa: BLE001 — user error (source/URL) cleanly to frontend
         raise HTTPException(400, str(e))
 
 
@@ -90,14 +90,14 @@ def scan_preview():
             while True:
                 img, fid = SCANNER.preview(last_id=last)
                 last = fid
-                yield img      # None -> mjpeg wartet kurz (kein neuer Frame, kein Fehlerbild:
-                               # der Scanner liefert bewusst nur bei neuen Frames)
+                yield img      # None -> mjpeg waits briefly (no new frame, no error image:
+                               # the scanner deliberately yields only on new frames)
         finally:
-            log.info("Stream beendet: scan-preview")
+            log.info("Stream ended: scan-preview")
     return mjpeg(frames())
 
 
-# --- Mesh-Upload ---------------------------------------------------------------
+# --- Mesh upload ------------------------------------------------------------
 
 _MESH_EXTENSIONS = {".obj", ".glb", ".gltf"}
 _TEXTURE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
@@ -110,12 +110,12 @@ async def scan_upload(
     mesh: UploadFile = File(...),
     texture: UploadFile | None = File(None),
 ):
-    """Mesh-Datei + optionale Textur hochladen (bereits freigestelltes Einzelstück)."""
+    """Upload a mesh file + optional texture (already isolated single piece)."""
     if not _SAFE_NAME.match(name):
-        raise HTTPException(400, f"Name {name!r} enthält ungültige Zeichen (nur a-Z, 0-9, _, -).")
+        raise HTTPException(400, f"Name {name!r} contains invalid characters (only a-Z, 0-9, _, -).")
     mesh_ext = Path(mesh.filename or "").suffix.lower()
     if mesh_ext not in _MESH_EXTENSIONS:
-        raise HTTPException(400, f"Mesh-Format {mesh_ext} nicht unterstützt ({sorted(_MESH_EXTENSIONS)}).")
+        raise HTTPException(400, f"Mesh format {mesh_ext} not supported ({sorted(_MESH_EXTENSIONS)}).")
 
     d = SCANS_ROOT / name
     d.mkdir(parents=True, exist_ok=True)
@@ -128,7 +128,7 @@ async def scan_upload(
     if texture is not None:
         tex_ext = Path(texture.filename or "").suffix.lower()
         if tex_ext not in _TEXTURE_EXTENSIONS:
-            raise HTTPException(400, f"Textur-Format {tex_ext} nicht unterstützt ({sorted(_TEXTURE_EXTENSIONS)}).")
+            raise HTTPException(400, f"Texture format {tex_ext} not supported ({sorted(_TEXTURE_EXTENSIONS)}).")
         tex_data = await texture.read()
         tex_path = d / f"mesh_{name}_diffuse{tex_ext}"
         tex_path.write_bytes(tex_data)
@@ -138,11 +138,11 @@ async def scan_upload(
             "texture": tex_path.name if tex_path else None}
 
 
-# --- 3D-Modell-Vorbereitung ----------------------------------------------------
+# --- 3D model preparation ---------------------------------------------------
 
 @router.get("/api/scan/models")
 def scan_models():
-    """Scan-Ordner mit Mesh + bereits vorbereitete Figuren auflisten."""
+    """List scan folders with mesh and already prepared pieces."""
     from ...scan_discover import _pick_texture, pick_mesh
 
     scans = []
@@ -185,7 +185,7 @@ def scan_models():
 
 @router.post("/api/scan/prepare")
 def scan_prepare(dir: str = Body(...), piece: str = Body(...)):
-    """Vorbereitung für EINEN Scan-Ordner starten (meshprep in-process)."""
+    """Start preparation for ONE scan folder (meshprep in-process)."""
     from ...meshprep import prepare_scan
     from ...scan_discover import (
         ScanItem,
@@ -198,16 +198,16 @@ def scan_prepare(dir: str = Body(...), piece: str = Body(...)):
 
     parsed = parse_piece_name(piece)
     if parsed is None:
-        raise HTTPException(400, f"ungültiger Figurenname {piece!r} (P/N/B/R/Q/K, optional "
-                                 "w/b-Präfix, optionaler Varianten-Suffix wie wP2 / wP_glas)")
+        raise HTTPException(400, f"invalid piece name {piece!r} (P/N/B/R/Q/K, optional "
+                                 "w/b prefix, optional variant suffix like wP2 / wP_glas)")
     canonical, variant = parsed
     state = PREPARE.get("state")
     if state == "running":
-        raise HTTPException(409, "es läuft bereits eine Vorbereitung.")
+        raise HTTPException(409, "a preparation is already running.")
     d = SCANS_ROOT / dir
     obj_path = pick_mesh(d)
     if obj_path is None:
-        raise HTTPException(404, f"kein Mesh in scans/{dir} — erst hochladen.")
+        raise HTTPException(404, f"no mesh in scans/{dir} — upload first.")
     out = _repo_root() / "synth_pieces"
     piece_folder = out / canonical
     piece_folder.mkdir(parents=True, exist_ok=True)
@@ -227,12 +227,12 @@ def scan_prepare(dir: str = Body(...), piece: str = Body(...)):
             PREPARE.update(state="done")
         except Exception as exc:
             PREPARE.update(state="failed", error=str(exc))
-            log.exception("synth prepare fehlgeschlagen: %s/%s", canonical, variant)
+            log.exception("synth prepare failed: %s/%s", canonical, variant)
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
     PREPARE.update(proc=t)
-    log.info("synth prepare gestartet (meshprep): %s -> %s/%s", dir, canonical, variant)
+    log.info("synth prepare started (meshprep): %s -> %s/%s", dir, canonical, variant)
     return {"ok": True, "piece": canonical, "variant": variant, "pipeline": "meshprep"}
 
 
@@ -265,7 +265,7 @@ def scan_prepare_status():
 
 @router.get("/api/scan/prepare/preview/{piece}/{variant}")
 def scan_prepare_preview(piece: str, variant: str, kind: str = "textured"):
-    """Vorschau einer vorbereiteten Figur-Variante. kind=textured|clay."""
+    """Preview of a prepared piece variant. kind=textured|clay."""
     pdir = _piece_dir(piece, variant)
     stem = f"{variant}_preview" + ("_clay" if kind == "clay" else "")
     p = pdir / f"{stem}.png"
@@ -274,30 +274,30 @@ def scan_prepare_preview(piece: str, variant: str, kind: str = "textured"):
     return FileResponse(str(p), media_type="image/png")
 
 
-# --- Löschen -------------------------------------------------------------------
+# --- Delete ------------------------------------------------------------------
 
 def _safe_seg(name: str) -> str:
     if not name or "/" in name or "\\" in name or ".." in name:
-        raise HTTPException(400, f"ungültiger Name: {name!r}")
+        raise HTTPException(400, f"invalid name: {name!r}")
     return name
 
 
 @router.delete("/api/scan/scan/{dir}")
 def scan_delete(dir: str):
-    """Kompletten Scan-Ordner (Fotos + Mesh) löschen."""
+    """Delete a complete scan folder (photos + mesh)."""
     import shutil
 
     d = SCANS_ROOT / _safe_seg(dir)
     if not d.is_dir():
-        raise HTTPException(404, f"Scan '{dir}' nicht gefunden.")
+        raise HTTPException(404, f"Scan '{dir}' not found.")
     shutil.rmtree(d)
-    log.info("Scan gelöscht: %s", dir)
+    log.info("Scan deleted: %s", dir)
     return {"ok": True, "dir": dir}
 
 
 @router.delete("/api/scan/piece/{piece}/{variant}")
 def piece_delete(piece: str, variant: str):
-    """Eine vorbereitete Figur-Variante löschen (obj + mtl + Textur + Previews + Report)."""
+    """Delete a prepared piece variant (obj + mtl + texture + previews + report)."""
     pdir = _piece_dir(piece, variant)
     removed = []
     for suffix in (".obj", ".mtl", ".png", "_preview.png", "_preview_clay.png",
@@ -307,21 +307,21 @@ def piece_delete(piece: str, variant: str):
             p.unlink()
             removed.append(p.name)
     if not removed:
-        raise HTTPException(404, f"Figur '{piece}/{variant}' nicht gefunden.")
+        raise HTTPException(404, f"Piece '{piece}/{variant}' not found.")
     # Prune the piece folder once its last variant is gone.
     if pdir.is_dir() and not any(pdir.iterdir()):
         pdir.rmdir()
-    log.info("Figur-Variante gelöscht: %s/%s (%s)", piece, variant, ", ".join(removed))
+    log.info("Piece variant deleted: %s/%s (%s)", piece, variant, ", ".join(removed))
     return {"ok": True, "piece": piece, "variant": variant, "removed": removed}
 
 
-# --- 3D-Modell-Dateien für den Viewer -----------------------------------------
+# --- 3D model files for the viewer ------------------------------------------
 
 @router.get("/api/scan/model/{piece}/{variant}.obj")
 def piece_obj(piece: str, variant: str):
     p = _piece_dir(piece, variant) / f"{variant}.obj"
     if not p.exists():
-        raise HTTPException(404, "kein Mesh")
+        raise HTTPException(404, "no mesh")
     return FileResponse(str(p), media_type="text/plain")
 
 

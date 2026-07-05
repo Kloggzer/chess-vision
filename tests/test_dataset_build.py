@@ -18,14 +18,14 @@ def _write_crop(paths, label, sid, frame, square, img):
 
 
 def _img_top(fill):
-    """Obere Hälfte gefüllt (für Rotations-Sichtbarkeit)."""
+    """Top half filled (for rotation visibility)."""
     img = np.zeros((128, 128, 3), dtype=np.uint8)
     img[:64] = fill
     return img
 
 
 def _img_lr(left, right):
-    """Linke/rechte Hälfte unterschiedlich -> horizontale Struktur, von dhash unterscheidbar."""
+    """Left/right half different -> horizontal structure, distinguishable by dhash."""
     img = np.zeros((128, 128, 3), dtype=np.uint8)
     img[:, :64] = left
     img[:, 64:] = right

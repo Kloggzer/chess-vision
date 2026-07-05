@@ -1,4 +1,4 @@
-"""Training-Router: /api/split, /api/train*, /api/runs*"""
+"""Training router: /api/split, /api/train*, /api/runs*"""
 
 from __future__ import annotations
 
@@ -24,11 +24,11 @@ def split(req: SplitRequest):
     from ... import dataset as dataset_mod
 
     rc = dataset_mod.run_split(val_frac=config.DEFAULT_VAL_FRAC, test_frac=config.DEFAULT_TEST_FRAC,
-                               max_empty_ratio=req.max_empty_ratio, seed=req.seed,
-                               max_class_ratio=req.max_class_ratio,
-                               allow_degenerate=req.allow_degenerate)
+                                max_empty_ratio=req.max_empty_ratio, seed=req.seed,
+                                max_class_ratio=req.max_class_ratio,
+                                allow_degenerate=req.allow_degenerate)
     if rc != 0:
-        raise HTTPException(400, "Split fehlgeschlagen — Datensatzdegenerierung (--allow-degenerate im Web-Tab setzen).")
+        raise HTTPException(400, "Split failed — dataset degenerated (set --allow-degenerate in the web tab).")
     return {"ok": True}
 
 
@@ -40,19 +40,19 @@ def train(req: TrainRequest):
 
     t_proc = TRAIN.get("proc")
     if t_proc is not None and t_proc.poll() is None:
-        raise HTTPException(409, "es läuft bereits ein Training.")
+        raise HTTPException(409, "a training is already running.")
     if req.resume and not (config.DATA.models / req.resume / "config.json").exists():
-        raise HTTPException(400, f"Resume-Run '{req.resume}' nicht gefunden.")
+        raise HTTPException(400, f"Resume run '{req.resume}' not found.")
 
-    # Bevorzugter Weg: auf einem gebauten, benannten Datensatz trainieren (eigener Split).
+    # Preferred path: train on a built, named dataset (its own split).
     if req.dataset:
         dd = dataset_build_mod.dataset_dir(req.dataset)
         if not (dd / "split.json").exists():
-            raise HTTPException(400, f"Datensatz '{req.dataset}' nicht gebaut — erst im Datensätze-Tab bauen.")
+            raise HTTPException(400, f"Dataset '{req.dataset}' not built — build it first in the datasets tab.")
         sp = json.loads((dd / "split.json").read_text(encoding="utf-8"))
         if sp["counts"]["train"] == 0:
-            raise HTTPException(400, "train-Split leer — der Datensatz braucht mind. 2-3 getrennte "
-                                "Sessions (Split pro Session gegen Data Leakage).")
+            raise HTTPException(400, "train split empty — the dataset needs at least 2-3 separate "
+                                "sessions (split per session against data leakage).")
         cmd = [sys.executable, "-m", "chesslab.cli", "train", "--backbone", req.backbone,
                "--epochs", str(req.epochs), "--batch-size", str(req.batch_size), "--lr", str(req.lr),
                "--patience", str(req.patience), "--dataset", req.dataset, "--head", req.head]
@@ -65,16 +65,16 @@ def train(req: TrainRequest):
         log_path = config.DATA.models / "web_train.log"
         log_fh = open(log_path, "w", encoding="utf-8")
         proc = subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT, cwd=str(Path.cwd()))
-        log_fh.close()   # Kind hält sein eigenes dupliziertes Handle; Windows-Sperre weg (H3)
+        log_fh.close()   # Child holds its own duplicated handle; release Windows lock (H3)
         TRAIN.update(proc=proc, log=log_path, cmd=" ".join(cmd), before=before,
                      state="running")
         return {"ok": True, "cmd": TRAIN.get("cmd")}
 
-    # Legacy-Pfad (globales Manifest/Split) — bleibt für Rückwärtskompatibilität.
+    # Legacy path (global manifest/split) — kept for backward compatibility.
     from ...manifest_cache import manifest_stats
     manifest_sessions = set(manifest_stats(config.DATA.manifests / "squares.jsonl")["crops_by_session"])
     if not manifest_sessions:
-        raise HTTPException(400, "Kein Datensatz — erst im Tab 'Sammeln' aufnehmen und slicen.")
+        raise HTTPException(400, "No dataset — first capture and slice in the 'Collect' tab.")
     split_file = config.DATA.manifests / "split.json"
 
     def _split_sessions() -> set[str] | None:
@@ -84,26 +84,26 @@ def train(req: TrainRequest):
             sp = json.loads(split_file.read_text(encoding="utf-8"))
             return {s for sids in sp["splits"].values() for s in sids}
         except Exception:  # noqa: BLE001
-            log.warning("split.json nicht lesbar — wird neu erzeugt.", exc_info=True)
+            log.warning("split.json not readable — will be regenerated.", exc_info=True)
             return None
 
     if _split_sessions() != manifest_sessions:
         rc = dataset_mod.run_split(val_frac=config.DEFAULT_VAL_FRAC, test_frac=config.DEFAULT_TEST_FRAC,
-                                   max_empty_ratio=config.DEFAULT_MAX_EMPTY_RATIO, seed=config.SEED,
-                                   max_class_ratio=None, allow_degenerate=False)
+                                    max_empty_ratio=config.DEFAULT_MAX_EMPTY_RATIO, seed=config.SEED,
+                                    max_class_ratio=None, allow_degenerate=False)
         if rc != 0:
             raise HTTPException(400,
-                "Split fehlgeschlagen — Datensatz ist degeneriert (Klassen nur in einer Session oder "
-                "Val/Test-Split leer). Mehr Sessions mit zufälliger Figur-Linien-Zuordnung aufnehmen, "
-                "oder im Datensätze-Tab mit 'Degeneriert zulassen' neu bauen.")
+                "Split failed — dataset is degenerated (classes only in one session or "
+                "val/test split empty). Capture more sessions with random piece-line assignments, "
+                "or rebuild in the datasets tab with 'Allow degenerate' enabled.")
 
     split = json.loads(split_file.read_text(encoding="utf-8"))
     if split["counts"]["train"] == 0:
         raise HTTPException(400,
-            f"Zu wenige Sessions für ein sauberes Training (aktuell {len(manifest_sessions)}). "
-            "Train/Val/Test werden pro Session getrennt, um Data Leakage zu vermeiden — dafür "
-            "brauchst du mind. 2–3 getrennte Aufnahme-Sessions. Nimm weitere Partien auf, slice "
-            "sie und starte erneut.")
+            f"Too few sessions for clean training (currently {len(manifest_sessions)}). "
+            "Train/val/test are split per session to avoid data leakage — you need "
+            "at least 2-3 separate capture sessions. Capture more games, slice "
+            "them, and start again.")
     cmd = [sys.executable, "-m", "chesslab.cli", "train", "--backbone", req.backbone,
            "--epochs", str(req.epochs), "--batch-size", str(req.batch_size), "--head", req.head]
     if req.no_amp:
@@ -113,7 +113,7 @@ def train(req: TrainRequest):
     before = {d.name for d in _run_dirs()}
     log_fh = open(log_path, "w", encoding="utf-8")
     proc = subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT, cwd=str(Path.cwd()))
-    log_fh.close()   # Kind hält sein eigenes dupliziertes Handle; Windows-Sperre weg (H3)
+    log_fh.close()   # Child holds its own duplicated handle; release Windows lock (H3)
     TRAIN.update(proc=proc, log=log_path, cmd=" ".join(cmd), before=before,
                  state="running")
     return {"ok": True, "cmd": TRAIN.get("cmd")}
@@ -121,15 +121,15 @@ def train(req: TrainRequest):
 
 @router.get("/api/train/status")
 def train_status():
-    # Zustandsableitung (running/done/crashed/stopped/idle) lebt atomar in web/state.py —
-    # ein abnormal beendetes Training (Abbruch/Crash) muss erkennbar bleiben, damit das
-    # Frontend den Teil-Fortschritt weiter zeigt statt ihn (wegen rc!=0) zu verstecken.
+    # State derivation (running/done/crashed/stopped/idle) lives atomically in web/state.py —
+    # an abnormally terminated training (abort/crash) must remain visible so the
+    # frontend continues to show partial progress instead of hiding it (because rc!=0).
     t = train_derive_and_update()
     state = t["_derived_state"]
     proc = t.get("proc")
     rc = proc.poll() if proc is not None else None
     running = state == "running"
-    # Neuestes Run-Verzeichnis (ggf. das gerade gestartete) + dessen Metriken.
+    # Latest run directory (possibly the one just started) + its metrics.
     run, metrics = None, []
     dirs = _run_dirs()
     if dirs:
@@ -144,8 +144,8 @@ def train_status():
 
 @router.post("/api/train/stop")
 def train_stop():
-    """Laufendes (oder nach einem GPU/MIOpen-Crash hängendes) Training beenden + Zustand lösen.
-    Das Run-Verzeichnis mit den bis dahin geschriebenen Metriken bleibt erhalten (Teil-Fortschritt)."""
+    """Stop a running (or stuck-after-GPU/MIOpen-crash) training + release state.
+    The run directory with metrics written so far is preserved (partial progress)."""
     proc = TRAIN.get("proc")
     killed = False
     if proc is not None and proc.poll() is None:
@@ -153,11 +153,11 @@ def train_stop():
         try:
             proc.wait(timeout=3)
         except Exception:  # noqa: BLE001
-            log.warning("Trainingsprozess reagierte nicht auf terminate — kill.")
+            log.warning("Training process did not respond to terminate — kill.")
             proc.kill()
         killed = True
-    # Letztes (gerade abgebrochenes) Run-Verzeichnis zurückgeben, damit das Frontend dessen
-    # Teil-Metriken nachladen kann.
+    # Return the latest (just-aborted) run directory so the frontend can load its
+    # partial metrics.
     dirs = _run_dirs()
     run = dirs[-1].name if dirs else None
     TRAIN.update(proc=None, state="stopped")
@@ -186,7 +186,7 @@ def runs():
             "test_board_acc": test_board,
             "last": metrics[-1] if metrics else None,
         })
-    return sorted(out, key=lambda r: r["run"], reverse=True)   # neueste zuerst
+    return sorted(out, key=lambda r: r["run"], reverse=True)   # newest first
 
 
 @router.delete("/api/runs/{run}")
@@ -197,7 +197,7 @@ def run_delete(run: str):
 
     d = config.DATA.models / run
     if "/" in run or "\\" in run or ".." in run or not (d / "config.json").exists():
-        raise HTTPException(404, f"Run '{run}' nicht gefunden.")
+        raise HTTPException(404, f"Run '{run}' not found.")
     serving.clear_cache()
     shutil.rmtree(d)
     return {"ok": True, "run": run}

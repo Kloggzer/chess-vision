@@ -1,11 +1,11 @@
-"""Stufe 3 (Teil 2) — Slicing & Labeling.
+"""Stage 3 (Part 2) — Slicing & Labeling.
 
-Reiner, wiederholbarer Schritt: liest Session-Logs, entzerrt jeden Frame, schneidet die 64
-Square-Crops und labelt jeden Crop **aus der geloggten FEN** (Stufe 2). Bei geänderten
-Crop-Parametern einfach neu ausführen — ohne neu aufzunehmen.
+Pure, repeatable step: reads session logs, rectifies each frame, extracts the 64
+square-crops and labels each crop **from the logged FEN** (Stage 2). Simply re-run
+when crop parameters change — without re-recording.
 
-Die zentrale Geometrie (`square_to_crop_box`, `warp_board`) wird aus `calibration.py`
-wiederverwendet, damit Stufe 1/3 und die spätere Inferenz-App identisch croppen.
+The central geometry (`square_to_crop_box`, `warp_board`) is reused from `calibration.py`,
+so that Stage 1/3 and the later inference app crop identically.
 """
 
 from __future__ import annotations
@@ -54,16 +54,16 @@ def _profile_for_session(meta: dict, profile: str | None):
         return ingestion_profile(name, board_size=900)
 
 def label_to_fen_char(label: str) -> str | None:
-    """Klassenlabel -> FEN-Figurenbuchstabe ('wP'->'P', 'bN'->'n'); empty/occluded/leer -> None."""
+    """Class label -> FEN piece letter ('wP'->'P', 'bN'->'n'); empty/occluded/empty -> None."""
     if not label or label in ("empty", "occluded") or len(label) != 2:
         return None
     return label[1].upper() if label[0] == "w" else label[1].lower()
 
 
 def labels_to_fen(labels: dict) -> str:
-    """64 Per-Feld-Labels -> FEN-Stellungsteil (occluded zählt als leer).
+    """64 Per-Square Labels -> FEN Position Part (occluded counts as empty).
 
-    Gegenstück zu ``config.label_from_piece`` (Piece → Label); hier Label → FEN-String.
+    Counterpart to ``config.label_from_piece`` (Piece → Label); here Label → FEN string.
     """
     rows = []
     for rank in range(8, 0, -1):
@@ -88,11 +88,11 @@ def parse_out_size(s: str) -> tuple[int, int]:
         w, h = s.lower().split("x")
         return int(w), int(h)
     except Exception as e:  # noqa: BLE001
-        raise ValueError(f"ungültige out-size {s!r}, erwartet WxH (z.B. 96x128).") from e
+        raise ValueError(f"invalid out-size {s!r}, expected WxH (e.g. 96x128).") from e
 
 
 def square_color(square: str) -> str:
-    """Deterministische Feldfarbe: a1=dark. (file_idx + rank_idx) % 2."""
+    """Deterministic square color: a1=dark. (file_idx + rank_idx) % 2."""
     sq = square.strip().lower()
     file_idx = _FILES.index(sq[0])
     rank_idx = int(sq[1]) - 1
@@ -103,19 +103,19 @@ def all_squares() -> list[str]:
     return [f"{f}{r}" for r in range(1, 9) for f in _FILES]
 
 
-# Übergangsalias: `resize_keep_aspect` lebt jetzt in `imgops` (löst den
-# Import-Zyklus mit `geometry3d`). Wird von niemandem mehr referenziert; kann beim
-# nächsten Cleanup-Durchgang entfernt werden.
+# Transition alias: `resize_keep_aspect` now lives in `imgops` (resolves the
+# import cycle with `geometry3d`). No longer referenced by anyone; can be
+# removed in the next cleanup pass.
 _resize_keep_aspect = resize_keep_aspect
 
 
 def crop_square(board_warped, square: str, profile: CalibrationProfile, out_size: tuple[int, int]):
-    """Einen Square-Crop aus dem **geborderten** Brett (`warp_board_for_crops`) schneiden.
+    """Extract one square-crop from the **bordered** board (`warp_board_for_crops`).
 
-    `square_to_crop_box` liefert die Box in Spielfeld-Koordinaten [0, board_size]; da der Daten-Warp
-    um `B = crop_border_px(profile)` verschoben ist, wird die Box um +B in den Canvas verschoben.
-    So haben Randfelder echten Inhalt für ihre pad_side/pad_up-Erweiterung. Überstand wird schwarz
-    aufgefüllt (konstante Geometrie über alle 64 Felder), dann verzerrungsfrei auf out_size skaliert.
+    `square_to_crop_box` returns the box in board coordinates [0, board_size]; since the data warp
+    is offset by `B = crop_border_px(profile)`, the box is shifted by +B into the canvas.
+    This ensures edge squares have actual content for their pad_side/pad_up extension. Overhang is
+    filled with black (constant geometry across all 64 squares), then scaled losslessly to out_size.
     """
     x0, y0, x1, y1 = square_to_crop_box(square, profile, clamp=False)
     b = crop_border_px(profile)
@@ -128,7 +128,7 @@ def crop_square(board_warped, square: str, profile: CalibrationProfile, out_size
     xa, ya, xb, yb = max(0, x0), max(0, y0), min(W, x1), min(H, y1)
     region = board_warped[ya:yb, xa:xb]
     pad_t, pad_b, pad_l, pad_r = ya - y0, y1 - yb, xa - x0, x1 - xb
-    if pad_t or pad_b or pad_l or pad_r:       # überstehende Bereiche schwarz auffüllen
+    if pad_t or pad_b or pad_l or pad_r:       # fill overhanging areas with black
         region = cv2.copyMakeBorder(region, pad_t, pad_b, pad_l, pad_r,
                                     cv2.BORDER_CONSTANT, value=(0, 0, 0))
     return resize_keep_aspect(region, out_size)
@@ -139,13 +139,13 @@ def crops_for_frame(frame, corners, profile: CalibrationProfile, *, geometry: st
                     piece_height_cells: float = config.EXP_PIECE_HEIGHT_CELLS,
                     out_size: tuple[int, int] | None = None,
                     with_meta: bool = False):
-    """64 Crops (Reihenfolge `all_squares()`) für EINEN Frame — IDENTISCH zum Trainings-Slice:
-    gebordeter warp ODER box3d, dann `preprocess_crop`. Single Source für die Live-Inferenz, damit
-    das Modell live exakt denselben Crop sieht wie beim Training.
+    """64 Crops (order `all_squares()`) for ONE frame — IDENTICAL to the training slice:
+    bordered warp OR box3d, then `preprocess_crop`. Single Source for live inference so
+    the model sees exactly the same crop live as during training.
 
-    `with_meta=True`: gibt (crops, meta) zurück, wobei meta = {"used_box3d": list[bool]} je Feld
-    angibt, ob der Crop über box3d (True) oder warp (False) erzeugt wurde. Wird von `slice_session`
-    für die `pose_ok`-Kennzeichnung im Manifest konsumiert (De-Duplikation, Rework 01).
+    `with_meta=True`: returns (crops, meta) where meta = {"used_box3d": list[bool]} indicates per square
+    whether the crop was produced via box3d (True) or warp (False). Used by `slice_session`
+    for the `pose_ok` flag in the manifest (de-duplication, Rework 01).
     """
     out = tuple(out_size) if out_size else tuple(profile.crop.out_size)
     box3d = geometry == "box3d"
@@ -182,9 +182,9 @@ def crops_for_frame(frame, corners, profile: CalibrationProfile, *, geometry: st
 
 
 def variant_of_run(run_dir: Path) -> tuple[str, str, float]:
-    """(geometry, photometry, piece_height_cells) eines Modell-Runs — aus seinem Dataset-Manifest
-    (die Crops tragen ihre Preprocessing-Tags). So weiß die Live-Inferenz, wie sie croppen muss.
-    Default (warp, none) für ungetaggte Alt-Manifeste."""
+    """(geometry, photometry, piece_height_cells) of a model run — from its dataset manifest
+    (the crops carry their preprocessing tags). This tells live inference how to crop.
+    Default (warp, none) for untagged legacy manifests."""
     cfg_p = run_dir / "config.json"
     cfg = json.loads(cfg_p.read_text(encoding="utf-8")) if cfg_p.exists() else {}
     ds = cfg.get("dataset")
@@ -207,7 +207,7 @@ def read_session_meta(session_dir: Path) -> dict:
 
     p = session_dir / "session.yaml"
     if not p.exists():
-        raise FileNotFoundError(f"session.yaml fehlt in {session_dir}")
+        raise FileNotFoundError(f"session.yaml missing in {session_dir}")
     with p.open("r", encoding="utf-8") as fh:
         return yaml.safe_load(fh)
 
@@ -217,7 +217,7 @@ def read_log(session_dir: Path) -> list[dict]:
 
     p = session_dir / "log.jsonl"
     if not p.exists():
-        raise FileNotFoundError(f"log.jsonl fehlt in {session_dir}")
+        raise FileNotFoundError(f"log.jsonl missing in {session_dir}")
     return read_jsonl(p)
 
 
@@ -231,7 +231,7 @@ def _effective_profile(profile: CalibrationProfile, pad_up, pad_side) -> Calibra
 
 
 def _replace_session_in_manifest(manifest_path: Path, session_id: str, new_lines: list[str]) -> None:
-    """Vorherige Zeilen dieser Session entfernen, dann neue anhängen (idempotentes Re-slice)."""
+    """Remove previous lines of this session, then append new ones (idempotent re-slice)."""
     kept: list[str] = []
     if manifest_path.exists():
         for line in manifest_path.read_text(encoding="utf-8").splitlines():
@@ -246,7 +246,7 @@ def _replace_session_in_manifest(manifest_path: Path, session_id: str, new_lines
 
 
 def load_corrections(path: Path) -> dict[tuple[str, str, str], str]:
-    """Menschliche Label-Korrekturen laden: {(session_id, frame, square): label}. Letzte gewinnt."""
+    """Load human label corrections: {(session_id, frame, square): label}. Last wins."""
     out: dict[tuple[str, str, str], str] = {}
     p = Path(path)
     if not p.exists():
@@ -260,7 +260,7 @@ def load_corrections(path: Path) -> dict[tuple[str, str, str], str]:
 
 
 def upsert_corrections(items: list[dict], path: Path) -> int:
-    """Korrekturen (session_id, frame, square, label) mergen und neu schreiben. Gibt Gesamtzahl zurück."""
+    """Merge corrections (session_id, frame, square, label) and rewrite. Returns total count."""
     merged = load_corrections(path)
     for it in items:
         merged[(it["session_id"], str(it["frame"]), it["square"])] = it["label"]
@@ -288,14 +288,14 @@ def slice_session(
     photometry: str = "none",
     piece_height_cells: float = config.EXP_PIECE_HEIGHT_CELLS,
 ) -> dict:
-    """Eine Session slicen: 64 Crops je geloggter Stellung + Manifest-Zeilen. Pure I/O.
+    """Slice one session: 64 crops per logged position + manifest lines. Pure I/O.
 
-    `label_overrides` ersetzt das FEN-abgeleitete Label je (session, frame, square) durch
-    eine menschliche Korrektur (Web-Relabel). Gibt die Anzahl angewandter Overrides zurück.
+    `label_overrides` replaces the FEN-derived label per (session, frame, square) with
+    a human correction (web relabel). Returns the number of applied overrides.
 
-    `geometry_mode`: "warp" (Top-Down-Crop, Baseline) oder "box3d" (3D-Box aus dem Originalframe
-    via Pose pro Frame). `photometry`: deterministischer Filter (none/clahe/grayworld/gamma), wird
-    IN die PNGs gebacken (Train/Inference-Parität). `piece_height_cells`: Extrusionshöhe für box3d.
+    `geometry_mode`: "warp" (top-down crop, baseline) or "box3d" (3D box from the original frame
+    via per-frame pose). `photometry`: deterministic filter (none/clahe/grayworld/gamma), baked
+    INTO the PNGs (train/inference parity). `piece_height_cells`: extrusion height for box3d.
     """
     session_dir = Path(session_dir)
     meta = read_session_meta(session_dir)
@@ -310,22 +310,22 @@ def slice_session(
     n_crops = 0
     n_overrides = 0
     n_skipped = 0
-    n_fallback = 0   # box3d: Felder, die auf warp zurückfielen (Pose/Projektion fehlgeschlagen)
-    tracker = make_tracker(prof)   # pro Session: aus Profil geseedet, Marker pro Frame gehalten
+    n_fallback = 0   # box3d: squares that fell back to warp (pose/projection failed)
+    tracker = make_tracker(prof)   # per session: seeded from profile, markers held per frame
     for entry in log:
         frame_path = session_dir / entry["frame"]
         frame = cv2.imread(str(frame_path))
         if frame is None:
-            raise FileNotFoundError(f"Frame nicht lesbar: {frame_path}")
+            raise FileNotFoundError(f"Frame not readable: {frame_path}")
         corners = entry.get("corners")
         if not corners:
-            # Fallback (Sessions ohne gespeicherte Ecken): pro Frame aus den Markern.
+            # Fallback (sessions without saved corners): per frame from the markers.
             corners = board_corners_for_frame(frame, prof, tracker)
             if corners is None:
-                n_skipped += 1   # keine Marker im Frame -> nicht verwertbar, überspringen
+                n_skipped += 1   # no markers in frame -> not usable, skip
                 continue
 
-        # crops_for_frame als Single Source (Rework 01: De-Duplikation).
+        # crops_for_frame as single source (Rework 01: de-duplication).
         crops, meta = crops_for_frame(
             frame, corners, prof, geometry=geometry_mode, photometry=photometry,
             piece_height_cells=piece_height_cells, out_size=out, with_meta=True)
@@ -333,7 +333,7 @@ def slice_session(
         if box3d:
             n_fallback += sum(1 for v in used_box3d_list if not v)
 
-        explicit = entry.get("labels")          # Inference/Active-Learning: explizite 64 Labels
+        explicit = entry.get("labels")          # Inference/Active-Learning: explicit 64 labels
         gs = None if explicit else GameState(entry["fen"])
         frame_stem = Path(entry["frame"]).stem  # '0007'
         squares = all_squares()
@@ -374,7 +374,7 @@ def slice_session(
             "overrides": n_overrides, "skipped": n_skipped, "fallback": n_fallback}
 
 
-# --- CLI-Ebene (löst Defaults aus config) ---------------------------------------------
+# --- CLI layer (resolves defaults from config) ---------------------------------------------
 
 def _session_ids_with_logs() -> list[str]:
     root = config.DATA.sessions
@@ -384,8 +384,8 @@ def _session_ids_with_logs() -> list[str]:
 
 
 def variant_paths(variant_tag: str | None) -> tuple[Path, Path]:
-    """(manifest_path, squares_root) für eine Variante. `None` = heutige Default-Pfade; sonst
-    `data/manifests/squares__<tag>.jsonl` + `data/squares__<tag>/`, sodass Varianten koexistieren."""
+    """(manifest_path, squares_root) for a variant. `None` = current default paths; otherwise
+    `data/manifests/squares__<tag>.jsonl` + `data/squares__<tag>/`, so variants coexist."""
     if not variant_tag:
         return config.DATA.manifests / "squares.jsonl", config.DATA.squares
     suffix = f"__{variant_tag}"
@@ -415,14 +415,14 @@ def run_slice(
     elif session:
         sids = [session]
     else:
-        print("[FAIL] --session <id> oder --all angeben.")
+        print("[FAIL] specify --session <id> or --all.")
         return 1
     if not sids:
-        print("Keine Sessions mit log.jsonl gefunden.")
+        print("No sessions with log.jsonl found.")
         return 0
 
     manifest_path, squares_root = variant_paths(variant_tag)
-    corrections = load_corrections(config.DATA.corrections)  # menschliche Relabels anwenden
+    corrections = load_corrections(config.DATA.corrections)  # apply human relabels
     rc = 0
     for sid in sids:
         session_dir = config.DATA.sessions / sid
@@ -434,11 +434,11 @@ def run_slice(
                 pad_up=pad_up, pad_side=pad_side, out_size=out_size_t, label_overrides=corrections,
                 geometry_mode=geometry_mode, photometry=photometry, piece_height_cells=piece_height_cells,
             )
-            extra = f" ({stats['overrides']} Korrekturen)" if stats.get("overrides") else ""
+            extra = f" ({stats['overrides']} corrections)" if stats.get("overrides") else ""
             if stats.get("skipped"):
-                extra += f" [{stats['skipped']} Frames ohne Marker übersprungen]"
+                extra += f" [{stats['skipped']} frames without markers skipped]"
             if stats.get("fallback"):
-                extra += f" [{stats['fallback']} box3d->warp Fallbacks]"
+                extra += f" [{stats['fallback']} box3d->warp fallbacks]"
             print(f"[OK] {sid}: {stats['frames']} Frames -> {stats['crops']} Crops{extra}.")
         except Exception as e:  # noqa: BLE001
             print(f"[FAIL] {sid}: {e}")
@@ -447,7 +447,7 @@ def run_slice(
 
 
 def _preview_session(session_id: str, profile: str | None) -> int:
-    """Debug: erste Stellung slicen und Label vs. sichtbaren Crop nebeneinander zeigen."""
+    """Debug: slice the first position and show label vs. visible crop side by side."""
     session_dir = config.DATA.sessions / session_id
     try:
         meta = read_session_meta(session_dir)
@@ -457,14 +457,14 @@ def _preview_session(session_id: str, profile: str | None) -> int:
         print(f"[FAIL] {e}")
         return 1
     if not log:
-        print("[FAIL] leeres Log.")
+        print("[FAIL] empty log.")
         return 1
     frame = cv2.imread(str(session_dir / log[0]["frame"]))
     corners = log[0].get("corners") or board_corners_for_frame(frame, prof, make_tracker(prof))
     if corners is None:
-        print("[FAIL] keine Marker im Frame erkannt.")
+        print("[FAIL] no markers detected in the frame.")
         return 1
-    warped = warp_board_for_crops(frame, prof, corners)   # gleicher geborderte Crop-Pfad wie slice
+    warped = warp_board_for_crops(frame, prof, corners)   # same bordered crop path as slice
     gs = GameState(log[0]["fen"])
     out = tuple(prof.crop.out_size)
     cols = []
@@ -477,7 +477,7 @@ def _preview_session(session_id: str, profile: str | None) -> int:
         cv2.putText(canvas, f"{square}:{gs.label_for(square)}", (2, out[1] + 16),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1, cv2.LINE_AA)
         cols.append(canvas)
-    cv2.imshow("chesslab slice --preview (q schließt)", np.hstack(cols))
+    cv2.imshow("chesslab slice --preview (q closes)", np.hstack(cols))
     while (cv2.waitKey(20) & 0xFF) != ord("q"):
         pass
     cv2.destroyAllWindows()

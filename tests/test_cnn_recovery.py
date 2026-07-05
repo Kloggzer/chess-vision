@@ -214,7 +214,7 @@ def test_score_moves_ambiguous_promotion_returns_none(tmp_path):
     after = board.copy(); after.push_san("a8=Q")
     obs = _obs_for_board(after)
     mv, best, second = _recovery(tmp_path).score_moves(board, obs)
-    assert mv is None                      # a8=Q/R/B/N erklären die Beobachtung gleich gut
+    assert mv is None                      # a8=Q/R/B/N explain the observation equally well
     assert best == pytest.approx(second)   # … exakt gleich gut
 
 
@@ -235,7 +235,7 @@ def test_score_moves_all_occluded_returns_none(tmp_path):
 
 
 def test_score_moves_below_min_agreement_returns_none(tmp_path):
-    """Beobachtung passt zu KEINEM legalen Zug gut genug (zwei zusätzliche Felder falsch)."""
+    """Observation does NOT match any legal move well enough (two extra squares wrong)."""
     board = chess.Board()
     after = chess.Board(); after.push_san("e4")
     obs = _obs_for_board(after, flip={"a5", "h5"})   # e2e4 does not explain a5/h5
@@ -363,21 +363,21 @@ def test_tracker_cnn_recovery_commits_via_voting(monkeypatch):
                           "move": "e2e4", "agreement": 1.0})
     t.recovery = stub                       # lazy _ensure_cnn is never needed
     t._last_corners = [[0, 0], [820, 0], [820, 820], [0, 820]]
-    t._gray_buf.extend([None] * t.avg_frames)   # „stabil genug" fürs Gate
+    t._gray_buf.extend([None] * t.avg_frames)   # "stable enough" for the gate
     t.state = "waiting"
-    # stuck markieren wie der Diff-Pfad es täte
+    # mark stuck like the diff path would
     with t.lock:
         t._mark_stuck("no_legal_move")
         t._mark_stuck("no_legal_move")
 
     import numpy as np
     frame = np.zeros((820, 820, 3), dtype=np.uint8)
-    t._cnn_tick(frame)                      # Vote 1 → noch kein Commit
+    t._cnn_tick(frame)                      # Vote 1 → not yet committed
     assert t.history == []
-    assert "CNN-Recovery prüft" in t.note
+    assert "CNN recovery checks" in t.note
     with t.lock:
-        t._mark_stuck("no_legal_move")      # weiterhin stuck
-    t._cnn_tick(frame)                      # Vote 2 → Commit
+        t._mark_stuck("no_legal_move")      # still stuck
+    t._cnn_tick(frame)                      # Vote 2 → commit
     assert t.history == ["e4"]
     assert t.recovered_last is True
     assert t.status()["cnn_active"] is True
@@ -413,7 +413,7 @@ def test_tracker_cnn_tick_discards_on_board_change(monkeypatch):
             self._t = tracker
 
         def observe(self, frame, corners):
-            self._t.board.push_san("a3")     # Board mutiert „während" der Inference
+            self._t.board.push_san("a3")     # Board mutates "during" inference
             return super().observe(frame, corners)
 
     stub = MutatingStub(t, {"match": False, "conflicts": ["e2", "e4"],
@@ -443,7 +443,7 @@ def test_tracker_periodic_control_warns_without_guessing(monkeypatch):
     t._cnn_tick(np.zeros((820, 820, 3), dtype=np.uint8))
     assert t.history == []
     assert t.cnn_status == "mismatch"
-    assert "weicht ab" in t.note
+    assert "deviates" in t.note
     assert t.status()["cnn_conflicts"] == ["a3", "h6", "d5"]
 
 
@@ -465,7 +465,7 @@ def test_resync_cnn_endpoint(monkeypatch):
     try:
         _STATE.update(tracker=None)
         r = client.post("/api/resync_cnn").json()
-        assert r["ok"] is False and "nicht gestartet" in r["error"]
+        assert r["ok"] is False and "not started" in r["error"]
 
         _STATE.update(tracker=t_stub)
         r = client.post("/api/resync_cnn").json()
@@ -477,10 +477,10 @@ def test_resync_cnn_endpoint(monkeypatch):
 def test_resync_cnn_without_model(monkeypatch):
     t = _headless_tracker(monkeypatch)      # cnn_run=None
     r = t.resync_cnn()
-    assert r["ok"] is False and "nicht konfiguriert" in r["error"]
+    assert r["ok"] is False and "not configured" in r["error"]
 
 # ---------------------------------------------------------------------------
-# derive_moves_identity — 2-Ply-Suche (Spec 10, Teil 3)
+# derive_moves_identity — 2-ply search (Spec 10, part 3)
 # ---------------------------------------------------------------------------
 
 def test_derive_moves_identity_single_preferred(tmp_path):

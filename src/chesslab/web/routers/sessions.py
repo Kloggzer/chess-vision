@@ -1,4 +1,4 @@
-"""Session-/Review-Router: /api/sessions*, /api/reslice, /api/slice"""
+"""Session/Review router: /api/sessions*, /api/reslice, /api/slice"""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def sessions():
 
 @router.get("/api/sessions/manage")
 def sessions_manage():
-    """Alle aufgenommenen Sessions (aktiv + archiviert) mit Eckdaten für die Verwaltung."""
+    """List all recorded sessions (active + archived) with key data for management."""
     from ... import sessions as sessions_mod
 
     return sessions_mod.list_sessions()
@@ -78,7 +78,7 @@ def session_slice(sid: str, pad_up: float | None = Query(None), pad_side: float 
     rc = labeling_mod.run_slice(session=sid, pad_up=pad_up, pad_side=pad_side)
     crops = _crop_count(sid)
     if rc != 0:
-        raise HTTPException(400, f"Slicing für '{sid}' fehlgeschlagen.")
+        raise HTTPException(400, f"Slicing for '{sid}' failed.")
     return {"ok": True, "session": sid, "crops": crops}
 
 

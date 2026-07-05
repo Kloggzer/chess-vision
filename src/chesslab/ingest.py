@@ -1,20 +1,20 @@
-"""Ingestion externer Schach-Datensätze (z. B. chesscog, ChessReD2K) in unser Crop-Format —
-für Transfer-Learning (Pretrain auf fremden, vielfältigen Brettern → `train --resume`-Finetune auf
-eigenen Fix-Cam-Sessions).
+"""Ingestion of external chess datasets (e.g. chesscog, ChessReD2K) into our crop format —
+for transfer learning (pretrain on diverse foreign boards → `train --resume` finetune on
+own fixed-camera sessions).
 
-**Kern-Idee — KEINE Änderung an der Pipeline:** externe Bilder bringen ihre eigenen 4 Brettecken
-(`[a8,h8,h1,a1]` in Bildpixeln) + FEN mit. Wir schreiben sie als **synthetische Sessions** (genau das
-`session.yaml`+`log.jsonl`-Schema von `collect.SessionWriter`) und lassen die bestehende
-`labeling.slice_session → dataset_build.build_dataset → training.train`-Kette laufen.
+**Core idea — NO pipeline changes:** external images bring their own 4 board corners
+(`[a8,h8,h1,a1]` in image pixels) + FEN. We write them as **synthetic sessions** (exactly the
+`session.yaml`+`log.jsonl` schema from `collect.SessionWriter`) and let the existing
+`labeling.slice_session → dataset_build.build_dataset → training.train` chain run.
 
-- Pro Frame liegen `corners` vor → **keine ArUco-Marker** nötig (slice nutzt die gespeicherten Ecken).
-- `geometry="warp"` braucht **keine Kamera-Intrinsics** (Homographie nur aus den 4 Ecken).
-- Das `frame`-Feld zeigt auf das **Originalbild** (absoluter Pfad) → kein Re-Encoding/Kopieren (spart
-  zig GB). `slice_session` löst `session_dir / entry["frame"]` auf; ein absoluter Pfad gewinnt.
-- Eine Session **pro Spiel/Gruppe** → die bestehende sessionbasierte Split-Logik greift unverändert
-  (sauberer train/val ohne Leakage).
-- Crops landen in einem **Varianten-Manifest** (`squares__<tag>.jsonl`) → der echte `data/squares`-Pool
-  bleibt unberührt.
+- Per frame `corners` are present → **no ArUco markers** needed (slice uses stored corners).
+- `geometry="warp"` needs **no camera intrinsics** (homography from the 4 corners only).
+- The `frame` field points to the **original image** (absolute path) → no re-encoding/copying (saves
+  GBs). `slice_session` resolves `session_dir / entry["frame"]`; an absolute path wins.
+- One session **per game/group** → the existing session-based split logic applies unchanged
+  (clean train/val without leakage).
+- Crops land in a **variant manifest** (`squares__<tag>.jsonl`) → the real `data/squares` pool
+  remains untouched.
 """
 
 from __future__ import annotations
@@ -32,11 +32,11 @@ _FILES = "abcdefgh"
 
 @dataclass
 class ImportItem:
-    """Ein externes Bild, übersetzt in unsere Begriffe.
+    """An external image, translated into our terms.
 
-    `corners`: die 4 Brettecken **in der Reihenfolge `[a8, h8, h1, a1]`** (= top-left, top-right,
-    bottom-right, bottom-left aus Weiß-Sicht), in Bildpixeln. `fen`: vollständige FEN (mind. das
-    Placement-Feld; `to_full_fen` ergänzt den Rest). `group`: Spiel-/Gruppen-ID → wird zur Session.
+    `corners`: the 4 board corners **in the order `[a8, h8, h1, a1]`** (= top-left, top-right,
+    bottom-right, bottom-left from White's perspective), in image pixels. `fen`: full FEN (at least the
+    placement field; `to_full_fen` fills in the rest). `group`: game/group ID → becomes the session.
     """
 
     image_path: Path
@@ -46,18 +46,18 @@ class ImportItem:
     meta: dict = field(default_factory=dict)
 
 
-# --- FEN-Helfer für Adapter, die nur Feld→Figur-Listen haben (z. B. ChessReD) ------------
+# --- FEN helpers for adapters that only have square→piece lists (e.g. ChessReD) ------------
 
 def to_full_fen(placement_or_fen: str) -> str:
-    """Vervollständigt ein Placement-Feld zu einer vollwertigen FEN (python-chess-parsebar).
-    Ist schon eine volle FEN (>=2 Felder), bleibt sie unverändert."""
+    """Completes a placement field to a full FEN (python-chess-parseable).
+    Already a full FEN (>=2 fields), it stays unchanged."""
     s = placement_or_fen.strip()
     return s if " " in s else f"{s} w - - 0 1"
 
 
 def fen_from_squares(occupied: dict[str, str]) -> str:
     """`{'e1':'K','e8':'k','e4':'P', ...}` (Feld→FEN-Buchstabe) → volle FEN.
-    Großbuchstabe = Weiß, Kleinbuchstabe = Schwarz (FEN-konform)."""
+    Uppercase = White, lowercase = Black (FEN-conform)."""
     ranks = []
     for rank in range(8, 0, -1):
         row, empty = "", 0
@@ -76,12 +76,12 @@ def fen_from_squares(occupied: dict[str, str]) -> str:
     return to_full_fen("/".join(ranks))
 
 
-# --- synthetisches Profil (margin=0: die Ecken liegen DIREKT auf der Brettkante) ---------
+# --- synthetic profile (margin=0: corners lie DIRECTLY on the board edge) ---------
 
 def ingestion_profile(tag: str, board_size: int, out_size: tuple[int, int] | None = None):
-    """Minimal-Profil für den Warp externer Bilder. `margin=0`, weil die externen Ecken die
-    **Spielfeldecken** sind (nicht ArUco-Marker außerhalb). Homographie/`image_corners` sind nur
-    Platzhalter — der Warp rechnet pro Frame aus den gespeicherten `corners`."""
+    """Minimal profile for warping external images. `margin=0`, because the external corners are the
+    **board corners** themselves (not ArUco markers outside). Homography/`image_corners` are just
+    placeholders — the warp computes from the stored `corners` per frame."""
     from .calibration import CalibrationProfile, CropParams, compute_homography
 
     bs = int(board_size)
@@ -106,8 +106,8 @@ def _safe_group(group: str) -> str:
 
 def synthesize_sessions(items: Iterable[ImportItem], *, tag: str, profile_name: str,
                         paths: config.Paths = config.DATA) -> list[str]:
-    """Schreibt je `group` eine synthetische Session (`session.yaml` + `log.jsonl`), deren Frames auf
-    die **Original-Bildpfade** zeigen (kein Kopieren). Gibt die erzeugten Session-IDs zurück."""
+    """Writes per `group` a synthetic session (`session.yaml` + `log.jsonl`), whose frames point to
+    the **original image paths** (no copying). Returns the created session IDs."""
     import yaml
 
     groups: dict[str, list[ImportItem]] = {}
@@ -129,7 +129,7 @@ def synthesize_sessions(items: Iterable[ImportItem], *, tag: str, profile_name: 
         lines = []
         for i, it in enumerate(its):
             entry = {
-                "frame": Path(it.image_path).resolve().as_posix(),   # absoluter Originalpfad
+                "frame": Path(it.image_path).resolve().as_posix(),   # absolute original path
                 "ply": i,
                 "fen": to_full_fen(it.fen),
                 "ts": _now_iso(),
@@ -142,8 +142,8 @@ def synthesize_sessions(items: Iterable[ImportItem], *, tag: str, profile_name: 
 
 
 def _variant_paths(variant_tag: str | None, paths: config.Paths) -> tuple[Path, Path]:
-    """Wie `labeling.variant_paths`, aber an `paths` gebunden (Test-Isolation): `squares__<tag>.jsonl`
-    + `squares__<tag>/` unter dem gegebenen Daten-Root."""
+    """Like `labeling.variant_paths`, but bound to `paths` (test isolation): `squares__<tag>.jsonl`
+    + `squares__<tag>/` under the given data root."""
     if not variant_tag:
         return paths.manifests / "squares.jsonl", paths.squares
     return paths.manifests / f"squares__{variant_tag}.jsonl", paths.root / f"squares__{variant_tag}"
@@ -152,8 +152,8 @@ def _variant_paths(variant_tag: str | None, paths: config.Paths) -> tuple[Path, 
 def slice_imported(session_ids: list[str], *, profile, geometry: str = "warp",
                    photometry: str = "none", out_size: tuple[int, int] | None = None,
                    variant_tag: str, paths: config.Paths = config.DATA) -> dict:
-    """Jede synthetische Session in das Varianten-Manifest `squares__<variant_tag>.jsonl` slicen
-    (über das bestehende `labeling.slice_session`)."""
+    """Slice each synthetic session into the variant manifest `squares__<variant_tag>.jsonl`
+    (via the existing `labeling.slice_session`)."""
     from . import labeling
 
     manifest_path, squares_root = _variant_paths(variant_tag, paths)
@@ -169,7 +169,7 @@ def slice_imported(session_ids: list[str], *, profile, geometry: str = "warp",
         tot["crops"] += res["crops"]
         tot["skipped"] += res.get("skipped", 0)
         print(f"[slice] {tot['sessions']}/{n} sessions · {tot['crops']} crops "
-              f"(zuletzt {sid}: {res['frames']} frames)", flush=True)
+              f"(last {sid}: {res['frames']} frames)", flush=True)
     tot["manifest"] = str(manifest_path)
     tot["squares_root"] = str(squares_root)
     return tot
@@ -177,8 +177,8 @@ def slice_imported(session_ids: list[str], *, profile, geometry: str = "warp",
 
 def debug_overlay(session_id: str, n: int, out_dir: Path, *, profile,
                   paths: config.Paths = config.DATA) -> list[Path]:
-    """Die ersten `n` Frames einer Session warpen und die FEN-Labels je Feld einblenden → PNGs zur
-    **Sichtprüfung gegen stille Label-Vertauschung** (falsche Eck-Reihenfolge spiegelt alle Labels)."""
+    """Warp the first `n` frames of a session and overlay FEN labels per square → PNGs for
+    **visual check against silent label swapping** (wrong corner order mirrors all labels)."""
     import cv2
 
     from .calibration import square_center, warp_from_corners
@@ -232,8 +232,8 @@ def run_ingest(adapter: str, root: str | Path, *, tag: str, geometry: str = "war
                out_size: tuple[int, int] | None = None, limit: int | None = None,
                debug_overlay_n: int = 0, build: bool = True,
                paths: config.Paths = config.DATA) -> dict:
-    """Voller Ablauf: Adapter → synthetische Sessions → slice (Varianten-Manifest) → optional
-    `build_dataset`. Gibt eine Zusammenfassung zurück (Sessions, Crops, Klassenverteilung, Pfade)."""
+    """Full pipeline: adapter → synthetic sessions → slice (variant manifest) → optional
+    `build_dataset`. Returns a summary (sessions, crops, class distribution, paths)."""
     iter_items = _load_adapter(adapter)
     items: list[ImportItem] = []
     skipped = 0
@@ -245,8 +245,8 @@ def run_ingest(adapter: str, root: str | Path, *, tag: str, geometry: str = "war
         if limit and len(items) >= limit:
             break
     if not items:
-        raise ValueError(f"Adapter {adapter!r} hat keine verwertbaren Bilder unter {root} gefunden "
-                         f"(übersprungen: {skipped}). Pfad/Annotationsdatei prüfen.")
+        raise ValueError(f"Adapter {adapter!r} found no usable images under {root} "
+                         f"(skipped: {skipped}). Check path/annotation file.")
 
     prof = ingestion_profile(tag, board_size, out_size)
     # Persist the profile so later re-slices (CLI/web) can load it like any other profile.
@@ -272,8 +272,8 @@ def run_ingest(adapter: str, root: str | Path, *, tag: str, geometry: str = "war
     if build:
         from . import dataset_build
         manifest_path, _ = _variant_paths(tag, paths)
-        # Pretrain: KEINE Rotation (Fixkamera-Regel) und KEIN aggressives Dedup (externe Frames sind
-        # ohnehin divers — wir wollen maximale Vielfalt fürs Vorlernen).
+        # Pretrain: NO rotation (fixed-camera rule) and NO aggressive dedup (external frames are
+        # diverse anyway — we want maximum variety for pretraining).
         res = dataset_build.build_dataset(
             tag, session_ids, source_manifest=manifest_path, paths=paths,
             rotations=(0,), per_cell_cap=10**9, phash_enabled=False)

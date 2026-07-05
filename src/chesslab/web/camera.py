@@ -1,8 +1,8 @@
-"""Geteiltes Kamera-Modul der Web-UI.
+"""Shared camera module for the web UI.
 
-EINE Kamera-Instanz (`CAMERA`), EIN MJPEG-Helfer (`mjpeg`) und EINE Quelle für die
-pro-Frame-Brettgeometrie (`BoardTracker`: Ecken + Warp). Kalibrieren, Sammeln und Inference
-nutzen alle dasselbe hier — kein kopierter Kamera-/Ecken-/Encode-Code mehr.
+ONE camera instance (`CAMERA`), ONE MJPEG helper (`mjpeg`) and ONE source for
+per-frame board geometry (`BoardTracker`: corners + warp). Calibration, collect and inference
+all use the same code here — no more duplicated camera/corner/encode code.
 """
 
 from __future__ import annotations
@@ -26,25 +26,25 @@ from ..calibration import (
 
 _BOUNDARY = b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
 
-# Env-Override: ist diese Variable gesetzt (z.B. eine IP-Cam-URL), nutzen ALLE Kamera-Pfade der
-# Web-UI diese Quelle statt des per UI gewählten Integer-Index. So lässt sich eine Handy-/Netzwerk-
-# Kamera ohne Frontend-Änderung anschließen. Beispiel:
+# Env override: if this variable is set (e.g. an IP cam URL), ALL camera paths in the
+# web UI use this source instead of the integer index selected in the UI. This allows
+# connecting a phone/network camera without frontend changes. Example:
 #   set CHESSLAB_CAMERA_SOURCE=https://<PHONE-IP>:4444/video/snapshot   (Android IP Camera)
 CAMERA_SOURCE_ENV = "CHESSLAB_CAMERA_SOURCE"
 
 
 class _UrlSnapshotCapture:
-    """cv2.VideoCapture-kompatibler Frame-Holer für eine JPEG-Snapshot-URL (z.B. Android IP Camera
-    `/video/snapshot`). `cv2.VideoCapture` scheitert an selbstsigniertem HTTPS — daher die Bytes
-    selbst per urllib (TLS-Prüfung aus) holen und mit `cv2.imdecode` dekodieren. Pollt je `read()`
-    ein Einzelbild (für Kalibrier-/Sammel-Preview mit ein paar FPS ausreichend)."""
+    """cv2.VideoCapture-compatible frame grabber for a JPEG snapshot URL (e.g. Android IP Camera
+    `/video/snapshot`). `cv2.VideoCapture` fails on self-signed HTTPS — so we fetch the bytes
+    ourselves via urllib (TLS verification off) and decode with `cv2.imdecode`. Polls one
+    image per `read()` (sufficient for calibration/collect preview at a few FPS)."""
 
     def __init__(self, url: str, timeout: float = 4.0) -> None:
         self.url = url
         self.timeout = timeout
         self._ctx = ssl.create_default_context()
         self._ctx.check_hostname = False
-        self._ctx.verify_mode = ssl.CERT_NONE     # selbstsigniertes Zert akzeptieren
+        self._ctx.verify_mode = ssl.CERT_NONE     # accept self-signed cert
         self._ok = True
 
     def isOpened(self) -> bool:
@@ -57,7 +57,7 @@ class _UrlSnapshotCapture:
             data = urllib.request.urlopen(self.url, timeout=self.timeout, context=self._ctx).read()
             img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
             return (img is not None), img
-        except Exception:  # noqa: BLE001 — Netz/Timeout: wie ein leerer Frame behandeln
+        except Exception:  # noqa: BLE001 — network/timeout: treat like an empty frame
             return False, None
 
     def release(self) -> None:
@@ -65,10 +65,10 @@ class _UrlSnapshotCapture:
 
 
 class _UrlMjpegCapture:
-    """cv2.VideoCapture-kompatibler Leser für einen MJPEG-Stream (multipart/x-mixed-replace),
-    z.B. Android IP Camera `/video/m.jpeg`. Hält EINE offene Verbindung (selbstsigniertes HTTPS
-    via urllib, TLS-Prüfung aus) und schneidet je `read()` das nächste JPEG anhand der SOI/EOI-
-    Marker (0xFFD8 … 0xFFD9) aus dem Puffer — deutlich flüssiger als Einzel-Snapshots."""
+    """cv2.VideoCapture-compatible reader for an MJPEG stream (multipart/x-mixed-replace),
+    e.g. Android IP Camera `/video/m.jpeg`. Holds ONE open connection (self-signed HTTPS
+    via urllib, TLS verification off) and extracts the next JPEG on each `read()` by looking
+    for SOI/EOI markers (0xFFD8 … 0xFFD9) in the buffer — much smoother than single snapshots."""
 
     def __init__(self, url: str, timeout: float = 10.0) -> None:
         self.url = url
@@ -88,8 +88,8 @@ class _UrlMjpegCapture:
             return False, None
         try:
             while True:
-                a = self._buf.find(b"\xff\xd8")               # JPEG-Start
-                b = self._buf.find(b"\xff\xd9", a + 2) if a != -1 else -1  # JPEG-Ende
+                a = self._buf.find(b"\xff\xd8")               # JPEG start
+                b = self._buf.find(b"\xff\xd9", a + 2) if a != -1 else -1  # JPEG end
                 if a != -1 and b != -1:
                     jpg = bytes(self._buf[a:b + 2])
                     del self._buf[:b + 2]
@@ -99,7 +99,7 @@ class _UrlMjpegCapture:
                 if not chunk:
                     return False, None
                 self._buf.extend(chunk)
-        except Exception:  # noqa: BLE001 — Netz/Timeout: wie leerer Frame
+        except Exception:  # noqa: BLE001 — network/timeout: treat like an empty frame
             return False, None
 
     def release(self) -> None:
@@ -111,13 +111,13 @@ class _UrlMjpegCapture:
 
 
 class LatestFrame:
-    """Grab-Latest-Wrapper: liest im Hintergrund permanent von einer `cv2.VideoCapture`-
-    kompatiblen Quelle und hält nur den NEUESTEN Frame in einem Ein-Slot-Puffer. So bekommt
-    ein langsamer Konsument (Move-Tracker mit CNN/Encode) immer das aktuellste Bild, statt
-    einen mit der Zeit anwachsenden Rückstand aus dem Socket-/JPEG-Puffer abzuarbeiten.
+    """Grab-latest wrapper: continuously reads from a `cv2.VideoCapture`-compatible
+    source in the background and keeps only the NEWEST frame in a single-slot buffer. This way
+    a slow consumer (move tracker with CNN/encode) always gets the most recent image, instead of
+    working through an ever-growing backlog from the socket/JPEG buffer.
 
-    `read()` gibt sofort `(ok, frame)` des letzten Frames zurück (kein Blockieren auf Netz);
-    `release()` stoppt den Reader-Thread und gibt die zugrunde liegende Quelle frei."""
+    `read()` returns `(ok, frame)` of the latest frame immediately (no network blocking);
+    `release()` stops the reader thread and releases the underlying source."""
 
     def __init__(self, cap, poll: float = 0.001) -> None:
         self._cap = cap
@@ -136,7 +136,7 @@ class LatestFrame:
                 with self._lock:
                     self._frame, self._ok = f, True
             else:
-                # Quelle (noch) leer/kaputt: kurz warten, damit die Schleife nicht heißdreht.
+                # Source (still) empty/broken: wait briefly so the loop doesn't spin hot.
                 time.sleep(0.01)
 
     def isOpened(self) -> bool:
@@ -161,9 +161,9 @@ def _is_url(source) -> bool:
 
 
 def open_source(source):
-    """Quelle öffnen: URL -> MJPEG-Stream-Leser bzw. Snapshot-Holer (beide HTTPS/selbstsigniert-
-    tauglich); sonst lokaler Index/Pfad über `open_camera` (DSHOW unter Windows). Enthält die URL
-    'snapshot' -> Einzelbild-Poll, sonst Multipart-MJPEG-Stream (flüssiger)."""
+    """Open source: URL -> MJPEG stream reader or snapshot grabber (both HTTPS/self-signed-
+    capable); otherwise local index/path via `open_camera` (DSHOW on Windows). If the URL
+    contains 'snapshot' -> single-image poll, otherwise multipart MJPEG stream (smoother)."""
     if _is_url(source):
         if "snapshot" in source.lower():
             return _UrlSnapshotCapture(source)
@@ -175,30 +175,30 @@ _open_source = open_source  # backward-compat alias (move_tracker used this befo
 
 
 def effective_source(index):
-    """Wirksame Quelle für einen per UI gewählten Index: Env-Override (URL) gewinnt, sonst der Index.
-    Rückgabe ist ein hashbarer Schlüssel (URL-String oder int)."""
+    """Effective source for a UI-selected index: env override (URL) wins, otherwise the index.
+    Returns a hashable key (URL string or int)."""
     env = os.environ.get(CAMERA_SOURCE_ENV, "").strip()
     if env:
         return env
     return index
 
 
-# Optionale HOCHAUFLÖSENDE Capture-Quelle: die Live-Vorschau läuft flüssig über den (ggf.
-# runterskalierten) Stream, aber GESPEICHERTE Frames werden aus dieser Snapshot-URL gezogen
-# (volle Sensorauflösung). Marker werden beim Capture auf dem Snapshot NEU erkannt -> Stream- und
-# Capture-Quelle dürfen sich in Auflösung/Orientierung unterscheiden. Beispiel:
+# Optional HIGH-RESOLUTION capture source: the live preview runs smoothly over the (possibly
+# downscaled) stream, but SAVED frames are pulled from this snapshot URL
+# (full sensor resolution). Markers are re-detected on the snapshot during capture -> stream and
+# capture sources may differ in resolution/orientation. Example:
 #   set CHESSLAB_CAMERA_CAPTURE=https://<PHONE-IP>:4444/video/snapshot
 CAMERA_CAPTURE_ENV = "CHESSLAB_CAMERA_CAPTURE"
 
 
 def capture_url() -> str | None:
-    """Hochauflösende Snapshot-URL fürs Speichern, falls gesetzt; sonst None (-> Live-Frame)."""
+    """High-resolution snapshot URL for saving, if set; otherwise None (-> use live frame)."""
     return os.environ.get(CAMERA_CAPTURE_ENV, "").strip() or None
 
 
 class Camera:
-    """Thread-sichere, geteilte Kamera. `ensure(index)` öffnet (oder wechselt) die Quelle,
-    `read()` liefert den letzten Frame (oder None). `markers_*` spiegeln den Kalibrier-Status."""
+    """Thread-safe, shared camera. `ensure(index)` opens (or switches) the source;
+    `read()` returns the latest frame (or None). `markers_*` reflect the calibration status."""
 
     def __init__(self) -> None:
         self.cap = None
@@ -210,7 +210,7 @@ class Camera:
         self.markers_held = 0
 
     def ensure(self, index) -> None:
-        src = effective_source(index)   # Env-Override (IP-Cam-URL) gewinnt über den UI-Index
+        src = effective_source(index)   # Env override (IP cam URL) wins over the UI index
         with self.lock:
             if self.cap is not None and self.index == src:
                 return
@@ -227,11 +227,11 @@ class Camera:
             return f if ok else None
 
     def grab_capture(self):
-        """Frame fürs SPEICHERN holen -> (frame, is_hires). Ist eine Capture-URL gesetzt
-        (`CHESSLAB_CAMERA_CAPTURE`), wird daraus ein einzelner hochaufgelöster Snapshot geholt
-        (is_hires=True); sonst der aktuelle Live-Frame (is_hires=False). Bei is_hires MUSS der
-        Aufrufer die Marker/Ecken auf DIESEM Frame neu bestimmen (andere Auflösung/Orientierung
-        als die Vorschau)."""
+        """Get frame FOR SAVING -> (frame, is_hires). If a capture URL is set
+        (`CHESSLAB_CAMERA_CAPTURE`), a single high-resolution snapshot is fetched from there
+        (is_hires=True); otherwise the current live frame (is_hires=False). When is_hires, the
+        caller MUST re-detect markers/corners on THIS frame (different resolution/orientation
+        than the preview)."""
         url = capture_url()
         if url:
             ok, f = _UrlSnapshotCapture(url, timeout=6.0).read()
@@ -251,7 +251,7 @@ class Camera:
         return self.cap is not None
 
 
-# Eine einzige Instanz für die ganze App.
+# A single instance for the whole app.
 CAMERA = Camera()
 
 
@@ -261,8 +261,8 @@ def encode_jpeg(img, quality: int = 80) -> bytes | None:
 
 
 def mjpeg(frames, idle: float = 0.05):
-    """`frames`: Iterator von BGR-Bildern (np.ndarray) oder None (= kein Frame -> kurz warten).
-    Kapselt JPEG-Encode + multipart-Boundary + StreamingResponse — der Aufrufer liefert nur Bilder."""
+    """`frames`: iterator of BGR images (np.ndarray) or None (= no frame -> wait briefly).
+    Wraps JPEG encode + multipart boundary + StreamingResponse — the caller only provides images."""
     from fastapi.responses import StreamingResponse
 
     def gen():
@@ -278,14 +278,14 @@ def mjpeg(frames, idle: float = 0.05):
 
 
 class BoardTracker:
-    """Pro Stream: aus dem Profil geseedeter Marker-Tracker + zuletzt bekannte Ecken.
+    """Per-stream: marker tracker seeded from the profile + last known corners.
 
-    ``process(frame)`` -> (warped | None, corners | None). Genau **eine** Stelle für die
-    Ecken-Erkennung und das Entzerren — Sammeln und Inference teilen sich diese Logik, und die
-    zuletzt live gezeigten Ecken (``last_corners``) sind das, was beim Capturen gespeichert wird.
+    ``process(frame)`` -> (warped | None, corners | None). Exactly **one** place for
+    corner detection and unwarping — collect and inference share this logic, and the
+    last live-shown corners (``last_corners``) are what gets saved during capture.
 
-    Thread-sicher: ``last_corners`` wird unter eigenem Lock geschrieben; ``corners()`` liefert
-    eine Kopie.
+    Thread-safe: ``last_corners`` is written under its own lock; ``corners()`` returns
+    a copy.
     """
 
     def __init__(self, profile: CalibrationProfile) -> None:
@@ -303,6 +303,6 @@ class BoardTracker:
         return warped, corners
 
     def corners(self):
-        """Kopie der zuletzt bekannten Ecken (thread-sicher)."""
+        """Copy of the last known corners (thread-safe)."""
         with self._lock:
             return list(self.last_corners) if self.last_corners is not None else None
