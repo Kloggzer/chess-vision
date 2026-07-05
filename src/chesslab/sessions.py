@@ -57,8 +57,8 @@ def _crop_files(session_id: str, paths: config.Paths) -> list[Path]:
     return list(root.glob(f"*/{session_id}_*.png"))
 
 
-def _crop_count_from_manifest(session_id: str, paths: config.Paths) -> int:
-    mp = _manifest_path(paths)
+def _crop_count_from_manifest(session_id: str, paths: config.Paths, manifest=None) -> int:
+    mp = manifest or _manifest_path(paths)
     if not mp.exists():
         return 0
     n = 0
@@ -66,6 +66,13 @@ def _crop_count_from_manifest(session_id: str, paths: config.Paths) -> int:
         if line.strip() and json.loads(line).get("session_id") == session_id:
             n += 1
     return n
+
+
+def _variant_tag(meta: dict, session_id: str) -> str | None:
+    """Variant manifest tag for ingested sessions (= ingest tag = profile name)."""
+    if meta.get("mode") != "ingested":
+        return None
+    return meta.get("profile") or session_id.split("__", 1)[0]
 
 
 def _filter_jsonl(path: Path, session_id: str) -> None:
@@ -94,14 +101,24 @@ def list_sessions(paths: config.Paths = config.DATA) -> list[dict]:
             if not d.is_dir():
                 continue
             meta = _read_meta(d)
+            tag = _variant_tag(meta, d.name)
+            if archived:
+                n_crops = 0
+            elif tag:
+                # Ingested sessions are sliced into their variant manifest, not the default one.
+                n_crops = _crop_count_from_manifest(
+                    d.name, paths, manifest=paths.manifests / f"squares__{tag}.jsonl")
+            else:
+                n_crops = _crop_count_from_manifest(d.name, paths)
             out.append({
                 "session_id": d.name,
                 "archived": archived,
                 "mode": meta.get("mode"),
                 "profile": meta.get("profile"),
                 "created_at": meta.get("created_at"),
+                "variant": tag,
                 "n_frames": _log_count(d),
-                "n_crops": 0 if archived else _crop_count_from_manifest(d.name, paths),
+                "n_crops": n_crops,
             })
     return out
 
