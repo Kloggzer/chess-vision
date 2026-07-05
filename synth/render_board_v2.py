@@ -62,6 +62,10 @@ PIECE_SPECULAR = 0.4
 # scheinbare Figurengröße/Höhe im Crop an die echten Kamera-Crops anzugleichen (reale Figuren
 # füllen den Crop stärker). 1.0 = wie gemessen; per --piece-scale überschrieben.
 PIECE_SCALE = 1.0
+# Weiß-Figuren-Korrektur: Scan-Textur ist zu orange/dunkel vs. reale blass-cremige Figuren.
+# Sättigung runter (orange raus) + Value hoch (heller). Nur auf weiße Figuren angewandt.
+PIECE_WHITE_SAT = 0.62
+PIECE_WHITE_VAL = 1.45
 
 
 def argv_after_dashes():
@@ -311,7 +315,7 @@ def _variant_objs(pdir, canonical):
     return []
 
 
-def _scanned_material(png, darken=1.0):
+def _scanned_material(png, darken=1.0, whiten=False):
     img = bpy.data.images.load(str(png))
     mat = bpy.data.materials.new("scan"); mat.use_nodes = True
     nt = mat.node_tree; bsdf = nt.nodes.get("Principled BSDF")
@@ -324,17 +328,28 @@ def _scanned_material(png, darken=1.0):
         elif "Specular" in bsdf.inputs:
             bsdf.inputs["Specular"].default_value = PIECE_SPECULAR
     tx = nt.nodes.new("ShaderNodeTexImage"); tx.image = img
+    src = tx.outputs["Color"]
+    # Weiße Figuren: die Scan-Textur ist zu orange/dunkel (Photogrammetrie unter warmem Licht),
+    # die echten Figuren sind aber blass-cremig → entsättigen + aufhellen (nicht-destruktiv im Shader).
+    if whiten:
+        try:
+            hsv = nt.nodes.new("ShaderNodeHueSaturation")
+            hsv.inputs["Saturation"].default_value = PIECE_WHITE_SAT
+            hsv.inputs["Value"].default_value = PIECE_WHITE_VAL
+            nt.links.new(src, hsv.inputs["Color"])
+            src = hsv.outputs["Color"]
+        except Exception:
+            pass
     if darken < 0.999:
         try:
             mix = nt.nodes.new("ShaderNodeMixRGB"); mix.blend_type = "MULTIPLY"
             mix.inputs["Fac"].default_value = 1.0
             mix.inputs["Color2"].default_value = (darken, darken * 0.9, darken * 0.8, 1.0)
-            nt.links.new(tx.outputs["Color"], mix.inputs["Color1"])
-            nt.links.new(mix.outputs["Color"], bsdf.inputs["Base Color"])
-            return mat
+            nt.links.new(src, mix.inputs["Color1"])
+            src = mix.outputs["Color"]
         except Exception:
             pass
-    nt.links.new(tx.outputs["Color"], bsdf.inputs["Base Color"])
+    nt.links.new(src, bsdf.inputs["Base Color"])
     return mat
 
 
@@ -381,7 +396,7 @@ def build_templates(pieces_dir=None):
             m.materials.clear()
             png = o.with_suffix(".png")
             if png.exists():
-                m.materials.append(_scanned_material(png, darken))
+                m.materials.append(_scanned_material(png, darken, whiten=(color == "w")))
             else:
                 print(f"[WARN] {o}: keine Textur ({png.name} fehlt) — prozedurales Holz")
                 m.materials.append(white_mat if color == "w" else black_mat)
@@ -455,9 +470,9 @@ def randomize_lights(rng):
         if o.type == "LIGHT":
             base = _BASE_LIGHT_ENERGY.setdefault(o.name, o.data.energy)
             o.data.energy = base * rng.uniform(0.6, 1.5)
-            # Warm-biased Lichtfarbe (Innenraum-Licht ist warm) – sonst wirken helle
-            # Figuren kühl/lavendel. Bleibt randomisiert (Domain-Randomization).
-            o.data.color = (1.0, rng.uniform(0.85, 0.98), rng.uniform(0.7, 0.9))
+            # Nur leicht warm-biased (Innenraum), aber deutlich neutraler als früher — die starke
+            # Wärme machte die (ohnehin orangen) weißen Figuren zu orange. Bleibt randomisiert.
+            o.data.color = (1.0, rng.uniform(0.93, 1.0), rng.uniform(0.86, 0.98))
             if o.data.type == "SUN":
                 o.rotation_euler = (rng.uniform(0, 0.5), rng.uniform(0, 0.5), rng.uniform(0, 2 * math.pi))
     world = bpy.context.scene.world
