@@ -1,16 +1,16 @@
-# Stufe 0 — Pre-flight: Environment-Validierung (`doctor.py`)
+# Stage 0 — Pre-flight: Environment Validation (`doctor.py`)
 
-## Zweck
+## Purpose
 
-Das Environment ist laut Nutzer **bereits eingerichtet** (Linux, ROCm, PyTorch-ROCm-Build,
-AMD Radeon RX 7900 XTX). Diese Stufe **installiert nichts** und ändert nichts — sie
-**validiert** nur und meldet klar PASS/FAIL mit Remediation-Hinweisen. Ziel: vor dem
-Training (Stufe 5) sicherstellen, dass die GPU wirklich nutzbar ist, statt es anzunehmen.
+The environment is **already set up** per the user (Linux, ROCm, PyTorch-ROCm-build,
+AMD Radeon RX 7900 XTX). This stage **installs nothing** and changes nothing — it only
+**validates** and clearly reports PASS/FAIL with remediation hints. Goal: before
+training (Stage 5), ensure the GPU is actually usable instead of assuming it.
 
-> Wichtig für Claude Code: **Keine** `pip install` / `uv add` von torch ausführen. Wenn
-> ein Pflicht-Check fehlschlägt, den Befund melden und Rücksprache halten — nicht
-> versuchen, ROCm/PyTorch eigenmächtig „zu reparieren". Reine App-Abhängigkeiten
-> (opencv, python-chess, typer, pyyaml) dürfen normal installiert werden.
+> Important for Claude Code: **Do not** run `pip install` / `uv add` of torch. If
+> a mandatory check fails, report the finding and consult — do not
+> attempt to „fix" ROCm/PyTorch on your own. Pure app dependencies
+> (opencv, python-chess, typer, pyyaml) may be installed normally.
 
 ## CLI
 
@@ -18,71 +18,72 @@ Training (Stufe 5) sicherstellen, dass die GPU wirklich nutzbar ist, statt es an
 chesslab doctor [--gpu] [--camera 0] [--json]
 ```
 
-- ohne Flags: Basis-Checks (Python, App-Deps, Konfig-Pfade).
-- `--gpu`: zusätzlich die komplette ROCm/PyTorch-GPU-Validierung (Pflicht vor Stufe 5).
-- `--camera N`: Kamera-Check für Index N (öffnen + ein Frame lesen).
-- `--json`: maschinenlesbarer Report zusätzlich zur menschenlesbaren Ausgabe.
+- without flags: base checks (Python, app deps, config paths).
+- `--gpu`: additionally runs the full ROCm/PyTorch GPU validation (mandatory before Stage 5).
+- `--camera N`: camera check for index N (open + read one frame).
+- `--json`: machine-readable report in addition to human-readable output.
 
-Exit-Code: `0` nur wenn **alle angeforderten** Pflicht-Checks bestehen, sonst `!= 0`.
+Exit code: `0` only if **all requested** mandatory checks pass, otherwise `!= 0`.
 
 ## Checks
 
-### A) Basis (immer)
+### A) Base (always)
 1. Python `>= 3.11`.
-2. Import der App-Deps: `cv2`, `numpy`, `PIL`, `chess`, `typer`, `yaml`. Versionen loggen.
-3. Daten-/Konfig-Verzeichnisse existieren oder werden angelegt (`data/...`).
+2. Import app deps: `cv2`, `numpy`, `PIL`, `chess`, `typer`, `yaml`. Log versions.
+3. Data/config directories exist or are created (`data/...`).
 
-### B) GPU / ROCm (`--gpu`, Pflicht vor Training)
-Reihenfolge so, dass die Diagnose den Fehler eingrenzt:
+### B) GPU / ROCm (`--gpu`, mandatory before training)
+Ordered so diagnostics can narrow down the error:
 
-1. `import torch` gelingt; `torch.__version__` loggen. **Erwartung:** enthält `+rocm`
-   (z. B. `2.x.y+rocm6.2`). Enthält es stattdessen `+cu...`, ist der **falsche
-   (CUDA-)Build** installiert -> FAIL mit klarem Hinweis.
-2. `torch.version.hip is not None` -> bestätigt ROCm-Build. (`torch.version.cuda` ist
-   beim ROCm-Build typischerweise `None`.) FAIL, wenn `hip` None ist.
-3. `torch.cuda.is_available()` ist `True`. (Unter ROCm wird die `torch.cuda.*`-API
-   bewusst wiederverwendet — das ist korrekt, nicht NVIDIA.) FAIL sonst.
+1. `import torch` succeeds; log `torch.__version__`. **Expected:** contains `+rocm`
+   (e.g. `2.x.y+rocm6.2`). If it instead contains `+cu...`, the **wrong
+   (CUDA) build** is installed -> FAIL with clear hint.
+2. `torch.version.hip is not None` -> confirms ROCm build. (`torch.version.cuda` is
+   typically `None` in a ROCm build.) FAIL if `hip` is None.
+3. `torch.cuda.is_available()` is `True`. (Under ROCm the `torch.cuda.*` API is
+   deliberately reused — this is correct, not NVIDIA.) FAIL otherwise.
 4. `torch.cuda.device_count() >= 1`.
-5. `torch.cuda.get_device_name(0)` loggen. **Erwartung:** enthält `7900`, `Radeon` oder
-   `AMD`. Andernfalls WARN (Name kann je nach Treiber generisch sein), kein harter FAIL.
-6. `torch.cuda.get_device_properties(0).total_memory` loggen. **Erwartung:** ~24 GB
-   (>= 20 GB als Schwelle). Darunter WARN.
-7. **Echter Compute-Test (der entscheidende):**
+5. Log `torch.cuda.get_device_name(0)`. **Expected:** contains `7900`, `Radeon` or
+   `AMD`. Otherwise WARN (name may be generic depending on driver), not a hard FAIL.
+6. Log `torch.cuda.get_device_properties(0).total_memory`. **Expected:** ~24 GB
+   (>= 20 GB threshold). Below that WARN.
+7. **Real compute test (the decisive one):**
    ```python
    x = torch.randn(2048, 2048, device="cuda")
    y = torch.randn(2048, 2048, device="cuda")
-   z = (x @ y).sum().item()        # erzwingt Sync + Rücktransfer
+   z = (x @ y).sum().item()        # forces sync + transfer back
    torch.cuda.synchronize()
    ```
-   Läuft das ohne Exception und ist `z` endlich -> PASS. Crasht es (häufig bei
-   gfx-Mismatch) -> FAIL mit Hinweis auf gfx-Target (siehe unten).
-8. Optionaler System-Check via `subprocess` (nicht Pflicht, nur Info): `rocm-smi`
-   und/oder `rocminfo` aufrufen, ROCm-Version und `gfx`-Target des Agents loggen. Fehlt
-   das Binary -> WARN, kein FAIL (PyTorch-Checks sind maßgeblich).
+   If this runs without exception and `z` is finite -> PASS. If it crashes (common with
+   gfx mismatch) -> FAIL with hint about gfx target (see below).
+8. Optional system check via `subprocess` (not mandatory, info only): run `rocm-smi`
+   and/or `rocminfo`, log ROCm version and the agent's `gfx` target. If the
+   binary is missing -> WARN, not FAIL (PyTorch checks are authoritative).
 
-### C) Kamera (`--camera N`)
-1. `cv2.VideoCapture(N)` öffnet (unter Linux normales V4L2-Backend).
-2. Mindestens ein Frame `read()` liefert ein nicht-leeres Bild; Auflösung loggen.
-3. Hinweis ausgeben, ob `DISPLAY` gesetzt ist (für `cv2.imshow` in Stufe 1/3 nötig).
-   Fehlt `DISPLAY` -> WARN: Kalibrierung/Aufnahme braucht eine GUI-Session.
+### C) Camera (`--camera N`)
+1. `cv2.VideoCapture(N)` opens (standard V4L2 backend on Linux).
+2. At least one `read()` frame returns a non-empty image; log resolution.
+3. Output a hint about whether `DISPLAY` is set (needed for `cv2.imshow` in Stage 1/3).
+   If `DISPLAY` is missing -> WARN: calibration/capture needs a GUI session.
 
-## 7900 XTX / gfx1100 — Diagnosehinweise (in FAIL-Meldungen einbauen)
+## 7900 XTX / gfx1100 — Diagnostic Hints (embed in FAIL messages)
 
-- Die 7900 XTX ist **gfx1100** und in aktuellen ROCm-Versionen offiziell unterstützt —
-  `HSA_OVERRIDE_GFX_VERSION` sollte **nicht** nötig sein. Auf einer unterstützten Karte
-  ein Override zu setzen kann sogar schaden. Nur als allerletzten Fallback erwähnen
-  (z. B. `HSA_OVERRIDE_GFX_VERSION=11.0.0`), nicht automatisch setzen.
-- Falscher PyTorch-Build (CUDA statt ROCm) ist der häufigste Stolperstein: erkennbar an
-  `+cu` in der Version bzw. `torch.version.hip is None`. Remediation-Hinweis: ROCm-Wheel
-  vom `rocm`-Index neu installieren — aber **nur nach Rücksprache**, nicht automatisch.
-- `torch.cuda.is_available() == False` trotz ROCm-Build: oft Treiber-/Permissions-Problem
-  (User nicht in Gruppe `render`/`video`, oder `/dev/kfd` & `/dev/dri` nicht zugreifbar).
-  Als Hinweis ausgeben, nicht selbst fixen.
+- The 7900 XTX is **gfx1100** and officially supported in current ROCm versions —
+  `HSA_OVERRIDE_GFX_VERSION` should **not** be necessary. Setting an override on a
+  supported card can actually cause harm. Mention only as a last-resort fallback
+  (e.g. `HSA_OVERRIDE_GFX_VERSION=11.0.0`), do not set it automatically.
+- Wrong PyTorch build (CUDA instead of ROCm) is the most common stumbling block:
+  recognizable by `+cu` in the version or `torch.version.hip is None`. Remediation hint:
+  reinstall the ROCm wheel from the `rocm` index — but **only after consulting**,
+  not automatically.
+- `torch.cuda.is_available() == False` despite ROCm build: often a driver/permissions
+  issue (user not in `render`/`video` group, or `/dev/kfd` & `/dev/dri` not accessible).
+  Output as a hint, do not fix it yourself.
 
-## Report-Format
+## Report Format
 
-Menschenlesbar, eine Zeile pro Check: `[PASS] / [WARN] / [FAIL] <Check> — <Detail>`.
-Am Ende eine Summenzeile. Bei `--json` zusätzlich:
+Human-readable, one line per check: `[PASS] / [WARN] / [FAIL] <Check> — <Detail>`.
+A summary line at the end. With `--json` additionally:
 
 ```json
 {
@@ -96,14 +97,14 @@ Am Ende eine Summenzeile. Bei `--json` zusätzlich:
 }
 ```
 
-## Akzeptanzkriterien (Definition of Done)
+## Acceptance Criteria (Definition of Done)
 
-- `chesslab doctor` (ohne `--gpu`) läuft auch ohne GPU/Kamera durch und prüft Basis-Deps.
-- `chesslab doctor --gpu` gibt für jeden GPU-Check eine eigene PASS/WARN/FAIL-Zeile aus,
-  inklusive des echten Matmul-Compute-Tests, und exit-codet korrekt.
-- Bei falschem (CUDA-)Build erscheint eine **eindeutige** FAIL-Meldung, die den Build als
-  Ursache benennt — kein generischer Stacktrace.
-- `chesslab doctor --camera 0` öffnet die Kamera und liest einen Frame oder meldet sauber
-  den Grund.
-- Stufe 5 (`train`) ruft intern denselben GPU-Validierungspfad auf und bricht mit
-  klarer Meldung ab, falls die GPU nicht nutzbar ist (statt still auf CPU zu fallen).
+- `chesslab doctor` (without `--gpu`) runs without GPU/camera and checks base deps.
+- `chesslab doctor --gpu` prints a separate PASS/WARN/FAIL line for each GPU check,
+  including the real matmul compute test, and exits with the correct code.
+- If the wrong (CUDA) build is detected, a **clear** FAIL message appears that names
+  the build as the cause — no generic stacktrace.
+- `chesslab doctor --camera 0` opens the camera and reads a frame, or cleanly reports
+  the reason.
+- Stage 5 (`train`) internally calls the same GPU validation path and aborts with a
+  clear message if the GPU is not usable (instead of silently falling back to CPU).

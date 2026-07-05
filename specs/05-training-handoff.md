@@ -1,43 +1,43 @@
-# Stufe 5 — Training-Handoff (`training/`)
+# Stage 5 — Training Handoff (`training/`)
 
-## Zweck
+## Purpose
 
-Ein Per-Square-Klassifikationsmodell (13 Klassen) auf dem Datensatz trainieren,
-aussagekräftig evaluieren und exportieren — lauffähig auf der **AMD Radeon RX 7900 XTX
-über ROCm**. Das Modell ist das eigentliche Liefer-Artefakt für die spätere Inferenz-App.
+Train a per-square classification model (13 classes) on the dataset,
+evaluate it meaningfully and export it — runnable on the **AMD Radeon RX 7900 XTX
+via ROCm**. The model is the actual deliverable artifact for the downstream inference app.
 
-## GPU-Vorbedingung (ROCm)
+## GPU Prerequisite (ROCm)
 
-- **Vor jedem Training** den GPU-Validierungspfad aus Stufe 0 aufrufen
-  (`doctor --gpu`-Logik). Ist die GPU nicht nutzbar -> **abbrechen mit klarer Meldung**,
-  **nicht** still auf CPU zurückfallen.
-- Geräte-Handle über die normale `torch.cuda`-API beziehen (`device = "cuda"`). Unter dem
-  ROCm-Build ist das korrekt und adressiert die Radeon-GPU.
-- AMP/`torch.autocast` mit `device_type="cuda"` ist auf RDNA3 nutzbar; falls Instabilität
-  auftritt, per Flag `--no-amp` abschaltbar machen. `channels_last` kann helfen, optional.
-- 24 GB VRAM sind reichlich für ein kleines CNN bei 96x128-Crops -> großzügige Batchsize
-  möglich (Default z. B. 256, per `--batch-size` anpassbar).
+- **Before every training run** invoke the GPU validation path from Stage 0
+  (`doctor --gpu` logic). If the GPU is not usable -> **abort with a clear message**,
+  **do not** silently fall back to CPU.
+- Obtain the device handle via the normal `torch.cuda` API (`device = "cuda"`). Under the
+  ROCm build this is correct and addresses the Radeon GPU.
+- AMP/`torch.autocast` with `device_type="cuda"` is usable on RDNA3; if instability
+  occurs, make it switchable via the `--no-amp` flag. `channels_last` can help, optional.
+- 24 GB VRAM is plentiful for a small CNN with 96x128 crops -> generous batch sizes
+  possible (default e.g. 256, adjustable via `--batch-size`).
 
-## Modell (`training/model.py`)
+## Model (`training/model.py`)
 
-Zwei wählbare Backbones, gleicher 13-Klassen-Kopf:
+Two selectable backbones, same 13-class head:
 
-1. **`smallcnn` (Default):** kompaktes Conv-Netz (z. B. 4–5 Conv-Blöcke mit BatchNorm +
-   ReLU, GlobalAvgPool, Linear -> 13). Schnell, reicht für die Aufgabe meist völlig.
-2. **`mobilenet_v3_small`:** torchvision-Backbone, Kopf auf 13 Klassen ersetzt.
-   Optional ImageNet-Gewichte als Start (Fine-Tuning).
+1. **`smallcnn` (Default):** compact Conv net (e.g. 4–5 Conv blocks with BatchNorm +
+   ReLU, GlobalAvgPool, Linear -> 13). Fast, usually sufficient for the task.
+2. **`mobilenet_v3_small`:** torchvision backbone, head replaced for 13 classes.
+   Optional ImageNet weights as starting point (fine-tuning).
 
-Input: `out_size` aus dem Datensatz (z. B. 96x128, H>W). Normalisierung dokumentieren und
-**identisch** für Train/Eval/Export verwenden (die Inferenz-App muss sie spiegeln).
+Input: `out_size` from the dataset (e.g. 96x128, H>W). Document normalization and use
+it **identically** for train/eval/export (the inference app must mirror it).
 
-## Daten (`training/data.py`)
+## Data (`training/data.py`)
 
-- Liest `data/manifests/squares.jsonl` + `data/manifests/split.json`, filtert Crops nach
-  Session-Zugehörigkeit des jeweiligen Splits.
-- Augmentation **nur auf train**, gemäß Policy aus Stufe 4 (Helligkeit/Kontrast/Gamma,
-  leichter Blur, kleines Jitter; **kein** Flip/Rotation). Val/Test nur Resize+Normalize.
-- Klassen-Gewichte aus `split.json` an den Loss weiterreichen; alternativ `WeightedRandomSampler`.
-- `num_workers` sinnvoll setzen; `pin_memory=True`.
+- Reads `data/manifests/squares.jsonl` + `data/manifests/split.json`, filters crops by
+  session membership of the respective split.
+- Augmentation **on train only**, according to the policy from Stage 4 (brightness/contrast/gamma,
+  light blur, small jitter; **no** flip/rotation). Val/Test only Resize+Normalize.
+- Pass class weights from `split.json` to the loss; alternatively `WeightedRandomSampler`.
+- Set `num_workers` sensibly; `pin_memory=True`.
 
 ## Training (`training/train.py`)
 
@@ -48,12 +48,12 @@ chesslab train [--backbone smallcnn] [--epochs 30] [--batch-size 256] [--lr 3e-4
 ```
 
 ### Loop
-- Optimizer AdamW, Cross-Entropy mit Klassen-Gewichten, Cosine- oder Step-LR-Schedule.
-- Pro Epoche: Train-Loss, Val-Loss, Val-Accuracy, **Val-Board-Accuracy** (s. u.) loggen.
-- Checkpoint nach bester **Board-Accuracy** speichern (nicht nach Square-Accuracy — die
-  ist durch `empty` aufgebläht und irreführend).
-- Early Stopping (Geduld konfigurierbar). Run-Verzeichnis enthält: `best.pt`, `last.pt`,
-  `metrics.jsonl`, `config.json` (alle Hyperparameter + Klassenliste + Normalisierung).
+- Optimizer AdamW, Cross-Entropy with class weights, Cosine or Step LR schedule.
+- Per epoch: log Train-Loss, Val-Loss, Val-Accuracy, **Val-Board-Accuracy** (see below).
+- Save checkpoint based on best **Board-Accuracy** (not Square-Accuracy — it
+  is inflated by `empty` and misleading).
+- Early Stopping (configurable patience). Run directory contains: `best.pt`, `last.pt`,
+  `metrics.jsonl`, `config.json` (all hyperparameters + class list + normalization).
 
 ## Evaluation (`training/evaluate.py`)
 
@@ -62,52 +62,51 @@ chesslab train [--backbone smallcnn] [--epochs 30] [--batch-size 256] [--lr 3e-4
 chesslab eval --run data/models/run-<ts> [--split test]
 ```
 
-Metriken — in dieser Reihenfolge, weil sie unterschiedlich aussagekräftig sind:
+Metrics — in this order, because they have different significance:
 
-1. **Board-Accuracy (Hauptmetrik):** Anteil der Frames, deren **alle 64 Felder** korrekt
-   klassifiziert wurden. Das ist die Zahl, die im Echtbetrieb zählt — ein einzelner
-   Fehler macht die FEN falsch. Dazu Crops je Frame (über `session_id`+`frame`+`square`
-   aus dem Manifest) rekonstruieren.
-2. **Per-Klassen-Accuracy / Recall** für alle 13 Klassen.
-3. **Confusion-Matrix**, mit besonderem Blick auf **König↔Dame** und Figur↔`empty`
-   (häufigste Verwechslungen). Als Text und als PNG speichern.
-4. Square-Accuracy gesamt (nur als Kontext, nicht als Zielmetrik).
+1. **Board-Accuracy (primary metric):** proportion of frames where **all 64 squares** were
+   classified correctly. This is the number that counts in real operation — a single
+   error makes the FEN wrong. Reconstruct crops per frame (via `session_id`+`frame`+`square`
+   from the manifest).
+2. **Per-class accuracy / recall** for all 13 classes.
+3. **Confusion matrix**, with special attention to **King↔Queen** and piece↔`empty`
+   (most common confusions). Save as text and as PNG.
+4. Overall Square-Accuracy (for context only, not as target metric).
 
 ## Export (`training/` / `chesslab export`)
 
 ```
 chesslab export --run data/models/run-<ts> [--format torchscript|onnx]
 ```
-- Exportiert `best.pt` nach **TorchScript** und/oder **ONNX**.
-- Legt eine `model_card.json` daneben: Klassenliste (geordnet), Input-`out_size`,
-  Normalisierungs-Parameter, Trainings-Metriken, ROCm/Torch-Version, Datum.
-- Diese Artefakte sind der saubere Übergabepunkt an die Inferenz-App.
+- Exports `best.pt` to **TorchScript** and/or **ONNX**.
+- Places a `model_card.json` alongside: class list (ordered), input `out_size`,
+  normalization parameters, training metrics, ROCm/Torch version, date.
+- These artifacts are the clean handoff point to the inference app.
 
-## Akzeptanzkriterien (Definition of Done)
+## Acceptance Criteria (Definition of Done)
 
-- `train` bricht ohne nutzbare ROCm-GPU klar ab (kein stiller CPU-Fallback) und trainiert
-  sonst auf der 7900 XTX (VRAM-Nutzung sichtbar, z. B. via `rocm-smi`).
-- `metrics.jsonl` enthält je Epoche Board-Accuracy; bestes Checkpoint danach ausgewählt.
-- `eval` gibt Board-Accuracy, Per-Klassen-Recall und eine Confusion-Matrix (Text+PNG) aus.
-- `export` erzeugt ladbares TorchScript/ONNX + `model_card.json` mit korrekter
-  Klassenliste und Normalisierung.
-- Ein Smoke-Run (1–2 Epochen auf wenigen Sessions) läuft end-to-end ohne Fehler durch.
+- `train` aborts clearly without a usable ROCm GPU (no silent CPU fallback) and otherwise
+  trains on the 7900 XTX (VRAM usage visible, e.g. via `rocm-smi`).
+- `metrics.jsonl` contains Board-Accuracy per epoch; best checkpoint selected accordingly.
+- `eval` outputs Board-Accuracy, per-class recall, and a confusion matrix (text + PNG).
+- `export` produces loadable TorchScript/ONNX + `model_card.json` with correct
+  class list and normalization.
+- A smoke run (1–2 epochs on a few sessions) runs end-to-end without errors.
 
 ---
 
-## Hinweis: Folgeprojekt Inferenz-App (NICHT in diesem Repo)
+## Note: Downstream Inference App (NOT in this repo)
 
-Das hier exportierte Modell + `model_card.json` werden von einer separaten Live-App
-konsumiert. Deren Kernbausteine (zur Orientierung, hier bewusst ausgelassen):
+The model exported here + `model_card.json` are consumed by a separate live app.
+Its core building blocks (for orientation, intentionally omitted here):
 
-- Echtzeit-Webcam -> dieselbe Homographie/Crops -> Modell -> 64 Labels -> FEN.
-- **Temporale Stabilität:** Stellung erst übernehmen, wenn N aufeinanderfolgende Frames
-  übereinstimmen (filtert Hände überm Brett / Jitter).
-- **Legalitäts-Fusion:** neue Stellung gegen die legalen Folgezüge der vorherigen prüfen;
-  inkonsistente Erkennungen verwerfen/korrigieren. Macht aus „gutem Klassifikator"
-  verlässliches Partie-Logging.
-- **PGN-/Verlauf-Export** + optionale Stockfish-Analyse für die gemeinsame Nachbesprechung.
+- Real-time webcam -> same homography/crops -> model -> 64 labels -> FEN.
+- **Temporal stability:** only adopt a position when N consecutive frames
+  agree (filters hands over board / jitter).
+- **Legality fusion:** check new position against legal follow-up moves of the previous one;
+  discard/correct inconsistent detections. Turns a "good classifier" into
+  reliable game logging.
+- **PGN / history export** + optional Stockfish analysis for joint post-mortem.
 
-Beim Bau dieses Repos darauf achten, dass Homographie-Anwendung, Crop-Logik und
-Normalisierung als wiederverwendbare Funktionen vorliegen, damit die App sie 1:1
-übernehmen kann.
+When building this repo, ensure that homography application, crop logic, and
+normalization are provided as reusable functions so that the app can adopt them 1:1.

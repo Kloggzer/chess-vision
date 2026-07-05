@@ -1,11 +1,11 @@
-# Stufe 4 — Datensatz-Management (`dataset.py`)
+# Stage 4 — Dataset Management (`dataset.py`)
 
-## Zweck
+## Purpose
 
-Aus den gelabelten Crops einen trainierbaren Datensatz machen: Statistik, Klassenbalance,
-**sessionbasierter** Split und eine klar definierte Augmentation-Policy. Diese Stufe ist
-der Grund, warum das Modell später auch im Echtbetrieb funktioniert statt nur auf dem
-Trainingsset gut auszusehen.
+Turn the labeled crops into a trainable dataset: statistics, class balance,
+**session-based** split, and a clearly defined augmentation policy. This stage is
+the reason the model later works in real-world operation instead of only looking
+good on the training set.
 
 ## CLI
 
@@ -15,43 +15,43 @@ chesslab split   [--val-frac 0.15] [--test-frac 0.15] [--max-empty-ratio 1.5] [-
 chesslab dataset verify
 ```
 
-## `stats` — Datensatz-Report
+## `stats` — Dataset Report
 
-Aus dem Manifest aggregieren und ausgeben (Tabelle + optional `--json`):
-- Anzahl Crops gesamt, Anzahl Sessions, Crops pro Session.
-- **Verteilung pro Klasse** (alle 13). Hebt Unter-/Überrepräsentation hervor.
-- Pro Figurenklasse: Abdeckung auf hellen vs. dunklen Feldern (`square_color`).
-- Warnungen, wenn eine Nicht-`empty`-Klasse unter einem Schwellwert liegt
-  (Default: < 200 Beispiele) oder eine Figur nur auf einer Feldfarbe vorkommt.
+Aggregate and output from the manifest (table + optional `--json`):
+- Total number of crops, number of sessions, crops per session.
+- **Per-class distribution** (all 13). Highlights under-/over-representation.
+- Per piece class: coverage on light vs. dark squares (`square_color`).
+- Warnings when a non-`empty` class falls below a threshold
+  (default: < 200 examples) or a piece only appears on one square color.
 
-## Klassen-Ungleichgewicht (Pflicht-Behandlung)
+## Class Imbalance (Mandatory Treatment)
 
-`empty` dominiert massiv (über die halbe Zeit ist ein Feld leer). Zwei Hebel, beide
-implementieren, Kombination konfigurierbar:
+`empty` dominates massively (over half the time a square is empty). Two levers, both
+implemented, combination configurable:
 
-1. **`empty`-Subsampling beim Split:** `--max-empty-ratio R` begrenzt `empty` auf das
-   `R`-fache der **größten Figurenklasse**. Überschüssige `empty`-Crops werden (seeded)
-   zufällig verworfen — aber **vor** dem Split, konsistent.
-2. **Klassen-Gewichte fürs Training:** berechne `class_weights` (invers zur Häufigkeit)
-   und schreibe sie in die Split-Ausgabe, damit Stufe 5 sie im Loss nutzen kann.
+1. **`empty` subsampling during split:** `--max-empty-ratio R` limits `empty` to
+   `R` times the **largest piece class**. Excess `empty` crops are (seeded)
+   randomly discarded — but **before** the split, consistently.
+2. **Class weights for training:** compute `class_weights` (inverse to frequency)
+   and write them into the split output so Stage 5 can use them in the loss.
 
-> Hinweis: seltene Klassen (z. B. zwei Damen) löst man besser über gezieltes Aufnehmen in
-> Stufe 2 (`collect live --start-fen`) als über reines Oversampling.
+> Note: rare classes (e.g., two queens) are better addressed through targeted collection in
+> Stage 2 (`collect live --start-fen`) than through pure oversampling.
 
-## Split — sessionbasiert (kritisch gegen Data Leakage)
+## Split — Session-Based (Critical Against Data Leakage)
 
-Frames derselben Session/Stellung sind nahezu identisch. Ein **zufälliger** Crop-Split
-würde fast gleiche Bilder in Train und Val verteilen -> künstlich hohe Scores.
+Frames from the same session/position are nearly identical. A **random** crop split
+would distribute almost identical images across train and val -> artificially high scores.
 
-Regeln:
-- Split erfolgt **auf Session-Ebene**: ganze Sessions kommen vollständig nach
-  train **oder** val **oder** test. Niemals Crops einer Session aufteilen.
-- Ziel-Fraktionen `val-frac`/`test-frac` beziehen sich auf den Crop-Anteil; weise Sessions
-  (seeded) so zu, dass die Anteile möglichst getroffen werden (greedy nach Session-Größe).
-- Möglichst alle Klassen in jedem Split vertreten; wenn eine Klasse nur in einer einzigen
-  Session existiert -> WARN (dann ist saubere Evaluierung dieser Klasse unmöglich).
+Rules:
+- Splitting is done **at the session level**: entire sessions go completely into
+  train **or** val **or** test. Never split crops from a single session.
+- Target fractions `val-frac`/`test-frac` refer to the crop share; assign sessions
+  (seeded) so the fractions are approximated as closely as possible (greedy by session size).
+- Ideally all classes are represented in every split; if a class exists in only a single
+  session -> WARN (clean evaluation of that class is then impossible).
 
-### Split-Ausgabe
+### Split Output
 ```
 data/manifests/split.json
 ```
@@ -69,36 +69,35 @@ data/manifests/split.json
   "counts": {"train": 12345, "val": 1800, "test": 1750}
 }
 ```
-Stufe 5 liest **nur** diese Datei + das Manifest und filtert Crops nach Session-Zugehörigkeit.
+Stage 5 reads **only** this file + the manifest and filters crops by session membership.
 
-## Augmentation-Policy (Definition hier, Anwendung in Stufe 5)
+## Augmentation Policy (Definition Here, Application in Stage 5)
 
-Die Kamera steht **fix** — daraus folgt, was erlaubt ist und was nicht:
+The camera is **fixed** — from this follows what is allowed and what is not:
 
-- **Erlaubt (im Training):** Helligkeit/Kontrast/Gamma (wichtigster Hebel — reale
-  Beleuchtungsvarianz), leichter Gaußscher Blur/Schärfe, leichtes
-  Translations-/Skalierungs-Jitter (±wenige Prozent, fängt kleine Homographie-Drift ab),
-  dezentes Farb-Jitter.
-- **Verboten:** horizontales/vertikales Spiegeln und 90°/180°-Rotation. Das würde
-  Feldfarbe und Geometrie verfälschen (eine fixe Kamera sieht nie ein gespiegeltes Brett)
-  und seltene Figuren in unmögliche Kontexte setzen.
-- Val/Test: **keine** Augmentation außer dem deterministischen Resize/Normalize.
+- **Allowed (in training):** brightness/contrast/gamma (most important lever — real
+  lighting variation), mild Gaussian blur/sharpen, slight
+  translation/scale jitter (±a few percent, catches small homography drift),
+  subtle color jitter.
+- **Forbidden:** horizontal/vertical flipping and 90°/180° rotation. That would
+  distort square color and geometry (a fixed camera never sees a mirrored board)
+  and place rare pieces into impossible contexts.
+- Val/Test: **no** augmentation except deterministic resize/normalize.
 
-Policy als Konfig ablegen (z. B. `data/manifests/augment.yaml` oder in `config.py`),
-nicht im Trainingscode hartkodieren.
+Store the policy as configuration (e.g., `data/manifests/augment.yaml` or in `config.py`),
+not hardcoded in the training code.
 
 ## `dataset verify`
 
-Konsistenz-Checks: jede Manifest-Zeile zeigt auf eine existierende Datei; jede Datei ist
-ladbar und hat die erwartete `out_size`; alle Labels sind in der Klassenliste; keine
-Session ist gleichzeitig in zwei Splits.
+Consistency checks: every manifest line points to an existing file; every file is
+loadable and has the expected `out_size`; all labels are in the class list; no
+session is in two splits simultaneously.
 
-## Akzeptanzkriterien (Definition of Done)
+## Acceptance Criteria (Definition of Done)
 
-- `stats` gibt eine vollständige 13-Klassen-Verteilung + Hell/Dunkel-Abdeckung aus und
-  warnt bei Lücken.
-- `split` erzeugt `split.json`, in dem **keine** Session-ID in mehr als einem Split steht
-  (durch Test abgesichert), und respektiert `max_empty_ratio`.
-- `class_weights` summieren sich plausibel und sind für die größte Klasse am kleinsten.
-- `dataset verify` schlägt fehl, wenn eine Datei fehlt oder eine Session in zwei Splits
-  liegt.
+- `stats` outputs a complete 13-class distribution + light/dark coverage and
+  warns about gaps.
+- `split` produces `split.json` in which **no** session ID appears in more than one split
+  (verified by test), and respects `max_empty_ratio`.
+- `class_weights` sum plausibly and are smallest for the largest class.
+- `dataset verify` fails when a file is missing or a session lies in two splits.
