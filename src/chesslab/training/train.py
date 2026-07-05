@@ -28,8 +28,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     ok, checks = doctor.validate_gpu()
     if not ok:
         print(doctor.render(checks))
-        print("[FAIL] Keine nutzbare ROCm-GPU — Training abgebrochen (kein CPU-Fallback). "
-              "`chesslab doctor --gpu` zur Diagnose.")
+        print("[FAIL] No usable ROCm GPU — training aborted (no CPU fallback). "
+              "Run `chesslab doctor --gpu` for diagnosis.")
         return 1
 
     import numpy as np
@@ -50,19 +50,19 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         manifest_path = dd / "manifest.jsonl"
         split_path = dd / "split.json"
         if not manifest_path.exists() or not split_path.exists():
-            print(f"[FAIL] Datensatz '{dataset}' nicht gebaut ({dd}). Erst im Datensätze-Tab "
-                  "bauen (`chesslab dataset build`), dann trainieren.")
+            print(f"[FAIL] Dataset '{dataset}' not built ({dd}). First build it in the Datasets tab "
+                  "(`chesslab dataset build`), then train.")
             return 1
     else:
         manifest_path = config.DATA.manifests / "squares.jsonl"
         split_path = config.DATA.manifests / "split.json"
         if not manifest_path.exists():
-            print(f"[FAIL] Kein Manifest ({manifest_path}). Erst Daten sammeln und slicen "
-                  "(`chesslab slice`), bevor du trainierst.")
+            print(f"[FAIL] No manifest ({manifest_path}). First collect data and slice "
+                  "(`chesslab slice`), then train.")
             return 1
         if not split_path.exists():
-            print(f"[FAIL] Kein Split ({split_path}). Führe zuerst `chesslab split` aus "
-                  "(Train/Val/Test pro Session + Klassen-Balancing), dann trainiere.")
+            print(f"[FAIL] No split ({split_path}). First run `chesslab split` "
+                  "(train/val/test per session + class balancing), then train.")
             return 1
 
     manifest = load_manifest(manifest_path)
@@ -76,7 +76,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         print("[FAIL] empty manifest.")
         return 1
 
-    # Balancing NUR auf train anwenden (Policy steht in split.json); val/test bleiben voll.
+    # Balancing ONLY applied to train (policy is in split.json); val/test stay full.
     from ..dataset import subsample_classes
 
     ts = split.get("train_subsample") or {}
@@ -90,8 +90,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     if not train_rows:
         hint = ("rebuild the dataset with more sessions" if dataset
                 else "re-slice and run `chesslab split` again")
-        print("[FAIL] train-Split ist leer — zu wenige Sessions. Train/Val/Test werden pro "
-              f"Session getrennt (gegen Data Leakage); nimm mind. 2-3 Sessions auf und {hint}.")
+        print("[FAIL] train split is empty — too few sessions. Train/val/test are separated per "
+              f"session (to prevent data leakage); record at least 2-3 sessions and {hint}.")
         return 1
     from collections import Counter as _Counter
 
@@ -218,10 +218,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         else:
             epochs_no_improve += 1
             if epochs_no_improve >= patience:
-                print(f"[OK] Early stopping (kein Fortschritt in occ_board_acc seit {patience} Epochen). "
-                      "Mehr Geduld: `--patience N` erhöhen.")
+                print(f"[OK] Early stopping (no improvement in occ_board_acc for {patience} epochs). "
+                      "Increase patience with `--patience N`.")
                 break
 
-    print(f"[OK] fertig. beste nach occ_board_acc={best_score[0]:.4f} (occ_acc={best_score[1]:.4f}, "
+    print(f"[OK] done. best by occ_board_acc={best_score[0]:.4f} (occ_acc={best_score[1]:.4f}, "
           f"macro_recall={best_score[2]:.4f}); best.pt in {run_dir}")
     return 0

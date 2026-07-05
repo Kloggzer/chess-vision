@@ -1,16 +1,15 @@
-"""Session-Verwaltung: aufgenommene Trainings-Sessions auflisten, archivieren, wiederherstellen,
-löschen.
+"""Session management: list, archive, restore, delete recorded training sessions.
 
-`collect` legt je Session ein Verzeichnis unter `data/sessions/<id>` an (Frames + log.jsonl +
-session.yaml); `slice` erzeugt daraus Crops (`data/squares/<label>/<id>_*.png`) und Manifest-
-Zeilen. Diese Funktionen halten diese drei Orte konsistent:
+`collect` creates a directory per session under `data/sessions/<id>` (frames + log.jsonl +
+session.yaml); `slice` produces crops (`data/squares/<label>/<id>_*.png`) and manifest
+lines from them. These functions keep these three locations consistent:
 
-- **archivieren** entfernt die Crops + Manifest-Zeilen (Session zählt nicht mehr zum Datensatz)
-  und verschiebt das Session-Verzeichnis nach `data/sessions_archive/<id>`. Reversibel:
-  `restore` + neu slicen. Korrekturen bleiben erhalten.
-- **löschen** entfernt Verzeichnis, Crops, Manifest- und Korrektur-Zeilen endgültig.
+- **archive** removes the crops + manifest lines (session no longer counts toward the dataset)
+  and moves the session directory to `data/sessions_archive/<id>`. Reversible:
+  `restore` + re-slice. Corrections are preserved.
+- **delete** permanently removes directory, crops, manifest and correction lines.
 
-Headless und testbar: alle Funktionen akzeptieren ein `paths`-Objekt (Default `config.DATA`).
+Headless and testable: all functions accept a `paths` object (default `config.DATA`).
 """
 
 from __future__ import annotations
@@ -24,7 +23,7 @@ from . import config
 
 def _safe_id(session_id: str) -> str:
     if not session_id or "/" in session_id or "\\" in session_id or ".." in session_id:
-        raise ValueError(f"ungültige Session-ID: {session_id!r}")
+        raise ValueError(f"invalid session ID: {session_id!r}")
     return session_id
 
 
@@ -53,7 +52,7 @@ def _crop_files(session_id: str, paths: config.Paths) -> list[Path]:
     root = paths.squares
     if not root.exists():
         return []
-    # Crop-Dateiname = "{session_id}_{frame}_{square}.png" in data/squares/<label>/
+    # Crop filename = "{session_id}_{frame}_{square}.png" in data/squares/<label>/
     return list(root.glob(f"*/{session_id}_*.png"))
 
 
@@ -87,7 +86,7 @@ def _purge_crops(session_id: str, paths: config.Paths) -> int:
 
 
 def list_sessions(paths: config.Paths = config.DATA) -> list[dict]:
-    """Aktive + archivierte Sessions mit Eckdaten (Frames, Crops, Modus, Status)."""
+    """Active + archived sessions with key data (frames, crops, mode, status)."""
     out: list[dict] = []
     for root, archived in ((paths.sessions, False), (paths.sessions_archive, True)):
         if not root.exists():
@@ -119,11 +118,11 @@ def list_sessions(paths: config.Paths = config.DATA) -> list[dict]:
 
 
 def archive_session(session_id: str, paths: config.Paths = config.DATA) -> dict:
-    """Crops + Manifest-Zeilen entfernen und das Verzeichnis ins Archiv verschieben (reversibel)."""
+    """Remove crops + manifest lines and move the directory to the archive (reversible)."""
     sid = _safe_id(session_id)
     src = paths.sessions / sid
     if not src.exists():
-        raise FileNotFoundError(f"Session '{sid}' nicht gefunden.")
+        raise FileNotFoundError(f"Session '{sid}' not found.")
     n_crops = _purge_crops(sid, paths)
     _filter_jsonl(_manifest_path(paths), sid)
     paths.sessions_archive.mkdir(parents=True, exist_ok=True)
@@ -135,26 +134,26 @@ def archive_session(session_id: str, paths: config.Paths = config.DATA) -> dict:
 
 
 def restore_session(session_id: str, paths: config.Paths = config.DATA) -> dict:
-    """Archivierte Session zurück in den aktiven Ordner verschieben (danach neu slicen)."""
+    """Move archived session back to the active folder (then re-slice)."""
     sid = _safe_id(session_id)
     src = paths.sessions_archive / sid
     if not src.exists():
-        raise FileNotFoundError(f"Archivierte Session '{sid}' nicht gefunden.")
+        raise FileNotFoundError(f"Archived session '{sid}' not found.")
     dst = paths.sessions / sid
     if dst.exists():
-        raise FileExistsError(f"Aktive Session '{sid}' existiert bereits.")
+        raise FileExistsError(f"Active session '{sid}' already exists.")
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(src), str(dst))
     return {"session_id": sid, "archived": False}
 
 
 def delete_session(session_id: str, paths: config.Paths = config.DATA) -> dict:
-    """Session endgültig entfernen: Verzeichnis + Crops + Manifest- + Korrektur-Zeilen."""
+    """Permanently remove session: directory + crops + manifest + correction lines."""
     sid = _safe_id(session_id)
     active, archived = paths.sessions / sid, paths.sessions_archive / sid
     target = active if active.exists() else archived
     if not target.exists():
-        raise FileNotFoundError(f"Session '{sid}' nicht gefunden.")
+        raise FileNotFoundError(f"Session '{sid}' not found.")
     n_crops = _purge_crops(sid, paths)
     _filter_jsonl(_manifest_path(paths), sid)
     _filter_jsonl(paths.corrections, sid)

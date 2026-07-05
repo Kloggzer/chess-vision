@@ -32,7 +32,7 @@ def load_split(path: Path) -> dict:
 
 
 def filter_rows_by_split(rows: list[dict], split: dict, which: str) -> list[dict]:
-    """Nur Crops, deren Session zum gewünschten Split (train/val/test) gehört."""
+    """Only crops whose session belongs to the desired split (train/val/test)."""
     sids = set(split["splits"][which])
     return [r for r in rows if r["session_id"] in sids]
 
@@ -42,7 +42,7 @@ def class_to_idx(classes: list[str]) -> dict[str, int]:
 
 
 def group_frames(rows: list[dict]) -> dict[tuple[str, str], list[dict]]:
-    """Crops je Frame gruppieren über (session_id, frame) — Basis der Board-Accuracy."""
+    """Group crops per frame by (session_id, frame) — basis for board accuracy."""
     groups: dict[tuple[str, str], list[dict]] = defaultdict(list)
     for r in rows:
         groups[(r["session_id"], str(r["frame"]))].append(r)
@@ -50,10 +50,10 @@ def group_frames(rows: list[dict]) -> dict[tuple[str, str], list[dict]]:
 
 
 def board_accuracy(items: list[tuple[tuple, bool]]) -> float:
-    """Anteil der Frames, deren ALLE Felder korrekt sind.
+    """Fraction of frames where ALL squares are correct.
 
-    `items`: Liste von ((session, frame), is_correct). Ein einziger falscher Crop macht
-    das ganze Board falsch — das ist die Zahl, die im Echtbetrieb zählt.
+    `items`: list of ((session, frame), is_correct). A single wrong crop makes
+    the whole board wrong — this is the metric that counts in real operation.
     """
     groups: dict[tuple, list[bool]] = defaultdict(list)
     for key, correct in items:
@@ -90,27 +90,27 @@ def macro_f1(trues: list[int], preds: list[int], n_classes: int) -> float:
 
 
 def _piece_type(label: str) -> str:
-    """'wP'->'P', 'bN'->'N', 'empty'/'occluded' bleiben sie selbst."""
+    """'wP'->'P', 'bN'->'N', 'empty'/'occluded' stay as-is."""
     return label if label in ("empty", "occluded") else label[1]
 
 
 def _piece_color(label: str) -> str | None:
-    """'wP'->'w', 'bN'->'b', leer/verdeckt -> None (keine Farbe)."""
+    """'wP'->'w', 'bN'->'b', empty/occluded -> None (no color)."""
     return None if label in ("empty", "occluded") else label[0]
 
 
 def occupancy_piece_breakdown(classes: list[str], trues: list[int], preds: list[int]) -> dict:
-    """Kopf-UNABHÄNGIGE Fehler-Diagnose aus dem 14-Klassen-Output — zeigt, WO die Fehler sitzen
-    (die zentrale Frage aus der Recherche: Occupancy vs. Typ vs. Farbe).
+    """Head-INDEPENDENT error diagnosis from the 14-class output — shows WHERE errors occur
+    (the central question from research: occupancy vs. type vs. color).
 
-    - `occ_acc`: leer-vs-besetzt pro Feld korrekt (Güte der Occupancy-Stufe; `occluded` zählt als besetzt).
-    - `piece_acc`: unter den WAHR besetzten Feldern die Figur exakt richtig (Güte der Figuren-Stufe).
-    - `type_err` / `color_err`: Anteil der wahren ECHTEN Figuren (12 Klassen) mit Typ- bzw. reiner
-      Farb-Verwechslung (`wB→wN` = Typ; `wB→bB` = Farbe). Summe ≤ (1−piece_acc auf echten Figuren).
+    - `occ_acc`: empty-vs-occupied per square correct (quality of the occupancy level; `occluded` counts as occupied).
+    - `piece_acc`: among the TRULY occupied squares, the piece is exactly right (quality of the piece level).
+    - `type_err` / `color_err`: fraction of true REAL pieces (12 classes) with type or pure
+      color confusion (`wB→wN` = type; `wB→bB` = color). Sum ≤ (1−piece_acc on real pieces).
     """
     occ_ok = occ_n = 0
-    piece_ok = occ_total = 0          # über WAHR besetzte Felder (inkl. occluded)
-    real_n = type_err_n = color_err_n = 0   # über wahre echte Figuren (12)
+    piece_ok = occ_total = 0          # over TRULY occupied squares (incl. occluded)
+    real_n = type_err_n = color_err_n = 0   # over true real pieces (12)
     for t, p in zip(trues, preds, strict=False):
         tl, pl = classes[t], classes[p]
         t_occ, p_occ = tl != "empty", pl != "empty"
@@ -119,7 +119,7 @@ def occupancy_piece_breakdown(classes: list[str], trues: list[int], preds: list[
         if t_occ:
             occ_total += 1
             piece_ok += int(t == p)
-            if tl != "occluded":                       # wahre echte Figur -> Typ/Farbe definiert
+            if tl != "occluded":                       # true real piece -> type/color defined
                 real_n += 1
                 if _piece_type(pl) != _piece_type(tl):
                     type_err_n += 1
@@ -136,7 +136,7 @@ def occupancy_piece_breakdown(classes: list[str], trues: list[int], preds: list[
 
 
 def _macro_recall(trues: list[int], preds: list[int], n_classes: int) -> float:
-    """Per-Klassen-Recall, gemittelt über alle Klassen mit Support (true>0)."""
+    """Per-class recall, averaged over all classes with support (true>0)."""
     per_class_correct = [0] * n_classes
     per_class_total = [0] * n_classes
     for t, p in zip(trues, preds, strict=False):
@@ -149,8 +149,8 @@ def _macro_recall(trues: list[int], preds: list[int], n_classes: int) -> float:
 
 def checkpoint_score(rows: list[dict], classes: list[str],
                      trues: list[int], preds: list[int]) -> tuple[float, float, float]:
-    """Sortierbarer Score für Checkpoint/Early-Stopping:
-    (occ_board_acc, occ_acc, macro_recall) — Occupancy zuerst, macro_recall als Tiebreaker."""
+    """Sortable score for checkpoint/early-stopping:
+    (occ_board_acc, occ_acc, macro_recall) — occupancy first, macro_recall as tiebreaker."""
     occ_ba = occupancy_board_acc(rows, classes, trues, preds)
     bd = occupancy_piece_breakdown(classes, trues, preds)
     mr = _macro_recall(trues, preds, len(classes))
@@ -158,8 +158,8 @@ def checkpoint_score(rows: list[dict], classes: list[str],
 
 
 def occupancy_board_acc(rows: list[dict], classes: list[str], trues: list[int], preds: list[int]) -> float:
-    """Board-Accuracy NUR auf der Occupancy-Stufe: ein Board ist korrekt, wenn alle 64 Felder
-    leer-vs-besetzt richtig sind (deutlich leichter als die volle Board-Accuracy)."""
+    """Board accuracy ONLY at the occupancy level: a board is correct if all 64 squares
+    are correctly classified as empty vs. occupied (significantly easier than full board accuracy)."""
     items = [((r["session_id"], str(r["frame"])),
               (classes[t] != "empty") == (classes[p] != "empty"))
               for r, t, p in zip(rows, trues, preds, strict=False)]
@@ -167,10 +167,10 @@ def occupancy_board_acc(rows: list[dict], classes: list[str], trues: list[int], 
 
 
 def grouped_board_acc(rows: list[dict], group_key: str) -> dict[str, float]:
-    """Board-Accuracy je Gruppe (z.B. `session_id` oder `camera`/`profile`). Boards bleiben über
-    (session_id, frame) definiert; nur die Aggregation wird nach `group_key` aufgeteilt.
+    """Board accuracy per group (e.g. `session_id` or `camera`/`profile`). Boards remain defined by
+    (session_id, frame); only the aggregation is split by `group_key`.
 
-    `rows`: Dicts mit `group_key`, `session_id`, `frame`, `correct` (bool)."""
+    `rows`: dicts with `group_key`, `session_id`, `frame`, `correct` (bool)."""
     groups: dict[str, list[tuple[tuple, bool]]] = defaultdict(list)
     for r in rows:
         groups[str(r[group_key])].append(((r["session_id"], str(r["frame"])), bool(r["correct"])))
@@ -178,8 +178,8 @@ def grouped_board_acc(rows: list[dict], group_key: str) -> dict[str, float]:
 
 
 def board_acc_spread(grouped: dict[str, float]) -> float:
-    """Spannweite (max−min) der gruppierten Board-Accuracy = Resilienzmaß (über Licht/Setup/Kamera).
-    0 bei < 2 Gruppen."""
+    """Spread (max−min) of grouped board accuracy = robustness metric (across lighting/setup/camera).
+    0 for < 2 groups."""
     if len(grouped) < 2:
         return 0.0
     vals = list(grouped.values())
