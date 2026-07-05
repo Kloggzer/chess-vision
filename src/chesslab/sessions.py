@@ -58,14 +58,9 @@ def _crop_files(session_id: str, paths: config.Paths) -> list[Path]:
 
 
 def _crop_count_from_manifest(session_id: str, paths: config.Paths, manifest=None) -> int:
-    mp = manifest or _manifest_path(paths)
-    if not mp.exists():
-        return 0
-    n = 0
-    for line in mp.read_text(encoding="utf-8").splitlines():
-        if line.strip() and json.loads(line).get("session_id") == session_id:
-            n += 1
-    return n
+    from .manifest_cache import session_crop_count
+
+    return session_crop_count(manifest or _manifest_path(paths), session_id)
 
 
 def _variant_tag(meta: dict, session_id: str) -> str | None:

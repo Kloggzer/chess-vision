@@ -15,7 +15,6 @@ from ..util import (
     _collect_state,
     _draw_move_arrow,
     _draw_target_pieces,
-    _manifest,
 )
 
 router = APIRouter()
@@ -161,7 +160,8 @@ def collect_finish():
     if n > 0:
         try:
             labeling_mod.run_slice(session=sid)
-            sliced = sum(1 for r in _manifest() if r.get("session_id") == sid)
+            from ...manifest_cache import session_crop_count
+            sliced = session_crop_count(config.DATA.manifests / "squares.jsonl", sid)
         except Exception as e:  # noqa: BLE001 — Komfortschritt, aber der Fehler muss sichtbar sein (H2)
             log.exception("Auto-Slice nach Collect-Finish fehlgeschlagen (Session %s)", sid)
             sliced_error = f"Auto-Slice fehlgeschlagen: {e}"

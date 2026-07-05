@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException
 
 from ..schemas import SplitRequest, TrainRequest
 from ..state import TRAIN, train_derive_and_update
-from ..util import _img_url, _manifest, _read_jsonl, _run_dirs
+from ..util import _img_url, _read_jsonl, _run_dirs
 
 log = logging.getLogger("chesslab.web")
 router = APIRouter()
@@ -71,7 +71,8 @@ def train(req: TrainRequest):
         return {"ok": True, "cmd": TRAIN.get("cmd")}
 
     # Legacy-Pfad (globales Manifest/Split) — bleibt für Rückwärtskompatibilität.
-    manifest_sessions = {r["session_id"] for r in _manifest()}
+    from ...manifest_cache import manifest_stats
+    manifest_sessions = set(manifest_stats(config.DATA.manifests / "squares.jsonl")["crops_by_session"])
     if not manifest_sessions:
         raise HTTPException(400, "Kein Datensatz — erst im Tab 'Sammeln' aufnehmen und slicen.")
     split_file = config.DATA.manifests / "split.json"
