@@ -2,7 +2,7 @@ import { useState } from "react";
 import { NavLink, Outlet, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Check, X, AlertTriangle, Images, Archive, ArchiveRestore, Trash2, Scissors,
+  Check, X, AlertTriangle, Images, Archive, ArchiveRestore, Trash2, Scissors, Loader2,
   Boxes, Hammer, RotateCw,
 } from "lucide-react";
 import { api, post, del } from "../api";
@@ -36,19 +36,27 @@ const useInvalidate = () => {
 export function SessionsPanel() {
   const invalidate = useInvalidate();
   const [note, setNote] = useState("");
+  const [noteKind, setNoteKind] = useState<"ok" | "err" | "busy" | "">("");
   const sessionsQ = useQuery({ queryKey: ["sessions-manage"], queryFn: () => api("/api/sessions/manage") });
   const sessions: any[] = sessionsQ.data ?? [];
 
-  const onOk = (msg: string) => { setNote(msg); invalidate("sessions-manage", "stats", "datasets"); };
-  const onErr = (e: any) => setNote("Error: " + e.message);
-  const sliceM = useMutation({ mutationFn: (sid: string) => post(`/api/sessions/${sid}/slice`), onSuccess: (r: any) => onOk(`„${r.session}" gesliced: ${r.crops} Crops.`), onError: onErr });
+  const onOk = (msg: string) => { setNote(msg); setNoteKind("ok"); invalidate("sessions-manage", "stats", "datasets"); };
+  const onErr = (e: any) => { setNote("Error: " + e.message); setNoteKind("err"); };
+  const onBusy = (msg: string) => { setNote(msg); setNoteKind("busy"); };
+  const sliceM = useMutation({ mutationFn: (sid: string) => post(`/api/sessions/${sid}/slice`), onMutate: (sid: string) => onBusy(`slicing "${sid}" ...`), onSuccess: (r: any) => onOk(`"${r.session}" sliced: ${r.crops} crops.`), onError: onErr });
   const archiveM = useMutation({ mutationFn: (sid: string) => post(`/api/sessions/${sid}/archive`), onSuccess: () => onOk("archived."), onError: onErr });
   const restoreM = useMutation({ mutationFn: (sid: string) => post(`/api/sessions/${sid}/restore`), onSuccess: () => onOk("restored — re-slice."), onError: onErr });
   const deleteM = useMutation({ mutationFn: (sid: string) => del(`/api/sessions/${sid}`), onSuccess: () => onOk("deleted."), onError: onErr });
 
   return (
-    <Card title="Sessions (Rohmaterial)" right={<span className="text-xs text-zinc-500">{sessions.length} session(s) · {note}</span>}>
-      {sessions.length === 0 ? <span className="text-sm text-zinc-500">Noch none Sessions — im Tab „Sammeln" aufnehmen.</span> : (
+    <Card title="Sessions (raw material)" right={<span className="text-xs text-zinc-500">{sessions.length} session(s)</span>}>
+      {note && (
+        <div className={`mb-2 rounded-lg px-3 py-1.5 text-sm ${
+          noteKind === "err" ? "bg-red-950/60 text-red-300"
+          : noteKind === "busy" ? "bg-sky-950/60 text-sky-300 animate-pulse"
+          : "bg-emerald-950/60 text-emerald-300"}`}>{note}</div>
+      )}
+      {sessions.length === 0 ? <span className="text-sm text-zinc-500">No sessions yet — capture some in the Collect tab.</span> : (
         <table className="w-full text-sm">
           <thead><tr className="text-zinc-500">
             <th className="text-left font-normal">Session</th><th className="text-left font-normal">Mode</th>
@@ -59,18 +67,26 @@ export function SessionsPanel() {
             {sessions.map((m) => (
               <tr key={m.session_id} className="border-t border-zinc-800">
                 <td className="py-1.5 text-zinc-200">{m.session_id}
-                  {m.archived && <span className="ml-2 rounded bg-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-300">archiviert</span>}
-                  {!m.archived && m.n_crops === 0 && <span className="ml-2 rounded bg-amber-900/60 px-1.5 py-0.5 text-[10px] text-amber-300">nicht gesliced</span>}
+                  {m.archived && <span className="ml-2 rounded bg-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-300">archived</span>}
+                  {!m.archived && m.n_crops === 0 && <span className="ml-2 rounded bg-amber-900/60 px-1.5 py-0.5 text-[10px] text-amber-300">not sliced</span>}
                 </td>
                 <td className="text-zinc-400">{m.mode ?? "—"}</td>
                 <td className="text-right tabular-nums text-zinc-400">{m.n_frames}</td>
                 <td className="text-right tabular-nums text-zinc-400">{m.archived ? "—" : m.n_crops}</td>
                 <td className="py-1"><div className="flex justify-end gap-1.5">
-                  {!m.archived && <Button onClick={() => sliceM.mutate(m.session_id)} className="px-2 py-1 text-xs"><Scissors className="h-3.5 w-3.5" /> {m.n_crops ? "Neu slicen" : "Slice"}</Button>}
+                  {!m.archived && (
+                    <Button onClick={() => sliceM.mutate(m.session_id)}
+                            disabled={sliceM.isPending}
+                            className="px-2 py-1 text-xs disabled:opacity-50">
+                      {sliceM.isPending && sliceM.variables === m.session_id
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <Scissors className="h-3.5 w-3.5" />} {m.n_crops ? "Re-slice" : "Slice"}
+                    </Button>
+                  )}
                   {m.archived
-                    ? <Button onClick={() => restoreM.mutate(m.session_id)} className="px-2 py-1 text-xs"><ArchiveRestore className="h-3.5 w-3.5" /> Wiederherstellen</Button>
+                    ? <Button onClick={() => restoreM.mutate(m.session_id)} className="px-2 py-1 text-xs"><ArchiveRestore className="h-3.5 w-3.5" /> Restore</Button>
                     : <Button onClick={() => archiveM.mutate(m.session_id)} className="px-2 py-1 text-xs"><Archive className="h-3.5 w-3.5" /> Archive</Button>}
-                  <Button onClick={() => window.confirm(`Session „${m.session_id}" endgültig löschen?`) && deleteM.mutate(m.session_id)} className="px-2 py-1 text-xs text-red-300 hover:text-red-200"><Trash2 className="h-3.5 w-3.5" /> Delete</Button>
+                  <Button onClick={() => window.confirm(`Delete session "${m.session_id}" permanently?`) && deleteM.mutate(m.session_id)} className="px-2 py-1 text-xs text-red-300 hover:text-red-200"><Trash2 className="h-3.5 w-3.5" /> Delete</Button>
                 </div></td>
               </tr>
             ))}
@@ -85,6 +101,7 @@ export function SessionsPanel() {
 export function DatasetsPanel() {
   const invalidate = useInvalidate();
   const [note, setNote] = useState("");
+  const [noteKind, setNoteKind] = useState<"ok" | "err" | "busy" | "">("");
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [sel, setSel] = useState<Record<string, boolean>>({});
