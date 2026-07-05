@@ -45,7 +45,7 @@ def dataset_dir(name: str, paths: config.Paths | None = None) -> Path:
 # --- Perceptual hash (dhash, 64-bit) --------------------------------------------------
 
 def dhash(img, size: int = 8) -> int:
-    """Difference-Hash: Bild auf (size+1 x size) grau, horizontale Nachbardifferenzen -> 64-bit."""
+    """Difference hash: image to (size+1 x size) gray, horizontal neighbor differences -> 64-bit."""
     import cv2
 
     g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
@@ -64,7 +64,7 @@ def _hamming(a: int, b: int) -> int:
 # --- Dedup ----------------------------------------------------------------------------
 
 def dedup_metadata(rows: list[dict], cap: int | None, seed: int = config.SEED) -> list[dict]:
-    """Max. `cap` Crops je (session_id, square, label) behalten (seeded). cap<=0/None -> alle."""
+    """Keep max. `cap` crops per (session_id, square, label) (seeded). cap<=0/None -> all."""
     if not cap or cap <= 0:
         return list(rows)
     rng = random.Random(seed)
@@ -74,14 +74,14 @@ def dedup_metadata(rows: list[dict], cap: int | None, seed: int = config.SEED) -
     kept: list[dict] = []
     for g in groups.values():
         if len(g) > cap:
-            g = sorted(g, key=lambda r: str(r.get("frame", "")))   # deterministisch
+            g = sorted(g, key=lambda r: str(r.get("frame", "")))   # deterministic
             g = rng.sample(g, cap)
         kept.extend(g)
     return kept
 
 
 def dedup_phash(rows: list[dict], hamming: int) -> list[dict]:
-    """Innerhalb jeder Klasse visuell fast gleiche Crops verwerfen (dhash, Hamming <= Schwelle)."""
+    """Discard visually nearly identical crops within each class (dhash, Hamming <= threshold)."""
     import cv2
 
     if hamming is None or hamming < 0:
@@ -95,11 +95,11 @@ def dedup_phash(rows: list[dict], hamming: int) -> list[dict]:
         for r in sorted(g, key=lambda r: (str(r.get("session_id")), str(r.get("frame")), r.get("square", ""))):
             img = cv2.imread(r["path"])
             if img is None:
-                kept.append(r)                  # nicht lesbar -> behalten, nicht still verlieren
+                kept.append(r)                  # not readable -> keep, don't silently lose
                 continue
             h = dhash(img)
             if any(_hamming(h, s) <= hamming for s in seen):
-                continue                        # zu ähnlich -> verwerfen
+                continue                        # too similar -> discard
             seen.append(h)
             kept.append(r)
     return kept
@@ -108,8 +108,8 @@ def dedup_phash(rows: list[dict], hamming: int) -> list[dict]:
 # --- Rotation-Augmentation ------------------------------------------------------------
 
 def _apply_rotations(rows: list[dict], rotations: tuple[int, ...], squares_dir: Path) -> list[dict]:
-    """Je Crop die gewünschten Drehungen erzeugen. rot=0 referenziert das Original (kein Kopieren);
-    90/180/270 werden als neue Dateien unter `squares_dir/<label>/` materialisiert."""
+    """Generate the desired rotations per crop. rot=0 references the original (no copy);
+    90/180/270 are materialized as new files under `squares_dir/<label>/`."""
     import cv2
 
     degs = [d % 360 for d in (rotations or (0,))]
@@ -157,15 +157,15 @@ def build_dataset(
     allow_degenerate: bool = False,
     force_train=None,
 ) -> dict:
-    """Datensatz <name> aus `session_ids` bauen: filtern -> dedup -> rotation -> manifest+split+stats.
+    """Build dataset <name> from `session_ids`: filter -> dedup -> rotation -> manifest+split+stats.
 
-    `source_manifest`: Crop-Pool, aus dem gefiltert wird (Default `data/manifests/squares.jsonl`).
-    Für den Bake-Off zeigt jede Variante auf ihr eigenes `squares__<tag>.jsonl`; bei identischen
-    `session_ids`+`seed` ist der sessionbasierte Split byte-identisch über alle Varianten.
+    `source_manifest`: crop pool from which to filter (default `data/manifests/squares.jsonl`).
+    For the bake-off, each variant points to its own `squares__<tag>.jsonl`; with identical
+    `session_ids`+`seed`, the session-based split is byte-identical across all variants.
     """
     name = _safe_name(name)
-    # Auflösung zur Laufzeit (nicht als Default-Arg): Default-Args binden beim Import und
-    # ignorieren ein später gepatchtes/geändertes config.DATA (Testbarkeit).
+    # Resolution at runtime (not as default arg): default args bind at import time and
+    # ignore a later patched/changed config.DATA (testability).
     paths = paths or config.DATA
     d = config.DEDUP
     per_cell_cap = d.per_cell_cap if per_cell_cap is None else per_cell_cap
@@ -183,13 +183,13 @@ def build_dataset(
     # Determine split assignment on the RAW, COMPLETE data (full 64-square boards). Dedup +
     # rotation afterwards ONLY on train — val/test remain complete (exactly 64 crops/frame, rot 0), otherwise
     # board_accuracy would compute on incomplete/duplicated boards (bug).
-    # rechnet board_accuracy auf unvollständigen/duplizierten Boards (Bug).
+    # board_accuracy would compute on incomplete/duplicated boards (bug).
     sizes = Counter(r["session_id"] for r in rows)
     splits = dataset_mod.assign_sessions_to_splits(dict(sizes), val_frac, test_frac, seed,
                                                    force_train=force_train)
     split_of = {s: name for name, sids in splits.items() for s in sids}
     train_raw = [r for r in rows if split_of.get(r["session_id"]) == "train"]
-    holdout = [r for r in rows if split_of.get(r["session_id"]) in ("val", "test")]  # vollständig, rot 0
+    holdout = [r for r in rows if split_of.get(r["session_id"]) in ("val", "test")]  # complete, rot 0
 
     train_rows = dedup_metadata(train_raw, per_cell_cap, seed)
     if phash_enabled:
@@ -200,7 +200,7 @@ def build_dataset(
     if ds.exists():
         shutil.rmtree(ds)                       # clean rebuild (old rotations gone)
     ds.mkdir(parents=True, exist_ok=True)
-    train_rows = _apply_rotations(train_rows, rotations, ds / "squares")   # Rotation NUR auf Train
+    train_rows = _apply_rotations(train_rows, rotations, ds / "squares")   # Rotation ONLY on train
     rows = train_rows + holdout
     n_final = len(rows)
 

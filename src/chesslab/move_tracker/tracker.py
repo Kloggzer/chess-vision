@@ -277,7 +277,7 @@ def move_prior(board: chess.Board, move: chess.Move) -> float:
 # =======================================================================================
 
 class Observation(NamedTuple):
-    """Eine Erkennungs-Beobachtung, die ein Observer (Diff/CNN) zurückgibt."""
+    """A detection observation returned by an Observer (Diff/CNN)."""
     move: chess.Move | None
     score: float
     second: float
@@ -288,8 +288,8 @@ class Observation(NamedTuple):
 
 def diff_observer(board: chess.Board, z: dict[str, float], z_thr: float,
                   k: float = 1.0) -> Observation:
-    """Pure: LL-Scoring auf z-Scores → beste/zweitbeste Hypothese (Observer-Seam, Spec 06/10).
-    `changed` = Felder über z_thr (nur Gate-/Debug-Info; das Scoring selbst ist weich)."""
+    """Pure: LL-scoring on z-scores → best/second-best hypothesis (Observer-Seam, Spec 06/10).
+    `changed` = squares above z_thr (gate/debug-info only; the scoring itself is soft)."""
     changed = frozenset(s for s, v in z.items() if v >= z_thr)
     scored = loglik_scores(board, z, z_thr, k)
     if not scored:
@@ -300,10 +300,10 @@ def diff_observer(board: chess.Board, z: dict[str, float], z_thr: float,
 
 
 class Confirmer:
-    """Extrahiertes confirm_frames-Voting (heutiges self._cand-Tupel).
+    """Extracted confirm_frames voting (like the former self._cand tuple).
 
-    Gleicher uci × confirm_frames → feed() returns True (bestätigt/committen).
-    Anderer uci dazwischen oder feed(None) → Reset.
+    Same uci × confirm_frames → feed() returns True (confirmed/commit).
+    Different uci in between or feed(None) → Reset.
     """
 
     def __init__(self, confirm_frames: int) -> None:
@@ -311,7 +311,7 @@ class Confirmer:
         self._cand: tuple[str, int] | None = None
 
     def feed(self, uci: str | None) -> bool:
-        """True = bestätigt (committen!). Kein Reset bei None → explizit reset() aufrufen."""
+        """True = confirmed (commit!). No reset on None — call reset() explicitly."""
         if uci is None:
             self._cand = None
             return False
@@ -324,7 +324,7 @@ class Confirmer:
 
     @property
     def count(self) -> int:
-        """Aktueller Zähler (0 wenn kein Kandidat)."""
+        """Current counter (0 when no candidate)."""
         return self._cand[1] if self._cand else 0
 
 
@@ -333,7 +333,7 @@ class Confirmer:
 # =======================================================================================
 
 class MoveTracker:
-    """Liest die Kamera, hält den Spielzustand und das letzte Overlay-Bild (thread-sicher)."""
+    """Reads the camera, holds game state and the last overlay image (thread-safe)."""
 
     def __init__(self, profile: str = "phone", source="0",
                  motion_thr: float = 3.0, settle_frames: int | None = None,
@@ -356,15 +356,15 @@ class MoveTracker:
         self.profile = ensure_profile(profile, source)
         _src = source if not str(source).isdigit() else int(source)
         _cap = open_source(_src)
-        # Grab-Latest NUR für Netz-Streams (URL): killt den akkumulierenden MJPEG-Rückstau
-        # (read() liefert sonst das älteste gepufferte JPEG -> Latenz). Lokale Kameras liefern
-        # ohnehin den aktuellen Frame; Wrappen würde nur einen Extra-Thread kosten.
+        # Grab-Latest ONLY for network streams (URL): kills the accumulating MJPEG backlog
+        # (read() otherwise returns the oldest buffered JPEG -> latency). Local cameras
+        # already provide the current frame; wrapping would only cost an extra thread.
         self.cap = LatestFrame(_cap) if isinstance(_src, str) and "://" in _src else _cap
         self.marker_tracker = make_tracker(self.profile)
         self.board = chess.Board()
         self.motion_thr = motion_thr
-        # Schnellere Defaults, wenn das CNN jeden Zug verifiziert (es ist dann die
-        # Vertrauensinstanz statt Mehr-Frame-Diff-Voting); sonst robustere Zähler.
+        # Faster defaults when CNN verifies every move (it then is the
+        # trust authority instead of multi-frame diff voting); otherwise more robust counters.
         _cnn = bool(cnn_run)
         self.settle_frames = settle_frames if settle_frames is not None else (2 if _cnn else 4)
         avg_frames = avg_frames if avg_frames is not None else (2 if _cnn else 3)
@@ -464,23 +464,23 @@ class MoveTracker:
         self.note = ""
         self._overlay_jpeg = None
         self._last_encode_ts = 0.0    # throttle overlay encode (not every loop under lock)
-        self._last_loop_ts = 0.0      # für FPS-Schätzung (EMA)
-        self._last_frame = None       # letztes Rohframe (für zuschaltbares Ausrichtungs-Bild)
-        self._last_corners = None     # zuletzt benutzte Brett-Ecken (a8,h8,h1,a1) im Rohframe
+        self._last_loop_ts = 0.0      # for FPS estimation (EMA)
+        self._last_frame = None       # last raw frame (for toggleable alignment image)
+        self._last_corners = None     # last used board corners (a8,h8,h1,a1) in raw frame
         self._running = False
         self._thread = None
 
-    # -- Geometrie --
+    # -- Geometry --
     def _warp(self, frame):
         if self.live_align:
-            # Marker live nachführen: der MarkerTracker glättet (Dead-Zone) und HÄLT verdeckte Ecken
-            # auf ihrer letzten guten Lage (kein Sprung auf 2-3-Marker-Näherung bei Handabdeckung).
-            # Geseedet aus der Kalibrierung -> startet sofort korrekt und korrigiert dann Kameradrift.
+            # Track markers live: the MarkerTracker smooths (dead-zone) and HOLDS occluded corners
+            # at their last good position (no jump to 2-3-marker approximation when hand covers them).
+            # Seeded from calibration -> starts immediately correct and then corrects camera drift.
             corners = board_corners_for_frame(frame, self.profile, self.marker_tracker)
             if corners is not None:
                 self._last_corners = corners
                 return warp_from_corners(frame, self.profile, corners)
-        # eingefroren bzw. Fallback, falls (noch) keine 4 Ecken bekannt sind: feste Kalibrier-Geometrie.
+        # frozen or fallback if (not yet) 4 corners known: fixed calibration geometry.
         corners = self.profile.image_corners
         if not corners or len(corners) < 4:
             return None
@@ -492,9 +492,9 @@ class MoveTracker:
         return cv2.GaussianBlur(g, (5, 5), 0)
 
     def _roi_motion(self, frame) -> float:
-        """Bewegung in einem um `motion_margin` erweiterten Ausschnitt des ROHEN Frames —
-        erfasst die Hand, bevor sie ein Feld verdeckt (Poggi). Downsampled (billig im Hot-Path).
-        Nur vom Loop-Thread benutzt (kein Lock nötig für _prev_roi)."""
+        """Motion in a region of the RAW frame extended by `motion_margin` —
+        captures the hand before it covers a square (Poggi). Downsampled (cheap in hot-path).
+        Only used by the loop thread (no lock needed for _prev_roi)."""
         corners = self._last_corners
         if not corners:
             return 0.0
@@ -514,13 +514,13 @@ class MoveTracker:
             return 0.0
         return float(cv2.absdiff(roi, prev).mean())
 
-    # -- Steuerung --
+    # -- Control --
     def reset_to_start(self, fen: str | None = None):
-        """Brett auf Start/FEN setzen und das aktuelle Kamerabild als Referenz nehmen
-        (= „ich habe gerade diese Stellung aufgebaut")."""
+        """Set board to start/FEN and use the current camera image as reference
+        (= "I just set up this position")."""
         with self.lock:
             self.board = chess.Board(fen) if fen else chess.Board()
-            self.history, self.last_move, self.note = [], None, "Referenz gesetzt"
+            self.history, self.last_move, self.note = [], None, "Reference set"
             self.ref_gray = self.ref_bgr = None
             self.ref_fen = None
             self.state = "waiting"
@@ -542,12 +542,12 @@ class MoveTracker:
         self._thread.start()
 
     def stop(self):
-        """Signal zum Beenden setzen und auf Thread-Ende warten (NIEMALS unter self.lock joinen)."""
+        """Set the shutdown signal and wait for the thread to finish (NEVER join under self.lock)."""
         self._running = False
         if self._thread is not None and self._thread.is_alive():
             self._thread.join(timeout=2)
 
-    # -- Hauptschleife --
+    # -- Main loop --
     def _loop(self):
         try:
             while self._running:
@@ -558,18 +558,18 @@ class MoveTracker:
                 warped = self._warp(frame)
                 if warped is None:
                     with self.lock:
-                        self.note = "warte auf Marker…"
+                        self.note = "waiting for markers…"
                     time.sleep(0.02)
                     continue
                 gray = self._gray(warped)
-                # Erweitertes Motion-Gate (Spec 10, Teil 6): Bewegung auch im Rand UM das Brett
-                # erfassen — die Hand wird so gesehen, BEVOR sie ein Feld verdeckt.
+                # Extended motion gate (Spec 10, part 6): also capture motion in the margin
+                # AROUND the board — the hand is seen BEFORE it covers a square.
                 motion_roi = self._roi_motion(frame)
 
                 now = time.time()
                 with self.lock:
                     self._last_frame = frame
-                    # FPS als EMA der Loop-Rate (nur Anzeige).
+                    # FPS as EMA of the loop rate (display only).
                     if self._last_loop_ts:
                         dt = now - self._last_loop_ts
                         if dt > 0:
@@ -581,42 +581,42 @@ class MoveTracker:
                     self.prev_gray = gray
                     self._motion = motion
 
-                    if motion > self.motion_thr:       # Hand/Kamera in Bewegung -> Puffer verwerfen
+                    if motion > self.motion_thr:       # hand/camera moving -> discard buffers
                         self.state, self.stable_count = "moving", 0
                         self._confirmer.reset()
                         self._gray_buf.clear()
                         self._bgr_buf.clear()
-                        self._changed, self._changed_vals = [], []   # Overlay/Debug leeren (Hand im Bild)
+                        self._changed, self._changed_vals = [], []   # clear overlay/debug (hand in image)
                         self._shadow_vetoed = []
                     else:
                         self.stable_count += 1
                         self._gray_buf.append(gray)
                         self._bgr_buf.append(warped)
                         if len(self._gray_buf) >= self.avg_frames:
-                            cur = self._mean_gray()    # gleitendes Mittel über N ruhige Frames (denoised)
+                            cur = self._mean_gray()    # moving average over N stable frames (denoised)
                             cur_bgr = self._mean_bgr()
                             self._last_cur, self._last_cur_bgr = cur, cur_bgr
                             if self.ref_gray is None:
-                                # Erst-/Neu-Aufnahme der Base-Truth: NICHT beim ersten ruhigen
-                                # Puffer greifen (eine noch aufliegende Hand würde ein verdecktes
-                                # Bild zur Referenz machen), sondern erst nach freier Sicht (Brett
-                                # länger ruhig). Der Nutzer hat die Stellung gerade aufgebaut.
+                                # Initial/re-capture of base truth: do NOT grab the buffer on the
+                                # first stable frame (a hand still covering the board would make a
+                                # obscured image the reference); wait for clear view (board stable
+                                # long enough). The user just set up the position.
                                 if self.stable_count >= self.settle_frames:
-                                    self._set_ref(cur, cur_bgr)  # Base-Truth = (Bild, aktuelle FEN)
+                                    self._set_ref(cur, cur_bgr)  # base truth = (image, current FEN)
                                 else:
-                                    self.note = "warte auf freie Sicht aufs Brett…"
+                                    self.note = "waiting for clear view of the board…"
                             elif self.stable_count >= self.settle_frames and self.state != "move":
-                                self._try_detect(cur, cur_bgr)  # committet erst nach Mehr-Frame-Bestätigung
+                                self._try_detect(cur, cur_bgr)  # only commits after multi-frame confirmation
                         if self.state != "move":
                             self.state = "waiting"
 
-                    # Overlay-Encode drosseln (JPEG ~5–15 ms): hält den Detektions-Hot-Path frei.
+                    # Throttle overlay encode (JPEG ~5–15 ms): keeps the detection hot-path clear.
                     if now - self._last_encode_ts >= 0.08:
                         self._overlay_jpeg = self._encode_overlay(warped)
                         self._last_encode_ts = now
 
-                # CNN AUSSERHALB des Locks. Verify eines Pending-Kandidaten hat Vorrang
-                # (Pre-Commit-Ghost-Filter); sonst Recovery/periodische Kontrolle.
+                # CNN OUTSIDE the lock. Verify of a pending candidate has priority
+                # (pre-commit ghost filter); otherwise recovery/periodic check.
                 if self.cnn_run and not self._cnn_failed:
                     if self._pending is not None:
                         self._verify_tick(frame)
@@ -627,25 +627,25 @@ class MoveTracker:
             if hasattr(self.cap, "release"):
                 self.cap.release()
 
-    # -- CNN-Recovery & periodische Kontrolle (Spec 09) --
+    # -- CNN-Recovery & periodic check (Spec 09) --
     def _resolve_device(self) -> str:
-        """`device` einmal auflösen: 'auto' -> 'cuda' wenn verfügbar, sonst 'cpu'. torch wird
-        erst hier importiert (lazy), also nicht im Hot-Path. NIE unter self.lock aufrufen."""
+        """Resolve `device` once: 'auto' -> 'cuda' if available, else 'cpu'. torch is
+        imported here (lazy), so not in the hot-path. NEVER call under self.lock."""
         if self._device_resolved is not None:
             return self._device_resolved
         dev = (self.device or "auto").lower()
         if dev == "auto":
             try:
-                import torch  # lazy: erst beim ersten CNN-Einsatz
+                import torch  # lazy: only on first CNN use
                 dev = "cuda" if torch.cuda.is_available() else "cpu"
-            except Exception:  # noqa: BLE001 — kein torch -> CPU (Feature scheitert später sauber)
+            except Exception:  # noqa: BLE001 — no torch -> CPU (feature fails cleanly later)
                 dev = "cpu"
         self._device_resolved = dev
         return dev
 
     def _ensure_cnn(self):
-        """CnnRecovery lazy bauen; bei fehlendem/kaputtem Run Feature still deaktivieren.
-        NIE unter self.lock aufrufen."""
+        """Build CnnRecovery lazily; silently deactivate the feature if the run is missing/broken.
+        NEVER call under self.lock."""
         if self.recovery is not None:
             return self.recovery
         try:
@@ -659,17 +659,17 @@ class MoveTracker:
                                         min_confident_board=self.min_confident_board,
                                         min_confident_recovery=self.min_confident_recovery)
             return self.recovery
-        except Exception as e:  # noqa: BLE001 — Feature aus, Tracker läuft normal weiter
+        except Exception as e:  # noqa: BLE001 — feature off, tracker continues normally
             self._cnn_failed = True
             with self.lock:
-                self.note = f"CNN-Recovery deaktiviert: {e}"
+                self.note = f"CNN recovery disabled: {e}"
             return None
 
     def _cnn_tick(self, frame) -> None:
-        """Ein Beobachtungs-Zyklus, eventgetrieben — nie im Per-Frame-Hot-Path:
-        - Recovery: Diff-Pfad persistent stuck (no_legal_move/too_many_changed) + Cooldown.
-        - Kontrolle: Brett ruhig und seit cnn_check_interval_s nicht mehr geprüft.
-        Ablauf: Snapshot unter Lock → observe OHNE Lock → unter Lock FEN revalidieren + werten."""
+        """An observation cycle, event-driven — never in the per-frame hot-path:
+        - Recovery: diff path persistently stuck (no_legal_move/too_many_changed) + cooldown.
+        - Check: board quiet and not checked since cnn_check_interval_s.
+        Flow: snapshot under lock → observe WITHOUT lock → under lock FEN revalidate + evaluate."""
         now = time.time()
         with self.lock:
             stable = len(self._gray_buf) >= self.avg_frames and self.state in ("waiting", "move")
@@ -686,19 +686,19 @@ class MoveTracker:
         if recovery is None:
             return
         try:
-            obs = recovery.observe(frame, corners)          # teuer, bewusst ohne Lock
-        except Exception as e:  # noqa: BLE001 — einzelner Fehlversuch, Feature bleibt an
+            obs = recovery.observe(frame, corners)          # expensive, intentionally without lock
+        except Exception as e:  # noqa: BLE001 — single failure, feature stays on
             with self.lock:
                 self._last_cnn_ts = now
-            log.warning("CNN-Beobachtung fehlgeschlagen: %s", e)
+            log.warning("CNN observation failed: %s", e)
             return
-        # Identitäts-basierte Auswertung (rein) — Fallback auf Occupancy, wenn der Run keine
-        # Figuren-Identität liefert (obs.label is None).
+        # Identity-based evaluation (pure) — fallback to occupancy if the run does not provide
+        # piece identity (obs.label is None).
         has_identity = getattr(obs, "label", None) is not None
         if has_identity:
             matches = recovery.board_matches_identity(self.board, obs)
-            # 2-Ply-Suche (Spec 10, Teil 3): erklärt kein einzelner Zug die Beobachtung,
-            # werden Zugpaare probiert — rettet den Fall „Antwortzug kam vor dem Commit".
+            # 2-ply search (Spec 10, part 3): if no single move explains the observation,
+            # move pairs are tried — saves the case "reply move arrived before commit".
             cnn_moves, agreement, _second = recovery.derive_moves_identity(self.board, obs,
                                                                            max_plies=2)
             conflicts = matches["conflicts"]
@@ -712,15 +712,15 @@ class MoveTracker:
 
         with self.lock:
             self._last_cnn_ts = now
-            if self.board.fen() != fen:                     # Zustand hat sich geändert → verwerfen
+            if self.board.fen() != fen:                     # state changed → discard
                 self._recovery_confirmer.reset()
                 return
             self._cnn_agreement = agreement
             self._cnn_best_move = " ".join(m.uci() for m in cnn_moves) if cnn_moves else None
 
             if match_ok:
-                # „Nichts-verändert": CNN bestätigt, dass das Brett dem Spielzustand entspricht.
-                # Der Diff hing an Schatten/Drift fest -> Referenz nachziehen, KEIN Zug.
+                # "Nothing-changed": CNN confirms the board matches game state.
+                # The diff was stuck on shadow/drift -> pull reference forward, NO move.
                 self.cnn_status, self.cnn_conflicts = "ok", []
                 self._recovery_confirmer.reset()
                 if self._stuck_reason is not None and self._last_cur is not None:
@@ -728,10 +728,10 @@ class MoveTracker:
                     self._clear_stuck()
                     self._confirmer.reset()
                     self._verify_state = "resynced"
-                    self.note = "CNN: Brett unverändert — Referenz nachgezogen (kein Zug)"
+                    self.note = "CNN: board unchanged — reference pulled forward (no move)"
                 return
 
-            if inconclusive:                                # zu viel verdeckt → keine Aussage
+            if inconclusive:                                # too occluded → no statement
                 self._recovery_confirmer.reset()
                 return
 
@@ -741,21 +741,21 @@ class MoveTracker:
                 self.note = f"CNN check: board deviates ({shown}) — check pieces or resync"
                 self._recovery_confirmer.reset()
                 return
-            key = " ".join(m.uci() for m in cnn_moves)      # Zugfolge als Voting-Schlüssel
-            if not self._recovery_confirmer.feed(key):      # Voting statt Single-Shot
+            key = " ".join(m.uci() for m in cnn_moves)      # move sequence as voting key
+            if not self._recovery_confirmer.feed(key):      # voting instead of single-shot
                 self.note = (f"CNN recovery checks {key}… "
                              f"({self._recovery_confirmer.count}/{self.confirm_frames})")
                 return
-            # Atomarer Commit der Zugfolge (1 oder 2 Halbzüge, Reihenfolge durch side-to-move fixiert).
+            # Atomic commit of the move sequence (1 or 2 half-moves, order fixed by side-to-move).
             sans = []
             for mv in cnn_moves:
                 sans.append(self.board.san(mv))
                 self.board.push(mv)
             self.history.extend(sans)
             self.last_move = cnn_moves[-1].uci()
-            # Referenz NICHT verwerfen (Spec 10, Teil 3): der Frame, auf dem die Recovery
-            # entschieden hat, ist per FEN-Revalidierung stellungsaktuell → sofort als
-            # Base-Truth setzen, statt blind auf die nächste Settle-Phase zu warten.
+            # Do NOT discard reference (Spec 10, part 3): the frame on which the recovery
+            # decided is position-current via FEN revalidation → set immediately as
+            # base truth, instead of blindly waiting for the next settle phase.
             if self._last_cur is not None:
                 self._set_ref(self._last_cur, self._last_cur_bgr)
             else:
@@ -768,21 +768,21 @@ class MoveTracker:
             self.cnn_status, self.cnn_conflicts = "ok", []
             self._confirmer.reset()
             self._clear_stuck()
-            self.note = (f"Zug per CNN-Recovery erkannt: {' + '.join(sans)} "
-                         f"(Übereinstimmung {agreement:.0%})")
+            self.note = (f"Move detected by CNN recovery: {' + '.join(sans)} "
+                         f"(agreement {agreement:.0%})")
 
     def _verify_tick(self, frame) -> None:
-        """Pre-Commit-Verifikation eines Diff-Kandidaten (`self._pending`) durchs CNN, autonom
-        über mehrere Frames — kein Nutzer-Input. Ablauf wie _cnn_tick: Snapshot unter Lock →
-        observe OHNE Lock → unter Lock FEN revalidieren + Mehr-Frame-Abstimmung werten.
+        """Pre-commit verification of a diff candidate (`self._pending`) via CNN, autonomously
+        over several frames — no user input. Flow like _cnn_tick: snapshot under lock →
+        observe WITHOUT lock → under lock FEN revalidate + multi-frame voting evaluate.
 
-        Entscheidung je Beobachtung:
-          - verify_move(pending) hoch & CNN-Eigenvorschlag ∈ {pending, None} → Vote pending.
-          - CNN-Eigenvorschlag ist ein ANDERER eindeutiger Zug → Vote diesen (Diff war Ghost;
-            CNN kennt den echten Zug → Recovery wendet ihn an).
-          - sonst unsicher → kein Vote (nächster Frame = neues Bild).
-        `_recovery_confirmer` sammelt gleiche Votes bis confirm_frames → Commit. Bleibt es über
-        `verify_window` Frames unentschieden → Kandidat als Ghost verwerfen, Base-Truth bleibt."""
+        Decision per observation:
+          - verify_move(pending) high & CNN's own suggestion ∈ {pending, None} → vote pending.
+          - CNN's own suggestion is a DIFFERENT unambiguous move → vote that (diff was ghost;
+            CNN knows the real move → recovery applies it).
+          - otherwise uncertain → no vote (next frame = fresh image).
+        `_recovery_confirmer` collects matching votes up to confirm_frames → Commit. If it remains
+        undecided over `verify_window` frames → discard candidate as ghost, base truth stays."""
         time.time()
         with self.lock:
             pending = self._pending
@@ -792,8 +792,8 @@ class MoveTracker:
         if corners is None:
             return
         recovery = self._ensure_cnn()
-        if recovery is None:                                # CNN nicht verfügbar → Fallback:
-            with self.lock:                                 # Kandidaten direkt committen.
+        if recovery is None:                                # CNN not available → fallback:
+            with self.lock:                                 # commit candidate directly.
                 if self._pending is pending and self.board.fen() == pending["fen"]:
                     self._commit_move(chess.Move.from_uci(pending["uci"]), pending["cur"],
                                       pending.get("cur_bgr"))
@@ -802,10 +802,10 @@ class MoveTracker:
             _t0 = time.perf_counter()
             obs = recovery.observe(frame, corners)          # teuer, bewusst ohne Lock
             infer_ms = (time.perf_counter() - _t0) * 1000.0
-        except Exception as e:  # noqa: BLE001 — einzelner Fehlversuch, nächster Frame erneut
-            log.warning("CNN-Verify-Beobachtung fehlgeschlagen: %s", e)
+        except Exception as e:  # noqa: BLE001 — individual failure, retry on next frame
+            log.warning("CNN verify observation failed: %s", e)
             return
-        # Auswertung (rein, per IDENTITÄT) außerhalb des Locks vorbereiten.
+        # Prepare evaluation (purely by IDENTITY) outside the lock.
         pend_mv = chess.Move.from_uci(pending["uci"])
         agree, n = recovery.verify_move_identity(self.board, pend_mv, obs)
         matches = recovery.board_matches_identity(self.board, obs)
@@ -817,7 +817,7 @@ class MoveTracker:
             self._cnn_agreement = agree
             self._cnn_best_move = cnn_uci
             if self._pending is not pending or self.board.fen() != pending["fen"]:
-                return                                      # Zustand hat sich geändert → verwerfen
+                return                                      # state changed → discard
             pending["frames"] += 1
 
             def _commit(note_suffix: str, state: str, status: str, conflicts=None,
@@ -830,8 +830,8 @@ class MoveTracker:
                 if note_suffix:
                     self.note += note_suffix
 
-            # 1) Schatten / kein Zug: CNN sieht das GEGLAUBTE Brett unverändert (Identität gleich)
-            #    → NICHT committen, sondern Referenz nachziehen. Zuverlässiger Schatten-Killer.
+            # 1) Shadow/no move: CNN sees the BELIEVED board unchanged (identity matches)
+            #    → do NOT commit, instead pull reference forward. Reliable shadow killer.
             if matches["match"]:
                 self._pending = None
                 self._confirmer.reset()
@@ -840,44 +840,44 @@ class MoveTracker:
                 self._set_ref(pending["cur"], pending.get("cur_bgr"))
                 self._verify_state = "shadow"
                 self.cnn_status, self.cnn_conflicts = "shadow", []
-                self.note = "Schatten/kein Zug (CNN: Brett unverändert)"
+                self.note = "Shadow/no move (CNN: board unchanged)"
                 return
 
-            # 2) Diff durch Identität bestätigt → Commit.
+            # 2) Diff confirmed by identity → Commit.
             if agree >= recovery.min_agreement:
                 _commit("", "confirmed", "ok")
                 return
 
-            # 3) Gegenkandidat (Spec 10, Teil 5): das CNN sieht eindeutig einen ANDEREN legalen
-            #    Zug und dessen berührte Felder bestätigen ihn belastbar → CNN überstimmt den
-            #    Diff-Kandidaten (statt „Diff gewinnt immer"). Löst u.a. Promotion-Varianten
-            #    (Zielfeld-Label) und ähnlich aussehende Züge.
+            # 3) Counter-candidate (Spec 10, part 5): the CNN clearly sees a DIFFERENT legal
+            #    move and its touched squares reliably confirm it → CNN overrules the
+            #    diff candidate (instead of "diff always wins"). Resolves promotion variants
+            #    (target square label) and similar-looking moves.
             if cnn_mv is not None and cnn_uci != pending["uci"]:
                 agree_alt, n_alt = recovery.verify_move_identity(self.board, cnn_mv, obs)
                 if agree_alt >= recovery.min_agreement and n_alt >= 2:
                     old_san = self.board.san(pend_mv)
-                    _commit(f"  (CNN hat {old_san} überstimmt)", "overruled", "ok", move=cnn_mv)
-                    log.info("CNN hat Diff-Kandidat überstimmt: %s → %s", pending["uci"], cnn_uci)
+                    _commit(f"  (CNN overruled {old_san})", "overruled", "ok", move=cnn_mv)
+                    log.info("CNN overruled diff candidate: %s → %s", pending["uci"], cnn_uci)
                     return
 
-            # 4) Berührte Felder belastbar, aber Identität passt NICHT → Diff gewinnt (Nutzer-
-            #    Entscheidung), CNN warnt nur (mismatch, Alternative in der Debug-Card).
+            # 4) Touched squares reliable, but identity does NOT match → diff wins (user
+            #    decision), CNN only warns (mismatch, alternative in debug card).
             if n >= 2:
-                _commit("  (CNN unstimmig — Diff übernommen)", "mismatch", "mismatch",
+                _commit("  (CNN discrepant — diff accepted)", "mismatch", "mismatch",
                         [] if cnn_uci is None else [cnn_uci])
                 return
 
-            # 5) Verdeckung/geringe Konfidenz auf den Endpunkten → nicht blockieren: warten,
-            #    nach `verify_window` dem Diff vertrauen.
+            # 5) Occlusion/low confidence on the endpoints → do not block: wait,
+            #    after `verify_window` trust the diff.
             if pending["frames"] >= self.verify_window:
-                _commit("  (CNN unsicher — Diff übernommen)", "confirmed", "ok")
+                _commit("  (CNN uncertain — diff accepted)", "confirmed", "ok")
             else:
-                self.note = (f"prüfe {self.board.san(pend_mv)} per CNN… "
+                self.note = (f"checking {self.board.san(pend_mv)} via CNN… "
                              f"({pending['frames']}/{self.verify_window})")
 
     def resync_cnn(self) -> dict:
-        """Manueller „Resync per CNN"-Button: einmalige Kontrolle, wendet einen EINDEUTIG
-        erklärenden Zug direkt an (bewusst Single-Shot — expliziter Nutzerwunsch)."""
+        """Manual "Resync via CNN" button: one-time check, applies an UNAMBIGUOUSLY
+        explanatory move directly (intentionally single-shot — explicit user request)."""
         if not self.cnn_run or self._cnn_failed:
             return {"ok": False, "error": "CNN not configured (--cnn-run) or disabled"}
         with self.lock:
@@ -885,22 +885,22 @@ class MoveTracker:
             corners = self._last_corners
             fen = self.board.fen()
         if frame is None or corners is None:
-            return {"ok": False, "error": "kein Kamerabild/keine Ecken — Tracker gestartet?"}
+            return {"ok": False, "error": "no camera image/no corners — tracker started?"}
         recovery = self._ensure_cnn()
         if recovery is None:
-            return {"ok": False, "error": "CNN-Recovery deaktiviert (Modell fehlt/kaputt)"}
+            return {"ok": False, "error": "CNN recovery disabled (model missing/broken)"}
         try:
             obs = recovery.observe(frame, corners)
         except Exception as e:  # noqa: BLE001
-            return {"ok": False, "error": f"CNN-Beobachtung fehlgeschlagen: {e}"}
+            return {"ok": False, "error": f"CNN observation failed: {e}"}
         with self.lock:
             self._last_cnn_ts = time.time()
             if self.board.fen() != fen:
-                return {"ok": False, "error": "Brett hat sich während der Analyse geändert"}
+                return {"ok": False, "error": "Board changed during analysis"}
             res = recovery.resync_check(self.board, obs)
             if res["match"]:
                 self.cnn_status, self.cnn_conflicts = "ok", []
-                self.note = "CNN-Resync: Brett stimmt mit dem Spielzustand überein"
+                self.note = "CNN resync: board matches game state"
                 return {"ok": True, "match": True, "conflicts": [], "move": None,
                         "agreement": res["agreement"], "note": self.note}
             self.cnn_status, self.cnn_conflicts = "mismatch", res["conflicts"]
@@ -918,10 +918,10 @@ class MoveTracker:
                 self.cnn_status, self.cnn_conflicts = "ok", []
                 self._confirmer.reset()
                 self._clear_stuck()
-                self.note = f"CNN-Resync: Zug übernommen: {san} (Übereinstimmung {res['agreement']:.0%})"
+                self.note = f"CNN resync: move applied: {san} (agreement {res['agreement']:.0%})"
             else:
                 shown = ", ".join(res["conflicts"][:4]) + ("…" if len(res["conflicts"]) > 4 else "")
-                self.note = f"CNN-Resync: kein eindeutiger Zug — Konflikte auf {shown}"
+                self.note = f"CNN resync: no unambiguous move — conflicts on {shown}"
             return {"ok": True, "match": False, "conflicts": res["conflicts"],
                     "move": res["move"], "agreement": res["agreement"], "note": self.note}
 
@@ -936,10 +936,10 @@ class MoveTracker:
             [[float(x), float(y)] for x, y in self._last_corners]
 
     def _corners_jumped(self) -> bool:
-        """True, wenn sich eine Warp-Ecke seit der Referenzaufnahme um > corner_jump_px bewegt
-        hat (Marker verloren/wiedergefunden, Kamera angestoßen). Dann ist die Base-Truth
-        geometrisch UNBRAUCHBAR — gegen sie zu diffen erzeugt Phantom-Änderungen auf halben
-        Rängen (beobachtet in clip03: a1-Marker intermittierend, ~130 px Sprung)."""
+        """True if a warp corner has moved by > corner_jump_px since the reference capture
+        (marker lost/refound, camera nudged). Then the base truth is geometrically
+        UNUSABLE — diffing against it produces phantom changes on half-ranks
+        (observed in clip03: a1-marker intermittent, ~130 px jump)."""
         if self._ref_corners is None or self._last_corners is None:
             return False
         for (rx, ry), (cx, cy) in zip(self._ref_corners, self._last_corners, strict=False):
@@ -948,73 +948,73 @@ class MoveTracker:
         return False
 
     def _mean_gray(self):
-        """Gleitendes Mittel der gepufferten ruhigen Graubilder -> dämpft Sensor-/Lichtrauschen und
-        Rest-Jitter der Marker-Nachführung, sodass die Per-Feld-Differenz nicht auf einem einzelnen
-        verrauschten Frame beruht."""
+        """Moving average of the buffered stable gray images -> dampens sensor/light noise and
+        residual jitter from marker tracking, so the per-square diff does not rely on a single
+        noisy frame."""
         return np.mean(np.stack(list(self._gray_buf)), axis=0).astype(np.uint8)
 
     def _mean_bgr(self):
-        """Gleitendes Mittel der ruhigen Farbframes (für den HSV-Schatten-Test)."""
+        """Moving average of the stable color frames (for the HSV shadow test)."""
         if not self._bgr_buf:
             return None
         return np.mean(np.stack(list(self._bgr_buf)), axis=0).astype(np.uint8)
 
     def _commit_move(self, move: chess.Move, cur, cur_bgr=None, recovered: bool = False,
                      prior_used: bool = False) -> None:
-        """Zug anwenden und Base-Truth = (Bild, FEN nach Zug) setzen. Unter self.lock.
-        Von beiden Pfaden genutzt: Direkt-Commit (kein CNN) und verifizierter Verify-Commit."""
+        """Apply move and set base truth = (image, FEN after move). Under self.lock.
+        Used by both paths: direct commit (no CNN) and verified verify-commit."""
         san = self.board.san(move)
         self.board.push(move)
         self.history.append(san)
         self.last_move = move.uci()
-        # Referenz aus dem Erkennungs-Frame: kann Hand-Reste enthalten (langsame Hand unterm
-        # Motion-Gate), aber Neu-Aufnahme erwischt bei schnellem Spiel dieselben Hände und
-        # macht den Tracker zusätzlich blind (clip01-Replay: schlechter). Reste heilt der
-        # per-Feld-Anomalie-Patcher (_maybe_patch_anomaly) bzw. die CNN-Recovery.
+        # Reference from the detection frame: may contain hand residue (slow hand under
+        # the motion gate), but re-capturing in fast play catches the same hands and
+        # makes the tracker additionally blind (clip01-replay: worse). Residue is healed by
+        # the per-square anomaly patcher (_maybe_patch_anomaly) or the CNN recovery.
         self._set_ref(cur, cur_bgr)
         self.state = "move"
         self._confirmer.reset()
-        self._clear_stuck()          # setzt auch _recovery_confirmer zurück
+        self._clear_stuck()          # also resets _recovery_confirmer
         self._pending = None
         self._anomaly_since = {}
         self._verify_state = "confirmed"
         self.recovered_last = recovered
-        # Prior-Entscheidungen sichtbar machen (Spec 10, Teil 2): der Prior kann bei echtem
-        # Bild-Gleichstand raten — der Nutzer soll sehen, dass Undo naheliegt.
+        # Make prior decisions visible (Spec 10, part 2): the prior can guess on genuine
+        # image tie — the user should see that undo is advisable.
         self.prior_last = prior_used
-        self.note = f"Zug erkannt: {san}" + (" (CNN-Recovery)" if recovered else "") \
-            + (" (per Prior entschieden — ggf. Undo)" if prior_used else "")
+        self.note = f"Move detected: {san}" + (" (CNN recovery)" if recovered else "") \
+            + (" (decided by prior — undo if needed)" if prior_used else "")
         if self.board.is_checkmate():
-            self.note += " — Schachmatt!"
+            self.note += " — Checkmate!"
 
     def _try_detect(self, cur, cur_bgr=None):
-        # --- Pending-Verifikation/-Promotion läuft: keinen neuen Kandidaten erzeugen. ---
+        # --- Pending verification/promotion running: do not generate a new candidate. ---
         if self._pending is not None or self._promo_pending is not None:
             return
 
-        # --- Invariante: Base-Truth ist (Bild, FEN). Passt die FEN nicht mehr zum
-        #     aktuellen Brett, ist ref_gray stale -> Neu-Aufnahme erzwingen statt gegen
-        #     eine veraltete Referenz zu detektieren. ---
+        # --- Invariant: base truth is (image, FEN). If the FEN no longer matches the
+        #     current board, ref_gray is stale -> force re-capture instead of detecting
+        #     against an outdated reference. ---
         if self.ref_gray is None or self.ref_fen != self.board.fen():
             self.ref_gray = self.ref_bgr = None
             self.ref_fen = None
             return
 
-        # --- Geometrie-Invalidierung: Warp-Ecken sind seit der Referenzaufnahme gesprungen
-        #     (Marker wiedergefunden/Kamera bewegt) → Base-Truth neu aufnehmen statt Phantom-
-        #     Diffs zu jagen. Zug-Evidenz geht dabei nicht verloren: der Zug bleibt auf dem
-        #     Brett sichtbar und wird gegen die NEUE Referenz beim nächsten Zug erkannt. ---
+        # --- Geometry invalidation: warp corners have jumped since the reference capture
+        #     (marker refound/camera moved) → re-capture base truth instead of chasing phantom
+        #     diffs. Move evidence is not lost: the move remains visible on the board and
+        #     will be detected against the NEW reference on the next move. ---
         if self._corners_jumped():
             self.ref_gray = self.ref_bgr = None
             self.ref_fen = None
             self._confirmer.reset()
             self._clear_stuck()
-            self.note = "Brett-Geometrie verschoben (Marker/Kamera) — Referenz wird neu aufgenommen"
+            self.note = "Board geometry shifted (marker/camera) — re-capturing reference"
             return
 
-        # --- Diffs → Median-Normalisierung (globaler Belichtungssprung) → z-Scores
-        #     (per-Feld-Rauschmodell; lokaler Drift/Feld-Charakteristik). Alle Gates und
-        #     das LL-Scoring arbeiten auf DENSELBEN z-Werten. ---
+        # --- Diffs → median normalization (global exposure jump) → z-scores
+        #     (per-square noise model; local drift/square characteristics). All gates and
+        #     the LL-scoring operate on the SAME z-values. ---
         _t0 = time.perf_counter()
         diffs = per_square_diff(self.ref_gray, cur, self.profile.board_size,
                                 self.profile.white_pov, extend_up=self.overhang)
@@ -1022,17 +1022,17 @@ class MoveTracker:
         z = self.noise.z(diffs)
         self._diff_ms = (time.perf_counter() - _t0) * 1000.0
 
-        # --- Kandidaten-Felder (z über Schwelle); Debug zeigt auch knapp darunter ---
+        # --- Candidate squares (z above threshold); debug also shows those just below ---
         changed = {s for s, v in z.items() if v >= self.z_thr}
         self._changed_vals = sorted(
             ((s, round(v, 1)) for s, v in z.items() if v >= self.z_thr * 0.5),
             key=lambda kv: -kv[1])[:8]
 
-        # --- Cast-Shadow-Veto (HSV nach Cucchiara) + Census-Bestätigung ---
-        # Vetoed Felder verlassen nur die changed-Menge (Gates); ihre z-Werte bleiben fürs
-        # Scoring erhalten. WICHTIG: ein GERÄUMTES Feld sieht dem HSV-Test oft wie eine
-        # Abdunkelung aus (Figur weg → Brettfarbe) — würde man z nullen, verlöre der echte
-        # Zug seine from-Evidenz. Bewährte Semantik aus v1 beibehalten.
+        # --- Cast shadow veto (HSV per Cucchiara) + census confirmation ---
+        # Vetoed squares only leave the changed set (gates); their z-values are preserved
+        # for scoring. IMPORTANT: a VACATED square often looks like a darkening to the HSV
+        # test (piece gone → board color) — zeroing z would lose the real move's from-evidence.
+        # Proven semantics from v1 retained.
         self._shadow_vetoed = []
         if cur_bgr is not None and self.ref_bgr is not None and changed:
             cens = per_square_census_change(self.ref_gray, cur, self.profile.board_size,
@@ -1045,15 +1045,15 @@ class MoveTracker:
                 self._shadow_vetoed = sorted(veto)
 
         self._changed = sorted(changed)
-        # Rauschmodell lernt auf JEDEM stabilen Frame die Nicht-Kandidaten-Felder — auch im
-        # Stuck-Zustand, sonst kann Jitter (Marker/Belichtung) nie wegadaptiert werden.
+        # Noise model learns on EVERY stable frame the non-candidate squares — even in the
+        # stuck state, otherwise jitter (marker/exposure) can never be adapted away.
         self.noise.update(diffs, exclude=changed)
 
-        # --- LL-Scoring: beste/zweitbeste Hypothese relativ zu „kein Zug". Viabel ist ein
-        #     Zug nur, wenn BEIDE Endpunkte wenigstens schwache Evidenz tragen (z ≥ z_thr/2,
-        #     Spec 10 Teil 1): sonst würde ein einzelnes heißes Feld (Nudge!) Züge mit völlig
-        #     kalten Zielfeldern netto-positiv scoren. Weiß-auf-weiß (Ziel knapp unter z_thr)
-        #     bleibt viabel — genau der Fall, den der alte −1000-Cutoff gekillt hat. ---
+        # --- LL-scoring: best/second-best hypothesis relative to "no move". A move is viable
+        #     only if BOTH endpoints carry at least weak evidence (z ≥ z_thr/2,
+        #     Spec 10 part 1): otherwise a single hot square (nudge!) would score moves with
+        #     completely cold target squares net-positive. White-on-white (target just below z_thr)
+        #     remains viable — exactly the case the old −1000 cutoff killed. ---
         scored = loglik_scores(self.board, z, self.z_thr, self.ll_k)
         soft = self.z_thr * 0.5
         viable = [(mv, s) for mv, s in scored
@@ -1065,26 +1065,26 @@ class MoveTracker:
         self._second_score = second
         self._candidate_uci = obs_move.uci() if obs_move else None
 
-        # --- max_changed gate: Verdeckungs-/Instabilitäts-Gate (Base-Truth bleibt). Läuft
-        #     NACH dem Scoring, damit der Anomalie-Patcher weiß, ob ein viabler Zug die Lage
-        #     erklärt (dann niemals patchen). ---
+        # --- max_changed gate: occlusion/instability gate (base truth stays). Runs
+        #     AFTER scoring so the anomaly patcher knows whether a viable move explains
+        #     the situation (then never patch). ---
         if len(changed) > self.max_changed:
-            # Zugpaar-Versuch (schnelles Spiel: 2 Halbzüge = bis zu ~8 geänderte Felder),
-            # bevor die Lage als verdeckt/instabil gilt.
+            # Move pair attempt (fast play: 2 half-moves = up to ~8 changed squares),
+            # before the situation is considered occluded/unstable.
             if len(changed) <= self.max_changed + 2 and self._try_pair(z, best, cur, cur_bgr):
                 return
             self._confirmer.reset()
-            self._mark_stuck("too_many_changed")   # Spec 09: Recovery-Trigger via _cnn_tick
+            self._mark_stuck("too_many_changed")   # Spec 09: recovery trigger via _cnn_tick
             self._maybe_patch_anomaly(changed, best, cur, cur_bgr)
             if self._stuck_reason is not None:
-                self.note = (f"viel Veränderung ({len(changed)} Felder) — verdeckt/instabil, "
-                             f"kein Zug übernommen (Base-Truth unverändert)")
+                self.note = (f"Much change ({len(changed)} squares) — occluded/unstable, "
+                             f"no move committed (base truth unchanged)")
             return
 
-        # --- Ruhe / Re-Anchor (verschärft, Spec 10 Teil 1): nichts über z_thr UND kein
-        #     viabler Kandidat mit netto-positiver Evidenz. Ein voreiliger Re-Anchor würde
-        #     schwache Zug-Evidenz dauerhaft in die Base-Truth einbacken.
-        #     Nur hier lernt das Rauschmodell. ---
+        # --- Quiet / Re-anchor (stricter, Spec 10 part 1): nothing above z_thr AND no
+        #     viable candidate with net-positive evidence. A premature re-anchor would
+        #     bake weak move evidence permanently into the base truth.
+        #     Only here does the noise model learn. ---
         if not changed:
             if obs_move is None or best < self.reanchor_ll_floor:
                 self._confirmer.reset()
@@ -1093,32 +1093,32 @@ class MoveTracker:
                 self._set_ref(cur, cur_bgr)
                 return
             if best < 0.0:
-                # schwache, aber zugkonsistente Evidenz (weiß-auf-weiß?) → Referenz HALTEN,
-                # weder re-anchorn noch stuck melden; der Confirmer sammelt weiter.
+                # weak but move-consistent evidence (white-on-white?) → KEEP reference,
+                # neither re-anchor nor report stuck; the confirmer keeps collecting.
                 self.note = f"weak move evidence ({self.board.san(obs_move)}?) — waiting"
                 return
 
-        # --- kein Einzelzug erklärt die Änderung → erst Zugpaar probieren (schnelles
-        #     Spiel), dann stuck + Nudge/Drift-Selbstheilung (Teil 4) ---
+        # --- no single move explains the change → first try move pair (fast
+        #     play), then stuck + nudge/drift self-healing (part 4) ---
         if obs_move is None or best < 0.0:
             if self._try_pair(z, best, cur, cur_bgr):
                 return
             self._confirmer.reset()
-            self._mark_stuck("no_legal_move")      # Spec 09: Recovery-Trigger via _cnn_tick
-            self._maybe_patch_anomaly(changed, best, cur, cur_bgr)   # Nudge/Drift ohne CNN (Teil 4)
+            self._mark_stuck("no_legal_move")      # Spec 09: recovery trigger via _cnn_tick
+            self._maybe_patch_anomaly(changed, best, cur, cur_bgr)   # nudge/drift without CNN (part 4)
             if self._stuck_reason is not None:
-                self.note = (f"Änderung auf {len(changed)} Feldern, aber kein legaler Zug passt — "
-                             f"möglicher Fehlzug, Base-Truth unverändert (Resync nötig?)")
+                self.note = (f"Change on {len(changed)} squares, but no legal move fits — "
+                             f"possible wrong move, base truth unchanged (resync needed?)")
             return
         self._anomaly_since = {}
 
-        # --- ambiguity gate (LL-Einheiten, lichtunabhängig) + Prior-Tie-Break (Teil 2) ---
+        # --- ambiguity gate (LL units, light-independent) + prior tie-break (part 2) ---
         prior_used = False
         if best - second < self.ambiguity_margin_ll:
             near = [(mv, s) for mv, s in viable if best - s < self.ambiguity_margin_ll]
-            # Promotion-Sonderfall: alle nahen Kandidaten sind Promo-Varianten desselben Zuges
-            # → Diff kann sie prinzipiell nicht unterscheiden. Mit CNN entscheidet das Verify
-            # (Zielfeld-Label); ohne CNN fragt die UI den Nutzer (choose_promotion).
+            # Promotion special case: all near candidates are promo variants of the same move
+            # → diff fundamentally cannot distinguish them. With CNN, verify decides
+            # (target square label); without CNN, the UI asks the user (choose_promotion).
             if all(mv.promotion for mv, _ in near) and \
                len({(mv.from_square, mv.to_square) for mv, _ in near}) == 1:
                 if not (self.cnn_verify and self.cnn_run and not self._cnn_failed):
@@ -1126,9 +1126,9 @@ class MoveTracker:
                         "from": chess.square_name(near[0][0].from_square),
                         "to": chess.square_name(near[0][0].to_square),
                         "cur": cur, "cur_bgr": cur_bgr, "fen": self.board.fen()}
-                    self.note = "Umwandlung erkannt — bitte Figur wählen (Q/R/B/N)"
+                    self.note = "Promotion detected — please choose piece (Q/R/B/N)"
                     return
-                # mit CNN: beste Variante (Default Dame) weiterreichen, Verify korrigiert per Label
+                # with CNN: pass best variant (default queen), verify corrects via label
             elif self.use_prior:
                 rescored = sorted(((mv, s + move_prior(self.board, mv)) for mv, s in near),
                                   key=lambda t: -t[1])
@@ -1136,22 +1136,22 @@ class MoveTracker:
                     obs_move, prior_used = rescored[0][0], True
                 else:
                     self._confirmer.reset()
-                    self.note = ("mehrdeutig: " + " / ".join(
+                    self.note = ("ambiguous: " + " / ".join(
                         f"{self.board.san(mv)} ({s:+.1f})" for mv, s in near[:3])
-                        + " — bitte sauber ziehen / kurz warten")
+                        + " — please move cleanly / wait briefly")
                     return
             else:
                 self._confirmer.reset()
-                self.note = "mehrdeutige Änderung — bitte sauber ziehen / kurz warten"
+                self.note = "ambiguous change — please move cleanly / wait briefly"
                 return
 
         # --- Confirmer voting ---
         uci = obs_move.uci()
         if not self._confirmer.feed(uci):
-            self.note = f"erkenne {self.board.san(obs_move)}… ({self._confirmer.count}/{self.confirm_frames})"
+            self.note = f"detecting {self.board.san(obs_move)}… ({self._confirmer.count}/{self.confirm_frames})"
             return
 
-        # --- Bestätigter Diff-Kandidat ---
+        # --- Confirmed diff candidate ---
         san = self.board.san(obs_move)
         if self.cnn_verify and self.cnn_run and not self._cnn_failed:
             self._pending = {"uci": uci, "fen": self.board.fen(),
@@ -1159,19 +1159,19 @@ class MoveTracker:
                              "prior_used": prior_used}
             self._recovery_confirmer.reset()
             self._verify_state = "verifying"
-            self.note = f"prüfe {san} per CNN…"
+            self.note = f"checking {san} via CNN…"
             return
-        # Standard: Diff committet direkt (schnell). Schatten sind bereits per HSV-Veto raus;
-        # bei Stuck/Abweichung greift die CNN-Recovery/-Kontrolle in _cnn_tick.
+        # Standard: diff commits directly (fast). Shadows are already removed via HSV veto;
+        # on stuck/deviation, CNN recovery/control kicks in via _cnn_tick.
         self._commit_move(obs_move, cur, cur_bgr, recovered=False, prior_used=prior_used)
 
     def _try_pair(self, z: dict[str, float], best_single: float, cur, cur_bgr) -> bool:
-        """Diff-seitige 2-Halbzug-Erkennung (schnelles Spiel ohne CNN). Unter self.lock.
+        """Diff-side 2-half-move detection (fast play without CNN). Under self.lock.
 
-        True = Lage behandelt (Paar wird bestätigt oder wurde committet) — Aufrufer
-        markiert dann NICHT stuck. Ein Paar muss klar besser sein als der beste Einzelzug
-        UND als das zweitbeste Paar (LL-Margin), sonst greift die normale Stuck-Logik
-        (mit CNN übernimmt dort die verifizierte 2-Ply-Recovery)."""
+        True = situation handled (pair confirmed or committed) — caller then does NOT
+        mark stuck. A pair must be clearly better than the best single move
+        AND than the second-best pair (LL margin), otherwise normal stuck logic applies
+        (with CNN the verified 2-ply recovery takes over)."""
         pairs = loglik_pair_scores(self.board, z, self.z_thr, self.ll_k)
         if not pairs:
             return False
@@ -1183,7 +1183,7 @@ class MoveTracker:
         self._candidate_uci = key
         self._best_score, self._second_score = best, max(second, best_single)
         if not self._confirmer.feed(key):
-            self.note = f"erkenne Doppelzug {key}… ({self._confirmer.count}/{self.confirm_frames})"
+            self.note = f"detecting double move {key}… ({self._confirmer.count}/{self.confirm_frames})"
             return True
         sans = []
         for mv in seq:
@@ -1199,26 +1199,26 @@ class MoveTracker:
         self._anomaly_since = {}
         self.prior_last = False
         self.recovered_last = False
-        self.note = f"Doppelzug erkannt: {' + '.join(sans)} (schnelles Spiel)"
+        self.note = f"Double move detected: {' + '.join(sans)} (fast play)"
         if self.board.is_checkmate():
-            self.note += " — Schachmatt!"
+            self.note += " — Checkmate!"
         return True
 
     def _maybe_patch_anomaly(self, changed: set[str], best_ll: float, cur, cur_bgr) -> None:
-        """Nudge-/Drift-Selbstheilung der Referenz ohne CNN (Spec 10, Teil 4). Unter self.lock.
+        """Nudge/drift self-healing of the reference without CNN (Spec 10, part 4). Under self.lock.
 
-        Per-Feld-Timer: ein Feld, das persistent „geändert" ist, obwohl KEIN viabler Zug die
-        Lage erklärt (best_ll < 0), wird nach Ablauf seiner Frist einzeln in der Referenz
-        nachgezogen (Zellen-Patch) statt die ganze Base-Truth zu verwerfen:
-        - belegte Felder (Nudge/j'adoube, Hand-Rest auf der Commit-Referenz): nudge_timeout_s
-        - leere Felder (lokaler Lichtdrift): drift_window_s — konservativer, weil ein sich
-          änderndes leeres Feld auch ein stiller Fehlzug sein könnte.
-        Schutz gegen ruhende Hände: bei mehr als max_changed+2 Feldern wird nie gepatcht."""
+        Per-square timer: a square that is persistently "changed" although NO viable move
+        explains the situation (best_ll < 0), after its timeout is individually pulled forward
+        in the reference (cell patch) rather than discarding the entire base truth:
+        - occupied squares (nudge/j'adoube, hand residue on the commit reference): nudge_timeout_s
+        - empty squares (local light drift): drift_window_s — more conservative because a
+          changing empty square could also be a silent wrong move.
+        Protection against resting hands: never patch when more than max_changed+2 squares."""
         now = time.time()
-        # Timer pflegen (auch mit CNN, für Debug): neue Felder starten, verschwundene löschen.
+        # Maintain timer (also with CNN, for debug): start new squares, remove disappeared ones.
         self._anomaly_since = {sq: self._anomaly_since.get(sq, now) for sq in changed}
         if self.cnn_run and not self._cnn_failed:
-            return                                  # mit CNN heilt die Recovery schneller/sicherer
+            return                                  # with CNN, recovery heals faster/more reliably
         if not changed or best_ll >= 0.0 or len(changed) > self.max_changed + 2:
             return
         patched, why = [], ""
@@ -1233,30 +1233,30 @@ class MoveTracker:
             if cur_bgr is not None and self.ref_bgr is not None:
                 self.ref_bgr[y0:y1, x0:x1] = cur_bgr[y0:y1, x0:x1]
             patched.append(sq)
-            why = "Figur verrückt/Hand-Rest" if occupied else "Licht gedriftet"
+            why = "piece moved/hand residue" if occupied else "light drift"
         if not patched:
             return
         for sq in patched:
             self._anomaly_since.pop(sq, None)
-        self.note = f"Referenz nachgezogen ({', '.join(patched)}): {why} — kein Zug"
-        log.info("Referenz-Zellen gepatcht: %s (%s)", patched, why)
+        self.note = f"Reference pulled forward ({', '.join(patched)}): {why} — no move"
+        log.info("Reference cells patched: %s (%s)", patched, why)
         if len(patched) == len(changed):
             self._clear_stuck()
             self._confirmer.reset()
 
     def choose_promotion(self, piece: str) -> dict:
-        """Nutzerwahl der Umwandlungsfigur (Q/R/B/N) für einen wartenden Promotion-Zug ohne CNN."""
+        """User choice of promotion piece (Q/R/B/N) for a pending promotion move without CNN."""
         piece = (piece or "").lower().strip()
         symbols = {"q": chess.QUEEN, "r": chess.ROOK, "b": chess.BISHOP, "n": chess.KNIGHT}
         if piece not in symbols:
-            return {"ok": False, "error": f"ungültige Figur: {piece!r} (q/r/b/n)"}
+            return {"ok": False, "error": f"invalid piece: {piece!r} (q/r/b/n)"}
         with self.lock:
             pp = self._promo_pending
             if pp is None:
-                return {"ok": False, "error": "keine Umwandlung offen"}
+                return {"ok": False, "error": "no promotion pending"}
             if self.board.fen() != pp["fen"]:
                 self._promo_pending = None
-                return {"ok": False, "error": "Stellung hat sich geändert"}
+                return {"ok": False, "error": "Position has changed"}
             mv = chess.Move(chess.parse_square(pp["from"]), chess.parse_square(pp["to"]),
                             promotion=symbols[piece])
             if mv not in self.board.legal_moves:
@@ -1265,7 +1265,7 @@ class MoveTracker:
             self._commit_move(mv, pp["cur"], pp.get("cur_bgr"))
             return {"ok": True, "move": mv.uci(), "san": self.history[-1]}
 
-    # -- Stuck-Buchhaltung (unter self.lock aufrufen) --
+    # -- Stuck accounting (call under self.lock) --
     def _mark_stuck(self, reason: str) -> None:
         self._stuck_count = (self._stuck_count + 1) if self._stuck_reason == reason else 1
         self._stuck_reason = reason
@@ -1274,7 +1274,7 @@ class MoveTracker:
         self._stuck_reason, self._stuck_count = None, 0
         self._recovery_confirmer.reset()
 
-    # -- Overlay fürs Web (zeigt, was der Tracker GLAUBT) --
+    # -- Overlay for the web (shows what the tracker BELIEVES) --
     def _encode_overlay(self, warped):
         img = warped.copy()
         bs = self.profile.board_size
@@ -1283,13 +1283,13 @@ class MoveTracker:
             p = int(i * cell)
             cv2.line(img, (p, 0), (p, bs), (0, 180, 0), 1)
             cv2.line(img, (0, p), (bs, p), (0, 180, 0), 1)
-        # Vom Diff-Algorithmus AKTUELL als „geändert" erkannte Felder (magenta) — zeigt live,
-        # worauf die Erkennung reagiert (Schatten/Ghosts sofort sichtbar → Tuning-Hilfe).
+        # Squares currently detected as "changed" by the diff algorithm (magenta) — shows live
+        # what the detection is reacting to (shadows/ghosts immediately visible → tuning aid).
         changed = set(self._changed)
         for sq in changed:
             x0, y0, x1, y1 = square_region(sq, bs, self.profile.white_pov, inset=0.06)
             cv2.rectangle(img, (x0, y0), (x1, y1), (255, 0, 255), 2)
-        # Als Cast-Shadow verworfene Felder (cyan) — zeigt, was das HSV-Veto rausfiltert.
+        # Squares discarded as cast shadow (cyan) — shows what the HSV veto filters out.
         for sq in self._shadow_vetoed:
             x0, y0, x1, y1 = square_region(sq, bs, self.profile.white_pov, inset=0.06)
             cv2.rectangle(img, (x0, y0), (x1, y1), (255, 255, 0), 2)
@@ -1325,7 +1325,7 @@ class MoveTracker:
                 "game_over": self.board.is_game_over(),
                 "result": self.board.result() if self.board.is_game_over() else None,
                 "fullmove": self.board.fullmove_number,
-                # CNN-Recovery/-Kontrolle (additiv, Spec 09)
+                # CNN recovery/check (additive, Spec 09)
                 "cnn_active": bool(self.cnn_run) and not self._cnn_failed,
                 "recovered_last": self.recovered_last,
                 "cnn_status": self.cnn_status,
@@ -1335,9 +1335,9 @@ class MoveTracker:
                                       {"from": self._promo_pending["from"],
                                        "to": self._promo_pending["to"]}),
                 "prior_last": self.prior_last,
-                # Base-Truth-Diagnose: welche FEN das Referenzbild zeigt (None = Neu-Aufnahme läuft)
+                # Base truth diagnosis: which FEN the reference image shows (None = re-capture running)
                 "ref_fen": self.ref_fen,
-                # Debug-Card: alle relevanten Live-Metriken (nur Anzeige).
+                # Debug card: all relevant live metrics (display only).
                 "debug": {
                     "fps": round(self._fps, 1),
                     "diff_ms": round(self._diff_ms, 1),
@@ -1383,9 +1383,9 @@ class MoveTracker:
             return self._overlay_jpeg
 
     def calib_overlay_jpeg(self, width: int = 640):
-        """Rohes Kamerabild mit Kalibrier-Overlay (grünes Raster/Spielfeld + orange Marker-Box) —
-        zum Ausrichten/Schieben des Bretts in den Sichtbereich. Wird nur on-demand gebaut (Toggle im
-        UI), daher kein Dauer-Stream. `width` skaliert das Ergebnis fürs kleine Vorschaubild."""
+        """Raw camera image with calibration overlay (green grid/board + orange marker box) —
+        for aligning/moving the board into view. Built on-demand only (toggle in the
+        UI), therefore no continuous stream. `width` scales the result for the small preview image."""
         with self.lock:
             frame = None if self._last_frame is None else self._last_frame.copy()
             corners = self._last_corners
@@ -1414,4 +1414,4 @@ class MoveTracker:
                 self._promo_pending = None
                 self._anomaly_since = {}
                 self.prior_last = False
-                self.note = "letzter Zug rückgängig"
+                self.note = "last move undone"

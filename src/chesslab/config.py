@@ -12,9 +12,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # --- Canonical, ordered class list (14). The ONE place this is defined. ---------------
-# Großbuchstabe = Weiß (w), Kleinbuchstabe = Schwarz (b), FEN-konform.
-# `occluded` (Feld von Hand/Objekt verdeckt) kommt NIE aus der FEN — nur über die
-# Inference-/Review-Labels. Es wird wie `empty` als "darf fehlen"-Klasse behandelt.
+# Uppercase = White (w), lowercase = Black (b), FEN-conformant.
+# `occluded` (square covered by hand/object) NEVER comes from the FEN — only from
+# inference/review labels. It is treated like `empty` as a "may be absent" class.
 CLASSES: list[str] = [
     "empty",
     "wP", "wN", "wB", "wR", "wQ", "wK",
@@ -22,8 +22,8 @@ CLASSES: list[str] = [
     "occluded",
 ]
 
-# Klassen, die in einem Datensatz fehlen dürfen, ohne eine Warnung auszulösen (kommen nicht
-# aus dem Auto-Labeling der FEN): leeres Feld + verdeckt.
+# Classes that may be absent in a dataset without triggering a warning (do not come
+# from auto-labeling of the FEN): empty square + occluded.
 OPTIONAL_CLASSES: set[str] = {"empty", "occluded"}
 
 # Global determinism seed for all random steps (split, sampling, training).
@@ -31,10 +31,10 @@ SEED: int = 42
 
 # --- Calibration / crop defaults (Stage 1) --------------------------------------------
 DEFAULT_PROFILE: str = "default"
-DEFAULT_BOARD_SIZE: int = 1600  # Kantenlänge des entzerrten Bretts (px) = 200 px/Feld. An hoch-
-                                # auflösende Quellen (Handy ~209 px/Feld) angepasst: der Daten-Warp
-                                # darf NICHT unter die Quellauflösung downsampeln, sonst werden die
-                                # 128er-Crops hochskaliert = pixelig. >Quelle bringt nichts (nur größer).
+DEFAULT_BOARD_SIZE: int = 1600  # Edge length of the rectified board (px) = 200 px/square. Adapted
+                                # to high-resolution sources (phone ~209 px/square): the data warp
+                                # must NOT downsample below the source resolution, otherwise the
+                                # 128px crops get upscaled = pixelated. >source adds nothing (just bigger).
 
 
 @dataclass(frozen=True)
@@ -45,59 +45,59 @@ class CropDefaults:
     cameras flat enough that 3D pieces lean into the rank behind; `crop_square` keeps the
     aspect ratio (letterbox) so any pad value stays distortion-free. Overridable per `slice`."""
 
-    pad_up: float = 0.0      # ZUSÄTZLICHE Erweiterung nur nach oben (3D-Lean), * cell
-    pad_side: float = 0.05   # symmetrische Erweiterung in ALLE 4 Richtungen, * cell (5% = mehr Figur
-                             # sichtbar statt hart an der grünen Feldkante abgeschnitten)
+    pad_up: float = 0.0      # ADDITIONAL expansion only upward (3D lean), * cell
+    pad_side: float = 0.05   # symmetric expansion in ALL 4 directions, * cell (5% = more piece
+                             # visible instead of being cut off hard at the green square border)
     out_w: int = 128
     out_h: int = 128         # square: matches the square board cell -> no stretching
 
 
 CROP = CropDefaults()
 
-# Beim Slicen wird das Brett mit einem Rand (in Zellen) mitentzerrt, damit RANDFELDER echten
-# Bildinhalt für die pad_side/pad_up-Erweiterung haben (statt schwarzem Rand an der Spielfeldkante).
-# Wirkt nur im Daten-/Crop-Pfad; die Web-Anzeige bleibt edge-to-edge. Wächst automatisch mit den Pads.
+# During slicing, the board is rectified with a border (in cells) so that EDGE SQUARES have real
+# image content for the pad_side/pad_up expansion (instead of a black border at the board edge).
+# Only affects the data/crop pipeline; the web display remains edge-to-edge. Grows automatically with the pads.
 CROP_WARP_BORDER_CELLS: float = 0.1
 
 
-# --- Photometrie (Stufe 7, geteilt zwischen Slicing und späterer Live-Inferenz) -------
-# Eine deterministische Aufbereitung, die beim Slicen IN die PNGs gebacken wird und von der
-# Live-App identisch aufgerufen werden muss (Parität). Nur deterministische Methoden.
+# --- Photometry (Stage 7, shared between Slicing and later live inference) -------
+# A deterministic preprocessing that is baked INTO the PNGs during slicing and must be
+# called identically by the live app (parity). Only deterministic methods.
 @dataclass(frozen=True)
 class PhotometryDefaults:
-    clahe_clip: float = 2.0    # CLAHE clipLimit (lokaler Kontrast; höher = aggressiver)
-    clahe_tile: int = 8        # CLAHE Kachelgröße (tileGridSize = tile x tile)
-    gamma: float = 1.3         # > 1 hellt Schatten auf (aktuelles Schmerzproblem: dunkle Ecken)
+    clahe_clip: float = 2.0    # CLAHE clipLimit (local contrast; higher = more aggressive)
+    clahe_tile: int = 8        # CLAHE tile size (tileGridSize = tile x tile)
+    gamma: float = 1.3         # > 1 brightens shadows (current pain point: dark corners)
 
 
 PHOTOMETRY = PhotometryDefaults()
 PHOTOMETRY_METHODS: tuple[str, ...] = ("none", "clahe", "grayworld", "gamma")
 
-# --- 3D-Box-Geometrie & Bake-Off (Stufe 7) --------------------------------------------
-# `box3d`: Kamerapose pro Frame (solvePnP aus Markern/Ecken), pro Feld eine nach oben
-# extrudierte Zelle in den scharfen Originalframe projizieren statt Top-Down zu warpen.
+# --- 3D box geometry & bake-off (Stage 7) ---------------------------------------------
+# `box3d`: camera pose per frame (solvePnP from markers/corners), project an upward-extruded
+# cell per square into the sharp original frame instead of warping top-down.
 EXP_GEOMETRIES: tuple[str, ...] = ("warp", "box3d")
 EXP_PHOTOMETRIES: tuple[str, ...] = PHOTOMETRY_METHODS
-EXP_PIECE_HEIGHT_CELLS: float = 1.6   # Extrusion der Feld-Grundfläche nach oben in Zellen (König
-                                      # ~1.5 hoch); zu groß fängt Marker/Hintergrund, zu klein kappt
-EXP_BOX3D_FOV_DEG: float = 60.0       # Näherungs-Intrinsics, falls Profil keine camera_matrix hat
-EXP_BOX3D_PAD_SIDE_CELLS: float = 0.15  # seitlicher Spielraum der 3D-Box je Seite (in Zellen)
-EXP_MARKER_LEN_CELLS: float = 0.6     # gedruckte Markerkanten-Länge in Zell-Einheiten (PnP-Skala)
-EXP_PREFIX: str = "bakeoff"           # Namenspräfix für variantengetaggte Datasets/Experimente
+EXP_PIECE_HEIGHT_CELLS: float = 1.6   # Extrude the square base upward in cells (king
+                                      # ~1.5 high); too large catches markers/background, too small clips
+EXP_BOX3D_FOV_DEG: float = 60.0       # Approximate intrinsics if profile has no camera_matrix
+EXP_BOX3D_PAD_SIDE_CELLS: float = 0.15  # lateral clearance of the 3D box per side (in cells)
+EXP_MARKER_LEN_CELLS: float = 0.6     # printed marker edge length in cell units (PnP scale)
+EXP_PREFIX: str = "bakeoff"           # Name prefix for variant-tagged datasets/experiments
 
 
 @dataclass(frozen=True)
 class DedupDefaults:
-    """Kuratierungs-Policy beim Bauen eines Datensatzes (Stufe 4). Der Aufnahme-Ablauf liefert
-    durch nie bewegte Figuren (fixe Kamera) viele fast identische Crops — diese Defaults regeln,
-    wie stark dedupliziert und ob rotations-augmentiert wird."""
+    """Curation policy when building a dataset (Stage 4). The capture pipeline delivers
+    many nearly identical crops due to never-moved pieces (fixed camera) — these defaults
+    control how aggressively to deduplicate and whether to rotation-augment."""
 
-    per_cell_cap: int = 4          # max. Crops je (Session, Feld, Figur) — trifft "nie bewegt"
-    phash_enabled: bool = True     # zusätzlich visuell fast gleiche (dhash) entfernen
-    phash_hamming: int = 6         # Hamming-Distanz <= -> als Duplikat verwerfen (0..64)
-    # Rotations-Augmentation NACH dem Dedup (4x kuratierte Crops). ACHTUNG: widerspricht der
-    # Fixkamera-Annahme (CLAUDE.md: rotate90 verboten, da Feldfarbe/Licht/Neigung verfälscht).
-    # Als Toggle/A-B gedacht; () oder (0,) = aus. Quadratische Crops -> 90° bleibt formatrein.
+    per_cell_cap: int = 4          # max crops per (session, square, piece) — catches "never moved"
+    phash_enabled: bool = True     # additionally remove visually near-identical ones (dhash)
+    phash_hamming: int = 6         # Hamming distance <= -> discard as duplicate (0..64)
+    # Rotation augmentation AFTER dedup (4x curated crops). WARNING: contradicts the
+    # fixed-camera assumption (CLAUDE.md: rotate90 forbidden because it distorts square color/light/angle).
+    # Intended as toggle A/B; () or (0,) = off. Square crops -> 90° stays format-pure.
     rotations: tuple[int, ...] = (0, 90, 180, 270)
 
 
@@ -106,16 +106,16 @@ DEDUP = DedupDefaults()
 
 @dataclass(frozen=True)
 class TrackerDefaults:
-    """Marker-Tracker-Verhalten (Stufe 1/3). Die Kamera steht fix, deshalb darf der Tracker
-    aggressiv glätten und Positionen halten; gleichzeitig muss er sich selbst korrigieren,
-    wenn das Brett doch verschoben wird. Alle Werte sind in Pixeln bzw. Frames."""
+    """Marker tracker behavior (Stage 1/3). The camera is fixed, so the tracker may
+    aggressively smooth and hold positions; at the same time it must self-correct
+    if the board does get moved. All values are in pixels or frames."""
 
-    move_threshold: float = 4.0     # Dead-Zone: erkannte Bewegung darunter -> Position einfrieren
-    smooth_alpha: float = 0.35      # EMA-Gewicht für echte Bewegung (0 = fix, 1 = roh/ungeglättet)
-    jump_reject_px: float = 60.0    # Einzel-Frame-Sprung darüber gilt erstmal als Ausreißer ...
-    jump_confirm_frames: int = 2    # ... außer er wird über so viele Frames in Folge bestätigt
-    max_held_frames: int = 90       # danach gilt eine nur gehaltene Ecke als "veraltet" (~3 s @30fps)
-    default_min_markers: int = 2    # Box braucht >= so viele bekannte Ecken (Seed/live/gehalten)
+    move_threshold: float = 4.0     # Dead zone: detected movement below this -> freeze position
+    smooth_alpha: float = 0.35      # EMA weight for actual movement (0 = fixed, 1 = raw/unsmoothed)
+    jump_reject_px: float = 60.0    # Single-frame jump above this is treated as an outlier ...
+    jump_confirm_frames: int = 2    # ... unless confirmed over this many consecutive frames
+    max_held_frames: int = 90       # after this, a held-only corner is considered "stale" (~3 s @30fps)
+    default_min_markers: int = 2    # Box needs >= this many known corners (seed/live/held)
 
 
 TRACKER = TrackerDefaults()
@@ -140,8 +140,8 @@ class AugmentPolicy:
     jitter_translate: float = 0.03  # ± fraction of crop size (small homography drift)
     jitter_scale: float = 0.03
     color_jitter: float = 0.1
-    noise_std: float = 0.03       # additive Gaussian noise on the [0,1] tensor (p=0.5); bricht den
-                                  # "zu sauberen" Render-/Synthetik-Look und macht robuster
+    noise_std: float = 0.03       # additive Gaussian noise on the [0,1] tensor (p=0.5); breaks the
+                                  # "too clean" render/synthetic look and makes more robust
     allow_flip: bool = False        # explicitly forbidden
     allow_rotate90: bool = False    # explicitly forbidden
 
@@ -161,19 +161,19 @@ DEFAULT_LR: float = 3e-4
 DEFAULT_PATIENCE: int = 7
 
 # --- Physical piece inventory (coverage strategy) -------------------------------------
-# Wie viele Figuren je Typ PRO FARBE physisch verfügbar sind. Ein Standard-Schachspiel
-# hat pro Seite 8 Bauern, je 2 Springer/Läufer/Türme, 1 Dame, 1 König. Der Coverage-
-# Generator (collect play --strategy coverage) platziert NUR so viele Figuren je Setup.
-# Mit zwei Spielen (`--sets 2`) verdoppeln sich die seltenen Klassen pro Aufbau -> Damen/
-# Könige (die größten Engpässe) füllen sich doppelt so schnell. Legalität ist egal: die FEN
-# dient nur als Label-Quelle (per-Feld-Klassifikator), nicht als spielbare Stellung.
+# How many pieces of each type are physically available PER COLOR. A standard chess set
+# has per side 8 pawns, 2 knights/bishops/rooks each, 1 queen, 1 king. The coverage
+# generator (collect play --strategy coverage) places ONLY that many pieces per setup.
+# With two sets (`--sets 2`) the rare classes per layout double -> queens/
+# kings (the biggest bottlenecks) fill up twice as fast. Legality does not matter: the FEN
+# serves only as a label source (per-square classifier), not as a playable position.
 DEFAULT_INVENTORY: dict[str, int] = {"P": 8, "N": 2, "B": 2, "R": 2, "Q": 1, "K": 1}
 
 # --- Collection-UI thresholds (Stage 6) -----------------------------------------------
-UI_TARGET_PER_CLASS: int = 200          # Zielzahl je Nicht-empty-Klasse (= stats-Schwelle)
-UI_EMPTY_TARGET_RATIO: float = 1.5      # empty-Ziel = ratio * größte Figurenklasse
-UI_WARN_FRAC: float = 0.5               # < 50 % -> rot, 50–99 % -> gelb, >= 100 % -> grün
-UI_TOTAL_TARGET: int = 5000             # Gesamt-Crop-Ziel für den Fortschrittsbalken
+UI_TARGET_PER_CLASS: int = 200          # Target per non-empty class (= stats threshold)
+UI_EMPTY_TARGET_RATIO: float = 1.5      # empty target = ratio * largest piece class
+UI_WARN_FRAC: float = 0.5               # < 50 % -> red, 50–99 % -> yellow, >= 100 % -> green
+UI_TOTAL_TARGET: int = 5000             # Total crop target for the progress bar
 
 
 # --- Engine (Stockfish) discovery -----------------------------------------------------
@@ -221,9 +221,9 @@ def find_stockfish() -> str | None:
 
 
 def find_realityscan() -> str | None:
-    """RealityScan-Executable finden (für den Photogrammetrie-Anstoß aus dem Scan-Tab).
+    """Find RealityScan executable (for launching photogrammetry from the Scan tab).
 
-    Reihenfolge: Env CHESSLAB_REALITYSCAN → PATH → übliche Windows-Installationsorte.
+    Order: Env CHESSLAB_REALITYSCAN → PATH → usual Windows installation locations.
     """
     env = os.environ.get("CHESSLAB_REALITYSCAN", "").strip()
     if env:
@@ -271,7 +271,7 @@ class Paths:
 
     @property
     def sessions_archive(self) -> Path:
-        """Archivierte Sessions: aus dem aktiven Datensatz genommen, aber nicht gelöscht."""
+        """Archived sessions: removed from the active dataset, but not deleted."""
         return self.root / "sessions_archive"
 
     @property
@@ -284,7 +284,7 @@ class Paths:
 
     @property
     def datasets(self) -> Path:
-        """Kuratierte, benannte Datensätze (je eine Session-Auswahl + Dedup/Split)."""
+        """Curated, named datasets (each a session selection + dedup/split)."""
         return self.root / "datasets"
 
     @property
@@ -293,7 +293,7 @@ class Paths:
 
     @property
     def experiments(self) -> Path:
-        """Bake-Off-Ausgaben (Vergleichstabellen je Geometrie×Photometrie-Lauf)."""
+        """Bake-off outputs (comparison tables per geometry×photometry run)."""
         return self.root / "experiments"
 
     @property
@@ -316,13 +316,13 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 @dataclass(frozen=True)
 class SynthDefaults:
-    """Defaults für die synthetische Render-Pipeline (chesslab synth render)."""
+    """Defaults for the synthetic render pipeline (chesslab synth render)."""
 
     blend: Path = _REPO_ROOT / "synth_assets/Chess Scene.blend"
     pieces_dir: Path = _REPO_ROOT / "synth_pieces"
     out_dir: Path = DATA.root / "synth_raw"
     res: int = 1024
-    blender_exe: str = "blender"  # überschreibbar via Env CHESSLAB_BLENDER
+    blender_exe: str = "blender"  # overridable via Env CHESSLAB_BLENDER
 
     @property
     def board_texture(self) -> Path:
@@ -330,8 +330,8 @@ class SynthDefaults:
         return self.pieces_dir / "board_texture.png"
 
     def blender_cmd(self) -> str:
-        """Blender-Executable auflösen: Env CHESSLAB_BLENDER → PATH → übliche Windows-
-        Installationsorte (neueste Version zuerst). Fallback: der nackte Name."""
+        """Resolve Blender executable: Env CHESSLAB_BLENDER → PATH → usual Windows
+        installation locations (newest first). Fallback: the bare name."""
         env = os.environ.get("CHESSLAB_BLENDER")
         if env:
             return env
@@ -363,7 +363,7 @@ def build_blender_cmd(
     samples: int = 24,
     max_obliqueness: float = 0.20,
 ) -> list[str]:
-    """Erzeugt die Blender-Kommandozeile (reine Funktion, kein subprocess)."""
+    """Build the Blender command line (pure function, no subprocess)."""
     cmd = [
         blender, "--background", str(blend),
         "--python", str(script),
@@ -393,9 +393,9 @@ DEFAULT_WEB_PORT: int = 8000
 DEFAULT_TRACK_HOST: str = "127.0.0.1"
 DEFAULT_TRACK_PORT: int = 8001
 
-# Default-Modell für die CNN-Recovery des Move-Trackers (bestes vorhandenes Modell laut
-# docs/architecture-review/training-accuracy-improvements.md §5: val_acc 0.84, combined-Head,
-# Photometrie none — binär auf Occupancy kollabiert robust). None/„fehlt auf Platte" ⇒ Feature aus.
+# Default model for the Move-Tracker CNN recovery (best existing model per
+# docs/architecture-review/training-accuracy-improvements.md §5: val_acc 0.84, combined-head,
+# photometry none — collapsed to binary occupancy robustly). None/"missing on disk" ⇒ feature off.
 MOVE_TRACKER_DEFAULT_RUN: str = "run-20260626-163320"
 
 
@@ -418,28 +418,28 @@ def default_tracker_run() -> str | None:
     runs = list_model_runs()
     return runs[0]["run"] if runs else None
 
-# Move-Tracker-Detektions-Defaults (specs/rework/10-move-detection-v2.md) — Single Source
-# für CLI und App; keine Magic Numbers in tracker.py-Aufrufern.
+# Move-Tracker detection defaults (specs/rework/10-move-detection-v2.md) — Single Source
+# for CLI and app; no magic numbers in tracker.py callers.
 TRACK_DEFAULTS: dict = {
-    "motion_thr": 3.0,             # Motion-Gate (mittlere Frame-zu-Frame-Differenz)
-    "z_thr": 3.0,                  # z-Score, ab dem ein Feld als „geändert" gilt
-    "ambiguity_margin_ll": 2.0,    # best − second in Log-Likelihood-Einheiten (~e²-Faktor)
-    "reanchor_ll_floor": -4.0,     # Re-Anchor nur, wenn auch die beste Zug-LL darunter liegt
-    "nudge_timeout_s": 5.0,        # Nudge-Patch (belegte Felder) nach so vielen Sekunden stuck
-    "drift_window_s": 30.0,        # Drift-Patch (leere Felder) — konservativer
-    "max_changed": 6,              # Verdeckungs-Gate
-    "census_thr": 55.0,            # strukturelle Änderung (Census, 0..255)
-    "cnn_conf_thr": 0.85,          # CNN-Feld-Konfidenz „belastbar"
-    "cnn_cooldown_s": 2.0,         # Mindestabstand zwischen Recovery-Beobachtungen
-    "cnn_check_interval_s": 10.0,  # periodische CNN-Kontrolle
-    "verify_window": 8,            # max. CNN-Frames pro Pre-Commit-Verify
-    "cnn_min_agreement": 0.97,     # Recovery-/Verify-Agreement-Schwelle
-    "cnn_margin_squares": 1,       # Recovery-Margin in FELDERN (Schlag = 1 Feld Unterschied)
-    "min_confident_board": 32,     # Whole-Board-Match braucht viel freie Sicht
-    "min_confident_recovery": 8,   # Recovery bleibt bei Teilverdeckung handlungsfähig
-    "motion_margin": 0.12,         # Motion-ROI über den Brettrand hinaus (Anteil Brettkante)
-    "overhang": 0.0,               # Diff-Zellen nach oben erweitern (Anteil Zelle; 0 = aus)
-    "corner_jump_px": 6.0,         # Warp-Ecken-Sprung ⇒ Base-Truth geometrisch invalid → neu aufnehmen
+    "motion_thr": 3.0,             # Motion gate (mean frame-to-frame difference)
+    "z_thr": 3.0,                  # z-Score above which a square is considered "changed"
+    "ambiguity_margin_ll": 2.0,    # best − second in log-likelihood units (~e² factor)
+    "reanchor_ll_floor": -4.0,     # Re-anchor only if even the best move LL lies below this
+    "nudge_timeout_s": 5.0,        # Nudge patch (occupied squares) after this many seconds stuck
+    "drift_window_s": 30.0,        # Drift patch (empty squares) — more conservative
+    "max_changed": 6,              # Occlusion gate
+    "census_thr": 55.0,            # Structural change (census, 0..255)
+    "cnn_conf_thr": 0.85,          # CNN square confidence "reliable"
+    "cnn_cooldown_s": 2.0,         # Minimum interval between recovery observations
+    "cnn_check_interval_s": 10.0,  # Periodic CNN check
+    "verify_window": 8,            # Max CNN frames per pre-commit verify
+    "cnn_min_agreement": 0.97,     # Recovery/verify agreement threshold
+    "cnn_margin_squares": 1,       # Recovery margin in SQUARES (capture = 1 square difference)
+    "min_confident_board": 32,     # Whole-board match needs plenty of clear view
+    "min_confident_recovery": 8,   # Recovery remains operational with partial occlusion
+    "motion_margin": 0.12,         # Motion ROI beyond the board edge (fraction of board edge)
+    "overhang": 0.0,               # Extend diff cells upward (fraction of cell; 0 = off)
+    "corner_jump_px": 6.0,         # Warp corner jump ⇒ base truth geometrically invalid → reacquire
 }
 
 

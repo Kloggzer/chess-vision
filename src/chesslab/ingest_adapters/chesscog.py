@@ -1,14 +1,14 @@
-"""Adapter für den **chesscog**-Render-Datensatz (Wölflein & Bringmann, OSF DOI 10.17605/OSF.IO/XF3KA).
+"""Adapter for the **chesscog** rendered dataset (Wölflein & Bringmann, OSF DOI 10.17605/OSF.IO/XF3KA).
 
-Layout: pro Sample `<id>.png` + `<id>.json` (in Unterordnern `train/val/test`). Jede JSON enthält:
-- `corners`: 4 [x,y]-Bildpunkte der Brettecken, **ungeordnet** (chesscog sortiert sie selbst).
-- `fen`: vollständige FEN.
-- `white_turn`: bool — die Render-Perspektive ist die des ziehenden Spielers, d. h. bei `True` steht
-  **Weiß unten** (geometrisch oben-links = a8), bei `False` ist das Brett um 180° gedreht.
+Layout: per sample `<id>.png` + `<id>.json` (in subdirectories `train/val/test`). Each JSON contains:
+- `corners`: 4 [x,y] image points of the board corners, **unordered** (chesscog sorts them itself).
+- `fen`: full FEN.
+- `white_turn`: bool — the render perspective is that of the player to move, i.e. when `True` **White is
+  at the bottom** (geometrically top-left = a8), when `False` the board is rotated 180°.
 
-Wir sortieren die Ecken geometrisch zu `[TL, TR, BR, BL]` und mappen je nach `white_turn` auf unsere
-Reihenfolge `[a8, h8, h1, a1]`. **Vor dem großen Pretrain mit `--debug-overlay` prüfen** — sitzt die
-Orientierung falsch (gespiegelte Labels), ist `white_turn` invers zu interpretieren (eine Zeile).
+We sort the corners geometrically to `[TL, TR, BR, BL]` and depending on `white_turn` map to our
+order `[a8, h8, h1, a1]`. **Verify with `--debug-overlay` before large pretrain** — if the
+orientation is wrong (reflected labels), then `white_turn` should be interpreted inversely (one line).
 """
 
 from __future__ import annotations
@@ -21,8 +21,8 @@ from ..ingest import ImportItem
 
 
 def sort_corner_points(pts) -> list[list[float]]:
-    """4 Punkte → `[top-left, top-right, bottom-right, bottom-left]` (Bildkoordinaten, robust über
-    Summe/Differenz — rotationsstabil für nicht-degenerierte Vierecke)."""
+    """4 points → `[top-left, top-right, bottom-right, bottom-left]` (image coordinates, robust via
+    sum/difference — rotation-stable for non-degenerate quadrilaterals)."""
     p = [(float(x), float(y)) for x, y in pts]
     tl = min(p, key=lambda q: q[0] + q[1])
     br = max(p, key=lambda q: q[0] + q[1])
@@ -32,8 +32,8 @@ def sort_corner_points(pts) -> list[list[float]]:
 
 
 def order_corners(corners, white_turn: bool) -> list[list[float]]:
-    """Geometrisch sortierte Ecken → unsere Reihenfolge `[a8, h8, h1, a1]`.
-    Weiß unten: `[TL,TR,BR,BL] == [a8,h8,h1,a1]`. Schwarz unten: um 180° gedreht."""
+    """Geometrically sorted corners → our order `[a8, h8, h1, a1]`.
+    White at bottom: `[TL,TR,BR,BL] == [a8,h8,h1,a1]`. Black at bottom: rotated 180°."""
     s = sort_corner_points(corners)            # [TL, TR, BR, BL]
     if white_turn:
         return s
@@ -44,7 +44,7 @@ def iter_items(root: Path) -> Iterator[ImportItem]:
     root = Path(root)
     for jf in sorted(root.rglob("*.json")):
         if "__MACOSX" in jf.parts or jf.name.startswith("._"):
-            continue                       # AppleDouble-Müll aus Mac-Zips überspringen
+            continue                       # skip AppleDouble junk from Mac zips
         img = jf.with_suffix(".png")
         if not img.exists():
             continue

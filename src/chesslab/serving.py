@@ -1,16 +1,15 @@
-"""Kanonischer Inference-Einstieg: Run-Spezifikation, Laden, Crops & Vorhersage.
+"""Canonical inference entry point: run specification, loading, crops & prediction.
 
-Dies ist die **einzige** unterstützte öffentliche Facade für Modell-Inferenz.
-Konsumenten (Web-Inference, CNN-Recovery im move_tracker, CLI-Evaluation)
-nutzen ausschließlich dieses Modul. Es stellt sicher, dass **dieselbe** Crop-/Photometrie-
-Pipeline verwendet wird wie beim Training des Modells — so ist die Train/Serve-Parität
-garantiert.
+This is the **only** supported public facade for model inference.
+Consumers (web inference, CNN recovery in move_tracker, CLI evaluation)
+use exclusively this module. It ensures that the **same** crop/photometry
+pipeline is used as during training — thus train/serve parity is guaranteed.
 
-Regeln:
-- torch/PIL nur lazy in Funktionskörpern importieren (ROCm-Windows: CLI/Web müssen ohne
-  GPU-Stack starten).
-- importiert NIE `chesslab.web` (kein zirkulärer Import).
-- Geometrie-Implementierung bleibt in `labeling` (keine Kopie).
+Rules:
+- torch/PIL only lazy-imported in function bodies (ROCm-Windows: CLI/web must start
+  without GPU stack).
+- Never imports `chesslab.web` (no circular import).
+- Geometry implementation stays in `labeling` (no copy).
 """
 
 from __future__ import annotations
@@ -39,7 +38,7 @@ def clear_cache() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Run-Spezifikation
+# Run specification
 # ---------------------------------------------------------------------------
 
 
@@ -85,14 +84,14 @@ def run_spec(run_dir: Path) -> RunSpec:
             piece_height_cells=float(variant.get("piece_height_cells", config.EXP_PIECE_HEIGHT_CELLS)),
         )
 
-    # Fallback 1: Manifest-Scan
+    # Fallback 1: Manifest scan
     try:
         geometry, photometry, piece_height_cells = labeling.variant_of_run(run_dir)
     except Exception:
         geometry, photometry, piece_height_cells = "warp", "none", config.EXP_PIECE_HEIGHT_CELLS
 
     if variant is None:
-        log.warning("Run %s hat kein 'variant'-Feld in config.json — per Manifest-Scan: "
+        log.warning("Run %s has no 'variant' field in config.json — falling back to manifest scan: "
                     "geometry=%s photometry=%s piece_height_cells=%.2f",
                     run_dir.name, geometry, photometry, piece_height_cells)
 
@@ -107,19 +106,19 @@ def run_spec(run_dir: Path) -> RunSpec:
 
 
 def model_classes(run_dir: Path) -> list[str]:
-    """Klassenliste eines Runs (kurzer Wrapper für run_spec)."""
+    """Class list of a run (short wrapper around run_spec)."""
     return run_spec(run_dir).classes
 
 
 # ---------------------------------------------------------------------------
-# Modell laden
+# Model loading
 # ---------------------------------------------------------------------------
 
 
 def load_run(run_dir: Path, device: str = "cpu"):
-    """Modell + Run-config aus einem Run-Verzeichnis laden und cachen.
+    """Load model + run config from a run directory and cache them.
 
-    Gibt (model, cfg) zurück. Das Modell ist eval() und auf `device`.
+    Returns (model, cfg). The model is in eval() mode and on `device`.
     """
     key = str(Path(run_dir).resolve())
     if key in _CACHE:
@@ -143,11 +142,11 @@ def load_run(run_dir: Path, device: str = "cpu"):
 
 
 def crops_for_model(frame: np.ndarray, corners, profile, spec: RunSpec) -> list[np.ndarray]:
-    """64 BGR-Crops (Reihenfolge `labeling.all_squares()`) für einen Frame,
-    exakt mit der Geometrie/Photometrie des übergebenen `RunSpec`.
+    """64 BGR crops (order `labeling.all_squares()`) for one frame,
+    exactly with the geometry/photometry of the given `RunSpec`.
 
-    Dünner Wrapper um `labeling.crops_for_frame` — die Geometrie-Implementierung
-    bleibt dort (Single Source of Truth).
+    Thin wrapper around `labeling.crops_for_frame` — the geometry implementation
+    stays there (single source of truth).
     """
     out_size = spec.out_size
     return labeling.crops_for_frame(
@@ -160,17 +159,17 @@ def crops_for_model(frame: np.ndarray, corners, profile, spec: RunSpec) -> list[
 
 
 # ---------------------------------------------------------------------------
-# Vorhersage
+# Prediction
 # ---------------------------------------------------------------------------
 
 
 def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
                    return_probs: bool = False) -> list[dict]:
-    """Vorhersage für In-Memory-Crops (BGR np.ndarray) — für Live-Inference.
+    """Prediction for in-memory crops (BGR np.ndarray) — for live inference.
 
-    Gibt je Crop {'pred_label', 'confidence'} in Eingabe-Reihenfolge.
-    `return_probs=True` ergänzt 'probs': list[float] (voller Softmax,
-    Reihenfolge = Klassen aus der Run-config).
+    Returns per crop {'pred_label', 'confidence'} in input order.
+    `return_probs=True` adds 'probs': list[float] (full softmax,
+    order = classes from the run config).
     """
     if not crops:
         return []
@@ -199,7 +198,7 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
 
 def predict_rows(run_dir: Path, rows: list[dict], device: str = "cpu",
                  batch_size: int = 64) -> list[dict]:
-    """Für jede Manifest-Zeile: {'pred_label', 'confidence'} (Reihenfolge wie `rows`)."""
+    """For each manifest row: {'pred_label', 'confidence'} (order matches `rows`)."""
     if not rows:
         return []
     import torch
@@ -226,9 +225,9 @@ def predict_rows(run_dir: Path, rows: list[dict], device: str = "cpu",
 
 def predict_frame(run_dir: Path, frame: np.ndarray, corners, profile,
                   device: str = "cpu", return_probs: bool = False) -> list[dict]:
-    """Komplette Pipeline für einen Frame: run_spec + crops_for_model + predict_arrays.
+    """Full pipeline for one frame: run_spec + crops_for_model + predict_arrays.
 
-    Ergebnis je Feld: {"square": "a8", "pred_label": ..., "confidence": ...[, "probs": ...]}.
+    Result per square: {"square": "a8", "pred_label": ..., "confidence": ...[, "probs": ...]}.
     """
     spec = run_spec(run_dir)
     crops = crops_for_model(frame, corners, profile, spec)

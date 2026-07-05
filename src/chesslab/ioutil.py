@@ -1,12 +1,12 @@
-"""Ein einziger JSONL-Reader für alle Konsumenten im Projekt.
+"""A single JSONL reader for all consumers in the project.
 
-``read_jsonl(path) -> list[dict]`` ist das kanonische Gegenstück zu den verstreuten
-``[json.loads(l) for l in ...splitlines() if l.strip()]``-Loops in labeling.py,
-dataset.py, training/data.py und web/app.py. Semantik: fehlende Datei → [], leere
-Zeilen werden übergangen, jede nicht-leere Zeile muss gültiges JSON sein.
+``read_jsonl(path) -> list[dict]`` is the canonical counterpart to the scattered
+``[json.loads(l) for l in ...splitlines() if l.strip()]`` loops in labeling.py,
+dataset.py, training/data.py and web/app.py. Semantics: missing file → [], empty
+lines are skipped, every non-empty line must be valid JSON.
 
-Konsumenten, die bei fehlender Datei eine Exception werfen müssen (z.B.
-``dataset.load_manifest``), behalten einen dünnen Wrapper.
+Consumers that need to throw an exception on a missing file (e.g.
+``dataset.load_manifest``) retain a thin wrapper.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from pathlib import Path
 
 
 def read_jsonl(path: Path) -> list[dict]:
-    """JSONL-Datei einlesen, fehlende Datei → [], leere Zeilen überspringen."""
+    """Read JSONL file, missing file → [], skip empty lines."""
     p = Path(path)
     if not p.exists():
         return []
