@@ -86,7 +86,7 @@ export default function Scan() {
   const imgRef = useRef<HTMLImageElement>(null);
   const pollTimer = useRef<any>(null);
 
-  // --- Werkstatt State ---
+  // --- Workshop state ---
   const [models, setModels] = useState<Models | null>(null);
   const [dir, setDir] = useState("");
   const [piece, setPiece] = useState("P");
@@ -122,11 +122,14 @@ export default function Scan() {
       const s = await post<Status>("/api/scan/open", { source, width, height, capture });
       setSt(s);
       startPolling();
-    } catch (e: any) { setMsg("Fehler: " + e.message); }
+    } catch (e: any) { setMsg("Connect failed: " + e.message); }
   }
   async function disconnect() {
-    const s = await post<Status>("/api/scan/close");
-    setSt(s); clearInterval(pollTimer.current);
+    setMsg("");
+    try {
+      const s = await post<Status>("/api/scan/close");
+      setSt(s); clearInterval(pollTimer.current);
+    } catch (e: any) { setMsg("Disconnect failed: " + e.message); }
   }
 
   function toDisplay(e: React.PointerEvent) {
@@ -155,14 +158,17 @@ export default function Scan() {
     const y1 = Math.round(Math.max(drag.y0, drag.y1) * sy);
     setDrag(null);
     if (x1 - x0 < 10 || y1 - y0 < 10) return;
-    setSt(await post<Status>("/api/scan/config", { crop: [x0, y0, x1, y1] }));
+    try { setSt(await post<Status>("/api/scan/config", { crop: [x0, y0, x1, y1] })); }
+    catch (e: any) { setMsg("Crop failed: " + e.message); }
   }
   async function clearCrop() {
-    setSt(await post<Status>("/api/scan/config", { crop: [] }));
+    try { setSt(await post<Status>("/api/scan/config", { crop: [] })); }
+    catch (e: any) { setMsg("Crop reset failed: " + e.message); }
   }
 
   async function pushConfig() {
-    setSt(await post<Status>("/api/scan/config", { interval, count, quality, out }));
+    try { setSt(await post<Status>("/api/scan/config", { interval, count, quality, out })); }
+    catch (e: any) { setMsg("Config failed: " + e.message); }
   }
   async function start() {
     setMsg("");
@@ -170,11 +176,15 @@ export default function Scan() {
       await pushConfig();
       const s = await post<Status>("/api/scan/start", { out });
       setSt(s); startPolling();
-    } catch (e: any) { setMsg("Fehler: " + e.message); }
+    } catch (e: any) { setMsg("Capture start failed: " + e.message); }
   }
-  const stop = async () => setSt(await post<Status>("/api/scan/stop"));
+  async function stop() {
+    setMsg("");
+    try { setSt(await post<Status>("/api/scan/stop")); }
+    catch (e: any) { setMsg("Capture stop failed: " + e.message); }
+  }
 
-  // --- Werkstatt Logic ---
+  // --- Piece workshop logic ---
   const refresh = () => api<Models>("/api/scan/models").then((m) => {
     setModels(m);
     if (!dir && m.scans.length) selectScan(m.scans[0], m.pieces);
@@ -187,16 +197,16 @@ export default function Scan() {
   }
 
   async function deleteScan(d: string) {
-    if (!confirm(`Scan „${d}" mit Mesh wirklich löschen?`)) return;
-    await del(`/api/scan/scan/${d}`).catch(() => {});
-    if (dir === d) setDir("");
-    refresh();
+    if (!confirm(`Delete scan "${d}" (mesh will be removed)?`)) return;
+    setMsg("");
+    try { await del(`/api/scan/scan/${d}`); if (dir === d) setDir(""); refresh(); }
+    catch (e: any) { setMsg("Delete failed: " + e.message); }
   }
   async function deletePiece(piece: string, variant: string) {
-    if (!confirm(`Vorbereitete Figur „${piece}/${variant}" löschen? (Der Scan bleibt erhalten.)`)) return;
-    await del(`/api/scan/piece/${piece}/${variant}`).catch(() => {});
-    setPrep(null);
-    refresh();
+    if (!confirm(`Delete prepared piece "${piece}/${variant}"? (Scan folder is kept.)`)) return;
+    setMsg("");
+    try { await del(`/api/scan/piece/${piece}/${variant}`); setPrep(null); refresh(); }
+    catch (e: any) { setMsg("Delete failed: " + e.message); }
   }
 
   async function doUpload() {
@@ -239,7 +249,7 @@ export default function Scan() {
       setPrep({ state: "running", piece, variant: r?.variant });
       clearInterval(prepTimer.current);
       prepTimer.current = setInterval(pollPrep, 2000);
-    } catch (e: any) { setMsg("Fehler: " + e.message); }
+    } catch (e: any) { setMsg("Prepare failed: " + e.message); }
   }
 
   // --- Derived ---
@@ -271,10 +281,10 @@ export default function Scan() {
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-sm text-zinc-400" title="Live preview stream (MJPEG, …/video/m.jpeg) or USB index.">Preview
             <input value={source} onChange={(e) => setSource(e.target.value)} className={`${input} w-96`}
-              placeholder="Stream-URL (…/video/m.jpeg) oder USB-Index (0/1)" /></label>
+              placeholder="Stream URL (…/video/m.jpeg) or USB index (0/1)" /></label>
           <label className="flex items-center gap-2 text-sm text-zinc-400" title="Photo to save per capture (snapshot URL, …/video/snapshot). Empty = use live frame.">Photo
             <input value={capture} onChange={(e) => setCapture(e.target.value)} className={`${input} w-96`}
-              placeholder="Snapshot-URL (…/video/snapshot), leer = Live-Frame" /></label>
+              placeholder="Snapshot URL (…/video/snapshot), empty = live frame" /></label>
           <label className="flex items-center gap-2 text-sm text-zinc-400" title="For USB cam only: requested resolution (MJPG).">USB Res
             <input type="number" value={width} onChange={(e) => setWidth(+e.target.value)} className={`${input} w-20`} />×
             <input type="number" value={height} onChange={(e) => setHeight(+e.target.value)} className={`${input} w-20`} /></label>
@@ -287,9 +297,9 @@ export default function Scan() {
 
       {st?.open && (
         <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-          <Card title="Live · Crop mit der Maus aufziehen">
+          <Card title="Live · Drag crop">
             <div className="relative inline-block select-none leading-none">
-              <img ref={imgRef} src="/api/scan/preview.mjpg" alt="Scan Vorschau" draggable={false}
+              <img ref={imgRef} src="/api/scan/preview.mjpg" alt="Scan preview" draggable={false}
                 className="w-full rounded-lg border border-zinc-800" />
               <div className="absolute inset-0 cursor-crosshair"
                 onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}>
@@ -300,39 +310,39 @@ export default function Scan() {
               </div>
             </div>
             <div className="mt-2 flex items-center gap-3 text-xs text-zinc-500">
-              <span>Quelle {st.frame_size[0]}×{st.frame_size[1]}</span>
+              <span>Source {st.frame_size[0]}×{st.frame_size[1]}</span>
               <span>Crop: {st.crop ? st.crop.join(", ") : "—"}</span>
               <Button onClick={clearCrop} className="px-2 py-1 text-xs"><RotateCcw className="h-3 w-3" /> Reset crop</Button>
             </div>
           </Card>
 
-          <Card title="Aufnahme">
+          <Card title="Capture">
             <div className="space-y-3">
               <label className="flex items-center justify-between gap-2 text-sm text-zinc-400">Target folder
                 <input value={out} onChange={(e) => setOut(e.target.value)} className={`${input} w-40`} /></label>
-              <label className="flex items-center justify-between gap-2 text-sm text-zinc-400" title="Sekunden zwischen zwei Fotos. Beim Handy ist ~0.8s das Limit (HTTPS-Fetch).">Intervall (s)
+              <label className="flex items-center justify-between gap-2 text-sm text-zinc-400" title="Seconds between two photos. On phone ~0.8s is the limit (HTTPS fetch).">Interval (s)
                 <input type="number" step={0.1} min={0} value={interval} onChange={(e) => setIntervalS(+e.target.value)} className={`${input} w-24`} /></label>
-              <label className="flex items-center justify-between gap-2 text-sm text-zinc-400" title="Fotos pro Aufnahme-Lauf. 0 = bis Stop.">Anzahl (0=∞)
+              <label className="flex items-center justify-between gap-2 text-sm text-zinc-400" title="Photos per capture run. 0 = until stop.">Count (0=∞)
                 <input type="number" min={0} value={count} onChange={(e) => setCount(+e.target.value)} className={`${input} w-24`} /></label>
               <label className="flex items-center justify-between gap-2 text-sm text-zinc-400">JPEG quality
                 <input type="number" min={50} max={100} value={quality} onChange={(e) => setQuality(+e.target.value)} className={`${input} w-24`} /></label>
 
               <div className="flex flex-wrap gap-2 pt-1">
                 {!recording
-                  ? <Button variant="primary" onClick={start}><Play className="h-4 w-4" /> Aufnahme starten</Button>
+                  ? <Button variant="primary" onClick={start}><Play className="h-4 w-4" /> Start capture</Button>
                   : <Button onClick={stop}><Square className="h-4 w-4" /> Stop</Button>}
                 <Button onClick={pushConfig} title="Apply interval/count/quality without capturing"><CropIcon className="h-4 w-4" /> Apply</Button>
               </div>
 
               <div className="rounded-lg bg-zinc-800 p-3 text-sm">
                 {recording
-                  ? <span className="font-medium text-green-500">● Capture running — {st.saved_run}{st.count ? ` / ${st.count}` : ""} Fotos</span>
-                  : <span className="text-zinc-400">bereit</span>}
-                <div className="mt-1 text-xs text-zinc-500">Im Ordner <b className="text-zinc-300">{st.out || out}</b>: {st.total} photos total (next no. {st.index})</div>
+                  ? <span className="font-medium text-green-500">● Capture running — {st.saved_run}{st.count ? ` / ${st.count}` : ""} photos</span>
+                  : <span className="text-zinc-400">Ready</span>}
+                <div className="mt-1 text-xs text-zinc-500">In folder <b className="text-zinc-300">{st.out || out}</b>: {st.total} photos total (next no. {st.index})</div>
               </div>
               <p className="text-xs text-zinc-500">
                 Motor on, phone/cam <b>fixed</b>, hands off. "Start capture" appends to existing photos
-                (Ring 2/3 einfach neu positionieren + wieder starten).
+                (for ring 2/3 simply reposition + start again).
               </p>
             </div>
           </Card>
@@ -341,14 +351,14 @@ export default function Scan() {
 
       {!st?.open && (
         <p className="text-xs text-zinc-500">
-          Verbinde eine Quelle (Handy-IP-Cam-URL oder USB-Index), zieh im Live-Bild den <b>Crop</b> um Figur +
-          Drehteller (statischer Hintergrund raus), stell <b>Intervall</b> und <b>Anzahl</b> ein und nimm auf.
+          Connect a source (phone IP cam URL or USB index), drag the <b>crop</b> around the piece +
+          turntable (static background out), set <b>interval</b> and <b>count</b> and capture.
           Photos go to <b>scans/&lt;folder&gt;</b> — ready for RealityScan.
         </p>
       )}
 
-      {/* ── Figuren-Werkstatt ── */}
-      <Card title="Figuren-Werkstatt — 3D-Scan → Figur">
+      {/* ── Piece workshop ── */}
+      <Card title="Piece workshop — 3D scan → piece">
         {/* Stepper */}
         <div className="mb-4 flex items-center gap-1 text-xs">
           {[[1, "Upload", Upload], [2, "Prepare", Wand2]].map(
@@ -364,8 +374,7 @@ export default function Scan() {
         </div>
 
         {scans.length === 0 && (
-          <p className="text-sm text-zinc-500">Noch keine Scans. Lade ein 3D-Modell (.obj/.glb) hoch —
-            es erscheint dann hier als Karte.</p>
+          <p className="text-sm text-zinc-500">No scans yet. Upload a 3D model (.obj/.glb) — it appears here as a card.</p>
         )}
 
         <MeshUploadSection uploadName={uploadName} setUploadName={setUploadName}
@@ -382,8 +391,8 @@ export default function Scan() {
                 <div>
                   <div className="text-sm font-medium text-zinc-100">{cur.dir}</div>
                   <div className="text-xs text-zinc-500">
-                    {cur.mesh ? "Mesh vorhanden" : "noch kein Mesh"}
-                    {!cur.texture && cur.mesh ? " · ⚠ ohne Textured" : ""}</div>
+                    {cur.mesh ? "Mesh present" : "no mesh yet"}
+                    {!cur.texture && cur.mesh ? " · ⚠ without texture" : ""}</div>
                 </div>
                 <button onClick={() => deleteScan(cur.dir)} title="Delete scan"
                   className="rounded-lg p-1.5 text-zinc-500 hover:bg-red-500/10 hover:text-red-400">
@@ -399,7 +408,7 @@ export default function Scan() {
           </div>
         )}
 
-        {/* Fertige Figuren-Galerie */}
+        {/* Finished piece gallery */}
         <FinishedPiecesGrid pieces={models?.pieces} setView3d={setView3d} deletePiece={deletePiece}
           prep={prep} kind={kind} setKind={setKind} />
       </Card>
@@ -416,12 +425,12 @@ function MeshUploadSection({ uploadName, setUploadName, meshFile, setMeshFile, t
   uploading, doUpload, input }: any) {
   return (
     <div className="mb-4 rounded-lg border border-zinc-800 bg-zinc-900/50 p-3">
-      <div className="mb-2 text-xs font-medium text-zinc-400">3D-Modell hochladen (.obj/.glb)</div>
+      <div className="mb-2 text-xs font-medium text-zinc-400">Upload 3D model (.obj/.glb)</div>
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 text-xs text-zinc-500">
           Name
           <input value={uploadName} onChange={(e) => setUploadName(e.target.value)}
-            placeholder="z.B. wK" className={`${input} w-32`} />
+            placeholder="e.g. wK" className={`${input} w-32`} />
         </label>
         <label className="flex flex-col gap-1 text-xs text-zinc-500">
           Mesh (.obj/.glb)
@@ -429,13 +438,13 @@ function MeshUploadSection({ uploadName, setUploadName, meshFile, setMeshFile, t
             className="text-xs text-zinc-300 file:mr-1 file:rounded file:border-0 file:bg-zinc-700 file:px-2 file:py-0.5 file:text-xs file:text-zinc-200" />
         </label>
         <label className="flex flex-col gap-1 text-xs text-zinc-500">
-          Textured (optional)
+          Texture (optional)
           <input type="file" accept=".png,.jpg,.jpeg" onChange={(e) => setTexFile(e.target.files?.[0] ?? null)}
             className="text-xs text-zinc-300 file:mr-1 file:rounded file:border-0 file:bg-zinc-700 file:px-2 file:py-0.5 file:text-xs file:text-zinc-200" />
         </label>
         <Button variant="primary" onClick={doUpload} disabled={uploading || !meshFile || !uploadName}>
           {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-          Hochladen
+          Upload
         </Button>
       </div>
     </div>
@@ -455,10 +464,10 @@ function ScanCardGrid({ scans, models, dir, selectScan, deleteScan, prep }: {
         const jobPrep = (prep?.state === "running" && prep.dir === s.dir) || models?.jobs?.prepare === s.dir;
         const busy = jobPrep;
         const badge = busy
-          ? ["wird vorbereitet…", "bg-sky-500/20 text-sky-300"]
+          ? ["preparing…", "bg-sky-500/20 text-sky-300"]
           : ({
-              mesh: ["Mesh bereit", "bg-sky-500/15 text-sky-300"],
-              done: ["Fertig", "bg-green-500/15 text-green-300"],
+              mesh: ["Mesh ready", "bg-sky-500/15 text-sky-300"],
+              done: ["Ready", "bg-green-500/15 text-green-300"],
             } as Record<string, [string, string]>)[info.stage];
         const prep_ = info.piece && info.stage === "done";
 
@@ -469,7 +478,7 @@ function ScanCardGrid({ scans, models, dir, selectScan, deleteScan, prep }: {
               active ? "border-sky-500 bg-sky-500/5" : "border-zinc-800 hover:border-zinc-600"}`}>
             <div className="relative mb-1.5 aspect-square overflow-hidden rounded-lg bg-zinc-950">
               {prep_
-                ? <img src={`/api/scan/prepare/preview/${info.piece}/${info.variant}?kind=textured`} alt={`${pieceLabel(info.piece!)} Vorschau`} className="h-full w-full object-contain" />
+                ? <img src={`/api/scan/prepare/preview/${info.piece}/${info.variant}?kind=textured`} alt={`${pieceLabel(info.piece!)} preview`} className="h-full w-full object-contain" />
                 : <div className="grid h-full place-items-center text-zinc-700"><Camera className="h-8 w-8" /></div>}
               <span className={`absolute left-1 top-1 flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${badge[1]}`}>
                 {busy && <Loader2 className="h-3 w-3 animate-spin" />}{badge[0]}</span>

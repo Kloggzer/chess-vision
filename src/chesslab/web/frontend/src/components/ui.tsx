@@ -52,7 +52,7 @@ export function Button({ children, variant = "ghost", className = "", onClick, d
   async function handle(e: MouseEvent<HTMLButtonElement>) {
     if (!onClick) return;
     const r = onClick(e);
-    if (r && typeof (r as any).then === "function") {   // async Handler -> Busy bis fertig
+    if (r && typeof (r as any).then === "function") {   // async handler -> busy until done
       setBusy(true);
       try { await r; } finally { setBusy(false); }
     }
@@ -80,3 +80,11 @@ export function Select({ label, children, ...p }:
     </label>
   );
 }
+
+// Status-line styling for action feedback (busy/success/error) — shared across panels.
+const NOTE_CLS: Record<string, string> = {
+  err: "bg-red-950/60 text-red-300",
+  busy: "bg-sky-950/60 text-sky-300 animate-pulse",
+  ok: "bg-emerald-950/60 text-emerald-300",
+};
+export const noteCls = (kind: string) => NOTE_CLS[kind] ?? "text-zinc-500";
