@@ -37,14 +37,16 @@ export default function Training() {
 
   useEffect(() => { refreshRuns(); return () => clearInterval(timer.current); }, [refreshRuns]);
   async function showRun(r: string) {
-    setRun(r);
-    setMetrics((await api(`/api/runs/${r}/metrics`)).metrics);
-    setEvals((await api(`/api/runs/${r}/eval`)).evals);
+    setRun(r); setErr("");
+    try {
+      setMetrics((await api(`/api/runs/${r}/metrics`)).metrics);
+      setEvals((await api(`/api/runs/${r}/eval`)).evals);
+    } catch (e: any) { setErr(e.message); }
   }
   async function delRun(r: string) {
-    if (!window.confirm(`Modell „${r}" löschen? (Verzeichnis + Gewichte werden entfernt)`)) return;
+    if (!window.confirm(`Delete model "${r}"? (directory + weights will be removed)`)) return;
     try { await del(`/api/runs/${r}`); } catch (e: any) { setErr(e.message); return; }
-    if (run === r) { setRun(""); setMetrics([]); setEvals({}); }
+    setErr(""); if (run === r) { setRun(""); setMetrics([]); setEvals({}); }
     refreshRuns();
   }
   const pct = (v: number | null | undefined) => (v == null ? "—" : (v * 100).toFixed(1) + " %");
@@ -92,15 +94,15 @@ export default function Training() {
     <div className="space-y-4">
       <Card>
         <div className="flex flex-wrap items-end gap-3">
-          <Select label="Datensatz" value={dataset} onChange={(e) => setDataset(e.target.value)}>
-            {datasets.length === 0 && <option value="">— keiner gebaut —</option>}
+          <Select label="Dataset" value={dataset} onChange={(e) => setDataset(e.target.value)}>
+            {datasets.length === 0 && <option value="">— none built —</option>}
             {datasets.map((d) => <option key={d.name} value={d.name}>{d.name} ({d.counts?.final ?? "?"})</option>)}
           </Select>
           <Select label="Backbone" value={backbone} onChange={(e) => setBackbone(e.target.value)}>
             <option value="smallcnn">smallcnn</option>
             <option value="mobilenet_v3_small">mobilenet_v3_small</option>
           </Select>
-          <Select label="Kopf" value={head} onChange={(e) => setHead(e.target.value)}>
+          <Select label="Head" value={head} onChange={(e) => setHead(e.target.value)}>
             <option value="combined">combined</option>
             <option value="factored">factored</option>
             <option value="twostage">twostage (Occ→Piece)</option>
@@ -108,24 +110,24 @@ export default function Training() {
           <label className="flex flex-col text-xs text-zinc-400">Epochs<input type="number" min={1} value={epochs} onChange={(e) => setEpochs(+e.target.value)} className={inp} /></label>
           <label className="flex flex-col text-xs text-zinc-400">Batch<input type="number" min={1} value={batchSize} onChange={(e) => setBatchSize(+e.target.value)} className={inp} /></label>
           <label className="flex flex-col text-xs text-zinc-400">LR<input type="number" step={0.0001} min={0} value={lr} onChange={(e) => setLr(+e.target.value)} className={inp} /></label>
-          <label className="flex flex-col text-xs text-zinc-400" title="Early Stopping: Epochen ohne macro_recall-Fortschritt, bevor abgebrochen wird.">Geduld<input type="number" min={1} value={patience} onChange={(e) => setPatience(+e.target.value)} className={inp} /></label>
-          <Select label="Weiter ab" value={resume} onChange={(e) => setResume(e.target.value)}>
-            <option value="">von Grund auf</option>
+          <label className="flex flex-col text-xs text-zinc-400" title="Early stopping: epochs without macro_recall progress before aborting.">Patience<input type="number" min={1} value={patience} onChange={(e) => setPatience(+e.target.value)} className={inp} /></label>
+          <Select label="Resume" value={resume} onChange={(e) => setResume(e.target.value)}>
+            <option value="">from scratch</option>
             {runs.some((r) => String(r.dataset || "").startsWith("pretrain-")) && (
-              <optgroup label="Basis-Modelle (vortrainiert)">
+              <optgroup label="Base models (pretrained)">
                 {runs.filter((r) => String(r.dataset || "").startsWith("pretrain-"))
-                  .map((r) => <option key={r.run} value={r.run}>🔹 Basis · {r.run}</option>)}
+                  .map((r) => <option key={r.run} value={r.run}>🔹 Base · {r.run}</option>)}
               </optgroup>
             )}
-            <optgroup label="Eigene Runs">
+            <optgroup label="Own runs">
               {runs.filter((r) => !String(r.dataset || "").startsWith("pretrain-"))
                 .map((r) => <option key={r.run} value={r.run}>{r.run}</option>)}
             </optgroup>
           </Select>
           <Button variant="primary" onClick={start} disabled={status.running || !dataset}>
-            {status.running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Training starten
+            {status.running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Start training
           </Button>
-          {status.running && <Button onClick={stop}><Square className="h-4 w-4" /> Abbrechen</Button>}
+          {status.running && <Button onClick={stop}><Square className="h-4 w-4" /> Cancel</Button>}
         </div>
         {picked && <p className="mt-2 text-xs text-zinc-500">Split: train {picked.split_counts?.train ?? "?"} · val {picked.split_counts?.val ?? "?"} · test {picked.split_counts?.test ?? "?"}</p>}
         {(status.running || metrics.length > 0) && (
@@ -133,35 +135,35 @@ export default function Training() {
             <div className="mb-1 flex justify-between text-xs text-zinc-400">
               <span>{(() => {
                 if (status.running) return `running… (${status.run})`;
-                if (status.state === "stopped" || status.state === "crashed") return "abgebrochen";
-                return "Fortschritt";
-              })()} · Epoche {metrics.length}/{epochs}</span>
+                if (status.state === "stopped" || status.state === "crashed") return "aborted";
+                return "Progress";
+              })()} · epoch {metrics.length}/{epochs}</span>
               <span>board_acc {metrics.length ? ((metrics[metrics.length - 1].val_board_acc ?? 0) * 100).toFixed(1) + " %" : "—"}</span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-zinc-800"><div className={`h-full rounded-full transition-all ${status.state === "stopped" || status.state === "crashed" ? "bg-amber-500" : "bg-sky-500"}`} style={{ width: `${Math.min(100, (metrics.length / Math.max(1, epochs)) * 100)}%` }} /></div>
           </div>
         )}
-        {!status.running && status.state === "done" && <p className="mt-2 text-xs text-green-500">fertig ✓</p>}
+        {!status.running && status.state === "done" && <p className="mt-2 text-xs text-green-500">done ✓</p>}
         {!status.running && (status.state === "stopped" || status.state === "crashed") && (
           <p className="mt-2 text-xs text-amber-400">
-            {status.state === "crashed" ? "abgebrochen (Crash)" : "abgebrochen"} bei Epoche {metrics.length} — Teil-Fortschritt bleibt erhalten; „best.pt" ist gespeichert, „Weiter ab" setzt hier an.
+            {status.state === "crashed" ? "aborted (crash)" : "aborted"} at epoch {metrics.length} — partial progress is preserved; "best.pt" saved, "Resume" picks up here.
           </p>
         )}
         {err && <p className="mt-2 text-sm text-amber-400">{err}</p>}
       </Card>
 
-      <Card title="Modelle" right={<span className="text-xs text-zinc-500">{runs.length} Run(s)</span>}>
-        {runs.length === 0 ? <span className="text-sm text-zinc-500">Noch kein Modell trainiert.</span> : (
+      <Card title="Models" right={<span className="text-xs text-zinc-500">{runs.length} Run(s)</span>}>
+        {runs.length === 0 ? <span className="text-sm text-zinc-500">No model trained yet.</span> : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="text-zinc-500">
                 <th className="text-left font-normal">Run</th><th className="text-left font-normal">Backbone</th>
-                <th className="text-left font-normal">Datensatz</th><th className="text-right font-normal">Kl.</th>
-                <th className="text-right font-normal">Ep.</th><th className="text-right font-normal" title="bestes val board_acc (alle 64 Felder korrekt)">board_acc</th>
-                <th className="text-right font-normal" title="bestes val square_acc (Anteil korrekter Einzelfelder — treibt board_acc ≈ square_acc^64)">square_acc</th>
-                <th className="text-right font-normal" title="bestes val macro_recall">macro_rec</th>
-                <th className="text-right font-normal" title="Test-Set board_acc (nach eval)">test</th>
-                <th className="text-right font-normal">Aktion</th>
+                <th className="text-left font-normal">Dataset</th><th className="text-right font-normal">Cls</th>
+                <th className="text-right font-normal">Ep.</th>                <th className="text-right font-normal" title="best val board_acc (all 64 squares correct)">board_acc</th>
+                <th className="text-right font-normal" title="best val square_acc (fraction of correct squares — drives board_acc ≈ square_acc^64)">square_acc</th>
+                <th className="text-right font-normal" title="best val macro_recall">macro_rec</th>
+                <th className="text-right font-normal" title="test-set board_acc (after eval)">test</th>
+                <th className="text-right font-normal">Action</th>
               </tr></thead>
               <tbody>
                 {runs.map((r) => (
@@ -179,8 +181,10 @@ export default function Training() {
                     <td className="text-right tabular-nums text-zinc-300">{pct(r.best_macro_recall)}</td>
                     <td className="text-right tabular-nums text-zinc-300">{pct(r.test_board_acc)}</td>
                     <td className="py-1"><div className="flex justify-end gap-1.5">
-                      <Button onClick={() => showRun(r.run)} className="px-2 py-1 text-xs"><Eye className="h-3.5 w-3.5" /> View</Button>
-                      <Button onClick={() => delRun(r.run)} className="px-2 py-1 text-xs text-red-300 hover:text-red-200"><Trash2 className="h-3.5 w-3.5" /> Delete</Button>
+                      <Button onClick={() => showRun(r.run)}
+                              className="px-2 py-1 text-xs"><Eye className="h-3.5 w-3.5" /> View</Button>
+                      <Button onClick={() => delRun(r.run)}
+                              className="px-2 py-1 text-xs text-red-300 hover:text-red-200"><Trash2 className="h-3.5 w-3.5" /> Delete</Button>
                     </div></td>
                   </tr>
                 ))}
@@ -188,7 +192,7 @@ export default function Training() {
             </table>
           </div>
         )}
-        <p className="mt-2 text-xs text-zinc-500">"View" loads curves & eval below · "test" appears after <code>chesslab eval --run …</code> · ↻ = continued training · +occ = model knows "occluded" class.</p>
+        <p className="mt-2 text-xs text-zinc-500">"View" loads curves &amp; eval below · "test" appears after <code>chesslab eval --run …</code> · ↻ = continued training · +occ = model knows "occluded" class.</p>
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">

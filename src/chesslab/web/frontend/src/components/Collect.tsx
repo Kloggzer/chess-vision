@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Play, Camera as Cam, ArrowRight, Undo2, CheckCircle2 } from "lucide-react";
 import { api, post } from "../api";
-import { Card, Button, Select } from "./ui";
+import { Card, Button, Select, noteCls } from "./ui";
 
 const input = "rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-100 outline-none focus:border-sky-500";
 
@@ -21,9 +21,9 @@ function StrategyControls({ coverage, sweep, sets, setSets, count, setCount, pas
   if (coverage) {
     return (
       <>
-        <label className="flex items-center gap-2 text-sm text-zinc-400" title="Anzahl physischer Figurensätze: mit 2 Sätzen kommen Damen/Könige doppelt so schnell zusammen.">Sätze
+        <label className="flex items-center gap-2 text-sm text-zinc-400" title="Number of physical piece sets: with 2 sets, queens/kings come twice as fast.">Sets
           <input type="number" min={1} value={sets} onChange={(e) => setSets(+e.target.value)} className={`${inputCls} w-16`} /></label>
-        <label className="flex items-center gap-2 text-sm text-zinc-400" title="Anzahl dichter Setupten, die gegen deine schwächsten Klassen erzeugt werden.">Setupten
+        <label className="flex items-center gap-2 text-sm text-zinc-400" title="Number of dense setups generated against your weakest classes.">Setups
           <input type="number" min={1} value={count} onChange={(e) => setCount(+e.target.value)} className={`${inputCls} w-20`} /></label>
       </>
     );
@@ -31,29 +31,29 @@ function StrategyControls({ coverage, sweep, sets, setSets, count, setCount, pas
   if (sweep) {
     return (
       <>
-        <div className="flex items-center gap-2 text-sm text-zinc-400" title="Welche Figuren übers Brett wandern: special = Nicht-Bauern (K,Q,R,B,N), pawn = nur Bauern, all = alle.">Figuren
+        <div className="flex items-center gap-2 text-sm text-zinc-400" title="Which pieces walk across the board: special = non-pawns (K,Q,R,B,N), pawn = only pawns, all = everything.">Pieces
           <Select label="" value={pieces} onChange={(e) => setPieces(e.target.value)}>
             <option value="special">special (K,Q,R,B,N)</option>
-            <option value="pawn">pawn (Bauern)</option>
+            <option value="pawn">pawn (only pawns)</option>
             <option value="all">all</option>
           </Select></div>
-        <label className="flex items-center gap-2 text-sm text-zinc-400" title="Wiederholungen (je Pass 8 Fotos, Rang 1–8) — z.B. mit anderem Licht. Keine Figuren-Umstellung.">Pässe
+        <label className="flex items-center gap-2 text-sm text-zinc-400" title="Repeats (each pass 8 photos, ranks 1–8) — e.g. with different lighting. No piece rearrangement.">Passes
           <input type="number" min={1} value={passes} onChange={(e) => setPasses(+e.target.value)} className={`${inputCls} w-16`} /></label>
-        <label className="flex items-center gap-2 text-sm text-zinc-400" title="Anzahl physischer Figurensätze: mit 2 Sätzen sind doppelt so viele Figuren je Foto möglich.">Sätze
+        <label className="flex items-center gap-2 text-sm text-zinc-400" title="Number of physical piece sets: with 2 sets, twice as many pieces per photo possible.">Sets
           <input type="number" min={1} value={sets} onChange={(e) => setSets(+e.target.value)} className={`${inputCls} w-16`} /></label>
-        <label className="flex items-center gap-2 text-sm text-zinc-400" title="Weiß und Schwarz gleichzeitig aufs Brett (Weiß vorne, Schwarz 4 Ränge versetzt) → halbe Fotozahl, jedes Feld bekommt beide Farben.">
-          <input type="checkbox" checked={together} onChange={(e) => setTogether(e.target.checked)} /> beide Farben gleichzeitig</label>
-        <label className="flex items-center gap-2 text-sm text-zinc-400" title="Offset automatisch: zählt bisherige Sweep-Sessions und nimmt den nächsten Offset → jede Figur landet über mehrere Sessions auf verschiedenen Linien (gegen Positions-Overfitting).">
+        <label className="flex items-center gap-2 text-sm text-zinc-400" title="Both colors on the board at once (white in front, black 4 ranks offset) → half the photos, every square gets both colors.">
+          <input type="checkbox" checked={together} onChange={(e) => setTogether(e.target.checked)} /> both colors at once</label>
+        <label className="flex items-center gap-2 text-sm text-zinc-400" title="Auto offset: counts previous sweep sessions and picks the next offset → each piece lands on different files across sessions (prevents position overfitting).">
           <input type="checkbox" checked={autoOffset} onChange={(e) => setAutoOffset(e.target.checked)} /> Offset auto</label>
         {!autoOffset && (
-          <label className="flex items-center gap-2 text-sm text-zinc-400" title="Verschiebt die Linien→Figur-Zuordnung, fix für diese Session. 0: a=König,b=Dame,…  1: a=Dame,b=Turm,…">Offset
+          <label className="flex items-center gap-2 text-sm text-zinc-400" title="Shifts the line→piece assignment, fixed for this session. 0: a=King,b=Queen,…  1: a=Queen,b=Rook,…">Offset
             <input type="number" min={0} max={7} value={offset} onChange={(e) => setOffset(+e.target.value)} className={`${inputCls} w-16`} /></label>
         )}
       </>
     );
   }
   return (
-    <label className="flex items-center gap-2 text-sm text-zinc-400">Halbzüge
+    <label className="flex items-center gap-2 text-sm text-zinc-400">Max plies
       <input type="number" value={maxPlies} onChange={(e) => setMaxPlies(+e.target.value)} className={`${inputCls} w-20`} /></label>
   );
 }
@@ -61,19 +61,20 @@ function StrategyControls({ coverage, sweep, sets, setSets, count, setCount, pas
 export default function Collect() {
   const [strategy, setStrategy] = useState("random");
   const [maxPlies, setMaxPlies] = useState(40);
-  const [sets, setSets] = useState(1);       // coverage/sweep: Anzahl physischer Figurensätze
-  const [count, setCount] = useState(20);     // coverage: Anzahl dichter Setupten
-  const [passes, setPasses] = useState(1);    // sweep: Rotations-Durchläufe je Farbe
-  const [pieces, setPieces] = useState("special");  // sweep: special | pawn | all
-  const [together, setTogether] = useState(true);   // sweep: beide Farben gleichzeitig (halbe Fotos)
-  const [offset, setOffset] = useState(0);          // sweep: Linien→Figur verschieben
-  const [autoOffset, setAutoOffset] = useState(true); // sweep: Offset automatisch (zyklisch)
+  const [sets, setSets] = useState(1);
+  const [count, setCount] = useState(20);
+  const [passes, setPasses] = useState(1);
+  const [pieces, setPieces] = useState("special");
+  const [together, setTogether] = useState(true);
+  const [offset, setOffset] = useState(0);
+  const [autoOffset, setAutoOffset] = useState(true);
   const [profile, setProfile] = useState("default");
   const [cam, setCam] = useState(0);
   const coverage = strategy === "coverage";
   const sweep = strategy === "sweep";
   const [st, setSt] = useState<any>({ active: false });
   const [msg, setMsg] = useState("");
+  const [msgKind, setMsgKind] = useState<"ok" | "err" | "busy" | "">("");
   const timer = useRef<any>(null);
 
   useEffect(() => {
@@ -84,7 +85,7 @@ export default function Collect() {
   const poll = () => api("/api/collect/state").then(setSt).catch(() => {});
 
   async function start() {
-    setMsg("");
+    setMsg(""); setMsgKind("");
     try {
       const s = await post("/api/collect/start", {
         strategy, max_plies: maxPlies, profile, camera: cam, sets, count, passes, pieces, together,
@@ -93,27 +94,45 @@ export default function Collect() {
       setSt(s);
       clearInterval(timer.current);
       timer.current = setInterval(poll, 1500);
-    } catch (e: any) { setMsg("Fehler: " + e.message); }
+    } catch (e: any) { setMsg("Error: " + e.message); setMsgKind("err"); }
   }
-  const shoot = async () => setSt(await post("/api/collect/shoot"));
-  const skip = async () => setSt(await post("/api/collect/skip"));
-  const undo = async () => setSt(await post("/api/collect/undo"));
+  async function shoot() {
+    setMsg("Capturing..."); setMsgKind("busy");
+    try { setSt(await post("/api/collect/shoot")); setMsg("Captured ✓"); setMsgKind("ok"); }
+    catch (e: any) { setMsg("Error: " + e.message); setMsgKind("err"); }
+  }
+  async function skip() {
+    setMsg("Skipping..."); setMsgKind("busy");
+    try { setSt(await post("/api/collect/skip")); setMsg(""); setMsgKind(""); }
+    catch (e: any) { setMsg("Error: " + e.message); setMsgKind("err"); }
+  }
+  async function undo() {
+    setMsg("Undoing..."); setMsgKind("busy");
+    try { setSt(await post("/api/collect/undo")); setMsg("Undone ✓"); setMsgKind("ok"); }
+    catch (e: any) { setMsg("Error: " + e.message); setMsgKind("err"); }
+  }
   async function finish() {
-    const r = await post("/api/collect/finish");
-    clearInterval(timer.current);
-    setSt({ active: false });
-    setMsg(`Session beendet: ${r.captures} Captures, ${r.sliced ?? 0} Crops gesliced → Tab „Datensätze".`);
+    setMsg("Finishing..."); setMsgKind("busy");
+    try {
+      const r = await post("/api/collect/finish");
+      clearInterval(timer.current);
+      setSt({ active: false });
+      setMsg(`Session finished: ${r.captures} captures, ${r.sliced ?? 0} crops sliced → Datasets tab.`);
+      setMsgKind("ok");
+    } catch (e: any) { setMsg("Error: " + e.message); setMsgKind("err"); }
   }
+
+  const noteClasses = noteCls(msgKind);
 
   return (
     <div className="space-y-4">
       <Card>
         <div className="flex flex-wrap items-center gap-3">
           <Select label="Engine" value={strategy} onChange={(e) => setStrategy(e.target.value)}>
-            <option value="random">random (eingebaut)</option>
-            <option value="stockfish">stockfish (automatisch erkannt)</option>
-            <option value="coverage">coverage (gegen seltene Klassen)</option>
-            <option value="sweep">sweep (Figuren laufen übers Brett)</option>
+            <option value="random">random (built-in)</option>
+            <option value="stockfish">stockfish (auto-detected)</option>
+            <option value="coverage">coverage (target rare classes)</option>
+            <option value="sweep">sweep (pieces walk the board)</option>
           </Select>
           <StrategyControls coverage={coverage} sweep={sweep} input={input}
             sets={sets} setSets={setSets} count={count} setCount={setCount}
@@ -121,53 +140,53 @@ export default function Collect() {
             together={together} setTogether={setTogether} offset={offset} setOffset={setOffset}
             autoOffset={autoOffset} setAutoOffset={setAutoOffset}
             maxPlies={maxPlies} setMaxPlies={setMaxPlies} />
-          <label className="flex items-center gap-2 text-sm text-zinc-400">Profil
+          <label className="flex items-center gap-2 text-sm text-zinc-400">Profile
             <input value={profile} onChange={(e) => setProfile(e.target.value)} className={`${input} w-28`} /></label>
-          <label className="flex items-center gap-2 text-sm text-zinc-400">Kamera
+          <label className="flex items-center gap-2 text-sm text-zinc-400">Camera
             <input type="number" value={cam} onChange={(e) => setCam(+e.target.value)} className={`${input} w-16`} /></label>
           {!st.active
             ? <Button variant="primary" onClick={start}><Play className="h-4 w-4" /> Start game</Button>
             : <Button onClick={finish}><CheckCircle2 className="h-4 w-4" /> Done</Button>}
-          <span className="text-xs text-zinc-500">{msg}</span>
         </div>
+        {msg && <div className={`mt-2 rounded-lg px-3 py-1.5 text-sm ${noteClasses}`}>{msg}</div>}
       </Card>
 
       {st.active && (
         <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-          <Card title="Live-Kamera">
+          <Card title="Live camera">
             <img src="/api/camera/collect.mjpg" alt="Live capture" className="w-full rounded-lg border border-zinc-800" />
           </Card>
           <Card title="Capture">
             <div className="space-y-3">
               {st.done ? (
-                <div className="font-medium text-green-500">✓ Alle {st.n_positions} Positionen aufgenommen.</div>
+                <div className="font-medium text-green-500">✓ All {st.n_positions} positions captured.</div>
               ) : (
                 <>
                   <CaptureStatus st={st} />
                   <div className="flex flex-wrap gap-2">
-                    {!st.done && <Button variant="primary" onClick={shoot} className="px-5 py-2.5 text-base"><Cam className="h-5 w-5" /> Foto</Button>}
-                    {!st.done && <Button onClick={skip}><ArrowRight className="h-4 w-4" /> Überspringen</Button>}
+                    {!st.done && <Button variant="primary" onClick={shoot} className="px-5 py-2.5 text-base"><Cam className="h-5 w-5" /> Photo</Button>}
+                    {!st.done && <Button onClick={skip}><ArrowRight className="h-4 w-4" /> Skip</Button>}
                     <Button onClick={undo}><Undo2 className="h-4 w-4" /> Undo</Button>
                   </div>
                 </>
               )}
               <div className="text-sm">Captures: <b className="text-sky-400">{st.captures}</b>
-                <span className="ml-1 text-xs text-green-500">· sofort gespeichert ✓</span></div>
-              <p className="text-xs text-zinc-500">Jede Capture ist <b>sofort gespeichert</b> — du kannst jederzeit „Done" (oben) drücken oder einfach aufhören; nichts geht verloren.</p>
+                <span className="ml-1 text-xs text-green-500">· instantly saved ✓</span></div>
+              <p className="text-xs text-zinc-500">Each capture is <b>saved instantly</b> — you can press "Done" (above) any time or just stop; nothing is lost.</p>
             </div>
           </Card>
         </div>
       )}
 
       <p className="text-xs text-zinc-500">
-        Nach „Done" wird die Session automatisch gesliced. Kuratierte Datensätze (Dedup,
-        Rotation, Split) baust du im Tab <b className="text-zinc-300">Datensätze</b>.
+        After "Done" the session is sliced automatically. Curated datasets (dedup,
+        rotation, split) are built in the <b className="text-zinc-300">Datasets</b> tab.
       </p>
     </div>
   );
 }
 
-/** Hilfskomponente für den Status-Text während der Capture. */
+/** Status text during capture. */
 function CaptureStatus({ st }: { st: any }) {
   const pos = Math.min(st.index + 1, st.n_positions);
   const label = st.build_target ? "Setup" : "Position";
@@ -175,20 +194,20 @@ function CaptureStatus({ st }: { st: any }) {
 
   let instruction: JSX.Element;
   if (st.build_target) {
-    instruction = <>Position <b>set up fresh</b> — die <b className="text-sky-300">Figurennamen</b> sind ins Live-Bild eingeblendet (weiß = helle Schrift, schwarz = dunkle),</>;
+    instruction = <>Position <b>set up fresh</b> — <b className="text-sky-300">piece names</b> are overlaid on the live image (white = light text, black = dark),</>;
   } else if (st.index === 0) {
-    instruction = <>Brett in die <b>Startstellung</b> bringen,</>;
+    instruction = <>Set up the <b>starting position</b>,</>;
   } else {
-    instruction = <>Diesen Zug ziehen: <b className="text-base text-sky-300">{st.move_san}</b> <span className="text-zinc-400">(red arrow)</span>,</>;
+    instruction = <>Play this move: <b className="text-base text-sky-300">{st.move_san}</b> <span className="text-zinc-400">(red arrow)</span>,</>;
   }
-  const extra = st.build_target ? <>(gern mehrere mit wechselndem Licht)</> : null;
+  const extra = st.build_target ? <>(feel free to take several with varying light)</> : null;
 
   return (
     <>
       <div className="text-sm text-zinc-400">{label} <b className="text-zinc-100">{pos}</b> / {st.n_positions}{gainsHint}</div>
       <div className="rounded-lg bg-zinc-800 p-3 text-sm">
         {instruction}
-        <div className="mt-1 text-xs text-zinc-400">…dann <b>Foto</b>{extra}.</div>
+        <div className="mt-1 text-xs text-zinc-400">…then <b>Photo</b>{extra}.</div>
       </div>
     </>
   );

@@ -6,7 +6,7 @@ import {
   Boxes, Hammer, RotateCw,
 } from "lucide-react";
 import { api, post, del } from "../api";
-import { Card, Button, Glyph } from "./ui";
+import { Card, Button, Glyph, noteCls } from "./ui";
 
 const input = "rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-100 outline-none focus:border-sky-500";
 
@@ -51,10 +51,7 @@ export function SessionsPanel() {
   return (
     <Card title="Sessions (raw material)" right={<span className="text-xs text-zinc-500">{sessions.length} session(s)</span>}>
       {note && (
-        <div className={`mb-2 rounded-lg px-3 py-1.5 text-sm ${
-          noteKind === "err" ? "bg-red-950/60 text-red-300"
-          : noteKind === "busy" ? "bg-sky-950/60 text-sky-300 animate-pulse"
-          : "bg-emerald-950/60 text-emerald-300"}`}>{note}</div>
+        <div className={`mb-2 rounded-lg px-3 py-1.5 text-sm ${noteCls(noteKind)}`}>{note}</div>
       )}
       {sessions.length === 0 ? <span className="text-sm text-zinc-500">No sessions yet — capture some in the Collect tab.</span> : (
         <table className="w-full text-sm">
@@ -84,9 +81,27 @@ export function SessionsPanel() {
                     </Button>
                   )}
                   {m.archived
-                    ? <Button onClick={() => restoreM.mutate(m.session_id)} className="px-2 py-1 text-xs"><ArchiveRestore className="h-3.5 w-3.5" /> Restore</Button>
-                    : <Button onClick={() => archiveM.mutate(m.session_id)} className="px-2 py-1 text-xs"><Archive className="h-3.5 w-3.5" /> Archive</Button>}
-                  <Button onClick={() => window.confirm(`Delete session "${m.session_id}" permanently?`) && deleteM.mutate(m.session_id)} className="px-2 py-1 text-xs text-red-300 hover:text-red-200"><Trash2 className="h-3.5 w-3.5" /> Delete</Button>
+                    ? <Button onClick={() => restoreM.mutateAsync(m.session_id)}
+                              disabled={restoreM.isPending}
+                              className="px-2 py-1 text-xs disabled:opacity-50">
+                        {restoreM.isPending && restoreM.variables === m.session_id
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          : <ArchiveRestore className="h-3.5 w-3.5" />} Restore
+                      </Button>
+                    : <Button onClick={() => archiveM.mutateAsync(m.session_id)}
+                              disabled={archiveM.isPending}
+                              className="px-2 py-1 text-xs disabled:opacity-50">
+                        {archiveM.isPending && archiveM.variables === m.session_id
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          : <Archive className="h-3.5 w-3.5" />} Archive
+                      </Button>}
+                  <Button onClick={() => window.confirm(`Delete session "${m.session_id}" permanently?`) && deleteM.mutateAsync(m.session_id)}
+                          disabled={deleteM.isPending}
+                          className="px-2 py-1 text-xs text-red-300 hover:text-red-200 disabled:opacity-50">
+                    {deleteM.isPending && deleteM.variables === m.session_id
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <Trash2 className="h-3.5 w-3.5" />} Delete
+                  </Button>
                 </div></td>
               </tr>
             ))}
@@ -119,11 +134,11 @@ export function DatasetsPanel() {
 
   const buildM = useMutation({
     mutationFn: (body: any) => post("/api/datasets", body),
-    onSuccess: (r: any) => { setNote(`„${r.name}" gebaut: roh ${r.counts.raw} → dedup ${r.counts.after_dedup} → final ${r.counts.final}.`); setOpen(false); setName(""); setSel({}); invalidate("datasets", "stats"); },
-    onError: (e: any) => setNote("Error: " + e.message),
+    onSuccess: (r: any) => { setNote(`"${r.name}" built: raw ${r.counts.raw} → dedup ${r.counts.after_dedup} → final ${r.counts.final}.`); setNoteKind("ok"); setOpen(false); setName(""); setSel({}); invalidate("datasets", "stats"); },
+    onError: (e: any) => { setNote("Error: " + e.message); setNoteKind("err"); },
   });
-  const dsDeleteM = useMutation({ mutationFn: (n: string) => del(`/api/datasets/${n}`), onSuccess: () => { setNote("deleted."); invalidate("datasets"); } });
-  const dsRebuildM = useMutation({ mutationFn: (n: string) => post(`/api/datasets/${n}/rebuild`), onSuccess: (r: any) => { setNote(`„${r.name}" neu gebaut: ${r.counts?.final} Crops.`); invalidate("datasets", "stats"); }, onError: (e: any) => setNote("Error: " + e.message) });
+  const dsDeleteM = useMutation({ mutationFn: (n: string) => del(`/api/datasets/${n}`), onSuccess: () => { setNote("deleted."); setNoteKind("ok"); invalidate("datasets"); }, onError: (e: any) => { setNote("Error: " + e.message); setNoteKind("err"); } });
+  const dsRebuildM = useMutation({ mutationFn: (n: string) => post(`/api/datasets/${n}/rebuild`), onSuccess: (r: any) => { setNote(`"${r.name}" rebuilt: ${r.counts?.final} crops.`); setNoteKind("ok"); invalidate("datasets", "stats"); }, onError: (e: any) => { setNote("Error: " + e.message); setNoteKind("err"); } });
 
   function build() {
     const session_ids = active.filter((s: any) => sel[s.session_id]).map((s: any) => s.session_id);
@@ -132,22 +147,25 @@ export function DatasetsPanel() {
   }
 
   return (
-    <Card title="Curated datasets" right={<div className="flex items-center gap-2"><span className="text-xs text-zinc-500">{note}</span><Button onClick={() => setOpen((o) => !o)} className="px-2 py-1 text-xs"><Boxes className="h-3.5 w-3.5" /> Neuer Dataset</Button></div>}>
+    <Card title="Curated datasets" right={<div className="flex items-center gap-2">
+      {note && <span className={`rounded-lg px-2 py-0.5 text-xs ${noteCls(noteKind)}`}>{note}</span>}
+      <Button onClick={() => setOpen((o) => !o)} className="px-2 py-1 text-xs"><Boxes className="h-3.5 w-3.5" /> New Dataset</Button>
+    </div>}>
       {open && (
         <div className="mb-4 space-y-3 rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
           <div className="flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-1 text-xs text-zinc-400">Name<input value={name} onChange={(e) => setName(e.target.value)} className={`${input} w-40`} placeholder="z.B. set-a" /></label>
-            <label className="flex items-center gap-1 text-xs text-zinc-400" title="max. Crops je (Session, Feld, Figur)">Cap/Feld<input type="number" min={1} value={cap} onChange={(e) => setCap(+e.target.value)} className={`${input} w-16`} /></label>
+            <label className="flex items-center gap-1 text-xs text-zinc-400">Name<input value={name} onChange={(e) => setName(e.target.value)} className={`${input} w-40`} placeholder="e.g. set-a" /></label>
+            <label className="flex items-center gap-1 text-xs text-zinc-400" title="max. crops per (session, square, piece)">Cap/cell<input type="number" min={1} value={cap} onChange={(e) => setCap(+e.target.value)} className={`${input} w-16`} /></label>
             <label className="flex items-center gap-1 text-xs text-zinc-400"><input type="checkbox" checked={phash} onChange={(e) => setPhash(e.target.checked)} /> pHash</label>
             <label className="flex items-center gap-1 text-xs text-zinc-400">Hamming<input type="number" min={0} max={32} value={hamming} disabled={!phash} onChange={(e) => setHamming(+e.target.value)} className={`${input} w-14`} /></label>
-            <label className="flex items-center gap-1 text-xs text-zinc-400" title="90/180/270° → 4× Crops. ACHTUNG: widerspricht der Fixkamera-Annahme — A/B testen."><input type="checkbox" checked={rotate} onChange={(e) => setRotate(e.target.checked)} /> <RotateCw className="h-3.5 w-3.5" /> Rotation</label>
+            <label className="flex items-center gap-1 text-xs text-zinc-400" title="90/180/270° → 4× crops. WARNING: violates the fixed-camera assumption — A/B test."><input type="checkbox" checked={rotate} onChange={(e) => setRotate(e.target.checked)} /> <RotateCw className="h-3.5 w-3.5" /> Rotation</label>
             <label className="flex items-center gap-1 text-xs text-zinc-400">val<input type="number" step={0.05} min={0} max={0.5} value={valFrac} onChange={(e) => setValFrac(+e.target.value)} className={`${input} w-14`} /></label>
             <label className="flex items-center gap-1 text-xs text-zinc-400">test<input type="number" step={0.05} min={0} max={0.5} value={testFrac} onChange={(e) => setTestFrac(+e.target.value)} className={`${input} w-14`} /></label>
           </div>
           <div>
             <div className="mb-1 text-xs text-zinc-500">Sessions (freely selectable subset — datasets may overlap):</div>
             <div className="flex flex-wrap gap-2">
-              {active.length === 0 ? <span className="text-xs text-zinc-500">none aktiven Sessions</span> : active.map((s: any) => (
+              {active.length === 0 ? <span className="text-xs text-zinc-500">no active sessions</span> : active.map((s: any) => (
                 <label key={s.session_id} className="flex items-center gap-1.5 rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300">
                   <input type="checkbox" checked={!!sel[s.session_id]} onChange={(e) => setSel((p) => ({ ...p, [s.session_id]: e.target.checked }))} />
                   {s.session_id} <span className="text-zinc-500">({s.n_crops})</span>
@@ -155,15 +173,16 @@ export function DatasetsPanel() {
               ))}
             </div>
           </div>
-          <Button variant="primary" onClick={build} disabled={buildM.isPending}><Hammer className="h-4 w-4" /> {buildM.isPending ? "Baue…" : "Build"}</Button>
+          <Button variant="primary" onClick={build} disabled={buildM.isPending}>
+            {buildM.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Hammer className="h-4 w-4" />} {buildM.isPending ? "Building…" : "Build"}</Button>
         </div>
       )}
 
-      {datasets.length === 0 ? <span className="text-sm text-zinc-500">Noch kein Dataset gebaut.</span> : (
+      {datasets.length === 0 ? <span className="text-sm text-zinc-500">No dataset built yet.</span> : (
         <table className="w-full text-sm">
           <thead><tr className="text-zinc-500">
             <th className="text-left font-normal">Dataset</th><th className="text-right font-normal">Sessions</th>
-            <th className="text-right font-normal">roh→dedup→final</th><th className="text-right font-normal">train/val/test</th>
+            <th className="text-right font-normal">raw→dedup→final</th><th className="text-right font-normal">train/val/test</th>
             <th className="text-right font-normal">Action</th>
           </tr></thead>
           <tbody>
@@ -175,8 +194,20 @@ export function DatasetsPanel() {
                 <td className="text-right tabular-nums text-zinc-400">{d.split_counts?.train ?? "?"}/{d.split_counts?.val ?? "?"}/{d.split_counts?.test ?? "?"}</td>
                 <td className="py-1"><div className="flex justify-end gap-1.5">
                   <NavLink to={`../stats?ds=${encodeURIComponent(d.name)}`} className="inline-flex items-center gap-1 rounded-lg bg-zinc-800 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-700">Stats</NavLink>
-                  <Button onClick={() => dsRebuildM.mutate(d.name)} className="px-2 py-1 text-xs"><Hammer className="h-3.5 w-3.5" /> Rebuild</Button>
-                  <Button onClick={() => window.confirm(`Dataset „${d.name}" löschen?`) && dsDeleteM.mutate(d.name)} className="px-2 py-1 text-xs text-red-300 hover:text-red-200"><Trash2 className="h-3.5 w-3.5" /> Delete</Button>
+                  <Button onClick={() => dsRebuildM.mutateAsync(d.name)}
+                          disabled={dsRebuildM.isPending}
+                          className="px-2 py-1 text-xs disabled:opacity-50">
+                    {dsRebuildM.isPending && dsRebuildM.variables === d.name
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <Hammer className="h-3.5 w-3.5" />} Rebuild
+                  </Button>
+                  <Button onClick={() => { if (window.confirm(`Delete dataset "${d.name}"?`)) dsDeleteM.mutateAsync(d.name); }}
+                          disabled={dsDeleteM.isPending}
+                          className="px-2 py-1 text-xs text-red-300 hover:text-red-200 disabled:opacity-50">
+                    {dsDeleteM.isPending && dsDeleteM.variables === d.name
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <Trash2 className="h-3.5 w-3.5" />} Delete
+                  </Button>
                 </div></td>
               </tr>
             ))}
@@ -199,9 +230,10 @@ export function StatsPanel() {
   } });
   const datasets: any[] = datasetsQ.data ?? [];
   const s = statsQ.data;
-  if (statsQ.isLoading || !s) return <Card>Stats laden…</Card>;
+  const [browseErr, setBrowseErr] = useState("");
+  if (statsQ.isLoading || !s) return <Card title="Stats">Loading…</Card>;
 
-  const statsOfDs = statsOf ? `Dataset „${statsOf}"` : "global pool";
+  const statsOfDs = statsOf ? `Dataset "${statsOf}"` : "global pool";
   const max = Math.max(1, ...Object.values<number>(s.counts ?? { x: 1 }));
   const barColor = (c: string, n: number) =>
     (() => {
@@ -212,7 +244,8 @@ export function StatsPanel() {
     })();
   const openClass = (c: string) => {
     const qs = statsOf ? `&dataset=${encodeURIComponent(statsOf)}` : "";
-    return api(`/api/class/${c}?limit=120${qs}`).then((d) => setBrowse({ label: c, crops: d.crops }));
+    setBrowseErr("");
+    api(`/api/class/${c}?limit=120${qs}`).then((d) => setBrowse({ label: c, crops: d.crops })).catch((e: any) => setBrowseErr(e.message));
   };
 
   return (
@@ -223,7 +256,7 @@ export function StatsPanel() {
             <option value="">global pool</option>
             {datasets.map((d: any) => <option key={d.name} value={d.name}>{d.name}</option>)}
           </select>}>
-          <div className="mb-2 text-xs text-zinc-500">{s.total} Crops · {s.num_sessions} Sessions{statsOf ? ` · Dataset „${statsOf}"` : " · roh"}</div>
+          <div className="mb-2 text-xs text-zinc-500">{s.total} crops · {s.num_sessions} sessions{statsOf ? ` · Dataset "${statsOf}"` : " · raw"}</div>
           <div className="space-y-1.5">
             {s.classes.map((c: string) => {
               const n = s.counts[c] || 0;
@@ -239,7 +272,7 @@ export function StatsPanel() {
         </Card>
         <Card title="Light / Dark">
           <table className="w-full text-sm">
-            <thead><tr className="text-zinc-500"><th className="text-left font-normal">Klasse</th><th>hell</th><th>dunkel</th></tr></thead>
+            <thead><tr className="text-zinc-500"><th className="text-left font-normal">Class</th><th>light</th><th>dark</th></tr></thead>
             <tbody>
               {s.classes.map((c: string) => {
                 const cell = (v: number) => v > 0 ? <Check className="mx-auto h-4 w-4 text-green-500" /> : <X className="mx-auto h-4 w-4 text-red-500" />;
@@ -255,9 +288,10 @@ export function StatsPanel() {
       </Card>
 
       <Card title={`Browse crops (${statsOfDs})`} right={<span className="flex items-center gap-1 text-xs text-zinc-500"><Images className="h-3.5 w-3.5" />{browse ? `${browse.label} (${browse.crops.length})` : "Click a class"}</span>}>
+        {browseErr && <div className="mb-2 rounded-lg bg-red-950/60 px-3 py-1.5 text-sm text-red-300">{browseErr}</div>}
         {browse ? (
           <div className="grid grid-cols-[repeat(auto-fill,56px)] gap-1.5">
-            {browse.crops.map((c: any, i: number) => <img key={i} src={c.url} title={`${c.session_id} ${c.frame} ${c.square}`} alt={`Feld ${c.square}`} className="h-[74px] w-[56px] rounded border border-zinc-800 object-cover" />)}
+            {browse.crops.map((c: any, i: number) => <img key={i} src={c.url} title={`${c.session_id} ${c.frame} ${c.square}`} alt={`square ${c.square}`} className="h-[74px] w-[56px] rounded border border-zinc-800 object-cover" />)}
           </div>
         ) : <span className="text-sm text-zinc-500">Select a class on the left to view crops.</span>}
       </Card>
