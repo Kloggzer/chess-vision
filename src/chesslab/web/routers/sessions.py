@@ -4,18 +4,25 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Body, HTTPException, Query
 
-from ..util import _manifest
-
 router = APIRouter()
+
+
+def _crop_count(sid: str) -> int:
+    from ... import config
+    from ...manifest_cache import session_crop_count
+
+    return session_crop_count(config.DATA.manifests / "squares.jsonl", sid)
 
 
 @router.get("/api/sessions")
 def sessions():
     by_session: dict[str, set] = {}
-    for r in _manifest():
-        by_session.setdefault(r["session_id"], set()).add(str(r["frame"]))
-    return [{"session_id": sid, "frames": sorted(frames), "n_frames": len(frames)}
-            for sid, frames in sorted(by_session.items())]
+    from ... import config
+    from ...manifest_cache import manifest_stats
+
+    frames_by = manifest_stats(config.DATA.manifests / "squares.jsonl")["frames_by_session"]
+    return [{"session_id": sid, "frames": frames, "n_frames": len(frames)}
+            for sid, frames in sorted(frames_by.items())]
 
 
 @router.get("/api/sessions/manage")
@@ -69,7 +76,7 @@ def session_slice(sid: str, pad_up: float | None = Query(None), pad_side: float 
     from ... import labeling as labeling_mod
 
     rc = labeling_mod.run_slice(session=sid, pad_up=pad_up, pad_side=pad_side)
-    crops = sum(1 for r in _manifest() if r.get("session_id") == sid)
+    crops = _crop_count(sid)
     if rc != 0:
         raise HTTPException(400, f"Slicing für '{sid}' fehlgeschlagen.")
     return {"ok": True, "session": sid, "crops": crops}
@@ -81,7 +88,7 @@ def reslice(session: str = Query(...), pad_up: float | None = Query(None),
     from ... import labeling as labeling_mod
 
     rc = labeling_mod.run_slice(session=session, pad_up=pad_up, pad_side=pad_side)
-    crops = sum(1 for r in _manifest() if r.get("session_id") == session)
+    crops = _crop_count(session)
     return {"ok": rc == 0, "session": session, "crops": crops}
 
 
