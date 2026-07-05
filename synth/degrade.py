@@ -26,11 +26,12 @@ def degrade_image(bgr: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     # 1) Kontrast leicht senken (real ist flacher) um den Mittelwert 128.
     c = rng.uniform(0.82, 0.94)
     im = (im - 128.0) * c + 128.0
-    # 2) Warm-Shift (real ist wärmer): R hoch, B runter (BGR: [0]=B, [2]=R).
-    im[:, :, 2] *= rng.uniform(1.02, 1.08)
-    im[:, :, 0] *= rng.uniform(0.92, 0.98)
+    # 2) Leichter Warm-Shift (real ist minimal wärmer): R hoch, B runter (BGR: [0]=B, [2]=R).
+    # Mild gehalten — zu viel Wärme übergilbt die weißen Figuren.
+    im[:, :, 2] *= rng.uniform(1.0, 1.03)
+    im[:, :, 0] *= rng.uniform(0.97, 1.0)
     # 3) Defokus / weiche Optik (real ist deutlich unschärfer als EEVEE).
-    k = rng.uniform(0.8, 1.8)
+    k = rng.uniform(0.5, 1.2)
     im = cv2.GaussianBlur(im, (0, 0), k)
     # 4) Sensor-Rauschen.
     im = im + rng.normal(0.0, rng.uniform(2.0, 6.0), im.shape)
