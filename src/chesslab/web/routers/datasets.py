@@ -1,4 +1,4 @@
-"""Datensatz-Router: /api/stats, /api/class/{cls}, /api/datasets*"""
+"""Dataset router: /api/stats, /api/class/{cls}, /api/datasets*"""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def class_crops(cls: str, offset: int = 0, limit: int = 60, dataset: str | None 
     from ... import config
 
     if cls not in config.CLASSES:
-        raise HTTPException(404, f"unbekannte Klasse {cls}")
+        raise HTTPException(404, f"unknown class {cls}")
     # `dataset` set -> the crops of THAT dataset; otherwise the global pool.
     from ...manifest_cache import rows_for_label
 
@@ -95,7 +95,7 @@ def dataset_rebuild(name: str):
         phash_enabled=d.get("phash_enabled"), phash_hamming=d.get("phash_hamming"),
         rotations=tuple(cfg.get("rotations", (0,))),
         max_empty_ratio=sp.get("max_empty_ratio"),
-        allow_degenerate=True,   # rebuild: original split war bereits akzeptiert
+        allow_degenerate=True,   # rebuild: original split was already accepted
         seed=sp.get("seed", config.SEED))
     return res
 

@@ -1,10 +1,10 @@
-"""Turntable-Scan-Steuerung für die Web-UI (Tab „Scan").
+"""Turntable scan controller for the web UI (tab "Scan").
 
-EIN Grab-Thread hält den letzten Frame der gewählten Quelle (Handy-IP-Cam-URL oder USB-Index)
-und speichert — wenn „recording" — den per Maus im Frontend gesetzten Crop im gewünschten
-Intervall als `scans/<name>/NNN.jpg`. Die Live-Preview zeigt denselben Frame runterskaliert mit
-eingezeichnetem Crop. Reiner Photogrammetrie-Input (RealityScan) — unabhängig von Kalibrierung/
-Kamera-Singleton der übrigen App, damit ein Scan das Sammeln/Inference nicht stört.
+ONE grab thread keeps the latest frame from the selected source (phone IP cam URL or USB index)
+and saves — when "recording" — the mouse-set crop from the frontend at the desired
+interval as `scans/<name>/NNN.jpg`. The live preview shows the same frame downscaled with
+the crop overlaid. Pure photogrammetry input (RealityScan) — independent of calibration/
+camera singleton of the rest of the app, so scanning doesn't disturb collect/inference.
 """
 
 from __future__ import annotations
@@ -18,13 +18,13 @@ import cv2
 
 from .camera import _open_source, _UrlSnapshotCapture
 
-# scans/ liegt auf Repo-Ebene (neben data/) — cwd-unabhängig über die Dateilage ankern.
+# scans/ lives at the repo level (next to data/) — anchored via file location, independent of cwd.
 SCANS_ROOT = Path(__file__).resolve().parents[3] / "scans"
 
 
 def _open(source, width: int, height: int):
-    """USB-Index -> DSHOW+MJPG+angeforderte Auflösung (sonst kappt der Treiber bei 640×480);
-    URL -> gemeinsamer Snapshot-/MJPEG-Leser aus camera.py (HTTPS/selbstsigniert-tauglich)."""
+    """USB index -> DSHOW+MJPG+requested resolution (otherwise the driver caps at 640×480);
+    URL -> shared snapshot/MJPEG reader from camera.py (HTTPS/self-signed-capable)."""
     s = str(source).strip()
     if s.isdigit():
         import platform
@@ -40,7 +40,7 @@ def _open(source, width: int, height: int):
 
 
 def _next_index(out_dir: Path) -> int:
-    """Nächste freie NNN-Nummer im Ordner — so hängt „Ring 2" automatisch an Ring 1 an."""
+    """Next free NNN number in the folder — so "Ring 2" automatically appends to Ring 1."""
     n = -1
     for p in out_dir.glob("*.jpg"):
         try:
@@ -58,70 +58,70 @@ class ScanController:
         self.thread: threading.Thread | None = None
         self.stop_flag = False
 
-        # Getrennte SPEICHER-Quelle: die Live-Vorschau läuft über den flüssigen Stream
-        # (`source`, i.d.R. …/video/m.jpeg), GESPEICHERTE Fotos werden aber aus dieser
-        # Snapshot-URL gezogen (…/video/snapshot, saubere Einzelbilder). Leer -> Fotos
-        # kommen aus dem Live-Frame. Der im Vorschaubild gezogene Crop wird dabei auf die
-        # Snapshot-Auflösung skaliert (falls sie sich vom Stream unterscheidet).
+        # Separate CAPTURE source: the live preview runs over the smooth stream
+        # (`source`, usually …/video/m.jpeg), but SAVED photos are pulled from this
+        # snapshot URL (…/video/snapshot, clean single images). Empty -> photos
+        # come from the live frame. The crop drawn on the preview is scaled to the
+        # snapshot resolution (if it differs from the stream).
         self.capture_source = ""
         self.capture_cap = None
 
-        # Bedarfs-Steuerung: die physische Kamera wird nur gegriffen, wenn Vorschau angezeigt
-        # oder aufgenommen wird. `configured` = Quelle ausgewählt (UI-Panel offen); die echte
-        # `cap` wird lazy geöffnet/nach `idle_timeout` Sekunden Leerlauf wieder freigegeben.
+        # Demand control: the physical camera is only grabbed when preview is shown
+        # or recording is active. `configured` = source selected (UI panel open); the real
+        # `cap` is opened lazily / released after `idle_timeout` seconds of inactivity.
         self.configured = False
-        self._cfg = ("0", 2880, 2160)          # (source, width, height) fürs Lazy-Reopen
-        self._last_demand = 0.0                # letzter Preview-Abruf (Aufnahme = Dauerbedarf)
+        self._cfg = ("0", 2880, 2160)          # (source, width, height) for lazy re-open
+        self._last_demand = 0.0                # last preview fetch (recording = continuous demand)
         self.idle_timeout = 12.0
 
-        self.frame = None                 # letzter Full-Res-BGR-Frame
-        self.frame_size = (0, 0)          # (w, h) der Quelle
+        self.frame = None                 # last full-res BGR frame
+        self.frame_size = (0, 0)          # (w, h) of the source
         self.frame_id = 0
         self.error = ""
 
         self.recording = False
         self.out_name = ""
         self.out_dir: Path | None = None
-        self.index = 0                    # nächste Dateinummer
-        self.saved_run = 0                # in diesem Aufnahme-Lauf gespeichert
+        self.index = 0                    # next file number
+        self.saved_run = 0                # saved in this recording run
         self._last_save = 0.0
 
-        # Konfig (per Frontend gesetzt)
-        self.crop: tuple[int, int, int, int] | None = None   # (x0,y0,x1,y1) Full-Res
+        # Config (set via frontend)
+        self.crop: tuple[int, int, int, int] | None = None   # (x0,y0,x1,y1) full-res
         self.interval = 0.8
-        self.count = 0                    # 0 = unbegrenzt (bis Stop)
+        self.count = 0                    # 0 = unlimited (until stop)
         self.quality = 92
 
-    # -- Quelle öffnen / schließen -------------------------------------------------
+    # -- Source open / close -------------------------------------------------
     def open(self, source, width: int = 2880, height: int = 2160, capture_source: str = "") -> dict:
-        """Quelle AUSWÄHLEN + einmal testen. Danach hält der Loop die Kamera nur bei Bedarf
-        (Vorschau/Aufnahme) und gibt sie im Leerlauf automatisch frei.
+        """SELECT source + test once. After that the loop only holds the camera on demand
+        (preview/recording) and releases it automatically when idle.
 
-        `capture_source` (optional): Snapshot-URL, aus der beim Aufnehmen gespeichert wird —
-        die Vorschau bleibt am flüssigen `source`-Stream."""
+        `capture_source` (optional): snapshot URL from which images are saved during recording —
+        the preview stays on the smooth `source` stream."""
         self.close()
-        cap = _open(source, width, height)     # Testöffnung: schlägt früh fehl, wenn die Quelle streikt
+        cap = _open(source, width, height)     # Test open: fails early if the source is broken
         ok, img = cap.read()
         if not ok or img is None:
             try:
                 cap.release()
             except Exception:  # noqa: BLE001
                 pass
-            raise RuntimeError(f"Keine Frames von {source!r}. Quelle/URL/App prüfen.")
+            raise RuntimeError(f"No frames from {source!r}. Check source/URL/app.")
         cap_src = str(capture_source or "").strip()
         capture_cap = None
         if cap_src:
-            probe = _UrlSnapshotCapture(cap_src)   # Snapshot einmal testen -> früher, klarer Fehler
+            probe = _UrlSnapshotCapture(cap_src)   # Test snapshot once -> early, clear error
             ok_s, _ = probe.read()
             if not ok_s:
                 try:
                     cap.release()
                 except Exception:  # noqa: BLE001
                     pass
-                raise RuntimeError(f"Snapshot-Quelle {cap_src!r} liefert kein Bild. URL prüfen.")
+                raise RuntimeError(f"Snapshot source {cap_src!r} does not deliver an image. Check URL.")
             capture_cap = probe
         with self.lock:
-            self.cap = cap                     # bleibt erstmal offen (Vorschau startet sofort)
+            self.cap = cap                     # stays open initially (preview starts immediately)
             self.configured = True
             self._cfg = (str(source), int(width), int(height))
             self.source = str(source)
@@ -162,28 +162,28 @@ class ScanController:
                 pass
         self.cap = None
 
-    # -- Grab-/Speicher-Schleife ---------------------------------------------------
+    # -- Grab / save loop ---------------------------------------------------
     def _loop(self) -> None:
         while not self.stop_flag:
             now = time.time()
             with self.lock:
                 demand = self.recording or (now - self._last_demand) < self.idle_timeout
                 cap = self.cap
-                if not demand and cap is not None:      # Leerlauf -> Kamera freigeben
+                if not demand and cap is not None:      # Idle -> release camera
                     self._release_cap_locked()
-                    self.frame = None                   # Vorschau soll nicht altes Bild zeigen
+                    self.frame = None                   # Preview should not show old image
                     cap = None
 
-            if demand and cap is None:                  # Bedarf, aber Kamera frei -> lazy öffnen
+            if demand and cap is None:                  # Demand but camera released -> lazy open
                 try:
                     new = _open(*self._cfg)
                     ok, img = new.read()
                     if not ok or img is None:
                         new.release()
-                        raise RuntimeError("kein Frame")
+                        raise RuntimeError("no frame")
                 except Exception as e:  # noqa: BLE001
                     with self.lock:
-                        self.error = f"Reopen fehlgeschlagen: {e}"
+                        self.error = f"Re-open failed: {e}"
                     time.sleep(0.3)
                     continue
                 with self.lock:
@@ -191,14 +191,14 @@ class ScanController:
                     self.error = ""
                 cap = new
 
-            if cap is None:                             # geparkt: warten bis wieder Bedarf besteht
+            if cap is None:                             # Parked: wait until demand reappears
                 time.sleep(0.15)
                 continue
 
             ok, img = cap.read()
             if not ok or img is None:
                 with self.lock:
-                    self.error = "kein Frame"
+                    self.error = "no frame"
                 time.sleep(0.1)
                 continue
             ctx = None
@@ -211,13 +211,13 @@ class ScanController:
                     ctx = (self.crop, self.frame_size, self.out_dir,
                            self.index, self.quality, self.capture_cap)
             if ctx is not None:
-                self._save_photo(img, *ctx)     # Snapshot-Fetch + Write OHNE Lock
+                self._save_photo(img, *ctx)     # Snapshot fetch + write WITHOUT lock
 
     def _save_photo(self, live_img, crop, prev_size, out_dir, index, quality, capture_cap) -> None:
-        """Ein Foto speichern. Ist eine Snapshot-Quelle gesetzt (`capture_cap`), kommt das
-        gespeicherte Bild von dort und der auf der Vorschau gezogene Crop wird auf die
-        Snapshot-Größe skaliert; sonst wird der Live-Frame gespeichert. Läuft bewusst OHNE
-        Lock (Netz-Fetch), Zähler werden am Ende unter Lock fortgeschrieben."""
+        """Save one photo. If a snapshot source is set (`capture_cap`), the saved image comes
+        from there and the crop drawn on the preview is scaled to the snapshot size; otherwise
+        the live frame is saved. Runs deliberately WITHOUT lock (network fetch), counters are
+        updated under lock at the end."""
         img = live_img
         sx = sy = 1.0
         if capture_cap is not None:
@@ -225,27 +225,27 @@ class ScanController:
             if ok and snap is not None:
                 img = snap
                 pw, ph = prev_size
-                if pw and ph:                    # Crop (Vorschau-Koords) -> Snapshot-Koords
+                if pw and ph:                    # Crop (preview coords) -> snapshot coords
                     sx, sy = snap.shape[1] / pw, snap.shape[0] / ph
             else:
                 with self.lock:
-                    self.error = "Snapshot fehlgeschlagen — Live-Frame gespeichert"
+                    self.error = "Snapshot failed — live frame saved"
         out = img
         if crop is not None:
             pw, ph = prev_size
             ap = (pw / ph) if ph else 0.0
             asp = (img.shape[1] / img.shape[0]) if img.shape[0] else 0.0
-            # Nur beim Snapshot-Pfad relevant: passt die Snapshot-Orientierung nicht zur
-            # Vorschau (z.B. Vorschau quer, Snapshot hoch), würde der Vorschau-Crop verzerrt
-            # und falsch platziert. Dann lieber das volle Snapshot speichern + warnen, statt
-            # still Müll zu croppen. Beim Live-Frame (kein capture_cap) sind die Koords immer
-            # deckungsgleich -> kein Check nötig.
+            # Only relevant for the snapshot path: if the snapshot orientation does not match
+            # the preview (e.g. preview landscape, snapshot portrait), the preview crop would be
+            # distorted and misplaced. In that case save the full snapshot + warn instead of
+            # silently cropping garbage. For the live frame (no capture_cap) the coords always
+            # match -> no check needed.
             aspect_mismatch = (capture_cap is not None and ap and asp
                                and abs(ap - asp) > 0.15 * asp)
             if aspect_mismatch:
                 with self.lock:
-                    self.error = ("Vorschau/Snapshot unterschiedlich orientiert — volles Snapshot "
-                                  "gespeichert. Beide Quellen auf gleiche Auflösung/Orientierung stellen.")
+                    self.error = ("Preview/snapshot have different orientations — full snapshot "
+                                  "saved. Set both sources to the same resolution/orientation.")
             else:
                 box = (crop[0] * sx, crop[1] * sy, crop[2] * sx, crop[3] * sy)
                 x0, y0, x1, y1 = self._clamp(box, img.shape[1], img.shape[0])
@@ -268,7 +268,7 @@ class ScanController:
         y0, y1 = sorted((max(0, min(h, int(y0))), max(0, min(h, int(y1)))))
         return x0, y0, x1, y1
 
-    # -- Konfig / Aufnahme ---------------------------------------------------------
+    # -- Config / recording -------------------------------------------------
     def configure(self, crop=None, interval=None, count=None, quality=None, out=None) -> dict:
         with self.lock:
             if crop is not None:
@@ -286,18 +286,18 @@ class ScanController:
     def start(self, out: str | None = None) -> dict:
         with self.lock:
             if not self.configured:
-                raise RuntimeError("keine Quelle offen — erst Verbinden.")
+                raise RuntimeError("no source open — connect first.")
             name = (out or self.out_name).strip()
             if not name:
-                raise RuntimeError("Zielname fehlt (z. B. 'pawn').")
+                raise RuntimeError("target name missing (e.g. 'pawn').")
             if self.crop is None:
-                raise RuntimeError("kein Crop gesetzt — im Live-Bild einen Rahmen ziehen.")
+                raise RuntimeError("no crop set — draw a box on the live image.")
             self.out_name = name
             self.out_dir = SCANS_ROOT / name
             self.out_dir.mkdir(parents=True, exist_ok=True)
-            self.index = _next_index(self.out_dir)     # hängt an bestehende Ringe an
+            self.index = _next_index(self.out_dir)     # appends to existing rings
             self.saved_run = 0
-            self._last_save = 0.0                       # sofort erstes Foto
+            self._last_save = 0.0                       # first photo immediately
             self.recording = True
         return self.status()
 
@@ -306,12 +306,12 @@ class ScanController:
             self.recording = False
         return self.status()
 
-    # -- Preview / Status ----------------------------------------------------------
+    # -- Preview / Status ---------------------------------------------------
     def preview(self, maxside: int = 900, last_id: int = -1):
-        """(bgr_image, frame_id) des letzten Frames, runterskaliert + Crop-Rahmen eingezeichnet.
-        Gibt (None, id) zurück, wenn kein neuer Frame vorliegt (Aufrufer wartet dann kurz)."""
+        """(bgr_image, frame_id) of the latest frame, downscaled + crop box drawn.
+        Returns (None, id) when no new frame is available (caller then waits briefly)."""
         with self.lock:
-            self._last_demand = time.time()    # Vorschau-Abruf = Bedarf (hält die Kamera wach)
+            self._last_demand = time.time()    # preview fetch = demand (keeps camera alive)
             img = self.frame
             fid = self.frame_id
             crop = self.crop
@@ -331,8 +331,8 @@ class ScanController:
         with self.lock:
             total = len(list(self.out_dir.glob("*.jpg"))) if self.out_dir else 0
             return {
-                "open": self.configured,        # Quelle ausgewählt (UI-Panel offen)
-                "grabbing": self.cap is not None,  # Kamera gerade physisch aktiv (sonst geparkt)
+                "open": self.configured,        # source selected (UI panel open)
+                "grabbing": self.cap is not None,  # camera currently physically active (otherwise parked)
                 "source": self.source,
                 "capture_source": self.capture_source,
                 "frame_size": list(self.frame_size),

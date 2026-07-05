@@ -43,10 +43,10 @@ def test_compute_stats_counts_and_warnings():
     assert stats["counts"]["empty"] == 240
     assert stats["light"]["wP"] == 20 and stats["dark"]["wP"] == 20
     # wK only on dark squares -> warning; wP under 200 -> warning
-    assert any("wK" in w and "dunkel" in w for w in stats["warnings"])
+    assert any("wK" in w and "only on dark" in w for w in stats["warnings"])
     assert any("wP" in w and "200" in w for w in stats["warnings"])
     # bN absent entirely
-    assert any(w.startswith("Klasse bN") for w in stats["warnings"])
+    assert any(w.startswith("Class bN") for w in stats["warnings"])
 
 
 def test_subsample_empty_caps_and_is_seed_stable():
@@ -128,10 +128,10 @@ def test_verify_flags_missing_file_size_and_split_overlap(tmp_path):
     ]
     split = {"splits": {"train": ["s0"], "val": ["s0"], "test": []}}    # s0 in two splits
     problems = verify(rows, split=split)
-    assert any("fehlt" in p for p in problems)
+    assert any("file missing" in p for p in problems)
     assert any("out_size" in p for p in problems)
-    assert any("unbekanntes Label" in p for p in problems)
-    assert any("UND" in p for p in problems)
+    assert any("unknown label" in p for p in problems)
+    assert any("AND" in p for p in problems)
 
 
 # --- validate_split -------------------------------------------------------------------
@@ -161,7 +161,7 @@ def test_validate_split_class_only_in_one_session():
     }
     errors, warnings = validate_split(split, rows)
     assert any("wQ" in e and "s0" in e for e in errors)
-    assert any("Val-Split ist leer" in e for e in errors)
+    assert any("Val split is empty" in e for e in errors)
 
 
 def test_validate_split_zero_errors():

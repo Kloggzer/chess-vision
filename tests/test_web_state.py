@@ -19,7 +19,7 @@ from chesslab.web.state import (
 )
 
 # ---------------------------------------------------------------------------
-# 1. LockedState Grundlagen
+# 1. LockedState basics
 # ---------------------------------------------------------------------------
 
 def test_snapshot_is_copy():
@@ -65,7 +65,7 @@ def test_update_preserves_other_keys():
 # ---------------------------------------------------------------------------
 
 def test_thread_stress():
-    """8 Writer-Threads je 500 updates, parallele Reader — keine Exception, letzter Zustand konsistent."""
+    """8 Writer threads with 500 updates each, parallel readers — no exception, final state consistent."""
     ls = LockedState(counter=0)
     errors = []
     barrier = threading.Barrier(12, timeout=10)
@@ -98,14 +98,14 @@ def test_thread_stress():
     for t in threads:
         t.join()
 
-    assert len(errors) == 0, f"Thread-Fehler: {errors}"
+    assert len(errors) == 0, f"Thread errors: {errors}"
     final = ls.get("counter")
-    # Jeder Writer schrieb 500 Werte → letzter sollte >= 500 sein
+    # Each writer wrote 500 values → letzter sollte >= 500 sein
     assert final >= 500
 
 
 # ---------------------------------------------------------------------------
-# 3. TRAIN.derive_state — Zustandslogik aus /api/train/status (wortgleich)
+# 3. TRAIN.derive_state — state logic from /api/train/status (verbatim)
 # ---------------------------------------------------------------------------
 
 class _FakeProc:
@@ -127,7 +127,7 @@ def test_train_derive_running():
 
 
 def test_train_derive_done():
-    """proc beendet mit rc=0 → 'done' (merkt sich im state)."""
+    """proc finished with rc=0 → 'done' (merkt sich im state)."""
     TRAIN.update(proc=_FakeProc(0), state="running")
     d = train_derive_and_update()
     assert d["_derived_state"] == "done"
@@ -139,7 +139,7 @@ def test_train_derive_done():
 
 
 def test_train_derive_crashed():
-    """proc beendet mit rc≠0 → 'crashed'."""
+    """proc finished with rc≠0 → 'crashed'."""
     TRAIN.update(proc=_FakeProc(1), state="running")
     d = train_derive_and_update()
     assert d["_derived_state"] == "crashed"
@@ -147,14 +147,14 @@ def test_train_derive_crashed():
 
 
 def test_train_derive_stopped():
-    """Kein proc, state='stopped' → 'stopped'."""
+    """No proc, state='stopped' → 'stopped'."""
     TRAIN.update(proc=None, state="stopped")
     d = train_derive_and_update()
     assert d["_derived_state"] == "stopped"
 
 
 def test_train_derive_idle():
-    """Frischer Zustand (kein proc, kein state) → 'idle'."""
+    """Fresh state (no proc, no state) → 'idle'."""
     TRAIN.update(proc=None, state="idle")
     d = train_derive_and_update()
     assert d["_derived_state"] == "idle"
@@ -198,10 +198,10 @@ def test_collect_finish_sliced_error(tmp_path, monkeypatch):
     COLLECT.update(writer=writer, positions=[{"ply": 0, "san": None, "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"}],
                    i=0, profile=None, board=None)
 
-    # Monkeypatch: run_slice wirft Exception
+    # Monkeypatch: run_slice raises Exception
     import chesslab.labeling as labeling_mod
     def _failing_run_slice(**kwargs):
-        raise RuntimeError("simulierter Slice-Fehler")
+        raise RuntimeError("simulated slice error")
     monkeypatch.setattr(labeling_mod, "run_slice", _failing_run_slice)
 
     client = TestClient(create_app())
@@ -210,11 +210,11 @@ def test_collect_finish_sliced_error(tmp_path, monkeypatch):
     data = r.json()
     assert data["sliced"] == 0
     assert "sliced_error" in data
-    assert "fehlgeschlagen" in data["sliced_error"]
+    assert "failed" in data["sliced_error"]
 
 
 # ---------------------------------------------------------------------------
-# 5. Train-Log-Handle (H3) — Windows-Dateisperre
+# 5. Train-Log-Handle (H3) — Windows file lock
 # ---------------------------------------------------------------------------
 
 def test_train_log_handle_reopenable(tmp_path, monkeypatch):
@@ -239,7 +239,7 @@ def test_train_log_handle_reopenable(tmp_path, monkeypatch):
                          "fen": "x", "out_size": [96, 128], "ts": "t"})
     (config.DATA.manifests / "squares.jsonl").write_text(
         "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
-    # Split vorbereiten (train/val/test mit Sessions s1 und s2)
+    # Prepare split (train/val/test with sessions s1 and s2)
     import chesslab.dataset as ds_mod
     ds_mod.run_split(val_frac=0.3, test_frac=0.0, max_empty_ratio=99, seed=42,
                      max_class_ratio=None, allow_degenerate=True)
@@ -266,7 +266,7 @@ def test_train_log_handle_reopenable(tmp_path, monkeypatch):
 
         # Now web_train.log should exist and be reopenable without PermissionError
         log_path = config.DATA.models / "web_train.log"
-        # Das Handle wurde geschlossen → reopen muss klappen
+        # The handle was closed → reopen must work
         with open(log_path, "w", encoding="utf-8") as fh:
             fh.write("reopen ok\n")
         content = log_path.read_text(encoding="utf-8")

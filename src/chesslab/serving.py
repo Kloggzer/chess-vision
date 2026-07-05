@@ -34,7 +34,7 @@ _CACHE: dict[str, tuple] = {}
 
 
 def clear_cache() -> None:
-    """Modell-Cache leeren (Windows-Dateisperren, Run-Löschung)."""
+    """Clear model cache (Windows file locks, run deletion)."""
     _CACHE.clear()
 
 
@@ -45,9 +45,9 @@ def clear_cache() -> None:
 
 @dataclass(frozen=True)
 class RunSpec:
-    """Selbstbeschreibende Spezifikation eines trainierten Modell-Runs.
+    """Self-describing specification of a trained model run.
 
-    Sagt allen Konsumenten, wie sie einen Frame für dieses Modell croppen müssen."""
+    Tells all consumers how to crop a frame for this model."""
     run_dir: Path
     classes: list[str]
     out_size: tuple[int, int]   # (W, H)
@@ -57,17 +57,17 @@ class RunSpec:
 
 
 def run_spec(run_dir: Path) -> RunSpec:
-    """Run-Spezifikation für ein Modell-Verzeichnis auflösen.
+    """Resolve run specification for a model directory.
 
-    Auflösung:
-    1. config.json["variant"] (neu, schreibt `training.train` seit Rework 01).
-    2. Fallback: labeling.variant_of_run(run_dir) scannt das zugehörige Manifest.
-    3. Fallback-Fallback: ("warp", "none", EXP_PIECE_HEIGHT_CELLS) mit Warnung.
+    Resolution:
+    1. config.json["variant"] (new, written by `training.train` since Rework 01).
+    2. Fallback: labeling.variant_of_run(run_dir) scans the associated manifest.
+    3. Fallback-fallback: ("warp", "none", EXP_PIECE_HEIGHT_CELLS) with warning.
     """
     run_dir = Path(run_dir)
     cfg_path = run_dir / "config.json"
     if not cfg_path.exists():
-        raise FileNotFoundError(f"Kein config.json in {run_dir}")
+        raise FileNotFoundError(f"No config.json in {run_dir}")
 
     cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
     classes = cfg.get("classes", config.CLASSES)

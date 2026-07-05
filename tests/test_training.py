@@ -85,8 +85,8 @@ def test_occupancy_piece_breakdown_splits_error_sources():
         ("wP", "wP"),            # occ ok, Figur ok
         ("wB", "wN"),            # occ ok, TYP-Fehler (B->N, Farbe gleich)
         ("wB", "bB"),            # occ ok, FARB-Fehler (B==B, w->b)
-        ("wK", "empty"),         # occ falsch (besetzt -> leer), zählt als Typfehler
-        ("occluded", "occluded"),  # occ ok, besetzt, aber keine echte Figur -> kein Typ/Farb-Zähler
+        ("wK", "empty"),         # occ wrong (occupied -> empty), counts as type error
+        ("occluded", "occluded"),  # occ ok, occupied, but no real piece -> no type/color counter
     ]
     trues = [_ci(t) for t, _ in pairs]
     preds = [_ci(p) for _, p in pairs]
@@ -103,7 +103,7 @@ def test_occupancy_board_acc_is_easier_than_full_board():
     rows = [_crop("s0", "0", sq, "empty") for sq in ("a1", "a2")]
     classes = config.CLASSES
     # wahres Brett: a1 besetzt (wP), a2 leer. Vorhersage verwechselt nur die FIGUR auf a1 (wP->wN),
-    # trifft aber Occupancy überall -> volle Board-Acc 0, Occupancy-Board-Acc 1.
+    # but hits occupancy everywhere -> full board-acc 0, occupancy-board-acc 1.
     trues = [_ci("wP"), _ci("empty")]
     preds = [_ci("wN"), _ci("empty")]
     assert occupancy_board_acc(rows, classes, trues, preds) == 1.0
@@ -121,9 +121,9 @@ def test_twostage_head_outputs_valid_logprobs():
     model = build_model("smallcnn", len(config.CLASSES), head="twostage", classes=config.CLASSES)
     out = model(torch.randn(4, 3, 128, 128))
     assert out.shape == (4, len(config.CLASSES))
-    # gültige Log-Wahrscheinlichkeiten: exp(out) summiert je Zeile zu 1
+    # valid log-probabilities: exp(out) sums to 1 per row
     assert torch.allclose(out.exp().sum(1), torch.ones(4), atol=1e-4)
-    # softmax(out) == exp(out) und argmax stimmt überein (Inferenz-Parität)
+    # softmax(out) == exp(out) and argmax matches (inference parity)
     assert torch.allclose(torch.softmax(out, dim=1), out.exp(), atol=1e-5)
     assert bool((out.argmax(1) == torch.softmax(out, dim=1).argmax(1)).all())
 
@@ -144,7 +144,7 @@ def test_twostage_piece_head_only_learns_on_occupied():
 
     g_empty = piece_grad_for("empty")
     g_piece = piece_grad_for("wP")
-    # Auf besetzten Feldern lernt der Figuren-Kopf kräftig; auf leeren praktisch nicht
+    # On occupied squares the piece head learns strongly; on empty ones practically not
     # (winziger Rest nur durch die CE-Renormierung der bereits normierten Log-Probs).
     assert g_piece > 1e-3
     assert g_empty < g_piece * 1e-3
@@ -163,7 +163,7 @@ def test_checkpoint_score_occ_perfect_types_wrong():
     classes = config.CLASSES
     # 64 Felder, alle occupied, alle Figuren falsch geraten
     rows = [_crop_row(frame=0, square=f"{(chr(97+c//8))}{8-(c%8)}") for c in range(64)]
-    # Alle wahr besetzt (wP), Vorhersage rät andere Figuren — Occupancy bleibt korrekt
+    # All truly occupied (wP), prediction guesses other pieces — occupancy remains correct
     trues = [classes.index("wP")] * 64
     preds = [classes.index("wN")] * 64
     occ_ba, occ_acc, mr = checkpoint_score(rows, classes, trues, preds)

@@ -1,9 +1,9 @@
-"""Gemeinsame Hilfsfunktionen für die Web-Router.
+"""Shared helper functions for the web routers.
 
-Aus ``app.py`` ausgezogen: Bild-URLs, Run-Verzeichnisse, Overlay-Zeichnung,
-Kamera-Snapshots, Manifest-Zugriff. Keine Router-Logik, keine Endpoint-Definitionen.
+Extracted from ``app.py``: image URLs, run directories, overlay drawing,
+camera snapshots, manifest access. No router logic, no endpoint definitions.
 
-``cv2`` wird nur in den Funktionen importiert, die es brauchen (Lazy-Import-Konvention).
+``cv2`` is only imported in the functions that need it (lazy import convention).
 """
 
 from __future__ import annotations
@@ -13,26 +13,26 @@ from pathlib import Path
 
 from .. import config
 from .. import dataset as dataset_mod
-from ..labeling import label_to_fen_char, labels_to_fen  # noqa: F401 — re-export für Router
+from ..labeling import label_to_fen_char, labels_to_fen  # noqa: F401 — re-export for routers
 
 log = logging.getLogger("chesslab.web")
 
-# Nach so vielen None-Frames in Folge zeigt der Stream ein Fehlerbild statt still zu idlen.
+# After this many consecutive None-frames, the stream shows an error image instead of idling silently.
 _NONE_FRAME_LIMIT = 50
 
 
 def _camera_error_frame(width: int = 960, height: int = 540):
-    """Gerendertes Fehlerbild für Streams, deren Kamera keine Frames liefert."""
+    """Rendered error image for streams whose camera does not deliver frames."""
     import cv2
     import numpy as np
 
     img = np.zeros((height, width, 3), dtype=np.uint8)
-    cv2.putText(img, "Kamera liefert keine Frames — Quelle pruefen", (20, height // 2),
+    cv2.putText(img, "Camera does not deliver frames — check source", (20, height // 2),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2, cv2.LINE_AA)
     return img
 
 
-# --- Hilfen ---------------------------------------------------------------------------
+# --- Helpers ---------------------------------------------------------------------------
 
 
 def _manifest() -> list[dict]:
@@ -44,7 +44,7 @@ def _manifest() -> list[dict]:
 
 
 def _img_url(path: str) -> str:
-    """Manifest-Pfad 'data/squares/..' -> '/img/squares/..' (statischer Mount auf data/)."""
+    """Manifest path 'data/squares/..' -> '/img/squares/..' (static mount on data/)."""
     path = path.replace("\\", "/")
     root = config.DATA.root.as_posix() + "/"
     return "/img/" + (path[len(root):] if path.startswith(root) else path)
@@ -62,18 +62,18 @@ def _read_jsonl(path: Path) -> list[dict]:
     return read_jsonl(path)
 
 
-# --- Overlay-Helfer (für collect/camera-Streams) ----------------------------------------
+# --- Overlay helpers (for collect/camera streams) ----------------------------------------
 
-# Figurennamen (ASCII, da OpenCV-Hershey-Fonts keine Umlaute rendern) für das Ziel-Overlay
-# beim Nachbauen einer Stellung (v.a. coverage-Modus, der keine einzelnen Züge hat).
+# Piece names (ASCII, since OpenCV Hershey fonts don't render umlauts) for the target overlay
+# when reconstructing a position (especially coverage mode, which has no individual moves).
 _PIECE_NAMES_DE: dict[str, str] = {
     "K": "Koenig", "Q": "Dame", "R": "Turm", "B": "Laeufer", "N": "Springer", "P": "Bauer",
 }
 
 
 def _put_centered_name(view, text: str, cx: int, cy: int, is_white: bool) -> None:
-    """Figurennamen mittig auf ein Feld schreiben, mit Kontrast-Halo (weiße Figur = heller
-    Text auf dunklem Halo, schwarze Figur umgekehrt) — lesbar auf beliebigem Bretthintergrund."""
+    """Write piece name centered on a square, with contrast halo (white piece = light
+    text on dark halo, black piece vice versa) — readable on any board background."""
     import cv2
 
     font, scale, thick = cv2.FONT_HERSHEY_SIMPLEX, 0.42, 1
@@ -86,9 +86,9 @@ def _put_centered_name(view, text: str, cx: int, cy: int, is_white: bool) -> Non
 
 
 def _draw_target_pieces(view, prof, fen: str) -> None:
-    """Die komplette Ziel-Stellung als Figuren-NAMEN auf das (entzerrte) Brett zeichnen, damit
-    man beim Nachbauen sieht, welche Figur auf welches Feld gehört. Liest das FEN-Platzierungsfeld
-    direkt (keine Legalitätsprüfung — coverage-FENs sind bewusst nicht spielbar)."""
+    """Draw the complete target position as piece NAMES on the (rectified) board, so that
+    during reconstruction one can see which piece belongs on which square. Reads the FEN placement
+    field directly (no legality check — coverage FENs are intentionally not playable)."""
     from ..calibration import square_center
 
     placement = fen.split()[0]
@@ -135,11 +135,11 @@ def _draw_move_arrow(view, prof, fen, san):
             d = 16
             cv2.line(view, (e[0] - d, e[1] - d), (e[0] + d, e[1] + d), (0, 0, 255), 3, cv2.LINE_AA)
             cv2.line(view, (e[0] - d, e[1] + d), (e[0] + d, e[1] - d), (0, 0, 255), 3, cv2.LINE_AA)
-    except Exception:  # noqa: BLE001 — reine Overlay-Deko, darf den Stream nie reißen
-        log.debug("Zug-Pfeil-Overlay übersprungen (FEN/SAN nicht zeichenbar)", exc_info=True)
+    except Exception:  # noqa: BLE001 — pure overlay decoration, must never crash the stream
+        log.debug("Move arrow overlay skipped (FEN/SAN not drawable)", exc_info=True)
 
 
-# --- Zustands-Helfer für Router --------------------------------------------------------
+# --- State helpers for routers --------------------------------------------------------
 
 
 def _collect_state() -> dict:
@@ -155,9 +155,9 @@ def _collect_state() -> dict:
     return {
         "active": True, "session_id": w.session_id, "index": i, "n_positions": n,
         "done": i >= n, "fen": cur["fen"], "ply": cur["ply"],
-        # Zug, um die aktuell zu fotografierende Stellung zu erreichen (None = Startstellung).
+        # Move to reach the currently-to-be-photographed position (None = starting position).
         "move_san": (pos[i]["san"] if 0 <= i < n else None),
-        # coverage-Modus: ganze Stellung neu aufbauen (Namen im Bild), kein Einzelzug.
+        # Coverage mode: rebuild the entire position (names in the image), no individual move.
         "build_target": bool(c.get("show_target")),
         "gains": (cur.get("gains") if isinstance(cur, dict) else None),
         "captures": w.count,
@@ -165,10 +165,10 @@ def _collect_state() -> dict:
 
 
 def _capture_frame_corners(prof, board):
-    """(frame, corners) fürs SPEICHERN. Ist eine hochauflösende Capture-Quelle gesetzt
-    (`--source` ist der flüssige Stream, `CHESSLAB_CAMERA_CAPTURE` der scharfe Snapshot),
-    wird der Snapshot geholt und die Ecken DARAUF neu erkannt (andere Auflösung/Orientierung
-    als die Vorschau). Sonst Live-Frame + die im Stream verifizierten Ecken."""
+    """(frame, corners) for SAVING. If a high-resolution capture source is set
+    (`--source` is the fluent stream, `CHESSLAB_CAMERA_CAPTURE` the sharp snapshot),
+    the snapshot is grabbed and corners are re-detected ON IT (different resolution/orientation
+    than the preview). Otherwise live frame + the corners verified in the stream."""
     from ..calibration import detect_board_markers, resolve_board_corners
     from .camera import CAMERA
 

@@ -1,14 +1,14 @@
-"""Stufe 6 — Collection-UI: Trainingsdaten-Assistent.
+"""Stage 6 — Collection UI: Training Data Assistant.
 
-Zweites OpenCV-Fenster neben dem Kamerafenster. Zeigt live Klassenabdeckung,
-Hell/Dunkel-Matrix, Session-Fortschritt und eine FEN-Empfehlung für die schwächste Klasse.
+Second OpenCV window next to the camera window. Shows live class coverage,
+light/dark matrix, session progress, and a FEN recommendation for the weakest class.
 
-**Datenquelle: Session-Logs, nicht das Manifest.** `collect` schreibt nur Frames + FEN;
-das Manifest entsteht erst beim `slice`. Die Abdeckung wird daher direkt aus den geloggten
-FEN abgeleitet (FEN -> 64 Labels via Stufe 2, square_color deterministisch) — das ergibt
-exakt die späteren slice-Zahlen, ist aber sofort beim Aufnehmen verfügbar.
+**Data source: session logs, not the manifest.** `collect` only writes frames + FEN;
+the manifest is only created during `slice`. Coverage is therefore derived directly from the logged
+FEN (FEN -> 64 labels via Stage 2, square_color deterministic) — this yields exactly
+the later slice counts, but is available immediately during capture.
 
-Reine Aggregation/Empfehlung sind headless testbar; das Rendering braucht ein Display.
+Pure aggregation/recommendation are headless-testable; rendering needs a display.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ _TYPEMAP = {"P": chess.PAWN, "N": chess.KNIGHT, "B": chess.BISHOP,
             "R": chess.ROOK, "Q": chess.QUEEN, "K": chess.KING}
 
 
-# --- Aggregation (headless, getestet) -------------------------------------------------
+# --- Aggregation (headless, tested) -------------------------------------------------
 
 def aggregate_fens(fens: list[str]) -> tuple[dict, dict, dict]:
     counts = dict.fromkeys(CLASSES, 0)
@@ -71,14 +71,14 @@ def coverage_from_sessions(sessions_dir: Path) -> dict:
     }
 
 
-# --- FEN-Empfehlung (headless, getestet) ----------------------------------------------
+# --- FEN Recommendation (headless, tested) ----------------------------------------------
 
 def _chess_sq_color(sq: int) -> str:
     return "dark" if (chess.square_file(sq) + chess.square_rank(sq)) % 2 == 0 else "light"
 
 
 def build_recommendation_fen(label: str, color: str) -> str | None:
-    """Gültige FEN, die `label` auf einem Feld der Farbe `color` platziert (beide Könige da)."""
+    """Valid FEN that places `label` on a square of color `color` (both kings present)."""
     if label == "empty" or len(label) != 2:
         return None
     is_white = label[0] == "w"
@@ -112,14 +112,14 @@ def build_recommendation_fen(label: str, color: str) -> str | None:
     return None
 
 
-# --- Coverage-Generator: dichte Aufbauten statt Partie-Replay (headless, getestet) ----
+# --- Coverage Generator: dense setups instead of game replay (headless, tested) ----
 #
-# Kernidee: Der per-Feld-Klassifikator braucht keine LEGALE Stellung — die FEN ist nur
-# Label-Quelle. Statt eine Stockfish-Partie nachzustellen (viele Bauern/leere Felder, je
-# 1 Dame/König), packen wir pro physischem Aufbau so viele UNTERREPRÄSENTIERTE
-# (Figur × Feldfarbe)-Kombis aufs Brett wie das Inventar erlaubt. Über mehrere Aufbauten
-# rotiert der Generator automatisch zu den verbleibenden Defiziten (greedy auf das größte
-# Defizit). Ergebnis: drastisch weniger Umbauten je gewonnenem seltenem Trainingsbeispiel.
+# Core idea: the per-square classifier doesn't need a LEGAL position — the FEN is just a
+# label source. Instead of replaying a Stockfish game (many pawns/empty squares, 1
+# queen/king each), we pack onto the board as many UNDERREPRESENTED
+# (piece × square color) combos as the inventory allows per physical setup. Over multiple setups
+# the generator automatically rotates to the remaining deficits (greedy on the largest
+# deficit). Result: drastically fewer rearrangements per rare training example gained.
 
 
 def _color_squares(color: str) -> list[int]:
@@ -128,15 +128,15 @@ def _color_squares(color: str) -> list[int]:
 
 def build_coverage_fen(light: dict, dark: dict, target: int,
                        inventory: dict[str, int] | None = None) -> tuple[str, dict[int, str]]:
-    """Eine FEN, die das physische Inventar greedy auf die größten (Figur×Feldfarbe)-Defizite
-    verteilt. `light`/`dark`: aktuelle Crop-Zahl je Klasse pro Feldfarbe. Rückgabe: (FEN,
-    {square: label}). Bauern landen nie auf Grundreihe (Rang 1/8). Keine Legalitätsprüfung."""
+    """A FEN that distributes the physical inventory greedily to the largest (piece×square color) deficits.
+    `light`/`dark`: current crop count per class per square color. Returns: (FEN,
+    {square: label}). Pawns never land on the back rank (rank 1/8). No legality check."""
     inv = inventory or config.DEFAULT_INVENTORY
     cov = {"light": dict(light), "dark": dict(dark)}
     avail = {label: inv.get(label[1], 0) for label in _PIECES}
     free = {"light": _color_squares("light"), "dark": _color_squares("dark")}
     placements: dict[int, str] = {}
-    blocked: set[tuple[str, str]] = set()   # (label, color) ohne nutzbares Feld -> nicht erneut wählen
+    blocked: set[tuple[str, str]] = set()   # (label, color) without usable square -> don't select again
 
     while True:
         best, best_def = None, 0
@@ -154,7 +154,7 @@ def build_coverage_fen(light: dict, dark: dict, target: int,
         label, color = best
         is_pawn = label[1] == "P"
         sq = next((s for s in free[color] if not (is_pawn and chess.square_rank(s) in (0, 7))), None)
-        if sq is None:                       # nur Grundreihen-Felder dieser Farbe frei -> Bauer geht nicht
+        if sq is None:                       # only back-rank squares of this color free -> pawn won't work
             blocked.add((label, color))
             continue
         free[color].remove(sq)
@@ -171,10 +171,10 @@ def build_coverage_fen(light: dict, dark: dict, target: int,
 
 def coverage_plan(light: dict, dark: dict, target: int, count: int,
                   inventory: dict[str, int] | None = None) -> list[dict]:
-    """`count` dichte Aufbauten als Positionsliste (wie pgn/play-Schritte: {'ply','san','fen'}),
-    fertig für den Aufnahme-Loop. Nach jedem Aufbau wird die Abdeckung simuliert (1 Frame je
-    Aufbau angenommen), sodass spätere Aufbauten zu den noch offenen Defiziten weiterrücken.
-    Bricht früh ab, sobald alle Ziele erreicht sind."""
+    """`count` dense setups as a position list (like pgn/play steps: {'ply','san','fen'}),
+    ready for the capture loop. After each setup, coverage is simulated (assuming 1 frame per
+    setup), so later setups shift toward the remaining deficits.
+    Aborts early once all targets are reached."""
     cov_l, cov_d = dict(light), dict(dark)
     out: list[dict] = []
     for i in range(count):
@@ -188,7 +188,7 @@ def coverage_plan(light: dict, dark: dict, target: int, count: int,
 
 
 def _fen_from_placement(placement: dict[int, tuple[str, bool]]) -> str:
-    """{chess_square: (Figurentyp 'K'.., is_white)} -> FEN (ohne Legalitätsprüfung; reine Label-Quelle)."""
+    """{chess_square: (piece type 'K'.., is_white)} -> FEN (no legality check; pure label source)."""
     board = chess.Board(None)
     for sq, (ptype, white) in placement.items():
         board.set_piece_at(sq, chess.Piece(_TYPEMAP[ptype], chess.WHITE if white else chess.BLACK))
@@ -199,49 +199,49 @@ def _sweep_types(order: tuple[str, ...], inv: dict[str, int]) -> list[str]:
     types: list[str] = []
     for t in order:
         types += [t] * inv.get(t, 0)
-    return types[:8]   # eine Figur je Linie, max 8 Linien
+    return types[:8]   # one piece per file, max 8 files
 
 
 def sweep_plan(colors: tuple[str, ...] = ("w", "b"), pieces: str = "special", passes: int = 1,
                inventory: dict[str, int] | None = None, together: bool = False,
                offset: int = 0) -> list[dict]:
-    """Systematischer Coverage-Sweep: eine Reihe Figuren marschiert Rang für Rang übers Brett
-    (je eine Figur pro Linie a–h). Jede Figur durchläuft so alle 8 Ränge ihrer Linie (hell/dunkel
-    automatisch).
+    """Systematic coverage sweep: a row of pieces marches rank by rank across the board
+    (one piece per file a–h). Each piece thus goes through all 8 ranks of its file (light/dark
+    automatically).
 
-    `together=False`: erst Weiß komplett (8 Fotos/Pass), dann Schwarz. `together=True`: BEIDE Farben
-    gleichzeitig — Weiß auf Rang r, Schwarz auf Rang (r+4) (immer 4 auseinander, nie Kollision) →
-    nur 8 Fotos/Pass, jedes Feld bekommt ein weißes UND ein schwarzes Beispiel (halbe Fotozahl).
+    `together=False`: first White completely (8 photos/pass), then Black. `together=True`: BOTH colors
+    simultaneously — White on rank r, Black on rank (r+4) (always 4 apart, never colliding) →
+    only 8 photos/pass, each square gets a white AND a black example (half the photo count).
 
-    **`offset`:** verschiebt die Linien→Figur-Zuordnung **einmal** (konstant für die GANZE Session, NIE
-    mitten drin — du stellst einmal auf und schiebst nur die Reihe(n) nach hinten). offset=0 →
-    a=K,b=Q,…; offset=1 → a=Q,b=R,…  Über mehrere Sessions mit verschiedenem Offset sieht jede Figur
-    verschiedene Linien/Felder → verhindert „Linie⇒Figur"-Overfitting. `passes` = bloße Wiederholung.
+    **`offset`:** shifts the file→piece mapping **once** (constant for the ENTIRE session, NEVER
+    mid-way — you set up once and only shift the row(s) backward). offset=0 →
+    a=K,b=Q,…; offset=1 → a=Q,b=R,…  Over multiple sessions with different offsets each piece sees
+    different files/squares → prevents "file⇒piece" overfitting. `passes` = mere repetition.
 
-    `pieces`: "special" (Nicht-Bauern K,Q,R,B,N — Default-Inventar = 8 = genau eine je Linie),
-    "pawn" oder "all". Rückgabe: [{'ply','san','fen','note'}] für den Aufnahme-Loop (1 Frame je Pos.).
+    `pieces`: "special" (non-pawns K,Q,R,B,N — default inventory = 8 = exactly one per file),
+    "pawn" or "all". Returns: [{'ply','san','fen','note'}] for the capture loop (1 frame per pos.).
     """
     inv = inventory or config.DEFAULT_INVENTORY
     specials = _sweep_types(("K", "Q", "R", "B", "N"), inv)
-    if specials and offset:                       # Linien→Figur-Zuordnung EINMAL verschieben
+    if specials and offset:                       # file→piece mapping shift ONCE
         k = int(offset) % len(specials)
         specials = specials[k:] + specials[:k]
     pawns = _sweep_types(("P",), inv)
-    # Eine Figur je Linie -> max 8 je Reihe. "all" packt Specials UND Bauern als BLOCK auf
-    # benachbarte Ränge (wie die Grundstellung) und schiebt beides zusammen -> beides in jedem
-    # Foto, halbe Fotozahl. (layer_types, rang_offset_im_block)
+    # One piece per file -> max 8 per rank. "all" packs specials AND pawns as a BLOCK on
+    # adjacent ranks (like the starting position) and shifts both together -> both in every
+    # photo, half the photo count. (layer_types, rank_offset_in_block)
     blocks = {"special": [(specials, 0)],
               "pawn": [(pawns, 0)],
               "all": [(specials, 0), (pawns, 1)]}.get(pieces)
     if blocks is None:
-        raise ValueError(f"pieces muss special|pawn|all sein, nicht {pieces!r}")
+        raise ValueError(f"pieces must be special|pawn|all, got {pieces!r}")
     blocks = [(t, off) for t, off in blocks if t]
     if not blocks:
         return []
 
     def place(placement: dict, base_rank: int, white: bool) -> None:
-        # KEINE Rotation: jede Figur bleibt auf IHRER Linie über alle Pässe/Frames hinweg. Du stellst
-        # die Figuren EINMAL auf und schiebst die Reihe(n) nur nach hinten — nie Figuren tauschen.
+        # NO rotation: each piece stays on ITS file across all passes/frames. You set up
+        # the pieces ONCE and only shift the row(s) backward — never swap pieces.
         for types, off in blocks:
             for fi, t in enumerate(types):
                 placement[chess.square(fi, (base_rank + off) % 8)] = (t, white)
@@ -249,11 +249,11 @@ def sweep_plan(colors: tuple[str, ...] = ("w", "b"), pieces: str = "special", pa
     out: list[dict] = []
     ply = 0
     if together:
-        for p in range(max(1, passes)):                    # passes = Wiederholung (z.B. anderes Licht)
+        for p in range(max(1, passes)):                    # passes = repetition (e.g. different lighting)
             for rank in range(8):
                 placement: dict = {}
-                place(placement, rank, True)               # Weiß vorne
-                place(placement, rank + 4, False)          # Schwarz 4 Ränge versetzt -> nie Kollision
+                place(placement, rank, True)               # White in front
+                place(placement, rank + 4, False)          # Black shifted by 4 ranks -> never collides
                 ply += 1
                 out.append({"ply": ply, "san": None, "fen": _fen_from_placement(placement),
                             "note": f"wb-{pieces} pass{p + 1} rank{rank + 1}"})
@@ -271,9 +271,9 @@ def sweep_plan(colors: tuple[str, ...] = ("w", "b"), pieces: str = "special", pa
 
 
 def auto_sweep_offset(sessions_dir, n_files: int = 8) -> int:
-    """Nächster Offset für den 'auto'-Modus: zählt bisherige Sweep-Sessions (`notes` enthält 'sweep')
-    und gibt `count % n_files` zurück — so durchläuft man über mehrere Sessions zyklisch alle
-    Linien-Aufstellungen (jede Figur landet nach und nach auf jeder Linie)."""
+    """Next offset for 'auto' mode: counts previous sweep sessions (`notes` contains 'sweep')
+    and returns `count % n_files` — thus cycling through all file arrangements over multiple
+    sessions (each piece gradually lands on every file)."""
     import yaml
 
     cnt = 0
@@ -296,16 +296,16 @@ def recommend(coverage: dict, target_per_class: int = config.UI_TARGET_PER_CLASS
               warn_frac: float = config.UI_WARN_FRAC) -> dict | None:
     counts, light, dark = coverage["counts"], coverage["light"], coverage["dark"]
 
-    # Priorität 1: fehlende Feldfarben-Abdeckung (✗).
+    # Priority 1: missing square color coverage (✗).
     for c in _PIECES:
         for color, have in (("dark", dark[c]), ("light", light[c])):
             if have == 0:
                 fen = build_recommendation_fen(c, color)
                 if fen:
                     return {"class": c, "color": color,
-                            "reason": f"{c} fehlt auf {color}en Feldern", "fen": fen}
+                            "reason": f"{c} missing on {color} squares", "fen": fen}
 
-    # Priorität 2/3: unter warn_frac bzw. unter 100 % des Ziels.
+    # Priority 2/3: below warn_frac or below 100% of target.
     pool = [c for c in _PIECES if counts[c] < warn_frac * target_per_class]
     if not pool:
         pool = [c for c in _PIECES if counts[c] < target_per_class]
@@ -314,7 +314,7 @@ def recommend(coverage: dict, target_per_class: int = config.UI_TARGET_PER_CLASS
     c = min(pool, key=lambda c: counts[c])
     color = "dark" if dark[c] <= light[c] else "light"
     pct = int(100 * counts[c] / max(target_per_class, 1))
-    return {"class": c, "color": color, "reason": f"{c} bei {pct}% des Ziels",
+    return {"class": c, "color": color, "reason": f"{c} at {pct}% of target",
             "fen": build_recommendation_fen(c, color)}
 
 
@@ -324,11 +324,11 @@ def copy_to_clipboard(text: str) -> bool:
 
         pyperclip.copy(text)
         return True
-    except Exception:  # noqa: BLE001 - pyperclip optional / kein Clipboard
+    except Exception:  # noqa: BLE001 - pyperclip optional / no clipboard
         return False
 
 
-# --- Dashboard (Rendering braucht Display) --------------------------------------------
+# --- Dashboard (rendering needs display) --------------------------------------------
 
 _GREEN = (80, 200, 80)
 _YELLOW = (60, 200, 230)
@@ -338,7 +338,7 @@ _FG = (230, 230, 230)
 
 
 class CollectDashboard:
-    """Render-only Fenster. Tasten besitzt der collect-Loop (ein globaler waitKey-Stream)."""
+    """Render-only window. Key handling belongs to the collect loop (a global waitKey stream)."""
 
     def __init__(self, sessions_dir: Path, target_per_class: int = config.UI_TARGET_PER_CLASS,
                  mode_label: str = "", session_id: str = "") -> None:
@@ -391,17 +391,17 @@ class CollectDashboard:
         def text(s, x, y, scale=0.5, color=_FG, thick=1):
             cv2.putText(img, s, (x, y), cv2.FONT_HERSHEY_SIMPLEX, scale, color, thick, cv2.LINE_AA)
 
-        # A) Fortschritt
+        # A) Progress
         text(f"Sessions: {cov['sessions']}  |  Frames: {cov['frames']}  |  Crops: {cov['total_crops']}"
              f"  |  {self.mode_label} {self.session_id}", 14, 28, 0.55)
         prog = min(1.0, cov["total_crops"] / max(config.UI_TOTAL_TARGET, 1))
         cv2.rectangle(img, (14, 40), (W - 14, 54), (70, 70, 70), -1)
         cv2.rectangle(img, (14, 40), (14 + int((W - 28) * prog), 54), _GREEN, -1)
 
-        # B) Klassenabdeckung (Balken)
+        # B) Class coverage (bars)
         piece_counts = [cov["counts"][c] for c in _PIECES]
         empty_target = int(config.UI_EMPTY_TARGET_RATIO * max(piece_counts + [1]))
-        text("Klassenabdeckung", 14, 84, 0.55)
+        text("Class Coverage", 14, 84, 0.55)
         y = 100
         bar_x, bar_max = 70, 320
         for c in CLASSES:
@@ -414,10 +414,10 @@ class CollectDashboard:
             text(str(cnt), bar_x + bar_max + 8, y + 12, 0.42)
             y += 22
 
-        # C) Hell/Dunkel-Matrix
+        # C) Light/Dark Matrix
         mx = 470
-        text("Hell / Dunkel", mx, 84, 0.55)
-        text("hell  dunkel", mx + 70, 100, 0.42)
+        text("Light / Dark", mx, 84, 0.55)
+        text("light  dark", mx + 70, 100, 0.42)
         y = 116
         for c in CLASSES:
             text(c, mx, y + 10, 0.45)
@@ -427,26 +427,26 @@ class CollectDashboard:
                             cv2.FONT_HERSHEY_SIMPLEX, 0.45, _GREEN if ok else _RED, 1, cv2.LINE_AA)
             y += 22
 
-        # D) Empfehlung
+        # D) Recommendation
         cv2.rectangle(img, (14, H - 96), (W - 14, H - 14), (45, 45, 45), -1)
         if self._rec:
-            text(f"Empfehlung: {self._rec['reason']}", 24, H - 70, 0.55, _YELLOW)
+            text(f"Recommendation: {self._rec['reason']}", 24, H - 70, 0.55, _YELLOW)
             text(f"FEN: {self._rec['fen']}", 24, H - 46, 0.42)
-            text("Taste g im Aufnahmefenster: FEN kopieren", 24, H - 24, 0.42, _GREEN)
+            text("Press g in capture window: copy FEN", 24, H - 24, 0.42, _GREEN)
         else:
-            text("Alle Klassen ausreichend abgedeckt.", 24, H - 50, 0.6, _GREEN)
+            text("All classes sufficiently covered.", 24, H - 50, 0.6, _GREEN)
         return img
 
 
 def run_ui(sessions_dir: str | None = None, manifest: str | None = None,
            target_per_class: int = config.UI_TARGET_PER_CLASS) -> int:
-    """Standalone-Dashboard auf dem aktuellen Stand (ohne laufende Aufnahme)."""
+    """Standalone dashboard showing current status (without running capture)."""
     sdir = Path(sessions_dir) if sessions_dir else config.DATA.sessions
     dash = CollectDashboard(sdir, target_per_class=target_per_class, mode_label="(standalone)")
     dash.update()
     cov = dash.coverage
     print(f"Sessions: {cov['sessions']} | Frames: {cov['frames']} | Crops: {cov['total_crops']}")
-    print("q = schließen, g = empfohlene FEN kopieren")
+    print("q = close, g = copy recommended FEN")
     while True:
         key = cv2.waitKey(50) & 0xFF
         if key == ord("q"):
@@ -454,6 +454,6 @@ def run_ui(sessions_dir: str | None = None, manifest: str | None = None,
         if key == ord("g"):
             fen = dash.recommended_fen()
             if fen:
-                print(("kopiert: " if copy_to_clipboard(fen) else "FEN: ") + fen)
+                print(("copied: " if copy_to_clipboard(fen) else "FEN: ") + fen)
     dash.close()
     return 0

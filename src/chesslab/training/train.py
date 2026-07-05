@@ -1,4 +1,4 @@
-"""Stufe 5 — Trainingsloop. Bricht ohne nutzbare ROCm-GPU klar ab (kein stiller CPU-Fallback)."""
+"""Stage 5 — Training loop. Aborts clearly without usable ROCm GPU (no silent CPU fallback)."""
 
 from __future__ import annotations
 
@@ -22,9 +22,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               num_workers: int | None = None, norm: str | None = None,
               dataset: str | None = None, resume: str | None = None,
               head: str = "combined") -> int:
-    # GPU-Vorbedingung (Stufe 0 Validierungspfad) — Pflicht, sonst Abbruch. Dieser Check
-    # ist torch-frei sicher und läuft VOR jedem torch-Import, damit ein fehlender/kaputter
-    # Build hier klar gemeldet wird statt als ImportError-Stacktrace.
+    # GPU precondition (Stage 0 validation path) — mandatory, otherwise abort. This check
+    # is torch-free safe and runs BEFORE any torch import, so a missing/broken
+    # build is reported clearly here instead of as an ImportError stacktrace.
     ok, checks = doctor.validate_gpu()
     if not ok:
         print(doctor.render(checks))
@@ -73,7 +73,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         out_size = tuple(r["out_size"])
         break
     if out_size is None:
-        print("[FAIL] leeres Manifest.")
+        print("[FAIL] empty manifest.")
         return 1
 
     # Balancing NUR auf train anwenden (Policy steht in split.json); val/test bleiben voll.
@@ -88,29 +88,29 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     )
     val_rows = filter_rows_by_split(manifest, split, "val")
     if not train_rows:
-        hint = ("baue den Datensatz mit mehr Sessions neu" if dataset
-                else "slice neu und führe `chesslab split` erneut aus")
+        hint = ("rebuild the dataset with more sessions" if dataset
+                else "re-slice and run `chesslab split` again")
         print("[FAIL] train-Split ist leer — zu wenige Sessions. Train/Val/Test werden pro "
               f"Session getrennt (gegen Data Leakage); nimm mind. 2-3 Sessions auf und {hint}.")
         return 1
     from collections import Counter as _Counter
 
-    print(f"[OK] train balanciert: {len(train_rows)} Crops, Verteilung: "
+    print(f"[OK] train balanced: {len(train_rows)} crops, distribution: "
           + ", ".join(f"{k}={v}" for k, v in sorted(_Counter(r['label'] for r in train_rows).items())))
 
     train_ds = SquareDataset(train_rows, classes, build_transform(out_size, train=True))
     val_ds = SquareDataset(val_rows, classes, build_transform(out_size, train=False))
 
-    # BatchNorm ist auf ROCm-Windows (MIOpen/HIPRTC) defekt -> dort default GroupNorm.
+    # BatchNorm is broken on ROCm-Windows (MIOpen/HIPRTC) -> default GroupNorm there.
     norm_eff = norm or ("groupnorm" if sys.platform.startswith("win") else "batchnorm")
     device = get_device(require_gpu=True)
     model = build_model(backbone, len(classes), pretrained=(backbone != "smallcnn"), norm=norm_eff,
                         head=head, classes=classes).to(device)
     print(f"[OK] Backbone {backbone}, norm={norm_eff}, head={head}")
 
-    # Weiter-Trainieren (Warm-Start): Gewichte aus einem früheren Run laden. Passende Tensoren
-    # werden übernommen, nicht-passende (z.B. der Klassifizierungs-Kopf bei geänderter Klassenzahl,
-    # etwa nach Hinzunahme von `occluded`) übersprungen -> der Rumpf transferiert, der Kopf lernt neu.
+        # Continue training (warm start): load weights from a previous run. Matching tensors
+    # are adopted, non-matching ones (e.g. the classification head with changed class count,
+    # such as after adding `occluded`) are skipped -> the body transfers, the head learns anew.
     resumed_from = None
     if resume:
         rd = config.DATA.models / resume
@@ -118,11 +118,11 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         if not ckpt.exists():
             ckpt = rd / "last.pt"
         if not (rd / "config.json").exists() or not ckpt.exists():
-            print(f"[FAIL] Resume-Run '{resume}' unvollständig oder nicht gefunden ({rd}).")
+            print(f"[FAIL] Resume run '{resume}' incomplete or not found ({rd}).")
             return 1
         rcfg = json.loads((rd / "config.json").read_text(encoding="utf-8"))
         if rcfg.get("backbone") != backbone:
-            print(f"[FAIL] Resume-Backbone {rcfg.get('backbone')!r} != {backbone!r} — gleiches Backbone wählen.")
+            print(f"[FAIL] Resume backbone {rcfg.get('backbone')!r} != {backbone!r} — choose the same backbone.")
             return 1
         sd = torch.load(ckpt, map_location=device)
         msd = model.state_dict()
@@ -130,8 +130,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         model.load_state_dict(keep, strict=False)
         resumed_from = resume
         skipped = len(sd) - len(keep)
-        print(f"[OK] Weiter ab '{resume}': {len(keep)} Tensoren übernommen"
-              + (f", {skipped} übersprungen (Kopf bei geänderter Klassenzahl)" if skipped else ""))
+        print(f"[OK] Resumed from '{resume}': {len(keep)} tensors adopted"
+              + (f", {skipped} skipped (head with changed class count)" if skipped else ""))
 
     weights = class_weights_tensor(split, classes).to(device)
     criterion = nn.CrossEntropyLoss(weight=weights)
@@ -140,15 +140,15 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     amp = not no_amp
     scaler = torch.amp.GradScaler("cuda", enabled=amp)
 
-    # Windows-DataLoader: num_workers>0 nutzt spawn und macht oft Ärger -> Default 0 auf Windows.
+    # Windows DataLoader: num_workers>0 uses spawn and often causes trouble -> default 0 on Windows.
     nw = num_workers if num_workers is not None else (0 if sys.platform.startswith("win") else 4)
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
                               num_workers=nw, pin_memory=True, drop_last=False)
 
-    # Runs werden self-describing: Geometrie/Photometrie/Extrusionshöhe aus der ersten
-    # Manifest-Zeile (gleiche Herleitung wie `labeling.variant_of_run`, das Alt-Runs ohne
-    # dieses Feld über einen Manifest-Scan versorgt). So kennt `serving.run_spec` die
-    # Preprocessing-Variante ohne Manifest-Zugriff.
+        # Runs are self-describing: geometry/photometry/extrusion height from the first
+    # manifest line (same derivation as `labeling.variant_of_run`, which supplies old runs without
+    # this field via a manifest scan). This way `serving.run_spec` knows the
+    # preprocessing variant without manifest access.
     first_row = manifest[0] if manifest else {}
     variant = {
         "geometry": first_row.get("geometry", "warp"),
@@ -167,12 +167,12 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     }, indent=2), encoding="utf-8")
     metrics_path = run_dir / "metrics.jsonl"
 
-    # Checkpoint/Early-Stopping über Occupancy-first-Score: occ_board_acc (alle 64 Felder
-    # leer/besetzt korrekt) ist das Signal, das der move_tracker primär braucht — robuster
-    # als die volle Board-Accuracy bei wenig Val-Daten. occ_acc + macro_recall als Tiebreaker.
+        # Checkpoint/early-stopping via occupancy-first score: occ_board_acc (all 64 squares
+    # empty/occupied correct) is the signal the move_tracker primarily needs — more robust
+    # than full board accuracy with little val data. occ_acc + macro_recall as tiebreaker.
     best_score = (-1.0, -1.0, -1.0)   # (occ_board_acc, occ_acc, macro_recall)
     epochs_no_improve = 0
-    print(f"[OK] GPU bereit ({device}); Run-Verzeichnis: {run_dir}")
+    print(f"[OK] GPU ready ({device}); run directory: {run_dir}")
     for epoch in range(epochs):
         model.train()
         running = 0.0

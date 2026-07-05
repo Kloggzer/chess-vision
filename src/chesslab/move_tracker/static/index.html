@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -42,61 +42,61 @@
 <body>
 <header>
   <h1>♟ Move-Tracker</h1>
-  <label class="muted">Profil <input id="profile" value="phone" style="width:90px" /></label>
-  <label class="muted">Quelle <input id="source" class="url" value="https://<PHONE-IP>:4444/video/m.jpeg" /></label>
-  <label class="muted">CNN <select id="cnnRun" title="Modell-Run für CNN-Recovery/-Kontrolle (aus = nur Frame-Diff)"></select></label>
+  <label class="muted">Profile <input id="profile" value="phone" style="width:90px" /></label>
+  <label class="muted">Source <input id="source" class="url" value="https://<PHONE-IP>:4444/video/m.jpeg" /></label>
+  <label class="muted">CNN <select id="cnnRun" title="Model run for CNN recovery/verify (off = frame-diff only)"></select></label>
   <button class="primary" onclick="start()">Start</button>
-  <button onclick="reset()">Startstellung neu (Referenz)</button>
+  <button onclick="reset()">Reset position (reference)</button>
   <button onclick="undo()">Undo</button>
-  <button onclick="toggleCalib()" id="calibBtn">Kamera-Ausrichtung</button>
+  <button onclick="toggleCalib()" id="calibBtn">Camera alignment</button>
   <span id="status" class="badge waiting">—</span>
   <span id="cnn" class="badge" style="display:none">CNN</span>
   <span id="note" class="note"></span>
 </header>
 <main>
   <div class="card">
-    <h2>Live-Kamera — was der Computer GLAUBT (Figurenbuchstaben + letzter Zug)</h2>
+    <h2>Live camera — what the computer BELIEVES (piece letters + last move)</h2>
     <img class="feed" src="/warped.mjpg" alt="Live" />
     <div class="muted" style="margin-top:6px">
-      <span style="color:#ff2fff">■</span> erkannte Änderung &nbsp;·&nbsp;
-      <span style="color:#00ffff">■</span> als Schatten verworfen &nbsp;·&nbsp;
-      <span style="color:#ffd700">■</span> letzter Zug
+      <span style="color:#ff2fff">■</span> detected change &nbsp;·&nbsp;
+      <span style="color:#00ffff">■</span> discarded as shadow &nbsp;·&nbsp;
+      <span style="color:#ffd700">■</span> last move
     </div>
     <div id="calibWrap" style="display:none; margin-top:10px">
-      <h2>Echtes Kamerabild — Ausrichtung (grün = Raster/Spielfeld, orange = Marker)</h2>
-      <img id="calib" class="feed" style="max-width:360px" alt="Ausrichtung" />
+      <h2>Real camera image — calibration (green = grid/board, orange = marker)</h2>
+      <img id="calib" class="feed" style="max-width:360px" alt="Calibration" />
     </div>
   </div>
   <div class="card">
-    <h2>Rekonstruiertes Brett</h2>
+    <h2>Reconstructed board</h2>
     <div class="row" style="margin-bottom:8px">
-      <span>Am Zug: <b id="turn">—</b></span>
+      <span>Turn: <b id="turn">—</b></span>
       <span id="check" style="color:#f87171"></span>
       <span id="result" style="color:#34d399"></span>
     </div>
     <div id="promoRow" class="row" style="display:none; margin-bottom:8px">
-      <span style="color:#fbbf24">Umwandlung <b id="promoSq"></b> — Figur wählen:</span>
-      <button onclick="promote('q')">♕ Dame</button>
-      <button onclick="promote('r')">♖ Turm</button>
-      <button onclick="promote('b')">♗ Läufer</button>
-      <button onclick="promote('n')">♘ Springer</button>
+      <span style="color:#fbbf24">Promotion <b id="promoSq"></b> — choose piece:</span>
+      <button onclick="promote('q')">♕ Queen</button>
+      <button onclick="promote('r')">♖ Rook</button>
+      <button onclick="promote('b')">♗ Bishop</button>
+      <button onclick="promote('n')">♘ Knight</button>
     </div>
-    <img id="board" class="board" src="/board.svg" alt="Brett" />
-    <h2 style="margin-top:12px">Züge</h2>
+    <img id="board" class="board" src="/board.svg" alt="Board" />
+    <h2 style="margin-top:12px">Moves</h2>
     <table class="moves"><tbody id="moves"></tbody></table>
     <div class="muted" style="margin-top:10px">FEN: <code id="fen">—</code></div>
     <div class="row" style="margin-top:8px">
-      <input id="fenInput" placeholder="FEN zum Resyncen…" style="flex:1; min-width:220px" />
-      <button onclick="fillCurrentFen()" title="aktuelle FEN ins Feld übernehmen">↧ aktuelle</button>
-      <button class="primary" onclick="resyncFen()">Auf FEN resyncen</button>
+      <input id="fenInput" placeholder="FEN to resync…" style="flex:1; min-width:220px" />
+      <button onclick="fillCurrentFen()" title="copy current FEN into the field">↧ current</button>
+      <button class="primary" onclick="resyncFen()">Resync on FEN</button>
       <button onclick="resyncCnn()" id="cnnBtn"
-              title="Brett per CNN gegen den Spielzustand prüfen; eindeutiger Zug wird übernommen">
+              title="Check board via CNN against game state; unambiguous move is accepted">
         Resync per CNN</button>
     </div>
   </div>
   <div class="card debug">
-    <h2>Debug — Live-Metriken (Erkennung &amp; CNN)</h2>
-    <div class="dbg" id="dbg"><div class="muted">warte auf Daten…</div></div>
+    <h2>Debug — live metrics (detection &amp; CNN)</h2>
+    <div class="dbg" id="dbg"><div class="muted">waiting for data…</div></div>
   </div>
 </main>
 <script>
@@ -111,7 +111,7 @@ async function loadRuns() {
     const sel = document.getElementById("cnnRun");
     sel.innerHTML = "";
     const off = document.createElement("option");
-    off.value = ""; off.textContent = "aus (nur Diff)";
+    off.value = ""; off.textContent = "off (diff only)";
     sel.appendChild(off);
     for (const run of r.runs) {
       const o = document.createElement("option");
@@ -120,38 +120,38 @@ async function loadRuns() {
     }
     sel.value = r.active ?? r.default ?? "";
     if (sel.value === "" && r.default) sel.value = r.default;
-  } catch { /* Tracker-API noch nicht bereit */ }
+  } catch { /* tracker API not ready yet */ }
 }
 loadRuns();
 
 async function start() {
-  document.getElementById("note").textContent = "starte…";
+  document.getElementById("note").textContent = "starting…";
   await post("/api/start", { profile: profile.value, source: source.value, cnn_run: document.getElementById("cnnRun").value });
 }
 async function reset() { await post("/api/reset", {}); }
 async function undo() { await post("/api/undo", {}); }
-async function promote(p) {               // Umwandlungsfigur wählen (Promotion ohne CNN)
+async function promote(p) {               // choose promotion piece (promotion without CNN)
   const r = await post("/api/promote", { piece: p });
-  if (r && r.ok === false) document.getElementById("note").textContent = r.error || "Promotion fehlgeschlagen";
+  if (r && r.ok === false) document.getElementById("note").textContent = r.error || "promotion failed";
 }
 
-function fillCurrentFen() {               // aktuelle Stellung ins Feld zum Bearbeiten holen
+function fillCurrentFen() {               // fetch current position into the edit field
   document.getElementById("fenInput").value = document.getElementById("fen").textContent;
 }
-async function resyncFen() {              // auf beliebige bekannte Stellung resyncen
+async function resyncFen() {              // resync to any known position
   const fen = document.getElementById("fenInput").value.trim();
   if (!fen) return;
   const r = await post("/api/reset", { fen });
   document.getElementById("note").textContent =
-    (r && r.ok === false) ? (r.error || "Resync fehlgeschlagen") : "auf FEN resynct";
-  lastFen = "";                          // Brett-SVG sofort neu laden
+    (r && r.ok === false) ? (r.error || "resync failed") : "resynced on FEN";
+  lastFen = "";                          // reload board SVG immediately
 }
-async function resyncCnn() {             // Brett per CNN gegen den Spielzustand prüfen
-  document.getElementById("note").textContent = "CNN prüft das Brett…";
+async function resyncCnn() {             // check board via CNN against game state
+  document.getElementById("note").textContent = "CNN checks the board…";
   const r = await post("/api/resync_cnn", {});
   document.getElementById("note").textContent =
-    (r && r.ok === false) ? (r.error || "CNN-Resync fehlgeschlagen") : (r.note || "CNN-Resync fertig");
-  lastFen = "";                          // Brett-SVG ggf. neu laden (Zug übernommen)
+    (r && r.ok === false) ? (r.error || "CNN resync failed") : (r.note || "CNN resync done");
+  lastFen = "";                          // reload board SVG if needed (move accepted)
 }
 
 let calibTimer = null;
@@ -176,22 +176,22 @@ function renderMoves(history) {
     const n = i / 2 + 1;
     rows += `<tr><td class="n">${n}.</td><td>${history[i] || ""}</td><td>${history[i + 1] || ""}</td></tr>`;
   }
-  tb.innerHTML = rows || `<tr><td class="muted" colspan="3">noch keine Züge</td></tr>`;
+  tb.innerHTML = rows || `<tr><td class="muted" colspan="3">no moves yet</td></tr>`;
 }
 
-// Debug-Card EINMAL aufbauen (feste DOM), danach nur Wert-Felder aktualisieren ->
-// kein innerHTML-Neuaufbau je Poll, kein Reflow/Springen der Seite.
+// Build debug card ONCE (fixed DOM), then only update value fields ->
+// no innerHTML rebuild per poll, no reflow/page jump.
 const DBG_LAYOUT = [
-  ["Timing", [["FPS", "fps"], ["Diff-Rechenzeit", "diff_ms"], ["CNN-Inferenz", "infer_ms"], ["Device", "device"]]],
-  ["Deterministik", [["Motion / Schwelle", "motion"], ["Stable-Count", "stable_count"],
-    ["Frames gemittelt", "frames_used"], ["Settle-Frames", "settle_frames"],
-    ["Geänderte Felder", "nchanged"], ["z-Schwelle", "z_thr"], ["Feld-z-Werte", "fieldvals"],
-    ["Schatten verworfen", "shadow"],
-    ["Best / 2nd Score", "scores"], ["Margin", "margin"], ["Kandidat (Diff)", "candidate"],
+  ["Timing", [["FPS", "fps"], ["Diff time", "diff_ms"], ["CNN inference", "infer_ms"], ["Device", "device"]]],
+  ["Detection", [["Motion / threshold", "motion"], ["Stable-Count", "stable_count"],
+    ["Averaged frames", "frames_used"], ["Settle frames", "settle_frames"],
+    ["Changed squares", "nchanged"], ["z-threshold", "z_thr"], ["Square z-values", "fieldvals"],
+    ["Shadow vetoed", "shadow"],
+    ["Best / 2nd Score", "scores"], ["Margin", "margin"], ["Candidate (diff)", "candidate"],
     ["Confirmer", "confirmer"], ["Stuck", "stuck"]]],
-  ["CNN-Verifikation", [["Verify-Status", "verify_state"], ["Pending-Zug", "pending"],
-    ["Verify-Frames", "verify_frames"], ["Verify-Votes", "votes"], ["CNN-Sicherheit", "agreement"],
-    ["CNN-Vorschlag", "cnn_best"], ["Conf-Schwelle", "cnn_conf_thr"]]],
+  ["CNN verification", [["Verify status", "verify_state"], ["Pending move", "pending"],
+    ["Verify frames", "verify_frames"], ["Verify votes", "votes"], ["CNN confidence", "agreement"],
+    ["CNN proposal", "cnn_best"], ["Conf threshold", "cnn_conf_thr"]]],
 ];
 let dbgBuilt = false;
 function buildDebug() {
@@ -202,7 +202,7 @@ function buildDebug() {
   dbgBuilt = true;
 }
 function set(key, html) { const e = document.getElementById("dbg_" + key); if (e && e.innerHTML !== html) e.innerHTML = html; }
-function fieldVals(vals, thr) {   // "sq: wert" — grün wenn über der Change-Schwelle, sonst grau
+function fieldVals(vals, thr) {   // "sq: value" — green if above change threshold, else gray
   if (!vals || !vals.length) return "—";
   return vals.map(([sq, v]) =>
     `<code style="color:${v >= thr ? '#34d399' : '#71717a'}">${sq}:${v}</code>`).join(" ");
@@ -236,22 +236,22 @@ function renderDebug(d) {
 async function poll() {
   try {
     const s = await fetch("/api/status").then(r => r.json());
-    if (!s.active) { document.getElementById("note").textContent = "nicht gestartet — Quelle/Profil wählen, Start drücken."; return; }
+    if (!s.active) { document.getElementById("note").textContent = "not started — choose source/profile, press Start."; return; }
     const badge = document.getElementById("status");
     badge.textContent = s.state;
     badge.className = "badge " + (s.state === "moving" ? "moving" : s.state === "move" ? "move" : "waiting");
-    const cnn = document.getElementById("cnn");   // CNN-Kontrolle: grün = stimmt, rot = weicht ab
+    const cnn = document.getElementById("cnn");   // CNN check: green = matches, red = differs
     if (s.cnn_active) {
       cnn.style.display = "";
       cnn.textContent = s.cnn_status === "mismatch" ? "CNN: weicht ab" : "CNN";
       cnn.className = "badge " + (s.cnn_status === "mismatch" ? "moving" : "waiting");
     } else { cnn.style.display = "none"; }
     document.getElementById("note").textContent = s.note || "";
-    document.getElementById("turn").textContent = s.turn === "white" ? "Weiß" : "Schwarz";
-    document.getElementById("check").textContent = s.in_check ? "Schach!" : "";
-    document.getElementById("result").textContent = s.game_over ? ("Ende: " + s.result) : "";
+    document.getElementById("turn").textContent = s.turn === "white" ? "White" : "Black";
+    document.getElementById("check").textContent = s.in_check ? "Check!" : "";
+    document.getElementById("result").textContent = s.game_over ? ("End: " + s.result) : "";
     document.getElementById("fen").textContent = s.fen;
-    const promo = document.getElementById("promoRow");   // Promotion wartet auf Nutzerwahl?
+    const promo = document.getElementById("promoRow");   // promotion waiting for user choice?
     if (s.promotion_pending) {
       promo.style.display = "";
       document.getElementById("promoSq").textContent = s.promotion_pending.from + "→" + s.promotion_pending.to;
@@ -262,7 +262,7 @@ async function poll() {
       lastFen = s.fen;
       document.getElementById("board").src = "/board.svg?t=" + Date.now();
     }
-  } catch (e) { /* Server evtl. noch nicht bereit */ }
+  } catch (e) { /* server may not be ready yet */ }
 }
 setInterval(poll, 250);
 poll();

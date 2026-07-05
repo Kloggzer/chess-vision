@@ -1,12 +1,12 @@
-"""Sicherheitsnetz-Tests für den synthetic-Ingest-Adapter — headless, keine GPU/Kamera.
+"""Safety-net tests for the synthetic ingest adapter — headless, no GPU/camera.
 
-Fixtures: `tests/data/synth_sample/000000.json` (unregelmäßiges Viereck, keine Symmetrie).
-Das PNG wird im Test generiert, nie eingecheckt.
+Fixtures: `tests/data/synth_sample/000000.json` (irregular quadrilateral, no symmetry).
+The PNG is generated in the test, never checked in.
 
 **Contract sentinel:** The `synth/render_chessboard.py` renderer writes the JSON format
 `{fen, corners: [[a8],[h8],[h1],[a1]]}`. Dieser Test prüft, dass die volle Ingest→Slice-Kette
-die korrekte Orientierung erhält — eine vertauschte Eck-Reihenfolge würde **alle** synthetischen
-Labels stillschweigend rotieren/spiegeln.
+that the full ingest→slice chain preserves correct orientation — a swapped corner order would **silently** rotate/mirror **all** synthetic
+labels.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from chesslab import config
 from chesslab import ingest as ig
 from chesslab.ingest_adapters import synthetic
 
-# --- Fixture-Pfad & Ecken ----------------------------------------------------------------
+# --- Fixture path & corners ----------------------------------------------------------------
 
 FIXTURE_JSON = Path(__file__).resolve().parent / "data" / "synth_sample" / "000000.json"
 
@@ -36,16 +36,16 @@ def _fixture_fen() -> str:
     return json.loads(FIXTURE_JSON.read_text(encoding="utf-8"))["fen"]
 
 
-# --- Farbcodiertes Brett (identisch zu test_ingest.py::_synthetic_board) ------------------
+# --- Color-coded board (identical to test_ingest.py::_synthetic_board) ------------------
 
 def _synthetic_board(bs: int) -> np.ndarray:
-    """8×8-Brett, jedes Feld eindeutig eingefärbt nach (col,row): so lässt sich nach dem Slicen
-    prüfen, dass ein Feld-Crop wirklich aus der richtigen Bildregion stammt (Orientierung)."""
+    """8×8 board, each square uniquely colored by (col,row): after slicing this lets us
+    verify that a square crop really comes from the correct image region (orientation)."""
     cell = bs // 8
     img = np.zeros((bs, bs, 3), dtype=np.uint8)
     for col in range(8):
         for row in range(8):
-            color = (col * 30 + 10, row * 30 + 10, 100)  # BGR, eindeutig je (col,row)
+            color = (col * 30 + 10, row * 30 + 10, 100)  # BGR, unique per (col,row)
             img[row * cell : (row + 1) * cell, col * cell : (col + 1) * cell] = color
     return img
 
@@ -57,7 +57,7 @@ def _cell_color(col: int, row: int) -> tuple[int, int, int]:
 
 def _warp_board_to_fixture(board_img: np.ndarray, corners: list[list[float]],
                            out_w: int = 1200, out_h: int = 1000) -> np.ndarray:
-    """Warpt das achsenparallele Brettbild so, dass die Brett-Ecken an `corners` landen.
+    """Warps the axis-aligned board image so that the board corners land at `corners`.
 
     Quelle: [0,0]→a8, [w,0]→h8, [w,h]→h1, [0,h]→a1.
     Ziel: corners = [a8, h8, h1, a1] im Ausgabebild.
@@ -115,7 +115,7 @@ def test_iter_items_chunks_by_stem(tmp_path):
 
 
 def test_iter_items_skips_json_without_png(tmp_path):
-    """JSON ohne zugehöriges PNG wird übersprungen."""
+    """JSON without a matching PNG is skipped."""
     (tmp_path / "000000.json").write_text(FIXTURE_JSON.read_text(encoding="utf-8"), encoding="utf-8")
     # kein PNG
     items = list(synthetic.iter_items(tmp_path))
@@ -123,10 +123,10 @@ def test_iter_items_skips_json_without_png(tmp_path):
 
 
 def test_iter_items_skips_corrupt_json(tmp_path):
-    """Kaputtes JSON bricht den Iterator nicht ab."""
+    """Corrupt JSON does not abort the iterator."""
     cv2.imwrite(str(tmp_path / "000000.png"), _synthetic_board(256))
     (tmp_path / "000000.json").write_text("this is not json{{{", encoding="utf-8")
-    # Gutes Item danach
+    # Good item after it
     cv2.imwrite(str(tmp_path / "000001.png"), _synthetic_board(256))
     (tmp_path / "000001.json").write_text(
         json.dumps({"fen": _fixture_fen(), "corners": _fixture_corners()}), encoding="utf-8")
@@ -145,22 +145,22 @@ def test_iter_items_skips_missing_corners(tmp_path):
 
 
 # =======================================================================================
-# Orientierungs-E2E
+# Orientation E2E
 # =======================================================================================
 
 def test_synthetic_ingest_orientation(tmp_path):
-    """Farbcodiertes Brett durch die volle Ingest→Slice-Kette mit Fixture-Ecken.
+    """Color-coded board through the full ingest→slice chain with fixture corners.
 
-    Der Test beweist, dass die Eck-Reihenfolge [a8,h8,h1,a1] korrekt interpretiert wird:
-    - a8 (=col 0,row 0 im Quellbrett) landet als `a8`-Crop mit der Farbe von (0,0).
-    - a1 (=col 0,row 7) landet als `a1`-Crop mit der Farbe von (0,7).
-    - h8 (=col 7,row 0) und h1 (=col 7,row 7) entsprechend.
+    The test proves that the corner order [a8,h8,h1,a1] is interpreted correctly:
+    - a8 (=col 0,row 0 in the source board) lands as an `a8` crop with the color of (0,0).
+    - a1 (=col 0,row 7) lands as an `a1` crop with the color of (0,7).
+    - h8 (=col 7,row 0) and h1 (=col 7,row 7) similarly.
     """
     paths = config.Paths(root=tmp_path)
     corners = _fixture_corners()
     fen = _fixture_fen()
 
-    # Farbcodiertes Brett in die Fixture-Perspektive warpen
+    # Warp color-coded board into fixture perspective
     bs = 800
     board = _synthetic_board(bs)
     warped = _warp_board_to_fixture(board, corners)
@@ -180,14 +180,14 @@ def test_synthetic_ingest_orientation(tmp_path):
     rows = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     by_sq = {r["square"]: r for r in rows}
 
-    # Labels aus der Grundstellungs-FEN korrekt zugeordnet
+    # Labels correctly assigned from the starting position FEN
     assert by_sq["a1"]["label"] == "wR"
     assert by_sq["e1"]["label"] == "wK"
     assert by_sq["a8"]["label"] == "bR"
     assert by_sq["e8"]["label"] == "bK"
     assert by_sq["e4"]["label"] == "empty"
 
-    # Orientierung per Pixelfarbe: a1 = col0,row7 (Bild-Ursprung unten-links)
+    # Orientation via pixel color: a1 = col0,row7 (image origin bottom-left)
     def center_color(sq: str) -> np.ndarray:
         crop = cv2.imread(by_sq[sq]["path"])
         h, w = crop.shape[:2]
@@ -206,22 +206,22 @@ def test_synthetic_ingest_orientation(tmp_path):
 def test_synthetic_ingest_rotated_corners_fails(tmp_path):
     """Negative test: rotated corner order [h1,a1,a8,h8] → colors do NOT match.
 
-    Dies beweist, dass der Test Fehlermodi erkennt: eine vertauschte Reihenfolge
-    würde im Normalbetrieb still alle Labels rotieren. Dieser Test schlägt fehl,
-    wenn die Pipeline die falsche Orientierung AKZEPTIERT.
+    This proves that the test detects failure modes: a swapped order
+    would silently rotate all labels in normal operation. This test FAILS,
+    if the pipeline ACCEPTS the wrong orientation.
     """
     paths = config.Paths(root=tmp_path)
     correct_corners = _fixture_corners()
     fen = _fixture_fen()
 
-    # Richtiges Brett warpen (wie der Renderer es tun würde)
+    # Warp correct board (as the renderer would)
     bs = 800
     board = _synthetic_board(bs)
     warped = _warp_board_to_fixture(board, correct_corners)
     img_path = tmp_path / "board0.png"
     cv2.imwrite(str(img_path), warped)
 
-    # ABER: falsche Eck-Reihenfolge im JSON → [h1, a1, a8, h8] statt [a8, h8, h1, a1]
+    # BUT: wrong corner order in JSON → [h1, a1, a8, h8] instead of [a8, h8, h1, a1]
     rotated_corners = [correct_corners[2], correct_corners[3],
                        correct_corners[0], correct_corners[1]]
 
@@ -239,36 +239,36 @@ def test_synthetic_ingest_rotated_corners_fails(tmp_path):
         h, w = crop.shape[:2]
         return crop[h // 2, w // 2].astype(int)
 
-    # a8 mit rotierten Ecken bekommt die Farbe von h1 (col 7, row 7) — das sollte NIEMALS
-    # mit der erwarteten a8-Farbe (col 0, row 0) übereinstimmen
+    # a8 with rotated corners gets the color of h1 (col 7, row 7) — this should NEVER
+    # match the expected a8 color (col 0, row 0)
     assert not np.allclose(center_color("a8"), _cell_color(0, 0), atol=25), \
-        "rotierte Ecken sollten nicht die richtigen Feld-Farben liefern"
+        "rotated corners should not yield the correct square colors"
 
 
-# --- Contract-Dokumentation --------------------------------------------------------------
+# --- Contract documentation --------------------------------------------------------------
 
 def test_synthetic_contract_documented():
     """Documents the corner-order contract as a safety anchor.
 
-    Der Renderer `synth/render_chessboard.py` schreibt `[a8,h8,h1,a1]` (= top-left, top-right,
-    bottom-right, bottom-left aus Weiß-Sicht). Der `synthetic`-Adapter (`iter_items`) verlässt
-    sich darauf und reicht sie 1:1 durch. Dieser Test ist der Wächter: bricht er, wurde der
-    Contract auf einer der beiden Seiten gebrochen.
+    The renderer `synth/render_chessboard.py` writes `[a8,h8,h1,a1]` (= top-left, top-right,
+    bottom-right, bottom-left from White's perspective). The `synthetic` adapter (`iter_items`) relies
+    on this and passes them through as-is. This test is the sentinel: if it breaks, the
+    contract was broken on one of the two sides.
     """
-    # Lese das Fixture-JSON
+    # Read the fixture JSON
     d = json.loads(FIXTURE_JSON.read_text(encoding="utf-8"))
     corners = d["corners"]
     assert len(corners) == 4
 
-    # Die Ecken bilden ein unregelmäßiges Viereck (keine Achsensymmetrie)
+    # The corners form an irregular quadrilateral (no axial symmetry)
     pts = np.array(corners, dtype=np.float32)
-    assert not np.allclose(pts[0], pts[2], atol=1)  # a8 ≠ h1 (nicht punktsymmetrisch)
+    assert not np.allclose(pts[0], pts[2], atol=1)  # a8 ≠ h1 (not point-symmetric)
     assert not np.allclose(pts[1], pts[3], atol=1)  # h8 ≠ a1
-    # Kein Rechteck mit gleichen Kantenlängen (kein Quadrat oder Rechteck, das 90°-Rotation maskiert)
+    # No rectangle with equal side lengths (no square or rectangle that masks 90° rotation)
     d1 = np.linalg.norm(pts[1] - pts[0])  # a8→h8
     d2 = np.linalg.norm(pts[2] - pts[1])  # h8→h1
     d3 = np.linalg.norm(pts[3] - pts[2])  # h1→a1
     d4 = np.linalg.norm(pts[0] - pts[3])  # a1→a8
-    # Alle vier Kanten sollten unterschiedlich lang sein (irreguläres Viereck)
+    # All four sides should have different lengths (irregular quadrilateral)
     lengths = {round(d1), round(d2), round(d3), round(d4)}
     assert len(lengths) >= 2, "Fixture-Ecken bilden ein zu symmetrisches Viereck"

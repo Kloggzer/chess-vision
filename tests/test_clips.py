@@ -1,9 +1,9 @@
-"""Replay-Regressionstests gegen lokale Videoclips (Spec 11, Teil 3).
+"""Replay regression tests against local video clips (Spec 11, part 3).
 
-Nur lokal sinnvoll: `uv run pytest -m clips`. Ohne `data/testclips/` (Clips sind nicht
-committet) oder ohne `erwartete_zugliste` im Manifest wird sauber geskippt. Die Clips
-laufen ohne CNN (deterministisch, keine Modellabhängigkeit) und unbeschleunigt gedrosselt
-nur durch die Tracker-Loop selbst.
+Only useful locally: `uv run pytest -m clips`. Without `data/testclips/` (clips are not
+committed) or without `erwartete_zugliste` in the manifest it is cleanly skipped. The clips
+run without CNN (deterministic, no model dependency) and throttled without acceleration
+only by the tracker loop itself.
 """
 
 from __future__ import annotations
@@ -37,17 +37,17 @@ def _replay(entry: dict) -> dict:
 
 
 @pytest.mark.parametrize("entry", _entries() or [None],
-                         ids=lambda e: e["file"] if e else "keine-clips")
+                         ids=lambda e: e["file"] if e else "no-clips")
 def test_clip_erwartete_zugliste(entry):
     """Clips with `erwartete_zugliste` in the manifest must produce exactly this SAN sequence."""
     if entry is None:
-        pytest.skip("data/testclips fehlt (Clips sind lokal, nicht committet)")
+        pytest.skip("data/testclips missing (clips are local, not committed)")
     expected = entry.get("erwartete_zugliste")
     if not expected:
-        pytest.skip(f"{entry['file']}: keine erwartete_zugliste im Manifest")
+        pytest.skip(f"{entry['file']}: no expected move list in manifest")
     if entry.get("marker") is False:
-        pytest.skip(f"{entry['file']}: ohne ArUco-Marker — wartet auf markerlose "
-                    f"Brett-Erkennung (specs/rework/11-markerless-board-detection.md)")
+        pytest.skip(f"{entry['file']}: without ArUco markers — waiting for markerless "
+                    f"board detection (specs/rework/11-markerless-board-detection.md)")
     res = _replay(entry)
     assert res["history"] == list(expected), \
-        f"{entry['file']}: erkannt {res['history']}, erwartet {expected}\nletzte Note: {res['note']}"
+        f"{entry['file']}: found {res['history']}, expected {expected}\nlast note: {res['note']}"

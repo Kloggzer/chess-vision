@@ -1,4 +1,4 @@
-"""Stufe 5 — gemeinsame Eval-Mechanik (von train.py und evaluate.py genutzt)."""
+"""Stage 5 — shared eval mechanics (used by train.py and evaluate.py)."""
 
 from __future__ import annotations
 
@@ -12,13 +12,13 @@ def get_device(require_gpu: bool):
     if torch.cuda.is_available():
         return torch.device("cuda")
     if require_gpu:
-        raise RuntimeError("keine nutzbare GPU (torch.cuda.is_available()==False).")
+        raise RuntimeError("no usable GPU (torch.cuda.is_available()==False).")
     return torch.device("cpu")
 
 
 @torch.no_grad()
 def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 256, num_workers: int = 4) -> dict:
-    """Square-Accuracy, Board-Accuracy, Loss und rohe (true, pred)-Arrays für eine Datenmenge."""
+    """Square accuracy, board accuracy, loss and raw (true, pred) arrays for a dataset."""
     from torch.utils.data import DataLoader
 
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False,
@@ -43,9 +43,9 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     preds_a = np.array(preds)
     square_acc = float((trues_a == preds_a).mean()) if n else 0.0
 
-    # Macro-Recall: Mittel der Per-Klassen-Trefferquote über vorhandene Klassen.
-    # Aussagekräftig auch wenn board_acc=0 (kleine/schwere Datensätze) und ignoriert die
-    # empty-Dominanz -> bessere Checkpoint-/Early-Stop-Metrik als die rohe square_acc.
+    # Macro-recall: mean of per-class hit rate over present classes.
+    # Meaningful even when board_acc=0 (small/hard datasets) and ignores the
+    # empty dominance -> better checkpoint/early-stop metric than raw square_acc.
     n_classes = len(getattr(dataset, "c2i", {})) or (int(max(trues_a.max(), preds_a.max())) + 1 if n else 1)
     cm = confusion_matrix(trues_a, preds_a, n_classes) if n else np.zeros((1, 1))
     present = cm.sum(axis=1) > 0

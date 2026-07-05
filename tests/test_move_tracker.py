@@ -1,7 +1,7 @@
-"""Tests für chesslab.move_tracker.tracker — pure, headless, keine Kamera.
+"""Tests for chesslab.move_tracker.tracker — pure, headless, no camera.
 
-Seit Spec 10 (Move-Detection v2) läuft das Scoring probabilistisch: z-Scores gegen ein
-per-Feld-Rauschmodell + Log-Likelihood je legalem Zug (statt harter change_thr-Gates).
+Since Spec 10 (Move-Detection v2) scoring is probabilistic: z-scores against a
+per-square noise model + log-likelihood per legal move (instead of hard change_thr gates).
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ def test_normalize_diffs_isolates_hot_fields():
     diffs["e4"] = 40.0
     result = normalize_diffs(diffs)
 
-    # Median ~ 2.0 (62 Felder sind 2.0, 2 sind 40 → median = 2.0)
+    # Median ~ 2.0 (62 squares are 2.0, 2 are 40 → median = 2.0)
     assert result["e2"] == pytest.approx(38.0)
     assert result["e4"] == pytest.approx(38.0)
     for sq in _ALL:
@@ -64,7 +64,7 @@ def test_normalize_diffs_isolates_hot_fields():
 
 
 # =======================================================================================
-# SquareNoise + loglik_scores (Spec 10, Teil 1)
+# SquareNoise + loglik_scores (Spec 10, part 1)
 # =======================================================================================
 
 def _z(values: dict[str, float], default: float = 0.0) -> dict[str, float]:
@@ -93,7 +93,7 @@ class TestSquareNoise:
         assert n.z(drifted)["e4"] < 1.0
 
     def test_fresh_change_scores_high_z(self):
-        """Neuer Ausschlag gegen gelerntes Ruhe-Rauschen → hoher z-Score."""
+        """Fresh spike against learned quiet noise → high z-score."""
         n = SquareNoise()
         for _ in range(100):
             n.update(_diffs({}, default=1.0))
@@ -109,12 +109,12 @@ class TestLoglikScores:
         assert scored[0][1] > 0
 
     def test_weak_target_still_wins(self):
-        """Weiß-auf-weiß: Zielfeld nur z=1.5 (unter z_thr!) — e2e4 gewinnt trotzdem,
-        kein harter Cutoff mehr (das erste DoD-Kriterium der Spec)."""
+        """White-on-white: target square only z=1.5 (below z_thr!) — e2e4 still wins,
+        no hard cutoff anymore (first DoD criterion of the spec)."""
         board = chess.Board()
         scored = loglik_scores(board, _z({"e2": 8.0, "e4": 1.5}))
         assert scored[0][0].uci() == "e2e4"
-        assert scored[0][1] > 0                    # Evidenz spricht netto FÜR den Zug
+        assert scored[0][1] > 0                    # Evidence speaks net FOR the move
 
     def test_capture_wins(self):
         board = chess.Board("rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 2")
@@ -133,17 +133,17 @@ class TestLoglikScores:
         assert scored[0][0].uci() == "e5f6"
 
     def test_unexplained_hot_square_penalizes_noncovering_moves(self):
-        """Heißes unberührtes Feld drückt Züge, die es NICHT erklären, unter den Zug, der es deckt."""
+        """Hot untouched square pushes moves that do NOT explain it below the one that covers it."""
         board = chess.Board()
-        z = _z({"e2": 8.0, "e4": 8.0, "a3": 8.0})   # a3 heiß, aber nur a2a3/b1a3 decken es
+        z = _z({"e2": 8.0, "e4": 8.0, "a3": 8.0})   # a3 is hot, but only a2a3/b1a3 cover it
         scored = {mv.uci(): s for mv, s in loglik_scores(board, z)}
-        assert scored["e2e4"] > scored["d2d4"]      # d2d4 erklärt gar nichts Heißes
-        # e2e4 lässt a3 unerklärt → sein Score ist niedriger als ohne das Störfeld
+        assert scored["e2e4"] > scored["d2d4"]      # d2d4 explains nothing hot
+        # e2e4 leaves a3 unexplained → its score is lower than without the interfering field
         clean = {mv.uci(): s for mv, s in loglik_scores(board, _z({"e2": 8.0, "e4": 8.0}))}
-        assert scored["e2e4"] == pytest.approx(clean["e2e4"])   # relativ: Störfeld trifft alle gleich
+        assert scored["e2e4"] == pytest.approx(clean["e2e4"])   # relative: interfering field affects all equally
 
     def test_quiet_board_all_negative(self):
-        """Ruhiges Brett → alle Züge deutlich negativ (Re-Anchor-Floor greift)."""
+        """Quiet board → all moves clearly negative (re-anchor floor kicks in)."""
         board = chess.Board()
         scored = loglik_scores(board, _z({}))
         assert scored[0][1] < -4.0
@@ -152,7 +152,7 @@ class TestLoglikScores:
         board = chess.Board("rnbqkb1r/ppp2ppp/4pn2/3p4/3P4/4PN2/PPP2PPP/RNBQKB1R w KQkq - 0 4")
         scored = loglik_scores(board, _z({"b1": 8.0, "f3": 7.0, "d2": 8.0}))
         assert scored[0][0].uci() == "b1d2"
-        assert scored[0][1] - scored[1][1] < 2.0    # klein → Ambiguitäts-Gate/Prior
+        assert scored[0][1] - scored[1][1] < 2.0    # small → ambiguity gate/prior
 
 
 class TestMovePrior:
@@ -180,7 +180,7 @@ def test_move_touched_squares_normal():
 
 
 def test_move_touched_squares_capture():
-    """Schlagzug → 2 Felder (from + to)."""
+    """Capture → 2 squares (from + to)."""
     board = chess.Board("rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 2")
     mv = chess.Move.from_uci("e4d5")
     touched = move_touched_squares(board, mv)
@@ -188,7 +188,7 @@ def test_move_touched_squares_capture():
 
 
 def test_move_touched_squares_kingside_castling():
-    """Kurze Rochade → 4 Felder: king from/to + rook from/to."""
+    """Kingside castling → 4 squares: king from/to + rook from/to."""
     board = chess.Board("r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2N2N2/PPPP1PPP/R1BQK2R w KQkq - 4 5")
     mv = chess.Move.from_uci("e1g1")
     touched = move_touched_squares(board, mv)
@@ -196,7 +196,7 @@ def test_move_touched_squares_kingside_castling():
 
 
 def test_move_touched_squares_queenside_castling():
-    """Lange Rochade → 4 Felder: king from/to + rook from/to."""
+    """Queenside castling → 4 squares: king from/to + rook from/to."""
     board = chess.Board("r3k2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2N2N2/PPPP1PPP/R1BQK2R b KQkq - 6 5")
     # Wait, this position doesn't have black queenside castling available with king on e8,
     # rook on a8. Let me construct carefully.
@@ -208,7 +208,7 @@ def test_move_touched_squares_queenside_castling():
 
 
 def test_move_touched_squares_en_passant():
-    """En passant → 3 Felder: from, to, und Feld des geschlagenen Bauern."""
+    """En passant → 3 squares: from, to, and the captured pawn's square."""
     board = chess.Board("rnbqkbnr/pp1pp1pp/8/2p1Pp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3")
     mv = chess.Move.from_uci("e5f6")
     touched = move_touched_squares(board, mv)
@@ -220,7 +220,7 @@ def test_move_touched_squares_en_passant():
 # =======================================================================================
 
 def test_per_square_diff_detects_changed_cell():
-    """Zwei 800×800-Graubilder, nur e4 geändert → e4 hat hohen Diff, white_pov-Orientierung stimmt."""
+    """Two 800×800 gray images, only e4 changed → e4 has high diff, white_pov orientation is correct."""
     bs = 800
     gray_a = np.full((bs, bs), 128, dtype=np.uint8)
     gray_b = gray_a.copy()
@@ -252,10 +252,10 @@ def test_square_region_white_pov_a1_bottom_left():
     """With white_pov=True, a1 (col=0,row=7) is in the lower quarter, h8 (col=7,row=0) at top."""
     bs = 800
     x0, y0, x1, y1 = square_region("a1", bs, white_pov=True)
-    assert y0 > bs * 0.75  # a1 → row=7 → im unteren Viertel
+    assert y0 > bs * 0.75  # a1 → row=7 → in the lower quarter
 
     x0, y0, x1, y1 = square_region("h8", bs, white_pov=True)
-    assert y1 < bs * 0.25  # h8 → row=0 → im oberen Viertel
+    assert y1 < bs * 0.25  # h8 → row=0 → in the upper quarter
 
 
 # =======================================================================================
@@ -430,7 +430,7 @@ class TestMoveTrackerHeadless:
 
 
 def _gray_frame(blob_squares, board_size=400, white_pov=True, base=128) -> np.ndarray:
-    """2D-Graubild (uint8) mit hellen Blobs auf gegebenen Feldern — direkt für _try_detect."""
+    """2D gray image (uint8) with bright blobs on given squares — directly for _try_detect."""
     from chesslab.move_tracker.tracker import square_region
 
     img = np.full((board_size, board_size), base, dtype=np.uint8)
@@ -459,7 +459,7 @@ class TestBaseTruthDetect:
 
     def test_global_exposure_shift_not_stuck(self, monkeypatch):
         """Globaler Belichtungssprung (alle 64 Felder heller) → KEIN too_many_changed,
-        Base-Truth wird per Drift-Refresh übernommen (Fix: Gates auf normalisierten Diffs)."""
+        Ground truth is adopted via drift refresh (Fix: gates on normalized diffs)."""
         mt = _make_tracker(monkeypatch)
         mt.ref_gray = _gray_frame([], base=128)
         mt.ref_fen = mt.board.fen()
@@ -742,24 +742,24 @@ class TestAppEndpoints:
         data = r.json()
         assert data["ok"] is False
         assert "error" in data
-        assert "ungültige FEN" in data["error"]
+        assert "invalid FEN" in data["error"]
 
 # =======================================================================================
-# Spec 10: Nudge-Patch, Promotion, CNN-Overrule, Prior-Sichtbarkeit
+# Spec 10: Nudge-Patch, Promotion, CNN-Overrule, Prior visibility
 # =======================================================================================
 
 
 class TestNudgePatch:
-    """Nicht-CNN-Re-Anchor fuer erklaerbare Stoerungen (Spec 10, Teil 4)."""
+    """Non-CNN re-anchor for explainable disturbances (Spec 10, part 4)."""
 
     def test_nudge_patches_occupied_square(self, monkeypatch):
         """1 occupied square persistently unexplained -> after nudge_timeout_s the
-        Referenz-Zelle gepatcht, Tracker laeuft weiter (kein stuck)."""
+        reference cell is patched, tracker continues (no stuck)."""
         mt = _make_tracker(monkeypatch, cnn_run=None, nudge_timeout_s=0.0)
         mt.ref_gray = _gray_frame([], base=128)
         mt.ref_fen = mt.board.fen()
-        cur = _gray_frame(["e2"], base=128)      # e2 (belegt) sieht anders aus: Figur verrueckt
-        mt._try_detect(cur)                       # 1. Sichtung: Timer startet, timeout 0 -> patchen
+        cur = _gray_frame(["e2"], base=128)      # e2 (occupied) looks different: piece moved
+        mt._try_detect(cur)                       # 1st sighting: timer starts, timeout 0 -> patch
         mt._try_detect(cur)
         assert mt._stuck_reason is None
         assert mt.history == []
@@ -768,21 +768,21 @@ class TestNudgePatch:
         assert mt._changed == []
 
     def test_empty_square_not_patched_before_drift_window(self, monkeypatch):
-        """Leeres Feld aendert sich -> NICHT sofort patchen (koennte stiller Fehlzug sein)."""
+        """Empty square changes -> do NOT patch immediately (could be silent wrong move)."""
         mt = _make_tracker(monkeypatch, cnn_run=None, nudge_timeout_s=0.0, drift_window_s=9999.0)
         mt.ref_gray = _gray_frame([], base=128)
         mt.ref_fen = mt.board.fen()
-        cur = _gray_frame(["e4"], base=128)      # e4 ist LEER laut Spielzustand
+        cur = _gray_frame(["e4"], base=128)      # e4 is EMPTY according to game state
         mt._try_detect(cur)
         mt._try_detect(cur)
-        assert mt._stuck_reason == "no_legal_move"   # bleibt stuck, kein Patch
+        assert mt._stuck_reason == "no_legal_move"   # stays stuck, no patch
         assert mt._changed == ["e4"]
 
 
 class TestPromotionWithoutCnn:
     def test_promotion_waits_for_user_choice(self, monkeypatch):
-        """Bauer erreicht die Grundreihe ohne CNN -> promotion_pending statt Dauer-Ambiguitaet;
-        choose_promotion committet die gewaehlte Figur."""
+        """Pawn reaches the back rank without CNN -> promotion_pending instead of permanent ambiguity;
+        choose_promotion commits the chosen piece."""
         mt = _make_tracker(monkeypatch, cnn_run=None)
         mt.board = chess.Board("8/P6k/8/8/8/8/7K/8 w - - 0 1")
         mt.ref_gray = _gray_frame(["a7"], base=128)
@@ -805,11 +805,11 @@ class TestPromotionWithoutCnn:
 
 class TestCnnOverrule:
     def test_cnn_overrules_diff_candidate(self, monkeypatch):
-        """CNN sieht eindeutig einen ANDEREN Zug und bestaetigt ihn belastbar ->
-        der CNN-Kandidat wird committet, nicht der Diff-Kandidat (Spec 10, Teil 5)."""
+        """CNN clearly sees a DIFFERENT move and confirms it reliably ->
+        the CNN candidate is committed, not the diff candidate (Spec 10, part 5)."""
         mt = _pending_tracker(monkeypatch, matches=False, verify_agree=0.0, verify_n=2,
                               derive_move="d2d4")
-        # Alternative d2d4 wird vom Fake belastbar bestaetigt, e2e4 nicht:
+        # Alternative d2d4 is reliably confirmed by the fake, e2e4 is not:
         fake = mt.recovery
         fake.verify_move_identity = lambda board, move, obs: \
             (1.0, 2) if move.uci() == "d2d4" else (0.0, 2)
@@ -820,8 +820,8 @@ class TestCnnOverrule:
 
 class TestWeakEvidenceHold:
     def test_weak_candidate_does_not_reanchor(self, monkeypatch):
-        """Schwache zugkonsistente Evidenz (weiss-auf-weiss): kein Feld ueber z_thr, aber
-        best-LL ueber dem Floor -> Referenz wird GEHALTEN (nicht eingebacken)."""
+        """Weak move-consistent evidence (white-on-white): no square above z_thr, but
+        best-LL above the floor -> reference is HELD (not baked in)."""
         from chesslab.move_tracker import tracker as trk
 
         mt = _make_tracker(monkeypatch, cnn_run=None)
@@ -837,9 +837,9 @@ class TestWeakEvidenceHold:
                                            for s in trk._ALL})
         cur = _gray_frame([], base=128)
         mt._try_detect(cur)
-        assert mt.ref_gray is ref                 # NICHT re-anchored
+        assert mt.ref_gray is ref                 # NOT re-anchored
         assert mt._stuck_reason is None
-        assert "schwache Zugevidenz" in mt.note
+        assert "weak move evidence" in mt.note
 
 class TestPairScores:
     """Diff-side 2-half-move detection (fast play without CNN)."""
@@ -850,7 +850,7 @@ class TestPairScores:
         board = chess.Board()
         z = _z({"e2": 8.0, "e4": 8.0, "e7": 8.0, "e5": 8.0})
         pairs = loglik_pair_scores(board, z)
-        assert pairs, "keine Paare gefunden"
+        assert pairs, "no pairs found"
         best_seq, best = pairs[0]
         assert [m.uci() for m in best_seq] == ["e2e4", "e7e5"]
         assert best > 0
@@ -859,9 +859,9 @@ class TestPairScores:
         from chesslab.move_tracker.tracker import loglik_pair_scores
 
         board = chess.Board()
-        z = _z({"e2": 8.0, "e4": 8.0})          # nur EIN Zug hat Evidenz
+        z = _z({"e2": 8.0, "e4": 8.0})          # only ONE move has evidence
         pairs = loglik_pair_scores(board, z)
-        # zulaessige Paare muessen alle 4 Endpunkte tragen -> hier keine
+        # valid pairs must carry all 4 endpoints -> none here
         assert pairs == []
 
 

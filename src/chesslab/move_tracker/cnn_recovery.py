@@ -1,13 +1,13 @@
-"""CNN-gestützte Occupancy-Recovery für den Move-Tracker (specs/rework/09-cnn-recovery.md).
+"""CNN-assisted occupancy recovery for the Move-Tracker (specs/rework/09-cnn-recovery.md).
 
-Kein Voll-FEN-Resync: Das CNN liefert nur die **Occupancy** je Feld (leer / besetzt /
-verdeckt) — die Figurenidentität kennt der Tracker aus der Zughistorie. Damit lässt sich
-(a) bei festgefahrener Frame-Diff-Erkennung der Zug finden, dessen resultierende Occupancy
-die Beobachtung am besten erklärt (deckt Schlag, Rochade, en passant strukturell ab), und
-(b) periodisch kontrollieren, ob geglaubter Zustand und Brett noch übereinstimmen.
+No full-FEN resync: The CNN only provides **occupancy** per square (empty / occupied /
+occluded) — piece identity is known to the tracker from the move history. This lets it
+(a) find the move whose resulting occupancy best explains the observation when frame-diff
+detection is stuck (structurally covers captures, castling, en passant), and
+(b) periodically check whether the believed state and the board still match.
 
-Läuft komplett über die Serving-Facade (`chesslab.serving`) — hier entsteht KEINE eigene
-Crop-/Preprocessing-Logik. torch bleibt unimportiert, bis wirklich beobachtet wird.
+Runs entirely through the serving facade (`chesslab.serving`) — no own crop/preprocessing
+logic is created here. torch stays unimported until actually observed.
 """
 
 from __future__ import annotations
@@ -28,32 +28,32 @@ _ALL = [f"{f}{r}" for r in range(1, 9) for f in _FILES]
 
 @dataclass(frozen=True)
 class OccupancyObservation:
-    """CNN-Sicht auf das Brett. Trägt Occupancy (p_besetzt/leer/verdeckt) UND — soweit
-    verfügbar — die volle Figuren-Identität je Feld (`label` = vorhergesagte Klasse,
-    `conf` = Top-Klassen-Konfidenz). Occupancy ist aus der Identität abgeleitet; die
-    Identität erlaubt es, Schläge/Umwandlungen/„welche Figur zog" zu unterscheiden und
-    Schatten (Identität unverändert) zuverlässig von echten Zügen zu trennen."""
+    """CNN view of the board. Carries occupancy (p_occupied/empty/occluded) AND — when
+    available — the full piece identity per square (`label` = predicted class,
+    `conf` = top-class confidence). Occupancy is derived from identity; identity
+    makes it possible to distinguish captures/promotions/"which piece moved" and to
+    reliably separate shadows (identity unchanged) from real moves."""
 
     p_occ: dict[str, float]
     p_empty: dict[str, float]
     p_occluded: dict[str, float]
-    label: dict[str, str] | None = None       # vorhergesagte Klasse je Feld (z.B. 'wP','bK','empty')
-    conf: dict[str, float] | None = None       # Konfidenz der Top-Klasse je Feld
+    label: dict[str, str] | None = None       # predicted class per square (e.g. 'wP','bK','empty')
+    conf: dict[str, float] | None = None       # top-class confidence per square
 
     def occupied(self, sq: str) -> bool:
         return self.p_occ[sq] > self.p_empty[sq]
 
     def confident(self, thr: float) -> dict[str, bool]:
-        """Felder, deren Occupancy-Aussage belastbar ist. WICHTIG: occluded-dominante Felder
-        sind NIE confident und zählen NIE als besetzt — eine Hand über dem Brett darf weder
-        Recovery auslösen noch Felder „besetzen"."""
+        """Squares whose occupancy statement is reliable. IMPORTANT: occluded-dominant squares
+        are NEVER confident and NEVER count as occupied — a hand over the board must neither
+        trigger recovery nor "occupy" squares."""
         return {sq: (max(self.p_occ[sq], self.p_empty[sq]) >= thr
                      and self.p_occluded[sq] < (1.0 - thr))
                 for sq in self.p_occ}
 
     def label_confident(self, thr: float) -> dict[str, bool]:
-        """Felder, deren IDENTITÄTS-Aussage belastbar ist: Top-Konfidenz ≥ thr und nicht
-        `occluded` (Hand/Verdeckung). Leer, wenn der Run keine Identität liefert."""
+        """Squares whose IDENTITY statement is reliable: top confidence ≥ thr and not
+        `occluded` (hand/covering). Empty when the run provides no identity."""
         if self.label is None or self.conf is None:
             return dict.fromkeys(self.p_occ, False)
         return {sq: (self.conf[sq] >= thr and self.label[sq] != "occluded")
@@ -62,8 +62,8 @@ class OccupancyObservation:
 
 def observation_from_probs(per_square_probs: dict[str, list[float]],
                            classes: list[str]) -> OccupancyObservation:
-    """Voller Softmax je Feld → Occupancy + Identität. Klassenindizes IMMER aus der
-    `classes`-Liste der Run-config ableiten (13- und 14-Klassen-Runs, nie Positionen raten)."""
+    """Full softmax per square → occupancy + identity. Class indices ALWAYS derived from the
+    `classes` list of the run config (13- and 14-class runs, never guess positions)."""
     i_empty = classes.index("empty")
     i_occl = classes.index("occluded") if "occluded" in classes else None
     p_occ: dict[str, float] = {}
@@ -76,8 +76,8 @@ def observation_from_probs(per_square_probs: dict[str, list[float]],
         po = float(probs[i_occl]) if i_occl is not None else 0.0
         p_empty[sq] = pe
         p_occluded[sq] = po
-        p_occ[sq] = max(0.0, 1.0 - pe - po)     # Summe der 12 Figurenklassen
-        top = max(range(len(probs)), key=lambda i: probs[i])   # Identität = argmax-Klasse
+        p_occ[sq] = max(0.0, 1.0 - pe - po)     # sum of the 12 piece classes
+        top = max(range(len(probs)), key=lambda i: probs[i])   # identity = argmax class
         label[sq] = classes[top]
         conf[sq] = float(probs[top])
     return OccupancyObservation(p_occ=p_occ, p_empty=p_empty, p_occluded=p_occluded,
@@ -85,8 +85,8 @@ def observation_from_probs(per_square_probs: dict[str, list[float]],
 
 
 def _move_touched_squares(board: chess.Board, move: chess.Move) -> set[str]:
-    """Felder, die ein Zug physisch verändert: from, to, + Turm bei Rochade, + geschlagener
-    Bauer bei en passant. (Spiegelt tracker.move_touched_squares, ohne Zirkularimport.)"""
+    """Squares physically changed by a move: from, to, + rook on castling, + captured
+    pawn on en passant. (Mirrors tracker.move_touched_squares, without circular import.)"""
     sqs = {chess.square_name(move.from_square), chess.square_name(move.to_square)}
     if board.is_castling(move):
         rank = chess.square_rank(move.from_square)
@@ -101,13 +101,13 @@ def _move_touched_squares(board: chess.Board, move: chess.Move) -> set[str]:
 
 
 def expected_occupancy(board: chess.Board) -> dict[str, bool]:
-    """Occupancy je Feld, wie sie laut Spielzustand sein müsste."""
+    """Occupancy per square as expected from the game state."""
     return {sq: board.piece_at(chess.parse_square(sq)) is not None for sq in _ALL}
 
 
 def expected_labels(board: chess.Board) -> dict[str, str]:
-    """Erwartete Figuren-Klasse je Feld laut Spielzustand ('wP','bK','empty', …) im
-    Modell-Vokabular (nutzt `config.label_from_piece`)."""
+    """Expected piece class per square according to the game state ('wP','bK','empty', …) in
+    model vocabulary (uses `config.label_from_piece`)."""
     out: dict[str, str] = {}
     for sq in _ALL:
         piece = board.piece_at(chess.parse_square(sq))
@@ -116,10 +116,10 @@ def expected_labels(board: chess.Board) -> dict[str, str]:
 
 
 class CnnRecovery:
-    """Beobachtet das Brett per CNN (Occupancy) und schlägt Züge bzw. Konflikte vor.
+    """Observes the board via CNN (occupancy) and suggests moves or conflicts.
 
-    `observe` ist der teure Schritt (~100–300 ms CPU) und darf NIE unter dem Tracker-Lock
-    laufen. `score_moves`/`resync_check` sind pure Auswertungen auf der Beobachtung.
+    `observe` is the expensive step (~100–300 ms CPU) and must NEVER run under the tracker lock.
+    `score_moves`/`resync_check` are pure evaluations on the observation.
     """
 
     def __init__(self, run_dir: Path, profile, device: str = "cpu",
@@ -130,24 +130,24 @@ class CnnRecovery:
         self.profile = profile
         self.device = device
         self.conf_thr = conf_thr
-        self.min_agreement = min_agreement       # bester Zug muss so viel der confident-Felder erklären
-        # Margin in FELDERN, nicht als Anteil: ein Schlag unterscheidet sich vom Nicht-Schlag
-        # auf Occupancy-Ebene um genau EIN Feld (nur das from-Feld leert sich; das Zielfeld war
-        # schon besetzt) — ein Bruchteil-Margin würde Schläge fälschlich als mehrdeutig verwerfen.
-        # margin_squares=1: strikt besser reicht; 0 Felder Unterschied (Promotion-Varianten) ⇒ None.
+        self.min_agreement = min_agreement       # best move must explain this many confident squares
+        # Margin in SQUARES, not a fraction: a capture differs from a non-capture
+        # at the occupancy level by exactly ONE square (only the from-square empties; the target
+        # was already occupied) — a fractional margin would falsely discard captures as ambiguous.
+        # margin_squares=1: strictly better is enough; 0 squares difference (promotion variants) ⇒ None.
         self.margin_squares = margin_squares
-        # min_confident GESPLITTET (Spec 10, Teil 6): der Whole-Board-Match darf die Referenz
-        # nur bei viel freier Sicht nachziehen (sonst Re-Anchor gegen ein verdecktes Brett);
-        # die Recovery dagegen muss gerade bei Teilverdeckung handlungsfähig bleiben.
+        # min_confident SPLIT (Spec 10, part 6): the whole-board match may only update the reference
+        # with plenty of clear sight (otherwise re-anchor against a covered board);
+        # the recovery, on the other hand, must remain operable even under partial occlusion.
         self.min_confident_board = min_confident_board
         self.min_confident_recovery = min_confident_recovery
-        self._classes: list[str] | None = None   # lazy aus run_spec (einmal, nicht je observe)
+        self._classes: list[str] | None = None   # lazy from run_spec (once, not per observe)
         if not (self.run_dir / "config.json").exists():
-            raise FileNotFoundError(f"Modell-Run nicht gefunden: {self.run_dir}")
+            raise FileNotFoundError(f"Model run not found: {self.run_dir}")
 
-    # -- Beobachtung (torch, teuer — nie unter Lock) --
+    # -- Observation (torch, expensive — never under lock) --
     def observe(self, frame, corners) -> OccupancyObservation:
-        from .. import serving  # lazy: torch bleibt aus, solange nicht beobachtet wird
+        from .. import serving  # lazy: torch stays out as long as not observed
 
         preds = serving.predict_frame(self.run_dir, frame, corners, self.profile,
                                       device=self.device, return_probs=True)
@@ -155,12 +155,12 @@ class CnnRecovery:
             self._classes = serving.run_spec(self.run_dir).classes
         return observation_from_probs({p["square"]: p["probs"] for p in preds}, self._classes)
 
-    # -- Pure Auswertung --
+    # -- Pure evaluation --
     def score_moves(self, board: chess.Board,
                     obs: OccupancyObservation) -> tuple[chess.Move | None, float, float]:
-        """Für jeden legalen Zug: Board-Kopie pushen → erwartete Occupancy → Übereinstimmung
-        mit der Beobachtung über die confident-Felder. (None, best, second) wenn nichts
-        eindeutig genug ist (min_agreement / margin / zu wenige confident-Felder)."""
+        """For each legal move: push board copy → expected occupancy → agreement
+        with the observation over the confident squares. (None, best, second) when nothing
+        is clear enough (min_agreement / margin / too few confident squares)."""
         conf = obs.confident(self.conf_thr)
         conf_squares = [sq for sq, ok in conf.items() if ok]
         n = len(conf_squares)
@@ -180,43 +180,43 @@ class CnnRecovery:
         second = second_hits / n if second_hits >= 0 else 0.0
         if best_mv is None or best < self.min_agreement \
            or (best_hits - second_hits) < self.margin_squares:
-            # margin in Feldern: Promotion-Varianten (e7e8q vs. e7e8r) sind occupancy-identisch
-            # (0 Felder Unterschied) → bewusst None (Nutzer-Hinweis statt Raten).
+            # margin in squares: promotion variants (e7e8q vs. e7e8r) are occupancy-identical
+            # (0 squares difference) → intentionally None (user hint instead of guessing).
             return None, best, second
         return best_mv, best, second
 
     def verify_move(self, board: chess.Board, move: chess.Move,
                     obs: OccupancyObservation) -> tuple[float, int]:
-        """Pre-Commit-Check eines konkreten Kandidatenzugs — LOKAL statt Ganzbrett:
-        Es zählt nur die Occupancy der Felder, die der Zug physisch verändert (from wird leer,
-        to wird besetzt; + Turm bei Rochade, + geschlagener Bauer bei en passant). Das ist genau
-        die Definition eines Zuges und robust gegen Schatten/Verdeckung auf dem restlichen Brett.
+        """Pre-commit check of a concrete candidate move — LOCAL instead of whole-board:
+        Only the occupancy of squares physically changed by the move counts (from becomes empty,
+        to becomes occupied; + rook on castling, + captured pawn on en passant). This is exactly
+        the definition of a move and is robust against shadows/occlusion on the rest of the board.
 
-        Rückgabe (agreement, n): Anteil der berührten & belastbaren Felder, deren beobachtete
-        Occupancy zur Stellung NACH dem Zug passt. Beide Endpunkte müssen belastbar (confident)
-        sein — ist z.B. das Zielfeld noch von einer Hand verdeckt, gilt der Zug (noch) als
-        unbestätigt (agreement 0.0), und die Mehr-Frame-Prüfung wartet auf einen freien Blick."""
+        Returns (agreement, n): fraction of touched & confident squares whose observed
+        occupancy matches the position AFTER the move. Both endpoints must be confident —
+        if, e.g., the target square is still covered by a hand, the move is (still) considered
+        unconfirmed (agreement 0.0), and the multi-frame check waits for a clear view."""
         conf = obs.confident(self.conf_thr)
         touched = _move_touched_squares(board, move)
         b2 = board.copy(stack=False)
         b2.push(move)
         checked = [sq for sq in touched if conf.get(sq)]
-        if len(checked) < 2:                      # mind. Start- UND Zielfeld müssen belastbar sein
+        if len(checked) < 2:                      # at least FROM and TO squares must be reliable
             return 0.0, len(checked)
         hits = sum(1 for sq in checked
                    if obs.occupied(sq) == (b2.piece_at(chess.parse_square(sq)) is not None))
         return hits / len(checked), len(checked)
 
-    # -- Identitäts-basierte Auswertung (nutzt pro-Feld pred_label, nicht nur besetzt/leer) --
+    # -- Identity-based evaluation (uses per-square pred_label, not just occupied/empty) --
     @staticmethod
     def _label_at(board: chess.Board, sq: str) -> str:
         piece = board.piece_at(chess.parse_square(sq))
         return config.label_from_piece(piece.symbol() if piece else None)
 
     def board_matches_identity(self, board: chess.Board, obs: OccupancyObservation) -> dict:
-        """Liegen laut CNN auf allen belastbaren Feldern DIESELBEN Figuren wie geglaubt?
-        Der zuverlässige „kein Zug / Schatten"-Detektor: ein Schatten ändert keine Identität.
-        {match, conflicts, n, inconclusive}. Zu wenige belastbare Felder → inconclusive."""
+        """Does the CNN see the SAME pieces on all confident squares as believed?
+        The reliable "no move / shadow" detector: a shadow changes no identity.
+        {match, conflicts, n, inconclusive}. Too few confident squares → inconclusive."""
         lc = obs.label_confident(self.conf_thr)
         exp = expected_labels(board)
         checked = [sq for sq in _ALL if lc.get(sq)]
@@ -228,14 +228,14 @@ class CnnRecovery:
 
     def derive_moves_identity(self, board: chess.Board, obs: OccupancyObservation,
                               max_plies: int = 1) -> tuple[list[chess.Move], float, float]:
-        """Die legale ZUGFOLGE (1 oder — bei max_plies=2 — 2 Halbzüge) wählen, deren
-        Ergebnis-Identitäten am besten zur CNN-Beobachtung passen. Einzelzüge werden bevorzugt;
-        Zugpaare retten den Fall „Antwortzug kam vor dem Commit" (Blitz). Die Reihenfolge im
-        Paar ist durch side-to-move fixiert (erst die Seite am Zug, dann die Antwort) —
-        keine Order-Ambiguität. ~35×35 ≈ 1200 Paar-Kandidaten sind reine Auswertung, unkritisch.
+        """Choose the legal move SEQUENCE (1 or — with max_plies=2 — 2 half-moves) whose
+        resulting identities best match the CNN observation. Single moves are preferred;
+        move pairs rescue the case "reply came before commit" (blitz). The order in a
+        pair is fixed by side-to-move (first the side to move, then the reply) —
+        no order ambiguity. ~35×35 ≈ 1200 pair candidates are pure evaluation, not critical.
 
-        Rückgabe ([], best, second) wenn nichts eindeutig genug ist (min_agreement /
-        margin_squares / zu wenige belastbare Felder)."""
+        Returns ([], best, second) when nothing is clear enough (min_agreement /
+        margin_squares / too few confident squares)."""
         lc = obs.label_confident(self.conf_thr)
         conf_squares = [sq for sq, ok in lc.items() if ok]
         n = len(conf_squares)
@@ -275,8 +275,8 @@ class CnnRecovery:
                     pairs.append(([mv1, mv2], b3))
             pseq, p_hits, p_second = _pick(pairs)
             p_best = p_hits / n if p_hits >= 0 else 0.0
-            # Das Paar muss eindeutig sein: Margin gegen das zweitbeste Paar UND gegen den
-            # besten Einzelzug (sonst wäre der Einzelzug die sparsamere Erklärung).
+            # The pair must be unambiguous: margin against the second-best pair AND against the
+            # best single move (otherwise the single move would be the more parsimonious explanation).
             if pseq and p_best >= self.min_agreement \
                and (p_hits - max(p_second, best_hits)) >= self.margin_squares:
                 return pseq, p_best, max(p_second, best_hits) / n
@@ -284,17 +284,17 @@ class CnnRecovery:
 
     def derive_move_identity(self, board: chess.Board,
                              obs: OccupancyObservation) -> tuple[chess.Move | None, float, float]:
-        """1-Ply-Wrapper um `derive_moves_identity` (Pre-Commit-Verify braucht genau einen Zug).
-        Löst Schlag (Zielfeld-Identität), „welche Figur" und Umwandlung (Promo-Figur aus dem
-        Zielfeld-Label). (None, best, second) wenn nicht eindeutig genug."""
+        """1-ply wrapper around `derive_moves_identity` (pre-commit verify needs exactly one move).
+        Resolves capture (target identity), "which piece" and promotion (promo piece from the
+        target label). (None, best, second) when not clear enough."""
         seq, best, second = self.derive_moves_identity(board, obs, max_plies=1)
         return (seq[0] if seq else None), best, second
 
     def verify_move_identity(self, board: chess.Board, move: chess.Move,
                              obs: OccupancyObservation) -> tuple[float, int]:
-        """Pre-Commit-Check eines Kandidatenzugs über die IDENTITÄT der berührten Felder
-        (from wird geräumt/leer, to trägt die erwartete Figur; + Turm/en-passant). Beide
-        Endpunkte müssen belastbar sein, sonst (noch) unbestätigt (0.0)."""
+        """Pre-commit check of a candidate move via the IDENTITY of the touched squares
+        (from is vacated/empty, to carries the expected piece; + rook/en-passant). Both
+        endpoints must be confident, otherwise (still) unconfirmed (0.0)."""
         lc = obs.label_confident(self.conf_thr)
         touched = _move_touched_squares(board, move)
         b2 = board.copy(stack=False)
@@ -306,10 +306,10 @@ class CnnRecovery:
         return hits / len(checked), len(checked)
 
     def resync_check(self, board: chess.Board, obs: OccupancyObservation) -> dict:
-        """Geglaubte vs. beobachtete Occupancy diffen (nur confident-Felder).
+        """Diff believed vs. observed occupancy (confident squares only).
 
-        {"match": bool, "conflicts": [felder], "move": uci|None, "agreement": float}
-        — `move` nur, wenn genau ein legaler Zug die Beobachtung hinreichend erklärt."""
+        {"match": bool, "conflicts": [squares], "move": uci|None, "agreement": float}
+        — `move` only if exactly one legal move sufficiently explains the observation."""
         conf = obs.confident(self.conf_thr)
         believed = expected_occupancy(board)
         conflicts = [sq for sq in _ALL if conf.get(sq) and obs.occupied(sq) != believed[sq]]

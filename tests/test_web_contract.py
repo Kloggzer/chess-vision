@@ -1,17 +1,17 @@
-"""API-Contract-Freeze: Das React-Frontend (und move_tracker-Doku) hängen an genau diesen
-Routen. Der Test friert das Inventar als Literal ein — jede entfernte oder umbenannte Route
-schlägt hier fehl (Wächter für den Router-Split, Rework 05). Neue Routen sind erlaubt
+"""API contract freeze: The React frontend (and move_tracker docs) depend on exactly these
+routes. The test freezes the inventory as a literal — any removed or renamed route
+fails here (sentinel for the router split, Rework 05). New routes are allowed
 (Obermenge), fehlende nicht.
 
-Aufgenommen am 2026-07-03 nach dem Scan-Pipeline-Cleanup (Turntable/Reconstruct/Crop entfernt).
+Recorded on 2026-07-03 after the scan pipeline cleanup (Turntable/Reconstruct/Crop removed).
 """
 
 import pytest
 
 pytest.importorskip("fastapi")
 
-# (Methode, Pfad) — eingefroren. NIEMALS Einträge löschen, um den Test grün zu machen;
-# eine fehlende Route ist ein echter Frontend-Bruch.
+# (Methode, Pfad) — eingefroren. NEVER delete entries to make the test pass;
+# a missing route is a real frontend break.
 EXPECTED_API_ROUTES = {
     ("DELETE", "/api/datasets/{name}"),
     ("DELETE", "/api/runs/{run}"),
@@ -65,7 +65,7 @@ def _current_routes() -> set[tuple[str, str]]:
 
 
 def test_no_api_route_lost():
-    """Jede eingefrorene Route existiert weiter (Umbenennung/Verlust = Frontend-Bruch)."""
+    """Every frozen route still exists (rename/loss = frontend break)."""
     current = _current_routes()
     missing = EXPECTED_API_ROUTES - current
     assert not missing, f"API-Routen verloren/umbenannt: {sorted(missing)}"
@@ -77,7 +77,7 @@ def test_new_routes_are_intentional():
     current = _current_routes()
     extra = current - EXPECTED_API_ROUTES
     if extra:
-        print(f"[WARN] neue API-Routen (Inventar in test_web_contract.py ergänzen): {sorted(extra)}")
+        print(f"[WARN] new API routes (update inventory in test_web_contract.py): {sorted(extra)}")
 
 
 def test_spa_catch_all_last():
@@ -90,6 +90,6 @@ def test_spa_catch_all_last():
     client = TestClient(create_app())
     r = client.get("/api/nope-does-not-exist")
     assert r.status_code == 404
-    r = client.get("/datensaetze")   # Client route -> index.html (SPA)
+    r = client.get("/datasets")   # Client route -> index.html (SPA)
     assert r.status_code == 200
     assert "html" in r.headers.get("content-type", "")

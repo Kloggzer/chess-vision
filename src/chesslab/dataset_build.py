@@ -1,19 +1,19 @@
-"""Stufe 4 — benannte, kuratierte Datensätze.
+"""Stage 4 — named, curated datasets.
 
-Ein **Datensatz** ist eine Sicht auf den globalen Crop-Pool (`data/manifests/squares.jsonl`):
-eine Auswahl von Sessions + Dedup- und Split-Policy. Bauen erzeugt unter
-`data/datasets/<name>/` ein gefiltertes, dedupliziertes `manifest.jsonl`, einen
-sessionbasierten `split.json` und `stats.json`. Crops für rot=0 referenzieren den globalen
-Pool (kein Kopieren); nur rotations-augmentierte Crops werden im Datensatz-Ordner materialisiert.
+A **dataset** is a view on the global crop pool (`data/manifests/squares.jsonl`):
+a selection of sessions + dedup and split policy. Building creates under
+`data/datasets/<name>/` a filtered, deduplicated `manifest.jsonl`, a
+session-based `split.json` and `stats.json`. Crops for rot=0 reference the global
+pool (no copying); only rotation-augmented crops are materialized in the dataset folder.
 
-Dedup gegen den Aufnahme-bedingten Überschuss fast identischer Crops (nie bewegte Figuren bei
-fixer Kamera):
-  1. Metadaten-Cap pro `(session_id, square, label)` — schnell, deterministisch.
-  2. Perceptual-Hash (dhash) — verwirft visuell fast gleiche innerhalb einer Klasse.
+Dedup against the recording-induced surplus of nearly identical crops (never-moved pieces on
+fixed camera):
+  1. Metadata cap per `(session_id, square, label)` — fast, deterministic.
+  2. Perceptual hash (dhash) — discards visually near-duplicates within a class.
 
-Rotations-Augmentation (90/180/270°) ist optional und bewusst NACH dem Dedup (4x die
-*kuratierten* Crops). Sie widerspricht der Fixkamera-Annahme (CLAUDE.md) und ist als Toggle
-gedacht. Headless testbar: alle Funktionen nehmen `paths=config.DATA`.
+Rotation augmentation (90/180/270°) is optional and deliberately AFTER dedup (4x the
+*curated* crops). It contradicts the fixed-camera assumption (CLAUDE.md) and is a toggle.
+Testable headless: all functions take `paths=config.DATA`.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ _ROT_CODES = {90: 0, 180: 1, 270: 2}  # cv2.ROTATE_90_CLOCKWISE / 180 / 90_COUNT
 def _safe_name(name: str) -> str:
     n = (name or "").strip()
     if not n or "/" in n or "\\" in n or ".." in n:
-        raise ValueError(f"ungültiger Datensatz-Name: {name!r}")
+        raise ValueError(f"invalid dataset name: {name!r}")
     return n
 
 
@@ -179,10 +179,10 @@ def build_dataset(
     rows = [r for r in manifest if r["session_id"] in wanted]
     n_raw = len(rows)
     if not rows:
-        raise ValueError("keine Crops für die gewählten Sessions (erst slicen?).")
-
-    # Split-Zuteilung auf den ROHEN, VOLLSTÄNDIGEN Daten bestimmen (vollständige 64er-Boards). Dedup +
-    # Rotation danach NUR auf Train — Val/Test bleiben komplett (genau 64 Crops/Frame, rot 0), sonst
+        raise ValueError("no crops for the selected sessions (slice first?).")
+    # Determine split assignment on the RAW, COMPLETE data (full 64-square boards). Dedup +
+    # rotation afterwards ONLY on train — val/test remain complete (exactly 64 crops/frame, rot 0), otherwise
+    # board_accuracy would compute on incomplete/duplicated boards (bug).
     # rechnet board_accuracy auf unvollständigen/duplizierten Boards (Bug).
     sizes = Counter(r["session_id"] for r in rows)
     splits = dataset_mod.assign_sessions_to_splits(dict(sizes), val_frac, test_frac, seed,
@@ -198,7 +198,7 @@ def build_dataset(
 
     ds = paths.datasets / name
     if ds.exists():
-        shutil.rmtree(ds)                       # sauberer Rebuild (alte Rotationen weg)
+        shutil.rmtree(ds)                       # clean rebuild (old rotations gone)
     ds.mkdir(parents=True, exist_ok=True)
     train_rows = _apply_rotations(train_rows, rotations, ds / "squares")   # Rotation NUR auf Train
     rows = train_rows + holdout
@@ -212,9 +212,9 @@ def build_dataset(
     errors, _warnings = dataset_mod.validate_split(split, rows)
     if errors:
         if not allow_degenerate:
-            shutil.rmtree(ds, ignore_errors=True)   # kein halbfertiger Zombie-Datensatz
+            shutil.rmtree(ds, ignore_errors=True)   # no half-finished zombie dataset
             raise ValueError("\n".join(errors))
-        split["degenerate_errors"] = errors          # bewusst zugelassen -> im Split dokumentieren
+        split["degenerate_errors"] = errors          # intentionally allowed -> document in split
     (ds / "split.json").write_text(json.dumps(split, ensure_ascii=False, indent=2), encoding="utf-8")
     stats = dataset_mod.compute_stats(rows)
     (ds / "stats.json").write_text(json.dumps(stats, ensure_ascii=False), encoding="utf-8")
@@ -274,7 +274,7 @@ def list_datasets(paths: config.Paths | None = None) -> list[dict]:
 def get_dataset(name: str, paths: config.Paths | None = None) -> dict:
     d = dataset_dir(name, paths)
     if not (d / "dataset.yaml").exists():
-        raise FileNotFoundError(f"Datensatz '{name}' nicht gefunden.")
+        raise FileNotFoundError(f"dataset '{name}' not found.")
     cfg = _read_yaml(d / "dataset.yaml")
     stats = json.loads((d / "stats.json").read_text(encoding="utf-8")) if (d / "stats.json").exists() else {}
     split = json.loads((d / "split.json").read_text(encoding="utf-8")) if (d / "split.json").exists() else {}
@@ -285,6 +285,6 @@ def get_dataset(name: str, paths: config.Paths | None = None) -> dict:
 def delete_dataset(name: str, paths: config.Paths | None = None) -> dict:
     d = dataset_dir(name, paths)
     if not d.exists():
-        raise FileNotFoundError(f"Datensatz '{name}' nicht gefunden.")
+        raise FileNotFoundError(f"dataset '{name}' not found.")
     shutil.rmtree(d)
     return {"name": _safe_name(name), "deleted": True}

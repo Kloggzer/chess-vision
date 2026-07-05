@@ -22,19 +22,19 @@ app = typer.Typer(
     add_completion=False,
 )
 
-calibrate_app = typer.Typer(help="Stufe 1 — Kamera/Brett-Geometrie kalibrieren.", no_args_is_help=True)
+calibrate_app = typer.Typer(help="Stage 1 — Calibrate camera/board geometry.", no_args_is_help=True)
 app.add_typer(calibrate_app, name="calibrate")
 
-collect_app = typer.Typer(help="Stufe 3 — Stellungen aufnehmen (Rohframe + FEN ins Session-Log).", no_args_is_help=True)
+collect_app = typer.Typer(help="Stage 3 — Capture positions (raw frame + FEN into session log).", no_args_is_help=True)
 app.add_typer(collect_app, name="collect")
 
-dataset_app = typer.Typer(help="Stufe 4 — Datensatz-Konsistenz.", no_args_is_help=True)
+dataset_app = typer.Typer(help="Stage 4 — Dataset consistency.", no_args_is_help=True)
 app.add_typer(dataset_app, name="dataset")
 
-experiment_app = typer.Typer(help="Stufe 7 — Geometrie×Photometrie Bake-Off.", no_args_is_help=True)
+experiment_app = typer.Typer(help="Stage 7 — Geometry×Photometry bake-off.", no_args_is_help=True)
 app.add_typer(experiment_app, name="experiment")
 
-synth_app = typer.Typer(help="Synthetische Daten-Pipeline (Blender-Renderer).", no_args_is_help=True)
+synth_app = typer.Typer(help="Synthetic data pipeline (Blender renderer).", no_args_is_help=True)
 app.add_typer(synth_app, name="synth")
 
 
@@ -45,40 +45,40 @@ def _root() -> None:
 
 @app.command()
 def doctor(
-    gpu: bool = typer.Option(False, "--gpu", help="Zusätzlich die ROCm/PyTorch-GPU-Validierung (Pflicht vor Training)."),
-    camera: int | None = typer.Option(None, "--camera", help="Kamera-Check für Index N (öffnen + ein Frame lesen)."),
-    json_out: bool = typer.Option(False, "--json", help="Maschinenlesbaren JSON-Report zusätzlich ausgeben."),
+    gpu: bool = typer.Option(False, "--gpu", help="Also run ROCm/PyTorch GPU validation (required before training)."),
+    camera: int | None = typer.Option(None, "--camera", help="Camera check for index N (open + read one frame)."),
+    json_out: bool = typer.Option(False, "--json", help="Also output machine-readable JSON report."),
 ) -> None:
-    """Pre-flight: Python, App-Deps, optional GPU (ROCm) und Kamera validieren."""
+    """Pre-flight: validate Python, app deps, optional GPU (ROCm) and camera."""
     code = doctor_mod.run(gpu=gpu, camera=camera, json_out=json_out)
     raise typer.Exit(code)
 
 
 @calibrate_app.command("check")
 def calibrate_check(
-    profile: str = typer.Option(config.DEFAULT_PROFILE, "--profile", help="Profilname."),
-    camera: int = typer.Option(0, "--camera", help="Kamera-Index."),
+    profile: str = typer.Option(config.DEFAULT_PROFILE, "--profile", help="Profile name."),
+    camera: int = typer.Option(0, "--camera", help="Camera index."),
 ) -> None:
-    """Live-Overlay des 8x8-Rasters auf das Kamerabild zur Sichtkontrolle."""
+    """Live overlay of the 8×8 grid on the camera image for visual inspection."""
     raise typer.Exit(calibration_mod.calibrate_check(camera=camera, profile=profile))
 
 
 @calibrate_app.command("list")
 def calibrate_list() -> None:
-    """Vorhandene Kalibrierungsprofile anzeigen."""
+    """List existing calibration profiles."""
     raise typer.Exit(calibration_mod.calibrate_list())
 
 
 @calibrate_app.command("markers")
 def calibrate_markers(
-    out: str = typer.Option("data/calibration/markers.png", "--out", help="Ziel-PNG des Marker-Blatts."),
+    out: str = typer.Option("data/calibration/markers.png", "--out", help="Target PNG of the marker sheet."),
     dict_name: str = typer.Option("DICT_4X4_50", "--dict", help="ArUco-Dictionary."),
     marker_px: int = typer.Option(300, "--marker-px"),
 ) -> None:
-    """Druckbares ArUco-Marker-Blatt erzeugen (an a8/h8/h1/a1 kleben)."""
+    """Generate printable ArUco marker sheet (glue onto a8/h8/h1/a1)."""
     p = calibration_mod.generate_markers(out, dict_name=dict_name, marker_px=marker_px)
-    print(f"[OK] Marker-Blatt: {p} — ausdrucken, ausschneiden, je einen Marker mittig auf die "
-          "Ecken a8/h8/h1/a1 kleben. Dann `chesslab calibrate auto`.")
+    print(f"[OK] Marker sheet: {p} — print out, cut out, glue one marker centered on each "
+          "corner a8/h8/h1/a1. Then run `chesslab calibrate auto`.")
 
 
 @calibrate_app.command("auto")
@@ -87,11 +87,11 @@ def calibrate_auto(
     profile: str = typer.Option(config.DEFAULT_PROFILE, "--profile"),
     board_size: int = typer.Option(config.DEFAULT_BOARD_SIZE, "--board-size"),
     dict_name: str = typer.Option("DICT_4X4_50", "--dict"),
-    margin: float = typer.Option(0.06, "--margin", help="Anteil, um den die Marker AUSSERHALB des Spielfelds sitzen (im --preview live mit w/e justieren)."),
-    min_markers: int = typer.Option(4, "--min-markers", help="Pflicht-Marker (4 = robust; 2/3 nur bei top-down Kamera sinnvoll)."),
-    preview: bool = typer.Option(False, "--preview", help="Marker-Box + Spielfeld-Box live zeigen (w/e justieren, s=save)."),
+    margin: float = typer.Option(0.06, "--margin", help="Fraction by which markers sit OUTSIDE the board (adjust live in --preview with w/e)."),
+    min_markers: int = typer.Option(4, "--min-markers", help="Required markers (4 = robust; 2/3 only useful with top-down camera)."),
+    preview: bool = typer.Option(False, "--preview", help="Show marker box + board box live (adjust with w/e, s=save)."),
 ) -> None:
-    """Automatisch über ArUco-Marker kalibrieren (Marker außen, Spielfeld eingerückt; kein Klicken)."""
+    """Auto-calibrate via ArUco markers (markers outside, board inset; no clicking)."""
     raise typer.Exit(calibration_mod.calibrate_auto(camera=camera, profile=profile, board_size=board_size,
                                                     dict_name=dict_name, margin=margin, preview=preview,
                                                     min_markers=min_markers))
@@ -99,29 +99,29 @@ def calibrate_auto(
 
 @collect_app.command("pgn")
 def collect_pgn(
-    pgn: str = typer.Option(..., "--pgn", help="PGN-Datei."),
+    pgn: str = typer.Option(..., "--pgn", help="PGN file."),
     profile: str = typer.Option(config.DEFAULT_PROFILE, "--profile"),
     camera: int = typer.Option(0, "--camera"),
-    every: int = typer.Option(1, "--every", help="nur jeden N-ten Halbzug aufnehmen."),
-    session: str = typer.Option(None, "--session", help="Session-ID (Default: Timestamp)."),
-    ui: bool = typer.Option(False, "--ui", help="Live-Dashboard (Stufe 6) anzeigen."),
-    target: int = typer.Option(config.UI_TARGET_PER_CLASS, "--target", help="Ziel-Samples je Klasse (UI)."),
+    every: int = typer.Option(1, "--every", help="Only capture every Nth half-move."),
+    session: str = typer.Option(None, "--session", help="Session ID (default: timestamp)."),
+    ui: bool = typer.Option(False, "--ui", help="Show live dashboard (Stage 6)."),
+    target: int = typer.Option(config.UI_TARGET_PER_CLASS, "--target", help="Target samples per class (UI)."),
 ) -> None:
-    """PGN-Replay: Partie physisch nachstellen, nach jedem Halbzug aufnehmen."""
+    """PGN replay: physically replay a game, capture after each half-move."""
     raise typer.Exit(collect_mod.collect_pgn(pgn=pgn, profile=profile, camera=camera, every=every,
                                              session=session, ui=ui, target=target))
 
 
 @collect_app.command("live")
 def collect_live(
-    start_fen: str = typer.Option(None, "--start-fen", help="Startstellung als FEN (sonst Grundstellung)."),
+    start_fen: str = typer.Option(None, "--start-fen", help="Starting position as FEN (otherwise initial position)."),
     profile: str = typer.Option(config.DEFAULT_PROFILE, "--profile"),
     camera: int = typer.Option(0, "--camera"),
     session: str = typer.Option(None, "--session"),
-    ui: bool = typer.Option(False, "--ui", help="Live-Dashboard (Stufe 6) anzeigen."),
-    target: int = typer.Option(config.UI_TARGET_PER_CLASS, "--target", help="Ziel-Samples je Klasse (UI)."),
+    ui: bool = typer.Option(False, "--ui", help="Show live dashboard (Stage 6)."),
+    target: int = typer.Option(config.UI_TARGET_PER_CLASS, "--target", help="Target samples per class (UI)."),
 ) -> None:
-    """Freies Spiel: Zug eintippen (SAN/UCI), dann aufnehmen."""
+    """Free play: type move (SAN/UCI), then capture."""
     raise typer.Exit(collect_mod.collect_live(start_fen=start_fen, profile=profile, camera=camera,
                                               session=session, ui=ui, target=target))
 
@@ -129,25 +129,25 @@ def collect_live(
 @collect_app.command("play")
 def collect_play(
     strategy: str = typer.Option("random", "--strategy", help="random | stockfish | coverage | sweep"),
-    max_plies: int = typer.Option(40, "--max-plies", help="max. Halbzüge der generierten Partie (random/stockfish)."),
-    seed: int = typer.Option(config.SEED, "--seed", help="Seed für strategy=random."),
-    stockfish_path: str = typer.Option(None, "--stockfish-path", help="Pfad zum UCI-Binary (für stockfish)."),
-    start_fen: str = typer.Option(None, "--start-fen", help="Startstellung (sonst Grundstellung)."),
+    max_plies: int = typer.Option(40, "--max-plies", help="Max. half-moves of the generated game (random/stockfish)."),
+    seed: int = typer.Option(config.SEED, "--seed", help="Seed for strategy=random."),
+    stockfish_path: str = typer.Option(None, "--stockfish-path", help="Path to the UCI binary (for stockfish)."),
+    start_fen: str = typer.Option(None, "--start-fen", help="Starting position (otherwise initial position)."),
     profile: str = typer.Option(config.DEFAULT_PROFILE, "--profile"),
     camera: int = typer.Option(0, "--camera"),
     session: str = typer.Option(None, "--session"),
-    ui: bool = typer.Option(False, "--ui", help="Live-Dashboard (Stufe 6) anzeigen."),
+    ui: bool = typer.Option(False, "--ui", help="Show live dashboard (Stage 6)."),
     target: int = typer.Option(config.UI_TARGET_PER_CLASS, "--target"),
-    sets: int = typer.Option(1, "--sets", help="Anzahl physischer Figurensätze (coverage/sweep): ×N je Klasse."),
-    count: int = typer.Option(20, "--count", help="Anzahl dichter Aufbauten (nur strategy=coverage)."),
-    passes: int = typer.Option(1, "--passes", help="sweep: Wiederholungen je Farbe (je Pass 8 Fotos)."),
+    sets: int = typer.Option(1, "--sets", help="Number of physical piece sets (coverage/sweep): ×N per class."),
+    count: int = typer.Option(20, "--count", help="Number of dense setups (only strategy=coverage)."),
+    passes: int = typer.Option(1, "--passes", help="sweep: repetitions per color (per pass 8 photos)."),
     pieces: str = typer.Option("special", "--pieces", help="sweep: special | pawn | all."),
-    together: bool = typer.Option(False, "--together", help="sweep: beide Farben gleichzeitig (halbe Fotozahl)."),
-    offset: int = typer.Option(0, "--offset", help="sweep: Linien→Figur-Zuordnung verschieben (0..7)."),
-    auto_offset: bool = typer.Option(False, "--auto-offset", help="sweep: Offset automatisch (zyklisch über Sessions)."),
+    together: bool = typer.Option(False, "--together", help="sweep: both colors simultaneously (half the photo count)."),
+    offset: int = typer.Option(0, "--offset", help="sweep: shift rank→piece mapping (0..7)."),
+    auto_offset: bool = typer.Option(False, "--auto-offset", help="sweep: offset automatically (cycled across sessions)."),
 ) -> None:
-    """Engine spielt die Partie (random/stockfish), coverage: dichte Aufbauten gegen seltene Klassen,
-    oder sweep: Figurenreihe wandert systematisch übers Brett. Du stellst nach und fotografierst."""
+    """Engine plays the game (random/stockfish), coverage: dense setups targeting rare classes,
+    or sweep: piece row systematically moves across the board. You reposition and photograph."""
     raise typer.Exit(collect_mod.collect_play(strategy=strategy, max_plies=max_plies, seed=seed,
                                               stockfish_path=stockfish_path, start_fen=start_fen,
                                               profile=profile, camera=camera, session=session,
@@ -158,11 +158,11 @@ def collect_play(
 
 @app.command("ui")
 def ui_cmd(
-    sessions: str = typer.Option(None, "--sessions", help="Sessions-Verzeichnis (Default: data/sessions)."),
-    manifest: str = typer.Option(None, "--manifest", help="optionales Manifest (nur informativ)."),
+    sessions: str = typer.Option(None, "--sessions", help="Sessions directory (default: data/sessions)."),
+    manifest: str = typer.Option(None, "--manifest", help="Optional manifest (informational only)."),
     target: int = typer.Option(config.UI_TARGET_PER_CLASS, "--target"),
 ) -> None:
-    """Stufe 6 — Trainingsdaten-Dashboard standalone (ohne laufende Aufnahme)."""
+    """Stage 6 — Training data dashboard standalone (without active capture)."""
     from .collect_ui import run_ui
 
     raise typer.Exit(run_ui(sessions_dir=sessions, manifest=manifest, target_per_class=target))
@@ -170,21 +170,21 @@ def ui_cmd(
 
 @app.command("slice")
 def slice_cmd(
-    session: str = typer.Option(None, "--session", help="Session-ID slicen."),
-    all_sessions: bool = typer.Option(False, "--all", help="alle Sessions slicen."),
-    profile: str = typer.Option(None, "--profile", help="Profil überschreiben (Default: aus session.yaml)."),
-    pad_up: float = typer.Option(None, "--pad-up", help="Crop-Höhe nach oben überschreiben."),
-    pad_side: float = typer.Option(None, "--pad-side", help="seitliche Crop-Erweiterung überschreiben."),
-    out_size: str = typer.Option(None, "--out-size", help="Crop-Größe WxH, z.B. 96x128."),
-    preview: str = typer.Option(None, "--preview", help="Session-ID: Label vs. Crop visuell prüfen."),
-    geometry: str = typer.Option("warp", "--geometry", help="Crop-Geometrie: warp | box3d."),
+    session: str = typer.Option(None, "--session", help="Slice session ID."),
+    all_sessions: bool = typer.Option(False, "--all", help="Slice all sessions."),
+    profile: str = typer.Option(None, "--profile", help="Override profile (default: from session.yaml)."),
+    pad_up: float = typer.Option(None, "--pad-up", help="Override crop height upward."),
+    pad_side: float = typer.Option(None, "--pad-side", help="Override side crop extension."),
+    out_size: str = typer.Option(None, "--out-size", help="Crop size WxH, e.g. 96x128."),
+    preview: str = typer.Option(None, "--preview", help="Session ID: visually check label vs crop."),
+    geometry: str = typer.Option("warp", "--geometry", help="Crop geometry: warp | box3d."),
     photometry: str = typer.Option("none", "--photometry", help="Filter: none | clahe | grayworld | gamma."),
     piece_height: float = typer.Option(config.EXP_PIECE_HEIGHT_CELLS, "--piece-height",
-                                       help="box3d: Extrusionshöhe in Zellen."),
+                                       help="box3d: extrusion height in cells."),
     variant_tag: str = typer.Option(None, "--variant-tag",
-                                    help="Crops/Manifest variantengetaggt ablegen (squares__<tag>/)."),
+                                    help="Store crops/manifest with variant tag (squares__<tag>/)."),
 ) -> None:
-    """Session-Logs -> 64 gelabelte Square-Crops je Stellung + Manifest."""
+    """Session logs -> 64 labeled square crops per position + manifest."""
     raise typer.Exit(labeling_mod.run_slice(
         session=session, slice_all=all_sessions, profile=profile,
         pad_up=pad_up, pad_side=pad_side, out_size=out_size, preview=preview,
@@ -199,18 +199,18 @@ def _csv_list(s: str) -> list[str]:
 
 @experiment_app.command("run")
 def experiment_run(
-    sessions: str = typer.Option(..., "--sessions", help="Komma-getrennte Session-IDs."),
-    geometries: str = typer.Option(",".join(config.EXP_GEOMETRIES), "--geometries", help="z.B. warp,box3d."),
+    sessions: str = typer.Option(..., "--sessions", help="Comma-separated session IDs."),
+    geometries: str = typer.Option(",".join(config.EXP_GEOMETRIES), "--geometries", help="e.g. warp,box3d."),
     photometries: str = typer.Option(",".join(config.PHOTOMETRY_METHODS), "--photometries",
-                                     help="z.B. none,clahe,grayworld,gamma."),
-    heads: str = typer.Option("combined", "--heads", help="Modell-Köpfe: combined,factored,twostage."),
+                                     help="e.g. none,clahe,grayworld,gamma."),
+    heads: str = typer.Option("combined", "--heads", help="Model heads: combined,factored,twostage."),
     epochs: int = typer.Option(config.DEFAULT_EPOCHS, "--epochs"),
     seed: int = typer.Option(config.SEED, "--seed"),
     backbone: str = typer.Option(config.DEFAULT_BACKBONE, "--backbone"),
-    eval_split: str = typer.Option("test", "--eval-split", help="Metrik-Split: test | val (bei <3 Sessions val)."),
-    force: bool = typer.Option(False, "--force", help="alle Stages neu (sonst fertige überspringen)."),
+    eval_split: str = typer.Option("test", "--eval-split", help="Metric split: test | val (val for <3 sessions)."),
+    force: bool = typer.Option(False, "--force", help="All stages fresh (otherwise skip completed ones)."),
 ) -> None:
-    """Volles Grid Geometrie×Photometrie×Kopf trainieren + Vergleichstabelle nach Board-Accuracy."""
+    """Full grid train Geometry×Photometry×Head + comparison table by board accuracy."""
     from . import experiment as experiment_mod
 
     raise typer.Exit(experiment_mod.run_experiment(
@@ -220,13 +220,13 @@ def experiment_run(
 
 @experiment_app.command("table")
 def experiment_table(
-    sessions: str = typer.Option(..., "--sessions", help="Komma-getrennte Session-IDs."),
+    sessions: str = typer.Option(..., "--sessions", help="Comma-separated session IDs."),
     geometries: str = typer.Option(",".join(config.EXP_GEOMETRIES), "--geometries"),
     photometries: str = typer.Option(",".join(config.PHOTOMETRY_METHODS), "--photometries"),
     heads: str = typer.Option("combined", "--heads"),
     eval_split: str = typer.Option("test", "--eval-split"),
 ) -> None:
-    """Vergleichstabelle aus bereits trainierten Runs neu schreiben (kein Re-Training)."""
+    """Rebuild comparison table from already-trained runs (no re-training)."""
     from . import experiment as experiment_mod
 
     raise typer.Exit(experiment_mod.rebuild_table(
@@ -236,12 +236,12 @@ def experiment_table(
 
 @experiment_app.command("list")
 def experiment_list(
-    sessions: str = typer.Option("", "--sessions", help="(optional, für die Tabellen-Spalten irrelevant)."),
+    sessions: str = typer.Option("", "--sessions", help="(optional, irrelevant for table columns)."),
     geometries: str = typer.Option(",".join(config.EXP_GEOMETRIES), "--geometries"),
     photometries: str = typer.Option(",".join(config.PHOTOMETRY_METHODS), "--photometries"),
     heads: str = typer.Option("combined", "--heads"),
 ) -> None:
-    """Status je Variante: sliced / dataset / train / eval."""
+    """Status per variant: sliced / dataset / train / eval."""
     from . import experiment as experiment_mod
 
     raise typer.Exit(experiment_mod.variant_status(
@@ -250,10 +250,10 @@ def experiment_list(
 
 @app.command("stats")
 def stats_cmd(
-    manifest: str = typer.Option(None, "--manifest", help="Manifest-Pfad (Default: data/manifests/squares.jsonl)."),
+    manifest: str = typer.Option(None, "--manifest", help="Manifest path (default: data/manifests/squares.jsonl)."),
     json_out: bool = typer.Option(False, "--json"),
 ) -> None:
-    """Datensatz-Report: 13-Klassen-Verteilung + Hell/Dunkel-Abdeckung + Warnungen."""
+    """Dataset report: 13-class distribution + light/dark coverage + warnings."""
     raise typer.Exit(dataset_mod.run_stats(manifest=manifest, json_out=json_out))
 
 
@@ -262,11 +262,11 @@ def split_cmd(
     val_frac: float = typer.Option(config.DEFAULT_VAL_FRAC, "--val-frac"),
     test_frac: float = typer.Option(config.DEFAULT_TEST_FRAC, "--test-frac"),
     max_empty_ratio: float = typer.Option(config.DEFAULT_MAX_EMPTY_RATIO, "--max-empty-ratio"),
-    max_class_ratio: float | None = typer.Option(None, "--max-class-ratio", help="Jede Figurenklasse auf R * kleinste Figurenklasse deckeln (balanciert Bauern herunter; nur train)."),
+    max_class_ratio: float | None = typer.Option(None, "--max-class-ratio", help="Cap each piece class at R * smallest class (balances pawns downward; train only)."),
     seed: int = typer.Option(config.SEED, "--seed"),
-    allow_degenerate: bool = typer.Option(False, "--allow-degenerate", help="Degenerierten Split zulassen (Klasse nur in einer Session o.ä.)."),
+    allow_degenerate: bool = typer.Option(False, "--allow-degenerate", help="Allow degenerate split (class only in one session etc.)."),
 ) -> None:
-    """Sessionbasierter Split (gegen Data Leakage) + Klassen-Balancing (nur train) -> split.json."""
+    """Session-based split (against data leakage) + class balancing (train only) -> split.json."""
     raise typer.Exit(dataset_mod.run_split(val_frac=val_frac, test_frac=test_frac,
                                            max_empty_ratio=max_empty_ratio, seed=seed,
                                            max_class_ratio=max_class_ratio,
@@ -275,27 +275,27 @@ def split_cmd(
 
 @dataset_app.command("verify")
 def dataset_verify() -> None:
-    """Konsistenz-Checks: Dateien existieren/ladbar, out_size, Labels, Split-Disjunktheit."""
+    """Consistency checks: files exist/loadable, out_size, labels, split disjointness."""
     raise typer.Exit(dataset_mod.run_verify())
 
 
 @app.command("ingest")
 def ingest_cmd(
-    adapter: str = typer.Argument(..., help="chesscog | chessred | synthetic (externer/synthetischer Datensatz)."),
-    root: str = typer.Argument(..., help="Pfad zum lokal entpackten Datensatz."),
-    tag: str | None = typer.Option(None, "--tag", help="Name für Sessions/Datensatz (Default: pretrain-<adapter>)."),
-    geometry: str = typer.Option("warp", "--geometry", help="warp (empfohlen, keine Intrinsics) | box3d."),
-    photometry: str = typer.Option("none", "--photometry", help="none | clahe | grayworld | gamma — muss zum Finetune-Datensatz passen."),
-    board_size: int = typer.Option(900, "--board-size", help="Warp-Auflösung (px). Moderat halten (Handy-Quelle), sonst Hochskalier-Unschärfe."),
-    limit: int | None = typer.Option(None, "--limit", help="Nur die ersten N Bilder (Schnelltest)."),
-    debug_overlay: int = typer.Option(0, "--debug-overlay", help="N Frames warpen + FEN-Labels einblenden (Sichtprüfung gegen Label-Vertauschung)."),
-    no_build: bool = typer.Option(False, "--no-build", help="Nur slicen, keinen Datensatz bauen."),
+    adapter: str = typer.Argument(..., help="chesscog | chessred | synthetic (external/synthetic dataset)."),
+    root: str = typer.Argument(..., help="Path to locally extracted dataset."),
+    tag: str | None = typer.Option(None, "--tag", help="Name for sessions/dataset (default: pretrain-<adapter>)."),
+    geometry: str = typer.Option("warp", "--geometry", help="warp (recommended, no intrinsics) | box3d."),
+    photometry: str = typer.Option("none", "--photometry", help="none | clahe | grayworld | gamma — must match the finetune dataset."),
+    board_size: int = typer.Option(900, "--board-size", help="Warp resolution (px). Keep moderate (phone source), otherwise upscale blur."),
+    limit: int | None = typer.Option(None, "--limit", help="Only the first N images (quick test)."),
+    debug_overlay: int = typer.Option(0, "--debug-overlay", help="Warp N frames + overlay FEN labels (visual check against label swapping)."),
+    no_build: bool = typer.Option(False, "--no-build", help="Only slice, don't build a dataset."),
 ) -> None:
-    """Externen Datensatz (chesscog/ChessReD2K) in unser Crop-Format ingestieren → Pretrain-Datensatz.
+    """Ingest external dataset (chesscog/ChessReD2K) into our crop format -> pretrain dataset.
 
-    Danach: `chesslab train --dataset <tag> --head twostage --backbone mobilenet_v3_small`, dann auf
-    den eigenen Sessions `train --dataset <deine> --resume <pretrain-run>`. WICHTIG: vor dem großen
-    Lauf mit `--debug-overlay 8` die Orientierung prüfen (falsche Ecken vertauschen alle Labels still)."""
+    Afterwards: `chesslab train --dataset <tag> --head twostage --backbone mobilenet_v3_small`, then on
+    your own sessions `train --dataset <yours> --resume <pretrain-run>`. IMPORTANT: before the big
+    run with `--debug-overlay 8` check orientation (wrong corners silently swap all labels)."""
     from . import ingest as ingest_mod
 
     t = tag or f"pretrain-{adapter.lower()}"
@@ -306,27 +306,27 @@ def ingest_cmd(
     except (ValueError, FileNotFoundError) as e:
         print(f"[FAIL] {e}")
         raise typer.Exit(1)
-    print(f"[OK] {summary['adapter']}: {summary['items']} Bilder, {summary['sessions']} Sessions, "
-          f"{summary['crops']} Crops -> {summary['manifest']}")
+    print(f"[OK] {summary['adapter']}: {summary['items']} images, {summary['sessions']} sessions, "
+          f"{summary['crops']} crops -> {summary['manifest']}")
     if summary.get("overlays"):
-        print(f"[OK] Sichtprüfung: {len(summary['overlays'])} Overlay-PNGs in "
-              f"{Path(summary['overlays'][0]).parent} — bitte ansehen, BEVOR du das große Pretrain startest.")
+        print(f"[OK] Visual check: {len(summary['overlays'])} overlay PNGs in "
+              f"{Path(summary['overlays'][0]).parent} — please review BEFORE starting the big pretrain.")
     if summary.get("dataset"):
-        print(f"[OK] Datensatz '{summary['dataset']}' gebaut: {summary.get('dataset_counts')}")
+        print(f"[OK] Dataset '{summary['dataset']}' built: {summary.get('dataset_counts')}")
     raise typer.Exit(0)
 
 
 @dataset_app.command("build")
 def dataset_build_cmd(
-    name: str = typer.Argument(..., help="Name des Datensatzes."),
-    sessions: str = typer.Option(..., "--sessions", help="Komma-getrennte Session-IDs."),
-    per_cell_cap: int = typer.Option(config.DEDUP.per_cell_cap, "--cap", help="max. Crops je (Session,Feld,Figur)."),
-    no_phash: bool = typer.Option(False, "--no-phash", help="Perceptual-Hash-Dedup abschalten."),
+    name: str = typer.Argument(..., help="Name of the dataset."),
+    sessions: str = typer.Option(..., "--sessions", help="Comma-separated session IDs."),
+    per_cell_cap: int = typer.Option(config.DEDUP.per_cell_cap, "--cap", help="Max. crops per (session,square,piece)."),
+    no_phash: bool = typer.Option(False, "--no-phash", help="Disable perceptual hash dedup."),
     hamming: int = typer.Option(config.DEDUP.phash_hamming, "--hamming"),
-    rotate: bool = typer.Option(True, "--rotate/--no-rotate", help="90/180/270°-Augmentation (Default an)."),
-    allow_degenerate: bool = typer.Option(False, "--allow-degenerate", help="Degenerierten Datensatz zulassen (Klasse nur in einer Session o.ä.)."),
+    rotate: bool = typer.Option(True, "--rotate/--no-rotate", help="90/180/270°-Augmentation (default on)."),
+    allow_degenerate: bool = typer.Option(False, "--allow-degenerate", help="Allow degenerate dataset (class only in one session etc.)."),
 ) -> None:
-    """Benannten Datensatz aus einer Session-Auswahl bauen (filtern -> dedup -> rotation -> split)."""
+    """Build named dataset from session selection (filter -> dedup -> rotation -> split)."""
     from . import dataset_build as db
 
     sids = [s.strip() for s in sessions.split(",") if s.strip()]
@@ -338,7 +338,7 @@ def dataset_build_cmd(
         print(f"[FAIL] {e}")
         raise typer.Exit(1)
     c = res["counts"]
-    print(f"[OK] Datensatz '{res['name']}': roh {c['raw']} -> dedup {c['after_dedup']} -> "
+    print(f"[OK] Dataset '{res['name']}': raw {c['raw']} -> dedup {c['after_dedup']} -> "
           f"final {c['final']}. Split: {res['split_counts']}.")
     for w in res["warnings"]:
         print(f"  ! {w}")
@@ -346,21 +346,21 @@ def dataset_build_cmd(
 
 @dataset_app.command("list")
 def dataset_list_cmd() -> None:
-    """Vorhandene Datensätze auflisten."""
+    """List existing datasets."""
     from . import dataset_build as db
 
     for d in db.list_datasets():
-        print(f"{d['name']}: {d['n_sessions']} Sessions, {d['counts'].get('final', '?')} Crops, "
+        print(f"{d['name']}: {d['n_sessions']} sessions, {d['counts'].get('final', '?')} crops, "
               f"split {d.get('split_counts', {})}")
 
 
 @dataset_app.command("delete")
 def dataset_delete_cmd(name: str = typer.Argument(...)) -> None:
-    """Datensatz löschen (Rohmaterial/Sessions bleiben)."""
+    """Delete dataset (raw material/sessions remain)."""
     from . import dataset_build as db
 
     db.delete_dataset(name)
-    print(f"[OK] Datensatz '{name}' gelöscht.")
+    print(f"[OK] Dataset '{name}' deleted.")
 
 
 @app.command("train")
@@ -369,17 +369,17 @@ def train_cmd(
     epochs: int = typer.Option(config.DEFAULT_EPOCHS, "--epochs"),
     batch_size: int = typer.Option(config.DEFAULT_BATCH_SIZE, "--batch-size"),
     lr: float = typer.Option(config.DEFAULT_LR, "--lr"),
-    no_amp: bool = typer.Option(False, "--no-amp", help="AMP/autocast abschalten."),
+    no_amp: bool = typer.Option(False, "--no-amp", help="Disable AMP/autocast."),
     seed: int = typer.Option(config.SEED, "--seed"),
-    out: str = typer.Option(None, "--out", help="Run-Verzeichnis (Default: data/models/run-<ts>)."),
-    patience: int = typer.Option(config.DEFAULT_PATIENCE, "--patience", help="Early-Stopping-Geduld."),
-    num_workers: int | None = typer.Option(None, "--num-workers", help="DataLoader-Worker (Default: 0 auf Windows, 4 sonst)."),
-    norm: str | None = typer.Option(None, "--norm", help="batchnorm | groupnorm | none (Default: groupnorm auf Windows, sonst batchnorm)."),
-    dataset: str | None = typer.Option(None, "--dataset", help="Benannter Datensatz (sonst globales Manifest/Split)."),
-    resume: str | None = typer.Option(None, "--resume", help="Run-Name, dessen Gewichte als Warm-Start geladen werden (weiter-trainieren)."),
-    head: str = typer.Option("combined", "--head", help="combined | factored | twostage (zweistufig Occupancy→Piece)."),
+    out: str = typer.Option(None, "--out", help="Run directory (default: data/models/run-<ts>)."),
+    patience: int = typer.Option(config.DEFAULT_PATIENCE, "--patience", help="Early stopping patience."),
+    num_workers: int | None = typer.Option(None, "--num-workers", help="DataLoader workers (default: 0 on Windows, 4 otherwise)."),
+    norm: str | None = typer.Option(None, "--norm", help="batchnorm | groupnorm | none (default: groupnorm on Windows, otherwise batchnorm)."),
+    dataset: str | None = typer.Option(None, "--dataset", help="Named dataset (otherwise global manifest/split)."),
+    resume: str | None = typer.Option(None, "--resume", help="Run name whose weights are loaded as warm-start (continue training)."),
+    head: str = typer.Option("combined", "--head", help="combined | factored | twostage (two-stage Occupancy→Piece)."),
 ) -> None:
-    """Per-Square-CNN auf der ROCm-GPU trainieren (Board-Accuracy = Checkpoint-Metrik)."""
+    """Train per-square CNN on the ROCm GPU (board accuracy = checkpoint metric)."""
     from .training.train import run_train
 
     raise typer.Exit(run_train(backbone=backbone, epochs=epochs, batch_size=batch_size, lr=lr,
@@ -390,10 +390,10 @@ def train_cmd(
 
 @app.command("eval")
 def eval_cmd(
-    run: str = typer.Option(..., "--run", help="Run-Verzeichnis aus `train`."),
+    run: str = typer.Option(..., "--run", help="Run directory from `train`."),
     split: str = typer.Option("test", "--split", help="train | val | test"),
 ) -> None:
-    """Board-Accuracy, Per-Klassen-Recall und Confusion-Matrix (Text + PNG)."""
+    """Board accuracy, per-class recall and confusion matrix (text + PNG)."""
     from .training.evaluate import run_eval
 
     raise typer.Exit(run_eval(run=run, split_name=split))
@@ -401,10 +401,10 @@ def eval_cmd(
 
 @app.command("export")
 def export_cmd(
-    run: str = typer.Option(..., "--run", help="Run-Verzeichnis aus `train`."),
+    run: str = typer.Option(..., "--run", help="Run directory from `train`."),
     fmt: str = typer.Option("torchscript", "--format", help="torchscript | onnx | all"),
 ) -> None:
-    """best.pt nach TorchScript/ONNX exportieren + model_card.json (Übergabe an die Inferenz-App)."""
+    """Export best.pt to TorchScript/ONNX + model_card.json (handoff to inference app)."""
     from .training.evaluate import run_export
 
     raise typer.Exit(run_export(run=run, fmt=fmt))
@@ -416,26 +416,26 @@ def web_cmd(
     port: int = typer.Option(config.DEFAULT_WEB_PORT, "--port"),
     source: str | None = typer.Option(
         None, "--source",
-        help="Kameraquelle als URL statt lokalem Index (z.B. IP-/Handy-Cam "
-             "https://host:4444/video/m.jpeg). Überschreibt den UI-Index für ALLE Kamera-Pfade. "
-             "Für flüssige Vorschau den MJPEG-Stream nehmen."),
+        help="Camera source as URL instead of local index (e.g. IP/phone cam "
+             "https://host:4444/video/m.jpeg). Overrides the UI index for ALL camera paths. "
+             "Use the MJPEG stream for smooth preview."),
     capture_source: str | None = typer.Option(
         None, "--capture-source",
-        help="Optionale HOCHAUFLÖSENDE Snapshot-URL fürs Speichern (z.B. "
-             "https://host:4444/video/snapshot). Vorschau bleibt am flüssigen --source-Stream, "
-             "gespeicherte Frames kommen scharf vom Snapshot (Ecken werden darauf neu erkannt)."),
+        help="Optional HIGH-RESOLUTION snapshot URL for saving (e.g. "
+             "https://host:4444/video/snapshot). Preview stays on the smooth --source stream, "
+             "saved frames come sharp from the snapshot (corners re-detected on it)."),
 ) -> None:
-    """Lokale Web-UI: Datensatz einsehen, relabeln, Training steuern (braucht `--extra web`)."""
+    """Local web UI: browse dataset, relabel, control training (requires `--extra web`)."""
     import os
 
     from .web.camera import CAMERA_CAPTURE_ENV, CAMERA_SOURCE_ENV
 
     if source:
-        os.environ[CAMERA_SOURCE_ENV] = source   # vom Web-Kamera-Pfad (effective_source) gelesen
-        print(f"Kameraquelle (Vorschau): {source}")
+        os.environ[CAMERA_SOURCE_ENV] = source   # read by web camera path (effective_source)
+        print(f"Camera source (preview): {source}")
     if capture_source:
         os.environ[CAMERA_CAPTURE_ENV] = capture_source
-        print(f"Capture-Quelle (Speichern, hochauflösend): {capture_source}")
+        print(f"Capture source (save, high-resolution): {capture_source}")
 
     from .web.app import run as run_web
 
@@ -444,75 +444,75 @@ def web_cmd(
 
 @app.command("track")
 def track_cmd(
-    profile: str = typer.Option("phone", "--profile", help="chesslab-Kalibrierprofil."),
-    source: str = typer.Option("0", "--source", help="Kamera: 0=Webcam, URL=IP-Cam."),
+    profile: str = typer.Option("phone", "--profile", help="chesslab calibration profile."),
+    source: str = typer.Option("0", "--source", help="Camera: 0=Webcam, URL=IP-Cam."),
     host: str = typer.Option(config.DEFAULT_TRACK_HOST, "--host"),
     port: int = typer.Option(config.DEFAULT_TRACK_PORT, "--port"),
     motion_thr: float = typer.Option(config.TRACK_DEFAULTS["motion_thr"], "--motion-thr",
-                                     help="Bewegungs-Schwelle für Motion-Gating."),
+                                     help="Motion threshold for motion gating."),
     z_thr: float = typer.Option(config.TRACK_DEFAULTS["z_thr"], "--z-thr",
-                                help="z-Score-Schwelle, ab der ein Feld als geändert gilt."),
+                                help="z-score threshold above which a square counts as changed."),
     ambiguity_margin_ll: float = typer.Option(config.TRACK_DEFAULTS["ambiguity_margin_ll"],
                                               "--ambiguity-margin",
-                                              help="Mindestabstand best−second (LL-Einheiten)."),
+                                              help="Minimum distance best−second (LL units)."),
     reanchor_ll_floor: float = typer.Option(config.TRACK_DEFAULTS["reanchor_ll_floor"],
                                             "--reanchor-floor",
-                                            help="Re-Anchor nur, wenn beste Zug-LL darunter liegt."),
+                                            help="Re-anchor only when best move LL is below it."),
     nudge_timeout_s: float = typer.Option(config.TRACK_DEFAULTS["nudge_timeout_s"], "--nudge-timeout",
-                                          help="Sekunden bis Nudge-Referenz-Patch (ohne CNN)."),
+                                          help="Seconds until nudge reference patch (without CNN)."),
     drift_window_s: float = typer.Option(config.TRACK_DEFAULTS["drift_window_s"], "--drift-window",
-                                         help="Sekunden bis Drift-Patch leerer Felder (ohne CNN)."),
+                                         help="Seconds until drift patch of empty squares (without CNN)."),
     no_prior: bool = typer.Option(False, "--no-prior",
-                                  help="Heuristik-Prior als Ambiguitäts-Tie-Break deaktivieren."),
+                                  help="Disable heuristic prior as ambiguity tie-break."),
     change_thr: float | None = typer.Option(None, "--change-thr", hidden=True,
-                                            help="DEPRECATED: ersetzt durch --z-thr."),
+                                            help="DEPRECATED: replaced by --z-thr."),
     confirm_frames: int | None = typer.Option(None, "--confirm-frames",
-                                              help="Bestätigungs-Frames pro Zug (Default: 1 mit CNN, sonst 2)."),
+                                              help="Confirmation frames per move (default: 1 with CNN, otherwise 2)."),
     settle_frames: int | None = typer.Option(None, "--settle-frames",
-                                             help="Ruhige Frames vor Erkennung (Default: 2 mit CNN, sonst 4)."),
+                                             help="Settle frames before detection (default: 2 with CNN, otherwise 4)."),
     max_changed: int = typer.Option(config.TRACK_DEFAULTS["max_changed"], "--max-changed",
-                                    help="Maximal geänderte Felder (Gate)."),
+                                    help="Maximum changed squares (gate)."),
     avg_frames: int | None = typer.Option(None, "--avg-frames",
-                                          help="Gleitendes Mittel über N ruhige Frames (Default: 2 mit CNN, sonst 3)."),
-    no_live_align: bool = typer.Option(False, "--no-live-align", help="Marker-Nachführung deaktivieren."),
+                                          help="Moving average over N quiet frames (default: 2 with CNN, otherwise 3)."),
+    no_live_align: bool = typer.Option(False, "--no-live-align", help="Disable marker tracking."),
     motion_margin: float = typer.Option(config.TRACK_DEFAULTS["motion_margin"], "--motion-margin",
-                                        help="Motion-ROI über den Brettrand hinaus (Anteil Brettkante)."),
+                                        help="Motion ROI beyond board edge (fraction of board edge)."),
     overhang: float = typer.Option(config.TRACK_DEFAULTS["overhang"], "--overhang",
-                                   help="Diff-Zellen Richtung hintere Reihe erweitern (Anteil Zelle)."),
+                                   help="Extend diff cells toward back rank (fraction of cell)."),
     cnn_run: str = typer.Option(config.default_tracker_run() or "", "--cnn-run",
-                                help="Modell-Run für CNN-Verifikation/-Recovery ('' = aus)."),
+                                help="Model run for CNN verification/recovery ('' = off)."),
     cnn_conf_thr: float = typer.Option(config.TRACK_DEFAULTS["cnn_conf_thr"], "--cnn-conf-thr",
-                                       help="Konfidenz-Schwelle, ab der ein CNN-Feld als belastbar gilt."),
+                                       help="Confidence threshold above which a CNN square counts as reliable."),
     census_thr: float = typer.Option(config.TRACK_DEFAULTS["census_thr"], "--census-thr",
-                                     help="Schwelle für STRUKTURELLE Änderung (Census); < = Schatten-Kandidat."),
+                                     help="Threshold for STRUCTURAL change (census); < = shadow candidate."),
     cnn_verify: bool = typer.Option(True, "--cnn-verify/--no-cnn-verify",
-                                    help="Jeden Zug per CNN-Identität prüfen (Default an, nicht blockierend)."),
+                                    help="Verify each move via CNN identity (default on, non-blocking)."),
     verify_window: int = typer.Option(config.TRACK_DEFAULTS["verify_window"], "--verify-window",
-                                      help="Max. CNN-Frames pro Pre-Commit-Verify."),
+                                      help="Max CNN frames per pre-commit verify."),
     cnn_min_agreement: float = typer.Option(config.TRACK_DEFAULTS["cnn_min_agreement"],
                                             "--cnn-min-agreement",
-                                            help="Agreement-Schwelle für Recovery/Verify."),
+                                            help="Agreement threshold for recovery/verify."),
     cnn_margin_squares: int = typer.Option(config.TRACK_DEFAULTS["cnn_margin_squares"],
                                            "--cnn-margin-squares",
-                                           help="Recovery-Margin in Feldern."),
+                                           help="Recovery margin in squares."),
     min_confident_board: int = typer.Option(config.TRACK_DEFAULTS["min_confident_board"],
                                             "--min-confident-board",
-                                            help="Belastbare Felder für Whole-Board-Match."),
+                                            help="Reliable squares for whole-board match."),
     min_confident_recovery: int = typer.Option(config.TRACK_DEFAULTS["min_confident_recovery"],
                                                "--min-confident-recovery",
-                                               help="Belastbare Felder für Recovery."),
+                                               help="Reliable squares for recovery."),
     cnn_cooldown_s: float = typer.Option(config.TRACK_DEFAULTS["cnn_cooldown_s"], "--cnn-cooldown",
-                                         help="Mindestabstand (s) zwischen Recovery-Beobachtungen."),
+                                         help="Minimum interval (s) between recovery observations."),
     cnn_check_interval_s: float = typer.Option(config.TRACK_DEFAULTS["cnn_check_interval_s"],
                                                "--cnn-check-interval",
-                                               help="Intervall (s) der periodischen CNN-Kontrolle."),
-    device: str = typer.Option("auto", "--device", help="Torch-Device für das CNN: auto|cpu|cuda."),
+                                               help="Interval (s) of periodic CNN check."),
+    device: str = typer.Option("auto", "--device", help="Torch device for the CNN: auto|cpu|cuda."),
 ) -> None:
-    """Move-Tracker: Brett-Digitalisierung per Frame-Differenz + CNN-Verifikation (Web-UI)."""
+    """Move tracker: board digitization via frame differencing + CNN verification (web UI)."""
     from .move_tracker.app import run as run_track
 
     if change_thr is not None:
-        print("Hinweis: --change-thr ist deprecated (Spec 10) — bitte --z-thr verwenden.")
+        print("Note: --change-thr is deprecated (Spec 10) — please use --z-thr.")
     tracker_kwargs = {
         "motion_thr": motion_thr, "z_thr": z_thr,
         "ambiguity_margin_ll": ambiguity_margin_ll, "reanchor_ll_floor": reanchor_ll_floor,
@@ -522,7 +522,7 @@ def track_cmd(
         "max_changed": max_changed, "avg_frames": avg_frames,
         "live_align": not no_live_align,
         "motion_margin": motion_margin, "overhang": overhang,
-        "cnn_run": (cnn_run or None),   # '' oder fehlender Run auf Platte ⇒ Feature still aus
+        "cnn_run": (cnn_run or None),   # '' or missing run on disk -> feature silently off
         "cnn_conf_thr": cnn_conf_thr, "device": device, "census_thr": census_thr,
         "cnn_verify": cnn_verify, "verify_window": verify_window,
         "cnn_min_agreement": cnn_min_agreement, "cnn_margin_squares": cnn_margin_squares,
@@ -535,26 +535,26 @@ def track_cmd(
 
 @synth_app.command("render")
 def synth_render(
-    out: str = typer.Option(..., "--out", help="Zielverzeichnis (Pflicht)."),
-    blend: str = typer.Option(None, "--blend", help="Blender-Szene (Default: synth_assets/Chess Scene.blend)."),
-    pieces_dir: str = typer.Option(None, "--pieces-dir", help="Gescannte Figuren-Vorlagen (Default: synth_pieces/)."),
+    out: str = typer.Option(..., "--out", help="Target directory (required)."),
+    blend: str = typer.Option(None, "--blend", help="Blender scene (default: synth_assets/Chess Scene.blend)."),
+    pieces_dir: str = typer.Option(None, "--pieces-dir", help="Scanned piece templates (default: synth_pieces/)."),
     board_texture: str | None = typer.Option(None, "--board-texture",
-                                             help="Rektifizierte Brett-Foto-Textur (Default: synth_pieces/board_texture.png"
-                                                  " falls vorhanden, sonst prozedurales Holz)."),
-    n: int = typer.Option(200, "--n", help="Anzahl zu rendernder Stellungen."),
+                                             help="Rectified board photo texture (default: synth_pieces/board_texture.png"
+                                                  " if present, otherwise procedural wood)."),
+    n: int = typer.Option(200, "--n", help="Number of positions to render."),
     seed: int = typer.Option(42, "--seed"),
-    fens: str | None = typer.Option(None, "--fens", help="FEN-Liste (sonst Fallback Grundstellung)."),
-    res: int = typer.Option(1024, "--res", help="Render-Auflösung (px)."),
+    fens: str | None = typer.Option(None, "--fens", help="FEN list (otherwise fallback starting position)."),
+    res: int = typer.Option(1024, "--res", help="Render resolution (px)."),
     views_per_scene: int = typer.Option(1, "--views-per-scene",
-                                        help="Views (Kamera+Licht) pro Figurenaufstellung. >1 = Szenen-Reuse: "
-                                             "gleiche Szene mehrfach rendern → deutlich schneller."),
-    samples: int = typer.Option(24, "--samples", help="EEVEE TAA-Render-Samples (niedriger = schneller)."),
+                                        help="Views (camera+light) per piece setup. >1 = scene reuse: "
+                                             "render same scene multiple times -> significantly faster."),
+    samples: int = typer.Option(24, "--samples", help="EEVEE TAA render samples (lower = faster)."),
     max_obliqueness: float = typer.Option(0.20, "--max-obliqueness",
-                                          help="Max. Kamera-Schräglage (Offset/Höhe). An echte ~0.06-Top-Down-Kamera "
-                                               "gematcht; Bild wird beim Ingest per Homographie auf Top-Down reprojiziert."),
-    blender: str | None = typer.Option(None, "--blender", help="Blender-Executable (Default: blender, via CHESSLAB_BLENDER)."),
+                                          help="Max camera obliqueness (offset/height). Matched to real ~0.06 top-down "
+                                               "camera; image is reprojected to top-down via homography during ingest."),
+    blender: str | None = typer.Option(None, "--blender", help="Blender executable (default: blender, via CHESSLAB_BLENDER)."),
 ) -> None:
-    """Synthetische Brett-Renderings mit Blender/EEVEE erzeugen (v2: Brett-Textur + prozeduraler Fallback)."""
+    """Generate synthetic board renderings with Blender/EEVEE (v2: board texture + procedural fallback)."""
     import subprocess
 
     from .config import SYNTH, build_blender_cmd
@@ -568,7 +568,7 @@ def synth_render(
     fe = Path(fens).resolve() if fens else None
     bl = blender or SYNTH.blender_cmd()
 
-    # Board-Textur: explizites --board-texture > Default-Pfad (falls vorhanden) > None (= prozedural)
+    # Board texture: explicit --board-texture > default path (if present) > None (= procedural)
     bt: Path | None = None
     if board_texture:
         bt = Path(board_texture).resolve()
@@ -583,27 +583,27 @@ def synth_render(
     try:
         subprocess.run(cmd, check=True)
     except subprocess.CalledProcessError:
-        print("[FAIL] Blender-Render fehlgeschlagen.")
+        print("[FAIL] Blender render failed.")
         raise typer.Exit(1)
     except FileNotFoundError:
-        print(f"[FAIL] Blender nicht gefunden ('{bl}'). Pfad prüfen oder CHESSLAB_BLENDER setzen.")
+        print(f"[FAIL] Blender not found ('{bl}'). Check path or set CHESSLAB_BLENDER.")
         raise typer.Exit(1)
     print(f"[OK] synth render: {o}")
 
 
 @synth_app.command("prepare")
 def synth_prepare_cmd(
-    in_dir: str = typer.Option(..., "--in", help="Scans: je Unterordner <Figur>/ mit .obj/.glb + Textur."),
-    out_dir: str = typer.Option(None, "--out", help="Zielverzeichnis (Default: synth_pieces/)."),
-    target_tris: int = typer.Option(20000, "--target-tris", help="Ziel-Dreieckszahl (0 = keine Dezimierung)."),
-    smooth_iters: int = typer.Option(10, "--smooth-iters", help="Glättungs-Iterationen (0 = keine)."),
+    in_dir: str = typer.Option(..., "--in", help="Scans: each subfolder <piece>/ with .obj/.glb + texture."),
+    out_dir: str = typer.Option(None, "--out", help="Target directory (default: synth_pieces/)."),
+    target_tris: int = typer.Option(20000, "--target-tris", help="Target triangle count (0 = no decimation)."),
+    smooth_iters: int = typer.Option(10, "--smooth-iters", help="Smoothing iterations (0 = none)."),
     fill_holes: bool = typer.Option(True, "--fill-holes/--no-fill-holes",
-                                    help="Offene Ränder/Basis schließen."),
+                                    help="Close open edges/base."),
 ) -> None:
-    """Gescannte Figuren batch-vorbereiten: aufrichten, dezimieren, Qualitäts-Report + Preview.
+    """Batch-prepare scanned pieces: upright, decimate, quality report + preview.
 
-    Läuft komplett in-process (Open3D + PyMeshLab) — kein Blender nötig.
-    Danach `<out>/<Figur>_preview.png` ansehen und die [WARN]-Hinweise prüfen."""
+    Runs completely in-process (Open3D + PyMeshLab) — no Blender needed.
+    Then check <out>/<piece>_preview.png and review the [WARN] hints."""
     from .config import SYNTH
     from .meshprep import prepare_scan
     from .scan_discover import assess_report, discover_scans
@@ -614,13 +614,13 @@ def synth_prepare_cmd(
     for w in warnings:
         print(f"[WARN] {w}")
     if not items:
-        print("[FAIL] keine Scans gefunden (erwartet: <in>/<Figur>/*.glb/.obj + Textur).")
+        print("[FAIL] no scans found (expected: <in>/<piece>/*.glb/.obj + texture).")
         raise typer.Exit(1)
 
     results: list[tuple[str, str, list[str]]] = []
     for item in items:
         pid = f"{item.name}/{item.variant}"
-        print(f"--- {pid}: {item.obj.name}" + (f" + {item.tex.name}" if item.tex else " (Textur eingebettet)"))
+        print(f"--- {pid}: {item.obj.name}" + (f" + {item.tex.name}" if item.tex else " (texture embedded)"))
         try:
             report = prepare_scan(item, out, make_preview=True)
         except Exception as e:
@@ -628,31 +628,31 @@ def synth_prepare_cmd(
             continue
         level, msgs = assess_report(report)
         results.append((pid, level, msgs))
-        print(f"    {report.get('tris', '?')} Dreiecke, "
-              f"Löcher/offen: {report.get('boundary_edges', '?')}, height_ratio: {report.get('height_ratio', '?')}")
+        print(f"    {report.get('tris', '?')} triangles, "
+              f"holes/open: {report.get('boundary_edges', '?')}, height_ratio: {report.get('height_ratio', '?')}")
 
-    print("\nZusammenfassung:")
+    print("\nSummary:")
     for pid, level, msgs in results:
         glyph = {"ok": "[OK]  ", "warn": "[WARN]", "fail": "[FAIL]"}[level]
         print(f"{glyph} {pid}" + ("" if not msgs else " — " + "; ".join(msgs)))
-    print(f"\nPreviews ansehen: {out}\\<Figur>\\<Variante>_preview.png — dann `chesslab synth render …`")
+    print(f"\nView previews at: {out}\\<piece>\\<variant>_preview.png — then `chesslab synth render ...`")
     raise typer.Exit(1 if any(lv == "fail" for _, lv, _ in results) else 0)
 
 
 @synth_app.command("board-texture")
 def synth_board_texture(
-    image: str = typer.Option(..., "--image", help="Brett-Foto (JPG/PNG) mit 4 ArUco-Markern an den Ecken."),
-    out: str = typer.Option(None, "--out", help="Ziel-Pfad (Default: synth_pieces/board_texture.png)."),
-    size: int = typer.Option(1024, "--size", help="Quadratische Ausgabegröße (px)."),
+    image: str = typer.Option(..., "--image", help="Board photo (JPG/PNG) with 4 ArUco markers at the corners."),
+    out: str = typer.Option(None, "--out", help="Target path (default: synth_pieces/board_texture.png)."),
+    size: int = typer.Option(1024, "--size", help="Square output size (px)."),
     dict_name: str = typer.Option("DICT_4X4_50", "--dict", help="ArUco-Dictionary."),
-    margin: float = typer.Option(0.04, "--margin", help="Marker-zu-Raster-Einzug (Fraction)."),
+    margin: float = typer.Option(0.04, "--margin", help="Marker-to-grid inset (fraction)."),
 ) -> None:
-    """Brett-Foto zu rektifizierter quadratischer Textur entzerren (für `synth render --board-texture`)."""
+    """Rectify board photo to rectified square texture (for `synth render --board-texture`)."""
     import sys as _sys
 
     from .config import _REPO_ROOT, SYNTH
 
-    # synth/ liegt im Repo-Root (kein installiertes Paket) — für den CLI-Aufruf nachrüsten.
+    # synth/ lives in repo root (not an installed package) — retrofit for CLI invocation.
     if str(_REPO_ROOT) not in _sys.path:
         _sys.path.insert(0, str(_REPO_ROOT))
     from synth.board_texture import rectify
@@ -667,13 +667,13 @@ def synth_board_texture(
 
 @synth_app.command("preview")
 def synth_preview(
-    obj: str = typer.Option(..., "--obj", help="Vorbereitete Figur (.obj, Z-up aus `synth prepare`)."),
-    out: str = typer.Option(..., "--out", help="Ziel-PNG."),
-    tex: str | None = typer.Option(None, "--tex", help="Textur-PNG (Default: <obj>.png daneben; --clay ignoriert sie)."),
-    clay: bool = typer.Option(False, "--clay", help="Ohne Textur rendern (Geometrie pur — Bumps/Löcher am besten sichtbar)."),
-    blender: str | None = typer.Option(None, "--blender", help="Blender-Executable (Default: auto-erkannt)."),
+    obj: str = typer.Option(..., "--obj", help="Prepared piece (.obj, Z-up from `synth prepare`)."),
+    out: str = typer.Option(..., "--out", help="Target PNG."),
+    tex: str | None = typer.Option(None, "--tex", help="Texture PNG (default: <obj>.png alongside; --clay ignores it)."),
+    clay: bool = typer.Option(False, "--clay", help="Render without texture (geometry only — bumps/holes most visible)."),
+    blender: str | None = typer.Option(None, "--blender", help="Blender executable (default: auto-detected)."),
 ) -> None:
-    """Einzelne Figur hübsch rendern (orthografische 3/4-Ansicht, aufrecht, zwei Lichtquellen)."""
+    """Render a single piece nicely (orthographic 3/4 view, upright, two light sources)."""
     import subprocess
 
     from .config import SYNTH
@@ -683,7 +683,7 @@ def synth_preview(
     obj_p = Path(obj).resolve()
     tex_p = None if clay else (Path(tex).resolve() if tex else obj_p.with_suffix(".png"))
     if tex_p is not None and not tex_p.exists():
-        print(f"[WARN] Textur {tex_p} fehlt — rendere Clay.")
+        print(f"[WARN] Texture {tex_p} missing — rendering clay.")
         tex_p = None
     bl = blender or SYNTH.blender_cmd()
     cmd = [bl, "--background", "--python-exit-code", "1", "--python", str(script), "--",
@@ -692,10 +692,10 @@ def synth_preview(
     try:
         subprocess.run(cmd, check=True, capture_output=True, text=True)
     except FileNotFoundError:
-        print(f"[FAIL] Blender nicht gefunden ('{bl}'). CHESSLAB_BLENDER setzen.")
+        print(f"[FAIL] Blender not found ('{bl}'). Set CHESSLAB_BLENDER.")
         raise typer.Exit(1)
     except subprocess.CalledProcessError as e:
-        print("[FAIL] Render fehlgeschlagen:\n" + "\n".join((e.stdout or "").splitlines()[-6:]))
+        print("[FAIL] Render failed:\n" + "\n".join((e.stdout or "").splitlines()[-6:]))
         raise typer.Exit(1)
     print(f"[OK] synth preview: {out}")
 

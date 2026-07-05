@@ -1,4 +1,4 @@
-"""Stufe 5 — Modell. Zwei wählbare Backbones, gleicher 13-Klassen-Kopf."""
+"""Stage 5 — Model. Two selectable backbones, same 13-class head."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ def _gn_groups(channels: int) -> int:
 
 
 def _norm_layer(norm: str, channels: int) -> nn.Module:
-    """Normalisierungs-Layer. groupnorm umgeht den MIOpen/HIPRTC-BatchNorm-Bug auf ROCm-Windows."""
+    """Normalization layer. groupnorm works around the MIOpen/HIPRTC batch-norm bug on ROCm-Windows."""
     if norm == "groupnorm":
         return nn.GroupNorm(num_groups=_gn_groups(channels), num_channels=channels)
     if norm == "none":
@@ -25,9 +25,9 @@ def _norm_layer(norm: str, channels: int) -> nn.Module:
 
 
 def _convert_bn_to_gn(module: nn.Module) -> nn.Module:
-    """Alle BatchNorm2d (z.B. in torchvision-Backbones) durch GroupNorm ersetzen — sonst crasht
-    MIOpen auf ROCm-Windows (`miopenStatusUnknownError`). Pretrained-Gewichte des Rumpfs bleiben,
-    nur die Norm-Statistik wird neu (GN hat keine running stats)."""
+    """Replace all BatchNorm2d (e.g. in torchvision backbones) with GroupNorm — otherwise MIOpen
+    crashes on ROCm-Windows (`miopenStatusUnknownError`). Pretrained weights of the body remain,
+    only the norm statistics are new (GN has no running stats)."""
     for name, child in module.named_children():
         if isinstance(child, nn.BatchNorm2d):
             setattr(module, name, nn.GroupNorm(_gn_groups(child.num_features), child.num_features))
@@ -37,7 +37,7 @@ def _convert_bn_to_gn(module: nn.Module) -> nn.Module:
 
 
 class SmallCNN(nn.Module):
-    """Kompaktes Conv-Netz: 4 Conv-Blöcke (Norm+ReLU+MaxPool), GlobalAvgPool, Linear -> classes."""
+    """Compact conv net: 4 conv blocks (norm+ReLU+MaxPool), global avg pool, linear -> classes."""
 
     def __init__(self, num_classes: int, in_channels: int = 3, norm: str = "batchnorm") -> None:
         super().__init__()
@@ -66,12 +66,12 @@ _TYPE_ORDER = ("empty", "occluded", "P", "N", "B", "R", "Q", "K")
 
 
 class FactoredHead(nn.Module):
-    """Entkoppelter Kopf: Typ-Kopf (8: empty/occluded/P/N/B/R/Q/K) + Farb-Kopf (2: w/b), additiv zu
-    den 14 kombinierten Klassen-Logits (`logit_wP = typ[P] + farbe[w]`; empty/occluded ohne Farbterm).
+    """Decoupled head: type head (8: empty/occluded/P/N/B/R/Q/K) + color head (2: w/b), additive to
+    the 14 combined class logits (`logit_wP = type[P] + color[w]`; empty/occluded without color term).
 
-    Vorteil: `typ[P]` teilt sich über weiße UND schwarze Bauern -> der Typ-Kopf sieht je Typ doppelt
-    so viele Beispiele (Pooling). Ausgabe sind GANZ NORMALE 14-Klassen-Logits in `classes`-Reihenfolge,
-    daher bleibt alles Nachgelagerte (Loss/Board-Acc/Eval/Inferenz) unverändert.
+    Advantage: `type[P]` is shared across white AND black pawns -> the type head sees twice
+    as many examples per type (pooling). Output is COMPLETELY NORMAL 14-class logits in `classes` order,
+    therefore everything downstream (loss/board-acc/eval/inference) remains unchanged.
     """
 
     def __init__(self, feat_dim: int, classes: list[str]) -> None:
@@ -99,23 +99,24 @@ class FactoredHead(nn.Module):
 
 
 class HierarchicalHead(nn.Module):
-    """Zweistufiger Kopf (Occupancy→Piece): ein Occupancy-Kopf (2: leer/besetzt) + ein Figuren-Kopf
-    (13: die besetzten Klassen, d.h. alle außer `empty`, inkl. `occluded`). Die Ausgabe sind
-    **rekonstruierte Log-Wahrscheinlichkeiten** über die 14 `classes` in genau ihrer Reihenfolge:
+    """Two-stage head (occupancy→piece): an occupancy head (2: empty/occupied) + a piece head
+    (13: the occupied classes, i.e. all except `empty`, incl. `occluded`). The output is
+    **reconstructed log probabilities** over the 14 `classes` in exactly their order:
 
-        out[empty]    = log P(empty)                          = log_softmax(occ)[leer]
-        out[piece c]  = log P(besetzt) + log P(c | besetzt)   = log_softmax(occ)[besetzt]
+        out[empty]    = log P(empty)                          = log_softmax(occ)[empty]
+        out[piece c]  = log P(occupied) + log P(c | occupied)  = log_softmax(occ)[occupied]
                                                                  + log_softmax(piece)[c]
 
-    Damit gilt `exp(out)` summiert je Zeile zu 1, `softmax(out)=P` (Inferenz unverändert) und
-    `CrossEntropyLoss(out, y)` ist exakt die zweistufige Joint-NLL: für `empty`-Ziele hängt der Loss
-    nur am Occupancy-Kopf, für besetzte Ziele an beiden — der Figuren-Kopf bekommt also **nur auf
-    besetzten Feldern Gradient** (das chesscog-Prinzip), ganz ohne Sonderfall im Trainingsloop.
+    Thus `exp(out)` sums to 1 per row, `softmax(out)=P` (inference unchanged) and
+    `CrossEntropyLoss(out, y)` is exactly the two-stage joint NLL: for `empty` targets the loss
+    only depends on the occupancy head, for occupied targets on both — the piece head therefore
+    receives gradient **only on occupied squares** (the chesscog principle), without any special
+    case in the training loop.
     """
 
     def __init__(self, feat_dim: int, classes: list[str]) -> None:
         super().__init__()
-        piece_classes = [c for c in classes if c != "empty"]   # 13 besetzte Klassen, Reihenfolge wie classes
+        piece_classes = [c for c in classes if c != "empty"]   # 13 occupied classes, order as classes
         self.occ_head = nn.Linear(feat_dim, 2)                  # [B, 2] leer / besetzt
         self.piece_head = nn.Linear(feat_dim, len(piece_classes))  # [B, 13]
         occ_idx, piece_idx, occ_mask = [], [], []
@@ -137,9 +138,9 @@ class HierarchicalHead(nn.Module):
 
 
 class DecoupledModel(nn.Module):
-    """Backbone als Feature-Extraktor + entkoppelter Kopf (`FactoredHead` Typ×Farbe oder
-    `HierarchicalHead` Occupancy→Piece). Gibt in jedem Fall 14 Werte pro Feld aus (Logits bzw.
-    Log-Probs), sodass alles Nachgelagerte (Loss/Board-Acc/Eval/Inferenz) unverändert bleibt."""
+    """Backbone as feature extractor + decoupled head (`FactoredHead` type×color or
+    `HierarchicalHead` occupancy→piece). Outputs 14 values per square in any case (logits or
+    log-probs), so everything downstream (loss/board-acc/eval/inference) remains unchanged."""
 
     def __init__(self, backbone: str, classes: list[str], pretrained: bool, norm: str,
                  head: str = "factored") -> None:
@@ -159,7 +160,7 @@ class DecoupledModel(nn.Module):
                 _convert_bn_to_gn(m)
             self._mobile, self.features, self.pool = m, None, None
         else:
-            raise ValueError(f"unbekanntes backbone {backbone!r} (smallcnn | mobilenet_v3_small).")
+            raise ValueError(f"unknown backbone {backbone!r} (smallcnn | mobilenet_v3_small).")
         self.head = HierarchicalHead(feat_dim, classes) if head == "twostage" else FactoredHead(feat_dim, classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -170,15 +171,15 @@ class DecoupledModel(nn.Module):
 def build_model(backbone: str, num_classes: int, pretrained: bool = False,
                 norm: str = "batchnorm", head: str = "combined",
                 classes: list[str] | None = None) -> nn.Module:
-    """`head="combined"`: ein 14-Klassen-Linear-Kopf. `head="factored"`: entkoppelter Typ+Farbe-Kopf.
-    `head="twostage"`: zweistufiger Occupancy→Piece-Kopf (`HierarchicalHead`). `factored`/`twostage`
-    brauchen die `classes`-Liste für das Index-Mapping."""
+    """`head="combined"`: a 14-class linear head. `head="factored"`: decoupled type+color head.
+    `head="twostage"`: two-stage occupancy→piece head (`HierarchicalHead`). `factored`/`twostage`
+    need the `classes` list for the index mapping."""
     if head in ("factored", "twostage"):
         from .. import config
 
         return DecoupledModel(backbone, classes or config.CLASSES, pretrained, norm, head=head)
     if head != "combined":
-        raise ValueError(f"unbekannter head {head!r} (combined | factored | twostage).")
+        raise ValueError(f"unknown head {head!r} (combined | factored | twostage).")
     if backbone == "smallcnn":
         return SmallCNN(num_classes, norm=norm)
     if backbone == "mobilenet_v3_small":
@@ -188,7 +189,7 @@ def build_model(backbone: str, num_classes: int, pretrained: bool = False,
         m = models.mobilenet_v3_small(weights=weights)
         in_f = m.classifier[-1].in_features
         m.classifier[-1] = nn.Linear(in_f, num_classes)
-        if norm == "groupnorm":     # ROCm-Windows: MobileNet-BatchNorm -> GroupNorm, sonst MIOpen-Crash
+        if norm == "groupnorm":     # ROCm-Windows: MobileNet batch-norm -> groupnorm, otherwise MIOpen crash
             _convert_bn_to_gn(m)
         return m
-    raise ValueError(f"unbekanntes backbone {backbone!r} (smallcnn | mobilenet_v3_small).")
+    raise ValueError(f"unknown backbone {backbone!r} (smallcnn | mobilenet_v3_small).")

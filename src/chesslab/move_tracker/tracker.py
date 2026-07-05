@@ -1,19 +1,19 @@
-"""Kern des Move-Trackers: Warp -> z-Scores (Rauschmodell) -> LL-Score je legalem Zug -> Spielzustand.
-Optional CNN-Verify/-Recovery (Spec 09) und probabilistisches Scoring v2 (Spec 10).
+"""Core of the Move-Tracker: warp -> z-scores (noise model) -> LL-score per legal move -> game state.
+Optional CNN-Verify/-Recovery (Spec 09) and probabilistic scoring v2 (Spec 10).
 
-Zustandsmaschine pro Frame:
-  - Motion-Gating: Frame-zu-Frame-Differenz hoch (Brett ODER erweitertes ROI um das Brett)
-    -> "Hand im Bild" (MOVING), nicht detektieren.
-  - Wird es ruhig (STABLE): Per-Feld-Diff vs. Base-Truth -> Median-Normalisierung -> z-Scores
-    gegen ein laufendes per-Feld-Rauschmodell -> Log-Likelihood je legalem Zug (relativ zu
-    „kein Zug"); Ambiguität wird per Heuristik-Prior aufgelöst oder dem Nutzer gezeigt.
-  - CNN-Recovery (optional): bei stuck oder periodisch prüft das CNN (cnn_recovery.py) die
-    Identität/Occupancy, findet Züge bis 2 Halbzüge tief und kann einen Diff-Kandidaten
-    im Pre-Commit-Verify überstimmen. Ohne CNN: Nudge-/Drift-Zellen-Patch der Referenz.
-Vollbild: docs/move-tracker-flow.md (Mermaid).
+State machine per frame:
+  - Motion gating: frame-to-frame difference high (board OR extended ROI around the board)
+    -> "hand in image" (MOVING), do not detect.
+  - When it becomes stable (STABLE): per-square diff vs. base truth -> median normalization -> z-scores
+    against a running per-square noise model -> log-likelihood per legal move (relative to
+    "no move"); ambiguity is resolved via heuristic prior or shown to the user.
+  - CNN recovery (optional): when stuck or periodically the CNN (cnn_recovery.py) checks
+    identity/occupancy, finds moves up to 2 half-moves deep and can overrule a diff candidate
+    in pre-commit verify. Without CNN: nudge/drift cell-patch of the reference.
+Full picture: docs/move-tracker-flow.md (Mermaid).
 
-Reuse aus chesslab: Profil/Geometrie (load_profile, _square_to_col_row, board_corners_for_frame,
-make_tracker, warp_from_corners) und Kamera (web.camera.open_source: int|URL inkl. IP-Cam).
+Reuse from chesslab: profile/geometry (load_profile, _square_to_col_row, board_corners_for_frame,
+make_tracker, warp_from_corners) and camera (web.camera.open_source: int|URL incl. IP cam).
 """
 
 from __future__ import annotations
@@ -46,10 +46,10 @@ _ALL = [f"{f}{r}" for r in range(1, 9) for f in _FILES]
 
 def square_region(square: str, board_size: int, white_pov: bool, inset: float = 0.16,
                   extend_up: float = 0.0):
-    """Pixel-Box (x0,y0,x1,y1) der Zelle im entzerrten board_size-Bild, leicht nach innen versetzt
-    (gegen Grid-Linien-/Nachbar-Rauschen). `extend_up` (Anteil Zelle) erweitert die Box Richtung
-    Bild-oben (hintere Reihe): 3D-Figuren ragen bei schräger Kamera dorthin über (CLAUDE.md-Fallstrick);
-    erweiterte Zellen dürfen überlappen — das weiche LL-Scoring verträgt das."""
+    """Pixel box (x0,y0,x1,y1) of the cell in the rectified board_size image, slightly inset
+    (against grid-line/neighbor noise). `extend_up` (fraction of cell) extends the box toward
+    the top of the image (back rank): 3D pieces protrude there with an angled camera (CLAUDE.md pitfall);
+    extended cells may overlap — the soft LL-scoring tolerates that."""
     col, row = _square_to_col_row(square, white_pov)
     cell = board_size / 8.0
     m = cell * inset
@@ -66,7 +66,7 @@ def square_center(square: str, board_size: int, white_pov: bool):
 
 def per_square_diff(gray_a, gray_b, board_size: int, white_pov: bool,
                     extend_up: float = 0.0) -> dict[str, float]:
-    """Mittlere absolute Helligkeitsdifferenz je Feld zwischen zwei entzerrten Graustufenbildern."""
+    """Mean absolute brightness difference per square between two rectified grayscale images."""
     d = cv2.absdiff(gray_a, gray_b)
     out: dict[str, float] = {}
     for sq in _ALL:
@@ -75,16 +75,16 @@ def per_square_diff(gray_a, gray_b, board_size: int, white_pov: bool,
     return out
 
 
-# Popcount-LUT für 8-Bit-Census-Codes (Hamming-Distanz je Pixel).
+# Popcount LUT for 8-bit census codes (Hamming distance per pixel).
 _POPCOUNT8 = np.array([bin(i).count("1") for i in range(256)], dtype=np.uint8)
 
 
 def census_transform(gray) -> np.ndarray:
-    """3×3-Census-Transform: je Pixel ein 8-Bit-Code „Zentrum heller als Nachbar?".
-    Invariant gegen MONOTONE Helligkeitsänderungen (Schatten dunkeln monoton ab → Code bleibt
-    gleich), erfasst aber Struktur/Kanten (echte Figur → Code ändert sich)."""
-    # Rand REPLICATE-padden statt np.roll: roll würde Randpixel gegen die GEGENSEITE des
-    # Bildes vergleichen (Reihe 8 gegen Reihe 1) und die Census-Scores der Randfelder verfälschen.
+    """3×3 census transform: each pixel gets an 8-bit code "center brighter than neighbor?".
+    Invariant to MONOTONE brightness changes (shadows darken monotonically → code stays
+    the same), but captures structure/edges (real piece → code changes)."""
+    # Pad border with REPLICATE instead of np.roll: roll would compare border pixels against the
+    # OPPOSITE side of the image (row 8 vs row 1) and distort the census scores of edge squares.
     g = cv2.copyMakeBorder(gray, 1, 1, 1, 1, cv2.BORDER_REPLICATE).astype(np.int16)
     center = g[1:-1, 1:-1]
     code = np.zeros(center.shape, dtype=np.uint8)
@@ -100,9 +100,9 @@ def census_transform(gray) -> np.ndarray:
 
 
 def per_square_census_change(ref_gray, cur_gray, board_size: int, white_pov: bool) -> dict[str, float]:
-    """Strukturelle Änderung je Feld: mittlere Hamming-Distanz der Census-Codes (0..8),
-    auf 0..255 skaliert (vergleichbar mit dem Grau-Diff/change_thr). Klein bei reiner
-    Helligkeits-/Schatten-Änderung, groß bei erscheinender/verschwindender Figur."""
+    """Structural change per square: mean Hamming distance of census codes (0..8),
+    scaled to 0..255 (comparable to the gray diff/change_thr). Small for pure
+    brightness/shadow changes, large for appearing/disappearing pieces."""
     ham = _POPCOUNT8[census_transform(ref_gray) ^ census_transform(cur_gray)]
     out: dict[str, float] = {}
     for sq in _ALL:
@@ -115,10 +115,10 @@ def per_square_census_change(ref_gray, cur_gray, board_size: int, white_pov: boo
 def hsv_shadow_squares(ref_bgr, cur_bgr, board_size: int, white_pov: bool, candidates,
                        v_lo: float = 0.45, v_hi: float = 0.95,
                        h_tol: float = 12.0, s_tol: float = 30.0, frac: float = 0.6) -> set[str]:
-    """Cast-Shadow-Erkennung nach Cucchiara (HSV): ein Feld ist „Schatten", wenn seine Pixel
-    gegenüber der Referenz gleiche Farbe (Hue ~gleich), nicht stärker gesättigt und dunkler
-    sind (V-Verhältnis in [v_lo, v_hi]). Nur die `candidates` (bereits als geändert markiert)
-    werden geprüft. Ein Handschatten erfüllt das; eine echte Figur nicht (andere Farbe/Struktur)."""
+    """Cast shadow detection according to Cucchiara (HSV): a square is "shadow" if its pixels,
+    compared to the reference, have the same hue (Hue ~equal), are not more saturated and are
+    darker (V ratio in [v_lo, v_hi]). Only `candidates` (already marked as changed) are checked.
+    A hand shadow satisfies this; a real piece does not (different color/structure)."""
     hr = cv2.cvtColor(ref_bgr, cv2.COLOR_BGR2HSV).astype(np.float32)
     hc = cv2.cvtColor(cur_bgr, cv2.COLOR_BGR2HSV).astype(np.float32)
     out: set[str] = set()
@@ -130,7 +130,7 @@ def hsv_shadow_squares(ref_bgr, cur_bgr, board_size: int, white_pov: bool, candi
         Vr, Vc = R[..., 2], C[..., 2]
         ratio = Vc / (Vr + 1e-3)
         dh = np.abs(C[..., 0] - R[..., 0])
-        dh = np.minimum(dh, 180.0 - dh)                  # Hue ist zirkulär (0..179)
+        dh = np.minimum(dh, 180.0 - dh)                  # Hue is circular (0..179)
         ds = C[..., 1] - R[..., 1]
         shadow_px = (ratio >= v_lo) & (ratio <= v_hi) & (dh <= h_tol) & (ds <= s_tol)
         if float(shadow_px.mean()) >= frac and Vc.mean() < Vr.mean():
@@ -139,12 +139,12 @@ def hsv_shadow_squares(ref_bgr, cur_bgr, board_size: int, white_pov: bool, candi
 
 
 def move_touched_squares(board: chess.Board, move: chess.Move) -> set[str]:
-    """Felder, die ein Zug physisch verändert: from, to, + Turm bei Rochade, + geschlagener Bauer
-    bei en passant."""
+    """Squares that a move physically changes: from, to, + rook on castling, + captured pawn
+    on en passant."""
     sqs = {chess.square_name(move.from_square), chess.square_name(move.to_square)}
     if board.is_castling(move):
         rank = chess.square_rank(move.from_square)
-        if chess.square_file(move.to_square) > chess.square_file(move.from_square):  # kurze Rochade
+        if chess.square_file(move.to_square) > chess.square_file(move.from_square):  # kingside castling
             sqs.add(chess.square_name(chess.square(7, rank)))
             sqs.add(chess.square_name(chess.square(5, rank)))
         else:
@@ -157,31 +157,32 @@ def move_touched_squares(board: chess.Board, move: chess.Move) -> set[str]:
 
 
 def normalize_diffs(diffs: dict[str, float]) -> dict[str, float]:
-    """Globale Helligkeits-/Belichtungsdrift herausrechnen: pro-Feld-Diff minus dem robusten
-    Grundrauschen (Median über alle 64 Felder). Bei einem echten Zug ändern sich nur ~2-4 Felder,
-    der Median bleibt ~0 → harmlos. Schwankt dagegen die Handy-AutoExposure und das GANZE Brett wird
-    heller/dunkler, hebt der Median diesen Sockel ab, statt 60+ Felder fälschlich als „geändert" zu
-    melden. So überlebt die Erkennung Belichtungssprünge beim Hand-Reinhalten."""
+    """Remove global brightness/exposure drift: per-square diff minus the robust baseline
+    noise (median over all 64 squares). For a real move only ~2-4 squares change,
+    the median stays ~0 → harmless. If, however, the phone's auto-exposure fluctuates and the
+    WHOLE board becomes brighter/darker, the median removes this offset, instead of falsely
+    reporting 60+ squares as "changed". This allows detection to survive exposure jumps
+    when a hand enters the frame."""
     vals = sorted(diffs.values())
     n = len(vals)
-    baseline = vals[n // 2] if n else 0.0           # Median (robust gegen die paar bewegten Felder)
+    baseline = vals[n // 2] if n else 0.0           # Median (robust against the few moved squares)
     return {s: max(0.0, v - baseline) for s, v in diffs.items()}
 
 
 class SquareNoise:
-    """Laufendes Rauschmodell des per-Feld-Diffs (EMA von Mittel und Streuung) auf den
-    bereits median-normalisierten Diffs (sonst springen die z-Scores bei jedem
-    Belichtungswechsel). Absorbiert Marker-Jitter, Belichtungsflackern und langsamen,
-    räumlich ungleichmäßigen Lichtdrift, den der globale Median-Abzug nicht erwischt.
+    """Running noise model of per-square diff (EMA of mean and variance) on the
+    already median-normalized diffs (otherwise the z-scores would jump on every
+    exposure change). Absorbs marker jitter, exposure flicker, and slow,
+    spatially uneven light drift that the global median subtraction doesn't catch.
 
-    Lernen läuft auf JEDEM stabilen Frame, aber nur für Felder unterhalb der Schwelle
-    (`exclude` = aktuelle Kandidaten): sonst friert das Modell im Stuck-Zustand ein und
-    kann Jitter nie wieder wegadaptieren. Der std-Floor ist zwingend: gegen eine frische
-    Referenz ist diff ≈ 0 und die EMA würde sonst kollabieren (z-Scores explodieren).
-    Floor 3.0 (≈ 9 Graustufen bei z_thr=3) ist bewusst EMPFINDLICHER als v1 (16):
-    clip01-Replay zeigte, dass Floor 5 kontrastarme Züge (schwarzer Bauer auf dunklem
-    Feld) verliert; die dadurch möglichen Phantom-Felder (Hand-Reste, AE-Flackern)
-    heilt der per-Feld-Anomalie-Patcher in _maybe_patch_anomaly."""
+    Learning runs on EVERY stable frame, but only for squares below the threshold
+    (`exclude` = current candidates): otherwise the model freezes in the stuck state and
+    can never adapt away jitter again. The std-floor is mandatory: against a fresh
+    reference diff ≈ 0 and the EMA would otherwise collapse (z-scores explode).
+    Floor 3.0 (≈ 9 gray levels at z_thr=3) is deliberately MORE SENSITIVE than v1 (16):
+    clip01-replay showed that floor 5 loses low-contrast moves (black pawn on dark
+    square); the resulting phantom squares (hand residue, AE flicker)
+    are healed by the per-square anomaly patcher in _maybe_patch_anomaly."""
 
     def __init__(self, alpha: float = 0.05, init_std: float = 6.0, std_floor: float = 3.0) -> None:
         self.alpha = alpha
@@ -205,16 +206,16 @@ class SquareNoise:
 
 def loglik_scores(board: chess.Board, z: dict[str, float],
                   z_thr: float = 3.0, k: float = 1.0) -> list[tuple[chess.Move, float]]:
-    """Log-Likelihood-Score je legalem Zug, relativ zur Hypothese „kein Zug".
+    """Log-likelihood score per legal move, relative to the hypothesis "no move".
 
-    p(Feld geändert) = sigmoid(k·(z − z_thr)); ein Zug „erklärt" seine berührten Felder.
-    Relativ zu „kein Zug" trägt jeder Zug Σ logit(p) über seine touched-Felder bei —
-    heiße unberührte Felder bestrafen damit automatisch alle Züge, die sie nicht erklären
-    (relativ zu Zügen, die es tun). Kein harter Cutoff mehr: ein schwaches Zielfeld
-    (weiße Figur auf weißem Feld) senkt den Score, eliminiert den Zug aber nicht.
-    Rückgabe absteigend sortiert; leere Liste, wenn keine legalen Züge existieren."""
-    # logit(sigmoid(x)) == x: der Beitrag eines Feldes ist direkt k·(z − z_thr), geklippt
-    # gegen Ausreißer (ein einzelnes extrem heißes Feld soll nicht alles dominieren).
+    p(square changed) = sigmoid(k·(z − z_thr)); a move "explains" its touched squares.
+    Relative to "no move", each move contributes Σ logit(p) over its touched squares —
+    hot untouched squares thus automatically penalize all moves that don't explain them
+    (relative to moves that do). No more hard cutoff: a weak target square
+    (white piece on white square) lowers the score but does not eliminate the move.
+    Returns sorted descending; empty list if no legal moves exist."""
+    # logit(sigmoid(x)) == x: a square's contribution is directly k·(z − z_thr), clipped
+    # against outliers (a single extremely hot square should not dominate everything).
     logit = {sq: float(np.clip(k * (v - z_thr), -12.0, 12.0)) for sq, v in z.items()}
     scored = [(mv, sum(logit[s] for s in move_touched_squares(board, mv)))
               for mv in board.legal_moves]
@@ -225,12 +226,12 @@ def loglik_scores(board: chess.Board, z: dict[str, float],
 def loglik_pair_scores(board: chess.Board, z: dict[str, float],
                        z_thr: float = 3.0, k: float = 1.0,
                        soft: float | None = None) -> list[tuple[list[chess.Move], float]]:
-    """LL-Score für ZUGPAARE (Halbzug + Antwort) — rettet schnelles Spiel ohne CNN:
-    fällt die Antwort in den Diff, bevor der erste Zug bestätigt ist, erklärt kein
-    Einzelzug mehr die Änderung, ein Paar aber schon. Reihenfolge ist durch side-to-move
-    fixiert. Nur Paare, deren SÄMTLICHE from/to-Endpunkte wenigstens schwache Evidenz
-    tragen (z ≥ soft), sind Kandidaten — sonst explodiert der Suchraum in Rauschen.
-    Rückgabe absteigend sortiert (kann leer sein)."""
+    """LL score for MOVE PAIRS (half-move + reply) — saves fast play without CNN:
+    if the reply falls into the diff before the first move is confirmed, no
+    single move explains the change anymore, but a pair does. Order is fixed by side-to-move.
+    Only pairs whose ALL from/to endpoints carry at least weak evidence
+    (z ≥ soft) are candidates — otherwise the search space explodes into noise.
+    Returns sorted descending (can be empty)."""
     soft = z_thr * 0.5 if soft is None else soft
     logit = {sq: float(np.clip(k * (v - z_thr), -12.0, 12.0)) for sq, v in z.items()}
 
@@ -246,8 +247,8 @@ def loglik_pair_scores(board: chess.Board, z: dict[str, float],
         b2 = board.copy(stack=False)
         b2.push(mv1)
         for mv2 in b2.legal_moves:
-            # Zielfeld von mv1 darf von mv2 wieder benutzt werden (Schlagabtausch) —
-            # die Endpunkt-Evidenz von mv2 gilt trotzdem.
+            # mv1's target square may be reused by mv2 (capture exchange) —
+            # mv2's endpoint evidence still counts.
             if not _ok(b2, mv2):
                 continue
             touched = t1 | move_touched_squares(b2, mv2)
@@ -257,9 +258,9 @@ def loglik_pair_scores(board: chess.Board, z: dict[str, float],
 
 
 def move_prior(board: chess.Board, move: chess.Move) -> float:
-    """Kleiner Plausibilitäts-Prior in LL-Einheiten (Stufe A, ohne Engine): entscheidet NUR
-    echte Beinahe-Gleichstände, nie gegen klare Bild-Evidenz (Deckelung |prior| ≤ 1.0).
-    Schlagzug +0.5, Schachgebot +0.3, Vorwärtszug +0.2."""
+    """Small plausibility prior in LL units (level A, without engine): decides ONLY
+    genuine near-ties, never against clear image evidence (capped |prior| ≤ 1.0).
+    Capture +0.5, check +0.3, forward move +0.2."""
     p = 0.0
     if board.is_capture(move):
         p += 0.5
@@ -369,100 +370,100 @@ class MoveTracker:
         avg_frames = avg_frames if avg_frames is not None else (2 if _cnn else 3)
         confirm_frames = confirm_frames if confirm_frames is not None else (1 if _cnn else 2)
         if change_thr is not None or ambiguity_margin is not None:
-            log.warning("change_thr/ambiguity_margin sind deprecated (Spec 10) — "
-                        "das Scoring läuft über z_thr/ambiguity_margin_ll.")
-        self.confirm_frames = confirm_frames          # gleicher Zug muss N ruhige Frames bestätigt sein
-        # -- probabilistisches Scoring (Spec 10, Teil 1) --
-        self.z_thr = z_thr                            # z-Score, ab dem ein Feld als „geändert" gilt
-        self.ll_k = ll_k                              # Sigmoid-Steilheit des LL-Scorings
-        self.ambiguity_margin_ll = ambiguity_margin_ll  # best − second in LL-Einheiten (lichtunabhängig)
-        self.reanchor_ll_floor = reanchor_ll_floor    # Re-Anchor NUR wenn auch best-LL darunter liegt
-        self.noise = SquareNoise()                    # per-Feld-Rauschmodell (EMA, nur in Ruhe geupdatet)
-        self.use_prior = use_prior                    # Heuristik-Prior als Ambiguitäts-Tie-Break (Teil 2)
-        self.prior_last = False                       # letzter Zug wurde per Prior entschieden (Undo-Hinweis)
-        # -- Nudge-/Drift-Re-Anchor ohne CNN (Teil 4) --
+            log.warning("change_thr/ambiguity_margin are deprecated (Spec 10) — "
+                        "scoring uses z_thr/ambiguity_margin_ll.")
+        self.confirm_frames = confirm_frames          # same move must be confirmed for N stable frames
+        # -- probabilistic scoring (Spec 10, part 1) --
+        self.z_thr = z_thr                            # z-score above which a square counts as "changed"
+        self.ll_k = ll_k                              # sigmoid steepness of the LL scoring
+        self.ambiguity_margin_ll = ambiguity_margin_ll  # best − second in LL units (light-independent)
+        self.reanchor_ll_floor = reanchor_ll_floor    # Re-anchor ONLY when best-LL is also below this
+        self.noise = SquareNoise()                    # per-square noise model (EMA, only updated when stable)
+        self.use_prior = use_prior                    # heuristic prior as ambiguity tie-break (part 2)
+        self.prior_last = False                       # last move was decided by prior (undo hint)
+        # -- Nudge/drift re-anchor without CNN (part 4) --
         self.nudge_timeout_s = nudge_timeout_s
         self.drift_window_s = drift_window_s
-        self._anomaly_since: dict[str, float] = {}    # je Feld: seit wann persistent unerklärt geändert
-        # -- Promotion ohne CNN (Teil 5): wartet auf Nutzerwahl via choose_promotion() --
+        self._anomaly_since: dict[str, float] = {}    # per square: since when persistently changed but unexplained
+        # -- Promotion without CNN (part 5): waits for user choice via choose_promotion() --
         self._promo_pending: dict | None = None       # {"from","to","cur","cur_bgr","fen"}
-        self.motion_margin = motion_margin            # Motion-ROI über den Brettrand hinaus (Anteil)
-        self._prev_roi = None                         # voriges ROI-Graubild fürs erweiterte Motion-Gate
-        self.overhang = overhang                      # Diff-Zellen nach oben erweitern (Anteil Zelle)
-        self.corner_jump_px = corner_jump_px          # Ecken-Sprung ⇒ Base-Truth geometrisch invalid
-        self._ref_corners: list | None = None         # Warp-Ecken zum Zeitpunkt der Referenzaufnahme
-        self.live_align = live_align                  # True: Marker live nachführen; False: Kalib. einfrieren
-        self.avg_frames = max(1, avg_frames)          # gleitendes Mittel über N ruhige Frames (Denoise)
-        self.max_changed = max_changed                # mehr geänderte Felder => verdeckt/instabil, kein Zug
-        self.census_thr = census_thr                  # Schwelle für STRUKTURELLE Änderung (Census, 0..255)
-        self._confirmer = Confirmer(confirm_frames)   # extrahiertes Voting (ersetzt self._cand)
-        self._gray_buf = deque(maxlen=self.avg_frames)  # Ring der letzten ruhigen Graubilder
-        self._bgr_buf = deque(maxlen=self.avg_frames)   # dito in Farbe (für den HSV-Schatten-Test)
+        self.motion_margin = motion_margin            # motion ROI beyond the board edge (fraction)
+        self._prev_roi = None                         # previous ROI gray image for the extended motion gate
+        self.overhang = overhang                      # extend diff cells upward (fraction of cell)
+        self.corner_jump_px = corner_jump_px          # corner jump ⇒ base truth geometrically invalid
+        self._ref_corners: list | None = None         # warp corners at the time of reference capture
+        self.live_align = live_align                  # True: track markers live; False: freeze calibration
+        self.avg_frames = max(1, avg_frames)          # moving average over N stable frames (denoise)
+        self.max_changed = max_changed                # more changed squares => occluded/unstable, no move
+        self.census_thr = census_thr                  # threshold for STRUCTURAL change (census, 0..255)
+        self._confirmer = Confirmer(confirm_frames)   # extracted voting (replaces self._cand)
+        self._gray_buf = deque(maxlen=self.avg_frames)  # ring buffer of recent stable gray images
+        self._bgr_buf = deque(maxlen=self.avg_frames)   # same in color (for the HSV shadow test)
 
-        # Observer-Seam-Slots (Spec 06); `recovery` wird bei gesetztem cnn_run lazy befüllt.
+        # Observer seam slots (Spec 06); `recovery` is lazily populated when cnn_run is set.
         self.extra_observers: list = []
         self.recovery = None
 
-        # CNN-Recovery/-Kontrolle (Spec 09): automatischer Beobachter, der (a) bei
-        # festgefahrener Diff-Erkennung den Zug per Occupancy findet und (b) periodisch
-        # kontrolliert, ob Spielzustand und Brett noch übereinstimmen. torch bleibt aus,
-        # solange cnn_run None ist oder nie beobachtet wird.
+        # CNN recovery/control (Spec 09): automatic observer that (a) when
+        # diff detection is stuck finds the move via occupancy and (b) periodically
+        # checks whether game state and board still match. torch stays off
+        # as long as cnn_run is None or never observed.
         self.cnn_run = cnn_run
         self.cnn_conf_thr = cnn_conf_thr
         self.cnn_min_agreement = cnn_min_agreement
         self.cnn_margin_squares = cnn_margin_squares
-        # min_confident gesplittet (Spec 10): Whole-Board-Match braucht viel freie Sicht (32),
-        # Recovery muss gerade bei Teilverdeckung handlungsfähig bleiben (8).
+        # min_confident split (Spec 10): whole-board match needs lots of clear view (32),
+        # recovery must remain operational under partial occlusion (8).
         self.min_confident_board = min_confident_board
         self.min_confident_recovery = min_confident_recovery
-        self.cnn_cooldown_s = cnn_cooldown_s              # Mindestabstand zwischen Recovery-Beobachtungen
-        self.cnn_check_interval_s = cnn_check_interval_s  # Intervall der periodischen Kontrolle
-        self.device = device                             # "auto" | "cpu" | "cuda" (lazy aufgelöst)
-        self._device_resolved: str | None = None         # tatsächliches Torch-Device nach erster Nutzung
-        self._cnn_failed = False                          # Modell fehlt/kaputt -> Feature still aus
-        self._recovery_confirmer = Confirmer(confirm_frames)  # kein Single-Shot-Commit (Voting)
+        self.cnn_cooldown_s = cnn_cooldown_s              # minimum interval between recovery observations
+        self.cnn_check_interval_s = cnn_check_interval_s  # interval for periodic check
+        self.device = device                             # "auto" | "cpu" | "cuda" (lazy resolved)
+        self._device_resolved: str | None = None         # actual torch device after first use
+        self._cnn_failed = False                          # model missing/broken -> feature stays off
+        self._recovery_confirmer = Confirmer(confirm_frames)  # no single-shot commit (voting)
         self._stuck_reason: str | None = None             # "no_legal_move" | "too_many_changed"
-        self._stuck_count = 0                             # wie viele ruhige Frames in Folge stuck
+        self._stuck_count = 0                             # how many stable frames stuck in a row
         self._last_cnn_ts = 0.0
-        self.recovered_last = False                       # letzter Zug kam aus der CNN-Recovery
+        self.recovered_last = False                       # last move came from CNN recovery
         self.cnn_status: str | None = None                # None | "ok" | "mismatch"
-        self.cnn_conflicts: list[str] = []                # Felder, die der Kontrolle widersprechen
+        self.cnn_conflicts: list[str] = []                # squares that contradict the check
 
-        # Pre-Commit-Verifikation: ein bestätigter Diff-Kandidat wartet, bis das CNN ihn
-        # über eine (adaptive) Mehr-Frame-Abstimmung bestätigt oder als Ghost verwirft.
-        self.verify_window = verify_window                # max. Frames, die das CNN befragt wird
-        self.cnn_verify = cnn_verify                      # Identitäts-Verify pro Zug AN? (Default an, nicht blockierend)
-        self._pending: dict | None = None                 # {"uci","fen","frames"} oder None
+        # Pre-commit verification: a confirmed diff candidate waits until the CNN
+        # confirms it via (adaptive) multi-frame voting or discards it as a ghost.
+        self.verify_window = verify_window                # max frames the CNN is consulted
+        self.cnn_verify = cnn_verify                      # identity verify per move ON? (default on, non-blocking)
+        self._pending: dict | None = None                 # {"uci","fen","frames"} or None
 
-        # -- Debug-Metriken (nur Anzeige; unter self.lock gepflegt) --
+        # -- Debug metrics (display only; maintained under self.lock) --
         self._motion = 0.0
         self._diff_ms = 0.0
         self._infer_ms = 0.0
         self._fps = 0.0
         self._changed: list[str] = []
-        self._changed_vals: list[tuple[str, float]] = []   # stärkste Feld-Diffs (sq, wert) für Tuning
-        self._shadow_vetoed: list[str] = []                # Felder, die als Cast-Shadow verworfen wurden
+        self._changed_vals: list[tuple[str, float]] = []   # strongest square diffs (sq, value) for tuning
+        self._shadow_vetoed: list[str] = []                # squares discarded as cast shadow
         self._best_score = 0.0
         self._second_score = 0.0
         self._candidate_uci: str | None = None
-        self._cnn_agreement = 0.0                         # Sicherheit der CNN-Empfehlung (0..1)
+        self._cnn_agreement = 0.0                         # confidence of the CNN recommendation (0..1)
         self._cnn_best_move: str | None = None
         self._verify_state: str | None = None             # None|"verifying"|"confirmed"|"ghost"
 
         self.lock = threading.Lock()
-        self.ref_gray = None          # entzerrtes (gemitteltes) Graubild der Stellung NACH dem letzten Zug
-        self.ref_bgr = None           # dito in Farbe (Base-Truth fürs HSV-Schatten-Veto)
-        self.ref_fen = None           # FEN, die zu ref_gray gehört (Base-Truth = (Bild, FEN)-Paar)
-        self._last_cur = None         # zuletzt gemitteltes ruhiges Graubild (für „nichts-verändert"-Reanchor)
+        self.ref_gray = None          # rectified (averaged) gray image of the position AFTER the last move
+        self.ref_bgr = None           # same in color (base truth for HSV shadow veto)
+        self.ref_fen = None           # FEN associated with ref_gray (base truth = (image, FEN) pair)
+        self._last_cur = None         # last averaged stable gray image (for "nothing-changed" re-anchor)
         self._last_cur_bgr = None
-        self.prev_gray = None         # fürs Motion-Gating
+        self.prev_gray = None         # for motion gating
         self.stable_count = 0
         self.state = "init"           # init | waiting | moving | move
         self.history: list[str] = []  # SAN
         self.last_move = None         # uci
         self.note = ""
         self._overlay_jpeg = None
-        self._last_encode_ts = 0.0    # Overlay-Encode drosseln (nicht jeden Loop unter Lock)
+        self._last_encode_ts = 0.0    # throttle overlay encode (not every loop under lock)
         self._last_loop_ts = 0.0      # für FPS-Schätzung (EMA)
         self._last_frame = None       # letztes Rohframe (für zuschaltbares Ausrichtungs-Bild)
         self._last_corners = None     # zuletzt benutzte Brett-Ecken (a8,h8,h1,a1) im Rohframe
@@ -737,12 +738,12 @@ class MoveTracker:
             self.cnn_status, self.cnn_conflicts = "mismatch", conflicts
             if not cnn_moves:
                 shown = ", ".join(conflicts[:4]) + ("…" if len(conflicts) > 4 else "")
-                self.note = f"CNN-Kontrolle: Brett weicht ab ({shown}) — Figuren prüfen oder Resync"
+                self.note = f"CNN check: board deviates ({shown}) — check pieces or resync"
                 self._recovery_confirmer.reset()
                 return
             key = " ".join(m.uci() for m in cnn_moves)      # Zugfolge als Voting-Schlüssel
             if not self._recovery_confirmer.feed(key):      # Voting statt Single-Shot
-                self.note = (f"CNN-Recovery prüft {key}… "
+                self.note = (f"CNN recovery checks {key}… "
                              f"({self._recovery_confirmer.count}/{self.confirm_frames})")
                 return
             # Atomarer Commit der Zugfolge (1 oder 2 Halbzüge, Reihenfolge durch side-to-move fixiert).
@@ -878,7 +879,7 @@ class MoveTracker:
         """Manueller „Resync per CNN"-Button: einmalige Kontrolle, wendet einen EINDEUTIG
         erklärenden Zug direkt an (bewusst Single-Shot — expliziter Nutzerwunsch)."""
         if not self.cnn_run or self._cnn_failed:
-            return {"ok": False, "error": "CNN nicht konfiguriert (--cnn-run) oder deaktiviert"}
+            return {"ok": False, "error": "CNN not configured (--cnn-run) or disabled"}
         with self.lock:
             frame = None if self._last_frame is None else self._last_frame.copy()
             corners = self._last_corners
@@ -1094,7 +1095,7 @@ class MoveTracker:
             if best < 0.0:
                 # schwache, aber zugkonsistente Evidenz (weiß-auf-weiß?) → Referenz HALTEN,
                 # weder re-anchorn noch stuck melden; der Confirmer sammelt weiter.
-                self.note = f"schwache Zugevidenz ({self.board.san(obs_move)}?) — warte"
+                self.note = f"weak move evidence ({self.board.san(obs_move)}?) — waiting"
                 return
 
         # --- kein Einzelzug erklärt die Änderung → erst Zugpaar probieren (schnelles

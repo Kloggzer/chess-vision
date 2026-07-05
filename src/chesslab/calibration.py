@@ -1,13 +1,13 @@
-"""Stufe 1 — Kalibrierung.
+"""Stage 1 — Calibration.
 
-Bestimmt einmalig die Geometrie zwischen Kamerabild und Brett (Homographie) und speichert
-sie als wiederverwendbares YAML-Profil. Solange Kamera und Brett unbewegt bleiben, liefert
-das Profil für jeden Frame deterministisch die 64 Square-Crops.
+Determines the geometry between camera image and board (homography) once and stores
+it as a reusable YAML profile. As long as camera and board remain stationary, the
+profile provides the 64 square crops deterministically for each frame.
 
-Die reine Mapping-Funktion `square_to_crop_box` lebt hier zentral (Profil-gebunden) und
-wird von Stufe 3 (`labeling.py`) importiert. Profil-Laden/-Speichern und die Geometrie
-sind headless (ohne Kamera/GUI) nutzbar und getestet; nur `calibrate auto`/`check` brauchen
-Kamera + Display.
+The core mapping function `square_to_crop_box` lives here centrally (profile-bound) and
+is imported by Stage 3 (`labeling.py`). Profile loading/saving and the geometry
+are usable and tested headless (without camera/GUI); only `calibrate auto`/`check` need
+camera + display.
 """
 
 from __future__ import annotations
@@ -73,12 +73,12 @@ class CalibrationProfile:
     white_pov: bool
     crop: CropParams
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
-    # Marker-basiert (Pflicht): Slicing/Aufnahme kalibrieren pro Frame aus den ArUco-Markern.
-    # image_corners/homography sind nur der Snapshot von der Kalibrierung (Fallback/Vorschau).
+    # Marker-based (mandatory): calibrate slicing/recording per frame from ArUco markers.
+    # image_corners/homography are only the snapshot from calibration (fallback/preview).
     margin: float = 0.0
     marker_dict: str = "DICT_4X4_50"
-    # Multi-Cam: optionale Quelle (URL/Pfad statt camera_index) und echte Intrinsics. Fehlen sie,
-    # nutzt geometry3d eine Näherung aus frame_size. So ist jede Kamera ein geschlossenes Profil.
+    # Multi-cam: optional source (URL/path instead of camera_index) and real intrinsics. If missing,
+    # geometry3d uses an approximation from frame_size. This way each camera is a self-contained profile.
     source: str | None = None
     camera_matrix: list[list[float]] | None = None
     dist_coeffs: list[float] | None = None
@@ -220,20 +220,20 @@ def ensure_profile(profile: str, source: int | str | None = None, *,
     return prof
 
 
-# --- Reine Geometrie (headless, getestet) ---------------------------------------------
+# --- Pure geometry (headless, tested) ---------------------------------------------
 
 def _square_to_col_row(square: str, white_pov: bool) -> tuple[int, int]:
-    """Square 'e4' -> (col, row) im entzerrten Bild. Ursprung oben links.
+    """Square 'e4' -> (col, row) in the rectified image. Origin top left.
 
-    file a..h -> col 0..7; rank 8..1 -> row 0..7. Bei white_pov=False um 180° gedreht.
+    file a..h -> col 0..7; rank 8..1 -> row 0..7. Rotated 180° when white_pov=False.
     """
     sq = square.strip().lower()
     if len(sq) != 2 or sq[0] not in _FILES or not sq[1].isdigit():
-        raise ValueError(f"ungültiges Feld: {square!r}")
+        raise ValueError(f"invalid square: {square!r}")
     col = _FILES.index(sq[0])
     rank = int(sq[1])
     if not 1 <= rank <= 8:
-        raise ValueError(f"ungültiger Rang: {square!r}")
+        raise ValueError(f"invalid rank: {square!r}")
     row = 8 - rank
     if not white_pov:
         col, row = 7 - col, 7 - row
@@ -241,14 +241,14 @@ def _square_to_col_row(square: str, white_pov: bool) -> tuple[int, int]:
 
 
 def square_to_crop_box(square: str, profile: CalibrationProfile,
-                       clamp: bool = True) -> tuple[int, int, int, int]:
-    """'e4' -> (x0, y0, x1, y1) im entzerrten board_size-Bild.
+                        clamp: bool = True) -> tuple[int, int, int, int]:
+    """'e4' -> (x0, y0, x1, y1) in the rectified board_size image.
 
-    Basiszelle (cell x cell, quadratisch) optional nach OBEN verlängert (Höhe =
-    cell*(1+pad_up), an der unteren Feldkante verankert) und seitlich um pad_side*cell
-    erweitert. `clamp=True` schneidet auf die Bildgrenzen (Box wird ggf. kleiner);
-    `clamp=False` gibt die rohe Box zurück — der Aufrufer (crop_square) füllt überstehende
-    Bereiche mit Rand auf, damit die Box-Geometrie über alle Felder konstant bleibt.
+    Base cell (cell x cell, square) optionally extended UPWARD (height =
+    cell*(1+pad_up), anchored at the lower square edge) and expanded sideways by
+    pad_side*cell. `clamp=True` clips to image boundaries (box may become smaller);
+    `clamp=False` returns the raw box — the caller (crop_square) fills protruding
+    areas with border padding so the box geometry stays constant across all squares.
     """
     col, row = _square_to_col_row(square, profile.white_pov)
     bs = profile.board_size
@@ -256,9 +256,9 @@ def square_to_crop_box(square: str, profile: CalibrationProfile,
     pad_up = profile.crop.pad_up
     pad_side = profile.crop.pad_side
 
-    # `pad_side` weitet die Zelle SYMMETRISCH in alle 4 Richtungen (etwas mehr Figur sichtbar,
-    # nicht hart an der Feldkante abgeschnitten). `pad_up` verlängert ZUSÄTZLICH nach oben für
-    # den 3D-Lean. Bei pad_side=pad_up=0 = exakte Zelle (rückwärtskompatibel).
+    # `pad_side` expands the cell SYMMETRICALLY in all 4 directions (a bit more of the piece visible,
+    # not cut off sharply at the square edge). `pad_up` additionally extends upward for
+    # the 3D lean. pad_side=pad_up=0 = exact cell (backward compatible).
     x0 = col * cell - pad_side * cell
     x1 = (col + 1) * cell + pad_side * cell
     y0 = row * cell - pad_side * cell - pad_up * cell
@@ -271,41 +271,41 @@ def square_to_crop_box(square: str, profile: CalibrationProfile,
 
 
 def square_center(square: str, profile: CalibrationProfile) -> tuple[int, int]:
-    """Pixelmitte der Basiszelle eines Feldes im entzerrten board_size-Bild."""
+    """Pixel center of the base cell of a square in the rectified board_size image."""
     col, row = _square_to_col_row(square, profile.white_pov)
     cell = profile.board_size / 8.0
     return int((col + 0.5) * cell), int((row + 0.5) * cell)
 
 
 def crop_border_px(profile: CalibrationProfile) -> int:
-    """Rand (in Pixeln), mit dem das Brett für den DATEN-Crop mitentzerrt wird, damit Randfelder
-    Inhalt für ihre pad_side/pad_up-Erweiterung haben. Wächst automatisch mit den Pads (mind.
-    `config.CROP_WARP_BORDER_CELLS`). 0 -> kein Rand (Anzeige-Verhalten)."""
+    """Border (in pixels) with which the board is warped for the DATA crop, so edge squares
+    have content for their pad_side/pad_up extension. Grows automatically with the pads (at least
+    `config.CROP_WARP_BORDER_CELLS`). 0 -> no border (display behavior)."""
     cell = profile.board_size / 8.0
     border_cells = max(config.CROP_WARP_BORDER_CELLS, profile.crop.pad_side, profile.crop.pad_up)
     return int(round(border_cells * cell))
 
 
 def compute_homography(image_corners, board_size: int, margin: float = 0.0) -> list[list[float]]:
-    """Vier Bildpunkte (a8, h8, h1, a1) -> 3x3-Homographie auf ein board_size-Quadrat.
+    """Four image points (a8, h8, h1, a1) -> 3x3 homography to a board_size square.
 
-    `margin` > 0: die Bildpunkte liegen um diesen Anteil AUSSERHALB des Spielfelds (Marker
-    an den äußeren Ecken). Das Spielfeld [0, board_size] ist dann entsprechend eingerückt.
+    `margin` > 0: the image points lie this fraction OUTSIDE the playing field (markers
+    at the outer corners). The playing field [0, board_size] is then indented accordingly.
     """
     src = np.array(image_corners, dtype=np.float32)
     bs = float(board_size)
     m = margin * bs
-    # Zielpunkte passend zur Klick-Reihenfolge a8, h8, h1, a1 (ggf. nach außen erweitert):
+    # Target points according to click order a8, h8, h1, a1 (extended outward if margin > 0):
     dst = np.array([[-m, -m], [bs + m, -m], [bs + m, bs + m], [-m, bs + m]], dtype=np.float32)
     H = cv2.getPerspectiveTransform(src, dst)
     return H.tolist()
 
 
 def draw_calibration_overlay(frame, marker_pts, profile: CalibrationProfile, labels: bool = False):
-    """Auf dem Kamerabild: Marker-Box (außen, orange) + echtes Spielfeld + Raster (innen, grün).
+    """On the camera image: marker box (outer, orange) + actual playing field + grid (inner, green).
 
-    `labels=True` beschriftet zusätzlich jedes der 64 Felder (a1..h8) an seiner Zellmitte —
-    auflösungs-adaptiv, damit es im Web-UI bei jeder Stream-/Snapshot-Größe lesbar bleibt.
+    `labels=True` additionally labels each of the 64 squares (a1..h8) at its cell center —
+    resolution-adaptive, so it remains readable in the web UI at any stream/snapshot size.
     """
     img = frame.copy()
     bs = profile.board_size
@@ -316,21 +316,21 @@ def draw_calibration_overlay(frame, marker_pts, profile: CalibrationProfile, lab
         return cv2.perspectiveTransform(a, h_inv).reshape(-1, 2)
 
     cell = bs / 8.0
-    # Zellgröße in Bildpixeln schätzen -> Linienstärke/Schrift skalieren (Stream vs Snapshot).
+    # Estimate cell size in image pixels -> scale line thickness/font (stream vs snapshot).
     o, ex = to_img([[0.0, 0.0]])[0], to_img([[cell, 0.0]])[0]
     cell_px = float(np.hypot(*(ex - o))) or 40.0
     grid_th = max(1, int(round(cell_px / 60)))
-    for i in range(9):  # 8x8-Raster zurückprojizieren
+    for i in range(9):  # back-project 8x8 grid
         p = i * cell
         v = to_img([[p, 0], [p, bs]]).astype(int)
         hh = to_img([[0, p], [bs, p]]).astype(int)
         cv2.line(img, tuple(v[0]), tuple(v[1]), (0, 200, 0), grid_th, cv2.LINE_AA)
         cv2.line(img, tuple(hh[0]), tuple(hh[1]), (0, 200, 0), grid_th, cv2.LINE_AA)
     field = to_img([[0, 0], [bs, 0], [bs, bs], [0, bs]]).astype(np.int32)
-    cv2.polylines(img, [field], True, (0, 255, 0), grid_th + 1, cv2.LINE_AA)  # Spielfeld (grün)
+    cv2.polylines(img, [field], True, (0, 255, 0), grid_th + 1, cv2.LINE_AA)  # playing field (green)
 
     if labels:
-        fs = max(0.3, cell_px / 150.0)            # Schriftgröße ~ Zellgröße
+        fs = max(0.3, cell_px / 150.0)            # font size ~ cell size
         th = max(1, int(round(cell_px / 90)))
         off = int(cell_px * 0.18)
         for rank in range(1, 9):
@@ -341,7 +341,7 @@ def draw_calibration_overlay(frame, marker_pts, profile: CalibrationProfile, lab
                             cv2.FONT_HERSHEY_SIMPLEX, fs, (0, 0, 255), th, cv2.LINE_AA)
 
     mb = np.array(marker_pts, dtype=np.int32)
-    cv2.polylines(img, [mb], True, (0, 180, 255), grid_th + 1, cv2.LINE_AA)   # Marker-Box (orange)
+    cv2.polylines(img, [mb], True, (0, 180, 255), grid_th + 1, cv2.LINE_AA)   # marker box (orange)
     for p in marker_pts:
         cv2.circle(img, (int(p[0]), int(p[1])), max(4, int(cell_px / 18)), (0, 180, 255), -1, cv2.LINE_AA)
     return img
@@ -353,7 +353,7 @@ def warp_board(frame, profile: CalibrationProfile):
 
 
 def draw_board_grid(board_img, profile: CalibrationProfile, labels: bool = True):
-    """8x8-Raster (+ Eck-/Mittenbeschriftung) auf das entzerrte Brett zeichnen."""
+    """Draw 8x8 grid (+ corner/center labels) on the rectified board."""
     img = board_img.copy()
     bs = profile.board_size
     for i in range(9):
@@ -369,12 +369,12 @@ def draw_board_grid(board_img, profile: CalibrationProfile, labels: bool = True)
     return img
 
 
-# --- Kamera-Helfer --------------------------------------------------------------------
+# --- Camera helpers --------------------------------------------------------------------
 
 def open_camera(source: int | str):
-    """Kamera/Quelle öffnen. `int` = lokaler Index (Windows: stabileres DSHOW-Backend); `str` =
-    URL/Pfad (z. B. Handy-IP-Webcam `http://.../video`) -> Standard-Backend, kein DSHOW. So läuft
-    eine Netzwerk-/Handy-Kamera mit identischem Code wie eine USB-Kamera."""
+    """Open camera/source. `int` = local index (Windows: more stable DSHOW backend); `str` =
+    URL/path (e.g. phone IP webcam `http://.../video`) -> standard backend, no DSHOW. This way
+    a network/phone camera runs with identical code to a USB camera."""
     import sys
 
     if isinstance(source, str):
@@ -384,8 +384,8 @@ def open_camera(source: int | str):
     return cv2.VideoCapture(source)
 
 
-# --- ArUco-Auto-Ecken (Marker an a8/h8/h1/a1) -----------------------------------------
-# id 0 -> a8, id 1 -> h8, id 2 -> h1, id 3 -> a1 (gleiche Reihenfolge wie Klick-Kalibrierung).
+# --- ArUco auto-corners (markers at a8/h8/h1/a1) -----------------------------------------
+# id 0 -> a8, id 1 -> h8, id 2 -> h1, id 3 -> a1 (same order as click calibration).
 _ARUCO_LABELS = ("a8", "h8", "h1", "a1")
 
 
@@ -394,10 +394,10 @@ def _aruco_dictionary(dict_name: str):
 
 
 def _detect_marker_quads(frame, dict_name: str, ids: tuple[int, ...]) -> dict[int, np.ndarray]:
-    """Roh-Detektion: {id: (4,2)-Eckarray} je gefundenem Marker (Reihenfolge wie von ArUco)."""
+    """Raw detection: {id: (4,2) corner array} per found marker (order as from ArUco)."""
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
     params = cv2.aruco.DetectorParameters()
-    params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX  # genauere Eckpunkte
+    params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX  # more precise corners
     detector = cv2.aruco.ArucoDetector(_aruco_dictionary(dict_name), params)
     found_corners, found_ids, _ = detector.detectMarkers(gray)
     if found_ids is None:
@@ -407,7 +407,7 @@ def _detect_marker_quads(frame, dict_name: str, ids: tuple[int, ...]) -> dict[in
 
 def detect_board_markers(frame, dict_name: str = "DICT_4X4_50", ids: tuple[int, ...] = (0, 1, 2, 3),
                          corner: str = "center") -> dict[int, list[float]]:
-    """Erkennt die Marker und gibt {id: [x,y]} der GEFUNDENEN zurück (center bzw. innere Ecke)."""
+    """Detects the markers and returns {id: [x,y]} of the FOUND ones (center or inner corner)."""
     quads = _detect_marker_quads(frame, dict_name, ids)
     if not quads:
         return {}
@@ -424,10 +424,10 @@ def detect_board_markers(frame, dict_name: str = "DICT_4X4_50", ids: tuple[int, 
 
 def resolve_board_corners(points_by_id, ids: tuple[int, ...] = (0, 1, 2, 3),
                           board_size: int = 800) -> tuple[list[list[float]], int] | None:
-    """Aus 2/3/4 Markerpunkten die 4 Eckpunkte (a8,h8,h1,a1) rekonstruieren.
+    """Reconstruct the 4 corner points (a8,h8,h1,a1) from 2/3/4 marker points.
 
-    Gibt (corners4, n_genutzt) zurück oder None bei < 2. 4 -> exakte Perspektive,
-    3 -> Affin (Parallelogramm), 2 -> Ähnlichkeit (Quadrat-Annahme). So genügen 2/3 Marker.
+    Returns (corners4, n_used) or None when < 2. 4 -> exact perspective,
+    3 -> affine (parallelogram), 2 -> similarity (square assumption). This way 2/3 markers suffice.
     """
     bs = float(board_size)
     board = {ids[0]: (0.0, 0.0), ids[1]: (bs, 0.0), ids[2]: (bs, bs), ids[3]: (0.0, bs)}
@@ -438,7 +438,7 @@ def resolve_board_corners(points_by_id, ids: tuple[int, ...] = (0, 1, 2, 3),
     dst = np.array([points_by_id[i] for i in have], dtype=np.float64)
     targets = np.array([[0.0, 0.0], [bs, 0.0], [bs, bs], [0.0, bs]], dtype=np.float64)
 
-    if len(have) == 2:  # Ähnlichkeit (Rotation + Skalierung) exakt aus 2 Punkten
+    if len(have) == 2:  # similarity (rotation + scaling) exact from 2 points
         vb, vd = src[1] - src[0], dst[1] - dst[0]
         nb = float(np.linalg.norm(vb))
         if nb < 1e-6:
@@ -459,7 +459,7 @@ def resolve_board_corners(points_by_id, ids: tuple[int, ...] = (0, 1, 2, 3),
 
 def detect_board_corners_aruco(frame, dict_name: str = "DICT_4X4_50", ids: tuple[int, ...] = (0, 1, 2, 3),
                                corner: str = "center", min_markers: int = 4) -> list[list[float]] | None:
-    """4 Eckpunkte (a8,h8,h1,a1) — rekonstruiert fehlende Marker, solange >= min_markers da sind."""
+    """4 corner points (a8,h8,h1,a1) — reconstructs missing markers as long as >= min_markers are present."""
     res = resolve_board_corners(detect_board_markers(frame, dict_name, ids, corner), ids)
     if res is None or res[1] < min_markers:
         return None
@@ -467,63 +467,63 @@ def detect_board_corners_aruco(frame, dict_name: str = "DICT_4X4_50", ids: tuple
 
 
 class MarkerTracker:
-    """Verfolgt je Marker eine geglättete, gegen Verdeckung/Jitter resiliente Position.
+    """Tracks a smoothed, occlusion/jitter-resilient position per marker.
 
-    Eigenschaften (Parameter aus `config.TRACKER`):
-    - **Dead-Zone**: erkannte Bewegung <= `move_threshold` -> Position einfrieren (ruhige Box).
-    - **Glättung**: echte Bewegung -> EMA mit `smooth_alpha` statt hartem Schnappen.
-    - **Ausreißer / Selbstkorrektur**: ein Einzel-Frame-Sprung > `jump_reject_px` wird zunächst
-      gehalten; erst wenn die neue Lage über `jump_confirm_frames` Frames stabil bleibt, wird die
-      Ecke neu gesetzt. So überleben Fehl-Detektionen nicht, ein echtes Verschieben aber schon.
-    - **Alterung**: pro Frame steigt das Alter jeder Ecke; eine Live-Detektion setzt es auf 0.
-      Ab `max_held_frames` ohne Sicht gilt eine Ecke als `stale` (nur fürs Feedback, sie bleibt nutzbar).
-    - **Seed**: `seed()` belegt Ecken aus einem Kalibrierprofil vor (Status `seed`), sodass die
-      Box bei fixer Kamera sofort und perspektivtreu steht — eine Live-Detektion ersetzt den Seed.
+    Properties (parameters from `config.TRACKER`):
+    - **Dead zone**: detected movement <= `move_threshold` -> freeze position (stable box).
+    - **Smoothing**: real movement -> EMA with `smooth_alpha` instead of hard snapping.
+    - **Outlier / self-correction**: a single-frame jump > `jump_reject_px` is initially
+      held; only when the new position stays stable over `jump_confirm_frames` frames is the
+      corner updated. This way false detections don't survive, but real movement does.
+    - **Aging**: each frame increments the age of every corner; a live detection resets it to 0.
+      After `max_held_frames` without visibility a corner is considered `stale` (feedback only, still usable).
+    - **Seed**: `seed()` pre-populates corners from a calibration profile (status `seed`), so the
+      box stands immediately and perspective-accurately with a fixed camera — a live detection replaces the seed.
     """
 
     def __init__(self, params: config.TrackerDefaults | None = None) -> None:
         self.p = params or config.TRACKER
-        self.pos: dict[int, list[float]] = {}                  # geglättete/gehaltene Position
-        self.age: dict[int, int] = {}                          # Frames seit letzter Live-Detektion
-        self.seeded: set[int] = set()                          # nie live bestätigt, nur aus Seed
-        self._pending: dict[int, tuple[list[float], int]] = {}  # Sprung-Kandidat: (Position, Frames)
+        self.pos: dict[int, list[float]] = {}                  # smoothed/held position
+        self.age: dict[int, int] = {}                          # frames since last live detection
+        self.seeded: set[int] = set()                          # never live-confirmed, only from seed
+        self._pending: dict[int, tuple[list[float], int]] = {}  # jump candidate: (position, frames)
 
-    # -- Vorbelegung aus bekannter Geometrie (z.B. Profil) --
+    # -- Pre-population from known geometry (e.g. profile) --
     def seed(self, points_by_id: dict[int, list[float]]) -> None:
         for i, q in points_by_id.items():
             if i not in self.pos:
                 self.pos[i] = [float(q[0]), float(q[1])]
-                self.age[i] = self.p.max_held_frames           # Seed gilt sofort als "alt"/unbestätigt
+                self.age[i] = self.p.max_held_frames           # Seed immediately counts as "old"/unconfirmed
                 self.seeded.add(int(i))
 
     def update(self, detected: dict[int, list[float]]) -> dict[int, list[float]]:
-        for i in self.pos:                                     # zuerst alle altern lassen
+        for i in self.pos:                                     # first let all age
             self.age[i] = self.age.get(i, 0) + 1
         for i, q in detected.items():
             p = [float(q[0]), float(q[1])]
             prev = self.pos.get(i)
-            if prev is None:                                   # neuer Marker -> direkt übernehmen
+            if prev is None:                                   # new marker -> adopt directly
                 self.pos[i] = p
                 self.age[i] = 0
                 self.seeded.discard(i)
                 self._pending.pop(i, None)
                 continue
-            d = abs(p[0] - prev[0]) + abs(p[1] - prev[1])      # L1-Distanz zur aktuellen Lage
-            if d <= self.p.move_threshold:                     # Dead-Zone -> einfrieren, aber live
+            d = abs(p[0] - prev[0]) + abs(p[1] - prev[1])      # L1 distance to current position
+            if d <= self.p.move_threshold:                     # dead zone -> freeze, but mark live
                 self.age[i] = 0
                 self.seeded.discard(i)
                 self._pending.pop(i, None)
                 continue
-            if i in self.seeded:                               # erste echte Detektion ersetzt den Seed
-                self.pos[i] = p                                # -> SNAPpen statt EMA-blenden (sonst
-                self.age[i] = 0                                #    bleibt die Ecke 65% beim Seed =
-                self.seeded.discard(i)                         #    versetztes Raster, Fallstrick im
-                self._pending.pop(i, None)                     #    Marker-Fallback-Slicing)
+            if i in self.seeded:                               # first real detection replaces the seed
+                self.pos[i] = p                                # -> SNAP instead of EMA-blending (otherwise
+                self.age[i] = 0                                #    the corner stays 65% at the seed =
+                self.seeded.discard(i)                         #    offset grid, pitfall in
+                self._pending.pop(i, None)                     #    marker fallback slicing)
                 continue
             if d > self.p.jump_reject_px and i not in self.seeded:
-                if not self._confirm_jump(i, p):               # noch nicht bestätigt -> alte Lage halten
+                if not self._confirm_jump(i, p):               # not yet confirmed -> keep old position
                     continue
-            a = self.p.smooth_alpha                            # echte Bewegung -> EMA-Glättung
+            a = self.p.smooth_alpha                            # real movement -> EMA smoothing
             self.pos[i] = [prev[0] + a * (p[0] - prev[0]), prev[1] + a * (p[1] - prev[1])]
             self.age[i] = 0
             self.seeded.discard(i)
@@ -531,7 +531,7 @@ class MarkerTracker:
         return self.points()
 
     def _confirm_jump(self, i: int, p: list[float]) -> bool:
-        """Sprung erst akzeptieren, wenn die neue Lage `jump_confirm_frames` Frames stabil ist."""
+        """Only accept a jump when the new position is stable for `jump_confirm_frames` frames."""
         cand, cnt = self._pending.get(i, (None, 0))
         if cand is not None and abs(p[0] - cand[0]) + abs(p[1] - cand[1]) <= self.p.jump_reject_px:
             cnt += 1
@@ -540,7 +540,7 @@ class MarkerTracker:
         self._pending[i] = (p, cnt)
         return cnt >= self.p.jump_confirm_frames
 
-    # -- Abfragen --
+    # -- Queries --
     def points(self) -> dict[int, list[float]]:
         return {i: list(p) for i, p in self.pos.items()}
 
@@ -565,17 +565,17 @@ class MarkerTracker:
 
     @property
     def last(self) -> dict[int, list[float]]:
-        """Rückwärtskompatibel: alle bekannten Ecken (live, gehalten, geseedet)."""
+        """Backward compatible: all known corners (live, held, seeded)."""
         return self.points()
 
 
 # =======================================================================================
-# Markerlose Brett-Erkennung über die Brettlinien (Spec 11, chesscog-Stil, KEIN DL)
+# Markerless board detection via board lines (Spec 11, chesscog-style, NO DL)
 # =======================================================================================
 
 def _cluster_two_angle_families(lines) -> tuple[list, list]:
-    """Hough-Linien (rho, theta) in zwei Winkel-Familien teilen (k-means auf dem
-    verdoppelten Winkel, weil theta und theta+pi dieselbe Linienrichtung sind)."""
+    """Split Hough lines (rho, theta) into two angle families (k-means on the
+    doubled angle, because theta and theta+pi are the same line direction)."""
     import numpy as _np
     pts = _np.array([[_np.cos(2 * t), _np.sin(2 * t)] for _r, t in lines], dtype=_np.float32)
     crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-3)
@@ -587,14 +587,14 @@ def _cluster_two_angle_families(lines) -> tuple[list, list]:
 
 
 def _family_positions(family) -> tuple[float, list[tuple[float, float, float]]]:
-    """Je Familie: mittlerer Winkel + 1D-Position jeder Linie entlang der Familien-Normalen.
-    rho-Vorzeichen wird auf den mittleren Winkel normalisiert (theta vs. theta+pi)."""
+    """Per family: mean angle + 1D position of each line along the family normal.
+    rho sign is normalized to the mean angle (theta vs. theta+pi)."""
     import numpy as _np
     ref = float(_np.arctan2(_np.mean([_np.sin(2 * t) for _r, t in family]),
                             _np.mean([_np.cos(2 * t) for _r, t in family])) / 2.0) % _np.pi
     out = []
     for r, t in family:
-        # Linie auf Referenzrichtung normalisieren: |theta - ref| > pi/2 → Linie umklappen.
+        # Normalize line to reference direction: |theta - ref| > pi/2 → flip line.
         d = (t - ref + _np.pi / 2) % _np.pi - _np.pi / 2
         rr = r if abs(d) <= _np.pi / 2 else -r
         out.append((float(rr), r, t))
@@ -602,7 +602,7 @@ def _family_positions(family) -> tuple[float, list[tuple[float, float, float]]]:
 
 
 def _merge_positions(pos_lines, tol: float) -> list[tuple[float, float, float]]:
-    """Nahezu identische Hough-Linien (mehrfach getroffene Brettlinie) zu einer mitteln."""
+    """Merge nearly identical Hough lines (same board line hit multiple times) into one average."""
     merged = []
     for p, r, t in sorted(pos_lines):
         if merged and abs(p - merged[-1][0]) <= tol:
@@ -615,27 +615,27 @@ def _merge_positions(pos_lines, tol: float) -> list[tuple[float, float, float]]:
 
 
 def _grid_progression(positions: list[float]) -> tuple[float, float] | None:
-    """RANSAC über Linienpositionen: die 9er-arithmetische Folge (Brettraster) finden.
+    """RANSAC over line positions: find the 9-term arithmetic progression (board grid).
 
-    Zählt DISTINKTE Slots (zwei Linien im selben Slot zählen einmal) und normiert den
-    Fehler aufs Spacing — sonst gewinnen große Spacings automatisch (große Toleranz
-    fängt alles). Spacing ist auf ein plausibles Verhältnis zur Positions-Spannweite
-    begrenzt (mind. 5 der 9 Linien sichtbar → span/8 ≤ s ≤ span/4).
-    Rückgabe (erste_position, spacing) der Außenlinien-Slots 0 und 8, sonst None."""
+    Counts DISTINCT slots (two lines in the same slot count once) and normalizes the
+    error to spacing — otherwise large spacings win automatically (large tolerance
+    catches everything). Spacing is limited to a plausible ratio of the position span
+    (at least 5 of 9 lines visible → span/8 ≤ s ≤ span/4).
+    Returns (first_position, spacing) of outer line slots 0 and 8, else None."""
     n = len(positions)
-    if n < 6:                                    # mind. 6 der 9 Rasterlinien nötig
+    if n < 6:                                    # at least 6 of the 9 grid lines needed
         return None
-    best = None                                  # (slots, -fehler/s, base, s)
+    best = None                                  # (slots, -error/s, base, s)
     span = max(positions) - min(positions)
     s_lo, s_hi = span / 9.0, span / 4.0
     for i in range(n):
         for j in range(i + 1, n):
             gap = positions[j] - positions[i]
-            for k in range(1, 9):                # Hypothese: Linien i,j liegen k Slots auseinander
+            for k in range(1, 9):                # hypothesis: lines i,j are k slots apart
                 s = gap / k
                 if s <= 2 or not (s_lo <= s <= s_hi):
                     continue
-                for shift in range(0, 9 - k):    # Slot-Offset: Linie i auf Slot `shift`
+                for shift in range(0, 9 - k):    # slot offset: line i onto slot `shift`
                     base = positions[i] - shift * s
                     slots: dict[int, float] = {}
                     for q in positions:
@@ -655,13 +655,13 @@ def _grid_progression(positions: list[float]) -> tuple[float, float] | None:
 
 def board_corners_from_lines(frame, profile: CalibrationProfile | None = None,
                              work_width: int = 960) -> list[list[float]] | None:
-    """Die 4 Brett-Ecken OHNE Marker aus den Brettlinien schätzen (Spec 11).
+    """Estimate the 4 board corners WITHOUT markers from the board lines (Spec 11).
 
-    Klassische Pipeline: Canny → HoughLines → zwei Winkel-Familien → je Familie die
-    9er-Rasterprogression der Linienpositionen (RANSAC) → Außenlinien schneiden = Ecken.
-    Funktioniert bei mäßiger Perspektive (Kamera grob über dem Brett); die Zuordnung zu
-    (a8,h8,h1,a1) übernimmt — wo vorhanden — die Nähe zu `profile.image_corners`, sonst
-    die Standard-Leserichtung. Rückgabe None, wenn kein konsistentes Raster gefunden wird."""
+    Classic pipeline: Canny → HoughLines → two angle families → per family the
+    9-term grid progression of line positions (RANSAC) → intersect outer lines = corners.
+    Works under moderate perspective (camera roughly above the board); the mapping to
+    (a8,h8,h1,a1) uses — where available — proximity to `profile.image_corners`, otherwise
+    the default reading direction. Returns None if no consistent grid is found."""
     import numpy as _np
 
     h, w = frame.shape[:2]
@@ -670,10 +670,10 @@ def board_corners_from_lines(frame, profile: CalibrationProfile | None = None,
     gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (5, 5), 0)
     edges = cv2.Canny(gray, 40, 120)
-    # Hough-Schwelle adaptiv absenken, bis BEIDE Familien genug Rasterlinien tragen —
-    # vertikale Brettlinien sind oft schwächer (Figuren unterbrechen sie); zu niedrige
-    # Schwellen fluten dagegen mit Diagonal-Kanten (clip02-Empirie: 0.30 → B nur 5 Linien,
-    # 0.18 → 4400 Linien Clutter). Die Progression-Suche selbst ist der Qualitätsfilter.
+    # Reduce Hough threshold adaptively until BOTH families carry enough grid lines —
+    # vertical board lines are often weaker (pieces interrupt them); too low
+    # thresholds flood with diagonal edges (clip02 empirical: 0.30 → B only 5 lines,
+    # 0.18 → 4400 lines clutter). The progression search itself is the quality filter.
     quad = None
     for thr_frac in (0.30, 0.24, 0.19):
         raw = cv2.HoughLines(edges, 1, _np.pi / 360,
@@ -691,11 +691,11 @@ def board_corners_from_lines(frame, profile: CalibrationProfile | None = None,
 
 
 def _quad_from_lines(lines) -> list[list[float]] | None:
-    """Aus Hough-Linien die 4 Außen-Ecken des Rasters (in Arbeitsauflösung) oder None."""
+    """From Hough lines the 4 outer corners of the grid (in working resolution) or None."""
     import numpy as _np
 
     fam_a, fam_b = _cluster_two_angle_families(lines)
-    # Familien müssen klar verschiedene Richtungen haben (sonst ist eine nur Clutter).
+    # Families must have clearly different directions (otherwise one is just clutter).
     def _ref(fam):
         return float(_np.arctan2(_np.mean([_np.sin(2 * t) for _r, t in fam]),
                                  _np.mean([_np.cos(2 * t) for _r, t in fam])) / 2.0) % _np.pi
@@ -713,8 +713,8 @@ def _quad_from_lines(lines) -> list[list[float]] | None:
         if prog is None:
             return None
         base, s = prog
-        # Außenlinien: echte Linie nahe Slot 0/8 bevorzugen, sonst mit dem Familienwinkel
-        # extrapolieren (Position p ist per Definition das rho einer Linie mit theta=ref).
+        # Outer lines: prefer real line near slot 0/8, otherwise extrapolate with the family angle
+        # (position p is by definition the rho of a line with theta=ref).
         pair = []
         for slot in (0, 8):
             target = base + slot * s
@@ -740,7 +740,7 @@ def _quad_from_lines(lines) -> list[list[float]] | None:
             if p is None:
                 return None
             quad.append(p)
-    # quad = [A0B0, A0B8, A8B0, A8B8] → als konvexes Viereck ordnen (Winkel um den Schwerpunkt).
+    # quad = [A0B0, A0B8, A8B0, A8B8] → order as convex quad (angle around centroid).
     cx = sum(p[0] for p in quad) / 4.0
     cy = sum(p[1] for p in quad) / 4.0
     quad.sort(key=lambda p: _np.arctan2(p[1] - cy, p[0] - cx))
@@ -749,9 +749,9 @@ def _quad_from_lines(lines) -> list[list[float]] | None:
 
 def _finish_quad(quad, w: int, h: int,
                  profile: CalibrationProfile | None) -> list[list[float]] | None:
-    """Plausibilität (im Bild, Mindestfläche) + Zuordnung zu (a8,h8,h1,a1): Rotation wählen,
-    die den Kalibrier-Ecken am nächsten kommt — Linien allein können 90°/180°-Drehungen
-    nicht unterscheiden. Ohne Profil: Reihenfolge wie sortiert (Nutzer prüft Overlay)."""
+    """Plausibility (inside image, minimum area) + mapping to (a8,h8,h1,a1): choose rotation
+    closest to the calibration corners — lines alone cannot distinguish 90°/180° rotations.
+    Without profile: order as sorted (user checks overlay)."""
     for x, y in quad:
         if not (-0.2 * w <= x <= 1.2 * w and -0.2 * h <= y <= 1.2 * h):
             return None
@@ -775,11 +775,11 @@ def _finish_quad(quad, w: int, h: int,
 
 
 def make_tracker(profile: CalibrationProfile | None = None) -> MarkerTracker:
-    """Tracker erzeugen, bei vorhandenem Profil aus dessen 4 Eckpunkten geseedet.
+    """Create tracker, seeded from the profile's 4 corner points if available.
 
-    `profile.image_corners` sind exakt die 4 Marker-Zentren (a8,h8,h1,a1) der Kalibrierung.
-    Damit steht die Box bei fixer Kamera sofort und perspektivtreu, auch wenn gerade weniger
-    als 4 Marker sichtbar sind.
+    `profile.image_corners` are exactly the 4 marker centers (a8,h8,h1,a1) of the calibration.
+    This way the box stands immediately and perspective-accurately with a fixed camera,
+    even when fewer than 4 markers are currently visible.
     """
     t = MarkerTracker()
     if profile is not None and profile.image_corners and len(profile.image_corners) >= 4:
@@ -789,12 +789,12 @@ def make_tracker(profile: CalibrationProfile | None = None) -> MarkerTracker:
 
 def board_corners_for_frame(frame, profile: CalibrationProfile, tracker: MarkerTracker,
                             min_markers: int | None = None) -> list[list[float]] | None:
-    """Die 4 Brett-Ecken (a8,h8,h1,a1) in **Frame-Pixeln** für diesen Frame.
+    """The 4 board corners (a8,h8,h1,a1) in **frame pixels** for this frame.
 
-    Aktualisiert den Tracker einmal mit der aktuellen Marker-Detektion und löst daraus die
-    Ecken auf (Marker-abgeleitet, **vor** `margin`). Gibt None, wenn weniger als `min_markers`
-    Ecken bekannt sind (Default `config.TRACKER.default_min_markers`). Genau diese Punkte werden
-    bei der Aufnahme ins Log geschrieben, damit `slice` später identisch warpt.
+    Updates the tracker once with the current marker detection and resolves the
+    corners from it (marker-derived, **before** `margin`). Returns None if fewer than
+    `min_markers` corners are known (default `config.TRACKER.default_min_markers`). These exact
+    points are written to the log during recording so that `slice` later warps identically.
     """
     if min_markers is None:
         min_markers = config.TRACKER.default_min_markers
@@ -802,10 +802,10 @@ def board_corners_for_frame(frame, profile: CalibrationProfile, tracker: MarkerT
     pts = tracker.points()
     if len(pts) < min_markers:
         return None
-    # Genau EINE Ecke ist nur-Seed (Marker nie live gesehen — z.B. am Bildrand angeschnitten,
-    # clip02: a8 0% Detektionsrate)? Dann aus den drei ECHTEN Ecken als Parallelogramm
-    # vervollständigen statt den Seed einer womöglich anderen Kameralage zu verwenden
-    # (der versetzte Seed verzerrt sonst dauerhaft ein Viertel des Warps).
+    # Exactly ONE corner is seed-only (marker never seen live — e.g. clipped at image edge,
+    # clip02: a8 0% detection rate)? Then complete it from the three REAL corners as a parallelogram
+    # instead of using the seed from a potentially different camera position
+    # (the offset seed would otherwise permanently distort a quarter of the warp).
     status = tracker.status()
     seeded = [i for i, s in status.items() if s == "seed"]
     if len(seeded) == 1 and len(pts) >= 4:
@@ -820,22 +820,22 @@ def board_corners_for_frame(frame, profile: CalibrationProfile, tracker: MarkerT
 
 
 def warp_from_corners(frame, profile: CalibrationProfile, corners):
-    """Brett **randlos** entzerren aus 4 Frame-Ecken (a8,h8,h1,a1) — Spielfeld füllt [0, board_size].
+    """Rectify board **borderless** from 4 frame corners (a8,h8,h1,a1) — playing field fills [0, board_size].
 
-    Das ist der **Anzeige-Warp** (Web-Frontend legt sein 8×8-Overlay exakt auf die Spielfeldkante).
-    Für den DATEN-Crop siehe `warp_board_for_crops` (mit Rand). Reine Transformation ohne
-    Marker-Detektion; reproduziert dieselbe Geometrie wie zur Aufnahmezeit.
+    This is the **display warp** (web frontend places its 8×8 overlay exactly on the playing field edge).
+    For DATA crop see `warp_board_for_crops` (with border). Pure transformation without
+    marker detection; reproduces the same geometry as at recording time.
     """
     h = np.array(compute_homography(corners, profile.board_size, profile.margin), dtype=np.float64)
     return cv2.warpPerspective(frame, h, (profile.board_size, profile.board_size))
 
 
 def warp_board_for_crops(frame, profile: CalibrationProfile, corners):
-    """Brett **mit Rand** entzerren — der DATEN-Crop-Warp. Canvas `board_size + 2B` mit
-    `B = crop_border_px(profile)`, Homographie um B translatiert. So haben RANDFELDER echten
-    Brett-/Randinhalt für ihre pad_side/pad_up-Erweiterung (statt schwarzem Rand an der
-    Spielfeldkante). Geometrie ist identisch zum randlosen Warp, nur um B verschoben; `crop_square`
-    verschiebt seine Box passend um +B.
+    """Rectify board **with border** — the DATA crop warp. Canvas `board_size + 2B` with
+    `B = crop_border_px(profile)`, homography translated by B. This way EDGE squares have real
+    board/edge content for their pad_side/pad_up extension (instead of black border at the
+    playing field edge). Geometry is identical to the borderless warp, only shifted by B; `crop_square`
+    shifts its box accordingly by +B.
     """
     bs = profile.board_size
     b = crop_border_px(profile)
@@ -846,15 +846,15 @@ def warp_board_for_crops(frame, profile: CalibrationProfile, corners):
 
 def generate_markers(out_path, dict_name: str = "DICT_4X4_50", ids: tuple[int, ...] = (0, 1, 2, 3),
                      marker_px: int = 300, quiet: int | None = None, gap: int = 70):
-    """Druckbares 2x2-Blatt: jeder Marker mit weißer Ruhezone in einer gleich großen Schnitt-Box.
+    """Printable 2x2 sheet: each marker with white quiet zone in an equally-sized cut box.
 
-    `quiet`: weißer Rand um den Marker (wichtig für die Erkennung). Entlang der dünnen
-    schwarzen Box schneiden -> alle 4 Marker exakt gleich groß. `gap`: Abstand zwischen den Boxen.
+    `quiet`: white border around the marker (important for detection). Cut along the thin
+    black box → all 4 markers exactly the same size. `gap`: spacing between boxes.
     """
     d = _aruco_dictionary(dict_name)
     if quiet is None:
         quiet = max(marker_px // 6, 20)
-    box = marker_px + 2 * quiet                      # Schnittkanten-Größe (für alle gleich)
+    box = marker_px + 2 * quiet                      # cut edge size (same for all)
     label_h = 46
     cell = box + 2 * gap + label_h
     sheet = np.full((cell * 2, cell * 2, 3), 255, dtype=np.uint8)
@@ -863,7 +863,7 @@ def generate_markers(out_path, dict_name: str = "DICT_4X4_50", ids: tuple[int, .
         bx0, by0 = c * cell + gap, r * cell + gap    # obere linke Ecke der Schnitt-Box
         marker = cv2.cvtColor(cv2.aruco.generateImageMarker(d, mid, marker_px), cv2.COLOR_GRAY2BGR)
         sheet[by0 + quiet:by0 + quiet + marker_px, bx0 + quiet:bx0 + quiet + marker_px] = marker
-        cv2.rectangle(sheet, (bx0, by0), (bx0 + box, by0 + box), (0, 0, 0), 1, cv2.LINE_AA)  # Schnittlinie
+        cv2.rectangle(sheet, (bx0, by0), (bx0 + box, by0 + box), (0, 0, 0), 1, cv2.LINE_AA)  # cut line
         cv2.putText(sheet, f"{lab} (id {mid})", (bx0, by0 + box + 34),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2, cv2.LINE_AA)
     out_path = Path(out_path)
@@ -875,22 +875,22 @@ def generate_markers(out_path, dict_name: str = "DICT_4X4_50", ids: tuple[int, .
 def calibrate_auto(camera: int, profile: str, board_size: int, dict_name: str = "DICT_4X4_50",
                    white_pov: bool = True, preview: bool = False, margin: float = 0.06,
                    min_markers: int = 4) -> int:
-    """Marker erkennen -> Marker-Box + eingerücktes Spielfeld -> Profil speichern (kein Klicken).
+    """Detect markers → marker box + inset playing field → save profile (no clicking).
 
-    `margin`: Anteil, um den die Marker AUSSERHALB des Spielfelds liegen. Mit `--preview` live
-    über +/- justieren, bis die grüne Spielfeld-Box auf dem echten Brett liegt.
+    `margin`: fraction by which the markers lie OUTSIDE the playing field. With `--preview` live
+    adjust via +/- until the green playing field box aligns with the real board.
     """
     out_path = profile_path(profile)
     if out_path.exists():
         import typer
 
-        if not typer.confirm(f"Profil '{profile}' existiert bereits ({out_path}). Überschreiben?"):
-            print("Abgebrochen.")
+        if not typer.confirm(f"Profile '{profile}' already exists ({out_path}). Overwrite?"):
+            print("Aborted.")
             return 1
 
     cap = open_camera(camera)
     if not cap.isOpened():
-        print(f"[FAIL] Kamera {camera} konnte nicht geöffnet werden.")
+        print(f"[FAIL] Camera {camera} could not be opened.")
         return 1
     try:
         def build_from(f, p, m: float) -> CalibrationProfile:
@@ -903,10 +903,10 @@ def calibrate_auto(camera: int, profile: str, board_size: int, dict_name: str = 
             )
 
         if preview:
-            # LIVE-Video: jeder Frame wird neu gelesen + Marker neu erkannt, Boxen laufen mit.
+            # LIVE video: each frame is read anew + markers re-detected, boxes track along.
             win = "chesslab auto-calibrate"
             cv2.namedWindow(win, cv2.WINDOW_NORMAL)
-            print("Live-Video: w = Box GRÖSSER, e oder - = KLEINER, r = reset, s = speichern, q = abbrechen")
+            print("Live video: w = box LARGER, e or - = SMALLER, r = reset, s = save, q = quit")
             tracker = MarkerTracker()
             last_pts, frame, m = None, None, margin
             while True:
@@ -922,36 +922,36 @@ def calibrate_auto(camera: int, profile: str, board_size: int, dict_name: str = 
                 if frame is None:
                     if (cv2.waitKey(30) & 0xFF) in (ord("q"), 27):
                         cv2.destroyAllWindows()
-                        print("[FAIL] kein Frame von der Kamera.")
+                        print("[FAIL] no frame from camera.")
                         return 1
                     continue
                 if last_pts and seen >= min_markers:
                     overlay = draw_calibration_overlay(frame, last_pts, build_from(frame, last_pts, m))
-                    cv2.putText(overlay, f"margin={m:.3f}  {seen}/4 Marker  w/e=justieren  s=speichern  q=quit",
+                    cv2.putText(overlay, f"margin={m:.3f}  {seen}/4 markers  w/e=adjust  s=save  q=quit",
                                 (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2, cv2.LINE_AA)
                 else:
                     overlay = frame.copy()
-                    cv2.putText(overlay, f"Warte auf alle {min_markers} Marker ({seen}/4 bekannt)...",
+                    cv2.putText(overlay, f"Waiting for all {min_markers} markers ({seen}/4 known)...",
                                 (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2, cv2.LINE_AA)
                 cv2.imshow(win, overlay)
                 k = cv2.waitKey(30) & 0xFF
-                if k in (ord("w"), ord("+"), ord("=")):       # größer
+                if k in (ord("w"), ord("+"), ord("=")):       # larger
                     m += 0.005
-                elif k in (ord("e"), ord("-"), ord("_")):     # kleiner
+                elif k in (ord("e"), ord("-"), ord("_")):     # smaller
                     m = max(0.0, m - 0.005)
                 elif k == ord("r"):
                     m = margin
                 elif k == ord("s") and last_pts:
                     cv2.destroyAllWindows()
                     build_from(frame, last_pts, m).save(out_path)
-                    print(f"[OK] Auto-Kalibrierung gespeichert: {out_path} (margin={m:.3f})")
+                    print(f"[OK] Auto-calibration saved: {out_path} (margin={m:.3f})")
                     return 0
                 elif k in (ord("q"), 27):
                     cv2.destroyAllWindows()
-                    print("Verworfen.")
+                    print("Discarded.")
                     return 1
 
-        # Nicht-interaktiv: über mehrere Frames sammeln, bis alle min_markers bekannt sind.
+        # Non-interactive: collect over multiple frames until all min_markers are known.
         tracker = MarkerTracker()
         frame = None
         for _ in range(120):
@@ -962,22 +962,22 @@ def calibrate_auto(camera: int, profile: str, board_size: int, dict_name: str = 
             if len(tracker.last) >= min_markers:
                 break
         if frame is None or len(tracker.last) < min_markers:
-            print(f"[FAIL] nicht alle {min_markers} Marker (id 0-3) erkannt — Beleuchtung/Sicht prüfen, "
-                  "Marker müssen vollständig & flach sichtbar sein.")
+            print(f"[FAIL] not all {min_markers} markers (id 0-3) detected — check lighting/visibility, "
+                  "markers must be fully & flatly visible.")
             return 1
         pts = resolve_board_corners(tracker.last, board_size=board_size)[0]
         build_from(frame, pts, margin).save(out_path)
-        print(f"[OK] Auto-Kalibrierung gespeichert: {out_path} (margin={margin:.3f})")
+        print(f"[OK] Auto-calibration saved: {out_path} (margin={margin:.3f})")
         return 0
     finally:
         cap.release()
 
 
-# --- Interaktive Befehle (brauchen Kamera + Display) ----------------------------------
+# --- Interactive commands (need camera + display) ----------------------------------
 
 _WIN = "chesslab calibrate"
 def calibrate_check(camera: int, profile: str) -> int:
-    """Live-Overlay des Rasters auf das entzerrte Kamerabild."""
+    """Live overlay of the grid on the rectified camera image."""
     try:
         prof = load_profile(profile)
     except FileNotFoundError as e:
@@ -986,15 +986,15 @@ def calibrate_check(camera: int, profile: str) -> int:
 
     cap = open_camera(camera)
     if not cap.isOpened():
-        print(f"[FAIL] Kamera {camera} konnte nicht geöffnet werden.")
+        print(f"[FAIL] Camera {camera} could not be opened.")
         return 1
-    print("q = beenden")
+    print("q = quit")
     cv2.namedWindow(_WIN, cv2.WINDOW_NORMAL)
     try:
         while True:
             ok, frame = cap.read()
             if not ok or frame is None:
-                print("[FAIL] kein Frame gelesen.")
+                print("[FAIL] no frame read.")
                 return 1
             board = draw_board_grid(warp_board(frame, prof), prof)
             cv2.imshow(_WIN, board)
@@ -1010,14 +1010,14 @@ def calibrate_list() -> int:
     d.mkdir(parents=True, exist_ok=True)
     profiles = sorted(d.glob("*.yaml"))
     if not profiles:
-        print(f"Keine Profile in {d}.")
+        print(f"No profiles in {d}.")
         return 0
-    print(f"Profile in {d}:")
+    print(f"Profiles in {d}:")
     for p in profiles:
         try:
             prof = CalibrationProfile.load(p)
             print(f"  {prof.profile:<12} board_size={prof.board_size} white_pov={prof.white_pov} "
                   f"frame={prof.frame_size[0]}x{prof.frame_size[1]} created={prof.created_at}")
         except Exception as e:  # noqa: BLE001
-            print(f"  {p.name:<12} [unlesbar: {e!r}]")
+            print(f"  {p.name:<12} [unreadable: {e!r}]")
     return 0

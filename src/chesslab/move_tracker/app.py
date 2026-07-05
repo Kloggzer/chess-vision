@@ -1,9 +1,9 @@
-"""Web-UI des Move-Trackers: links die Live-Kamera mit dem, was der Computer GLAUBT (Figuren +
-letzter Zug eingeblendet), rechts das rekonstruierte Brett (python-chess-SVG) + Zugliste.
+"""Web UI of the Move-Tracker: left side the live camera with what the computer BELIEVES (pieces +
+last move overlay), right side the reconstructed board (python-chess SVG) + move list.
 
 Start:  chesslab track --profile phone --source https://<PHONE-IP>:4444/video/m.jpeg
-        (oder --source 0 für lokale Kamera). Dann http://127.0.0.1:8001
-        python -m chesslab.move_tracker.app funktioniert ebenfalls.
+        (or --source 0 for local camera). Then http://127.0.0.1:8001
+        python -m chesslab.move_tracker.app works as well.
 """
 
 from __future__ import annotations
@@ -23,11 +23,11 @@ _STATE = LockedState(tracker=None, default_profile="phone", default_source="0")
 
 def create_app(default_profile: str = "phone", default_source: str = "0",
                tracker_kwargs: dict | None = None):
-    """Erzeugt die FastAPI-App mit festen Defaults für Profil/Quelle/Tracker-Parameter."""
+    """Creates the FastAPI app with fixed defaults for profile/source/tracker parameters."""
     from fastapi import Body, FastAPI
     from fastapi.responses import FileResponse, Response, StreamingResponse
 
-    # Tracker-Tunable-Defaults (für die Start-API)
+    # Tracker tunable defaults (for the start API)
     tk = tracker_kwargs or {}
 
     # Update module-level state with this app's defaults
@@ -52,12 +52,12 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
             old.stop()
 
         kwargs = dict(tk)
-        # Body-Werte gewinnen über die CLI-Defaults in `tk` (sonst doppeltes Keyword-Argument):
+        # Body values override CLI defaults in `tk` (otherwise duplicate keyword argument):
         if motion_thr is not None:
             kwargs["motion_thr"] = motion_thr
         if z_thr is not None:
             kwargs["z_thr"] = z_thr
-        if cnn_run is not None:                      # Body überschreibt CLI-Default ("" = aus)
+        if cnn_run is not None:                      # Body overrides CLI default ("" = off)
             kwargs["cnn_run"] = cnn_run or None
         if device is not None:
             kwargs["device"] = device
@@ -70,30 +70,30 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
 
     @app.post("/api/resync_cnn")
     def resync_cnn():
-        """Manuelle CNN-Kontrolle: Occupancy des Bretts gegen den Spielzustand prüfen;
-        ein EINDEUTIG erklärender Zug wird direkt übernommen, sonst Konflikt-Felder melden."""
+        """Manual CNN check: check board occupancy against the game state;
+        an unambiguously explaining move is adopted directly, otherwise report conflict squares."""
         t = _STATE.get("tracker")
         if t is None:
-            return {"ok": False, "error": "nicht gestartet"}
+            return {"ok": False, "error": "not started"}
         return t.resync_cnn()
 
     @app.post("/api/reset")
     def reset(fen: str = Body(None, embed=True)):
         t = _STATE.get("tracker")
         if t is None:
-            return {"ok": False, "error": "nicht gestartet"}
+            return {"ok": False, "error": "not started"}
         try:
             t.reset_to_start(fen or None)
         except ValueError as e:
-            return {"ok": False, "error": f"ungültige FEN: {e}"}
+            return {"ok": False, "error": f"invalid FEN: {e}"}
         return {"ok": True}
 
     @app.post("/api/promote")
     def promote(piece: str = Body(..., embed=True)):
-        """Umwandlungsfigur wählen (Promotion ohne CNN wartet auf Nutzer-Input, Spec 10)."""
+        """Choose promotion piece (promotion without CNN waits for user input, Spec 10)."""
         t = _STATE.get("tracker")
         if t is None:
-            return {"ok": False, "error": "nicht gestartet"}
+            return {"ok": False, "error": "not started"}
         return t.choose_promotion(piece)
 
     @app.post("/api/undo")
@@ -194,10 +194,10 @@ if __name__ == "__main__":
     ap.add_argument("--census-thr", type=float, default=55.0)
     ap.add_argument("--no-cnn-verify", dest="cnn_verify", action="store_false")
     ap.set_defaults(cnn_verify=True)
-    ap.add_argument("--device", default="auto", help="Torch-Device fürs CNN: auto|cpu|cuda")
+    ap.add_argument("--device", default="auto", help="Torch device for CNN: auto|cpu|cuda")
     from .. import config as _config
     ap.add_argument("--cnn-run", default=_config.default_tracker_run() or "",
-                    help="Modell-Run für CNN-Verifikation/-Recovery ('' = aus)")
+                    help="Model run for CNN verification/recovery ('' = off)")
     a = ap.parse_args()
 
     runner_tk = {

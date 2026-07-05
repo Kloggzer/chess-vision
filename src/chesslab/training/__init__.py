@@ -1,8 +1,8 @@
-"""Stufe 5 — Training-Handoff: Per-Square-CNN trainieren, evaluieren, exportieren.
+"""Stage 5 — Training handoff: train, evaluate, export per-square CNN.
 
-Torch wird nur in den ausführenden Modulen (`model`, `torch_data`, `engine`) auf
-oberster Ebene importiert. `data.py` ist bewusst torch-frei (Board-Accuracy-Rekonstruktion,
-Split-Filterung, Model-Card) und ohne PyTorch importier- und testbar.
+Torch is only imported at top level in the executing modules (`model`, `torch_data`, `engine`).
+`data.py` is deliberately torch-free (board accuracy reconstruction,
+split filtering, model card) and importable and testable without PyTorch.
 """
 
 from .evaluate import load_run  # noqa: F401  — öffentlich, von `chesslab.serving` verwendet

@@ -1,4 +1,4 @@
-"""Sammel-Router: /api/collect/*, /api/camera/collect.mjpg"""
+"""Collect router: /api/collect/*, /api/camera/collect.mjpg"""
 
 from __future__ import annotations
 
@@ -44,8 +44,8 @@ def collect_start(strategy: str = Body("random"), max_plies: int = Body(40), see
         raise HTTPException(400, str(e))
 
     show_target = False
-    # coverage: keine Partie, sondern dichte Aufbauten gegen die seltensten Klassen. Jeder
-    # Eintrag ist eine FRISCHE Vollaufstellung (kein Einzelzug) -> ganze Stellung als Namen zeigen.
+    # coverage: no game, instead dense setups targeting the rarest classes. Each
+    # entry is a FRESH full arrangement (no single move) -> show the whole position as name.
     if strategy == "coverage":
         from ...collect_ui import coverage_from_sessions, coverage_plan
 
@@ -53,15 +53,15 @@ def collect_start(strategy: str = Body("random"), max_plies: int = Body(40), see
         inventory = {k: v * max(sets, 1) for k, v in config.DEFAULT_INVENTORY.items()}
         positions = coverage_plan(cov["light"], cov["dark"], target, count, inventory=inventory)
         if not positions:
-            raise HTTPException(400, f"Alle Klassen erreichen bereits das Ziel ({target}/Klasse) "
-                                     "— nichts zu generieren. Ziel im Feld erhöhen oder eine "
-                                     "Spiel-Engine wählen.")
+            raise HTTPException(400, f"All classes already reach the target ({target}/class) "
+                                     "— nothing to generate. Increase the target in the field or "
+                                     "choose a game engine.")
         show_target = True
     elif strategy == "sweep":
-        # Systematischer Sweep: eine Figurenreihe wandert Rang für Rang übers Brett (je eine je
-        # Linie). `offset` verschiebt die Linien→Figur-Zuordnung (konstant je Session); `auto`
-        # zählt bisherige Sweep-Sessions und nimmt den nächsten Offset -> jede Figur über mehrere
-        # Sessions auf verschiedenen Linien (gegen Positions-Overfitting).
+        # Systematic sweep: one piece row moves rank by rank across the board (one per line).
+        # `offset` shifts the line→piece assignment (constant per session); `auto`
+        # counts previous sweep sessions and takes the next offset -> each piece appears on
+        # different lines across multiple sessions (against position overfitting).
         from ...collect_ui import auto_sweep_offset, sweep_plan
 
         sweep_offset = auto_sweep_offset(config.DATA.sessions) if auto_offset else int(offset)
@@ -69,25 +69,25 @@ def collect_start(strategy: str = Body("random"), max_plies: int = Body(40), see
         positions = sweep_plan(pieces=pieces, passes=max(1, passes), inventory=inventory,
                                together=together, offset=sweep_offset)
         if not positions:
-            raise HTTPException(400, "Sweep leer — Inventar/pieces prüfen (special|pawn|all).")
+            raise HTTPException(400, "Sweep empty — check inventory/pieces (special|pawn|all).")
         show_target = True
     else:
         engine_path = None
         if strategy == "stockfish":
-            # Der Pfad ist eine Backend-Sache: bevorzugt das mitgelieferte Binary unter
-            # tools/stockfish/, sonst CHESSLAB_STOCKFISH oder PATH. Das Frontend muss ihn nicht kennen.
+            # The path is a backend concern: prefer the bundled binary under
+            # tools/stockfish/, otherwise CHESSLAB_STOCKFISH or PATH. The frontend doesn't need to know it.
             engine_path = stockfish_path or config.find_stockfish()
             if not engine_path:
-                raise HTTPException(400, "Keine Schach-Engine gefunden. Lege ein Stockfish-Binary "
-                                         "unter tools/stockfish/ ab (oder setze CHESSLAB_STOCKFISH) "
-                                         "— oder wähle die Engine 'random'.")
+                raise HTTPException(400, "No chess engine found. Place a Stockfish binary "
+                                         "under tools/stockfish/ (or set CHESSLAB_STOCKFISH) "
+                                         "— or choose the 'random' engine.")
         try:
             if strategy == "stockfish":
                 steps = stockfish_game_positions(engine_path, max_plies=max_plies, start_fen=start_fen)
             else:
                 steps = random_game_positions(max_plies=max_plies, seed=seed, start_fen=start_fen)
         except Exception as e:  # noqa: BLE001
-            raise HTTPException(400, f"Partie-Generierung fehlgeschlagen: {e}")
+            raise HTTPException(400, f"Game generation failed: {e}")
 
         start = GameState(start_fen) if start_fen else GameState()
         positions = [{"ply": start.ply(), "san": None, "fen": start.fen()}] + steps
@@ -110,20 +110,20 @@ def collect_state():
 
 @router.post("/api/collect/shoot")
 def collect_shoot():
-    # Ein Klick: aktuelle Stellung fotografieren UND weiterschalten. Sofort gespeichert.
+    # One click: photograph the current position AND advance. Saved immediately.
     c = COLLECT.snapshot()
     w = c["writer"]
     if w is None:
-        raise HTTPException(400, "keine aktive Aufnahme-Session.")
+        raise HTTPException(400, "no active capture session.")
     pos, i = c["positions"], c["i"]
     if i >= len(pos):
         return _collect_state()
-    # Vorschau läuft über den Stream; gespeichert wird (falls Capture-Quelle gesetzt) der
-    # hochauflösende Snapshot mit auf IHM neu erkannten Ecken — sonst Live-Frame + Stream-Ecken.
-    # (Kamera-I/O bewusst OHNE Lock — Locks schützen nur den Zustands-Zugriff.)
+    # Preview runs over the stream; saved image comes from (if capture source is set) the
+    # high-resolution snapshot with corners re-detected on IT — otherwise live frame + stream corners.
+    # (Camera I/O deliberately WITHOUT lock — locks only protect state access.)
     f, corners = _capture_frame_corners(c["profile"], c["board"])
     if f is None:
-        raise HTTPException(400, "kein Frame von der Kamera.")
+        raise HTTPException(400, "no frame from camera.")
     w.capture(f, pos[i]["ply"], pos[i]["fen"], pos[i]["san"], corners=corners)
     COLLECT.mutate(lambda d: d.update(i=d["i"] + 1))
     return _collect_state()
@@ -157,17 +157,17 @@ def collect_finish():
     # Release the camera: nothing needs it after finishing — a lingering capture
     # (esp. network sources with FFmpeg reader threads) blocks Ctrl+C shutdown.
     CAMERA.release()
-    # Mechanischen Schritt automatisieren: die gerade beendete Session direkt slicen,
-    # damit die Crops sofort im Datensätze-Tab verfügbar sind.
+    # Automate the mechanical step: slice the just-finished session immediately,
+    # so the crops are available in the datasets tab right away.
     sliced, sliced_error = 0, None
     if n > 0:
         try:
             labeling_mod.run_slice(session=sid)
             from ...manifest_cache import session_crop_count
             sliced = session_crop_count(config.DATA.manifests / "squares.jsonl", sid)
-        except Exception as e:  # noqa: BLE001 — Komfortschritt, aber der Fehler muss sichtbar sein (H2)
-            log.exception("Auto-Slice nach Collect-Finish fehlgeschlagen (Session %s)", sid)
-            sliced_error = f"Auto-Slice fehlgeschlagen: {e}"
+        except Exception as e:  # noqa: BLE001 — convenience step, but the error must be visible (H2)
+            log.exception("Auto-slice after collect-finish failed (session %s)", sid)
+            sliced_error = f"Auto-slice failed: {e}"
     resp = {"ok": True, "captures": n, "session": sid, "sliced": sliced}
     if sliced_error:
         resp["sliced_error"] = sliced_error
@@ -185,7 +185,7 @@ def camera_collect():
         try:
           while True:
             f = CAMERA.read()
-            c = COLLECT.snapshot()   # genau EIN Snapshot pro Frame (H1)
+            c = COLLECT.snapshot()   # exactly ONE snapshot per frame (H1)
             prof, board, pos, i = c["profile"], c["board"], c["positions"], c["i"]
             show_target = c.get("show_target")
             if f is None:
@@ -197,23 +197,23 @@ def camera_collect():
             none_count = 0
             if prof is None or board is None:
                 img = f.copy()
-                cv2.putText(img, "keine Aufnahme aktiv — Start druecken", (10, 28),
+                cv2.putText(img, "no active capture — press Start", (10, 28),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2, cv2.LINE_AA)
             else:
-                warped, _ = board.process(f)   # Ecken/Warp aus dem geteilten BoardTracker
+                warped, _ = board.process(f)   # Corners/warp from the shared BoardTracker
                 if warped is None:
                     img = f.copy()
-                    cv2.putText(img, "Box aus Profil — warte auf Marker...", (10, 28),
+                    cv2.putText(img, "Box from profile — waiting for markers...", (10, 28),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2, cv2.LINE_AA)
                 else:
                     img = draw_board_grid(warped, prof)
                     if show_target and 0 <= i < len(pos):
-                        # coverage: ganze Ziel-Stellung als Figurennamen zum Nachbauen
+                        # coverage: entire target position as piece names for reconstruction
                         _draw_target_pieces(img, prof, pos[i]["fen"])
-                    elif 0 < i < len(pos):   # Spielmodus: Zug, der zur aktuellen Stellung führt
+                    elif 0 < i < len(pos):   # Game mode: move leading to the current position
                         _draw_move_arrow(img, prof, pos[i - 1]["fen"], pos[i]["san"])
             yield img
         finally:
-            log.info("Stream beendet: collect")
+            log.info("Stream ended: collect")
 
     return mjpeg(frames())
