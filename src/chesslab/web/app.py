@@ -1,7 +1,7 @@
 """FastAPI backend for the local chesslab web UI.
 
-Serves all tabs via JSON APIs: calibration, collect, manual labeling,
-inference, scan, sessions/datasets and training.
+Serves the four tabs via JSON APIs: collect, scan, datasets (sessions +
+curated datasets + stats) and training.
 Reuses the existing chesslab logic (dataset, labeling, training). Images are served
 as static files from `data/`.
 

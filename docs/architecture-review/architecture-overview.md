@@ -100,3 +100,14 @@ the labeling, training, and inference paths → train/serve skew, (2) web-layer 
 and error swallowing, (3) untested new subsystems (move_tracker, synth). Details in
 [issues-and-concerns.md](issues-and-concerns.md), improvements in [recommendations.md](recommendations.md),
 training/accuracy in [training-accuracy-improvements.md](training-accuracy-improvements.md).
+
+## Recent additions (2026-07-05)
+
+- `calibration.ensure_profile()` / `profile_from_frame()`: missing calibration
+  profiles are auto-created from the first frames of the camera source (ArUco) —
+  the separate calibration step is optional; `track`, `collect` and the web
+  collect start use it.
+- `chesslab/manifest_cache.py`: mtime-keyed in-memory aggregates over the crop
+  manifests (crops/frames per session, lightweight stats rows, per-label index).
+  All web read paths (sessions panel, stats, class browser) are served from it —
+  one scan per manifest version instead of per-request full reads.
