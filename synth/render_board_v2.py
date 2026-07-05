@@ -54,6 +54,8 @@ BOARD_WARM_FAC = 0.0
 # Dunkle Felder haben niedrige Albedo + Glanz → sie spiegeln das (kühle) Umgebungslicht
 # und wirken grau. Höhere Roughness macht sie matt → die (warme) Grundfarbe dominiert.
 BOARD_ROUGHNESS = 0.85
+# Board-Sättigung: das echte Brettfoto ist warm-gelblich → leicht entsättigen zieht das Gelb raus.
+BOARD_SATURATION = 0.72
 # Figuren leicht glänzend (echtes lackiertes Holz fängt Glanzlichter, die die 3D-Form verraten →
 # hilft, N/B/R von oben zu unterscheiden). Frühere 0.7/Specular 0.2 waren ZU matt (formarm).
 PIECE_ROUGHNESS = 0.45
@@ -64,8 +66,8 @@ PIECE_SPECULAR = 0.4
 PIECE_SCALE = 1.0
 # Weiß-Figuren-Korrektur: Scan-Textur ist zu orange/dunkel vs. reale blass-cremige Figuren.
 # Sättigung runter (orange raus) + Value hoch (heller). Nur auf weiße Figuren angewandt.
-PIECE_WHITE_SAT = 0.62
-PIECE_WHITE_VAL = 1.45
+PIECE_WHITE_SAT = 0.40
+PIECE_WHITE_VAL = 1.55
 
 
 def argv_after_dashes():
@@ -175,7 +177,12 @@ def make_textured_board_material(texture_path):
     warm.inputs["Fac"].default_value = BOARD_WARM_FAC
     warm.inputs["Color2"].default_value = (*BOARD_WARM_TINT, 1.0)
     nt.links.new(tx.outputs["Color"], warm.inputs["Color1"])
-    nt.links.new(warm.outputs["Color"], bsdf.inputs["Base Color"])
+    # Board leicht entsättigen: das echte Brettfoto ist warm-gelblich; Sättigung runter zieht
+    # das Gelb raus, ohne die Helligkeit/den Kontrast der Felder zu ändern.
+    desat = nt.nodes.new("ShaderNodeHueSaturation")
+    desat.inputs["Saturation"].default_value = BOARD_SATURATION
+    nt.links.new(warm.outputs["Color"], desat.inputs["Color"])
+    nt.links.new(desat.outputs["Color"], bsdf.inputs["Base Color"])
     nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
     return mat
 
