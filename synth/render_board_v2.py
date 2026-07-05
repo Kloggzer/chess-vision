@@ -405,10 +405,18 @@ def place_camera(cam, rng, max_obliqueness=0.10):
     cam.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
 
 
+# Basis-Lichtenergie je Lampe, EINMAL aus der .blend gemerkt. Ohne diesen Anker würde
+# `energy *= faktor` pro Frame kumulieren (Zufalls-Multiplikatoren mit Mittelwert >1) →
+# über tausende Frames brennt die Szene exponentiell zu Weiß aus. Jeder Frame skaliert
+# jetzt relativ zur BASIS, nicht relativ zum Vorframe.
+_BASE_LIGHT_ENERGY: dict = {}
+
+
 def randomize_lights(rng):
     for o in bpy.data.objects:
         if o.type == "LIGHT":
-            o.data.energy *= rng.uniform(0.6, 1.5)
+            base = _BASE_LIGHT_ENERGY.setdefault(o.name, o.data.energy)
+            o.data.energy = base * rng.uniform(0.6, 1.5)
             # Warm-biased Lichtfarbe (Innenraum-Licht ist warm) – sonst wirken helle
             # Figuren kühl/lavendel. Bleibt randomisiert (Domain-Randomization).
             o.data.color = (1.0, rng.uniform(0.85, 0.98), rng.uniform(0.7, 0.9))
