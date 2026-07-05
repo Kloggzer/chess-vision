@@ -5,31 +5,27 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query
 
 from ..schemas import DatasetCreateRequest
-from ..util import _img_url, _manifest
+from ..util import _img_url
 
 router = APIRouter()
 
 
-def _dataset_manifest(name: str | None) -> list[dict]:
-    from ... import dataset as dataset_mod
+def _manifest_file(name: str | None):
+    from ... import config
     from ... import dataset_build as dataset_build_mod
 
     if not name:
-        return _manifest()
-    mp = dataset_build_mod.dataset_dir(name) / "manifest.jsonl"
-    try:
-        return dataset_mod.load_manifest(mp)
-    except FileNotFoundError:
-        return []
+        return config.DATA.manifests / "squares.jsonl"
+    return dataset_build_mod.dataset_dir(name) / "manifest.jsonl"
 
 
 @router.get("/api/stats")
 def stats(dataset: str | None = Query(None)):
     from ... import config
     from ... import dataset as dataset_mod
+    from ...manifest_cache import stats_rows
 
-    rows = _dataset_manifest(dataset)
-    s = dataset_mod.compute_stats(rows)
+    s = dataset_mod.compute_stats(stats_rows(_manifest_file(dataset)))
     s["classes"] = list(config.CLASSES)
     s["min_samples"] = config.MIN_CLASS_SAMPLES
     return s
@@ -41,8 +37,10 @@ def class_crops(cls: str, offset: int = 0, limit: int = 60, dataset: str | None 
 
     if cls not in config.CLASSES:
         raise HTTPException(404, f"unbekannte Klasse {cls}")
-    # `dataset` gesetzt -> die echten Crops DIESES Datensatzes; sonst der globale Pool.
-    rows = [r for r in _dataset_manifest(dataset) if r["label"] == cls]
+    # `dataset` set -> the crops of THAT dataset; otherwise the global pool.
+    from ...manifest_cache import rows_for_label
+
+    rows = rows_for_label(_manifest_file(dataset), cls)
     page = rows[offset: offset + limit]
     return {"label": cls, "total": len(rows), "dataset": dataset,
             "crops": [{"url": _img_url(r["path"]), "session_id": r["session_id"],
