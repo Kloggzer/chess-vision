@@ -97,6 +97,7 @@ def test_build_blender_cmd_minimal():
         "--views-per-scene", "1",
         "--samples", "24",
         "--max-obliqueness", "0.2",
+        "--piece-scale", "1.0",
     ]
 
 
@@ -119,6 +120,7 @@ def test_build_blender_cmd_all_flags():
         "--views-per-scene", "4",
         "--samples", "16",
         "--max-obliqueness", "0.15",
+        "--piece-scale", "1.0",
         "--fens", str(Path("fens.txt")),
         "--pieces", str(Path("pieces")),
     ]

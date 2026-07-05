@@ -27,6 +27,8 @@ class RenderArgs:
     max_obliqueness: float = 0.20
     # Subsurf-Level NUR für prozedurale Staunton-Fallback-Figuren (gescannte Meshes: kein Subsurf).
     fallback_subsurf: int = 1
+    # Globaler Figuren-Skalierungsfaktor (Crop-Füllung an reale Kamera angleichen).
+    piece_scale: float = 1.0
 
 
 def parse_render_args(argv: list[str]) -> RenderArgs:
@@ -43,6 +45,7 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
     samples = 24
     max_obliqueness = 0.20
     fallback_subsurf = 1
+    piece_scale = 1.0
 
     i = 0
     while i < len(args):
@@ -102,6 +105,11 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
             if i >= len(args):
                 raise SystemExit("ERROR: --fallback-subsurf benötigt einen Wert.")
             fallback_subsurf = max(0, int(args[i]))
+        elif a == "--piece-scale":
+            i += 1
+            if i >= len(args):
+                raise SystemExit("ERROR: --piece-scale benötigt einen Wert.")
+            piece_scale = float(args[i])
         else:
             print(f"WARN: unbekanntes Flag ignoriert: {a}", file=sys.stderr)
         i += 1
@@ -112,4 +120,4 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
     return RenderArgs(out=out, n=n, seed=seed, fens=fens, pieces=pieces, res=res,
                       board_texture=board_texture, views_per_scene=views_per_scene,
                       samples=samples, max_obliqueness=max_obliqueness,
-                      fallback_subsurf=fallback_subsurf)
+                      fallback_subsurf=fallback_subsurf, piece_scale=piece_scale)

@@ -55,6 +55,10 @@ BOARD_ROUGHNESS = 0.85
 # hilft, N/B/R von oben zu unterscheiden). Frühere 0.7/Specular 0.2 waren ZU matt (formarm).
 PIECE_ROUGHNESS = 0.45
 PIECE_SPECULAR = 0.4
+# Globaler Figuren-Skalierungsfaktor (auf die Basis-mm-Skalierung obendrauf). Hebel, um die
+# scheinbare Figurengröße/Höhe im Crop an die echten Kamera-Crops anzugleichen (reale Figuren
+# füllen den Crop stärker). 1.0 = wie gemessen; per --piece-scale überschrieben.
+PIECE_SCALE = 1.0
 
 
 def argv_after_dashes():
@@ -340,6 +344,7 @@ def _load_scanned_mesh(obj_path, type_letter):
         s = (TARGET_BASE_MM[type_letter] / MM_PER_UNIT) / base_units
     else:
         s = TARGET_HEIGHT.get(type_letter, 5.0) / (imp.dimensions.z or 1.0)
+    s *= PIECE_SCALE   # globaler Angleich-Faktor (Crop-Füllung an reale Kamera)
     co = [0.0] * (len(m.vertices) * 3)
     m.vertices.foreach_get("co", co)
     m.vertices.foreach_set("co", [c * s for c in co])
@@ -540,6 +545,8 @@ def main():
     views = ra.views_per_scene
     max_ob = ra.max_obliqueness
     fb_subsurf = ra.fallback_subsurf
+    global PIECE_SCALE
+    PIECE_SCALE = ra.piece_scale
 
     scene = bpy.context.scene
     eng = set_engine_fast(ra.samples)
