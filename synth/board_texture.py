@@ -106,7 +106,7 @@ def rectify(image_path: str, out_path: str, size: int = 1024,
     found_ids = sorted(points_by_id.keys())
     print(f"[board_texture] detection={how}  found ids={found_ids}")
 
-    if len(points_by_id) < 4:
+    if len(points_by_id) < 3:
         missing = sorted(set(ARUCO_IDS) - set(points_by_id))
         raise SystemExit(
             f"ERROR: only {len(points_by_id)}/4 ArUco markers found (missing ids: {missing}).\n"
@@ -114,6 +114,11 @@ def rectify(image_path: str, out_path: str, size: int = 1024,
             f"  Ensure all 4 markers (ids 0,1,2,3 → a8,h8,h1,a1) are visible\n"
             f"  and well-lit in the image. Try a different photo or adjust lighting."
         )
+    if len(points_by_id) == 3:
+        # Bei 3 Markern wird die 4. Ecke als Parallelogramm ergänzt (resolve_board_corners).
+        # OK für ein nahezu frontales Foto eines rechteckigen Bretts (leichte Perspektive → minimaler Fehler).
+        missing = sorted(set(ARUCO_IDS) - set(points_by_id))
+        print(f"[board_texture] WARN: nur 3/4 Marker (fehlt {missing}) — 4. Ecke wird rechnerisch ergänzt.")
 
     # 2. Resolve board corners in image space (a8, h8, h1, a1)
     res = resolve_board_corners(points_by_id, ids=ARUCO_IDS, board_size=size)
