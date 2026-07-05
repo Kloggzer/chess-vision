@@ -33,6 +33,26 @@ from .state import GameState
 _FILES = "abcdefgh"
 
 
+
+def _profile_for_session(meta: dict, profile: str | None):
+    """Resolve the calibration profile for a session; reconstruct for legacy ingests.
+
+    Older `chesslab ingest` runs built their placeholder profile only in memory and
+    never saved it — re-slicing such a session would fail. The warp uses the per-frame
+    `corners` from the log anyway, so a reconstructed placeholder is equivalent up to
+    the rectified resolution (ingest default board_size=900)."""
+    name = profile or meta["profile"]
+    try:
+        return load_profile(name)
+    except FileNotFoundError:
+        if meta.get("mode") != "ingested":
+            raise
+        from .ingest import ingestion_profile
+
+        print(f"[WARN] profile '{name}' missing — reconstructing the ingest placeholder "
+              "profile (board_size=900; warp uses per-frame corners).")
+        return ingestion_profile(name, board_size=900)
+
 def label_to_fen_char(label: str) -> str | None:
     """Klassenlabel -> FEN-Figurenbuchstabe ('wP'->'P', 'bN'->'n'); empty/occluded/leer -> None."""
     if not label or label in ("empty", "occluded") or len(label) != 2:
@@ -408,7 +428,7 @@ def run_slice(
         session_dir = config.DATA.sessions / sid
         try:
             meta = read_session_meta(session_dir)
-            prof = load_profile(profile or meta["profile"])
+            prof = _profile_for_session(meta, profile)
             stats = slice_session(
                 session_dir, profile=prof, manifest_path=manifest_path, squares_root=squares_root,
                 pad_up=pad_up, pad_side=pad_side, out_size=out_size_t, label_overrides=corrections,
@@ -431,7 +451,7 @@ def _preview_session(session_id: str, profile: str | None) -> int:
     session_dir = config.DATA.sessions / session_id
     try:
         meta = read_session_meta(session_dir)
-        prof = load_profile(profile or meta["profile"])
+        prof = _profile_for_session(meta, profile)
         log = read_log(session_dir)
     except Exception as e:  # noqa: BLE001
         print(f"[FAIL] {e}")
