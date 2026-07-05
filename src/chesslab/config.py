@@ -398,6 +398,26 @@ DEFAULT_TRACK_PORT: int = 8001
 # Photometrie none — binär auf Occupancy kollabiert robust). None/„fehlt auf Platte" ⇒ Feature aus.
 MOVE_TRACKER_DEFAULT_RUN: str = "run-20260626-163320"
 
+
+def list_model_runs() -> list[dict]:
+    """Model runs under data/models that have weights (best.pt), newest first."""
+    runs = []
+    root = DATA.models
+    if root.exists():
+        for d in sorted(root.iterdir()):
+            if d.is_dir() and (d / "best.pt").exists():
+                runs.append({"run": d.name, "mtime": (d / "best.pt").stat().st_mtime})
+    runs.sort(key=lambda r: -r["mtime"])
+    return runs
+
+
+def default_tracker_run() -> str | None:
+    """MOVE_TRACKER_DEFAULT_RUN if it exists on disk, else the newest run, else None."""
+    if (DATA.models / MOVE_TRACKER_DEFAULT_RUN / "best.pt").exists():
+        return MOVE_TRACKER_DEFAULT_RUN
+    runs = list_model_runs()
+    return runs[0]["run"] if runs else None
+
 # Move-Tracker-Detektions-Defaults (specs/rework/10-move-detection-v2.md) — Single Source
 # für CLI und App; keine Magic Numbers in tracker.py-Aufrufern.
 TRACK_DEFAULTS: dict = {

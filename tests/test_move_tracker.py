@@ -863,3 +863,28 @@ class TestPairScores:
         pairs = loglik_pair_scores(board, z)
         # zulaessige Paare muessen alle 4 Endpunkte tragen -> hier keine
         assert pairs == []
+
+
+def test_api_runs_lists_selectable_models(tmp_path, monkeypatch):
+    """/api/runs lists runs with weights, newest first, plus the resolved default."""
+    import pytest
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+
+    from chesslab import config
+    from chesslab.move_tracker.app import create_app
+
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    # two runs with weights, one without
+    for name in ("run-a", "run-b"):
+        d = config.DATA.models / name
+        d.mkdir(parents=True)
+        (d / "best.pt").write_bytes(b"x")
+    (config.DATA.models / "no-weights").mkdir(parents=True)
+
+    client = TestClient(create_app({}))
+    r = client.get("/api/runs").json()
+    assert set(r["runs"]) == {"run-a", "run-b"}
+    assert r["default"] in r["runs"]
+    assert r["active"] is None
