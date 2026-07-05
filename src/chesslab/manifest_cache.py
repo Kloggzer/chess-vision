@@ -23,16 +23,30 @@ _CACHE: dict[Path, tuple[tuple[int, int], dict]] = {}
 def _scan(path: Path) -> dict:
     crops: Counter = Counter()
     frames: dict[str, set] = {}
+    stats_rows: list[dict] = []          # only the fields compute_stats() reads
+    by_label: dict[str, list] = {}       # only the fields the class browser needs
+    intern = {}                          # dedupe repeated strings (session ids, labels, colors)
+
+    def _i(v):
+        return intern.setdefault(v, v)
+
     with path.open(encoding="utf-8") as fh:
         for line in fh:
             if not line.strip():
                 continue
             r = json.loads(line)
-            sid = r.get("session_id")
+            sid = _i(r.get("session_id"))
+            lab = _i(r.get("label"))
             crops[sid] += 1
             frames.setdefault(sid, set()).add(str(r.get("frame")))
+            stats_rows.append({"label": lab, "square_color": _i(r.get("square_color")),
+                               "session_id": sid})
+            by_label.setdefault(lab, []).append({"path": r.get("path"), "session_id": sid,
+                                                 "frame": r.get("frame"),
+                                                 "square": r.get("square"), "label": lab})
     return {"crops_by_session": dict(crops),
-            "frames_by_session": {k: sorted(v) for k, v in frames.items()}}
+            "frames_by_session": {k: sorted(v) for k, v in frames.items()},
+            "stats_rows": stats_rows, "by_label": by_label}
 
 
 def manifest_stats(path: Path) -> dict:
@@ -55,3 +69,13 @@ def manifest_stats(path: Path) -> dict:
 
 def session_crop_count(path: Path, session_id: str) -> int:
     return manifest_stats(path)["crops_by_session"].get(session_id, 0)
+
+
+def stats_rows(path: Path) -> list[dict]:
+    """Lightweight rows (label/square_color/session_id) — enough for compute_stats()."""
+    return manifest_stats(path)["stats_rows"]
+
+
+def rows_for_label(path: Path, label: str) -> list[dict]:
+    """Rows of one class (path/session/frame/square) for the crop browser."""
+    return manifest_stats(path)["by_label"].get(label, [])
