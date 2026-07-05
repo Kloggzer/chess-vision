@@ -47,7 +47,10 @@ BOARD_CORNERS_3D = {
 # COLOR-Blend drückt dem Bild die HUE+Sättigung dieses Holztons auf (Helligkeit bleibt) →
 # aus neutralem Grau wird echtes Braun. BOARD_WARM_FAC 0=aus, 1=voll durchbraun.
 BOARD_WARM_TINT = (0.45, 0.29, 0.14)  # Holz-Braun (Ziel-Hue)
-BOARD_WARM_FAC = 0.55
+# War 0.55, als die Textur noch neutral-grau war. Die aktuelle Textur ist ein ECHTES Brettfoto
+# (bereits natürlich gefärbt) → ein starker Braun-Tint übergilbt sie (helle Felder zu gelb).
+# Daher fast aus; die Textur trägt die Farbe selbst.
+BOARD_WARM_FAC = 0.0
 # Dunkle Felder haben niedrige Albedo + Glanz → sie spiegeln das (kühle) Umgebungslicht
 # und wirken grau. Höhere Roughness macht sie matt → die (warme) Grundfarbe dominiert.
 BOARD_ROUGHNESS = 0.85
@@ -239,9 +242,11 @@ SQUARE_MM = 35.0
 MM_PER_UNIT = SQUARE_MM / CELL  # 5.833 mm pro Brett-Einheit
 
 # Reale Basis-DURCHMESSER (mm) je Typ — für eine Top-Down-Kamera ist die Grundfläche
-# das entscheidende Maß. Gemessen: Dame-Basis = 27 mm. Andere via Staunton-Verhältnissen
-# (Schätzung, überschreibbar). Wird nur genutzt, wenn kein scale_mm_per_unit im Report steht.
-TARGET_BASE_MM = {"P": 20.0, "N": 23.5, "B": 24.0, "R": 23.0, "Q": 27.0, "K": 28.0}
+# das entscheidende Maß. ALLE vom Nutzer real gemessen (2026-07-05, Zelle 35 mm). Da der Scan
+# das Seitenverhältnis erhält, ergibt die korrekte Basis-Skalierung automatisch die korrekte
+# HÖHE → kein globaler Fudge nötig (--piece-scale bleibt 1.0). Nur genutzt, wenn kein
+# scale_mm_per_unit im Report steht.
+TARGET_BASE_MM = {"P": 20.0, "N": 23.0, "B": 23.0, "R": 23.0, "Q": 28.0, "K": 28.0}
 
 # Fallback-Höhen (Brett-Einheiten), nur wenn weder Report-Maßstab noch Basis-Messung greifen.
 TARGET_HEIGHT = {"P": 4.6, "N": 5.1, "B": 7.8, "R": 4.6, "Q": 7.75, "K": 8.8}
