@@ -645,7 +645,9 @@ def synth_board_texture(
     out: str = typer.Option(None, "--out", help="Target path (default: synth_pieces/board_texture.png)."),
     size: int = typer.Option(1024, "--size", help="Square output size (px)."),
     dict_name: str = typer.Option("DICT_4X4_50", "--dict", help="ArUco-Dictionary."),
-    margin: float = typer.Option(0.04, "--margin", help="Marker-to-grid inset (fraction)."),
+    margin: float = typer.Option(-0.035, "--margin", help="Marker-to-grid inset (fraction). Negativ = ganzes "
+                                 "Brett inkl. Koordinaten-Ring + Rahmen (passt zur Plane-Größe in "
+                                 "render_board_v2.BOARD_PLAY_HALF_FRAC). Positiv = nur 8x8-Spielfeld."),
 ) -> None:
     """Rectify board photo to rectified square texture (for `synth render --board-texture`)."""
     import sys as _sys

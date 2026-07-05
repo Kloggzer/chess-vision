@@ -130,33 +130,17 @@ def make_board_material(light, dark):
     return mat
 
 
+# Spielfeld-Halbanteil der VOLL-Brett-Textur (inkl. Koordinaten-Ring + Rahmen), gemessen:
+# das 8x8-Spielfeld belegt zentriert ±BOARD_PLAY_HALF_FRAC der Textur (0.5 = ganze Textur =
+# Spielfeld). Der Rest sind Koordinaten (A–H, 1–8) + Rahmen. Bestimmt, wie groß die Plane
+# sein muss, damit das 8x8 exakt auf ±HALF (die echten Feld-Weltkoordinaten) fällt.
+BOARD_PLAY_HALF_FRAC = 0.419
+
+
 def make_textured_board_material(texture_path):
-    """Brett-Foto-Textur via Image-Texture-Node + UV-Map auf dem ChessBoard-Mesh.
-
-    Die UVs werden aus der Geometrie abgeleitet: Objekt-X (Rank 1→8) → UV.Y (0→1),
-    Objekt-Y (File a→h) → UV.X (0→1). Die rektifizierte Textur hat a8 oben links,
-    a1 unten links — passt damit exakt auf das Brett (Board-Corners a8/h8/h1/a1
-    entsprechen den Bild-Ecken der Textur).
-    """
-    board_obj = bpy.data.objects.get("ChessBoard")
-    if board_obj is None or board_obj.type != "MESH":
-        print("[v2] WARN: ChessBoard object not found, falling back to procedural")
-        return make_board_material((0.46, 0.31, 0.17), (0.20, 0.12, 0.06))
-
+    """Principled-BSDF mit Brett-Foto-Textur (Image-Node + Warm-Tint). NUR der Shader —
+    die UV-Map setzt das aufrufende Mesh (siehe make_board_plane)."""
     img = bpy.data.images.load(str(texture_path))
-
-    # UV-Map aus Objekt-Koordinaten ableiten
-    mesh = board_obj.data
-    if not mesh.uv_layers:
-        mesh.uv_layers.new(name="UVMap")
-    uv_layer = mesh.uv_layers.active
-    for loop in mesh.loops:
-        v = mesh.vertices[loop.vertex_index]
-        # Object space: X = rank (1..8), Y = file (a..h)
-        u = (v.co.y + HALF) / (2.0 * HALF)   # file a→h  →  0→1
-        v_val = (v.co.x + HALF) / (2.0 * HALF)  # rank 1→8  →  0→1
-        uv_layer.data[loop.index].uv = (u, v_val)
-
     mat = bpy.data.materials.new("BoardTexture")
     mat.use_nodes = True
     nt = mat.node_tree
@@ -170,9 +154,8 @@ def make_textured_board_material(texture_path):
         bsdf.inputs["Specular"].default_value = 0.2
     tx = nt.nodes.new("ShaderNodeTexImage")
     tx.image = img
-    # Warm-Tint: der dunkle Brett-Lack fotografiert sich neutral-grau -> per MULTIPLY
-    # mit einem warmen Ton Richtung Braun ziehen (dunkle Felder werden wärmer, helle
-    # bleiben nahezu unverändert). BOARD_WARM_TINT/BOARD_WARM_FAC oben anpassbar.
+    # Warm-Tint: der dunkle Brett-Lack fotografiert sich neutral-grau -> per COLOR-Blend
+    # mit einem warmen Ton Richtung Braun ziehen. BOARD_WARM_TINT/BOARD_WARM_FAC oben.
     warm = nt.nodes.new("ShaderNodeMixRGB")
     warm.blend_type = "COLOR"
     warm.inputs["Fac"].default_value = BOARD_WARM_FAC
@@ -183,18 +166,54 @@ def make_textured_board_material(texture_path):
     return mat
 
 
-def style_board_v2(board_texture_path=None):
-    """Brett-Material auftragen: Foto-Textur wenn vorhanden, sonst prozedurales Holz."""
-    if board_texture_path and Path(board_texture_path).exists():
-        board_mat = make_textured_board_material(board_texture_path)
-        print(f"[v2] board texture: {board_texture_path}")
-    else:
-        if board_texture_path:
-            print(f"[v2] board texture not found: {board_texture_path}, falling back to procedural")
-        else:
-            print("[v2] no --board-texture, using procedural wood checker")
-        board_mat = make_board_material((0.46, 0.31, 0.17), (0.20, 0.12, 0.06))
+def make_board_plane(texture_path):
+    """Ersetzt das alte ChessBoard/Surround-Modell durch EINE Plane mit der Voll-Brett-
+    Textur (inkl. Koordinaten-Ring). Die Plane ist so groß, dass das 8x8-Spielfeld der
+    Textur exakt auf ±HALF (die echten Feld-Weltkoordinaten a8/h8/h1/a1) fällt — Figuren
+    und Label-Projektion bleiben damit unverändert korrekt.
 
+    Orientierung wie zuvor: Welt-Y (File a→h) → U, Welt-X (Rank 1→8) → V; die rektifizierte
+    Textur hat a8 oben links. Rest der Textur (Ring/Rahmen) liegt außerhalb von ±HALF.
+    """
+    old = bpy.data.objects.get("ChessBoard")
+    z = float(old.location.z) if old is not None else 0.0
+    for nm in ("ChessBoard", "Chessboard Surround"):
+        o = bpy.data.objects.get(nm)
+        if o is not None:
+            bpy.data.objects.remove(o, do_unlink=True)
+
+    # Plane-Halbkante: Textur [0,1] deckt ±P ab; das Spielfeld [0.5-frac, 0.5+frac] soll ±HALF sein.
+    P = HALF / (2.0 * BOARD_PLAY_HALF_FRAC)
+    mesh = bpy.data.meshes.new("BoardPlane")
+    mesh.from_pydata([(-P, -P, 0.0), (P, -P, 0.0), (P, P, 0.0), (-P, P, 0.0)], [], [(0, 1, 2, 3)])
+    mesh.update()
+    uvl = mesh.uv_layers.new(name="UVMap")
+    for loop in mesh.loops:
+        co = mesh.vertices[loop.vertex_index].co
+        uvl.data[loop.index].uv = ((co.y + P) / (2.0 * P), (co.x + P) / (2.0 * P))
+    obj = bpy.data.objects.new("BoardPlane", mesh)
+    obj.location.z = z
+    bpy.context.scene.collection.objects.link(obj)
+    obj.data.materials.append(make_textured_board_material(texture_path))
+    for p in mesh.polygons:
+        p.use_smooth = True
+    print(f"[v2] board plane: P=±{P:.2f} (play=±{HALF}), z={z:.3f}")
+    return obj
+
+
+def style_board_v2(board_texture_path=None):
+    """Brett aufbauen: Voll-Brett-Textur auf einer Plane (altes Modell entfernt) wenn
+    vorhanden, sonst prozedurales Holz auf dem Original-ChessBoard-Modell."""
+    if board_texture_path and Path(board_texture_path).exists():
+        make_board_plane(board_texture_path)
+        print(f"[v2] board texture (plane): {board_texture_path}")
+        return
+
+    if board_texture_path:
+        print(f"[v2] board texture not found: {board_texture_path}, falling back to procedural")
+    else:
+        print("[v2] no --board-texture, using procedural wood checker")
+    board_mat = make_board_material((0.46, 0.31, 0.17), (0.20, 0.12, 0.06))
     surround_mat = make_wood_material("WoodSurround", (0.40, 0.26, 0.14), (0.22, 0.13, 0.06))
     for name, mat in (("ChessBoard", board_mat), ("Chessboard Surround", surround_mat)):
         o = bpy.data.objects.get(name)
