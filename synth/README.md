@@ -1,96 +1,96 @@
-# Synthetische Daten-Pipeline
+# Synthetic Data Pipeline
 
-Vollständige Pipeline vom 3D-Scan zur gelabelten Trainingsdaten-Quelle:
-Turntable-Fotos → RealityScan → Isolierung → Render → Ingest → Training.
+Complete pipeline from 3D scan to labeled training data source:
+Turntable photos → RealityScan → Isolation → Render → Ingest → Training.
 
-## Asset-Erwartungen
+## Asset Expectations
 
-- **Blender-Szene:** `synth_assets/Chess Scene.blend` (Brett, Kamera, Beleuchtung)
-- **Figuren-Vorlagen:** `synth_pieces/<X>.obj` + `<X>.png` (Textur)
-  - Namensschema: `wP.obj`/`wP.png` (weißer Bauer), `bN.obj`/`bN.png` (schwarzer Springer),
-    oder `P.obj`/`P.png` (farblos, wird dann für beide Farben verwendet).
-  - Figuren ohne Scan fallen auf prozedurale Staunton-Vorlagen aus der .blend zurück.
+- **Blender Scene:** `synth_assets/Chess Scene.blend` (board, camera, lighting)
+- **Piece Templates:** `synth_pieces/<X>.obj` + `<X>.png` (texture)
+  - Naming scheme: `wP.obj`/`wP.png` (white pawn), `bN.obj`/`bN.png` (black knight),
+    or `P.obj`/`P.png` (uncolored, then used for both colors).
+  - Pieces without a scan fall back to procedural Staunton templates from the .blend.
 
-## Ecken-Reihenfolge (VERTRAG — NICHT ÄNDERN)
+## Corner Order (CONTRACT — DO NOT CHANGE)
 
-Das JSON je Rendering enthält `corners: [a8, h8, h1, a1]` in **dieser Reihenfolge**.
-Eine abweichende Reihenfolge vertauscht alle Labels stillschweigend (Spiegelung/Rotation).
-Wächter-Test: `tests/test_ingest_synthetic.py::test_synthetic_ingest_orientation`.
+Each rendering's JSON contains `corners: [a8, h8, h1, a1]` in **this order**.
+A different order silently swaps all labels (mirroring/rotation).
+Guardian test: `tests/test_ingest_synthetic.py::test_synthetic_ingest_orientation`.
 
-## 1. Turntable-Aufnahme
+## 1. Turntable Capture
 
 ```bash
 python synth/capture_turntable.py --piece P --out data/turntable/P/
 ```
 
-**Anti-Flicker-Hinweis:** Raumlicht dimmen, Bildstabilisierung der Kamera deaktivieren,
-Weißabgleich und Belichtung fixieren (kein Automatik-Modus). Kamera auf Stativ.
+**Anti-Flicker Note:** Dim room lights, disable camera image stabilization,
+fix white balance and exposure (no auto mode). Camera on tripod.
 
 ## 2. RealityScan (Cloud)
 
-Fotos hochladen → Mesh + Textur herunterladen. Ausgabe ist eine `.obj` + `.png`/`.jpg`.
+Upload photos → download mesh + texture. Output is a `.obj` + `.png`/`.jpg`.
 
-## 3. Vorbereiten (isolieren + dezimieren + Qualitäts-Report) — `chesslab synth prepare`
+## 3. Prepare (isolate + decimate + quality report) — `chesslab synth prepare`
 
-**Empfohlener Weg — Blender muss nie geöffnet werden.** Scans nach `<in>/<Figur>/` legen
-(Figurenname = Ordnername: `P`, `wN`, …; darin die RealityScan-Ausgabe — bevorzugt das rohe
-`.obj` + `*_diffuse.png`; `.glb` geht auch, referenziert seine Textur aber meist extern,
-also die diffuse-PNG mit in den Ordner):
+**Recommended path — Blender never needs to be opened.** Place scans under `<in>/<piece>/`
+(piece name = directory name: `P`, `wN`, …; inside, the RealityScan output — preferably the raw
+`.obj` + `*_diffuse.png`; `.glb` also works, but usually references its texture externally,
+so put the diffuse PNG in the folder as well):
 
 ```bash
 uv run chesslab synth prepare --in scans_export/ --out synth_pieces/
 ```
 
-Je Figur passiert automatisch (alle Schritte als Toggles):
-- **Isolieren:** Unterlage per PCA finden, Figur-Cluster behalten (`--keep-radius`, Default 1.9),
-  aufrecht stellen (Basis z=0, Achse +Z).
-- **Aufräumen:** nur größte zusammenhängende Komponente (`--no-keep-largest` schaltet ab),
-  offene Ränder/Basis schließen + Normalen nach außen (`--no-fill-holes`).
-- **Dezimieren:** auf `--target-tris` (Default 20000; `0` = aus). RealityScan liefert Millionen
-  Dreiecke — 32 Figuren davon sind unrenderbar; 20k pro Figur reichen für 1024px-Renders locker.
-- **Glätten:** Laplacian mit Volumenerhalt gegen Scan-Bumps (`--smooth-iters`, 10 mild,
-  25–40 stark, `0` = aus).
-- **Qualität:** `<Figur>_report.json` (Dreiecke, Löcher, Proportionen) + `<Figur>_preview.png`
-  (orthografische Seitenansicht). Die Zusammenfassung markiert [WARN] mit konkretem Hinweis.
+Per piece everything happens automatically (all steps as toggles):
+- **Isolate:** Find support surface via PCA, keep piece cluster (`--keep-radius`, default 1.9),
+  stand upright (base z=0, axis +Z).
+- **Clean up:** keep only the largest connected component (`--no-keep-largest` disables),
+  close open edges/base + normals outward (`--no-fill-holes`).
+- **Decimate:** to `--target-tris` (default 20000; `0` = off). RealityScan delivers millions
+  of triangles — 32 pieces' worth is unrenderable; 20k per piece is easily enough for 1024px renders.
+- **Smooth:** Laplacian with volume preservation against scan bumps (`--smooth-iters`, 10 mild,
+  25–40 strong, `0` = off).
+- **Quality:** `<piece>_report.json` (triangles, holes, proportions) + `<piece>_preview.png`
+  (orthographic side view). The summary marks [WARN] with a concrete hint.
 
-**Qualität beurteilen:** Preview ansehen (aufrecht? Basis unten? Lücken?) + [WARN]-Hinweise lesen.
-`height_ratio` außerhalb ~0.9–4.0 heißt fast immer: Isolierung hat den Hintergrund erwischt
-(gewölbte Unterlage!) oder die Figur liegt — Unterlage flacher machen bzw. `--keep-radius` anpassen.
-Viele `boundary_edges` = echte Scan-Löcher: zusätzliche Foto-Durchgänge auf 2–3 Kamerahöhen machen
-(besonders flach für Einschnürungen wie den Bauern-Hals). Die absolute Größe ist egal: der
-Renderer normiert auf Zielhöhe.
+**Assess quality:** View the preview (upright? base on bottom? gaps?) + read [WARN] hints.
+`height_ratio` outside ~0.9–4.0 almost always means: isolation caught the background
+(domed support surface!) or the piece is lying down — flatten the support surface or adjust `--keep-radius`.
+Many `boundary_edges` = real scan holes: take additional photo passes at 2–3 camera heights
+(especially low for constrictions like the pawn's neck). Absolute size does not matter: the
+renderer normalizes to target height.
 
-Manuell (ein einzelner Scan, gleiche Flags):
+Manual (a single scan, same flags):
 
 ```bash
 blender --background --python synth/isolate_piece.py -- \
     scan.obj diffuse.png "synth_pieces/P.obj" "synth_pieces/P_preview.png" --target-tris 20000
 ```
 
-## 4. FEN-Liste erzeugen
+## 4. Generate FEN List
 
 ```bash
 uv run python synth/fens.py data/synth_fens.txt --n 200 --seed 42
 ```
 
-## 5. Rendern
+## 5. Rendering
 
-### Via CLI (empfohlen)
+### Via CLI (recommended)
 
 ```bash
 uv run chesslab synth render --out data/synth_raw --n 200 --fens data/synth_fens.txt
 ```
 
-Optionen:
-- `--blend` — Blender-Szene (Default: `synth_assets/Chess Scene.blend`)
-- `--pieces-dir` — Figuren-Vorlagen (Default: `synth_pieces/`)
-- `--n` — Anzahl Renderings (Default: 200)
-- `--seed` — Seed (Default: 42)
-- `--fens` — FEN-Liste (sonst Fallback Grundstellung)
-- `--res` — Auflösung in px (Default: 1024)
-- `--blender` — Blender-Executable (Default: `blender`, via Env `CHESSLAB_BLENDER`)
+Options:
+- `--blend` — Blender scene (default: `synth_assets/Chess Scene.blend`)
+- `--pieces-dir` — Piece templates (default: `synth_pieces/`)
+- `--n` — Number of renderings (default: 200)
+- `--seed` — Seed (default: 42)
+- `--fens` — FEN list (otherwise fallback to starting position)
+- `--res` — Resolution in px (default: 1024)
+- `--blender` — Blender executable (default: `blender`, via env `CHESSLAB_BLENDER`)
 
-### Roh mit Blender (Alternative)
+### Raw with Blender (Alternative)
 
 ```bash
 blender --background "synth_assets/Chess Scene.blend" \
@@ -99,18 +99,18 @@ blender --background "synth_assets/Chess Scene.blend" \
        --fens data/synth_fens.txt --pieces synth_pieces
 ```
 
-## 6. Ingestieren
+## 6. Ingest
 
 ```bash
 uv run chesslab ingest synthetic data/synth_raw --tag synth
 ```
 
-**Visuelle Kontrolle VOR dem Training:**
+**Visual check BEFORE training:**
 ```bash
 uv run chesslab ingest synthetic data/synth_raw --tag synth --debug-overlay 8
 ```
-Die Overlay-PNGs zeigen den entzerrten Crop + FEN-Label — prüfen, ob die Figuren auf den
-richtigen Feldern landen.
+The overlay PNGs show the rectified crop + FEN label — verify that the pieces land on the
+correct squares.
 
 ## 7. Training
 
@@ -118,4 +118,4 @@ richtigen Feldern landen.
 uv run chesslab train --dataset synth --head twostage --backbone mobilenet_v3_small
 ```
 
-Oder Pretrain → Finetune mit dem synth-Datensatz als erster Curriculum-Stufe.
+Or pretrain → finetune with the synth dataset as the first curriculum stage.

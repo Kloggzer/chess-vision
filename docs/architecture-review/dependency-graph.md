@@ -1,10 +1,10 @@
-# Abhängigkeits-Graph & Kopplungsanalyse
+# Dependency Graph & Coupling Analysis
 
-## Modul-Abhängigkeiten (Kern + Satelliten)
+## Module Dependencies (Core + Satellites)
 
 ```mermaid
 graph TD
-    subgraph Präsentation
+    subgraph Presentation
         CLI[cli.py]
         WEB[web/app.py]
         FE[frontend React SPA]
@@ -12,7 +12,7 @@ graph TD
         CUI[collect_ui.py]
     end
 
-    subgraph Kern
+    subgraph Core
         CFG[config.py]
         CAL[calibration.py]
         ST[state.py]
@@ -54,14 +54,14 @@ graph TD
 
     COL --> CAL & ST & SES
     LAB --> CAL & G3D & PHO
-    G3D -. lazy, ZYKLUS .-> LAB
+    G3D -. lazy, CYCLE .-> LAB
     ING --> ADP & LAB & SES
     DS --> CFG
     EXP --> DSB & TT
 
     TT --> TD & TM & TE
     TEV --> TM & TD
-    INF -. privat: _load_run .-> TEV
+    INF -. private: _load_run .-> TEV
     TD --> CFG
 
     CAL --> CFG
@@ -71,44 +71,44 @@ graph TD
     CAM --> CAL
 ```
 
-Legende: durchgezogen = regulärer Import · gestrichelt = problematische Kante
+Legend: solid = regular import · dashed = problematic edge
 
-## Bewertung der Kanten
+## Edge Assessment
 
-**Saubere, gewollte Richtungen (bestätigt):**
-- `config.py` ist reine Senke — wird von allem importiert, importiert nichts Fachliches. ✓
-- `state.py` (Spiellogik) und `calibration.py` (Geometrie) sind headless und nur von config
-  abhängig — die stabilsten Bausteine des Systems. ✓
-- `cli.py` und `web/app.py` koppeln als Entrypoints breit an alle Stufen — angemessen. ✓
-- `move_tracker` ist reiner Konsument der Library (calibration, web.camera, python-chess),
-  dupliziert keine Logik. ✓
+**Clean, intended directions (confirmed):**
+- `config.py` is a pure sink — imported by everything, imports nothing domain-specific. ✓
+- `state.py` (game logic) and `calibration.py` (geometry) are headless and depend only on config
+  — the most stable building blocks of the system. ✓
+- `cli.py` and `web/app.py` couple broadly to all layers as entrypoints — appropriate. ✓
+- `move_tracker` is a pure consumer of the library (calibration, web.camera, python-chess),
+  duplicates no logic. ✓
 
-**Problematische Kanten:**
+**Problematic edges:**
 
-| Kante | Problem | Schwere |
+| Edge | Problem | Severity |
 |---|---|---|
-| `geometry3d → labeling` (lazy) bei gleichzeitigem `labeling → geometry3d` | Import-Zyklus, per Lazy-Import kaschiert; `_resize_keep_aspect` liegt im falschen Modul | Medium |
-| `web/inference → training.evaluate._load_run` | Privates Symbol als Layer-Contract; kein stabiler Vertrag Training→Konsumenten | High |
-| `web/app` ↛ `labeling` (Label→FEN lokal reimplementiert, app.py:60–84) | Fehlende Kante, die es geben sollte — Duplikat statt Import | Medium |
-| Inference-Pfade ↛ `photometric` | `predict_arrays` wendet keine Photometrie an, obwohl die Run-Config sie verlangt → Train/Serve-Skew | **Critical** (siehe C1) |
-| `move_tracker → chesslab.calibration._square_to_col_row` | weiteres privates Symbol als externer Contract | Low |
+| `geometry3d → labeling` (lazy) together with `labeling → geometry3d` | Import cycle masked by lazy import; `_resize_keep_aspect` lives in the wrong module | Medium |
+| `web/inference → training.evaluate._load_run` | Private symbol as a layer contract; no stable contract Training→Consumers | High |
+| `web/app` ↛ `labeling` (Label→FEN reimplemented locally, app.py:60–84) | Missing edge that should exist — duplication instead of import | Medium |
+| Inference paths ↛ `photometric` | `predict_arrays` does not apply photometry even though the run config requires it → Train/Serve-Skew | **Critical** (see C1) |
+| `move_tracker → chesslab.calibration._square_to_col_row` | Another private symbol as an external contract | Low |
 
-## Kopplungs-Hotspots
+## Coupling Hotspots
 
-1. **Der „Crop-Contract" ist kein Modul, sondern verteiltes Wissen.** Vier Stellen müssen dieselbe
-   Geometrie+Photometrie reproduzieren (labeling/slice, torch_data, web/inference, move_tracker).
-   Das ist die wichtigste fehlende Abstraktion im System — eine Facade
-   `crops_for_model(frame, corners, run_cfg)` würde drei gestrichelte Kanten auflösen.
+1. **The "Crop Contract" is not a module, but distributed knowledge.** Four sites must reproduce the
+   same geometry+photometry (labeling/slice, torch_data, web/inference, move_tracker).
+   This is the most important missing abstraction in the system — a facade
+   `crops_for_model(frame, corners, run_cfg)` would resolve three dashed edges.
 
-2. **`web/app.py` (~1060 Zeilen) ist der God-Module des Web-Layers.** Endpoints, Globalzustand,
-   FEN-Helfer, Subprozess-Management und Stream-Generatoren in einer Datei. Aufteilung nach
-   Feature (train/collect/inference/scan-Router) würde die Kopplung sichtbar und testbar machen.
+2. **`web/app.py` (~1060 lines) is the God Module of the web layer.** Endpoints, global state,
+   FEN helpers, subprocess management, and stream generators in one file. Splitting by
+   feature (train/collect/inference/scan router) would make coupling visible and testable.
 
-3. **Dateiformate als Schnittstellen** (Session-Log, Manifest, Run-Config) sind die stabilsten
-   Verträge des Systems — aber nirgends als Schema dokumentiert. Drei JSONL-Reader-Implementierungen
-   existieren parallel. Ein `schemas.py` (oder Docstring-Schema je Writer) plus eine gemeinsame
-   `read_jsonl`-Hilfe wäre ausreichend.
+3. **File formats as interfaces** (session log, manifest, run config) are the most stable
+   contracts of the system — but nowhere documented as schemas. Three JSONL reader implementations
+   exist in parallel. A `schemas.py` (or docstring schema per writer) plus a shared
+   `read_jsonl` helper would suffice.
 
-4. **Externe Systemgrenzen:** Blender/RealityScan (synth) und die Android-IP-Cam sind über
-   Konvention (Pfade, URL-Format) gekoppelt, ohne Validierung an der Grenze — Fehler wandern
-   unbemerkt tief in die Pipeline (siehe C3/H5).
+4. **External system boundaries:** Blender/RealityScan (synth) and the Android IP cam are coupled
+   by convention (paths, URL format) without validation at the boundary — errors propagate
+   unnoticed deep into the pipeline (see C3/H5).

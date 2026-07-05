@@ -1,49 +1,49 @@
-# Stufe 6 — Collection-UI: Trainingsdaten-Assistent (`collect_ui.py`)
+# Stage 6 — Collection-UI: Training Data Assistant (`collect_ui.py`)
 
-## Zweck
+## Purpose
 
-Beim Aufnehmen von Trainingsdaten fehlt dem Nutzer der Überblick: Welche Klassen sind
-bereits gut abgedeckt? Welche Figurentypen fehlen fast völlig? Auf welchen Feldfarben
-wurde eine Figur noch nie gesehen? Diese Stufe ergänzt den `collect`-Loop (Stufe 3)
-um ein **zweites OpenCV-Fenster** — ein Live-Dashboard, das diese Fragen kontinuierlich
-beantwortet und gezielt nächste Stellungen vorschlägt.
+When capturing training data, the user lacks an overview: Which classes are
+already well covered? Which piece types are almost completely missing? On which
+square colors has a piece never been seen? This stage extends the `collect` loop
+(Stage 3) with a **second OpenCV window** — a live dashboard that continuously
+answers these questions and proactively suggests the next positions.
 
-Kein neuer Pflicht-Dependency. Kein separater Prozess. Das Fenster öffnet sich neben dem
-bestehenden Kamerafenster, sobald `--ui` übergeben wird.
+No new mandatory dependency. No separate process. The window opens next to the
+existing camera window as soon as `--ui` is passed.
 
-## Abhängigkeiten zu anderen Stufen (wichtig)
+## Dependencies on other stages (important)
 
-- **Stufe 2 (`state.py`):** Die Abdeckung wird aus FEN abgeleitet — über dieselbe
-  Label-Logik (`label_for` / das zentrale Mapping). Stufe 6 erfindet **kein** eigenes
-  Label-Mapping.
-- **Stufe 3 (`collect.py`):** liefert die Datenquelle (Session-Logs, s. u.) und den
-  Loop, in den das Dashboard eingehängt wird.
-- **Stufe 4 (`split.json`):** optional, nur für die Standalone-Ansicht.
-- **Unabhängig von Stufe 5.** Stufe 6 kann direkt nach Stufe 4 gebaut werden; sie wird
-  beim *Sammeln* genutzt, lange bevor trainiert wird.
+- **Stage 2 (`state.py`):** Coverage is derived from the FEN — via the same
+  label logic (`label_for` / the central mapping). Stage 6 does **not** invent its own
+  label mapping.
+- **Stage 3 (`collect.py`):** Provides the data source (session logs, see below) and the
+  loop into which the dashboard is hooked.
+- **Stage 4 (`split.json`):** Optional, only for the standalone view.
+- **Independent of Stage 5.** Stage 6 can be built directly after Stage 4; it is used
+  during *collection*, long before training.
 
-## Datenquelle — Session-Logs, NICHT das Manifest (kritisch)
+## Data Source — Session Logs, NOT the Manifest (critical)
 
-`collect` schreibt pro bestätigter Stellung **nur** Rohframe + FEN in `log.jsonl`
-(Stufe 3, Teil 1). Das gelabelte Manifest `squares.jsonl` entsteht **erst später** durch
-`slice` (Stufe 3, Teil 2). Während einer laufenden `collect`-Session existieren die
-gerade aufgenommenen Stellungen also **noch nicht** im Manifest.
+`collect` writes **only** raw frame + FEN per confirmed position to `log.jsonl`
+(Stage 3, Part 1). The labeled manifest `squares.jsonl` is created **only later** by
+`slice` (Stage 3, Part 2). During a running `collect` session, the positions
+just captured therefore do **not yet exist** in the manifest.
 
-Deshalb berechnet das Dashboard die Abdeckung **direkt aus den Session-Logs**:
+That is why the dashboard computes coverage **directly from the session logs**:
 
-- Für jede Zeile in jeder `data/sessions/<id>/log.jsonl`: FEN nehmen, daraus die 64
-  Feld-Labels via zentralem Mapping (Stufe 2) ableiten, `square_color` je Feld
-  deterministisch berechnen (`(file_idx + rank_idx) % 2`).
-- Über alle Sessions aggregieren → Zählung pro Klasse und pro (Klasse × Feldfarbe).
+- For each line in each `data/sessions/<id>/log.jsonl`: take the FEN, derive the 64
+  square labels via the central mapping (Stage 2), compute `square_color` for each square
+  deterministically (`(file_idx + rank_idx) % 2`).
+- Aggregate across all sessions → counts per class and per (class × square color).
 
-Das ergibt **exakt** dieselben Zahlen, die ein späteres `slice` produzieren würde (jede
-geloggte Stellung = 64 Crops), ist aber **sofort beim Aufnehmen** verfügbar. So
-aktualisiert sich die Abdeckung unmittelbar nach jeder Aufnahme.
+This yields **exactly** the same numbers that a later `slice` would produce (each
+logged position = 64 crops), but is available **immediately during capture**. This way
+coverage updates right after each capture.
 
-> Das Manifest (`squares.jsonl`) wird **optional** als Zweitquelle gelesen, wenn es
-> existiert — nur im Standalone-Modus (`chesslab ui`) nach einem `slice`, um bereits
-> geslicte Crops auf Plausibilität gegen die Log-Ableitung zu prüfen. Für die Live-Sicht
-> sind die Session-Logs maßgeblich.
+> The manifest (`squares.jsonl`) is **optionally** read as a secondary source if it
+> exists — only in standalone mode (`chesslab ui`) after a `slice`, to sanity-check
+> already-sliced crops against the log-derived data. For the live view,
+> the session logs are authoritative.
 
 ## CLI
 
@@ -52,60 +52,59 @@ chesslab collect pgn  ... [--ui] [--target 200]
 chesslab collect live ... [--ui] [--target 200]
 ```
 
-`--ui` aktiviert das Dashboard-Fenster. `--target N` setzt die Zielzahl Samples pro
-Nicht-`empty`-Klasse (Default aus `config.py`, s. u.). Ohne `--ui` ist das Verhalten
-**bitidentisch** zu Stufe 3 — keine Verhaltensänderung an der Aufnahme-Logik.
+`--ui` activates the dashboard window. `--target N` sets the target number of samples per
+non-`empty` class (default from `config.py`, see below). Without `--ui` the behavior is
+**bit-identical** to Stage 3 — no behavioral change to the capture logic.
 
-Zusätzlich steht das Dashboard standalone zur Verfügung, um den aktuellen Stand
-**ohne** laufende Aufnahme einzusehen:
+Additionally, the dashboard is available standalone to inspect the current state
+**without** a running capture:
 
 ```
 chesslab ui [--sessions data/sessions] [--manifest data/manifests/squares.jsonl]
 ```
 
-Standalone aggregiert es über **alle** Session-Logs (gleiche Ableitung wie oben).
-`--manifest` ist optional und nur informativ.
+Standalone aggregates across **all** session logs (same derivation as above).
+`--manifest` is optional and informational only.
 
-## Konfiguration (config before code)
+## Configuration (config before code)
 
-Alle Schwellwerte leben in `config.py` (bzw. YAML), nicht im Rendering-Code hartkodiert:
+All thresholds live in `config.py` (or YAML), not hardcoded in the rendering code:
 
 ```python
-ui_target_per_class: int = 200     # Zielzahl je Nicht-empty-Klasse (= stats-Schwelle Stufe 4)
-ui_empty_target_ratio: float = 1.5 # empty-Ziel = ratio * größte Figurenklasse (vgl. max-empty-ratio)
-ui_warn_frac: float = 0.5          # < 50 % Ziel -> rot, 50-99 % -> gelb, >= 100 % -> grün
-ui_total_target: int = 5000        # Gesamt-Crop-Ziel für den Fortschrittsbalken (Bereich A)
+ui_target_per_class: int = 200     # Target per non-empty class (= stats threshold Stage 4)
+ui_empty_target_ratio: float = 1.5 # empty target = ratio * largest piece class (cf. max-empty-ratio)
+ui_warn_frac: float = 0.5          # < 50 % target -> red, 50-99 % -> yellow, >= 100 % -> green
+ui_total_target: int = 5000        # Total crop target for the progress bar (Area A)
 ```
 
-`--target` überschreibt `ui_target_per_class` zur Laufzeit.
+`--target` overrides `ui_target_per_class` at runtime.
 
-## Fensterlayout
+## Window Layout
 
-Festes OpenCV-Bild (z. B. 900×700 px), das nach jeder aufgenommenen Stellung neu
-gerendert wird. Vier Bereiche:
+Fixed OpenCV canvas (e.g. 900×700 px), re-rendered after each captured position. Four areas:
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  SESSION-FORTSCHRITT                        [Bereich A] │
-│  Sessions: 3 | Frames: 47 | abgeleitete Crops: 3 008 │
+│  SESSION PROGRESS                            [Area A] │
+│  Sessions: 3 | Frames: 47 | Derived Crops: 3 008     │
 ├───────────────────────┬─────────────────────────────┤
-│  KLASSENABDECKUNG     │  HELL/DUNKEL-MATRIX [Bereich C] │
-│  [Bereich B]          │                              │
+│  CLASS COVERAGE        │  LIGHT/DARK MATRIX   [Area C] │
+│  [Area B]              │                              │
 ├───────────────────────┴─────────────────────────────┤
-│  NÄCHSTE EMPFOHLENE STELLUNG              [Bereich D] │
-│  FEN: … | Begründung: bQ fehlt auf hellen Feldern    │
+│  NEXT RECOMMENDED POSITION                  [Area D] │
+│  FEN: … | Reason: bQ missing on light squares        │
 └─────────────────────────────────────────────────────┘
 ```
 
-### Bereich A — Session-Fortschritt
+### Area A — Session Progress
 
-- Anzahl Sessions, geloggte Frames, daraus abgeleitete Crops gesamt (Frames × 64).
-- Aktueller Modus (PGN / Live) und Session-ID (im Live-Betrieb).
-- Fortschrittsbalken Richtung `ui_total_target`.
+- Number of sessions, logged frames, total derived crops from them (frames × 64).
+- Current mode (PGN / Live) and session ID (during live operation).
+- Progress bar toward `ui_total_target`.
 
-### Bereich B — Klassenabdeckung (Balkendiagramm)
+### Area B — Class Coverage (Bar Chart)
 
-13 horizontale Balken in der kanonischen Reihenfolge aus `config.py`:
+13 horizontal bars in the canonical order from `config.py`:
 
 ```
 empty  ████████████████████ 1840
@@ -114,125 +113,124 @@ wN     ██                    80  ← WARN
 …
 ```
 
-- Balkenbreite relativ zu `ui_target_per_class`.
-- Farbe: **grün** ≥ 100 %, **gelb** `ui_warn_frac`–99 %, **rot** < `ui_warn_frac`.
-- `empty` separat mit eigenem Ziel (`ui_empty_target_ratio` × größte Figurenklasse) und
-  hellblauer Farbe — optisch abgesetzt, weil `empty` die Statistik dominiert.
+- Bar width relative to `ui_target_per_class`.
+- Color: **green** ≥ 100 %, **yellow** `ui_warn_frac`–99 %, **red** < `ui_warn_frac`.
+- `empty` is separate with its own target (`ui_empty_target_ratio` × largest piece class) and
+  light blue color — visually distinct because `empty` dominates the statistics.
 
-### Bereich C — Hell/Dunkel-Matrix
+### Area C — Light/Dark Matrix
 
-Kompakte 13×2-Tabelle: jede Klasse × {hell, dunkel}. Die Spalten entsprechen den
-Manifest-Werten **`light`** (hell) und **`dark`** (dunkel) aus Stufe 3.
+Compact 13×2 table: each class × {light, dark}. The columns correspond to the
+manifest values **`light`** and **`dark`** from Stage 3.
 
 ```
-       hell   dunkel
+       light  dark
 empty   ✓      ✓
-wN      ✓      ✗  ← fehlt (light=ok, dark=0)
-wB      ✗      ✓  ← fehlt
+wN      ✓      ✗  ← missing (light=ok, dark=0)
+wB      ✗      ✓  ← missing
 …
 ```
 
-- ✓ (grün) wenn ≥ 1 Sample dieser (Klasse × Feldfarbe).
-- ✗ (rot) wenn keine Samples. Stärkeres Signal als die reine Zahl: eine nur auf einer
-  Feldfarbe gelernte Figur wird die andere im Echtbetrieb systematisch falsch erkennen.
+- ✓ (green) when ≥ 1 sample of this (class × square color).
+- ✗ (red) when no samples. A stronger signal than the bare count: a piece learned on only one
+  square color will systematically misrecognize the other in real operation.
 
-### Bereich D — Empfohlene nächste Stellung
+### Area D — Recommended Next Position
 
-Einzeilige Empfehlung plus eine FEN für `collect live --start-fen`:
+One-line recommendation plus a FEN for `collect live --start-fen`:
 
 ```
-Empfehlung: wN auf dunklem Feld fehlt, bQ < 50 %
+Recommendation: wN missing on dark square, bQ < 50 %
 FEN: r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2N2N2/PPPP1PPP/R1BQK2R w KQkq - 0 6
-[Taste g: FEN in Zwischenablage kopieren]
+[Press g: copy FEN to clipboard]
 ```
 
-**Empfehlungslogik (deterministisch, priorisiert — kein Zufall, kein Seed nötig):**
-1. (Klasse × Feldfarbe) mit ✗ (fehlende Feldfarben-Abdeckung) → höchste Priorität.
-2. Klasse unter `ui_warn_frac` der Zielzahl.
-3. Klasse unter 100 % der Zielzahl.
+**Recommendation logic (deterministic, prioritized — no randomness, no seed needed):**
+1. (Class × square color) with ✗ (missing square-color coverage) → highest priority.
+2. Class below `ui_warn_frac` of the target number.
+3. Class below 100 % of the target number.
 
-**FEN-Generierung (Anforderungen):**
-- Die FEN muss die gesuchte Figur auf einem Feld der **konkret fehlenden Feldfarbe**
-  platzieren (bei Priorität 1). Eine Figur auf dem falschen Feldfarbton schließt die
-  Lücke nicht.
-- Die FEN muss **strukturell gültig** sein (genau ein König je Farbe, keine Bauern auf
-  Reihe 1/8, plausible Figurenzahlen) — sonst lehnt `chess.Board`/`--start-fen` sie ab.
-- Empfohlene Umsetzung: kleine **statische Bibliothek** geprüfter Muster-FEN je
-  (Klasse × Feldfarbe) in `collect_ui.py`. Keine Laufzeit-Suchlogik, dadurch
-  deterministisch und testbar. Alternativ programmatisch via `chess.Board.set_piece_at`
-  auf einem definierten Grundgerüst, anschließend `is_valid()`-Prüfung.
+**FEN Generation (requirements):**
+- The FEN must place the sought piece on a square of the **specifically missing square color**
+  (for priority 1). A piece on the wrong square color does not fill the gap.
+- The FEN must be **structurally valid** (exactly one king per color, no pawns on
+  rank 1/8, plausible piece counts) — otherwise `chess.Board`/`--start-fen` rejects it.
+- Recommended implementation: a small **static library** of pre-verified template FENs per
+  (class × square color) in `collect_ui.py`. No runtime search logic, therefore
+  deterministic and testable. Alternatively, programmatic generation via `chess.Board.set_piece_at`
+  on a defined skeleton, followed by `is_valid()` check.
 
-> Die FEN ist ein Vorschlag, kein Befehl. Der Nutzer baut die Stellung physisch auf und
-> löst die Aufnahme wie gewohnt aus.
+> The FEN is a suggestion, not a command. The user physically sets up the position and
+> triggers capture as usual.
 
-## Tastensteuerung (ein einziger Key-Loop — wichtig)
+## Key Binding (a single key loop — important)
 
-OpenCV-HighGUI hat **eine** globale `waitKey`-Schleife; Tastendrücke lassen sich **nicht**
-einem bestimmten Fenster zuordnen. Deshalb:
+OpenCV HighGUI has **one** global `waitKey` loop; key presses cannot be
+assigned to a specific window. Therefore:
 
-- Das Dashboard-Fenster ist **rein darstellend** und verarbeitet **keine** eigenen Tasten.
-- Der bestehende `collect`-Key-Loop (Stufe 3) bleibt alleiniger Tasten-Owner und erhält
-  **eine** zusätzliche Taste:
-  - `g` = empfohlene FEN aus Bereich D in die Zwischenablage kopieren (via `pyperclip`,
-    optional). Fehlt `pyperclip` → WARN beim Start, `g` ist No-Op.
-- Keine `q`-Kollision: `q` behält seine Stufe-3-Bedeutung (Session beenden) und schließt
-  dabei **beide** Fenster. Es gibt keine separate „Dashboard schließen"-Taste.
+- The dashboard window is **purely display-only** and processes **no** keys of its own.
+- The existing `collect` key loop (Stage 3) remains the sole key owner and gains
+  **one** additional key:
+  - `g` = copy the recommended FEN from Area D to the clipboard (via `pyperclip`,
+    optional). If `pyperclip` is missing → WARN at startup, `g` is a no-op.
+- No `q` collision: `q` retains its Stage 3 meaning (end session) and closes
+  **both** windows. There is no separate "close dashboard" key.
 
-Im Standalone-Modus (`chesslab ui`) gibt es nur ein Fenster; dort beendet `q` die Ansicht
-und `g` kopiert die FEN.
+In standalone mode (`chesslab ui`) there is only one window; there `q` exits the view
+and `g` copies the FEN.
 
-## Integration in `collect`
+## Integration into `collect`
 
-Das Dashboard ist ein optionales Modul — `collect.py` importiert `collect_ui.py` nur, wenn
-`--ui` gesetzt ist. Minimale Schnittstelle:
+The dashboard is an optional module — `collect.py` imports `collect_ui.py` only when
+`--ui` is set. Minimal interface:
 
 ```python
 # collect_ui.py
 class CollectDashboard:
     def __init__(self, sessions_dir: Path, target_per_class: int = 200): ...
     def update(self) -> None:
-        """Session-Logs neu aggregieren und Fenster neu rendern. Aufruf nach jeder Aufnahme."""
+        """Re-aggregate session logs and re-render window. Call after each capture."""
     def recommended_fen(self) -> str | None:
-        """Aktuell empfohlene FEN (für Taste g im collect-Loop)."""
+        """Currently recommended FEN (for key g in the collect loop)."""
     def close(self) -> None: ...
 ```
 
-`collect.py` ruft `dashboard.update()` nach jedem geschriebenen Log-Eintrag (auch nach
-`undo`) auf. Das Dashboard hält **keinen** In-Memory-Zustand, der mit dem Loop konsistent
-gehalten werden müsste — es liest die Logs bei jedem `update()` frisch.
+`collect.py` calls `dashboard.update()` after every written log entry (including after
+`undo`). The dashboard holds **no** in-memory state that would need to be kept consistent
+with the loop — it reads the logs fresh on every `update()`.
 
-## Rendering-Details
+## Rendering Details
 
-Alles mit `cv2`-Primitiven (`cv2.rectangle`, `cv2.putText`, `cv2.line`). Keine externen
-Plot-Bibliotheken.
+Everything with `cv2` primitives (`cv2.rectangle`, `cv2.putText`, `cv2.line`). No external
+plot libraries.
 
-- Hintergrund dunkelgrau; Schrift `cv2.FONT_HERSHEY_SIMPLEX`, Größe 0.45–0.55.
-- Fensterposition neben dem Kamerafenster (`cv2.moveWindow`).
-- `cv2.WINDOW_NORMAL`, feste Basis-Canvas-Größe.
+- Background dark gray; font `cv2.FONT_HERSHEY_SIMPLEX`, size 0.45–0.55.
+- Window position next to the camera window (`cv2.moveWindow`).
+- `cv2.WINDOW_NORMAL`, fixed base canvas size.
 
-## Akzeptanzkriterien (Definition of Done)
+## Acceptance Criteria (Definition of Done)
 
-- `chesslab collect live --ui` öffnet ein zweites Fenster; **nach jeder Aufnahme** ändert
-  sich die Klassenabdeckung sichtbar — und das **vor** jedem `slice`, weil die Zahlen aus
-  den Session-Logs (FEN→Label) stammen, nicht aus dem Manifest.
-- Balkenfarben (grün/gelb/rot) stimmen mit `ui_warn_frac` überein; Hell/Dunkel-Matrix
-  zeigt ✗ korrekt für (Klasse × Feldfarbe) ohne Samples.
-- Die Empfehlung (Bereich D) nennt die Klasse/Feldfarbe mit der schlechtesten Abdeckung;
-  die ausgegebene FEN enthält diese Figur auf der **richtigen** Feldfarbe und ist
-  `chess.Board`-gültig (Unit-Test).
-- `chesslab ui` öffnet das Dashboard standalone und aggregiert über alle Session-Logs,
-  auch wenn noch **kein** `slice` gelaufen ist.
-- Ohne `--ui` ist `collect` bitidentisch zu Stufe 3 (Regressions-Smoke-Test).
-- `pyperclip` fehlt → saubere WARN, Taste `g` ist No-Op, keine Exception.
+- `chesslab collect live --ui` opens a second window; **after each capture** the
+  class coverage changes visibly — and this happens **before** any `slice`, because the numbers come
+  from the session logs (FEN→label), not from the manifest.
+- Bar colors (green/yellow/red) match `ui_warn_frac`; light/dark matrix
+  shows ✗ correctly for (class × square color) with no samples.
+- The recommendation (Area D) names the class/square color with the worst coverage;
+  the output FEN contains that piece on the **correct** square color and is
+  `chess.Board`-valid (unit test).
+- `chesslab ui` opens the dashboard standalone and aggregates across all session logs,
+  even if **no** `slice` has been run yet.
+- Without `--ui`, `collect` is bit-identical to Stage 3 (regression smoke test).
+- `pyperclip` missing → clean WARN, key `g` is a no-op, no exception.
 
-## Fallstricke
+## Pitfalls
 
-- **Manifest ≠ Live-Stand:** Das Manifest wächst erst beim `slice`. Die Live-Abdeckung
-  **muss** aus den Session-Logs kommen, sonst zeigt das Dashboard die gerade
-  aufgenommenen Stellungen nicht an.
-- **Noch keine Session vorhanden:** keine Logs → „0 Crops", alle Klassen rot. Korrekt und
-  hilfreich, kein Fehler.
-- **Ein Key-Loop:** Nicht versuchen, Tasten pro Fenster zu trennen — das Dashboard ist
-  darstellend, der collect-Loop besitzt die Tastatur.
-- **Feldfarbe der Empfehlung:** Eine empfohlene FEN, die die Figur auf der falschen
-  Feldfarbe platziert, schließt die ✗-Lücke nicht — Priorität 1 muss die Farbe treffen.
+- **Manifest ≠ live state:** The manifest grows only during `slice`. The live coverage
+  **must** come from the session logs, otherwise the dashboard will not show the
+  positions just captured.
+- **No session yet:** no logs → "0 Crops", all classes red. Correct and
+  helpful, not an error.
+- **Single key loop:** Do not try to separate keys per window — the dashboard is
+  display-only, the collect loop owns the keyboard.
+- **Square color of the recommendation:** A recommended FEN that places the piece on the wrong
+  square color does not fill the ✗ gap — priority 1 must hit the color.

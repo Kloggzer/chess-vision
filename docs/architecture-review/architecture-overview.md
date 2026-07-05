@@ -1,102 +1,102 @@
-# Architektur-Überblick — chess-vision / chesslab
+# Architecture Overview — chess-vision / chesslab
 
-Stand: 2026-07-02 · ~11.000 Zeilen Python (src + move_tracker + synth + tests) · Review-Basis: 4 parallele Subsystem-Analysen
+Status: 2026-07-02 · ~11,000 lines Python (src + move_tracker + synth + tests) · Review basis: 4 parallel subsystem analyses
 
-## Mission & Systemkontext
+## Mission & System Context
 
-`chesslab` ist ein **Datentool-Ökosystem** für Per-Square-Schachfigurenerkennung (14 Klassen inkl.
-`occluded`) aus einer fest montierten Kamera. Labels entstehen automatisch aus dem bekannten
-Spielzustand (FEN). Um den Kern haben sich drei Satelliten gebildet, die im ursprünglichen
-Spec-Layout (CLAUDE.md) nicht vorgesehen waren:
+`chesslab` is a **data-tool ecosystem** for per-square chess piece recognition (14 classes including
+`occluded`) from a fixed-mounted camera. Labels are generated automatically from the known
+game state (FEN). Around the core, three satellites have formed that were not foreseen in the original
+spec layout (CLAUDE.md):
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│  Präsentation                                                      │
-│  ├── CLI (typer, cli.py — ein Entrypoint `chesslab`)               │
+│  Presentation                                                      │
+│  ├── CLI (typer, cli.py — a single entrypoint `chesslab`)          │
 │  ├── Web-UI (FastAPI + React/Vite SPA, src/chesslab/web/)          │
-│  ├── OpenCV-Dashboard (collect_ui.py)                              │
-│  └── move_tracker/ (eigenes FastAPI + HTML, PROTOTYP, außerhalb src)│
+│  ├── OpenCV Dashboard (collect_ui.py)                              │
+│  └── move_tracker/ (own FastAPI + HTML, PROTOTYPE, outside src)    │
 ├────────────────────────────────────────────────────────────────────┤
-│  Fachlogik (Kern-Pipeline, src/chesslab/)                          │
-│  Stufe 0  doctor.py          Env-/ROCm-/Kamera-Validierung        │
-│  Stufe 1  calibration.py     Homographie, ArUco, MarkerTracker    │
-│  Stufe 2  state.py           Spielzustand (python-chess)          │
-│  Stufe 3  collect.py, labeling.py, geometry3d.py, photometric.py  │
-│  Stufe 4  dataset.py, dataset_build.py, sessions.py               │
-│  Stufe 5  training/ (model, train, engine, evaluate, torch_data)  │
-│  Stufe 7  experiment.py      Bake-off-Grids (Geometrie×Photometrie)│
-│  NEU      ingest.py + ingest_adapters/ (chesscog, chessred, synth)│
+│  Domain Logic (Core Pipeline, src/chesslab/)                       │
+│  Level 0  doctor.py          Env-/ROCm-/Camera Validation          │
+│  Level 1  calibration.py     Homography, ArUco, MarkerTracker      │
+│  Level 2  state.py           Game State (python-chess)             │
+│  Level 3  collect.py, labeling.py, geometry3d.py, photometric.py   │
+│  Level 4  dataset.py, dataset_build.py, sessions.py                │
+│  Level 5  training/ (model, train, engine, evaluate, torch_data)   │
+│  Level 7  experiment.py      Bake-off Grids (Geometry×Photometry)  │
+│  NEW      ingest.py + ingest_adapters/ (chesscog, chessred, synth) │
 ├────────────────────────────────────────────────────────────────────┤
-│  Daten / Infrastruktur                                             │
-│  config.py (Klassenliste, Crop-/Augment-Policy, Paths)             │
+│  Data / Infrastructure                                             │
+│  config.py (class list, crop/augment policy, paths)                │
 │  data/ (sessions JSONL+YAML, squares, manifests JSONL, models)     │
-│  synth/ (Blender-Renderpipeline) + synth_assets/ + synth_pieces/   │
-│  wheels/ (gepinnte ROCm-Torch-Wheels für Windows)                  │
+│  synth/ (Blender render pipeline) + synth_assets/ + synth_pieces/  │
+│  wheels/ (pinned ROCm Torch wheels for Windows)                    │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
-## Datenfluss (Haupt-Contract-Kette)
+## Data Flow (Main Contract Chain)
 
 ```
-Kamera ──► calibration (Profil-YAML: Homographie, Ecken, Crop-Params)
-       ──► collect (Session: log.jsonl {frame, ply, fen, corners?, labels?} + session.yaml)
-       ──► labeling.slice (Warp → 64 Crops → Label aus FEN) ──► manifest.jsonl
-       ──► dataset (Stats, Balance, session-basierter Split → split.json)
+Camera ──► calibration (profile YAML: homography, corners, crop params)
+       ──► collect (session: log.jsonl {frame, ply, fen, corners?, labels?} + session.yaml)
+       ──► labeling.slice (Warp → 64 Crops → Label from FEN) ──► manifest.jsonl
+       ──► dataset (Stats, Balance, session-based split → split.json)
        ──► training (SquareDataset → SmallCNN/MobileNetV3 → best.pt + config.json)
-       ──► Konsumenten: web/inference.predict_arrays · move_tracker (geplant: CNN-Resync)
+       ──► Consumers: web/inference.predict_arrays · move_tracker (planned: CNN resync)
 
 Parallel:  synth/ (RealityScan→Blender→PNG+JSON) ─┐
-           chesscog / ChessReD (extern)          ─┼─► ingest_adapters → ingest.synthesize_sessions
-                                                  ┘   → Pseudo-Sessions → gleicher slice-Pfad
+           chesscog / ChessReD (external)        ─┼─► ingest_adapters → ingest.synthesize_sessions
+                                                  ┘   → Pseudo-Sessions → same slice path
 ```
 
-Die Contracts sind **dateibasiert** (JSONL/YAML/JSON) — gut für Reproduzierbarkeit und Re-Slicing,
-aber die Schemata sind nirgends formal dokumentiert (nur implizit in Writer-/Reader-Code).
+The contracts are **file-based** (JSONL/YAML/JSON) — good for reproducibility and re-slicing,
+but the schemas are nowhere formally documented (only implicitly in writer/reader code).
 
-## Subsysteme im Detail
+## Subsystems in Detail
 
-**Kern-Pipeline** — sauber gestufte, weitgehend funktionale Module. `config.py` ist die einzige
-Quelle für Klassenliste, Crop-Geometrie, Augment-Policy, Pfade (Prinzip „Konfig vor Code" wird
-eingehalten). Headless-Kern (Geometrie, State, Stats) ist pur und testbar; Kamera/GUI-Kopplung
-ist auf collect/calibration-Ränder beschränkt.
+**Core Pipeline** — cleanly staged, largely functional modules. `config.py` is the single
+source for the class list, crop geometry, augment policy, and paths (the "config before code" principle is
+followed). The headless core (geometry, state, stats) is pure and testable; camera/GUI coupling
+is limited to the collect/calibration edges.
 
-**Training** — SmallCNN (~100k Params) oder MobileNetV3-small (pretrained), drei Kopf-Varianten
-(combined / factored / twostage mit explizitem Occupancy-Zweig), CrossEntropy mit Klassengewichten,
-AdamW + Cosine, Early-Stopping auf `(macro_recall, board_acc)`. Split strikt pro Session.
-Metriken: square_acc, macro_recall, board_acc (alle 64 Felder korrekt) plus Diagnose-Achsen
+**Training** — SmallCNN (~100k params) or MobileNetV3-small (pretrained), three head variants
+(combined / factored / twostage with explicit occupancy branch), CrossEntropy with class weights,
+AdamW + Cosine, early stopping on `(macro_recall, board_acc)`. Split strictly per session.
+Metrics: square_acc, macro_recall, board_acc (all 64 squares correct) plus diagnostic axes
 (occ_acc, piece_acc, type_err, color_err).
 
-**Web-Layer** — FastAPI mit ~30 Endpoints (Kalibrieren, Sammeln, Scan, Manuell, Datensätze,
-Training-Subprozess, Inference, MJPEG-Streams), React/Vite-SPA mit 8 Tabs, gebaute Assets werden
-nach `web/static/` committet. Zustand liegt in vier modulglobalen Dicts (`_TRAIN`, `_COLLECT`,
-`_INFER`, `_MANUAL`) ohne Locks — funktioniert für den Single-User-Lokalbetrieb, ist aber die
-größte strukturelle Schwäche des Layers.
+**Web Layer** — FastAPI with ~30 endpoints (calibrate, collect, scan, manual, datasets,
+training subprocess, inference, MJPEG streams), React/Vite SPA with 8 tabs, built assets are
+committed to `web/static/`. State lives in four module-global dicts (`_TRAIN`, `_COLLECT`,
+`_INFER`, `_MANUAL`) without locks — works for single-user local operation, but is the
+biggest structural weakness of the layer.
 
-**move_tracker/** — Prototyp auf Repo-Root-Ebene (bewusst außerhalb des Pakets). Sauberer
-Konsument der chesslab-Library (calibration, web.camera), keine Logik-Duplikation. Erkennung:
-Warp (live ArUco-nachgeführt) → Motion-Gate → Rolling-Average → Per-Feld-Diff mit
-Median-Normalisierung → Scoring über alle legalen Züge → Ambiguitäts-Check →
-Multi-Frame-Voting. Threading: Daemon-Capture-Loop + ein Lock um den geteilten Zustand.
-Kein Test, keine Paketierung, kein Abstraktions-Seam für einen zweiten (CNN-)Beobachter.
+**move_tracker/** — prototype at repo-root level (deliberately outside the package). Clean
+consumer of the chesslab library (calibration, web.camera), no logic duplication. Detection:
+warp (live ArUco-tracked) → motion gate → rolling average → per-square diff with
+median normalization → scoring over all legal moves → ambiguity check →
+multi-frame voting. Threading: daemon capture loop + one lock around shared state.
+No test, no packaging, no abstraction seam for a second (CNN) observer.
 
-**synth/** — vierstufige, manuell orchestrierte Blender-Pipeline (Turntable-Fotos → RealityScan →
-isolate_piece → render_chessboard) mit hartkodierten relativen Pfaden; Ausgabe fließt über den
-`synthetic`-Ingest-Adapter in die normale Slice-Pipeline.
+**synth/** — four-stage, manually orchestrated Blender pipeline (turntable photos → RealityScan →
+isolate_piece → render_chessboard) with hardcoded relative paths; output flows through the
+`synthetic` ingest adapter into the normal slice pipeline.
 
-## Test-Landschaft
+## Test Landscape
 
-13 Testdateien, ~89 Tests. Gut abgedeckt: Kern-Pipeline (calibration-Geometrie, state, collect,
-labeling, dataset, dataset_build, doctor, ingest chesscog/chessred), Web-Routen teilweise
-(TestClient). **Dunkel:** move_tracker (0 Tests), synth/synthetic-Adapter (0 Tests,
-Datenintegritätsrisiko Ecken-Reihenfolge), web.camera/Streaming, CLI-Dispatch, GPU-Trainingsloop
-(bewusst torch-gated).
+13 test files, ~89 tests. Well covered: core pipeline (calibration geometry, state, collect,
+labeling, dataset, dataset_build, doctor, ingest chesscog/chessred), web routes partially
+(TestClient). **Dark:** move_tracker (0 tests), synth/synthetic adapter (0 tests,
+data integrity risk due to corner ordering), web.camera/streaming, CLI dispatch, GPU training loop
+(deliberately torch-gated).
 
-## Gesamturteil
+## Overall Assessment
 
-Die Kern-Pipeline ist für ein Ein-Personen-Datentool **überdurchschnittlich sauber** strukturiert
-(Config-zentrisch, session-basierter Split, getrenntes collect/slice, Adapter-Pattern für Ingest).
-Die Risiken konzentrieren sich an den **Rändern**: (1) Crop-/Photometrie-Geometrie ist über
-Labeling-, Training- und Inference-Pfad dupliziert → Train/Serve-Skew, (2) Web-Layer-Globalzustand
-und Fehlerverschlucken, (3) ungetestete neue Subsysteme (move_tracker, synth). Details in
-[issues-and-concerns.md](issues-and-concerns.md), Verbesserungen in [recommendations.md](recommendations.md),
-Training/Genauigkeit in [training-accuracy-improvements.md](training-accuracy-improvements.md).
+The core pipeline is, for a single-person data tool, **above-average in cleanliness** of structure
+(config-centric, session-based split, separate collect/slice, adapter pattern for ingest).
+The risks are concentrated at the **edges**: (1) crop/photometry geometry is duplicated across
+the labeling, training, and inference paths → train/serve skew, (2) web-layer global state
+and error swallowing, (3) untested new subsystems (move_tracker, synth). Details in
+[issues-and-concerns.md](issues-and-concerns.md), improvements in [recommendations.md](recommendations.md),
+training/accuracy in [training-accuracy-improvements.md](training-accuracy-improvements.md).

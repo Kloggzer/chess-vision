@@ -1,15 +1,14 @@
-# Stufe 3 — Aufnahme & Auto-Labeling (`collect.py`, `labeling.py`)
+# Stage 3 — Capture & Auto-Labeling (`collect.py`, `labeling.py`)
 
-## Zweck
+## Purpose
 
-Das Herzstück. Verbindet Kalibrierung (Stufe 1) und Spielzustand (Stufe 2): Frames
-aufnehmen, in 64 Square-Crops zerlegen und jeden Crop **automatisch aus der FEN labeln**.
-Aufnahme und Slicing sind getrennt, damit Slicing reproduzierbar und re-parametrierbar
-bleibt.
+The core. Connects calibration (Stage 1) and game state (Stage 2): captures
+frames, splits them into 64 square crops, and **automatically labels each crop from the FEN**.
+Capture and slicing are separated so that slicing remains reproducible and re-parameterizable.
 
-## Teil 1 — Aufnahme (`collect`, in `collect.py`)
+## Part 1 — Capture (`collect`, in `collect.py`)
 
-Schreibt **Rohframe + FEN** je bestätigter Stellung in ein Session-Log. Kein Slicing hier.
+Writes **raw frame + FEN** per confirmed position into a session log. No slicing here.
 
 ### CLI
 ```
@@ -17,78 +16,78 @@ chesslab collect pgn  --pgn <file> [--profile default] [--camera 0] [--every 1] 
 chesslab collect live [--start-fen <FEN>] [--profile default] [--camera 0] [--session <id>]
 ```
 
-### Session-Layout
+### Session Layout
 ```
 data/sessions/<session_id>/
-  session.yaml          # Metadaten (s.u.)
-  frames/0000.png       # Rohframe (unverzerrt, volles Kamerabild)
+  session.yaml          # Metadata (see below)
+  frames/0000.png       # Raw frame (undistorted, full camera image)
   frames/0001.png
-  log.jsonl             # je Zeile ein Aufnahmeeintrag
+  log.jsonl             # One capture entry per line
 ```
 
 `session_id` default = Timestamp `YYYYMMDD-HHMMSS`. `session.yaml`:
 ```yaml
 session_id: "20260625-201500"
-profile: default              # verwendetes Kalibrierungsprofil
-mode: pgn                     # oder live
-source_pgn: "games/kasparov.pgn"   # nur bei pgn
+profile: default              # Calibration profile used
+mode: pgn                     # or live
+source_pgn: "games/kasparov.pgn"   # pgn mode only
 created_at: "2026-06-25T20:15:00Z"
 camera_index: 0
 frame_size: [1280, 720]
-notes: "Tageslicht, Deckenlampe aus"
+notes: "Daylight, ceiling light off"
 ```
 
-`log.jsonl` je Zeile:
+`log.jsonl` per line:
 ```json
 {"frame": "frames/0007.png", "ply": 7, "fen": "rnbqkbnr/pp....", "ts": "...", "move_san": "Nf3"}
 ```
 
-### Aufnahme-Loop (gemeinsam für beide Modi)
-1. Kamera öffnen, Profil laden. **Warnen**, wenn `frame_size` von der Profil-Auflösung
-   abweicht (Homographie passt dann nicht).
-2. Live-Vorschau mit eingeblendetem Raster-Overlay (warpe-zurück oder zeige Warp-Fenster),
-   plus aktuelle FEN / erwarteten nächsten Zug (PGN-Modus).
-3. Nutzer macht den physischen Zug; Auslösen der Aufnahme per Taste (`Space`):
-   - aktuellen Rohframe speichern,
-   - Eintrag in `log.jsonl` mit der **aktuellen** FEN (nach dem Zug) schreiben,
-   - Zustand fortschreiben (PGN: nächster Zug; live: vorher eingetippter Zug).
-4. Tasten: `Space` = capture, `u` = undo letzte Aufnahme + Halbzug, `s` = Skip ohne Foto,
-   `q` = Session beenden (schreibt `session.yaml`).
-5. Mehrere Aufnahmen derselben Stellung sind erlaubt und erwünscht (leichte Varianz).
-   Sie erben dieselbe `ply`/`fen`.
+### Capture Loop (shared by both modes)
+1. Open camera, load profile. **Warn** if `frame_size` deviates from the profile resolution
+   (the homography will not fit then).
+2. Live preview with grid overlay (warp-back or show warp window),
+   plus current FEN / expected next move (PGN mode).
+3. User makes the physical move; trigger capture via key (`Space`):
+   - save the current raw frame,
+   - write an entry to `log.jsonl` with the **current** FEN (after the move),
+   - advance state (PGN: next move; live: previously typed-in move).
+4. Keys: `Space` = capture, `u` = undo last capture + half-move, `s` = Skip without photo,
+   `q` = quit session (writes `session.yaml`).
+5. Multiple captures of the same position are allowed and encouraged (slight variance).
+   They inherit the same `ply`/`fen`.
 
-> Empfehlung in der Hilfe: pro Stellung 1–2 Frames; Beleuchtung zwischen Sessions
-> variieren (Tag/Nacht, Lampe an/aus) — das deckt die häufigste reale Fehlerquelle ab.
+> Help recommendation: 1–2 frames per position; vary lighting between sessions
+> (day/night, lamp on/off) — this covers the most common real-world error source.
 
-## Teil 2 — Slicing & Labeling (`slice`, in `labeling.py`)
+## Part 2 — Slicing & Labeling (`slice`, in `labeling.py`)
 
-Liest Session-Logs, erzeugt gelabelte Square-Crops + Manifest-Einträge. **Reiner,
-wiederholbarer Schritt** — bei geänderten Crop-Parametern einfach neu ausführen.
+Reads session logs, produces labeled square crops + manifest entries. **Pure,
+repeatable step** — simply re-run when crop parameters change.
 
 ### CLI
 ```
 chesslab slice --session <id> [--profile default]
                [--pad-up 1.6] [--pad-side 0.15] [--out-size 96x128]
-chesslab slice --all                         # alle Sessions slicen
+chesslab slice --all                         # slice all sessions
 ```
-Crop-Parameter überschreiben die Profil-Defaults aus Stufe 1, wenn gesetzt.
+Crop parameters override the profile defaults from Stage 1 when set.
 
-### Ablauf je Frame
-1. Rohframe laden, mit Profil-Homographie zu `board_size`-Quadrat warpen
+### Per-Frame Flow
+1. Load raw frame, warp to `board_size` square using the profile homography
    (`cv2.warpPerspective`).
-2. Für alle 64 Felder: `square_to_crop_box(square, profile)` (zentrale Funktion aus
-   Stufe 1) -> Crop aus dem entzerrten Bild, auf `out_size` resizen.
-3. Label via `GameState.label_for(square)` aus der im Log gespeicherten FEN
-   (Orientierung gemäß `white_pov`).
-4. Crop speichern und Manifest-Zeile anhängen.
+2. For all 64 squares: `square_to_crop_box(square, profile)` (core function from
+   Stage 1) -> crop from the rectified image, resize to `out_size`.
+3. Label via `GameState.label_for(square)` from the FEN stored in the log
+   (orientation according to `white_pov`).
+4. Save crop and append manifest line.
 
-### Ausgabe-Layout
+### Output Layout
 ```
-data/squares/<class>/<session>_<frame>_<square>.png     # ImageFolder-kompatibel
-data/manifests/squares.jsonl                            # eine Zeile je Crop (append)
+data/squares/<class>/<session>_<frame>_<square>.png     # ImageFolder-compatible
+data/manifests/squares.jsonl                            # one line per crop (append)
 ```
 
-`squares.jsonl` je Zeile (vollständiges Schema, von Stufe 4 genutzt):
+`squares.jsonl` per line (full schema, used by Stage 4):
 ```json
 {
   "path": "data/squares/wK/20260625-201500_0007_e1.png",
@@ -97,26 +96,26 @@ data/manifests/squares.jsonl                            # eine Zeile je Crop (ap
   "frame": "0007",
   "ply": 7,
   "square": "e1",
-  "square_color": "dark",          // Feldfarbe a1=dark ... berechnet, nicht geraten
+  "square_color": "dark",          // Square color a1=dark ... computed, not guessed
   "fen": "rnbqkbnr/...",
   "out_size": [96, 128],
   "ts": "..."
 }
 ```
 
-`square_color` deterministisch berechnen (`(file_idx + rank_idx) % 2`), denn Stufe 4
-braucht die Abdeckung „jede Figur auf hell UND dunkel".
+`square_color` deterministically computed (`(file_idx + rank_idx) % 2`), because Stage 4
+needs coverage of "every piece on light AND dark".
 
-## Akzeptanzkriterien (Definition of Done)
+## Acceptance Criteria (Definition of Done)
 
-- `collect` schreibt valide Sessions (Frames + `log.jsonl` + `session.yaml`); `undo`
-  entfernt Frame **und** Log-Zeile konsistent.
-- `slice` einer Session mit N geloggten Stellungen erzeugt genau `64*N` Crops und ebenso
-  viele Manifest-Zeilen; Labels stimmen für eine bekannte Test-FEN nachprüfbar.
-- Re-`slice` mit anderem `--pad-up` erzeugt neue Crops, ohne dass neu aufgenommen werden
-  muss (Reproduzierbarkeit nachgewiesen).
-- Stichprobe: für die Startstellung liegen genau 16 `empty`-Reihen … d. h. 32 besetzte +
-  32 leere Crops, und ein Königs-Crop (`e1->wK`) zeigt visuell die ganze Figur (Crop nach
-  oben erweitert, nicht geköpft).
-- Falsche Orientierung wird durch einen Vergleich `label_for` vs. sichtbarem Crop in einem
-  Debug-Kommando (`slice --preview <session>`) sichtbar gemacht.
+- `collect` writes valid sessions (Frames + `log.jsonl` + `session.yaml`); `undo`
+  removes frame **and** log line consistently.
+- `slice` on a session with N logged positions produces exactly `64*N` crops and the same
+  number of manifest lines; labels are verifiable against a known test FEN.
+- Re-`slice` with a different `--pad-up` produces new crops without requiring a new capture
+  (reproducibility demonstrated).
+- Spot check: for the starting position there are exactly 16 `empty` rows … i.e. 32 occupied +
+  32 empty crops, and a king crop (`e1->wK`) visually shows the entire piece (crop extended
+  upward, not decapitated).
+- Wrong orientation is made visible by comparing `label_for` versus the visible crop in a
+  debug command (`slice --preview <session>`).

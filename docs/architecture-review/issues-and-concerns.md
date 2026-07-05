@@ -1,190 +1,190 @@
-# Architektur-Issues & Bedenken
+# Architecture Issues & Concerns
 
-Konsolidiert aus vier Subsystem-Analysen (Kern-Pipeline, Training, Web, move_tracker/synth/tests),
-dedupliziert und nach Schweregrad geordnet. Schweregrade sind auf den realen Einsatzkontext
-kalibriert (lokales Single-User-Tool) — „Critical" heißt: gefährdet Datenintegrität oder das
-Projektziel (verlässliches Move-Tracking), nicht „Server brennt".
+Consolidated from four subsystem analyses (Core Pipeline, Training, Web, move_tracker/synth/tests),
+deduplicated and ordered by severity. Severity levels are calibrated to the real deployment context
+(local single-user tool) — "Critical" means: endangers data integrity or the
+project goal (reliable move tracking), not "server is on fire".
 
 ---
 
 ## CRITICAL
 
-### C1 — Crop-/Photometrie-Geometrie ist über Label- und Inference-Pfad dupliziert (Train/Serve-Skew)
+### C1 — Crop/Photometry Geometry Duplicated Across Label and Inference Paths (Train/Serve Skew)
 
-- **Issue:** Dieselbe Crop-Berechnung existiert mehrfach: `calibration.square_to_crop_box`,
-  `labeling.crop_square`/`crops_for_frame`, implizit in `training/torch_data.py`, und im
-  Inference-Pfad. Konkret bereits schlagend: `web/inference.predict_arrays()` wendet **keine
-  Photometrie** an — ein mit `clahe`/`gamma`-Photometrie trainiertes Modell liefert darüber
-  nahezu zufällige Vorhersagen, obwohl seine val_acc 0.6–0.7 beträgt. Genau dieser Effekt wurde
-  live beim move_tracker-CNN-Test beobachtet.
-- **Impact:** Stiller Label↔Inference-Mismatch. Jeder neue Konsument (move_tracker-CNN-Resync!)
-  muss die exakte Slice-Parität von Hand nachbauen; ein Parameter-Drift ist unsichtbar und äußert
-  sich nur als „Modell ist schlecht".
+- **Issue:** The same crop calculation exists in multiple places: `calibration.square_to_crop_box`,
+  `labeling.crop_square`/`crops_for_frame`, implicitly in `training/torch_data.py`, and in the
+  inference path. This has already manifested concretely: `web/inference.predict_arrays()` applies **no
+  photometry** — a model trained with `clahe`/`gamma` photometry produces
+  near-random predictions through it, despite its val_acc being 0.6–0.7. This exact effect was
+  observed live during the move_tracker CNN test.
+- **Impact:** Silent Label↔Inference mismatch. Every new consumer (move_tracker CNN resync!)
+  must manually reconstruct the exact slice parity; parameter drift is invisible and manifests
+  only as "the model is bad".
 - **Location:** `src/chesslab/calibration.py:170`, `src/chesslab/labeling.py:74–134`,
   `src/chesslab/training/torch_data.py`, `src/chesslab/web/inference.py:54–76`
-- **Recommendation:** Eine gemeinsame Funktion „Frame + Profil + Run-Config → 64 modellfertige
-  Crops", die Geometrie **und** Photometrie aus der Run-`config.json` anwendet; alle Konsumenten
-  (slice, web-inference, move_tracker) rufen nur noch diese. Siehe recommendations.md R1.
+- **Recommendation:** A single function "Frame + Profile + Run-Config → 64 model-ready
+  Crops" that applies geometry **and** photometry from the run `config.json`; all consumers
+  (slice, web-inference, move_tracker) call only this. See recommendations.md R1.
 - **Severity:** Critical
 
-### C2 — Evaluations-Design erlaubt Positions-Overfitting (Datensatz-Architektur)
+### C2 — Evaluation Design Allows Positional Overfitting (Dataset Architecture)
 
-- **Issue:** In den Bake-off- und frühen Datensätzen steht jede Figurenart pro Session immer auf
-  derselben Linie („a=König, b=Dame, …"), und mehrere Klassen kommen nur in **einer** Session vor
-  (split.json warnt 12×, Test-Split leer). Das Modell kann „Linien-Index → Figurentyp" lernen
-  statt visueller Merkmale; Train- und Val-Sessions teilen dieselbe Geometrie.
-- **Impact:** val_acc überschätzt die echte Generalisierung massiv; board_acc kollabiert auf 0;
-  Bake-off-Vergleiche (Geometrie×Photometrie×Kopf) messen teilweise Rauschen. Das ist die
-  **Hauptursache der schwachen Move-Tracking-Genauigkeit** (Details:
+- **Issue:** In the bake-off and early datasets, each piece type always appears on the
+  same rank per session ("a=King, b=Queen, …"), and multiple classes appear in only **one** session
+  (split.json warns 12×, Test-Split empty). The model can learn "rank index → piece type"
+  instead of visual features; Train and Val sessions share the same geometry.
+- **Impact:** val_acc massively overestimates true generalization; board_acc collapses to 0;
+  bake-off comparisons (Geometry×Photometry×Head) partially measure noise. This is the
+  **main cause of poor move tracking accuracy** (details:
   training-accuracy-improvements.md).
-- **Location:** Datensatz-Design; sichtbar in `data/manifests/*/split.json`, `REPORT.md`
-- **Recommendation:** Neue Sessions mit **zufälliger Figur-auf-Linie-Zuordnung** pro Session;
-  Split-Validierung sollte hart fehlschlagen (nicht nur warnen), wenn eine Klasse nur in einer
-  Session vorkommt.
-- **Severity:** Critical (für das Projektziel)
+- **Location:** Dataset design; visible in `data/manifests/*/split.json`, `REPORT.md`
+- **Recommendation:** New sessions with **random piece-to-rank assignment** per session;
+  split validation should hard-fail (not just warn) when a class appears in only one
+  session.
+- **Severity:** Critical (for the project goal)
 
-### C3 — move_tracker und synthetic-Adapter komplett ungetestet (Datenintegrität)
+### C3 — move_tracker and synthetic Adapter Completely Untested (Data Integrity)
 
-- **Issue:** Kein einziger Test für `move_tracker/` (Diff-Normalisierung, Legal-Move-Scoring,
-  Voting, Thread-Lifecycle) und keiner für den `synthetic`-Ingest-Adapter bzw. das
-  JSON-Format von `render_chessboard.py` — insbesondere die Ecken-Reihenfolge `[a8,h8,h1,a1]`
-  wird nirgends validiert.
-- **Impact:** Eine vertauschte Ecken-Reihenfolge rotiert/spiegelt **alle** synthetischen Labels
-  stillschweigend — das Modell trainiert dann auf systematisch falschen Daten. Beim move_tracker
-  gibt es keinerlei Regressionsschutz für den gerade stark umgebauten Erkennungsalgorithmus.
-- **Location:** `tests/` (fehlende Dateien), `tests/test_ingest.py` (Lücke),
+- **Issue:** Not a single test for `move_tracker/` (diff normalization, legal move scoring,
+  voting, thread lifecycle) and none for the `synthetic` ingest adapter or the
+  JSON format of `render_chessboard.py` — in particular the corner order `[a8,h8,h1,a1]`
+  is never validated anywhere.
+- **Impact:** A swapped corner order silently rotates/mirrors **all** synthetic labels —
+  the model then trains on systematically wrong data. For move_tracker,
+  there is zero regression protection for the recently heavily refactored detection algorithm.
+- **Location:** `tests/` (missing files), `tests/test_ingest.py` (gap),
   `synth/render_chessboard.py`
-- **Recommendation:** `test_move_tracker.py` (reine Logik-Tests: `normalize_diffs`,
-  `best_legal_move` mit synthetischen Diffs, Voting) und ein Schema-/Ecken-Reihenfolge-Test für
-  den synthetic-Adapter (ohne Blender, gegen Beispiel-JSON).
+- **Recommendation:** `test_move_tracker.py` (pure logic tests: `normalize_diffs`,
+  `best_legal_move` with synthetic diffs, voting) and a schema/corner-order test for
+  the synthetic adapter (without Blender, against example JSON).
 - **Severity:** Critical (synthetic) / High (move_tracker)
 
 ---
 
 ## HIGH
 
-### H1 — Web-Layer: unsynchronisierter Modul-Globalzustand
+### H1 — Web Layer: Unsynchronized Module Global State
 
-- **Issue:** `_TRAIN`, `_COLLECT`, `_INFER`, `_MANUAL` (`web/app.py:36–57`) und
-  `_STATE["tracker"]` (`move_tracker/app.py:19,35–41`) werden aus Request-Handlern und
-  MJPEG-Generatoren ohne Lock gelesen/beschrieben. `BoardTracker.last_corners`
-  (`web/camera.py:227–245`) ebenso.
-- **Impact:** Im Single-User-Betrieb selten, aber real: ein laufender MJPEG-Generator liest
-  `_COLLECT`, während `collect_finish()` es zurücksetzt → `None`-Zugriffe; zwei schnelle
-  `/api/start` im move_tracker können zwei Capture-Threads hinterlassen.
-- **Recommendation:** Ein `threading.Lock` pro Zustands-Dict; Generatoren kopieren den Zustand
-  einmal pro Frame unter Lock (move_tracker/tracker.py macht das intern bereits vor — dasselbe
-  Muster auf app-Ebene übernehmen).
+- **Issue:** `_TRAIN`, `_COLLECT`, `_INFER`, `_MANUAL` (`web/app.py:36–57`) and
+  `_STATE["tracker"]` (`move_tracker/app.py:19,35–41`) are read/written from request handlers and
+  MJPEG generators without a lock. `BoardTracker.last_corners`
+  (`web/camera.py:227–245`) as well.
+- **Impact:** Rare in single-user operation, but real: a running MJPEG generator reads
+  `_COLLECT` while `collect_finish()` resets it → `None` accesses; two rapid
+  `/api/start` calls in move_tracker can leave two capture threads behind.
+- **Recommendation:** One `threading.Lock` per state dict; generators copy the state
+  once per frame under lock (move_tracker/tracker.py already does this internally — adopt the same
+  pattern at the app level).
 - **Severity:** High
 
-### H2 — Stilles Fehlerverschlucken im Web-Layer
+### H2 — Silent Error Swallowing in the Web Layer
 
-- **Issue:** ~9 Stellen mit `except Exception: pass`-Charakter; prominent: Auto-Slice nach
-  Collect-Finish (`web/app.py:794,1008`) meldet bei Fehler `sliced=0`, ohne den Fehler zu nennen.
-  Kein Logging im gesamten Web-Layer (ein einzelnes `print`).
-- **Impact:** Nutzer glaubt, es gäbe keine Crops / alles sei ok; Debugging nur per Raten.
-- **Recommendation:** Fehler mindestens als Feld zurückgeben (`{"sliced": 0, "sliced_error": …}`)
-  und per `logging` auf stderr protokollieren.
+- **Issue:** ~9 locations with `except Exception: pass` character; prominent: auto-slice after
+  collect-finish (`web/app.py:794,1008`) reports `sliced=0` on error without naming the error.
+  No logging in the entire web layer (a single `print`).
+- **Impact:** User believes there are no crops / everything is ok; debugging only by guessing.
+- **Recommendation:** At minimum return errors as a field (`{"sliced": 0, "sliced_error": …}`)
+  and log via `logging` to stderr.
 - **Severity:** High
 
-### H3 — Training-Logdatei-Handle-Leak (Windows)
+### H3 — Training Log File Handle Leak (Windows)
 
-- **Issue:** `web/app.py:476–478` öffnet `web_train.log` und übergibt es an `subprocess.Popen`,
-  schließt das Handle aber nie explizit.
-- **Impact:** Unter Windows kann die Datei beim nächsten Trainingsstart gesperrt sein;
-  Schließen hängt am nichtdeterministischen GC.
-- **Recommendation:** Handle nach Popen sofort schließen (das Kind hält sein eigenes Duplikat)
-  oder in `train_status()` beim Prozessende schließen.
+- **Issue:** `web/app.py:476–478` opens `web_train.log` and passes it to `subprocess.Popen`,
+  but never explicitly closes the handle.
+- **Impact:** On Windows, the file may be locked on the next training start;
+  closing depends on non-deterministic GC.
+- **Recommendation:** Close the handle immediately after Popen (the child holds its own duplicate)
+  or close it in `train_status()` when the process ends.
 - **Severity:** High
 
-### H4 — Web importiert privates `_load_run` aus dem Training
+### H4 — Web Imports Private `_load_run` from Training
 
-- **Issue:** `web/inference.py:20` nutzt `training.evaluate._load_run` — privates Symbol als
-  Layer-Contract.
-- **Impact:** Kein stabiler Vertrag zwischen Training und Konsumenten; Refactoring im Training
-  bricht Web/move_tracker stillschweigend.
-- **Recommendation:** Öffentliche Funktion `training.load_run(run_dir) -> (model, cfg)`
-  exportieren; alle Konsumenten umstellen.
+- **Issue:** `web/inference.py:20` uses `training.evaluate._load_run` — private symbol as a
+  layer contract.
+- **Impact:** No stable contract between training and consumers; refactoring in training
+  silently breaks web/move_tracker.
+- **Recommendation:** Export a public function `training.load_run(run_dir) -> (model, cfg)`;
+  migrate all consumers.
 - **Severity:** High
 
-### H5 — synth-Pipeline: hartkodierte Pfade, keine Orchestrierung, hartkodierte Auflösung
+### H5 — synth Pipeline: Hardcoded Paths, No Orchestration, Hardcoded Resolution
 
-- **Issue:** `render_chessboard.py` erwartet cwd-relative Pfade (`data/synth_raw`,
-  `synth_assets/Chess Scene.blend`, `synth_pieces/`), Auflösung 1024px fest; die vierstufige
-  Pipeline (capture → isolate → fens → render → ingest) ist nur im Kopf des Operators dokumentiert.
-- **Impact:** Nicht reproduzierbar außerhalb des Repo-Roots; Fehlbedienung produziert stumm
-  falsche Daten (siehe C3).
-- **Location:** `synth/render_chessboard.py:301,315`, fehlendes `synth/README.md` bzw.
-  Orchestrierungs-Skript
-- **Recommendation:** Pfade über `config.Paths`/CLI-Args; ein `chesslab synth`-Subcommand oder
-  Pipeline-Skript, das die Stufen verkettet.
+- **Issue:** `render_chessboard.py` expects cwd-relative paths (`data/synth_raw`,
+  `synth_assets/Chess Scene.blend`, `synth_pieces/`), fixed resolution 1024px; the four-stage
+  pipeline (capture → isolate → fens → render → ingest) is only documented in the operator's head.
+- **Impact:** Not reproducible outside the repo root; misoperation silently produces
+  wrong data (see C3).
+- **Location:** `synth/render_chessboard.py:301,315`, missing `synth/README.md` or
+  orchestration script
+- **Recommendation:** Paths via `config.Paths`/CLI args; a `chesslab synth` subcommand or
+  pipeline script that chains the stages.
 - **Severity:** High
 
-### H6 — MJPEG-Generator-Lebenszyklus
+### H6 — MJPEG Generator Lifecycle
 
-- **Issue:** Alle Stream-Endpoints nutzen `while True`-Generatoren ohne `try/finally`; sie lesen
-  globalen Zustand pro Iteration und behandeln Kamerafehler nicht. Starlette schließt Generatoren
-  bei Client-Disconnect zwar, aber synchrone Generatoren im Threadpool können verzögert abgeräumt
-  werden und halten derweil `CAMERA.read()`-Polling am Leben.
+- **Issue:** All stream endpoints use `while True` generators without `try/finally`; they read
+  global state every iteration and do not handle camera errors. Starlette does close generators
+  on client disconnect, but synchronous generators in the thread pool may be cleaned up with
+  a delay and meanwhile keep `CAMERA.read()` polling alive.
 - **Location:** `web/app.py:599–905`, `web/camera.py:210–224`, `move_tracker/app.py:88–98`
-- **Recommendation:** `try/finally` um die Loops (Aufräumen/Logging), Zustand einmal pro Frame
-  defensiv kopieren, `None`-Frames mit Fehlerbild statt Endlos-Retry beantworten.
-- **Severity:** High → Medium (durch Starlette-Cleanup abgemildert)
+- **Recommendation:** `try/finally` around the loops (cleanup/logging), defensively copy state
+  once per frame, respond to `None` frames with an error frame instead of endless retry.
+- **Severity:** High → Medium (mitigated by Starlette cleanup)
 
 ---
 
 ## MEDIUM
 
-### M1 — Zirkuläre Kopplung `geometry3d ↔ labeling`
+### M1 — Circular Coupling `geometry3d ↔ labeling`
 
-`labeling.py:21` importiert `geometry3d` direkt; `geometry3d.py:159` importiert lazy
-`labeling._resize_keep_aspect` zurück. Der Lazy-Import kaschiert eine unvollständige
-Refaktorierung. → `_resize_keep_aspect` in ein Utility-Modul (oder nach geometry3d) ziehen.
+`labeling.py:21` imports `geometry3d` directly; `geometry3d.py:159` lazy-imports
+`labeling._resize_keep_aspect` back. The lazy import masks an incomplete
+refactoring. → Move `_resize_keep_aspect` into a utility module (or into geometry3d).
 
-### M2 — Kein Request-Schema (Pydantic) im Web-Layer
+### M2 — No Request Schema (Pydantic) in the Web Layer
 
-POST-Endpoints nehmen rohe `Body(...)`-Parameter (z. B. `/api/train` mit 10+ Parametern,
-`web/app.py:439–452`). Typfehler erst zur Laufzeit, OpenAPI-Schema unbrauchbar für Client-Generierung.
-→ Pydantic-Request-Modelle, beginnend bei `/api/train` und `/api/datasets`.
+POST endpoints take raw `Body(...)` parameters (e.g. `/api/train` with 10+ parameters,
+`web/app.py:439–452`). Type errors only surface at runtime, OpenAPI schema is useless for client generation.
+→ Pydantic request models, starting with `/api/train` and `/api/datasets`.
 
-### M3 — move_tracker: monolithischer Erkennungspfad, kein Observer-Seam
+### M3 — move_tracker: Monolithic Detection Path, No Observer Seam
 
-`_loop()`/`_try_detect()` (`tracker.py:200–289`) verdrahten Frame-Diff-Beobachtung, Scoring und
-Voting fest. Der geplante CNN-Resync (zweiter Beobachter) muss sich heute „danebenquetschen".
-→ Minimaler Seam: `_try_detect` konsultiert eine Liste von Beobachtern (frame-diff, optional CNN),
-die je `(move, score)`-Kandidaten liefern.
+`_loop()`/`_try_detect()` (`tracker.py:200–289`) hardwire frame-diff observation, scoring and
+voting. The planned CNN resync (second observer) currently has to "squeeze in sideways".
+→ Minimal seam: `_try_detect` consults a list of observers (frame-diff, optional CNN),
+each providing `(move, score)` candidates.
 
-### M4 — move_tracker: Paketierung & Lifecycle
+### M4 — move_tracker: Packaging & Lifecycle
 
-Liegt außerhalb `src/`, nicht in `pyproject.toml`, kein CLI-Subcommand, `stop()` ohne
-`join()` (`tracker.py:198`), Defaults nur im `__main__`-Pfad gesetzt (`app.py:121`).
-Für einen Prototyp ok; vor Integration: nach `src/chesslab/move_tracker/` verschieben,
-`chesslab track`-Subcommand, `join(timeout=2)` im stop().
+Lives outside `src/`, not in `pyproject.toml`, no CLI subcommand, `stop()` without
+`join()` (`tracker.py:198`), defaults only set in the `__main__` path (`app.py:121`).
+Fine for a prototype; before integration: move to `src/chesslab/move_tracker/`,
+`chesslab track` subcommand, `join(timeout=2)` in stop().
 
-### M5 — Schema-/Reader-Duplikation
+### M5 — Schema/Reader Duplication
 
-Crop-Parameter als zwei Dataclasses (`config.CropDefaults` + `calibration.CropParams`),
-JSONL-Manifest-Parsing 3× (dataset, labeling, training/data), Label→FEN-Logik lokal in
-`web/app.py:60–84` statt aus `labeling`/`config` importiert. → je eine kanonische Stelle.
+Crop parameters as two dataclasses (`config.CropDefaults` + `calibration.CropParams`),
+JSONL manifest parsing 3× (dataset, labeling, training/data), Label→FEN logic locally in
+`web/app.py:60–84` instead of imported from `labeling`/`config`. → one canonical location each.
 
-### M6 — board_acc als Steuermetrik zu hart / Checkpoint-Wahl instabil
+### M6 — board_acc as Control Metric Too Strict / Checkpoint Selection Unstable
 
-board_acc (alle 64 Felder korrekt) ist bei 8–70 Val-Frames extrem varianzbehaftet und für
-Early-Stopping/Vergleiche wenig informativ; Stopp-Epochen schwanken 31–163.
-→ occupancy-gewichtete Metrik für Checkpoint-Wahl (siehe training-accuracy-improvements.md).
+board_acc (all 64 squares correct) is extremely high-variance with 8–70 Val frames and
+poorly informative for early stopping/comparisons; stop epochs fluctuate 31–163.
+→ occupancy-weighted metric for checkpoint selection (see training-accuracy-improvements.md).
 
-### M7 — Kein strukturiertes Logging projekt­weit
+### M7 — No Structured Logging Project-Wide
 
-Pipeline nutzt konsistente `print`-Glyphen (`[OK]/[FAIL]`), Web-Layer fast gar nichts.
-Für ein CLI-Tool akzeptabel; für die Web-/Tracker-Daemons lohnt `logging` mit Modul-Loggern.
+Pipeline uses consistent `print` glyphs (`[OK]/[FAIL]`), Web layer almost nothing.
+Acceptable for a CLI tool; for the web/tracker daemons `logging` with module loggers is worthwhile.
 
 ---
 
 ## LOW
 
-- **L1** Frontend pollt (1–2.5 s Intervalle) statt SSE/WebSocket — für lokalen Betrieb fein.
-- **L2** Handgeschriebener `fetch`-Client, Typen im Frontend dupliziert — OpenAPI-Client-Generierung
-  wäre möglich (FastAPI liefert das Schema schon), lohnt erst bei API-Wachstum.
-- **L3** Gebaute Frontend-Assets werden committet — bewusste Entscheidung (kein Node nötig zum
-  Ausführen), erfordert Disziplin (`npm run build` vor Commit).
-- **L4** DHash-Größe (dataset_build.py:47) und Overlay-Zeichenkonstanten hartkodiert.
+- **L1** Frontend polls (1–2.5 s intervals) instead of SSE/WebSocket — fine for local operation.
+- **L2** Hand-written `fetch` client, types duplicated in the frontend — OpenAPI client generation
+  would be possible (FastAPI already serves the schema), only worthwhile when the API grows.
+- **L3** Built frontend assets are committed — deliberate decision (no Node needed to
+  run), requires discipline (`npm run build` before commit).
+- **L4** DHash size (dataset_build.py:47) and overlay drawing constants hardcoded.

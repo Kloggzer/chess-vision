@@ -1,97 +1,97 @@
-# Empfehlungen (priorisiert)
+# Recommendations (prioritized)
 
-Reihenfolge nach Nutzen-pro-Aufwand für das Projektziel „verlässliches Move-Tracking".
-Referenzen (C/H/M/L) → [issues-and-concerns.md](issues-and-concerns.md).
-Training/Datenqualität hat eine eigene Roadmap: [training-accuracy-improvements.md](training-accuracy-improvements.md).
+Ordered by benefit-per-effort for the project goal "reliable move tracking".
+References (C/H/M/L) → [issues-and-concerns.md](issues-and-concerns.md).
+Training/data quality has its own roadmap: [training-accuracy-improvements.md](training-accuracy-improvements.md).
 
 ---
 
-## R1 — Eine kanonische „Frame → modellfertige Crops"-Facade (löst C1, H4, Teile von M5)
+## R1 — A canonical "frame → model-ready crops" facade (resolves C1, H4, parts of M5)
 
-**Was:** Eine öffentliche Funktion im Kern, z. B. in `labeling.py` oder neuem `serving.py`:
+**What:** A public function in the core, e.g. in `labeling.py` or a new `serving.py`:
 
 ```python
-def load_run(run_dir) -> (model, cfg)          # öffentlich, ersetzt _load_run-Imports
+def load_run(run_dir) -> (model, cfg)          # public, replaces _load_run imports
 def crops_for_model(frame, corners, profile, run_cfg) -> list[np.ndarray]
-    # wendet Geometrie (warp/box3d) UND Photometrie UND out_size aus der Run-config an
+    # applies geometry (warp/box3d) AND photometry AND out_size from the run config
 ```
 
-`slice`, `web/inference.predict_arrays` und der kommende move_tracker-CNN-Resync nutzen nur noch
-diesen Pfad.
+`slice`, `web/inference.predict_arrays`, and the upcoming move_tracker CNN resync use only
+this path.
 
-**Warum zuerst:** Das ist der einzige Punkt, an dem ein Architekturfehler direkt Modellgenauigkeit
-kostet (Train/Serve-Skew: Photometrie-Modelle liefern über `predict_arrays` heute Zufallsausgaben).
-Jede weitere Trainingsverbesserung ist wertlos, wenn die Inference andere Crops sieht als das
-Training. Aufwand: ~1 Tag.
+**Why first:** This is the single point where an architecture defect directly costs model accuracy
+(Train/Serve skew: photometry models currently deliver random outputs via `predict_arrays`).
+Every further training improvement is worthless if inference sees different crops than training.
+Effort: ~1 day.
 
-## R2 — Sicherheitsnetz-Tests für die dunklen Subsysteme (löst C3)
+## R2 — Safety-net tests for the dark subsystems (resolves C3)
 
-**Was:**
-- `tests/test_move_tracker.py`: `normalize_diffs` (Median-Baseline), `best_legal_move`
-  (synthetische Diff-Maps: einfacher Zug, Schlag, Rochade, Ambiguität, „beide Endpunkte müssen
-  sich ändern"), Voting-Verhalten. Alles ohne Kamera — reine Funktionen.
-- Synthetic-Adapter-Test: Beispiel-JSON (aus einem echten Render) einchecken, Ecken-Reihenfolge
-  `[a8,h8,h1,a1]` und Label-Ableitung gegen bekannte FEN prüfen.
+**What:**
+- `tests/test_move_tracker.py`: `normalize_diffs` (median baseline), `best_legal_move`
+  (synthetic diff maps: simple move, capture, castling, ambiguity, "both endpoints must
+  change"), voting behavior. All without camera — pure functions.
+- Synthetic adapter test: check in example JSON (from a real render), verify corner order
+  `[a8,h8,h1,a1]` and label derivation against known FEN.
 
-**Warum:** Der Erkennungsalgorithmus wurde zuletzt stark umgebaut (Rolling Average, max_changed,
-live_align) und wird weiter umgebaut (CNN-Recovery) — ohne Tests ist jede Änderung Blindflug.
-Der Ecken-Test schützt vor dem teuersten Fehler überhaupt (stilles Label-Drehen des gesamten
-Synth-Datensatzes). Aufwand: ~1 Tag.
+**Why:** The detection algorithm has recently undergone heavy refactoring (rolling average, max_changed,
+live_align) and will be refactored further (CNN recovery) — without tests every change is flying blind.
+The corner test protects against the most expensive error of all (silent label rotation of the entire
+synth dataset). Effort: ~1 day.
 
-## R3 — Web-Layer härten: Locks, Fehler sichtbar machen, Log-Handle (löst H1, H2, H3)
+## R3 — Harden the web layer: locks, make errors visible, log handles (resolves H1, H2, H3)
 
-**Was:** Je Zustands-Dict ein `threading.Lock`; `except Exception` durch Logging + Fehlerfeld in
-der Response ersetzen (v. a. Auto-Slice `app.py:794,1008`); Train-Log-Handle nach `Popen` schließen;
-`logging.basicConfig` im Web-Prozess. move_tracker: `_STATE`-Wechsel unter Lock,
-`stop()` mit `join(timeout=2)`.
+**What:** One `threading.Lock` per state dict; replace `except Exception` with logging + error field in
+the response (especially auto-slice `app.py:794,1008`); close train log handle after `Popen`;
+`logging.basicConfig` in the web process. move_tracker: `_STATE` transitions under lock,
+`stop()` with `join(timeout=2)`.
 
-**Warum:** Geringer Aufwand (~½ Tag), beseitigt die „Warum ging das kaputt und niemand sagt was"-
-Klasse von Problemen, die bei einem Kamera-/Subprozess-System die meiste Debugging-Zeit frisst.
+**Why:** Low effort (~½ day), eliminates the "why did it break and nobody says anything"
+class of problems that consumes the most debugging time in a camera/subprocess system.
 
-## R4 — Observer-Seam im move_tracker vor dem CNN-Einbau (löst M3)
+## R4 — Observer seam in move_tracker before the CNN integration (resolves M3)
 
-**Was:** `_try_detect` so schneiden, dass Kandidaten-Lieferanten austauschbar sind:
-Frame-Diff-Beobachter liefert `(move, score, second_score)`, ein optionaler CNN-Beobachter liefert
-Occupancy-Deltas; eine Kombinationsstufe entscheidet (Diff primär, CNN als Schiedsrichter bei
-Ambiguität/Recovery). Kein großes Framework — zwei Funktionen mit gleicher Signatur reichen.
+**What:** Cut `_try_detect` so that candidate suppliers are swappable:
+a frame-diff observer delivers `(move, score, second_score)`, an optional CNN observer delivers
+occupancy deltas; a combination stage decides (diff primary, CNN as arbiter for
+ambiguity/recovery). No big framework — two functions with the same signature suffice.
 
-**Warum:** Der CNN-Recovery-Einbau steht unmittelbar an. Ohne Seam wächst `_try_detect` zum
-zweiten God-Module; mit Seam ist der CNN ein 30-Zeilen-Zusatz und einzeln testbar (R2).
+**Why:** The CNN recovery integration is imminent. Without a seam, `_try_detect` grows into a
+second god module; with a seam, the CNN is a 30-line addition and individually testable (R2).
 
-## R5 — Split-Validierung hart machen (löst C2, flankiert die Trainings-Roadmap)
+## R5 — Make split validation hard (resolves C2, supports the training roadmap)
 
-**Was:** `dataset split` schlägt fehl (Exit ≠ 0, klare Meldung), wenn (a) eine Klasse nur in einer
-Session vorkommt, (b) der Test-Split leer ist, (c) Train/Val dieselbe Figur-Linien-Zuordnung teilen
-(heuristisch prüfbar über die Session-FENs). Optional `--allow-degenerate` für bewusste Experimente.
+**What:** `dataset split` fails (exit ≠ 0, clear message) when (a) a class occurs in only one
+session, (b) the test split is empty, (c) train/val share the same piece-file assignment
+(heuristically checkable via session FENs). Optional `--allow-degenerate` for conscious experiments.
 
-**Warum:** Die Warnungen existierten bereits und wurden (verständlicherweise) überlesen — das
-Ergebnis waren Wochen an Bake-off-Läufen mit eingeschränkter Aussagekraft. Ein harter Fehler an
-der richtigen Stelle ist billiger als jede nachträgliche Analyse.
+**Why:** The warnings already existed and were (understandably) overlooked — the
+result was weeks of bake-off runs with limited informative value. A hard error at the right
+place is cheaper than any retrospective analysis.
 
-## R6 — synth-Pipeline reproduzierbar machen (löst H5, M von Issue 8/10)
+## R6 — Make the synth pipeline reproducible (resolves H5, M from Issue 8/10)
 
-**Was:** Pfade (`--blend`, `--pieces-dir`, `--out`) und Auflösung als Argumente/Config statt
-cwd-relativ; ein `synth/README.md` mit der vollständigen Befehlskette; optional
-`chesslab synth render`-Subcommand als Orchestrierung.
+**What:** Paths (`--blend`, `--pieces-dir`, `--out`) and resolution as arguments/config instead of
+cwd-relative; a `synth/README.md` with the full command chain; optional
+`chesslab synth render` subcommand as orchestration.
 
-**Warum:** Die Synth-Daten sind laut Trainings-Roadmap der Hebel gegen den Datenmangel — dann muss
-die Erzeugung wiederholbar sein, nicht Operator-Gedächtnis.
+**Why:** According to the training roadmap, synth data is the leverage against data scarcity — therefore
+generation must be repeatable, not dependent on operator memory.
 
-## R7 — Aufräumarbeiten mittlerer Priorität
+## R7 — Medium-priority cleanup
 
-- `_resize_keep_aspect` aus `labeling` herauslösen → Import-Zyklus weg (M1).
-- Pydantic-Modelle für `/api/train` und `/api/datasets` (M2); Rest nach Bedarf.
-- `web/app.py` in Feature-Router aufteilen (train/collect/inference/scan) — erst sinnvoll,
-  wenn R3 die Zustands-Locks eingeführt hat.
-- Label→FEN-Helfer aus `web/app.py:60–84` nach `labeling`/`config` verschieben (M5).
-- move_tracker nach `src/chesslab/move_tracker/` + CLI-Subcommand, sobald er den Prototyp-Status
-  verlässt (M4). README-Parametertabelle um `live_align`/`avg_frames`/`max_changed` ergänzen.
+- Extract `_resize_keep_aspect` from `labeling` → removes import cycle (M1).
+- Pydantic models for `/api/train` and `/api/datasets` (M2); rest as needed.
+- Split `web/app.py` into feature routers (train/collect/inference/scan) — only makes sense
+  once R3 has introduced state locks.
+- Move label→FEN helpers from `web/app.py:60–84` to `labeling`/`config` (M5).
+- Move move_tracker to `src/chesslab/move_tracker/` + CLI subcommand once it leaves prototype
+  status (M4). Add `live_align`/`avg_frames`/`max_changed` to the README parameter table.
 
-## Bewusst NICHT empfohlen (jetzt)
+## Consciously NOT recommended (now)
 
-- **SSE/WebSockets statt Polling** (L1): Mehraufwand ohne spürbaren Nutzen im Lokalbetrieb.
-- **OpenAPI-Client-Generierung** (L2): lohnt erst, wenn die API stabilisiert ist.
-- **Async-Umbau der FastAPI-Handler:** Die Blocking-Operationen laufen bereits in Subprozessen/
-  Threads; ein Async-Umbau wäre Kosmetik mit Regressionrisiko.
-- **Factored-Head weiter debuggen:** empirisch unterlegen; erst nach Datenausbau erneut bewerten
-  (siehe Trainings-Roadmap P6).
+- **SSE/WebSockets instead of polling** (L1): extra effort without noticeable benefit in local operation.
+- **OpenAPI client generation** (L2): only worthwhile once the API is stabilized.
+- **Async refactor of FastAPI handlers:** The blocking operations already run in subprocesses/
+  threads; an async refactor would be cosmetic with regression risk.
+- **Continue debugging factored head:** empirically inferior; re-evaluate only after data expansion
+  (see training roadmap P6).

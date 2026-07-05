@@ -1,71 +1,71 @@
-# Design-Patterns im Projekt
+# Design Patterns in the Project
 
-Bestandsaufnahme der bewusst oder implizit verwendeten Muster, mit Bewertung der Anwendung.
+Inventory of patterns used consciously or implicitly, with evaluation of their application.
 
-## Korrekt angewendet
+## Correctly Applied
 
-### Pipeline / Staged Architecture (Kern)
-Die gesamte Kern-Library ist eine dateibasierte Pipeline mit klaren Stufen-Contracts
-(Profil-YAML → Session-JSONL → Manifest-JSONL → split.json → Run-Verzeichnis). Jede Stufe ist
-einzeln wiederholbar (`collect` und `slice` getrennt → Re-Slicing ohne Neuaufnahme). Das ist die
-tragende Architekturentscheidung des Projekts und funktioniert gut.
-**Dateien:** collect.py, labeling.py, dataset.py, training/
+### Pipeline / Staged Architecture (Core)
+The entire core library is a file-based pipeline with clear stage contracts
+(Profile-YAML → Session-JSONL → Manifest-JSONL → split.json → Run directory). Each stage is
+individually repeatable (`collect` and `slice` separated → re-slicing without re-recording). This is the
+foundational architectural decision of the project and works well.
+**Files:** collect.py, labeling.py, dataset.py, training/
 
 ### Adapter (ingest_adapters/)
-Sauberes Plugin-Muster: einheitlicher Contract `iter_items(root) -> Iterator[ImportItem]`,
-`ImportItem`-Dataclass als Schema, drei Implementierungen (chesscog, chessred, synthetic), die
-unterschiedliche Ecken-Reihenfolgen/FEN-Formate auf das interne Format normalisieren. Zustandslos,
-funktional, gut testbar (chesscog/chessred getestet; synthetic noch nicht — siehe Issues C3).
-**Dateien:** ingest_adapters/__init__.py, chesscog.py, chessred.py, synthetic.py
+Clean plugin pattern: uniform contract `iter_items(root) -> Iterator[ImportItem]`,
+`ImportItem` dataclass as schema, three implementations (chesscog, chessred, synthetic) that
+normalize different corner-orderings/FEN-formats to the internal format. Stateless,
+functional, easily testable (chesscog/chessred tested; synthetic not yet — see Issues C3).
+**Files:** ingest_adapters/__init__.py, chesscog.py, chessred.py, synthetic.py
 
 ### Single Source of Truth (config.py)
-Klassenliste `CLASSES`, Crop-Defaults, Augment-Policy, Photometrie-Defaults, `Paths`-Abstraktion —
-alles genau einmal definiert, überall importiert. `Paths` als Parameter macht Tests isolierbar.
-Das CLAUDE.md-Prinzip „Konfig vor Code" wird weitgehend gelebt.
-**Einschränkung:** Crop-Parameter existieren zusätzlich als `calibration.CropParams` (Duplikat, M5).
+Class list `CLASSES`, crop defaults, augment policy, photometry defaults, `Paths` abstraction —
+everything defined exactly once, imported everywhere. `Paths` as a parameter makes tests isolatable.
+The CLAUDE.md principle "config before code" is largely followed.
+**Limitation:** Crop parameters additionally exist as `calibration.CropParams` (duplicate, M5).
 
 ### Lazy Import (torch, UI)
-torch wird konsequent erst in Funktionen importiert (web/inference.py, training/*), damit
-CLI/Web ohne GPU-Stack starten; OpenCV-GUI ebenso. Bewusste, dokumentierte Entscheidung
-(Memory: „lazy torch"). Korrekt angewendet.
-**Gegenbeispiel:** der Lazy-Import in geometry3d.py:159 ist kein Feature, sondern kaschiert
-einen Import-Zyklus (M1).
+torch is consistently imported only inside functions (web/inference.py, training/*), so that
+CLI/Web can start without a GPU stack; OpenCV-GUI likewise. Conscious, documented decision
+(Memory: "lazy torch"). Correctly applied.
+**Counterexample:** the lazy import in geometry3d.py:159 is not a feature, but rather masks
+an import cycle (M1).
 
-### Strategy (Trainings-Köpfe & Photometrie)
-Modell-Köpfe (`combined` / `factored` / `twostage`) und Photometrie-Operatoren
-(`none`/`clahe`/`gamma`/`grayworld`) sind als austauschbare Strategien über Config-Strings
-gewählt und im Bake-off (`experiment.py`) systematisch gekreuzt. Saubere Anwendung; das
-Bake-off-Grid ist praktisch ein kleines Experiment-Framework.
-**Dateien:** training/model.py:68–137, photometric.py, experiment.py
+### Strategy (Training Heads & Photometry)
+Model heads (`combined` / `factored` / `twostage`) and photometry operators
+(`none`/`clahe`/`gamma`/`grayworld`) are selected as interchangeable strategies via config strings
+and systematically crossed in the bake-off (`experiment.py`). Clean application; the
+bake-off grid is practically a small experiment framework.
+**Files:** training/model.py:68–137, photometric.py, experiment.py
 
 ### Guarded Shared State + Producer/Consumer (move_tracker)
-`MoveTracker`: Capture-Daemon-Thread produziert Zustand (Board, Overlays, Note), FastAPI-Handler
-konsumieren unter einem gemeinsamen `threading.Lock`. Innerhalb der Klasse konsequent; das Muster
-endet aber an der Klassengrenze (`_STATE`-Dict der App ist ungeschützt, H1).
+`MoveTracker`: capture daemon thread produces state (board, overlays, note), FastAPI handlers
+consume under a shared `threading.Lock`. Consistent within the class; the pattern
+ends, however, at the class boundary (`_STATE` dict of the app is unprotected, H1).
 
-### Smoothing/Tracker-Objekt (MarkerTracker)
-EMA-Glättung + Dead-Zone + Halten bei Okklusion + Seed aus Kalibrierung als eigenes zustandsbehaftetes
-Objekt, wiederverwendet von Web-Kamera und move_tracker (live_align). Gute Wiederverwendung; die
-Zustandslogik ist komplex genug, dass sie Dokumentation/Tests verdient.
+### Smoothing/Tracker Object (MarkerTracker)
+EMA smoothing + dead zone + hold during occlusion + seed from calibration as its own stateful
+object, reused by web camera and move_tracker (live_align). Good reuse; the
+state logic is complex enough that it deserves documentation/tests.
 
-## Implizit vorhanden / verbesserungswürdig
+## Implicitly Present / Room for Improvement
 
-### Singleton via Modul-Globals (Web-Layer) — Anti-Pattern in dieser Form
-`_TRAIN`, `_COLLECT`, `_INFER`, `_MANUAL`, `CAMERA`, `_STATE` sind Modul-Level-Singletons.
-Für ein lokales Tool pragmatisch, aber ohne Locks und ohne Lebenszyklus (kein Timeout, kein
-Cleanup beim Feature-Wechsel). Empfehlung: beibehalten, aber je Dict ein Lock + explizite
-Reset-Semantik (H1).
+### Singleton via Module Globals (Web Layer) — Anti-Pattern in this Form
+`_TRAIN`, `_COLLECT`, `_INFER`, `_MANUAL`, `CAMERA`, `_STATE` are module-level singletons.
+Pragmatic for a local tool, but without locks and without a lifecycle (no timeout, no
+cleanup on feature switch). Recommendation: keep, but add one lock per dict + explicit
+reset semantics (H1).
 
-### Model-Run als Artefakt-Contract (Run-Verzeichnis)
-`data/models/<run>/` mit `config.json` + `best.pt` fungiert als implizites
-„Model-Registry"-Pattern. Gut: Konsumenten laden Modell **und** Preprocessing-Config zusammen.
-Schlecht: der Lade-Einstieg ist privat (`_load_run`, H4) und die Preprocessing-Anwendung
-(Photometrie!) ist nicht Teil des Contracts (C1).
+### Model Run as Artifact Contract (Run Directory)
+`data/models/<run>/` with `config.json` + `best.pt` acts as an implicit
+"model registry" pattern. Good: consumers load the model **and** preprocessing config together.
+Bad: the loading entry point is private (`_load_run`, H4) and the preprocessing application
+(photometry!) is not part of the contract (C1).
 
-### Fehlende Muster, die sich anbieten
-- **Observer/Voter-Seam im move_tracker:** Frame-Diff und (geplanter) CNN-Beobachter als
-  gleichförmige Kandidaten-Lieferanten `(move, score)`, kombiniert von einer Voting-Instanz (M3).
-- **Facade für „Frame → modellfertige Crops":** eine Funktion, die Geometrie + Photometrie aus
-  der Run-Config kapselt — beseitigt die Train/Serve-Duplikation (C1/R1).
-- **Schema-Objekte für Wire-Formate:** Pydantic-Modelle für API-Bodies (M2) und ein dokumentiertes
-  Manifest-/Session-Schema (M5) — heute leben die Schemata nur im Writer-Code.
+### Missing Patterns That Would Be Beneficial
+- **Observer/Voter Seam in move_tracker:** frame-diff and (planned) CNN observer as
+  uniform candidate providers `(move, score)`, combined by a voting instance (M3).
+- **Facade for "frame → model-ready crops":** a function that encapsulates geometry + photometry from
+  the run config — eliminates the train/serve duplication (C1/R1).
+- **Schema Objects for Wire Formats:** Pydantic models for API bodies (M2) and a documented
+  manifest/session schema (M5) — today the schemas live only in the writer code.

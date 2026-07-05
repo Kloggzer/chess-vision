@@ -1,17 +1,17 @@
-# Stufe 2 — Spielzustand (`state.py`)
+# Stage 2 — Game State (`state.py`)
 
-## Zweck
+## Purpose
 
-Den exakten Brettzustand (FEN) zu jedem Aufnahmezeitpunkt kennen — das ist die Quelle der
-Labels. Zwei Betriebsmodi, die dieselbe Zustands-Engine nutzen.
+Know the exact board state (FEN) at every capture moment — that is the source of the
+labels. Two operating modes that use the same state engine.
 
-## Abhängigkeit
+## Dependency
 
-`python-chess`. `chess.Board` hält die Stellung; `board.fen()` liefert die FEN;
-`board.piece_at(square)` liefert die Figur eines Feldes (Basis fürs Auto-Labeling in
-Stufe 3).
+`python-chess`. `chess.Board` holds the position; `board.fen()` returns the FEN;
+`board.piece_at(square)` returns the piece on a square (basis for auto-labeling in
+Stage 3).
 
-## Öffentliche API (von Stufe 3 konsumiert)
+## Public API (consumed by Stage 3)
 
 ```python
 class GameState:
@@ -19,60 +19,60 @@ class GameState:
 
     def fen(self) -> str: ...
     def piece_map(self) -> dict[str, str]:
-        """{'e1': 'K', 'e8': 'k', 'a2': 'P', ...} – nur besetzte Felder, FEN-Buchstaben."""
+        """{'e1': 'K', 'e8': 'k', 'a2': 'P', ...} – occupied squares only, FEN letters."""
     def label_for(self, square: str) -> str:
-        """Label-Klasse für ein Feld: 'empty' oder z.B. 'wK','bP' (Mapping s.u.)."""
-    def push_san(self, san: str) -> None: ...    # wirft bei illegalem Zug
+        """Label class for a square: 'empty' or e.g. 'wK','bP' (mapping see below)."""
+    def push_san(self, san: str) -> None: ...    # raises on illegal move
     def push_uci(self, uci: str) -> None: ...
     def legal_moves_san(self) -> list[str]: ...
     def is_game_over(self) -> bool: ...
-    def ply(self) -> int: ...                    # Halbzug-Index ab 0
+    def ply(self) -> int: ...                    # half-move index starting at 0
 ```
 
-### Label-Mapping (zentral, exakt diese Form)
-- `piece_at` liefert FEN-Buchstaben: Weiß `PNBRQK`, Schwarz `pnbrqk`.
-- Klassen-Label: Großbuchstabe -> Präfix `w`, Kleinbuchstabe -> Präfix `b`, dann
-  Großbuchstabe des Typs. Beispiele: `P -> wP`, `n -> bN`. Leeres Feld -> `empty`.
-- Dieses Mapping muss exakt der kanonischen Klassenliste aus `config.py` entsprechen.
+### Label Mapping (central, exactly this form)
+- `piece_at` returns FEN letters: White `PNBRQK`, Black `pnbrqk`.
+- Class label: uppercase letter -> prefix `w`, lowercase letter -> prefix `b`, then
+  uppercase letter of the type. Examples: `P -> wP`, `n -> bN`. Empty square -> `empty`.
+- This mapping must exactly match the canonical class list from `config.py`.
 
-## Modus A — PGN-Replay (`collect pgn`, primärer Datensammelmodus)
+## Mode A — PGN Replay (`collect pgn`, primary data collection mode)
 
-Ziel: eine echte Partie aus einer PGN physisch nachstellen; nach jedem Halbzug ein Foto.
-Da die Zugfolge bekannt ist, ist **jede** Stellung sofort vollständig gelabelt.
+Goal: physically replay a real game from a PGN; take a photo after each half-move.
+Since the move sequence is known, **every** position is immediately fully labeled.
 
-Ablauf (Steuerung in Stufe 3, Zustand hier):
-1. PGN laden (`chess.pgn.read_game`), Hauptvariante als Zugliste extrahieren.
-2. Mit Startstellung beginnen. Pro Schritt:
-   - aktuelle Ziel-FEN + nächsten erwarteten Zug (SAN) anzeigen,
-   - Nutzer macht den Zug physisch und löst Aufnahme aus,
-   - `push`(nächster Zug) -> neue FEN.
-3. Optional Zwischenstellungen überspringen (`--every N` Halbzüge), falls man nicht jeden
-   Halbzug fotografieren will.
+Procedure (control in Stage 3, state here):
+1. Load PGN (`chess.pgn.read_game`), extract main line as move list.
+2. Start from the initial position. Per step:
+   - display current target FEN + next expected move (SAN),
+   - user makes the move physically and triggers capture,
+   - `push`(next move) -> new FEN.
+3. Optionally skip intermediate positions (`--every N` half-moves), in case you do not want
+   to photograph every half-move.
 
-## Modus B — Freies Spiel mit Zugeingabe (`collect live`)
+## Mode B — Free Play with Move Entry (`collect live`)
 
-Ziel: frei spielen und die Zustands-Engine manuell mitführen. **Eine Aktion pro Zug**
-(Zug eintippen) statt 64 Klicks.
-1. Start aus Startstellung **oder** aus einer vorgegebenen FEN (`--start-fen`), um gezielt
-   seltene/figurenreiche Stellungen aufzunehmen.
-2. Pro Zug: Nutzer tippt SAN oder UCI; Engine validiert (illegale Eingabe -> Hinweis,
-   Wiederholung). Danach Aufnahme.
-3. Befehle: `undo` (letzten Halbzug zurücknehmen), `fen <FEN>` (Stellung setzen), `done`.
+Goal: play freely and keep the state engine in sync manually. **One action per move**
+(type the move) instead of 64 clicks.
+1. Start from the initial position **or** from a given FEN (`--start-fen`), to specifically
+   capture rare/piece-rich positions.
+2. Per move: user types SAN or UCI; engine validates (illegal input -> hint,
+   retry). Then capture.
+3. Commands: `undo` (undo last half-move), `fen <FEN>` (set position), `done`.
 
-> Tipp für die Datenqualität (in der CLI-Hilfe erwähnen): gezielt Stellungen mit vielen
-> verschiedenen Figurentypen und Unterverwandlungen (mehrere Damen) aufbauen, nicht nur
-> Eröffnungen — sonst sind seltene Klassen unterrepräsentiert (vgl. Stufe 4).
+> Tip for data quality (mention in the CLI help): specifically build positions with many
+> different piece types and underpromotions (multiple queens), not just
+> openings — otherwise rare classes are underrepresented (cf. Stage 4).
 
-## Orientierung
+## Orientation
 
-Welche Bildecke welchem Feld entspricht, steht **im Kalibrierungsprofil** (`white_pov`),
-nicht hier. `GameState` ist rein logisch und kennt keine Kamera. Stufe 3 verbindet beides.
+Which image corner corresponds to which square is defined **in the calibration profile** (`white_pov`),
+not here. `GameState` is purely logical and knows nothing about a camera. Stage 3 connects the two.
 
-## Akzeptanzkriterien (Definition of Done)
+## Acceptance Criteria (Definition of Done)
 
-- `GameState` lässt sich headless (ohne Kamera) instanziieren und durch eine PGN steuern;
-  `label_for` liefert für die Startstellung die korrekten 32 Figuren + 32 `empty`.
-- `push_san`/`push_uci` werfen bei illegalen Zügen eine klare Exception.
-- Eine bekannte Test-PGN durchgespielt ergibt am Ende die erwartete End-FEN (Unit-Test).
-- `piece_map()` und `label_for()` sind über alle 64 Felder konsistent (Test: Vereinigung
-  aus besetzten Feldern + `empty`-Feldern = 64).
+- `GameState` can be instantiated headlessly (without a camera) and driven through a PGN;
+  `label_for` returns the correct 32 pieces + 32 `empty` for the starting position.
+- `push_san`/`push_uci` raise a clear exception on illegal moves.
+- Playing through a known test PGN results in the expected final FEN (unit test).
+- `piece_map()` and `label_for()` are consistent across all 64 squares (test: union
+  of occupied squares + `empty` squares = 64).
