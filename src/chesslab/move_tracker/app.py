@@ -167,9 +167,11 @@ def run(host: str = "127.0.0.1", port: int = 8001,
 
     _STATE.update(default_profile=default_profile, default_source=default_source)
     print(f"move-tracker UI: http://{host}:{port}")
+    # timeout_graceful_shutdown: /warped.mjpg is an endless stream — without a cap,
+    # Ctrl+C waits for that connection forever (see web/app.py).
     uvicorn.run(create_app(default_profile=default_profile, default_source=default_source,
                            tracker_kwargs=tracker_kwargs),
-                host=host, port=port, log_level="warning")
+                host=host, port=port, log_level="warning", timeout_graceful_shutdown=2)
     return 0
 
 

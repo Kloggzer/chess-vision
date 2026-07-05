@@ -154,6 +154,9 @@ def collect_finish():
     w.close()
     n, sid = w.count, w.session_id
     COLLECT.update(writer=None, positions=[], i=0, profile=None)
+    # Release the camera: nothing needs it after finishing — a lingering capture
+    # (esp. network sources with FFmpeg reader threads) blocks Ctrl+C shutdown.
+    CAMERA.release()
     # Mechanischen Schritt automatisieren: die gerade beendete Session direkt slicen,
     # damit die Crops sofort im Datensätze-Tab verfügbar sind.
     sliced, sliced_error = 0, None

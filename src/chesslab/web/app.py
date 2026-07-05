@@ -65,5 +65,8 @@ def run(host: str | None = None, port: int | None = None) -> int:
     # Für Direktstarts ohne CLI (python -m …): Logger sichtbar machen (no-op, wenn schon konfiguriert).
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     print(f"chesslab Web-UI: http://{host}:{port}")
-    uvicorn.run(create_app(), host=host, port=port, log_level="warning")
+    # timeout_graceful_shutdown: the MJPEG camera streams are endless generators —
+    # without a cap, Ctrl+C waits forever for those connections to finish.
+    uvicorn.run(create_app(), host=host, port=port, log_level="warning",
+                timeout_graceful_shutdown=2)
     return 0
