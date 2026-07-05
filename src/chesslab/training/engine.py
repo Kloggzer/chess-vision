@@ -21,8 +21,10 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     """Square accuracy, board accuracy, loss and raw (true, pred) arrays for a dataset."""
     from torch.utils.data import DataLoader
 
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False,
-                        num_workers=num_workers, pin_memory=True)
+    kw = dict(batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
+    if num_workers > 0:
+        kw["prefetch_factor"] = 4
+    loader = DataLoader(dataset, **kw)
     model.eval()
     trues: list[int] = []
     preds: list[int] = []
