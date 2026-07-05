@@ -378,25 +378,32 @@ def train_cmd(
     dataset: str | None = typer.Option(None, "--dataset", help="Named dataset (otherwise global manifest/split)."),
     resume: str | None = typer.Option(None, "--resume", help="Run name whose weights are loaded as warm-start (continue training)."),
     head: str = typer.Option("combined", "--head", help="combined | factored | twostage (two-stage Occupancy→Piece)."),
+    scales: str | None = typer.Option(None, "--scales", help="Multi-Scale-Training: Komma-Liste von Eingabegrößen "
+                                      "(z.B. 64,96,128). Pro Batch wird zufällig eine gewählt → ein Modell für alle "
+                                      "Auflösungen (size-agnostisch, für günstige Low-Res-Inferenz)."),
 ) -> None:
     """Train per-square CNN on the ROCm GPU (board accuracy = checkpoint metric)."""
     from .training.train import run_train
 
+    scale_list = [int(s) for s in scales.split(",") if s.strip()] if scales else None
     raise typer.Exit(run_train(backbone=backbone, epochs=epochs, batch_size=batch_size, lr=lr,
                                no_amp=no_amp, seed=seed, out=out, patience=patience,
                                num_workers=num_workers, norm=norm, dataset=dataset, resume=resume,
-                               head=head))
+                               head=head, scales=scale_list))
 
 
 @app.command("eval")
 def eval_cmd(
     run: str = typer.Option(..., "--run", help="Run directory from `train`."),
     split: str = typer.Option("test", "--split", help="train | val | test"),
+    input_size: int | None = typer.Option(None, "--input-size", help="Eingabegröße für die Auswertung "
+                                           "(z.B. 64/96/128). Misst die Genauigkeit bei einer Deployment-Auflösung "
+                                           "(für die Auflösungs-Kurve eines Multi-Scale-Modells)."),
 ) -> None:
     """Board accuracy, per-class recall and confusion matrix (text + PNG)."""
     from .training.evaluate import run_eval
 
-    raise typer.Exit(run_eval(run=run, split_name=split))
+    raise typer.Exit(run_eval(run=run, split_name=split, input_size=input_size))
 
 
 @app.command("export")

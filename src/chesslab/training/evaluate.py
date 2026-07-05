@@ -33,7 +33,7 @@ def load_run(run_dir: Path):
 _load_run = load_run
 
 
-def run_eval(run: str, split_name: str = "test") -> int:
+def run_eval(run: str, split_name: str = "test", input_size: int | None = None) -> int:
 
     from .engine import (
         confusion_matrix,
@@ -74,9 +74,11 @@ def run_eval(run: str, split_name: str = "test") -> int:
     device = get_device(require_gpu=False)
     model.to(device)
     ds = SquareDataset(rows, classes, build_transform(out_size, train=False))
-    res = evaluate_dataset(model, ds, device, batch_size=256)
+    res = evaluate_dataset(model, ds, device, batch_size=256, input_size=input_size)
 
     # 1. Board-Accuracy (Hauptmetrik)
+    if input_size is not None:
+        print(f"[eval @ input_size={input_size}px]")
     print(f"Board accuracy ({split_name}): {res['board_acc']:.4f}")
     # 1b. Occupancy/piece diagnosis: WHERE are the errors (occupancy vs. type vs. color)?
     from .data import occupancy_board_acc, occupancy_piece_breakdown

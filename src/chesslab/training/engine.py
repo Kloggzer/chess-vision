@@ -17,8 +17,14 @@ def get_device(require_gpu: bool):
 
 
 @torch.no_grad()
-def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 256, num_workers: int = 4) -> dict:
-    """Square accuracy, board accuracy, loss and raw (true, pred) arrays for a dataset."""
+def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 256, num_workers: int = 4,
+                     input_size: int | None = None) -> dict:
+    """Square accuracy, board accuracy, loss and raw (true, pred) arrays for a dataset.
+
+    `input_size`: wenn gesetzt, wird jeder Batch auf diese Eingabegröße skaliert (size-agnostisches
+    Modell) → so misst man die Genauigkeit bei einer bestimmten Deployment-Auflösung (Auflösungs-Kurve).
+    """
+    import torch
     from torch.utils.data import DataLoader
 
     kw = dict(batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
@@ -33,6 +39,8 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     for x, y in loader:
         x = x.to(device, non_blocking=True)
         y = y.to(device, non_blocking=True)
+        if input_size is not None and input_size != x.shape[-1]:
+            x = torch.nn.functional.interpolate(x, size=(input_size, input_size), mode="bilinear", align_corners=False)
         logits = model(x)
         if criterion is not None:
             loss_sum += float(criterion(logits, y)) * x.size(0)
