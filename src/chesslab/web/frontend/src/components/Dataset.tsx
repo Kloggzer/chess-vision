@@ -38,7 +38,9 @@ export function SessionsPanel() {
   const [note, setNote] = useState("");
   const [noteKind, setNoteKind] = useState<"ok" | "err" | "busy" | "">("");
   const sessionsQ = useQuery({ queryKey: ["sessions-manage"], queryFn: () => api("/api/sessions/manage") });
-  const sessions: any[] = sessionsQ.data ?? [];
+  const all: any[] = sessionsQ.data ?? [];
+  const sessions = all.filter((m) => !m.variant);
+  const ingested = all.filter((m) => m.variant);
 
   const onOk = (msg: string) => { setNote(msg); setNoteKind("ok"); invalidate("sessions-manage", "stats", "datasets"); };
   const onErr = (e: any) => { setNote("Error: " + e.message); setNoteKind("err"); };
@@ -49,7 +51,7 @@ export function SessionsPanel() {
   const deleteM = useMutation({ mutationFn: (sid: string) => del(`/api/sessions/${sid}`), onSuccess: () => onOk("deleted."), onError: onErr });
 
   return (
-    <Card title="Sessions (raw material)" right={<span className="text-xs text-zinc-500">{sessions.length} session(s)</span>}>
+    <Card title="Sessions (raw material)" right={<span className="text-xs text-zinc-500">{sessions.length} camera / {ingested.length} ingested</span>}>
       {note && (
         <div className={`mb-2 rounded-lg px-3 py-1.5 text-sm ${noteCls(noteKind)}`}>{note}</div>
       )}
@@ -107,6 +109,44 @@ export function SessionsPanel() {
             ))}
           </tbody>
         </table>
+      )}
+      {ingested.length > 0 && (
+        <>
+          <div className="mt-5 mb-1 text-sm font-medium text-zinc-300">Ingested datasets (pretrain variants)</div>
+          <p className="mb-2 text-xs text-zinc-500">
+            Imported via <code>chesslab ingest</code>. Their crops live in a separate variant
+            manifest (<code>squares__&lt;tag&gt;.jsonl</code>) and never mix with your camera
+            dataset — train on them with <code>train --dataset &lt;tag&gt;</code>. No slicing here.
+          </p>
+          <table className="w-full text-sm">
+            <thead><tr className="text-zinc-500">
+              <th className="text-left font-normal">Session</th><th className="text-left font-normal">Variant</th>
+              <th className="text-right font-normal">Frames</th><th className="text-right font-normal">Variant crops</th>
+              <th className="text-right font-normal">Action</th>
+            </tr></thead>
+            <tbody>
+              {ingested.map((m) => (
+                <tr key={m.session_id} className="border-t border-zinc-800">
+                  <td className="py-1.5 text-zinc-200">{m.session_id}
+                    {m.archived && <span className="ml-2 rounded bg-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-300">archived</span>}
+                  </td>
+                  <td><span className="rounded bg-indigo-950/60 px-1.5 py-0.5 text-[10px] text-indigo-300">{m.variant}</span></td>
+                  <td className="text-right tabular-nums text-zinc-400">{m.n_frames}</td>
+                  <td className="text-right tabular-nums text-zinc-400">{m.n_crops}</td>
+                  <td className="py-1"><div className="flex justify-end gap-1.5">
+                    <Button onClick={() => { if (window.confirm(`Delete ingested session "${m.session_id}"? (variant crops stay; re-ingest to recreate)`)) deleteM.mutateAsync(m.session_id); }}
+                            disabled={deleteM.isPending}
+                            className="px-2 py-1 text-xs text-red-300 hover:text-red-200 disabled:opacity-50">
+                      {deleteM.isPending && deleteM.variables === m.session_id
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <Trash2 className="h-3.5 w-3.5" />} Delete
+                    </Button>
+                  </div></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
       )}
     </Card>
   );
