@@ -176,3 +176,20 @@ def test_run_ingest_with_chesscog_fixture(tmp_path):
 def test_run_ingest_unknown_adapter_raises(tmp_path):
     with pytest.raises(ValueError):
         ig.run_ingest("nope", tmp_path, tag="x", paths=config.Paths(root=tmp_path))
+
+def test_profile_for_session_reconstructs_legacy_ingest(tmp_path, monkeypatch):
+    """Legacy ingested sessions (profile never saved) must still be sliceable."""
+    import pytest
+
+    from chesslab import config
+    from chesslab.labeling import _profile_for_session
+
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+
+    meta = {"profile": "pretrain-x", "mode": "ingested"}
+    prof = _profile_for_session(meta, None)
+    assert prof.profile == "pretrain-x" and prof.board_size == 900 and prof.margin == 0.0
+
+    # non-ingested sessions still raise on a missing profile
+    with pytest.raises(FileNotFoundError):
+        _profile_for_session({"profile": "gone", "mode": "pgn"}, None)

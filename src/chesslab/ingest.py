@@ -249,6 +249,12 @@ def run_ingest(adapter: str, root: str | Path, *, tag: str, geometry: str = "war
                          f"(übersprungen: {skipped}). Pfad/Annotationsdatei prüfen.")
 
     prof = ingestion_profile(tag, board_size, out_size)
+    # Persist the profile so later re-slices (CLI/web) can load it like any other profile.
+    from .calibration import profile_path
+
+    out_prof = profile_path(tag)
+    out_prof.parent.mkdir(parents=True, exist_ok=True)
+    prof.save(out_prof)
     session_ids = synthesize_sessions(items, tag=tag, profile_name=tag, paths=paths)
 
     overlays: list[Path] = []
