@@ -51,7 +51,10 @@ BOARD_WARM_FAC = 0.55
 # Dunkle Felder haben niedrige Albedo + Glanz → sie spiegeln das (kühle) Umgebungslicht
 # und wirken grau. Höhere Roughness macht sie matt → die (warme) Grundfarbe dominiert.
 BOARD_ROUGHNESS = 0.85
-PIECE_ROUGHNESS = 0.7   # Figuren matt halten, damit ihre echte Holzfarbe zeigt (kein Grau-Glanz)
+# Figuren leicht glänzend (echtes lackiertes Holz fängt Glanzlichter, die die 3D-Form verraten →
+# hilft, N/B/R von oben zu unterscheiden). Frühere 0.7/Specular 0.2 waren ZU matt (formarm).
+PIECE_ROUGHNESS = 0.45
+PIECE_SPECULAR = 0.4
 
 
 def argv_after_dashes():
@@ -299,14 +302,14 @@ def _scanned_material(png, darken=1.0):
     img = bpy.data.images.load(str(png))
     mat = bpy.data.materials.new("scan"); mat.use_nodes = True
     nt = mat.node_tree; bsdf = nt.nodes.get("Principled BSDF")
-    # Matt + wenig Specular: sonst spiegeln die glänzenden Figuren das kühle Umgebungslicht
-    # und wirken lavendel-grau statt in ihrer echten Holzfarbe (gleiches Problem wie das Brett).
+    # Leicht glänzend (Glanzlichter zeigen die Form). Warm-biased Licht (randomize_lights) hält
+    # die Highlights warm statt lavendel-grau, daher ist mehr Specular hier unproblematisch.
     if bsdf is not None:
         bsdf.inputs["Roughness"].default_value = PIECE_ROUGHNESS
         if "Specular IOR Level" in bsdf.inputs:
-            bsdf.inputs["Specular IOR Level"].default_value = 0.2
+            bsdf.inputs["Specular IOR Level"].default_value = PIECE_SPECULAR
         elif "Specular" in bsdf.inputs:
-            bsdf.inputs["Specular"].default_value = 0.2
+            bsdf.inputs["Specular"].default_value = PIECE_SPECULAR
     tx = nt.nodes.new("ShaderNodeTexImage"); tx.image = img
     if darken < 0.999:
         try:
@@ -499,6 +502,15 @@ def set_engine_fast(samples=24):
         scene.eevee.taa_render_samples = samples
     except (AttributeError, TypeError) as e:  # pragma: no cover - Blender-Version
         print(f"[v2] taa_render_samples unchanged ({e})")
+    # Ambient Occlusion + weiche Schatten: dunkeln Kontaktkanten/Vertiefungen ab und schärfen so
+    # Silhouetten/Form → hilft, N/B/R von oben zu unterscheiden. Attribute je nach EEVEE-Variante
+    # unterschiedlich → jedes einzeln defensiv setzen (EEVEE-legacy: use_gtao; EEVEE-Next: raytracing).
+    for attr, val in (("use_gtao", True), ("gtao_distance", 0.6), ("gtao_factor", 1.0),
+                      ("use_soft_shadows", True), ("use_raytracing", True), ("use_shadows", True)):
+        try:
+            setattr(scene.eevee, attr, val)
+        except (AttributeError, TypeError):
+            pass
     return eng
 
 
