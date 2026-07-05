@@ -140,10 +140,15 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     amp = not no_amp
     scaler = torch.amp.GradScaler("cuda", enabled=amp)
 
-    # Windows DataLoader: num_workers>0 uses spawn and often causes trouble -> default 0 on Windows.
-    nw = num_workers if num_workers is not None else (0 if sys.platform.startswith("win") else 4)
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
-                              num_workers=nw, pin_memory=True, drop_last=False)
+    # DataLoader-Tuning: der Crop-Datensatz ist I/O-gebunden (Mio. kleine PNGs). Parallele Worker
+    # sind der größte Hebel; auf Windows empirisch bis 8 stabil verifiziert (kein Deadlock) → Default
+    # 6 statt 0. persistent_workers spart das Neu-Spawnen je Epoche (teuer bei Windows-spawn),
+    # prefetch_factor hält Batches vor. Mit --num-workers 0 überschreibbar, falls doch Probleme.
+    nw = num_workers if num_workers is not None else (6 if sys.platform.startswith("win") else 8)
+    loader_kw = dict(batch_size=batch_size, pin_memory=True, num_workers=nw)
+    if nw > 0:
+        loader_kw.update(persistent_workers=True, prefetch_factor=4)
+    train_loader = DataLoader(train_ds, shuffle=True, drop_last=False, **loader_kw)
 
         # Runs are self-describing: geometry/photometry/extrusion height from the first
     # manifest line (same derivation as `labeling.variant_of_run`, which supplies old runs without
