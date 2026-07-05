@@ -66,8 +66,8 @@ PIECE_SPECULAR = 0.4
 PIECE_SCALE = 1.0
 # Weiß-Figuren-Korrektur: Scan-Textur ist zu orange/dunkel vs. reale blass-cremige Figuren.
 # Sättigung runter (orange raus) + Value hoch (heller). Nur auf weiße Figuren angewandt.
-PIECE_WHITE_SAT = 0.40
-PIECE_WHITE_VAL = 1.55
+PIECE_WHITE_SAT = 0.50
+PIECE_WHITE_VAL = 1.46
 
 
 def argv_after_dashes():
