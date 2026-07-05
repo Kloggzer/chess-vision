@@ -31,7 +31,7 @@ def degrade_image(bgr: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     im[:, :, 2] *= rng.uniform(1.0, 1.03)
     im[:, :, 0] *= rng.uniform(0.97, 1.0)
     # 3) Defokus / weiche Optik (real ist deutlich unschärfer als EEVEE).
-    k = rng.uniform(0.5, 1.2)
+    k = rng.uniform(0.2, 0.6)
     im = cv2.GaussianBlur(im, (0, 0), k)
     # 4) Sensor-Rauschen.
     im = im + rng.normal(0.0, rng.uniform(2.0, 6.0), im.shape)
