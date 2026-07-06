@@ -21,7 +21,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               no_amp: bool, seed: int, out: str | None, patience: int,
               num_workers: int | None = None, norm: str | None = None,
               dataset: str | None = None, resume: str | None = None,
-              head: str = "combined", scales: list[int] | None = None) -> int:
+              head: str = "combined", scales: list[int] | None = None,
+              erase_p: float | None = None, bg_p: float | None = None) -> int:
     """`scales`: Multi-Scale-Training (YOLO-Stil). Ist eine Liste wie [64,96,128] gesetzt, wird
     JEDER Batch zufällig auf eine dieser Eingabegrößen skaliert → das size-agnostische Modell
     (AdaptiveAvgPool) lernt alle Auflösungen in EINEM Lauf. So deckt das Training die
@@ -102,9 +103,16 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     print(f"[OK] train balanced: {len(train_rows)} crops, distribution: "
           + ", ".join(f"{k}={v}" for k, v in sorted(_Counter(r['label'] for r in train_rows).items())))
 
-    train_ds = SquareDataset(train_rows, classes, build_transform(out_size, train=True),
-                             bg_randomize=True)
-    val_ds = SquareDataset(val_rows, classes, build_transform(out_size, train=False))
+    # Augmentation policy — optionally override the anti-shortcut knobs per run (ablation/tuning).
+    policy = config.AUGMENT
+    if erase_p is not None or bg_p is not None:
+        from dataclasses import replace
+        policy = replace(policy, **({"erase_p": erase_p} if erase_p is not None else {}),
+                         **({"bg_p": bg_p} if bg_p is not None else {}))
+        print(f"[aug] override erase_p={policy.erase_p} bg_p={policy.bg_p}")
+    train_ds = SquareDataset(train_rows, classes, build_transform(out_size, train=True, policy=policy),
+                             bg_randomize=True, policy=policy)
+    val_ds = SquareDataset(val_rows, classes, build_transform(out_size, train=False, policy=policy))
 
     # BatchNorm is broken on ROCm-Windows (MIOpen/HIPRTC) -> default GroupNorm there.
     norm_eff = norm or ("groupnorm" if sys.platform.startswith("win") else "batchnorm")
@@ -174,6 +182,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "dataset": dataset, "resumed_from": resumed_from, "head": head,
         "normalize": {"mean": list(config.NORMALIZE_MEAN), "std": list(config.NORMALIZE_STD)},
         "variant": variant, "scales": scales,
+        "aug": {"erase_p": policy.erase_p, "bg_p": policy.bg_p},
     }, indent=2), encoding="utf-8")
     metrics_path = run_dir / "metrics.jsonl"
 
