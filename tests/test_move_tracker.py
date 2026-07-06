@@ -6,6 +6,9 @@ per-square noise model + log-likelihood per legal move (instead of hard change_t
 
 from __future__ import annotations
 
+import json
+import time
+
 import chess
 import cv2
 import numpy as np
@@ -381,7 +384,7 @@ class TestMoveTrackerHeadless:
 
         mt = MoveTracker(profile="phone", source="0", live_align=False,
                          motion_thr=100, settle_frames=3, confirm_frames=3,
-                         avg_frames=2, max_changed=6)
+                         avg_frames=2, max_changed=6, require_motion_for_move=False)
         mt.reset_to_start()
         mt.start()
 
@@ -449,7 +452,10 @@ def _make_tracker(monkeypatch, **kwargs):
     monkeypatch.setattr("chesslab.move_tracker.tracker.open_source", lambda s: fake)
     monkeypatch.setattr("chesslab.move_tracker.tracker.ensure_profile", lambda *a, **k: prof)
     defaults = {"profile": "phone", "source": "0", "live_align": False,
-                    "max_changed": 6, "confirm_frames": 1, "avg_frames": 1}
+                    "max_changed": 6, "confirm_frames": 1, "avg_frames": 1,
+                    # Most detection tests drive _try_detect directly without simulating the hand
+                    # motion that precedes a real move; disable the motion prerequisite by default.
+                    "require_motion_for_move": False}
     defaults.update(kwargs)
     return MoveTracker(**defaults)
 
@@ -506,27 +512,41 @@ class TestBaseTruthDetect:
         assert mt.history == []
 
 
-class _FakeRecovery:
-    """Stub für CnnRecovery (Identitätspfad): liefert vorgegebene Ergebnisse ohne torch."""
+class _FakeObs:
+    """Minimal OccupancyObservation stub: per-square occupancy + confidence dicts."""
 
-    def __init__(self, matches=False, verify_agree=0.0, verify_n=2, derive_move=None,
-                 min_agreement=0.97):
-        self.matches, self.verify_agree, self.verify_n = matches, verify_agree, verify_n
-        self.derive_move, self.min_agreement = derive_move, min_agreement
+    def __init__(self, occ: dict, conf: dict):
+        self._occ, self._conf = occ, conf
+
+    def occupied(self, sq: str) -> bool:
+        return bool(self._occ.get(sq, False))
+
+    def confident(self, thr: float) -> dict:
+        return dict(self._conf)
+
+
+class _FakeRecovery:
+    """Stub für CnnRecovery (Occupancy-Pfad): liefert vorgegebene Ergebnisse ohne torch."""
+
+    def __init__(self, match=False, occ_agree=0.0, occ_n=2, derive_move=None,
+                 derive_agreement=0.99, min_agreement=0.97, conf_thr=0.85,
+                 occ=None, conf=None):
+        self.match, self.occ_agree, self.occ_n = match, occ_agree, occ_n
+        self.derive_move, self.derive_agreement = derive_move, derive_agreement
+        self.min_agreement, self.conf_thr = min_agreement, conf_thr
+        # Default endpoints for candidate e2e4: to occupied+confident, from empty+confident.
+        self._occ = occ if occ is not None else {"e4": True, "e2": False}
+        self._conf = conf if conf is not None else {"e4": True, "e2": True}
 
     def observe(self, frame, corners):
-        return "OBS"
+        return _FakeObs(self._occ, self._conf)
 
-    def board_matches_identity(self, board, obs):
-        return {"match": self.matches, "conflicts": [], "n": 20, "inconclusive": False}
+    def verify_move(self, board, move, obs):
+        return self.occ_agree, self.occ_n
 
-    def verify_move_identity(self, board, move, obs):
-        return self.verify_agree, self.verify_n
-
-    def derive_move_identity(self, board, obs):
-        if self.derive_move is None:
-            return None, 0.0, 0.0
-        return chess.Move.from_uci(self.derive_move), 0.99, 0.3
+    def resync_check(self, board, obs):
+        return {"match": self.match, "conflicts": [], "move": self.derive_move,
+                "agreement": self.derive_agreement if self.derive_move else 0.0}
 
 
 def _pending_tracker(monkeypatch, **fake_kw):
@@ -545,20 +565,20 @@ def _pending_tracker(monkeypatch, **fake_kw):
 
 
 class TestCnnVerify:
-    """Identitäts-Verify eines Diff-Kandidaten durchs (gestubbte) CNN."""
+    """Occupancy-Verify eines Diff-Kandidaten durchs (gestubbte) CNN."""
 
     def test_shadow_suppressed_no_commit(self, monkeypatch):
-        """CNN sieht das Brett unverändert (Identität gleich) → kein Zug, Referenz nachgezogen."""
-        mt = _pending_tracker(monkeypatch, matches=True)
+        """CNN sieht das Brett unverändert (Belegung gleich) → kein Zug, Referenz nachgezogen."""
+        mt = _pending_tracker(monkeypatch, match=True)
         mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
         assert mt.history == []
         assert mt._pending is None
         assert mt._verify_state == "shadow"
         assert mt.cnn_status == "shadow"
 
-    def test_identity_confirms_commit(self, monkeypatch):
-        """Identität bestätigt den Diff-Zug → Commit."""
-        mt = _pending_tracker(monkeypatch, matches=False, verify_agree=1.0, verify_n=2)
+    def test_occupancy_confirms_commit(self, monkeypatch):
+        """Belegung bestätigt den Diff-Zug (from leer, to belegt) → Commit."""
+        mt = _pending_tracker(monkeypatch, match=False, occ_agree=1.0, occ_n=2)
         mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
         assert mt.history == ["e4"]
         assert mt.last_move == "e2e4"
@@ -566,31 +586,75 @@ class TestCnnVerify:
         assert mt._verify_state == "confirmed"
         assert mt.recovered_last is False
 
-    def test_diff_wins_with_warning_on_mismatch(self, monkeypatch):
-        """Identität passt NICHT (Felder belastbar), CNN sieht anderen Zug → Diff gewinnt,
-        CNN warnt nur (mismatch)."""
-        mt = _pending_tracker(monkeypatch, matches=False, verify_agree=0.0, verify_n=2,
-                              derive_move="d2d4")
+    def test_hard_veto_rejects_ghost_to_still_empty(self, monkeypatch):
+        """Hand-Wisch-Geist: Ziel e4 bleibt vertrauenswürdig LEER → verworfen, kein Zug."""
+        mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0,
+                              occ={"e4": False, "e2": False}, conf={"e4": True, "e2": True})
         mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
-        assert mt.history == ["e4"]                        # Diff-Zug committet (nicht d4)
-        assert mt.last_move == "e2e4"
-        assert mt.cnn_status == "mismatch"
-        assert mt._cnn_best_move == "d2d4"                 # Alternative sichtbar
+        assert mt.history == []
+        assert mt._pending is None
+        assert mt._verify_state == "ghost"
+        assert mt.cnn_status == "ghost"
 
-    def test_occlusion_waits_then_commits_diff(self, monkeypatch):
-        """Endpunkte verdeckt (verify_n<2) → nicht blockieren: nach verify_window Diff committen."""
-        mt = _pending_tracker(monkeypatch, matches=False, verify_agree=0.0, verify_n=0,
-                              verify_window=3)
+    def test_from_occupied_but_arrived_commits(self, monkeypatch):
+        """d2d4-Fix: Ziel e4 ist belegt (Figur angekommen) → COMMIT, auch wenn das Modell den
+        Start e2 fälschlich noch als belegt liest ('occupied' ist die unzuverlässige Achse)."""
+        mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0,
+                              occ={"e4": True, "e2": True}, conf={"e4": True, "e2": True})
+        mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        assert mt.history == ["e4"]                              # committed via destination arrival
+        assert mt._verify_state == "confirmed"
+
+    def test_from_occupied_no_arrival_rejects_after_window(self, monkeypatch):
+        """Start bleibt confident BELEGT und Ziel kommt NICHT an (nicht lesbar) → nach dem
+        verify_window verworfen (kein Zug passiert), als Rejection protokolliert."""
+        mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0,
+                              occ={"e2": True}, conf={"e4": False, "e2": True},
+                              verify_window=2)
+        for _ in range(2):
+            mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        assert mt.history == []
+        assert mt._pending is None
+        assert mt._verify_state == "ghost"
+
+    def test_counter_move_overrules(self, monkeypatch):
+        """CNN sieht eindeutig einen ANDEREN Zug (Belegung) → überstimmt den Diff-Kandidaten."""
+        # Endpoints of e2e4 unreadable (not confident) → no positive/negative signal for it,
+        # so the CNN's own confident move d2d4 wins.
+        mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0, derive_move="d2d4",
+                              derive_agreement=0.99, conf={"e4": False, "e2": False})
+        mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        assert mt.history == ["d4"]
+        assert mt.last_move == "d2d4"
+        assert mt._verify_state == "overruled"
+
+    def test_occlusion_times_out_rejects(self, monkeypatch):
+        """Endpunkte bleiben verdeckt (nicht confident) → nach verify_window VERWERFEN,
+        NICHT blind den Diff akzeptieren (das war das alte Loch für die Hand)."""
+        mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0, occ_n=0,
+                              conf={"e4": False, "e2": False}, verify_window=3)
         mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
         assert mt.history == []                            # noch am Warten
         for _ in range(2):
+            mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        assert mt.history == []                            # verworfen, kein Zug
+        assert mt._pending is None
+        assert mt._verify_state == "ghost"
+
+    def test_clearview_borderline_accepts_after_window(self, monkeypatch):
+        """Klare Sicht auf beide Endpunkte, aber Belegung nur grenzwertig → nach Fenster
+        wird dem Diff vertraut (nur bei confidenter, freier Sicht)."""
+        mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0, occ_n=2,
+                              occ={"e4": True, "e2": False}, conf={"e4": True, "e2": True},
+                              verify_window=3)
+        for _ in range(3):
             mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
         assert mt.history == ["e4"]
         assert mt._pending is None
 
     def test_cnn_unavailable_commits_pending(self, monkeypatch):
         """_ensure_cnn liefert None (Modell weg) → Fallback: Pending direkt committen."""
-        mt = _pending_tracker(monkeypatch, matches=False, verify_agree=1.0)
+        mt = _pending_tracker(monkeypatch, match=False, occ_agree=1.0)
         monkeypatch.setattr(mt, "_ensure_cnn", lambda: None)
         mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
         assert mt.history == ["e4"]
@@ -655,6 +719,524 @@ class TestShadowRobustness:
         mt._try_detect(cur_gray, cur_bgr)
         assert mt._stuck_reason != "too_many_changed"
         assert set(sqs).issubset(set(mt._shadow_vetoed)) or mt._changed == []
+
+    def test_color_occlusion_vetoes_skin_colored_hand(self, monkeypatch):
+        """Saturated skin/orange blob (hand) far outside the muted board gamut → flagged as
+        occlusion (not a move endpoint), and excluded from the changed set."""
+        from chesslab.move_tracker.tracker import board_color_gamut
+        mt = _make_tracker(monkeypatch, cnn_run=None, occlusion_color_thr=4.0)
+        ref_bgr = self._bgr([], base_bgr=(120, 122, 118))       # muted, low-saturation board
+        mt.ref_bgr = ref_bgr
+        mt.ref_gray = cv2.cvtColor(ref_bgr, cv2.COLOR_BGR2GRAY)
+        mt.ref_fen = mt.board.fen()
+        mt._ref_gamut = board_color_gamut(ref_bgr, 400, True)   # normally built in _set_ref
+        sqs = ["d3", "e3", "f3", "g3"]
+        cur_bgr = self._bgr(sqs, base_bgr=(120, 122, 118), fill_bgr=(60, 120, 220))  # orange "hand"
+        cur_gray = cv2.cvtColor(cur_bgr, cv2.COLOR_BGR2GRAY)
+        mt._try_detect(cur_gray, cur_bgr)
+        assert set(sqs).issubset(set(mt._occluded_vetoed))
+        assert not (set(sqs) & set(mt._changed))               # neutralized, not a candidate
+
+    def test_color_occlusion_keeps_neutral_piece(self, monkeypatch):
+        """A neutral (graphite) piece appearing on a square is WITHIN the board gamut →
+        NOT flagged as occlusion (a real move must survive)."""
+        from chesslab.move_tracker.tracker import board_color_gamut
+        mt = _make_tracker(monkeypatch, cnn_run=None, occlusion_color_thr=4.0)
+        ref_bgr = self._bgr([], base_bgr=(120, 122, 118))
+        mt.ref_bgr = ref_bgr
+        mt.ref_gray = cv2.cvtColor(ref_bgr, cv2.COLOR_BGR2GRAY)
+        mt.ref_fen = mt.board.fen()
+        mt._ref_gamut = board_color_gamut(ref_bgr, 400, True)
+        cur_bgr = self._bgr(["e4"], base_bgr=(120, 122, 118), fill_bgr=(40, 42, 40))  # dark neutral
+        cur_gray = cv2.cvtColor(cur_bgr, cv2.COLOR_BGR2GRAY)
+        mt._try_detect(cur_gray, cur_bgr)
+        assert "e4" not in mt._occluded_vetoed
+
+
+class TestPipelineRegressions:
+    """Ghost/stuck fixes: pair path through gates, gamut hygiene, noise-learning exclusion,
+    buffer alignment, robust motion metric."""
+
+    def _pair_frames(self):
+        """ref: pieces on e2+e7; cur: both moved (e4+e5) — two half-moves in one window."""
+        return _gray_frame(["e2", "e7"]), _gray_frame(["e4", "e5"])
+
+    def test_pair_goes_pending_with_cnn(self, monkeypatch):
+        """Fast-play pair is NOT committed directly with CNN verify on — it becomes pending
+        (pre-commit verification), like every single-move candidate."""
+        mt = _make_tracker(monkeypatch, cnn_run="stub", confirm_frames=1)
+        mt.recovery = _FakeRecovery()
+        ref, cur = self._pair_frames()
+        mt.ref_gray, mt.ref_fen = ref, mt.board.fen()
+        mt._try_detect(cur)
+        assert mt.history == []                               # nothing committed yet
+        assert mt._pending is not None
+        assert mt._pending["ucis"] == ["e2e4", "e7e5"]
+
+    def test_pair_respects_motion_gate(self, monkeypatch):
+        """No hand since the reference → even a pair-shaped change is drift/light, no commit.
+        Without CNN the pair path is reachable via too_many_changed (pair + residue)."""
+        mt = _make_tracker(monkeypatch, cnn_run=None, confirm_frames=1,
+                           require_motion_for_move=True)
+        ref = _gray_frame(["e2", "e7"])
+        cur = _gray_frame(["e4", "e5", "a3", "b3", "h3"])   # pair + 3 residue squares (7 > max 6)
+        mt.ref_gray, mt.ref_fen = ref, mt.board.fen()
+        assert mt._motion_since_ref is False
+        mt._try_detect(cur)
+        assert mt.history == [] and mt._pending is None
+        mt._motion_since_ref, mt._last_motion_ts = True, time.time()                           # hand entered → pair commits
+        mt._try_detect(cur)
+        assert mt.history == ["e4", "e5"]
+        assert mt._recent_decisions[-1]["rec"]["decider"] == "diff_pair"
+
+    def test_pair_verify_commits_on_after_match(self, monkeypatch):
+        """Pending pair: CNN occupancy matches the position AFTER both half-moves → commit."""
+        mt = _pending_tracker(monkeypatch, match=False)
+        mt._pending = {"ucis": ["e2e4", "e7e5"], "uci": "e2e4", "fen": mt.board.fen(),
+                       "cur": _gray_frame(["e4", "e5"]), "cur_bgr": None, "frames": 0}
+
+        def _check(board, obs):                                # match only the post-pair position
+            after = chess.Board()
+            after.push_uci("e2e4"); after.push_uci("e7e5")
+            return {"match": board.fen() == after.fen(), "conflicts": [], "move": None,
+                    "agreement": 0.99}
+        mt.recovery.resync_check = _check
+        mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        assert mt.history == ["e4", "e5"]
+        assert mt._pending is None and mt._verify_state == "confirmed"
+        assert mt._recent_decisions[-1]["rec"]["decider"] == "cnn_pair"
+
+    def test_pair_verify_rejects_shadow(self, monkeypatch):
+        """Pending pair: CNN occupancy still matches the CURRENT position → shadow, no move."""
+        mt = _pending_tracker(monkeypatch, match=True)
+        mt._pending = {"ucis": ["e2e4", "e7e5"], "uci": "e2e4", "fen": mt.board.fen(),
+                       "cur": _gray_frame([]), "cur_bgr": None, "frames": 0}
+        mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        assert mt.history == [] and mt._pending is None
+        assert mt._verify_state == "shadow"
+
+    def test_gamut_not_rebuilt_from_commit_frame(self, monkeypatch):
+        """The occlusion color gamut must NOT be rebuilt from the commit frame (possible hand
+        residue) — only from a clean quiet re-anchor afterwards."""
+        mt = _make_tracker(monkeypatch, cnn_run=None, confirm_frames=1, occlusion_color_thr=4.0)
+        mt.ref_gray = _gray_frame(["e2"])
+        mt.ref_bgr = _bgr_frame(["e2"])
+        mt.ref_fen = mt.board.fen()
+        from chesslab.move_tracker.tracker import board_color_gamut
+        mt._ref_gamut = board_color_gamut(mt.ref_bgr, 400, True)
+        gamut_before = mt._ref_gamut
+        mt._try_detect(_gray_frame(["e4"]), _bgr_frame(["e4"]))  # commit e2e4
+        assert mt.history == ["e4"]
+        assert mt._ref_gamut is gamut_before                     # kept, not rebuilt
+        mt._try_detect(_gray_frame(["e4"]), _bgr_frame(["e4"]))  # quiet clean frame → re-anchor
+        assert mt._ref_gamut is not gamut_before                 # rebuilt from clean frame
+
+    def test_shadow_squares_not_learned_into_noise(self, monkeypatch):
+        """Shadow-vetoed squares are excluded from noise-model learning — otherwise a
+        recurring shadow inflates the square's EMA and desensitizes later real moves."""
+        mt = _make_tracker(monkeypatch, cnn_run=None)
+        base = np.full((400, 400, 3), (120, 120, 120), dtype=np.uint8)
+        mt.ref_bgr = base
+        mt.ref_gray = cv2.cvtColor(base, cv2.COLOR_BGR2GRAY)
+        mt.ref_fen = mt.board.fen()
+        cur_bgr = base.copy()
+        cur_bgr[:100, :] = (72, 72, 72)   # shadow on 2 ranks only (median normalization safe)
+        cur_gray = cv2.cvtColor(cur_bgr, cv2.COLOR_BGR2GRAY)
+        mt._try_detect(cur_gray, cur_bgr)
+        assert mt._shadow_vetoed                                  # veto actually fired
+        for sq in mt._shadow_vetoed:
+            assert mt.noise.mean[sq] == 0.0                       # not learned
+
+    def test_undo_clears_bgr_buffer(self, monkeypatch):
+        """undo() clears BOTH averaging buffers — a stale color average would feed the
+        shadow/occlusion vetoes with frames from before the undo."""
+        mt = _make_tracker(monkeypatch, cnn_run=None, confirm_frames=1)
+        mt.ref_gray, mt.ref_fen = _gray_frame(["e2"]), mt.board.fen()
+        mt._try_detect(_gray_frame(["e4"]))
+        mt._gray_buf.append(_gray_frame(["e4"]))
+        mt._bgr_buf.append(_bgr_frame(["e4"]))
+        mt.undo()
+        assert len(mt._gray_buf) == 0 and len(mt._bgr_buf) == 0
+
+    def test_occlusion_latch_blocks_square_until_cleared(self, monkeypatch):
+        """A square seen as occluded (hand) stays hard-blocked for a few frames AFTER the
+        hand left ('the tracker must not forget the occlusion one frame later') — a move
+        into that square only commits once the latch has drained."""
+        from chesslab.move_tracker.tracker import board_color_gamut, square_region
+        mt = _make_tracker(monkeypatch, cnn_run=None, confirm_frames=1, occlusion_color_thr=4.0,
+                           motion_hold_s=0.05)                    # short latch for the test
+        ref_bgr = np.full((400, 400, 3), (120, 122, 118), dtype=np.uint8)
+        x0, y0, x1, y1 = square_region("e2", 400, True)
+        ref_bgr[y0:y1, x0:x1] = (40, 42, 40)                      # dark piece on e2
+        mt.ref_bgr = ref_bgr
+        mt.ref_gray = cv2.cvtColor(ref_bgr, cv2.COLOR_BGR2GRAY)
+        mt.ref_fen = mt.board.fen()
+        mt._ref_gamut = board_color_gamut(ref_bgr, 400, True)
+        hand_bgr = np.full((400, 400, 3), (120, 122, 118), dtype=np.uint8)
+        x0, y0, x1, y1 = square_region("e4", 400, True)
+        hand_bgr[y0:y1, x0:x1] = (60, 120, 220)                   # orange hand OVER e4
+        mt._try_detect(cv2.cvtColor(hand_bgr, cv2.COLOR_BGR2GRAY), hand_bgr)
+        assert "e4" in mt._occluded_vetoed and "e4" in mt._tainted
+        assert mt.history == [] and mt._pending is None            # no commit under the hand
+        done_bgr = np.full((400, 400, 3), (120, 122, 118), dtype=np.uint8)
+        done_bgr[y0:y1, x0:x1] = (40, 42, 40)                     # hand gone, piece on e4 (e2e4)
+        done = cv2.cvtColor(done_bgr, cv2.COLOR_BGR2GRAY)
+        mt._try_detect(done, done_bgr)
+        assert mt.history == [] and "e4" in mt._tainted            # latch still holds e4
+        time.sleep(0.08)                                           # latch expires (motion_hold_s)
+        mt._try_detect(done, done_bgr)
+        assert mt.history == ["e4"]                                # then the move commits
+        assert not mt._tainted
+
+    def test_dark_piece_on_new_square_not_occlusion(self, monkeypatch):
+        """Nearest-neighbor gamut: a dark piece arriving on a light square matches the
+        reference square that already carries a dark piece → NOT an occlusion (the old
+        global-mean test flagged it and stalled detection). Skin still matches no square."""
+        from chesslab.move_tracker.tracker import board_color_gamut, square_region
+        ref_bgr = np.full((400, 400, 3), (170, 172, 168), dtype=np.uint8)   # light board
+        x0, y0, x1, y1 = square_region("b8", 400, True)
+        ref_bgr[y0:y1, x0:x1] = (30, 30, 30)                     # ONE dark piece in the ref
+        gamut = board_color_gamut(ref_bgr, 400, True)
+        from chesslab.move_tracker.tracker import occlusion_color_squares
+        cur_bgr = ref_bgr.copy()
+        x0, y0, x1, y1 = square_region("e4", 400, True)
+        cur_bgr[y0:y1, x0:x1] = (30, 30, 30)                     # dark knight lands on e4
+        occ = occlusion_color_squares(cur_bgr, gamut, 400, True, {"e4"}, thr=1.5)
+        assert "e4" not in occ                                    # matches the b8 feature
+        cur_bgr[y0:y1, x0:x1] = (60, 120, 220)                   # orange hand instead
+        occ = occlusion_color_squares(cur_bgr, gamut, 400, True, {"e4"}, thr=1.5)
+        assert "e4" in occ                                        # skin matches no square
+
+    def test_motion_score_ignores_global_wobble(self):
+        """Desk wobble = the whole image shifts ~1px (small deltas everywhere) → ~0 motion;
+        a hand = compact region of strong deltas → high motion."""
+        from chesslab.move_tracker.tracker import motion_score
+        rng = np.random.default_rng(42)
+        raw = rng.integers(100, 156, size=(200, 200), dtype=np.uint8)
+        tex = cv2.GaussianBlur(raw, (5, 5), 0)     # the pipeline blurs before the motion test
+        wobble = cv2.GaussianBlur(np.roll(raw, 1, axis=1), (5, 5), 0)  # 1px global shift
+        assert motion_score(tex, wobble, px_thr=20.0) < 1.0
+        hand = tex.copy()
+        hand[50:120, 50:120] = 240                                     # strong local blob
+        assert motion_score(tex, hand, px_thr=20.0) > 5.0
+
+
+class TestGridLineGate:
+    """Grid-line visibility occlusion gate (large opaque object hides the board grid)."""
+
+    def _grid(self, board_size=400):
+        bs = board_size
+        img = np.full((bs, bs), 128, np.uint8)
+        cell = bs / 8.0
+        for i in range(9):
+            p = int(i * cell)
+            cv2.line(img, (p, 0), (p, bs), 40, 2)
+            cv2.line(img, (0, p), (bs, p), 40, 2)
+        return img
+
+    def test_clear_board_high_coverage(self, monkeypatch):
+        mt = _make_tracker(monkeypatch, cnn_run=None, min_grid_line_coverage=0.6)
+        clear = self._grid()
+        assert mt._grid_line_coverage(clear) >= 0.9
+        assert not mt._occluded_by_grid(clear)
+
+    def test_covered_board_low_coverage(self, monkeypatch):
+        mt = _make_tracker(monkeypatch, cnn_run=None, min_grid_line_coverage=0.6)
+        covered = self._grid()
+        covered[:, : int(400 * 0.6)] = 128            # flat block erases lines over 60% width
+        assert mt._grid_line_coverage(covered) < 0.6
+        assert mt._occluded_by_grid(covered)
+
+    def test_gate_disabled_when_zero(self, monkeypatch):
+        mt = _make_tracker(monkeypatch, cnn_run=None, min_grid_line_coverage=0.0)
+        blank = np.full((400, 400), 128, np.uint8)      # no lines at all
+        assert mt._occluded_by_grid(blank) is False     # disabled → never blocks
+
+
+class TestMotionPrerequisite:
+    """A move only commits if a hand entered since the reference (drift/light suppression)."""
+
+    def test_no_motion_blocks_commit(self, monkeypatch):
+        mt = _make_tracker(monkeypatch, cnn_run=None, require_motion_for_move=True)
+        mt.ref_gray = _gray_frame(["e2"])
+        mt.ref_fen = mt.board.fen()
+        mt._motion_since_ref = False                             # board untouched since reference
+        mt._try_detect(_gray_frame(["e4"]))                      # looks like e2e4 but no motion
+        assert mt.history == []                                  # suppressed as drift
+        assert "no motion" in mt.note
+
+    def test_motion_allows_commit(self, monkeypatch):
+        mt = _make_tracker(monkeypatch, cnn_run=None, require_motion_for_move=True, confirm_frames=1)
+        mt.ref_gray = _gray_frame(["e2"])
+        mt.ref_fen = mt.board.fen()
+        mt._motion_since_ref, mt._last_motion_ts = True, time.time()                              # a hand entered → real move possible
+        mt._try_detect(_gray_frame(["e4"]))
+        assert mt.history == ["e4"]
+
+    def test_stale_motion_blocks_commit(self, monkeypatch):
+        """Motion armed long ago (high stable count since): drift is not a move — one old
+        wobble spike must not license a commit minutes later."""
+        mt = _make_tracker(monkeypatch, require_motion_for_move=True, confirm_frames=1)
+        mt.ref_gray, mt.ref_fen = _gray_frame(["e2"]), mt.board.fen()
+        mt._motion_since_ref, mt._last_motion_ts = True, time.time() - 120   # 2 min ago
+        mt._try_detect(_gray_frame(["e4"]))
+        assert mt.history == []
+        assert "ago" in mt.note
+
+    def test_commit_resets_motion_flag(self, monkeypatch):
+        mt = _make_tracker(monkeypatch, cnn_run=None, require_motion_for_move=True, confirm_frames=1)
+        mt.ref_gray = _gray_frame(["e2"])
+        mt.ref_fen = mt.board.fen()
+        mt._motion_since_ref, mt._last_motion_ts = True, time.time()
+        mt._try_detect(_gray_frame(["e4"]))
+        assert mt.history == ["e4"]
+        assert mt._motion_since_ref is False                     # _set_ref reset it → next move needs motion
+
+
+class TestClaheAndRecovery:
+    """CLAHE contrast boost (B) + single-square destination recovery (A)."""
+
+    def test_clahe_off_is_identity_shape(self, monkeypatch):
+        mt = _make_tracker(monkeypatch, cnn_run=None, diff_clahe_clip=0.0)
+        g = mt._gray(_bgr_frame(["e4"]))
+        assert g.shape == (400, 400) and mt._clahe is None     # untouched when off
+
+    def test_clahe_on_builds_operator(self, monkeypatch):
+        mt = _make_tracker(monkeypatch, cnn_run=None, diff_clahe_clip=3.0)
+        g = mt._gray(_bgr_frame(["e4"]))
+        assert g.shape == (400, 400) and mt._clahe is not None  # CLAHE applied + cached
+
+    def test_single_endpoint_candidate_unambiguous(self, monkeypatch):
+        """Only the destination c6 is strongly changed → the one legal knight move Nc6 is
+        proposed (from-square weak, below the both-endpoints gate)."""
+        from chesslab.move_tracker.tracker import _ALL, loglik_scores
+        mt = _make_tracker(monkeypatch, cnn_run=None)
+        mt.board = chess.Board()
+        mt.board.push_uci("e2e4")                                # black to move → Nb8c6 legal
+        z = dict.fromkeys(_ALL, 0.0)
+        z["c6"] = 8.0                                            # only destination hot
+        scored = loglik_scores(mt.board, z, mt.z_thr, mt.ll_k)
+        sm = mt._single_endpoint_candidate(z, scored)
+        assert sm is not None and chess.square_name(sm.to_square) == "c6"
+
+    def test_single_endpoint_none_when_multi_changed(self, monkeypatch):
+        from chesslab.move_tracker.tracker import _ALL, loglik_scores
+        mt = _make_tracker(monkeypatch, cnn_run=None)
+        z = dict.fromkeys(_ALL, 0.0)
+        z["c6"] = 8.0; z["e4"] = 8.0                             # two strong squares → not single
+        scored = loglik_scores(mt.board, z, mt.z_thr, mt.ll_k)
+        assert mt._single_endpoint_candidate(z, scored) is None
+
+
+class TestFeedbackAndRecording:
+    """Implicit labeling (undo=bad, standing=good) + session recording (auto-labeled game)."""
+
+    def _committed_tracker(self, monkeypatch, auto_record=False):
+        """Tracker that has just committed e2e4 (diff path, no CNN), with raw frame+corners."""
+        mt = _make_tracker(monkeypatch, cnn_run=None, confirm_frames=1, auto_record=auto_record)
+        mt.ref_gray = _gray_frame(["e2"])
+        mt.ref_bgr = _bgr_frame(["e2"])
+        mt.ref_fen = mt.board.fen()
+        mt._last_frame = _bgr_frame(["e2"])                       # raw frame for recording
+        mt._last_corners = [[0.0, 0.0], [400.0, 0.0], [400.0, 400.0], [0.0, 400.0]]
+        return mt
+
+    def test_decision_recorded_on_commit(self, monkeypatch):
+        mt = self._committed_tracker(monkeypatch)
+        mt._try_detect(_gray_frame(["e4"]), _bgr_frame(["e4"]))
+        assert mt.history == ["e4"]
+        assert len(mt._recent_decisions) == 1
+        rec = mt._recent_decisions[-1]["rec"]
+        assert rec["decider"] == "diff" and rec["move"] == "e2e4"
+
+    def test_undo_logs_bad_example(self, monkeypatch, tmp_path):
+        import chesslab.config as config
+        monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+        mt = self._committed_tracker(monkeypatch)
+        mt._try_detect(_gray_frame(["e4"]), _bgr_frame(["e4"]))
+        mt.undo()                                                 # undo = bad
+        assert mt.history == []
+        fb = tmp_path / "tracker_feedback" / "feedback.jsonl"
+        assert fb.exists()
+        rec = json.loads(fb.read_text(encoding="utf-8").strip())
+        assert rec["feedback"] == "bad" and rec["move"] == "e2e4" and rec["decider"] == "diff"
+        assert rec["images"] and all((tmp_path / "tracker_feedback" / p).exists()
+                                     for p in rec["images"].values())
+
+    def test_cascade_undo_logs_each_move(self, monkeypatch, tmp_path):
+        import chesslab.config as config
+        monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+        mt = self._committed_tracker(monkeypatch)
+        mt._try_detect(_gray_frame(["e4"]), _bgr_frame(["e4"]))   # 1. e4 (white)
+        mt._commit_move(chess.Move.from_uci("e7e5"), _gray_frame(["e5"]), _bgr_frame(["e5"]))  # 1... e5
+        assert len(mt._recent_decisions) == 2
+        mt.undo(); mt.undo()                                      # cascade: both wrong
+        assert mt.history == []
+        recs = [json.loads(x) for x in
+                (tmp_path / "tracker_feedback" / "feedback.jsonl").read_text().splitlines()]
+        assert {r["move"] for r in recs} == {"e2e4", "e7e5"}      # each undone move logged once
+
+    def test_auto_record_starts_on_commit(self, monkeypatch, tmp_path):
+        import chesslab.config as config
+        monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+        mt = self._committed_tracker(monkeypatch, auto_record=True)
+        assert mt._recorder is None
+        mt._try_detect(_gray_frame(["e4"]), _bgr_frame(["e4"]))   # commit → photo DEFERRED
+        assert mt._recorder is None and mt._pending_capture is not None
+        mt._try_detect(_gray_frame(["e4"]), _bgr_frame(["e4"]))   # clean quiet frame → flush
+        assert mt._recorder is not None
+        r = mt.stop_recording()
+        assert r["ok"] and r["frames"] >= 1
+        assert (tmp_path / "sessions" / r["session_id"] / "log.jsonl").exists()
+
+    def test_recording_creates_sliceable_session(self, monkeypatch, tmp_path):
+        import chesslab.config as config
+        monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+        mt = self._committed_tracker(monkeypatch)
+        r = mt.start_recording()
+        assert r["ok"]
+        sid = r["session_id"]
+        mt._try_detect(_gray_frame(["e4"]), _bgr_frame(["e4"]))   # commit e2e4 → photo deferred
+        mt._try_detect(_gray_frame(["e4"]), _bgr_frame(["e4"]))   # clean quiet frame → captured
+        r2 = mt.stop_recording()
+        assert r2["ok"] and r2["frames"] >= 2                     # start position + one move
+        sess = tmp_path / "sessions" / sid
+        assert (sess / "log.jsonl").exists() and (sess / "session.yaml").exists()
+        lines = [json.loads(x) for x in (sess / "log.jsonl").read_text(encoding="utf-8").splitlines()]
+        assert lines[-1]["fen"] == mt.board.fen()                # last entry = post-move FEN
+        assert "corners" in lines[-1]                            # slice re-warps from these
+
+    def test_reattach_rebuilds_capture_keeps_game(self, monkeypatch):
+        """Reattach swaps the capture and re-captures the reference, but keeps board/history."""
+        mt = _make_tracker(monkeypatch, cnn_run=None, confirm_frames=1)
+        mt.ref_gray = _gray_frame(["e2"]); mt.ref_bgr = _bgr_frame(["e2"])
+        mt.ref_fen = mt.board.fen()
+        mt._last_frame = _bgr_frame(["e2"])
+        mt._last_corners = [[0.0, 0.0], [400.0, 0.0], [400.0, 400.0], [0.0, 400.0]]
+        mt._try_detect(_gray_frame(["e4"]), _bgr_frame(["e4"]))
+        assert mt.history == ["e4"]
+        old_cap = mt.cap
+        new_fake = FakeCapture([_bgr_frame(["e4"])])
+        monkeypatch.setattr("chesslab.move_tracker.tracker.open_source", lambda s: new_fake)
+        r = mt.reattach_camera()
+        assert r["ok"]
+        assert mt.cap is new_fake and mt.cap is not old_cap
+        assert mt.history == ["e4"]                              # game state preserved
+        # Reference is KEPT (fast resume): a brief dropout does not invalidate the base
+        # truth — geometry changes are caught by _corners_jumped on the next frame.
+        assert mt.ref_gray is not None and mt.ref_fen == mt.board.fen()
+
+    def test_undo_drops_recorded_frame(self, monkeypatch, tmp_path):
+        import chesslab.config as config
+        monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+        mt = self._committed_tracker(monkeypatch)
+        mt.start_recording()
+        mt._try_detect(_gray_frame(["e4"]), _bgr_frame(["e4"]))   # commit → photo deferred
+        mt._try_detect(_gray_frame(["e4"]), _bgr_frame(["e4"]))   # clean quiet frame → captured
+        assert mt._recorder.count == 2
+        mt.undo()
+        assert mt._recorder.count == 1                           # undone move's frame removed
+        mt.stop_recording()
+
+    def test_recorded_ply_survives_resync(self, monkeypatch, tmp_path):
+        """Recorded ply comes from the POSITION, not len(history): a mid-game resync clears
+        the history and previously restarted the ply counter (one game looked like two)."""
+        import chesslab.config as config
+        monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+        mt = self._committed_tracker(monkeypatch, auto_record=True)
+        # Simulate the state right after a mid-game resync: FEN says fullmove 33, history empty.
+        mt.board = chess.Board("r5k1/5pp1/pBq4p/8/P1r5/5P2/1Q4PP/R2R3K w - - 1 33")
+        mt.history = []
+        mt._queue_session_capture("Qc6")
+        assert mt._pending_capture["ply"] == 64                  # (33-1)*2, not 0
+
+    def test_undo_before_flush_drops_pending_photo(self, monkeypatch, tmp_path):
+        """Undo while the session photo is still deferred: the pending capture is dropped
+        (never recorded), the already-recorded start frame stays."""
+        import chesslab.config as config
+        monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+        mt = self._committed_tracker(monkeypatch)
+        mt.start_recording()
+        mt._try_detect(_gray_frame(["e4"]), _bgr_frame(["e4"]))   # commit → photo deferred
+        assert mt._pending_capture is not None
+        mt.undo()
+        assert mt._pending_capture is None
+        assert mt._recorder.count == 1                            # only the start frame
+        mt.stop_recording()
+
+
+class TestTrackFeedbackIngest:
+    """UNDO=bad feedback → labeled hard-negative crops in the squares manifest."""
+
+    def _write_feedback(self, tmp_path, fen_before, move="e2e4"):
+        import cv2
+        fb = tmp_path / "tracker_feedback"
+        (fb / "frames").mkdir(parents=True, exist_ok=True)
+        board = np.full((400, 400, 3), (120, 122, 118), np.uint8)   # warped board stand-in
+        cv2.imwrite(str(fb / "frames" / "b_cur_bgr.png"), board)
+        rec = {"ts": 1.5, "profile": "phone", "ply": 1, "move": move, "san": move,
+               "fen_before": fen_before, "feedback": "bad",
+               "images": {"cur_bgr": "frames/b_cur_bgr.png"}}
+        (fb / "feedback.jsonl").write_text(json.dumps(rec) + "\n", encoding="utf-8")
+
+    def test_ingest_labels_from_fen_before(self, monkeypatch, tmp_path):
+        import chesslab.config as config
+        import chesslab.track_feedback as tf
+        monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+        monkeypatch.setattr(tf, "load_profile", lambda name: _make_identity_profile(board_size=400))
+        self._write_feedback(tmp_path, chess.Board().fen())          # start position
+        res = tf.ingest_feedback(assume_ghost=True)
+        assert res["ok"] and res["records"] == 1 and res["crops"] == 64
+        # start position → 16 pieces + 32 empty per side layout; check a couple labels
+        assert res["classes"].get("wR") == 2 and res["classes"].get("bK") == 1
+        assert res["classes"].get("empty") == 32
+        man = tmp_path / "manifests" / "squares.jsonl"
+        rows = [json.loads(x) for x in man.read_text(encoding="utf-8").splitlines()]
+        assert len(rows) == 64 and all(r["session_id"] == "track-feedback" for r in rows)
+        a1 = next(r for r in rows if r["square"] == "a1")
+        assert a1["label"] == "wR" and a1["source"] == "track-feedback"
+        assert (tmp_path / "squares" / "wR" / a1["path"].split("/")[-1]).exists()
+
+    def test_ingest_requires_assume_ghost(self, monkeypatch, tmp_path):
+        import chesslab.config as config
+        import chesslab.track_feedback as tf
+        monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+        assert tf.ingest_feedback(assume_ghost=False)["ok"] is False
+
+    def test_ingest_empty_is_noop(self, monkeypatch, tmp_path):
+        import chesslab.config as config
+        import chesslab.track_feedback as tf
+        monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+        res = tf.ingest_feedback(assume_ghost=True)
+        assert res["ok"] and res["records"] == 0 and res["crops"] == 0
+
+
+class TestStockfishAnalysis:
+    """Eval-bar / best-move analysis wrapper (engine-free paths)."""
+
+    def test_win_chance_symmetric_and_monotonic(self):
+        from chesslab.move_tracker.analysis import win_chance_white
+        assert win_chance_white(0) == pytest.approx(50.0)
+        assert win_chance_white(300) > win_chance_white(0) > win_chance_white(-300)
+        assert win_chance_white(300) + win_chance_white(-300) == pytest.approx(100.0, abs=0.1)
+
+    def test_analyse_game_over_needs_no_engine(self):
+        from chesslab.move_tracker.analysis import StockfishAnalyzer
+        az = StockfishAnalyzer(lambda: None, engine_path="/nonexistent/sf")
+        # Fool's mate — game over, so _analyse returns before touching the engine.
+        fen = "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3"
+        res = az._analyse(fen)
+        assert res["game_over"] is True and res["lines"] == [] and res["win_white"] is None
+
+    def test_analysis_endpoint_contract(self, monkeypatch):
+        from fastapi.testclient import TestClient
+
+        from chesslab.move_tracker.app import create_app
+        # Force "no engine" so the endpoint is deterministic without a Stockfish binary.
+        monkeypatch.setattr("chesslab.config.find_stockfish", lambda: None)
+        client = TestClient(create_app(default_profile="p", default_source="0"))
+        r = client.get("/api/analysis")
+        assert r.status_code == 200 and r.json()["available"] is False
 
 
 class TestLatestFrame:
@@ -805,14 +1387,11 @@ class TestPromotionWithoutCnn:
 
 class TestCnnOverrule:
     def test_cnn_overrules_diff_candidate(self, monkeypatch):
-        """CNN clearly sees a DIFFERENT move and confirms it reliably ->
+        """CNN clearly sees a DIFFERENT move (occupancy) and confirms it reliably ->
         the CNN candidate is committed, not the diff candidate (Spec 10, part 5)."""
-        mt = _pending_tracker(monkeypatch, matches=False, verify_agree=0.0, verify_n=2,
-                              derive_move="d2d4")
-        # Alternative d2d4 is reliably confirmed by the fake, e2e4 is not:
-        fake = mt.recovery
-        fake.verify_move_identity = lambda board, move, obs: \
-            (1.0, 2) if move.uci() == "d2d4" else (0.0, 2)
+        # e2e4 endpoints unreadable so it is neither confirmed nor rejected; d2d4 is reliable.
+        mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0, derive_move="d2d4",
+                              derive_agreement=0.99, conf={"e4": False, "e2": False})
         mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
         assert mt.last_move == "d2d4"
         assert mt._verify_state == "overruled"

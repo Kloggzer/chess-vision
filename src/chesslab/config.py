@@ -448,28 +448,41 @@ def default_tracker_run() -> str | None:
 # Move-Tracker detection defaults (specs/rework/10-move-detection-v2.md) — Single Source
 # for CLI and app; no magic numbers in tracker.py callers.
 TRACK_DEFAULTS: dict = {
-    "motion_thr": 3.0,             # Motion gate (mean frame-to-frame difference)
+    "motion_thr": 0.25,            # Motion gate: PERCENT of strongly-changed pixels (motion_score).
+                                   # Low on purpose: a slow hand only moves a thin edge band between
+                                   # frames; wobble/jitter stays ~0 thanks to blur + motion_px_thr.
+    "motion_px_thr": 20.0,         # Per-pixel delta above which a pixel counts as changed —
+                                   # desk wobble/jitter shifts everything by ~1 px (tiny deltas,
+                                   # score ~0); a hand produces a compact region of strong deltas.
     "z_thr": 3.0,                  # z-Score above which a square is considered "changed"
     "ambiguity_margin_ll": 2.0,    # best − second in log-likelihood units (~e² factor)
     "reanchor_ll_floor": -4.0,     # Re-anchor only if even the best move LL lies below this
     "nudge_timeout_s": 5.0,        # Nudge patch (occupied squares) after this many seconds stuck
     "drift_window_s": 30.0,        # Drift patch (empty squares) — more conservative
     "max_changed": 6,              # Occlusion gate
-    "census_thr": 55.0,            # Structural change (census, 0..255)
+    "census_thr": 160.0,           # Structural change (census, 0..255); higher ⇒ more squares veto as shadow (160: live-tuned)
     "cnn_conf_thr": 0.85,          # CNN square confidence "reliable"
     "cnn_cooldown_s": 2.0,         # Minimum interval between recovery observations
     "cnn_check_interval_s": 10.0,  # Periodic CNN check
     "verify_window": 8,            # Max CNN frames per pre-commit verify
     "cnn_min_agreement": 0.97,     # Recovery/verify agreement threshold
-    "cnn_margin_squares": 1,       # Recovery margin in SQUARES (capture = 1 square difference)
+    "cnn_margin_squares": 1,
+    "recovery_max_plies": 4,       # CNN deep recovery: max half-moves the conflict-guided search may bridge       # Recovery margin in SQUARES (capture = 1 square difference)
     "min_confident_board": 32,     # Whole-board match needs plenty of clear view
     "min_confident_recovery": 8,   # Recovery remains operational with partial occlusion
     "motion_margin": 0.12,         # Motion ROI beyond the board edge (fraction of board edge)
     "overhang": 0.0,               # Extend diff cells upward (fraction of cell; 0 = off)
+    "align_every": 3,              # ArUco marker detection every N-th frame (most expensive per-frame op; camera fixed)
+    "align_scale": 0.5,            # ArUco on downscaled frame (0.5 = half-res, ~3x faster; ±1 px inside tracker dead-zone)
     "corner_jump_px": 6.0,         # Warp corner jump ⇒ base truth geometrically invalid → reacquire
-    "motion_cooldown": 3,          # Stable frames to keep detection blocked AFTER a motion spike
-    "occlusion_color_thr": 4.0,    # Color-outlier veto: Mahalanobis sigma vs board gamut (0=off)
-    "min_grid_line_coverage": 0.0, # Grid-line occlusion gate: min visible-line fraction (0=off)
+    "motion_hold_s": 0.3,          # Seconds the board must be motion-free before detection resumes
+                                   # (wall time — frame counts settle in milliseconds at 40 fps)
+    "occlusion_color_thr": 1.5,    # Color-outlier veto: Mahalanobis sigma vs board gamut (lower=more sensitive, 0=off; 1.5: live-tuned)
+    "min_grid_line_coverage": 0.5, # Grid-line occlusion gate: min visible-line fraction (0=off)
+    "reconnect_grace_s": 2.0,      # Auto-reattach camera after this many seconds of no frames (0=off)
+    "diff_clahe_clip": 0.0,        # CLAHE contrast boost on the diff image (0=off; ~2-3 lifts dark moves)
+    "require_motion_for_move": True,  # Only commit a move if a hand entered since the last reference (drift guard)
+    "motion_recency_s": 20.0,      # ... and only within N s of that motion — one old wobble spike must not license a drift "move" at high stable count
 }
 
 

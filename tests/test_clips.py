@@ -32,8 +32,13 @@ def _replay(entry: dict) -> dict:
     sys.path.insert(0, str(_ROOT / "scripts"))
     from replay_clip import replay  # noqa: PLC0415
 
-    return replay(str(_CLIPS / entry["file"]), cnn_run=None,
-                  start_fen=entry.get("start_fen"))
+    # Optional per-clip threshold overrides (`tracker:` dict in the manifest): the clips
+    # were shot on a different board than the live setup the defaults are tuned for.
+    # realtime: hold/recency parameters are WALL-CLOCK — an unthrottled replay
+    # compresses the quiet gaps and behaves nothing like the live tracker.
+    return replay(str(_CLIPS / entry["file"]), cnn_run=None, realtime=True,
+                  start_fen=entry.get("start_fen"),
+                  tracker_kwargs=entry.get("tracker") or {})
 
 
 @pytest.mark.parametrize("entry", _entries() or [None],

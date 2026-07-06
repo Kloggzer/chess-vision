@@ -16,7 +16,6 @@ def _crop_count(sid: str) -> int:
 
 @router.get("/api/sessions")
 def sessions():
-    by_session: dict[str, set] = {}
     from ... import config
     from ...manifest_cache import manifest_stats
 

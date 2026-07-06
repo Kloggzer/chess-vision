@@ -508,3 +508,53 @@ def test_derive_moves_identity_pair_disabled_with_one_ply(tmp_path):
     after.push_san("e4"); after.push_san("e5")
     seq, _b, _s = _recovery(tmp_path).derive_moves_identity(board, _ident_obs(after), max_plies=1)
     assert seq == []
+
+# ---------------------------------------------------------------------------
+# derive_moves_deep — conflict-guided beam search (recovery from >2-ply desync)
+# ---------------------------------------------------------------------------
+
+def _deep_case(tmp_path, sans: list[str], **kw):
+    """Believed = startpos; reality = startpos after `sans`. Observation shows reality.
+    Returns (recovered final placement, real placement, seq, best): vision cannot
+    distinguish move ORDER inside the gap, so recovery may return a legal transposition —
+    what must match is the resulting position."""
+    believed = chess.Board()
+    real = chess.Board()
+    for san in sans:
+        real.push(real.parse_san(san))
+    rec = _recovery(tmp_path, **kw)
+    seq, best, second = rec.derive_moves_deep(believed, _ident_obs(real), max_plies=4)
+    b = chess.Board()
+    for mv in seq:
+        b.push(mv)                       # raises if the sequence is not legal
+    return b.board_fen(), real.board_fen(), seq, best
+
+
+def test_deep_recovery_bridges_three_plies(tmp_path):
+    """The screenshot case: tracker stuck while play continued 3 half-moves."""
+    got, want, seq, best = _deep_case(tmp_path, ["e4", "e5", "Nf3"])
+    assert got == want and len(seq) == 3
+    assert best >= 0.97
+
+
+def test_deep_recovery_bridges_four_plies_with_capture(tmp_path):
+    got, want, seq, best = _deep_case(tmp_path, ["e4", "d5", "exd5", "Qxd5"])
+    assert got == want and len(seq) == 4
+
+
+def test_deep_recovery_prefers_shortest_explanation(tmp_path):
+    """A 1-ply desync must come back as ONE move, not a longer transposition."""
+    got, want, seq, best = _deep_case(tmp_path, ["e4"])
+    assert got == want and len(seq) == 1
+
+
+def test_deep_recovery_rejects_when_occluded(tmp_path):
+    """Half the board unreadable: too little confident evidence -> no adoption."""
+    believed, real = chess.Board(), chess.Board()
+    for san in ["e4", "e5", "Nf3"]:
+        real.push(real.parse_san(san))
+    occluded = {f"{f}{r}" for f in "abcd" for r in range(1, 9)}
+    rec = _recovery(tmp_path, min_confident_recovery=40)
+    seq, best, _ = rec.derive_moves_deep(believed, _ident_obs(real, occluded=occluded),
+                                         max_plies=4)
+    assert seq == []

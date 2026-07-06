@@ -163,6 +163,7 @@ def collect_finish():
     if n > 0:
         try:
             labeling_mod.run_slice(session=sid)
+            from ... import config
             from ...manifest_cache import session_crop_count
             sliced = session_crop_count(config.DATA.manifests / "squares.jsonl", sid)
         except Exception as e:  # noqa: BLE001 — convenience step, but the error must be visible (H2)

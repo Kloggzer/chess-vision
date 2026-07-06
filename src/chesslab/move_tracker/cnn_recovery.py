@@ -282,6 +282,84 @@ class CnnRecovery:
                 return pseq, p_best, max(p_second, best_hits) / n
         return [], best, second
 
+    def derive_moves_deep(self, board: chess.Board, obs: OccupancyObservation,
+                          max_plies: int = 4, beam: int = 8) -> tuple[list[chess.Move], float, float]:
+        """Conflict-guided beam search over up to `max_plies` half-moves — recovery from
+        DEEPER desyncs than the 2-ply full enumeration can reach (a stuck tracker while
+        play continues is 3-4 half-moves behind within seconds). Only moves that touch at
+        least one square where the observation contradicts the current hypothesis are
+        expanded (~5-20 per state instead of ~35), so 4 plies stay a few hundred boards.
+
+        Works on piece IDENTITY when the observation provides labels, else on occupancy.
+        Acceptance mirrors `derive_moves_identity`: agreement >= min_agreement AND a
+        margin of `margin_squares` hits against the second-best DISTINCT final position;
+        among equal explanations the SHORTEST sequence wins (parsimony).
+        Returns ([], best, second) when nothing is clear enough."""
+        use_labels = getattr(obs, "label", None) is not None
+        if use_labels:
+            lc = obs.label_confident(self.conf_thr)
+            conf_squares = [sq for sq, ok in lc.items() if ok]
+            target = {sq: obs.label[sq] for sq in conf_squares}
+
+            def _value(b: chess.Board, sq: str):
+                return self._label_at(b, sq)
+        else:
+            conf = obs.confident(self.conf_thr)
+            conf_squares = [sq for sq, ok in conf.items() if ok]
+            target = {sq: obs.occupied(sq) for sq in conf_squares}
+
+            def _value(b: chess.Board, sq: str):
+                return b.piece_at(chess.parse_square(sq)) is not None
+        n = len(conf_squares)
+        if n < self.min_confident_recovery:
+            return [], 0.0, 0.0
+
+        def _conflicts(b: chess.Board) -> set[str]:
+            return {sq for sq in conf_squares if target[sq] != _value(b, sq)}
+
+        # Terminal candidates grouped by final position (transpositions are one hypothesis).
+        finals: dict[str, tuple[int, list[chess.Move]]] = {}
+
+        def _note(seq: list[chess.Move], b: chess.Board, n_conf: int) -> None:
+            h = n - n_conf
+            # Key by PLACEMENT only: the camera cannot see whose turn it is, so a longer
+            # transposition to the same placement is the same hypothesis (the shortest
+            # sequence wins) — not a rival that would destroy the acceptance margin.
+            key = b.board_fen()
+            prev = finals.get(key)
+            if prev is None or h > prev[0] or (h == prev[0] and len(seq) < len(prev[1])):
+                finals[key] = (h, seq)
+
+        states = [([], board, _conflicts(board))]
+        _note([], board, len(states[0][2]))
+        for _ in range(max_plies):
+            nxt: list[tuple[list[chess.Move], chess.Board, set[str]]] = []
+            for seq, b, confl in states:
+                if not confl:
+                    continue                      # already fully explained → no deeper search
+                for mv in b.legal_moves:
+                    if not (_move_touched_squares(b, mv) & confl):
+                        continue                  # touches no conflicting square → fixes nothing
+                    b2 = b.copy(stack=False)
+                    b2.push(mv)
+                    c2 = _conflicts(b2)
+                    nxt.append((seq + [mv], b2, c2))
+                    _note(seq + [mv], b2, len(c2))
+            if not nxt:
+                break
+            nxt.sort(key=lambda t: (len(t[2]), len(t[0])))
+            states = nxt[:beam]
+
+        ranked = sorted(finals.values(), key=lambda t: (-t[0], len(t[1])))
+        best_hits, best_seq = ranked[0]
+        second_hits = ranked[1][0] if len(ranked) > 1 else -1
+        best = best_hits / n
+        second = max(0.0, second_hits / n)
+        if (best_seq and best >= self.min_agreement
+                and (best_hits - max(second_hits, 0)) >= self.margin_squares):
+            return best_seq, best, second
+        return [], best, second
+
     def derive_move_identity(self, board: chess.Board,
                              obs: OccupancyObservation) -> tuple[chess.Move | None, float, float]:
         """1-ply wrapper around `derive_moves_identity` (pre-commit verify needs exactly one move).

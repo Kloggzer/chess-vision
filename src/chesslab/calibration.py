@@ -788,7 +788,8 @@ def make_tracker(profile: CalibrationProfile | None = None) -> MarkerTracker:
 
 
 def board_corners_for_frame(frame, profile: CalibrationProfile, tracker: MarkerTracker,
-                            min_markers: int | None = None) -> list[list[float]] | None:
+                            min_markers: int | None = None,
+                            detect_scale: float = 1.0) -> list[list[float]] | None:
     """The 4 board corners (a8,h8,h1,a1) in **frame pixels** for this frame.
 
     Updates the tracker once with the current marker detection and resolves the
@@ -798,7 +799,17 @@ def board_corners_for_frame(frame, profile: CalibrationProfile, tracker: MarkerT
     """
     if min_markers is None:
         min_markers = config.TRACKER.default_min_markers
-    tracker.update(detect_board_markers(frame, profile.marker_dict, corner="center"))
+    # `detect_scale` < 1: detect on a downscaled frame and scale the points back — ArUco is
+    # the most expensive per-frame op (~25 ms at 1080p, ~9 ms at half-res) and the ±1 px
+    # rescale error lies inside the MarkerTracker's dead-zone (move_threshold 4 px).
+    if detect_scale and detect_scale < 1.0:
+        small = cv2.resize(frame, None, fx=detect_scale, fy=detect_scale,
+                           interpolation=cv2.INTER_AREA)
+        det = detect_board_markers(small, profile.marker_dict, corner="center")
+        det = {i: [p[0] / detect_scale, p[1] / detect_scale] for i, p in det.items()}
+    else:
+        det = detect_board_markers(frame, profile.marker_dict, corner="center")
+    tracker.update(det)
     pts = tracker.points()
     if len(pts) < min_markers:
         return None

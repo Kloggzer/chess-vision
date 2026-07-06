@@ -47,15 +47,18 @@ class VideoCap:
 
 def replay(clip: str, profile: str = "phone", cnn_run: str | None = None,
            realtime: bool = False, live_align: bool = True,
-           start_fen: str | None = None, max_wall_s: float = 900.0) -> dict:
+           start_fen: str | None = None, max_wall_s: float = 900.0,
+           tracker_kwargs: dict | None = None) -> dict:
     """Clip headless durch den MoveTracker spielen. Gibt {history, fen, note, events} zurück.
-    Auch vom pytest-Harness (`tests/test_clips.py`, Marker `clips`) genutzt."""
+    Auch vom pytest-Harness (`tests/test_clips.py`, Marker `clips`) genutzt.
+    `tracker_kwargs` überschreibt einzelne MoveTracker-Parameter (Schwellen-Tuning)."""
     from chesslab.move_tracker import tracker as trk
 
     cap = VideoCap(clip, realtime=realtime)
     trk.open_source = lambda src: cap                    # Kamera-Patch
 
-    mt = trk.MoveTracker(profile=profile, source="0", live_align=live_align, cnn_run=cnn_run)
+    mt = trk.MoveTracker(profile=profile, source="0", live_align=live_align, cnn_run=cnn_run,
+                         **(tracker_kwargs or {}))
     mt.reset_to_start(start_fen)
     mt.start()
 

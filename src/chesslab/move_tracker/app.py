@@ -35,14 +35,44 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
 
     app = FastAPI(title="chess move-tracker")
 
+    # Optional Stockfish analysis (eval bar + best moves). Disabled cleanly if no engine found.
+    from .. import config as _cfg
+    _engine_path = _cfg.find_stockfish()
+    analyzer = None
+    if _engine_path:
+        from .analysis import StockfishAnalyzer
+
+        def _current_fen():
+            t = _STATE.get("tracker")
+            return None if t is None else t.current_fen()
+
+        analyzer = StockfishAnalyzer(_current_fen, _engine_path)
+        analyzer.start()
+
+    @app.on_event("shutdown")
+    def _shutdown():
+        if analyzer is not None:
+            analyzer.stop()
+
     @app.get("/")
     def index():
         return FileResponse(str(_STATIC / "index.html"))
 
+    @app.get("/api/analysis")
+    def analysis():
+        """Latest Stockfish evaluation + top moves for the current position."""
+        if analyzer is None:
+            return {"available": False}
+        res = analyzer.get()
+        return {"available": True, **(res or {})}
+
     @app.post("/api/start")
     def start(profile: str = Body("phone"), source: str = Body("0"),
               motion_thr: float | None = Body(None), z_thr: float | None = Body(None),
-              cnn_run: str | None = Body(None), device: str | None = Body(None)):
+              cnn_run: str | None = Body(None), device: str | None = Body(None),
+              census_thr: float | None = Body(None),
+              occlusion_color_thr: float | None = Body(None),
+              min_grid_line_coverage: float | None = Body(None)):
         # Atomic swap: take old tracker out under lock, stop+join OUTSIDE lock,
         # start new one, put in under lock. Double-start leaves exactly one thread.
         old = _STATE.get("tracker")
@@ -61,6 +91,13 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
             kwargs["cnn_run"] = cnn_run or None
         if device is not None:
             kwargs["device"] = device
+        # Live-tunable rejection sensitivities (crank shadow/hand detection without a CLI restart).
+        if census_thr is not None:
+            kwargs["census_thr"] = census_thr
+        if occlusion_color_thr is not None:
+            kwargs["occlusion_color_thr"] = occlusion_color_thr
+        if min_grid_line_coverage is not None:
+            kwargs["min_grid_line_coverage"] = min_grid_line_coverage
         t = MoveTracker(profile=profile, source=source, **kwargs)
         t.reset_to_start()
         t.start()
@@ -102,6 +139,29 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
         if t is not None:
             t.undo()
         return {"ok": True}
+
+    @app.post("/api/reattach")
+    def reattach():
+        """Rebuild the camera capture without restarting the session (recover a dead feed)."""
+        t = _STATE.get("tracker")
+        if t is None:
+            return {"ok": False, "error": "not started"}
+        return t.reattach_camera()
+
+    @app.post("/api/record/start")
+    def record_start(notes: str = Body("", embed=True)):
+        """Start recording the tracked game as a capture session (auto-labeled via slice)."""
+        t = _STATE.get("tracker")
+        if t is None:
+            return {"ok": False, "error": "not started"}
+        return t.start_recording(notes)
+
+    @app.post("/api/record/stop")
+    def record_stop():
+        t = _STATE.get("tracker")
+        if t is None:
+            return {"ok": False, "error": "not started"}
+        return t.stop_recording()
 
     @app.get("/api/runs")
     def runs():

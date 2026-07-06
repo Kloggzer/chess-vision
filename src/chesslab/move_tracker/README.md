@@ -13,8 +13,8 @@ change (castling/en passant/captures included) → apply the move, update the re
 
 ```bash
 # Phone IP cam (MJPEG) — or --source 0 for a local camera.
-# Phone app: https://github.com/DigitallyRefined/android-ip-camera
-# (install the app, enter the URL it displays)
+# Install the free app: https://github.com/DigitallyRefined/android-ip-camera
+# (install the app on your phone, enter the URL it displays as --source)
 chesslab track --profile phone --source https://<PHONE-IP>:4444/video/m.jpeg
 # then open:  http://127.0.0.1:8001
 ```
