@@ -102,7 +102,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     print(f"[OK] train balanced: {len(train_rows)} crops, distribution: "
           + ", ".join(f"{k}={v}" for k, v in sorted(_Counter(r['label'] for r in train_rows).items())))
 
-    train_ds = SquareDataset(train_rows, classes, build_transform(out_size, train=True))
+    train_ds = SquareDataset(train_rows, classes, build_transform(out_size, train=True),
+                             bg_randomize=True)
     val_ds = SquareDataset(val_rows, classes, build_transform(out_size, train=False))
 
     # BatchNorm is broken on ROCm-Windows (MIOpen/HIPRTC) -> default GroupNorm there.
