@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import atexit
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +17,63 @@ from .data import (
     load_split,
     occupancy_piece_breakdown,
 )
+
+
+def _train_lock_path() -> Path:
+    return config.DATA.models / ".train.lock"
+
+
+def _pid_alive(pid: int) -> bool:
+    """True if a process with `pid` currently exists (cross-platform, no psutil)."""
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        h = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if h:
+            ctypes.windll.kernel32.CloseHandle(h)
+            return True
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _acquire_train_lock(desc: str) -> bool:
+    """Only ONE training may use the (single) GPU at a time. Returns True if the lock was
+    acquired, False if another LIVE training already holds it. Survives web restarts and covers
+    both CLI and web launches (the root cause of the earlier concurrent-run OOM). A stale lock
+    from a dead PID is reclaimed automatically."""
+    lock = _train_lock_path()
+    if lock.exists():
+        try:
+            info = json.loads(lock.read_text(encoding="utf-8"))
+            pid = int(info.get("pid", -1))
+        except Exception:  # noqa: BLE001 — corrupt lock: treat as stale
+            pid, info = -1, {}
+        if pid > 0 and pid != os.getpid() and _pid_alive(pid):
+            print(f"[FAIL] Another training is already running (PID {pid}, started "
+                  f"{info.get('ts', '?')}): {info.get('desc', '')}. Only one training can use the "
+                  "GPU at a time - stop it first (Training tab 'Stop', or kill the process) or wait.")
+            return False
+        # else: dead/stale PID → reclaim below
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text(json.dumps({"pid": os.getpid(), "desc": desc,
+                                "ts": datetime.now().isoformat()}), encoding="utf-8")
+    return True
+
+
+def _release_train_lock() -> None:
+    lock = _train_lock_path()
+    try:
+        if lock.exists():
+            info = json.loads(lock.read_text(encoding="utf-8"))
+            if int(info.get("pid", -1)) == os.getpid():
+                lock.unlink()
+    except Exception:  # noqa: BLE001 — best-effort cleanup
+        pass
 
 
 def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
@@ -36,6 +95,16 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         print("[FAIL] No usable ROCm GPU — training aborted (no CPU fallback). "
               "Run `chesslab doctor --gpu` for diagnosis.")
         return 1
+
+    # Single-training GPU guard: refuse to start if another training is live (prevents the
+    # concurrent-run out-of-memory crash). Released on exit (normal, exception, or clean stop).
+    if not _acquire_train_lock(f"{backbone} bs={batch_size} ep={epochs} head={head}"):
+        return 1
+    atexit.register(_release_train_lock)
+    # Reduce ROCm/CUDA allocator fragmentation OOM (the allocator can otherwise fail to find a
+    # large contiguous block even when plenty of VRAM is free — the earlier crash). Must be set
+    # before the first CUDA allocation, i.e. before torch initializes the device.
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
     import numpy as np
     import torch

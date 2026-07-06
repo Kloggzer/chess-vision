@@ -129,17 +129,27 @@ def train_status():
     proc = t.get("proc")
     rc = proc.poll() if proc is not None else None
     running = state == "running"
-    # Latest run directory (possibly the one just started) + its metrics.
-    run, metrics = None, []
+    # Latest run directory (possibly the one just started) + its metrics. If the newest run
+    # produced NO metrics (crashed on the first epoch, e.g. GPU OOM) and nothing is running,
+    # fall back to the newest run that DOES have metrics so the tab isn't blank — and surface
+    # the crashed run separately.
+    run, metrics, crashed_run = None, [], None
     dirs = _run_dirs()
     if dirs:
         run = dirs[-1].name
         metrics = _read_jsonl(dirs[-1] / "metrics.jsonl")
+        if not metrics and not running:
+            crashed_run = dirs[-1].name
+            for d in reversed(dirs):
+                m = _read_jsonl(d / "metrics.jsonl")
+                if m:
+                    run, metrics = d.name, m
+                    break
     tail = ""
     if t.get("log") and Path(t["log"]).exists():
         tail = "\n".join(Path(t["log"]).read_text(encoding="utf-8").splitlines()[-8:])
     return {"running": running, "state": state, "run": run, "metrics": metrics,
-            "log_tail": tail, "returncode": rc}
+            "crashed_run": crashed_run, "log_tail": tail, "returncode": rc}
 
 
 @router.post("/api/train/stop")

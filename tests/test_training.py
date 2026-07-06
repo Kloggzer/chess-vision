@@ -188,3 +188,34 @@ def test_checkpoint_score_tuple_ordering_sortable():
     assert (1.0, 0.5, 0.3) > (0.9, 0.9, 0.9)  # occ_board_acc sticht
     assert (0.8, 0.9, 0.3) > (0.8, 0.8, 0.9)  # bei gleichem occ_ba: occ_acc sticht
     assert (0.8, 0.8, 0.5) > (0.8, 0.8, 0.3)  # macro_recall als letzter Tiebreaker
+
+
+class TestTrainLock:
+    """Single-training GPU guard (prevents concurrent-run OOM)."""
+
+    def test_acquire_and_reclaim(self, monkeypatch, tmp_path):
+        import json as _json
+
+        from chesslab.training import train as tr
+        monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+        assert tr._acquire_train_lock("smallcnn bs=512") is True
+        assert tr._train_lock_path().exists()
+        # A foreign LIVE lock blocks a second training.
+        tr._train_lock_path().write_text(_json.dumps({"pid": 999999, "ts": "now", "desc": "other"}))
+        monkeypatch.setattr(tr, "_pid_alive", lambda pid: pid == 999999)
+        assert tr._acquire_train_lock("x") is False
+        # A stale lock (dead PID) is reclaimed.
+        monkeypatch.setattr(tr, "_pid_alive", lambda pid: False)
+        assert tr._acquire_train_lock("y") is True
+        tr._release_train_lock()
+        assert not tr._train_lock_path().exists()
+
+    def test_release_only_own_lock(self, monkeypatch, tmp_path):
+        import json as _json
+
+        from chesslab.training import train as tr
+        monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+        tr._train_lock_path().parent.mkdir(parents=True, exist_ok=True)
+        tr._train_lock_path().write_text(_json.dumps({"pid": 424242, "ts": "now"}))
+        tr._release_train_lock()                       # not our pid -> must NOT delete
+        assert tr._train_lock_path().exists()
