@@ -770,7 +770,9 @@ def _make_tracker(monkeypatch, **kwargs):
                     "max_changed": 6, "confirm_frames": 1, "avg_frames": 1,
                     # Most detection tests drive _try_detect directly without simulating the hand
                     # motion that precedes a real move; disable the motion prerequisite by default.
-                    "require_motion_for_move": False}
+                    "require_motion_for_move": False,
+                    # Tests build 400px identity profiles; keep detection at full res.
+                    "detect_scale": 1.0}
     defaults.update(kwargs)
     return MoveTracker(**defaults)
 
@@ -1858,3 +1860,24 @@ def test_api_runs_lists_selectable_models(tmp_path, monkeypatch):
     assert set(r["runs"]) == {"run-a", "run-b"}
     assert r["default"] in r["runs"]
     assert r["active"] is None
+
+
+class TestDetectScale:
+    """B1: detection at detect_scale=0.5 uses a det-sized ref_gray and commits a simple move."""
+
+    def test_detect_scale_half_det_size_and_e2e4(self, monkeypatch):
+        """detect_scale=0.5 with a 400px profile → det_size=200, ref_gray is 200×200,
+        and e2e4 commits."""
+        mt = _make_tracker(monkeypatch, detect_scale=0.5)
+        assert mt._det_size == 200
+        assert mt.detect_scale == 0.5
+
+        # Set reference: e2 occupied (piece present), e4 empty
+        ref = _gray_frame(["e2"], board_size=200, base=128)
+        mt.ref_gray = ref
+        mt.ref_fen = mt.board.fen()
+
+        # After e2e4: e2 empty, e4 occupied
+        cur = _gray_frame(["e4"], board_size=200, base=128)
+        mt._try_detect(cur)
+        assert mt.history == ["e4"], f"Expected e4, got {mt.history}"

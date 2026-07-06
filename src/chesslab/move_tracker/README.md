@@ -19,6 +19,10 @@ chesslab track --profile phone --source https://<PHONE-IP>:4444/video/m.jpeg
 # then open:  http://127.0.0.1:8001
 ```
 
+> **720p is enough:** set your phone/IP cam to 720p — ArUco markers detect at half-res
+> anyway, and the detection warp runs at `detect_scale=0.5` by default. 1080p only helps
+> dataset collection/slicing where crop quality matters for the CNN.
+
 In the UI: **Start** (begins from the initial position) · **Reset reference** (= "I just
 set up the initial position", resets the reference) · **Undo**. Left: live camera with
 what the computer believes (piece letters + last move in yellow); right: the

@@ -243,6 +243,25 @@ No code change.
 
 ---
 
+### Stage B status (2026-07-06): B1+B2+B3 DONE
+
+B1 detect_scale=0.5 shipped: detection path (gray/motion/means/diff/census/vetoes/grid/
+gamut/patcher/refs incl. CNN observed-frame refs) at 400², overlay + session recording at
+full warp. Clip check: NOT byte-parity but strictly better — realtime clip01 recovered the
+previously missed e5 (`e4,e5,Nc3,Nh6` = best result to date; faster loop keeps up with
+realtime sampling). B3 fp16 autocast with fp32 fallback + float() before softmax.
+PENDING: one live session to eyeball changed_vals magnitudes / shadow-veto rate /
+grid_coverage at 50 px/square.
+
+### B4 (NEW). Vectorized crop preprocessing in serving.predict_arrays
+
+The 64 crops go through numpy->PIL->transform per square PER OBSERVATION — likely 2-3x the
+actual GPU forward. Replace with batch cv2.resize + one numpy->tensor normalize, NO PIL.
+CRITICAL: must reproduce build_transform's exact resize interpolation and normalization
+constants (shared with training/eval — divergence silently breaks live inference; FixRes
+class of bug). Oracle test: PIL pipeline vs vectorized pipeline produce identical tensors
+(atol 1e-5) on random crops. Expected: observation 65 ms -> ~20-25 ms.
+
 ## Stage C — decision latency (the only stage allowed to change behavior)
 
 Target: hand-leaves→commit < 1 s with CNN. Current chain: `motion_hold_s` 0.2 s +

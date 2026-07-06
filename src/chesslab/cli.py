@@ -516,6 +516,8 @@ def track_cmd(
                                            help="Commit only within N seconds of the last motion (drift at high stable count is not a move)."),
     cnn_run: str = typer.Option(config.default_tracker_run() or "", "--cnn-run",
                                 help="Model run for CNN verification/recovery ('' = off)."),
+    detect_scale: float = typer.Option(config.TRACK_DEFAULTS["detect_scale"], "--detect-scale",
+                                       help="Detection runs on a downscaled board warp (0.5 = half-res; 1.0 = off)."),
     cnn_conf_thr: float = typer.Option(config.TRACK_DEFAULTS["cnn_conf_thr"], "--cnn-conf-thr",
                                        help="Confidence threshold above which a CNN square counts as reliable."),
     census_thr: float = typer.Option(config.TRACK_DEFAULTS["census_thr"], "--census-thr",
@@ -566,6 +568,7 @@ def track_cmd(
         "reconnect_grace_s": reconnect_grace_s,
         "diff_clahe_clip": diff_clahe_clip,
         "require_motion_for_move": require_motion_for_move, "motion_recency_s": motion_recency_s,
+        "detect_scale": detect_scale,
         "cnn_run": (cnn_run or None),   # '' or missing run on disk -> feature silently off
         "cnn_conf_thr": cnn_conf_thr, "device": device, "census_thr": census_thr,
         "cnn_verify": cnn_verify, "verify_window": verify_window,
