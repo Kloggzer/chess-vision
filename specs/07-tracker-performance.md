@@ -191,6 +191,13 @@ browser open.
 
 ---
 
+### Stage A status (2026-07-06): DONE (commit ac8a808)
+
+Accepted deviation: `hsv_shadow_squares`/`occlusion_color_squares` keep the per-candidate
+slice loop — their cost is dominated by the two full-image `cvtColor` calls and they only
+touch <=10 squares; converting the loop to integral images would save <0.5 ms. Revisit only
+if B1 makes the cvtColor cheap enough that the loop starts to matter.
+
 ## Stage B — resolution levers (validation required per item)
 
 > Only start after Stage A is merged and benchmarked — B1's win is only measurable then.
