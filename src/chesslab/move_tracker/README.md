@@ -30,47 +30,36 @@ away, board calm) the move appears on the right. If something slips / a move is 
 
 ## Parameters (all tuning knobs)
 
-Defaults live in **one** place: the `MoveTracker(...)` constructor in `tracker.py`.
-Change them there permanently, or override per run via CLI flag (`chesslab track`) or API
-body (`POST /api/start`).
+Defaults live in **one** place: `config.TRACK_DEFAULTS` (`src/chesslab/config.py`).
+Override per run via CLI flag (`chesslab track --help` for the full list) or API body
+(`POST /api/start`). The most important knobs (live-tuned values as of 2026-07-06):
 
-| Parameter | Default | Effect | Increase when … | Decrease when … | Where |
-|---|---|---|---|---|---|
-| `profile` | `"phone"` | chesslab calibration profile (geometry/warp). File `data/calibration/<name>.yaml`. | — | — | CLI `--profile`, API body |
-| `source` | `"0"` | Camera: `0`/`1` = local webcam, URL = IP cam (MJPEG `…/video/m.jpeg`). | — | — | CLI `--source`, API body |
-| `motion_thr` | `3.0` | Motion threshold (mean frame-to-frame difference) for "hand in view". | Detection is stuck on "moving" (light/sensor noise). | Moves get detected *while* the hand is still over the board. | `tracker.py`, CLI `--motion-thr`, API body |
-| `change_thr` | `16.0` | Brightness difference (0–255) at which a square counts as "changed". | Ghost moves from shadows/light. | Real moves are missed (low piece↔square contrast). | `tracker.py`, CLI `--change-thr`, API body |
-| `settle_frames` | `4` | How many calm frames must pass before checking at all. | Checks happen too early (board not fully calm). | Detection feels sluggish. | `tracker.py` |
-| `confirm_frames` | `2` | How often the same move must be confirmed in a row before committing. | Still ghost moves from single noise frames. | Detection should react faster (`1`). | `tracker.py`, CLI `--confirm-frames` |
-| `ambiguity_margin` | `= change_thr` | Minimum score gap to the second-best move; otherwise "ambiguous", no commit. | Too often "ambiguous" on clear moves. | Two similar moves get confused. | `tracker.py` |
-| `live_align` | `True` | Track markers live vs. freeze the calibration geometry. | Camera/setup drifts over the session (markers compensate). | Tripod camera, firmly anchored (no drift). | `tracker.py`, CLI `--no-live-align` |
-| `avg_frames` | `3` | Moving average over N calm gray frames (denoised) for the per-square diff. | High sensor/light noise, sudden exposure jumps. | Latency should be minimal. | `tracker.py`, CLI `--avg-frames` |
-| `max_changed` | `6` | Max changed squares before the frame is discarded as "occluded/unstable". | Hand triggers many squares that get misread as a move. | Castling (4 squares + shadow) gets suppressed. | `tracker.py`, CLI `--max-changed` |
-| `cnn_run` | newest run with weights | Model run for CNN recovery/verification; selectable in the UI dropdown; `''` = feature off. | — | — | UI select, CLI `--cnn-run`, API body |
-| `cnn_conf_thr` | `0.85` | Softmax confidence above which a square counts for occupancy evaluation (occluded never counts). | The CNN "sees" moves that aren't (uncertain model). | Too few confident squares → the CNN never speaks up. | `tracker.py` |
-| `cnn_cooldown_s` | `2.0` | Minimum gap between recovery observations (CPU ~100–300 ms each). | CPU load disturbs the stream. | Recovery should retry faster. | `tracker.py` |
-| `cnn_check_interval_s` | `10.0` | Interval of the periodic CNN verification on a calm board. | Constant load unwanted. | Deviations should surface faster. | `tracker.py` |
-| `--host`/`--port` | `127.0.0.1`/`8001` | Web UI address. | — | — | CLI |
-
-**Examples:**
+| Parameter | Default | Effect | Increase when … | Decrease when … |
+|---|---|---|---|---|
+| `motion_thr` | `0.25` | Motion gate: **percent of pixels** whose brightness changed by > `motion_px_thr` (wobble-immune; the old mean-based metric is gone). | Stuck on "moving" (compression noise). | A slow hand slips under the gate. |
+| `motion_px_thr` | `20` | Per-pixel delta that counts as motion. | Video noise trips the gate. | Low-contrast hands are missed. |
+| `motion_hold_s` | `0.3` | Seconds the board must be motion-free (WALL TIME, re-armed on every motion frame) before detection resumes. Also the occlusion-latch expiry. | Residue commits right after the hand leaves. | Fast/blitz play misses moves. |
+| `motion_recency_s` | `20` | A candidate only commits within N s of the last motion — old drift is not a move. | Legit moves rejected as "last motion Ns ago". | Drift ghosts within the window. |
+| `z_thr` | `3.0` | z-score (per-square noise model) above which a square counts as "changed". | Ghost squares from noise. | Low-contrast moves missed. |
+| `ambiguity_margin_ll` | `2.0` | Min LL gap best vs. second-best move; below → "ambiguous"/prior tie-break. | Similar moves get confused. | Too often "ambiguous". |
+| `census_thr` | `160` | Structural-change threshold for the shadow veto (higher ⇒ more squares vetoed as shadow). | Shadows commit as moves. | Real moves vetoed as shadow. |
+| `occlusion_color_thr` | `1.5` | Hand veto: NN-Mahalanobis sigma vs. the 64 reference-square colors (`0` = off). Flagged squares are latched until occlusion-free for `motion_hold_s`. | Pieces falsely flagged as hand. | Hand/sleeve not flagged. |
+| `min_grid_line_coverage` | `0.5` | Grid-line gate: skip detection when fewer interior grid lines are visible (big occluder). | — | Board pattern has weak lines. |
+| `max_changed` | `6` | Changed+occluded squares above this ⇒ occluded/unstable, no commit. | Hand triggers ghost moves. | Castling+shadow suppressed. |
+| `settle_frames` / `confirm_frames` / `avg_frames` | CNN on: `3/1/2`, off: `4/2/3` | Calm frames before checking / same-candidate votes / gray averaging window. | Noise/ghosts. | Sluggish detection. |
+| `align_every` / `align_scale` | `3` / `0.5` | ArUco marker detection every N-th frame, on a downscaled frame (most expensive per-frame op; camera is fixed). | — | Camera drifts fast. |
+| `recovery_max_plies` | `4` | CNN deep recovery: max half-moves the conflict-guided search bridges when the tracker is behind. | Desyncs deeper than 2 plies. | False multi-move adoptions. |
+| `cnn_run` | newest run | Model for CNN verify/recovery (`''` = off). Verify runs pre-commit on every candidate incl. pairs. | — | — |
+| `cnn_cooldown_s` / `cnn_check_interval_s` | `2` / `10` | Recovery retry gap / periodic board-vs-state check (pre-commit verify is NOT throttled by these). | CPU load. | Faster recovery/warnings. |
 
 ```bash
-# per run via CLI:
-chesslab track --profile phone --source 1 --port 8002
-
-# change heuristics permanently → tracker.py, MoveTracker.__init__:
-#   motion_thr=3.0  change_thr=16.0  settle_frames=4  confirm_frames=2  ambiguity_margin=None
-# (ambiguity_margin=None means "= change_thr")
-
-# live without restart via API (motion_thr/change_thr are sent by the Start button):
-curl -X POST http://127.0.0.1:8001/api/start \
-  -H 'Content-Type: application/json' \
-  -d '{"profile":"phone","source":"https://<PHONE-IP>:4444/video/m.jpeg","motion_thr":4,"change_thr":20}'
+chesslab track --profile phone --source https://<PHONE-IP>:4444/video/m.jpeg \
+  --motion-hold 0.3 --occlusion-color-thr 1.5 --census-thr 160
 ```
 
-> Note: `confirm_frames` and `ambiguity_margin` are currently only adjustable via
-> `tracker.py` (constructor default), not via CLI/API. `motion_thr`/`change_thr` support
-> both.
+> Live tuning: the debug card shows every gate live (`motion`, `hold_left_s`,
+> `motion_age_s`, `changed_vals`, veto lists, `grid_coverage`); each committed move has a
+> popover in the moves list with the decider + evidence at commit time.
 
 ## CNN recovery & verification (automatic)
 
