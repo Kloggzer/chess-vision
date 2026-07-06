@@ -475,6 +475,19 @@ def place_camera(cam, rng, max_obliqueness=0.10):
 _BASE_LIGHT_ENERGY: dict = {}
 _BASE_CHECKER_COLOR: dict = {}   # base tile colors for randomize_board (jitter from base, no drift)
 
+# Realistic per-scene board "families" for randomize_board. `hue` is a rotation of the brown board
+# photo (0.5 = unchanged brown wood); higher rotates toward green/teal/blue like vinyl tournament
+# boards. `sat_mul` < 1 pulls toward marble/greyscale. Weighted toward wood (the most common real
+# case) but with enough green/blue/marble that board appearance can't predict piece identity.
+BOARD_FAMILIES = [
+    {"name": "wood", "hue": 0.50, "sat_mul": 1.0},
+    {"name": "wood", "hue": 0.50, "sat_mul": 1.0},     # doubled weight — wood is the common case
+    {"name": "mahogany", "hue": 0.47, "sat_mul": 1.1},
+    {"name": "green", "hue": 0.60, "sat_mul": 0.9},
+    {"name": "blue", "hue": 0.70, "sat_mul": 0.85},
+    {"name": "marble", "hue": 0.50, "sat_mul": 0.25},
+]
+
 
 def randomize_lights(rng):
     for o in bpy.data.objects:
@@ -504,16 +517,26 @@ def randomize_board(rng):
     identity, forcing the model onto the figure. Purely a material tweak — geometry and the label
     projection are untouched, so corners/FEN stay correct.
     """
+    # Per-scene "board family": real chess boards aren't only brown wood — tournament sets are
+    # green/buff and blue/buff vinyl, plus marble/greyscale. Hue is a ROTATION of the brown photo
+    # (0.5 = unchanged); these targets rotate it toward green/blue while keeping the light/dark
+    # checker structure. All realistic, so this is safe for `empty` too (real empty squares come in
+    # these colors). `sat_mul<1` desaturates toward marble/grey. Picked per scene → the board's
+    # look carries no information about which piece stands on it.
+    family = rng.choice(BOARD_FAMILIES)
+    hue = family["hue"] + rng.uniform(-0.02, 0.02)
+    sat = BOARD_SATURATION * family["sat_mul"] * rng.uniform(0.85, 1.15)
+    val = rng.uniform(0.75, 1.20)
     for mat_name in ("BoardTexture", "WoodBoard", "WoodSurround"):
         mat = bpy.data.materials.get(mat_name)
         if mat is None or not mat.use_nodes:
             continue
         nt = mat.node_tree
         for node in nt.nodes:
-            if node.type == "HUE_SAT":            # existing desat node — nudge hue/value/sat
-                node.inputs["Hue"].default_value = rng.uniform(0.47, 0.53)
-                node.inputs["Value"].default_value = rng.uniform(0.80, 1.20)
-                node.inputs["Saturation"].default_value = BOARD_SATURATION * rng.uniform(0.80, 1.20)
+            if node.type == "HUE_SAT":            # existing desat node — hue-rotate + value/sat
+                node.inputs["Hue"].default_value = hue
+                node.inputs["Value"].default_value = val
+                node.inputs["Saturation"].default_value = sat
             elif node.type == "BSDF_PRINCIPLED":  # vary gloss so highlights aren't a constant tell
                 node.inputs["Roughness"].default_value = rng.uniform(0.55, 0.95)
             elif node.type == "TEX_CHECKER":      # procedural fallback: jitter the two tile colors
