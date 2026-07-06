@@ -20,6 +20,7 @@ from chesslab.move_tracker.tracker import (
     move_prior,
     move_touched_squares,
     normalize_diffs,
+    per_square_census_change,
     per_square_diff,
     square_region,
 )
@@ -262,6 +263,221 @@ def test_square_region_white_pov_a1_bottom_left():
 
 
 # =======================================================================================
+# Stage-A A1: integral-image refactors — oracle copies of old implementations
+# =======================================================================================
+
+def _per_square_diff_sliced(gray_a, gray_b, board_size: int, white_pov: bool,
+                            extend_up: float = 0.0) -> dict[str, float]:
+    from chesslab.move_tracker.tracker import _ALL, square_region
+    d = cv2.absdiff(gray_a, gray_b)
+    out: dict[str, float] = {}
+    for sq in _ALL:
+        x0, y0, x1, y1 = square_region(sq, board_size, white_pov, extend_up=extend_up)
+        out[sq] = float(d[y0:y1, x0:x1].mean()) if (y1 > y0 and x1 > x0) else 0.0
+    return out
+
+
+def _per_square_census_change_sliced(ref_gray, cur_gray, board_size: int, white_pov: bool,
+                                     extend_up: float = 0.0, ref_codes=None) -> dict[str, float]:
+    from chesslab.move_tracker.tracker import _ALL, _POPCOUNT8, census_transform, square_region
+    ham = _POPCOUNT8[(census_transform(ref_gray) if ref_codes is None else ref_codes)
+                      ^ census_transform(cur_gray)]
+    out: dict[str, float] = {}
+    for sq in _ALL:
+        x0, y0, x1, y1 = square_region(sq, board_size, white_pov, extend_up=extend_up)
+        reg = ham[y0:y1, x0:x1]
+        out[sq] = float(reg.mean()) * (255.0 / 8.0) if reg.size else 0.0
+    return out
+
+
+def _hsv_shadow_squares_sliced(ref_bgr, cur_bgr, board_size: int, white_pov: bool,
+                                candidates, v_lo: float = 0.35, v_hi: float = 0.97,
+                                h_tol: float = 15.0, s_tol: float = 40.0, frac: float = 0.5,
+                                extend_up: float = 0.0) -> set[str]:
+    from chesslab.move_tracker.tracker import square_region
+    hr = cv2.cvtColor(ref_bgr, cv2.COLOR_BGR2HSV).astype(np.float32)
+    hc = cv2.cvtColor(cur_bgr, cv2.COLOR_BGR2HSV).astype(np.float32)
+    out: set[str] = set()
+    for sq in candidates:
+        x0, y0, x1, y1 = square_region(sq, board_size, white_pov, extend_up=extend_up)
+        R, C = hr[y0:y1, x0:x1], hc[y0:y1, x0:x1]
+        if R.size == 0:
+            continue
+        Vr, Vc = R[..., 2], C[..., 2]
+        ratio = Vc / (Vr + 1e-3)
+        dh = np.abs(C[..., 0] - R[..., 0])
+        dh = np.minimum(dh, 180.0 - dh)
+        ds = C[..., 1] - R[..., 1]
+        shadow_px = (ratio >= v_lo) & (ratio <= v_hi) & (dh <= h_tol) & (ds <= s_tol)
+        if float(shadow_px.mean()) >= frac and Vc.mean() < Vr.mean():
+            out.add(sq)
+    return out
+
+
+def _occlusion_color_squares_sliced(cur_bgr, gamut, board_size: int, white_pov: bool,
+                                    candidates, thr: float = 4.0,
+                                    extend_up: float = 0.0) -> set[str]:
+    from chesslab.move_tracker.tracker import square_region
+    if gamut is None or cur_bgr is None or not candidates or thr <= 0:
+        return set()
+    _mu, inv, refs = gamut
+    lab = cv2.cvtColor(cur_bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
+    sat = cv2.cvtColor(cur_bgr, cv2.COLOR_BGR2HSV).astype(np.float32)[..., 1]
+    thr2 = float(thr) * float(thr)
+    out: set[str] = set()
+    for sq in candidates:
+        x0, y0, x1, y1 = square_region(sq, board_size, white_pov, extend_up=extend_up)
+        reg = lab[y0:y1, x0:x1]
+        s = sat[y0:y1, x0:x1]
+        if reg.size == 0:
+            continue
+        cur_feat = np.array([float(reg[..., 1].mean()), float(reg[..., 2].mean()),
+                             float(s.mean())], dtype=np.float32)
+        dists = ((refs - cur_feat) @ inv * (refs - cur_feat)).sum(axis=1)
+        if float(dists.min()) > thr2:
+            out.add(sq)
+    return out
+
+
+def _board_color_gamut_sliced(ref_bgr, board_size: int, white_pov: bool):
+    from chesslab.move_tracker.tracker import _ALL, square_region
+    if ref_bgr is None:
+        return None
+    lab = cv2.cvtColor(ref_bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
+    sat = cv2.cvtColor(ref_bgr, cv2.COLOR_BGR2HSV).astype(np.float32)[..., 1]
+    feats = []
+    for sq in _ALL:
+        x0, y0, x1, y1 = square_region(sq, board_size, white_pov)
+        reg = lab[y0:y1, x0:x1]
+        if reg.size == 0:
+            continue
+        s = sat[y0:y1, x0:x1]
+        feats.append([float(reg[..., 1].mean()), float(reg[..., 2].mean()), float(s.mean())])
+    if len(feats) < 8:
+        return None
+    F = np.asarray(feats, dtype=np.float32)
+    mu = F.mean(axis=0)
+    cov = np.cov(F.T).astype(np.float32) + np.eye(3, dtype=np.float32) * 4.0
+    try:
+        inv = np.linalg.inv(cov).astype(np.float32)
+    except np.linalg.LinAlgError:
+        return None
+    return mu, inv, F
+
+
+class TestA1IntegralImage:
+    """Exact-output: new integral-image versions == old sliced-oracle copies (abs tol 1e-4)."""
+
+    @staticmethod
+    def _rand(bs=800):
+        return np.random.RandomState(42).randint(0, 256, (bs, bs), dtype=np.uint8)
+
+    @staticmethod
+    def _rand_bgr(bs=800):
+        return np.random.RandomState(42).randint(0, 256, (bs, bs, 3), dtype=np.uint8)
+
+    def test_diff_wpov_noext(self):
+        ga, gb = self._rand(), self._rand()
+        old = _per_square_diff_sliced(ga, gb, 800, True, 0.0)
+        new = per_square_diff(ga, gb, 800, True, 0.0)
+        for sq in old:
+            assert new[sq] == pytest.approx(old[sq], abs=1e-4)
+
+    def test_diff_wpov_ext(self):
+        ga, gb = self._rand(), self._rand()
+        old = _per_square_diff_sliced(ga, gb, 800, True, 0.35)
+        new = per_square_diff(ga, gb, 800, True, 0.35)
+        for sq in old:
+            assert new[sq] == pytest.approx(old[sq], abs=1e-4)
+
+    def test_diff_bpov_noext(self):
+        ga, gb = self._rand(), self._rand()
+        old = _per_square_diff_sliced(ga, gb, 800, False, 0.0)
+        new = per_square_diff(ga, gb, 800, False, 0.0)
+        for sq in old:
+            assert new[sq] == pytest.approx(old[sq], abs=1e-4)
+
+    def test_diff_bpov_ext(self):
+        ga, gb = self._rand(), self._rand()
+        old = _per_square_diff_sliced(ga, gb, 800, False, 0.35)
+        new = per_square_diff(ga, gb, 800, False, 0.35)
+        for sq in old:
+            assert new[sq] == pytest.approx(old[sq], abs=1e-4)
+
+    def test_census_wpov_noext(self):
+        ga, gb = self._rand(), self._rand()
+        old = _per_square_census_change_sliced(ga, gb, 800, True, 0.0)
+        new = per_square_census_change(ga, gb, 800, True, 0.0)
+        for sq in old:
+            assert new[sq] == pytest.approx(old[sq], abs=1e-4)
+
+    def test_census_wpov_ext(self):
+        ga, gb = self._rand(), self._rand()
+        old = _per_square_census_change_sliced(ga, gb, 800, True, 0.35)
+        new = per_square_census_change(ga, gb, 800, True, 0.35)
+        for sq in old:
+            assert new[sq] == pytest.approx(old[sq], abs=1e-4)
+
+    def test_census_bpov_noext(self):
+        ga, gb = self._rand(), self._rand()
+        old = _per_square_census_change_sliced(ga, gb, 800, False, 0.0)
+        new = per_square_census_change(ga, gb, 800, False, 0.0)
+        for sq in old:
+            assert new[sq] == pytest.approx(old[sq], abs=1e-4)
+
+    def test_census_bpov_ext(self):
+        ga, gb = self._rand(), self._rand()
+        old = _per_square_census_change_sliced(ga, gb, 800, False, 0.35)
+        new = per_square_census_change(ga, gb, 800, False, 0.35)
+        for sq in old:
+            assert new[sq] == pytest.approx(old[sq], abs=1e-4)
+
+    def test_hsv_matches(self):
+        from chesslab.move_tracker.tracker import hsv_shadow_squares
+        rb, cb = self._rand_bgr(), self._rand_bgr()
+        cands = {"e4", "d5", "a1", "h8"}
+        assert hsv_shadow_squares(rb, cb, 800, True, cands) == \
+               _hsv_shadow_squares_sliced(rb, cb, 800, True, cands)
+
+    def test_hsv_matches_ext(self):
+        from chesslab.move_tracker.tracker import hsv_shadow_squares
+        rb, cb = self._rand_bgr(), self._rand_bgr()
+        cands = {"e4", "d5", "a1", "h8"}
+        assert hsv_shadow_squares(rb, cb, 800, True, cands, extend_up=0.35) == \
+               _hsv_shadow_squares_sliced(rb, cb, 800, True, cands, extend_up=0.35)
+
+    def test_occlusion_matches(self):
+        from chesslab.move_tracker.tracker import board_color_gamut, occlusion_color_squares
+        rb, cb = self._rand_bgr(), self._rand_bgr()
+        gamut = board_color_gamut(rb, 800, True)
+        cands = {"e4", "d5"}
+        assert occlusion_color_squares(cb, gamut, 800, True, cands, thr=4.0) == \
+               _occlusion_color_squares_sliced(cb, gamut, 800, True, cands, thr=4.0)
+
+    def test_occlusion_matches_ext(self):
+        from chesslab.move_tracker.tracker import board_color_gamut, occlusion_color_squares
+        rb, cb = self._rand_bgr(), self._rand_bgr()
+        gamut = board_color_gamut(rb, 800, True)
+        cands = {"e4", "d5"}
+        assert occlusion_color_squares(cb, gamut, 800, True, cands, thr=4.0, extend_up=0.35) == \
+               _occlusion_color_squares_sliced(cb, gamut, 800, True, cands, thr=4.0, extend_up=0.35)
+
+    def test_gamut_matches(self):
+        from chesslab.move_tracker.tracker import board_color_gamut
+        rb = self._rand_bgr()
+        old = _board_color_gamut_sliced(rb, 800, True)
+        new = board_color_gamut(rb, 800, True)
+        if old is None:
+            assert new is None
+        else:
+            mu_o, inv_o, refs_o = old
+            mu_n, inv_n, refs_n = new
+            assert mu_o == pytest.approx(mu_n, abs=1e-4)
+            assert inv_o == pytest.approx(inv_n, abs=1e-4)
+            assert refs_o == pytest.approx(refs_n, abs=1e-4)
+
+
+# =======================================================================================
 # Part 2 — Confirmer, headless E2E, TestClient (Spec 06)
 # =======================================================================================
 
@@ -309,6 +525,105 @@ class TestConfirmer:
 
         c = Confirmer(confirm_frames=1)
         assert c.feed("e2e4") is True
+
+
+# =======================================================================================
+# Stage-A A2: _RunningMean incremental buffer means
+# =======================================================================================
+
+class TestRunningMean:
+    def test_initial_empty(self):
+        from chesslab.move_tracker.tracker import _RunningMean
+        rm = _RunningMean(3)
+        assert rm.mean_uint8() is None
+        assert not rm
+
+    def test_single_frame(self):
+        from chesslab.move_tracker.tracker import _RunningMean
+        rm = _RunningMean(3)
+        f = np.full((10, 10), 42, dtype=np.uint8)
+        rm.append(f)
+        assert np.array_equal(rm.mean_uint8(), f)
+
+    def test_mean_equals_stack(self):
+        from chesslab.move_tracker.tracker import _RunningMean
+        rm = _RunningMean(3)
+        frames = [np.random.RandomState(i).randint(0, 256, (10, 10), dtype=np.uint8)
+                  for i in range(10)]
+        for f in frames:
+            rm.append(f)
+        expected = np.mean(np.stack(frames[-3:]), axis=0).astype(np.uint8)
+        assert np.array_equal(rm.mean_uint8(), expected)
+
+    def test_drift_resync_after_64(self):
+        from chesslab.move_tracker.tracker import _RunningMean
+        rm = _RunningMean(5)
+        rng = np.random.RandomState(42)
+        for _ in range(70):
+            rm.append(rng.randint(0, 256, (8, 8), dtype=np.uint8))
+        buf = list(rm._buf)
+        expected = np.mean(np.stack(buf), axis=0).astype(np.uint8)
+        assert np.array_equal(rm.mean_uint8(), expected)
+
+    def test_clear_and_reuse(self):
+        from chesslab.move_tracker.tracker import _RunningMean
+        rm = _RunningMean(3)
+        rm.append(np.full((5, 5), 10, dtype=np.uint8))
+        rm.clear()
+        assert rm.mean_uint8() is None
+        assert not rm
+        rm.append(np.full((5, 5), 20, dtype=np.uint8))
+        assert rm.mean_uint8()[0, 0] == 20
+
+
+# =======================================================================================
+# Stage-A A3: Census transform only on candidate bands
+# =======================================================================================
+
+class TestA3CensusBand:
+    """Band census (production `rows=` fast path) == full-image census for candidates."""
+
+    @staticmethod
+    def _rand(bs=800):
+        return np.random.RandomState(42).randint(0, 256, (bs, bs), dtype=np.uint8)
+
+    @staticmethod
+    def _band(ref, cur, bs, pov, candidates, ref_codes, extend_up=0.0):
+        from chesslab.move_tracker.tracker import per_square_census_change, square_region
+        boxes = [square_region(s, bs, pov, extend_up=extend_up) for s in candidates]
+        rows = (min(b[1] for b in boxes) - 1, max(b[3] for b in boxes) + 1)
+        return per_square_census_change(ref, cur, bs, pov, extend_up=extend_up,
+                                        ref_codes=ref_codes, rows=rows)
+
+    def test_band_equals_full_census(self):
+        from chesslab.move_tracker.tracker import census_transform, per_square_census_change
+        ga, gb = self._rand(), self._rand()
+        ref_codes = census_transform(ga)
+        cands = {"e4", "d5", "a1", "h8"}                     # spread over distant ranks
+        full = per_square_census_change(ga, gb, 800, True, ref_codes=ref_codes)
+        band = self._band(ga, gb, 800, True, cands, ref_codes)
+        for s in cands:
+            assert band[s] == pytest.approx(full[s], abs=1e-4)
+
+    def test_band_equals_full_census_extend(self):
+        from chesslab.move_tracker.tracker import census_transform, per_square_census_change
+        ga, gb = self._rand(), self._rand()
+        ref_codes = census_transform(ga)
+        cands = {"e4", "a8", "h1"}
+        full = per_square_census_change(ga, gb, 800, True, ref_codes=ref_codes, extend_up=0.35)
+        band = self._band(ga, gb, 800, True, cands, ref_codes, extend_up=0.35)
+        for s in cands:
+            assert band[s] == pytest.approx(full[s], abs=1e-4)
+
+    def test_band_black_pov(self):
+        from chesslab.move_tracker.tracker import census_transform, per_square_census_change
+        ga, gb = self._rand(), self._rand()
+        ref_codes = census_transform(ga)
+        cands = {"c3", "f6"}
+        full = per_square_census_change(ga, gb, 800, False, ref_codes=ref_codes)
+        band = self._band(ga, gb, 800, False, cands, ref_codes)
+        for s in cands:
+            assert band[s] == pytest.approx(full[s], abs=1e-4)
 
 
 # --- headless E2E helpers ---------------------------------------------------------------
@@ -1419,6 +1734,82 @@ class TestWeakEvidenceHold:
         assert mt.ref_gray is ref                 # NOT re-anchored
         assert mt._stuck_reason is None
         assert "weak move evidence" in mt.note
+
+# =======================================================================================
+# Stage A1: _region_means (integral-image per-square statistics)
+# =======================================================================================
+
+
+class TestRegionMeans:
+    """Stage A1 — integral-image _region_means must be bit-identical to loop-based means."""
+
+    def _reference_per_square_diff(self, gray_a, gray_b, bs, white_pov, extend_up=0.0):
+        """Original loop-based per_square_diff (copy for comparison)."""
+        from chesslab.move_tracker.tracker import _ALL, square_region
+
+        d = cv2.absdiff(gray_a, gray_b)
+        out: dict[str, float] = {}
+        for sq in _ALL:
+            x0, y0, x1, y1 = square_region(sq, bs, white_pov, extend_up=extend_up)
+            out[sq] = float(d[y0:y1, x0:x1].mean()) if (y1 > y0 and x1 > x0) else 0.0
+        return out
+
+    def _reference_per_square_census(self, ref_gray, cur_gray, bs, white_pov, extend_up=0.0):
+        """Original loop-based per_square_census_change (copy for comparison)."""
+        from chesslab.move_tracker.tracker import _ALL, _POPCOUNT8, census_transform, square_region
+
+        ham = _POPCOUNT8[census_transform(ref_gray) ^ census_transform(cur_gray)]
+        out: dict[str, float] = {}
+        for sq in _ALL:
+            x0, y0, x1, y1 = square_region(sq, bs, white_pov, extend_up=extend_up)
+            reg = ham[y0:y1, x0:x1]
+            out[sq] = float(reg.mean()) * (255.0 / 8.0) if reg.size else 0.0
+        return out
+
+    def test_per_square_diff_integral_matches_loop(self):
+        """For several board sizes: integral-based equals loop-based (atol=1e-6)."""
+        rng = np.random.RandomState(42)
+        for bs in (200, 400, 800, 1600):
+            ga = rng.randint(0, 256, (bs, bs), dtype=np.uint8)
+            gb = rng.randint(0, 256, (bs, bs), dtype=np.uint8)
+            for w_pov in (True, False):
+                for eu in (0.0, 0.35):
+                    ref = self._reference_per_square_diff(ga, gb, bs, w_pov, extend_up=eu)
+                    new = per_square_diff(ga, gb, bs, w_pov, extend_up=eu)
+                    for sq in ref:
+                        assert new[sq] == pytest.approx(ref[sq], abs=1e-6), \
+                            f"diff mismatch {sq} @ bs={bs} wpov={w_pov} eu={eu}"
+
+    def test_per_square_census_integral_matches_loop(self):
+        """For several board sizes: integral-based equals loop-based (atol=1e-6)."""
+        rng = np.random.RandomState(42)
+        for bs in (200, 400, 800):
+            gray_ref = rng.randint(0, 256, (bs, bs), dtype=np.uint8)
+            gray_cur = rng.randint(0, 256, (bs, bs), dtype=np.uint8)
+            for w_pov in (True, False):
+                for eu in (0.0, 0.35):
+                    ref = self._reference_per_square_census(gray_ref, gray_cur, bs, w_pov, extend_up=eu)
+                    new = per_square_census_change(gray_ref, gray_cur, bs, w_pov, extend_up=eu)
+                    for sq in ref:
+                        assert new[sq] == pytest.approx(ref[sq], abs=1e-6), \
+                            f"census mismatch {sq} @ bs={bs} wpov={w_pov} eu={eu}"
+
+    def test_per_square_census_integral_matches_loop_with_ref_codes(self):
+        """Same with precomputed ref_codes (the cached fast path)."""
+        from chesslab.move_tracker.tracker import census_transform
+
+        rng = np.random.RandomState(42)
+        for bs in (200, 400):
+            gray_ref = rng.randint(0, 256, (bs, bs), dtype=np.uint8)
+            gray_cur = rng.randint(0, 256, (bs, bs), dtype=np.uint8)
+            ref_codes = census_transform(gray_ref)
+            for eu in (0.0, 0.35):
+                ref = self._reference_per_square_census(gray_ref, gray_cur, bs, True, extend_up=eu)
+                new = per_square_census_change(gray_ref, gray_cur, bs, True, extend_up=eu,
+                                               ref_codes=ref_codes)
+                for sq in ref:
+                    assert new[sq] == pytest.approx(ref[sq], abs=1e-6), \
+                        f"census+cache mismatch {sq} @ bs={bs} eu={eu}"
 
 class TestPairScores:
     """Diff-side 2-half-move detection (fast play without CNN)."""
