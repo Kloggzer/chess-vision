@@ -184,8 +184,15 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
     tf = build_transform(out_size, train=False)
     batch = torch.stack([tf(Image.fromarray(c[:, :, ::-1].copy())) for c in crops]).to(device)  # BGR->RGB
     with torch.no_grad():
-        logits = model(batch)
-        probs = torch.softmax(logits, dim=1)
+        if device.startswith("cuda"):
+            try:
+                with torch.autocast(device_type="cuda", dtype=torch.float16):
+                    logits = model(batch)
+            except Exception:
+                logits = model(batch)
+        else:
+            logits = model(batch)
+        probs = torch.softmax(logits.float(), dim=1)
         conf, idx = probs.max(dim=1)
     results: list[dict] = []
     for i, (c, ix) in enumerate(zip(conf.tolist(), idx.tolist(), strict=False)):

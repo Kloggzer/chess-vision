@@ -94,6 +94,10 @@ the **legal** move that best explains the change (castling/en passant/captures i
 with an optional CNN safeguard. Web UI on `http://127.0.0.1:8001`. Details and parameters:
 [`src/chesslab/move_tracker/README.md`](src/chesslab/move_tracker/README.md).
 
+**Camera resolution:** 720p is sufficient for tracking — ArUco markers detect reliably at
+half-res anyway, and the detection warp runs at `detect_scale=0.5` by default. A 1080p
+stream is only worth it for collection/slicing (quality crops for the CNN).
+
 ## Stages
 
 | Stage | Command(s) | Status |

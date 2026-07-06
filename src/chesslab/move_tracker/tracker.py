@@ -523,7 +523,7 @@ class MoveTracker:
                  min_grid_line_coverage: float = 0.0,
                  reconnect_grace_s: float = 2.0,
                  diff_clahe_clip: float = 0.0, auto_record: bool = True,
-                 require_motion_for_move: bool = True,
+                 require_motion_for_move: bool = True, detect_scale: float = 0.5,
                  motion_recency_s: float = 20.0) -> None:
         # Auto-create a missing profile from the first frames of this source (ArUco).
         self.profile_name = profile           # string profile name (for session recording)
@@ -599,6 +599,9 @@ class MoveTracker:
         self.live_align = live_align                  # True: track markers live; False: freeze calibration
         self.align_every = max(1, int(align_every))   # ArUco every N-th frame (corners held between)
         self.align_scale = align_scale                # ArUco on downscaled frame (0.5 = half-res)
+        self.detect_scale = detect_scale              # Detection warp scale (0.5=half-res; 1.0=off)
+        self._det_size = (int(self.profile.board_size * detect_scale)
+                          if detect_scale < 1.0 else self.profile.board_size)
         self._align_i = 0
         self._ref_census = None                       # cached census codes of ref_gray
         self._ref_census_for = None                   # identity key of the cached codes
@@ -915,6 +918,17 @@ class MoveTracker:
                     time.sleep(0.02)
                     continue
                 gray = self._gray(warped)
+                # Detection at downscaled resolution (detect_scale < 1.0) — reduces
+                # diff/census/vetoes cost quadratically. Overlay stays at full warp.
+                warped_det: np.ndarray
+                gray_det: np.ndarray
+                if self.detect_scale < 1.0:
+                    warped_det = cv2.resize(warped, (self._det_size, self._det_size),
+                                           interpolation=cv2.INTER_AREA)
+                    gray_det = cv2.resize(gray, (self._det_size, self._det_size),
+                                         interpolation=cv2.INTER_AREA)
+                else:
+                    warped_det, gray_det = warped, gray
                 # Extended motion gate (Spec 10, part 6): also capture motion in the margin
                 # AROUND the board — the hand is seen BEFORE it covers a square.
                 motion_roi = self._roi_motion(frame)
@@ -929,9 +943,9 @@ class MoveTracker:
                             self._fps = 0.9 * self._fps + 0.1 * (1.0 / dt) if self._fps else 1.0 / dt
                     self._last_loop_ts = now
 
-                    self.prev_gray = gray if self.prev_gray is None else self.prev_gray
-                    motion = max(motion_score(self.prev_gray, gray, self.motion_px_thr), motion_roi)
-                    self.prev_gray = gray
+                    self.prev_gray = gray_det if self.prev_gray is None else self.prev_gray
+                    motion = max(motion_score(self.prev_gray, gray_det, self.motion_px_thr), motion_roi)
+                    self.prev_gray = gray_det
                     self._motion = motion
 
                     if motion > self.motion_thr:       # hand/camera moving -> discard buffers
@@ -941,7 +955,7 @@ class MoveTracker:
                         self._confirmer.reset()
                         self._gray_buf.clear()
                         self._bgr_buf.clear()
-                        self._changed, self._changed_vals = [], []   # clear overlay/debug (hand in image)
+                        self._changed, self._changed_vals = [], []   # clear overlay/debug
                         self._shadow_vetoed = []
                         self._occluded_vetoed = []
                         # Arm the post-motion hold: detection stays blocked until the board
@@ -950,8 +964,8 @@ class MoveTracker:
                         self._hold_until = now + self.motion_hold_s
                     else:
                         self.stable_count += 1
-                        self._gray_buf.append(gray)
-                        self._bgr_buf.append(warped)
+                        self._gray_buf.append(gray_det)
+                        self._bgr_buf.append(warped_det)
                         ready = (self.stable_count >= self.settle_frames
                                  and now >= self._hold_until)
                         occluded_now = False
@@ -960,7 +974,7 @@ class MoveTracker:
                             # opaque object (hand/arm/paper) hides the board's grid lines ->
                             # skip detection AND the buffer means (the fps drop during
                             # occlusion was the means computed for nothing every frame).
-                            occluded_now = self._occluded_by_grid(gray)
+                            occluded_now = self._occluded_by_grid(gray_det)
                             if occluded_now:
                                 self._occl_grid_active = True
                                 self.note = ("waiting for clear view of the board…"
@@ -1096,6 +1110,12 @@ class MoveTracker:
         try:
             obs_warped = warp_from_corners(frame, self.profile, corners)
             obs_gray = None if obs_warped is None else self._gray(obs_warped)
+            # CNN reference must match the detection resolution (invariant: ref_gray size == _det_size).
+            if obs_warped is not None and self.detect_scale < 1.0:
+                obs_warped = cv2.resize(obs_warped, (self._det_size, self._det_size),
+                                        interpolation=cv2.INTER_AREA)
+                obs_gray = cv2.resize(obs_gray, (self._det_size, self._det_size),
+                                      interpolation=cv2.INTER_AREA)
         except Exception:  # noqa: BLE001 — fall back to the live buffer below
             obs_warped = obs_gray = None
         # Identity-based evaluation (pure) — fallback to occupancy if the run does not provide
@@ -1501,7 +1521,7 @@ class MoveTracker:
         # Rebuild the color gamut for the opaque-occlusion veto from clean base truth only.
         if self.occlusion_color_thr > 0 and self.ref_bgr is not None \
                 and not (from_commit and self._ref_gamut is not None):
-            self._ref_gamut = board_color_gamut(self.ref_bgr, self.profile.board_size,
+            self._ref_gamut = board_color_gamut(self.ref_bgr, self._det_size,
                                                  self.profile.white_pov)
             self._occl_whitelist = set()          # fresh clean gamut -> exemptions obsolete
 
@@ -1895,7 +1915,7 @@ class MoveTracker:
         """Step 2 — per-square diff vs base truth → median normalization (global exposure
         jump) → z-scores (per-square noise model; local drift/square characteristics)."""
         _t0 = time.perf_counter()
-        diffs = per_square_diff(self.ref_gray, cur, self.profile.board_size,
+        diffs = per_square_diff(self.ref_gray, cur, self._det_size,
                                 self.profile.white_pov, extend_up=self.overhang)
         diffs = normalize_diffs(diffs)
         z = self.noise.z(diffs)
@@ -1915,14 +1935,14 @@ class MoveTracker:
         self._shadow_vetoed = []
         shadow_veto: set[str] = set()
         if cur_bgr is not None and self.ref_bgr is not None and changed:
-            bs = self.profile.board_size
+            bs = self._det_size
             cand_boxes = [square_region(s, bs, self.profile.white_pov,
                                         extend_up=self.overhang) for s in changed]
             rows = (min(b[1] for b in cand_boxes) - 1, max(b[3] for b in cand_boxes) + 1)
             cens = per_square_census_change(self.ref_gray, cur, bs,
                                             self.profile.white_pov, extend_up=self.overhang,
                                             ref_codes=self._ref_census_codes(), rows=rows)
-            shadows = hsv_shadow_squares(self.ref_bgr, cur_bgr, self.profile.board_size,
+            shadows = hsv_shadow_squares(self.ref_bgr, cur_bgr, self._det_size,
                                          self.profile.white_pov, changed,
                                          extend_up=self.overhang)
             shadow_veto = {s for s in changed if s in shadows and cens[s] < self.census_thr}
@@ -1933,7 +1953,7 @@ class MoveTracker:
         occluded_set: set[str] = set()
         if cur_bgr is not None and self._ref_gamut is not None and changed:
             occluded_set = occlusion_color_squares(
-                cur_bgr, self._ref_gamut, self.profile.board_size,
+                cur_bgr, self._ref_gamut, self._det_size,
                 self.profile.white_pov, changed, self.occlusion_color_thr,
                 extend_up=self.overhang) - self._occl_whitelist
             if occluded_set:
@@ -2134,7 +2154,7 @@ class MoveTracker:
                 continue
             # Patch the SAME pixels the diff looks at (incl. overhang), else the extended
             # strip above the cell stays hot forever and the healing never converges.
-            x0, y0, x1, y1 = square_region(sq, self.profile.board_size, self.profile.white_pov,
+            x0, y0, x1, y1 = square_region(sq, self._det_size, self.profile.white_pov,
                                            inset=0.0, extend_up=self.overhang)
             self.ref_gray[y0:y1, x0:x1] = cur[y0:y1, x0:x1]
             if cur_bgr is not None and self.ref_bgr is not None:
