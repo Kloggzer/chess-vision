@@ -45,6 +45,26 @@ _FILES = "abcdefgh"
 _ALL = [f"{f}{r}" for r in range(1, 9) for f in _FILES]
 
 
+def _square_boxes(board_size: int, white_pov: bool, extend_up: float = 0.0):
+    """Pre-compute all 64 square-region boxes from the canonical source (square_region).
+    Returns list of (x0, y0, x1, y1, area) tuples. Area is 0 for degenerate regions."""
+    boxes = []
+    for sq in _ALL:
+        x0, y0, x1, y1 = square_region(sq, board_size, white_pov, extend_up=extend_up)
+        area = (x1 - x0) * (y1 - y0) if y1 > y0 and x1 > x0 else 0
+        boxes.append((x0, y0, x1, y1, area))
+    return boxes
+
+
+def _region_means(integral_img, boxes):
+    """Per-region means from an integral image (shape (h+1,w+1) float64 from cv2.integral).
+    Returns list of float means (0.0 for zero-area boxes)."""
+    ii = integral_img
+    return [float(ii[y1, x1] - ii[y0, x1] - ii[y1, x0] + ii[y0, x0]) / a
+            if a > 0 else 0.0
+            for (x0, y0, x1, y1, a) in boxes]
+
+
 def square_region(square: str, board_size: int, white_pov: bool, inset: float = 0.16,
                   extend_up: float = 0.0):
     """Pixel box (x0,y0,x1,y1) of the cell in the rectified board_size image, slightly inset
@@ -68,15 +88,58 @@ def square_center(square: str, board_size: int, white_pov: bool):
 def per_square_diff(gray_a, gray_b, board_size: int, white_pov: bool,
                     extend_up: float = 0.0) -> dict[str, float]:
     """Mean absolute brightness difference per square between two rectified grayscale images."""
+    boxes = _square_boxes(board_size, white_pov, extend_up)
     d = cv2.absdiff(gray_a, gray_b)
-    out: dict[str, float] = {}
-    for sq in _ALL:
-        x0, y0, x1, y1 = square_region(sq, board_size, white_pov, extend_up=extend_up)
-        out[sq] = float(d[y0:y1, x0:x1].mean()) if (y1 > y0 and x1 > x0) else 0.0
-    return out
+    return dict(zip(_ALL, _region_means(cv2.integral(d), boxes), strict=True))
 
 
 # Popcount LUT for 8-bit census codes (Hamming distance per pixel).
+
+class _RunningMean:
+    """Fixed-window running mean over frames. Exact: recomputes the float64 sum from
+    scratch every 64 appends to kill drift; otherwise sum += new - evicted."""
+
+    def __init__(self, maxlen: int):
+        self._maxlen = maxlen
+        self._buf: deque = deque(maxlen=maxlen)
+        self._sum = None
+        self._count = 0
+
+    def extend(self, items) -> None:
+        """Fill buffer without accumulating (test compatibility)."""
+        for item in items:
+            self._buf.append(item)
+
+    def append(self, frame: np.ndarray) -> None:
+        f64 = frame.astype(np.float64)
+        if self._sum is None:
+            self._sum = f64.copy()
+        else:
+            if len(self._buf) == self._maxlen:
+                self._sum -= self._buf[0].astype(np.float64)
+            self._sum += f64
+        self._buf.append(frame)
+        self._count += 1
+        if self._count % 64 == 0:
+            self._sum = np.sum(np.stack(list(self._buf)).astype(np.float64), axis=0)
+
+    def clear(self) -> None:
+        self._buf.clear()
+        self._sum = None
+        self._count = 0
+
+    def __len__(self) -> int:
+        return len(self._buf)
+
+    def __bool__(self) -> bool:
+        return len(self._buf) > 0
+
+    def mean_uint8(self):
+        if self._sum is None or len(self._buf) == 0:
+            return None
+        return (self._sum / len(self._buf)).astype(np.uint8)
+
+
 _POPCOUNT8 = np.array([bin(i).count("1") for i in range(256)], dtype=np.uint8)
 
 
@@ -101,20 +164,39 @@ def census_transform(gray) -> np.ndarray:
 
 
 def per_square_census_change(ref_gray, cur_gray, board_size: int, white_pov: bool,
-                             extend_up: float = 0.0, ref_codes=None) -> dict[str, float]:
+                             extend_up: float = 0.0, ref_codes=None,
+                             rows: tuple[int, int] | None = None) -> dict[str, float]:
     """Structural change per square: mean Hamming distance of census codes (0..8),
     scaled to 0..255 (comparable to the gray diff/change_thr). Small for pure
     brightness/shadow changes, large for appearing/disappearing pieces.
     `extend_up` must match the diff regions so both look at the same pixels. `ref_codes`
     (precomputed census_transform of the reference) skips re-encoding the rarely-changing
-    reference every stable frame."""
+    reference every stable frame.
+
+    `rows=(y_lo, y_hi)` (requires ref_codes): band fast path — the census transform of the
+    CURRENT frame is computed only on that row band (callers pass the candidate squares'
+    rows ±1 px halo; with the REPLICATE padding the halo makes the interior codes identical
+    to the full transform). Squares outside the band get 0.0 — callers must only consult
+    squares whose boxes lie inside the band."""
+    boxes = _square_boxes(board_size, white_pov, extend_up)
+    if rows is not None and ref_codes is not None:
+        y_lo, y_hi = max(0, rows[0]), min(board_size, rows[1])
+        ham = _POPCOUNT8[ref_codes[y_lo:y_hi] ^ census_transform(cur_gray[y_lo:y_hi])]
+        ii = cv2.integral(ham)
+        out = {}
+        for sq, (x0, y0, x1, y1, a) in zip(_ALL, boxes, strict=True):
+            if a > 0 and y0 >= y_lo + (1 if y_lo > 0 else 0)                     and y1 <= y_hi - (1 if y_hi < board_size else 0):
+                s = float(ii[y1 - y_lo, x1] - ii[y0 - y_lo, x1]
+                          - ii[y1 - y_lo, x0] + ii[y0 - y_lo, x0])
+                out[sq] = s / a * (255.0 / 8.0)
+            else:
+                out[sq] = 0.0
+        return out
     ham = _POPCOUNT8[(census_transform(ref_gray) if ref_codes is None else ref_codes)
-                     ^ census_transform(cur_gray)]
-    out: dict[str, float] = {}
-    for sq in _ALL:
-        x0, y0, x1, y1 = square_region(sq, board_size, white_pov, extend_up=extend_up)
-        reg = ham[y0:y1, x0:x1]
-        out[sq] = float(reg.mean()) * (255.0 / 8.0) if reg.size else 0.0
+                      ^ census_transform(cur_gray)]
+    out = {}
+    for sq, mean_val in zip(_ALL, _region_means(cv2.integral(ham), boxes), strict=True):
+        out[sq] = mean_val * (255.0 / 8.0)
     return out
 
 
@@ -529,8 +611,8 @@ class MoveTracker:
         self.max_changed = max_changed                # more changed squares => occluded/unstable, no move
         self.census_thr = census_thr                  # threshold for STRUCTURAL change (census, 0..255)
         self._confirmer = Confirmer(confirm_frames)   # extracted voting (replaces self._cand)
-        self._gray_buf = deque(maxlen=self.avg_frames)  # ring buffer of recent stable gray images
-        self._bgr_buf = deque(maxlen=self.avg_frames)   # same in color (for the HSV shadow test)
+        self._gray_buf = _RunningMean(self.avg_frames)  # running mean of recent stable gray images
+        self._bgr_buf = _RunningMean(self.avg_frames)   # same in color (for the HSV shadow test)
 
         # Observer seam slots (Spec 06); `recovery` is lazily populated when cnn_run is set.
         self.extra_observers: list = []
@@ -614,6 +696,7 @@ class MoveTracker:
         self.last_move = None         # uci
         self.note = ""
         self._overlay_jpeg = None
+        self.viewers = 0              # connected MJPEG streams; encode only when > 0
         self._last_encode_ts = 0.0    # throttle overlay encode (not every loop under lock)
         self._last_loop_ts = 0.0      # for FPS estimation (EMA)
         self._last_frame = None       # last raw frame (for toggleable alignment image)
@@ -913,7 +996,7 @@ class MoveTracker:
                             self.state = "occluded" if occluded_now else "waiting"
 
                     # Throttle overlay encode (JPEG ~5–15 ms): keeps the detection hot-path clear.
-                    if now - self._last_encode_ts >= 0.08:
+                    if self.viewers > 0 and now - self._last_encode_ts >= 0.08:
                         self._overlay_jpeg = self._encode_overlay(warped)
                         self._last_encode_ts = now
 
@@ -1439,16 +1522,12 @@ class MoveTracker:
         return False
 
     def _mean_gray(self):
-        """Moving average of the buffered stable gray images -> dampens sensor/light noise and
-        residual jitter from marker tracking, so the per-square diff does not rely on a single
-        noisy frame."""
-        return np.mean(np.stack(list(self._gray_buf)), axis=0).astype(np.uint8)
+        """Moving average of the buffered stable gray images (incremental)."""
+        return self._gray_buf.mean_uint8()
 
     def _mean_bgr(self):
-        """Moving average of the stable color frames (for the HSV shadow test)."""
-        if not self._bgr_buf:
-            return None
-        return np.mean(np.stack(list(self._bgr_buf)), axis=0).astype(np.uint8)
+        """Moving average of the stable color frames (incremental)."""
+        return self._bgr_buf.mean_uint8()
 
     def _commit_move(self, move: chess.Move, cur, cur_bgr=None, recovered: bool = False,
                      prior_used: bool = False, decider: str = "diff") -> None:
@@ -1840,9 +1919,13 @@ class MoveTracker:
         self._shadow_vetoed = []
         shadow_veto: set[str] = set()
         if cur_bgr is not None and self.ref_bgr is not None and changed:
-            cens = per_square_census_change(self.ref_gray, cur, self.profile.board_size,
+            bs = self.profile.board_size
+            cand_boxes = [square_region(s, bs, self.profile.white_pov,
+                                        extend_up=self.overhang) for s in changed]
+            rows = (min(b[1] for b in cand_boxes) - 1, max(b[3] for b in cand_boxes) + 1)
+            cens = per_square_census_change(self.ref_gray, cur, bs,
                                             self.profile.white_pov, extend_up=self.overhang,
-                                            ref_codes=self._ref_census_codes())
+                                            ref_codes=self._ref_census_codes(), rows=rows)
             shadows = hsv_shadow_squares(self.ref_bgr, cur_bgr, self.profile.board_size,
                                          self.profile.white_pov, changed,
                                          extend_up=self.overhang)
