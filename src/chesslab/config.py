@@ -475,7 +475,7 @@ TRACK_DEFAULTS: dict = {
     "align_every": 3,              # ArUco marker detection every N-th frame (most expensive per-frame op; camera fixed)
     "align_scale": 0.5,            # ArUco on downscaled frame (0.5 = half-res, ~3x faster; ±1 px inside tracker dead-zone)
     "corner_jump_px": 6.0,         # Warp corner jump ⇒ base truth geometrically invalid → reacquire
-    "motion_hold_s": 0.3,          # Seconds the board must be motion-free before detection resumes
+    "motion_hold_s": 0.2,          # Seconds the board must be motion-free before detection resumes
                                    # (wall time — frame counts settle in milliseconds at 40 fps)
     "occlusion_color_thr": 1.5,    # Color-outlier veto: Mahalanobis sigma vs board gamut (lower=more sensitive, 0=off; 1.5: live-tuned)
     "min_grid_line_coverage": 0.5, # Grid-line occlusion gate: min visible-line fraction (0=off)
