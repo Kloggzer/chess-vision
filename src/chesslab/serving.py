@@ -174,15 +174,33 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
     if not crops:
         return []
     import torch
-    from PIL import Image
-
-    from .training.torch_data import build_transform
 
     model, cfg = load_run(run_dir, device)
     classes = cfg["classes"]
     out_size = tuple(cfg["out_size"])
-    tf = build_transform(out_size, train=False)
-    batch = torch.stack([tf(Image.fromarray(c[:, :, ::-1].copy())) for c in crops]).to(device)  # BGR->RGB
+    out_h, out_w = out_size[1], out_size[0]
+
+    # Fast path: when all crops are already at out_size, vectorize preprocessing
+    all_at_size = all(c.shape[0] == out_h and c.shape[1] == out_w for c in crops)
+    if all_at_size:
+        # BGR uint8 HWC -> RGB NCHW float/255 + Normalize, no PIL/torchvision
+        stacked = np.stack([c[..., ::-1].copy() for c in crops])  # (N,H,W,3) RGB
+        batch = torch.from_numpy(stacked).permute(0, 3, 1, 2).contiguous()
+        batch = batch.to(dtype=torch.float32).div_(255)
+        mean_t = torch.tensor(config.NORMALIZE_MEAN, dtype=torch.float32).view(1, 3, 1, 1)
+        std_t = torch.tensor(config.NORMALIZE_STD, dtype=torch.float32).view(1, 3, 1, 1)
+        batch = (batch - mean_t) / std_t
+        batch = batch.to(device)
+    else:
+        from PIL import Image
+
+        from .training.torch_data import build_transform
+
+        tf = build_transform(out_size, train=False)
+        batch = torch.stack(
+            [tf(Image.fromarray(c[:, :, ::-1].copy())) for c in crops]
+        ).to(device)  # BGR->RGB
+
     with torch.no_grad():
         if device.startswith("cuda"):
             try:
