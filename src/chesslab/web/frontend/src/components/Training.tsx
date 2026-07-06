@@ -7,6 +7,64 @@ import LineChart from "./LineChart";
 
 const inp = "w-20 rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-100";
 
+function groupByTrue(items: any[]): any[][] {
+  const by: Record<string, any[]> = {};
+  for (const it of items) {
+    if (!by[it.true]) by[it.true] = [];
+    by[it.true].push(it);
+  }
+  return Object.values(by);
+}
+
+function CamGroups({ groups }: { groups: any[][] }) {
+  return (
+    <div className="mt-3 space-y-3">
+      {groups.map((grp) => (
+        <div key={grp[0].true} className="flex items-start gap-3">
+          <div className="w-10 shrink-0 pt-6 text-right text-sm font-medium text-zinc-400">{grp[0].true}</div>
+          <div className="flex flex-wrap gap-3">
+            {grp.map((it, i) => (
+              <div key={i} className="text-center">
+                <div className="grid grid-cols-2 gap-0.5">
+                  <img src={it.orig} alt={it.true} className="w-12 rounded border border-zinc-800" />
+                  <img src={it.overlay} alt="Grad-CAM" className="w-12 rounded border border-zinc-800" />
+                </div>
+                <div className="mt-1 text-xs">
+                  {it.pred !== it.true
+                    ? <span className="text-amber-500">→{it.pred}</span>
+                    : <span className="text-zinc-600">✓</span>}
+                  <span className="text-zinc-600"> {(it.prob * 100).toFixed(0)}%</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RelianceBars({ items }: { items: any[] }) {
+  return (
+    <div className="mt-3 space-y-1">
+      {items.map((r) => {
+        const piecePct = Math.round(r.piece_frac * 100);
+        const weak = r.cls !== "empty" && piecePct < 45;
+        return (
+          <div key={r.cls} className="flex items-center gap-2 text-xs">
+            <div className={`w-10 shrink-0 text-right font-medium ${weak ? "text-rose-400" : "text-zinc-400"}`}>{r.cls}</div>
+            <div className="flex h-4 flex-1 overflow-hidden rounded bg-zinc-800">
+              <div className="h-full bg-emerald-600" style={{ width: `${piecePct}%` }} />
+              <div className="h-full bg-rose-700" style={{ width: `${100 - piecePct}%` }} />
+            </div>
+            <div className="w-28 shrink-0 text-zinc-500">{piecePct}% piece · conf {(r.base_prob * 100).toFixed(0)}%</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function Training() {
   const [runs, setRuns] = useState<any[]>([]);
   const [run, setRun] = useState("");
@@ -22,6 +80,11 @@ export default function Training() {
   const [lr, setLr] = useState(0.0003);
   const [patience, setPatience] = useState(7);   // Early stopping patience (epochs without macro_recall progress)
   const [resume, setResume] = useState("");   // "" = von Grund auf; sonst Run-Name als Warm-Start
+  const [cam, setCam] = useState<any[]>([]);   // Grad-CAM overlays for the selected run
+  const [camLoading, setCamLoading] = useState(false);
+  const [camPerClass, setCamPerClass] = useState(3);   // samples per class in the Grad-CAM grid
+  const [reliance, setReliance] = useState<any[]>([]);   // per-class piece-vs-background evidence
+  const [relLoading, setRelLoading] = useState(false);
   const timer = useRef<any>(null);
 
   const datasetsQ = useQuery({ queryKey: ["datasets"], queryFn: () => api("/api/datasets") });
@@ -37,16 +100,32 @@ export default function Training() {
 
   useEffect(() => { refreshRuns(); return () => clearInterval(timer.current); }, [refreshRuns]);
   async function showRun(r: string) {
-    setRun(r); setErr("");
+    setRun(r); setErr(""); setCam([]); setReliance([]);
     try {
       setMetrics((await api(`/api/runs/${r}/metrics`)).metrics);
       setEvals((await api(`/api/runs/${r}/eval`)).evals);
     } catch (e: any) { setErr(e.message); }
   }
+  async function loadCam() {
+    if (!run) return;
+    setCamLoading(true); setErr("");
+    try {
+      setCam((await api(`/api/runs/${run}/gradcam?per_class=${camPerClass}`)).items);
+    } catch (e: any) { setErr(e.message); }
+    finally { setCamLoading(false); }
+  }
+  async function loadReliance() {
+    if (!run) return;
+    setRelLoading(true); setErr("");
+    try {
+      setReliance((await api(`/api/runs/${run}/reliance`)).items);
+    } catch (e: any) { setErr(e.message); }
+    finally { setRelLoading(false); }
+  }
   async function delRun(r: string) {
     if (!window.confirm(`Delete model "${r}"? (directory + weights will be removed)`)) return;
     try { await del(`/api/runs/${r}`); } catch (e: any) { setErr(e.message); return; }
-    setErr(""); if (run === r) { setRun(""); setMetrics([]); setEvals({}); }
+    setErr(""); if (run === r) { setRun(""); setMetrics([]); setEvals({}); setCam([]); setReliance([]); }
     refreshRuns();
   }
   const pct = (v: number | null | undefined) => (v == null ? "—" : (v * 100).toFixed(1) + " %");
@@ -89,6 +168,9 @@ export default function Training() {
     { name: "macro_recall", color: "#22c55e", data: metrics.map((m) => ({ x: m.epoch, y: m.val_macro_recall ?? 0 })) },
     { name: "board_acc", color: "#e4e4e7", data: metrics.map((m) => ({ x: m.epoch, y: m.val_board_acc ?? 0 })) },
   ];
+  const camLabel = cam.length ? "Recompute" : "Show heatmaps";
+  const camGroups: any[][] = groupByTrue(cam);
+  const relLabel = reliance.length ? "Recompute" : "Run test";
 
   return (
     <div className="space-y-4">
@@ -220,6 +302,31 @@ export default function Training() {
             })}
           </div>
         ) : <span className="text-sm text-zinc-500">No eval yet — <code>chesslab eval --run …</code></span>}
+      </Card>
+
+      <Card title="Grad-CAM — which pixels drove the decision">
+        <div className="flex flex-wrap items-end gap-3">
+          <Select label="Samples / class" value={String(camPerClass)} onChange={(e) => setCamPerClass(+e.target.value)}>
+            {[1, 2, 3, 5, 8].map((n) => <option key={n} value={n}>{n}</option>)}
+          </Select>
+          <Button onClick={loadCam} disabled={!run || camLoading}>
+            {camLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
+            {camLoading ? "Computing…" : camLabel}
+          </Button>
+          <span className="text-xs text-zinc-500">Test crops per class · each pair = original + heatmap; red = pixels most relevant to the predicted class.</span>
+        </div>
+        {camGroups.length > 0 && <CamGroups groups={camGroups} />}
+      </Card>
+
+      <Card title="Background reliance — does it read the piece or the board?">
+        <div className="flex items-center gap-3">
+          <Button onClick={loadReliance} disabled={!run || relLoading}>
+            {relLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
+            {relLoading ? "Testing…" : relLabel}
+          </Button>
+          <span className="text-xs text-zinc-500">Occludes piece (center) vs. board (border ring) and measures the confidence drop. <span className="text-emerald-500">green = piece</span> / <span className="text-rose-500">red = background</span>. Low green on a piece class = shortcut learning. (<code>empty</code> is expected to be red.)</span>
+        </div>
+        {reliance.length > 0 && <RelianceBars items={reliance} />}
       </Card>
 
       {status.log_tail && (

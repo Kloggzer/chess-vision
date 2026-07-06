@@ -55,6 +55,9 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
     ops += [T.ToTensor()]
     if train and getattr(policy, "noise_std", 0.0) > 0:
         ops += [T.RandomApply([_GaussianNoise(policy.noise_std)], p=0.5)]
+    if train and getattr(policy, "erase_p", 0.0) > 0:
+        # Cutout on the [0,1] tensor (before Normalize) so erased pixels = 0, a neutral value.
+        ops += [T.RandomErasing(p=policy.erase_p, scale=policy.erase_scale, value=0)]
     ops += [T.Normalize(mean, std)]
     return T.Compose(ops)
 

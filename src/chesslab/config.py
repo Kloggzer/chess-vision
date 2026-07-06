@@ -142,6 +142,11 @@ class AugmentPolicy:
     color_jitter: float = 0.1
     noise_std: float = 0.03       # additive Gaussian noise on the [0,1] tensor (p=0.5); breaks the
                                   # "too clean" render/synthetic look and makes more robust
+    # Random Erasing (Cutout): blanks a random rectangle after ToTensor (p=erase_p). Forces the
+    # model off background shortcuts — if the board around the piece is erased it MUST read the
+    # figure, and vice versa. Directly targets the "looks beside the piece" failure (esp. pawns).
+    erase_p: float = 0.25             # probability of erasing per sample (0 = off)
+    erase_scale: tuple[float, float] = (0.02, 0.15)   # erased area fraction range
     allow_flip: bool = False        # explicitly forbidden
     allow_rotate90: bool = False    # explicitly forbidden
 
