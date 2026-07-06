@@ -245,7 +245,7 @@ No code change.
 
 ## Stage C — decision latency (the only stage allowed to change behavior)
 
-Target: hand-leaves→commit < 1 s with CNN. Current chain: `motion_hold_s` 0.3 s +
+Target: hand-leaves→commit < 1 s with CNN. Current chain: `motion_hold_s` 0.2 s +
 `settle_frames` + confirmer + verify window, and `_verify_tick` observations are
 throttled by the shared worker cadence.
 

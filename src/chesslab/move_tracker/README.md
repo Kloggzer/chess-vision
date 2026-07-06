@@ -38,7 +38,7 @@ Override per run via CLI flag (`chesslab track --help` for the full list) or API
 |---|---|---|---|---|
 | `motion_thr` | `0.25` | Motion gate: **percent of pixels** whose brightness changed by > `motion_px_thr` (wobble-immune; the old mean-based metric is gone). | Stuck on "moving" (compression noise). | A slow hand slips under the gate. |
 | `motion_px_thr` | `20` | Per-pixel delta that counts as motion. | Video noise trips the gate. | Low-contrast hands are missed. |
-| `motion_hold_s` | `0.3` | Seconds the board must be motion-free (WALL TIME, re-armed on every motion frame) before detection resumes. Also the occlusion-latch expiry. | Residue commits right after the hand leaves. | Fast/blitz play misses moves. |
+| `motion_hold_s` | `0.2` | Seconds the board must be motion-free (WALL TIME, re-armed on every motion frame) before detection resumes. Also the occlusion-latch expiry. | Residue commits right after the hand leaves. | Fast/blitz play misses moves. |
 | `motion_recency_s` | `20` | A candidate only commits within N s of the last motion — old drift is not a move. | Legit moves rejected as "last motion Ns ago". | Drift ghosts within the window. |
 | `z_thr` | `3.0` | z-score (per-square noise model) above which a square counts as "changed". | Ghost squares from noise. | Low-contrast moves missed. |
 | `ambiguity_margin_ll` | `2.0` | Min LL gap best vs. second-best move; below → "ambiguous"/prior tie-break. | Similar moves get confused. | Too often "ambiguous". |

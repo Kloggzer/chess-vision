@@ -7,6 +7,7 @@ in the headless MoveTracker (FakeCapture pattern from test_move_tracker.py).
 from __future__ import annotations
 
 import chess
+import numpy as np
 import pytest
 
 from chesslab.move_tracker.cnn_recovery import (
@@ -338,7 +339,6 @@ def _identity_profile(board_size: int = 400):
 
 def _headless_tracker(monkeypatch, **kw):
     """MoveTracker without camera/real profile (pattern from test_move_tracker.py part 2)."""
-    import numpy as np
 
     from chesslab.move_tracker import tracker as trk
 
@@ -363,14 +363,13 @@ def test_tracker_cnn_recovery_commits_via_voting(monkeypatch):
                           "move": "e2e4", "agreement": 1.0})
     t.recovery = stub                       # lazy _ensure_cnn is never needed
     t._last_corners = [[0, 0], [820, 0], [820, 820], [0, 820]]
-    t._gray_buf.extend([None] * t.avg_frames)   # "stable enough" for the gate
+    [t._gray_buf.append(np.zeros((8, 8), np.uint8)) for _ in range(t.avg_frames)]   # "stable enough" for the gate
     t.state = "waiting"
     # mark stuck like the diff path would
     with t.lock:
         t._mark_stuck("no_legal_move")
         t._mark_stuck("no_legal_move")
 
-    import numpy as np
     frame = np.zeros((820, 820, 3), dtype=np.uint8)
     t._cnn_tick(frame)                      # Vote 1 → not yet committed
     assert t.history == []
@@ -391,13 +390,12 @@ def test_tracker_cnn_tick_respects_cooldown(monkeypatch):
                           "move": "e2e4", "agreement": 1.0})
     t.recovery = stub
     t._last_corners = [[0, 0], [820, 0], [820, 820], [0, 820]]
-    t._gray_buf.extend([None] * t.avg_frames)
+    [t._gray_buf.append(np.zeros((8, 8), np.uint8)) for _ in range(t.avg_frames)]
     import time as _time
     t._last_cnn_ts = _time.time()           # gerade erst beobachtet
     with t.lock:
         t._mark_stuck("no_legal_move")
         t._mark_stuck("no_legal_move")
-    import numpy as np
     t._cnn_tick(np.zeros((820, 820, 3), dtype=np.uint8))
     assert stub.observe_calls == 0          # Cooldown greift
 
@@ -420,11 +418,10 @@ def test_tracker_cnn_tick_discards_on_board_change(monkeypatch):
                             "move": "e2e4", "agreement": 1.0})
     t.recovery = stub
     t._last_corners = [[0, 0], [820, 0], [820, 820], [0, 820]]
-    t._gray_buf.extend([None] * t.avg_frames)
+    [t._gray_buf.append(np.zeros((8, 8), np.uint8)) for _ in range(t.avg_frames)]
     with t.lock:
         t._mark_stuck("no_legal_move")
         t._mark_stuck("no_legal_move")
-    import numpy as np
     t._cnn_tick(np.zeros((820, 820, 3), dtype=np.uint8))
     assert t.history == []                  # verworfen, nichts committet
 
@@ -437,9 +434,8 @@ def test_tracker_periodic_control_warns_without_guessing(monkeypatch):
                           "move": None, "agreement": 0.4})
     t.recovery = stub
     t._last_corners = [[0, 0], [820, 0], [820, 820], [0, 820]]
-    t._gray_buf.extend([None] * t.avg_frames)
+    [t._gray_buf.append(np.zeros((8, 8), np.uint8)) for _ in range(t.avg_frames)]
     t.state = "waiting"                     # quiet, NOT stuck → periodic trigger
-    import numpy as np
     t._cnn_tick(np.zeros((820, 820, 3), dtype=np.uint8))
     assert t.history == []
     assert t.cnn_status == "mismatch"
@@ -456,7 +452,6 @@ def test_resync_cnn_endpoint(monkeypatch):
 
     t_stub = _headless_tracker(monkeypatch, cnn_run="stub-run", confirm_frames=1)
     t_stub.recovery = _StubRecovery({"match": True, "conflicts": [], "move": None, "agreement": 1.0})
-    import numpy as np
     t_stub._last_frame = np.zeros((820, 820, 3), dtype=np.uint8)
     t_stub._last_corners = [[0, 0], [820, 0], [820, 820], [0, 820]]
 

@@ -518,7 +518,7 @@ class MoveTracker:
                  min_confident_board: int = 32, min_confident_recovery: int = 8,
                  motion_margin: float = 0.12, overhang: float = 0.0,
                  corner_jump_px: float = 6.0, motion_cooldown: int | None = None,
-                 motion_hold_s: float = 0.3,
+                 motion_hold_s: float = 0.2,
                  occlusion_color_thr: float = 1.5,
                  min_grid_line_coverage: float = 0.0,
                  reconnect_grace_s: float = 2.0,
@@ -691,7 +691,8 @@ class MoveTracker:
         self.last_move = None         # uci
         self.note = ""
         self._overlay_jpeg = None
-        self.viewers = 0              # connected MJPEG streams; encode only when > 0
+        self._last_viewer_ts = 0.0    # stamped by the MJPEG stream on every poll;
+                                      # encode only while a viewer was seen recently
         self._last_encode_ts = 0.0    # throttle overlay encode (not every loop under lock)
         self._last_loop_ts = 0.0      # for FPS estimation (EMA)
         self._last_frame = None       # last raw frame (for toggleable alignment image)
@@ -991,7 +992,7 @@ class MoveTracker:
                             self.state = "occluded" if occluded_now else "waiting"
 
                     # Throttle overlay encode (JPEG ~5–15 ms): keeps the detection hot-path clear.
-                    if self.viewers > 0 and now - self._last_encode_ts >= 0.08:
+                    if now - self._last_viewer_ts < 2.0 and now - self._last_encode_ts >= 0.08:
                         self._overlay_jpeg = self._encode_overlay(warped)
                         self._last_encode_ts = now
 
@@ -2312,6 +2313,13 @@ class MoveTracker:
         """Thread-safe snapshot of the current position FEN (for the Stockfish analyzer)."""
         with self.lock:
             return self.board.fen()
+
+    def mark_viewer(self) -> None:
+        """Called by the MJPEG stream on every poll: keeps the overlay encode alive
+        while ANY viewer is connected — restart-proof (the stream re-resolves the
+        current tracker per iteration, so a tracker created after the browser
+        connected still gets the heartbeat; a bound counter did not)."""
+        self._last_viewer_ts = time.time()
 
     def overlay_jpeg(self):
         with self.lock:

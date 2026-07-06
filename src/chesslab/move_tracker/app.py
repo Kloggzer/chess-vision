@@ -208,12 +208,18 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
     @app.get("/warped.mjpg")
     def warped():
         def gen():
+            # Viewer heartbeat: the tracker only pays for the JPEG encode while a stream
+            # is actually polling (headless replay/idle tracking skip it). Stamped on the
+            # CURRENT tracker every iteration, so a tracker started AFTER the browser
+            # connected still receives it (a connection-bound counter would not).
             boundary = b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
             while True:
                 t = _STATE.get("tracker")
-                jpg = t.overlay_jpeg() if t is not None else None
-                if jpg:
-                    yield boundary + jpg + b"\r\n"
+                if t is not None:
+                    t.mark_viewer()
+                    jpg = t.overlay_jpeg()
+                    if jpg:
+                        yield boundary + jpg + b"\r\n"
                 time.sleep(0.05)
         return StreamingResponse(gen(), media_type="multipart/x-mixed-replace; boundary=frame")
 
