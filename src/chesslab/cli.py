@@ -381,6 +381,8 @@ def train_cmd(
     scales: str | None = typer.Option(None, "--scales", help="Multi-Scale-Training: Komma-Liste von Eingabegrößen "
                                       "(z.B. 64,96,128). Pro Batch wird zufällig eine gewählt → ein Modell für alle "
                                       "Auflösungen (size-agnostisch, für günstige Low-Res-Inferenz)."),
+    erase_p: float | None = typer.Option(None, "--erase-p", help="Override RandomErasing/Cutout prob (anti-shortcut)."),
+    bg_p: float | None = typer.Option(None, "--bg-p", help="Override background-randomization prob on occupied crops."),
 ) -> None:
     """Train per-square CNN on the ROCm GPU (board accuracy = checkpoint metric)."""
     from .training.train import run_train
@@ -389,7 +391,7 @@ def train_cmd(
     raise typer.Exit(run_train(backbone=backbone, epochs=epochs, batch_size=batch_size, lr=lr,
                                no_amp=no_amp, seed=seed, out=out, patience=patience,
                                num_workers=num_workers, norm=norm, dataset=dataset, resume=resume,
-                               head=head, scales=scale_list))
+                               head=head, scales=scale_list, erase_p=erase_p, bg_p=bg_p))
 
 
 @app.command("eval")
@@ -476,7 +478,7 @@ def track_cmd(
     confirm_frames: int | None = typer.Option(None, "--confirm-frames",
                                               help="Confirmation frames per move (default: 1 with CNN, otherwise 2)."),
     settle_frames: int | None = typer.Option(None, "--settle-frames",
-                                             help="Settle frames before detection (default: 2 with CNN, otherwise 4)."),
+                                             help="Settle frames before detection (default: 3 with CNN, otherwise 4)."),
     max_changed: int = typer.Option(config.TRACK_DEFAULTS["max_changed"], "--max-changed",
                                     help="Maximum changed squares (gate)."),
     avg_frames: int | None = typer.Option(None, "--avg-frames",
@@ -486,6 +488,20 @@ def track_cmd(
                                         help="Motion ROI beyond board edge (fraction of board edge)."),
     overhang: float = typer.Option(config.TRACK_DEFAULTS["overhang"], "--overhang",
                                    help="Extend diff cells toward back rank (fraction of cell)."),
+    motion_cooldown: int = typer.Option(config.TRACK_DEFAULTS["motion_cooldown"], "--motion-cooldown",
+                                        help="Stable frames to keep detection blocked after a motion spike."),
+    occlusion_color_thr: float = typer.Option(config.TRACK_DEFAULTS["occlusion_color_thr"],
+                                              "--occlusion-color-thr",
+                                              help="Color-outlier occlusion veto: Mahalanobis sigma vs board gamut (0=off)."),
+    min_grid_line_coverage: float = typer.Option(config.TRACK_DEFAULTS["min_grid_line_coverage"],
+                                                 "--min-grid-line-coverage",
+                                                 help="Grid-line occlusion gate: min visible-line fraction 0..1 (0=off)."),
+    reconnect_grace_s: float = typer.Option(config.TRACK_DEFAULTS["reconnect_grace_s"],
+                                            "--reconnect-grace",
+                                            help="Auto-reattach the camera after this many seconds of no frames (0=off)."),
+    diff_clahe_clip: float = typer.Option(config.TRACK_DEFAULTS["diff_clahe_clip"],
+                                          "--diff-clahe-clip",
+                                          help="CLAHE contrast boost on the diff image for low-contrast moves (0=off, try 2-3)."),
     cnn_run: str = typer.Option(config.default_tracker_run() or "", "--cnn-run",
                                 help="Model run for CNN verification/recovery ('' = off)."),
     cnn_conf_thr: float = typer.Option(config.TRACK_DEFAULTS["cnn_conf_thr"], "--cnn-conf-thr",
@@ -529,6 +545,11 @@ def track_cmd(
         "max_changed": max_changed, "avg_frames": avg_frames,
         "live_align": not no_live_align,
         "motion_margin": motion_margin, "overhang": overhang,
+        "motion_cooldown": motion_cooldown,
+        "occlusion_color_thr": occlusion_color_thr,
+        "min_grid_line_coverage": min_grid_line_coverage,
+        "reconnect_grace_s": reconnect_grace_s,
+        "diff_clahe_clip": diff_clahe_clip,
         "cnn_run": (cnn_run or None),   # '' or missing run on disk -> feature silently off
         "cnn_conf_thr": cnn_conf_thr, "device": device, "census_thr": census_thr,
         "cnn_verify": cnn_verify, "verify_window": verify_window,
