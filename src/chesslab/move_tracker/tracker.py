@@ -105,11 +105,6 @@ class _RunningMean:
         self._sum = None
         self._count = 0
 
-    def extend(self, items) -> None:
-        """Fill buffer without accumulating (test compatibility)."""
-        for item in items:
-            self._buf.append(item)
-
     def append(self, frame: np.ndarray) -> None:
         f64 = frame.astype(np.float64)
         if self._sum is None:
