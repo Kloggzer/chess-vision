@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import random
 
+import numpy as np
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
@@ -62,11 +63,42 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
     return T.Compose(ops)
 
 
+def randomize_border_bg(img: Image.Image, keep_w: float, keep_h: float) -> Image.Image:
+    """Replace the border ring (the board) with a random feathered background, keep the centered box.
+
+    Mask-free class-conditional background randomization (caller applies it only to occupied crops).
+    The centered box (keep_w x keep_h of the crop) preserves the piece; everything outside is blended
+    toward a random color + mild gradient, with a soft (blurred) edge so the model can't latch onto a
+    hard rectangle. Forces the type head off the board and onto the figure.
+    """
+    from PIL import ImageFilter
+
+    w, h = img.size
+    arr = np.asarray(img).astype(np.float32)
+    kw, kh = int(w * keep_w), int(h * keep_h)
+    x0, y0 = (w - kw) // 2, (h - kh) // 2
+    m = np.zeros((h, w), np.float32)
+    m[y0:y0 + kh, x0:x0 + kw] = 1.0
+    feather = max(2, w // 12)
+    m = np.asarray(Image.fromarray((m * 255).astype(np.uint8))
+                   .filter(ImageFilter.GaussianBlur(radius=feather))).astype(np.float32) / 255.0
+    m = m[..., None]
+    base = np.array([random.uniform(0, 255) for _ in range(3)], np.float32)
+    grad = np.linspace(random.uniform(-30, 30), random.uniform(-30, 30), h)[:, None, None]
+    bg = np.clip(base[None, None, :] + grad, 0, 255)
+    out = arr * m + bg * (1.0 - m)
+    return Image.fromarray(out.astype(np.uint8))
+
+
 class SquareDataset(Dataset):
-    def __init__(self, rows, classes, transform) -> None:
+    def __init__(self, rows, classes, transform, bg_randomize: bool = False,
+                 policy=config.AUGMENT) -> None:
         self.rows = rows
         self.transform = transform
         self.c2i = class_to_idx(classes)
+        # Class-conditional background randomization (train only). See config.AugmentPolicy.bg_*.
+        self.bg_randomize = bg_randomize and getattr(policy, "bg_p", 0.0) > 0
+        self.policy = policy
 
     def __len__(self) -> int:
         return len(self.rows)
@@ -74,6 +106,8 @@ class SquareDataset(Dataset):
     def __getitem__(self, i):
         r = self.rows[i]
         img = Image.open(r["path"]).convert("RGB")
+        if self.bg_randomize and r["label"] != "empty" and random.random() < self.policy.bg_p:
+            img = randomize_border_bg(img, self.policy.bg_keep_w, self.policy.bg_keep_h)
         x = self.transform(img)
         y = self.c2i[r["label"]]
         return x, y

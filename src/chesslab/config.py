@@ -152,6 +152,14 @@ class AugmentPolicy:
     # figure, and vice versa. Directly targets the "looks beside the piece" failure (esp. pawns).
     erase_p: float = 0.25             # probability of erasing per sample (0 = off)
     erase_scale: tuple[float, float] = (0.02, 0.15)   # erased area fraction range
+    # Class-conditional background randomization: for OCCUPIED crops only (never `empty`), replace
+    # the border ring (= the board) with a random feathered background, keeping the centered piece.
+    # Fractional (bg_p) so board-vs-random does not correlate with occupancy. Mask-free (works on
+    # real crops too, which have no piece mask). Directly attacks the bN=8%-background shortcut:
+    # among occupied squares the board carries no piece-type info → the type head must read the piece.
+    bg_p: float = 0.35                # prob per occupied crop (0 = off)
+    bg_keep_w: float = 0.60           # centered box width kept (piece region), * crop
+    bg_keep_h: float = 0.90           # centered box height kept (taller — pieces extend up)
     allow_flip: bool = False        # explicitly forbidden
     allow_rotate90: bool = False    # explicitly forbidden
 
@@ -314,6 +322,12 @@ class Paths:
     def corrections(self) -> Path:
         """Human label corrections (web relabel UI); applied during re-slice."""
         return self.manifests / "corrections.jsonl"
+
+    @property
+    def tracker_feedback(self) -> Path:
+        """Move-tracker good/bad feedback: per-decision JSONL + warped board PNGs. A
+        hard-negative dataset for CNN retraining / threshold tuning (created on demand)."""
+        return self.root / "tracker_feedback"
 
     def all(self) -> list[Path]:
         return [self.calibration, self.sessions, self.squares, self.manifests, self.models]
