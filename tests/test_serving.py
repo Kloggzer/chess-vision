@@ -385,3 +385,88 @@ def test_model_classes(tmp_path):
 
     cls = serving.model_classes(run_dir)
     assert cls == ["empty", "wK", "bK"]
+
+
+# ---------------------------------------------------------------------------
+# Test 8: vectorized crop preprocessing oracle (B4)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(pytest.importorskip("torch", reason="torch nicht installiert") is None,
+                    reason="torch nicht installiert")
+def test_fast_path_equals_pil_oracle():
+    """B4 oracle: fast-path batch tensor == PIL-path batch tensor for out_size crops."""
+    import torch
+    from PIL import Image
+
+    from chesslab.training.torch_data import build_transform
+
+    rng = np.random.RandomState(42)
+    out_size = (96, 128)  # (W, H) — config convention
+    out_h, out_w = out_size[1], out_size[0]
+    crops = [rng.randint(0, 256, (out_h, out_w, 3), dtype=np.uint8) for _ in range(32)]
+
+    # PIL path (current behaviour: build_transform for eval)
+    tf = build_transform(out_size, train=False)
+    pil_batch = torch.stack([tf(Image.fromarray(c[..., ::-1].copy())) for c in crops])
+
+    # Numpy fast path
+    stacked = np.stack([c[..., ::-1].copy() for c in crops])  # (N, H, W, 3) RGB uint8
+    fast_batch = torch.from_numpy(stacked).permute(0, 3, 1, 2).contiguous()
+    fast_batch = fast_batch.float().div_(255)
+    mean_t = torch.tensor(config.NORMALIZE_MEAN, dtype=torch.float32).view(1, 3, 1, 1)
+    std_t = torch.tensor(config.NORMALIZE_STD, dtype=torch.float32).view(1, 3, 1, 1)
+    fast_batch = (fast_batch - mean_t) / std_t
+
+    assert torch.allclose(pil_batch, fast_batch, atol=1e-6), \
+        f"max diff: {(pil_batch - fast_batch).abs().max().item()}"
+
+
+@pytest.mark.skipif(pytest.importorskip("torch", reason="torch nicht installiert") is None,
+                    reason="torch nicht installiert")
+def test_mixed_size_falls_back_to_pil(tmp_path):
+    """One off-size crop -> PIL fallback path produces same predictions as pre-sized."""
+    import torch
+
+    from chesslab.training.model import build_model
+
+    run_dir = tmp_path / "run_t"
+    run_dir.mkdir()
+    backbone = "smallcnn"
+    classes = config.CLASSES
+    out_size = (96, 128)  # (W, H)
+    out_h, out_w = out_size[1], out_size[0]
+
+    model = build_model(backbone, len(classes), norm="batchnorm", head="combined", classes=classes)
+    torch.save(model.state_dict(), str(run_dir / "best.pt"))
+    (run_dir / "config.json").write_text(json.dumps({
+        "backbone": backbone,
+        "classes": classes,
+        "out_size": [96, 128],
+        "norm": "batchnorm",
+        "head": "combined",
+        "variant": {"geometry": "warp", "photometry": "none", "piece_height_cells": 1.6},
+    }), encoding="utf-8")
+
+    serving.clear_cache()
+    rng = np.random.RandomState(7)
+
+    # Create 8 crops: 7 at out_size, 1 at a different size
+    small_crop = rng.randint(0, 256, (64, 64, 3), dtype=np.uint8)
+    same_size_crops = [rng.randint(0, 256, (out_h, out_w, 3), dtype=np.uint8) for _ in range(7)]
+    mixed_crops = same_size_crops + [small_crop]
+
+    # Also create the same crops but with the small one manually resized to out_size
+    import cv2
+    resized_small = cv2.resize(small_crop, out_size, interpolation=cv2.INTER_LINEAR)
+    all_sized_crops = same_size_crops + [resized_small]
+
+    preds_mixed = serving.predict_arrays(run_dir, mixed_crops, device="cpu")
+    preds_sized = serving.predict_arrays(run_dir, all_sized_crops, device="cpu")
+
+    assert len(preds_mixed) == 8
+    assert len(preds_sized) == 8
+    # Predictions should match (resize semantics identical)
+    for i, (pm, ps) in enumerate(zip(preds_mixed, preds_sized, strict=False)):
+        assert pm["pred_label"] == ps["pred_label"], \
+            f"Crop {i}: mixed={pm['pred_label']} sized={ps['pred_label']}"
