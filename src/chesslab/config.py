@@ -45,11 +45,16 @@ class CropDefaults:
     cameras flat enough that 3D pieces lean into the rank behind; `crop_square` keeps the
     aspect ratio (letterbox) so any pad value stays distortion-free. Overridable per `slice`."""
 
-    pad_up: float = 0.0      # ADDITIONAL expansion only upward (3D lean), * cell
+    pad_up: float = 0.35     # ADDITIONAL expansion only upward (3D lean), * cell. Non-zero: the
+                             # camera is oblique enough that tall pieces (N/B/R crown, knight ears)
+                             # clip at the cell's top edge — exactly the type-discriminative part.
+                             # Recovers it so the type head gets the silhouette it needs.
     pad_side: float = 0.05   # symmetric expansion in ALL 4 directions, * cell (5% = more piece
                              # visible instead of being cut off hard at the green square border)
     out_w: int = 128
-    out_h: int = 128         # square: matches the square board cell -> no stretching
+    out_h: int = 176         # TALLER than wide to match the pad_up box aspect
+                             # ((1+pad_up+2*pad_side)/(1+2*pad_side) ≈ 1.32) — keeps the piece at full
+                             # scale instead of letterboxing it smaller. AdaptiveAvgPool handles non-square.
 
 
 CROP = CropDefaults()
@@ -400,10 +405,11 @@ DEFAULT_WEB_PORT: int = 8000
 DEFAULT_TRACK_HOST: str = "127.0.0.1"
 DEFAULT_TRACK_PORT: int = 8001
 
-# Default model for the Move-Tracker CNN recovery (best existing model per
-# docs/architecture-review/training-accuracy-improvements.md §5: val_acc 0.84, combined-head,
-# photometry none — collapsed to binary occupancy robustly). None/"missing on disk" ⇒ feature off.
-MOVE_TRACKER_DEFAULT_RUN: str = "run-20260626-163320"
+# Default model for the Move-Tracker CNN recovery/verify. run-20260706-045056
+# (mobilenet_v3_small, real-all): ~99.99% on `empty`, ~88% per-square, ~40% piece type — an
+# excellent OCCUPANCY detector, which is exactly what the occupancy-based pre-commit verify
+# needs. None/"missing on disk" ⇒ feature off (default_tracker_run falls back to newest run).
+MOVE_TRACKER_DEFAULT_RUN: str = "run-20260706-045056"
 
 
 def list_model_runs() -> list[dict]:
@@ -447,6 +453,9 @@ TRACK_DEFAULTS: dict = {
     "motion_margin": 0.12,         # Motion ROI beyond the board edge (fraction of board edge)
     "overhang": 0.0,               # Extend diff cells upward (fraction of cell; 0 = off)
     "corner_jump_px": 6.0,         # Warp corner jump ⇒ base truth geometrically invalid → reacquire
+    "motion_cooldown": 3,          # Stable frames to keep detection blocked AFTER a motion spike
+    "occlusion_color_thr": 4.0,    # Color-outlier veto: Mahalanobis sigma vs board gamut (0=off)
+    "min_grid_line_coverage": 0.0, # Grid-line occlusion gate: min visible-line fraction (0=off)
 }
 
 

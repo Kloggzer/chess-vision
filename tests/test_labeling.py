@@ -98,7 +98,7 @@ def test_slice_start_position(tmp_path):
     e1 = next(r for r in rows if r["square"] == "e1")
     assert e1["label"] == "wK"
     assert e1["square_color"] == "dark"
-    assert e1["out_size"] == [128, 128]   # square cell (board_size/8), no aspect distortion
+    assert e1["out_size"] == [128, 176]   # config default: taller-than-wide box (pad_up captures piece top)
     # crop file actually written, ImageFolder-style
     assert (squares_root / "wK" / "sess1_0000_e1.png").exists()
 
@@ -108,7 +108,10 @@ def test_crop_square_is_square_and_undistorted():
     from chesslab.calibration import square_center
     from chesslab.labeling import crop_square
 
-    prof = _identity_profile(800)              # config-Defaults: pad 0, out 128x128 (quadratisch)
+    prof = _identity_profile(800)
+    # Pin a zero-pad square crop: this tests the pure undistortion invariant, independent of the
+    # config default (which now uses pad_up>0 + a taller out_size to capture the piece top).
+    prof.crop = CropParams(cell=800 / 8.0, pad_up=0.0, pad_side=0.0, out_size=(128, 128))
     board = np.zeros((800, 800, 3), dtype=np.uint8)
     cx, cy = square_center("e4", prof)
     cv2.circle(board, (cx, cy), 30, (255, 255, 255), -1)
