@@ -37,6 +37,10 @@ app.add_typer(experiment_app, name="experiment")
 synth_app = typer.Typer(help="Synthetic data pipeline (Blender renderer).", no_args_is_help=True)
 app.add_typer(synth_app, name="synth")
 
+feedback_app = typer.Typer(help="Move-tracker undo=bad feedback → hard-negative training crops.",
+                           no_args_is_help=True)
+app.add_typer(feedback_app, name="track-feedback")
+
 
 @app.callback()
 def _root() -> None:
@@ -458,7 +462,10 @@ def track_cmd(
     host: str = typer.Option(config.DEFAULT_TRACK_HOST, "--host"),
     port: int = typer.Option(config.DEFAULT_TRACK_PORT, "--port"),
     motion_thr: float = typer.Option(config.TRACK_DEFAULTS["motion_thr"], "--motion-thr",
-                                     help="Motion threshold for motion gating."),
+                                     help="Motion gate: percent of strongly-changed pixels."),
+    motion_px_thr: float = typer.Option(config.TRACK_DEFAULTS["motion_px_thr"], "--motion-px-thr",
+                                        help="Per-pixel brightness delta that counts as motion "
+                                             "(ignores desk-wobble/jitter sub-threshold shifts)."),
     z_thr: float = typer.Option(config.TRACK_DEFAULTS["z_thr"], "--z-thr",
                                 help="z-score threshold above which a square counts as changed."),
     ambiguity_margin_ll: float = typer.Option(config.TRACK_DEFAULTS["ambiguity_margin_ll"],
@@ -488,8 +495,8 @@ def track_cmd(
                                         help="Motion ROI beyond board edge (fraction of board edge)."),
     overhang: float = typer.Option(config.TRACK_DEFAULTS["overhang"], "--overhang",
                                    help="Extend diff cells toward back rank (fraction of cell)."),
-    motion_cooldown: int = typer.Option(config.TRACK_DEFAULTS["motion_cooldown"], "--motion-cooldown",
-                                        help="Stable frames to keep detection blocked after a motion spike."),
+    motion_hold_s: float = typer.Option(config.TRACK_DEFAULTS["motion_hold_s"], "--motion-hold",
+                                        help="Seconds the board must be motion-free before detection resumes."),
     occlusion_color_thr: float = typer.Option(config.TRACK_DEFAULTS["occlusion_color_thr"],
                                               "--occlusion-color-thr",
                                               help="Color-outlier occlusion veto: Mahalanobis sigma vs board gamut (0=off)."),
@@ -502,6 +509,11 @@ def track_cmd(
     diff_clahe_clip: float = typer.Option(config.TRACK_DEFAULTS["diff_clahe_clip"],
                                           "--diff-clahe-clip",
                                           help="CLAHE contrast boost on the diff image for low-contrast moves (0=off, try 2-3)."),
+    require_motion_for_move: bool = typer.Option(config.TRACK_DEFAULTS["require_motion_for_move"],
+                                                 "--require-motion/--no-require-motion",
+                                                 help="Only commit a move if a hand entered since the last reference (suppresses drift/light 'moves')."),
+    motion_recency_s: float = typer.Option(config.TRACK_DEFAULTS["motion_recency_s"], "--motion-recency",
+                                           help="Commit only within N seconds of the last motion (drift at high stable count is not a move)."),
     cnn_run: str = typer.Option(config.default_tracker_run() or "", "--cnn-run",
                                 help="Model run for CNN verification/recovery ('' = off)."),
     cnn_conf_thr: float = typer.Option(config.TRACK_DEFAULTS["cnn_conf_thr"], "--cnn-conf-thr",
@@ -518,6 +530,9 @@ def track_cmd(
     cnn_margin_squares: int = typer.Option(config.TRACK_DEFAULTS["cnn_margin_squares"],
                                            "--cnn-margin-squares",
                                            help="Recovery margin in squares."),
+    recovery_max_plies: int = typer.Option(config.TRACK_DEFAULTS["recovery_max_plies"],
+                                           "--recovery-max-plies",
+                                           help="CNN deep recovery: max half-moves the conflict-guided search may bridge."),
     min_confident_board: int = typer.Option(config.TRACK_DEFAULTS["min_confident_board"],
                                             "--min-confident-board",
                                             help="Reliable squares for whole-board match."),
@@ -537,7 +552,7 @@ def track_cmd(
     if change_thr is not None:
         print("Note: --change-thr is deprecated (Spec 10) — please use --z-thr.")
     tracker_kwargs = {
-        "motion_thr": motion_thr, "z_thr": z_thr,
+        "motion_thr": motion_thr, "motion_px_thr": motion_px_thr, "z_thr": z_thr,
         "ambiguity_margin_ll": ambiguity_margin_ll, "reanchor_ll_floor": reanchor_ll_floor,
         "nudge_timeout_s": nudge_timeout_s, "drift_window_s": drift_window_s,
         "use_prior": not no_prior,
@@ -545,20 +560,50 @@ def track_cmd(
         "max_changed": max_changed, "avg_frames": avg_frames,
         "live_align": not no_live_align,
         "motion_margin": motion_margin, "overhang": overhang,
-        "motion_cooldown": motion_cooldown,
+        "motion_hold_s": motion_hold_s,
         "occlusion_color_thr": occlusion_color_thr,
         "min_grid_line_coverage": min_grid_line_coverage,
         "reconnect_grace_s": reconnect_grace_s,
         "diff_clahe_clip": diff_clahe_clip,
+        "require_motion_for_move": require_motion_for_move, "motion_recency_s": motion_recency_s,
         "cnn_run": (cnn_run or None),   # '' or missing run on disk -> feature silently off
         "cnn_conf_thr": cnn_conf_thr, "device": device, "census_thr": census_thr,
         "cnn_verify": cnn_verify, "verify_window": verify_window,
-        "cnn_min_agreement": cnn_min_agreement, "cnn_margin_squares": cnn_margin_squares,
+        "cnn_min_agreement": cnn_min_agreement, "cnn_margin_squares": cnn_margin_squares, "recovery_max_plies": recovery_max_plies,
         "min_confident_board": min_confident_board, "min_confident_recovery": min_confident_recovery,
         "cnn_cooldown_s": cnn_cooldown_s, "cnn_check_interval_s": cnn_check_interval_s,
     }
     raise typer.Exit(run_track(host=host, port=port, default_profile=profile,
                                default_source=source, tracker_kwargs=tracker_kwargs))
+
+
+@feedback_app.command("ingest")
+def track_feedback_ingest(
+    assume_ghost: bool = typer.Option(True, "--assume-ghost/--no-assume-ghost",
+                                      help="Label undone frames from fen_before (true only if the "
+                                           "undone move was a GHOST, not a mis-identified real move)."),
+    visualize: bool = typer.Option(False, "--visualize",
+                                   help="Also write per-record label montages to review/ for eyeballing."),
+    profile: str = typer.Option("phone", "--profile",
+                                help="Fallback profile for records without one (crop geometry)."),
+) -> None:
+    """Ingest UNDO=bad feedback into hard-negative crops appended to the squares manifest.
+
+    These are the squares the recognizer got wrong. After ingesting, rebuild the dataset
+    (`chesslab dataset ...`) and retrain; the crops carry session id 'track-feedback'. Verify with
+    --visualize first — labels assume the undone move was a ghost (no piece actually moved)."""
+    from .track_feedback import ingest_feedback
+    res = ingest_feedback(assume_ghost=assume_ghost, visualize=visualize, default_profile=profile)
+    if not res.get("ok"):
+        print(f"[FAIL] {res.get('error')}")
+        raise typer.Exit(1)
+    print(f"[OK] ingested {res['records']} undone move(s) -> {res['crops']} crops "
+          f"(session '{res['session_id']}').")
+    if res.get("classes"):
+        print("      per class: " + ", ".join(f"{k}={v}" for k, v in sorted(res["classes"].items())))
+    if res.get("review_dir"):
+        print(f"      review montages: {res['review_dir']}")
+    raise typer.Exit(0)
 
 
 @synth_app.command("render")

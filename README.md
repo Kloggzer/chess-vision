@@ -7,6 +7,9 @@ Labels are not annotated by hand — they are derived from the known game state 
 
 Project status: **alpha**. See [`specs/`](specs/) for the staged specifications and
 [`docs/architecture-review/`](docs/architecture-review/) for the architecture documentation.
+The experimental **move tracker** (live move detection via frame differencing + legality;
+details in [`src/chesslab/move_tracker/README.md`](src/chesslab/move_tracker/README.md))
+runs on a separate web UI at `http://127.0.0.1:8001`.
 
 ## Install
 
@@ -272,7 +275,36 @@ keyboard (single OpenCV key stream). `pyperclip` is optional (used only for `g` 
 
 ```bash
 uv run pytest -q        # full test suite (no GPU/camera needed)
+```
 
+```
+........................................................................ [ 24%]
+........................................................................ [ 48%]
+........................................................................ [ 72%]
+........................................................................ [ 96%]
+............                                                             [100%]
+
+=============================== warnings summary ===============================
+  tests/test_cnn_recovery.py::test_resync_cnn_endpoint
+    Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+300 passed, 3 deselected, 1 warning in 11.26s
+```
+
+```bash
+# lint (2 known warnings): the lint gate tracks ongoing issues
+uv run ruff check src tests synth
+```
+
+```
+src\chesslab\web\routers\collect.py:167:41: F821 Undefined name `config`
+src\chesslab\web\routers\sessions.py:19:5: F841 Local variable `by_session` is
+assigned to but never used
+Found 2 errors.
+```
+
+```bash
 # Frontend (Vite + React)
 cd src/chesslab/web/frontend
 npm run lint            # ESLint (flat config, TS + React)
@@ -280,7 +312,6 @@ npm run knip            # dead-code / unused-export detection
 npm run build           # verify no regressions
 
 # Python
-uv run ruff check src tests synth             # lint (E, F, I, UP, B, C4)
 uv run ruff format --check src tests synth    # formatting diff
 uv run vulture src --min-confidence 80        # dead-code analysis (heuristic)
 ```

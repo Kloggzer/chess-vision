@@ -15,6 +15,7 @@
   button.primary { background: #0ea5e9; border-color: #0ea5e9; color: #04121b; font-weight: 600; }
   button:hover { border-color: #0ea5e9; }
   main { display: grid; grid-template-columns: minmax(0, 520px) 520px; gap: 16px; padding: 16px; align-items: start; }
+  .col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   .card { background: #111114; border: 1px solid #27272a; border-radius: 12px; padding: 12px; }
   .card h2 { font-size: 13px; color: #a1a1aa; margin: 0 0 8px; font-weight: 500; }
   img.feed { width: 100%; max-width: 480px; border-radius: 8px; border: 1px solid #27272a; display: block; }
@@ -28,43 +29,84 @@
   table.moves { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
   table.moves td { padding: 2px 8px; border-top: 1px solid #1f1f23; }
   table.moves td.n { color: #71717a; width: 32px; }
+  .mv { position: relative; cursor: help; border-bottom: 1px dotted #52525b; }
+  .mv .tip { display: none; position: absolute; top: 130%; left: 0; z-index: 20;
+             width: 260px; background: #18181b; border: 1px solid #3f3f46; border-radius: 6px;
+             padding: 6px 9px; font-size: 11px; line-height: 1.5; color: #d4d4d8;
+             white-space: normal; box-shadow: 0 4px 12px rgba(0,0,0,.5); }
+  .mv:hover .tip { display: block; }
   code { color: #93c5fd; word-break: break-all; }
   .muted { color: #71717a; font-size: 12px; }
-  .card.debug { grid-column: 1 / -1; }
-  .dbg { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px 20px; }
+  .dbg { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px 18px; }
   .dbg h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: #71717a; margin: 4px 0 6px; }
   .kv { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; border-top: 1px solid #1f1f23; }
   .kv span:first-child { color: #a1a1aa; white-space: nowrap; }
   .kv span.dv { font-variant-numeric: tabular-nums; color: #e4e4e7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 65%; text-align: right; }
   .kv b.ok { color: #34d399; } .kv b.bad { color: #f87171; } .kv b.warn { color: #fbbf24; }
+  /* Popover: a <details> whose body floats over the layout instead of pushing it. */
+  details.pop { position: relative; }
+  details.pop > summary { list-style: none; cursor: pointer; display: inline-block;
+    background: #18181b; border: 1px solid #3f3f46; border-radius: 8px; padding: 6px 10px; }
+  details.pop > summary::-webkit-details-marker { display: none; }
+  details.pop[open] > summary { border-color: #0ea5e9; }
+  details.pop > summary:hover { border-color: #0ea5e9; }
+  details.pop > .popbody { position: absolute; z-index: 20; margin-top: 6px; left: 0;
+    background: #111114; border: 1px solid #3f3f46; border-radius: 10px; padding: 12px;
+    display: flex; flex-direction: column; gap: 8px; min-width: 260px;
+    box-shadow: 0 8px 30px rgba(0,0,0,.5); }
+  details.pop > .popbody label { display: flex; flex-direction: column; gap: 4px; }
+  details.pop > .popbody input, details.pop > .popbody select { width: 100%; box-sizing: border-box; }
+  details.dbgWrap > summary { cursor: pointer; color: #a1a1aa; font-size: 13px; font-weight: 500; }
 </style>
 </head>
 <body>
 <header>
   <h1>♟ Move-Tracker</h1>
-  <label class="muted">Profile <input id="profile" value="phone" style="width:90px" /></label>
-  <label class="muted">Source <input id="source" class="url" value="https://<PHONE-IP>:4444/video/m.jpeg" /></label>
-  <label class="muted">CNN <select id="cnnRun" title="Model run for CNN recovery/verify (off = frame-diff only)"></select></label>
-  <button class="primary" onclick="start()">Start</button>
-  <button onclick="reset()">Reset position (reference)</button>
+  <details id="setup" class="pop" open>
+    <summary>⚙ Setup</summary>
+    <div class="popbody">
+      <label class="muted">Profile <input id="profile" value="phone" /></label>
+      <label class="muted">Source <input id="source" value="https://<PHONE-IP>:4444/video/m.jpeg" /></label>
+      <label class="muted">CNN model <select id="cnnRun" title="off = frame-diff only"></select></label>
+      <div style="border-top:1px solid #27272a; margin:4px 0; padding-top:8px">
+        <div class="muted" style="margin-bottom:6px">Rejection sensitivity (higher = crank shadow/hand)</div>
+        <label class="muted">Shadow census <input id="censusThr" type="number" step="1" value="70"
+               title="Higher ⇒ more squares vetoed as shadow" /></label>
+        <label class="muted">Hand/occlusion <input id="occThr" type="number" step="0.5" value="3"
+               title="Color-outlier sigma — LOWER = more sensitive (0 = off)" /></label>
+        <label class="muted">Min grid lines <input id="gridCov" type="number" step="0.05" min="0" max="1" value="0.5"
+               title="Skip detection if fewer grid lines visible (hand covering board); 0 = off" /></label>
+      </div>
+      <button class="primary" onclick="start()">Start tracker</button>
+    </div>
+  </details>
+  <button onclick="reset()" title="Re-capture the reference from the current board">Reset</button>
   <button onclick="undo()">Undo</button>
-  <button onclick="toggleCalib()" id="calibBtn">Camera alignment</button>
+  <button onclick="toggleRecord()" id="recBtn"
+          title="Recording auto-starts on the first move; click to END the session gracefully (finalize for slice)">● Record</button>
+  <button onclick="reattach()" id="reattachBtn" title="Rebuild the camera feed without restarting the session">⟳ Reattach</button>
   <span id="status" class="badge waiting">—</span>
+  <span id="camDown" class="badge moving" style="display:none">CAMERA DOWN</span>
   <span id="cnn" class="badge" style="display:none">CNN</span>
   <span id="note" class="note"></span>
 </header>
 <main>
-  <div class="card">
-    <h2>Live camera — what the computer BELIEVES (piece letters + last move)</h2>
-    <img class="feed" src="/warped.mjpg" alt="Live" />
-    <div class="muted" style="margin-top:6px">
-      <span style="color:#ff2fff">■</span> detected change &nbsp;·&nbsp;
-      <span style="color:#00ffff">■</span> discarded as shadow &nbsp;·&nbsp;
-      <span style="color:#ffd700">■</span> last move
+  <div class="col">
+    <div class="card">
+      <h2>Live — what the tracker believes</h2>
+      <img class="feed" src="/warped.mjpg" alt="Live" />
+      <div class="muted" style="margin-top:6px">
+        <span style="color:#ff2fff">■</span> change &nbsp;·&nbsp;
+        <span style="color:#00ffff">■</span> shadow &nbsp;·&nbsp;
+        <span style="color:#ff8c00">■</span> occlusion/hand &nbsp;·&nbsp;
+        <span style="color:#ffd700">■</span> last move
+      </div>
     </div>
-    <div id="calibWrap" style="display:none; margin-top:10px">
-      <h2>Real camera image — calibration (green = grid/board, orange = marker)</h2>
-      <img id="calib" class="feed" style="max-width:360px" alt="Calibration" />
+    <div class="card debug">
+      <details class="dbgWrap" open>
+        <summary>Debug — live metrics (detection &amp; CNN)</summary>
+        <div class="dbg" id="dbg" style="margin-top:10px"><div class="muted">waiting for data…</div></div>
+      </details>
     </div>
   </div>
   <div class="card">
@@ -81,22 +123,39 @@
       <button onclick="promote('b')">♗ Bishop</button>
       <button onclick="promote('n')">♘ Knight</button>
     </div>
-    <img id="board" class="board" src="/board.svg" alt="Board" />
-    <h2 style="margin-top:12px">Moves</h2>
-    <table class="moves"><tbody id="moves"></tbody></table>
-    <div class="muted" style="margin-top:10px">FEN: <code id="fen">—</code></div>
-    <div class="row" style="margin-top:8px">
-      <input id="fenInput" placeholder="FEN to resync…" style="flex:1; min-width:220px" />
-      <button onclick="fillCurrentFen()" title="copy current FEN into the field">↧ current</button>
-      <button class="primary" onclick="resyncFen()">Resync on FEN</button>
-      <button onclick="resyncCnn()" id="cnnBtn"
-              title="Check board via CNN against game state; unambiguous move is accepted">
-        Resync per CNN</button>
+    <div style="display:flex; gap:10px; align-items:stretch">
+      <div id="evalBar" title="White win-chance (Stockfish)"
+           style="width:20px; align-self:stretch; background:#0a0a0a; border:1px solid #27272a; border-radius:4px; position:relative; overflow:hidden; flex:none; min-height:200px">
+        <div id="evalFill" style="position:absolute; left:0; right:0; bottom:0; height:50%; background:#e8e8e8; transition:height .3s"></div>
+        <div id="evalNum" style="position:absolute; left:0; right:0; bottom:2px; text-align:center; font-size:9px; font-weight:700; color:#0a0a0a"></div>
+      </div>
+      <img id="board" class="board" src="/board.svg" alt="Board" style="flex:1; min-width:0" />
     </div>
-  </div>
-  <div class="card debug">
-    <h2>Debug — live metrics (detection &amp; CNN)</h2>
-    <div class="dbg" id="dbg"><div class="muted">waiting for data…</div></div>
+    <div id="engineRow" class="row" style="display:none; margin-top:8px; gap:12px">
+      <span>Eval: <b id="evalText">—</b></span>
+      <span class="muted">Best: <span id="bestMoves">—</span></span>
+    </div>
+    <div id="decisionRow" class="row" style="display:none; margin-top:10px; align-items:center; gap:8px">
+      <span class="muted">Last move <b id="decMove">—</b> — <b id="decReason">—</b>
+        · <span style="color:#71717a">Undo if wrong (logged as bad); moves left standing become training data.</span></span>
+    </div>
+    <div class="row" style="margin-top:12px; justify-content:space-between">
+      <h2 style="margin:0">Moves</h2>
+      <details class="pop" style="margin-left:auto">
+        <summary>⟳ Resync / FEN</summary>
+        <div class="popbody" style="right:0; left:auto">
+          <div class="muted">FEN: <code id="fen">—</code></div>
+          <input id="fenInput" placeholder="FEN to resync…" style="min-width:260px" />
+          <div class="row" style="gap:8px">
+            <button onclick="fillCurrentFen()" title="copy current FEN into the field">↧ current</button>
+            <button class="primary" onclick="resyncFen()">Resync on FEN</button>
+            <button onclick="resyncCnn()" id="cnnBtn"
+                    title="Check board via CNN against game state; unambiguous move is accepted">Resync per CNN</button>
+          </div>
+        </div>
+      </details>
+    </div>
+    <table class="moves"><tbody id="moves"></tbody></table>
   </div>
 </main>
 <script>
@@ -126,10 +185,30 @@ loadRuns();
 
 async function start() {
   document.getElementById("note").textContent = "starting…";
-  await post("/api/start", { profile: profile.value, source: source.value, cnn_run: document.getElementById("cnnRun").value });
+  const num = (id) => { const v = parseFloat(document.getElementById(id).value); return isNaN(v) ? null : v; };
+  await post("/api/start", {
+    profile: profile.value, source: source.value, cnn_run: document.getElementById("cnnRun").value,
+    census_thr: num("censusThr"), occlusion_color_thr: num("occThr"), min_grid_line_coverage: num("gridCov"),
+  });
+  document.getElementById("setup").open = false;   // collapse the setup popover once running
 }
 async function reset() { await post("/api/reset", {}); }
 async function undo() { await post("/api/undo", {}); }
+async function reattach() {                 // rebuild the camera feed without a session restart
+  const note = document.getElementById("note");
+  note.textContent = "reattaching camera…";
+  const r = await post("/api/reattach", {});
+  note.textContent = (r && r.ok === false) ? (r.error || "reattach failed") : "camera reattached";
+}
+let recording = false;
+async function toggleRecord() {            // end (finalize) or manually start the session
+  const r = await post(recording ? "/api/record/stop" : "/api/record/start", {});
+  const note = document.getElementById("note");
+  if (r && r.ok === false) { note.textContent = r.error || "recording failed"; return; }
+  note.textContent = recording
+    ? `session ended — ${r.session_id} (${r.frames} frames). Label via: chesslab slice ${r.session_id}`
+    : `recording to session ${r.session_id}…`;
+}
 async function promote(p) {               // choose promotion piece (promotion without CNN)
   const r = await post("/api/promote", { piece: p });
   if (r && r.ok === false) document.getElementById("note").textContent = r.error || "promotion failed";
@@ -154,27 +233,40 @@ async function resyncCnn() {             // check board via CNN against game sta
   lastFen = "";                          // reload board SVG if needed (move accepted)
 }
 
-let calibTimer = null;
-function toggleCalib() {                 // nur bei aktivem Toggle laden (kein Dauer-Stream)
-  const wrap = document.getElementById("calibWrap");
-  const btn = document.getElementById("calibBtn");
-  const img = document.getElementById("calib");
-  if (calibTimer) {
-    clearInterval(calibTimer); calibTimer = null;
-    wrap.style.display = "none"; img.src = ""; btn.classList.remove("primary");
-  } else {
-    wrap.style.display = "block"; btn.classList.add("primary");
-    const tick = () => { img.src = "/calib.jpg?t=" + Date.now(); };
-    tick(); calibTimer = setInterval(tick, 800);
-  }
+// Per-move decision popover: WHO committed the move and the evidence at that moment
+// (LL scores, changed/vetoed squares, CNN agreement). Data = tracker `_decision_log`.
+function decTip(d) {
+  const rows = [`<b>${d.reason || d.decider}</b>`];
+  if (d.margin !== undefined)
+    rows.push(`LL best ${d.best_score} · 2nd ${d.second_score} · margin ${d.margin}`);
+  rows.push(`changed: ${(d.changed || []).join(" ") || "—"}`);
+  if ((d.shadow_vetoed || []).length) rows.push(`shadow veto: ${d.shadow_vetoed.join(" ")}`);
+  if ((d.occluded_vetoed || []).length) rows.push(`occlusion veto: ${d.occluded_vetoed.join(" ")}`);
+  if (d.cnn_agreement) rows.push(`CNN ${(d.cnn_agreement * 100).toFixed(0)}%`
+    + (d.cnn_best_move ? ` · saw ${d.cnn_best_move}` : ""));
+  rows.push(`motion ${d.motion} · grid ${d.grid_coverage}`
+    + (d.prior_used ? " · <b>prior tie-break</b>" : ""));
+  return `<span class="tip">${rows.join("<br>")}</span>`;
 }
 
-function renderMoves(history) {
+let lastMovesKey = "";                    // skip re-render (keeps hover popovers stable)
+function renderMoves(history, decisions) {
+  const key = JSON.stringify([history, (decisions || []).length]);
+  if (key === lastMovesKey) return;
+  lastMovesKey = key;
+  const byPly = {};
+  (decisions || []).forEach(d => { byPly[d.ply] = d; });
+  const cell = (i) => {
+    const san = history[i];
+    if (!san) return "";
+    const d = byPly[i + 1];               // decision ply = 1-based history index
+    return d ? `<span class="mv">${san}${decTip(d)}</span>` : san;
+  };
   const tb = document.getElementById("moves");
   let rows = "";
   for (let i = 0; i < history.length; i += 2) {
     const n = i / 2 + 1;
-    rows += `<tr><td class="n">${n}.</td><td>${history[i] || ""}</td><td>${history[i + 1] || ""}</td></tr>`;
+    rows += `<tr><td class="n">${n}.</td><td>${cell(i)}</td><td>${cell(i + 1)}</td></tr>`;
   }
   tb.innerHTML = rows || `<tr><td class="muted" colspan="3">no moves yet</td></tr>`;
 }
@@ -184,6 +276,7 @@ function renderMoves(history) {
 const DBG_LAYOUT = [
   ["Timing", [["FPS", "fps"], ["Diff time", "diff_ms"], ["CNN inference", "infer_ms"], ["Device", "device"]]],
   ["Detection", [["Motion / threshold", "motion"], ["Stable-Count", "stable_count"],
+    ["Motion since ref", "motion_since_ref"],
     ["Averaged frames", "frames_used"], ["Settle frames", "settle_frames"],
     ["Changed squares", "nchanged"], ["z-threshold", "z_thr"], ["Square z-values", "fieldvals"],
     ["Shadow vetoed", "shadow"],
@@ -216,6 +309,8 @@ function renderDebug(d) {
   set("device", "<code>" + d.device + "</code>");
   set("motion", `<b class="${d.motion > d.motion_thr ? 'warn' : ''}">${d.motion}</b> / ${d.motion_thr}`);
   set("stable_count", d.stable_count); set("frames_used", d.frames_used); set("settle_frames", d.settle_frames);
+  set("motion_since_ref", d.motion_since_ref
+    ? '<b class="ok">yes</b>' : '<b class="warn">no (moves blocked)</b>');
   set("nchanged", `${d.n_changed} / max ${d.max_changed}`); set("z_thr", d.z_thr);
   set("fieldvals", fieldVals(d.changed_vals, d.z_thr));
   set("shadow", (d.shadow_vetoed && d.shadow_vetoed.length)
@@ -233,6 +328,14 @@ function renderDebug(d) {
   set("cnn_conf_thr", d.cnn_conf_thr);
 }
 
+function renderDecision(d) {
+  const row = document.getElementById("decisionRow");
+  if (!d || !d.move) { row.style.display = "none"; return; }
+  row.style.display = "flex";
+  document.getElementById("decMove").textContent = d.san || d.move;
+  document.getElementById("decReason").textContent = d.reason || d.decider || "?";
+}
+
 async function poll() {
   try {
     const s = await fetch("/api/status").then(r => r.json());
@@ -240,6 +343,7 @@ async function poll() {
     const badge = document.getElementById("status");
     badge.textContent = s.state;
     badge.className = "badge " + (s.state === "moving" ? "moving" : s.state === "move" ? "move" : "waiting");
+    document.getElementById("camDown").style.display = (s.camera_ok === false) ? "" : "none";
     const cnn = document.getElementById("cnn");   // CNN check: green = matches, red = differs
     if (s.cnn_active) {
       cnn.style.display = "";
@@ -256,8 +360,14 @@ async function poll() {
       promo.style.display = "";
       document.getElementById("promoSq").textContent = s.promotion_pending.from + "→" + s.promotion_pending.to;
     } else { promo.style.display = "none"; }
-    renderMoves(s.history);
+    renderMoves(s.history, s.decisions);
     renderDebug(s.debug);
+    renderDecision(s.last_decision);
+    // Recording state: reflect in the Record button label.
+    recording = !!s.recording;
+    const recBtn = document.getElementById("recBtn");
+    recBtn.textContent = recording ? `⏹ End session (${s.record_count})` : "● Record";
+    recBtn.className = recording ? "primary" : "";
     if (s.fen !== lastFen) {           // Brett nur bei Änderung neu laden (kein Flackern)
       lastFen = s.fen;
       document.getElementById("board").src = "/board.svg?t=" + Date.now();
@@ -266,6 +376,36 @@ async function poll() {
 }
 setInterval(poll, 250);
 poll();
+
+function fmtScore(cp, mate) {           // engine score → "+1.24" / "#3"
+  if (mate != null) return (mate > 0 ? "#" : "#-") + Math.abs(mate);
+  if (cp == null) return "0.00";
+  return (cp >= 0 ? "+" : "") + (cp / 100).toFixed(2);
+}
+async function pollAnalysis() {         // Stockfish eval bar + best moves
+  try {
+    const a = await fetch("/api/analysis").then(r => r.json());
+    const row = document.getElementById("engineRow");
+    const bar = document.getElementById("evalBar");
+    if (!a.available) { row.style.display = "none"; bar.style.display = "none"; return; }
+    bar.style.display = "";
+    if (a.win_white == null) {            // game over or not analysed yet
+      document.getElementById("evalNum").textContent = a.game_over ? "" : "…";
+      if (!a.game_over) return;
+    }
+    const w = a.win_white == null ? 50 : a.win_white;
+    document.getElementById("evalFill").style.height = w + "%";
+    document.getElementById("evalNum").textContent = fmtScore(a.cp, a.mate);
+    row.style.display = "flex";
+    document.getElementById("evalText").textContent =
+      `${fmtScore(a.cp, a.mate)}  (${w}% White${a.depth ? ", d" + a.depth : ""})`;
+    document.getElementById("bestMoves").innerHTML = (a.lines || []).slice(0, 3).map(l =>
+      `<code>${l.san || l.uci || "?"}</code> <span class="muted">(${fmtScore(l.cp, l.mate)})</span>`
+    ).join(" · ") || "—";
+  } catch (e) { /* engine may not be ready */ }
+}
+setInterval(pollAnalysis, 700);
+pollAnalysis();
 </script>
 </body>
 </html>

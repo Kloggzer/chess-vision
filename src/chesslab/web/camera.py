@@ -123,8 +123,11 @@ class LatestFrame:
         self._cap = cap
         self._poll = poll
         self._lock = threading.Lock()
+        self._cond = threading.Condition(self._lock)
         self._frame = None
         self._ok = False
+        self._seq = 0                    # bumps per NEW camera frame (duplicate guard)
+        self._read_seq = 0
         self._running = True
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
@@ -133,8 +136,10 @@ class LatestFrame:
         while self._running:
             ok, f = self._cap.read()
             if ok and f is not None:
-                with self._lock:
+                with self._cond:
                     self._frame, self._ok = f, True
+                    self._seq += 1
+                    self._cond.notify_all()
             else:
                 # Source (still) empty/broken: wait briefly so the loop doesn't spin hot.
                 time.sleep(0.01)
@@ -142,10 +147,17 @@ class LatestFrame:
     def isOpened(self) -> bool:
         return getattr(self._cap, "isOpened", lambda: True)()
 
-    def read(self):
-        with self._lock:
-            if not self._ok or self._frame is None:
+    def read(self, timeout: float = 0.5):
+        """Latest frame, but NEVER the same frame twice: if the consumer loop is faster
+        than the camera, a repeated frame would diff to zero and count as 'board stable'
+        even while a hand is waving (observed live: stable_count rising during motion).
+        Blocks up to `timeout` for a fresh frame, else (False, None)."""
+        with self._cond:
+            if self._seq == self._read_seq:
+                self._cond.wait(timeout)
+            if not self._ok or self._frame is None or self._seq == self._read_seq:
                 return False, None
+            self._read_seq = self._seq
             return True, self._frame.copy()
 
     def release(self) -> None:
