@@ -29,6 +29,9 @@ class RenderArgs:
     fallback_subsurf: int = 1
     # Globaler Figuren-Skalierungsfaktor (Crop-Füllung an reale Kamera angleichen).
     piece_scale: float = 1.0
+    # Per-Szene Brett-Aussehen (Hue/Value/Saturation/Gloss) variieren → das Brett trägt keine
+    # Information über die Figur → CNN muss die Figur lesen (gegen bN=8%-Background-Shortcut).
+    randomize_board: bool = True
 
 
 def parse_render_args(argv: list[str]) -> RenderArgs:
@@ -46,6 +49,7 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
     max_obliqueness = 0.20
     fallback_subsurf = 1
     piece_scale = 1.0
+    randomize_board = True
 
     i = 0
     while i < len(args):
@@ -110,6 +114,10 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
             if i >= len(args):
                 raise SystemExit("ERROR: --piece-scale benötigt einen Wert.")
             piece_scale = float(args[i])
+        elif a == "--randomize-board":
+            randomize_board = True
+        elif a == "--no-randomize-board":
+            randomize_board = False
         else:
             print(f"WARN: unbekanntes Flag ignoriert: {a}", file=sys.stderr)
         i += 1
@@ -120,4 +128,5 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
     return RenderArgs(out=out, n=n, seed=seed, fens=fens, pieces=pieces, res=res,
                       board_texture=board_texture, views_per_scene=views_per_scene,
                       samples=samples, max_obliqueness=max_obliqueness,
-                      fallback_subsurf=fallback_subsurf, piece_scale=piece_scale)
+                      fallback_subsurf=fallback_subsurf, piece_scale=piece_scale,
+                      randomize_board=randomize_board)

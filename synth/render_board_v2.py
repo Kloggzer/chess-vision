@@ -473,6 +473,7 @@ def place_camera(cam, rng, max_obliqueness=0.10):
 # über tausende Frames brennt die Szene exponentiell zu Weiß aus. Jeder Frame skaliert
 # jetzt relativ zur BASIS, nicht relativ zum Vorframe.
 _BASE_LIGHT_ENERGY: dict = {}
+_BASE_CHECKER_COLOR: dict = {}   # base tile colors for randomize_board (jitter from base, no drift)
 
 
 def randomize_lights(rng):
@@ -492,6 +493,35 @@ def randomize_lights(rng):
             bg.inputs[1].default_value = rng.uniform(0.3, 1.2)
             # World-Ambient ebenfalls warm-biased statt neutral-kühl.
             bg.inputs[0].default_value = (1.0, rng.uniform(0.82, 0.95), rng.uniform(0.62, 0.82), 1.0)
+
+
+def randomize_board(rng):
+    """Per-scene board appearance jitter — breaks the "read the board, not the piece" shortcut.
+
+    With a single fixed board photo/texture, the background under every piece is IDENTICAL across
+    the whole dataset, so the CNN can (and does, esp. for the dark knight) predict from board pixels.
+    Jittering hue/value/saturation/gloss per scene makes the board carry NO information about piece
+    identity, forcing the model onto the figure. Purely a material tweak — geometry and the label
+    projection are untouched, so corners/FEN stay correct.
+    """
+    for mat_name in ("BoardTexture", "WoodBoard", "WoodSurround"):
+        mat = bpy.data.materials.get(mat_name)
+        if mat is None or not mat.use_nodes:
+            continue
+        nt = mat.node_tree
+        for node in nt.nodes:
+            if node.type == "HUE_SAT":            # existing desat node — nudge hue/value/sat
+                node.inputs["Hue"].default_value = rng.uniform(0.47, 0.53)
+                node.inputs["Value"].default_value = rng.uniform(0.80, 1.20)
+                node.inputs["Saturation"].default_value = BOARD_SATURATION * rng.uniform(0.80, 1.20)
+            elif node.type == "BSDF_PRINCIPLED":  # vary gloss so highlights aren't a constant tell
+                node.inputs["Roughness"].default_value = rng.uniform(0.55, 0.95)
+            elif node.type == "TEX_CHECKER":      # procedural fallback: jitter the two tile colors
+                for key in ("Color1", "Color2"):
+                    bkey = f"{mat_name}.{key}"
+                    base = _BASE_CHECKER_COLOR.setdefault(bkey, tuple(node.inputs[key].default_value))
+                    f = rng.uniform(0.85, 1.15)   # from BASE, not current → no drift across scenes
+                    node.inputs[key].default_value = (base[0] * f, base[1] * f, base[2] * f, 1.0)
 
 
 def place_from_fen(fen, templates, base_z, rng, procedural_types=frozenset(), fallback_subsurf=1):
@@ -609,6 +639,8 @@ def main():
     while i < n:
         fen = fens[scene_idx % len(fens)] if fens else "8/8/8/8/8/8/8/8"
         pieces = place_from_fen(fen, templates, base_z, rng, procedural_types, fb_subsurf)
+        if ra.randomize_board:
+            randomize_board(rng)   # new board look per scene → board carries no piece-type signal
 
         for _ in range(views):
             if i >= n:
