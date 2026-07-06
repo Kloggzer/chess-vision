@@ -225,3 +225,56 @@ def run_eval(run: str):
         if png.exists():
             evals[split]["confusion_png"] = _img_url(png.as_posix())
     return {"run": run, "evals": evals}
+
+
+@router.get("/api/runs/{run}/gradcam")
+def run_gradcam(run: str, split: str = "test", per_class: int = 1, force_class: str | None = None):
+    """Grad-CAM overlays (``per_class`` crops per class) — which pixels drove the decision.
+
+    Generated on demand and cached under ``run_dir/gradcam/``. Returns image URLs
+    served via the ``/img`` static mount.
+    """
+    from ... import config
+
+    d = config.DATA.models / run
+    if not (d / "config.json").exists():
+        raise HTTPException(404, f"run {run} not found")
+    per_class = max(1, min(per_class, 8))
+    try:
+        from ...training.gradcam import gradcam_for_run
+
+        items = gradcam_for_run(d, split=split, per_class=per_class, force_class=force_class or None)
+    except FileNotFoundError as e:
+        raise HTTPException(400, f"dataset/split missing: {e}") from e
+    except Exception as e:  # noqa: BLE001 — surface any torch/model error to the UI
+        log.exception("gradcam failed")
+        raise HTTPException(500, str(e)) from e
+    return {"run": run, "split": split, "items": [
+        {"true": it["true"], "pred": it["pred"], "prob": it["prob"],
+         "orig": _img_url(it["orig"].as_posix()), "overlay": _img_url(it["overlay"].as_posix())}
+        for it in items
+    ]}
+
+
+@router.get("/api/runs/{run}/reliance")
+def run_reliance(run: str, split: str = "test", per_class: int = 8):
+    """Background-reliance test: for each class, how much of the decision comes from the piece
+    (center) vs. the surrounding board (border). ``piece_frac`` near 1 = reads the figure,
+    near 0 = leans on background. See ``chesslab.training.gradcam.reliance_for_run``.
+    """
+    from ... import config
+
+    d = config.DATA.models / run
+    if not (d / "config.json").exists():
+        raise HTTPException(404, f"run {run} not found")
+    per_class = max(1, min(per_class, 32))
+    try:
+        from ...training.gradcam import reliance_for_run
+
+        items = reliance_for_run(d, split=split, per_class=per_class)
+    except FileNotFoundError as e:
+        raise HTTPException(400, f"dataset/split missing: {e}") from e
+    except Exception as e:  # noqa: BLE001 — surface any torch/model error to the UI
+        log.exception("reliance failed")
+        raise HTTPException(500, str(e)) from e
+    return {"run": run, "split": split, "items": items}
