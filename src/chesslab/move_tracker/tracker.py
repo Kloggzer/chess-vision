@@ -773,7 +773,7 @@ class MoveTracker:
         """Return the 4 expanded corner points as int (x, y) tuples —
         a board-aligned quadrilateral for visualization."""
         exs, eys = MoveTracker._expand_corners(corners, motion_margin)
-        return [(int(round(x)), int(round(y))) for x, y in zip(exs, eys)]
+        return [(int(round(x)), int(round(y))) for x, y in zip(exs, eys, strict=True)]
 
     def _roi_motion(self, frame) -> float:
         """Motion in a board-aligned region extended by ``motion_margin`` —
@@ -2318,6 +2318,19 @@ class MoveTracker:
             p = int(i * cell)
             cv2.line(img, (p, 0), (p, bs), (0, 180, 0), 1)
             cv2.line(img, (0, p), (bs, p), (0, 180, 0), 1)
+        # ROI polygon (green) — centre-expanded corners mapped to warped space.
+        # Shows the region _roi_motion warps from the raw frame.
+        corners = self._last_corners
+        if corners is not None:
+            src_pts = np.array(corners, dtype=np.float32)
+            dst_pts = np.array([[0, 0], [bs - 1, 0],
+                                [bs - 1, bs - 1], [0, bs - 1]], dtype=np.float32)
+            M = cv2.getPerspectiveTransform(src_pts, dst_pts)
+            roi_raw = self._roi_polygon(corners, self.motion_margin)
+            roi_raw_np = np.array(roi_raw, dtype=np.float32).reshape(-1, 1, 2)
+            roi_warped = cv2.perspectiveTransform(roi_raw_np, M)
+            roi_warped_pts = roi_warped.reshape(-1, 2).astype(np.int32)
+            cv2.polylines(img, [roi_warped_pts], True, (0, 255, 0), 1, cv2.LINE_AA)
         # Squares currently detected as "changed" by the diff algorithm (magenta) — shows live
         # what the detection is reacting to (shadows/ghosts immediately visible → tuning aid).
         changed = set(self._changed)
@@ -2347,7 +2360,11 @@ class MoveTracker:
                 cv2.putText(img, ch, (cx - 8, cy + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.8, col, 2, cv2.LINE_AA)
         badge = {"moving": (0, 0, 255), "move": (0, 200, 0), "waiting": (0, 180, 0),
                  "occluded": (0, 140, 255)}.get(self.state, (160, 160, 160))
-        cv2.putText(img, f"{self.state}  {self.note}", (10, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.6, badge, 2, cv2.LINE_AA)
+        extra = ""
+        if self.state in ("moving", "occluded"):
+            gc = getattr(self, "_grid_coverage", None)
+            extra = f"  grid={gc:.2f}" if gc is not None else ""
+        cv2.putText(img, f"{self.state}{extra}  {self.note}", (10, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.6, badge, 2, cv2.LINE_AA)
         ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
         return buf.tobytes() if ok else None
 

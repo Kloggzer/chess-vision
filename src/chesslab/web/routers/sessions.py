@@ -176,6 +176,7 @@ def session_review(sid: str, idx: int = Query(0)):
             "fen": entry.get("fen"),
             "move_san": entry.get("move_san"),
             "ts": entry.get("ts"),
+            "unusable": bool(entry.get("unusable")),
         },
         "frame_url": f"/api/sessions/{safe_sid}/frame/{clamped}",
         "overlay_url": f"/api/sessions/{safe_sid}/overlay/{clamped}",
@@ -263,6 +264,23 @@ def session_trim(sid: str, keep_frames: int = Body(..., embed=True)):
         raise HTTPException(400, str(e))
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))
+
+
+@router.post("/api/sessions/{sid}/flag/{idx}")
+def session_flag_unusable(sid: str, idx: int, unusable: bool = Body(..., embed=True)):
+    """Toggle the 'unusable' flag on a single frame in the session log."""
+    sdir, _archived = _review_session_dir(sid)
+    log_path = sdir / "log.jsonl"
+    if not log_path.exists():
+        raise HTTPException(404, f"Session '{sid}' has no log.jsonl.")
+    lines = log_path.read_text(encoding="utf-8").splitlines()
+    if idx < 0 or idx >= len(lines):
+        raise HTTPException(400, f"Index {idx} out of range (0–{len(lines) - 1}).")
+    entry = json.loads(lines[idx])
+    entry["unusable"] = unusable
+    lines[idx] = json.dumps(entry, ensure_ascii=False, default=str)
+    log_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return {"ok": True, "session_id": sid, "index": idx, "unusable": unusable}
 
 
 @router.post("/api/sessions/{sid}/slice")

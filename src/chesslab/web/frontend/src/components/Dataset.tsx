@@ -3,7 +3,7 @@ import { NavLink, Outlet, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Check, X, AlertTriangle, Images, Archive, ArchiveRestore, Trash2, Scissors, Loader2,
-  Boxes, Hammer, RotateCw, Eye, ChevronLeft, ChevronRight,
+  Boxes, Hammer, RotateCw, Eye, EyeOff, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { api, post, del } from "../api";
 import { Card, Button, Glyph, noteCls } from "./ui";
@@ -81,6 +81,12 @@ export function SessionsPanel() {
       setReviewIdx((i) => Math.min(i, Math.max(0, r.kept_frames - 1)));
       invalidate("session-review");
     },
+    onError: onErr,
+  });
+  const flagM = useMutation({
+    mutationFn: ({ sid, idx, unusable }: { sid: string; idx: number; unusable: boolean }) =>
+      post(`/api/sessions/${sid}/flag/${idx}`, { unusable }),
+    onSuccess: () => { invalidate("session-review", "sessions-manage"); },
     onError: onErr,
   });
 
@@ -180,6 +186,13 @@ export function SessionsPanel() {
               <Button onClick={closeReview} className="px-2 py-1 text-xs">
                 <X className="h-3.5 w-3.5" /> Close
               </Button>
+              <Button onClick={() => flagM.mutate({ sid: reviewSid, idx: review.index, unusable: !review?.entry?.unusable })}
+                      disabled={!review || flagM.isPending}
+                      className={`px-2 py-1 text-xs disabled:opacity-50 ${review?.entry?.unusable ? "bg-red-900/60 text-red-300 hover:text-red-200" : ""}`}
+                      title="Mark this frame as unsuitable for training (hand visible, extra piece, etc.). Excluded from slice/dataset build.">
+                {flagM.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <EyeOff className="h-3.5 w-3.5" />}
+                {review?.entry?.unusable ? "Unusable (flagged)" : "Unusable?"}
+              </Button>
               <Button onClick={() => {
                         const keep = (review?.index ?? 0) + 1;
                         if (window.confirm(`Keep frames 1-${keep}, including the current frame. Move all later frames to the reject bucket and remove them from training data?`)) {
@@ -273,7 +286,7 @@ export function DatasetsPanel() {
 
   const sessionsQ = useQuery({ queryKey: ["sessions-manage"], queryFn: () => api("/api/sessions/manage") });
   const datasetsQ = useQuery({ queryKey: ["datasets"], queryFn: () => api("/api/datasets") });
-  const active = (sessionsQ.data ?? []).filter((s: any) => !s.archived);
+  const active = (sessionsQ.data ?? []).filter((s: any) => !s.archived && !s.variant);
   const datasets: any[] = datasetsQ.data ?? [];
 
   const buildM = useMutation({
@@ -307,7 +320,11 @@ export function DatasetsPanel() {
             <label className="flex items-center gap-1 text-xs text-zinc-400">test<input type="number" step={0.05} min={0} max={0.5} value={testFrac} onChange={(e) => setTestFrac(+e.target.value)} className={`${input} w-14`} /></label>
           </div>
           <div>
-            <div className="mb-1 text-xs text-zinc-500">Sessions (freely selectable subset — datasets may overlap):</div>
+            <div className="mb-1 text-xs text-zinc-500">
+              Sessions (collected only — datasets may overlap):
+              <button className="ml-2 text-[10px] text-zinc-400 underline" onClick={() => { const all: Record<string,boolean> = {}; active.forEach((s: any) => all[s.session_id] = true); setSel(all); }}>Select all</button>
+              <button className="ml-2 text-[10px] text-zinc-400 underline" onClick={() => setSel({})}>Clear</button>
+            </div>
             <div className="flex flex-wrap gap-2">
               {active.length === 0 ? <span className="text-xs text-zinc-500">no active sessions</span> : active.map((s: any) => (
                 <label key={s.session_id} className="flex items-center gap-1.5 rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300">
