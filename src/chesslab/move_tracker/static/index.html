@@ -108,12 +108,17 @@
   <div class="col">
     <div class="card">
       <h2>Live — what the tracker believes</h2>
-      <img class="feed" src="/warped.mjpg" alt="Live" />
+      <img id="feedImg" class="feed" src="/warped.mjpg?view=board" alt="Live" />
       <div class="muted" style="margin-top:6px">
         <span style="color:#ff2fff">■</span> change &nbsp;·&nbsp;
         <span style="color:#00ffff">■</span> shadow &nbsp;·&nbsp;
         <span style="color:#ff8c00">■</span> occlusion/hand &nbsp;·&nbsp;
         <span style="color:#ffd700">■</span> last move
+      </div>
+      <div style="margin-top:6px; display:flex; gap:4px; flex-wrap:wrap">
+        <button onclick="setFeedView('board')" class="viewBtn" style="font-size:11px;padding:2px 8px">Board</button>
+        <button onclick="setFeedView('raw')" class="viewBtn" style="font-size:11px;padding:2px 8px">Camera</button>
+        <button onclick="setFeedView('diff')" class="viewBtn" style="font-size:11px;padding:2px 8px">Diff</button>
       </div>
     </div>
     <div class="card debug">
@@ -467,6 +472,11 @@ async function pollAnalysis() {         // Stockfish eval bar + best moves
 }
 setInterval(pollAnalysis, 700);
 pollAnalysis();
+function setFeedView(v) {
+  document.getElementById("feedImg").src = "/warped.mjpg?view=" + v;
+  document.querySelectorAll(".viewBtn").forEach(b => b.style.borderColor = "#3f3f46");
+  document.querySelector(`.viewBtn[onclick*="${v}"]`)?.style && (document.querySelector(`.viewBtn[onclick*="${v}"]`).style.borderColor = "#0ea5e9");
+}
 </script>
 </body>
 </html>
