@@ -2540,6 +2540,8 @@ class MoveTracker:
             return self._shadow_overlay_jpeg()
         if view == "motion":
             return self._motion_overlay_jpeg()
+        if view == "occlusion":
+            return self._occlusion_overlay_jpeg()
         with self.lock:
             return self._overlay_jpeg
 
@@ -2623,6 +2625,29 @@ class MoveTracker:
             cv2.line(heat, (p, 0), (p, bs), (0, 180, 0), 1)
             cv2.line(heat, (0, p), (bs, p), (0, 180, 0), 1)
         ok, buf = cv2.imencode(".jpg", heat, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        return buf.tobytes() if ok else None
+
+    def _occlusion_overlay_jpeg(self):
+        """Warped board with orange rectangles on occluded squares — shows what the
+        baseline-absdiff occlusion filter flagged."""
+        with self.lock:
+            if self._last_frame is None or self._last_corners is None:
+                return None
+            warped = warp_from_corners(self._last_frame, self.profile, self._last_corners)
+            if self.detect_scale < 1.0:
+                warped = cv2.resize(warped, (self.profile.board_size, self.profile.board_size),
+                                    interpolation=cv2.INTER_LINEAR) if warped.shape[1] != self.profile.board_size else warped
+            occluded = list(self._occluded_vetoed)
+        bs = self.profile.board_size
+        for sq in occluded:
+            x0, y0, x1, y1 = square_region(sq, bs, self.profile.white_pov, inset=0.06)
+            cv2.rectangle(warped, (x0, y0), (x1, y1), (0, 200, 255), 2)
+        cell = bs / 8.0
+        for i in range(9):
+            p = int(i * cell)
+            cv2.line(warped, (p, 0), (p, bs), (0, 180, 0), 1)
+            cv2.line(warped, (0, p), (bs, p), (0, 180, 0), 1)
+        ok, buf = cv2.imencode(".jpg", warped, [cv2.IMWRITE_JPEG_QUALITY, 80])
         return buf.tobytes() if ok else None
 
     def calib_overlay_jpeg(self, width: int = 640):
