@@ -35,6 +35,13 @@ def create_app():
     def index():
         return FileResponse(str(_STATIC / "index.html"))
 
+    # Pre-warm the manifest cache on startup so /api/sessions responds instantly
+    # even on first load (avoids scanning a 300k-line JSONL on the first request).
+    @app.on_event("startup")
+    def _warm_cache():
+        from ..manifest_cache import manifest_stats
+        manifest_stats(config.DATA.manifests / "squares.jsonl")
+
     # Lazy-import routers (cv2-lazy convention: no router opens a camera on import).
     from .routers import ALL_ROUTERS
 

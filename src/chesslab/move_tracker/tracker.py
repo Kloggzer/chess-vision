@@ -996,6 +996,11 @@ class MoveTracker:
                         self._changed, self._changed_vals = [], []   # clear overlay/debug
                         self._shadow_vetoed = []
                         self._occluded_vetoed = []
+                        # Occlusion check DURING motion: if the grid is hidden by a hand now,
+                        # pre-flag it so the system stays blocked when motion ends and the
+                        # hand rests still. Without this, a resting hand reads as a ghost move.
+                        if self._occluded_by_grid(gray_det):
+                            self._occl_grid_active = True
                         # Arm the post-motion hold: detection stays blocked until the board
                         # has been motion-free for motion_hold_s (WALL TIME, not frames — at
                         # 40 fps a frame count settles in milliseconds).
@@ -1022,11 +1027,14 @@ class MoveTracker:
                             else:
                                 if self._occl_grid_active:
                                     # Gate just cleared: the occluder never reached the color
-                                    # veto/latch (the gate blocks first), so settle like after
-                                    # motion before trusting residue frames.
+                                    # veto/latch (the gate blocks first). Clear buffers so
+                                    # residue frames from the hand don't pollute detection;
+                                    # then settle like after motion.
                                     self._occl_grid_active = False
                                     self._hold_until = max(self._hold_until,
                                                            now + self.motion_hold_s)
+                                    self._gray_buf.clear()
+                                    self._bgr_buf.clear()
                                     ready = False
                                 cur = self._mean_gray()    # moving average over N stable frames
                                 cur_bgr = self._mean_bgr()
