@@ -17,11 +17,22 @@ from PIL import Image
 
 
 def last_conv(model: nn.Module) -> nn.Conv2d:
-    """The deepest Conv2d in forward order — Grad-CAM's target layer."""
-    conv = None
+    """The deepest spatially meaningful Conv2d — Grad-CAM's target layer.
+
+    Skips 1×1 convs (projection/expansion layers common at the end of MobileNet
+    architectures). A 1×1 conv produces no spatial heatmap structure — the CAM
+    becomes a uniform blob that looks like "nothing happened". Instead we pick the
+    deepest conv with kernel > 1 (usually the last 3×3 or 5×5 depthwise/regular conv
+    in the feature extractor).
+    """
+    last_spatial: nn.Conv2d | None = None
+    last_any: nn.Conv2d | None = None
     for m in model.modules():
         if isinstance(m, nn.Conv2d):
-            conv = m
+            last_any = m
+            if m.kernel_size != (1, 1):
+                last_spatial = m
+    conv = last_spatial or last_any
     if conv is None:
         raise RuntimeError("no Conv2d found in model")
     return conv
