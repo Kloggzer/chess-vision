@@ -2532,10 +2532,14 @@ class MoveTracker:
     def overlay_jpeg(self, view: str = "board"):
         """Return the JPEG for the given view mode. 'board' = warped overlay (pre-computed),
         'raw' = raw camera + calibration (on-demand), 'diff' = absdiff heatmap."""
-        if view == "raw":
+        if view == "camera":
             return self.calib_overlay_jpeg()
         if view == "diff":
             return self._diff_overlay_jpeg()
+        if view == "shadow":
+            return self._shadow_overlay_jpeg()
+        if view == "motion":
+            return self._motion_overlay_jpeg()
         with self.lock:
             return self._overlay_jpeg
 
@@ -2553,6 +2557,57 @@ class MoveTracker:
                             interpolation=cv2.INTER_LINEAR)
         heat = cv2.applyColorMap(d_disp, cv2.COLORMAP_HOT)
         # Draw grid lines on the heatmap
+        bs = self.profile.board_size
+        cell = bs / 8.0
+        for i in range(9):
+            p = int(i * cell)
+            cv2.line(heat, (p, 0), (p, bs), (0, 180, 0), 1)
+            cv2.line(heat, (0, p), (bs, p), (0, 180, 0), 1)
+        ok, buf = cv2.imencode(".jpg", heat, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        return buf.tobytes() if ok else None
+
+    def _shadow_overlay_jpeg(self):
+        """Warped board with cyan rectangles on shadow-vetoed squares — shows what the
+        HSV shadow filter flagged."""
+        with self.lock:
+            if self._last_frame is None or self._last_corners is None:
+                return None
+            warped = warp_from_corners(self._last_frame, self.profile, self._last_corners)
+            if self.detect_scale < 1.0:
+                warped = cv2.resize(warped, (self.profile.board_size, self.profile.board_size),
+                                    interpolation=cv2.INTER_LINEAR) if warped.shape[1] != self.profile.board_size else warped
+            shadow = list(self._shadow_vetoed)
+        bs = self.profile.board_size
+        for sq in shadow:
+            x0, y0, x1, y1 = square_region(sq, bs, self.profile.white_pov, inset=0.06)
+            cv2.rectangle(warped, (x0, y0), (x1, y1), (255, 255, 0), 2)
+        cell = bs / 8.0
+        for i in range(9):
+            p = int(i * cell)
+            cv2.line(warped, (p, 0), (p, bs), (0, 180, 0), 1)
+            cv2.line(warped, (0, p), (bs, p), (0, 180, 0), 1)
+        ok, buf = cv2.imencode(".jpg", warped, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        return buf.tobytes() if ok else None
+
+    def _motion_overlay_jpeg(self):
+        """Frame-to-frame absdiff heatmap — shows what the motion gate sees.
+        Bright = large pixel change between consecutive frames (hand entering)."""
+        with self.lock:
+            prev = self.prev_gray
+            cur = self._last_cur
+            if prev is None:
+                return None
+            # Use the latest warped detection gray if _last_cur is None
+            if cur is None and self._gray_buf:
+                warped = warp_from_corners(self._last_frame, self.profile, self._last_corners) if self._last_frame is not None and self._last_corners is not None else None
+                if warped is not None:
+                    cur = self._gray(warped) if warped is not None else None
+            if cur is None or prev.shape != cur.shape:
+                return None
+            d = cv2.absdiff(cur, prev)
+        d_disp = cv2.resize(d, (self.profile.board_size, self.profile.board_size),
+                            interpolation=cv2.INTER_LINEAR)
+        heat = cv2.applyColorMap(d_disp, cv2.COLORMAP_HOT)
         bs = self.profile.board_size
         cell = bs / 8.0
         for i in range(9):
