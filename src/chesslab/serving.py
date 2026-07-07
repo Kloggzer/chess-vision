@@ -110,6 +110,36 @@ def model_classes(run_dir: Path) -> list[str]:
     return run_spec(run_dir).classes
 
 
+class _ONNXModel:
+    """Wrapper that makes an ONNX InferenceSession behave like a PyTorch model
+    (callable, .eval(), .to(device))."""
+
+    def __init__(self, onnx_path: str, device: str = "cpu"):
+        import onnxruntime
+        providers = (["CUDAExecutionProvider", "CPUExecutionProvider"] if device == "cuda"
+                     else ["CPUExecutionProvider"])
+        self._sess = onnxruntime.InferenceSession(str(onnx_path), providers=providers)
+        self._input_name = self._sess.get_inputs()[0].name
+        self._output_name = self._sess.get_outputs()[0].name
+        self._device = device
+
+    def eval(self):
+        return self
+
+    def to(self, device: str):
+        self._device = device
+        return self
+
+    def __call__(self, batch):
+        import torch
+        if self._device.startswith("cuda"):
+            arr = batch.cpu().float().numpy()
+        else:
+            arr = batch.float().numpy()
+        out = self._sess.run([self._output_name], {self._input_name: arr})[0]
+        return torch.from_numpy(out).to(batch.device)
+
+
 # ---------------------------------------------------------------------------
 # Model loading
 # ---------------------------------------------------------------------------
@@ -117,6 +147,8 @@ def model_classes(run_dir: Path) -> list[str]:
 
 def load_run(run_dir: Path, device: str = "cpu"):
     """Load model + run config from a run directory and cache them.
+    Prefers ONNX when available (model.onnx) — ONNX Runtime is 2-4× faster
+    than raw PyTorch inference.
 
     Returns (model, cfg). The model is in eval() mode and on `device`.
     """
@@ -125,6 +157,17 @@ def load_run(run_dir: Path, device: str = "cpu"):
         model, cfg = _CACHE[key]
         model.to(device)
         return model, cfg
+
+    onnx_path = Path(run_dir) / "model.onnx"
+    if onnx_path.exists():
+        try:
+            import onnxruntime  # noqa: F401
+            cfg = json.loads((Path(run_dir) / "config.json").read_text(encoding="utf-8"))
+            model = _ONNXModel(str(onnx_path), device)
+            _CACHE[key] = (model, cfg)
+            return model, cfg
+        except Exception as e:
+            log.warning("ONNX load failed (%s) — falling back to PyTorch", e)
 
     import torch  # noqa: F401
 
