@@ -1389,6 +1389,14 @@ class MoveTracker:
 
             # 1) Occupancy says the believed board is unchanged → shadow / no real move.
             #    Drop the candidate and pull the reference forward (reliable shadow killer).
+            #    BUT: if the diff evidence was strong (high log-likelihood, clear margin
+            #    over the second-best), the CNN likely just cannot see the change (dark piece
+            #    on a dark square, subtle difference) — trust the diff, not the CNN.
+            diff_confident = (pending.get("best_score", 0) > 2.0
+                              and pending.get("best_score", 0) - pending.get("second_score", 0) > 1.0)
+            if diff_confident:
+                _commit(" (diff-confident)", "confirmed", "ok", decider="diff_confident")
+                return
             if occ_check["match"]:
                 self._clear_stuck()
                 self._set_ref(pending["cur"], pending.get("cur_bgr"), from_commit=True)
@@ -2199,7 +2207,9 @@ class MoveTracker:
         if self.cnn_verify and self.cnn_run and not self._cnn_failed:
             self._pending = {"ucis": [m.uci() for m in moves], "uci": moves[0].uci(),
                              "fen": self.board.fen(), "cur": cur, "cur_bgr": cur_bgr,
-                             "frames": 0, "prior_used": prior_used}
+                             "frames": 0, "prior_used": prior_used,
+                             "best_score": self._best_score,
+                             "second_score": self._second_score}
             self._recovery_confirmer.reset()
             self._verify_state = "verifying"
             self.note = note or f"checking {' + '.join(sans)} via CNN…"
