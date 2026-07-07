@@ -2544,12 +2544,19 @@ class MoveTracker:
             return self._overlay_jpeg
 
     def _diff_overlay_jpeg(self):
-        """Absdiff heatmap between current detection image and reference — shows what the
-        diff algorithm 'sees'. Generated on demand, BGR JPEG."""
+        """Absdiff heatmap between current board and reference — shows what the
+        diff algorithm 'sees'. Always renders (warps on demand if stable mean unavailable)."""
         with self.lock:
             ref_gray = self.ref_gray
+            if ref_gray is None:
+                return None
             cur_gray = self._last_cur
-            if ref_gray is None or cur_gray is None:
+            if cur_gray is None and self._last_frame is not None and self._last_corners is not None:
+                warped = warp_from_corners(self._last_frame, self.profile, self._last_corners,
+                                           self._det_size)
+                if warped is not None:
+                    cur_gray = self._gray(warped)
+            if cur_gray is None:
                 return None
             d = cv2.absdiff(cur_gray, ref_gray)
         # Resize to full board size for display
@@ -2591,17 +2598,18 @@ class MoveTracker:
 
     def _motion_overlay_jpeg(self):
         """Frame-to-frame absdiff heatmap — shows what the motion gate sees.
-        Bright = large pixel change between consecutive frames (hand entering)."""
+        Bright = large pixel change between consecutive frames (hand entering).
+        Always renders (warps on demand if stable mean unavailable)."""
         with self.lock:
             prev = self.prev_gray
-            cur = self._last_cur
             if prev is None:
                 return None
-            # Use the latest warped detection gray if _last_cur is None
-            if cur is None and self._gray_buf:
-                warped = warp_from_corners(self._last_frame, self.profile, self._last_corners) if self._last_frame is not None and self._last_corners is not None else None
+            cur = self._last_cur
+            if cur is None and self._last_frame is not None and self._last_corners is not None:
+                warped = warp_from_corners(self._last_frame, self.profile, self._last_corners,
+                                           self._det_size)
                 if warped is not None:
-                    cur = self._gray(warped) if warped is not None else None
+                    cur = self._gray(warped)
             if cur is None or prev.shape != cur.shape:
                 return None
             d = cv2.absdiff(cur, prev)
