@@ -1183,27 +1183,28 @@ class MoveTracker:
                 time.sleep(0.005)
 
                 # Perf logging: record per-step timings for the first 100 frames
-                if self._perf_frame < 100:
-                    dt = {}
-                    prev = _t0
-                    for step in ("read", "warp", "gray", "roi", "detect", "encode"):
-                        t = _ts.get(step)
-                        if t is not None and t > prev:
-                            dt[step] = round((t - prev) * 1000, 1)
-                            prev = t
-                    total = round((time.perf_counter() - _t0) * 1000, 1)
-                    parts = " | ".join(f"{k}={v}ms" for k, v in dt.items())
-                    self._perf_log.append(f"frame {self._perf_frame:3d}: {parts} | total={total}ms")
-                    self._perf_frame += 1
-                    if self._perf_frame == 100:
-                        try:
-                            from .. import config
-                            log_dir = config.DATA.root / "_perf"
-                            log_dir.mkdir(parents=True, exist_ok=True)
-                            (log_dir / "perf_loop.log").write_text(
-                                "\n".join(self._perf_log), encoding="utf-8")
-                        except Exception:
-                            pass
+                # Per-step timing (always logged, file written as rolling last-100)
+                dt = {}
+                prev = _t0
+                for step in ("read", "warp", "gray", "roi", "detect", "encode"):
+                    t = _ts.get(step)
+                    if t is not None and t > prev:
+                        dt[step] = round((t - prev) * 1000, 1)
+                        prev = t
+                total = round((time.perf_counter() - _t0) * 1000, 1)
+                parts = " | ".join(f"{k}={v}ms" for k, v in dt.items())
+                self._perf_log.append(f"frame {self._perf_frame:3d}: {parts} | total={total}ms")
+                self._perf_frame += 1
+                # Write rolling log every 100 frames (always shows the last 100)
+                if self._perf_frame % 100 == 0:
+                    try:
+                        from .. import config
+                        log_dir = config.DATA.root / "_perf"
+                        log_dir.mkdir(parents=True, exist_ok=True)
+                        (log_dir / "perf_loop.log").write_text(
+                            "\n".join(self._perf_log[-100:]), encoding="utf-8")
+                    except Exception:
+                        pass
         finally:
             if hasattr(self.cap, "release"):
                 self.cap.release()
