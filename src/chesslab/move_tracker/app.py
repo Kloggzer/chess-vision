@@ -21,6 +21,51 @@ _STATIC = Path(__file__).parent / "static"
 _STATE = LockedState(tracker=None, default_profile="phone", default_source="0")
 
 
+def _live_tuning_kwargs(
+    *,
+    motion_thr: float | None = None,
+    z_thr: float | None = None,
+    census_thr: float | None = None,
+    occlusion_color_thr: float | None = None,
+    min_grid_line_coverage: float | None = None,
+    motion_margin: float | None = None,
+    overhang: float | None = None,
+    motion_hold_s: float | None = None,
+) -> dict:
+    vals = {
+        "motion_thr": motion_thr,
+        "z_thr": z_thr,
+        "census_thr": census_thr,
+        "occlusion_color_thr": occlusion_color_thr,
+        "min_grid_line_coverage": min_grid_line_coverage,
+        "motion_margin": motion_margin,
+        "overhang": overhang,
+        "motion_hold_s": motion_hold_s,
+    }
+    return {k: v for k, v in vals.items() if v is not None}
+
+
+def _apply_live_tuning(tracker, kwargs: dict) -> dict:
+    with tracker.lock:
+        for key, value in kwargs.items():
+            setattr(tracker, key, value)
+        if "motion_margin" in kwargs:
+            tracker._prev_roi = None
+        if "overhang" in kwargs:
+            tracker._ref_census_for = None
+        tracker.note = "tracker tuning updated live"
+        return {
+            "motion_thr": tracker.motion_thr,
+            "z_thr": tracker.z_thr,
+            "census_thr": tracker.census_thr,
+            "occlusion_color_thr": tracker.occlusion_color_thr,
+            "min_grid_line_coverage": tracker.min_grid_line_coverage,
+            "motion_margin": tracker.motion_margin,
+            "overhang": tracker.overhang,
+            "motion_hold_s": tracker.motion_hold_s,
+        }
+
+
 def create_app(default_profile: str = "phone", default_source: str = "0",
                tracker_kwargs: dict | None = None):
     """Creates the FastAPI app with fixed defaults for profile/source/tracker parameters."""
@@ -72,7 +117,11 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
               cnn_run: str | None = Body(None), device: str | None = Body(None),
               census_thr: float | None = Body(None),
               occlusion_color_thr: float | None = Body(None),
-              min_grid_line_coverage: float | None = Body(None)):
+              min_grid_line_coverage: float | None = Body(None),
+              motion_margin: float | None = Body(None),
+              overhang: float | None = Body(None),
+              motion_hold_s: float | None = Body(None),
+              record_inventory_filter: bool | None = Body(None)):
         # Atomic swap: take old tracker out under lock, stop+join OUTSIDE lock,
         # start new one, put in under lock. Double-start leaves exactly one thread.
         old = _STATE.get("tracker")
@@ -83,27 +132,51 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
 
         kwargs = dict(tk)
         # Body values override CLI defaults in `tk` (otherwise duplicate keyword argument):
-        if motion_thr is not None:
-            kwargs["motion_thr"] = motion_thr
-        if z_thr is not None:
-            kwargs["z_thr"] = z_thr
+        kwargs.update(_live_tuning_kwargs(
+            motion_thr=motion_thr,
+            z_thr=z_thr,
+            census_thr=census_thr,
+            occlusion_color_thr=occlusion_color_thr,
+            min_grid_line_coverage=min_grid_line_coverage,
+            motion_margin=motion_margin,
+            overhang=overhang,
+            motion_hold_s=motion_hold_s,
+        ))
         if cnn_run is not None:                      # Body overrides CLI default ("" = off)
             kwargs["cnn_run"] = cnn_run or None
         if device is not None:
             kwargs["device"] = device
-        # Live-tunable rejection sensitivities (crank shadow/hand detection without a CLI restart).
-        if census_thr is not None:
-            kwargs["census_thr"] = census_thr
-        if occlusion_color_thr is not None:
-            kwargs["occlusion_color_thr"] = occlusion_color_thr
-        if min_grid_line_coverage is not None:
-            kwargs["min_grid_line_coverage"] = min_grid_line_coverage
+        if record_inventory_filter is not None:
+            kwargs["record_inventory_filter"] = record_inventory_filter
         t = MoveTracker(profile=profile, source=source, **kwargs)
         t.reset_to_start()
         t.start()
         _STATE.update(tracker=t)
         return {"ok": True, "profile": profile, "source": source,
                 "cnn_run": kwargs.get("cnn_run")}
+
+    @app.post("/api/settings")
+    def settings(motion_thr: float | None = Body(None), z_thr: float | None = Body(None),
+                 census_thr: float | None = Body(None),
+                 occlusion_color_thr: float | None = Body(None),
+                 min_grid_line_coverage: float | None = Body(None),
+                 motion_margin: float | None = Body(None),
+                 overhang: float | None = Body(None),
+                 motion_hold_s: float | None = Body(None)):
+        t = _STATE.get("tracker")
+        if t is None:
+            return {"ok": False, "error": "not started"}
+        kwargs = _live_tuning_kwargs(
+            motion_thr=motion_thr,
+            z_thr=z_thr,
+            census_thr=census_thr,
+            occlusion_color_thr=occlusion_color_thr,
+            min_grid_line_coverage=min_grid_line_coverage,
+            motion_margin=motion_margin,
+            overhang=overhang,
+            motion_hold_s=motion_hold_s,
+        )
+        return {"ok": True, "settings": _apply_live_tuning(t, kwargs)}
 
     @app.post("/api/resync_cnn")
     def resync_cnn():
@@ -149,11 +222,15 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
         return t.reattach_camera()
 
     @app.post("/api/record/start")
-    def record_start(notes: str = Body("", embed=True)):
+    def record_start(notes: str = Body("", embed=True),
+                     record_inventory_filter: bool | None = Body(None, embed=True)):
         """Start recording the tracked game as a capture session (auto-labeled via slice)."""
         t = _STATE.get("tracker")
         if t is None:
             return {"ok": False, "error": "not started"}
+        if record_inventory_filter is not None:
+            with t.lock:
+                t.record_inventory_filter = record_inventory_filter
         return t.start_recording(notes)
 
     @app.post("/api/record/stop")
@@ -179,10 +256,13 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
     def status():
         t = _STATE.get("tracker")
         if t is None:
+            from .. import config as _cfg
+
             return {
                 "active": False,
                 "default_profile": _STATE.get("default_profile", default_profile),
                 "default_source": _STATE.get("default_source", default_source),
+                "track_defaults": dict(_cfg.TRACK_DEFAULTS),
             }
         s = t.status()
         s["active"] = True
@@ -244,24 +324,30 @@ def run(host: str = "127.0.0.1", port: int = 8001,
 if __name__ == "__main__":
     import argparse
 
+    from .. import config as _config
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--profile", default="phone")
     ap.add_argument("--source", default="0")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8001)
-    ap.add_argument("--motion-thr", type=float, default=3.0)
-    ap.add_argument("--z-thr", type=float, default=3.0)
+    ap.add_argument("--motion-thr", type=float, default=_config.TRACK_DEFAULTS["motion_thr"])
+    ap.add_argument("--z-thr", type=float, default=_config.TRACK_DEFAULTS["z_thr"])
     ap.add_argument("--confirm-frames", type=int, default=None)
     ap.add_argument("--settle-frames", type=int, default=None)
-    ap.add_argument("--max-changed", type=int, default=6)
+    ap.add_argument("--max-changed", type=int, default=_config.TRACK_DEFAULTS["max_changed"])
     ap.add_argument("--avg-frames", type=int, default=None)
     ap.add_argument("--no-live-align", action="store_true")
-    ap.add_argument("--cnn-conf-thr", type=float, default=0.85)
-    ap.add_argument("--census-thr", type=float, default=55.0)
+    ap.add_argument("--cnn-conf-thr", type=float, default=_config.TRACK_DEFAULTS["cnn_conf_thr"])
+    ap.add_argument("--census-thr", type=float, default=_config.TRACK_DEFAULTS["census_thr"])
+    ap.add_argument("--motion-margin", type=float, default=_config.TRACK_DEFAULTS["motion_margin"])
+    ap.add_argument("--overhang", type=float, default=_config.TRACK_DEFAULTS["overhang"])
+    ap.add_argument("--motion-hold", type=float, default=_config.TRACK_DEFAULTS["motion_hold_s"])
+    ap.add_argument("--min-grid-line-coverage", type=float,
+                    default=_config.TRACK_DEFAULTS["min_grid_line_coverage"])
     ap.add_argument("--no-cnn-verify", dest="cnn_verify", action="store_false")
     ap.set_defaults(cnn_verify=True)
     ap.add_argument("--device", default="auto", help="Torch device for CNN: auto|cpu|cuda")
-    from .. import config as _config
     ap.add_argument("--cnn-run", default=_config.default_tracker_run() or "",
                     help="Model run for CNN verification/recovery ('' = off)")
     a = ap.parse_args()
@@ -275,6 +361,9 @@ if __name__ == "__main__":
             "live_align": not a.no_live_align,
         }.items() if v is not None
     } | {"motion_thr": a.motion_thr, "z_thr": a.z_thr,
+         "motion_margin": a.motion_margin, "overhang": a.overhang,
+         "motion_hold_s": a.motion_hold,
+         "min_grid_line_coverage": a.min_grid_line_coverage,
          "cnn_run": (a.cnn_run or None), "cnn_conf_thr": a.cnn_conf_thr,
          "device": a.device, "census_thr": a.census_thr, "cnn_verify": a.cnn_verify}
 

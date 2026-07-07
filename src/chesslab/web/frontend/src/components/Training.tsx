@@ -90,7 +90,11 @@ export default function Training() {
   const datasetsQ = useQuery({ queryKey: ["datasets"], queryFn: () => api("/api/datasets") });
   const datasets: any[] = datasetsQ.data ?? [];
   const picked = datasets.find((d) => d.name === dataset);
-  useEffect(() => { if (datasets.length && !dataset) setDataset(datasets[0].name); }, [datasets]);
+  useEffect(() => {
+    if (!datasets.length || dataset) return;
+    const id = window.setTimeout(() => setDataset(datasets[0].name), 0);
+    return () => window.clearTimeout(id);
+  }, [datasets, dataset]);
 
   const refreshRuns = useCallback(async () => {
     const rs = await api("/api/runs");   // neueste zuerst
@@ -98,7 +102,13 @@ export default function Training() {
     if (rs.length && !run) showRun(rs[0].run);
   }, [run]);
 
-  useEffect(() => { refreshRuns(); return () => clearInterval(timer.current); }, [refreshRuns]);
+  useEffect(() => {
+    const id = window.setTimeout(() => { void refreshRuns(); }, 0);
+    return () => {
+      window.clearTimeout(id);
+      clearInterval(timer.current);
+    };
+  }, [refreshRuns]);
   async function showRun(r: string) {
     setRun(r); setErr(""); setCam([]); setReliance([]);
     try {

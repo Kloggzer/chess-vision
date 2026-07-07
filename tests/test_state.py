@@ -138,3 +138,11 @@ def test_random_game_positions_from_start_fen():
     steps = random_game_positions(max_plies=5, seed=1, start_fen=SCHOLARS_MATE_FEN)
     # SCHOLARS_MATE_FEN is checkmate -> game over immediately, no moves
     assert steps == []
+
+
+def test_physical_inventory_violations_flags_extra_queen():
+    from chesslab.state import physical_inventory_violations
+
+    assert physical_inventory_violations(chess.Board().fen()) == []
+    fen = "Q3Q3/8/8/8/8/8/8/4K2k w - - 0 1"
+    assert physical_inventory_violations(fen) == ["wQ 2/1"]

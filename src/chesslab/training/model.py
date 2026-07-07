@@ -6,6 +6,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+_TIMM_BACKBONE_ALIASES = {
+    # Common shorthand for the 0.35-width MobileNetV4 small variant in timm.
+    "mobilenetv4_conv_small_03": "mobilenetv4_conv_small_035",
+}
+
 
 def _gn_groups(channels: int) -> int:
     """Größte Gruppenzahl <= 8, die `channels` teilt (GroupNorm braucht einen Teiler)."""
@@ -34,6 +39,35 @@ def _convert_bn_to_gn(module: nn.Module) -> nn.Module:
         else:
             _convert_bn_to_gn(child)
     return module
+
+
+def _resolve_timm_backbone(backbone: str) -> str:
+    return _TIMM_BACKBONE_ALIASES.get(backbone, backbone)
+
+
+def _timm_feature_dim(model: nn.Module) -> int:
+    """Infer the real flattened feature width returned by a timm model.
+
+    Some timm MobileNetV4 variants report ``num_features`` before the conv head
+    (e.g. 960) while ``num_classes=0`` returns post-head features (e.g. 1280).
+    The head must match the actual forward output, so probe it once on CPU.
+    """
+    was_training = model.training
+    model.eval()
+    with torch.no_grad():
+        feat = model(torch.zeros(1, 3, 128, 128))
+    if was_training:
+        model.train()
+    return int(feat.flatten(1).shape[1])
+
+
+def _create_timm_model(backbone: str, pretrained: bool, num_classes: int) -> nn.Module:
+    import timm
+
+    resolved = _resolve_timm_backbone(backbone)
+    if resolved != backbone:
+        print(f"[INFO] Backbone alias '{backbone}' -> '{resolved}'.")
+    return timm.create_model(resolved, pretrained=pretrained, num_classes=num_classes)
 
 
 class SmallCNN(nn.Module):
@@ -136,7 +170,6 @@ class HierarchicalHead(nn.Module):
         piece_term = pc.index_select(1, self.piece_idx)            # [B, 14] log P(c | besetzt)
         return occ_term + piece_term * self.occ_mask               # [B, 14] Log-Probs
 
-
 class DecoupledModel(nn.Module):
     """Backbone as feature extractor + decoupled head (`FactoredHead` type×color or
     `HierarchicalHead` occupancy→piece). Outputs 14 values per square in any case (logits or
@@ -160,7 +193,26 @@ class DecoupledModel(nn.Module):
                 _convert_bn_to_gn(m)
             self._mobile, self.features, self.pool = m, None, None
         else:
-            raise ValueError(f"unknown backbone {backbone!r} (smallcnn | mobilenet_v3_small).")
+            # Dynamisches Laden von JEDEM MobileNet aus timm
+            try:
+                print(f"[INFO] Versuche Backbone '{backbone}' über timm zu laden...")
+
+                # Erstellt das Modell ohne den finalen Klassifikations-Head
+                m = _create_timm_model(backbone, pretrained=pretrained, num_classes=0)
+
+                # Liest die Feature-Dimension automatisch aus
+                feat_dim = _timm_feature_dim(m)
+
+                if norm == "groupnorm":
+                    _convert_bn_to_gn(m)
+
+                self._mobile, self.features, self.pool = m, None, None
+            except Exception as e:
+                raise ValueError(
+                    f"unknown backbone {backbone!r}. "
+                    f"Es ist weder intern registriert noch über timm ladbar. Fehler: {e}"
+                )
+                
         self.head = HierarchicalHead(feat_dim, classes) if head == "twostage" else FactoredHead(feat_dim, classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -192,4 +244,14 @@ def build_model(backbone: str, num_classes: int, pretrained: bool = False,
         if norm == "groupnorm":     # ROCm-Windows: MobileNet batch-norm -> groupnorm, otherwise MIOpen crash
             _convert_bn_to_gn(m)
         return m
-    raise ValueError(f"unknown backbone {backbone!r} (smallcnn | mobilenet_v3_small).")
+    try:
+        print(f"[INFO] Versuche Backbone '{backbone}' über timm zu laden...")
+        m = _create_timm_model(backbone, pretrained=pretrained, num_classes=num_classes)
+        if norm == "groupnorm":
+            _convert_bn_to_gn(m)
+        return m
+    except Exception as e:
+        raise ValueError(
+            f"unknown backbone {backbone!r}. "
+            f"Es ist weder intern registriert noch über timm ladbar. Fehler: {e}"
+        )

@@ -6,6 +6,7 @@ per-square noise model + log-likelihood per legal move (instead of hard change_t
 
 from __future__ import annotations
 
+import inspect
 import json
 import time
 
@@ -34,6 +35,15 @@ def _diffs(values: dict[str, float], default: float = 1.0) -> dict[str, float]:
     d = dict.fromkeys(_ALL, default)
     d.update(values)
     return d
+
+
+def test_tracker_direct_defaults_match_config():
+    from chesslab import config
+    from chesslab.move_tracker.tracker import MoveTracker
+
+    sig = inspect.signature(MoveTracker)
+    for name in ("motion_margin", "overhang", "motion_hold_s", "min_grid_line_coverage"):
+        assert sig.parameters[name].default == config.TRACK_DEFAULTS[name]
 
 
 # =======================================================================================
@@ -699,7 +709,8 @@ class TestMoveTrackerHeadless:
 
         mt = MoveTracker(profile="phone", source="0", live_align=False,
                          motion_thr=100, settle_frames=3, confirm_frames=3,
-                         avg_frames=2, max_changed=6, require_motion_for_move=False)
+                         avg_frames=2, max_changed=6, require_motion_for_move=False,
+                         min_grid_line_coverage=0.0)
         mt.reset_to_start()
         mt.start()
 
@@ -904,14 +915,24 @@ class TestCnnVerify:
         assert mt.recovered_last is False
 
     def test_hard_veto_rejects_ghost_to_still_empty(self, monkeypatch):
-        """Hand-Wisch-Geist: Ziel e4 bleibt vertrauenswürdig LEER → verworfen, kein Zug."""
+        """Hand-Wisch-Geist: NICHTS bewegt — Start e2 noch BELEGT und Ziel e4 noch LEER
+        → verworfen. (Ziel-leer allein reicht NICHT: bei geräumtem Start committet es, sonst
+        würde eine fehl-gelesene Zielsituation echte Züge killen, z.B. Rochade.)"""
         mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0,
-                              occ={"e4": False, "e2": False}, conf={"e4": True, "e2": True})
+                              occ={"e4": False, "e2": True}, conf={"e4": True, "e2": True})
         mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
         assert mt.history == []
         assert mt._pending is None
         assert mt._verify_state == "ghost"
         assert mt.cnn_status == "ghost"
+
+    def test_from_emptied_commits_despite_to_misread_empty(self, monkeypatch):
+        """Regression (castling): origin e2 confidently EMPTY (piece left) but destination e4
+        mis-read empty → still COMMITS (trust the reliable 'left' signal + the diff)."""
+        mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0,
+                              occ={"e4": False, "e2": False}, conf={"e4": True, "e2": True})
+        mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        assert mt.history == ["e4"] and mt._verify_state == "confirmed"
 
     def test_from_occupied_but_arrived_commits(self, monkeypatch):
         """d2d4-Fix: Ziel e4 ist belegt (Figur angekommen) → COMMIT, auch wenn das Modell den
@@ -1406,6 +1427,18 @@ class TestFeedbackAndRecording:
         assert r["ok"] and r["frames"] >= 1
         assert (tmp_path / "sessions" / r["session_id"] / "log.jsonl").exists()
 
+    def test_auto_record_skips_positions_over_physical_inventory(self, monkeypatch, tmp_path):
+        import chesslab.config as config
+        monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+        mt = self._committed_tracker(monkeypatch, auto_record=True)
+        mt.board = chess.Board("Q3Q3/8/8/8/8/8/8/4K2k w - - 0 1")
+
+        mt._queue_session_capture("a8=Q")
+
+        assert mt._pending_capture is None
+        assert mt._record_skipped_inventory == 1
+        assert mt._record_skip_reason == "wQ 2/1"
+
     def test_recording_creates_sliceable_session(self, monkeypatch, tmp_path):
         import chesslab.config as config
         monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
@@ -1602,6 +1635,9 @@ class TestAppEndpoints:
         assert data["active"] is False
         assert data.get("default_profile") == "testp"
         assert data.get("default_source") == "99"
+        assert data["track_defaults"]["motion_margin"] == 0.20
+        assert data["track_defaults"]["overhang"] == 0.25
+        assert data["track_defaults"]["motion_hold_s"] == 0.4
 
     def test_double_start_one_thread(self, monkeypatch):
         from fastapi.testclient import TestClient
@@ -1629,6 +1665,74 @@ class TestAppEndpoints:
         # Status should be active
         r = client.get("/api/status")
         assert r.json()["active"] is True
+
+    def test_start_accepts_live_tuning_values(self, monkeypatch):
+        from fastapi.testclient import TestClient
+
+        from chesslab.move_tracker.app import _STATE, create_app
+
+        board_size = 400
+        prof = _make_identity_profile(board_size=board_size)
+        frame = _bgr_frame(["e2"], board_size=board_size)
+        fake = FakeCapture([frame] * 5)
+
+        monkeypatch.setattr("chesslab.move_tracker.tracker.open_source", lambda s: fake)
+        monkeypatch.setattr("chesslab.move_tracker.tracker.ensure_profile", lambda *a, **k: prof)
+
+        app = create_app(default_profile="testp", default_source="0",
+                         tracker_kwargs={"live_align": False, "settle_frames": 10})
+        client = TestClient(app)
+        r = client.post("/api/start", json={
+            "profile": "testp",
+            "source": "0",
+            "motion_margin": 0.33,
+            "overhang": 0.40,
+            "motion_hold_s": 0.55,
+            "min_grid_line_coverage": 0.25,
+        })
+        assert r.status_code == 200
+        tracker = _STATE.get("tracker")
+        assert tracker.motion_margin == 0.33
+        assert tracker.overhang == 0.40
+        assert tracker.motion_hold_s == 0.55
+        assert tracker.min_grid_line_coverage == 0.25
+
+    def test_settings_updates_running_tracker_without_restart(self, monkeypatch):
+        from fastapi.testclient import TestClient
+
+        from chesslab.move_tracker.app import _STATE, create_app
+
+        board_size = 400
+        prof = _make_identity_profile(board_size=board_size)
+        frame = _bgr_frame(["e2"], board_size=board_size)
+        fake = FakeCapture([frame] * 5)
+
+        monkeypatch.setattr("chesslab.move_tracker.tracker.open_source", lambda s: fake)
+        monkeypatch.setattr("chesslab.move_tracker.tracker.ensure_profile", lambda *a, **k: prof)
+
+        app = create_app(default_profile="testp", default_source="0",
+                         tracker_kwargs={"live_align": False, "settle_frames": 10})
+        client = TestClient(app)
+        assert client.post("/api/start", json={"profile": "testp", "source": "0"}).json()["ok"]
+        tracker_before = _STATE.get("tracker")
+
+        r = client.post("/api/settings", json={
+            "motion_margin": 0.28,
+            "overhang": 0.35,
+            "motion_hold_s": 0.6,
+            "min_grid_line_coverage": 0.3,
+            "occlusion_color_thr": 2.0,
+            "census_thr": 140,
+        })
+        assert r.status_code == 200 and r.json()["ok"] is True
+        tracker_after = _STATE.get("tracker")
+        assert tracker_after is tracker_before
+        assert tracker_after.motion_margin == 0.28
+        assert tracker_after.overhang == 0.35
+        assert tracker_after.motion_hold_s == 0.6
+        assert tracker_after.min_grid_line_coverage == 0.3
+        assert tracker_after.occlusion_color_thr == 2.0
+        assert tracker_after.census_thr == 140
 
     def test_reset_invalid_fen(self):
         from fastapi.testclient import TestClient

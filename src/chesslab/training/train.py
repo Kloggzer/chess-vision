@@ -104,7 +104,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # Reduce ROCm/CUDA allocator fragmentation OOM (the allocator can otherwise fail to find a
     # large contiguous block even when plenty of VRAM is free — the earlier crash). Must be set
     # before the first CUDA allocation, i.e. before torch initializes the device.
-    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
 
     import numpy as np
     import torch

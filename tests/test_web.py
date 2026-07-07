@@ -140,6 +140,61 @@ def test_api_stats_endpoint(tmp_path, monkeypatch):
     assert r["counts"]["empty"] == 0
 
 
+def test_session_review_endpoints_show_frame_and_board(tmp_path, monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+
+    from chesslab import config
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    sdir = config.DATA.sessions / "review1"
+    (sdir / "frames").mkdir(parents=True)
+    bs = 96
+    corners = [[0, 0], [bs, 0], [bs, bs], [0, bs]]
+    prof = CalibrationProfile(profile="t", camera_index=0, frame_size=(bs, bs), board_size=bs,
+                              image_corners=corners, homography=compute_homography(corners, bs),
+                              white_pov=True, crop=CropParams.default(bs))
+    config.DATA.calibration.mkdir(parents=True)
+    prof.save(config.DATA.calibration / "t.yaml")
+    frame = np.full((bs, bs, 3), 180, dtype=np.uint8)
+    cv2.imwrite(str(sdir / "frames" / "0000.png"), frame)
+    (sdir / "log.jsonl").write_text(
+        json.dumps({
+            "frame": "frames/0000.png",
+            "ply": 0,
+            "fen": chess.Board().fen(),
+            "move_san": None,
+            "corners": corners,
+        }) + "\n",
+        encoding="utf-8",
+    )
+    (sdir / "session.yaml").write_text(
+        yaml.safe_dump({"session_id": "review1", "profile": "t", "mode": "play"}),
+        encoding="utf-8",
+    )
+
+    from chesslab.web.app import create_app
+    client = TestClient(create_app())
+    details = client.get("/api/sessions/review1/review?idx=99")
+    assert details.status_code == 200
+    body = details.json()
+    assert body["index"] == 0
+    assert body["count"] == 1
+    assert body["entry"]["fen"] == chess.Board().fen()
+    assert body["overlay_available"] is True
+
+    real = client.get(body["frame_url"])
+    assert real.status_code == 200
+    assert real.headers["content-type"].startswith("image/png")
+    overlay = client.get(body["overlay_url"])
+    assert overlay.status_code == 200
+    assert overlay.headers["content-type"].startswith("image/jpeg")
+    board = client.get(body["board_url"])
+    assert board.status_code == 200
+    assert board.headers["content-type"].startswith("image/svg+xml")
+    assert b"<svg" in board.content
+
+
 def test_train_guards_too_few_sessions(tmp_path, monkeypatch):
     """/api/train must auto-create the split and refuse with a clear message instead of
     crashing on a missing split.json or launching a doomed run from a single session."""
@@ -378,5 +433,3 @@ def test_scan_models_and_files_variant_aware(tmp_path, monkeypatch):
     r = client.delete("/api/scan/piece/wP/v1")
     assert r.status_code == 200 and "v1.obj" in r.json()["removed"]
     assert not piece_dir.exists()  # empty folder pruned
-
-

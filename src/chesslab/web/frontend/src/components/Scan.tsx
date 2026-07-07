@@ -70,6 +70,7 @@ function scanStage(s: Scan, pieces: Piece[]): { stage: Stage; piece: string | nu
 }
 
 /** Piece workshop: Upload -> prepare -> render-ready piece. */
+// eslint-disable-next-line sonarjs/cognitive-complexity
 export default function Scan() {
   // --- Photo-Capture State ---
   const [source, setSource] = useState(PHONE);
@@ -199,7 +200,11 @@ export default function Scan() {
   async function deleteScan(d: string) {
     if (!confirm(`Delete scan "${d}" (mesh will be removed)?`)) return;
     setMsg("");
-    try { await del(`/api/scan/scan/${d}`); if (dir === d) setDir(""); refresh(); }
+    try {
+      await del(`/api/scan/scan/${d}`);
+      if (dir === d) setDir("");
+      refresh();
+    }
     catch (e: any) { setMsg("Delete failed: " + e.message); }
   }
   async function deletePiece(piece: string, variant: string) {
@@ -269,11 +274,6 @@ export default function Scan() {
   if (busyPrep) { prepButtonLabel = "running…"; }
   else if (stage === "done") { prepButtonLabel = "Re-prepare"; }
   else { prepButtonLabel = "Prepare"; }
-  let resultPiece: string | null;
-  if (curInfo?.stage === "done") { resultPiece = curInfo.piece; }
-  else if (prep?.state === "done") { resultPiece = prep.piece; }
-  else { resultPiece = null; }
-
   return (
     <div className="space-y-4">
       {/* ── Photo-Capture Panel ── */}

@@ -127,6 +127,28 @@ def _steps_from_board_play(play_move, board: chess.Board, max_plies: int) -> lis
     return steps
 
 
+def physical_inventory_violations(fen: str, inventory: dict[str, int] | None = None) -> list[str]:
+    """Return labels that require more physical pieces than available per color.
+
+    A standard set has one queen per color. Legal chess can create a second queen via
+    promotion, but if the real board uses a chip/upside-down piece, auto-labeling that
+    square as a queen would poison the training data.
+    """
+    inv = inventory or config.DEFAULT_INVENTORY
+    board = chess.Board(fen)
+    counts = {f"{color}{ptype}": 0 for color in ("w", "b") for ptype in inv}
+    for piece in board.piece_map().values():
+        color = "w" if piece.color == chess.WHITE else "b"
+        label = f"{color}{piece.symbol().upper()}"
+        counts[label] = counts.get(label, 0) + 1
+    out: list[str] = []
+    for label, count in sorted(counts.items()):
+        limit = inv.get(label[1], 0)
+        if count > limit:
+            out.append(f"{label} {count}/{limit}")
+    return out
+
+
 def random_game_positions(max_plies: int = 40, seed: int = 42, start_fen: str | None = None) -> list[dict]:
     """Random legal moves — maximum position diversity for data collection."""
     rng = random.Random(seed)

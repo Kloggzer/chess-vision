@@ -128,6 +128,24 @@ def test_twostage_head_outputs_valid_logprobs():
     assert bool((out.argmax(1) == torch.softmax(out, dim=1).argmax(1)).all())
 
 
+def test_twostage_timm_backbone_uses_actual_feature_dim():
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("timm")
+    from chesslab.training.model import build_model
+
+    model = build_model(
+        "mobilenetv4_conv_small_03",
+        len(config.CLASSES),
+        pretrained=False,
+        norm="none",
+        head="twostage",
+        classes=config.CLASSES,
+    )
+    out = model(torch.randn(2, 3, 128, 128))
+    assert out.shape == (2, len(config.CLASSES))
+    assert model.head.occ_head.in_features == 1280
+
+
 def test_twostage_piece_head_only_learns_on_occupied():
     torch = pytest.importorskip("torch")
     import torch.nn.functional as F

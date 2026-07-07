@@ -3,7 +3,7 @@ import { NavLink, Outlet, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Check, X, AlertTriangle, Images, Archive, ArchiveRestore, Trash2, Scissors, Loader2,
-  Boxes, Hammer, RotateCw,
+  Boxes, Hammer, RotateCw, Eye, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { api, post, del } from "../api";
 import { Card, Button, Glyph, noteCls } from "./ui";
@@ -37,7 +37,14 @@ export function SessionsPanel() {
   const invalidate = useInvalidate();
   const [note, setNote] = useState("");
   const [noteKind, setNoteKind] = useState<"ok" | "err" | "busy" | "">("");
+  const [reviewSid, setReviewSid] = useState("");
+  const [reviewIdx, setReviewIdx] = useState(0);
   const sessionsQ = useQuery({ queryKey: ["sessions-manage"], queryFn: () => api("/api/sessions/manage") });
+  const reviewQ = useQuery({
+    queryKey: ["session-review", reviewSid, reviewIdx],
+    queryFn: () => api(`/api/sessions/${encodeURIComponent(reviewSid)}/review?idx=${reviewIdx}`),
+    enabled: !!reviewSid,
+  });
   const all: any[] = sessionsQ.data ?? [];
   const sessions = all.filter((m) => !m.variant);
   const ingested = all.filter((m) => m.variant);
@@ -46,9 +53,36 @@ export function SessionsPanel() {
   const onErr = (e: any) => { setNote("Error: " + e.message); setNoteKind("err"); };
   const onBusy = (msg: string) => { setNote(msg); setNoteKind("busy"); };
   const sliceM = useMutation({ mutationFn: (sid: string) => post(`/api/sessions/${sid}/slice`), onMutate: (sid: string) => onBusy(`slicing "${sid}" ...`), onSuccess: (r: any) => onOk(`"${r.session}" sliced: ${r.crops} crops.`), onError: onErr });
+  const openReview = (sid: string) => {
+    setReviewSid(sid);
+    setReviewIdx(0);
+  };
+  const closeReview = () => {
+    setReviewSid("");
+    setReviewIdx(0);
+  };
+  const review: any = reviewQ.data;
+  const reviewSummary = (() => {
+    if (review) {
+      const move = review.entry?.move_san ? ` | ${review.entry.move_san}` : "";
+      const ply = review.entry?.ply !== undefined ? ` | ply ${review.entry.ply}` : "";
+      return `Frame ${review.index + 1} / ${review.count}${move}${ply}`;
+    }
+    if (reviewQ.isError) return "Could not load session details.";
+    return "Loading session details...";
+  })();
   const archiveM = useMutation({ mutationFn: (sid: string) => post(`/api/sessions/${sid}/archive`), onSuccess: () => onOk("archived."), onError: onErr });
   const restoreM = useMutation({ mutationFn: (sid: string) => post(`/api/sessions/${sid}/restore`), onSuccess: () => onOk("restored — re-slice."), onError: onErr });
   const deleteM = useMutation({ mutationFn: (sid: string) => del(`/api/sessions/${sid}`), onSuccess: () => onOk("deleted."), onError: onErr });
+  const trimM = useMutation({
+    mutationFn: ({ sid, keep_frames }: { sid: string; keep_frames: number }) => post(`/api/sessions/${sid}/trim`, { keep_frames }),
+    onSuccess: (r: any) => {
+      onOk(`trimmed "${r.session_id}": kept ${r.kept_frames}, moved ${r.removed_frames} to rejects.`);
+      setReviewIdx((i) => Math.min(i, Math.max(0, r.kept_frames - 1)));
+      invalidate("session-review");
+    },
+    onError: onErr,
+  });
 
   return (
     <Card title="Sessions (raw material)" right={<span className="text-xs text-zinc-500">{sessions.length} camera / {ingested.length} ingested</span>}>
@@ -73,6 +107,11 @@ export function SessionsPanel() {
                 <td className="text-right tabular-nums text-zinc-400">{m.n_frames}</td>
                 <td className="text-right tabular-nums text-zinc-400">{m.archived ? "—" : m.n_crops}</td>
                 <td className="py-1"><div className="flex justify-end gap-1.5">
+                  <Button onClick={() => openReview(m.session_id)}
+                          disabled={!m.n_frames}
+                          className="px-2 py-1 text-xs disabled:opacity-50">
+                    <Eye className="h-3.5 w-3.5" /> Review
+                  </Button>
                   {!m.archived && (
                     <Button onClick={() => sliceM.mutate(m.session_id)}
                             disabled={sliceM.isPending}
@@ -109,6 +148,71 @@ export function SessionsPanel() {
             ))}
           </tbody>
         </table>
+      )}
+      {reviewSid && (
+        <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950/50 p-3">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-sm font-medium text-zinc-200">{reviewSid}</div>
+              <div className="text-xs text-zinc-500">
+                {reviewSummary}
+              </div>
+              {review && (
+                <div className="text-[11px] text-zinc-600">
+                  Trim keeps this frame included; only frames after it move to the reject bucket and leave training data.
+                  {review.index >= review.count - 1 ? " This is already the last frame." : ""}
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Button onClick={() => setReviewIdx((i) => Math.max(0, i - 1))}
+                      disabled={!review || review.index <= 0}
+                      className="px-2 py-1 text-xs disabled:opacity-50"
+                      title="Previous frame">
+                <ChevronLeft className="h-3.5 w-3.5" /> Prev
+              </Button>
+              <Button onClick={() => setReviewIdx((i) => Math.min((review?.count ?? 1) - 1, i + 1))}
+                      disabled={!review || review.index >= review.count - 1}
+                      className="px-2 py-1 text-xs disabled:opacity-50"
+                      title="Next frame">
+                Next <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+              <Button onClick={closeReview} className="px-2 py-1 text-xs">
+                <X className="h-3.5 w-3.5" /> Close
+              </Button>
+              <Button onClick={() => {
+                        const keep = (review?.index ?? 0) + 1;
+                        if (window.confirm(`Keep frames 1-${keep}, including the current frame. Move all later frames to the reject bucket and remove them from training data?`)) {
+                          trimM.mutate({ sid: reviewSid, keep_frames: keep });
+                        }
+                      }}
+                      disabled={!review || review.index >= review.count - 1 || trimM.isPending}
+                      className="px-2 py-1 text-xs text-red-300 hover:text-red-200 disabled:opacity-50"
+                      title="Keeps the current frame; moves only later frames to the reject bucket and removes their crops from training data">
+                {trimM.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Scissors className="h-3.5 w-3.5" />}
+                Keep through this frame
+              </Button>
+            </div>
+          </div>
+          {reviewQ.isError && (
+            <div className="rounded-lg bg-red-950/60 px-3 py-1.5 text-sm text-red-300">{(reviewQ.error as Error).message}</div>
+          )}
+          {review && (
+            <div className="grid gap-3 lg:grid-cols-2">
+              <div>
+                <div className="mb-1 text-xs font-medium text-zinc-500">
+                  ArUco-aligned frame{review.overlay_available ? "" : " (raw fallback)"}
+                </div>
+                <img src={review.overlay_url} alt={`${reviewSid} overlay ${review.index + 1}`} className="max-h-[70vh] w-full rounded border border-zinc-800 object-contain" />
+              </div>
+              <div>
+                <div className="mb-1 text-xs font-medium text-zinc-500">Logged board</div>
+                <img src={review.board_url} alt={`${reviewSid} board ${review.index + 1}`} className="max-h-[70vh] w-full rounded border border-zinc-800 bg-zinc-100 object-contain" />
+                <div className="mt-2 break-all rounded bg-zinc-900 px-2 py-1 text-[11px] text-zinc-500">{review.entry?.fen}</div>
+              </div>
+            </div>
+          )}
+        </div>
       )}
       {ingested.length > 0 && (
         <>
