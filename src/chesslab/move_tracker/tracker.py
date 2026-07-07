@@ -324,13 +324,14 @@ for _f in _FILES:
         _SQ_NEIGHBOURS[_sq] = _n
 
 
-def _occluded_by_baseline(cur_gray, ref_gray, board_size, abs_thr: float) -> set[str]:
+def _occluded_by_baseline(cur_gray, ref_gray, board_size, abs_thr: float,
+                         white_pov: bool) -> set[str]:
     """Return squares where mean absdiff vs baseline reference exceeds ``abs_thr``,
     dilated by one square (orthogonal neighbours) — a hand on e4 protects d4/f4/e3/e5."""
     d = cv2.absdiff(cur_gray, ref_gray)
     occluded = set()
     for sq in _ALL:
-        x0, y0, x1, y1 = square_region(sq, board_size, False)
+        x0, y0, x1, y1 = square_region(sq, board_size, white_pov)
         if float(d[y0:y1, x0:x1].mean()) > abs_thr:
             occluded.add(sq)
     dilated = set(occluded)
@@ -1073,7 +1074,8 @@ class MoveTracker:
                         # least 100ms after the hand leaves — prevents flicker toggling.
                         if self.ref_gray is not None:
                             raw = _occluded_by_baseline(
-                                gray_det, self.ref_gray, self._det_size, self.motion_px_thr * 2.5)
+                                gray_det, self.ref_gray, self._det_size,
+                                self.motion_px_thr * 2.5, self.profile.white_pov)
                             for sq in raw:
                                 self._occlusion_expiry[sq] = now + 0.1
                             self._motion_occluded_squares = {
@@ -2377,19 +2379,6 @@ class MoveTracker:
         img = warped.copy()
         bs = self.profile.board_size
         cell = bs / 8.0
-        # Semi-transparent red wash during motion / occlusion: immediate visual signal
-        # that the tracker is NOT watching the board for moves right now.
-        if self.state in ("moving", "occluded"):
-            overlay = img.copy()
-            cv2.rectangle(overlay, (0, 0), (bs, bs), (0, 0, 180), -1)
-            img = cv2.addWeighted(img, 0.70, overlay, 0.30, 0)
-        # ROI inset border (green): drawn at the motion_margin fraction inside the
-        # board edges — always visible, conceptual counterpart to the raw-camera ROI
-        # polygon that _roi_motion uses for perspective-warp.
-        inset = int(bs * self.motion_margin)
-        if inset > 2:
-            cv2.rectangle(img, (inset, inset), (bs - inset, bs - inset),
-                          (0, 255, 0), 1, cv2.LINE_AA)
         # Grid lines
         for i in range(9):
             p = int(i * cell)
