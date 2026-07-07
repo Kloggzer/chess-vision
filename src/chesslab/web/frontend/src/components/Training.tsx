@@ -190,7 +190,7 @@ export default function Training() {
             {datasets.length === 0 && <option value="">— none built —</option>}
             {datasets.map((d) => <option key={d.name} value={d.name}>{d.name} ({d.counts?.final ?? "?"})</option>)}
           </Select>
-          <Select label="Backbone" value={backbone} onChange={(e) => setBackbone(e.target.value)}>
+          <Select label="Backbone" value={backbone} onChange={(e) => setBackbone(e.target.value)} title="CNN architecture: smallcnn (lightweight custom), mobilenet_v3/v4 (fast mobile), efficientnet/resnet (timm — heavier, more accurate)">
             <option value="smallcnn">smallcnn</option>
             <option value="mobilenet_v3_small">mobilenet_v3_small</option>
             <option value="mobilenetv4_conv_small">mobilenetv4_conv_small (timm)</option>
@@ -198,14 +198,14 @@ export default function Training() {
             <option value="efficientnet_b0">efficientnet_b0 (timm)</option>
             <option value="resnet18">resnet18 (timm)</option>
           </Select>
-          <Select label="Head" value={head} onChange={(e) => setHead(e.target.value)}>
+          <Select label="Head" value={head} onChange={(e) => setHead(e.target.value)} title="Classification head: combined (single fc), factored (type+color), twostage (occupancy then piece identity)">
             <option value="combined">combined</option>
             <option value="factored">factored</option>
             <option value="twostage">twostage (Occ→Piece)</option>
           </Select>
-          <label className="flex flex-col text-xs text-zinc-400">Epochs<input type="number" min={1} value={epochs} onChange={(e) => setEpochs(+e.target.value)} className={inp} /></label>
-          <label className="flex flex-col text-xs text-zinc-400">Batch<input type="number" min={1} value={batchSize} onChange={(e) => setBatchSize(+e.target.value)} className={inp} /></label>
-          <label className="flex flex-col text-xs text-zinc-400">LR<input type="number" step={0.0001} min={0} value={lr} onChange={(e) => setLr(+e.target.value)} className={inp} /></label>
+          <label className="flex flex-col text-xs text-zinc-400" title="Number of full passes over the training data. More epochs = more learning, but risk of overfitting.">Epochs<input type="number" min={1} value={epochs} onChange={(e) => setEpochs(+e.target.value)} className={inp} /></label>
+          <label className="flex flex-col text-xs text-zinc-400" title="Samples processed at once. Larger batch = faster training, more GPU memory. Small batches (32-64) generalize better.">Batch<input type="number" min={1} value={batchSize} onChange={(e) => setBatchSize(+e.target.value)} className={inp} /></label>
+          <label className="flex flex-col text-xs text-zinc-400" title="Learning rate: step size for gradient descent. Higher = faster learning but may overshoot; 0.0003 is a safe default for AdamW.">LR<input type="number" step={0.0001} min={0} value={lr} onChange={(e) => setLr(+e.target.value)} className={inp} /></label>
           <label className="flex flex-col text-xs text-zinc-400" title="Early stopping: epochs without macro_recall progress before aborting.">Patience<input type="number" min={1} value={patience} onChange={(e) => setPatience(+e.target.value)} className={inp} /></label>
           <Select label="Resume" value={resume} onChange={(e) => setResume(e.target.value)}>
             <option value="">from scratch</option>
