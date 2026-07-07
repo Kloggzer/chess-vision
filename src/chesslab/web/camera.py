@@ -25,21 +25,19 @@ from ..calibration import (
 )
 
 try:
-    from turbojpeg import TurboJPEG
-    _tjpeg = TurboJPEG()
-except (ImportError, RuntimeError):
-    _tjpeg = None
-
-
-def _jpeg_decode(data: bytes) -> np.ndarray | None:
-    """Decode JPEG bytes to BGR with turbojpeg (2-3× faster) or fallback to cv2."""
-    if _tjpeg is not None:
+    import simplejpeg
+    def _jpeg_decode(data: bytes) -> np.ndarray | None:
+        """Decode JPEG bytes to BGR with libjpeg-turbo (2-3× faster) or fallback to cv2."""
         try:
-            return _tjpeg.decode(data)
+            return simplejpeg.decode_jpeg(data, colorspace="BGR")
         except Exception:
             pass
-    arr = np.frombuffer(data, np.uint8)
-    return cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        arr = np.frombuffer(data, np.uint8)
+        return cv2.imdecode(arr, cv2.IMREAD_COLOR)
+except ImportError:
+    def _jpeg_decode(data: bytes) -> np.ndarray | None:
+        arr = np.frombuffer(data, np.uint8)
+        return cv2.imdecode(arr, cv2.IMREAD_COLOR)
 
 
 _BOUNDARY = b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
