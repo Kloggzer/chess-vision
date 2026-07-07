@@ -1112,7 +1112,7 @@ class MoveTracker:
                                     # mix) don't pollute the first detection after occlusion.
                                     self._occl_grid_active = False
                                     self._hold_until = max(self._hold_until,
-                                                            now + self.motion_hold_s * 2)
+                                                            now + self.motion_hold_s)
                                     self._gray_buf.clear()
                                     self._bgr_buf.clear()
                                     ready = False
