@@ -324,20 +324,27 @@ for _f in _FILES:
         _SQ_NEIGHBOURS[_sq] = _n
 
 
-def _occluded_by_baseline(cur_gray, ref_gray, board_size, abs_thr: float,
-                         white_pov: bool) -> set[str]:
-    """Return squares where mean absdiff vs baseline reference exceeds ``abs_thr``,
-    dilated by one square (orthogonal neighbours) — a hand on e4 protects d4/f4/e3/e5."""
+def _baseline_occlusion_and_shadow(cur_gray, ref_gray, board_size, abs_thr: float,
+                                  white_pov: bool) -> tuple[set[str], set[str]]:
+    """Return (occluded_squares, shadow_squares) from absdiff vs baseline.
+    Occlusion: mean absdiff > abs_thr. Shadow: mean pixel value decreased > abs_thr/2
+    AND not already occluded. Both dilated by one orthogonal neighbour."""
     d = cv2.absdiff(cur_gray, ref_gray)
-    occluded = set()
+    occluded: set[str] = set()
+    shadow: set[str] = set()
     for sq in _ALL:
         x0, y0, x1, y1 = square_region(sq, board_size, white_pov)
         if float(d[y0:y1, x0:x1].mean()) > abs_thr:
             occluded.add(sq)
-    dilated = set(occluded)
+        elif float(ref_gray[y0:y1, x0:x1].mean()) - float(cur_gray[y0:y1, x0:x1].mean()) > abs_thr / 2:
+            shadow.add(sq)
+    dilated_occ = set(occluded)
     for sq in occluded:
-        dilated.update(_SQ_NEIGHBOURS.get(sq, []))
-    return dilated
+        dilated_occ.update(_SQ_NEIGHBOURS.get(sq, []))
+    dilated_shadow = set(shadow)
+    for sq in shadow:
+        dilated_shadow.update(_SQ_NEIGHBOURS.get(sq, []))
+    return dilated_occ, dilated_shadow - dilated_occ
 
 
 def move_touched_squares(board: chess.Board, move: chess.Move) -> set[str]:
@@ -1055,13 +1062,14 @@ class MoveTracker:
                     # the tracker is NOT in a clean waiting/move state. Hand-occluded squares
                     # are always shown on the overlay and hard-blocked in detection.
                     if self.ref_gray is not None and self.state not in ("waiting", "move"):
-                        raw = _occluded_by_baseline(
+                        raw_occ, raw_shadow = _baseline_occlusion_and_shadow(
                             gray_det, self.ref_gray, self._det_size,
                             self.motion_px_thr * 2.5, self.profile.white_pov)
-                        for sq in raw:
+                        for sq in raw_occ:
                             self._occlusion_expiry[sq] = now + 0.1
                         self._motion_occluded_squares = {
                             sq for sq, exp in self._occlusion_expiry.items() if now < exp}
+                        self._shadow_vetoed = sorted(raw_shadow)
 
                     if motion > self.motion_thr:       # hand/camera moving -> discard buffers
                         self.stable_count = 0
@@ -1118,7 +1126,10 @@ class MoveTracker:
                                     else:
                                         self.note = "waiting for clear view of the board…"
                                 elif ready and self.state != "move":
-                                    self._try_detect(cur, cur_bgr)  # commits only after confirmation
+                                    if self._motion_occluded_squares:
+                                        self.state = "occluded"
+                                    else:
+                                        self._try_detect(cur, cur_bgr)  # commits only after confirmation
                         if self.state not in ("move", "occluded"):
                             self.state = "waiting"
 
@@ -1892,9 +1903,10 @@ class MoveTracker:
             return
         # 2. Evidence: all gates and the LL-scoring operate on the SAME z-values.
         diffs, z = self._compute_evidence(cur)
-        # Baseline-absdiff occlusion: only hard-block when the hand covers more than 2
-        # squares — a genuine move (from+to = 2) must not be mistaken for a hand.
-        if len(self._motion_occluded_squares) > 2:
+        # Baseline-absdiff occlusion: hard-block all hand-touched squares
+        # (and their dilated neighbours) — z zeroed, added to tainted so they cannot
+        # become move endpoints.
+        if self._motion_occluded_squares:
             for sq in self._motion_occluded_squares:
                 z[sq] = 0.0
                 self._tainted[sq] = time.time() + self.motion_hold_s
