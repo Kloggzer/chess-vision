@@ -189,6 +189,7 @@ def runs():
             "run": d.name, "backbone": cfg.get("backbone"), "dataset": cfg.get("dataset"),
             "n_classes": len(cfg.get("classes", [])), "resumed_from": cfg.get("resumed_from"),
             "has_occluded": "occluded" in cfg.get("classes", []),
+            "has_onnx": (d / "model.onnx").exists(),
             "epochs_done": len(metrics),
             "best_board_acc": max((m.get("val_board_acc", 0) for m in metrics), default=0),
             "best_square_acc": max((m.get("val_acc", 0) for m in metrics), default=0),
