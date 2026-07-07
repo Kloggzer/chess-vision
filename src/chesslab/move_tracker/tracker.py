@@ -307,6 +307,38 @@ def motion_score(prev_gray, cur_gray, px_thr: float = 20.0) -> float:
     return float((d > px_thr).mean()) * 100.0
 
 
+_SQ_NEIGHBOURS: dict[str, list[str]] = {}
+for _f in _FILES:
+    for _r in range(1, 9):
+        _sq = f"{_f}{_r}"
+        _n = []
+        if _r < 8:
+            _n.append(f"{_f}{_r + 1}")
+        if _r > 1:
+            _n.append(f"{_f}{_r - 1}")
+        _fi = _FILES.index(_f)
+        if _fi > 0:
+            _n.append(f"{_FILES[_fi - 1]}{_r}")
+        if _fi < 7:
+            _n.append(f"{_FILES[_fi + 1]}{_r}")
+        _SQ_NEIGHBOURS[_sq] = _n
+
+
+def _occluded_by_baseline(cur_gray, ref_gray, board_size, abs_thr: float) -> set[str]:
+    """Return squares where mean absdiff vs baseline reference exceeds ``abs_thr``,
+    dilated by one square (orthogonal neighbours) — a hand on e4 protects d4/f4/e3/e5."""
+    d = cv2.absdiff(cur_gray, ref_gray)
+    occluded = set()
+    for sq in _ALL:
+        x0, y0, x1, y1 = square_region(sq, board_size, False)
+        if float(d[y0:y1, x0:x1].mean()) > abs_thr:
+            occluded.add(sq)
+    dilated = set(occluded)
+    for sq in occluded:
+        dilated.update(_SQ_NEIGHBOURS.get(sq, []))
+    return dilated
+
+
 def move_touched_squares(board: chess.Board, move: chess.Move) -> set[str]:
     """Squares that a move physically changes: from, to, + rook on castling, + captured pawn
     on en passant."""
@@ -585,6 +617,7 @@ class MoveTracker:
         self.occlusion_color_thr = occlusion_color_thr
         self._ref_gamut = None                        # (mu, inv_cov) built from ref_bgr at capture
         self._occluded_vetoed: list[str] = []         # squares discarded as opaque occlusion (color)
+        self._motion_occluded_squares: set[str] = set()  # squares occluded during motion (baseline absdiff)
         self._occluded_since: float | None = None     # occlusion-latch timer (gamut escape hatch)
         self._tainted: dict[str, int] = {}            # per-square occlusion latch (frames to clear)
         self._occl_whitelist: set[str] = set()        # persistent-occlusion squares exempt from the veto
@@ -1028,6 +1061,14 @@ class MoveTracker:
                             self._occl_grid_active = True
                         else:
                             self.state = "moving"
+                        # Per-square occlusion against the baseline reference: mark squares
+                        # where the hand visibly covers the board. Uses absdiff vs ref_gray
+                        # (no running-mean needed). Dilation protects neighbours too.
+                        if self.ref_gray is not None:
+                            self._motion_occluded_squares = _occluded_by_baseline(
+                                gray_det, self.ref_gray, self._det_size, self.motion_px_thr * 2.5)
+                        else:
+                            self._motion_occluded_squares = set()
                         # Arm the post-motion hold: detection stays blocked until the board
                         # has been motion-free for motion_hold_s (WALL TIME, not frames — at
                         # 40 fps a frame count settles in milliseconds).
@@ -1854,6 +1895,14 @@ class MoveTracker:
             return
         # 2. Evidence: all gates and the LL-scoring operate on the SAME z-values.
         diffs, z = self._compute_evidence(cur)
+        # Motion-period occlusion (baseline absdiff): squares touched by the hand and their
+        # orthogonal neighbours are hard-blocked — z zeroed, added to tainted so they cannot
+        # become move endpoints. Without this, the first stable frames after a hand leaves
+        # contain residue that reads as a legal move.
+        for sq in self._motion_occluded_squares:
+            z[sq] = 0.0
+            self._tainted[sq] = time.time() + self.motion_hold_s
+        self._motion_occluded_squares = set()
         changed = {s for s, v in z.items() if v >= self.z_thr}
         self._changed_vals = sorted(              # debug also shows squares just below z_thr
             ((s, round(v, 1)) for s, v in z.items() if v >= self.z_thr * 0.5),
@@ -2347,6 +2396,11 @@ class MoveTracker:
         for sq in self._occluded_vetoed:
             x0, y0, x1, y1 = square_region(sq, bs, self.profile.white_pov, inset=0.06)
             cv2.rectangle(img, (x0, y0), (x1, y1), (0, 140, 255), 2)
+        # Squares occluded during motion (baseline absdiff + dilation) — brighter orange,
+        # always visible while the hand is present, not just after stability.
+        for sq in self._motion_occluded_squares:
+            x0, y0, x1, y1 = square_region(sq, bs, self.profile.white_pov, inset=0.06)
+            cv2.rectangle(img, (x0, y0), (x1, y1), (0, 200, 255), 2)
         last = chess.Move.from_uci(self.last_move) if self.last_move else None
         for sq in _ALL:
             piece = self.board.piece_at(chess.parse_square(sq))
