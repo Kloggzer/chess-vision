@@ -618,6 +618,7 @@ class MoveTracker:
         self._ref_gamut = None                        # (mu, inv_cov) built from ref_bgr at capture
         self._occluded_vetoed: list[str] = []         # squares discarded as opaque occlusion (color)
         self._motion_occluded_squares: set[str] = set()  # squares occluded during motion (baseline absdiff)
+        self._occlusion_expiry: dict[str, float] = {}    # per-square occlusion keep-alive (expiry timestamp)
         self._occluded_since: float | None = None     # occlusion-latch timer (gamut escape hatch)
         self._tainted: dict[str, int] = {}            # per-square occlusion latch (frames to clear)
         self._occl_whitelist: set[str] = set()        # persistent-occlusion squares exempt from the veto
@@ -936,6 +937,8 @@ class MoveTracker:
             self.prior_last = False
             self._shadow_vetoed = []
             self._occluded_vetoed = []
+            self._motion_occluded_squares = set()
+            self._occlusion_expiry = {}
             self._hold_until = 0.0
             self._tainted = {}
             self._occl_whitelist = set()
@@ -967,6 +970,8 @@ class MoveTracker:
             self._occluded_since = None
             self._shadow_vetoed = []
             self._occluded_vetoed = []
+            self._motion_occluded_squares = set()
+            self._occlusion_expiry = {}
             self._anomaly_since = {}
             self.state = "waiting"
             self.note = "Baseline: re-capturing reference from the next clear frame…"
@@ -1064,9 +1069,15 @@ class MoveTracker:
                         # Per-square occlusion against the baseline reference: mark squares
                         # where the hand visibly covers the board. Uses absdiff vs ref_gray
                         # (no running-mean needed). Dilation protects neighbours too.
+                        # Keep-alive: once a square is flagged, it stays active for at
+                        # least 100ms after the hand leaves — prevents flicker toggling.
                         if self.ref_gray is not None:
-                            self._motion_occluded_squares = _occluded_by_baseline(
+                            raw = _occluded_by_baseline(
                                 gray_det, self.ref_gray, self._det_size, self.motion_px_thr * 2.5)
+                            for sq in raw:
+                                self._occlusion_expiry[sq] = now + 0.1
+                            self._motion_occluded_squares = {
+                                sq for sq, exp in self._occlusion_expiry.items() if now < exp}
                         else:
                             self._motion_occluded_squares = set()
                         # Arm the post-motion hold: detection stays blocked until the board
@@ -1903,6 +1914,8 @@ class MoveTracker:
             z[sq] = 0.0
             self._tainted[sq] = time.time() + self.motion_hold_s
         self._motion_occluded_squares = set()
+        self._occlusion_expiry = {sq: exp for sq, exp in self._occlusion_expiry.items()
+                                  if time.time() < exp}
         changed = {s for s, v in z.items() if v >= self.z_thr}
         self._changed_vals = sorted(              # debug also shows squares just below z_thr
             ((s, round(v, 1)) for s, v in z.items() if v >= self.z_thr * 0.5),
