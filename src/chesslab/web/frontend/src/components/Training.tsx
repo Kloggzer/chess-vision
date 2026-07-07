@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Play, Loader2, Square, Trash2, Eye, FlaskConical } from "lucide-react";
+import { Play, Loader2, Square, Trash2, Eye, FlaskConical, Package } from "lucide-react";
 import { api, post, del } from "../api";
 import { Card, Button, Select } from "./ui";
 import LineChart from "./LineChart";
@@ -147,6 +147,13 @@ export default function Training() {
     setErr(""); if (run === r) { setRun(""); setMetrics([]); setEvals({}); setCam([]); setReliance([]); }
     refreshRuns();
   }
+  async function exportRun(r: string) {
+    setErr("");
+    try {
+      const res = await post(`/api/runs/${r}/export`, {});
+      setErr(res.ok ? `ONNX export: ${r}` : (res.output || "export failed"));
+    } catch (e: any) { setErr(e.message); }
+  }
   const pct = (v: number | null | undefined) => (v == null ? "—" : (v * 100).toFixed(1) + " %");
   async function start() {
     setErr("");
@@ -290,6 +297,8 @@ export default function Training() {
                               className="px-2 py-1 text-xs"><Eye className="h-3.5 w-3.5" /> View</Button>
                       <Button onClick={() => evalRun(r.run)}
                               className="px-2 py-1 text-xs" title="Run eval (test split) — generates metrics + confusion matrix"><FlaskConical className="h-3.5 w-3.5" /> Eval</Button>
+                      <Button onClick={() => exportRun(r.run)}
+                              className="px-2 py-1 text-xs" title="Export to ONNX for faster inference"><Package className="h-3.5 w-3.5" /> Export</Button>
                       <Button onClick={() => delRun(r.run)}
                               className="px-2 py-1 text-xs text-red-300 hover:text-red-200"><Trash2 className="h-3.5 w-3.5" /> Delete</Button>
                     </div></td>

@@ -253,6 +253,25 @@ def run_eval_trigger(run: str):
     return {"ok": rc.returncode == 0, "run": run, "output": rc.stdout[-500:]}
 
 
+@router.post("/api/runs/{run}/export")
+def run_export_trigger(run: str):
+    """Export best.pt to ONNX (model.onnx + model_card.json) for faster inference."""
+    import subprocess
+    import sys
+
+    from ... import config
+
+    d = config.DATA.models / run
+    if not (d / "config.json").exists():
+        raise HTTPException(404, f"run {run} not found")
+    if (d / "model.onnx").exists():
+        return {"ok": True, "run": run, "output": "model.onnx already exists"}
+    rc = subprocess.run(
+        [sys.executable, "-m", "chesslab.cli", "export", "--run", str(d), "--format", "onnx"],
+        capture_output=True, text=True, timeout=120)
+    return {"ok": rc.returncode == 0, "run": run, "output": rc.stdout[-500:]}
+
+
 @router.get("/api/runs/{run}/gradcam")
 def run_gradcam(run: str, split: str = "test", per_class: int = 1, force_class: str | None = None):
     """Grad-CAM overlays (``per_class`` crops per class) — which pixels drove the decision.
