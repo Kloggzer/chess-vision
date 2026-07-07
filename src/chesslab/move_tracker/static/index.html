@@ -7,7 +7,7 @@
 <style>
   :root { color-scheme: dark; }
   body { margin: 0; background: #0b0b0e; color: #e4e4e7; font: 14px/1.5 system-ui, sans-serif; }
-  header { padding: 12px 16px; border-bottom: 1px solid #27272a; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  header { padding: 12px 16px; border-bottom: 1px solid #27272a; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; min-height: 20px; }
   h1 { font-size: 16px; margin: 0 12px 0 0; }
   input, select, button { background: #18181b; color: #e4e4e7; border: 1px solid #3f3f46; border-radius: 8px; padding: 6px 10px; font: inherit; }
   input.url { width: 360px; }
@@ -25,7 +25,7 @@
   .moving { background: #7f1d1d; color: #fecaca; }
   .waiting { background: #14532d; color: #bbf7d0; }
   .move { background: #1e3a8a; color: #bfdbfe; }
-  .note { color: #a1a1aa; }
+  .note { color: #a1a1aa; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   table.moves { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
   table.moves td { padding: 2px 8px; border-top: 1px solid #1f1f23; }
   table.moves td.n { color: #71717a; width: 32px; }
