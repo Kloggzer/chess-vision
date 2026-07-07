@@ -475,7 +475,7 @@ TRACK_DEFAULTS: dict = {
     "recovery_max_plies": 4,       # CNN deep recovery: max half-moves the conflict-guided search may bridge       # Recovery margin in SQUARES (capture = 1 square difference)
     "min_confident_board": 32,     # Whole-board match needs plenty of clear view
     "min_confident_recovery": 8,   # Recovery remains operational with partial occlusion
-    "motion_margin": 0.20,         # Motion ROI beyond the board edge (fraction of board edge)
+    "motion_margin": 0.10,         # Motion ROI beyond the board edge (fraction of board edge)
     "overhang": 0.25,              # Extend diff/occlusion cells toward back rank (fraction of cell)
     "align_every": 3,              # ArUco marker detection every N-th frame (most expensive per-frame op; camera fixed)
     "align_scale": 0.5,            # ArUco on downscaled frame (0.5 = half-res, ~3x faster; ±1 px inside tracker dead-zone)

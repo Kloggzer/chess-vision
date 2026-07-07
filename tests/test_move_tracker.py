@@ -1635,7 +1635,7 @@ class TestAppEndpoints:
         assert data["active"] is False
         assert data.get("default_profile") == "testp"
         assert data.get("default_source") == "99"
-        assert data["track_defaults"]["motion_margin"] == 0.20
+        assert data["track_defaults"]["motion_margin"] == 0.10
         assert data["track_defaults"]["overhang"] == 0.25
         assert data["track_defaults"]["motion_hold_s"] == 0.4
 
