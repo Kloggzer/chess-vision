@@ -522,7 +522,7 @@ class MoveTracker:
                  cnn_min_agreement: float = 0.97, cnn_margin_squares: int = 1,
                  recovery_max_plies: int = 4,
                  min_confident_board: int = 32, min_confident_recovery: int = 8,
-                 motion_margin: float = 0.20, overhang: float = 0.25,
+                 motion_margin: float = 0.10, overhang: float = 0.25,
                  corner_jump_px: float = 6.0, motion_cooldown: int | None = None,
                  motion_hold_s: float = 0.4,
                  occlusion_color_thr: float = 1.5,
@@ -750,25 +750,51 @@ class MoveTracker:
             g = self._clahe.apply(g)
         return cv2.GaussianBlur(g, (5, 5), 0)
 
+    @staticmethod
+    def _roi_aabb(corners, motion_margin, frame_shape):
+        """Compute the AABB of centre-expanded board corners (what ``_roi_motion`` crops)."""
+        exs, eys = MoveTracker._expand_corners(corners, motion_margin)
+        h, w = frame_shape[:2]
+        return max(0, int(min(exs))), min(w, int(max(exs))), max(0, int(min(eys))), min(h, int(max(eys)))
+
+    @staticmethod
+    def _expand_corners(corners, motion_margin):
+        """Return (xs, ys) of the 4 board corners expanded outward from the centre."""
+        xs = [float(p[0]) for p in corners]
+        ys = [float(p[1]) for p in corners]
+        cx, cy = sum(xs) / 4.0, sum(ys) / 4.0
+        scale = 1.0 + 2.0 * motion_margin
+        exs = [cx + (x - cx) * scale for x in xs]
+        eys = [cy + (y - cy) * scale for y in ys]
+        return exs, eys
+
+    @staticmethod
+    def _roi_polygon(corners, motion_margin):
+        """Return the 4 expanded corner points as int (x, y) tuples —
+        a board-aligned quadrilateral for visualization."""
+        exs, eys = MoveTracker._expand_corners(corners, motion_margin)
+        return [(int(round(x)), int(round(y))) for x, y in zip(exs, eys)]
+
     def _roi_motion(self, frame) -> float:
-        """Motion in a region of the RAW frame extended by `motion_margin` —
-        captures the hand before it covers a square (Poggi). Downsampled (cheap in hot-path).
+        """Motion in a board-aligned region extended by ``motion_margin`` —
+        captures the hand before it covers a square (Poggi). Uses a perspective warp
+        from the centre-expanded corners so the ROI exactly matches the visualization.
         Only used by the loop thread (no lock needed for _prev_roi)."""
         corners = self._last_corners
         if not corners:
             return 0.0
-        xs = [float(p[0]) for p in corners]
-        ys = [float(p[1]) for p in corners]
-        mx = (max(xs) - min(xs)) * self.motion_margin
-        my = (max(ys) - min(ys)) * self.motion_margin
-        h, w = frame.shape[:2]
-        x0, x1 = max(0, int(min(xs) - mx)), min(w, int(max(xs) + mx))
-        y0, y1 = max(0, int(min(ys) - my)), min(h, int(max(ys) + my))
-        if x1 - x0 < 8 or y1 - y0 < 8:
-            return 0.0
-        roi = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY)
-        roi = cv2.resize(roi, (160, max(8, int(160 * (y1 - y0) / (x1 - x0)))))
-        roi = cv2.GaussianBlur(roi, (5, 5), 0)      # kill sensor noise before the pixel test
+        pts_src = self._roi_polygon(corners, self.motion_margin)
+        scale = 1.0 + 2.0 * self.motion_margin
+        dst_sz = max(8, int(self.profile.board_size * scale))
+        dst_pts = np.array([[0, 0], [dst_sz - 1, 0],
+                            [dst_sz - 1, dst_sz - 1], [0, dst_sz - 1]], dtype=np.float32)
+        src_pts = np.array(pts_src, dtype=np.float32)
+        M = cv2.getPerspectiveTransform(src_pts, dst_pts)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        roi = cv2.warpPerspective(gray, M, (dst_sz, dst_sz),
+                                   borderMode=cv2.BORDER_REPLICATE)
+        roi = cv2.resize(roi, (160, 160))
+        roi = cv2.GaussianBlur(roi, (5, 5), 0)
         prev, self._prev_roi = self._prev_roi, roi
         if prev is None or prev.shape != roi.shape:
             return 0.0
@@ -2439,6 +2465,10 @@ class MoveTracker:
         if frame is None or not corners:
             return None
         img = draw_calibration_overlay(frame, corners, self.profile, labels=False)
+        # Draw the motion ROI polygon (green, board-aligned) — the
+        # centre-expanded quadrilateral that _roi_motion covers via its AABB.
+        pts = self._roi_polygon(corners, self.motion_margin)
+        cv2.polylines(img, [np.array(pts, np.int32)], True, (0, 255, 0), 1, cv2.LINE_AA)
         h, w = img.shape[:2]
         if w > width:
             img = cv2.resize(img, (width, max(1, int(h * width / w))))

@@ -359,6 +359,8 @@ function renderDebug(d) {
   set("fps", d.fps); set("diff_ms", d.diff_ms + " ms"); set("infer_ms", d.infer_ms + " ms");
   set("device", "<code>" + d.device + "</code>");
   set("motion", `<b class="${d.motion > d.motion_thr ? 'warn' : ''}">${d.motion}</b> / ${d.motion_thr}`);
+  set("motion_warped", `<span style="color:${(d.motion_warped ?? 0) > d.motion_thr ? '#f87171' : '#71717a'}">warped ${d.motion_warped ?? '?'}</span>`);
+  set("motion_roi", `<span style="color:${(d.motion_roi ?? 0) > d.motion_thr ? '#f87171' : '#71717a'}">roi ${d.motion_roi ?? '?'}</span>`);
   set("stable_count", d.stable_count); set("frames_used", d.frames_used); set("settle_frames", d.settle_frames);
   set("motion_since_ref", d.motion_since_ref
     ? '<b class="ok">yes</b>' : '<b class="warn">no (moves blocked)</b>');
