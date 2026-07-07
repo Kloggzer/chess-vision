@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Play, Loader2, Square, Trash2, Eye } from "lucide-react";
+import { Play, Loader2, Square, Trash2, Eye, FlaskConical } from "lucide-react";
 import { api, post, del } from "../api";
 import { Card, Button, Select } from "./ui";
 import LineChart from "./LineChart";
@@ -131,6 +131,15 @@ export default function Training() {
       setReliance((await api(`/api/runs/${run}/reliance`)).items);
     } catch (e: any) { setErr(e.message); }
     finally { setRelLoading(false); }
+  }
+  async function evalRun(r: string) {
+    setErr("");
+    try {
+      const res = await post(`/api/runs/${r}/eval`, {});
+      if (!res.ok) { setErr(res.output || "eval failed"); return; }
+      if (run === r) showRun(r);            // refresh eval display for the selected run
+      refreshRuns();                         // update test_board_acc column
+    } catch (e: any) { setErr(e.message); }
   }
   async function delRun(r: string) {
     if (!window.confirm(`Delete model "${r}"? (directory + weights will be removed)`)) return;
@@ -279,6 +288,8 @@ export default function Training() {
                     <td className="py-1"><div className="flex justify-end gap-1.5">
                       <Button onClick={() => showRun(r.run)}
                               className="px-2 py-1 text-xs"><Eye className="h-3.5 w-3.5" /> View</Button>
+                      <Button onClick={() => evalRun(r.run)}
+                              className="px-2 py-1 text-xs" title="Run eval (test split) — generates metrics + confusion matrix"><FlaskConical className="h-3.5 w-3.5" /> Eval</Button>
                       <Button onClick={() => delRun(r.run)}
                               className="px-2 py-1 text-xs text-red-300 hover:text-red-200"><Trash2 className="h-3.5 w-3.5" /> Delete</Button>
                     </div></td>
