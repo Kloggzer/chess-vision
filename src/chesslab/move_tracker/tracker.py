@@ -1019,9 +1019,6 @@ class MoveTracker:
                         self._confirmer.reset()
                         self._gray_buf.clear()
                         self._bgr_buf.clear()
-                        self._changed, self._changed_vals = [], []   # clear overlay/debug
-                        self._shadow_vetoed = []
-                        self._occluded_vetoed = []
                         # Occlusion check DURING motion: if the grid is hidden by a hand now,
                         # pre-flag it so the system stays blocked when motion ends and the
                         # hand rests still. Without this, a resting hand reads as a ghost move.
