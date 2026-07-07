@@ -196,7 +196,16 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
             t.reset_to_start(fen or None)
         except ValueError as e:
             return {"ok": False, "error": f"invalid FEN: {e}"}
-        return {"ok": True}
+        # Immediately capture a baseline from the current frame to avoid stale reference
+        return t.capture_baseline()
+
+    @app.post("/api/baseline")
+    def baseline():
+        """Take a new baseline from the current camera frame (FEN stays as-is)."""
+        t = _STATE.get("tracker")
+        if t is None:
+            return {"ok": False, "error": "not started"}
+        return t.capture_baseline()
 
     @app.post("/api/promote")
     def promote(piece: str = Body(..., embed=True)):

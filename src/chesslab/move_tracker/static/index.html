@@ -93,7 +93,8 @@
     </div>
   </details>
   <button onclick="reset()" title="Re-capture the reference from the current board">Reset</button>
-  <button onclick="undo()">Undo</button>
+  <button onclick="baseline()" title="Re-capture reference image now (FEN stays, e.g. after handling an illegal move)">📷 Baseline</button>
+  <button onclick="undo()">↩ Undo</button>
   <button onclick="toggleRecord()" id="recBtn"
           title="Recording auto-starts on the first move; click to END the session gracefully (finalize for slice)">● Record</button>
   <button onclick="reattach()" id="reattachBtn" title="Rebuild the camera feed without restarting the session">⟳ Reattach</button>
@@ -236,6 +237,7 @@ async function applySettings() {
     (r && r.ok === false) ? (r.error || "not started") : "tuning applied live";
 }
 async function reset() { await post("/api/reset", {}); }
+async function baseline() { await post("/api/baseline", {}); }
 async function undo() { await post("/api/undo", {}); }
 async function reattach() {                 // rebuild the camera feed without a session restart
   const note = document.getElementById("note");

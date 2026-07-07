@@ -884,6 +884,34 @@ class MoveTracker:
             self._ref_gamut = None
             self._recent_decisions.clear()
             self._decision_log.clear()
+            self._motion_since_ref = False
+            self._last_motion_ts = 0.0
+            self._last_cnn_ts = 0.0
+            self._prev_roi = None
+            self._occl_grid_active = False
+            self._grid_coverage = 1.0
+
+    def capture_baseline(self) -> dict:
+        """Take a new baseline now: use the current camera image as reference for the
+        current board position. The FEN is trusted — only the visual reference is refreshed.
+        The reference is captured on the next stable frame (no post-motion wait)."""
+        with self.lock:
+            self.ref_gray = self.ref_bgr = None
+            self.ref_fen = None
+            self._confirmer.reset()
+            self._gray_buf.clear()
+            self._bgr_buf.clear()
+            self._clear_stuck()
+            self._hold_until = 0.0             # no post-motion wait — deliberate user action
+            self._tainted = {}
+            self._occl_whitelist = set()
+            self._occluded_since = None
+            self._shadow_vetoed = []
+            self._occluded_vetoed = []
+            self._anomaly_since = {}
+            self.state = "waiting"
+            self.note = "Baseline: re-capturing reference from the next clear frame…"
+            return {"ok": True, "note": self.note}
 
     def start(self):
         if self._running:
