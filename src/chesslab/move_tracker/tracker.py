@@ -1637,12 +1637,6 @@ class MoveTracker:
             [[float(x), float(y)] for x, y in self._last_corners]
         # Fresh reference → require new motion (a hand) before the NEXT move may commit.
         self._motion_since_ref = False
-        # Rebuild the color gamut for the opaque-occlusion veto from clean base truth only.
-        if self.occlusion_color_thr > 0 and self.ref_bgr is not None \
-                and not (from_commit and self._ref_gamut is not None):
-            self._ref_gamut = board_color_gamut(self.ref_bgr, self._det_size,
-                                                 self.profile.white_pov)
-            self._occl_whitelist = set()          # fresh clean gamut -> exemptions obsolete
 
     def _corners_jumped(self) -> bool:
         """True if a warp corner has moved by > corner_jump_px since the reference capture
@@ -1904,6 +1898,7 @@ class MoveTracker:
             for sq in self._motion_occluded_squares:
                 z[sq] = 0.0
                 self._tainted[sq] = time.time() + self.motion_hold_s
+        self._occluded_vetoed = sorted(self._motion_occluded_squares)
         self._motion_occluded_squares = set()
         self._occlusion_expiry = {sq: exp for sq, exp in self._occlusion_expiry.items()
                                   if time.time() < exp}
@@ -1918,50 +1913,12 @@ class MoveTracker:
         # stuck state, otherwise jitter (marker/exposure) can never be adapted away. Shadowed
         # and occluded squares are excluded too: learning a shadow/hand into the EMA would
         # inflate that square's std and desensitize later real moves there.
-        self.noise.update(diffs, exclude=changed | shadow_veto | occluded_set)
-        # Per-square occlusion latch: a square seen as occluded (hand/arm) stays HARD-BLOCKED
-        # — z zeroed, no move endpoint, no re-anchor — until it has been occlusion-free for
-        # `motion_hold_s` (wall time). The hand leaving must not be "forgotten" one frame
-        # later: the first clear frames still carry residue (half shadows, averaging-buffer
-        # mix) that reads like a legal move. Moves on UNAFFECTED
-        # squares stay detectable (no whole-board freeze). Escape hatch: persistently
-        # "occluded" squares are WHITELISTED (probably a piece/light, not a hand) until the
-        # next clean re-anchor rebuilds the gamut — never re-learn the gamut from a live
-        # frame (a resting hand would be baked in and blind the veto for the session).
+        self.noise.update(diffs, exclude=changed | shadow_veto)
+        # Clean up expired tainted entries (set by baseline-absdiff occlusion).
         _now = time.time()
-        for sq in occluded_set:
-            self._tainted[sq] = _now + self.motion_hold_s      # expiry, refreshed while flagged
         for sq in list(self._tainted):
-            if sq not in occluded_set and _now > self._tainted[sq]:
+            if _now > self._tainted[sq]:
                 del self._tainted[sq]
-        if self._tainted:
-            now = time.time()
-            # Small AND static "occlusion" is piece-like, not hand-like (hands are big and
-            # move) → escape after nudge_timeout_s instead of the long drift window, else a
-            # veto false-positive (e.g. unusual piece/square color combo) stalls detection.
-            escape_s = self.nudge_timeout_s if len(self._tainted) <= 2 else self.drift_window_s
-            if self._occluded_since is None:
-                self._occluded_since = now
-            elif now - self._occluded_since > escape_s:
-                # Whitelist ONLY the stuck squares — never re-learn the gamut from a live
-                # frame: that baked a resting hand/pullover into the gamut and left the
-                # veto blind to exactly those colors for the rest of the session.
-                self._occl_whitelist |= set(self._tainted)
-                self._tainted = {}
-                self._occluded_since = None
-                self.note = (f"persistent occlusion on "
-                             f"{', '.join(sorted(self._occl_whitelist)[:4])} — treated as "
-                             f"piece/light until the next clean re-anchor")
-                return
-            latched = set(self._tainted) - occluded_set     # latched, not currently flagged
-            if latched:
-                for s in latched:
-                    z[s] = 0.0
-                changed -= latched
-                self._changed = sorted(changed)
-                self._occluded_vetoed = sorted(set(self._occluded_vetoed) | latched)
-        else:
-            self._occluded_since = None
 
         # 5. LL-scoring + quiet/re-anchor. A move is viable only if BOTH endpoints carry at
         #    least weak evidence (z ≥ z_thr/2, Spec 10 part 1): otherwise a single hot square
@@ -2109,20 +2066,7 @@ class MoveTracker:
             if shadow_veto:
                 changed -= shadow_veto
                 self._shadow_vetoed = sorted(shadow_veto)
-        self._occluded_vetoed = []
-        occluded_set: set[str] = set()
-        occlusion_candidates = changed | {s for s, v in z.items() if v >= self.z_thr * 0.5}
-        if cur_bgr is not None and self._ref_gamut is not None and occlusion_candidates:
-            occluded_set = occlusion_color_squares(
-                cur_bgr, self._ref_gamut, self._det_size,
-                self.profile.white_pov, occlusion_candidates, self.occlusion_color_thr,
-                extend_up=self.overhang) - self._occl_whitelist
-            if occluded_set:
-                for s in occluded_set:
-                    z[s] = 0.0
-                changed -= occluded_set
-                self._occluded_vetoed = sorted(occluded_set)
-        return changed, shadow_veto, occluded_set
+        return changed, shadow_veto, set()
 
     def _ref_census_codes(self):
         """Census codes of the current reference, cached — the reference changes rarely
@@ -2383,13 +2327,8 @@ class MoveTracker:
         for sq in self._shadow_vetoed:
             x0, y0, x1, y1 = square_region(sq, bs, self.profile.white_pov, inset=0.06)
             cv2.rectangle(img, (x0, y0), (x1, y1), (255, 255, 0), 2)
-        # Squares discarded as opaque occlusion / hand (orange) — the color-outlier veto.
+        # Squares occluded by hand (baseline absdiff + dilation) — orange.
         for sq in self._occluded_vetoed:
-            x0, y0, x1, y1 = square_region(sq, bs, self.profile.white_pov, inset=0.06)
-            cv2.rectangle(img, (x0, y0), (x1, y1), (0, 140, 255), 2)
-        # Squares occluded during motion (baseline absdiff + dilation) — brighter orange,
-        # always visible while the hand is present, not just after stability.
-        for sq in self._motion_occluded_squares:
             x0, y0, x1, y1 = square_region(sq, bs, self.profile.white_pov, inset=0.06)
             cv2.rectangle(img, (x0, y0), (x1, y1), (0, 200, 255), 2)
         last = chess.Move.from_uci(self.last_move) if self.last_move else None
