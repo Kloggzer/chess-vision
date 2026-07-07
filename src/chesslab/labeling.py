@@ -310,9 +310,13 @@ def slice_session(
     n_crops = 0
     n_overrides = 0
     n_skipped = 0
+    n_unusable = 0
     n_fallback = 0   # box3d: squares that fell back to warp (pose/projection failed)
     tracker = make_tracker(prof)   # per session: seeded from profile, markers held per frame
     for entry in log:
+        if entry.get("unusable"):
+            n_unusable += 1
+            continue
         frame_path = session_dir / entry["frame"]
         frame = cv2.imread(str(frame_path))
         if frame is None:
@@ -371,7 +375,8 @@ def slice_session(
 
     _replace_session_in_manifest(manifest_path, session_id, new_lines)
     return {"session_id": session_id, "frames": len(log), "crops": n_crops,
-            "overrides": n_overrides, "skipped": n_skipped, "fallback": n_fallback}
+            "overrides": n_overrides, "skipped": n_skipped, "unusable": n_unusable,
+            "fallback": n_fallback}
 
 
 # --- CLI layer (resolves defaults from config) ---------------------------------------------
