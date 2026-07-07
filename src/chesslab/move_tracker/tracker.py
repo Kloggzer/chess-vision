@@ -1035,6 +1035,7 @@ class MoveTracker:
                 _t0 = time.perf_counter()
                 _ts = {}  # per-step wall time (seconds)
                 ok, frame = self.cap.read() if hasattr(self.cap, "read") else (False, None)
+                _ts["network"] = time.perf_counter()
                 if not ok or frame is None:
                     now_f = time.time()
                     down_for = now_f - self._last_read_ok
@@ -1053,7 +1054,6 @@ class MoveTracker:
                     continue
                 self._last_read_ok = time.time()
                 self._camera_ok = True
-                _ts["read"] = time.perf_counter()
                 target_size = self._det_size if self.detect_scale < 1.0 else None
                 warped_det = self._warp(frame, target_size)
                 _ts["warp"] = time.perf_counter()
@@ -1161,7 +1161,7 @@ class MoveTracker:
                                         self._try_detect(cur, cur_bgr)  # commits only after confirmation
                         if self.state not in ("move", "occluded"):
                             self.state = "waiting"
-                    _ts["detect"] = time.perf_counter()
+                    _ts["lock"] = time.perf_counter()
 
                     # Throttle overlay encode (JPEG ~5–15 ms): keeps the detection hot-path clear.
                     if now - self._last_viewer_ts < 2.0 and now - self._last_encode_ts >= 0.08:
@@ -1186,7 +1186,7 @@ class MoveTracker:
                 # Per-step timing (always logged, file written as rolling last-100)
                 dt = {}
                 prev = _t0
-                for step in ("read", "warp", "gray", "roi", "detect", "encode"):
+                for step in ("network", "warp", "gray", "roi", "lock", "encode"):
                     t = _ts.get(step)
                     if t is not None and t > prev:
                         dt[step] = round((t - prev) * 1000, 1)
