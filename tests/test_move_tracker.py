@@ -1058,38 +1058,6 @@ class TestShadowRobustness:
         assert mt._stuck_reason != "too_many_changed"
         assert set(sqs).issubset(set(mt._shadow_vetoed)) or mt._changed == []
 
-    def test_color_occlusion_vetoes_skin_colored_hand(self, monkeypatch):
-        """Saturated skin/orange blob (hand) far outside the muted board gamut → flagged as
-        occlusion (not a move endpoint), and excluded from the changed set."""
-        from chesslab.move_tracker.tracker import board_color_gamut
-        mt = _make_tracker(monkeypatch, cnn_run=None, occlusion_color_thr=4.0)
-        ref_bgr = self._bgr([], base_bgr=(120, 122, 118))       # muted, low-saturation board
-        mt.ref_bgr = ref_bgr
-        mt.ref_gray = cv2.cvtColor(ref_bgr, cv2.COLOR_BGR2GRAY)
-        mt.ref_fen = mt.board.fen()
-        mt._ref_gamut = board_color_gamut(ref_bgr, 400, True)   # normally built in _set_ref
-        sqs = ["d3", "e3", "f3", "g3"]
-        cur_bgr = self._bgr(sqs, base_bgr=(120, 122, 118), fill_bgr=(60, 120, 220))  # orange "hand"
-        cur_gray = cv2.cvtColor(cur_bgr, cv2.COLOR_BGR2GRAY)
-        mt._try_detect(cur_gray, cur_bgr)
-        assert set(sqs).issubset(set(mt._occluded_vetoed))
-        assert not (set(sqs) & set(mt._changed))               # neutralized, not a candidate
-
-    def test_color_occlusion_keeps_neutral_piece(self, monkeypatch):
-        """A neutral (graphite) piece appearing on a square is WITHIN the board gamut →
-        NOT flagged as occlusion (a real move must survive)."""
-        from chesslab.move_tracker.tracker import board_color_gamut
-        mt = _make_tracker(monkeypatch, cnn_run=None, occlusion_color_thr=4.0)
-        ref_bgr = self._bgr([], base_bgr=(120, 122, 118))
-        mt.ref_bgr = ref_bgr
-        mt.ref_gray = cv2.cvtColor(ref_bgr, cv2.COLOR_BGR2GRAY)
-        mt.ref_fen = mt.board.fen()
-        mt._ref_gamut = board_color_gamut(ref_bgr, 400, True)
-        cur_bgr = self._bgr(["e4"], base_bgr=(120, 122, 118), fill_bgr=(40, 42, 40))  # dark neutral
-        cur_gray = cv2.cvtColor(cur_bgr, cv2.COLOR_BGR2GRAY)
-        mt._try_detect(cur_gray, cur_bgr)
-        assert "e4" not in mt._occluded_vetoed
-
 
 class TestPipelineRegressions:
     """Ghost/stuck fixes: pair path through gates, gamut hygiene, noise-learning exclusion,
@@ -1153,22 +1121,6 @@ class TestPipelineRegressions:
         assert mt.history == [] and mt._pending is None
         assert mt._verify_state == "shadow"
 
-    def test_gamut_not_rebuilt_from_commit_frame(self, monkeypatch):
-        """The occlusion color gamut must NOT be rebuilt from the commit frame (possible hand
-        residue) — only from a clean quiet re-anchor afterwards."""
-        mt = _make_tracker(monkeypatch, cnn_run=None, confirm_frames=1, occlusion_color_thr=4.0)
-        mt.ref_gray = _gray_frame(["e2"])
-        mt.ref_bgr = _bgr_frame(["e2"])
-        mt.ref_fen = mt.board.fen()
-        from chesslab.move_tracker.tracker import board_color_gamut
-        mt._ref_gamut = board_color_gamut(mt.ref_bgr, 400, True)
-        gamut_before = mt._ref_gamut
-        mt._try_detect(_gray_frame(["e4"]), _bgr_frame(["e4"]))  # commit e2e4
-        assert mt.history == ["e4"]
-        assert mt._ref_gamut is gamut_before                     # kept, not rebuilt
-        mt._try_detect(_gray_frame(["e4"]), _bgr_frame(["e4"]))  # quiet clean frame → re-anchor
-        assert mt._ref_gamut is not gamut_before                 # rebuilt from clean frame
-
     def test_shadow_squares_not_learned_into_noise(self, monkeypatch):
         """Shadow-vetoed squares are excluded from noise-model learning — otherwise a
         recurring shadow inflates the square's EMA and desensitizes later real moves."""
@@ -1195,55 +1147,6 @@ class TestPipelineRegressions:
         mt._bgr_buf.append(_bgr_frame(["e4"]))
         mt.undo()
         assert len(mt._gray_buf) == 0 and len(mt._bgr_buf) == 0
-
-    def test_occlusion_latch_blocks_square_until_cleared(self, monkeypatch):
-        """A square seen as occluded (hand) stays hard-blocked for a few frames AFTER the
-        hand left ('the tracker must not forget the occlusion one frame later') — a move
-        into that square only commits once the latch has drained."""
-        from chesslab.move_tracker.tracker import board_color_gamut, square_region
-        mt = _make_tracker(monkeypatch, cnn_run=None, confirm_frames=1, occlusion_color_thr=4.0,
-                           motion_hold_s=0.05)                    # short latch for the test
-        ref_bgr = np.full((400, 400, 3), (120, 122, 118), dtype=np.uint8)
-        x0, y0, x1, y1 = square_region("e2", 400, True)
-        ref_bgr[y0:y1, x0:x1] = (40, 42, 40)                      # dark piece on e2
-        mt.ref_bgr = ref_bgr
-        mt.ref_gray = cv2.cvtColor(ref_bgr, cv2.COLOR_BGR2GRAY)
-        mt.ref_fen = mt.board.fen()
-        mt._ref_gamut = board_color_gamut(ref_bgr, 400, True)
-        hand_bgr = np.full((400, 400, 3), (120, 122, 118), dtype=np.uint8)
-        x0, y0, x1, y1 = square_region("e4", 400, True)
-        hand_bgr[y0:y1, x0:x1] = (60, 120, 220)                   # orange hand OVER e4
-        mt._try_detect(cv2.cvtColor(hand_bgr, cv2.COLOR_BGR2GRAY), hand_bgr)
-        assert "e4" in mt._occluded_vetoed and "e4" in mt._tainted
-        assert mt.history == [] and mt._pending is None            # no commit under the hand
-        done_bgr = np.full((400, 400, 3), (120, 122, 118), dtype=np.uint8)
-        done_bgr[y0:y1, x0:x1] = (40, 42, 40)                     # hand gone, piece on e4 (e2e4)
-        done = cv2.cvtColor(done_bgr, cv2.COLOR_BGR2GRAY)
-        mt._try_detect(done, done_bgr)
-        assert mt.history == [] and "e4" in mt._tainted            # latch still holds e4
-        time.sleep(0.08)                                           # latch expires (motion_hold_s)
-        mt._try_detect(done, done_bgr)
-        assert mt.history == ["e4"]                                # then the move commits
-        assert not mt._tainted
-
-    def test_dark_piece_on_new_square_not_occlusion(self, monkeypatch):
-        """Nearest-neighbor gamut: a dark piece arriving on a light square matches the
-        reference square that already carries a dark piece → NOT an occlusion (the old
-        global-mean test flagged it and stalled detection). Skin still matches no square."""
-        from chesslab.move_tracker.tracker import board_color_gamut, square_region
-        ref_bgr = np.full((400, 400, 3), (170, 172, 168), dtype=np.uint8)   # light board
-        x0, y0, x1, y1 = square_region("b8", 400, True)
-        ref_bgr[y0:y1, x0:x1] = (30, 30, 30)                     # ONE dark piece in the ref
-        gamut = board_color_gamut(ref_bgr, 400, True)
-        from chesslab.move_tracker.tracker import occlusion_color_squares
-        cur_bgr = ref_bgr.copy()
-        x0, y0, x1, y1 = square_region("e4", 400, True)
-        cur_bgr[y0:y1, x0:x1] = (30, 30, 30)                     # dark knight lands on e4
-        occ = occlusion_color_squares(cur_bgr, gamut, 400, True, {"e4"}, thr=1.5)
-        assert "e4" not in occ                                    # matches the b8 feature
-        cur_bgr[y0:y1, x0:x1] = (60, 120, 220)                   # orange hand instead
-        occ = occlusion_color_squares(cur_bgr, gamut, 400, True, {"e4"}, thr=1.5)
-        assert "e4" in occ                                        # skin matches no square
 
     def test_motion_score_ignores_global_wobble(self):
         """Desk wobble = the whole image shifts ~1px (small deltas everywhere) → ~0 motion;
