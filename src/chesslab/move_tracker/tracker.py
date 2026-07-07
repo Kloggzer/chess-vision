@@ -632,6 +632,7 @@ class MoveTracker:
         self.occlusion_color_thr = occlusion_color_thr
         self._ref_gamut = None                        # (mu, inv_cov) built from ref_bgr at capture
         self._occluded_vetoed: list[str] = []         # squares discarded as opaque occlusion (color)
+        self._view_mode = "full"                        # overlay view: "full"|"motion"|"shadow"|"occlusion"|"raw"
         self._motion_occluded_squares: set[str] = set()  # squares occluded during motion (baseline absdiff)
         self._occlusion_expiry: dict[str, float] = {}    # per-square occlusion keep-alive (expiry timestamp)
         self._last_cnn_obs = None                         # cached OccupancyObservation (for occlusion filter)
@@ -2379,38 +2380,43 @@ class MoveTracker:
         img = warped.copy()
         bs = self.profile.board_size
         cell = bs / 8.0
-        # Grid lines
+        vm = self._view_mode
+        # Grid lines — always visible
         for i in range(9):
             p = int(i * cell)
             cv2.line(img, (p, 0), (p, bs), (0, 180, 0), 1)
             cv2.line(img, (0, p), (bs, p), (0, 180, 0), 1)
-        # Squares currently detected as "changed" by the diff algorithm (magenta) — shows live
-        # what the detection is reacting to (shadows/ghosts immediately visible → tuning aid).
-        changed = set(self._changed)
-        for sq in changed:
-            x0, y0, x1, y1 = square_region(sq, bs, self.profile.white_pov, inset=0.06)
-            cv2.rectangle(img, (x0, y0), (x1, y1), (255, 0, 255), 2)
-        # Squares discarded as cast shadow (cyan) — shows what the HSV veto filters out.
-        for sq in self._shadow_vetoed:
-            x0, y0, x1, y1 = square_region(sq, bs, self.profile.white_pov, inset=0.06)
-            cv2.rectangle(img, (x0, y0), (x1, y1), (255, 255, 0), 2)
-        # Squares occluded by hand (baseline absdiff + dilation) — orange.
-        for sq in self._occluded_vetoed:
-            x0, y0, x1, y1 = square_region(sq, bs, self.profile.white_pov, inset=0.06)
-            cv2.rectangle(img, (x0, y0), (x1, y1), (0, 200, 255), 2)
-        last = chess.Move.from_uci(self.last_move) if self.last_move else None
-        for sq in _ALL:
-            piece = self.board.piece_at(chess.parse_square(sq))
-            cx, cy = square_center(sq, bs, self.profile.white_pov)
-            if last and chess.parse_square(sq) in (last.from_square, last.to_square):
-                x0, y0, x1, y1 = square_region(sq, bs, self.profile.white_pov, inset=0.02)
-                cv2.rectangle(img, (x0, y0), (x1, y1), (0, 215, 255), 2)
-            if piece:
-                ch = piece.symbol()
-                col = (245, 245, 245) if piece.color == chess.WHITE else (25, 25, 25)
-                halo = (25, 25, 25) if piece.color == chess.WHITE else (235, 235, 235)
-                cv2.putText(img, ch, (cx - 8, cy + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.8, halo, 4, cv2.LINE_AA)
-                cv2.putText(img, ch, (cx - 8, cy + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.8, col, 2, cv2.LINE_AA)
+        # Changed squares (magenta) — gated by view_mode
+        if vm in ("full", "motion"):
+            for sq in set(self._changed):
+                x0, y0, x1, y1 = square_region(sq, bs, self.profile.white_pov, inset=0.06)
+                cv2.rectangle(img, (x0, y0), (x1, y1), (255, 0, 255), 2)
+        # Shadow vetoed (cyan)
+        if vm in ("full", "shadow"):
+            for sq in self._shadow_vetoed:
+                x0, y0, x1, y1 = square_region(sq, bs, self.profile.white_pov, inset=0.06)
+                cv2.rectangle(img, (x0, y0), (x1, y1), (255, 255, 0), 2)
+        # Occluded (orange)
+        if vm in ("full", "occlusion"):
+            for sq in self._occluded_vetoed:
+                x0, y0, x1, y1 = square_region(sq, bs, self.profile.white_pov, inset=0.06)
+                cv2.rectangle(img, (x0, y0), (x1, y1), (0, 200, 255), 2)
+        # Piece labels + last-move highlight — always visible except raw mode
+        if vm != "raw":
+            last = chess.Move.from_uci(self.last_move) if self.last_move else None
+            for sq in _ALL:
+                piece = self.board.piece_at(chess.parse_square(sq))
+                cx, cy = square_center(sq, bs, self.profile.white_pov)
+                if last and chess.parse_square(sq) in (last.from_square, last.to_square):
+                    x0, y0, x1, y1 = square_region(sq, bs, self.profile.white_pov, inset=0.02)
+                    cv2.rectangle(img, (x0, y0), (x1, y1), (0, 215, 255), 2)
+                if piece:
+                    ch = piece.symbol()
+                    col = (245, 245, 245) if piece.color == chess.WHITE else (25, 25, 25)
+                    halo = (25, 25, 25) if piece.color == chess.WHITE else (235, 235, 235)
+                    cv2.putText(img, ch, (cx - 8, cy + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.8, halo, 4, cv2.LINE_AA)
+                    cv2.putText(img, ch, (cx - 8, cy + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.8, col, 2, cv2.LINE_AA)
+        # State badge — always visible
         # State badge + grid coverage
         badge = {"moving": (0, 0, 255), "move": (0, 200, 0), "waiting": (0, 180, 0),
                  "occluded": (0, 140, 255)}.get(self.state, (160, 160, 160))
@@ -2523,9 +2529,38 @@ class MoveTracker:
         connected still gets the heartbeat; a bound counter did not)."""
         self._last_viewer_ts = time.time()
 
-    def overlay_jpeg(self):
+    def overlay_jpeg(self, view: str = "board"):
+        """Return the JPEG for the given view mode. 'board' = warped overlay (pre-computed),
+        'raw' = raw camera + calibration (on-demand), 'diff' = absdiff heatmap."""
+        if view == "raw":
+            return self.calib_overlay_jpeg()
+        if view == "diff":
+            return self._diff_overlay_jpeg()
         with self.lock:
             return self._overlay_jpeg
+
+    def _diff_overlay_jpeg(self):
+        """Absdiff heatmap between current detection image and reference — shows what the
+        diff algorithm 'sees'. Generated on demand, BGR JPEG."""
+        with self.lock:
+            ref_gray = self.ref_gray
+            cur_gray = self._last_cur
+            if ref_gray is None or cur_gray is None:
+                return None
+            d = cv2.absdiff(cur_gray, ref_gray)
+        # Resize to full board size for display
+        d_disp = cv2.resize(d, (self.profile.board_size, self.profile.board_size),
+                            interpolation=cv2.INTER_LINEAR)
+        heat = cv2.applyColorMap(d_disp, cv2.COLORMAP_HOT)
+        # Draw grid lines on the heatmap
+        bs = self.profile.board_size
+        cell = bs / 8.0
+        for i in range(9):
+            p = int(i * cell)
+            cv2.line(heat, (p, 0), (p, bs), (0, 180, 0), 1)
+            cv2.line(heat, (0, p), (bs, p), (0, 180, 0), 1)
+        ok, buf = cv2.imencode(".jpg", heat, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        return buf.tobytes() if ok else None
 
     def calib_overlay_jpeg(self, width: int = 640):
         """Raw camera image with calibration overlay (green grid/board + orange marker box) —

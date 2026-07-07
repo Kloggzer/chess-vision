@@ -178,6 +178,19 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
         )
         return {"ok": True, "settings": _apply_live_tuning(t, kwargs)}
 
+    @app.post("/api/view")
+    def set_view(mode: str = Body(..., embed=True)):
+        """Toggle overlay view: full | motion | shadow | occlusion | raw."""
+        t = _STATE.get("tracker")
+        if t is None:
+            return {"ok": False, "error": "not started"}
+        valid = {"full", "motion", "shadow", "occlusion", "raw"}
+        if mode not in valid:
+            return {"ok": False, "error": f"invalid mode (use: {', '.join(sorted(valid))})"}
+        with t.lock:
+            t._view_mode = mode
+        return {"ok": True, "view_mode": mode}
+
     @app.post("/api/resync_cnn")
     def resync_cnn():
         """Manual CNN check: check board occupancy against the game state;
@@ -295,18 +308,14 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
         return Response(jpg, media_type="image/jpeg")
 
     @app.get("/warped.mjpg")
-    def warped():
+    def warped(view: str = "board"):
         def gen():
-            # Viewer heartbeat: the tracker only pays for the JPEG encode while a stream
-            # is actually polling (headless replay/idle tracking skip it). Stamped on the
-            # CURRENT tracker every iteration, so a tracker started AFTER the browser
-            # connected still receives it (a connection-bound counter would not).
             boundary = b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
             while True:
                 t = _STATE.get("tracker")
                 if t is not None:
                     t.mark_viewer()
-                    jpg = t.overlay_jpeg()
+                    jpg = t.overlay_jpeg(view)
                     if jpg:
                         yield boundary + jpg + b"\r\n"
                 time.sleep(0.05)
