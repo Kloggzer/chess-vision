@@ -237,6 +237,20 @@ def run_eval(run: str):
     return {"run": run, "evals": evals}
 
 
+@router.post("/api/runs/{run}/eval")
+def run_eval_trigger(run: str):
+    """Trigger evaluation for a trained run (generates eval_*.json + confusion matrix PNGs)."""
+    import subprocess, sys
+    from ... import config
+
+    d = config.DATA.models / run
+    if not (d / "config.json").exists():
+        raise HTTPException(404, f"run {run} not found")
+    rc = subprocess.run(
+        [sys.executable, "-m", "chesslab.cli", "eval", "--run", str(d)], capture_output=True, text=True, timeout=120)
+    return {"ok": rc.returncode == 0, "run": run, "output": rc.stdout[-500:]}
+
+
 @router.get("/api/runs/{run}/gradcam")
 def run_gradcam(run: str, split: str = "test", per_class: int = 1, force_class: str | None = None):
     """Grad-CAM overlays (``per_class`` crops per class) — which pixels drove the decision.
