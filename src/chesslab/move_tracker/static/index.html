@@ -236,7 +236,10 @@ async function applySettings() {
   document.getElementById("note").textContent =
     (r && r.ok === false) ? (r.error || "not started") : "tuning applied live";
 }
-async function reset() { await post("/api/reset", {}); }
+async function reset() {
+  if (!window.confirm("Reset everything? This clears the game, move history and re-captures the reference image from the current board.")) return;
+  await post("/api/reset", {});
+}
 async function baseline() { await post("/api/baseline", {}); }
 async function undo() { await post("/api/undo", {}); }
 async function reattach() {                 // rebuild the camera feed without a session restart
@@ -271,6 +274,7 @@ function fillCurrentFen() {               // fetch current position into the edi
 async function resyncFen() {              // resync to any known position
   const fen = document.getElementById("fenInput").value.trim();
   if (!fen) return;
+  if (!window.confirm(`Resync board to this FEN?\n${fen}\n\nThis replaces the current game state.`)) return;
   const r = await post("/api/reset", { fen });
   document.getElementById("note").textContent =
     (r && r.ok === false) ? (r.error || "resync failed") : "resynced on FEN";
