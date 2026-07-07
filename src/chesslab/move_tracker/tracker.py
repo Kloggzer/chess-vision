@@ -1058,9 +1058,10 @@ class MoveTracker:
                     self.prev_gray = gray_det
                     self._motion = motion
 
-                    # Per-square occlusion against the baseline reference — runs whenever
-                    # the tracker is NOT in a clean waiting/move state. Hand-occluded squares
-                    # are always shown on the overlay and hard-blocked in detection.
+                    # Per-square occlusion against the baseline reference — runs during
+                    # motion/occlusion states. Hand-occluded squares are shown on the overlay
+                    # and hard-blocked in detection; the 100ms keep-alive bridges the gap
+                    # between when the hand leaves and when motion_hold expires.
                     if self.ref_gray is not None and self.state not in ("waiting", "move"):
                         raw_occ, raw_shadow = _baseline_occlusion_and_shadow(
                             gray_det, self.ref_gray, self._det_size,
@@ -1126,7 +1127,7 @@ class MoveTracker:
                                     else:
                                         self.note = "waiting for clear view of the board…"
                                 elif ready and self.state != "move":
-                                    if self._motion_occluded_squares:
+                                    if len(self._motion_occluded_squares) > 2:
                                         self.state = "occluded"
                                     else:
                                         self._try_detect(cur, cur_bgr)  # commits only after confirmation
@@ -1903,9 +1904,9 @@ class MoveTracker:
             return
         # 2. Evidence: all gates and the LL-scoring operate on the SAME z-values.
         diffs, z = self._compute_evidence(cur)
-        # Baseline-absdiff occlusion: hard-block all hand-touched squares
-        # (and their dilated neighbours) — z zeroed, added to tainted so they cannot
-        # become move endpoints.
+        # Baseline-absdiff occlusion: hard-block all hand-touched squares — z zeroed,
+        # added to tainted so they cannot become move endpoints. Detection is only
+        # blocked when > 2 squares (a real move touches exactly 2 — from+to).
         if self._motion_occluded_squares:
             for sq in self._motion_occluded_squares:
                 z[sq] = 0.0
