@@ -1176,8 +1176,7 @@ class MoveTracker:
                 # 50-500 ms — running it inline froze the frame loop and punched holes into
                 # the motion gate (a hand could enter/leave between two processed frames).
                 # Verify of a pending candidate has priority (pre-commit ghost filter).
-                __cnn_off = False  # perf test: set True to disable
-                if not __cnn_off and self.cnn_run and not self._cnn_failed and not self._cnn_busy:
+                if self.cnn_run and not self._cnn_failed and not self._cnn_busy:
                     self._cnn_busy = True
                     threading.Thread(target=self._cnn_worker, args=(frame,),
                                      daemon=True).start()
