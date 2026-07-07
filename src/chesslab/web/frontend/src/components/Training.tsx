@@ -193,6 +193,10 @@ export default function Training() {
           <Select label="Backbone" value={backbone} onChange={(e) => setBackbone(e.target.value)}>
             <option value="smallcnn">smallcnn</option>
             <option value="mobilenet_v3_small">mobilenet_v3_small</option>
+            <option value="mobilenetv4_conv_small">mobilenetv4_conv_small (timm)</option>
+            <option value="mobilenetv4_conv_medium">mobilenetv4_conv_medium (timm)</option>
+            <option value="efficientnet_b0">efficientnet_b0 (timm)</option>
+            <option value="resnet18">resnet18 (timm)</option>
           </Select>
           <Select label="Head" value={head} onChange={(e) => setHead(e.target.value)}>
             <option value="combined">combined</option>
