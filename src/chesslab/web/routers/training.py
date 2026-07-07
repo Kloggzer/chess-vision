@@ -240,7 +240,9 @@ def run_eval(run: str):
 @router.post("/api/runs/{run}/eval")
 def run_eval_trigger(run: str):
     """Trigger evaluation for a trained run (generates eval_*.json + confusion matrix PNGs)."""
-    import subprocess, sys
+    import subprocess
+    import sys
+
     from ... import config
 
     d = config.DATA.models / run
