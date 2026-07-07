@@ -692,6 +692,8 @@ class MoveTracker:
         self.device = device                             # "auto" | "cpu" | "cuda" (lazy resolved)
         self._device_resolved: str | None = None         # actual torch device after first use
         self._cnn_failed = False                          # model missing/broken -> feature stays off
+        self._perf_frame = 0                              # frame counter for perf log (first 100 only)
+        self._perf_log: list[str] = []                    # per-frame timing lines
         self._recovery_confirmer = Confirmer(confirm_frames)  # no single-shot commit (voting)
         self._stuck_reason: str | None = None             # "no_legal_move" | "too_many_changed"
         self._stuck_count = 0                             # how many stable frames stuck in a row
@@ -1030,6 +1032,8 @@ class MoveTracker:
     def _loop(self):
         try:
             while self._running:
+                _t0 = time.perf_counter()
+                _ts = {}  # per-step wall time (seconds)
                 ok, frame = self.cap.read() if hasattr(self.cap, "read") else (False, None)
                 if not ok or frame is None:
                     now_f = time.time()
@@ -1049,17 +1053,21 @@ class MoveTracker:
                     continue
                 self._last_read_ok = time.time()
                 self._camera_ok = True
+                _ts["read"] = time.perf_counter()
                 target_size = self._det_size if self.detect_scale < 1.0 else None
                 warped_det = self._warp(frame, target_size)
+                _ts["warp"] = time.perf_counter()
                 if warped_det is None:
                     with self.lock:
                         self.note = "waiting for markers…"
                     time.sleep(0.02)
                     continue
                 gray_det = self._gray(warped_det)
+                _ts["gray"] = time.perf_counter()
                 # Extended motion gate (Spec 10, part 6): also capture motion in the margin
                 # AROUND the board — the hand is seen BEFORE it covers a square.
                 motion_roi = self._roi_motion(frame)
+                _ts["roi"] = time.perf_counter()
 
                 now = time.time()
                 with self.lock:
@@ -1153,6 +1161,7 @@ class MoveTracker:
                                         self._try_detect(cur, cur_bgr)  # commits only after confirmation
                         if self.state not in ("move", "occluded"):
                             self.state = "waiting"
+                    _ts["detect"] = time.perf_counter()
 
                     # Throttle overlay encode (JPEG ~5–15 ms): keeps the detection hot-path clear.
                     if now - self._last_viewer_ts < 2.0 and now - self._last_encode_ts >= 0.08:
@@ -1161,16 +1170,41 @@ class MoveTracker:
                                        interpolation=cv2.INTER_LINEAR)
                         self._overlay_jpeg = self._encode_overlay(overlay_img)
                         self._last_encode_ts = now
+                    _ts["encode"] = time.perf_counter()
 
                 # CNN in a WORKER thread (one observation at a time): an observation takes
                 # 50-500 ms — running it inline froze the frame loop and punched holes into
                 # the motion gate (a hand could enter/leave between two processed frames).
                 # Verify of a pending candidate has priority (pre-commit ghost filter).
-                if self.cnn_run and not self._cnn_failed and not self._cnn_busy:
+                __cnn_off = False  # perf test: set True to disable
+                if not __cnn_off and self.cnn_run and not self._cnn_failed and not self._cnn_busy:
                     self._cnn_busy = True
                     threading.Thread(target=self._cnn_worker, args=(frame,),
                                      daemon=True).start()
                 time.sleep(0.005)
+
+                # Perf logging: record per-step timings for the first 100 frames
+                if self._perf_frame < 100:
+                    dt = {}
+                    prev = _t0
+                    for step in ("read", "warp", "gray", "roi", "detect", "encode"):
+                        t = _ts.get(step)
+                        if t is not None and t > prev:
+                            dt[step] = round((t - prev) * 1000, 1)
+                            prev = t
+                    total = round((time.perf_counter() - _t0) * 1000, 1)
+                    parts = " | ".join(f"{k}={v}ms" for k, v in dt.items())
+                    self._perf_log.append(f"frame {self._perf_frame:3d}: {parts} | total={total}ms")
+                    self._perf_frame += 1
+                    if self._perf_frame == 100:
+                        try:
+                            from .. import config
+                            log_dir = config.DATA.root / "_perf"
+                            log_dir.mkdir(parents=True, exist_ok=True)
+                            (log_dir / "perf_loop.log").write_text(
+                                "\n".join(self._perf_log), encoding="utf-8")
+                        except Exception:
+                            pass
         finally:
             if hasattr(self.cap, "release"):
                 self.cap.release()
