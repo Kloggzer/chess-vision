@@ -1013,17 +1013,21 @@ class MoveTracker:
                     self._motion = motion
 
                     if motion > self.motion_thr:       # hand/camera moving -> discard buffers
-                        self.state, self.stable_count = "moving", 0
+                        self.stable_count = 0
                         self._motion_since_ref = True   # a hand entered → a real move is now possible
                         self._last_motion_ts = now      # recency: commits must follow motion promptly
                         self._confirmer.reset()
                         self._gray_buf.clear()
                         self._bgr_buf.clear()
-                        # Occlusion check DURING motion: if the grid is hidden by a hand now,
-                        # pre-flag it so the system stays blocked when motion ends and the
-                        # hand rests still. Without this, a resting hand reads as a ghost move.
+                        # Occlusion is a first-class state, not a pre-flag: when the grid is
+                        # hidden DURING motion, the state is "occluded" immediately — the same
+                        # as when the hand rests still. This keeps the state machine consistent
+                        # and the overlay always shows the current occlusion status.
                         if self._occluded_by_grid(gray_det):
+                            self.state = "occluded"
                             self._occl_grid_active = True
+                        else:
+                            self.state = "moving"
                         # Arm the post-motion hold: detection stays blocked until the board
                         # has been motion-free for motion_hold_s (WALL TIME, not frames — at
                         # 40 fps a frame count settles in milliseconds).
@@ -1043,19 +1047,19 @@ class MoveTracker:
                             occluded_now = self._occluded_by_grid(gray_det)
                             if occluded_now:
                                 self._occl_grid_active = True
+                                self.state = "occluded"
                                 self.note = ("waiting for clear view of the board…"
-                                             if self.ref_gray is None else
-                                             "Board partly covered (grid lines hidden) — "
-                                             "waiting for clear view")
+                                              if self.ref_gray is None else
+                                              "Board partly covered (grid lines hidden) — "
+                                              "waiting for clear view")
                             else:
                                 if self._occl_grid_active:
-                                    # Gate just cleared: the occluder never reached the color
-                                    # veto/latch (the gate blocks first). Clear buffers so
-                                    # residue frames from the hand don't pollute detection;
-                                    # then settle like after motion.
+                                    # Gate just cleared: the occluder left. Double the settle
+                                    # hold so residual hand pixels (half-shadows, averaging-buffer
+                                    # mix) don't pollute the first detection after occlusion.
                                     self._occl_grid_active = False
                                     self._hold_until = max(self._hold_until,
-                                                           now + self.motion_hold_s)
+                                                            now + self.motion_hold_s * 2)
                                     self._gray_buf.clear()
                                     self._bgr_buf.clear()
                                     ready = False
@@ -1071,8 +1075,8 @@ class MoveTracker:
                                         self.note = "waiting for clear view of the board…"
                                 elif ready and self.state != "move":
                                     self._try_detect(cur, cur_bgr)  # commits only after confirmation
-                        if self.state != "move":
-                            self.state = "occluded" if occluded_now else "waiting"
+                        if self.state not in ("move", "occluded"):
+                            self.state = "waiting"
 
                     # Throttle overlay encode (JPEG ~5–15 ms): keeps the detection hot-path clear.
                     if now - self._last_viewer_ts < 2.0 and now - self._last_encode_ts >= 0.08:
@@ -2311,23 +2315,24 @@ class MoveTracker:
         img = warped.copy()
         bs = self.profile.board_size
         cell = bs / 8.0
+        # Semi-transparent red wash during motion / occlusion: immediate visual signal
+        # that the tracker is NOT watching the board for moves right now.
+        if self.state in ("moving", "occluded"):
+            overlay = img.copy()
+            cv2.rectangle(overlay, (0, 0), (bs, bs), (0, 0, 180), -1)
+            img = cv2.addWeighted(img, 0.70, overlay, 0.30, 0)
+        # ROI inset border (green): drawn at the motion_margin fraction inside the
+        # board edges — always visible, conceptual counterpart to the raw-camera ROI
+        # polygon that _roi_motion uses for perspective-warp.
+        inset = int(bs * self.motion_margin)
+        if inset > 2:
+            cv2.rectangle(img, (inset, inset), (bs - inset, bs - inset),
+                          (0, 255, 0), 1, cv2.LINE_AA)
+        # Grid lines
         for i in range(9):
             p = int(i * cell)
             cv2.line(img, (p, 0), (p, bs), (0, 180, 0), 1)
             cv2.line(img, (0, p), (bs, p), (0, 180, 0), 1)
-        # ROI polygon (green) — centre-expanded corners mapped to warped space.
-        # Shows the region _roi_motion warps from the raw frame.
-        corners = self._last_corners
-        if corners is not None:
-            src_pts = np.array(corners, dtype=np.float32)
-            dst_pts = np.array([[0, 0], [bs - 1, 0],
-                                [bs - 1, bs - 1], [0, bs - 1]], dtype=np.float32)
-            M = cv2.getPerspectiveTransform(src_pts, dst_pts)
-            roi_raw = self._roi_polygon(corners, self.motion_margin)
-            roi_raw_np = np.array(roi_raw, dtype=np.float32).reshape(-1, 1, 2)
-            roi_warped = cv2.perspectiveTransform(roi_raw_np, M)
-            roi_warped_pts = roi_warped.reshape(-1, 2).astype(np.int32)
-            cv2.polylines(img, [roi_warped_pts], True, (0, 255, 0), 1, cv2.LINE_AA)
         # Squares currently detected as "changed" by the diff algorithm (magenta) — shows live
         # what the detection is reacting to (shadows/ghosts immediately visible → tuning aid).
         changed = set(self._changed)
@@ -2355,13 +2360,15 @@ class MoveTracker:
                 halo = (25, 25, 25) if piece.color == chess.WHITE else (235, 235, 235)
                 cv2.putText(img, ch, (cx - 8, cy + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.8, halo, 4, cv2.LINE_AA)
                 cv2.putText(img, ch, (cx - 8, cy + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.8, col, 2, cv2.LINE_AA)
+        # State badge + grid coverage
         badge = {"moving": (0, 0, 255), "move": (0, 200, 0), "waiting": (0, 180, 0),
                  "occluded": (0, 140, 255)}.get(self.state, (160, 160, 160))
         extra = ""
-        if self.state in ("moving", "occluded"):
-            gc = getattr(self, "_grid_coverage", None)
-            extra = f"  grid={gc:.2f}" if gc is not None else ""
-        cv2.putText(img, f"{self.state}{extra}  {self.note}", (10, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.6, badge, 2, cv2.LINE_AA)
+        gc = getattr(self, "_grid_coverage", None)
+        if gc is not None and gc < 0.95:
+            extra = f"  grid={gc:.2f}"
+        cv2.putText(img, f"{self.state}{extra}  {self.note}", (10, 26),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, badge, 2, cv2.LINE_AA)
         ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
         return buf.tobytes() if ok else None
 
