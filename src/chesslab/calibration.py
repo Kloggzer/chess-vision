@@ -830,15 +830,22 @@ def board_corners_for_frame(frame, profile: CalibrationProfile, tracker: MarkerT
     return res[0] if res is not None else None
 
 
-def warp_from_corners(frame, profile: CalibrationProfile, corners):
+def warp_from_corners(frame, profile: CalibrationProfile, corners, target_size: int | None = None):
     """Rectify board **borderless** from 4 frame corners (a8,h8,h1,a1) — playing field fills [0, board_size].
 
     This is the **display warp** (web frontend places its 8×8 overlay exactly on the playing field edge).
     For DATA crop see `warp_board_for_crops` (with border). Pure transformation without
     marker detection; reproduces the same geometry as at recording time.
+
+    If `target_size` is given, the warp destination is target_size×target_size instead of
+    board_size×board_size (much cheaper for detection at detect_scale < 1.0).
     """
+    sz = target_size if target_size is not None else profile.board_size
     h = np.array(compute_homography(corners, profile.board_size, profile.margin), dtype=np.float64)
-    return cv2.warpPerspective(frame, h, (profile.board_size, profile.board_size))
+    if sz != profile.board_size:
+        s = float(sz) / profile.board_size
+        h[0] *= s; h[1] *= s
+    return cv2.warpPerspective(frame, h, (sz, sz))
 
 
 def warp_board_for_crops(frame, profile: CalibrationProfile, corners):
