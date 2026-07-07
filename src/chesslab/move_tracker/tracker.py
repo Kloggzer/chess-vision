@@ -627,6 +627,7 @@ class MoveTracker:
         self._occluded_vetoed: list[str] = []         # squares discarded as opaque occlusion (color)
         self._motion_occluded_squares: set[str] = set()  # squares occluded during motion (baseline absdiff)
         self._occlusion_expiry: dict[str, float] = {}    # per-square occlusion keep-alive (expiry timestamp)
+        self._last_cnn_obs = None                         # cached OccupancyObservation (for occlusion filter)
         self._occluded_since: float | None = None     # occlusion-latch timer (gamut escape hatch)
         self._tainted: dict[str, int] = {}            # per-square occlusion latch (frames to clear)
         self._occl_whitelist: set[str] = set()        # persistent-occlusion squares exempt from the veto
@@ -922,6 +923,29 @@ class MoveTracker:
         self._grid_coverage = self._grid_line_coverage(gray)
         return self._grid_coverage < self.min_grid_line_coverage
 
+    def _cnn_occlusion_filter(self, squares: set[str], board: chess.Board) -> set[str]:
+        """Filter baseline-absdiff squares through the cached CNN observation.
+        Real moves (CNN disagrees with FEN) pass through — don't taint.
+        Occlusion (CNN unconfident) and noise (CNN agrees with FEN) get tainted.
+        Without a fresh CNN observation, falls back to >2 = hand heuristic."""
+        if self._last_cnn_obs is None or self.recovery is None \
+                or time.time() - self._last_cnn_ts > 1.0:
+            return squares if len(squares) > 2 else set()
+        obs = self._last_cnn_obs
+        thr = getattr(self.recovery, 'conf_thr', 0.9)
+        conf = obs.confident(thr)
+        taint: set[str] = set()
+        for sq in squares:
+            if not conf.get(sq, False):
+                taint.add(sq)
+            else:
+                piece = board.piece_at(chess.parse_square(sq))
+                fen_occupied = piece is not None
+                cnn_occupied = obs.occupied(sq)
+                if fen_occupied == cnn_occupied:
+                    taint.add(sq)
+        return taint
+
     # -- Control --
     def reset_to_start(self, fen: str | None = None):
         """Set board to start/FEN and use the current camera image as reference
@@ -957,6 +981,7 @@ class MoveTracker:
             self._motion_since_ref = False
             self._last_motion_ts = 0.0
             self._last_cnn_ts = 0.0
+            self._last_cnn_obs = None
             self._prev_roi = None
             self._occl_grid_active = False
             self._grid_coverage = 1.0
@@ -980,6 +1005,7 @@ class MoveTracker:
             self._occluded_vetoed = []
             self._motion_occluded_squares = set()
             self._occlusion_expiry = {}
+            self._last_cnn_obs = None
             self._anomaly_since = {}
             self.state = "waiting"
             self.note = "Baseline: re-capturing reference from the next clear frame…"
@@ -1065,7 +1091,7 @@ class MoveTracker:
                     if self.ref_gray is not None and self.state not in ("waiting", "move"):
                         raw_occ, raw_shadow = _baseline_occlusion_and_shadow(
                             gray_det, self.ref_gray, self._det_size,
-                            self.motion_px_thr * 2.5, self.profile.white_pov)
+                            self.motion_px_thr * 4, self.profile.white_pov)
                         for sq in raw_occ:
                             self._occlusion_expiry[sq] = now + 0.1
                         self._shadow_vetoed = sorted(raw_shadow)
@@ -1278,6 +1304,7 @@ class MoveTracker:
 
         with self.lock:
             self._last_cnn_ts = now
+            self._last_cnn_obs = obs
             if self.board.fen() != fen:                     # state changed → discard
                 self._recovery_confirmer.reset()
                 return
@@ -1423,6 +1450,7 @@ class MoveTracker:
         cnn_agreement = float(occ_check.get("agreement", 0.0))
 
         with self.lock:
+            self._last_cnn_obs = obs
             self._infer_ms = infer_ms
             self._cnn_agreement = occ_agree
             self._cnn_best_move = cnn_uci
@@ -1905,11 +1933,12 @@ class MoveTracker:
             return
         # 2. Evidence: all gates and the LL-scoring operate on the SAME z-values.
         diffs, z = self._compute_evidence(cur)
-        # Baseline-absdiff occlusion: hard-block all hand-touched squares — z zeroed,
-        # added to tainted so they cannot become move endpoints. Detection is only
-        # blocked when > 2 squares (a real move touches exactly 2 — from+to).
+        # Baseline-absdiff occlusion with CNN arbitration: real moves (CNN disagrees
+        # with FEN) pass through — don't taint. Occlusion (CNN unconfident) and noise
+        # (CNN agrees with FEN) get tainted. Falls back to >2 heuristic without CNN.
         if self._motion_occluded_squares:
-            for sq in self._motion_occluded_squares:
+            tainted = self._cnn_occlusion_filter(self._motion_occluded_squares, self.board)
+            for sq in tainted:
                 z[sq] = 0.0
                 self._tainted[sq] = time.time() + self.motion_hold_s
         self._occluded_vetoed = sorted(self._motion_occluded_squares)
