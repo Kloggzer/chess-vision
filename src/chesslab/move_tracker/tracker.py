@@ -1051,6 +1051,18 @@ class MoveTracker:
                     self.prev_gray = gray_det
                     self._motion = motion
 
+                    # Per-square occlusion against the baseline reference — runs whenever
+                    # the tracker is NOT in a clean waiting/move state. Hand-occluded squares
+                    # are always shown on the overlay and hard-blocked in detection.
+                    if self.ref_gray is not None and self.state not in ("waiting", "move"):
+                        raw = _occluded_by_baseline(
+                            gray_det, self.ref_gray, self._det_size,
+                            self.motion_px_thr * 2.5, self.profile.white_pov)
+                        for sq in raw:
+                            self._occlusion_expiry[sq] = now + 0.1
+                        self._motion_occluded_squares = {
+                            sq for sq, exp in self._occlusion_expiry.items() if now < exp}
+
                     if motion > self.motion_thr:       # hand/camera moving -> discard buffers
                         self.stable_count = 0
                         self._motion_since_ref = True   # a hand entered → a real move is now possible
@@ -1058,33 +1070,11 @@ class MoveTracker:
                         self._confirmer.reset()
                         self._gray_buf.clear()
                         self._bgr_buf.clear()
-                        # Occlusion is a first-class state, not a pre-flag: when the grid is
-                        # hidden DURING motion, the state is "occluded" immediately — the same
-                        # as when the hand rests still. This keeps the state machine consistent
-                        # and the overlay always shows the current occlusion status.
                         if self._occluded_by_grid(gray_det):
                             self.state = "occluded"
                             self._occl_grid_active = True
                         else:
                             self.state = "moving"
-                        # Per-square occlusion against the baseline reference: mark squares
-                        # where the hand visibly covers the board. Uses absdiff vs ref_gray
-                        # (no running-mean needed). Dilation protects neighbours too.
-                        # Keep-alive: once a square is flagged, it stays active for at
-                        # least 100ms after the hand leaves — prevents flicker toggling.
-                        if self.ref_gray is not None:
-                            raw = _occluded_by_baseline(
-                                gray_det, self.ref_gray, self._det_size,
-                                self.motion_px_thr * 2.5, self.profile.white_pov)
-                            for sq in raw:
-                                self._occlusion_expiry[sq] = now + 0.1
-                            self._motion_occluded_squares = {
-                                sq for sq, exp in self._occlusion_expiry.items() if now < exp}
-                        else:
-                            self._motion_occluded_squares = set()
-                        # Arm the post-motion hold: detection stays blocked until the board
-                        # has been motion-free for motion_hold_s (WALL TIME, not frames — at
-                        # 40 fps a frame count settles in milliseconds).
                         self._hold_until = now + self.motion_hold_s
                     else:
                         self.stable_count += 1
@@ -1908,13 +1898,12 @@ class MoveTracker:
             return
         # 2. Evidence: all gates and the LL-scoring operate on the SAME z-values.
         diffs, z = self._compute_evidence(cur)
-        # Motion-period occlusion (baseline absdiff): squares touched by the hand and their
-        # orthogonal neighbours are hard-blocked — z zeroed, added to tainted so they cannot
-        # become move endpoints. Without this, the first stable frames after a hand leaves
-        # contain residue that reads as a legal move.
-        for sq in self._motion_occluded_squares:
-            z[sq] = 0.0
-            self._tainted[sq] = time.time() + self.motion_hold_s
+        # Baseline-absdiff occlusion: only hard-block when the hand covers more than 2
+        # squares — a genuine move (from+to = 2) must not be mistaken for a hand.
+        if len(self._motion_occluded_squares) > 2:
+            for sq in self._motion_occluded_squares:
+                z[sq] = 0.0
+                self._tainted[sq] = time.time() + self.motion_hold_s
         self._motion_occluded_squares = set()
         self._occlusion_expiry = {sq: exp for sq, exp in self._occlusion_expiry.items()
                                   if time.time() < exp}
