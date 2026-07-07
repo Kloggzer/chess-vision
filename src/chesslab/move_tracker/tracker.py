@@ -1068,9 +1068,10 @@ class MoveTracker:
                             self.motion_px_thr * 2.5, self.profile.white_pov)
                         for sq in raw_occ:
                             self._occlusion_expiry[sq] = now + 0.1
-                        self._motion_occluded_squares = {
-                            sq for sq, exp in self._occlusion_expiry.items() if now < exp}
                         self._shadow_vetoed = sorted(raw_shadow)
+                    self._motion_occluded_squares = {
+                        sq for sq, exp in self._occlusion_expiry.items() if now < exp}
+                    self._occluded_vetoed = sorted(self._motion_occluded_squares)
 
                     if motion > self.motion_thr:       # hand/camera moving -> discard buffers
                         self.stable_count = 0
