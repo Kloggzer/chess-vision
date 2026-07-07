@@ -76,8 +76,20 @@
                title="Color-outlier sigma — LOWER = more sensitive (0 = off)" /></label>
         <label class="muted">Min grid lines <input id="gridCov" type="number" step="0.05" min="0" max="1" value="0.5"
                title="Skip detection if fewer grid lines visible (hand covering board); 0 = off" /></label>
+        <label class="muted">Motion margin <input id="motionMargin" type="number" step="0.01" min="0" value="0.20"
+               title="Raw camera area watched outside the board edge; higher sees hands earlier" /></label>
+        <label class="muted">Overhang <input id="overhang" type="number" step="0.05" min="0" value="0.25"
+               title="Extends square diff/occlusion regions toward the back rank for tall pieces and hands" /></label>
+        <label class="muted">Motion hold <input id="motionHold" type="number" step="0.05" min="0" value="0.4"
+               title="Seconds the board must be motion-free before detection resumes" /></label>
+        <label class="muted" title="Skip auto-recorded training frames when the FEN requires extra physical pieces, e.g. a second queen represented by a chip.">
+          <input id="recordInventory" type="checkbox" checked /> Skip extra-piece frames for training
+        </label>
       </div>
-      <button class="primary" onclick="start()">Start tracker</button>
+      <div class="row" style="gap:8px">
+        <button class="primary" onclick="start()">Start tracker</button>
+        <button onclick="applySettings()" title="Apply tuning to the running tracker without restarting the game">Apply live</button>
+      </div>
     </div>
   </details>
   <button onclick="reset()" title="Re-capture the reference from the current board">Reset</button>
@@ -89,6 +101,7 @@
   <span id="camDown" class="badge moving" style="display:none">CAMERA DOWN</span>
   <span id="cnn" class="badge" style="display:none">CNN</span>
   <span id="note" class="note"></span>
+  <span id="recordSkip" class="note"></span>
 </header>
 <main>
   <div class="col">
@@ -182,15 +195,45 @@ async function loadRuns() {
   } catch { /* tracker API not ready yet */ }
 }
 loadRuns();
+async function loadDefaults() {
+  try {
+    const s = await (await fetch("/api/status")).json();
+    const d = s.track_defaults || {};
+    const setDefault = (id, key) => {
+      if (d[key] !== undefined) document.getElementById(id).value = d[key];
+    };
+    setDefault("motionMargin", "motion_margin");
+    setDefault("overhang", "overhang");
+    setDefault("motionHold", "motion_hold_s");
+    setDefault("gridCov", "min_grid_line_coverage");
+    setDefault("occThr", "occlusion_color_thr");
+    setDefault("censusThr", "census_thr");
+  } catch { /* tracker API not ready yet */ }
+}
+loadDefaults();
 
 async function start() {
   document.getElementById("note").textContent = "starting…";
-  const num = (id) => { const v = parseFloat(document.getElementById(id).value); return isNaN(v) ? null : v; };
   await post("/api/start", {
     profile: profile.value, source: source.value, cnn_run: document.getElementById("cnnRun").value,
-    census_thr: num("censusThr"), occlusion_color_thr: num("occThr"), min_grid_line_coverage: num("gridCov"),
+    record_inventory_filter: document.getElementById("recordInventory").checked,
+    ...settingsPayload(),
   });
   document.getElementById("setup").open = false;   // collapse the setup popover once running
+}
+
+function settingsPayload() {
+  const num = (id) => { const v = parseFloat(document.getElementById(id).value); return isNaN(v) ? null : v; };
+  return {
+    census_thr: num("censusThr"), occlusion_color_thr: num("occThr"), min_grid_line_coverage: num("gridCov"),
+    motion_margin: num("motionMargin"), overhang: num("overhang"), motion_hold_s: num("motionHold"),
+  };
+}
+async function applySettings() {
+  document.getElementById("note").textContent = "applying tuning…";
+  const r = await post("/api/settings", settingsPayload());
+  document.getElementById("note").textContent =
+    (r && r.ok === false) ? (r.error || "not started") : "tuning applied live";
 }
 async function reset() { await post("/api/reset", {}); }
 async function undo() { await post("/api/undo", {}); }
@@ -202,12 +245,18 @@ async function reattach() {                 // rebuild the camera feed without a
 }
 let recording = false;
 async function toggleRecord() {            // end (finalize) or manually start the session
-  const r = await post(recording ? "/api/record/stop" : "/api/record/start", {});
+  const r = await post(recording ? "/api/record/stop" : "/api/record/start", {
+    record_inventory_filter: document.getElementById("recordInventory").checked,
+  });
   const note = document.getElementById("note");
   if (r && r.ok === false) { note.textContent = r.error || "recording failed"; return; }
-  note.textContent = recording
-    ? `session ended — ${r.session_id} (${r.frames} frames). Label via: chesslab slice ${r.session_id}`
-    : `recording to session ${r.session_id}…`;
+  if (recording) {
+    note.textContent = `session ended - ${r.session_id} (${r.frames} frames). Label via: chesslab slice ${r.session_id}`;
+  } else if (r.skipped_inventory) {
+    note.textContent = `recording to session ${r.session_id}; current frame skipped, not used for training (${r.reason})`;
+  } else {
+    note.textContent = `recording to session ${r.session_id}...`;
+  }
 }
 async function promote(p) {               // choose promotion piece (promotion without CNN)
   const r = await post("/api/promote", { piece: p });
@@ -368,6 +417,10 @@ async function poll() {
     const recBtn = document.getElementById("recBtn");
     recBtn.textContent = recording ? `⏹ End session (${s.record_count})` : "● Record";
     recBtn.className = recording ? "primary" : "";
+    const skipped = s.record_skipped_inventory || 0;
+    document.getElementById("recordSkip").textContent = skipped
+      ? `Skipped ${skipped} frame(s), not used for training: ${s.record_skip_reason || "physical inventory"}`
+      : "";
     if (s.fen !== lastFen) {           // Brett nur bei Änderung neu laden (kein Flackern)
       lastFen = s.fen;
       document.getElementById("board").src = "/board.svg?t=" + Date.now();

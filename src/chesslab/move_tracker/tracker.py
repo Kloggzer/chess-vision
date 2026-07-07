@@ -276,16 +276,22 @@ def occlusion_color_squares(cur_bgr, gamut, board_size: int, white_pov: bool,
     sat = cv2.cvtColor(cur_bgr, cv2.COLOR_BGR2HSV).astype(np.float32)[..., 1]
     thr2 = float(thr) * float(thr)
     out: set[str] = set()
-    for sq in candidates:
-        x0, y0, x1, y1 = square_region(sq, board_size, white_pov, extend_up=extend_up)
+
+    def _is_outlier(box) -> bool:
+        x0, y0, x1, y1 = box
         reg = lab[y0:y1, x0:x1]
         if reg.size == 0:
-            continue
+            return False
         s = sat[y0:y1, x0:x1]
         f = np.array([float(reg[..., 1].mean()), float(reg[..., 2].mean()), float(s.mean())],
                      dtype=np.float32)
         d = refs - f                                     # NN over all reference squares
-        if float(np.einsum("ij,jk,ik->i", d, inv, d).min()) > thr2:
+        return float(np.einsum("ij,jk,ik->i", d, inv, d).min()) > thr2
+
+    for sq in candidates:
+        base_box = square_region(sq, board_size, white_pov)
+        ext_box = square_region(sq, board_size, white_pov, extend_up=extend_up)
+        if _is_outlier(base_box) or (extend_up > 0 and _is_outlier(ext_box)):
             out.add(sq)
     return out
 
@@ -516,13 +522,14 @@ class MoveTracker:
                  cnn_min_agreement: float = 0.97, cnn_margin_squares: int = 1,
                  recovery_max_plies: int = 4,
                  min_confident_board: int = 32, min_confident_recovery: int = 8,
-                 motion_margin: float = 0.12, overhang: float = 0.0,
+                 motion_margin: float = 0.20, overhang: float = 0.25,
                  corner_jump_px: float = 6.0, motion_cooldown: int | None = None,
-                 motion_hold_s: float = 0.2,
+                 motion_hold_s: float = 0.4,
                  occlusion_color_thr: float = 1.5,
-                 min_grid_line_coverage: float = 0.0,
+                 min_grid_line_coverage: float = 0.5,
                  reconnect_grace_s: float = 2.0,
                  diff_clahe_clip: float = 0.0, auto_record: bool = True,
+                 record_inventory_filter: bool = True,
                  require_motion_for_move: bool = True, detect_scale: float = 0.5,
                  motion_recency_s: float = 20.0) -> None:
         # Auto-create a missing profile from the first frames of this source (ArUco).
@@ -673,6 +680,9 @@ class MoveTracker:
         # the first committed move when `auto_record` is on, so good data accrues with no clicks.
         self._recorder = None
         self.auto_record = auto_record
+        self.record_inventory_filter = record_inventory_filter
+        self._record_skipped_inventory = 0
+        self._record_skip_reason = ""
         # Deferred session photo: at commit time a hand is often still over the board — the
         # auto-labeled frame is taken at the next CLEAN stable view instead (or skipped).
         self._pending_capture: dict | None = None     # {"ply","fen","san"}
@@ -1326,19 +1336,21 @@ class MoveTracker:
                 _reject("shadow", "shadow", "Shadow/no move (CNN: board unchanged)")
                 return
 
-            # 2) HARD veto on the RELIABLE axis only: destination confidently EMPTY = the piece
-            #    never arrived (empty is the model's 99.99% class). This is the hand-wave killer.
-            #    NOTE: we deliberately do NOT hard-reject on "from still occupied" — that reading
-            #    is error-prone and would wrongly kill real moves (d2d4 with d2 mis-read occupied).
-            if to_empty_conf:
-                _reject("ghost", "ghost", f"Ghost move rejected (CNN: {to_sq} still empty)", [to_sq])
-                return
-
-            # 3) Positive confirmation via the reliable axes:
-            #    from confidently EMPTY (piece left) OR non-capture destination confidently
-            #    OCCUPIED (piece arrived) OR overall touched-square agreement.
+            # 2) Positive confirmation via the reliable axes FIRST (checked before the veto so a
+            #    genuine move isn't killed by a mis-read destination): from confidently EMPTY
+            #    (the piece demonstrably LEFT — 'empty' is the model's 99.99% class) OR non-capture
+            #    destination confidently OCCUPIED (piece arrived) OR touched-square agreement.
             if from_left_conf or to_arrived_conf or (occ_agree >= recovery.min_agreement and occ_n >= 2):
                 _commit("", "confirmed", "ok")
+                return
+
+            # 3) HARD veto: destination confidently EMPTY *and* the origin did NOT clearly empty
+            #    → nothing actually moved (hand-wave ghost: from still occupied, to still empty).
+            #    We require `not from_left_conf` so a real move whose origin demonstrably emptied
+            #    (e.g. castling: e1 empty, but the king on g1 mis-read as empty) is NOT rejected —
+            #    it already committed in (2) via from_left. Only "nothing moved" is a ghost.
+            if to_empty_conf and not from_left_conf:
+                _reject("ghost", "ghost", f"Ghost move rejected (CNN: {to_sq} still empty)", [to_sq])
                 return
 
             # 4) CNN sees a DIFFERENT move whose occupancy is unambiguous → overrule the diff.
@@ -1670,6 +1682,22 @@ class MoveTracker:
                                        frame_size=(w, h), notes=notes or "move-tracker recording")
         return self._recorder
 
+    def _record_inventory_violations(self, fen: str) -> list[str]:
+        if not self.record_inventory_filter:
+            return []
+        from ..state import physical_inventory_violations
+
+        return physical_inventory_violations(fen)
+
+    def _skip_recording_for_inventory(self, fen: str) -> bool:
+        violations = self._record_inventory_violations(fen)
+        if not violations:
+            return False
+        self._record_skipped_inventory += 1
+        self._record_skip_reason = ", ".join(violations)
+        log.info("session capture skipped: physical inventory exceeded (%s)", self._record_skip_reason)
+        return True
+
     def _queue_session_capture(self, move_san) -> None:
         """Defer the session photo for the just-committed move: at commit time a hand is often
         still over the board — an auto-labeled frame taken now would be unusable (hand covers
@@ -1678,6 +1706,9 @@ class MoveTracker:
         clean frame arrived, this ply is skipped — better no frame than a hand frame.
         Under self.lock."""
         if self._recorder is None and not self.auto_record:
+            return
+        if self._skip_recording_for_inventory(self.board.fen()):
+            self._pending_capture = None
             return
         if self._pending_capture is not None:
             log.info("session capture for ply %d skipped (no clean frame before next move)",
@@ -1694,6 +1725,9 @@ class MoveTracker:
         auto-labeled data; a WRONG move is removed again on undo."""
         pc = self._pending_capture
         if pc is None:
+            return
+        if self._skip_recording_for_inventory(pc["fen"]):
+            self._pending_capture = None
             return
         if self._recorder is None:
             if not self.auto_record or self._start_recorder_locked() is None:
@@ -1717,6 +1751,9 @@ class MoveTracker:
             rec = self._start_recorder_locked(notes)
             if rec is None:
                 return {"ok": False, "error": "no camera frame/corners yet — start the tracker first"}
+            if self._skip_recording_for_inventory(self.board.fen()):
+                return {"ok": True, "session_id": rec.session_id,
+                        "skipped_inventory": True, "reason": self._record_skip_reason}
             try:
                 rec.capture(self._last_frame, ply=self.board.ply(), fen=self.board.fen(),
                             move_san=None, corners=self._last_corners)
@@ -1812,20 +1849,27 @@ class MoveTracker:
 
         # 5. LL-scoring + quiet/re-anchor. A move is viable only if BOTH endpoints carry at
         #    least weak evidence (z ≥ z_thr/2, Spec 10 part 1): otherwise a single hot square
-        #    (nudge!) would score moves with completely cold target squares net-positive.
+        #    (nudge!) would score moves with completely cold target squares net-positive. All
+        #    physically touched squares must pass (move_touched_squares — castling adds rook
+        #    squares, en passant adds the captured pawn square).
         #    White-on-white (target just below z_thr) remains viable.
         scored = loglik_scores(self.board, z, self.z_thr, self.ll_k)
         soft = self.z_thr * 0.5
         viable = [(mv, s) for mv, s in scored
-                  if z[chess.square_name(mv.from_square)] >= soft
-                  and z[chess.square_name(mv.to_square)] >= soft]
+                  if all(z[sq] >= soft
+                         for sq in move_touched_squares(self.board, mv))]
         obs_move, best = viable[0] if viable else (None, -1e9)
         second = viable[1][1] if len(viable) > 1 else -1e9
         self._best_score = best if viable else (scored[0][1] if scored else 0.0)
         self._second_score = second
         self._candidate_uci = obs_move.uci() if obs_move else None
         if not changed:
-            if obs_move is None or best < self.reanchor_ll_floor:
+            # Scale reanchor floor by number of physically changed squares: a castling
+            # move (4 squares) must not be penalised relative to a normal move (2 squares)
+            # when per-square evidence is equally weak.
+            n_touched = len(move_touched_squares(self.board, obs_move)) if obs_move else 2
+            scaled_floor = self.reanchor_ll_floor * (n_touched / 2.0)
+            if obs_move is None or best < scaled_floor:
                 # Occlusion latch active → do NOT re-anchor (the latched squares may still
                 # show the hand; a re-anchor would bake it into the reference). Mark stuck so
                 # the CNN recovery resolves the standoff within its cooldown (~2 s) instead
@@ -1951,10 +1995,11 @@ class MoveTracker:
                 self._shadow_vetoed = sorted(shadow_veto)
         self._occluded_vetoed = []
         occluded_set: set[str] = set()
-        if cur_bgr is not None and self._ref_gamut is not None and changed:
+        occlusion_candidates = changed | {s for s, v in z.items() if v >= self.z_thr * 0.5}
+        if cur_bgr is not None and self._ref_gamut is not None and occlusion_candidates:
             occluded_set = occlusion_color_squares(
                 cur_bgr, self._ref_gamut, self._det_size,
-                self.profile.white_pov, changed, self.occlusion_color_thr,
+                self.profile.white_pov, occlusion_candidates, self.occlusion_color_thr,
                 extend_up=self.overhang) - self._occl_whitelist
             if occluded_set:
                 for s in occluded_set:
@@ -2277,6 +2322,9 @@ class MoveTracker:
                 "recording": self._recorder is not None,
                 "record_session": None if self._recorder is None else self._recorder.session_id,
                 "record_count": 0 if self._recorder is None else self._recorder.count,
+                "record_inventory_filter": self.record_inventory_filter,
+                "record_skipped_inventory": self._record_skipped_inventory,
+                "record_skip_reason": self._record_skip_reason,
                 # Camera health: False = no frames arriving (feed dropped / device gone).
                 "camera_ok": self._camera_ok,
                 # Base truth diagnosis: which FEN the reference image shows (None = re-capture running)

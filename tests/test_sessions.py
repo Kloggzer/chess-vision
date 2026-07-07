@@ -1,6 +1,7 @@
 """Session-Verwaltung (archive/restore/delete) — headless mit temporären Pfaden."""
 
 import json
+from pathlib import Path
 
 import pytest
 import yaml
@@ -83,6 +84,49 @@ def test_delete_removes_dir_crops_manifest_and_corrections(tmp_path):
             .read_text(encoding="utf-8").splitlines() if line.strip()] == ["s2"]
     assert [json.loads(line)["session_id"] for line in cp.read_text(encoding="utf-8").splitlines()
             if line.strip()] == ["s2"]
+
+
+def test_trim_session_removes_tail_frames_crops_manifest_and_corrections(tmp_path):
+    paths = config.Paths(root=tmp_path)
+    sdir = _mk_session(paths, "s1", frames=4)
+    for i in range(4):
+        (sdir / "frames" / f"{i:04d}.png").write_bytes(b"x")
+        _mk_crop(paths, "s1", frame=f"{i:04d}", square="e1")
+    paths.manifests.mkdir(parents=True, exist_ok=True)
+    (paths.manifests / "squares.jsonl").write_text(
+        "\n".join(json.dumps({"session_id": "s1", "frame": f"{i:04d}"}) for i in range(4)) + "\n",
+        encoding="utf-8",
+    )
+    paths.corrections.write_text(
+        "\n".join(json.dumps({"session_id": "s1", "frame": f"{i:04d}", "square": "e1", "label": "wK"})
+                  for i in range(4)) + "\n",
+        encoding="utf-8",
+    )
+
+    r = S.trim_session("s1", 2, paths)
+
+    assert r["kept_frames"] == 2
+    assert r["removed_frames"] == 2
+    assert not (sdir / "frames" / "0002.png").exists()
+    assert not (sdir / "frames" / "0003.png").exists()
+    assert (sdir / "frames" / "0001.png").exists()
+    reject_dir = Path(r["reject_dir"])
+    assert (reject_dir / "frames" / "0002.png").exists()
+    assert (reject_dir / "frames" / "0003.png").exists()
+    reject_log = [json.loads(line) for line in (reject_dir / "log.jsonl").read_text(encoding="utf-8").splitlines()
+                  if line.strip()]
+    assert [Path(row["frame"]).stem for row in reject_log] == ["0002", "0003"]
+    reject_meta = yaml.safe_load((reject_dir / "session.yaml").read_text(encoding="utf-8"))
+    assert reject_meta["source_session_id"] == "s1"
+    assert reject_meta["mode"] == "rejected-tail"
+    assert not (paths.squares / "wK" / "s1_0002_e1.png").exists()
+    rows = [json.loads(line) for line in (paths.manifests / "squares.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()]
+    assert [row["frame"] for row in rows] == ["0000", "0001"]
+    corr = [json.loads(line) for line in paths.corrections.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert [row["frame"] for row in corr] == ["0000", "0001"]
+    log = [json.loads(line) for line in (sdir / "log.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert [Path(row["frame"]).stem for row in log] == ["0000", "0001"]
 
 
 def test_invalid_id_and_missing(tmp_path):

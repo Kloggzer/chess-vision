@@ -369,7 +369,11 @@ def dataset_delete_cmd(name: str = typer.Argument(...)) -> None:
 
 @app.command("train")
 def train_cmd(
-    backbone: str = typer.Option(config.DEFAULT_BACKBONE, "--backbone", help="smallcnn | mobilenet_v3_small"),
+    backbone: str = typer.Option(
+        config.DEFAULT_BACKBONE,
+        "--backbone",
+        help="smallcnn | mobilenet_v3_small | any timm model",
+    ),
     epochs: int = typer.Option(config.DEFAULT_EPOCHS, "--epochs"),
     batch_size: int = typer.Option(config.DEFAULT_BATCH_SIZE, "--batch-size"),
     lr: float = typer.Option(config.DEFAULT_LR, "--lr"),

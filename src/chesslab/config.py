@@ -293,6 +293,11 @@ class Paths:
         return self.root / "sessions_archive"
 
     @property
+    def session_rejects(self) -> Path:
+        """Rejected/cut session tails: not active training data, preserved for later relabeling."""
+        return self.root / "session_rejects"
+
+    @property
     def squares(self) -> Path:
         return self.root / "squares"
 
@@ -470,12 +475,12 @@ TRACK_DEFAULTS: dict = {
     "recovery_max_plies": 4,       # CNN deep recovery: max half-moves the conflict-guided search may bridge       # Recovery margin in SQUARES (capture = 1 square difference)
     "min_confident_board": 32,     # Whole-board match needs plenty of clear view
     "min_confident_recovery": 8,   # Recovery remains operational with partial occlusion
-    "motion_margin": 0.12,         # Motion ROI beyond the board edge (fraction of board edge)
-    "overhang": 0.0,               # Extend diff cells upward (fraction of cell; 0 = off)
+    "motion_margin": 0.20,         # Motion ROI beyond the board edge (fraction of board edge)
+    "overhang": 0.25,              # Extend diff/occlusion cells toward back rank (fraction of cell)
     "align_every": 3,              # ArUco marker detection every N-th frame (most expensive per-frame op; camera fixed)
     "align_scale": 0.5,            # ArUco on downscaled frame (0.5 = half-res, ~3x faster; ±1 px inside tracker dead-zone)
     "corner_jump_px": 6.0,         # Warp corner jump ⇒ base truth geometrically invalid → reacquire
-    "motion_hold_s": 0.2,          # Seconds the board must be motion-free before detection resumes
+    "motion_hold_s": 0.4,          # Seconds the board must be motion-free before detection resumes
                                    # (wall time — frame counts settle in milliseconds at 40 fps)
     "occlusion_color_thr": 1.5,    # Color-outlier veto: Mahalanobis sigma vs board gamut (lower=more sensitive, 0=off; 1.5: live-tuned)
     "min_grid_line_coverage": 0.5, # Grid-line occlusion gate: min visible-line fraction (0=off)
