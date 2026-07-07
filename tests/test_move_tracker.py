@@ -1322,10 +1322,8 @@ class TestFeedbackAndRecording:
         monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
         mt = self._committed_tracker(monkeypatch, auto_record=True)
         assert mt._recorder is None
-        mt._try_detect(_gray_frame(["e4"]), _bgr_frame(["e4"]))   # commit → photo DEFERRED
-        assert mt._recorder is None and mt._pending_capture is not None
-        mt._try_detect(_gray_frame(["e4"]), _bgr_frame(["e4"]))   # clean quiet frame → flush
-        assert mt._recorder is not None
+        mt._try_detect(_gray_frame(["e4"]), _bgr_frame(["e4"]))   # commit → flush immediately
+        assert mt._recorder is not None and mt._pending_capture is None
         r = mt.stop_recording()
         assert r["ok"] and r["frames"] >= 1
         assert (tmp_path / "sessions" / r["session_id"] / "log.jsonl").exists()
@@ -1392,30 +1390,33 @@ class TestFeedbackAndRecording:
         mt.stop_recording()
 
     def test_recorded_ply_survives_resync(self, monkeypatch, tmp_path):
-        """Recorded ply comes from the POSITION, not len(history): a mid-game resync clears
-        the history and previously restarted the ply counter (one game looked like two)."""
+        """Recorded ply comes from the POSITION, not len(history). Flushed immediately now
+        so check plies in the recorder log."""
+        import json
+
         import chesslab.config as config
         monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
         mt = self._committed_tracker(monkeypatch, auto_record=True)
-        # Simulate the state right after a mid-game resync: FEN says fullmove 33, history empty.
         mt.board = chess.Board("r5k1/5pp1/pBq4p/8/P1r5/5P2/1Q4PP/R2R3K w - - 1 33")
         mt.history = []
         mt._queue_session_capture("Qc6")
-        assert mt._pending_capture["ply"] == 64                  # (33-1)*2, not 0
+        rec = mt._recorder
+        assert rec is not None
+        entries = [json.loads(line) for line in (rec.dir / "log.jsonl").read_text().splitlines()]
+        assert entries[-1]["ply"] == 64
 
     def test_undo_before_flush_drops_pending_photo(self, monkeypatch, tmp_path):
-        """Undo while the session photo is still deferred: the pending capture is dropped
-        (never recorded), the already-recorded start frame stays."""
+        """Capture flushed immediately at commit — undo removes the recorded frame."""
         import chesslab.config as config
         monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
         mt = self._committed_tracker(monkeypatch)
         mt.start_recording()
-        mt._try_detect(_gray_frame(["e4"]), _bgr_frame(["e4"]))   # commit → photo deferred
-        assert mt._pending_capture is not None
-        mt.undo()
+        before = mt._recorder.count
+        mt._try_detect(_gray_frame(["e4"]), _bgr_frame(["e4"]))   # commit → flush immediately
         assert mt._pending_capture is None
-        assert mt._recorder.count == 1                            # only the start frame
-        mt.stop_recording()
+        assert mt._recorder.count == before + 1                     # frame captured
+        mt.undo()
+        assert mt._recorder.count == before                         # undone frame removed
 
 
 class TestTrackFeedbackIngest:

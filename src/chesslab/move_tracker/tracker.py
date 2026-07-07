@@ -325,18 +325,25 @@ for _f in _FILES:
 
 
 def _baseline_occlusion_and_shadow(cur_gray, ref_gray, board_size, abs_thr: float,
-                                  white_pov: bool) -> tuple[set[str], set[str]]:
+                                   white_pov: bool,
+                                   boxes: list[tuple[int, int, int, int, int]] | None = None
+                                   ) -> tuple[set[str], set[str]]:
     """Return (occluded_squares, shadow_squares) from absdiff vs baseline.
     Occlusion: mean absdiff > abs_thr. Shadow: mean pixel value decreased > abs_thr/2
-    AND not already occluded. Both dilated by one orthogonal neighbour."""
+    AND not already occluded. Both dilated by one orthogonal neighbour.
+    Uses integral images + precomputed boxes for O(1) per-square means."""
+    if boxes is None:
+        boxes = _square_boxes(board_size, white_pov)
     d = cv2.absdiff(cur_gray, ref_gray)
+    occ_means = _region_means(cv2.integral(d), boxes)
+    cur_means = _region_means(cv2.integral(cur_gray.astype(np.float64)), boxes)
+    ref_means = _region_means(cv2.integral(ref_gray.astype(np.float64)), boxes)
     occluded: set[str] = set()
     shadow: set[str] = set()
-    for sq in _ALL:
-        x0, y0, x1, y1 = square_region(sq, board_size, white_pov)
-        if float(d[y0:y1, x0:x1].mean()) > abs_thr:
+    for sq, om, cm, rm in zip(_ALL, occ_means, cur_means, ref_means, strict=True):
+        if om > abs_thr:
             occluded.add(sq)
-        elif float(ref_gray[y0:y1, x0:x1].mean()) - float(cur_gray[y0:y1, x0:x1].mean()) > abs_thr / 2:
+        elif rm - cm > abs_thr / 2:
             shadow.add(sq)
     dilated_occ = set(occluded)
     for sq in occluded:
@@ -652,6 +659,7 @@ class MoveTracker:
         self.detect_scale = detect_scale              # Detection warp scale (0.5=half-res; 1.0=off)
         self._det_size = (int(self.profile.board_size * detect_scale)
                           if detect_scale < 1.0 else self.profile.board_size)
+        self._det_boxes = _square_boxes(self._det_size, self.profile.white_pov)
         self._align_i = 0
         self._ref_census = None                       # cached census codes of ref_gray
         self._ref_census_for = None                   # identity key of the cached codes
@@ -1091,7 +1099,8 @@ class MoveTracker:
                     if self.ref_gray is not None and self.state not in ("waiting", "move"):
                         raw_occ, raw_shadow = _baseline_occlusion_and_shadow(
                             gray_det, self.ref_gray, self._det_size,
-                            self.motion_px_thr * 4, self.profile.white_pov)
+                            self.motion_px_thr * 4, self.profile.white_pov,
+                            self._det_boxes)
                         for sq in raw_occ:
                             self._occlusion_expiry[sq] = now + 0.1
                         self._shadow_vetoed = sorted(raw_shadow)
@@ -1841,24 +1850,18 @@ class MoveTracker:
         return True
 
     def _queue_session_capture(self, move_san) -> None:
-        """Defer the session photo for the just-committed move: at commit time a hand is often
-        still over the board — an auto-labeled frame taken now would be unusable (hand covers
-        squares). The actual capture happens at the next CLEAN stable view
-        (`_flush_session_capture` in the quiet re-anchor). If the next move commits before a
-        clean frame arrived, this ply is skipped — better no frame than a hand frame.
-        Under self.lock."""
+        """Defer the session photo for the just-committed move. Flushes immediately when the
+        board is clean (no occlusion); defers to the quiet re-anchor only when hands are
+        still visible. Under self.lock."""
         if self._recorder is None and not self.auto_record:
             return
         if self._skip_recording_for_inventory(self.board.fen()):
             self._pending_capture = None
             return
-        if self._pending_capture is not None:
-            log.info("session capture for ply %d skipped (no clean frame before next move)",
-                     self._pending_capture["ply"])
-        # ply from the POSITION (fullmove/turn), not len(history): resync clears the history
-        # mid-game, which restarted the logged ply counter and made one game look like two.
         self._pending_capture = {"ply": self.board.ply(), "fen": self.board.fen(),
-                                 "san": move_san}
+                                  "san": move_san}
+        if not self._motion_occluded_squares and not self._tainted:
+            self._flush_session_capture()
 
     def _flush_session_capture(self) -> None:
         """Take the deferred session photo now that the board has a clean stable view (quiet
