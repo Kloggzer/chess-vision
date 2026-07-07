@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Play, Loader2, Square, Trash2, Eye, FlaskConical, Package } from "lucide-react";
+import { Play, Loader2, Square, Trash2, Eye, FlaskConical, Package, Check } from "lucide-react";
 import { api, post, del } from "../api";
 import { Card, Button, Select } from "./ui";
 import LineChart from "./LineChart";
@@ -73,6 +73,7 @@ export default function Training() {
   const [evals, setEvals] = useState<any>({});
   const [status, setStatus] = useState<any>({ running: false });
   const [err, setErr] = useState("");
+  const [exporting, setExporting] = useState<string | null>(null);
   const [backbone, setBackbone] = useState("smallcnn");
   const [head, setHead] = useState("combined");   // combined | factored | twostage (Occupancy→Piece)
   const [epochs, setEpochs] = useState(30);
@@ -148,11 +149,17 @@ export default function Training() {
     refreshRuns();
   }
   async function exportRun(r: string) {
-    setErr("");
+    setExporting(r);
     try {
       const res = await post(`/api/runs/${r}/export`, {});
-      setErr(res.ok ? `ONNX export: ${r}` : (res.output || "export failed"));
+      if (res.ok) {
+        setErr(`${r}: ONNX exported ✓ — restart tracker to use`);
+      } else {
+        setErr(res.output || "export failed");
+      }
+      refreshRuns();
     } catch (e: any) { setErr(e.message); }
+    finally { setExporting(null); }
   }
   const pct = (v: number | null | undefined) => (v == null ? "—" : (v * 100).toFixed(1) + " %");
   async function start() {
@@ -297,8 +304,12 @@ export default function Training() {
                               className="px-2 py-1 text-xs"><Eye className="h-3.5 w-3.5" /> View</Button>
                       <Button onClick={() => evalRun(r.run)}
                               className="px-2 py-1 text-xs" title="Run eval (test split) — generates metrics + confusion matrix"><FlaskConical className="h-3.5 w-3.5" /> Eval</Button>
-                      <Button onClick={() => exportRun(r.run)}
-                              className="px-2 py-1 text-xs" title="Export to ONNX for faster inference"><Package className="h-3.5 w-3.5" /> Export</Button>
+                      <Button onClick={() => exportRun(r.run)} disabled={exporting === r.run}
+                              className="px-2 py-1 text-xs" title={r.has_onnx ? "model.onnx exists" : "Export to ONNX for faster inference"}>
+                        {exporting === r.run ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> :
+                         r.has_onnx ? <Check className="h-3.5 w-3.5 text-green-400" /> :
+                         <Package className="h-3.5 w-3.5" />} Export
+                      </Button>
                       <Button onClick={() => delRun(r.run)}
                               className="px-2 py-1 text-xs text-red-300 hover:text-red-200"><Trash2 className="h-3.5 w-3.5" /> Delete</Button>
                     </div></td>
