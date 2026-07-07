@@ -24,22 +24,6 @@ from ..calibration import (
     warp_from_corners,
 )
 
-try:
-    import simplejpeg
-    def _jpeg_decode(data: bytes) -> np.ndarray | None:
-        """Decode JPEG bytes to BGR with libjpeg-turbo (2-3× faster) or fallback to cv2."""
-        try:
-            return simplejpeg.decode_jpeg(data, colorspace="BGR")
-        except Exception:
-            pass
-        arr = np.frombuffer(data, np.uint8)
-        return cv2.imdecode(arr, cv2.IMREAD_COLOR)
-except ImportError:
-    def _jpeg_decode(data: bytes) -> np.ndarray | None:
-        arr = np.frombuffer(data, np.uint8)
-        return cv2.imdecode(arr, cv2.IMREAD_COLOR)
-
-
 _BOUNDARY = b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
 
 # Env override: if this variable is set (e.g. an IP cam URL), ALL camera paths in the
@@ -71,7 +55,7 @@ class _UrlSnapshotCapture:
             return False, None
         try:
             data = urllib.request.urlopen(self.url, timeout=self.timeout, context=self._ctx).read()
-            img = _jpeg_decode(data)
+            img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
             return (img is not None), img
         except Exception:  # noqa: BLE001 — network/timeout: treat like an empty frame
             return False, None
@@ -109,7 +93,7 @@ class _UrlMjpegCapture:
                 if a != -1 and b != -1:
                     jpg = bytes(self._buf[a:b + 2])
                     del self._buf[:b + 2]
-                    img = _jpeg_decode(jpg)
+                    img = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
                     return (img is not None), img
                 chunk = self._stream.read(16384)
                 if not chunk:
