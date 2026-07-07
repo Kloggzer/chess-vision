@@ -765,28 +765,22 @@ class MoveTracker:
         self._thread = None
 
     # -- Geometry --
-    def _warp(self, frame):
+    def _warp(self, frame, target_size: int | None = None):
         if self.live_align:
-            # Track markers live: the MarkerTracker smooths (dead-zone) and HOLDS occluded corners
-            # at their last good position (no jump to 2-3-marker approximation when hand covers them).
-            # Seeded from calibration -> starts immediately correct and then corrects camera drift.
-            # ArUco detection is the most expensive per-frame op (~25 ms at 1080p) and the camera
-            # is FIXED — run it only every `align_every`-th frame and reuse the held corners in
-            # between (still ~8 Hz drift correction at 25 fps).
             self._align_i += 1
             if self._last_corners is not None and (self._align_i % self.align_every):
-                return warp_from_corners(frame, self.profile, self._last_corners)
+                return warp_from_corners(frame, self.profile, self._last_corners, target_size)
             corners = board_corners_for_frame(frame, self.profile, self.marker_tracker,
                                               detect_scale=self.align_scale)
             if corners is not None:
                 self._last_corners = corners
-                return warp_from_corners(frame, self.profile, corners)
+                return warp_from_corners(frame, self.profile, corners, target_size)
         # frozen or fallback if (not yet) 4 corners known: fixed calibration geometry.
         corners = self.profile.image_corners
         if not corners or len(corners) < 4:
             return None
         self._last_corners = corners
-        return warp_from_corners(frame, self.profile, corners)
+        return warp_from_corners(frame, self.profile, corners, target_size)
 
     def _gray(self, warped):
         g = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
@@ -1055,24 +1049,14 @@ class MoveTracker:
                     continue
                 self._last_read_ok = time.time()
                 self._camera_ok = True
-                warped = self._warp(frame)
-                if warped is None:
+                target_size = self._det_size if self.detect_scale < 1.0 else None
+                warped_det = self._warp(frame, target_size)
+                if warped_det is None:
                     with self.lock:
                         self.note = "waiting for markers…"
                     time.sleep(0.02)
                     continue
-                gray = self._gray(warped)
-                # Detection at downscaled resolution (detect_scale < 1.0) — reduces
-                # diff/census/vetoes cost quadratically. Overlay stays at full warp.
-                warped_det: np.ndarray
-                gray_det: np.ndarray
-                if self.detect_scale < 1.0:
-                    warped_det = cv2.resize(warped, (self._det_size, self._det_size),
-                                           interpolation=cv2.INTER_AREA)
-                    gray_det = cv2.resize(gray, (self._det_size, self._det_size),
-                                         interpolation=cv2.INTER_AREA)
-                else:
-                    warped_det, gray_det = warped, gray
+                gray_det = self._gray(warped_det)
                 # Extended motion gate (Spec 10, part 6): also capture motion in the margin
                 # AROUND the board — the hand is seen BEFORE it covers a square.
                 motion_roi = self._roi_motion(frame)
@@ -1172,7 +1156,10 @@ class MoveTracker:
 
                     # Throttle overlay encode (JPEG ~5–15 ms): keeps the detection hot-path clear.
                     if now - self._last_viewer_ts < 2.0 and now - self._last_encode_ts >= 0.08:
-                        self._overlay_jpeg = self._encode_overlay(warped)
+                        overlay_img = warped_det if self.detect_scale >= 1.0 else \
+                            cv2.resize(warped_det, (self.profile.board_size, self.profile.board_size),
+                                       interpolation=cv2.INTER_LINEAR)
+                        self._overlay_jpeg = self._encode_overlay(overlay_img)
                         self._last_encode_ts = now
 
                 # CNN in a WORKER thread (one observation at a time): an observation takes
