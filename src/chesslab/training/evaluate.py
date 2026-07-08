@@ -136,7 +136,7 @@ def run_export(run: str, fmt: str = "torchscript") -> int:
             torch.onnx.export(model, example, str(run_dir / "model.onnx"),
                               input_names=["input"], output_names=["logits"],
                               dynamic_axes={"input": {0: "batch"}, "logits": {0: "batch"}},
-                              opset_version=17)
+                              opset_version=17, dynamo=False)
             written.append("onnx")
         else:
             print(f"[FAIL] unknown format {f!r} (torchscript | onnx | all).")
