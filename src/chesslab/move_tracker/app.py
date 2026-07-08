@@ -31,6 +31,7 @@ def _live_tuning_kwargs(
     motion_margin: float | None = None,
     overhang: float | None = None,
     motion_hold_s: float | None = None,
+    diff_clahe_clip: float | None = None,
 ) -> dict:
     vals = {
         "motion_thr": motion_thr,
@@ -41,6 +42,7 @@ def _live_tuning_kwargs(
         "motion_margin": motion_margin,
         "overhang": overhang,
         "motion_hold_s": motion_hold_s,
+        "diff_clahe_clip": diff_clahe_clip,
     }
     return {k: v for k, v in vals.items() if v is not None}
 
@@ -53,6 +55,8 @@ def _apply_live_tuning(tracker, kwargs: dict) -> dict:
             tracker._prev_roi = None
         if "overhang" in kwargs:
             tracker._ref_census_for = None
+        if "diff_clahe_clip" in kwargs:
+            tracker._clahe = None           # rebuilt on next _gray call
         tracker.note = "tracker tuning updated live"
         return {
             "motion_thr": tracker.motion_thr,
@@ -63,6 +67,7 @@ def _apply_live_tuning(tracker, kwargs: dict) -> dict:
             "motion_margin": tracker.motion_margin,
             "overhang": tracker.overhang,
             "motion_hold_s": tracker.motion_hold_s,
+            "diff_clahe_clip": tracker.diff_clahe_clip,
         }
 
 
@@ -120,8 +125,9 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
               min_grid_line_coverage: float | None = Body(None),
               motion_margin: float | None = Body(None),
               overhang: float | None = Body(None),
-              motion_hold_s: float | None = Body(None),
-              record_inventory_filter: bool | None = Body(None)):
+               motion_hold_s: float | None = Body(None),
+               diff_clahe_clip: float | None = Body(None),
+               record_inventory_filter: bool | None = Body(None)):
         # Atomic swap: take old tracker out under lock, stop+join OUTSIDE lock,
         # start new one, put in under lock. Double-start leaves exactly one thread.
         old = _STATE.get("tracker")
@@ -141,6 +147,7 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
             motion_margin=motion_margin,
             overhang=overhang,
             motion_hold_s=motion_hold_s,
+            diff_clahe_clip=diff_clahe_clip,
         ))
         if cnn_run is not None:                      # Body overrides CLI default ("" = off)
             kwargs["cnn_run"] = cnn_run or None
@@ -162,7 +169,8 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
                  min_grid_line_coverage: float | None = Body(None),
                  motion_margin: float | None = Body(None),
                  overhang: float | None = Body(None),
-                 motion_hold_s: float | None = Body(None)):
+                 motion_hold_s: float | None = Body(None),
+                 diff_clahe_clip: float | None = Body(None)):
         t = _STATE.get("tracker")
         if t is None:
             return {"ok": False, "error": "not started"}
@@ -175,6 +183,7 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
             motion_margin=motion_margin,
             overhang=overhang,
             motion_hold_s=motion_hold_s,
+            diff_clahe_clip=diff_clahe_clip,
         )
         return {"ok": True, "settings": _apply_live_tuning(t, kwargs)}
 

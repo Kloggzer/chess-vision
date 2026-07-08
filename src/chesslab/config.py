@@ -485,7 +485,7 @@ TRACK_DEFAULTS: dict = {
     "occlusion_color_thr": 1.5,    # Color-outlier veto: Mahalanobis sigma vs board gamut (lower=more sensitive, 0=off; 1.5: live-tuned)
     "min_grid_line_coverage": 0.5, # Grid-line occlusion gate: min visible-line fraction (0=off)
     "reconnect_grace_s": 2.0,      # Auto-reattach camera after this many seconds of no frames (0=off)
-    "diff_clahe_clip": 0.0,        # CLAHE contrast boost on the diff image (0=off; ~2-3 lifts dark moves)
+    "diff_clahe_clip": 2.0,        # CLAHE contrast boost on the diff image (0=off; ~2-3 lifts dark moves)
     "require_motion_for_move": True,  # Only commit a move if a hand entered since the last reference (drift guard)
     "motion_recency_s": 20.0,
     "detect_scale": 0.5,           # Detection warp scale (0.5 = half-res board; 1.0 = off).

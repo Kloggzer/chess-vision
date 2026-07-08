@@ -80,6 +80,8 @@
                title="Raw camera area watched outside the board edge; higher sees hands earlier" /></label>
         <label class="muted">Overhang <input id="overhang" type="number" step="0.05" min="0" value="0.25"
                title="Extends square diff/occlusion regions toward the back rank for tall pieces and hands" /></label>
+        <label class="muted">CLAHE clip <input id="claheClip" type="number" step="0.5" min="0" max="8" value="2.0"
+               title="Local contrast boost — higher lifts dark-piece-on-dark-square changes (0=off)" /></label>
         <label class="muted">Motion hold <input id="motionHold" type="number" step="0.05" min="0" value="0.4"
                title="Seconds the board must be motion-free before detection resumes" /></label>
         <label class="muted" title="Skip auto-recorded training frames when the FEN requires extra physical pieces, e.g. a second queen represented by a chip.">
@@ -217,6 +219,7 @@ async function loadDefaults() {
     setDefault("gridCov", "min_grid_line_coverage");
     setDefault("occThr", "occlusion_color_thr");
     setDefault("censusThr", "census_thr");
+    setDefault("claheClip", "diff_clahe_clip");
   } catch { /* tracker API not ready yet */ }
 }
 loadDefaults();
@@ -236,6 +239,7 @@ function settingsPayload() {
   return {
     census_thr: num("censusThr"), occlusion_color_thr: num("occThr"), min_grid_line_coverage: num("gridCov"),
     motion_margin: num("motionMargin"), overhang: num("overhang"), motion_hold_s: num("motionHold"),
+    diff_clahe_clip: num("claheClip"),
   };
 }
 async function applySettings() {

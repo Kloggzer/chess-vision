@@ -575,7 +575,7 @@ class MoveTracker:
                  occlusion_color_thr: float = 1.5,
                  min_grid_line_coverage: float = 0.5,
                  reconnect_grace_s: float = 2.0,
-                 diff_clahe_clip: float = 0.0, auto_record: bool = True,
+                 diff_clahe_clip: float = 2.0, auto_record: bool = True,
                  record_inventory_filter: bool = True,
                  require_motion_for_move: bool = True, detect_scale: float = 0.5,
                  motion_recency_s: float = 20.0) -> None:
