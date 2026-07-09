@@ -49,6 +49,7 @@
     <!-- Settings sections -->
     <string name="settings_game">Game</string>
     <string name="settings_camera">Camera</string>
+    <string name="settings_recording">Recording</string>
     <string name="settings_detection_advanced">Advanced detection</string>
     <string name="settings_experimental">Experimental</string>
     <string name="settings_debug">Debug</string>
@@ -57,6 +58,9 @@
     <string name="setting_look_forward">Look-forward (fast play)</string>
     <string name="setting_ambiguity_margin">Ambiguity margin</string>
     <string name="setting_move_prior">Move prior tie-break</string>
+
+    <!-- Settings: recording -->
+    <string name="setting_auto_record">Auto-record session</string>
 
     <!-- Settings: camera -->
     <string name="setting_dynamic_resolution">Dynamic resolution</string>
