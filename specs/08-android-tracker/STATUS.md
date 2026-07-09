@@ -13,9 +13,9 @@
 | 02 | Geometry (warp, calibration, markerless) | 00 | opus | done | opus/2026-07-09 | geometry pkg: BoardCorners/CalibrationProfile/CalibrationStore, BoardWarper, BoardDetector (board_corners_from_lines port) + CornerDriftMonitor. Gate `:app:testDebugUnitTest --tests com.chesslab.tracker.geometry.* :app:ktlintCheck :app:detekt` green (15 tests). |
 | 03 | Camera (CameraX, dynamic resolution) | 00 | opus | done | opus/2026-07-09 | TrackerCamera + captureHiRes + DynamicResolutionController; `:app:testDebugUnitTest --tests com.chesslab.tracker.camera.* :app:ktlintCheck :app:detekt` green |
 | 04 | UI, accessibility, settings, integration | 01, 02, 03 | opus | done | opus/2026-07-09 | `com.chesslab.tracker.ui` + `.service`: SettingsRepository (DataStore, live/constructor split), TrackerCoordinator (pure engine bridge → UiState), BoardFramePipeline (warp+CLAHE+180°), TrackerService (foreground, dynamic-res rewarp, drift behind experimental toggle, null safeguard/stateSink/recorder), Calibration/Tracking/Settings/History screens, accessible Canvas board + LiveRegion move announcements. Gate `:app:testDebugUnitTest --tests com.chesslab.tracker.ui.* :app:assembleDebug :app:ktlintCheck :app:detekt` green (13 tests); seams #3/#7/#8 reconciled. |
-| 05 | CNN safeguard (ONNX Runtime) | 01, 04 | fable | todo | | parallel group B |
-| 06 | LAN spectator server | 04 | codewhale | todo | | parallel group B |
-| 07 | Recording + PGN export | 04 | codewhale | todo | | parallel group B |
+| 05 | CNN safeguard (ONNX Runtime) | 01, 04 | fable | todo | | agent died on session limit before any work; worktree empty — relaunch fresh with the phase-05 prompt in HANDOVER.md |
+| 06 | LAN spectator server | 04 | codewhale | done | codewhale/2026-07-09 | SpectatorServer (Ktor CIO), GET-only, embedded HTML+polling, NSD+QR, default OFF via stateSink. Gate `--tests com.chesslab.tracker.spectate.* :app:ktlintCheck :app:detekt` green (6 tests), supervisor re-ran. Committed 2cbf488. |
+| 07 | Recording + PGN export | 04 | codewhale | todo | | ready to launch (06 finished; no parallel codewhale constraint left) |
 
 ## Blockers
 
