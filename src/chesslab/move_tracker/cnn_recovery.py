@@ -396,3 +396,29 @@ class CnnRecovery:
         mv, best, _second = self.score_moves(board, obs)
         return {"match": False, "conflicts": conflicts,
                 "move": mv.uci() if mv else None, "agreement": max(best, 0.0)}
+
+
+def guess_illegal_move(board: chess.Board, obs: OccupancyObservation,
+                       conf_thr: float) -> str | None:
+    """Among label-confident conflict squares: exactly one square X whose
+    expected piece P is now observed empty, and exactly one square Y observed
+    to hold P where the game state expects something else -> "X->Y" (uci-like
+    string, no legality implied). Any other pattern -> None."""
+    exp = expected_labels(board)
+    lc = obs.label_confident(conf_thr)
+    confident = {sq for sq, ok in lc.items() if ok}
+    if obs.label is None or obs.conf is None:
+        return None
+    # Find squares where label is confidently observed AND differs from expected
+    conflict = {sq for sq in confident if obs.label[sq] != exp[sq]}
+    if not conflict:
+        return None
+    # Among conflicts: find squares observed empty where expected non-empty (source)
+    # and squares observed holding a piece where expected empty (destination)
+    sources = [sq for sq in conflict
+               if obs.label[sq] == "empty" and exp[sq] != "empty"]
+    destinations = [sq for sq in conflict
+                    if obs.label[sq] != "empty" and exp[sq] == "empty"]
+    if len(sources) == 1 and len(destinations) == 1:
+        return f"{sources[0]}{destinations[0]}"
+    return None
