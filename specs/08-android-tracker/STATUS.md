@@ -11,7 +11,7 @@
 | 00 | Scaffold (gradle, modules, api types) | — | codewhale | done | codewhale/2026-07-09 | Full gate: :engine:test :app:assembleDebug :engine:ktlintCheck :app:ktlintCheck :engine:detekt :app:detekt all green |
 | 01 | TrackerEngine pipeline port | 00 | fable | todo | | parallel group A |
 | 02 | Geometry (warp, calibration, markerless) | 00 | opus | todo | | parallel group A |
-| 03 | Camera (CameraX, dynamic resolution) | 00 | opus | todo | | parallel group A |
+| 03 | Camera (CameraX, dynamic resolution) | 00 | opus | done | opus/2026-07-09 | TrackerCamera + captureHiRes + DynamicResolutionController; `:app:testDebugUnitTest --tests com.chesslab.tracker.camera.* :app:ktlintCheck :app:detekt` green |
 | 04 | UI, accessibility, settings, integration | 01, 02, 03 | opus | todo | | |
 | 05 | CNN safeguard (ONNX Runtime) | 01, 04 | fable | todo | | parallel group B |
 | 06 | LAN spectator server | 04 | codewhale | todo | | parallel group B |
@@ -27,9 +27,11 @@
 |---|---|---|---|---|
 | 1 | 00 | `com.github.bhlangonijr:chesslib:1.3.4` resolved from Maven Central (entry.md) | Artifact is on **JitPack** only, not Maven Central. JitPack repo added to `dependencyResolutionManagement` in settings.gradle.kts. | Low — works; parallel phases just need the repo in their build. |
 | 2 | 00 | detekt has `UnusedPrivateProperty` rule (00-scaffold.md) | No such rule in detekt 1.23.x; coverage provided by `UnusedPrivateMember`. Config excludes the nonexistent rule to avoid validation error. | None — same effective checks. |
+| 3 | 03 | `DynamicResolutionController(engine: TrackerEngine)` observes `engine.uncertainty` (phase 01 API) | Phase 01 not present in this worktree. Camera package defines a minimal local seam `UncertaintySource { val uncertainty: Flow<Boolean> }` (`true` == uncertain: low margin / STUCK / pending verify) and injects it via a `ResolutionTarget` interface that `TrackerCamera` implements. Phase 04 must reconcile: derive the boolean from the real `TrackerEngine.uncertainty` (margin < 2×ambiguityMarginLl OR STUCK OR pending verify) and wire `TrackerCamera` as the `ResolutionTarget`. | Low — controller logic + tests are engine-agnostic; phase 04 supplies the adapter. |
 
 ## Session log
 
 | Timestamp | Phase | Agent | Action | Result |
 |---|---|---|---|---|
 | 2026-07-09T10:00Z | 00 | codewhale | Created Gradle scaffold, version catalog, :engine api types, :app Compose skeleton, static analysis config, .gitignore, README pointer. All gates pass. | done |
+| 2026-07-09T12:00Z | 03 | opus | Camera package: TrackerCamera (grab-latest ImageAnalysis + YUV→BGR + captureHiRes), Resolution/CameraConfig/CameraFrame, DynamicResolutionController + 5 JVM tests (virtual clock). Added coroutines-test/junit catalog entries + app testOptions JUnit5. Local UncertaintySource seam (discrepancy #3). Targeted tests + ktlint + detekt green. | done |
