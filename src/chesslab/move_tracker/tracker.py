@@ -45,6 +45,11 @@ from ..web.camera import LatestFrame, open_source  # noqa: E402
 _FILES = "abcdefgh"
 _ALL = [f"{f}{r}" for r in range(1, 9) for f in _FILES]
 
+# Occlusion filter: max age of a CNN snapshot to arbitrate occlusion vs move. With the
+# free-running observer a fresh snapshot is normally always available — an older one
+# predates the hand and must not be trusted (fall back to the no-CNN heuristic).
+_OBS_MAX_AGE_S = 3.0
+
 
 @dataclass(frozen=True)
 class CnnSnapshot:
@@ -836,6 +841,7 @@ class MoveTracker:
         self.desync_obs_n = desync_obs_n                  # consecutive stable mismatches before alarm
         self._desync_obs = 0                              # consecutive desync count
         self._desync_conflicts: set[str] = set()          # stable conflict set
+        self._desync_last_seq: int | None = None          # last obs seq counted (dedup, Spec 11)
         self._alarm: dict | None = None                   # {"kind","since","conflicts","guess"} | None
 
         # Pre-commit verification: a confirmed diff candidate waits until the CNN
@@ -1073,11 +1079,13 @@ class MoveTracker:
         """Filter baseline-absdiff squares through the cached CNN observation.
         Real moves (CNN disagrees with FEN) pass through — don't taint.
         Occlusion (CNN unconfident) and noise (CNN agrees with FEN) get tainted.
-        Without a fresh CNN observation, falls back to >2 = hand heuristic."""
-        if self._last_cnn_obs is None or self.recovery is None \
-                or time.time() - self._last_cnn_ts > 1.0:
+        Without a fresh CNN observation (snapshot older than _OBS_MAX_AGE_S), falls back
+        to the >2 = hand heuristic."""
+        snap = self._cnn_snap
+        if snap is None or snap.obs is None or self.recovery is None \
+                or time.time() - snap.ts > _OBS_MAX_AGE_S:
             return squares if len(squares) > 2 else set()
-        obs = self._last_cnn_obs
+        obs = snap.obs
         thr = getattr(self.recovery, 'conf_thr', 0.9)
         conf = obs.confident(thr)
         taint: set[str] = set()
@@ -1329,7 +1337,8 @@ class MoveTracker:
                                     if len(core_now) > 2:
                                         self.state = "occluded"
                                     else:
-                                        self._try_detect(cur, cur_bgr)  # commits only after confirmation
+                                        # seq = newest frame in the averaged buffer (decision signature)
+                                        self._try_detect(cur, cur_bgr, seq=seq)  # commits only after confirmation
                         if self.state not in ("move", "occluded"):
                             self.state = "waiting"
                     _ts["lock"] = time.perf_counter()
@@ -1579,14 +1588,19 @@ class MoveTracker:
                 # (only with identity: occupancy-only would false-positive)
                 conf_set = set(conflicts)
                 if has_identity and not inconclusive:
-                    stable = (self._desync_conflicts == conf_set
-                              or conf_set.issubset(self._desync_conflicts)
-                              or self._desync_conflicts.issubset(conf_set))
-                    if stable:
-                        self._desync_obs += 1
-                    else:
-                        self._desync_obs = 1
-                    self._desync_conflicts = conf_set
+                    # Seq contract (Spec 11): count DISTINCT observations, not evaluations —
+                    # a snapshot re-evaluated for the same frame must not advance the alarm
+                    # streak (the "persistent over seconds" intent of desync_obs_n).
+                    if snap.seq != self._desync_last_seq:
+                        stable = (self._desync_conflicts == conf_set
+                                  or conf_set.issubset(self._desync_conflicts)
+                                  or self._desync_conflicts.issubset(conf_set))
+                        if stable:
+                            self._desync_obs += 1
+                        else:
+                            self._desync_obs = 1
+                        self._desync_conflicts = conf_set
+                        self._desync_last_seq = snap.seq
                 else:
                     self._desync_obs = 0
                     self._desync_conflicts = set()
@@ -1704,6 +1718,11 @@ class MoveTracker:
                         self._commit_sequence(pend_moves, pending["cur"], pending.get("cur_bgr"))
             return
         if snap is None:                                    # observation failed → next one retries
+            return
+        if snap.seq < pending.get("seq", 0):
+            # Seq contract (Spec 11): a stale observation (frame OLDER than the frame the
+            # candidate was decided on) must neither confirm nor reject it — ignore and
+            # return; the next observation (~1 inference away) satisfies seq >= N.
             return
         obs = snap.obs
         if len(pend_moves) > 1:                             # pair candidate (fast play)
@@ -1833,6 +1852,8 @@ class MoveTracker:
         still matches the CURRENT position, dropped after `verify_window` frames otherwise.
         Endpoint-level reasoning is skipped — with 3-4 touched squares the whole-position
         occupancy match is the more robust axis."""
+        if snap.seq < pending.get("seq", 0):                # seq contract: stale → ignore
+            return
         obs = snap.obs
         before = recovery.resync_check(board_snap, obs)
         after_board = board_snap.copy(stack=False)
@@ -2216,7 +2237,7 @@ class MoveTracker:
         rec.close()
         return {"ok": True, "session_id": rec.session_id, "frames": rec.count}
 
-    def _try_detect(self, cur, cur_bgr=None):
+    def _try_detect(self, cur, cur_bgr=None, seq: int = 0):
         """Ordered detection pipeline (one numbered step per phase; the flow diagram in
         docs/move-tracker-flow.md mirrors these steps):
           1. guards            — pending verify/promotion, base-truth invariant, geometry
@@ -2368,7 +2389,8 @@ class MoveTracker:
         self._anomaly_since = {}
 
         # 9. Dispatch: the ONE commit gate.
-        self._dispatch(moves, cur, cur_bgr, cand["prior_used"], note=cand.get("note"))
+        self._dispatch(moves, cur, cur_bgr, cand["prior_used"], note=cand.get("note"),
+                       seq=seq)
 
     def _detect_guards(self) -> bool:
         """Step 1 — abort conditions before any evidence is computed. Under self.lock."""
@@ -2609,15 +2631,17 @@ class MoveTracker:
         return sans
 
     def _dispatch(self, moves: list[chess.Move], cur, cur_bgr, prior_used: bool,
-                  note: str | None = None) -> None:
+                  note: str | None = None, seq: int = 0) -> None:
         """Step 9 — the ONE commit gate for every candidate kind: with CNN verify the
         candidate becomes pending and must survive occupancy verification (single AND pair);
-        without CNN it commits directly. Under self.lock."""
+        without CNN it commits directly. `seq` is the decision's frame signature (newest
+        frame in the averaged buffer) — verify only accepts observations with
+        `obs.seq >= seq` (Spec 11). Under self.lock."""
         sans = self._san_sequence(moves)
         if self.cnn_verify and self.cnn_run and not self._cnn_failed:
             self._pending = {"ucis": [m.uci() for m in moves], "uci": moves[0].uci(),
                              "fen": self.board.fen(), "cur": cur, "cur_bgr": cur_bgr,
-                             "frames": 0, "prior_used": prior_used}
+                             "frames": 0, "prior_used": prior_used, "seq": seq}
             self._recovery_confirmer.reset()
             self._verify_state = "verifying"
             self.note = note or f"checking {' + '.join(sans)} via CNN…"
