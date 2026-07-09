@@ -133,6 +133,9 @@ single extension points 04 defines.
   `UnusedResources`/`UnusedIds` are error-severity in `app/lint.xml`. Public API
   in `:engine` that nothing consumes yet is allowed ONLY if a later phase is
   named as the consumer in a KDoc comment (e.g. `Consumed by phase 05`).
+- **Formatting is automated, never manual:** run `./gradlew :<module>:ktlintFormat`
+  to fix style findings, then check. Do not hand-edit whitespace/imports/wrapping —
+  agent time goes to logic, the formatter owns style.
 - Every phase runs, once at the end, scoped to its module(s):
   `./gradlew :engine:ktlintCheck :engine:detekt` and/or the `:app:` equivalents
   (debug variant only). Zero NEW findings — do not suppress with `@Suppress`
