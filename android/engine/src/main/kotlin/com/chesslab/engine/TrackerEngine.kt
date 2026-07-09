@@ -1,5 +1,6 @@
 package com.chesslab.engine
 
+import com.chesslab.engine.api.AlarmState
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.OccupancySafeguard
@@ -74,6 +75,7 @@ class TrackerEngine(
                 priorLast = state.priorLast,
                 noiseMean = state.noise.mean.toMap(),
                 noiseStd = state.noise.std.toMap(),
+                alarm = state.alarm,
             )
 
     /**
@@ -202,8 +204,42 @@ class TrackerEngine(
         }
     }
 
+    /**
+     * Raise the illegal-move desync alarm (ports e867df1/6368b88): the board provably
+     * mismatches the game state — discard any pending candidate, block all commits and
+     * re-anchors until a take-back, a conflict-resolving recovery, or a user resync.
+     * Consumed by phase 05 (safeguard desync counting). No-op while already alarmed.
+     */
+    fun raiseAlarm(alarm: AlarmState) {
+        if (state.alarm != null) return
+        state.alarm = alarm
+        if (state.pending != null) {
+            state.pending = null
+            detector.confirmer.reset()
+        }
+        state.note = "board desynced (ILLEGAL MOVE alarm) — no moves committed until take-back or resync"
+        queued.add(TrackerEvent.AlarmRaised(alarm))
+    }
+
+    /**
+     * Clear the alarm (take-back detected / board restored, per the safeguard's
+     * whole-board match). Consumed by phase 05. No-op when not alarmed.
+     */
+    fun clearAlarm(reason: String = "board restored") {
+        if (state.alarm == null) return
+        state.alarm = null
+        state.note = "board restored — alarm cleared"
+        queued.add(TrackerEvent.AlarmCleared(reason))
+    }
+
     /** Set board to start/FEN and re-capture the reference from the next clear view. */
     fun reset(fen: String = STARTPOS) {
+        if (state.alarm != null) {
+            // User accepted reality by resyncing: clear the alarm, log the discontinuity.
+            state.alarm = null
+            queued.add(TrackerEvent.Discontinuity("illegal_move_accepted"))
+            queued.add(TrackerEvent.AlarmCleared("user resync"))
+        }
         state.game = Game(fen)
         state.history.clear()
         state.lastMove = null
@@ -279,6 +315,13 @@ class TrackerEngine(
     fun onVerifyVerdict(verdict: VerifyVerdict) {
         val pending = state.pending
         if (pending == null || pending.ucis != verdict.ucis || state.game.fen() != pending.fen) return
+        if (state.alarm != null) {
+            // Desync alarm -> the candidate is fiction regardless of the verdict.
+            state.pending = null
+            detector.confirmer.reset()
+            state.note = "board desynced (ILLEGAL MOVE alarm) — pending candidate discarded"
+            return
+        }
         when (verdict) {
             is VerifyVerdict.For -> {
                 val moves =
@@ -321,14 +364,23 @@ class TrackerEngine(
         fenBefore: String,
         curGray: GrayImage,
         curBgr: BgrImage?,
+        resolvesAlarm: Boolean = false,
     ): Boolean {
-        val applicable = ucis.isNotEmpty() && state.pending == null && state.game.fen() == fenBefore
+        // While alarmed, only a recovery that resolves ALL alarm conflict squares may
+        // commit (the safeguard checks the observation against the post-sequence labels).
+        val alarmBlocked = state.alarm != null && !resolvesAlarm
+        val applicable =
+            !alarmBlocked && ucis.isNotEmpty() && state.pending == null && state.game.fen() == fenBefore
         val moves = if (applicable) resolveSequence(ucis) else null
         if (moves == null) return false
         state.commit(moves, curGray to curBgr, "cnn_recovery" to false, queued)
         state.motionSinceRef = true
         state.lastMotionTs = lastNowS
         detector.confirmer.reset()
+        if (state.alarm != null) {
+            state.alarm = null
+            queued.add(TrackerEvent.AlarmCleared("conflicts resolved by recovery"))
+        }
         return true
     }
 
@@ -354,7 +406,9 @@ class TrackerEngine(
         curGray: GrayImage,
         curBgr: BgrImage?,
     ): Boolean {
-        if (state.stuckReason == null || state.pending != null || state.game.fen() != fenBefore) return false
+        // While alarmed the illegal position must not become base truth (clearAlarm first).
+        val blocked = state.alarm != null || state.stuckReason == null || state.pending != null
+        if (blocked || state.game.fen() != fenBefore) return false
         state.setRef(curGray, curBgr)
         state.clearStuck()
         detector.confirmer.reset()

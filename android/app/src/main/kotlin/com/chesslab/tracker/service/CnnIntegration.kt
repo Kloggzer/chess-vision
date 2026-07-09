@@ -95,11 +95,15 @@ class CnnIntegration(
             val stuck = state.trackerState == TrackerState.STUCK
             val tracking = state.trackerState == TrackerState.TRACKING
             if (!stuck && !tracking) continue
-            when (val action = guard.recoveryTick(state.fen, stuck)) {
+            when (val action = guard.recoveryTick(state.fen, stuck, coordinator.alarmConflicts)) {
                 is RecoveryAction.Moves ->
-                    coordinator.applyRecovery(action.ucis, state.fen, action.gray, action.bgr)
-                is RecoveryAction.BoardUnchanged ->
+                    coordinator.applyRecovery(action.ucis, state.fen, action.gray, action.bgr, action.resolvesAlarm)
+                is RecoveryAction.BoardUnchanged -> {
+                    // Take-back detected while alarmed: clear first, then the stuck resync.
+                    if (coordinator.alarmConflicts != null) coordinator.clearAlarm()
                     if (stuck) coordinator.pullReferenceForward(state.fen, action.gray, action.bgr)
+                }
+                is RecoveryAction.Alarm -> coordinator.raiseAlarm(action.conflicts, action.guessUci)
                 null -> Unit
             }
         }

@@ -1,5 +1,6 @@
 package com.chesslab.engine
 
+import com.chesslab.engine.api.AlarmState
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.Decision
 import com.chesslab.engine.api.GrayImage
@@ -75,6 +76,9 @@ internal class EngineState {
     var pending: PendingVerify? = null
     var promoPending: PromoPending? = null
     var lastDecision: Decision? = null
+
+    /** Illegal-move desync alarm — blocks all commits and re-anchors while set. */
+    var alarm: AlarmState? = null
 
     /** Census codes of the current reference, cached (ports tracker.py `_ref_census_codes`). */
     fun refCensusCodes(): ByteArray = refCensus ?: Census.transform(refGray!!).also { refCensus = it }

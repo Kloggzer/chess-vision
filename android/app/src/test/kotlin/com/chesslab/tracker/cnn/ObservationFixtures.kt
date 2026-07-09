@@ -14,6 +14,7 @@ object ObservationFixtures {
         game: Game,
         occluded: Set<String> = emptySet(),
         overrides: Map<String, Boolean> = emptyMap(),
+        labelOverrides: Map<String, String> = emptyMap(),
     ): OccupancyObservation {
         val pOcc = mutableMapOf<String, Double>()
         val pEmpty = mutableMapOf<String, Double>()
@@ -32,7 +33,8 @@ object ObservationFixtures {
                 pOcc[sq] = if (occ) CONF_HI else 1 - CONF_HI
                 pEmpty[sq] = if (occ) 1 - CONF_HI else CONF_HI
                 pOccluded[sq] = 0.0
-                label[sq] = if (occ) (expectedLabel(game, sq).takeIf { it != "empty" } ?: "wP") else "empty"
+                label[sq] = labelOverrides[sq]
+                    ?: if (occ) (expectedLabel(game, sq).takeIf { it != "empty" } ?: "wP") else "empty"
                 conf[sq] = CONF_HI
             }
         }

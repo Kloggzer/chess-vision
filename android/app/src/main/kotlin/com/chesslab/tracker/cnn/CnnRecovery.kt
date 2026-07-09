@@ -34,20 +34,89 @@ sealed interface RecoveryOutcome {
 class CnnRecovery(
     private val config: CnnConfig = CnnConfig(),
 ) {
-    /** Full recovery evaluation mirroring `_cnn_tick`'s identity path (tracker.py:1393-1417). */
+    /** Full recovery evaluation mirroring `_cnn_tick`'s identity path (tracker.py:1495-1561). */
     fun evaluate(
         fen: String,
         obs: OccupancyObservation,
     ): RecoveryOutcome {
         val game = Game(fen)
         val matches = boardMatchesIdentity(game, obs)
-        if (matches.match) return RecoveryOutcome.BoardUnchanged
-        val (seq, agreement, _) = deriveMovesDeep(game, obs)
+        // Occupancy fallback (1fcaf5c): the identity axis is the model's weak one (~40% on
+        // piece types) — ONE confident misread keeps corrections frozen. When identity says
+        // mismatch, re-check occupancy-only (identity stripped from the observation).
+        if (matches.match || (!matches.inconclusive && occupancyMatches(game, obs))) {
+            return RecoveryOutcome.BoardUnchanged
+        }
+        var (seq, agreement, _) = deriveMovesDeep(game, obs)
+        if (!matches.inconclusive && seq.isEmpty()) {
+            val occ = deriveMovesDeepOccupancy(game, obs)
+            if (occ.first.isNotEmpty()) {
+                seq = occ.first
+                agreement = occ.second
+            }
+        }
         return when {
             seq.isNotEmpty() -> RecoveryOutcome.Moves(seq.map(::uciOf), agreement)
             matches.inconclusive -> RecoveryOutcome.Inconclusive
             else -> RecoveryOutcome.Conflicts(matches.conflicts)
         }
+    }
+
+    /** Occupancy-only board match over the confident squares (identity stripped). */
+    fun occupancyMatches(
+        game: Game,
+        obs: OccupancyObservation,
+    ): Boolean {
+        val conf = obs.confident(config.confThr)
+        return ALL_SQUARES.none { sq ->
+            conf[sq] == true && obs.occupied(sq) != (game.pieceCharAt(sq) != null)
+        }
+    }
+
+    /**
+     * True when at least one conflict square disagrees on OCCUPANCY on the reliable empty
+     * axis (ports `has_occupancy_conflict`, f6960f8): identity-only conflicts (right
+     * occupancy, wrong piece type — the N/B/R gap) are almost always CNN error and must
+     * never ring the illegal-move alarm.
+     */
+    fun hasOccupancyConflict(
+        game: Game,
+        obs: OccupancyObservation,
+        conflicts: List<String>,
+    ): Boolean {
+        val lc = obs.labelConfident(config.confThr)
+        return conflicts.any { sq ->
+            lc[sq] == true &&
+                (expectedLabel(game, sq) == OccupancyObservation.EMPTY) !=
+                (obs.label.getValue(sq) == OccupancyObservation.EMPTY)
+        }
+    }
+
+    /**
+     * Reconstruct the suspected illegal move from the label-confident conflicts (ports
+     * `guess_illegal_move`): exactly one source (expected piece observed empty) and one
+     * destination (observed piece where empty expected) -> "XY" uci-like; else null.
+     */
+    fun guessIllegalMove(
+        game: Game,
+        obs: OccupancyObservation,
+    ): String? {
+        val lc = obs.labelConfident(config.confThr)
+        val conflict =
+            ALL_SQUARES.filter { sq ->
+                lc[sq] == true && obs.label.getValue(sq) != expectedLabel(game, sq)
+            }
+        val sources =
+            conflict.filter { sq ->
+                obs.label.getValue(sq) == OccupancyObservation.EMPTY &&
+                    expectedLabel(game, sq) != OccupancyObservation.EMPTY
+            }
+        val destinations =
+            conflict.filter { sq ->
+                obs.label.getValue(sq) != OccupancyObservation.EMPTY &&
+                    expectedLabel(game, sq) == OccupancyObservation.EMPTY
+            }
+        return if (sources.size == 1 && destinations.size == 1) sources[0] + destinations[0] else null
     }
 
     /** Whole-board identity match (ports `board_matches_identity`, `cnn_recovery.py:216`). */
@@ -87,7 +156,23 @@ class CnnRecovery(
         val confSquares = ALL_SQUARES.filter { lc[it] == true }
         if (confSquares.size < config.minConfidentRecovery) return Triple(emptyList(), 0.0, 0.0)
         val target = confSquares.associateWith { obs.label.getValue(it) }
-        val finals = beamSearch(game, confSquares, target)
+        val finals = beamSearch(game, confSquares) { b, sq -> target.getValue(sq) == expectedLabel(b, sq) }
+        return rankFinals(finals, confSquares.size)
+    }
+
+    /**
+     * Occupancy-only deep derive (1fcaf5c fallback / occupancy-run parity): same beam
+     * search, but a square matches when its OCCUPANCY agrees — identity stripped.
+     */
+    fun deriveMovesDeepOccupancy(
+        game: Game,
+        obs: OccupancyObservation,
+    ): Triple<List<Move>, Double, Double> {
+        val conf = obs.confident(config.confThr)
+        val confSquares = ALL_SQUARES.filter { conf[it] == true }
+        if (confSquares.size < config.minConfidentRecovery) return Triple(emptyList(), 0.0, 0.0)
+        val target = confSquares.associateWith { obs.occupied(it) }
+        val finals = beamSearch(game, confSquares) { b, sq -> target.getValue(sq) == (b.pieceCharAt(sq) != null) }
         return rankFinals(finals, confSquares.size)
     }
 
@@ -105,12 +190,12 @@ class CnnRecovery(
     private fun beamSearch(
         game: Game,
         confSquares: List<String>,
-        target: Map<String, String>,
+        squareMatches: (Game, String) -> Boolean,
     ): Map<String, Pair<Int, List<Move>>> {
         val n = confSquares.size
         val finals = mutableMapOf<String, Pair<Int, List<Move>>>()
 
-        fun conflictsOf(b: Game): Set<String> = confSquares.filterTo(mutableSetOf()) { target.getValue(it) != expectedLabel(b, it) }
+        fun conflictsOf(b: Game): Set<String> = confSquares.filterTo(mutableSetOf()) { !squareMatches(b, it) }
 
         fun note(
             seq: List<Move>,

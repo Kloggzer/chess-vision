@@ -31,7 +31,35 @@ sealed interface TrackerEvent {
         val label: String,
         val decision: Decision,
     ) : TrackerEvent
+
+    /** Illegal-move desync alarm raised (ports e867df1/b80a03c): all commits blocked. */
+    data class AlarmRaised(
+        val alarm: AlarmState,
+    ) : TrackerEvent
+
+    /** Alarm cleared: take-back match, resolving recovery, or user resync. */
+    data class AlarmCleared(
+        val reason: String,
+    ) : TrackerEvent
+
+    /**
+     * The user accepted an untracked board change (resync while alarmed) — the game
+     * record has a logged discontinuity (ports reset_to_start's decision-log entry).
+     */
+    data class Discontinuity(
+        val reason: String,
+    ) : TrackerEvent
 }
+
+/**
+ * Illegal-move referee alarm (ports tracker.py `self._alarm`): the physical board
+ * provably mismatches the game state — every diff interpretation is fiction until
+ * a take-back, a conflict-resolving recovery, or a user resync.
+ */
+data class AlarmState(
+    val conflicts: List<String>,
+    val guessUci: String?,
+)
 
 enum class TrackerState {
     WAITING_BOARD,

@@ -1,10 +1,12 @@
 package com.chesslab.tracker.cnn
 
+import com.chesslab.engine.Game
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.MoveCandidate
 import com.chesslab.engine.api.OccupancySafeguard
 import com.chesslab.engine.api.VerifyVerdict
+import com.chesslab.engine.uciOf
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -27,21 +29,29 @@ class ObservationInput(
 
 /** Applied recovery outcome handed to the service wiring. */
 sealed interface RecoveryAction {
-    val gray: GrayImage
-    val bgr: BgrImage?
-
     /** Commit these recovered half-moves and re-anchor on the observed frame. */
     data class Moves(
         val ucis: List<String>,
         val agreement: Double,
-        override val gray: GrayImage,
-        override val bgr: BgrImage?,
+        val gray: GrayImage,
+        val bgr: BgrImage?,
+        /** True when the sequence resolves ALL alarm conflict squares (commit gate while alarmed). */
+        val resolvesAlarm: Boolean = false,
     ) : RecoveryAction
 
-    /** Board unchanged — pull the reference forward when stuck, no move. */
+    /** Board unchanged — pull the reference forward when stuck, no move; clears an alarm. */
     data class BoardUnchanged(
-        override val gray: GrayImage,
-        override val bgr: BgrImage?,
+        val gray: GrayImage,
+        val bgr: BgrImage?,
+    ) : RecoveryAction
+
+    /**
+     * Illegal-move referee alarm (b80a03c/e867df1/f6960f8): `desyncObsN` stable
+     * identity-mismatch observations WITH at least one occupancy conflict.
+     */
+    data class Alarm(
+        val conflicts: List<String>,
+        val guessUci: String?,
     ) : RecoveryAction
 }
 
@@ -69,6 +79,10 @@ class CnnSafeguard(
 
     @Volatile
     private var lastCnnTs = Double.NEGATIVE_INFINITY
+
+    // Illegal-move desync counting (b80a03c): stable conflict-set streak over observations.
+    private var desyncObs = 0
+    private var desyncConflicts: Set<String> = emptySet()
 
     private val verdictFlow = MutableSharedFlow<VerifyVerdict>(extraBufferCapacity = VERDICT_BUFFER)
 
@@ -124,16 +138,83 @@ class CnnSafeguard(
     suspend fun recoveryTick(
         fen: String,
         stuck: Boolean,
+        alarmConflicts: List<String>? = null,
     ): RecoveryAction? {
         val input = (if (recoveryDue(stuck)) frameProvider() else null) ?: return null
         return observe(input)?.let { obs ->
             lastCnnTs = clock() / NS_PER_S
             when (val outcome = recovery.evaluate(fen, obs)) {
-                is RecoveryOutcome.Moves -> RecoveryAction.Moves(outcome.ucis, outcome.agreement, input.gray, input.bgr)
-                is RecoveryOutcome.BoardUnchanged -> RecoveryAction.BoardUnchanged(input.gray, input.bgr)
-                is RecoveryOutcome.Inconclusive, is RecoveryOutcome.Conflicts -> null
+                is RecoveryOutcome.Moves -> movesAction(fen, obs, input, outcome, alarmConflicts)
+                is RecoveryOutcome.BoardUnchanged -> {
+                    resetDesync()
+                    RecoveryAction.BoardUnchanged(input.gray, input.bgr)
+                }
+                is RecoveryOutcome.Inconclusive -> {
+                    resetDesync() // occlusion breaks the desync streak
+                    null
+                }
+                is RecoveryOutcome.Conflicts -> conflictsAction(fen, obs, outcome.squares, alarmConflicts)
             }
         }
+    }
+
+    /** While alarmed, recovery commits only when the sequence resolves ALL conflict squares. */
+    private fun movesAction(
+        fen: String,
+        obs: OccupancyObservation,
+        input: ObservationInput,
+        outcome: RecoveryOutcome.Moves,
+        alarmConflicts: List<String>?,
+    ): RecoveryAction? {
+        if (alarmConflicts == null) {
+            return RecoveryAction.Moves(outcome.ucis, outcome.agreement, input.gray, input.bgr)
+        }
+        val after = Game(fen)
+        for (u in outcome.ucis) after.push(after.legalMoves().first { uciOf(it) == u })
+        val labelOk = obs.labelConfident(config.confThr)
+        val unresolved =
+            alarmConflicts.filter { sq ->
+                labelOk[sq] == true && obs.label.getValue(sq) != expectedLabel(after, sq)
+            }
+        return if (unresolved.isNotEmpty()) {
+            null // withhold — the sequence would not resolve the alarm conflicts
+        } else {
+            resetDesync()
+            RecoveryAction.Moves(outcome.ucis, outcome.agreement, input.gray, input.bgr, resolvesAlarm = true)
+        }
+    }
+
+    /**
+     * Desync counting (b80a03c): a stable conflict-set streak of `desyncObsN` observations
+     * WITH at least one occupancy conflict rings the alarm; identity-only misreads never do
+     * (f6960f8 — the occupancy gating lives in [CnnRecovery.hasOccupancyConflict]).
+     */
+    private fun conflictsAction(
+        fen: String,
+        obs: OccupancyObservation,
+        conflicts: List<String>,
+        alarmConflicts: List<String>?,
+    ): RecoveryAction? {
+        val confSet = conflicts.toSet()
+        val stable =
+            desyncConflicts == confSet ||
+                confSet.containsAll(desyncConflicts) ||
+                desyncConflicts.containsAll(confSet)
+        desyncObs = if (stable) desyncObs + 1 else 1
+        desyncConflicts = confSet
+        val game = Game(fen)
+        if (alarmConflicts == null &&
+            desyncObs >= config.desyncObsN &&
+            recovery.hasOccupancyConflict(game, obs, conflicts)
+        ) {
+            return RecoveryAction.Alarm(conflicts, recovery.guessIllegalMove(game, obs))
+        }
+        return null
+    }
+
+    private fun resetDesync() {
+        desyncObs = 0
+        desyncConflicts = emptySet()
     }
 
     /** Verify has priority (`tracker.py:1303`); stuck uses the cooldown, quiet the interval. */
