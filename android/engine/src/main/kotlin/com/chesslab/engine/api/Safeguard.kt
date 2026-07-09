@@ -7,6 +7,8 @@ data class MoveCandidate(
     val ucis: List<String>,
     val fenBefore: String,
     val priorUsed: Boolean,
+    /** Frame seq the candidate was decided on — verify only accepts observations with `seq >= this`. */
+    val seq: Int = 0,
 )
 
 /** Verdict for a pending move candidate. Consumed by phase 05. */

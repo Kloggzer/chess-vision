@@ -93,6 +93,22 @@ class AlarmTest {
         assertTrue("alarm cleared" in engine.status.note)
     }
 
+    @Test
+    fun `fresh occluded-class observation taints, stale one is ignored`() {
+        val fresh = Rig(config)
+        fresh.state.cnnOccluded = setOf("e4")
+        fresh.state.cnnOccludedTsS = NOW - 1.0
+        fresh.detect("e2", "e4") // e4 "change" is a resting hand
+        assertTrue("e4" in fresh.state.tainted)
+        assertTrue(fresh.events.filterIsInstance<TrackerEvent.MoveCommitted>().isEmpty())
+
+        val stale = Rig(config)
+        stale.state.cnnOccluded = setOf("e4")
+        stale.state.cnnOccludedTsS = NOW - 10.0 // predates the hand -> not trusted
+        stale.detect("e2", "e4")
+        assertFalse("e4" in stale.state.tainted)
+    }
+
     private companion object {
         const val NOW = 100.0
         const val BOARD_V = 120

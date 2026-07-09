@@ -53,11 +53,12 @@ class CnnSafeguardTest {
             }
     }
 
-    private fun input(): ObservationInput =
+    private fun input(seq: Int = 0): ObservationInput =
         ObservationInput(
             crops = ALL_SQUARES.map { SquareCrop(1, 1, FloatArray(3)) },
             gray = GrayImage(1, 1, ByteArray(1)),
             bgr = null,
+            seq = seq,
         )
 
     /** Classifier that "sees" fixed per-square labels (0.99 on the given class). */
@@ -65,13 +66,16 @@ class CnnSafeguardTest {
         var labels: Map<String, String>,
     ) : SquareClassifier {
         override val spec = ModelSpec(classes, 1, 1)
+        var calls = 0
 
-        override fun predict(crops: List<SquareCrop>): List<FloatArray> =
-            ALL_SQUARES.map { sq ->
+        override fun predict(crops: List<SquareCrop>): List<FloatArray> {
+            calls++
+            return ALL_SQUARES.map { sq ->
                 val probs = FloatArray(classes.size) { 0.001f }
                 probs[classes.indexOf(labels.getValue(sq))] = 0.99f
                 probs
             }
+        }
     }
 
     private fun labelsOf(
@@ -148,66 +152,6 @@ class CnnSafeguardTest {
             assertTrue(guard.recoveryTick(STARTPOS, stuck = true) is RecoveryAction.Moves)
         }
 
-    // -- illegal-move referee alarm (b80a03c, e867df1, f6960f8, 1fcaf5c) --
-
-    private suspend fun tickThrice(
-        guard: CnnSafeguard,
-        advance: () -> Unit,
-    ): List<RecoveryAction?> =
-        (1..3).map {
-            advance()
-            guard.recoveryTick(STARTPOS, stuck = true)
-        }
-
-    @Test
-    fun `three stable occupancy-conflict observations ring the alarm`() =
-        runTest {
-            var nowNs = 0L
-            val classifier = LabelClassifier(labelsOf(Game(), mapOf("b1" to "empty", "c4" to "wN")))
-            val guard = CnnSafeguard(classifier, { input() }, this, clock = { nowNs })
-            val actions = tickThrice(guard) { nowNs += 3_000_000_000L }
-            assertNull(actions[0])
-            assertNull(actions[1])
-            val alarm = actions[2] as RecoveryAction.Alarm
-            assertTrue("b1" in alarm.conflicts && "c4" in alarm.conflicts)
-            assertEquals("b1c4", alarm.guessUci)
-        }
-
-    @Test
-    fun `identity-only conflicts never alarm - occupancy fallback says board unchanged`() =
-        runTest {
-            var nowNs = 0L
-            // b1 misread as a bishop: occupancy agrees, only the identity axis conflicts.
-            val classifier = LabelClassifier(labelsOf(Game(), mapOf("b1" to "wB")))
-            val guard = CnnSafeguard(classifier, { input() }, this, clock = { nowNs })
-            val actions = tickThrice(guard) { nowNs += 3_000_000_000L }
-            assertTrue(actions.all { it is RecoveryAction.BoardUnchanged })
-        }
-
-    @Test
-    fun `identity derive fails but occupancy derive commits (1fcaf5c)`() =
-        runTest {
-            // e2e4 happened, but the arriving pawn is misread as a KNIGHT and d8 as a
-            // ROOK: identity agreement stays below minAgreement forever (the frozen-
-            // corrections failure); the occupancy axis derives e2e4.
-            val classifier = LabelClassifier(labelsOf(gameAfter("e2e4"), mapOf("e4" to "wN", "d8" to "bR")))
-            val guard = CnnSafeguard(classifier, { input() }, this, clock = { 0L })
-            val action = guard.recoveryTick(STARTPOS, stuck = true)
-            assertEquals(listOf("e2e4"), (action as RecoveryAction.Moves).ucis)
-        }
-
-    @Test
-    fun `while alarmed a recovery commits only when it resolves the conflict squares`() =
-        runTest {
-            val classifier = LabelClassifier(labelsOf(gameAfter("e2e4")))
-            val guard = CnnSafeguard(classifier, { input() }, this, clock = { 0L })
-            val action =
-                guard.recoveryTick(STARTPOS, stuck = true, alarmConflicts = listOf("e2", "e4"))
-            val moves = action as RecoveryAction.Moves
-            assertEquals(listOf("e2e4"), moves.ucis)
-            assertTrue(moves.resolvesAlarm)
-        }
-
     // -- verify vote gate (83a1e88) --
 
     @Test
@@ -256,6 +200,100 @@ class CnnSafeguardTest {
             advanceUntilIdle()
             assertEquals(listOf<VerifyVerdict>(VerifyVerdict.Timeout(listOf("e2e4"))), verdicts)
             collector.cancel()
+        }
+
+    // -- seq contract (e065051) --
+
+    @Test
+    fun `stale observations are ignored entirely`() =
+        runTest {
+            val guard =
+                CnnSafeguard(
+                    FakeClassifier(gameAfter("e2e4")),
+                    { input(seq = 1) },
+                    this,
+                    clock = { currentTime * 1_000_000 },
+                )
+            val verdicts = mutableListOf<VerifyVerdict>()
+            val collector = launch { guard.verdicts.toList(verdicts) }
+            runCurrent()
+            // Candidate decided on frame 5; all observations carry seq 1 -> never consumed.
+            guard.requestVerify(MoveCandidate(listOf("e2e4"), STARTPOS, false, seq = 5), listOf("e2", "e4"))
+            advanceUntilIdle()
+            assertEquals(listOf<VerifyVerdict>(VerifyVerdict.Timeout(listOf("e2e4"))), verdicts)
+            collector.cancel()
+        }
+
+    // -- illegal-move referee alarm (b80a03c, f6960f8, e065051 dedup) --
+
+    private suspend fun tickThrice(
+        guard: CnnSafeguard,
+        advance: () -> Unit,
+    ): List<RecoveryAction?> =
+        (1..3).map {
+            advance()
+            guard.recoveryTick(STARTPOS, stuck = true)
+        }
+
+    @Test
+    fun `three distinct stable occupancy-conflict observations ring the alarm`() =
+        runTest {
+            var nowNs = 0L
+            var seq = 0
+            val classifier = LabelClassifier(labelsOf(Game(), mapOf("b1" to "empty", "c4" to "wN")))
+            val guard = CnnSafeguard(classifier, { input(seq = ++seq) }, this, clock = { nowNs })
+            val actions = tickThrice(guard) { nowNs += 3_000_000_000L }
+            assertNull(actions[0])
+            assertNull(actions[1])
+            val alarm = actions[2] as RecoveryAction.Alarm
+            assertTrue("b1" in alarm.conflicts && "c4" in alarm.conflicts)
+            assertEquals("b1c4", alarm.guessUci)
+        }
+
+    @Test
+    fun `desync counting dedups per observation seq`() =
+        runTest {
+            var nowNs = 0L
+            val classifier = LabelClassifier(labelsOf(Game(), mapOf("b1" to "empty", "c4" to "wN")))
+            val guard = CnnSafeguard(classifier, { input(seq = 7) }, this, clock = { nowNs })
+            val actions = tickThrice(guard) { nowNs += 3_000_000_000L }
+            assertTrue(actions.all { it == null }, "same-seq re-evaluations must not advance the streak")
+        }
+
+    @Test
+    fun `identity-only conflicts never alarm - occupancy fallback says board unchanged`() =
+        runTest {
+            var nowNs = 0L
+            var seq = 0
+            // b1 misread as a bishop: occupancy agrees, only the identity axis conflicts.
+            val classifier = LabelClassifier(labelsOf(Game(), mapOf("b1" to "wB")))
+            val guard = CnnSafeguard(classifier, { input(seq = ++seq) }, this, clock = { nowNs })
+            val actions = tickThrice(guard) { nowNs += 3_000_000_000L }
+            assertTrue(actions.all { it is RecoveryAction.BoardUnchanged })
+        }
+
+    @Test
+    fun `identity derive fails but occupancy derive commits (1fcaf5c)`() =
+        runTest {
+            // e2e4 happened, but the arriving pawn is misread as a KNIGHT and d8 as a
+            // ROOK: identity agreement stays below minAgreement forever (the frozen-
+            // corrections failure); the occupancy axis derives e2e4.
+            val classifier = LabelClassifier(labelsOf(gameAfter("e2e4"), mapOf("e4" to "wN", "d8" to "bR")))
+            val guard = CnnSafeguard(classifier, { input() }, this, clock = { 0L })
+            val action = guard.recoveryTick(STARTPOS, stuck = true)
+            assertEquals(listOf("e2e4"), (action as RecoveryAction.Moves).ucis)
+        }
+
+    @Test
+    fun `while alarmed a recovery commits only when it resolves the conflict squares`() =
+        runTest {
+            val classifier = LabelClassifier(labelsOf(gameAfter("e2e4")))
+            val guard = CnnSafeguard(classifier, { input() }, this, clock = { 0L })
+            val action =
+                guard.recoveryTick(STARTPOS, stuck = true, alarmConflicts = listOf("e2", "e4"))
+            val moves = action as RecoveryAction.Moves
+            assertEquals(listOf("e2e4"), moves.ucis)
+            assertTrue(moves.resolvesAlarm)
         }
 
     @Test

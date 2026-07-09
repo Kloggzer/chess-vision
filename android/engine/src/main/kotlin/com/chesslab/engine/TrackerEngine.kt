@@ -78,6 +78,9 @@ class TrackerEngine(
                 alarm = state.alarm,
             )
 
+    /** Seq of the newest processed frame — observations are tagged with this (Spec 11). */
+    val frameSeq: Int get() = state.frameSeq
+
     /**
      * Feed one warped stable-candidate frame (gray + BGR of the SAME rectified board view);
      * `timestampNs` is a monotonic timestamp (defaults to the injected clock). Returns the
@@ -93,6 +96,7 @@ class TrackerEngine(
         queued.clear()
         val now = timestampNs / NS_PER_S
         lastNowS = now
+        state.frameSeq++
         val prev = prevGray
         val motion =
             if (prev == null || prev.data.size != gray.data.size) {
@@ -251,6 +255,8 @@ class TrackerEngine(
         state.occlusionExpiry.clear()
         state.occlCoreExpiry.clear()
         state.motionOccluded = emptySet()
+        state.cnnOccluded = emptySet()
+        state.cnnOccludedTsS = Double.NEGATIVE_INFINITY
         state.priorLast = false
         state.lastDecision = null
         state.state = "waiting"
@@ -382,6 +388,21 @@ class TrackerEngine(
             queued.add(TrackerEvent.AlarmCleared("conflicts resolved by recovery"))
         }
         return true
+    }
+
+    /**
+     * Feed the occluded-dominant squares (p > 0.5) of a fresh safeguard observation into
+     * the taint latch (resting-hand veto, cf31c81): a motionless hand sits inside the wood
+     * gamut and would otherwise surface as plain "change". `ageS` = observation age at
+     * delivery; observations older than the freshness bound are ignored by detection.
+     * Consumed by phase 05.
+     */
+    fun reportObservation(
+        occludedDominant: Set<String>,
+        ageS: Double = 0.0,
+    ) {
+        state.cnnOccluded = occludedDominant
+        state.cnnOccludedTsS = lastNowS - ageS
     }
 
     /** Resolve a UCI sequence against the current position; null when any move is illegal. */

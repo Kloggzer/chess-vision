@@ -104,6 +104,9 @@ class TrackerCoordinator(
         return ok
     }
 
+    /** Frame seq of the newest processed frame — tags safeguard observations (Spec 11). */
+    val frameSeq: Int get() = engine.frameSeq
+
     /** Conflict squares of the active illegal-move alarm, or null when not alarmed. */
     val alarmConflicts: List<String>? get() = engine.status.alarm?.conflicts
 
@@ -120,6 +123,11 @@ class TrackerCoordinator(
     fun clearAlarm() {
         engine.clearAlarm()
         publish(_uiState.value.announcement)
+    }
+
+    /** Occluded-dominant squares of a fresh observation feed the engine's taint latch. */
+    fun reportOccluded(squares: Set<String>) {
+        engine.reportObservation(squares)
     }
 
 

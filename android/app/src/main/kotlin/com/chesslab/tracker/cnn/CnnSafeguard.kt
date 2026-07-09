@@ -9,9 +9,11 @@ import com.chesslab.engine.api.VerifyVerdict
 import com.chesslab.engine.uciOf
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -23,6 +25,23 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class ObservationInput(
     val crops: List<SquareCrop>,
+    val gray: GrayImage,
+    val bgr: BgrImage?,
+    /** Engine frame seq at capture (seq contract, Spec 11 adapted). */
+    val seq: Int = 0,
+    /** Capture wall time (safeguard clock) for the observation freshness bound. */
+    val timestampNs: Long = 0L,
+)
+
+/**
+ * One CNN observation paired with the exact frame it saw (ports `CnnSnapshot`):
+ * consumers of a decision made at frame N may only use `seq >= N`.
+ */
+class CnnSnapshot(
+    val obs: OccupancyObservation,
+    val seq: Int,
+    val timestampNs: Long,
+    val inferMs: Double,
     val gray: GrayImage,
     val bgr: BgrImage?,
 )
@@ -46,7 +65,7 @@ sealed interface RecoveryAction {
     ) : RecoveryAction
 
     /**
-     * Illegal-move referee alarm (b80a03c/e867df1/f6960f8): `desyncObsN` stable
+     * Illegal-move referee alarm (b80a03c/e867df1/f6960f8): `desyncObsN` distinct stable
      * identity-mismatch observations WITH at least one occupancy conflict.
      */
     data class Alarm(
@@ -80,9 +99,19 @@ class CnnSafeguard(
     @Volatile
     private var lastCnnTs = Double.NEGATIVE_INFINITY
 
-    // Illegal-move desync counting (b80a03c): stable conflict-set streak over observations.
+    /** Newest observation snapshot (free-running observer, Spec 11 adapted). */
+    @Volatile
+    var lastSnapshot: CnnSnapshot? = null
+        private set
+
+    /** Wired by the integration: called with every fresh observation (resting-hand taint). */
+    @Volatile
+    var onObservation: ((CnnSnapshot) -> Unit)? = null
+
+    // Illegal-move desync counting (b80a03c + e065051): distinct observations only.
     private var desyncObs = 0
     private var desyncConflicts: Set<String> = emptySet()
+    private var desyncLastSeq: Int? = null
 
     private val verdictFlow = MutableSharedFlow<VerifyVerdict>(extraBufferCapacity = VERDICT_BUFFER)
 
@@ -107,12 +136,14 @@ class CnnSafeguard(
                 val maxAttempts = (config.verifyWindow + config.verifyObsVotes) * MAX_ATTEMPT_FACTOR
                 while (attempts < maxAttempts) {
                     attempts++
-                    val obs = observeOnce()
-                    if (obs == null) {
-                        delay(RETRY_DELAY_MS)
+                    val snap = observeOnce()
+                    // Seq contract (e065051): an observation OLDER than the frame the
+                    // candidate was decided on must neither confirm nor reject it.
+                    if (snap == null || snap.seq < move.seq) {
+                        delay(if (snap == null) RETRY_DELAY_MS else OBSERVATION_GAP_MS)
                     } else {
                         framesSeen++
-                        val step = verifier.evaluate(move.fenBefore, move.ucis, obs, framesSeen)
+                        val step = verifier.evaluate(move.fenBefore, move.ucis, snap.obs, framesSeen)
                         if (step is VerifyStep.Decided) {
                             votes = if (outcome == step.outcome) votes + 1 else 1
                             outcome = step.outcome
@@ -141,10 +172,10 @@ class CnnSafeguard(
         alarmConflicts: List<String>? = null,
     ): RecoveryAction? {
         val input = (if (recoveryDue(stuck)) frameProvider() else null) ?: return null
-        return observe(input)?.let { obs ->
+        return observe(input)?.let { snap ->
             lastCnnTs = clock() / NS_PER_S
-            when (val outcome = recovery.evaluate(fen, obs)) {
-                is RecoveryOutcome.Moves -> movesAction(fen, obs, input, outcome, alarmConflicts)
+            when (val outcome = recovery.evaluate(fen, snap.obs)) {
+                is RecoveryOutcome.Moves -> movesAction(fen, snap, input, outcome, alarmConflicts)
                 is RecoveryOutcome.BoardUnchanged -> {
                     resetDesync()
                     RecoveryAction.BoardUnchanged(input.gray, input.bgr)
@@ -153,7 +184,7 @@ class CnnSafeguard(
                     resetDesync() // occlusion breaks the desync streak
                     null
                 }
-                is RecoveryOutcome.Conflicts -> conflictsAction(fen, obs, outcome.squares, alarmConflicts)
+                is RecoveryOutcome.Conflicts -> conflictsAction(fen, snap, outcome.squares, alarmConflicts)
             }
         }
     }
@@ -161,7 +192,7 @@ class CnnSafeguard(
     /** While alarmed, recovery commits only when the sequence resolves ALL conflict squares. */
     private fun movesAction(
         fen: String,
-        obs: OccupancyObservation,
+        snap: CnnSnapshot,
         input: ObservationInput,
         outcome: RecoveryOutcome.Moves,
         alarmConflicts: List<String>?,
@@ -171,10 +202,10 @@ class CnnSafeguard(
         }
         val after = Game(fen)
         for (u in outcome.ucis) after.push(after.legalMoves().first { uciOf(it) == u })
-        val labelOk = obs.labelConfident(config.confThr)
+        val labelOk = snap.obs.labelConfident(config.confThr)
         val unresolved =
             alarmConflicts.filter { sq ->
-                labelOk[sq] == true && obs.label.getValue(sq) != expectedLabel(after, sq)
+                labelOk[sq] == true && snap.obs.label.getValue(sq) != expectedLabel(after, sq)
             }
         return if (unresolved.isNotEmpty()) {
             null // withhold — the sequence would not resolve the alarm conflicts
@@ -185,29 +216,32 @@ class CnnSafeguard(
     }
 
     /**
-     * Desync counting (b80a03c): a stable conflict-set streak of `desyncObsN` observations
-     * WITH at least one occupancy conflict rings the alarm; identity-only misreads never do
-     * (f6960f8 — the occupancy gating lives in [CnnRecovery.hasOccupancyConflict]).
+     * Desync counting (b80a03c, seq-deduped per e065051): a stable conflict-set streak of
+     * `desyncObsN` DISTINCT observations WITH at least one occupancy conflict rings the
+     * alarm; identity-only misreads never do (f6960f8).
      */
     private fun conflictsAction(
         fen: String,
-        obs: OccupancyObservation,
+        snap: CnnSnapshot,
         conflicts: List<String>,
         alarmConflicts: List<String>?,
     ): RecoveryAction? {
         val confSet = conflicts.toSet()
-        val stable =
-            desyncConflicts == confSet ||
-                confSet.containsAll(desyncConflicts) ||
-                desyncConflicts.containsAll(confSet)
-        desyncObs = if (stable) desyncObs + 1 else 1
-        desyncConflicts = confSet
+        if (snap.seq != desyncLastSeq) {
+            val stable =
+                desyncConflicts == confSet ||
+                    confSet.containsAll(desyncConflicts) ||
+                    desyncConflicts.containsAll(confSet)
+            desyncObs = if (stable) desyncObs + 1 else 1
+            desyncConflicts = confSet
+            desyncLastSeq = snap.seq
+        }
         val game = Game(fen)
         if (alarmConflicts == null &&
             desyncObs >= config.desyncObsN &&
-            recovery.hasOccupancyConflict(game, obs, conflicts)
+            recovery.hasOccupancyConflict(game, snap.obs, conflicts)
         ) {
-            return RecoveryAction.Alarm(conflicts, recovery.guessIllegalMove(game, obs))
+            return RecoveryAction.Alarm(conflicts, recovery.guessIllegalMove(game, snap.obs))
         }
         return null
     }
@@ -215,6 +249,19 @@ class CnnSafeguard(
     private fun resetDesync() {
         desyncObs = 0
         desyncConflicts = emptySet()
+        desyncLastSeq = null
+    }
+
+    /**
+     * Free-running observer (35e3f3e adapted): observe continuously while enabled,
+     * respecting [CnnConfig.observerIntervalMs]; each snapshot feeds [onObservation]
+     * (resting-hand taint) and [lastSnapshot].
+     */
+    suspend fun observerLoop() {
+        while (currentCoroutineContext().isActive) {
+            observeOnce()?.let { snap -> onObservation?.invoke(snap) }
+            delay(config.observerIntervalMs.coerceAtLeast(OBSERVER_MIN_GAP_MS))
+        }
     }
 
     /** Verify has priority (`tracker.py:1303`); stuck uses the cooldown, quiet the interval. */
@@ -225,21 +272,28 @@ class CnnSafeguard(
         return nowS - lastCnnTs >= gate
     }
 
-    private suspend fun observeOnce(): OccupancyObservation? {
+    private suspend fun observeOnce(): CnnSnapshot? {
         val input = frameProvider() ?: return null
         return observe(input)
     }
 
-    /** One classifier pass over the 64 crops; busy-flag serialized (`_cnn_busy`). */
-    private fun observe(input: ObservationInput): OccupancyObservation? {
+    /**
+     * One classifier pass over the 64 crops; busy-flag serialized (`_cnn_busy`).
+     * Inference time is measured on every observation path (d318689).
+     */
+    private fun observe(input: ObservationInput): CnnSnapshot? {
         if (!busy.compareAndSet(false, true)) return null
         return try {
             if (input.crops.size != ALL_SQUARES.size) {
                 null
             } else {
+                val t0 = clock()
                 val probs = classifier.predict(input.crops)
+                val inferMs = (clock() - t0) / NS_PER_MS
                 val perSquare = ALL_SQUARES.withIndex().associate { (i, sq) -> sq to probs[i] }
-                OccupancyObservation.fromProbs(perSquare, classifier.spec.classes)
+                val obs = OccupancyObservation.fromProbs(perSquare, classifier.spec.classes)
+                CnnSnapshot(obs, input.seq, input.timestampNs, inferMs, input.gray, input.bgr)
+                    .also { lastSnapshot = it }
             }
         } finally {
             busy.set(false)
@@ -251,6 +305,8 @@ class CnnSafeguard(
         const val MAX_ATTEMPT_FACTOR = 4
         const val RETRY_DELAY_MS = 200L
         const val OBSERVATION_GAP_MS = 150L
+        const val OBSERVER_MIN_GAP_MS = 100L
         const val NS_PER_S = 1e9
+        const val NS_PER_MS = 1e6
     }
 }

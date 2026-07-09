@@ -29,6 +29,8 @@ data class CnnConfig(
     val verifyObsVotes: Int = DEFAULT_VERIFY_OBS_VOTES,
     /** Stable identity-mismatch observations before the illegal-move alarm (`desync_obs_n`). */
     val desyncObsN: Int = DEFAULT_DESYNC_OBS_N,
+    /** Min seconds between free-running observation starts (`observer_interval_s`). */
+    val observerIntervalMs: Long = DEFAULT_OBSERVER_INTERVAL_MS,
 ) {
     companion object {
         const val DEFAULT_CONF_THR: Double = 0.85
@@ -43,5 +45,9 @@ data class CnnConfig(
         const val DEFAULT_CHECK_INTERVAL_S: Double = 10.0
         const val DEFAULT_VERIFY_OBS_VOTES: Int = 2
         const val DEFAULT_DESYNC_OBS_N: Int = 3
+        const val DEFAULT_OBSERVER_INTERVAL_MS: Long = 0L
+
+        /** Max age of an observation to arbitrate occlusion vs move (`_OBS_MAX_AGE_S`). */
+        const val OBS_MAX_AGE_S: Double = 3.0
     }
 }
