@@ -112,7 +112,12 @@
   <div class="col">
     <div class="card">
       <h2>Live — what the tracker believes</h2>
-      <img id="feedImg" class="feed" src="/warped.mjpg?view=board" alt="Live" />
+      <div style="position:relative; display:inline-block; max-width:100%">
+        <img id="feedImg" class="feed" src="/warped.mjpg?view=board" alt="Live" />
+        <div id="cnnTip" style="position:absolute; display:none; pointer-events:none;
+             background:#18181bee; border:1px solid #3f3f46; border-radius:4px;
+             padding:3px 8px; font-size:12px; white-space:nowrap; z-index:10"></div>
+      </div>
       <div class="muted" style="margin-top:6px">
         <span style="color:#ff2fff">■</span> change &nbsp;·&nbsp;
         <span style="color:#00ffff">■</span> shadow &nbsp;·&nbsp;
@@ -412,6 +417,7 @@ async function poll() {
     const s = await fetch("/api/status").then(r => r.json());
     if (!s.active) { document.getElementById("note").textContent = "not started — choose source/profile, press Start."; return; }
     const badge = document.getElementById("status");
+    window._st = s;                        // latest status for the CNN hover tooltip
     badge.textContent = s.state;
     badge.className = "badge " + (s.state === "moving" ? "moving" : s.state === "move" ? "move" : "waiting");
     document.getElementById("camDown").style.display = (s.camera_ok === false) ? "" : "none";
@@ -505,7 +511,33 @@ async function pollAnalysis() {         // Stockfish eval bar + best moves
 }
 setInterval(pollAnalysis, 700);
 pollAnalysis();
+// CNN hover tooltip: the warped feed is a canonical 8x8 board (a8 = top-left, corner
+// order [a8,h8,h1,a1]); map cursor -> square, show the CNN's last per-square opinion.
+window._feedView = "board";
+(function () {
+  const img = document.getElementById("feedImg");
+  const tip = document.getElementById("cnnTip");
+  img.addEventListener("mousemove", (e) => {
+    const s = window._st;
+    if (window._feedView === "camera" || !s) { tip.style.display = "none"; return; }
+    const r = img.getBoundingClientRect();
+    const fx = Math.min(7, Math.max(0, Math.floor((e.clientX - r.left) / r.width * 8)));
+    const fy = Math.min(7, Math.max(0, Math.floor((e.clientY - r.top) / r.height * 8)));
+    const sq = "abcdefgh"[fx] + (8 - fy);
+    const op = s.cnn_squares && s.cnn_squares[sq];
+    const age = s.cnn_obs_age_s;
+    tip.textContent = op
+      ? `${sq}: ${op[0]} ${(op[1] * 100).toFixed(0)}%` + (age != null ? ` (${age}s ago)` : "")
+      : `${sq}: no CNN observation yet`;
+    tip.style.left = (e.clientX - r.left + 14) + "px";
+    tip.style.top = (e.clientY - r.top + 14) + "px";
+    tip.style.display = "";
+  });
+  img.addEventListener("mouseleave", () => { tip.style.display = "none"; });
+})();
+
 function setFeedView(v) {
+  window._feedView = v;
   document.getElementById("feedImg").src = "/warped.mjpg?view=" + v;
   document.querySelectorAll(".viewBtn").forEach(b => b.style.borderColor = "#3f3f46");
   document.querySelector(`.viewBtn[onclick*="${v}"]`)?.style && (document.querySelector(`.viewBtn[onclick*="${v}"]`).style.borderColor = "#0ea5e9");
