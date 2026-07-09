@@ -18,6 +18,7 @@ import pytest
 from chesslab.move_tracker.tracker import (
     SquareNoise,
     loglik_scores,
+    move_destination_squares,
     move_prior,
     move_touched_squares,
     normalize_diffs,
@@ -2060,3 +2061,101 @@ class TestBaselineOcclusionClassifier:
             ref_codes=census_transform(ref), occl_census_thr=24.0)
         assert "e4" in core and len(core) <= 2      # piece-like: reaches detection
         assert len(occ) >= 4                        # dilation still protects the taint
+
+# =======================================================================================
+
+# =======================================================================================
+
+# =======================================================================================
+# Phase 00: shadow-destination-veto
+# =======================================================================================
+
+def test_destination_squares_castling():
+    """Pure unit test: move_destination_squares returns correct gained squares."""
+
+    # O-O white: king e1->g1, rook h1->f1
+    board = chess.Board("r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2N2N2/PPPP1PPP/R1BQK2R w KQkq - 4 5")
+    mv = chess.Move.from_uci("e1g1")
+    assert move_destination_squares(board, mv) == {"g1", "f1"}
+
+    # O-O-O black: king e8->c8, rook a8->d8
+    board = chess.Board("r3k2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2N2N2/PPPP1PPP/R1BQ1RK1 b kq - 8 5")
+    mv = chess.Move.from_uci("e8c8")
+    assert move_destination_squares(board, mv) == {"c8", "d8"}
+
+    # En passant: captured square NOT a destination
+    board = chess.Board("rnbqkbnr/pp1pp1pp/8/2p1Pp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3")
+    mv = chess.Move.from_uci("e5f6")
+    assert move_destination_squares(board, mv) == {"f6"}
+
+    # Normal move
+    board = chess.Board()
+    mv = chess.Move.from_uci("e2e4")
+    assert move_destination_squares(board, mv) == {"e4"}
+
+
+def test_shadow_destination_blocks_phantom_move(monkeypatch):
+    """wR on h1, g1 empty. Uniform darkening on both -> shadow_veto on changed squares.
+    h1g1 is rejected because destination g1 is shadow-vetoed."""
+    mt = _make_tracker(monkeypatch, cnn_run=None, confirm_frames=1, board_size=400)
+    # Position: wR on h1, g1 empty
+    board = chess.Board("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQK2R w KQkq - 0 1")
+    mt.board = board.copy()
+
+    from chesslab.move_tracker.tracker import square_region
+    # Reference: white piece on h1, gray bg
+    ref_bgr = np.full((400, 400, 3), (120, 120, 120), dtype=np.uint8)
+    x0, y0, x1, y1 = square_region("h1", 400, True)
+    ref_bgr[y0:y1, x0:x1] = (255, 255, 255)
+    mt.ref_bgr = ref_bgr
+    mt.ref_gray = cv2.cvtColor(ref_bgr, cv2.COLOR_BGR2GRAY)
+    mt.ref_fen = mt.board.fen()
+
+    # Current: uniformly darker everywhere (HSV shadow on changed squares)
+    cur_bgr = np.full((400, 400, 3), (72, 72, 72), dtype=np.uint8)
+    cur_gray = cv2.cvtColor(cur_bgr, cv2.COLOR_BGR2GRAY)
+
+    mt._motion_since_ref, mt._last_motion_ts = True, time.time()
+    mt._try_detect(cur_gray, cur_bgr)
+
+    # No new move committed, FEN unchanged
+    assert board.fen() == mt.board.fen(), \
+        f"FEN changed: {mt.board.fen()}"
+
+    # If shadow_veto was active, h1g1 should be among blocked destinations
+    if mt._shadow_blocked:
+        assert "h1g1" in mt._shadow_blocked, \
+            f"Expected h1g1 blocked, got {mt._shadow_blocked}"
+
+
+def test_shadow_on_from_square_still_allows_move(monkeypatch):
+    """Guard asymmetry: e2->e4 still commits when from-square e2 is shadow-flagged.
+    Uses white pieces for high contrast against gray background."""
+    mt = _make_tracker(monkeypatch, cnn_run=None, confirm_frames=1, board_size=400,
+                       require_motion_for_move=False)
+
+    from chesslab.move_tracker.tracker import square_region
+
+    # Reference: white piece on e2, gray bg
+    ref_bgr = np.full((400, 400, 3), (120, 120, 120), dtype=np.uint8)
+    x0, y0, x1, y1 = square_region("e2", 400, True)
+    ref_bgr[y0:y1, x0:x1] = (255, 255, 255)
+    mt.ref_bgr = ref_bgr
+    mt.ref_gray = cv2.cvtColor(ref_bgr, cv2.COLOR_BGR2GRAY)
+    mt.ref_fen = mt.board.fen()
+
+    # Current: white piece on e4, e2 dark (vacated shadow), gray bg
+    cur_bgr = np.full((400, 400, 3), (120, 120, 120), dtype=np.uint8)
+    x0, y0, x1, y1 = square_region("e4", 400, True)
+    cur_bgr[y0:y1, x0:x1] = (255, 255, 255)
+    x0, y0, x1, y1 = square_region("e2", 400, True)
+    cur_bgr[y0:y1, x0:x1] = (40, 40, 40)   # vacated square darkens
+    cur_gray = cv2.cvtColor(cur_bgr, cv2.COLOR_BGR2GRAY)
+
+    mt._motion_since_ref, mt._last_motion_ts = True, time.time()
+    mt._try_detect(cur_gray, cur_bgr)
+
+    # Move should commit: e2e4
+    assert "e4" in mt.history, \
+        f"Expected e4 in history, got {mt.history}, note={mt.note}"
+
