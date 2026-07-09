@@ -34,7 +34,9 @@ internal class Detector(
         if (!guards()) return
         val ev = computeEvidence(cur, curBgr, nowS)
         if (ev.changed.isEmpty() && quietHandled(ev, cur, curBgr)) return
-        when (val outcome = hypothesis.generate(state.game, ev, blockedN = 0)) {
+        // Invariant: occlusion-latched squares ALWAYS count toward maxChanged — a hand whose
+        // squares were z-zeroed must not leave 4-6 "clean" squares that read like a legal move.
+        when (val outcome = hypothesis.generate(state.game, ev, blockedN = state.tainted.size)) {
             is HypothesisOutcome.Stuck -> onStuck(outcome, ev, cur, curBgr, nowS)
             is HypothesisOutcome.Ambiguous -> {
                 confirmer.reset()
@@ -119,21 +121,35 @@ internal class Detector(
     }
 
     /**
-     * Baseline-absdiff occlusion (hand squares): without a CNN arbiter, >2 flagged squares
-     * are treated as a hand — their z is ZEROED and they are latched (tracker.py:1964).
+     * Baseline-absdiff occlusion taint + latch invariant (211744f): an occluder cannot
+     * vanish WITHOUT motion — a hand only leaves the board by moving. A tainted square is
+     * released only when its hold expired AND (motion occurred since the last taint refresh
+     * OR its evidence returned to baseline). Until released, latched squares carry NO
+     * evidence (z zeroed EVERY frame) and display as occluded.
      */
     private fun applyTaintLatch(
         z: MutableMap<String, Double>,
         nowS: Double,
     ) {
+        // Without a CNN arbiter, >2 flagged squares are treated as a hand (tracker.py:1964).
         if (state.motionOccluded.size > 2) {
             for (sq in state.motionOccluded) {
                 z[sq] = 0.0
                 state.tainted[sq] = nowS + config.motionHoldS
             }
         }
-        state.tainted.entries.removeIf { nowS > it.value }
-        state.occludedVetoed = state.motionOccluded.sorted()
+        val taintIter = state.tainted.entries.iterator()
+        while (taintIter.hasNext()) {
+            val entry = taintIter.next()
+            val expired = nowS > entry.value
+            val motionSinceRefresh = state.lastMotionTs >= entry.value - config.motionHoldS
+            if (expired && (motionSinceRefresh || (z[entry.key] ?: 0.0) < config.zThr)) {
+                taintIter.remove()
+            } else {
+                z[entry.key] = 0.0
+            }
+        }
+        state.occludedVetoed = (state.motionOccluded + state.tainted.keys).sorted()
         state.motionOccluded = emptySet()
     }
 
