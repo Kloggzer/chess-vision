@@ -742,6 +742,7 @@ class MoveTracker:
         self._occlusion_expiry: dict[str, float] = {}    # per-square occlusion keep-alive (expiry timestamp)
         self._occl_core_expiry: dict[str, float] = {}    # RAW (undilated) occluded core — the state gate counts this
         self._last_cnn_obs = None                         # cached OccupancyObservation (for occlusion filter)
+        self._last_cnn_obs_ts: float | None = None        # when that observation was made (UI hover overlay)
         self._occluded_since: float | None = None     # occlusion-latch timer (gamut escape hatch)
         self._tainted: dict[str, int] = {}            # per-square occlusion latch (frames to clear)
         self._occl_whitelist: set[str] = set()        # persistent-occlusion squares exempt from the veto
@@ -1099,6 +1100,7 @@ class MoveTracker:
             self._last_motion_ts = 0.0
             self._last_cnn_ts = 0.0
             self._last_cnn_obs = None
+            self._last_cnn_obs_ts = None
             self._prev_roi = None
             self._occl_grid_active = False
             self._grid_coverage = 1.0
@@ -1133,6 +1135,7 @@ class MoveTracker:
             self._motion_occluded_squares = set()
             self._occlusion_expiry = {}
             self._last_cnn_obs = None
+            self._last_cnn_obs_ts = None
             self._anomaly_since = {}
             self.state = "waiting"
             self.note = "Baseline: re-capturing reference from the next clear frame…"
@@ -1471,6 +1474,7 @@ class MoveTracker:
         with self.lock:
             self._last_cnn_ts = now
             self._last_cnn_obs = obs
+            self._last_cnn_obs_ts = now
             if self.board.fen() != fen:                     # state changed → discard
                 self._recovery_confirmer.reset()
                 return
@@ -1676,6 +1680,7 @@ class MoveTracker:
 
         with self.lock:
             self._last_cnn_obs = obs
+            self._last_cnn_obs_ts = time.time()
             self._infer_ms = infer_ms
             self._cnn_agreement = occ_agree
             self._cnn_best_move = cnn_uci
@@ -1713,7 +1718,14 @@ class MoveTracker:
             #    genuine move isn't killed by a mis-read destination): from confidently EMPTY
             #    (the piece demonstrably LEFT — 'empty' is the model's 99.99% class) OR non-capture
             #    destination confidently OCCUPIED (piece arrived) OR touched-square agreement.
-            if from_left_conf or to_arrived_conf or (occ_agree >= recovery.min_agreement and occ_n >= 2):
+            #    EXCEPTION (h2h4 nudge incident, 2026-07-09): "piece left FROM" is not "piece
+            #    arrived at TO". For a non-castling move, a destination that reads confidently
+            #    EMPTY actively contradicts the move — a nudged piece can misread its own
+            #    square as empty (crop edge), and from_left_conf alone then commits a phantom.
+            #    Castling keeps the shortcut (the king on g1 is routinely misread as empty).
+            is_castling = board_snap.is_castling(pend_mv)
+            from_left_ok = from_left_conf and (is_castling or not to_empty_conf)
+            if from_left_ok or to_arrived_conf or (occ_agree >= recovery.min_agreement and occ_n >= 2):
                 _commit("", "confirmed", "ok")
                 return
 
@@ -2733,6 +2745,15 @@ class MoveTracker:
                 "cnn_status": self.cnn_status,
                 "cnn_conflicts": list(self.cnn_conflicts),
                 # Promotion wartet auf Nutzerwahl (nur ohne CNN-Verify): {"from","to"} | None
+                # Last CNN per-square opinion (UI hover overlay): {sq: [label, conf]} + age.
+                # Event-driven observations (verify/recovery/periodic check) — may be stale.
+                "cnn_squares": (None if getattr(self._last_cnn_obs, "label", None) is None
+                                or getattr(self._last_cnn_obs, "conf", None) is None else
+                                {sq: [self._last_cnn_obs.label[sq],
+                                      round(self._last_cnn_obs.conf[sq], 2)]
+                                 for sq in self._last_cnn_obs.label}),
+                "cnn_obs_age_s": (None if self._last_cnn_obs_ts is None else
+                                  round(time.time() - self._last_cnn_obs_ts, 1)),
                 # Referee alarm (illegal-move detector, Phase 01).
                 "alarm": (None if self._alarm is None else {
                     "kind": self._alarm["kind"],
