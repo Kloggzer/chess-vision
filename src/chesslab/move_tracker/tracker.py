@@ -138,10 +138,18 @@ class _RunningMean:
 _POPCOUNT8 = np.array([bin(i).count("1") for i in range(256)], dtype=np.uint8)
 
 
-def census_transform(gray) -> np.ndarray:
+def census_transform(gray, eps: int = 0) -> np.ndarray:
     """3×3 census transform: each pixel gets an 8-bit code "center brighter than neighbor?".
     Invariant to MONOTONE brightness changes (shadows darken monotonically → code stays
-    the same), but captures structure/edges (real piece → code changes)."""
+    the same), but captures structure/edges (real piece → code changes).
+
+    `eps` (comparison deadband, bit set only if center > neighbor + eps) is available
+    but defaults to 0: any eps > 0 BREAKS the monotone invariance (pixels in the
+    [eps, eps/ratio) contrast band flip under multiplicative darkening — the shadow
+    tests catch it). FLAT regions (empty squares) are all near-ties whose bits flip
+    with sensor noise (CLAHE amplifies it; observed live on b1/b8) — that is handled
+    downstream instead: median normalization + the SquareNoise slow lane learn the
+    flip noise per square within seconds, without sacrificing shadow invariance."""
     # Pad border with REPLICATE instead of np.roll: roll would compare border pixels against the
     # OPPOSITE side of the image (row 8 vs row 1) and distort the census scores of edge squares.
     g = cv2.copyMakeBorder(gray, 1, 1, 1, 1, cv2.BORDER_REPLICATE).astype(np.int16)
@@ -153,7 +161,7 @@ def census_transform(gray) -> np.ndarray:
             if dx == 0 and dy == 0:
                 continue
             nb = g[1 + dy:g.shape[0] - 1 + dy, 1 + dx:g.shape[1] - 1 + dx]
-            code |= (center > nb).astype(np.uint8) << bit
+            code |= (center > nb + eps).astype(np.uint8) << bit
             bit += 1
     return code
 
@@ -385,7 +393,13 @@ def _baseline_occlusion_and_shadow(cur_gray, ref_gray, board_size, abs_thr: floa
     dilated_shadow = set(shadow)
     for sq in shadow:
         dilated_shadow.update(_SQ_NEIGHBOURS.get(sq, []))
-    return dilated_occ, dilated_shadow - dilated_occ
+    # Third return: the RAW (undilated) occluded core. The ">2 squares → occluded state"
+    # gate must count THIS, not the dilated set — one genuinely strong square (a dark
+    # knight arriving on a light square) dilates to 5 and locked the tracker in the
+    # occluded state, where _try_detect (and with it the CNN move-vs-hand arbitration)
+    # never runs; only the periodic CNN check (~10 s) escaped. Piece-like changes
+    # (raw ≤ 2) must reach detection. Dilation still protects the z-taint.
+    return dilated_occ, dilated_shadow - dilated_occ, occluded
 
 
 def move_touched_squares(board: chess.Board, move: chess.Move) -> set[str]:
@@ -440,10 +454,19 @@ class SquareNoise:
         self.mean: dict[str, float] = dict.fromkeys(_ALL, 0.0)
         self.std: dict[str, float] = dict.fromkeys(_ALL, init_std)
 
-    def update(self, diffs: dict[str, float], exclude: set[str] = frozenset()) -> None:
-        a = self.alpha
+    def update(self, diffs: dict[str, float], exclude: set[str] = frozenset(),
+               exclude_alpha_scale: float = 0.0) -> None:
+        """`exclude_alpha_scale` = 0 (default): excluded squares learn NOTHING — the
+        gray channel's hard-won invariant (learning a shadow/hand inflates std and
+        desensitizes real moves there). The census channel passes 0.125 (SLOW LANE):
+        full exclusion deadlocks it — a flat square whose census tie-flip noise fires
+        from frame one is excluded from learning, so the model can never absorb the
+        jitter and it stays hot forever (observed live: empty b1/b8 after baseline).
+        The slow lane heals such phantoms within seconds while a real move commits
+        (and re-anchors) long before it could be learned away."""
         for sq, d in diffs.items():
-            if sq in exclude:
+            a = self.alpha if sq not in exclude else self.alpha * exclude_alpha_scale
+            if a == 0.0:
                 continue
             m = self.mean[sq]
             self.mean[sq] = (1 - a) * m + a * d
@@ -650,7 +673,11 @@ class MoveTracker:
         # Census values are already illumination-invariant → tighter floor than gray
         # (floor 2.0 ≈ Hamming 0.19 at z=3; gray floor 3.0 ≈ 9 levels).
         self.census_z_weight = census_z_weight        # z_eff = max(z_gray, w·z_census); 0 = off
-        self.census_noise = SquareNoise(init_std=4.0, std_floor=2.5)
+        # init_std 8 (not the gray channel's 6): flat empty squares produce census
+        # tie-flip noise from frame one (sensor noise + CLAHE); starting wide keeps the
+        # channel quiet right after a baseline until the noise model has SEEN each
+        # square (slow lane converges within seconds; floor 2.5 keeps sensitivity).
+        self.census_noise = SquareNoise(init_std=8.0, std_floor=2.5)
         self._struct_vals: list = []                  # debug: top census-z squares
         self.occl_census_thr = occl_census_thr        # baseline occlusion needs structure above this
         self.use_prior = use_prior                    # heuristic prior as ambiguity tie-break (part 2)
@@ -677,6 +704,7 @@ class MoveTracker:
         self._view_mode = "full"                        # overlay view: "full"|"motion"|"shadow"|"occlusion"|"raw"
         self._motion_occluded_squares: set[str] = set()  # squares occluded during motion (baseline absdiff)
         self._occlusion_expiry: dict[str, float] = {}    # per-square occlusion keep-alive (expiry timestamp)
+        self._occl_core_expiry: dict[str, float] = {}    # RAW (undilated) occluded core — the state gate counts this
         self._last_cnn_obs = None                         # cached OccupancyObservation (for occlusion filter)
         self._occluded_since: float | None = None     # occlusion-latch timer (gamut escape hatch)
         self._tainted: dict[str, int] = {}            # per-square occlusion latch (frames to clear)
@@ -1132,7 +1160,7 @@ class MoveTracker:
                     # and hard-blocked in detection; the 100ms keep-alive bridges the gap
                     # between when the hand leaves and when motion_hold expires.
                     if self.ref_gray is not None and self.state not in ("waiting", "move"):
-                        raw_occ, raw_shadow = _baseline_occlusion_and_shadow(
+                        raw_occ, raw_shadow, occ_core = _baseline_occlusion_and_shadow(
                             gray_det, self.ref_gray, self._det_size,
                             self.motion_px_thr * 4, self.profile.white_pov,
                             self._det_boxes,
@@ -1142,6 +1170,8 @@ class MoveTracker:
                             color_thr=self.occlusion_color_thr)
                         for sq in raw_occ:
                             self._occlusion_expiry[sq] = now + 0.1
+                        for sq in occ_core:
+                            self._occl_core_expiry[sq] = now + 0.1
                         self._shadow_vetoed = sorted(raw_shadow)
                     self._motion_occluded_squares = {
                         sq for sq, exp in self._occlusion_expiry.items() if now < exp}
@@ -1202,7 +1232,14 @@ class MoveTracker:
                                     else:
                                         self.note = "waiting for clear view of the board…"
                                 elif ready and self.state != "move":
-                                    if len(self._motion_occluded_squares) > 2:
+                                    # Gate on the RAW occluded core, not the dilated set:
+                                    # a single strong square (piece arrival) dilates to 5
+                                    # and would lock the occluded state — detection (and
+                                    # the CNN move-vs-hand arbitration in _try_detect)
+                                    # must see piece-like changes.
+                                    core_now = {sq for sq, exp in self._occl_core_expiry.items()
+                                                if now < exp}
+                                    if len(core_now) > 2:
                                         self.state = "occluded"
                                     else:
                                         self._try_detect(cur, cur_bgr)  # commits only after confirmation
@@ -2023,6 +2060,8 @@ class MoveTracker:
         self._motion_occluded_squares = set()
         self._occlusion_expiry = {sq: exp for sq, exp in self._occlusion_expiry.items()
                                   if time.time() < exp}
+        self._occl_core_expiry = {sq: exp for sq, exp in self._occl_core_expiry.items()
+                                  if time.time() < exp}
         changed = {s for s, v in z.items() if v >= self.z_thr}
         self._changed_vals = sorted(              # debug also shows squares just below z_thr
             ((s, round(v, 1)) for s, v in z.items() if v >= self.z_thr * 0.5),
@@ -2037,7 +2076,8 @@ class MoveTracker:
         # inflate that square's std and desensitize later real moves there.
         self.noise.update(diffs, exclude=changed | shadow_veto)
         if cens is not None:
-            self.census_noise.update(cens, exclude=changed | shadow_veto)
+            self.census_noise.update(cens, exclude=changed | shadow_veto,
+                                     exclude_alpha_scale=0.125)
         # Clean up expired tainted entries (set by baseline-absdiff occlusion).
         _now = time.time()
         for sq in list(self._tainted):

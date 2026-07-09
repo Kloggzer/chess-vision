@@ -1963,10 +1963,11 @@ class TestBaselineOcclusionClassifier:
         from chesslab.move_tracker.tracker import _baseline_occlusion_and_shadow, census_transform
         if ref_codes is None:
             ref_codes = census_transform(ref)
-        return _baseline_occlusion_and_shadow(
+        occ, shad, _core = _baseline_occlusion_and_shadow(
             cur, ref, 400, TestBaselineOcclusionClassifier.ABS_THR, True,
             ref_codes=ref_codes, occl_census_thr=occl_census_thr,
             cur_bgr=cur_bgr, gamut=gamut, color_thr=color_thr)
+        return occ, shad
 
     @staticmethod
     def _textured_board(seed=3):
@@ -2041,3 +2042,21 @@ class TestBaselineOcclusionClassifier:
         assert norm_hot < raw_hot / 2                 # median norm strips the global part
         # whatever residual remains is caught by the channel guard in _compute_evidence
         assert norm_hot <= 8 or raw_hot > 8
+
+    def test_raw_core_vs_dilated(self):
+        """The occluded-state gate counts the RAW core: one strong square dilates to 5
+        neighbors for z-taint protection, but must not lock the tracker in 'occluded'
+        (piece arrivals need to reach detection + CNN arbitration)."""
+        from chesslab.move_tracker.tracker import _baseline_occlusion_and_shadow, census_transform
+
+        rng = np.random.default_rng(13)
+        ref = self._textured_board()
+        cur = ref.copy()
+        x0, y0, x1, y1 = square_region("e4", 400, True)
+        cur[y0 - 8:y1 + 8, x0 - 8:x1 + 8] = rng.integers(
+            0, 255, (y1 - y0 + 16, x1 - x0 + 16), dtype=np.uint8)
+        occ, _shad, core = _baseline_occlusion_and_shadow(
+            cur, ref, 400, self.ABS_THR, True,
+            ref_codes=census_transform(ref), occl_census_thr=24.0)
+        assert "e4" in core and len(core) <= 2      # piece-like: reaches detection
+        assert len(occ) >= 4                        # dilation still protects the taint
