@@ -68,7 +68,8 @@ interface SquareClassifier {
  */
 class OnnxClassifier(
     modelDir: File,
-) : SquareClassifier, AutoCloseable {
+) : SquareClassifier,
+    AutoCloseable {
     override val spec: ModelSpec = ModelSpec.parse(File(modelDir, CONFIG_FILE).readText())
 
     private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
