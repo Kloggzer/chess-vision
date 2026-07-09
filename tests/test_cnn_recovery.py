@@ -13,7 +13,9 @@ import pytest
 from chesslab.move_tracker.cnn_recovery import (
     CnnRecovery,
     OccupancyObservation,
+    expected_labels,
     expected_occupancy,
+    guess_illegal_move,
     observation_from_probs,
 )
 
@@ -92,7 +94,6 @@ def _ident_obs(board: chess.Board, conf: float = 0.99,
                overrides: dict[str, str] | None = None) -> OccupancyObservation:
     """Identity observation that exactly matches the position; `overrides` sets individual
     squares to a different label; `occluded` makes squares occluded (not confident)."""
-    from chesslab.move_tracker.cnn_recovery import expected_labels
     occluded = occluded or set()
     labels = dict(expected_labels(board))
     labels.update(overrides or {})
@@ -553,3 +554,82 @@ def test_deep_recovery_rejects_when_occluded(tmp_path):
     seq, best, _ = rec.derive_moves_deep(believed, _ident_obs(real, occluded=occluded),
                                          max_plies=4)
     assert seq == []
+
+
+# ---------------------------------------------------------------------------
+# guess_illegal_move — reconstructed suspected illegal move from identity conflicts
+# ---------------------------------------------------------------------------
+
+def test_guess_illegal_move_king_e1g1(tmp_path):
+    """After 1.Nf3 with castling rights stripped, e1 empty + g1 wK -> 'e1g1'."""
+    board = chess.Board()
+    board.push_san("Nf3")
+    board.castling_rights = 0
+    # e1 empty (expected wK), g1 wK (expected empty)
+    overrides = {"e1": "empty", "g1": "wK"}
+    obs = _ident_obs(board, overrides=overrides)
+    result = guess_illegal_move(board, obs, 0.5)
+    assert result == "e1g1", f"Expected 'e1g1', got {result!r}"
+
+
+def test_guess_illegal_move_ambiguous_returns_none(tmp_path):
+    """Two candidate origins -> None."""
+    board = chess.Board()
+    board.push_san("Nf3")
+    board.castling_rights = 0
+    # e1 empty (expected wK), d1 empty (expected wQ), g1 wK (expected empty)
+    overrides = {"e1": "empty", "d1": "empty", "g1": "wK"}
+    obs = _ident_obs(board, overrides=overrides)
+    result = guess_illegal_move(board, obs, 0.5)
+    assert result is None
+
+
+def test_guess_illegal_move_no_conflict_returns_none(tmp_path):
+    """Board matches observation -> None."""
+    board = chess.Board()
+    obs = _ident_obs(board)
+    result = guess_illegal_move(board, obs, 0.5)
+    assert result is None
+
+
+def test_guess_illegal_move_no_identity_returns_none(tmp_path):
+    """Occupancy-only observation (no label/conf) -> None."""
+    board = chess.Board()
+    board.push_san("Nf3")
+    board.castling_rights = 0
+    after = board.copy()
+    del after
+    # Build an observation without labels (occupancy-only)
+    p_occ = dict.fromkeys(_ALL, 0.0)
+    p_empty = dict.fromkeys(_ALL, 1.0)
+    p_occluded = dict.fromkeys(_ALL, 0.0)
+    obs = OccupancyObservation(p_occ=p_occ, p_empty=p_empty, p_occluded=p_occluded,
+                                label=None, conf=None)
+    result = guess_illegal_move(board, obs, 0.5)
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Illegal-move alarm test: resync clears alarm and logs discontinuity
+# ---------------------------------------------------------------------------
+
+
+def test_resync_clears_alarm_and_logs_discontinuity(monkeypatch):
+    """Set alarm, call reset_to_start the FEN resync -> alarm None,
+    decision_log has reason illegal_move_accepted."""
+    t = _headless_tracker(monkeypatch)
+    t.board.push_san("Nf3")
+    t.board.castling_rights = 0
+    t._alarm = {"kind": "illegal_move", "since": 100.0,
+                "conflicts": ["e1", "g1"], "guess": "e1g1"}
+    t._desync_obs = 3
+    t._desync_conflicts = {"e1", "g1"}
+    assert t.status()["alarm"] is not None
+    t.reset_to_start()
+    assert t._alarm is None
+    assert t._desync_obs == 0
+    assert t._desync_conflicts == set()
+    assert t.status()["alarm"] is None
+    found = [d for d in t._decision_log if d.get("reason") == "illegal_move_accepted"]
+    assert len(found) == 1, f"Expected 1 illegal_move_accepted entry, got {len(found)}"
+    assert found[0]["decider"] == "user"
