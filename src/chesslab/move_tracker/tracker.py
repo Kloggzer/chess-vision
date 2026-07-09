@@ -44,6 +44,28 @@ from ..web.camera import LatestFrame, open_source  # noqa: E402
 _FILES = "abcdefgh"
 _ALL = [f"{f}{r}" for r in range(1, 9) for f in _FILES]
 
+def _build_alarm_guess_san(board, guess: str | None) -> str | None:
+    """Human-readable description of the suspected illegal move."""
+    if not guess:
+        return None
+    try:
+        uci = guess.lower()
+        mv = chess.Move.from_uci(uci)
+    except ValueError:
+        return None
+    from_sq = chess.square_name(mv.from_square)
+    to_sq = chess.square_name(mv.to_square)
+    piece = board.piece_at(mv.from_square)
+    if piece is None:
+        return f"{from_sq}->{to_sq}"
+    pchar = piece.symbol().upper()
+    reason = ("castling not available"
+              if piece.piece_type == chess.KING
+              and abs(chess.square_file(mv.from_square) - chess.square_file(mv.to_square)) == 2
+              and not board.has_castling_rights(piece.color)
+              else "illegal move suspected")
+    return f"{pchar} {from_sq}->{to_sq} ({reason})"
+
 
 def _square_boxes(board_size: int, white_pov: bool, extend_up: float = 0.0):
     """Pre-compute all 64 square-region boxes from the canonical source (square_region).
@@ -420,6 +442,19 @@ def move_touched_squares(board: chess.Board, move: chess.Move) -> set[str]:
     return sqs
 
 
+def move_destination_squares(board: chess.Board, move: chess.Move) -> set[str]:
+    """Squares that GAIN a piece by this move: to-square, plus the rook's
+    to-square for castling. (En-passant captured square is vacated, not gained.)"""
+    sqs = {chess.square_name(move.to_square)}
+    if board.is_kingside_castling(move):
+        rank = chess.square_rank(move.from_square)
+        sqs.add(chess.square_name(chess.square(5, rank)))     # rook lands on f1/f8
+    elif board.is_queenside_castling(move):
+        rank = chess.square_rank(move.from_square)
+        sqs.add(chess.square_name(chess.square(3, rank)))     # rook lands on d1/d8
+    return sqs
+
+
 def normalize_diffs(diffs: dict[str, float]) -> dict[str, float]:
     """Remove global brightness/exposure drift: per-square diff minus the robust baseline
     noise (median over all 64 squares). For a real move only ~2-4 squares change,
@@ -636,7 +671,8 @@ class MoveTracker:
                  record_inventory_filter: bool = True,
                  require_motion_for_move: bool = True, detect_scale: float = 0.5,
                  motion_recency_s: float = 20.0,
-                 census_z_weight: float = 1.0, occl_census_thr: float = 24.0) -> None:
+                 census_z_weight: float = 1.0, occl_census_thr: float = 24.0,
+                 desync_obs_n: int = 3) -> None:
         # Auto-create a missing profile from the first frames of this source (ArUco).
         self.profile_name = profile           # string profile name (for session recording)
         self.profile = ensure_profile(profile, source)
@@ -773,6 +809,10 @@ class MoveTracker:
         self.recovered_last = False                       # last move came from CNN recovery
         self.cnn_status: str | None = None                # None | "ok" | "mismatch"
         self.cnn_conflicts: list[str] = []                # squares that contradict the check
+        self.desync_obs_n = desync_obs_n                  # consecutive stable mismatches before alarm
+        self._desync_obs = 0                              # consecutive desync count
+        self._desync_conflicts: set[str] = set()          # stable conflict set
+        self._alarm: dict | None = None                   # {"kind","since","conflicts","guess"} | None
 
         # Pre-commit verification: a confirmed diff candidate waits until the CNN
         # confirms it via (adaptive) multi-frame voting or discards it as a ghost.
@@ -788,6 +828,7 @@ class MoveTracker:
         self._changed: list[str] = []
         self._changed_vals: list[tuple[str, float]] = []   # strongest square diffs (sq, value) for tuning
         self._shadow_vetoed: list[str] = []                # squares discarded as cast shadow
+        self._shadow_blocked: list[str] = []               # candidate ucIs rejected bc destination vetoed
         self._best_score = 0.0
         self._second_score = 0.0
         self._candidate_uci: str | None = None
@@ -1043,6 +1084,7 @@ class MoveTracker:
             self._anomaly_since = {}
             self.prior_last = False
             self._shadow_vetoed = []
+            self._shadow_blocked = []
             self._occluded_vetoed = []
             self._motion_occluded_squares = set()
             self._occlusion_expiry = {}
@@ -1060,6 +1102,15 @@ class MoveTracker:
             self._prev_roi = None
             self._occl_grid_active = False
             self._grid_coverage = 1.0
+            # Clear any outstanding alarm (user accepted reality by resyncing).
+            if self._alarm is not None:
+                self._alarm = None
+                self._desync_obs = 0
+                self._desync_conflicts = set()
+                # Log the discontinuity
+                self._decision_log.append({"ts": time.time(), "ply": len(self.history),
+                                            "move": None, "san": None, "fen_after": self.board.fen(),
+                                            "decider": "user", "reason": "illegal_move_accepted"})
 
     def capture_baseline(self) -> dict:
         """Take a new baseline now: use the current camera image as reference for the
@@ -1077,6 +1128,7 @@ class MoveTracker:
             self._occl_whitelist = set()
             self._occluded_since = None
             self._shadow_vetoed = []
+            self._shadow_blocked = []
             self._occluded_vetoed = []
             self._motion_occluded_squares = set()
             self._occlusion_expiry = {}
@@ -1429,6 +1481,12 @@ class MoveTracker:
                 # "Nothing-changed": CNN confirms the board matches game state.
                 # The diff was stuck on shadow/drift -> pull reference forward, NO move.
                 self.cnn_status, self.cnn_conflicts = "ok", []
+                # Clear any outstanding alarm: take-back detected (board restored).
+                if self._alarm is not None:
+                    self._alarm = None
+                    self._desync_obs = 0
+                    self._desync_conflicts = set()
+                    self.note = "board restored — alarm cleared"
                 self._recovery_confirmer.reset()
                 if self._stuck_reason is not None                         and (obs_gray is not None or self._last_cur is not None):
                     # from_commit: the CNN tolerates partial occlusion (min_confident_recovery),
@@ -1445,12 +1503,41 @@ class MoveTracker:
 
             if inconclusive:                                # too occluded → no statement
                 self._recovery_confirmer.reset()
+                self._desync_obs = 0                        # occlusion breaks desync streak
                 return
 
             self.cnn_status, self.cnn_conflicts = "mismatch", conflicts
             if not cnn_moves:
-                shown = ", ".join(conflicts[:4]) + ("…" if len(conflicts) > 4 else "")
-                self.note = f"CNN check: board deviates ({shown}) — check pieces or resync"
+                # Track consecutive stable mismatches for illegal-move alarm
+                # (only with identity: occupancy-only would false-positive)
+                conf_set = set(conflicts)
+                if has_identity and not inconclusive:
+                    stable = (self._desync_conflicts == conf_set
+                              or conf_set.issubset(self._desync_conflicts)
+                              or self._desync_conflicts.issubset(conf_set))
+                    if stable:
+                        self._desync_obs += 1
+                    else:
+                        self._desync_obs = 1
+                    self._desync_conflicts = conf_set
+                else:
+                    self._desync_obs = 0
+                    self._desync_conflicts = set()
+                # Occupancy-only mode never alarms (no identity → false-positive-prone).
+                if (has_identity and obs.label is not None and self._alarm is None
+                        and self._desync_obs >= self.desync_obs_n):
+                    from .cnn_recovery import guess_illegal_move
+                    guess = guess_illegal_move(self.board, obs, self.cnn_conf_thr)
+                    self._alarm = {"kind": "illegal_move", "since": time.time(),
+                                   "conflicts": conflicts, "guess": guess}
+                if self._alarm is not None:
+                    gs = _build_alarm_guess_san(self.board, self._alarm["guess"])
+                    sqs = ", ".join(self._alarm["conflicts"][:4]) \
+                        + ("…" if len(self._alarm["conflicts"]) > 4 else "")
+                    self.note = f"ILLEGAL MOVE? {gs or sqs} — take it back, or resync to accept"
+                else:
+                    shown = ", ".join(conflicts[:4]) + ("…" if len(conflicts) > 4 else "")
+                    self.note = f"CNN check: board deviates ({shown}) — check pieces or resync"
                 self._recovery_confirmer.reset()
                 return
             key = " ".join(m.uci() for m in cnn_moves)      # move sequence as voting key
@@ -1458,7 +1545,26 @@ class MoveTracker:
                 self.note = (f"CNN recovery checks {key}… "
                              f"({self._recovery_confirmer.count}/{self.confirm_frames})")
                 return
-            # Atomic commit of the move sequence (1 or 2 half-moves, order fixed by side-to-move).
+            # While alarmed, only commit if the sequence resolves ALL alarm conflict squares
+            # (each conflict square's expected label after the sequence matches the observation).
+            if self._alarm is not None:
+                from .cnn_recovery import expected_labels
+                b_test = self.board.copy(stack=False)
+                for m in cnn_moves:
+                    b_test.push(m)
+                post_labels = expected_labels(b_test)
+                lc = getattr(obs, "label", None)
+                lc_conf = getattr(obs, "label_confident", None)
+                if lc is not None and lc_conf is not None:
+                    label_ok = lc_conf(self.cnn_conf_thr)
+                    unresolved = [sq for sq in self._alarm["conflicts"]
+                                  if label_ok.get(sq) and lc[sq] != post_labels[sq]]
+                else:
+                    unresolved = list(self._alarm["conflicts"])
+                if unresolved:
+                    self.note = "ILLEGAL MOVE? CNN recovery would not resolve conflicts — withholding"
+                    self._recovery_confirmer.reset()
+                    return
             _fen_before = self.board.fen()
             _pre_ref_bgr = self.ref_bgr
             sans = []
@@ -1491,8 +1597,13 @@ class MoveTracker:
             self.cnn_status, self.cnn_conflicts = "ok", []
             self._confirmer.reset()
             self._clear_stuck()
-            self.note = (f"Move detected by CNN recovery: {' + '.join(sans)} "
-                         f"(agreement {agreement:.0%})")
+            if self._alarm is not None:
+                # Successful commit while alarmed = the move resolved the conflict — clear alarm
+                self._alarm = None
+                self._desync_obs = 0
+                self._desync_conflicts = set()
+            self.note = (
+                f"Move detected by CNN recovery: {' + '.join(sans)} (agreement {agreement:.0%})")
 
     def _verify_tick(self, frame) -> None:
         """Pre-commit verification of a diff candidate (`self._pending`) via CNN, autonomously
@@ -1743,6 +1854,15 @@ class MoveTracker:
             self._last_cnn_ts = time.time()
             if self.board.fen() != fen:
                 return {"ok": False, "error": "Board changed during analysis"}
+            # Any CNN-resync clears an outstanding alarm (user accepts reality).
+            if self._alarm is not None:
+                self._alarm = None
+                self._desync_obs = 0
+                self._desync_conflicts = set()
+                self._decision_log.append({"ts": time.time(), "ply": len(self.history),
+                                            "move": None, "san": None,
+                                            "fen_after": self.board.fen(),
+                                            "decider": "user", "reason": "illegal_move_accepted"})
             res = recovery.resync_check(self.board, obs)
             if res["match"]:
                 self.cnn_status, self.cnn_conflicts = "ok", []
@@ -2048,6 +2168,7 @@ class MoveTracker:
             return
         # 2. Evidence: all gates and the LL-scoring operate on the SAME (fused) z-values.
         diffs, cens, z = self._compute_evidence(cur)
+        self._shadow_blocked = []
         # Baseline-absdiff occlusion with CNN arbitration: real moves (CNN disagrees
         # with FEN) pass through — don't taint. Occlusion (CNN unconfident) and noise
         # (CNN agrees with FEN) get tainted. Falls back to >2 heuristic without CNN.
@@ -2092,14 +2213,23 @@ class MoveTracker:
         #    White-on-white (target just below z_thr) remains viable.
         scored = loglik_scores(self.board, z, self.z_thr, self.ll_k)
         soft = self.z_thr * 0.5
-        viable = [(mv, s) for mv, s in scored
-                  if all(z[sq] >= soft
-                         for sq in move_touched_squares(self.board, mv))]
+        viable_raw = [(mv, s) for mv, s in scored
+                      if all(z[sq] >= soft
+                             for sq in move_touched_squares(self.board, mv))]
+        viable = [(mv, s) for mv, s in viable_raw
+                  if not (move_destination_squares(self.board, mv) & shadow_veto)]
+        kept = {mv for mv, _ in viable}
+        self._shadow_blocked.extend(mv.uci() for mv, _ in viable_raw if mv not in kept)
         obs_move, best = viable[0] if viable else (None, -1e9)
         second = viable[1][1] if len(viable) > 1 else -1e9
         self._best_score = best if viable else (scored[0][1] if scored else 0.0)
         self._second_score = second
         self._candidate_uci = obs_move.uci() if obs_move else None
+        if viable_raw and (not viable or viable[0][0] != viable_raw[0][0]):
+            # The filter changed the OUTCOME (best raw candidate was shadow-blocked) \u2014
+            # only then is the note useful; a blocked also-ran is debug-card material.
+            self.note = (f"{self.board.san(viable_raw[0][0])}? "
+                         f"destination shadow-vetoed \u2014 not a move")
         if not changed:
             # Scale reanchor floor by number of physically changed squares: a castling
             # move (4 squares) must not be penalised relative to a normal move (2 squares)
@@ -2114,6 +2244,11 @@ class MoveTracker:
                 if self._tainted:
                     self._mark_stuck("occluded")
                     self.note = "waiting for occluded squares to clear…"
+                    return
+                # Alarm active → do NOT re-anchor (the illegal position must not become base truth).
+                if self._alarm is not None:
+                    self._mark_stuck("no_legal_move")
+                    self.note = "ILLEGAL MOVE? board cannot be anchored to game state"
                     return
                 # Quiet board → re-anchor. This is also the only verifiably CLEAN moment:
                 # run the deferred jobs (gamut rebuild via _set_ref, session photo) here.
@@ -2135,7 +2270,7 @@ class MoveTracker:
         #    through the SAME motion gate and dispatch below (previously the pair path
         #    committed directly and skipped both).
         cand = self._generate_hypothesis(z, scored, viable, changed, obs_move, best, second,
-                                         cur, cur_bgr)
+                                         cur, cur_bgr, shadow_veto=shadow_veto)
         if cand is None:
             return
         moves = cand["moves"]
@@ -2279,7 +2414,8 @@ class MoveTracker:
         return self._ref_census
 
     def _generate_hypothesis(self, z, scored, viable, changed, obs_move, best, second,
-                             cur, cur_bgr, blocked_n: int = 0):
+                             cur, cur_bgr, shadow_veto: set[str] | None = None,
+                             blocked_n: int = 0):
         """Step 6 — turn the evidence into exactly one candidate, or handle the frame
         (stuck marked + anomaly patcher, ambiguous note, promotion pending) and return None.
         Candidate: {"moves": [mv] | [mv1, mv2], "prior_used": bool, "vote": bool,
@@ -2289,7 +2425,7 @@ class MoveTracker:
         # squares count as changed here; a pair is never trusted while a hand is detected.
         if len(changed) + blocked_n > self.max_changed:
             if blocked_n == 0 and len(changed) <= self.max_changed + 2:
-                pair = self._pair_candidate(z, best)
+                pair = self._pair_candidate(z, best, shadow_veto=shadow_veto)
                 if pair is not None:
                     return pair
             self._confirmer.reset()
@@ -2309,7 +2445,7 @@ class MoveTracker:
         # there (pair only when no single fits, below).
         cnn_on = self.cnn_verify and self.cnn_run and not self._cnn_failed
         if cnn_on:
-            pair = self._pair_candidate(z, best)
+            pair = self._pair_candidate(z, best, shadow_veto=shadow_veto)
             if pair is not None:
                 return pair
 
@@ -2318,11 +2454,11 @@ class MoveTracker:
         # → stuck + self-healing.
         if obs_move is None or best < 0.0:
             if not cnn_on:
-                pair = self._pair_candidate(z, best)
+                pair = self._pair_candidate(z, best, shadow_veto=shadow_veto)
                 if pair is not None:
                     return pair
             if self.cnn_verify and self.cnn_run and not self._cnn_failed:
-                sm = self._single_endpoint_candidate(z, scored)
+                sm = self._single_endpoint_candidate(z, scored, shadow_veto=shadow_veto)
                 if sm is not None:
                     return {"moves": [sm], "prior_used": False, "vote": False,
                             "note": f"low-contrast move {self.board.san(sm)}? verifying via CNN…"}
@@ -2368,13 +2504,27 @@ class MoveTracker:
                 return None
         return {"moves": [obs_move], "prior_used": prior_used, "vote": True}
 
-    def _pair_candidate(self, z, best_single):
+    def _pair_candidate(self, z, best_single, shadow_veto: set[str] | None = None):
         """Fast play: 2 half-moves landed in one settle window. Candidate only when the best
         pair is clearly better than the best single move AND the second-best pair (LL margin);
         otherwise None and the normal stuck logic applies. Under self.lock."""
         pairs = loglik_pair_scores(self.board, z, self.z_thr, self.ll_k)
         if not pairs:
             return None
+        # Filter pairs whose destination squares are shadow-vetoed (eval move 2 on board after move 1)
+        if shadow_veto:
+            sv_pairs = []
+            for seq_best in pairs:
+                mv1, mv2 = seq_best[0]
+                b1 = self.board.copy(stack=False)
+                b1.push(mv1)
+                dests = (move_destination_squares(self.board, mv1)
+                         | move_destination_squares(b1, mv2))
+                if not (dests & shadow_veto):
+                    sv_pairs.append(seq_best)
+            if not sv_pairs:
+                return None
+            pairs = sv_pairs
         seq, best = pairs[0]
         second = pairs[1][1] if len(pairs) > 1 else -1e9
         if best < 0.0 or best - max(second, best_single) < self.ambiguity_margin_ll:
@@ -2412,7 +2562,8 @@ class MoveTracker:
         else:
             self._commit_sequence(moves, cur, cur_bgr, decider="diff_pair")
 
-    def _single_endpoint_candidate(self, z: dict[str, float], scored):
+    def _single_endpoint_candidate(self, z: dict[str, float], scored,
+                                   shadow_veto: set[str] | None = None):
         """Best legal move that is strongly evidenced at its DESTINATION only — the origin is
         below the both-endpoints viability gate (low-contrast vacated square). Returns the move
         only if UNAMBIGUOUS (the top such candidate is clearly ahead of any candidate to a
@@ -2422,7 +2573,8 @@ class MoveTracker:
         if len(strong) != 1:                              # exactly one strongly-changed square
             return None
         cands = [(mv, sc) for mv, sc in scored
-                 if chess.square_name(mv.to_square) in strong and sc > 0.0]
+                 if chess.square_name(mv.to_square) in strong and sc > 0.0
+                 and not (shadow_veto and chess.square_name(mv.to_square) in shadow_veto)]
         if not cands:
             return None
         best_mv, best_sc = cands[0]
@@ -2581,6 +2733,14 @@ class MoveTracker:
                 "cnn_status": self.cnn_status,
                 "cnn_conflicts": list(self.cnn_conflicts),
                 # Promotion wartet auf Nutzerwahl (nur ohne CNN-Verify): {"from","to"} | None
+                # Referee alarm (illegal-move detector, Phase 01).
+                "alarm": (None if self._alarm is None else {
+                    "kind": self._alarm["kind"],
+                    "since": self._alarm["since"],
+                    "conflicts": self._alarm["conflicts"],
+                    "guess": self._alarm["guess"],
+                    "guess_san": _build_alarm_guess_san(self.board, self._alarm["guess"]),
+                }),
                 "promotion_pending": (None if self._promo_pending is None else
                                       {"from": self._promo_pending["from"],
                                        "to": self._promo_pending["to"]}),
@@ -2622,6 +2782,7 @@ class MoveTracker:
                     "census_z_weight": self.census_z_weight,
                     "occl_census_thr": self.occl_census_thr,
                     "shadow_vetoed": list(self._shadow_vetoed),
+                    "shadow_blocked": list(self._shadow_blocked),
                     "occluded_vetoed": list(self._occluded_vetoed),
                     "tainted": sorted(self._tainted),
                     "grid_coverage": round(self._grid_coverage, 2),
