@@ -15,17 +15,29 @@ class SquareNoise(
     val mean: MutableMap<String, Double> = Squares.all.associateWith { 0.0 }.toMutableMap()
     val std: MutableMap<String, Double> = Squares.all.associateWith { initStd }.toMutableMap()
 
-    /** Learn from a stable frame; `exclude` = current candidate/vetoed squares. */
+    /**
+     * Learn from a stable frame; `exclude` = current candidate/vetoed squares.
+     *
+     * `excludeAlphaScale` = 0 (default): excluded squares learn NOTHING — the gray channel's
+     * hard-won invariant (learning a shadow/hand inflates std and desensitizes real moves
+     * there). The census channel passes 0.125 (SLOW LANE): full exclusion deadlocks it — a
+     * flat square whose census tie-flip noise fires from frame one is excluded from learning,
+     * so the model can never absorb the jitter and it stays hot forever (observed live: empty
+     * b1/b8 after baseline). The slow lane heals such phantoms within seconds while a real
+     * move commits (and re-anchors) long before it could be learned away.
+     */
     fun update(
         diffs: Map<String, Double>,
         exclude: Set<String> = emptySet(),
+        excludeAlphaScale: Double = 0.0,
     ) {
         for ((sq, d) in diffs) {
-            if (sq in exclude) continue
+            val a = if (sq in exclude) alpha * excludeAlphaScale else alpha
+            if (a == 0.0) continue
             val m = mean.getValue(sq)
-            mean[sq] = (1 - alpha) * m + alpha * d
+            mean[sq] = (1 - a) * m + a * d
             val dev = abs(d - m)
-            std[sq] = maxOf(stdFloor, (1 - alpha) * std.getValue(sq) + alpha * dev)
+            std[sq] = maxOf(stdFloor, (1 - a) * std.getValue(sq) + a * dev)
         }
     }
 

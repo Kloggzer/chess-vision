@@ -21,6 +21,7 @@ internal class Detector(
     val hypothesis = HypothesisGenerator(config) { safeguard() != null }
     val patcher = AnomalyPatcher(config)
     var confirmer = Confirmer(config.confirmFrames)
+    private val slack = 2
 
     private val geom get() = BoardGeometry(state.refGray?.width ?: 0, whitePov = true, extendUp = config.overhang)
 
@@ -55,7 +56,7 @@ internal class Detector(
             else -> true
         }
 
-    /** Steps 2+3+4 — diff -> z-scores, occlusion taint, shadow veto, noise learning. */
+    /** Steps 2+3+4 — fused diff/census z-scores, occlusion taint, shadow veto, noise learning. */
     private fun computeEvidence(
         cur: GrayImage,
         curBgr: BgrImage,
@@ -63,30 +64,85 @@ internal class Detector(
     ): Evidence {
         val diffs = SquareDiff.normalizeDiffs(SquareDiff.perSquareDiff(state.refGray!!, cur, geom))
         val z = state.noise.z(diffs).toMutableMap()
-        // Baseline-absdiff occlusion (hand squares): without a CNN arbiter, >2 flagged squares
-        // are treated as a hand — their z is ZEROED and they are latched (tracker.py:1964).
-        if (state.motionOccluded.isNotEmpty()) {
-            val taint = if (state.motionOccluded.size > 2) state.motionOccluded else emptySet()
-            for (sq in taint) {
+        val cens = fuseCensusChannel(cur, z)
+        applyTaintLatch(z, nowS)
+        state.occlusionExpiry.entries.removeIf { nowS >= it.value }
+        state.occlCoreExpiry.entries.removeIf { nowS >= it.value }
+        val changed = z.filterValues { it >= config.zThr }.keys.toMutableSet()
+        state.changedVals = topScores(z)
+        val shadowVeto = applyShadowVeto(cur, curBgr, changed, cens)
+        state.changed = changed.sorted()
+        // Noise learns on EVERY stable frame the non-candidate squares (tracker.py:1984);
+        // the census channel learns excluded squares on a SLOW LANE (8c30888).
+        state.noise.update(diffs, exclude = changed + shadowVeto)
+        cens?.let { state.censusNoise.update(it, exclude = changed + shadowVeto, excludeAlphaScale = CENSUS_SLOW_LANE) }
+        // (Taint release happens in applyTaintLatch — motion-or-baseline gated, not timer-only.)
+        return scoreCandidates(z, changed, shadowVeto)
+    }
+
+    /**
+     * Structural channel: census change vs base truth, z-scored by its own noise model
+     * and fused into `z` as max(zGray, w * zCensus). Census is illumination-invariant
+     * (sees dark-on-dark moves) but NOT translation-invariant: median-normalize, and drop
+     * the channel on a global disturbance (ports tracker.py b3d3825 + c3c2315).
+     * Returns the normalized census map, or null when off/dropped this frame.
+     */
+    private fun fuseCensusChannel(
+        cur: GrayImage,
+        z: MutableMap<String, Double>,
+    ): Map<String, Double>? {
+        state.structVals = emptyList()
+        if (config.censusZWeight <= 0) return null
+        val cens =
+            SquareDiff.normalizeDiffs(
+                Census.perSquareChange(state.refGray!!, cur, geom, refCodes = state.refCensusCodes()),
+            )
+        val zs = state.censusNoise.z(cens)
+        val w = config.censusZWeight
+        val hot = zs.values.count { w * it >= config.zThr }
+        return if (hot > config.maxChanged + slack) {
+            // Channel-local guard: no legal move explains this many structurally-hot squares
+            // → global disturbance (wobble, warp shift). Drop the census channel THIS frame
+            // and learn the disturbance into its noise model.
+            state.censusNoise.update(cens)
+            null
+        } else {
+            state.structVals =
+                zs
+                    .filterValues { w * it >= config.zThr * HALF }
+                    .toList()
+                    .sortedByDescending { it.second }
+                    .take(TOP_CHANGED)
+            for ((sq, zc) in zs) z[sq] = maxOf(z.getValue(sq), w * zc)
+            cens
+        }
+    }
+
+    /**
+     * Baseline-absdiff occlusion (hand squares): without a CNN arbiter, >2 flagged squares
+     * are treated as a hand — their z is ZEROED and they are latched (tracker.py:1964).
+     */
+    private fun applyTaintLatch(
+        z: MutableMap<String, Double>,
+        nowS: Double,
+    ) {
+        if (state.motionOccluded.size > 2) {
+            for (sq in state.motionOccluded) {
                 z[sq] = 0.0
                 state.tainted[sq] = nowS + config.motionHoldS
             }
         }
+        state.tainted.entries.removeIf { nowS > it.value }
         state.occludedVetoed = state.motionOccluded.sorted()
         state.motionOccluded = emptySet()
-        state.occlusionExpiry.entries.removeIf { nowS >= it.value }
-        val changed = z.filterValues { it >= config.zThr }.keys.toMutableSet()
-        state.changedVals =
-            z
-                .filterValues { it >= config.zThr * HALF }
-                .toList()
-                .sortedByDescending { it.second }
-                .take(TOP_CHANGED)
-        val shadowVeto = applyShadowVeto(cur, curBgr, changed)
-        state.changed = changed.sorted()
-        // Noise learns on EVERY stable frame the non-candidate squares (tracker.py:1984).
-        state.noise.update(diffs, exclude = changed + shadowVeto)
-        state.tainted.entries.removeIf { nowS > it.value }
+    }
+
+    /** Step 5 scoring — viability (both endpoints carry weak evidence). */
+    private fun scoreCandidates(
+        z: Map<String, Double>,
+        changed: Set<String>,
+        shadowVeto: Set<String>,
+    ): Evidence {
         val scored = MoveScoring.loglikScores(state.game, z, config.zThr)
         val soft = config.zThr * HALF
         val viable =
@@ -101,16 +157,24 @@ internal class Detector(
         return Evidence(z, scored, viable, changed, TopScore(obs, best, second))
     }
 
+    private fun topScores(z: Map<String, Double>): List<Pair<String, Double>> =
+        z
+            .filterValues { it >= config.zThr * HALF }
+            .toList()
+            .sortedByDescending { it.second }
+            .take(TOP_CHANGED)
+
     /** Step 3 — cast-shadow veto: removes squares from `changed`, KEEPS their z (vacate evidence). */
     private fun applyShadowVeto(
         cur: GrayImage,
         curBgr: BgrImage,
         changed: MutableSet<String>,
+        cens: Map<String, Double>? = null,
     ): Set<String> {
         val refBgr = state.refBgr
         if (refBgr == null || changed.isEmpty()) return emptySet()
-        val codes = state.refCensus ?: Census.transform(state.refGray!!).also { state.refCensus = it }
-        val census = Census.perSquareChange(state.refGray!!, cur, geom, refCodes = codes)
+        // Fusion active: reuse the (median-normalized) census channel; otherwise raw census.
+        val census = cens ?: Census.perSquareChange(state.refGray!!, cur, geom, refCodes = state.refCensusCodes())
         val shadows = ShadowVeto.shadowSquares(refBgr, curBgr, geom, changed)
         val veto = changed.filterTo(mutableSetOf()) { it in shadows && census.getValue(it) < config.censusThr }
         changed -= veto
@@ -251,5 +315,6 @@ internal class Detector(
         const val HALF = 0.5
         const val TOP_CHANGED = 8
         const val NEG_INF = -1e9
+        const val CENSUS_SLOW_LANE = 0.125
     }
 }
