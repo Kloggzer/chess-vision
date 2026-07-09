@@ -1792,13 +1792,22 @@ class MoveTracker:
             #    genuine move isn't killed by a mis-read destination): from confidently EMPTY
             #    (the piece demonstrably LEFT — 'empty' is the model's 99.99% class) OR non-capture
             #    destination confidently OCCUPIED (piece arrived) OR touched-square agreement.
-            #    EXCEPTION (h2h4 nudge incident, 2026-07-09): "piece left FROM" is not "piece
-            #    arrived at TO". For a non-castling move, a destination that reads confidently
-            #    EMPTY actively contradicts the move — a nudged piece can misread its own
-            #    square as empty (crop edge), and from_left_conf alone then commits a phantom.
-            #    Castling keeps the shortcut (the king on g1 is routinely misread as empty).
+            #    EXCEPTION (h2h4 nudge + b1c4 illegal-move incidents, 2026-07-09): "piece
+            #    left FROM" is NEVER commit evidence on its own — the piece may have landed
+            #    anywhere (b1→c4 played illegally: b1 confidently emptied, and from_left
+            #    alone committed the best LEGAL move Na3 while the knight sat on c4).
+            #    Non-castling commits need positive DESTINATION evidence: to-square
+            #    confidently occupied, touched-square agreement, or the whole-board
+            #    occupancy deriving exactly this move. from-left then only breaks ties it
+            #    was designed for (castling: the king on g1 is routinely misread as empty;
+            #    a failed from-left candidate falls through to the verify-window HOLD and
+            #    is discarded — board state stays put, the desync alarm sees the real
+            #    conflict squares).
             is_castling = board_snap.is_castling(pend_mv)
-            from_left_ok = from_left_conf and (is_castling or not to_empty_conf)
+            from_left_ok = from_left_conf and (
+                is_castling
+                or (cnn_uci == pending["uci"]
+                    and cnn_agreement >= recovery.min_agreement))
             if from_left_ok or to_arrived_conf or (occ_agree >= recovery.min_agreement and occ_n >= 2):
                 _commit("", "confirmed", "ok")
                 return

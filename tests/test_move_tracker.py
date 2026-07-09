@@ -949,6 +949,33 @@ class TestCnnVerify:
         assert mt._pending is not None            # held, not committed and not rejected
         assert mt._verify_state == "verifying"
 
+    def test_from_left_alone_never_commits_non_castling(self, monkeypatch):
+        """Regression (b1→c4 illegal move, 2026-07-09): knight physically placed on c4
+        (illegal), diff proposes the best LEGAL move Na3. CNN: b1 confidently empty
+        (true — the piece left), a3 unreadable (no confident statement), no derived
+        move. 'from left' alone must NOT commit — HOLD; the desync alarm later sees
+        the real conflict (c4 occupied where empty expected)."""
+        mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0,
+                              occ={"a3": False, "b1": False},
+                              conf={"a3": False, "b1": True})
+        mt._pending = {"uci": "b1a3", "fen": mt.board.fen(),
+                       "cur": _gray_frame(["a3"]), "cur_bgr": None, "frames": 0}
+        mt._verify_tick(_mk_snap(mt))
+        assert mt.history == []
+        assert mt._pending is not None            # held, not committed
+        assert mt._verify_state == "verifying"
+
+    def test_from_left_commits_when_occupancy_derives_same_move(self, monkeypatch):
+        """from-left still commits when the whole-board occupancy derives EXACTLY the
+        pending move (destination unreadable but the rest of the board agrees)."""
+        mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0,
+                              derive_move="e2e4", derive_agreement=0.99,
+                              occ={"e4": False, "e2": False},
+                              conf={"e4": False, "e2": True})
+        mt._verify_tick(_mk_snap(mt))
+        assert mt.history == ["e4"]
+        assert mt._verify_state == "confirmed"
+
     def test_castling_commits_despite_king_square_misread_empty(self, monkeypatch):
         """Castling keeps the from-left shortcut: e1 confidently EMPTY (king left) while the
         king on g1 is mis-read as empty → still COMMITS (known model weakness on g1)."""
