@@ -6,10 +6,17 @@ import com.chesslab.engine.api.VerifyVerdict
 import com.chesslab.engine.uciOf
 import com.github.bhlangonijr.chesslib.move.Move
 
-/** One verify observation either decides the candidate or asks for more frames. */
+/**
+ * One verify observation either proposes a decision or asks for more frames.
+ * `outcome` is the vote key (83a1e88: every verify outcome needs `verifyObsVotes`
+ * consecutive agreeing observations); `votes=false` marks window/pair resolutions
+ * that decide single-shot, exactly like the Python `_verify_tick`.
+ */
 sealed interface VerifyStep {
     data class Decided(
         val verdict: VerifyVerdict,
+        val outcome: String = "",
+        val votes: Boolean = false,
     ) : VerifyStep
 
     data class Continue(
@@ -68,28 +75,52 @@ class OccupancyVerifier(
         framesSeen: Int,
     ): VerifyStep {
         val axes = axesOf(game, move, obs)
-        val (occAgree, occN) = verifyMove(game, move, obs)
         val check = resyncCheck(game, obs)
         return when {
             // 1) Board unchanged -> shadow/no real move; engine pulls the reference forward.
             check.match ->
-                decideAgainst(ucis, "board unchanged (shadow/no move)", boardUnchanged = true)
+                decideAgainst(ucis, "board unchanged (shadow/no move)", boardUnchanged = true, outcome = "shadow")
             // 2) Positive confirmation via the reliable axes FIRST (before any veto).
-            axes.fromLeftConf || axes.toArrivedConf || (occAgree >= config.minAgreement && occN >= MIN_ENDPOINTS) ->
-                VerifyStep.Decided(VerifyVerdict.For(ucis))
+            commitEvidence(game, move, obs, axes, check) ->
+                VerifyStep.Decided(VerifyVerdict.For(ucis), outcome = "commit", votes = true)
             // 3) HARD veto: destination confidently EMPTY and origin did NOT clearly empty.
             axes.toEmptyConf && !axes.fromLeftConf ->
-                decideAgainst(ucis, "ghost — ${axes.toSq} still empty")
+                decideAgainst(ucis, "ghost — ${axes.toSq} still empty", outcome = "ghost")
             // 4) CNN sees a DIFFERENT unambiguous move. Python overrules the diff
             //    (tracker.py:1619); the VerifyVerdict seam cannot carry a replacement
-            //    move, so the candidate is rejected instead (STATUS.md discrepancy).
+            //    move, so the candidate is rejected instead (STATUS.md discrepancy #13).
             check.moveUci != null && check.moveUci != ucis[0] && check.agreement >= config.minAgreement ->
-                decideAgainst(ucis, "cnn sees ${check.moveUci} instead")
-            // 5) Undecided: wait up to verifyWindow observations, then resolve.
-            framesSeen >= config.verifyWindow -> resolveWindow(ucis, axes)
+                decideAgainst(ucis, "cnn sees ${check.moveUci} instead", outcome = "overrule:${check.moveUci}")
+            // 5) Undecided: wait up to verifyWindow observations, then resolve single-shot.
+            framesSeen >= config.verifyWindow -> resolveWindow(game, move, ucis, axes, obs)
             else ->
                 VerifyStep.Continue("checking ${ucis[0]} via CNN… ($framesSeen/${config.verifyWindow})")
         }
+    }
+
+    /**
+     * Positive commit confirmation (9432e1f + 6368b88):
+     * - "piece left FROM" is NEVER commit evidence on its own (b1c4 incident) — non-castling
+     *   needs the whole-board occupancy deriving exactly the pending move;
+     * - to-arrived is insufficient when the ORIGIN confidently never emptied (d4b3 incident);
+     * - touched-square occupancy agreement stays a direct confirmation.
+     */
+    private fun commitEvidence(
+        game: Game,
+        move: Move,
+        obs: OccupancyObservation,
+        axes: EndpointAxes,
+        check: ResyncCheck,
+    ): Boolean {
+        val fromLeftOk =
+            axes.fromLeftConf &&
+                (
+                    MoveScoring.isCastling(game, move) ||
+                        (check.moveUci == uciOf(move) && check.agreement >= config.minAgreement)
+                )
+        val toArrivedOk = axes.toArrivedConf && !axes.fromOccConf
+        val (occAgree, occN) = verifyMove(game, move, obs)
+        return fromLeftOk || toArrivedOk || (occAgree >= config.minAgreement && occN >= MIN_ENDPOINTS)
     }
 
     /**
@@ -130,8 +161,11 @@ class OccupancyVerifier(
     }
 
     private fun resolveWindow(
+        game: Game,
+        move: Move,
         ucis: List<String>,
         axes: EndpointAxes,
+        obs: OccupancyObservation,
     ): VerifyStep =
         when {
             // Origin still confidently occupied and destination never arrived -> ghost.
@@ -140,8 +174,21 @@ class OccupancyVerifier(
             // Both endpoints occluded the whole window -> can't tell -> discard.
             !(axes.toConf || axes.fromConf) ->
                 VerifyStep.Decided(VerifyVerdict.Timeout(ucis))
-            // Clear view, no contradiction, just not strongly confirmed -> trust the diff.
-            else -> VerifyStep.Decided(VerifyVerdict.For(ucis))
+            // Clear view, endpoints not strongly confirmed. Before trusting the diff, check
+            // the WHOLE board against the POST-move position (b1d4 incident, cf31c81): any
+            // occupancy conflict -> the move as believed did NOT happen -> discard.
+            else -> {
+                val after = game.copy().apply { push(move) }
+                val postCheck = resyncCheck(after, obs)
+                if (postCheck.conflicts.isNotEmpty()) {
+                    decideAgainst(
+                        ucis,
+                        "board contradicts post-move position: ${postCheck.conflicts.take(SHOWN_CONFLICTS).joinToString(", ")}",
+                    )
+                } else {
+                    VerifyStep.Decided(VerifyVerdict.For(ucis))
+                }
+            }
         }
 
     /**
@@ -245,10 +292,17 @@ class OccupancyVerifier(
         ucis: List<String>,
         reason: String,
         boardUnchanged: Boolean = false,
-    ): VerifyStep = VerifyStep.Decided(VerifyVerdict.Against(ucis, reason, boardUnchanged))
+        outcome: String? = null,
+    ): VerifyStep =
+        VerifyStep.Decided(
+            VerifyVerdict.Against(ucis, reason, boardUnchanged),
+            outcome = outcome ?: "",
+            votes = outcome != null,
+        )
 
     private companion object {
         const val MIN_ENDPOINTS = 2
+        const val SHOWN_CONFLICTS = 4
     }
 }
 

@@ -129,6 +129,56 @@ class CnnSafeguardTest {
             assertTrue(guard.recoveryTick(STARTPOS, stuck = true) is RecoveryAction.Moves)
         }
 
+    // -- verify vote gate (83a1e88) --
+
+    @Test
+    fun `no verify decision on a single observation - two agreeing observations decide`() =
+        runTest {
+            val classifier = FakeClassifier(gameAfter("e2e4"))
+            var observations = 0
+            val guard =
+                CnnSafeguard(
+                    classifier,
+                    { if (observations < 1) input().also { observations++ } else null },
+                    this,
+                    clock = { currentTime * 1_000_000 },
+                )
+            val verdicts = mutableListOf<VerifyVerdict>()
+            val collector = launch { guard.verdicts.toList(verdicts) }
+            runCurrent()
+            guard.requestVerify(MoveCandidate(listOf("e2e4"), STARTPOS, false), listOf("e2", "e4"))
+            advanceUntilIdle()
+            // Only ONE observation was available: the confirming outcome must NOT act.
+            assertEquals(listOf<VerifyVerdict>(VerifyVerdict.Timeout(listOf("e2e4"))), verdicts)
+            collector.cancel()
+        }
+
+    @Test
+    fun `alternating outcomes never act`() =
+        runTest {
+            // Observation flip-flops between "move happened" (commit) and "board
+            // unchanged" (shadow): the vote counter resets every time -> Timeout.
+            val classifier = FakeClassifier(gameAfter("e2e4"))
+            var n = 0
+            val guard =
+                CnnSafeguard(
+                    classifier,
+                    {
+                        classifier.seen = if (n++ % 2 == 0) gameAfter("e2e4") else Game()
+                        input()
+                    },
+                    this,
+                    clock = { currentTime * 1_000_000 },
+                )
+            val verdicts = mutableListOf<VerifyVerdict>()
+            val collector = launch { guard.verdicts.toList(verdicts) }
+            runCurrent()
+            guard.requestVerify(MoveCandidate(listOf("e2e4"), STARTPOS, false), listOf("e2", "e4"))
+            advanceUntilIdle()
+            assertEquals(listOf<VerifyVerdict>(VerifyVerdict.Timeout(listOf("e2e4"))), verdicts)
+            collector.cancel()
+        }
+
     @Test
     fun `quiet-board periodic check reports BoardUnchanged only after the interval`() =
         runTest {

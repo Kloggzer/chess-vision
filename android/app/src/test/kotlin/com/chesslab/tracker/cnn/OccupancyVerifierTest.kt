@@ -23,15 +23,61 @@ class OccupancyVerifierTest {
     // -- reliable-axis rule (acceptance criterion) --
 
     @Test
-    fun `from-square confidently empty counts FOR`() {
-        // Only the from-square is readable and demonstrably emptied: FOR at frame 1.
+    fun `from-empty alone never confirms a non-castling move (b1a3 incident)`() {
+        // Only the from-square is readable and demonstrably emptied: the piece may have
+        // landed ANYWHERE (9432e1f) — hold, do not commit.
         val obs =
             obsOf(
                 afterMoves("e2e4"),
                 occluded = ALL_SQUARES.filterNot { it == "e2" }.toSet(),
             )
         val step = verifier.evaluate(STARTPOS, listOf("e2e4"), obs, framesSeen = 1)
-        assertEquals(VerifyVerdict.For(listOf("e2e4")), (step as VerifyStep.Decided).verdict)
+        assertTrue(step is VerifyStep.Continue)
+    }
+
+    @Test
+    fun `from-empty commits when the whole board derives exactly the pending move`() {
+        val obs = obsOf(afterMoves("e2e4"), occluded = setOf("e4"))
+        val step = verifier.evaluate(STARTPOS, listOf("e2e4"), obs, framesSeen = 1)
+        val decided = step as VerifyStep.Decided
+        assertEquals(VerifyVerdict.For(listOf("e2e4")), decided.verdict)
+        assertTrue(decided.votes, "ladder decisions must go through the vote gate")
+    }
+
+    @Test
+    fun `castling commits despite the king square misread as empty`() {
+        val fen = "rnbqkbnr/pppppppp/8/8/8/5NP1/PPPPPPBP/RNBQK2R w KQkq - 0 1"
+        val before = Game(fen)
+        val after = Game(fen).apply { push(legalMoves().first { uciOf(it) == "e1g1" }) }
+        // King on g1 misread as empty; e1 correctly read empty (from-left + castling).
+        val obs = obsOf(after, overrides = mapOf("g1" to false))
+        val step = verifier.evaluate(before.fen(), listOf("e1g1"), obs, framesSeen = 1)
+        assertEquals(VerifyVerdict.For(listOf("e1g1")), (step as VerifyStep.Decided).verdict)
+    }
+
+    @Test
+    fun `h2h4 nudge - from and to both empty holds, window discards on post-move conflict`() {
+        // Nudged piece misreads its OWN square as empty while the destination stays empty.
+        val obs = obsOf(Game(), overrides = mapOf("e2" to false))
+        val mid = verifier.evaluate(STARTPOS, listOf("e2e4"), obs, framesSeen = 1)
+        assertTrue(mid is VerifyStep.Continue, "from-left + to-empty must HOLD, not commit")
+        val end = verifier.evaluate(STARTPOS, listOf("e2e4"), obs, framesSeen = window)
+        val verdict = (end as VerifyStep.Decided).verdict
+        assertTrue(verdict is VerifyVerdict.Against)
+        assertTrue((verdict as VerifyVerdict.Against).reason.contains("post-move"))
+    }
+
+    @Test
+    fun `to-arrived with origin confidently never emptied discards on post-move conflict`() {
+        // d4b3 rook incident: a FOREIGN piece landed on the destination while the origin
+        // pawn provably never moved — both signals contradict -> hold, window discards.
+        val obs = obsOf(Game(), overrides = mapOf("e4" to true))
+        val mid = verifier.evaluate(STARTPOS, listOf("e2e4"), obs, framesSeen = 1)
+        assertTrue(mid is VerifyStep.Continue)
+        val end = verifier.evaluate(STARTPOS, listOf("e2e4"), obs, framesSeen = window)
+        val verdict = (end as VerifyStep.Decided).verdict
+        assertTrue(verdict is VerifyVerdict.Against)
+        assertTrue((verdict as VerifyVerdict.Against).reason.contains("post-move"))
     }
 
     @Test
@@ -77,17 +123,17 @@ class OccupancyVerifierTest {
     }
 
     @Test
-    fun `clear view without contradiction accepts the diff at the window`() {
-        // Capture candidate e4xd5: destination stays occupied (no toArrived signal),
-        // origin occluded, plus an unexplained h7 conflict -> undecided until the
-        // window, then the diff is trusted (tracker.py:1639-1641).
-        val before = afterMoves("e2e4", "d7d5")
-        val after = afterMoves("e2e4", "d7d5", "e4d5")
-        val obs = obsOf(after, occluded = setOf("e4"), overrides = mapOf("h7" to false))
-        val mid = verifier.evaluate(before.fen(), listOf("e4d5"), obs, framesSeen = 1)
+    fun `clear view without post-move contradiction accepts the diff at the window`() {
+        // Origin demonstrably emptied but the destination (and e3) unreadable: the derived
+        // move is ambiguous (e2e3 vs e2e4) -> hold; at the window the post-move position
+        // check finds no conflict -> the diff is trusted (cf31c81).
+        val obs = obsOf(afterMoves("e2e4"), occluded = setOf("e3", "e4"))
+        val mid = verifier.evaluate(STARTPOS, listOf("e2e4"), obs, framesSeen = 1)
         assertTrue(mid is VerifyStep.Continue)
-        val end = verifier.evaluate(before.fen(), listOf("e4d5"), obs, framesSeen = window)
-        assertEquals(VerifyVerdict.For(listOf("e4d5")), (end as VerifyStep.Decided).verdict)
+        val end = verifier.evaluate(STARTPOS, listOf("e2e4"), obs, framesSeen = window)
+        val decided = end as VerifyStep.Decided
+        assertEquals(VerifyVerdict.For(listOf("e2e4")), decided.verdict)
+        assertFalse(decided.votes, "window resolutions decide single-shot")
     }
 
     @Test
