@@ -91,6 +91,14 @@
     <!-- Shared -->
     <string name="value_and_default">%1$s (default %2$s)</string>
 
+    <!-- Settings: CNN Safeguard (resolved discrepancy #14) -->
+    <string name="settings_cnn_safeguard">CNN Safeguard</string>
+    <string name="setting_cnn_enabled">Enable CNN safeguard</string>
+    <string name="setting_cnn_conf_thr">Confidence threshold</string>
+    <string name="setting_import_model">Import model…</string>
+    <string name="setting_cnn_model_installed">Model: installed (model.onnx + config.json)</string>
+    <string name="setting_cnn_model_not_installed">Model: not imported</string>
+
     <!-- History -->
     <string name="history_export">Export game (PGN)</string>
     <string name="history_no_provenance">No decision provenance recorded.</string>
