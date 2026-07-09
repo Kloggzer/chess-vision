@@ -2317,6 +2317,22 @@ class MoveTracker:
                     if p > 0.5:
                         z[sq] = 0.0
                         self._tainted[sq] = time.time() + self.motion_hold_s
+        # Latch invariant (user, 2026-07-09): an occluder cannot vanish WITHOUT motion —
+        # a hand only leaves the board by moving. A tainted square is therefore released
+        # only when its hold expired AND (motion occurred since the last taint refresh OR
+        # its evidence returned to baseline: whatever occluded it is gone, or it was a
+        # false taint — the escape that prevents a misclassification from latching a
+        # quiet board forever). Until released, latched squares carry NO evidence
+        # (z zeroed EVERY frame, previously only at taint time — a still hand outlived
+        # the 0.4 s timer and surfaced as "change").
+        _now = time.time()
+        for sq in list(self._tainted):
+            exp = self._tainted[sq]
+            if _now > exp and (self._last_motion_ts >= exp - self.motion_hold_s
+                               or z.get(sq, 0.0) < self.z_thr):
+                del self._tainted[sq]
+            else:
+                z[sq] = 0.0
         self._occluded_vetoed = sorted(self._motion_occluded_squares)
         self._motion_occluded_squares = set()
         self._occlusion_expiry = {sq: exp for sq, exp in self._occlusion_expiry.items()
@@ -2339,11 +2355,7 @@ class MoveTracker:
         if cens is not None:
             self.census_noise.update(cens, exclude=changed | shadow_veto,
                                      exclude_alpha_scale=0.125)
-        # Clean up expired tainted entries (set by baseline-absdiff occlusion).
-        _now = time.time()
-        for sq in list(self._tainted):
-            if _now > self._tainted[sq]:
-                del self._tainted[sq]
+        # (Taint release happens above in step 2 — motion-or-baseline gated, not timer-only.)
 
         # 5. LL-scoring + quiet/re-anchor. A move is viable only if BOTH endpoints carry at
         #    least weak evidence (z ≥ z_thr/2, Spec 10 part 1): otherwise a single hot square

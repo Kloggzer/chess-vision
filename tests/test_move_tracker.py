@@ -871,6 +871,37 @@ class TestRestingHandVeto:
         assert "e3" in mt._tainted and "e4" in mt._tainted   # latched as occluded
         assert mt.ref_gray is ref                            # re-anchor blocked (not baked in)
 
+    def test_taint_persists_without_motion_while_evidence_hot(self, monkeypatch):
+        """Latch invariant: no motion since the taint + square still differs from the
+        reference → the latch does NOT expire on the timer (a still hand cannot vanish)."""
+        mt = _make_tracker(monkeypatch, confirm_frames=1)
+        mt.ref_gray = _gray_frame([], base=128)
+        mt.ref_fen = mt.board.fen()
+        mt._motion_since_ref = True
+        mt._last_motion_ts = time.time() - 60          # last motion long BEFORE the taint
+        mt._tainted = {"e3": time.time() - 5}          # hold long expired
+        mt._try_detect(_gray_frame(["e3"], base=128))  # e3 still hot (hand still there)
+        assert "e3" in mt._tainted                     # latch survives — no motion since
+        assert mt.history == []
+
+    def test_taint_releases_on_motion_or_baseline(self, monkeypatch):
+        """Release path A: motion after the taint refresh → released at expiry.
+        Release path B: no motion, but the square matches the reference again → released."""
+        mt = _make_tracker(monkeypatch, confirm_frames=1)
+        mt.ref_gray = _gray_frame([], base=128)
+        mt.ref_fen = mt.board.fen()
+        mt._motion_since_ref = True
+        # A: motion AFTER the taint was last refreshed
+        mt._tainted = {"e3": time.time() - 5}
+        mt._last_motion_ts = time.time() - 1
+        mt._try_detect(_gray_frame(["e3"], base=128))
+        assert "e3" not in mt._tainted
+        # B: no motion since, but evidence back to baseline (square = reference)
+        mt._tainted = {"f5": time.time() - 5}
+        mt._last_motion_ts = time.time() - 60
+        mt._try_detect(_gray_frame([], base=128))      # f5 quiet again
+        assert "f5" not in mt._tainted
+
     def test_stale_snapshot_does_not_taint(self, monkeypatch):
         mt = _make_tracker(monkeypatch, confirm_frames=1)
         mt.ref_gray = _gray_frame([], base=128)
