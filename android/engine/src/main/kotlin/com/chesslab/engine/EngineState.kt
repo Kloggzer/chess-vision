@@ -31,10 +31,18 @@ internal class PromoPending(
 internal class EngineState {
     var game = Game()
     val noise = SquareNoise()
+
+    // Structural evidence channel: census change z-scored by its own noise model.
+    // init_std 8 (not the gray channel's 6): flat empty squares produce census tie-flip
+    // noise from frame one (sensor noise + CLAHE); starting wide keeps the channel quiet
+    // right after a baseline until the model has SEEN each square (slow lane converges
+    // within seconds; floor 2.5 keeps sensitivity — ports tracker.py census_noise).
+    val censusNoise = SquareNoise(initStd = CENSUS_INIT_STD, stdFloor = CENSUS_STD_FLOOR)
     var refGray: GrayImage? = null
     var refBgr: BgrImage? = null
     var refFen: String? = null
     var refCensus: ByteArray? = null
+    var refGamut: OcclusionGamut.Gamut? = null
     var state = "init"
     val history = mutableListOf<String>()
     var lastMove: String? = null
@@ -52,14 +60,21 @@ internal class EngineState {
     var priorLast = false
     var changed: List<String> = emptyList()
     var changedVals: List<Pair<String, Double>> = emptyList()
+    var structVals: List<Pair<String, Double>> = emptyList()
     var shadowVetoed: List<String> = emptyList()
     var occludedVetoed: List<String> = emptyList()
     val occlusionExpiry = mutableMapOf<String, Double>()
+
+    /** RAW (undilated) occluded core keep-alive — the occluded-state gate counts THIS set. */
+    val occlCoreExpiry = mutableMapOf<String, Double>()
     var motionOccluded: Set<String> = emptySet()
     val tainted = mutableMapOf<String, Double>()
     var pending: PendingVerify? = null
     var promoPending: PromoPending? = null
     var lastDecision: Decision? = null
+
+    /** Census codes of the current reference, cached (ports tracker.py `_ref_census_codes`). */
+    fun refCensusCodes(): ByteArray = refCensus ?: Census.transform(refGray!!).also { refCensus = it }
 
     fun markStuck(reason: String) {
         stuckCount = if (stuckReason == reason) stuckCount + 1 else 1
@@ -71,13 +86,24 @@ internal class EngineState {
         stuckCount = 0
     }
 
-    /** Set base truth as (image, FEN) pair; requires new motion before the next commit. */
+    /**
+     * Set base truth as (image, FEN) pair; requires new motion before the next commit.
+     * A quiet re-anchor (`fromCommit=false`) is a verifiably clean board: (re)build the color
+     * gamut the baseline occlusion classifier uses to tell flat hands from cast shadows
+     * (ports tracker.py `_set_ref` gamut rebuild, b3d3825).
+     */
     fun setRef(
         curGray: GrayImage,
         curBgr: BgrImage?,
+        fromCommit: Boolean = false,
     ) {
         refGray = curGray
-        if (curBgr != null) refBgr = curBgr
+        if (curBgr != null) {
+            refBgr = curBgr
+            if (!fromCommit) {
+                refGamut = OcclusionGamut.boardColorGamut(curBgr, BoardGeometry(curGray.width))
+            }
+        }
         refFen = game.fen()
         refCensus = null
         motionSinceRef = false
@@ -88,6 +114,7 @@ internal class EngineState {
         refBgr = null
         refFen = null
         refCensus = null
+        refGamut = null
     }
 
     /** Provenance snapshot of the evidence behind a decision (ports tracker.py:1777). */
@@ -127,7 +154,7 @@ internal class EngineState {
         }
         lastMove = uciOf(moves.last())
         lastDecision = decision
-        setRef(frame.first, frame.second)
+        setRef(frame.first, frame.second, fromCommit = true)
         state = "move"
         clearStuck()
         pending = null
@@ -136,5 +163,10 @@ internal class EngineState {
         note = "Move detected: ${sans.joinToString(" + ")}" +
             (if (priorUsed) " (decided by prior — undo if needed)" else "")
         if (game.result().checkmate) note += " — Checkmate!"
+    }
+
+    private companion object {
+        const val CENSUS_INIT_STD = 8.0
+        const val CENSUS_STD_FLOOR = 2.5
     }
 }

@@ -18,6 +18,7 @@ data class TrackerStatus(
     val motionSinceRef: Boolean,
     val changed: List<String>,
     val changedVals: List<Pair<String, Double>>,
+    val structVals: List<Pair<String, Double>> = emptyList(),
     val shadowVetoed: List<String>,
     val occludedVetoed: List<String>,
     val tainted: List<String>,

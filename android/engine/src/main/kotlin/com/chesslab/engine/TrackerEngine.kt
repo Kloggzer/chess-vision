@@ -60,6 +60,7 @@ class TrackerEngine(
                 motionSinceRef = state.motionSinceRef,
                 changed = state.changed,
                 changedVals = state.changedVals,
+                structVals = state.structVals,
                 shadowVetoed = state.shadowVetoed,
                 occludedVetoed = state.occludedVetoed,
                 tainted = state.tainted.keys.sorted(),
@@ -100,7 +101,7 @@ class TrackerEngine(
             }
         prevGray = gray
         state.motion = motion
-        refreshOcclusion(gray, now)
+        refreshOcclusion(gray, bgr, now)
         if (motion > config.motionThr) handleMotionSpike(now) else handleStableFrame(gray, bgr, now, events)
         val public = publicState()
         if (public != lastPublicState) {
@@ -125,19 +126,28 @@ class TrackerEngine(
      */
     private fun refreshOcclusion(
         gray: GrayImage,
+        bgr: BgrImage,
         now: Double,
     ) {
         val ref = state.refGray
         if (ref != null && state.state !in listOf("waiting", "move") && ref.data.size == gray.data.size) {
-            val (occ, shadow) =
+            val result =
                 Motion.baselineOcclusionAndShadow(
                     gray,
                     ref,
                     BoardGeometry(gray.width),
                     config.motionPxThr * OCC_THR_FACTOR,
+                    Motion.StructuralInputs(
+                        refCodes = state.refCensusCodes(),
+                        occlCensusThr = config.occlCensusThr,
+                        curBgr = bgr,
+                        gamut = state.refGamut,
+                        colorThr = config.occlusionColorThr,
+                    ),
                 )
-            for (sq in occ) state.occlusionExpiry[sq] = now + OCC_KEEPALIVE_S
-            state.shadowVetoed = shadow.sorted()
+            for (sq in result.occluded) state.occlusionExpiry[sq] = now + OCC_KEEPALIVE_S
+            for (sq in result.core) state.occlCoreExpiry[sq] = now + OCC_KEEPALIVE_S
+            state.shadowVetoed = result.shadow.sorted()
         }
         state.motionOccluded = state.occlusionExpiry.filterValues { now < it }.keys
         state.occludedVetoed = state.motionOccluded.sorted()
@@ -182,7 +192,12 @@ class TrackerEngine(
             state.refGray == null && ready -> state.setRef(cur, curBgr)
             // Initial/re-capture of base truth: only from a clear, settled view.
             state.refGray == null -> state.note = "waiting for clear view of the board…"
-            ready && state.state != "move" && state.motionOccluded.size > 2 -> state.state = "occluded"
+            // Gate on the RAW occluded core, not the dilated set: a single strong square
+            // (piece arrival) dilates to 5 and would lock the occluded state — detection
+            // must see piece-like changes (ports tracker.py 8c30888).
+            ready &&
+                state.state != "move" &&
+                state.occlCoreExpiry.count { now < it.value } > 2 -> state.state = "occluded"
             ready && state.state != "move" -> detector.tryDetect(cur, curBgr, now, events)
             else -> Unit
         }
@@ -199,6 +214,7 @@ class TrackerEngine(
         state.promoPending = null
         state.tainted.clear()
         state.occlusionExpiry.clear()
+        state.occlCoreExpiry.clear()
         state.motionOccluded = emptySet()
         state.priorLast = false
         state.lastDecision = null
