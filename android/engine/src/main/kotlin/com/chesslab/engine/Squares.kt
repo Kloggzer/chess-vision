@@ -35,19 +35,23 @@ object Squares {
     val all: List<String> = (1..DIM).flatMap { r -> FILES.map { f -> "$f$r" } }
 
     /** Orthogonal neighbours per square (ports tracker.py `_SQ_NEIGHBOURS`). */
-    val neighbours: Map<String, List<String>> = all.associateWith { sq ->
-        val f = FILES.indexOf(sq[0])
-        val r = sq[1].digitToInt()
-        buildList {
-            if (r < DIM) add("${sq[0]}${r + 1}")
-            if (r > 1) add("${sq[0]}${r - 1}")
-            if (f > 0) add("${FILES[f - 1]}$r")
-            if (f < DIM - 1) add("${FILES[f + 1]}$r")
+    val neighbours: Map<String, List<String>> =
+        all.associateWith { sq ->
+            val f = FILES.indexOf(sq[0])
+            val r = sq[1].digitToInt()
+            buildList {
+                if (r < DIM) add("${sq[0]}${r + 1}")
+                if (r > 1) add("${sq[0]}${r - 1}")
+                if (f > 0) add("${FILES[f - 1]}$r")
+                if (f < DIM - 1) add("${FILES[f + 1]}$r")
+            }
         }
-    }
 
     /** Square 'e4' -> (col, row) in the rectified image, origin top left (calibration.py:225). */
-    fun colRow(square: String, whitePov: Boolean): Pair<Int, Int> {
+    fun colRow(
+        square: String,
+        whitePov: Boolean,
+    ): Pair<Int, Int> {
         val sq = square.trim().lowercase()
         require(sq.length == 2 && sq[0] in FILES && sq[1] in '1'..'8') { "invalid square: $square" }
         val col = FILES.indexOf(sq[0])
@@ -59,7 +63,11 @@ object Squares {
      * Pixel box of the cell, slightly inset; `extendUp` (fraction of cell) extends the box toward
      * the top of the image — 3D pieces protrude there (ports tracker.py:68 `square_region`).
      */
-    fun region(square: String, geom: BoardGeometry, inset: Double = DEFAULT_INSET): Box {
+    fun region(
+        square: String,
+        geom: BoardGeometry,
+        inset: Double = DEFAULT_INSET,
+    ): Box {
         val (col, row) = colRow(square, geom.whitePov)
         val cell = geom.boardSize / DIM.toDouble()
         val m = cell * inset

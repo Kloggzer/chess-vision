@@ -29,27 +29,35 @@ object ShadowVeto {
         for (sq in candidates) {
             val box = Squares.region(sq, geom)
             if (box.area <= 0) continue
-            var shadowPx = 0
-            var total = 0
-            var sumVr = 0.0
-            var sumVc = 0.0
-            for (y in box.y0 until box.y1) {
-                for (x in box.x0 until box.x1) {
-                    val i = (y * refBgr.width + x) * CHANNELS
-                    val hr = ColorSpace.bgrToHsv(refBgr.data[i].px(), refBgr.data[i + 1].px(), refBgr.data[i + 2].px())
-                    val hc = ColorSpace.bgrToHsv(curBgr.data[i].px(), curBgr.data[i + 1].px(), curBgr.data[i + 2].px())
-                    val ratio = hc[2] / (hr[2] + V_EPS)
-                    var dh = kotlin.math.abs(hc[0] - hr[0])
-                    dh = minOf(dh, HUE_RANGE - dh)
-                    val ds = hc[1] - hr[1]
-                    if (ratio in V_LO..V_HI && dh <= H_TOL && ds <= S_TOL) shadowPx++
-                    total++
-                    sumVr += hr[2]
-                    sumVc += hc[2]
-                }
-            }
-            if (total > 0 && shadowPx.toDouble() / total >= FRAC && sumVc < sumVr) out.add(sq)
+            val (shadowFrac, dv) = boxStats(refBgr, curBgr, box)
+            if (shadowFrac >= FRAC && dv < 0) out.add(sq)
         }
         return out
+    }
+
+    /** (fraction of shadow-classified pixels, sum of V decrease) over one box. */
+    private fun boxStats(
+        refBgr: BgrImage,
+        curBgr: BgrImage,
+        box: Box,
+    ): Pair<Double, Double> {
+        var shadowPx = 0
+        var total = 0
+        var dv = 0.0
+        for (y in box.y0 until box.y1) {
+            for (x in box.x0 until box.x1) {
+                val i = (y * refBgr.width + x) * CHANNELS
+                val hr = ColorSpace.bgrToHsv(refBgr.data[i].px(), refBgr.data[i + 1].px(), refBgr.data[i + 2].px())
+                val hc = ColorSpace.bgrToHsv(curBgr.data[i].px(), curBgr.data[i + 1].px(), curBgr.data[i + 2].px())
+                val ratio = hc[2] / (hr[2] + V_EPS)
+                var dh = kotlin.math.abs(hc[0] - hr[0])
+                dh = minOf(dh, HUE_RANGE - dh)
+                val ds = hc[1] - hr[1]
+                if (ratio in V_LO..V_HI && dh <= H_TOL && ds <= S_TOL) shadowPx++
+                total++
+                dv += hc[2] - hr[2]
+            }
+        }
+        return (if (total > 0) shadowPx.toDouble() / total else 0.0) to dv
     }
 }

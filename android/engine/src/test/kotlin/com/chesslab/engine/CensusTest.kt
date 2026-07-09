@@ -12,16 +12,17 @@ class CensusTest {
         val d = ByteArray(64)
         for (y in 0 until 8) for (x in 0 until 8) d[y * 8 + x] = ((x * 31 + y * 17) % 256).toByte()
         val codes = Census.transform(GrayImage(8, 8, d))
-        val expected = intArrayOf(
-            0, 41, 41, 41, 41, 41, 41, 41,
-            3, 43, 43, 43, 43, 43, 43, 47,
-            3, 43, 43, 43, 43, 43, 171, 239,
-            3, 43, 43, 43, 43, 43, 187, 0,
-            3, 43, 43, 43, 43, 171, 255, 38,
-            3, 43, 43, 43, 171, 251, 32, 46,
-            3, 43, 43, 43, 187, 0, 42, 47,
-            3, 43, 43, 43, 191, 2, 43, 47,
-        )
+        val expected =
+            (
+                "0 41 41 41 41 41 41 41 " +
+                    "3 43 43 43 43 43 43 47 " +
+                    "3 43 43 43 43 43 171 239 " +
+                    "3 43 43 43 43 43 187 0 " +
+                    "3 43 43 43 43 171 255 38 " +
+                    "3 43 43 43 171 251 32 46 " +
+                    "3 43 43 43 187 0 42 47 " +
+                    "3 43 43 43 191 2 43 47"
+            ).split(" ").map { it.toInt() }.toIntArray()
         assertArrayEquals(expected, IntArray(codes.size) { codes[it].px() })
     }
 

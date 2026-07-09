@@ -15,7 +15,9 @@ const val STARTPOS = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
  * chesslib `Board` wrapper: FEN, legal moves, SAN, game-over (ports the python-chess usage
  * in tracker.py:595,1741). All squares are referenced as lowercase "a1".."h8".
  */
-class Game(fen: String = STARTPOS) {
+class Game(
+    fen: String = STARTPOS,
+) {
     private val board = Board()
 
     init {
@@ -52,11 +54,20 @@ class Game(fen: String = STARTPOS) {
         return list.toSanArray().toList()
     }
 
-    fun isCheckmate(): Boolean = board.isMated
-
-    fun isGameOver(): Boolean = board.isMated || board.isDraw
-
-    fun isCheck(): Boolean = board.isKingAttacked
+    /** Check / checkmate / game-over flags of the current position. */
+    fun result(): GameResult =
+        GameResult(
+            inCheck = board.isKingAttacked,
+            checkmate = board.isMated,
+            over = board.isMated || board.isDraw,
+        )
 
     fun copy(): Game = Game(board.fen)
 }
+
+/** Terminal-state flags of a position. */
+data class GameResult(
+    val inCheck: Boolean,
+    val checkmate: Boolean,
+    val over: Boolean,
+)

@@ -5,16 +5,25 @@ import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerConfig
 import com.github.bhlangonijr.chesslib.move.Move
 
+/** Best/second-best viable hypothesis of one frame. */
+internal data class TopScore(
+    val obsMove: Move?,
+    val best: Double,
+    val second: Double,
+)
+
 /** Score evidence of one stable frame, shared between hypothesis generation and dispatch. */
 internal class Evidence(
     val z: Map<String, Double>,
     val scored: List<Pair<Move, Double>>,
     val viable: List<Pair<Move, Double>>,
     val changed: Set<String>,
-    val obsMove: Move?,
-    val best: Double,
-    val second: Double,
-)
+    val top: TopScore,
+) {
+    val obsMove: Move? get() = top.obsMove
+    val best: Double get() = top.best
+    val second: Double get() = top.second
+}
 
 /** Result of turning evidence into exactly one candidate — or a handled non-candidate frame. */
 internal sealed interface HypothesisOutcome {
@@ -28,13 +37,21 @@ internal sealed interface HypothesisOutcome {
     ) : HypothesisOutcome
 
     /** No candidate; reason is "too_many_changed" or "no_legal_move" (recovery triggers). */
-    data class Stuck(val reason: String, val note: String) : HypothesisOutcome
+    data class Stuck(
+        val reason: String,
+        val note: String,
+    ) : HypothesisOutcome
 
     /** Genuine ambiguity the prior could not break. */
-    data class Ambiguous(val note: String) : HypothesisOutcome
+    data class Ambiguous(
+        val note: String,
+    ) : HypothesisOutcome
 
     /** Promotion detected without a safeguard: the user must choose the piece. */
-    data class Promotion(val fromSquare: String, val toSquare: String) : HypothesisOutcome
+    data class Promotion(
+        val fromSquare: String,
+        val toSquare: String,
+    ) : HypothesisOutcome
 }
 
 /**
@@ -48,7 +65,11 @@ internal class HypothesisGenerator(
 ) {
     private val slack = 2
 
-    fun generate(game: Game, ev: Evidence, blockedN: Int): HypothesisOutcome {
+    fun generate(
+        game: Game,
+        ev: Evidence,
+        blockedN: Int,
+    ): HypothesisOutcome {
         val tooMany = ev.changed.size + blockedN > config.maxChanged
         return when {
             tooMany -> tooManyChanged(game, ev, blockedN)
@@ -56,7 +77,11 @@ internal class HypothesisGenerator(
         }
     }
 
-    private fun tooManyChanged(game: Game, ev: Evidence, blockedN: Int): HypothesisOutcome {
+    private fun tooManyChanged(
+        game: Game,
+        ev: Evidence,
+        blockedN: Int,
+    ): HypothesisOutcome {
         if (blockedN == 0 && ev.changed.size <= config.maxChanged + slack) {
             pairCandidate(game, ev.z, ev.best)?.let { return it }
         }
@@ -67,47 +92,70 @@ internal class HypothesisGenerator(
         )
     }
 
-    private fun normalHypothesis(game: Game, ev: Evidence): HypothesisOutcome {
+    private fun normalHypothesis(
+        game: Game,
+        ev: Evidence,
+    ): HypothesisOutcome {
         // Pair check BEFORE the single commit only with a safeguard: it goes pending and must
         // match the post-pair position. Without one, a garbage pair covering residue squares
         // outscores the true single — keep the conservative order there.
         val earlyPair = if (safeguardActive()) pairCandidate(game, ev.z, ev.best) else null
+        val obs = ev.top.obsMove
         return when {
             earlyPair != null -> earlyPair
-            ev.obsMove == null || ev.best < 0.0 -> noSingleMove(game, ev)
+            obs == null || ev.best < 0.0 -> noSingleMove(game, ev)
             ev.best - ev.second < config.ambiguityMarginLl -> resolveAmbiguity(game, ev)
-            else -> HypothesisOutcome.Candidate(listOf(ev.obsMove), priorUsed = false, vote = true)
+            else -> HypothesisOutcome.Candidate(listOf(obs), priorUsed = false, vote = true)
         }
     }
 
-    private fun noSingleMove(game: Game, ev: Evidence): HypothesisOutcome {
+    private fun noSingleMove(
+        game: Game,
+        ev: Evidence,
+    ): HypothesisOutcome {
         val pair = if (!safeguardActive()) pairCandidate(game, ev.z, ev.best) else null
-        val endpoint = if (safeguardActive()) singleEndpointCandidate(game, ev.z, ev.scored) else null
+        val endpoint = if (safeguardActive()) singleEndpointCandidate(ev.z, ev.scored) else null
         return when {
             pair != null -> pair
-            endpoint != null -> HypothesisOutcome.Candidate(
-                listOf(endpoint),
-                priorUsed = false,
-                vote = false,
-                note = "low-contrast move ${game.san(endpoint)}? verifying via safeguard…",
-            )
-            else -> HypothesisOutcome.Stuck(
-                "no_legal_move",
-                "Change on ${ev.changed.size} squares, but no legal move fits — " +
-                    "possible wrong move, base truth unchanged (resync needed?)",
-            )
+            endpoint != null ->
+                HypothesisOutcome.Candidate(
+                    listOf(endpoint),
+                    priorUsed = false,
+                    vote = false,
+                    note = "low-contrast move ${game.san(endpoint)}? verifying via safeguard…",
+                )
+            else ->
+                HypothesisOutcome.Stuck(
+                    "no_legal_move",
+                    "Change on ${ev.changed.size} squares, but no legal move fits — " +
+                        "possible wrong move, base truth unchanged (resync needed?)",
+                )
         }
     }
 
-    private fun resolveAmbiguity(game: Game, ev: Evidence): HypothesisOutcome {
+    private fun resolveAmbiguity(
+        game: Game,
+        ev: Evidence,
+    ): HypothesisOutcome {
         val near = ev.viable.filter { (_, s) -> ev.best - s < config.ambiguityMarginLl }
-        val allPromoSameCell = near.isNotEmpty() && near.all { MoveScoring.isPromotion(it.first) } &&
-            near.map { it.first.from to it.first.to }.toSet().size == 1
+        val allPromoSameCell =
+            near.isNotEmpty() &&
+                near.all { MoveScoring.isPromotion(it.first) } &&
+                near.map { it.first.from to it.first.to }.toSet().size == 1
         return when {
-            allPromoSameCell && !safeguardActive() -> HypothesisOutcome.Promotion(
-                near.first().first.from.value().lowercase(),
-                near.first().first.to.value().lowercase(),
-            )
+            allPromoSameCell && !safeguardActive() ->
+                HypothesisOutcome.Promotion(
+                    near
+                        .first()
+                        .first.from
+                        .value()
+                        .lowercase(),
+                    near
+                        .first()
+                        .first.to
+                        .value()
+                        .lowercase(),
+                )
             // With a safeguard the best variant (default queen) goes to verify, which corrects it.
             allPromoSameCell -> HypothesisOutcome.Candidate(listOf(ev.obsMove!!), priorUsed = false, vote = true)
             config.usePrior -> priorTieBreak(game, near)
@@ -115,15 +163,21 @@ internal class HypothesisGenerator(
         }
     }
 
-    private fun priorTieBreak(game: Game, near: List<Pair<Move, Double>>): HypothesisOutcome {
-        val rescored = near.map { (mv, s) -> mv to s + MoveScoring.movePrior(game, mv) }
-            .sortedByDescending { it.second }
+    private fun priorTieBreak(
+        game: Game,
+        near: List<Pair<Move, Double>>,
+    ): HypothesisOutcome {
+        val rescored =
+            near
+                .map { (mv, s) -> mv to s + MoveScoring.movePrior(game, mv) }
+                .sortedByDescending { it.second }
         return if (rescored.size > 1 && rescored[0].second - rescored[1].second >= config.ambiguityMarginLl) {
             HypothesisOutcome.Candidate(listOf(rescored[0].first), priorUsed = true, vote = true)
         } else {
-            val shown = near.take(NEAR_SHOWN).joinToString(" / ") { (mv, s) ->
-                "${game.san(mv)} (${String.format(java.util.Locale.ROOT, "%+.1f", s)})"
-            }
+            val shown =
+                near.take(NEAR_SHOWN).joinToString(" / ") { (mv, s) ->
+                    "${game.san(mv)} (${String.format(java.util.Locale.ROOT, "%+.1f", s)})"
+                }
             HypothesisOutcome.Ambiguous("ambiguous: $shown — please move cleanly / wait briefly")
         }
     }
@@ -132,7 +186,11 @@ internal class HypothesisGenerator(
      * Fast play: 2 half-moves in one settle window. Candidate only when the best pair clearly
      * beats the best single AND the second-best pair (ports tracker.py:2239 `_pair_candidate`).
      */
-    fun pairCandidate(game: Game, z: Map<String, Double>, bestSingle: Double): HypothesisOutcome.Candidate? {
+    fun pairCandidate(
+        game: Game,
+        z: Map<String, Double>,
+        bestSingle: Double,
+    ): HypothesisOutcome.Candidate? {
         val pairs = MoveScoring.loglikPairScores(game, z, config.zThr)
         if (pairs.isEmpty()) return null
         val (seq, best) = pairs.first()
@@ -155,14 +213,19 @@ internal class HypothesisGenerator(
      * gate — low-contrast vacated square); safeguard-verified candidates only
      * (ports tracker.py:2283 `_single_endpoint_candidate`).
      */
-    fun singleEndpointCandidate(game: Game, z: Map<String, Double>, scored: List<Pair<Move, Double>>): Move? {
+    fun singleEndpointCandidate(
+        z: Map<String, Double>,
+        scored: List<Pair<Move, Double>>,
+    ): Move? {
         val strong = Squares.all.filter { (z[it] ?: 0.0) >= config.zThr }
         if (strong.size != 1) return null
         val cands = scored.filter { (mv, sc) -> mv.to.value().lowercase() == strong.single() && sc > 0.0 }
         val bestMv = cands.firstOrNull()
-        val ambiguous = bestMv != null && cands.drop(1).any { (mv, sc) ->
-            mv.to != bestMv.first.to && bestMv.second - sc < config.ambiguityMarginLl
-        }
+        val ambiguous =
+            bestMv != null &&
+                cands.drop(1).any { (mv, sc) ->
+                    mv.to != bestMv.first.to && bestMv.second - sc < config.ambiguityMarginLl
+                }
         return if (bestMv == null || ambiguous) null else bestMv.first
     }
 
@@ -177,7 +240,9 @@ internal class HypothesisGenerator(
  * `_maybe_patch_anomaly`): squares persistently "changed" although no viable move explains
  * them are individually pulled forward in the reference (cell patch).
  */
-internal class AnomalyPatcher(private val config: TrackerConfig) {
+internal class AnomalyPatcher(
+    private val config: TrackerConfig,
+) {
     private val since = mutableMapOf<String, Double>()
     private val slack = 2
 
@@ -216,17 +281,26 @@ internal class AnomalyPatcher(private val config: TrackerConfig) {
     }
 
     /** Patch the SAME pixels the diff looks at (inset 0, incl. overhang). */
-    private fun patchCell(sq: String, frames: Frames, geom: BoardGeometry) {
+    private fun patchCell(
+        sq: String,
+        frames: Frames,
+        geom: BoardGeometry,
+    ) {
         val box = Squares.region(sq, geom, inset = 0.0)
         val w = frames.curGray.width
         for (y in box.y0 until box.y1) {
-            for (x in box.x0 until box.x1) {
-                frames.refGray.data[y * w + x] = frames.curGray.data[y * w + x]
-                if (frames.refBgr != null && frames.curBgr != null) {
-                    val i = (y * w + x) * CHANNELS
-                    for (c in 0 until 3) frames.refBgr.data[i + c] = frames.curBgr.data[i + c]
-                }
-            }
+            for (x in box.x0 until box.x1) copyPixel(frames, y * w + x)
+        }
+    }
+
+    private fun copyPixel(
+        frames: Frames,
+        idx: Int,
+    ) {
+        frames.refGray.data[idx] = frames.curGray.data[idx]
+        if (frames.refBgr != null && frames.curBgr != null) {
+            val i = idx * CHANNELS
+            for (c in 0 until CHANNELS) frames.refBgr.data[i + c] = frames.curBgr.data[i + c]
         }
     }
 }

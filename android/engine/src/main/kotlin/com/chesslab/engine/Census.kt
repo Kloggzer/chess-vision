@@ -12,27 +12,31 @@ object Census {
      * opposite image side. Bit order matches the Python loop (dy, dx) row-major, center skipped.
      */
     fun transform(gray: GrayImage): ByteArray {
-        val w = gray.width
-        val h = gray.height
-        val out = ByteArray(w * h)
-        for (y in 0 until h) {
-            for (x in 0 until w) {
-                val c = gray.data[y * w + x].px()
-                var code = 0
-                var bit = 0
-                for (dy in -1..1) {
-                    for (dx in -1..1) {
-                        if (dx == 0 && dy == 0) continue
-                        val ny = (y + dy).coerceIn(0, h - 1)
-                        val nx = (x + dx).coerceIn(0, w - 1)
-                        if (c > gray.data[ny * w + nx].px()) code = code or (1 shl bit)
-                        bit++
-                    }
-                }
-                out[y * w + x] = code.toByte()
-            }
+        val out = ByteArray(gray.width * gray.height)
+        for (y in 0 until gray.height) {
+            for (x in 0 until gray.width) out[y * gray.width + x] = codeAt(gray, x, y)
         }
         return out
+    }
+
+    private fun codeAt(
+        gray: GrayImage,
+        x: Int,
+        y: Int,
+    ): Byte {
+        val c = gray.data[y * gray.width + x].px()
+        var code = 0
+        var bit = 0
+        for (dy in -1..1) {
+            for (dx in -1..1) {
+                if (dx == 0 && dy == 0) continue
+                val ny = (y + dy).coerceIn(0, gray.height - 1)
+                val nx = (x + dx).coerceIn(0, gray.width - 1)
+                if (c > gray.data[ny * gray.width + nx].px()) code = code or (1 shl bit)
+                bit++
+            }
+        }
+        return code.toByte()
     }
 
     /**
