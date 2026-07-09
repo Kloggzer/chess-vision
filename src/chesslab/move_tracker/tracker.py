@@ -1842,9 +1842,24 @@ class MoveTracker:
                     _reject("ghost", "ghost",
                             "Verification timed out under occlusion — no move committed")
                 else:
-                    # Clear view, no contradiction, just not strongly confirmed → trust the diff.
-                    _commit("  (CNN uncertain — diff accepted)", "confirmed", "ok",
-                            decider="diff_after_verify")
+                    # Clear view, endpoints not strongly confirmed. Before trusting the diff,
+                    # check the WHOLE board against the POST-move position (b1→d4 illegal-move
+                    # incident, 2026-07-09: endpoint-local reasoning never looked at d4 — the
+                    # square the piece actually landed on — and "CNN uncertain, clear view"
+                    # accepted the best-legal fiction). Any occupancy conflict with the
+                    # post-move position → the move as believed did NOT happen → discard;
+                    # the desync alarm then surfaces the real conflict squares.
+                    after_board = board_snap.copy(stack=False)
+                    after_board.push(pend_mv)
+                    after = recovery.resync_check(after_board, obs)
+                    if after["conflicts"]:
+                        shown = ", ".join(after["conflicts"][:4])
+                        _reject("ghost", "ghost",
+                                f"Move not confirmed (board contradicts post-move position: "
+                                f"{shown}) — discarded", after["conflicts"])
+                    else:
+                        _commit("  (CNN uncertain — diff accepted)", "confirmed", "ok",
+                                decider="diff_after_verify")
             else:
                 self.note = (f"checking {self.board.san(pend_mv)} via CNN… "
                              f"({pending['frames']}/{self.verify_window})")
@@ -2274,6 +2289,20 @@ class MoveTracker:
             for sq in tainted:
                 z[sq] = 0.0
                 self._tainted[sq] = time.time() + self.motion_hold_s
+        # Resting-hand veto (2026-07-09, user-reported): the baseline occlusion detector
+        # only runs OUTSIDE the stable states (state gate in _loop) and skin sits inside
+        # the wood gamut — a motionless hand therefore surfaced as plain "change". The
+        # free-running observer sees it as the trained 'occluded' class: taint fresh
+        # occluded-dominant squares exactly like baseline occlusion (same latch → same
+        # re-anchor block, so the hand can never be baked into the reference).
+        snap = self._cnn_snap
+        if snap is not None and time.time() - snap.ts <= _OBS_MAX_AGE_S:
+            p_occl = getattr(snap.obs, "p_occluded", None)
+            if p_occl:
+                for sq, p in p_occl.items():
+                    if p > 0.5:
+                        z[sq] = 0.0
+                        self._tainted[sq] = time.time() + self.motion_hold_s
         self._occluded_vetoed = sorted(self._motion_occluded_squares)
         self._motion_occluded_squares = set()
         self._occlusion_expiry = {sq: exp for sq, exp in self._occlusion_expiry.items()
@@ -2366,8 +2395,12 @@ class MoveTracker:
         #    stuck/ambiguous state). Every candidate — single, pair, endpoint — continues
         #    through the SAME motion gate and dispatch below (previously the pair path
         #    committed directly and skipped both).
+        # Invariant: occlusion-latched squares ALWAYS count toward max_changed — a hand
+        # whose squares were z-zeroed must not leave 4-6 "clean" squares that read like
+        # a legal move (this failure mode has recurred; see memory/spec 09 notes).
         cand = self._generate_hypothesis(z, scored, viable, changed, obs_move, best, second,
-                                         cur, cur_bgr, shadow_veto=shadow_veto)
+                                         cur, cur_bgr, shadow_veto=shadow_veto,
+                                         blocked_n=len(self._tainted))
         if cand is None:
             return
         moves = cand["moves"]

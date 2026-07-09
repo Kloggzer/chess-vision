@@ -843,6 +843,44 @@ class TestBaseTruthDetect:
         assert mt.history == []
 
 
+class TestRestingHandVeto:
+    """CNN occluded-class veto: a motionless hand (no motion → stable state → baseline
+    occlusion detector NOT running, skin inside the wood gamut) must not surface as
+    'change' — the free-running observer's fresh snapshot taints it (2026-07-09)."""
+
+    @staticmethod
+    def _occl_obs(squares, p=0.9):
+        import types
+        return types.SimpleNamespace(p_occluded=dict.fromkeys(squares, p))
+
+    def _snap(self, mt, squares, age_s=0.0):
+        return CnnSnapshot(obs=self._occl_obs(squares), seq=0,
+                           ts=time.time() - age_s, infer_ms=0.0,
+                           warped=None, gray=None, fen=mt.board.fen())
+
+    def test_resting_hand_taints_and_blocks_reanchor(self, monkeypatch):
+        mt = _make_tracker(monkeypatch, confirm_frames=1)
+        mt.ref_gray = _gray_frame([], base=128)
+        mt.ref_fen = mt.board.fen()
+        mt._cnn_snap = self._snap(mt, ["e3", "e4"])          # fresh: hand seen by CNN
+        ref = mt.ref_gray
+        mt._motion_since_ref, mt._last_motion_ts = True, time.time()
+        cur = _gray_frame(["e3", "e4"], base=128)            # hand shows as hot squares
+        mt._try_detect(cur)
+        assert mt.history == []                              # no phantom move
+        assert "e3" in mt._tainted and "e4" in mt._tainted   # latched as occluded
+        assert mt.ref_gray is ref                            # re-anchor blocked (not baked in)
+
+    def test_stale_snapshot_does_not_taint(self, monkeypatch):
+        mt = _make_tracker(monkeypatch, confirm_frames=1)
+        mt.ref_gray = _gray_frame([], base=128)
+        mt.ref_fen = mt.board.fen()
+        mt._cnn_snap = self._snap(mt, ["e3", "e4"], age_s=10.0)   # stale → ignored
+        mt._motion_since_ref, mt._last_motion_ts = True, time.time()
+        mt._try_detect(_gray_frame(["e3", "e4"], base=128))
+        assert not mt._tainted                               # no taint from stale data
+
+
 class _FakeObs:
     """Minimal OccupancyObservation stub: per-square occupancy + confidence dicts."""
 
@@ -861,10 +899,11 @@ class _FakeRecovery:
 
     def __init__(self, match=False, occ_agree=0.0, occ_n=2, derive_move=None,
                  derive_agreement=0.99, min_agreement=0.97, conf_thr=0.85,
-                 occ=None, conf=None):
+                 occ=None, conf=None, conflicts=None):
         self.match, self.occ_agree, self.occ_n = match, occ_agree, occ_n
         self.derive_move, self.derive_agreement = derive_move, derive_agreement
         self.min_agreement, self.conf_thr = min_agreement, conf_thr
+        self.conflicts = list(conflicts or [])   # occupancy conflicts vs ANY checked board
         # Default endpoints for candidate e2e4: to occupied+confident, from empty+confident.
         self._occ = occ if occ is not None else {"e4": True, "e2": False}
         self._conf = conf if conf is not None else {"e4": True, "e2": True}
@@ -876,7 +915,8 @@ class _FakeRecovery:
         return self.occ_agree, self.occ_n
 
     def resync_check(self, board, obs):
-        return {"match": self.match, "conflicts": [], "move": self.derive_move,
+        return {"match": self.match, "conflicts": list(self.conflicts),
+                "move": self.derive_move,
                 "agreement": self.derive_agreement if self.derive_move else 0.0}
 
 
@@ -1032,6 +1072,21 @@ class TestCnnVerify:
         for _ in range(2):
             mt._verify_tick(_mk_snap(mt))
         assert mt.history == []                            # verworfen, kein Zug
+        assert mt._pending is None
+        assert mt._verify_state == "ghost"
+
+    def test_fallback_rejects_when_postmove_board_contradicts(self, monkeypatch):
+        """Regression (b1→d4 illegal move, 2026-07-09): knight physically on d4 (illegal),
+        pending = best-legal fiction. Endpoints stay weak all window, but the board-level
+        check vs the POST-move position has an occupancy conflict (d4 occupied where empty
+        expected) → the 'CNN uncertain — diff accepted' fallback must DISCARD, not commit."""
+        mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0,
+                              occ={"e4": False, "e2": False},
+                              conf={"e4": False, "e2": True},
+                              conflicts=["d4"], verify_window=2)
+        for _ in range(2):
+            mt._verify_tick(_mk_snap(mt))
+        assert mt.history == []
         assert mt._pending is None
         assert mt._verify_state == "ghost"
 
