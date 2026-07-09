@@ -1,5 +1,6 @@
 package com.chesslab.tracker.service
 
+import com.chesslab.engine.Game
 import com.chesslab.engine.STARTPOS
 import com.chesslab.engine.TrackerEngine
 import com.chesslab.engine.api.AlarmState
@@ -11,6 +12,7 @@ import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
 import com.chesslab.engine.api.VerifyVerdict
+import com.chesslab.tracker.ui.AlarmUi
 import com.chesslab.tracker.ui.DebugSnapshot
 import com.chesslab.tracker.ui.MoveAnnouncement
 import com.chesslab.tracker.ui.MoveEntry
@@ -130,7 +132,6 @@ class TrackerCoordinator(
         engine.reportObservation(squares)
     }
 
-
     /** Phase 05 wiring: CNN found the stuck board unchanged — pull the reference forward. */
     fun pullReferenceForward(
         fenBefore: String,
@@ -218,6 +219,7 @@ class TrackerCoordinator(
                 gameOver = status.gameOver,
                 promotion = status.promotionPending?.let { PromotionRequest(it.first, it.second) },
                 announcement = announcement,
+                alarm = status.alarm?.let { AlarmUi(alarmDetail(status.fen, it)) },
                 debug = debugOf(status),
             )
     }
@@ -244,4 +246,38 @@ class TrackerCoordinator(
         const val NS_PER_S = 1e9
         const val FPS_ALPHA = 0.2
     }
+}
+
+private const val UCI_LEN = 4
+private const val SHOWN_CONFLICTS = 4
+
+/**
+ * Human-readable description of the suspected illegal move (ports
+ * `_build_alarm_guess_san`), falling back to the conflict-square list.
+ */
+internal fun alarmDetail(
+    fen: String,
+    alarm: AlarmState,
+): String {
+    val guessText = alarm.guessUci?.takeIf { it.length >= UCI_LEN }?.let { guessDetail(fen, it) }
+    if (guessText != null) return guessText
+    val shown = alarm.conflicts.take(SHOWN_CONFLICTS).joinToString(", ")
+    return if (alarm.conflicts.size > SHOWN_CONFLICTS) "$shown…" else shown
+}
+
+private fun guessDetail(
+    fen: String,
+    guess: String,
+): String {
+    val from = guess.substring(0, 2)
+    val to = guess.substring(2, UCI_LEN)
+    val piece =
+        runCatching { Game(fen).pieceCharAt(from) }.getOrNull()
+            ?: return "$from->$to"
+    val castleAttempt = piece.uppercaseChar() == 'K' && kotlin.math.abs(from[0] - to[0]) == 2
+    val rights = fen.split(" ").getOrNull(2).orEmpty()
+    val hasRights =
+        if (piece.isUpperCase()) rights.any { it == 'K' || it == 'Q' } else rights.any { it == 'k' || it == 'q' }
+    val reason = if (castleAttempt && !hasRights) "castling not available" else "illegal move suspected"
+    return "${piece.uppercaseChar()} $from->$to ($reason)"
 }

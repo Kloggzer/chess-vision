@@ -63,6 +63,8 @@ fun TrackingScreen(
 
         StatusChip(state = state.trackerState)
 
+        state.alarm?.let { AlarmBanner(it) }
+
         if (showDebug && overlayView != OverlayView.BOARD) {
             OverlayBoard(view = overlayView, bitmap = board, debug = state.debug, fen = state.fen)
         } else {
@@ -103,6 +105,60 @@ fun TrackingScreen(
                     }
                 }
             },
+        )
+    }
+}
+
+/**
+ * Referee alarm banner (ports the Python alarm banner, 455d066/f6960f8): red, a TalkBack
+ * live region, with a one-shot alert tone at most once per 30 s.
+ */
+@Suppress("ktlint:standard:function-naming", "FunctionNaming")
+@Composable
+private fun AlarmBanner(alarm: AlarmUi) {
+    val text = stringResource(R.string.alarm_banner, alarm.detail)
+    Card(
+        colors =
+            androidx.compose.material3.CardDefaults
+                .cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+    ) {
+        Text(
+            text = text,
+            color = MaterialTheme.colorScheme.onErrorContainer,
+            style = MaterialTheme.typography.titleMedium,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp)
+                    .semantics {
+                        liveRegion = LiveRegionMode.Assertive
+                        contentDescription = text
+                    },
+        )
+    }
+    androidx.compose.runtime.LaunchedEffect(Unit) { playAlarmTone() }
+}
+
+private var lastAlarmToneMs = 0L
+private const val ALARM_TONE_COOLDOWN_MS = 30_000L
+private const val ALARM_TONE_DURATION_MS = 400
+private const val TONE_RELEASE_SLACK_MS = 200L
+
+/** One-shot alert tone, at most once per 30 s (f6960f8 beep cooldown); no asset files. */
+private fun playAlarmTone() {
+    val now = android.os.SystemClock.elapsedRealtime()
+    if (now - lastAlarmToneMs < ALARM_TONE_COOLDOWN_MS) return
+    lastAlarmToneMs = now
+    runCatching {
+        val tone =
+            android.media.ToneGenerator(
+                android.media.AudioManager.STREAM_NOTIFICATION,
+                android.media.ToneGenerator.MAX_VOLUME,
+            )
+        tone.startTone(android.media.ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, ALARM_TONE_DURATION_MS)
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+            { tone.release() },
+            ALARM_TONE_DURATION_MS + TONE_RELEASE_SLACK_MS,
         )
     }
 }
