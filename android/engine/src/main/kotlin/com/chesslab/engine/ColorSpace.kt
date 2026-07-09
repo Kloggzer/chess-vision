@@ -14,6 +14,9 @@ internal object ColorSpace {
     private const val HALF_HUE = 30.0
     private const val FULL_HUE = 180.0
     private const val MAX8 = 255.0
+    private const val MAX8_I = 255
+    private const val GREEN_SECTOR = 2.0 * HALF_HUE
+    private const val BLUE_SECTOR = 4.0 * HALF_HUE
     private const val SRGB_CUT = 0.04045
     private const val SRGB_SLOPE = 12.92
     private const val SRGB_A = 0.055
@@ -40,23 +43,32 @@ internal object ColorSpace {
     private const val WHITE_Z = 1.088754
 
     /** (H 0..180, S 0..255, V 0..255) as doubles quantized like OpenCV uint8 HSV. */
-    fun bgrToHsv(b: Int, g: Int, r: Int): DoubleArray {
+    fun bgrToHsv(
+        b: Int,
+        g: Int,
+        r: Int,
+    ): DoubleArray {
         val v = maxOf(b, g, r)
         val mn = minOf(b, g, r)
         val diff = (v - mn).toDouble()
         val s = if (v == 0) 0.0 else (diff * MAX8 / v).roundToInt().toDouble()
-        var h = when {
-            diff == 0.0 -> 0.0
-            v == r -> HALF_HUE * (g - b) / diff
-            v == g -> HALF_HUE * 2 + HALF_HUE * (b - r) / diff
-            else -> HALF_HUE * 4 + HALF_HUE * (r - g) / diff
-        }
+        var h =
+            when {
+                diff == 0.0 -> 0.0
+                v == r -> HALF_HUE * (g - b) / diff
+                v == g -> GREEN_SECTOR + HALF_HUE * (b - r) / diff
+                else -> BLUE_SECTOR + HALF_HUE * (r - g) / diff
+            }
         if (h < 0) h += FULL_HUE
         return doubleArrayOf(h.roundToInt().toDouble() % FULL_HUE, s, v.toDouble())
     }
 
     /** OpenCV-style 8-bit Lab (D65, sRGB gamma); returns (L, a, b) quantized to integers. */
-    fun bgrToLab(b: Int, g: Int, r: Int): DoubleArray {
+    fun bgrToLab(
+        b: Int,
+        g: Int,
+        r: Int,
+    ): DoubleArray {
         val rl = srgbToLinear(r / MAX8)
         val gl = srgbToLinear(g / MAX8)
         val bl = srgbToLinear(b / MAX8)
@@ -71,14 +83,15 @@ internal object ColorSpace {
         val labA = LAB_A_SCALE * (fx - fy) + LAB_SHIFT
         val labB = LAB_B_SCALE * (fy - fz) + LAB_SHIFT
         return doubleArrayOf(
-            (labL * L_TO_8BIT).roundToInt().coerceIn(0, 255).toDouble(),
-            labA.roundToInt().coerceIn(0, 255).toDouble(),
-            labB.roundToInt().coerceIn(0, 255).toDouble(),
+            (labL * L_TO_8BIT).roundToInt().coerceIn(0, MAX8_I).toDouble(),
+            labA.roundToInt().coerceIn(0, MAX8_I).toDouble(),
+            labB.roundToInt().coerceIn(0, MAX8_I).toDouble(),
         )
     }
 
-    private fun srgbToLinear(c: Double): Double =
-        if (c <= SRGB_CUT) c / SRGB_SLOPE else ((c + SRGB_A) / (1.0 + SRGB_A)).pow(SRGB_GAMMA)
+    private fun srgbToLinear(c: Double): Double = if (c <= SRGB_CUT) c / SRGB_SLOPE else gammaExpand(c)
+
+    private fun gammaExpand(c: Double): Double = ((c + SRGB_A) / (1.0 + SRGB_A)).pow(SRGB_GAMMA)
 
     private fun fLab(t: Double): Double = if (t > LAB_EPS) cbrt(t) else LAB_KAPPA * t + LAB_OFF
 }

@@ -16,16 +16,20 @@ class HypothesisTest {
         return z
     }
 
-    private fun evidence(game: Game, z: Map<String, Double>): Evidence {
+    private fun evidence(
+        game: Game,
+        z: Map<String, Double>,
+    ): Evidence {
         val scored = MoveScoring.loglikScores(game, z, config.zThr)
         val soft = config.zThr / 2
-        val viable = scored.filter { (mv, _) ->
-            MoveScoring.moveTouchedSquares(game, mv).all { (z[it] ?: 0.0) >= soft }
-        }
+        val viable =
+            scored.filter { (mv, _) ->
+                MoveScoring.moveTouchedSquares(game, mv).all { (z[it] ?: 0.0) >= soft }
+            }
         val changed = z.filterValues { it >= config.zThr }.keys
         val (obs, best) = viable.firstOrNull() ?: (null to -1e9)
         val second = if (viable.size > 1) viable[1].second else -1e9
-        return Evidence(z, scored, viable, changed, obs, best, second)
+        return Evidence(z, scored, viable, changed, TopScore(obs, best, second))
     }
 
     @Test

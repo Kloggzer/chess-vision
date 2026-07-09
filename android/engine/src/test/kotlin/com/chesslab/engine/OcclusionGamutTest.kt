@@ -24,26 +24,28 @@ class OcclusionGamutTest {
     @Test
     fun `saturated occluder square is an outlier at live-tuned threshold`() {
         val gamut = OcclusionGamut.boardColorGamut(TestImages.bgrNeutral(), geom)
-        val out = OcclusionGamut.occlusionColorSquares(
-            TestImages.bgrNeutralOccluded(),
-            gamut,
-            geom,
-            setOf("d5", "e4", "a8"),
-            thr = 1.5,
-        )
+        val out =
+            OcclusionGamut.occlusionColorSquares(
+                TestImages.bgrNeutralOccluded(),
+                gamut,
+                geom,
+                setOf("d5", "e4", "a8"),
+                thr = 1.5,
+            )
         assertEquals(setOf("d5"), out)
     }
 
     @Test
     fun `rainbow board never flags its own colors`() {
         val gamut = OcclusionGamut.boardColorGamut(TestImages.bgrRef(), geom)
-        val out = OcclusionGamut.occlusionColorSquares(
-            TestImages.bgrRef(),
-            gamut,
-            geom,
-            setOf("d5", "e4", "a8"),
-            thr = 1.5,
-        )
+        val out =
+            OcclusionGamut.occlusionColorSquares(
+                TestImages.bgrRef(),
+                gamut,
+                geom,
+                setOf("d5", "e4", "a8"),
+                thr = 1.5,
+            )
         assertEquals(emptySet<String>(), out)
     }
 

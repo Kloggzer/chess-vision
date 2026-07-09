@@ -11,7 +11,11 @@ object Motion {
      * `pxThr` (0..100). A hand produces a compact region of strong diffs; global sub-pixel
      * wobble produces many tiny diffs, all below `pxThr` -> score ~0.
      */
-    fun motionScore(prevGray: GrayImage, curGray: GrayImage, pxThr: Double): Double {
+    fun motionScore(
+        prevGray: GrayImage,
+        curGray: GrayImage,
+        pxThr: Double,
+    ): Double {
         var hits = 0
         for (i in curGray.data.indices) {
             if (kotlin.math.abs(curGray.data[i].px() - prevGray.data[i].px()) > pxThr) hits++
@@ -34,9 +38,10 @@ object Motion {
         val base = BoardGeometry(geom.boardSize, geom.whitePov)
         val boxes = Squares.boxes(base)
         val w = curGray.width
-        val absDiff = IntArray(curGray.data.size) {
-            kotlin.math.abs(curGray.data[it].px() - refGray.data[it].px())
-        }
+        val absDiff =
+            IntArray(curGray.data.size) {
+                kotlin.math.abs(curGray.data[it].px() - refGray.data[it].px())
+            }
         val occMeans = SquareDiff.regionMeans(SquareDiff.integral(absDiff, w, curGray.height), w, boxes)
         val curVals = IntArray(curGray.data.size) { curGray.data[it].px() }
         val refVals = IntArray(refGray.data.size) { refGray.data[it].px() }

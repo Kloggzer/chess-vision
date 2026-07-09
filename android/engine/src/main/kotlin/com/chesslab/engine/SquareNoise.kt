@@ -16,7 +16,10 @@ class SquareNoise(
     val std: MutableMap<String, Double> = Squares.all.associateWith { initStd }.toMutableMap()
 
     /** Learn from a stable frame; `exclude` = current candidate/vetoed squares. */
-    fun update(diffs: Map<String, Double>, exclude: Set<String> = emptySet()) {
+    fun update(
+        diffs: Map<String, Double>,
+        exclude: Set<String> = emptySet(),
+    ) {
         for ((sq, d) in diffs) {
             if (sq in exclude) continue
             val m = mean.getValue(sq)
@@ -27,8 +30,12 @@ class SquareNoise(
     }
 
     /** z-scores of the given diffs against the model. */
-    fun z(diffs: Map<String, Double>): Map<String, Double> =
-        diffs.mapValues { (sq, d) -> (d - mean.getValue(sq)) / std.getValue(sq) }
+    fun z(diffs: Map<String, Double>): Map<String, Double> = diffs.mapValues { zOf(it.key, it.value) }
+
+    private fun zOf(
+        sq: String,
+        d: Double,
+    ): Double = (d - mean.getValue(sq)) / std.getValue(sq)
 
     companion object {
         const val DEFAULT_ALPHA: Double = 0.05

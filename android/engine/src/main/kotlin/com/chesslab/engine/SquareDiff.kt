@@ -8,7 +8,11 @@ object SquareDiff {
      * Mean absolute brightness difference per square between two rectified grayscale images.
      * `geom.boardSize` must equal the image size of both inputs.
      */
-    fun perSquareDiff(grayA: GrayImage, grayB: GrayImage, geom: BoardGeometry): Map<String, Double> {
+    fun perSquareDiff(
+        grayA: GrayImage,
+        grayB: GrayImage,
+        geom: BoardGeometry,
+    ): Map<String, Double> {
         require(grayA.width == grayB.width && grayA.height == grayB.height) { "image sizes differ" }
         val w = grayA.width
         val h = grayA.height
@@ -31,7 +35,11 @@ object SquareDiff {
     }
 
     /** Summed-area table with a zero top row/left column, shape (h+1) x (w+1). */
-    internal fun integral(values: IntArray, w: Int, h: Int): LongArray {
+    internal fun integral(
+        values: IntArray,
+        w: Int,
+        h: Int,
+    ): LongArray {
         val stride = w + 1
         val ii = LongArray(stride * (h + 1))
         for (y in 1..h) {
@@ -45,14 +53,19 @@ object SquareDiff {
     }
 
     /** Per-box means from an integral image; 0.0 for zero-area boxes (ports tracker.py:59). */
-    internal fun regionMeans(ii: LongArray, w: Int, boxes: List<Box>): List<Double> {
+    internal fun regionMeans(
+        ii: LongArray,
+        w: Int,
+        boxes: List<Box>,
+    ): List<Double> {
         val stride = w + 1
         return boxes.map { b ->
             if (b.area <= 0) {
                 0.0
             } else {
-                val s = ii[b.y1 * stride + b.x1] - ii[b.y0 * stride + b.x1] -
-                    ii[b.y1 * stride + b.x0] + ii[b.y0 * stride + b.x0]
+                val s =
+                    ii[b.y1 * stride + b.x1] - ii[b.y0 * stride + b.x1] -
+                        ii[b.y1 * stride + b.x0] + ii[b.y0 * stride + b.x0]
                 s.toDouble() / b.area
             }
         }

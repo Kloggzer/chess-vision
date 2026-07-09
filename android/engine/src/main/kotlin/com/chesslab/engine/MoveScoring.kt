@@ -7,11 +7,12 @@ import com.github.bhlangonijr.chesslib.move.Move
 
 /** UCI string of a chesslib move (e.g. "e2e4", "e7e8q"). */
 fun uciOf(move: Move): String {
-    val promo = if (move.promotion != null && move.promotion != Piece.NONE) {
-        move.promotion.fenSymbol.lowercase()
-    } else {
-        ""
-    }
+    val promo =
+        if (move.promotion != null && move.promotion != Piece.NONE) {
+            move.promotion.fenSymbol.lowercase()
+        } else {
+            ""
+        }
     return move.from.value().lowercase() + move.to.value().lowercase() + promo
 }
 
@@ -32,33 +33,48 @@ object MoveScoring {
     private const val QUEENSIDE_ROOK_TO = 3
 
     /** True when `move` castles (king moves two files). */
-    fun isCastling(game: Game, move: Move): Boolean {
+    fun isCastling(
+        game: Game,
+        move: Move,
+    ): Boolean {
         val piece = game.pieceCharAt(move.from.value().lowercase())?.uppercaseChar()
         return piece == 'K' && kotlin.math.abs(move.to.file.ordinal - move.from.file.ordinal) == 2
     }
 
     /** True when `move` captures en passant (pawn changes file onto an empty square). */
-    fun isEnPassant(game: Game, move: Move): Boolean {
+    fun isEnPassant(
+        game: Game,
+        move: Move,
+    ): Boolean {
         val piece = game.pieceCharAt(move.from.value().lowercase())?.uppercaseChar()
-        return piece == 'P' && move.to.file != move.from.file &&
+        return piece == 'P' &&
+            move.to.file != move.from.file &&
             game.pieceCharAt(move.to.value().lowercase()) == null
     }
 
-    fun isCapture(game: Game, move: Move): Boolean =
-        game.pieceCharAt(move.to.value().lowercase()) != null || isEnPassant(game, move)
+    fun isCapture(
+        game: Game,
+        move: Move,
+    ): Boolean = game.pieceCharAt(move.to.value().lowercase()) != null || isEnPassant(game, move)
 
     /** True when a legal `move` gives check. */
-    fun givesCheck(game: Game, move: Move): Boolean {
+    fun givesCheck(
+        game: Game,
+        move: Move,
+    ): Boolean {
         val g = game.copy()
         g.push(move)
-        return g.isCheck()
+        return g.result().inCheck
     }
 
     /**
      * Squares a move physically changes: from, to, + rook squares on castling, + the captured
      * pawn square on en passant (ports tracker.py:357 `move_touched_squares`).
      */
-    fun moveTouchedSquares(game: Game, move: Move): Set<String> {
+    fun moveTouchedSquares(
+        game: Game,
+        move: Move,
+    ): Set<String> {
         val sqs = mutableSetOf(move.from.value().lowercase(), move.to.value().lowercase())
         if (isCastling(game, move)) {
             val rank = move.from.value().lowercase()[1]
@@ -76,8 +92,11 @@ object MoveScoring {
         return sqs
     }
 
-    private fun logit(z: Map<String, Double>, zThr: Double, k: Double): Map<String, Double> =
-        z.mapValues { (_, v) -> (k * (v - zThr)).coerceIn(-CLIP, CLIP) }
+    private fun logit(
+        z: Map<String, Double>,
+        zThr: Double,
+        k: Double,
+    ): Map<String, Double> = z.mapValues { (_, v) -> (k * (v - zThr)).coerceIn(-CLIP, CLIP) }
 
     /**
      * Log-likelihood score per legal move relative to "no move": each touched square
@@ -90,7 +109,8 @@ object MoveScoring {
         k: Double = 1.0,
     ): List<Pair<Move, Double>> {
         val lg = logit(z, zThr, k)
-        return game.legalMoves()
+        return game
+            .legalMoves()
             .map { mv -> mv to moveTouchedSquares(game, mv).sumOf { lg.getValue(it) } }
             .sortedByDescending { it.second }
     }
@@ -107,8 +127,10 @@ object MoveScoring {
     ): List<Pair<List<Move>, Double>> {
         val soft = zThr * SOFT_FACTOR
         val lg = logit(z, zThr, k)
-        fun ok(mv: Move) = z.getValue(mv.from.value().lowercase()) >= soft &&
-            z.getValue(mv.to.value().lowercase()) >= soft
+
+        fun ok(mv: Move) =
+            z.getValue(mv.from.value().lowercase()) >= soft &&
+                z.getValue(mv.to.value().lowercase()) >= soft
         val scored = mutableListOf<Pair<List<Move>, Double>>()
         for (mv1 in game.legalMoves()) {
             if (!ok(mv1)) continue
@@ -128,7 +150,10 @@ object MoveScoring {
      * Small plausibility prior in LL units: capture +0.5, check +0.3, forward +0.2, capped
      * at 1.0 — decides ONLY genuine near-ties (ports tracker.py:476 `move_prior`).
      */
-    fun movePrior(game: Game, move: Move): Double {
+    fun movePrior(
+        game: Game,
+        move: Move,
+    ): Double {
         var p = 0.0
         if (isCapture(game, move)) p += PRIOR_CAPTURE
         if (givesCheck(game, move)) p += PRIOR_CHECK
@@ -139,6 +164,7 @@ object MoveScoring {
 
     /** True when the move is a pawn promotion. */
     fun isPromotion(move: Move): Boolean =
-        move.promotion != null && move.promotion != Piece.NONE &&
+        move.promotion != null &&
+            move.promotion != Piece.NONE &&
             move.promotion.pieceType != PieceType.NONE
 }

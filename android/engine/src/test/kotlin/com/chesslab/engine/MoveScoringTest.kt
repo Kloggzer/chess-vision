@@ -67,7 +67,10 @@ class MoveScoringTest {
         assertEquals(listOf("e4", "e5", "Nf3"), Game().sanSequence(ucisToMoves(Game(), listOf("e2e4", "e7e5", "g1f3"))))
     }
 
-    private fun ucisToMoves(game: Game, ucis: List<String>): List<com.github.bhlangonijr.chesslib.move.Move> {
+    private fun ucisToMoves(
+        game: Game,
+        ucis: List<String>,
+    ): List<com.github.bhlangonijr.chesslib.move.Move> {
         val g = game.copy()
         return ucis.map { uci ->
             val mv = g.legalMoves().first { uciOf(it) == uci }

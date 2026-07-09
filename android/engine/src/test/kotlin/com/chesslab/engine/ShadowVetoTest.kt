@@ -23,12 +23,13 @@ class ShadowVetoTest {
 
     @Test
     fun `saturated occluder is not shadow`() {
-        val out = ShadowVeto.shadowSquares(
-            TestImages.bgrNeutral(),
-            TestImages.bgrNeutralOccluded(),
-            geom,
-            setOf("d5", "e4"),
-        )
+        val out =
+            ShadowVeto.shadowSquares(
+                TestImages.bgrNeutral(),
+                TestImages.bgrNeutralOccluded(),
+                geom,
+                setOf("d5", "e4"),
+            )
         assertEquals(emptySet<String>(), out)
     }
 }
