@@ -1706,6 +1706,12 @@ class MoveTracker:
             pending = self._pending
             if pending is None or self.board.fen() != pending["fen"]:
                 return
+            if self._alarm is not None:                     # desync alarm → candidate is fiction
+                self._pending = None
+                self._confirmer.reset()
+                self.note = ("board desynced (ILLEGAL MOVE alarm) — pending candidate "
+                             "discarded")
+                return
             board_snap = self.board.copy(stack=False)       # race-free board reads below
         pend_moves = [chess.Move.from_uci(u) for u in self._pending_ucis(pending)]
         recovery = self._ensure_cnn()
@@ -1808,7 +1814,15 @@ class MoveTracker:
                 is_castling
                 or (cnn_uci == pending["uci"]
                     and cnn_agreement >= recovery.min_agreement))
-            if from_left_ok or to_arrived_conf or (occ_agree >= recovery.min_agreement and occ_n >= 2):
+            #    to-arrived is likewise not sufficient when the ORIGIN confidently never
+            #    emptied (d4→b3 rook incident, 2026-07-09: a foreign piece landed on b3,
+            #    b2b3 was proposed, b3 read occupied and committed while the b2 pawn
+            #    demonstrably never moved). With both signals contradicting, HOLD — the
+            #    verify-window fallback then checks the whole post-move position, which
+            #    accepts a real move whose from-square was merely misread (occupied is the
+            #    unreliable axis) and discards the fiction (origin still occupied conflicts).
+            to_arrived_ok = to_arrived_conf and not from_occ_conf
+            if from_left_ok or to_arrived_ok or (occ_agree >= recovery.min_agreement and occ_n >= 2):
                 _commit("", "confirmed", "ok")
                 return
 
@@ -2679,6 +2693,16 @@ class MoveTracker:
         without CNN it commits directly. `seq` is the decision's frame signature (newest
         frame in the averaged buffer) — verify only accepts observations with
         `obs.seq >= seq` (Spec 11). Under self.lock."""
+        # Desync alarm active → the game state provably mismatches the physical board, so
+        # every diff-vs-reference interpretation is fiction (d4→b3 incident, 2026-07-09:
+        # moving a rogue piece between two illegal positions committed a plausible pawn
+        # push). Only alarm resolution moves the state: take-back (match_ok), user resync,
+        # or a CNN recovery sequence that resolves ALL conflict squares.
+        if self._alarm is not None:
+            self._confirmer.reset()
+            self.note = ("board desynced (ILLEGAL MOVE alarm) — no moves committed until "
+                         "take-back or resync")
+            return
         sans = self._san_sequence(moves)
         if self.cnn_verify and self.cnn_run and not self._cnn_failed:
             self._pending = {"ucis": [m.uci() for m in moves], "uci": moves[0].uci(),

@@ -1030,14 +1030,56 @@ class TestCnnVerify:
         assert mt.history == ["O-O"]
         assert mt._verify_state == "confirmed"
 
-    def test_from_occupied_but_arrived_commits(self, monkeypatch):
-        """d2d4-Fix: Ziel e4 ist belegt (Figur angekommen) → COMMIT, auch wenn das Modell den
-        Start e2 fälschlich noch als belegt liest ('occupied' ist die unzuverlässige Achse)."""
+    def test_from_occupied_but_arrived_commits_after_window(self, monkeypatch):
+        """d2d4 case: destination arrived but the model mis-reads the origin as still
+        occupied ('occupied' is the unreliable axis). Since the d4→b3 rook incident this
+        no longer commits INSTANTLY — both signals contradict, so it HOLDS; the window
+        fallback then checks the whole post-move position (no conflicts here) → commit."""
         mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0,
-                              occ={"e4": True, "e2": True}, conf={"e4": True, "e2": True})
+                              occ={"e4": True, "e2": True}, conf={"e4": True, "e2": True},
+                              verify_window=2)
         mt._verify_tick(_mk_snap(mt))
-        assert mt.history == ["e4"]                              # committed via destination arrival
+        assert mt.history == []                                  # held, not instant
+        assert mt._pending is not None
+        mt._verify_tick(_mk_snap(mt))
+        assert mt.history == ["e4"]                              # post-move board consistent
         assert mt._verify_state == "confirmed"
+
+    def test_arrived_but_origin_never_emptied_discards(self, monkeypatch):
+        """Regression (d4→b3 rook incident, 2026-07-09): a FOREIGN piece lands on the
+        destination (b3 occupied → to_arrived) while the origin pawn provably never moved
+        (from confidently occupied — a real reading, not a misread). Post-move board check
+        has an occupancy conflict on the origin → discard, no phantom pawn push."""
+        mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0,
+                              occ={"e4": True, "e2": True}, conf={"e4": True, "e2": True},
+                              conflicts=["e2"], verify_window=2)
+        for _ in range(2):
+            mt._verify_tick(_mk_snap(mt))
+        assert mt.history == []
+        assert mt._pending is None
+        assert mt._verify_state == "ghost"
+
+    def test_alarm_blocks_dispatch_commits(self, monkeypatch):
+        """While the desync alarm is active, the diff pipeline must not commit ANY move —
+        the reference/game-state pairing is fiction (d4→b3 incident)."""
+        mt = _make_tracker(monkeypatch, confirm_frames=1)
+        mt.ref_gray = _gray_frame(["e2"], base=128)
+        mt.ref_fen = mt.board.fen()
+        mt._alarm = {"kind": "illegal_move", "since": time.time(),
+                     "conflicts": ["b1", "d4"], "guess": None}
+        mt._motion_since_ref, mt._last_motion_ts = True, time.time()
+        mt._try_detect(_gray_frame(["e4"], base=128))            # clean e2e4 evidence
+        assert mt.history == []
+        assert "desynced" in mt.note
+
+    def test_alarm_discards_pending_candidate(self, monkeypatch):
+        """A candidate pended just before the alarm fired is discarded, not verified."""
+        mt = _pending_tracker(monkeypatch, match=False, occ_agree=1.0)
+        mt._alarm = {"kind": "illegal_move", "since": time.time(),
+                     "conflicts": ["b1", "d4"], "guess": None}
+        mt._verify_tick(_mk_snap(mt))
+        assert mt.history == []
+        assert mt._pending is None
 
     def test_from_occupied_no_arrival_rejects_after_window(self, monkeypatch):
         """Start bleibt confident BELEGT und Ziel kommt NICHT an (nicht lesbar) → nach dem
