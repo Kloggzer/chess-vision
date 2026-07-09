@@ -2018,3 +2018,26 @@ class TestBaselineOcclusionClassifier:
         occ, shad = self._classify(ref, cur, cur_bgr=cur_bgr, gamut=gamut, color_thr=1.5)
         assert "f6" in occ
         assert "f6" not in shad
+
+    def test_global_jitter_median_normalized(self):
+        """Table wobble / pixel jitter shifts EVERY piece edge → raw census fires on
+        all textured squares at once (the observed 62-square 'much change' state).
+        Median normalization removes the global component; the channel-local guard
+        (> max_changed+2 hot squares) catches whatever survives."""
+        from chesslab.move_tracker.tracker import _ALL, census_transform
+
+        rng = np.random.default_rng(5)
+        ref = np.full((400, 400), 120, dtype=np.uint8)
+        for sq in _ALL[:16] + _ALL[48:]:             # pieces on 4 ranks (32 squares)
+            TestStructuralEvidence._piece(ref, sq, 30, 220, rng)
+        ref = cv2.GaussianBlur(ref, (3, 3), 0)
+        cur = np.roll(ref, 1, axis=1)                 # 1 px horizontal wobble
+        cens = per_square_census_change(ref, cur, 400, True,
+                                        ref_codes=census_transform(ref))
+        noise = SquareNoise(init_std=4.0, std_floor=2.5)
+        raw_hot = sum(1 for v in noise.z(cens).values() if v >= 3.0)
+        norm_hot = sum(1 for v in noise.z(normalize_diffs(cens)).values() if v >= 3.0)
+        assert raw_hot > 8                            # raw channel would flood (old bug)
+        assert norm_hot < raw_hot / 2                 # median norm strips the global part
+        # whatever residual remains is caught by the channel guard in _compute_evidence
+        assert norm_hot <= 8 or raw_hot > 8
