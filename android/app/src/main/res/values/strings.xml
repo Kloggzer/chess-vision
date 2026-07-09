@@ -1,4 +1,99 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">chesslab tracker</string>
+
+    <!-- Foreground service -->
+    <string name="notif_channel">Move tracking</string>
+    <string name="notif_title">chesslab is tracking the board</string>
+
+    <!-- Navigation -->
+    <string name="nav_tracking">Tracking</string>
+    <string name="nav_calibration">Calibration</string>
+    <string name="nav_history">History</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Status chip -->
+    <string name="status_waiting">Waiting for board</string>
+    <string name="status_tracking">Tracking</string>
+    <string name="status_occluded">Hand over board</string>
+    <string name="status_stuck">Stuck</string>
+    <string name="status_verifying">Verifying</string>
+
+    <!-- Tracking screen -->
+    <string name="action_undo">Undo</string>
+    <string name="action_reset">Reset</string>
+    <string name="moves_empty">No moves yet</string>
+    <string name="promotion_title">Promotion</string>
+    <string name="promotion_message">Choose the promotion piece for %1$s to %2$s</string>
+    <string name="overlay_board_desc">Camera board with detection overlay</string>
+
+    <!-- Debug card -->
+    <string name="debug_title">Debug</string>
+    <string name="debug_fps">FPS</string>
+    <string name="debug_motion">Motion / threshold</string>
+    <string name="debug_changed">Changed squares</string>
+    <string name="debug_scores">Best / second (margin)</string>
+    <string name="debug_candidate">Candidate</string>
+    <string name="debug_decider">Last decider</string>
+    <string name="debug_stuck">Stuck reason</string>
+    <string name="debug_confirm">Confirm votes</string>
+
+    <!-- Calibration -->
+    <string name="calib_tap_corner">Tap corner %1$s</string>
+    <string name="calib_confirm_orientation">Confirm orientation: tap the a8 corner</string>
+    <string name="calib_ready">Corners set — review and save</string>
+    <string name="calib_clear">Clear</string>
+    <string name="calib_suggest">Suggest corners</string>
+    <string name="calib_save">Save</string>
+
+    <!-- Settings sections -->
+    <string name="settings_game">Game</string>
+    <string name="settings_camera">Camera</string>
+    <string name="settings_detection_advanced">Advanced detection</string>
+    <string name="settings_experimental">Experimental</string>
+    <string name="settings_debug">Debug</string>
+
+    <!-- Settings: game -->
+    <string name="setting_look_forward">Look-forward (fast play)</string>
+    <string name="setting_ambiguity_margin">Ambiguity margin</string>
+    <string name="setting_move_prior">Move prior tie-break</string>
+
+    <!-- Settings: camera -->
+    <string name="setting_dynamic_resolution">Dynamic resolution</string>
+    <string name="res_720p">720p</string>
+    <string name="res_1080p">1080p</string>
+    <string name="res_4k">4K</string>
+
+    <!-- Settings: detection tunables -->
+    <string name="setting_motion_thr">Motion threshold</string>
+    <string name="setting_z_thr">Z threshold</string>
+    <string name="setting_census_thr">Census threshold</string>
+    <string name="setting_occlusion_thr">Occlusion threshold</string>
+    <string name="setting_motion_margin">Motion ROI margin</string>
+    <string name="setting_overhang">Overhang</string>
+    <string name="setting_motion_hold">Motion hold (s)</string>
+    <string name="setting_clahe_clip">CLAHE clip</string>
+
+    <!-- Settings: experimental + debug -->
+    <string name="setting_experimental_detection">Automatic board detection (experimental)</string>
+    <string name="setting_debug_card">Debug card</string>
+    <string name="setting_overlay_view">Overlay view</string>
+    <string name="overlay_board">Board</string>
+    <string name="overlay_diff">Diff</string>
+    <string name="overlay_shadow">Shadow</string>
+    <string name="overlay_occlusion">Occlusion</string>
+    <string name="overlay_motion">Motion</string>
+
+    <!-- Shared -->
+    <string name="value_and_default">%1$s (default %2$s)</string>
+
+    <!-- History -->
+    <string name="history_export">Export game (PGN)</string>
+    <string name="history_no_provenance">No decision provenance recorded.</string>
+    <string name="history_decider">Decider: %1$s</string>
+    <string name="history_reason">Reason: %1$s</string>
+    <string name="history_margin">Margin: %1$.2f (best %2$.2f, second %3$.2f)</string>
+    <string name="history_changed">Changed: %1$s</string>
+    <string name="history_vetoed">Shadow-vetoed: %1$s</string>
+    <string name="history_prior">Prior used: %1$s</string>
 </resources>
