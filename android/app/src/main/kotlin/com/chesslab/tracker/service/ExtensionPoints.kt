@@ -2,8 +2,10 @@ package com.chesslab.tracker.service
 
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.tracker.camera.UncertaintySource
+import com.chesslab.tracker.geometry.BoardCorners
 import com.chesslab.tracker.ui.UiState
 import kotlinx.coroutines.flow.Flow
+import org.opencv.core.Mat
 
 /**
  * Broadcasts UI state to remote spectators. Plugged in by phase 06 (Ktor LAN
@@ -19,12 +21,32 @@ interface GameStateSink {
  * by phase 07; `null` in the base service.
  */
 interface SessionRecorder {
+    /**
+     * Feed the latest raw camera frame + board corners before warp processing.
+     * Called every frame. The implementation must clone the [mat] if it needs to
+     * keep it beyond this call (the caller releases it).
+     */
+    fun onRawFrame(
+        mat: Mat,
+        corners: BoardCorners?,
+        frameWidth: Int,
+        frameHeight: Int,
+    )
+
     fun onFrame(
         boardFenBefore: String,
         timestampNs: Long,
     )
 
     fun onEvent(event: TrackerEvent)
+
+    /**
+     * The board is clean (no occlusion) — flush any pending deferred session
+     * capture. Called after frame processing when the tracker state is TRACKING
+     * (not OCCLUDED). Safe to call on every clean frame; the implementation
+     * no-ops when there is nothing pending.
+     */
+    fun onCleanFrame()
 }
 
 /**

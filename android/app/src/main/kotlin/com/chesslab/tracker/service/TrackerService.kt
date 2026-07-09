@@ -13,6 +13,7 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
+import com.chesslab.engine.api.TrackerState
 import com.chesslab.tracker.R
 import com.chesslab.tracker.camera.CameraConfig
 import com.chesslab.tracker.camera.DynamicResolutionController
@@ -90,6 +91,7 @@ class TrackerService : LifecycleService() {
         camera = TrackerCamera(this, this)
         observeSettings()
         forwardStateToSink()
+        forwardEventsToRecorder()
     }
 
     override fun onStartCommand(
@@ -126,9 +128,21 @@ class TrackerService : LifecycleService() {
         lifecycleScope.launch {
             camera.frames.collect { frame ->
                 val pipe = pipeline ?: return@collect
+
+                // Feed raw frame + corners before warp (phase 07 recorder).
+                val corners = baseWarper?.profile?.corners
+                recorder?.onRawFrame(frame.mat, corners, frame.width, frame.height)
+
                 recorder?.onFrame(coordinator.uiState.value.fen, frame.timestampNs)
                 val processed = pipe.process(frame.mat, frame.timestampNs)
                 coordinator.onFrame(processed.gray, processed.bgr, processed.timestampNs)
+
+                // Phase 07: flush pending capture when board is clean.
+                val state = coordinator.uiState.value.trackerState
+                if (state == TrackerState.TRACKING) {
+                    recorder?.onCleanFrame()
+                }
+
                 publishBoard(processed.boardBgr)
                 maybeCheckDrift(frame.mat)
                 processed.boardBgr.release()
@@ -190,6 +204,12 @@ class TrackerService : LifecycleService() {
     private fun forwardStateToSink() {
         lifecycleScope.launch {
             coordinator.uiState.collect { state -> stateSink?.onState(state) }
+        }
+    }
+
+    private fun forwardEventsToRecorder() {
+        lifecycleScope.launch {
+            coordinator.events.collect { event -> recorder?.onEvent(event) }
         }
     }
 

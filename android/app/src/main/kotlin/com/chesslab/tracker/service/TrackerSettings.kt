@@ -43,6 +43,8 @@ data class TrackerSettings(
     val overhang: Double = TrackerConfig.DEFAULT_OVERHANG,
     val motionHoldS: Double = TrackerConfig.DEFAULT_MOTION_HOLD_S,
     val claheClip: Double = TrackerConfig.DEFAULT_DIFF_CLAHE_CLIP,
+    // Recording (phase 07)
+    val autoRecord: Boolean = true,
     // Experimental + Debug
     val experimentalDetection: Boolean = false,
     val debugCard: Boolean = false,
