@@ -1,5 +1,7 @@
 package com.chesslab.tracker.ui
 
+import android.content.Context
+import android.content.Intent
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridOn
@@ -15,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -24,6 +27,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.chesslab.tracker.R
+import com.chesslab.tracker.record.PgnBuilder
 
 private enum class Dest(
     val route: String,
@@ -45,28 +49,10 @@ fun ChesslabNavHost(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val board by viewModel.board.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     Scaffold(
-        bottomBar = {
-            val current by navController.currentBackStackEntryAsState()
-            NavigationBar {
-                for (dest in Dest.entries) {
-                    val label = stringResource(dest.labelRes)
-                    NavigationBarItem(
-                        selected = current?.destination?.route == dest.route,
-                        onClick = {
-                            navController.navigate(dest.route) {
-                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        icon = { Icon(dest.icon, contentDescription = label) },
-                        label = { Text(label) },
-                    )
-                }
-            }
-        },
+        bottomBar = { BottomNavBar(navController) },
     ) { padding ->
         NavHost(
             navController = navController,
@@ -92,11 +78,51 @@ fun ChesslabNavHost(
                 )
             }
             composable(Dest.HISTORY.route) {
-                HistoryScreen(moves = uiState.moves, onExport = {})
+                HistoryScreen(
+                    moves = uiState.moves,
+                    onExport = { sharePgn(context, uiState) },
+                )
             }
             composable(Dest.SETTINGS.route) {
                 SettingsScreen(settings = settings, onUpdate = viewModel::updateSettings)
             }
         }
     }
+}
+
+@Suppress("ktlint:standard:function-naming", "FunctionNaming")
+@Composable
+private fun BottomNavBar(navController: NavHostController) {
+    val current by navController.currentBackStackEntryAsState()
+    NavigationBar {
+        for (dest in Dest.entries) {
+            val label = stringResource(dest.labelRes)
+            NavigationBarItem(
+                selected = current?.destination?.route == dest.route,
+                onClick = {
+                    navController.navigate(dest.route) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
+                icon = { Icon(dest.icon, contentDescription = label) },
+                label = { Text(label) },
+            )
+        }
+    }
+}
+
+private fun sharePgn(
+    context: Context,
+    uiState: UiState,
+) {
+    val pgn = PgnBuilder.build(uiState.moves.map { it.san }, uiState.fen)
+    val intent =
+        Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, pgn)
+            putExtra(Intent.EXTRA_SUBJECT, "chesslab game")
+        }
+    context.startActivity(Intent.createChooser(intent, context.getString(R.string.history_export)))
 }
