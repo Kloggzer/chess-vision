@@ -420,6 +420,19 @@ def move_touched_squares(board: chess.Board, move: chess.Move) -> set[str]:
     return sqs
 
 
+def move_destination_squares(board: chess.Board, move: chess.Move) -> set[str]:
+    """Squares that GAIN a piece by this move: to-square, plus the rook's
+    to-square for castling. (En-passant captured square is vacated, not gained.)"""
+    sqs = {chess.square_name(move.to_square)}
+    if board.is_kingside_castling(move):
+        rank = chess.square_rank(move.from_square)
+        sqs.add(chess.square_name(chess.square(5, rank)))     # rook lands on f1/f8
+    elif board.is_queenside_castling(move):
+        rank = chess.square_rank(move.from_square)
+        sqs.add(chess.square_name(chess.square(3, rank)))     # rook lands on d1/d8
+    return sqs
+
+
 def normalize_diffs(diffs: dict[str, float]) -> dict[str, float]:
     """Remove global brightness/exposure drift: per-square diff minus the robust baseline
     noise (median over all 64 squares). For a real move only ~2-4 squares change,
@@ -788,6 +801,7 @@ class MoveTracker:
         self._changed: list[str] = []
         self._changed_vals: list[tuple[str, float]] = []   # strongest square diffs (sq, value) for tuning
         self._shadow_vetoed: list[str] = []                # squares discarded as cast shadow
+        self._shadow_blocked: list[str] = []               # candidate ucIs rejected bc destination vetoed
         self._best_score = 0.0
         self._second_score = 0.0
         self._candidate_uci: str | None = None
@@ -1043,6 +1057,7 @@ class MoveTracker:
             self._anomaly_since = {}
             self.prior_last = False
             self._shadow_vetoed = []
+            self._shadow_blocked = []
             self._occluded_vetoed = []
             self._motion_occluded_squares = set()
             self._occlusion_expiry = {}
@@ -1077,6 +1092,7 @@ class MoveTracker:
             self._occl_whitelist = set()
             self._occluded_since = None
             self._shadow_vetoed = []
+            self._shadow_blocked = []
             self._occluded_vetoed = []
             self._motion_occluded_squares = set()
             self._occlusion_expiry = {}
@@ -2048,6 +2064,7 @@ class MoveTracker:
             return
         # 2. Evidence: all gates and the LL-scoring operate on the SAME (fused) z-values.
         diffs, cens, z = self._compute_evidence(cur)
+        self._shadow_blocked = []
         # Baseline-absdiff occlusion with CNN arbitration: real moves (CNN disagrees
         # with FEN) pass through — don't taint. Occlusion (CNN unconfident) and noise
         # (CNN agrees with FEN) get tainted. Falls back to >2 heuristic without CNN.
@@ -2092,14 +2109,23 @@ class MoveTracker:
         #    White-on-white (target just below z_thr) remains viable.
         scored = loglik_scores(self.board, z, self.z_thr, self.ll_k)
         soft = self.z_thr * 0.5
-        viable = [(mv, s) for mv, s in scored
-                  if all(z[sq] >= soft
-                         for sq in move_touched_squares(self.board, mv))]
+        viable_raw = [(mv, s) for mv, s in scored
+                      if all(z[sq] >= soft
+                             for sq in move_touched_squares(self.board, mv))]
+        viable = [(mv, s) for mv, s in viable_raw
+                  if not (move_destination_squares(self.board, mv) & shadow_veto)]
+        kept = {mv for mv, _ in viable}
+        self._shadow_blocked.extend(mv.uci() for mv, _ in viable_raw if mv not in kept)
         obs_move, best = viable[0] if viable else (None, -1e9)
         second = viable[1][1] if len(viable) > 1 else -1e9
         self._best_score = best if viable else (scored[0][1] if scored else 0.0)
         self._second_score = second
         self._candidate_uci = obs_move.uci() if obs_move else None
+        if viable_raw and (not viable or viable[0][0] != viable_raw[0][0]):
+            # The filter changed the OUTCOME (best raw candidate was shadow-blocked) \u2014
+            # only then is the note useful; a blocked also-ran is debug-card material.
+            self.note = (f"{self.board.san(viable_raw[0][0])}? "
+                         f"destination shadow-vetoed \u2014 not a move")
         if not changed:
             # Scale reanchor floor by number of physically changed squares: a castling
             # move (4 squares) must not be penalised relative to a normal move (2 squares)
@@ -2135,7 +2161,7 @@ class MoveTracker:
         #    through the SAME motion gate and dispatch below (previously the pair path
         #    committed directly and skipped both).
         cand = self._generate_hypothesis(z, scored, viable, changed, obs_move, best, second,
-                                         cur, cur_bgr)
+                                         cur, cur_bgr, shadow_veto=shadow_veto)
         if cand is None:
             return
         moves = cand["moves"]
@@ -2279,7 +2305,8 @@ class MoveTracker:
         return self._ref_census
 
     def _generate_hypothesis(self, z, scored, viable, changed, obs_move, best, second,
-                             cur, cur_bgr, blocked_n: int = 0):
+                             cur, cur_bgr, shadow_veto: set[str] | None = None,
+                             blocked_n: int = 0):
         """Step 6 — turn the evidence into exactly one candidate, or handle the frame
         (stuck marked + anomaly patcher, ambiguous note, promotion pending) and return None.
         Candidate: {"moves": [mv] | [mv1, mv2], "prior_used": bool, "vote": bool,
@@ -2289,7 +2316,7 @@ class MoveTracker:
         # squares count as changed here; a pair is never trusted while a hand is detected.
         if len(changed) + blocked_n > self.max_changed:
             if blocked_n == 0 and len(changed) <= self.max_changed + 2:
-                pair = self._pair_candidate(z, best)
+                pair = self._pair_candidate(z, best, shadow_veto=shadow_veto)
                 if pair is not None:
                     return pair
             self._confirmer.reset()
@@ -2309,7 +2336,7 @@ class MoveTracker:
         # there (pair only when no single fits, below).
         cnn_on = self.cnn_verify and self.cnn_run and not self._cnn_failed
         if cnn_on:
-            pair = self._pair_candidate(z, best)
+            pair = self._pair_candidate(z, best, shadow_veto=shadow_veto)
             if pair is not None:
                 return pair
 
@@ -2318,11 +2345,11 @@ class MoveTracker:
         # → stuck + self-healing.
         if obs_move is None or best < 0.0:
             if not cnn_on:
-                pair = self._pair_candidate(z, best)
+                pair = self._pair_candidate(z, best, shadow_veto=shadow_veto)
                 if pair is not None:
                     return pair
             if self.cnn_verify and self.cnn_run and not self._cnn_failed:
-                sm = self._single_endpoint_candidate(z, scored)
+                sm = self._single_endpoint_candidate(z, scored, shadow_veto=shadow_veto)
                 if sm is not None:
                     return {"moves": [sm], "prior_used": False, "vote": False,
                             "note": f"low-contrast move {self.board.san(sm)}? verifying via CNN…"}
@@ -2368,13 +2395,27 @@ class MoveTracker:
                 return None
         return {"moves": [obs_move], "prior_used": prior_used, "vote": True}
 
-    def _pair_candidate(self, z, best_single):
+    def _pair_candidate(self, z, best_single, shadow_veto: set[str] | None = None):
         """Fast play: 2 half-moves landed in one settle window. Candidate only when the best
         pair is clearly better than the best single move AND the second-best pair (LL margin);
         otherwise None and the normal stuck logic applies. Under self.lock."""
         pairs = loglik_pair_scores(self.board, z, self.z_thr, self.ll_k)
         if not pairs:
             return None
+        # Filter pairs whose destination squares are shadow-vetoed (eval move 2 on board after move 1)
+        if shadow_veto:
+            sv_pairs = []
+            for seq_best in pairs:
+                mv1, mv2 = seq_best[0]
+                b1 = self.board.copy(stack=False)
+                b1.push(mv1)
+                dests = (move_destination_squares(self.board, mv1)
+                         | move_destination_squares(b1, mv2))
+                if not (dests & shadow_veto):
+                    sv_pairs.append(seq_best)
+            if not sv_pairs:
+                return None
+            pairs = sv_pairs
         seq, best = pairs[0]
         second = pairs[1][1] if len(pairs) > 1 else -1e9
         if best < 0.0 or best - max(second, best_single) < self.ambiguity_margin_ll:
@@ -2412,7 +2453,8 @@ class MoveTracker:
         else:
             self._commit_sequence(moves, cur, cur_bgr, decider="diff_pair")
 
-    def _single_endpoint_candidate(self, z: dict[str, float], scored):
+    def _single_endpoint_candidate(self, z: dict[str, float], scored,
+                                   shadow_veto: set[str] | None = None):
         """Best legal move that is strongly evidenced at its DESTINATION only — the origin is
         below the both-endpoints viability gate (low-contrast vacated square). Returns the move
         only if UNAMBIGUOUS (the top such candidate is clearly ahead of any candidate to a
@@ -2422,7 +2464,8 @@ class MoveTracker:
         if len(strong) != 1:                              # exactly one strongly-changed square
             return None
         cands = [(mv, sc) for mv, sc in scored
-                 if chess.square_name(mv.to_square) in strong and sc > 0.0]
+                 if chess.square_name(mv.to_square) in strong and sc > 0.0
+                 and not (shadow_veto and chess.square_name(mv.to_square) in shadow_veto)]
         if not cands:
             return None
         best_mv, best_sc = cands[0]
@@ -2622,6 +2665,7 @@ class MoveTracker:
                     "census_z_weight": self.census_z_weight,
                     "occl_census_thr": self.occl_census_thr,
                     "shadow_vetoed": list(self._shadow_vetoed),
+                    "shadow_blocked": list(self._shadow_blocked),
                     "occluded_vetoed": list(self._occluded_vetoed),
                     "tainted": sorted(self._tainted),
                     "grid_coverage": round(self._grid_coverage, 2),
