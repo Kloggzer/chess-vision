@@ -84,7 +84,11 @@ fun ChesslabNavHost(
                 )
             }
             composable(Dest.SETTINGS.route) {
-                SettingsScreen(settings = settings, onUpdate = viewModel::updateSettings)
+                SettingsScreen(
+                    settings = settings,
+                    onUpdate = viewModel::updateSettings,
+                    modelStore = viewModel.modelStore,
+                )
             }
         }
     }
