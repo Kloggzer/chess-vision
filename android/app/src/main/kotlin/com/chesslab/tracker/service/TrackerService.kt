@@ -19,6 +19,7 @@ import com.chesslab.tracker.camera.CameraConfig
 import com.chesslab.tracker.camera.DynamicResolutionController
 import com.chesslab.tracker.camera.Resolution
 import com.chesslab.tracker.camera.TrackerCamera
+import com.chesslab.tracker.cnn.CnnModelStore
 import com.chesslab.tracker.geometry.BoardWarper
 import com.chesslab.tracker.geometry.CalibrationProfile
 import com.chesslab.tracker.geometry.CornerDriftMonitor
@@ -54,6 +55,7 @@ class TrackerService : LifecycleService() {
     private var resolutionController: DynamicResolutionController? = null
     private var driftMonitor: CornerDriftMonitor? = null
     private var settings: TrackerSettings = TrackerSettings()
+    private var cnn: CnnIntegration? = null
 
     private val _boardBitmap = MutableStateFlow<Bitmap?>(null)
 
@@ -89,6 +91,7 @@ class TrackerService : LifecycleService() {
         super.onCreate()
         settingsRepo = SettingsRepository(settingsDataStore(this))
         camera = TrackerCamera(this, this)
+        cnn = CnnIntegration(coordinator, camera, { baseWarper }, { settings.claheClip }, lifecycleScope, CnnModelStore(filesDir))
         observeSettings()
         forwardStateToSink()
         forwardEventsToRecorder()
@@ -197,6 +200,7 @@ class TrackerService : LifecycleService() {
                 } else {
                     coordinator.applyConfig(next.toTrackerConfig())
                 }
+                cnn?.reconcile(prev, next)
             }
         }
     }

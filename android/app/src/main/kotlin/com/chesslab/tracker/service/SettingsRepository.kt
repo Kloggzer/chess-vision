@@ -44,6 +44,8 @@ class SettingsRepository(
         val MOTION_HOLD_S = doublePreferencesKey("motion_hold_s")
         val CLAHE_CLIP = doublePreferencesKey("clahe_clip")
         val AUTO_RECORD = booleanPreferencesKey("auto_record")
+        val CNN_ENABLED = booleanPreferencesKey("cnn_enabled")
+        val CNN_CONF_THR = doublePreferencesKey("cnn_conf_thr")
         val EXPERIMENTAL = booleanPreferencesKey("experimental_detection")
         val DEBUG_CARD = booleanPreferencesKey("debug_card")
         val OVERLAY_VIEW = stringPreferencesKey("overlay_view")
@@ -64,6 +66,8 @@ class SettingsRepository(
             resolution = prefs[RESOLUTION]?.let(::resolutionOf) ?: d.resolution,
             dynamicResolution = prefs[DYNAMIC_RESOLUTION] ?: d.dynamicResolution,
             autoRecord = prefs[AUTO_RECORD] ?: d.autoRecord,
+            cnnEnabled = prefs[CNN_ENABLED] ?: d.cnnEnabled,
+            cnnConfThr = prefs[CNN_CONF_THR] ?: d.cnnConfThr,
             experimentalDetection = prefs[EXPERIMENTAL] ?: d.experimentalDetection,
             debugCard = prefs[DEBUG_CARD] ?: d.debugCard,
             overlayView = prefs[OVERLAY_VIEW]?.let(::overlayOf) ?: d.overlayView,
@@ -95,6 +99,8 @@ class SettingsRepository(
         prefs[RESOLUTION] = s.resolution.name
         prefs[DYNAMIC_RESOLUTION] = s.dynamicResolution
         prefs[AUTO_RECORD] = s.autoRecord
+        prefs[CNN_ENABLED] = s.cnnEnabled
+        prefs[CNN_CONF_THR] = s.cnnConfThr
         prefs[MOTION_THR] = s.motionThr
         prefs[Z_THR] = s.zThr
         prefs[CENSUS_THR] = s.censusThr

@@ -9,6 +9,7 @@ import com.chesslab.engine.api.OccupancySafeguard
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
+import com.chesslab.engine.api.VerifyVerdict
 import com.chesslab.tracker.ui.DebugSnapshot
 import com.chesslab.tracker.ui.MoveAnnouncement
 import com.chesslab.tracker.ui.MoveEntry
@@ -78,6 +79,38 @@ class TrackerCoordinator(
             }
         }
         publish(announcement)
+    }
+
+    /**
+     * Phase 05 wiring: feed a safeguard verdict back to the engine. Commit/reject
+     * events queued by the engine surface on the next [onFrame].
+     */
+    fun onVerifyVerdict(verdict: VerifyVerdict) {
+        engine.onVerifyVerdict(verdict)
+        publish(_uiState.value.announcement)
+    }
+
+    /** Phase 05 wiring: commit a CNN-recovery move sequence anchored on the observed frame. */
+    fun applyRecovery(
+        ucis: List<String>,
+        fenBefore: String,
+        gray: GrayImage,
+        bgr: BgrImage?,
+    ): Boolean {
+        val ok = engine.applyRecoveredMoves(ucis, fenBefore, gray, bgr)
+        if (ok) publish(_uiState.value.announcement)
+        return ok
+    }
+
+    /** Phase 05 wiring: CNN found the stuck board unchanged — pull the reference forward. */
+    fun pullReferenceForward(
+        fenBefore: String,
+        gray: GrayImage,
+        bgr: BgrImage?,
+    ): Boolean {
+        val ok = engine.resyncReference(fenBefore, gray, bgr)
+        if (ok) publish(_uiState.value.announcement)
+        return ok
     }
 
     /** Undo the last committed move (queues a hard-negative feedback record). */
