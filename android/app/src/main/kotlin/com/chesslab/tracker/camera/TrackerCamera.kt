@@ -3,6 +3,7 @@ package com.chesslab.tracker.camera
 import android.content.Context
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
@@ -14,7 +15,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.suspendCancellableCoroutine
+import org.opencv.core.Mat
 import java.util.concurrent.Executors
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /**
  * CameraX front-end for the tracker.
@@ -25,7 +30,9 @@ import java.util.concurrent.Executors
  * frame, and [frames] is [conflate]d so a slow engine can never queue stale frames.
  *
  * Analysis resolution is settings-driven and can be rebound live via
- * [setResolution] (used by [DynamicResolutionController]).
+ * [setResolution] (used by [DynamicResolutionController]). A separate
+ * [ImageCapture] use case provides on-demand hi-res stills via [captureHiRes],
+ * independent of the analysis resolution.
  */
 class TrackerCamera(
     private val context: Context,
@@ -45,6 +52,7 @@ class TrackerCamera(
     val frames: Flow<CameraFrame> = _frames.asSharedFlow().conflate()
 
     private var cameraProvider: ProcessCameraProvider? = null
+    private var imageCapture: ImageCapture? = null
     private var config: CameraConfig = CameraConfig()
 
     /** Binds the camera use cases. Idempotent per lifecycle. */
@@ -65,10 +73,44 @@ class TrackerCamera(
         }
     }
 
+    /**
+     * Captures one full-resolution still (for CNN verify / uncertainty, phase 05),
+     * independent of the analysis resolution.
+     */
+    suspend fun captureHiRes(): Mat {
+        val capture = imageCapture ?: error("Camera not started")
+        return suspendCancellableCoroutine { cont ->
+            capture.takePicture(
+                analysisExecutor,
+                object : ImageCapture.OnImageCapturedCallback() {
+                    override fun onCaptureSuccess(image: ImageProxy) {
+                        try {
+                            cont.resume(converter.convert(image))
+                        } catch (e: IllegalStateException) {
+                            cont.resumeWithException(e)
+                        } finally {
+                            image.close()
+                        }
+                    }
+
+                    override fun onError(exception: androidx.camera.core.ImageCaptureException) {
+                        cont.resumeWithException(exception)
+                    }
+                },
+            )
+        }
+    }
+
     private fun bindUseCases() {
         val provider = cameraProvider ?: return
         val selector = resolutionSelector(config.resolution)
         val analysis = buildAnalysis(selector)
+        val capture =
+            ImageCapture
+                .Builder()
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+                .build()
+        imageCapture = capture
 
         val cameraSelector =
             CameraSelector
@@ -77,7 +119,7 @@ class TrackerCamera(
                 .build()
 
         provider.unbindAll()
-        provider.bindToLifecycle(lifecycleOwner, cameraSelector, analysis)
+        provider.bindToLifecycle(lifecycleOwner, cameraSelector, analysis, capture)
     }
 
     private fun buildAnalysis(selector: ResolutionSelector): ImageAnalysis {
