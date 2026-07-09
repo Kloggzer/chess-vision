@@ -1889,3 +1889,132 @@ class TestDetectScale:
         cur = _gray_frame(["e4"], board_size=200, base=128)
         mt._try_detect(cur)
         assert mt.history == ["e4"], f"Expected e4, got {mt.history}"
+
+
+# --- Structural evidence fusion + shadow/occlusion classifier (2026-07) -----------------
+
+class TestStructuralEvidence:
+    """Census as an EVIDENCE channel (dark-on-dark) and as the baseline
+    occlusion-vs-shadow discriminator (hard shadows must not latch as occlusion)."""
+
+    BS = 400  # 50 px cells
+
+    @staticmethod
+    def _piece(img, sq, lo, hi, rng):
+        """Textured disc (a 'piece') covering ~half the inset box of `sq`."""
+        x0, y0, x1, y1 = square_region(sq, 400, True)
+        cx, cy, r = (x0 + x1) // 2, (y0 + y1) // 2, (x1 - x0) // 3
+        mask = np.zeros(img.shape[:2], dtype=np.uint8)
+        cv2.circle(mask, (cx, cy), r, 255, -1)
+        tex = rng.integers(lo, hi, img.shape[:2], dtype=np.uint8 if img.ndim == 2 else None)
+        if img.ndim == 2:
+            img[mask > 0] = tex[mask > 0]
+        else:
+            for c in range(3):
+                img[..., c][mask > 0] = tex[mask > 0]
+
+    def test_dark_on_dark_seen_by_census_not_gray(self):
+        """A dark textured piece on a dark square: gray-mean z misses (< z_thr), the
+        census channel fires — the fused max detects exactly this one square."""
+        from chesslab.move_tracker.tracker import census_transform
+
+        rng = np.random.default_rng(42)
+        ref = np.full((400, 400), 40, dtype=np.uint8)
+        cur = ref.copy()
+        self._piece(cur, "e4", 20, 34, rng)          # dark-on-dark: |mean delta| tiny
+        diffs = normalize_diffs(per_square_diff(ref, cur, 400, True))
+        z_gray = SquareNoise().z(diffs)
+        cens = per_square_census_change(ref, cur, 400, True,
+                                        ref_codes=census_transform(ref))
+        z_cens = SquareNoise(init_std=4.0, std_floor=2.0).z(cens)
+        assert z_gray["e4"] < 3.0                    # the old single-channel failure
+        assert z_cens["e4"] >= 3.0                   # structure sees the piece
+        fused = {s: max(z_gray[s], z_cens[s]) for s in z_gray}
+        hot = {s for s, v in fused.items() if v >= 3.0}
+        assert hot == {"e4"}
+
+    def test_multiplicative_shadow_is_census_quiet(self):
+        """A cast shadow (uniform multiplicative darkening) preserves the census codes:
+        the structural channel must NOT fire — no ghost evidence from shadows."""
+        from chesslab.move_tracker.tracker import census_transform
+
+        rng = np.random.default_rng(7)
+        ref = rng.integers(60, 200, (400, 400), dtype=np.uint8)
+        ref = cv2.GaussianBlur(ref, (5, 5), 0)       # realistic smooth texture
+        cur = ref.copy()
+        x0, y0, x1, y1 = square_region("d5", 400, True)
+        reg = cur[y0 - 8:y1 + 8, x0 - 8:x1 + 8]
+        cur[y0 - 8:y1 + 8, x0 - 8:x1 + 8] = (reg.astype(np.float32) * 0.6).astype(np.uint8)
+        cens = per_square_census_change(ref, cur, 400, True,
+                                        ref_codes=census_transform(ref))
+        z_cens = SquareNoise(init_std=4.0, std_floor=2.0).z(cens)
+        assert z_cens["d5"] < 3.0
+
+
+class TestBaselineOcclusionClassifier:
+    """_baseline_occlusion_and_shadow in structural mode: strong absdiff is classified
+    by WHAT changed (structure / chroma / flat darkening), not just how much."""
+
+    ABS_THR = 20.0
+
+    @staticmethod
+    def _classify(ref, cur, ref_codes=None, occl_census_thr=24.0,
+                  cur_bgr=None, gamut=None, color_thr=0.0):
+        from chesslab.move_tracker.tracker import _baseline_occlusion_and_shadow, census_transform
+        if ref_codes is None:
+            ref_codes = census_transform(ref)
+        return _baseline_occlusion_and_shadow(
+            cur, ref, 400, TestBaselineOcclusionClassifier.ABS_THR, True,
+            ref_codes=ref_codes, occl_census_thr=occl_census_thr,
+            cur_bgr=cur_bgr, gamut=gamut, color_thr=color_thr)
+
+    @staticmethod
+    def _textured_board(seed=3):
+        rng = np.random.default_rng(seed)
+        b = rng.integers(60, 200, (400, 400), dtype=np.uint8)
+        return cv2.GaussianBlur(b, (5, 5), 0)
+
+    def test_hard_shadow_is_shadow_not_occlusion(self):
+        """The user-reported bug: a strong cast shadow used to exceed the absdiff
+        threshold and latch the square as OCCLUDED (z zeroed → detection stall)."""
+        ref = self._textured_board()
+        cur = ref.copy()
+        x0, y0, x1, y1 = square_region("e4", 400, True)
+        reg = cur[y0 - 8:y1 + 8, x0 - 8:x1 + 8]
+        cur[y0 - 8:y1 + 8, x0 - 8:x1 + 8] = (reg.astype(np.float32) * 0.5).astype(np.uint8)
+        occ, shad = self._classify(ref, cur)
+        assert "e4" not in occ
+        assert "e4" in shad
+        # legacy mode (occl_census_thr=0) reproduces the old misclassification:
+        occ_legacy, _ = self._classify(ref, cur, occl_census_thr=0.0)
+        assert "e4" in occ_legacy
+
+    def test_textured_occluder_is_occluded(self):
+        rng = np.random.default_rng(11)
+        ref = self._textured_board()
+        cur = ref.copy()
+        x0, y0, x1, y1 = square_region("c3", 400, True)
+        cur[y0 - 8:y1 + 8, x0 - 8:x1 + 8] = rng.integers(
+            0, 255, (y1 - y0 + 16, x1 - x0 + 16), dtype=np.uint8)
+        occ, shad = self._classify(ref, cur)
+        assert "c3" in occ
+        assert "c3" not in shad
+
+    def test_flat_hand_needs_chroma_to_be_occlusion(self):
+        """Flat skin-toned occluder: low census (no texture), darker than the board —
+        without the gamut it is misread as shadow; the chroma outlier check fixes it."""
+        from chesslab.move_tracker.tracker import board_color_gamut
+
+        ref_bgr = np.full((400, 400, 3), 170, dtype=np.uint8)     # neutral gray board
+        gamut = board_color_gamut(ref_bgr, 400, True)
+        assert gamut is not None
+        cur_bgr = ref_bgr.copy()
+        x0, y0, x1, y1 = square_region("f6", 400, True)
+        cur_bgr[y0 - 8:y1 + 8, x0 - 8:x1 + 8] = (80, 100, 190)    # flat skin tone, darker
+        ref = cv2.cvtColor(ref_bgr, cv2.COLOR_BGR2GRAY)
+        cur = cv2.cvtColor(cur_bgr, cv2.COLOR_BGR2GRAY)
+        occ_no_gamut, shad_no_gamut = self._classify(ref, cur)
+        assert "f6" in shad_no_gamut and "f6" not in occ_no_gamut  # the blind spot
+        occ, shad = self._classify(ref, cur, cur_bgr=cur_bgr, gamut=gamut, color_thr=1.5)
+        assert "f6" in occ
+        assert "f6" not in shad

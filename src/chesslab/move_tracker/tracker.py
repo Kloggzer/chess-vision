@@ -326,23 +326,57 @@ for _f in _FILES:
 
 def _baseline_occlusion_and_shadow(cur_gray, ref_gray, board_size, abs_thr: float,
                                    white_pov: bool,
-                                   boxes: list[tuple[int, int, int, int, int]] | None = None
+                                   boxes: list[tuple[int, int, int, int, int]] | None = None,
+                                   ref_codes=None, occl_census_thr: float = 0.0,
+                                   cur_bgr=None, gamut=None, color_thr: float = 0.0,
                                    ) -> tuple[set[str], set[str]]:
     """Return (occluded_squares, shadow_squares) from absdiff vs baseline.
-    Occlusion: mean absdiff > abs_thr. Shadow: mean pixel value decreased > abs_thr/2
-    AND not already occluded. Both dilated by one orthogonal neighbour.
-    Uses integral images + precomputed boxes for O(1) per-square means."""
+
+    Legacy mode (occl_census_thr == 0 or no ref_codes): occlusion = mean absdiff > abs_thr —
+    which conflates hard cast shadows with hands (shadow → occlusion latch → z zeroed →
+    detection stalls; the ghost-move complement when the latch misses).
+
+    Structural mode (occl_census_thr > 0 with ref_codes): a strong-absdiff square is
+    classified by WHAT changed, not just how much:
+      - census change > occl_census_thr → structured occluder (piece cluster, textured
+        hand edge) → occluded;
+      - else chroma outlier vs the reference board gamut (nearest-neighbor Mahalanobis
+        > color_thr; skin/fabric matches no square) → flat hand interior → occluded;
+      - else darker than reference → flat, chroma-consistent darkening = CAST SHADOW
+        (census is invariant to monotone darkening; Cucchiara's criterion at baseline);
+      - else (brighter, flat, chroma-consistent) → occluded — conservative: an unknown
+        flat brightener (white sleeve, paper) must not pass as evidence.
+    Weak darkening (absdiff ≤ thr but mean drop > thr/2) stays shadow as before.
+    Both sets dilated by one orthogonal neighbour."""
     if boxes is None:
         boxes = _square_boxes(board_size, white_pov)
     d = cv2.absdiff(cur_gray, ref_gray)
     occ_means = _region_means(cv2.integral(d), boxes)
     cur_means = _region_means(cv2.integral(cur_gray.astype(np.float64)), boxes)
     ref_means = _region_means(cv2.integral(ref_gray.astype(np.float64)), boxes)
+    strong = [sq for sq, om in zip(_ALL, occ_means, strict=True) if om > abs_thr]
+    cens: dict[str, float] | None = None
+    chroma_out: set[str] = set()
+    if strong and occl_census_thr > 0 and ref_codes is not None:
+        # Census only on the band of exceeding squares (same fast path as the veto).
+        sq_boxes = dict(zip(_ALL, boxes, strict=True))
+        rows = (min(sq_boxes[s][1] for s in strong) - 1,
+                max(sq_boxes[s][3] for s in strong) + 1)
+        cens = per_square_census_change(ref_gray, cur_gray, board_size, white_pov,
+                                        ref_codes=ref_codes, rows=rows)
+        if cur_bgr is not None and gamut is not None and color_thr > 0:
+            chroma_out = occlusion_color_squares(cur_bgr, gamut, board_size, white_pov,
+                                                 strong, thr=color_thr)
     occluded: set[str] = set()
     shadow: set[str] = set()
     for sq, om, cm, rm in zip(_ALL, occ_means, cur_means, ref_means, strict=True):
         if om > abs_thr:
-            occluded.add(sq)
+            if cens is None:                       # legacy: brightness only
+                occluded.add(sq)
+            elif cens[sq] > occl_census_thr or sq in chroma_out or cm >= rm:
+                occluded.add(sq)
+            else:
+                shadow.add(sq)                     # flat + darker + chroma-consistent
         elif rm - cm > abs_thr / 2:
             shadow.add(sq)
     dilated_occ = set(occluded)
@@ -578,7 +612,8 @@ class MoveTracker:
                  diff_clahe_clip: float = 2.0, auto_record: bool = True,
                  record_inventory_filter: bool = True,
                  require_motion_for_move: bool = True, detect_scale: float = 0.5,
-                 motion_recency_s: float = 20.0) -> None:
+                 motion_recency_s: float = 20.0,
+                 census_z_weight: float = 1.0, occl_census_thr: float = 24.0) -> None:
         # Auto-create a missing profile from the first frames of this source (ArUco).
         self.profile_name = profile           # string profile name (for session recording)
         self.profile = ensure_profile(profile, source)
@@ -611,6 +646,13 @@ class MoveTracker:
         self.ambiguity_margin_ll = ambiguity_margin_ll  # best − second in LL units (light-independent)
         self.reanchor_ll_floor = reanchor_ll_floor    # Re-anchor ONLY when best-LL is also below this
         self.noise = SquareNoise()                    # per-square noise model (EMA, only updated when stable)
+        # Structural evidence channel: census change z-scored by its own noise model.
+        # Census values are already illumination-invariant → tighter floor than gray
+        # (floor 2.0 ≈ Hamming 0.19 at z=3; gray floor 3.0 ≈ 9 levels).
+        self.census_z_weight = census_z_weight        # z_eff = max(z_gray, w·z_census); 0 = off
+        self.census_noise = SquareNoise(init_std=4.0, std_floor=2.0)
+        self._struct_vals: list = []                  # debug: top census-z squares
+        self.occl_census_thr = occl_census_thr        # baseline occlusion needs structure above this
         self.use_prior = use_prior                    # heuristic prior as ambiguity tie-break (part 2)
         self.prior_last = False                       # last move was decided by prior (undo hint)
         # -- Nudge/drift re-anchor without CNN (part 4) --
@@ -1093,7 +1135,11 @@ class MoveTracker:
                         raw_occ, raw_shadow = _baseline_occlusion_and_shadow(
                             gray_det, self.ref_gray, self._det_size,
                             self.motion_px_thr * 4, self.profile.white_pov,
-                            self._det_boxes)
+                            self._det_boxes,
+                            ref_codes=self._ref_census_codes(),
+                            occl_census_thr=self.occl_census_thr,
+                            cur_bgr=warped_det, gamut=self._ref_gamut,
+                            color_thr=self.occlusion_color_thr)
                         for sq in raw_occ:
                             self._occlusion_expiry[sq] = now + 0.1
                         self._shadow_vetoed = sorted(raw_shadow)
@@ -1704,6 +1750,13 @@ class MoveTracker:
         self.ref_gray = cur
         if cur_bgr is not None:
             self.ref_bgr = cur_bgr
+            if not from_commit:
+                # Quiet re-anchor = verifiably clean board: (re)build the color gamut the
+                # baseline occlusion classifier uses to tell flat hands from cast shadows.
+                # (This rebuild was documented here for years but never implemented — the
+                # gamut stayed None and occlusion_color_squares was dead code.)
+                self._ref_gamut = board_color_gamut(cur_bgr, self._det_size,
+                                                    self.profile.white_pov)
         self.ref_fen = self.board.fen()
         self._ref_corners = None if self._last_corners is None else \
             [[float(x), float(y)] for x, y in self._last_corners]
@@ -1956,8 +2009,8 @@ class MoveTracker:
         # 1. Guards.
         if not self._detect_guards():
             return
-        # 2. Evidence: all gates and the LL-scoring operate on the SAME z-values.
-        diffs, z = self._compute_evidence(cur)
+        # 2. Evidence: all gates and the LL-scoring operate on the SAME (fused) z-values.
+        diffs, cens, z = self._compute_evidence(cur)
         # Baseline-absdiff occlusion with CNN arbitration: real moves (CNN disagrees
         # with FEN) pass through — don't taint. Occlusion (CNN unconfident) and noise
         # (CNN agrees with FEN) get tainted. Falls back to >2 heuristic without CNN.
@@ -1975,13 +2028,16 @@ class MoveTracker:
             ((s, round(v, 1)) for s, v in z.items() if v >= self.z_thr * 0.5),
             key=lambda kv: -kv[1])[:8]
         # 3. Vetoes (shadow keeps z as vacate evidence; occlusion zeroes z).
-        changed, shadow_veto, occluded_set = self._apply_vetoes(cur, cur_bgr, z, changed)
+        changed, shadow_veto, occluded_set = self._apply_vetoes(cur, cur_bgr, z, changed,
+                                                                cens=cens)
         self._changed = sorted(changed)
         # 4. Noise model learns on EVERY stable frame the non-candidate squares — even in the
         # stuck state, otherwise jitter (marker/exposure) can never be adapted away. Shadowed
         # and occluded squares are excluded too: learning a shadow/hand into the EMA would
         # inflate that square's std and desensitize later real moves there.
         self.noise.update(diffs, exclude=changed | shadow_veto)
+        if cens is not None:
+            self.census_noise.update(cens, exclude=changed | shadow_veto)
         # Clean up expired tainted entries (set by baseline-absdiff occlusion).
         _now = time.time()
         for sq in list(self._tainted):
@@ -2097,17 +2153,37 @@ class MoveTracker:
         return True
 
     def _compute_evidence(self, cur):
-        """Step 2 — per-square diff vs base truth → median normalization (global exposure
-        jump) → z-scores (per-square noise model; local drift/square characteristics)."""
+        """Step 2 — two evidence channels fused per square:
+        - brightness: absdiff vs base truth → median normalization (global exposure
+          jump) → z (per-square noise model; local drift/square characteristics);
+        - structure: census change vs base truth → z (own noise model). Census is
+          invariant to illumination, so no median normalization — and it is exactly
+          the channel that sees dark-on-dark moves the gray mean-diff dilutes away.
+        Fused: z_eff = max(z_gray, census_z_weight · z_census). Weight 0 = legacy.
+        Returns (diffs, cens, z) — the raw channels feed noise learning in step 4."""
         _t0 = time.perf_counter()
         diffs = per_square_diff(self.ref_gray, cur, self._det_size,
                                 self.profile.white_pov, extend_up=self.overhang)
         diffs = normalize_diffs(diffs)
         z = self.noise.z(diffs)
+        cens: dict[str, float] | None = None
+        if self.census_z_weight > 0:
+            cens = per_square_census_change(self.ref_gray, cur, self._det_size,
+                                            self.profile.white_pov,
+                                            extend_up=self.overhang,
+                                            ref_codes=self._ref_census_codes())
+            zs = self.census_noise.z(cens)
+            w = self.census_z_weight
+            self._struct_vals = sorted(((s, round(v, 1)) for s, v in zs.items()
+                                        if w * v >= self.z_thr * 0.5),
+                                       key=lambda kv: -kv[1])[:8]
+            z = {s: max(zg, w * zs[s]) for s, zg in z.items()}
+        else:
+            self._struct_vals = []
         self._diff_ms = (time.perf_counter() - _t0) * 1000.0
-        return diffs, z
+        return diffs, cens, z
 
-    def _apply_vetoes(self, cur, cur_bgr, z, changed):
+    def _apply_vetoes(self, cur, cur_bgr, z, changed, cens=None):
         """Step 3 — two vetoes with different semantics:
         - Cast shadow (HSV per Cucchiara + census confirmation): vetoed squares only leave
           the changed set (gates); their z-values are PRESERVED for scoring. A VACATED square
@@ -2121,12 +2197,13 @@ class MoveTracker:
         shadow_veto: set[str] = set()
         if cur_bgr is not None and self.ref_bgr is not None and changed:
             bs = self._det_size
-            cand_boxes = [square_region(s, bs, self.profile.white_pov,
-                                        extend_up=self.overhang) for s in changed]
-            rows = (min(b[1] for b in cand_boxes) - 1, max(b[3] for b in cand_boxes) + 1)
-            cens = per_square_census_change(self.ref_gray, cur, bs,
-                                            self.profile.white_pov, extend_up=self.overhang,
-                                            ref_codes=self._ref_census_codes(), rows=rows)
+            if cens is None:                 # census_z_weight == 0: band fast path as before
+                cand_boxes = [square_region(s, bs, self.profile.white_pov,
+                                            extend_up=self.overhang) for s in changed]
+                rows = (min(b[1] for b in cand_boxes) - 1, max(b[3] for b in cand_boxes) + 1)
+                cens = per_square_census_change(self.ref_gray, cur, bs,
+                                                self.profile.white_pov, extend_up=self.overhang,
+                                                ref_codes=self._ref_census_codes(), rows=rows)
             shadows = hsv_shadow_squares(self.ref_bgr, cur_bgr, self._det_size,
                                          self.profile.white_pov, changed,
                                          extend_up=self.overhang)
@@ -2486,6 +2563,9 @@ class MoveTracker:
                     "n_changed": len(self._changed),
                     "changed": list(self._changed),
                     "changed_vals": [[s, v] for s, v in self._changed_vals],
+                    "struct_vals": [[s, v] for s, v in self._struct_vals],
+                    "census_z_weight": self.census_z_weight,
+                    "occl_census_thr": self.occl_census_thr,
                     "shadow_vetoed": list(self._shadow_vetoed),
                     "occluded_vetoed": list(self._occluded_vetoed),
                     "tainted": sorted(self._tainted),
