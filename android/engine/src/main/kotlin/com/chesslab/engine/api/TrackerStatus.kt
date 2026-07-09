@@ -20,6 +20,7 @@ data class TrackerStatus(
     val changedVals: List<Pair<String, Double>>,
     val structVals: List<Pair<String, Double>> = emptyList(),
     val shadowVetoed: List<String>,
+    val shadowBlocked: List<String> = emptyList(),
     val occludedVetoed: List<String>,
     val tainted: List<String>,
     val bestScore: Double,

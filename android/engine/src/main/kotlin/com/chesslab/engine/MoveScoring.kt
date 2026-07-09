@@ -16,6 +16,28 @@ fun uciOf(move: Move): String {
     return move.from.value().lowercase() + move.to.value().lowercase() + promo
 }
 
+private const val DEST_KINGSIDE_ROOK_TO = 5
+private const val DEST_QUEENSIDE_ROOK_TO = 3
+
+/**
+ * Squares that GAIN a piece by this move: to-square, plus the rook's to-square for
+ * castling. The en-passant captured square is vacated, not gained
+ * (ports tracker.py:467 `move_destination_squares`).
+ */
+fun moveDestinationSquares(
+    game: Game,
+    move: Move,
+): Set<String> {
+    val sqs = mutableSetOf(move.to.value().lowercase())
+    if (MoveScoring.isCastling(game, move)) {
+        val rank = move.from.value().lowercase()[1]
+        val rookToFile =
+            if (move.to.file.ordinal > move.from.file.ordinal) DEST_KINGSIDE_ROOK_TO else DEST_QUEENSIDE_ROOK_TO
+        sqs.add("${'a' + rookToFile}$rank")
+    }
+    return sqs
+}
+
 /**
  * Log-likelihood move scoring over legal moves (ports tracker.py:423-509,357,476):
  * `loglikScores`, `loglikPairScores`, `movePrior`, `moveTouchedSquares` and the

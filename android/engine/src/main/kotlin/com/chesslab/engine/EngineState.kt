@@ -62,6 +62,9 @@ internal class EngineState {
     var changedVals: List<Pair<String, Double>> = emptyList()
     var structVals: List<Pair<String, Double>> = emptyList()
     var shadowVetoed: List<String> = emptyList()
+
+    /** Candidate UCIs rejected because a destination square was shadow-vetoed (debug). */
+    var shadowBlocked: List<String> = emptyList()
     var occludedVetoed: List<String> = emptyList()
     val occlusionExpiry = mutableMapOf<String, Double>()
 
