@@ -25,6 +25,7 @@
   .moving { background: #7f1d1d; color: #fecaca; }
   .waiting { background: #14532d; color: #bbf7d0; }
   .move { background: #1e3a8a; color: #bfdbfe; }
+  .alarm-banner { background: #7f1d1d; color: #fecaca; padding: 6px 12px; border-radius: 4px; font-weight: 700; font-size: 14px; text-align: center; margin-bottom: 8px; display: none; }
   .note { color: #a1a1aa; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   table.moves { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
   table.moves td { padding: 2px 8px; border-top: 1px solid #1f1f23; }
@@ -102,6 +103,7 @@
   <button onclick="reattach()" id="reattachBtn" title="Rebuild the camera feed without restarting the session">⟳ Reattach</button>
   <span id="status" class="badge waiting">—</span>
   <span id="camDown" class="badge moving" style="display:none">CAMERA DOWN</span>
+  <div id="alarmBanner" class="alarm-banner"></div>
   <span id="cnn" class="badge" style="display:none">CNN</span>
   <span id="note" class="note"></span>
   <span id="recordSkip" class="note"></span>
@@ -419,6 +421,21 @@ async function poll() {
       cnn.textContent = s.cnn_status === "mismatch" ? "CNN: weicht ab" : "CNN";
       cnn.className = "badge " + (s.cnn_status === "mismatch" ? "moving" : "waiting");
     } else { cnn.style.display = "none"; }
+    // Referee alarm (illegal-move detector).
+    const banner = document.getElementById("alarmBanner");
+    if (s.alarm) {
+      const gs = s.alarm.guess_san || "";
+      const sqs = (s.alarm.conflicts || []).slice(0, 4).join(", ");
+      banner.textContent = `⚠ ILLEGAL MOVE: ${gs || sqs} — take it back, or Resync to accept`;
+      banner.style.display = "";
+      // Single audio beep on first activation of this alarm instance.
+      if (s.alarm.since !== window._alarmSince) {
+        window._alarmSince = s.alarm.since;
+        playAlarmBeep();
+      }
+    } else {
+      banner.style.display = "none";
+    }
     document.getElementById("note").textContent = s.note || "";
     document.getElementById("turn").textContent = s.turn === "white" ? "White" : "Black";
     document.getElementById("check").textContent = s.in_check ? "Check!" : "";
@@ -450,6 +467,15 @@ async function poll() {
 setInterval(poll, 250);
 poll();
 
+function playAlarmBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    osc.connect(ctx.destination);
+    osc.frequency.value = 880;
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.3);
+  } catch (e) { /* audio not available */ }
+}
 function fmtScore(cp, mate) {           // engine score → "+1.24" / "#3"
   if (mate != null) return (mate > 0 ? "#" : "#-") + Math.abs(mate);
   if (cp == null) return "0.00";
