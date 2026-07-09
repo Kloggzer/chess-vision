@@ -2395,3 +2395,72 @@ class TestStreamingObserver:
         assert snap.warped.shape[:2] == (mt._det_size, mt._det_size)
         assert mt.history == ["e4"]            # recovery committed via the snapshot
         assert mt.ref_gray is snap.gray        # base truth anchored on the observed frame
+
+
+# ---------------------------------------------------------------------------------------
+# Spec 11 phase 01: consumers enforce the frame-seq contract
+# ---------------------------------------------------------------------------------------
+
+class TestSeqContract:
+    """A decision made at frame N may only be verified/arbitrated by an observation
+    with seq >= N; stale observations neither confirm nor refute newer candidates."""
+
+    def test_verify_ignores_stale_observation(self, monkeypatch):
+        """Pending seq=10: a seq=9 snapshot whose readings WOULD confirm does nothing
+        (no commit, no verify-frame counted); the same readings at seq=10 commit."""
+        mt = _pending_tracker(monkeypatch, match=False, occ_agree=1.0, occ_n=2)
+        mt._pending["seq"] = 10
+        mt._verify_tick(_mk_snap(mt, seq=9))
+        assert mt.history == []
+        assert mt._pending is not None
+        assert mt._pending["frames"] == 0      # ignored entirely, not held
+        mt._verify_tick(_mk_snap(mt, seq=10))
+        assert mt.history == ["e4"]
+        assert mt._pending is None
+        assert mt._verify_state == "confirmed"
+
+    def test_occlusion_filter_ignores_old_snapshot(self, monkeypatch):
+        """Snapshot 10 s old → filter behaves as if no CNN (falls back to >2 heuristic)."""
+        import dataclasses
+        mt = _make_tracker(monkeypatch, cnn_run="stub")
+        mt.recovery = _FakeRecovery(occ={"a3": False}, conf={"a3": True})
+        fresh = _mk_snap(mt, seq=1)
+        mt._cnn_snap = fresh
+        # Fresh: CNN agrees with FEN (a3 empty) → noise, tainted even as a single square.
+        assert mt._cnn_occlusion_filter({"a3"}, mt.board) == {"a3"}
+        mt._cnn_snap = dataclasses.replace(fresh, ts=time.time() - 10.0)
+        # Stale: no-CNN heuristic — a single square passes, >2 squares count as hand.
+        assert mt._cnn_occlusion_filter({"a3"}, mt.board) == set()
+        assert mt._cnn_occlusion_filter({"a3", "b3", "c3"}, mt.board) == {"a3", "b3", "c3"}
+
+    def test_desync_counts_distinct_observations(self, monkeypatch):
+        """Same snapshot (seq) evaluated twice counts once; three distinct-seq mismatching
+        snapshots trigger the illegal-move alarm."""
+        t = _make_tracker(monkeypatch, cnn_run="stub", confirm_frames=1,
+                          cnn_cooldown_s=0.0, cnn_check_interval_s=3600.0,
+                          settle_frames=1, desync_obs_n=3)
+        t.board.push_san("Nf3")
+        t.board.castling_rights = 0
+        stub = _AlarmStub(match=False, conflicts=["e1", "g1"])
+        stub.set_obs_for_board(t.board, overrides={"e1": "empty", "g1": "wK"})
+        t.recovery = stub
+        t._last_corners = [[0, 0], [400, 0], [400, 400], [0, 400]]
+        [t._gray_buf.append(np.zeros((8, 8), np.uint8)) for _ in range(t.avg_frames)]
+
+        def tick(seq):
+            with t.lock:
+                t._mark_stuck("no_legal_move")
+                t._mark_stuck("no_legal_move")
+            t._cnn_tick(_mk_snap(t, seq=seq))
+
+        tick(5)
+        assert t._desync_obs == 1
+        tick(5)                                # same seq re-evaluated → NOT counted again
+        assert t._desync_obs == 1
+        assert t._alarm is None
+        tick(6)
+        assert t._desync_obs == 2
+        tick(7)
+        assert t._desync_obs == 3
+        assert t._alarm is not None
+        assert t._alarm["kind"] == "illegal_move"
