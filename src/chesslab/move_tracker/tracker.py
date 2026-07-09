@@ -1529,6 +1529,25 @@ class MoveTracker:
             conflicts = matches["conflicts"]
             match_ok = matches["match"]
             inconclusive = matches["inconclusive"]
+            # Occupancy fallback (b8b6→c6 correction incident, 2026-07-09): the identity
+            # axis is the model's weak one (~40% on piece types) — ONE confident misread
+            # anywhere keeps agreement below min_agreement forever, so corrections/take-
+            # backs "never update". The occupancy axis is the reliable one: when identity
+            # says mismatch, re-check occupancy-only (identity stripped from the obs).
+            if not match_ok and not inconclusive:
+                from .cnn_recovery import OccupancyObservation
+                occ_obs = OccupancyObservation(p_occ=obs.p_occ, p_empty=obs.p_empty,
+                                               p_occluded=obs.p_occluded)
+                occ_res = recovery.resync_check(self.board, occ_obs)
+                if occ_res["match"]:
+                    # Identity-only disagreement (type misreads) — occupancy says the
+                    # board matches the game state. Same principle as the alarm gating.
+                    match_ok, conflicts = True, []
+                elif not cnn_moves and deep is not None:
+                    seq, agr, _second = deep(self.board, occ_obs,
+                                             max_plies=self.recovery_max_plies)
+                    if seq:
+                        cnn_moves, agreement = seq, agr
         else:
             res = recovery.resync_check(self.board, obs)
             cnn_moves = [chess.Move.from_uci(res["move"])] if res["move"] else []
@@ -2333,7 +2352,10 @@ class MoveTracker:
                 del self._tainted[sq]
             else:
                 z[sq] = 0.0
-        self._occluded_vetoed = sorted(self._motion_occluded_squares)
+        # Display: latched squares ARE occluded squares — showing only the baseline
+        # detector's set made a latched still hand invisible (or "change") in the UI.
+        self._occluded_vetoed = sorted(set(self._motion_occluded_squares)
+                                       | set(self._tainted))
         self._motion_occluded_squares = set()
         self._occlusion_expiry = {sq: exp for sq, exp in self._occlusion_expiry.items()
                                   if time.time() < exp}
