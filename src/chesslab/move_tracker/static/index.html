@@ -348,7 +348,8 @@ function renderMoves(history, decisions) {
 // Build debug card ONCE (fixed DOM), then only update value fields ->
 // no innerHTML rebuild per poll, no reflow/page jump.
 const DBG_LAYOUT = [
-  ["Timing", [["FPS", "fps"], ["Diff time", "diff_ms"], ["CNN inference", "infer_ms"], ["Device", "device"]]],
+  ["Timing", [["FPS", "fps"], ["Diff time", "diff_ms"], ["CNN inference", "infer_ms"],
+    ["Frame / CNN seq", "seqs"], ["Device", "device"]]],
   ["Detection", [["Motion / threshold", "motion"], ["Stable-Count", "stable_count"],
     ["Motion since ref", "motion_since_ref"],
     ["Averaged frames", "frames_used"], ["Settle frames", "settle_frames"],
@@ -380,6 +381,11 @@ function renderDebug(d) {
   const vs = d.verify_state;
   const vsCls = vs === "confirmed" ? "ok" : vs === "ghost" ? "bad" : vs === "verifying" ? "warn" : "";
   set("fps", d.fps); set("diff_ms", d.diff_ms + " ms"); set("infer_ms", d.infer_ms + " ms");
+  // Frame vs. observation seq: how far the streaming observer trails the loop (Spec 11).
+  const lag = (d.frame_seq != null && d.cnn_obs_seq != null) ? d.frame_seq - d.cnn_obs_seq : null;
+  set("seqs", d.frame_seq != null
+    ? `${d.frame_seq} / ${d.cnn_obs_seq ?? "—"}` + (lag != null ? ` <span class="${lag > 60 ? 'warn' : ''}" style="color:#71717a">(lag ${lag})</span>` : "")
+    : "—");
   set("device", "<code>" + d.device + "</code>");
   set("motion", `<b class="${d.motion > d.motion_thr ? 'warn' : ''}">${d.motion}</b> / ${d.motion_thr}`);
   set("motion_warped", `<span style="color:${(d.motion_warped ?? 0) > d.motion_thr ? '#f87171' : '#71717a'}">warped ${d.motion_warped ?? '?'}</span>`);
