@@ -488,7 +488,9 @@ TRACK_DEFAULTS: dict = {
     "corner_jump_px": 6.0,         # Warp corner jump ⇒ base truth geometrically invalid → reacquire
     "motion_hold_s": 0.4,          # Seconds the board must be motion-free before detection resumes
                                    # (wall time — frame counts settle in milliseconds at 40 fps)
-    "occlusion_color_thr": 1.5,    # Color-outlier veto: Mahalanobis sigma vs board gamut (lower=more sensitive, 0=off; 1.5: live-tuned)
+    "occlusion_color_thr": 3.0,    # Color-outlier veto: Mahalanobis sigma vs board gamut (lower=more sensitive, 0=off).
+                                   # NOTE: the historic 1.5 was "tuned" while the gamut was never built (veto dead);
+                                   # now that it is live, 1.5 over-fires — 3.0 is the validated-conservative start.
     "min_grid_line_coverage": 0.5, # Grid-line occlusion gate: min visible-line fraction (0=off)
     "reconnect_grace_s": 2.0,      # Auto-reattach camera after this many seconds of no frames (0=off)
     "diff_clahe_clip": 2.0,        # CLAHE contrast boost on the diff image (0=off; ~2-3 lifts dark moves)

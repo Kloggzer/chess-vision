@@ -650,7 +650,7 @@ class MoveTracker:
         # Census values are already illumination-invariant → tighter floor than gray
         # (floor 2.0 ≈ Hamming 0.19 at z=3; gray floor 3.0 ≈ 9 levels).
         self.census_z_weight = census_z_weight        # z_eff = max(z_gray, w·z_census); 0 = off
-        self.census_noise = SquareNoise(init_std=4.0, std_floor=2.0)
+        self.census_noise = SquareNoise(init_std=4.0, std_floor=2.5)
         self._struct_vals: list = []                  # debug: top census-z squares
         self.occl_census_thr = occl_census_thr        # baseline occlusion needs structure above this
         self.use_prior = use_prior                    # heuristic prior as ambiguity tie-break (part 2)
@@ -2172,12 +2172,27 @@ class MoveTracker:
                                             self.profile.white_pov,
                                             extend_up=self.overhang,
                                             ref_codes=self._ref_census_codes())
+            # Census is illumination-invariant but NOT translation-invariant: table
+            # wobble / pixel jitter shifts every piece edge and fires ALL textured
+            # squares at once. Same cure as the gray channel: a global disturbance
+            # moves the median, a real move (2-4 squares) doesn't.
+            cens = normalize_diffs(cens)
             zs = self.census_noise.z(cens)
             w = self.census_z_weight
-            self._struct_vals = sorted(((s, round(v, 1)) for s, v in zs.items()
-                                        if w * v >= self.z_thr * 0.5),
-                                       key=lambda kv: -kv[1])[:8]
-            z = {s: max(zg, w * zs[s]) for s, zg in z.items()}
+            hot = sum(1 for v in zs.values() if w * v >= self.z_thr)
+            if hot > self.max_changed + 2:
+                # Channel-local guard: no legal move (not even a pair) explains this
+                # many structurally-hot squares → global disturbance (wobble, warp
+                # shift). Drop the census channel THIS frame and learn the
+                # disturbance into its noise model so it adapts away.
+                self.census_noise.update(cens)
+                cens = None
+                self._struct_vals = []
+            else:
+                self._struct_vals = sorted(((s, round(v, 1)) for s, v in zs.items()
+                                            if w * v >= self.z_thr * 0.5),
+                                           key=lambda kv: -kv[1])[:8]
+                z = {s: max(zg, w * zs[s]) for s, zg in z.items()}
         else:
             self._struct_vals = []
         self._diff_ms = (time.perf_counter() - _t0) * 1000.0
