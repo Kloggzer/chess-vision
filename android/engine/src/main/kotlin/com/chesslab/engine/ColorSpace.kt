@@ -22,6 +22,7 @@ internal object ColorSpace {
     private const val LAB_KAPPA = 7.787
     private const val LAB_OFF = 16.0 / 116.0
     private const val LAB_L_SCALE = 116.0
+    private const val LAB_L_OFF = 16.0
     private const val LAB_A_SCALE = 500.0
     private const val LAB_B_SCALE = 200.0
     private const val LAB_SHIFT = 128.0
@@ -66,7 +67,7 @@ internal object ColorSpace {
         val fx = fLab(x)
         val fy = fLab(y)
         val fz = fLab(z)
-        val labL = LAB_L_SCALE * fy - 16.0
+        val labL = LAB_L_SCALE * fy - LAB_L_OFF
         val labA = LAB_A_SCALE * (fx - fy) + LAB_SHIFT
         val labB = LAB_B_SCALE * (fy - fz) + LAB_SHIFT
         return doubleArrayOf(

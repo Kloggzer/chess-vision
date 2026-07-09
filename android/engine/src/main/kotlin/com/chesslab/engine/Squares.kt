@@ -2,6 +2,9 @@ package com.chesslab.engine
 
 private const val BYTE_MASK = 0xFF
 
+/** Interleaved channels of a [com.chesslab.engine.api.BgrImage]. */
+internal const val CHANNELS = 3
+
 /** Unsigned 0..255 value of an image byte. */
 internal fun Byte.px(): Int = toInt() and BYTE_MASK
 

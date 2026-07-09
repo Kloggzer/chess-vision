@@ -77,7 +77,7 @@ object OcclusionGamut {
         var s = 0.0
         for (y in box.y0 until box.y1) {
             for (x in box.x0 until box.x1) {
-                val i = (y * bgr.width + x) * 3
+                val i = (y * bgr.width + x) * CHANNELS
                 val blue = bgr.data[i].px()
                 val green = bgr.data[i + 1].px()
                 val red = bgr.data[i + 2].px()
