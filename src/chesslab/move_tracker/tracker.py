@@ -908,12 +908,6 @@ class MoveTracker:
         self._running = False
         self._thread = None
 
-    @property
-    def _last_cnn_obs(self):
-        """Phase-00 alias (Spec 11): the loose `_last_cnn_obs` attribute became part of
-        `_cnn_snap`. Phase 01 migrates the consumers and removes this alias."""
-        return self._cnn_snap.obs if self._cnn_snap else None
-
     # -- Geometry --
     def _warp(self, frame, target_size: int | None = None):
         if self.live_align:
@@ -2826,11 +2820,12 @@ class MoveTracker:
                 # Promotion wartet auf Nutzerwahl (nur ohne CNN-Verify): {"from","to"} | None
                 # Last CNN per-square opinion (UI hover overlay): {sq: [label, conf]} + age.
                 # Free-running observer (Spec 11): refreshed whenever the worker is idle.
-                "cnn_squares": (None if getattr(self._last_cnn_obs, "label", None) is None
-                                or getattr(self._last_cnn_obs, "conf", None) is None else
-                                {sq: [self._last_cnn_obs.label[sq],
-                                      round(self._last_cnn_obs.conf[sq], 2)]
-                                 for sq in self._last_cnn_obs.label}),
+                "cnn_squares": (None if self._cnn_snap is None
+                                or getattr(self._cnn_snap.obs, "label", None) is None
+                                or getattr(self._cnn_snap.obs, "conf", None) is None else
+                                {sq: [self._cnn_snap.obs.label[sq],
+                                      round(self._cnn_snap.obs.conf[sq], 2)]
+                                 for sq in self._cnn_snap.obs.label}),
                 "cnn_obs_age_s": (None if self._cnn_snap is None else
                                   round(time.time() - self._cnn_snap.ts, 1)),
                 # Referee alarm (illegal-move detector, Phase 01).
