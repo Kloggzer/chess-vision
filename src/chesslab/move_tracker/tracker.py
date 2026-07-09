@@ -1599,12 +1599,18 @@ class MoveTracker:
                     self._desync_obs = 0
                     self._desync_conflicts = set()
                 # Occupancy-only mode never alarms (no identity → false-positive-prone).
+                # And identity-only conflicts never alarm either: an illegal move virtually
+                # always changes OCCUPANCY somewhere; a stable wrong-piece-type reading
+                # (N/B/R gap, ~40% identity precision) is a systematic CNN error, and
+                # counting it rang the alarm on perfectly regular boards (user-reported).
                 if (has_identity and obs.label is not None and self._alarm is None
                         and self._desync_obs >= self.desync_obs_n):
-                    from .cnn_recovery import guess_illegal_move
-                    guess = guess_illegal_move(self.board, obs, self.cnn_conf_thr)
-                    self._alarm = {"kind": "illegal_move", "since": time.time(),
-                                   "conflicts": conflicts, "guess": guess}
+                    from .cnn_recovery import guess_illegal_move, has_occupancy_conflict
+                    if has_occupancy_conflict(self.board, obs, self.cnn_conf_thr,
+                                              conflicts):
+                        guess = guess_illegal_move(self.board, obs, self.cnn_conf_thr)
+                        self._alarm = {"kind": "illegal_move", "since": time.time(),
+                                       "conflicts": conflicts, "guess": guess}
                 if self._alarm is not None:
                     gs = _build_alarm_guess_san(self.board, self._alarm["guess"])
                     sqs = ", ".join(self._alarm["conflicts"][:4]) \

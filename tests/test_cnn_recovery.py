@@ -597,6 +597,19 @@ def test_guess_illegal_move_no_conflict_returns_none(tmp_path):
     assert result is None
 
 
+def test_identity_only_conflict_is_not_occupancy_conflict(tmp_path):
+    """Regression (beep on regular board, 2026-07-09): a stable wrong-piece-type reading
+    (wN misread as wB on g1 — occupancy identical) must NOT count as occupancy conflict,
+    so the illegal-move alarm never triggers on it."""
+    from chesslab.move_tracker.cnn_recovery import has_occupancy_conflict
+    board = chess.Board()
+    obs = _ident_obs(board, overrides={"g1": "wB"})       # knight square misread as bishop
+    assert has_occupancy_conflict(board, obs, 0.5, ["g1"]) is False
+    # Occupancy-level disagreement on the same square DOES count.
+    obs2 = _ident_obs(board, overrides={"g1": "empty"})
+    assert has_occupancy_conflict(board, obs2, 0.5, ["g1"]) is True
+
+
 def test_guess_illegal_move_no_identity_returns_none(tmp_path):
     """Occupancy-only observation (no label/conf) -> None."""
     board = chess.Board()
