@@ -25,6 +25,8 @@ data class CnnConfig(
     val cooldownS: Double = DEFAULT_COOLDOWN_S,
     /** Periodic CNN check interval (`cnn_check_interval_s`). */
     val checkIntervalS: Double = DEFAULT_CHECK_INTERVAL_S,
+    /** Consecutive same-outcome observations per verify decision (`verify_obs_votes`). */
+    val verifyObsVotes: Int = DEFAULT_VERIFY_OBS_VOTES,
 ) {
     companion object {
         const val DEFAULT_CONF_THR: Double = 0.85
@@ -37,5 +39,6 @@ data class CnnConfig(
         const val DEFAULT_MIN_CONFIDENT_BOARD: Int = 32
         const val DEFAULT_COOLDOWN_S: Double = 2.0
         const val DEFAULT_CHECK_INTERVAL_S: Double = 10.0
+        const val DEFAULT_VERIFY_OBS_VOTES: Int = 2
     }
 }

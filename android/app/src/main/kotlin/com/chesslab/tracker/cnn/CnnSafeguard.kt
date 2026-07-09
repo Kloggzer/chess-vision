@@ -84,20 +84,30 @@ class CnnSafeguard(
             scope.launch {
                 var framesSeen = 0
                 var attempts = 0
-                while (framesSeen < config.verifyWindow && attempts < config.verifyWindow * MAX_ATTEMPT_FACTOR) {
+                // Vote gate (83a1e88): no verify decision on a single CNN glance — the SAME
+                // outcome must be seen on `verifyObsVotes` consecutive observations; a
+                // different outcome resets the count. Window/pair resolutions (votes=false)
+                // decide single-shot, exactly like the Python ladder.
+                var outcome: String? = null
+                var votes = 0
+                val maxAttempts = (config.verifyWindow + config.verifyObsVotes) * MAX_ATTEMPT_FACTOR
+                while (attempts < maxAttempts) {
                     attempts++
                     val obs = observeOnce()
                     if (obs == null) {
                         delay(RETRY_DELAY_MS)
-                        continue
-                    }
-                    framesSeen++
-                    when (val step = verifier.evaluate(move.fenBefore, move.ucis, obs, framesSeen)) {
-                        is VerifyStep.Decided -> {
-                            verdictFlow.emit(step.verdict)
-                            return@launch
+                    } else {
+                        framesSeen++
+                        val step = verifier.evaluate(move.fenBefore, move.ucis, obs, framesSeen)
+                        if (step is VerifyStep.Decided) {
+                            votes = if (outcome == step.outcome) votes + 1 else 1
+                            outcome = step.outcome
+                            if (!step.votes || votes >= config.verifyObsVotes) {
+                                verdictFlow.emit(step.verdict)
+                                return@launch
+                            }
                         }
-                        is VerifyStep.Continue -> delay(OBSERVATION_GAP_MS)
+                        delay(OBSERVATION_GAP_MS)
                     }
                 }
                 // Defensive: evaluate() decides at the window; never leave a candidate hanging.
