@@ -35,7 +35,7 @@ object ShadowVeto {
             var sumVc = 0.0
             for (y in box.y0 until box.y1) {
                 for (x in box.x0 until box.x1) {
-                    val i = (y * refBgr.width + x) * 3
+                    val i = (y * refBgr.width + x) * CHANNELS
                     val hr = ColorSpace.bgrToHsv(refBgr.data[i].px(), refBgr.data[i + 1].px(), refBgr.data[i + 2].px())
                     val hc = ColorSpace.bgrToHsv(curBgr.data[i].px(), curBgr.data[i + 1].px(), curBgr.data[i + 2].px())
                     val ratio = hc[2] / (hr[2] + V_EPS)
