@@ -4,6 +4,7 @@ import android.app.Application
 import android.graphics.Bitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.chesslab.tracker.cnn.CnnModelStore
 import com.chesslab.tracker.geometry.BoardCorners
 import com.chesslab.tracker.geometry.CalibrationProfile
 import com.chesslab.tracker.geometry.CalibrationStore
@@ -29,6 +30,7 @@ class TrackerViewModel(
     app: Application,
 ) : AndroidViewModel(app) {
     private val settingsRepo = SettingsRepository(settingsDataStore(app))
+    val modelStore = CnnModelStore(app.filesDir)
     private val calibrationStore = CalibrationStore(app.filesDir.resolve("calibration"))
 
     val settings: StateFlow<TrackerSettings> =
