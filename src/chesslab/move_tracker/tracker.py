@@ -694,7 +694,8 @@ class MoveTracker:
                  require_motion_for_move: bool = True, detect_scale: float = 0.5,
                  motion_recency_s: float = 20.0,
                  census_z_weight: float = 1.0, occl_census_thr: float = 24.0,
-                 desync_obs_n: int = 3, observer_interval_s: float = 0.0) -> None:
+                 desync_obs_n: int = 3, observer_interval_s: float = 0.0,
+                 verify_obs_votes: int = 2) -> None:
         # Auto-create a missing profile from the first frames of this source (ArUco).
         self.profile_name = profile           # string profile name (for session recording)
         self.profile = ensure_profile(profile, source)
@@ -839,6 +840,7 @@ class MoveTracker:
         self.cnn_status: str | None = None                # None | "ok" | "mismatch"
         self.cnn_conflicts: list[str] = []                # squares that contradict the check
         self.desync_obs_n = desync_obs_n                  # consecutive stable mismatches before alarm
+        self.verify_obs_votes = verify_obs_votes          # consecutive same-outcome observations per verify decision
         self._desync_obs = 0                              # consecutive desync count
         self._desync_conflicts: set[str] = set()          # stable conflict set
         self._desync_last_seq: int | None = None          # last obs seq counted (dedup, Spec 11)
@@ -1805,9 +1807,27 @@ class MoveTracker:
                 self.cnn_status, self.cnn_conflicts = status, conflicts or []
                 self.note = note
 
+            def _voted(outcome: str) -> bool:
+                """No verify decision on a single CNN glance (g8h6 overrule incident,
+                2026-07-09: one frame's confident-empty misread overruled a real move).
+                The SAME outcome must be seen on `verify_obs_votes` consecutive
+                observations; a different outcome resets the count. With the
+                free-running observer a second glance costs ~one inference."""
+                if pending.get("_outcome") == outcome:
+                    pending["_votes"] = pending.get("_votes", 1) + 1
+                else:
+                    pending["_outcome"], pending["_votes"] = outcome, 1
+                if pending["_votes"] >= self.verify_obs_votes:
+                    return True
+                self.note = (f"verify: {outcome}? confirming "
+                             f"({pending['_votes']}/{self.verify_obs_votes})")
+                return False
+
             # 1) Occupancy says the believed board is unchanged → shadow / no real move.
             #    Drop the candidate and pull the reference forward (reliable shadow killer).
             if occ_check["match"]:
+                if not _voted("shadow"):
+                    return
                 self._clear_stuck()
                 self._set_ref(pending["cur"], pending.get("cur_bgr"), from_commit=True)
                 _reject("shadow", "shadow", "Shadow/no move (CNN: board unchanged)")
@@ -1842,6 +1862,8 @@ class MoveTracker:
             #    unreliable axis) and discards the fiction (origin still occupied conflicts).
             to_arrived_ok = to_arrived_conf and not from_occ_conf
             if from_left_ok or to_arrived_ok or (occ_agree >= recovery.min_agreement and occ_n >= 2):
+                if not _voted("commit"):
+                    return
                 _commit("", "confirmed", "ok")
                 return
 
@@ -1851,11 +1873,15 @@ class MoveTracker:
             #    (e.g. castling: e1 empty, but the king on g1 mis-read as empty) is NOT rejected —
             #    it already committed in (2) via from_left. Only "nothing moved" is a ghost.
             if to_empty_conf and not from_left_conf:
+                if not _voted("ghost"):
+                    return
                 _reject("ghost", "ghost", f"Ghost move rejected (CNN: {to_sq} still empty)", [to_sq])
                 return
 
             # 4) CNN sees a DIFFERENT move whose occupancy is unambiguous → overrule the diff.
             if cnn_uci and cnn_uci != pending["uci"] and cnn_agreement >= recovery.min_agreement:
+                if not _voted(f"overrule:{cnn_uci}"):
+                    return
                 old_san = self.board.san(pend_mv)
                 _commit(f"  (CNN overruled {old_san})", "overruled", "ok",
                         move=chess.Move.from_uci(cnn_uci), decider="cnn_overrule")

@@ -980,7 +980,8 @@ class TestCnnVerify:
     def test_shadow_suppressed_no_commit(self, monkeypatch):
         """CNN sieht das Brett unverändert (Belegung gleich) → kein Zug, Referenz nachgezogen."""
         mt = _pending_tracker(monkeypatch, match=True)
-        mt._verify_tick(_mk_snap(mt))
+        for _ in range(2):                       # verify_obs_votes: never act on one glance
+            mt._verify_tick(_mk_snap(mt))
         assert mt.history == []
         assert mt._pending is None
         assert mt._verify_state == "shadow"
@@ -989,7 +990,8 @@ class TestCnnVerify:
     def test_occupancy_confirms_commit(self, monkeypatch):
         """Belegung bestätigt den Diff-Zug (from leer, to belegt) → Commit."""
         mt = _pending_tracker(monkeypatch, match=False, occ_agree=1.0, occ_n=2)
-        mt._verify_tick(_mk_snap(mt))
+        for _ in range(2):                       # verify_obs_votes
+            mt._verify_tick(_mk_snap(mt))
         assert mt.history == ["e4"]
         assert mt.last_move == "e2e4"
         assert mt._pending is None
@@ -1002,7 +1004,8 @@ class TestCnnVerify:
         würde eine fehl-gelesene Zielsituation echte Züge killen, z.B. Rochade.)"""
         mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0,
                               occ={"e4": False, "e2": True}, conf={"e4": True, "e2": True})
-        mt._verify_tick(_mk_snap(mt))
+        for _ in range(2):                       # verify_obs_votes
+            mt._verify_tick(_mk_snap(mt))
         assert mt.history == []
         assert mt._pending is None
         assert mt._verify_state == "ghost"
@@ -1043,7 +1046,8 @@ class TestCnnVerify:
                               derive_move="e2e4", derive_agreement=0.99,
                               occ={"e4": False, "e2": False},
                               conf={"e4": False, "e2": True})
-        mt._verify_tick(_mk_snap(mt))
+        for _ in range(2):                       # verify_obs_votes
+            mt._verify_tick(_mk_snap(mt))
         assert mt.history == ["e4"]
         assert mt._verify_state == "confirmed"
 
@@ -1057,7 +1061,8 @@ class TestCnnVerify:
         mt.ref_fen = mt.board.fen()
         mt._pending = {"uci": "e1g1", "fen": mt.board.fen(),
                        "cur": _gray_frame(["g1"]), "cur_bgr": None, "frames": 0}
-        mt._verify_tick(_mk_snap(mt))
+        for _ in range(2):                       # verify_obs_votes
+            mt._verify_tick(_mk_snap(mt))
         assert mt.history == ["O-O"]
         assert mt._verify_state == "confirmed"
 
@@ -1130,7 +1135,8 @@ class TestCnnVerify:
         # so the CNN's own confident move d2d4 wins.
         mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0, derive_move="d2d4",
                               derive_agreement=0.99, conf={"e4": False, "e2": False})
-        mt._verify_tick(_mk_snap(mt))
+        for _ in range(2):                       # verify_obs_votes
+            mt._verify_tick(_mk_snap(mt))
         assert mt.history == ["d4"]
         assert mt.last_move == "d2d4"
         assert mt._verify_state == "overruled"
@@ -1901,7 +1907,8 @@ class TestCnnOverrule:
         # e2e4 endpoints unreadable so it is neither confirmed nor rejected; d2d4 is reliable.
         mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0, derive_move="d2d4",
                               derive_agreement=0.99, conf={"e4": False, "e2": False})
-        mt._verify_tick(_mk_snap(mt))
+        for _ in range(2):                       # verify_obs_votes
+            mt._verify_tick(_mk_snap(mt))
         assert mt.last_move == "d2d4"
         assert mt._verify_state == "overruled"
 
@@ -2570,6 +2577,7 @@ class TestSeqContract:
         assert mt._pending is not None
         assert mt._pending["frames"] == 0      # ignored entirely, not held
         mt._verify_tick(_mk_snap(mt, seq=10))
+        mt._verify_tick(_mk_snap(mt, seq=11))  # verify_obs_votes: 2nd agreeing glance
         assert mt.history == ["e4"]
         assert mt._pending is None
         assert mt._verify_state == "confirmed"
