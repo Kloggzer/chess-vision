@@ -139,9 +139,10 @@ class SpectatorServer(
     /** Best-effort local (WiFi) IPv4 address. Falls back to 127.0.0.1. */
     private fun deviceIp(): String {
         try {
-            val interfaces = NetworkInterface.getNetworkInterfaces().asIterator()
-            while (interfaces.hasNext()) {
-                val iface = interfaces.next()
+            // Enumeration#asIterator needs API 33; minSdk is 29 → classic Enumeration loop.
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val iface = interfaces.nextElement()
                 val addr = if (!iface.isLoopback && iface.isUp) findV4Address(iface) else null
                 if (addr != null) return addr
             }
@@ -152,7 +153,9 @@ class SpectatorServer(
     }
 
     private fun findV4Address(iface: NetworkInterface): String? {
-        for (addr in iface.inetAddresses.asIterator()) {
+        val addresses = iface.inetAddresses
+        while (addresses.hasMoreElements()) {
+            val addr = addresses.nextElement()
             if (addr is Inet4Address && !addr.isLoopbackAddress) {
                 return addr.hostAddress
             }

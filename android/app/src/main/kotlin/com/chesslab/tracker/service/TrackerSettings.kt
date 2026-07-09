@@ -45,6 +45,9 @@ data class TrackerSettings(
     val claheClip: Double = TrackerConfig.DEFAULT_DIFF_CLAHE_CLIP,
     // Recording (phase 07)
     val autoRecord: Boolean = true,
+    // CNN safeguard (phase 05); needs an imported model (CnnModelStore) to attach.
+    val cnnEnabled: Boolean = false,
+    val cnnConfThr: Double = DEFAULT_CNN_CONF_THR,
     // Experimental + Debug
     val experimentalDetection: Boolean = false,
     val debugCard: Boolean = false,
@@ -84,4 +87,9 @@ data class TrackerSettings(
             usePrior != previous.usePrior ||
             resolution != previous.resolution ||
             dynamicResolution != previous.dynamicResolution
+
+    companion object {
+        /** `config.TRACK_DEFAULTS["cnn_conf_thr"]`. */
+        const val DEFAULT_CNN_CONF_THR: Double = 0.85
+    }
 }
