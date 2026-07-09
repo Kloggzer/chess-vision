@@ -32,6 +32,7 @@ data class TrackerStatus(
     val priorLast: Boolean,
     val noiseMean: Map<String, Double>,
     val noiseStd: Map<String, Double>,
+    val alarm: AlarmState? = null,
 ) {
     val margin: Double get() = bestScore - secondScore
 }

@@ -227,6 +227,10 @@ internal class Detector(
                     // Occlusion latch active: re-anchoring would bake the hand into the reference.
                     state.markStuck("occluded")
                     state.note = "waiting for occluded squares to clear…"
+                } else if (state.alarm != null) {
+                    // Alarm active: the illegal position must not become base truth.
+                    state.markStuck("no_legal_move")
+                    state.note = "ILLEGAL MOVE? board cannot be anchored to game state"
                 } else {
                     confirmer.reset()
                     state.clearStuck()
@@ -322,6 +326,13 @@ internal class Detector(
         curBgr: BgrImage,
         events: MutableList<TrackerEvent>,
     ) {
+        if (state.alarm != null) {
+            // Desync alarm: the game state provably mismatches the physical board — every
+            // diff-vs-reference interpretation is fiction (d4b3 incident, 6368b88).
+            confirmer.reset()
+            state.note = "board desynced (ILLEGAL MOVE alarm) — no moves committed until take-back or resync"
+            return
+        }
         val guard = safeguard()
         if (guard != null) {
             val ucis = cand.moves.map { uciOf(it) }

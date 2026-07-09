@@ -86,6 +86,43 @@ class CnnRecoveryTest {
         assertTrue("d4" in conflicts.squares || "a1" in conflicts.squares)
     }
 
+    // -- illegal-move helpers (ports tests/test_cnn_recovery.py guess/occupancy tests) --
+
+    @Test
+    fun `guessIllegalMove reconstructs a single source-destination pair`() {
+        // King picked up from e1 and put on e4 (illegal): exactly one source (e1
+        // observed empty) and one destination (e4 observed holding a piece).
+        val obs = obsOf(Game(), overrides = mapOf("e1" to false, "e4" to true), labelOverrides = mapOf("e4" to "wK"))
+        assertEquals("e1e4", recovery.guessIllegalMove(Game(), obs))
+    }
+
+    @Test
+    fun `guessIllegalMove is null for ambiguous patterns`() {
+        // Two sources -> no unambiguous reconstruction.
+        val obs = obsOf(Game(), overrides = mapOf("e1" to false, "d1" to false, "e4" to true))
+        assertEquals(null, recovery.guessIllegalMove(Game(), obs))
+    }
+
+    @Test
+    fun `guessIllegalMove is null without conflicts`() {
+        assertEquals(null, recovery.guessIllegalMove(Game(), obsOf(Game())))
+    }
+
+    @Test
+    fun `identity-only conflict is not an occupancy conflict`() {
+        val game = Game()
+        val misread = obsOf(game, labelOverrides = mapOf("b1" to "wB"))
+        assertTrue(recovery.hasOccupancyConflict(game, misread, listOf("b1")).not())
+        val vacated = obsOf(game, overrides = mapOf("b1" to false))
+        assertTrue(recovery.hasOccupancyConflict(game, vacated, listOf("b1")))
+    }
+
+    @Test
+    fun `occupancy match short-circuits identity mismatch to BoardUnchanged`() {
+        val outcome = recovery.evaluate(STARTPOS, obsOf(Game(), labelOverrides = mapOf("b1" to "wB")))
+        assertEquals(RecoveryOutcome.BoardUnchanged, outcome)
+    }
+
     @Test
     fun `partial occlusion still recovers (minConfidentRecovery split)`() {
         // Half the board covered, the move endpoints readable.

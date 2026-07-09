@@ -27,6 +27,8 @@ data class CnnConfig(
     val checkIntervalS: Double = DEFAULT_CHECK_INTERVAL_S,
     /** Consecutive same-outcome observations per verify decision (`verify_obs_votes`). */
     val verifyObsVotes: Int = DEFAULT_VERIFY_OBS_VOTES,
+    /** Stable identity-mismatch observations before the illegal-move alarm (`desync_obs_n`). */
+    val desyncObsN: Int = DEFAULT_DESYNC_OBS_N,
 ) {
     companion object {
         const val DEFAULT_CONF_THR: Double = 0.85
@@ -40,5 +42,6 @@ data class CnnConfig(
         const val DEFAULT_COOLDOWN_S: Double = 2.0
         const val DEFAULT_CHECK_INTERVAL_S: Double = 10.0
         const val DEFAULT_VERIFY_OBS_VOTES: Int = 2
+        const val DEFAULT_DESYNC_OBS_N: Int = 3
     }
 }

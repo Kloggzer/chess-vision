@@ -2,6 +2,7 @@ package com.chesslab.tracker.service
 
 import com.chesslab.engine.STARTPOS
 import com.chesslab.engine.TrackerEngine
+import com.chesslab.engine.api.AlarmState
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.Decision
 import com.chesslab.engine.api.GrayImage
@@ -96,11 +97,31 @@ class TrackerCoordinator(
         fenBefore: String,
         gray: GrayImage,
         bgr: BgrImage?,
+        resolvesAlarm: Boolean = false,
     ): Boolean {
-        val ok = engine.applyRecoveredMoves(ucis, fenBefore, gray, bgr)
+        val ok = engine.applyRecoveredMoves(ucis, fenBefore, gray, bgr, resolvesAlarm)
         if (ok) publish(_uiState.value.announcement)
         return ok
     }
+
+    /** Conflict squares of the active illegal-move alarm, or null when not alarmed. */
+    val alarmConflicts: List<String>? get() = engine.status.alarm?.conflicts
+
+    /** Safeguard desync counting rang the referee alarm — block all commits in the engine. */
+    fun raiseAlarm(
+        conflicts: List<String>,
+        guessUci: String?,
+    ) {
+        engine.raiseAlarm(AlarmState(conflicts, guessUci))
+        publish(_uiState.value.announcement)
+    }
+
+    /** Whole-board match while alarmed = take-back detected — clear the alarm. */
+    fun clearAlarm() {
+        engine.clearAlarm()
+        publish(_uiState.value.announcement)
+    }
+
 
     /** Phase 05 wiring: CNN found the stuck board unchanged — pull the reference forward. */
     fun pullReferenceForward(
