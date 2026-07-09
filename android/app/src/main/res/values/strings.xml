@@ -108,4 +108,6 @@
     <string name="history_changed">Changed: %1$s</string>
     <string name="history_vetoed">Shadow-vetoed: %1$s</string>
     <string name="history_prior">Prior used: %1$s</string>
+    <!-- Referee alarm (illegal-move desync) -->
+    <string name="alarm_banner">ILLEGAL MOVE? %1$s — take it back, or resync to accept</string>
 </resources>

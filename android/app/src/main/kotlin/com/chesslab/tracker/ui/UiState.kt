@@ -25,6 +25,11 @@ data class MoveAnnouncement(
     val id: Long,
 )
 
+/** Referee alarm banner content: the suspected-move / conflict-square detail text. */
+data class AlarmUi(
+    val detail: String,
+)
+
 /** Debug-card snapshot (mirrors the Python debug card, `index.html:341-379`). */
 data class DebugSnapshot(
     val fps: Double = 0.0,
@@ -57,6 +62,7 @@ data class UiState(
     val gameOver: Boolean = false,
     val promotion: PromotionRequest? = null,
     val announcement: MoveAnnouncement? = null,
+    val alarm: AlarmUi? = null,
     val debug: DebugSnapshot = DebugSnapshot(),
 ) {
     /** SAN history without provenance (for the compact move list). */
