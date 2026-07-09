@@ -123,7 +123,11 @@ def run_export(run: str, fmt: str = "torchscript") -> int:
     model.eval()
     classes = cfg["classes"]
     out_w, out_h = cfg["out_size"]
-    example = torch.randn(1, 3, out_h, out_w)
+    # Batch 2, NOT 1: tracing with batch 1 lets the exporter constant-fold the batch
+    # dimension into shape ops, so the graph's declared output stays {1,14} even with
+    # dynamic_axes — ONNX Runtime then warns "expected {1,14}, actual {64,14}" on every
+    # batched inference. A batch-2 example forces genuinely dynamic shapes.
+    example = torch.randn(2, 3, out_h, out_w)
 
     formats = [fmt] if fmt != "all" else ["torchscript", "onnx"]
     written: list[str] = []
