@@ -43,6 +43,7 @@ class SettingsRepository(
         val OVERHANG = doublePreferencesKey("overhang")
         val MOTION_HOLD_S = doublePreferencesKey("motion_hold_s")
         val CLAHE_CLIP = doublePreferencesKey("clahe_clip")
+        val AUTO_RECORD = booleanPreferencesKey("auto_record")
         val EXPERIMENTAL = booleanPreferencesKey("experimental_detection")
         val DEBUG_CARD = booleanPreferencesKey("debug_card")
         val OVERLAY_VIEW = stringPreferencesKey("overlay_view")
@@ -62,6 +63,7 @@ class SettingsRepository(
             usePrior = prefs[USE_PRIOR] ?: d.usePrior,
             resolution = prefs[RESOLUTION]?.let(::resolutionOf) ?: d.resolution,
             dynamicResolution = prefs[DYNAMIC_RESOLUTION] ?: d.dynamicResolution,
+            autoRecord = prefs[AUTO_RECORD] ?: d.autoRecord,
             experimentalDetection = prefs[EXPERIMENTAL] ?: d.experimentalDetection,
             debugCard = prefs[DEBUG_CARD] ?: d.debugCard,
             overlayView = prefs[OVERLAY_VIEW]?.let(::overlayOf) ?: d.overlayView,
@@ -92,6 +94,7 @@ class SettingsRepository(
         prefs[USE_PRIOR] = s.usePrior
         prefs[RESOLUTION] = s.resolution.name
         prefs[DYNAMIC_RESOLUTION] = s.dynamicResolution
+        prefs[AUTO_RECORD] = s.autoRecord
         prefs[MOTION_THR] = s.motionThr
         prefs[Z_THR] = s.zThr
         prefs[CENSUS_THR] = s.censusThr
