@@ -17,6 +17,7 @@ import pytest
 
 from chesslab.move_tracker.cnn_recovery import OccupancyObservation
 from chesslab.move_tracker.tracker import (
+    CnnSnapshot,
     SquareNoise,
     loglik_scores,
     move_destination_squares,
@@ -879,6 +880,14 @@ class _FakeRecovery:
                 "agreement": self.derive_agreement if self.derive_move else 0.0}
 
 
+def _mk_snap(mt, seq=0, warped=None, gray=None, obs=None):
+    """Seq-getaggter CnnSnapshot, wie ihn der free-running Observer liefern würde (Spec 11)."""
+    if obs is None and mt.recovery is not None:
+        obs = mt.recovery.observe(None, None)
+    return CnnSnapshot(obs=obs, seq=seq, ts=time.time(), infer_ms=0.0,
+                       warped=warped, gray=gray, fen=mt.board.fen())
+
+
 def _pending_tracker(monkeypatch, **fake_kw):
     """Tracker mit aktivem (gestubbtem) CNN und einem Pending-Kandidaten e2e4."""
     win = fake_kw.pop("verify_window", None)
@@ -900,7 +909,7 @@ class TestCnnVerify:
     def test_shadow_suppressed_no_commit(self, monkeypatch):
         """CNN sieht das Brett unverändert (Belegung gleich) → kein Zug, Referenz nachgezogen."""
         mt = _pending_tracker(monkeypatch, match=True)
-        mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        mt._verify_tick(_mk_snap(mt))
         assert mt.history == []
         assert mt._pending is None
         assert mt._verify_state == "shadow"
@@ -909,7 +918,7 @@ class TestCnnVerify:
     def test_occupancy_confirms_commit(self, monkeypatch):
         """Belegung bestätigt den Diff-Zug (from leer, to belegt) → Commit."""
         mt = _pending_tracker(monkeypatch, match=False, occ_agree=1.0, occ_n=2)
-        mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        mt._verify_tick(_mk_snap(mt))
         assert mt.history == ["e4"]
         assert mt.last_move == "e2e4"
         assert mt._pending is None
@@ -922,7 +931,7 @@ class TestCnnVerify:
         würde eine fehl-gelesene Zielsituation echte Züge killen, z.B. Rochade.)"""
         mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0,
                               occ={"e4": False, "e2": True}, conf={"e4": True, "e2": True})
-        mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        mt._verify_tick(_mk_snap(mt))
         assert mt.history == []
         assert mt._pending is None
         assert mt._verify_state == "ghost"
@@ -935,7 +944,7 @@ class TestCnnVerify:
         the verify window later discards the candidate."""
         mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0,
                               occ={"e4": False, "e2": False}, conf={"e4": True, "e2": True})
-        mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        mt._verify_tick(_mk_snap(mt))
         assert mt.history == []
         assert mt._pending is not None            # held, not committed and not rejected
         assert mt._verify_state == "verifying"
@@ -950,7 +959,7 @@ class TestCnnVerify:
         mt.ref_fen = mt.board.fen()
         mt._pending = {"uci": "e1g1", "fen": mt.board.fen(),
                        "cur": _gray_frame(["g1"]), "cur_bgr": None, "frames": 0}
-        mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        mt._verify_tick(_mk_snap(mt))
         assert mt.history == ["O-O"]
         assert mt._verify_state == "confirmed"
 
@@ -959,7 +968,7 @@ class TestCnnVerify:
         Start e2 fälschlich noch als belegt liest ('occupied' ist die unzuverlässige Achse)."""
         mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0,
                               occ={"e4": True, "e2": True}, conf={"e4": True, "e2": True})
-        mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        mt._verify_tick(_mk_snap(mt))
         assert mt.history == ["e4"]                              # committed via destination arrival
         assert mt._verify_state == "confirmed"
 
@@ -970,7 +979,7 @@ class TestCnnVerify:
                               occ={"e2": True}, conf={"e4": False, "e2": True},
                               verify_window=2)
         for _ in range(2):
-            mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+            mt._verify_tick(_mk_snap(mt))
         assert mt.history == []
         assert mt._pending is None
         assert mt._verify_state == "ghost"
@@ -981,7 +990,7 @@ class TestCnnVerify:
         # so the CNN's own confident move d2d4 wins.
         mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0, derive_move="d2d4",
                               derive_agreement=0.99, conf={"e4": False, "e2": False})
-        mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        mt._verify_tick(_mk_snap(mt))
         assert mt.history == ["d4"]
         assert mt.last_move == "d2d4"
         assert mt._verify_state == "overruled"
@@ -991,10 +1000,10 @@ class TestCnnVerify:
         NICHT blind den Diff akzeptieren (das war das alte Loch für die Hand)."""
         mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0, occ_n=0,
                               conf={"e4": False, "e2": False}, verify_window=3)
-        mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        mt._verify_tick(_mk_snap(mt))
         assert mt.history == []                            # noch am Warten
         for _ in range(2):
-            mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+            mt._verify_tick(_mk_snap(mt))
         assert mt.history == []                            # verworfen, kein Zug
         assert mt._pending is None
         assert mt._verify_state == "ghost"
@@ -1006,7 +1015,7 @@ class TestCnnVerify:
                               occ={"e4": True, "e2": False}, conf={"e4": True, "e2": True},
                               verify_window=3)
         for _ in range(3):
-            mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+            mt._verify_tick(_mk_snap(mt))
         assert mt.history == ["e4"]
         assert mt._pending is None
 
@@ -1014,7 +1023,7 @@ class TestCnnVerify:
         """_ensure_cnn liefert None (Modell weg) → Fallback: Pending direkt committen."""
         mt = _pending_tracker(monkeypatch, match=False, occ_agree=1.0)
         monkeypatch.setattr(mt, "_ensure_cnn", lambda: None)
-        mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        mt._verify_tick(_mk_snap(mt))
         assert mt.history == ["e4"]
         assert mt._pending is None
 
@@ -1127,7 +1136,7 @@ class TestPipelineRegressions:
             return {"match": board.fen() == after.fen(), "conflicts": [], "move": None,
                     "agreement": 0.99}
         mt.recovery.resync_check = _check
-        mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        mt._verify_tick(_mk_snap(mt))
         assert mt.history == ["e4", "e5"]
         assert mt._pending is None and mt._verify_state == "confirmed"
         assert mt._recent_decisions[-1]["rec"]["decider"] == "cnn_pair"
@@ -1137,7 +1146,7 @@ class TestPipelineRegressions:
         mt = _pending_tracker(monkeypatch, match=True)
         mt._pending = {"ucis": ["e2e4", "e7e5"], "uci": "e2e4", "fen": mt.board.fen(),
                        "cur": _gray_frame([]), "cur_bgr": None, "frames": 0}
-        mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        mt._verify_tick(_mk_snap(mt))
         assert mt.history == [] and mt._pending is None
         assert mt._verify_state == "shadow"
 
@@ -1737,7 +1746,7 @@ class TestCnnOverrule:
         # e2e4 endpoints unreadable so it is neither confirmed nor rejected; d2d4 is reliable.
         mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0, derive_move="d2d4",
                               derive_agreement=0.99, conf={"e4": False, "e2": False})
-        mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        mt._verify_tick(_mk_snap(mt))
         assert mt.last_move == "d2d4"
         assert mt._verify_state == "overruled"
 
@@ -2249,16 +2258,15 @@ def test_alarm_triggers_after_n_stable_mismatches(monkeypatch):
         t._mark_stuck("no_legal_move")
         t._mark_stuck("no_legal_move")
     old_ref = t.ref_gray
-    frame = np.zeros((400, 400, 3), dtype=np.uint8)
-    t._cnn_tick(frame)
+    t._cnn_tick(_mk_snap(t, seq=1))
     assert t._alarm is None, "alarm not set yet (need 3)"
     with t.lock:
         t._mark_stuck("no_legal_move")
-    t._cnn_tick(frame)
+    t._cnn_tick(_mk_snap(t, seq=2))
     assert t._alarm is None, "alarm not set yet (need 3)"
     with t.lock:
         t._mark_stuck("no_legal_move")
-    t._cnn_tick(frame)
+    t._cnn_tick(_mk_snap(t, seq=3))
     assert t._alarm is not None, "alarm should be set after 3 stable mismatches"
     assert t._alarm["kind"] == "illegal_move"
     assert set(t._alarm["conflicts"]) == {"e1", "g1"}
@@ -2283,25 +2291,24 @@ def test_alarm_blocks_fabricated_recovery(monkeypatch):
     t.recovery = stub
     t._last_corners = [[0, 0], [400, 0], [400, 400], [0, 400]]
     [t._gray_buf.append(np.zeros((8, 8), np.uint8)) for _ in range(t.avg_frames)]
-    frame = np.zeros((400, 400, 3), dtype=np.uint8)
     # Three _cnn_tick calls to trigger alarm (desync_obs_n=3)
     with t.lock:
         t._mark_stuck("no_legal_move")
         t._mark_stuck("no_legal_move")
-    t._cnn_tick(frame)  # desync_obs = 1
+    t._cnn_tick(_mk_snap(t, seq=1))  # desync_obs = 1
     with t.lock:
         t._mark_stuck("no_legal_move")
-    t._cnn_tick(frame)  # desync_obs = 2
+    t._cnn_tick(_mk_snap(t, seq=2))  # desync_obs = 2
     with t.lock:
         t._mark_stuck("no_legal_move")
-    t._cnn_tick(frame)  # desync_obs = 3 -> alarm triggers
+    t._cnn_tick(_mk_snap(t, seq=3))  # desync_obs = 3 -> alarm triggers
     assert t._alarm is not None, "alarm must be set"
     fen_before = t.board.fen()
     # Stub now offers a legal sequence that does NOT resolve e1
     stub._cnn_moves = [chess.Move.from_uci("g2g4")]
     with t.lock:
         t._mark_stuck("no_legal_move")
-    t._cnn_tick(frame)
+    t._cnn_tick(_mk_snap(t, seq=4))
     assert t.board.fen() == fen_before, "commit despite alarm!"
     assert t._alarm is not None, "alarm cleared despite unresolved conflict"
     assert "withholding" in t.note, f"note missing withholding: {t.note}"
@@ -2311,7 +2318,7 @@ def test_alarm_blocks_fabricated_recovery(monkeypatch):
     stub.set_obs_for_board(t.board)
     with t.lock:
         t._mark_stuck("no_legal_move")
-    t._cnn_tick(frame)
+    t._cnn_tick(_mk_snap(t, seq=5))
     assert t._alarm is None, "alarm should clear on match_ok"
     assert t._desync_obs == 0
     assert t._desync_conflicts == set()
@@ -2327,12 +2334,64 @@ def test_no_alarm_without_cnn(monkeypatch):
         t._mark_stuck("no_legal_move")
         t._mark_stuck("no_legal_move")
         t._mark_stuck("no_legal_move")
-    t._cnn_tick(np.zeros((400, 400, 3), dtype=np.uint8))
+    t._cnn_tick(_mk_snap(t, seq=1))
     assert t._alarm is None, "no CNN should never set alarm"
     assert t.status()["alarm"] is None
-    for _ in range(10):
+    for i in range(10):
         with t.lock:
             t._mark_stuck("no_legal_move")
-        t._cnn_tick(np.zeros((400, 400, 3), dtype=np.uint8))
+        t._cnn_tick(_mk_snap(t, seq=2 + i))
     assert t._alarm is None
     assert t.status()["alarm"] is None
+
+
+# ---------------------------------------------------------------------------------------
+# Spec 11 phase 00: free-running observer + frame-signature snapshots
+# ---------------------------------------------------------------------------------------
+
+class TestStreamingObserver:
+    """The observer runs unconditionally (no stuck/periodic demand gate) and every
+    snapshot carries the seq of the frame it saw plus its anchor warp."""
+
+    def test_observer_snapshots_on_quiet_board(self, monkeypatch):
+        """Not stuck, no pending, periodic not due — the old _cnn_tick returned without
+        observing; the free-running worker still stores a seq-tagged snapshot."""
+        mt = _make_tracker(monkeypatch, cnn_run="stub")
+        mt.recovery = _FakeRecovery()
+        mt._last_corners = [[0, 0], [400, 0], [400, 400], [0, 400]]
+        mt._last_cnn_ts = time.time()          # periodic check not due
+        mt._cnn_worker(np.zeros((400, 400, 3), np.uint8), 7)
+        assert mt._cnn_snap is not None
+        assert mt._cnn_snap.seq == 7
+        s = mt.status()["debug"]
+        assert s["cnn_obs_seq"] == 7
+        assert "frame_seq" in s
+        assert mt.history == []                # observation only — no evaluation side effects
+
+    def test_observer_interval_throttles(self, monkeypatch):
+        """observer_interval_s throttles observation STARTS (battery/thermal knob)."""
+        mt = _make_tracker(monkeypatch, cnn_run="stub", observer_interval_s=10.0)
+        now = time.time()
+        assert mt._observer_due(now) is True   # first observation starts immediately
+        mt._observer_started_ts = now          # what the spawn path does
+        assert mt._observer_due(now + 1.0) is False
+        assert mt._observer_due(now + 11.0) is True
+        mt._cnn_busy = True                    # worker running → never spawn a second one
+        assert mt._observer_due(now + 11.0) is False
+
+    def test_snapshot_carries_anchor_warp(self, monkeypatch):
+        """Snapshot carries gray/warped at det size; a recovery pull-forward anchors
+        ref_gray on the OBSERVED frame (snapshot), not on the newer live buffer."""
+        mt = _make_tracker(monkeypatch, cnn_run="stub", confirm_frames=1,
+                           cnn_cooldown_s=0.0, settle_frames=1, detect_scale=0.5)
+        mt.recovery = _FakeRecovery(derive_move="e2e4", derive_agreement=0.99)
+        mt._last_corners = [[0, 0], [400, 0], [400, 400], [0, 400]]
+        with mt.lock:
+            mt._mark_stuck("no_legal_move")
+        mt._cnn_worker(np.zeros((400, 400, 3), np.uint8), 3)
+        snap = mt._cnn_snap
+        assert snap is not None and snap.seq == 3
+        assert snap.gray.shape == (mt._det_size, mt._det_size)
+        assert snap.warped.shape[:2] == (mt._det_size, mt._det_size)
+        assert mt.history == ["e4"]            # recovery committed via the snapshot
+        assert mt.ref_gray is snap.gray        # base truth anchored on the observed frame

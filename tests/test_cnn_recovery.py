@@ -372,12 +372,12 @@ def test_tracker_cnn_recovery_commits_via_voting(monkeypatch):
         t._mark_stuck("no_legal_move")
 
     frame = np.zeros((820, 820, 3), dtype=np.uint8)
-    t._cnn_tick(frame)                      # Vote 1 → not yet committed
+    t._cnn_worker(frame, 1)                 # Vote 1 → not yet committed
     assert t.history == []
     assert "CNN recovery checks" in t.note
     with t.lock:
         t._mark_stuck("no_legal_move")      # still stuck
-    t._cnn_tick(frame)                      # Vote 2 → commit
+    t._cnn_worker(frame, 2)                 # Vote 2 → commit
     assert t.history == ["e4"]
     assert t.recovered_last is True
     assert t.status()["cnn_active"] is True
@@ -393,12 +393,17 @@ def test_tracker_cnn_tick_respects_cooldown(monkeypatch):
     t._last_corners = [[0, 0], [820, 0], [820, 820], [0, 820]]
     [t._gray_buf.append(np.zeros((8, 8), np.uint8)) for _ in range(t.avg_frames)]
     import time as _time
-    t._last_cnn_ts = _time.time()           # gerade erst beobachtet
+    t._last_cnn_ts = _time.time()           # gerade erst evaluiert
     with t.lock:
         t._mark_stuck("no_legal_move")
         t._mark_stuck("no_legal_move")
-    t._cnn_tick(np.zeros((820, 820, 3), dtype=np.uint8))
-    assert stub.observe_calls == 0          # Cooldown greift
+    t._cnn_worker(np.zeros((820, 820, 3), dtype=np.uint8), 1)
+    # Free-running observer (Spec 11): the OBSERVATION happens unconditionally, but the
+    # recovery EVALUATION still honours the cooldown — no vote, no note, nothing committed.
+    assert stub.observe_calls == 1
+    assert t._cnn_snap is not None and t._cnn_snap.seq == 1
+    assert t._recovery_confirmer.count == 0
+    assert "CNN recovery checks" not in t.note
 
 
 def test_tracker_cnn_tick_discards_on_board_change(monkeypatch):
@@ -423,7 +428,7 @@ def test_tracker_cnn_tick_discards_on_board_change(monkeypatch):
     with t.lock:
         t._mark_stuck("no_legal_move")
         t._mark_stuck("no_legal_move")
-    t._cnn_tick(np.zeros((820, 820, 3), dtype=np.uint8))
+    t._cnn_worker(np.zeros((820, 820, 3), dtype=np.uint8), 1)
     assert t.history == []                  # verworfen, nichts committet
 
 
@@ -437,7 +442,7 @@ def test_tracker_periodic_control_warns_without_guessing(monkeypatch):
     t._last_corners = [[0, 0], [820, 0], [820, 820], [0, 820]]
     [t._gray_buf.append(np.zeros((8, 8), np.uint8)) for _ in range(t.avg_frames)]
     t.state = "waiting"                     # quiet, NOT stuck → periodic trigger
-    t._cnn_tick(np.zeros((820, 820, 3), dtype=np.uint8))
+    t._cnn_worker(np.zeros((820, 820, 3), dtype=np.uint8), 1)
     assert t.history == []
     assert t.cnn_status == "mismatch"
     assert "deviates" in t.note
