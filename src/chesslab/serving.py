@@ -118,7 +118,14 @@ class _ONNXModel:
         import onnxruntime
         providers = (["CUDAExecutionProvider", "CPUExecutionProvider"] if device == "cuda"
                      else ["CPUExecutionProvider"])
-        self._sess = onnxruntime.InferenceSession(str(onnx_path), providers=providers)
+        # Errors only: models exported with a batch-1 example carry a static {1,N}
+        # output shape in their metadata; ORT then warns on every batched call
+        # (VerifyOutputSizes). Numerically harmless — silence it for existing models
+        # (new exports use a batch-2 example and are properly dynamic).
+        opts = onnxruntime.SessionOptions()
+        opts.log_severity_level = 3
+        self._sess = onnxruntime.InferenceSession(str(onnx_path), sess_options=opts,
+                                                  providers=providers)
         self._input_name = self._sess.get_inputs()[0].name
         self._output_name = self._sess.get_outputs()[0].name
         self._device = device
