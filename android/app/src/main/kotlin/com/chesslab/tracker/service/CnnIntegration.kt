@@ -2,6 +2,7 @@ package com.chesslab.tracker.service
 
 import com.chesslab.engine.api.TrackerState
 import com.chesslab.tracker.camera.TrackerCamera
+import com.chesslab.tracker.cnn.ALL_SQUARES
 import com.chesslab.tracker.cnn.BoardCropper
 import com.chesslab.tracker.cnn.CnnConfig
 import com.chesslab.tracker.cnn.CnnModelStore
@@ -73,7 +74,14 @@ class CnnIntegration(
         classifier = loaded
         safeguard = guard
         coordinator.safeguard = guard
+        // Resting-hand seam: every fresh observation feeds the occluded-dominant squares
+        // (p > 0.5) into the engine's taint latch (cf31c81).
+        guard.onObservation = { snap ->
+            val occluded = ALL_SQUARES.filterTo(mutableSetOf()) { snap.obs.pOccluded.getValue(it) > OCCLUDED_P }
+            coordinator.reportOccluded(occluded)
+        }
         jobs += scope.launch { guard.verdicts.collect { coordinator.onVerifyVerdict(it) } }
+        jobs += scope.launch { guard.observerLoop() }
         jobs += scope.launch { recoveryLoop(guard) }
         return true
     }
@@ -119,7 +127,13 @@ class CnnIntegration(
                 val processed = pipeline.process(mat, 0L)
                 val crops = cropper.crops(processed.boardBgr)
                 processed.boardBgr.release()
-                ObservationInput(crops, processed.gray, processed.bgr)
+                ObservationInput(
+                    crops,
+                    processed.gray,
+                    processed.bgr,
+                    seq = coordinator.frameSeq,
+                    timestampNs = System.nanoTime(),
+                )
             } finally {
                 mat.release()
             }
@@ -128,5 +142,6 @@ class CnnIntegration(
 
     private companion object {
         const val RECOVERY_POLL_MS = 500L
+        const val OCCLUDED_P = 0.5
     }
 }

@@ -138,6 +138,15 @@ internal class Detector(
                 state.tainted[sq] = nowS + config.motionHoldS
             }
         }
+        // Resting-hand veto (cf31c81): occluded-dominant squares of a FRESH safeguard
+        // observation taint exactly like baseline occlusion — a stale observation
+        // predates the hand and is ignored.
+        if (nowS - state.cnnOccludedTsS <= OBS_MAX_AGE_S) {
+            for (sq in state.cnnOccluded) {
+                z[sq] = 0.0
+                state.tainted[sq] = nowS + config.motionHoldS
+            }
+        }
         val taintIter = state.tainted.entries.iterator()
         while (taintIter.hasNext()) {
             val entry = taintIter.next()
@@ -336,7 +345,7 @@ internal class Detector(
         val guard = safeguard()
         if (guard != null) {
             val ucis = cand.moves.map { uciOf(it) }
-            state.pending = PendingVerify(ucis, state.game.fen(), cur, curBgr, cand.priorUsed)
+            state.pending = PendingVerify(ucis, state.game.fen(), cur, curBgr, cand.priorUsed, state.frameSeq)
             val g = state.game.copy()
             val touched = mutableSetOf<String>()
             for (mv in cand.moves) {
@@ -345,7 +354,10 @@ internal class Detector(
             }
             val sans = state.game.sanSequence(cand.moves).joinToString(" + ")
             state.note = cand.note ?: "checking $sans via safeguard…"
-            guard.requestVerify(MoveCandidate(ucis, state.game.fen(), cand.priorUsed), touched.toList())
+            guard.requestVerify(
+                MoveCandidate(ucis, state.game.fen(), cand.priorUsed, state.frameSeq),
+                touched.toList(),
+            )
             return
         }
         val decider = if (cand.moves.size == 1) "diff" else "diff_pair"
@@ -357,5 +369,6 @@ internal class Detector(
         const val TOP_CHANGED = 8
         const val NEG_INF = -1e9
         const val CENSUS_SLOW_LANE = 0.125
+        const val OBS_MAX_AGE_S = 3.0
     }
 }

@@ -14,6 +14,7 @@ internal class PendingVerify(
     val curGray: GrayImage,
     val curBgr: BgrImage?,
     val priorUsed: Boolean,
+    val seq: Int = 0,
 )
 
 /** A promotion waiting for the user's piece choice (ports tracker.py `self._promo_pending`). */
@@ -79,6 +80,15 @@ internal class EngineState {
 
     /** Illegal-move desync alarm — blocks all commits and re-anchors while set. */
     var alarm: AlarmState? = null
+
+    /** Frame seq of the newest processed frame (seq contract, Spec 11). */
+    var frameSeq: Int = 0
+
+    /** Occluded-dominant squares of the last safeguard observation (resting-hand veto). */
+    var cnnOccluded: Set<String> = emptySet()
+
+    /** Engine-time the last safeguard observation was captured (negative = never). */
+    var cnnOccludedTsS: Double = Double.NEGATIVE_INFINITY
 
     /** Census codes of the current reference, cached (ports tracker.py `_ref_census_codes`). */
     fun refCensusCodes(): ByteArray = refCensus ?: Census.transform(refGray!!).also { refCensus = it }
