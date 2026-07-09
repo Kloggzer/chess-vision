@@ -1422,7 +1422,9 @@ class MoveTracker:
         if recovery is None:
             return
         try:
+            _t0 = time.perf_counter()
             obs = recovery.observe(frame, corners)          # expensive, intentionally without lock
+            infer_ms = (time.perf_counter() - _t0) * 1000.0
         except Exception as e:  # noqa: BLE001 — single failure, feature stays on
             with self.lock:
                 self._last_cnn_ts = now
@@ -1475,6 +1477,7 @@ class MoveTracker:
             self._last_cnn_ts = now
             self._last_cnn_obs = obs
             self._last_cnn_obs_ts = now
+            self._infer_ms = infer_ms
             if self.board.fen() != fen:                     # state changed → discard
                 self._recovery_confirmer.reset()
                 return
