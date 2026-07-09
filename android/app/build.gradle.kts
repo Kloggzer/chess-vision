@@ -83,6 +83,9 @@ dependencies {
     implementation(libs.ktor.server.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
 
+    // chesslib (phase 07: PGN result determination)
+    implementation(libs.chesslib)
+
     // ZXing (phase 06: QR code)
     implementation(libs.zxing.core)
 
