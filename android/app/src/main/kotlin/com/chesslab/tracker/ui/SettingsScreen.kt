@@ -86,6 +86,11 @@ fun SettingsScreen(
             }
         }
 
+        SectionHeader(stringResource(R.string.settings_recording))
+        SettingSwitch(stringResource(R.string.setting_auto_record), settings.autoRecord) { v ->
+            onUpdate { it.copy(autoRecord = v) }
+        }
+
         SectionHeader(stringResource(R.string.settings_experimental))
         SettingSwitch(stringResource(R.string.setting_experimental_detection), settings.experimentalDetection) { v ->
             onUpdate { it.copy(experimentalDetection = v) }
