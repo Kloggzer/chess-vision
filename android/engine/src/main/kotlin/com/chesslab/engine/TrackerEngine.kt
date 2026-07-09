@@ -9,6 +9,7 @@ import com.chesslab.engine.api.TrackerState
 import com.chesslab.engine.api.TrackerStatus
 import com.chesslab.engine.api.Uncertainty
 import com.chesslab.engine.api.VerifyVerdict
+import com.github.bhlangonijr.chesslib.move.Move
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -27,6 +28,7 @@ class TrackerEngine(
     private var prevGray: GrayImage? = null
     private var lastPublicState: TrackerState? = null
     private val queued = mutableListOf<TrackerEvent>()
+    private var lastNowS = 0.0
     private val uncertaintyFlow = MutableStateFlow(Uncertainty())
 
     /** Phase 05 plugs in the CNN safeguard; null = pure diff tracking with confirmFrames voting. */
@@ -88,6 +90,7 @@ class TrackerEngine(
         events += queued
         queued.clear()
         val now = timestampNs / NS_PER_S
+        lastNowS = now
         val prev = prevGray
         val motion =
             if (prev == null || prev.data.size != gray.data.size) {
@@ -290,6 +293,58 @@ class TrackerEngine(
                 state.note = "verification timed out — no move committed"
             }
         }
+    }
+
+    /**
+     * Commit a CNN-recovery move sequence decided on [curGray]/[curBgr] — the frame the
+     * recovery LOOKED AT, never the live buffer (ports tracker.py:1461-1495). Recovery means
+     * the tracker WAS behind: one motion window is granted so the recency gate does not hold
+     * a reply hostage. Consumed by phase 05.
+     */
+    fun applyRecoveredMoves(
+        ucis: List<String>,
+        fenBefore: String,
+        curGray: GrayImage,
+        curBgr: BgrImage?,
+    ): Boolean {
+        val applicable = ucis.isNotEmpty() && state.pending == null && state.game.fen() == fenBefore
+        val moves = if (applicable) resolveSequence(ucis) else null
+        if (moves == null) return false
+        state.commit(moves, curGray to curBgr, "cnn_recovery" to false, queued)
+        state.motionSinceRef = true
+        state.lastMotionTs = lastNowS
+        detector.confirmer.reset()
+        return true
+    }
+
+    /** Resolve a UCI sequence against the current position; null when any move is illegal. */
+    private fun resolveSequence(ucis: List<String>): List<Move>? {
+        val g = state.game.copy()
+        val moves = mutableListOf<Move>()
+        for (u in ucis) {
+            val mv = g.legalMoves().firstOrNull { uciOf(it) == u } ?: return null
+            moves.add(mv)
+            g.push(mv)
+        }
+        return moves
+    }
+
+    /**
+     * CNN says the board still matches the believed state while the diff is stuck on
+     * shadow/drift: pull the reference forward, NO move (ports tracker.py:1428-1444).
+     * Consumed by phase 05.
+     */
+    fun resyncReference(
+        fenBefore: String,
+        curGray: GrayImage,
+        curBgr: BgrImage?,
+    ): Boolean {
+        if (state.stuckReason == null || state.pending != null || state.game.fen() != fenBefore) return false
+        state.setRef(curGray, curBgr)
+        state.clearStuck()
+        detector.confirmer.reset()
+        state.note = "CNN: board unchanged — reference pulled forward (no move)"
+        return true
     }
 
     private fun publicState(): TrackerState =
