@@ -62,6 +62,7 @@ class TrackerEngine(
                 changedVals = state.changedVals,
                 structVals = state.structVals,
                 shadowVetoed = state.shadowVetoed,
+                shadowBlocked = state.shadowBlocked,
                 occludedVetoed = state.occludedVetoed,
                 tainted = state.tainted.keys.sorted(),
                 bestScore = state.bestScore,

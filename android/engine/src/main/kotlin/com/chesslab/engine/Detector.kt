@@ -137,7 +137,11 @@ internal class Detector(
         state.motionOccluded = emptySet()
     }
 
-    /** Step 5 scoring — viability (both endpoints carry weak evidence). */
+    /**
+     * Step 5 scoring — viability (both endpoints carry weak evidence) plus the
+     * shadow-destination rule (242ea94): a shadow-vetoed square cannot GAIN a piece;
+     * from-square shadow evidence stays usable (vacated squares darken legitimately).
+     */
     private fun scoreCandidates(
         z: Map<String, Double>,
         changed: Set<String>,
@@ -145,16 +149,26 @@ internal class Detector(
     ): Evidence {
         val scored = MoveScoring.loglikScores(state.game, z, config.zThr)
         val soft = config.zThr * HALF
-        val viable =
+        val viableRaw =
             scored.filter { (mv, _) ->
                 MoveScoring.moveTouchedSquares(state.game, mv).all { z.getValue(it) >= soft }
             }
+        val viable =
+            viableRaw.filter { (mv, _) ->
+                moveDestinationSquares(state.game, mv).none { it in shadowVeto }
+            }
+        val kept = viable.mapTo(mutableSetOf()) { it.first }
+        state.shadowBlocked = viableRaw.filter { it.first !in kept }.map { uciOf(it.first) }
         val (obs, best) = viable.firstOrNull() ?: (null to NEG_INF)
         val second = if (viable.size > 1) viable[1].second else NEG_INF
         state.bestScore = if (obs != null) best else (scored.firstOrNull()?.second ?: 0.0)
         state.secondScore = second
         state.candidateUci = obs?.let { uciOf(it) }
-        return Evidence(z, scored, viable, changed, TopScore(obs, best, second))
+        if (viableRaw.isNotEmpty() && (viable.isEmpty() || viable.first().first != viableRaw.first().first)) {
+            // The filter changed the OUTCOME (best raw candidate was shadow-blocked).
+            state.note = "${state.game.san(viableRaw.first().first)}? destination shadow-vetoed — not a move"
+        }
+        return Evidence(z, scored, viable, changed, TopScore(obs, best, second), shadowVeto)
     }
 
     private fun topScores(z: Map<String, Double>): List<Pair<String, Double>> =

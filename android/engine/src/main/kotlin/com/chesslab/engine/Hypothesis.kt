@@ -19,6 +19,7 @@ internal class Evidence(
     val viable: List<Pair<Move, Double>>,
     val changed: Set<String>,
     val top: TopScore,
+    val shadowVeto: Set<String> = emptySet(),
 ) {
     val obsMove: Move? get() = top.obsMove
     val best: Double get() = top.best
@@ -83,7 +84,7 @@ internal class HypothesisGenerator(
         blockedN: Int,
     ): HypothesisOutcome {
         if (blockedN == 0 && ev.changed.size <= config.maxChanged + slack) {
-            pairCandidate(game, ev.z, ev.best)?.let { return it }
+            pairCandidate(game, ev.z, ev.best, ev.shadowVeto)?.let { return it }
         }
         return HypothesisOutcome.Stuck(
             "too_many_changed",
@@ -99,7 +100,7 @@ internal class HypothesisGenerator(
         // Pair check BEFORE the single commit only with a safeguard: it goes pending and must
         // match the post-pair position. Without one, a garbage pair covering residue squares
         // outscores the true single — keep the conservative order there.
-        val earlyPair = if (safeguardActive()) pairCandidate(game, ev.z, ev.best) else null
+        val earlyPair = if (safeguardActive()) pairCandidate(game, ev.z, ev.best, ev.shadowVeto) else null
         val obs = ev.top.obsMove
         return when {
             earlyPair != null -> earlyPair
@@ -113,8 +114,8 @@ internal class HypothesisGenerator(
         game: Game,
         ev: Evidence,
     ): HypothesisOutcome {
-        val pair = if (!safeguardActive()) pairCandidate(game, ev.z, ev.best) else null
-        val endpoint = if (safeguardActive()) singleEndpointCandidate(ev.z, ev.scored) else null
+        val pair = if (!safeguardActive()) pairCandidate(game, ev.z, ev.best, ev.shadowVeto) else null
+        val endpoint = if (safeguardActive()) singleEndpointCandidate(ev.z, ev.scored, ev.shadowVeto) else null
         return when {
             pair != null -> pair
             endpoint != null ->
@@ -190,8 +191,21 @@ internal class HypothesisGenerator(
         game: Game,
         z: Map<String, Double>,
         bestSingle: Double,
+        shadowVeto: Set<String> = emptySet(),
     ): HypothesisOutcome.Candidate? {
-        val pairs = MoveScoring.loglikPairScores(game, z, config.zThr)
+        // Shadow-destination rule: no pair whose destination squares (move 2 evaluated on
+        // the board AFTER move 1) are shadow-vetoed (ports tracker.py 242ea94).
+        val pairs =
+            MoveScoring.loglikPairScores(game, z, config.zThr).filter { (seq, _) ->
+                shadowVeto.isEmpty() ||
+                    run {
+                        val g1 = game.copy()
+                        val dests = moveDestinationSquares(game, seq[0]).toMutableSet()
+                        g1.push(seq[0])
+                        dests += moveDestinationSquares(g1, seq[1])
+                        dests.none { it in shadowVeto }
+                    }
+            }
         if (pairs.isEmpty()) return null
         val (seq, best) = pairs.first()
         val second = if (pairs.size > 1) pairs[1].second else NEG_INF
@@ -216,10 +230,15 @@ internal class HypothesisGenerator(
     fun singleEndpointCandidate(
         z: Map<String, Double>,
         scored: List<Pair<Move, Double>>,
+        shadowVeto: Set<String> = emptySet(),
     ): Move? {
         val strong = Squares.all.filter { (z[it] ?: 0.0) >= config.zThr }
         if (strong.size != 1) return null
-        val cands = scored.filter { (mv, sc) -> mv.to.value().lowercase() == strong.single() && sc > 0.0 }
+        val cands =
+            scored.filter { (mv, sc) ->
+                val to = mv.to.value().lowercase()
+                to == strong.single() && sc > 0.0 && to !in shadowVeto
+            }
         val bestMv = cands.firstOrNull()
         val ambiguous =
             bestMv != null &&
