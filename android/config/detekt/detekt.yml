@@ -19,6 +19,14 @@ processors:
 console-reports:
   active: true
 
+complexity:
+  # Compose screens legitimately take many parameters (state + event callbacks).
+  LongParameterList:
+    ignoreAnnotated: ['Composable']
+  # TrackerService is the integration hub wiring engine + camera + geometry + settings.
+  TooManyFunctions:
+    thresholdInClasses: 16
+
 style:
   UnusedPrivateMember:
     active: true
@@ -26,3 +34,12 @@ style:
     active: true
   UnusedImports:
     active: true
+  # Compose UI is literal-heavy (colours, dimensions, ranges); engine logic stays
+  # strict — MagicNumber still fires for inline literals in non-Composable bodies.
+  MagicNumber:
+    ignorePropertyDeclaration: true
+    ignoreLocalVariableDeclaration: true
+    ignoreAnnotated: ['Composable']
+  # Align with ktlint's default line width (ktlintFormat collapses to 140).
+  MaxLineLength:
+    maxLineLength: 140
