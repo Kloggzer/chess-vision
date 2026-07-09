@@ -466,6 +466,12 @@ TRACK_DEFAULTS: dict = {
     "drift_window_s": 30.0,        # Drift patch (empty squares) — more conservative
     "max_changed": 6,              # Occlusion gate
     "census_thr": 160.0,           # Structural change (census, 0..255); higher ⇒ more squares veto as shadow (160: live-tuned)
+    "census_z_weight": 1.0,        # Structural evidence fusion: z_eff = max(z_gray, w·z_census). Census is
+                                   # illumination-invariant structure — lifts dark-on-dark moves the gray
+                                   # absdiff misses without raising z_thr. 0 = off (legacy single-channel).
+    "occl_census_thr": 24.0,       # Baseline occlusion needs structure above this (census 0..255 ≈ Hamming 0.75):
+                                   # strong absdiff WITHOUT structure/chroma anomaly is a cast shadow, not a hand.
+                                   # 0 = legacy (any strong absdiff counts as occlusion).
     "cnn_conf_thr": 0.85,          # CNN square confidence "reliable"
     "cnn_cooldown_s": 2.0,         # Minimum interval between recovery observations
     "cnn_check_interval_s": 10.0,  # Periodic CNN check
