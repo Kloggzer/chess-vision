@@ -434,10 +434,16 @@ async function poll() {
       const sqs = (s.alarm.conflicts || []).slice(0, 4).join(", ");
       banner.textContent = `⚠ ILLEGAL MOVE: ${gs || sqs} — take it back, or Resync to accept`;
       banner.style.display = "block";   // class default is display:none — "" would fall back to it
-      // Single audio beep on first activation of this alarm instance.
+      // Single audio beep per alarm instance, max one per 30 s: a flapping alarm
+      // (clears on a good observation, re-triggers on the next bad one) must not
+      // beep on every re-activation — the banner carries the persistent signal.
       if (s.alarm.since !== window._alarmSince) {
         window._alarmSince = s.alarm.since;
-        playAlarmBeep();
+        const now = Date.now();
+        if (!window._lastBeepTs || now - window._lastBeepTs > 30000) {
+          window._lastBeepTs = now;
+          playAlarmBeep();
+        }
       }
     } else {
       banner.style.display = "none";

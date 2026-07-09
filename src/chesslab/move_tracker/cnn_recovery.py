@@ -398,6 +398,20 @@ class CnnRecovery:
                 "move": mv.uci() if mv else None, "agreement": max(best, 0.0)}
 
 
+def has_occupancy_conflict(board: chess.Board, obs: OccupancyObservation,
+                           conf_thr: float, conflicts) -> bool:
+    """True when at least one conflict square disagrees on OCCUPANCY (expected empty vs
+    observed occupied or vice versa) on the model's reliable empty axis. Identity-only
+    conflicts (right occupancy, wrong piece type — the known N/B/R gap, ~40% identity
+    precision) are almost always CNN error, never evidence of an illegal move."""
+    if obs.label is None:
+        return False
+    exp = expected_labels(board)
+    lc = obs.label_confident(conf_thr)
+    return any(lc.get(sq) and (exp[sq] == "empty") != (obs.label[sq] == "empty")
+               for sq in conflicts)
+
+
 def guess_illegal_move(board: chess.Board, obs: OccupancyObservation,
                        conf_thr: float) -> str | None:
     """Among label-confident conflict squares: exactly one square X whose
