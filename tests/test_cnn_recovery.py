@@ -597,6 +597,72 @@ def test_guess_illegal_move_no_conflict_returns_none(tmp_path):
     assert result is None
 
 
+class _IdentityStubRecovery:
+    """Identity says mismatch (a confident type misread), occupancy axis is clean —
+    reproduces the b8b6→c6 correction incident where min_agreement 0.97 was unreachable."""
+
+    def __init__(self, occ_match: bool, occ_move: str | None = None):
+        import types
+        self.occ_match, self.occ_move = occ_match, occ_move
+        squares = ["g1", "f3", "e2"]
+        self._obs = types.SimpleNamespace(
+            label={"g1": "wB"}, conf={"g1": 0.95},
+            p_occ=dict.fromkeys(squares, 0.5), p_empty=dict.fromkeys(squares, 0.4),
+            p_occluded=dict.fromkeys(squares, 0.0))
+
+    def observe(self, frame, corners):
+        return self._obs
+
+    def board_matches_identity(self, board, obs):
+        return {"match": False, "conflicts": ["g1"], "inconclusive": False}
+
+    def derive_moves_deep(self, board, obs, max_plies=4):
+        if getattr(obs, "label", None) is not None:
+            return [], 0.5, 0.0                      # identity axis: never clears 0.97
+        if self.occ_move:
+            return [chess.Move.from_uci(self.occ_move)], 0.99, 0.5
+        return [], 0.0, 0.0
+
+    def resync_check(self, board, obs):
+        assert obs.label is None                     # fallback must strip identity
+        return {"match": self.occ_match, "conflicts": [] if self.occ_match else ["g1", "f3"],
+                "move": None, "agreement": 1.0 if self.occ_match else 0.0}
+
+
+def _stuck_tracker(monkeypatch, stub):
+    t = _headless_tracker(monkeypatch, cnn_run="stub-run", confirm_frames=1,
+                          cnn_cooldown_s=0.0, settle_frames=1)
+    t.recovery = stub
+    t._last_corners = [[0, 0], [820, 0], [820, 820], [0, 820]]
+    [t._gray_buf.append(np.zeros((8, 8), np.uint8)) for _ in range(t.avg_frames)]
+    t.state = "waiting"
+    with t.lock:
+        t._mark_stuck("no_legal_move")
+        t._mark_stuck("no_legal_move")
+    return t
+
+
+def test_identity_mismatch_occupancy_match_counts_as_match(monkeypatch):
+    """Identity-only disagreement (type misread) + occupancy says board matches →
+    treated as match_ok: reference pulled forward, no alarm, no eternal 'deviates'."""
+    stub = _IdentityStubRecovery(occ_match=True)
+    t = _stuck_tracker(monkeypatch, stub)
+    t._cnn_worker(np.zeros((820, 820, 3), np.uint8), 1)
+    assert t.history == []
+    assert "board unchanged" in t.note
+    assert t._alarm is None
+
+
+def test_identity_derive_fails_occupancy_derive_commits(monkeypatch):
+    """Regression (b8b6→c6 correction): identity deep search can't reach min_agreement,
+    the occupancy-axis fallback derives the correction move and commits it."""
+    stub = _IdentityStubRecovery(occ_match=False, occ_move="g1f3")
+    t = _stuck_tracker(monkeypatch, stub)
+    t._cnn_worker(np.zeros((820, 820, 3), np.uint8), 1)
+    assert t.history == ["Nf3"]
+    assert t.recovered_last is True
+
+
 def test_identity_only_conflict_is_not_occupancy_conflict(tmp_path):
     """Regression (beep on regular board, 2026-07-09): a stable wrong-piece-type reading
     (wN misread as wB on g1 — occupancy identical) must NOT count as occupancy conflict,
