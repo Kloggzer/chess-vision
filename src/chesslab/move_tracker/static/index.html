@@ -433,7 +433,7 @@ async function poll() {
       const gs = s.alarm.guess_san || "";
       const sqs = (s.alarm.conflicts || []).slice(0, 4).join(", ");
       banner.textContent = `⚠ ILLEGAL MOVE: ${gs || sqs} — take it back, or Resync to accept`;
-      banner.style.display = "";
+      banner.style.display = "block";   // class default is display:none — "" would fall back to it
       // Single audio beep on first activation of this alarm instance.
       if (s.alarm.since !== window._alarmSince) {
         window._alarmSince = s.alarm.since;
