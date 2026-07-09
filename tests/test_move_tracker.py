@@ -928,13 +928,31 @@ class TestCnnVerify:
         assert mt._verify_state == "ghost"
         assert mt.cnn_status == "ghost"
 
-    def test_from_emptied_commits_despite_to_misread_empty(self, monkeypatch):
-        """Regression (castling): origin e2 confidently EMPTY (piece left) but destination e4
-        mis-read empty → still COMMITS (trust the reliable 'left' signal + the diff)."""
+    def test_from_empty_but_to_empty_holds_non_castling(self, monkeypatch):
+        """Regression (h2h4 nudge incident, 2026-07-09): a nudged piece mis-reads its OWN
+        square as confidently empty (crop edge) while the destination is confidently empty
+        too — "piece left e2" is NOT "piece arrived on e4". Non-castling: HOLD, no commit;
+        the verify window later discards the candidate."""
         mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0,
                               occ={"e4": False, "e2": False}, conf={"e4": True, "e2": True})
         mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
-        assert mt.history == ["e4"] and mt._verify_state == "confirmed"
+        assert mt.history == []
+        assert mt._pending is not None            # held, not committed and not rejected
+        assert mt._verify_state == "verifying"
+
+    def test_castling_commits_despite_king_square_misread_empty(self, monkeypatch):
+        """Castling keeps the from-left shortcut: e1 confidently EMPTY (king left) while the
+        king on g1 is mis-read as empty → still COMMITS (known model weakness on g1)."""
+        mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0,
+                              occ={"g1": False, "e1": False}, conf={"g1": True, "e1": True})
+        mt.board = chess.Board(
+            "rnbqkbnr/pppppppp/8/8/8/5NP1/PPPPPPBP/RNBQK2R w KQkq - 0 1")
+        mt.ref_fen = mt.board.fen()
+        mt._pending = {"uci": "e1g1", "fen": mt.board.fen(),
+                       "cur": _gray_frame(["g1"]), "cur_bgr": None, "frames": 0}
+        mt._verify_tick(np.zeros((4, 4, 3), np.uint8))
+        assert mt.history == ["O-O"]
+        assert mt._verify_state == "confirmed"
 
     def test_from_occupied_but_arrived_commits(self, monkeypatch):
         """d2d4-Fix: Ziel e4 ist belegt (Figur angekommen) → COMMIT, auch wenn das Modell den
