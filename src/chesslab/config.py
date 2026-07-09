@@ -498,6 +498,8 @@ TRACK_DEFAULTS: dict = {
     "motion_recency_s": 20.0,
     "detect_scale": 0.5,           # Detection warp scale (0.5 = half-res board; 1.0 = off).
     "desync_obs_n": 3,             # Consecutive stable-mismatch CNN ticks before illegal-move alarm
+    "observer_interval_s": 0.0,    # Min seconds between CNN observation starts; 0 = free-running
+                                   # (desktop). Raise on battery/thermal-constrained devices (Android port).
 }
 
 

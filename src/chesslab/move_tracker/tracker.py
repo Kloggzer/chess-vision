@@ -23,6 +23,7 @@ import logging
 import threading
 import time
 from collections import deque
+from dataclasses import dataclass
 from typing import NamedTuple
 
 import chess
@@ -43,6 +44,22 @@ from ..web.camera import LatestFrame, open_source  # noqa: E402
 
 _FILES = "abcdefgh"
 _ALL = [f"{f}{r}" for r in range(1, 9) for f in _FILES]
+
+
+@dataclass(frozen=True)
+class CnnSnapshot:
+    """One CNN observation paired with the exact frame it saw (seq contract, Spec 11).
+
+    Every consumer that needs identity for a decision made at frame N may only use an
+    observation with `seq >= N` — the pairing is explicit instead of implicit in call
+    order (the `_last_cur` reference-anchoring bug class)."""
+    obs: object                  # OccupancyObservation
+    seq: int                     # tracker frame seq of the observed frame
+    ts: float                    # wall time the observation finished
+    infer_ms: float
+    warped: object | None        # BGR warp of the observed frame (det size) — reference anchor
+    gray: object | None          # gray warp, det size
+    fen: str | None = None       # game-state FEN at observation start (discard-on-change guard)
 
 def _build_alarm_guess_san(board, guess: str | None) -> str | None:
     """Human-readable description of the suspected illegal move."""
@@ -672,7 +689,7 @@ class MoveTracker:
                  require_motion_for_move: bool = True, detect_scale: float = 0.5,
                  motion_recency_s: float = 20.0,
                  census_z_weight: float = 1.0, occl_census_thr: float = 24.0,
-                 desync_obs_n: int = 3) -> None:
+                 desync_obs_n: int = 3, observer_interval_s: float = 0.0) -> None:
         # Auto-create a missing profile from the first frames of this source (ArUco).
         self.profile_name = profile           # string profile name (for session recording)
         self.profile = ensure_profile(profile, source)
@@ -741,8 +758,9 @@ class MoveTracker:
         self._motion_occluded_squares: set[str] = set()  # squares occluded during motion (baseline absdiff)
         self._occlusion_expiry: dict[str, float] = {}    # per-square occlusion keep-alive (expiry timestamp)
         self._occl_core_expiry: dict[str, float] = {}    # RAW (undilated) occluded core — the state gate counts this
-        self._last_cnn_obs = None                         # cached OccupancyObservation (for occlusion filter)
-        self._last_cnn_obs_ts: float | None = None        # when that observation was made (UI hover overlay)
+        # Latest CNN observation + the frame it saw (seq contract, Spec 11). Written by the
+        # free-running observer worker; read by occlusion filter / status / verify consumers.
+        self._cnn_snap: CnnSnapshot | None = None
         self._occluded_since: float | None = None     # occlusion-latch timer (gamut escape hatch)
         self._tainted: dict[str, int] = {}            # per-square occlusion latch (frames to clear)
         self._occl_whitelist: set[str] = set()        # persistent-occlusion squares exempt from the veto
@@ -807,6 +825,11 @@ class MoveTracker:
         self._stuck_count = 0                             # how many stable frames stuck in a row
         self._last_cnn_ts = 0.0
         self._cnn_busy = False                            # one CNN observation at a time (worker thread)
+        # Free-running observer cadence (Spec 11): min seconds between observation STARTS;
+        # 0 = observe whenever the worker is idle (desktop default). Raise on battery devices.
+        self.observer_interval_s = observer_interval_s
+        self._observer_started_ts = 0.0                   # when the last observation was spawned
+        self._frame_seq = 0                               # monotonically counts PROCESSED frames (_loop)
         self.recovered_last = False                       # last move came from CNN recovery
         self.cnn_status: str | None = None                # None | "ok" | "mismatch"
         self.cnn_conflicts: list[str] = []                # squares that contradict the check
@@ -878,6 +901,12 @@ class MoveTracker:
         self._last_corners = None     # last used board corners (a8,h8,h1,a1) in raw frame
         self._running = False
         self._thread = None
+
+    @property
+    def _last_cnn_obs(self):
+        """Phase-00 alias (Spec 11): the loose `_last_cnn_obs` attribute became part of
+        `_cnn_snap`. Phase 01 migrates the consumers and removes this alias."""
+        return self._cnn_snap.obs if self._cnn_snap else None
 
     # -- Geometry --
     def _warp(self, frame, target_size: int | None = None):
@@ -1099,8 +1128,7 @@ class MoveTracker:
             self._motion_since_ref = False
             self._last_motion_ts = 0.0
             self._last_cnn_ts = 0.0
-            self._last_cnn_obs = None
-            self._last_cnn_obs_ts = None
+            self._cnn_snap = None
             self._prev_roi = None
             self._occl_grid_active = False
             self._grid_coverage = 1.0
@@ -1134,8 +1162,7 @@ class MoveTracker:
             self._occluded_vetoed = []
             self._motion_occluded_squares = set()
             self._occlusion_expiry = {}
-            self._last_cnn_obs = None
-            self._last_cnn_obs_ts = None
+            self._cnn_snap = None
             self._anomaly_since = {}
             self.state = "waiting"
             self.note = "Baseline: re-capturing reference from the next clear frame…"
@@ -1180,6 +1207,11 @@ class MoveTracker:
                     continue
                 self._last_read_ok = time.time()
                 self._camera_ok = True
+                # Frame signature (Spec 11): counts PROCESSED frames (dropped camera frames
+                # don't matter). Every detection decision / CNN observation this iteration
+                # is tagged with this seq — consumers enforce `obs_seq >= decision_seq`.
+                self._frame_seq += 1
+                seq = self._frame_seq
                 target_size = self._det_size if self.detect_scale < 1.0 else None
                 warped_det = self._warp(frame, target_size)
                 _ts["warp"] = time.perf_counter()
@@ -1312,12 +1344,16 @@ class MoveTracker:
                     _ts["encode"] = time.perf_counter()
 
                 # CNN in a WORKER thread (one observation at a time): an observation takes
-                # 50-500 ms — running it inline froze the frame loop and punched holes into
-                # the motion gate (a hand could enter/leave between two processed frames).
-                # Verify of a pending candidate has priority (pre-commit ghost filter).
-                if self.cnn_run and not self._cnn_failed and not self._cnn_busy:
+                # ~30 ms steady-state (50-500 ms worst case warmup/CPU) — running it inline
+                # froze the frame loop and punched holes into the motion gate (a hand could
+                # enter/leave between two processed frames). Free-running (Spec 11): observe
+                # the newest frame whenever the worker is idle so verify/recovery/alarm always
+                # find a fresh observation; `observer_interval_s` throttles on constrained
+                # devices. Verify of a pending candidate has priority (pre-commit ghost filter).
+                if self._observer_due(now):
                     self._cnn_busy = True
-                    threading.Thread(target=self._cnn_worker, args=(frame,),
+                    self._observer_started_ts = now
+                    threading.Thread(target=self._cnn_worker, args=(frame, seq),
                                      daemon=True).start()
                 time.sleep(0.005)
 
@@ -1348,21 +1384,71 @@ class MoveTracker:
             if hasattr(self.cap, "release"):
                 self.cap.release()
 
-    # -- CNN-Recovery & periodic check (Spec 09) --
-    def _cnn_worker(self, frame) -> None:
-        """Run one CNN observation off the loop thread. _verify_tick/_cnn_tick already
-        snapshot state under the lock and revalidate the FEN before applying results, so
-        running them concurrently with the frame loop is safe; `_cnn_busy` serializes to
-        one observation at a time."""
+    # -- CNN-Recovery & periodic check (Spec 09) / free-running observer (Spec 11) --
+    def _observer_due(self, now: float) -> bool:
+        """Spawn guard for the free-running observer: worker idle + cadence throttle."""
+        return (bool(self.cnn_run) and not self._cnn_failed and not self._cnn_busy
+                and (now - self._observer_started_ts) >= self.observer_interval_s)
+
+    def _cnn_worker(self, frame, seq: int) -> None:
+        """Run one CNN observation off the loop thread — UNCONDITIONALLY (Spec 11): the
+        observer is free-running, so every consumer finds a fresh, seq-tagged snapshot;
+        the old stuck/periodic conditions gate only the EVALUATION in _cnn_tick.
+        _verify_tick/_cnn_tick snapshot state under the lock and revalidate the FEN before
+        applying results, so running them concurrently with the frame loop is safe;
+        `_cnn_busy` serializes to one observation at a time."""
         try:
+            snap = None
+            recovery = self._ensure_cnn()
+            if recovery is not None:
+                with self.lock:
+                    corners = self._last_corners
+                    fen = self.board.fen()
+                if corners is not None:
+                    snap = self._observe_snapshot(recovery, frame, seq, corners, fen)
             if self._pending is not None:
-                self._verify_tick(frame)
-            else:
-                self._cnn_tick(frame)
-        except Exception as e:  # noqa: BLE001 — single failure, next tick retries
+                self._verify_tick(snap)          # snap None → CNN-unavailable fallback/retry
+            elif snap is not None:
+                self._cnn_tick(snap)
+        except Exception as e:  # noqa: BLE001 — single failure, next observation retries
             log.warning("CNN worker failed: %s", e)
         finally:
             self._cnn_busy = False
+
+    def _observe_snapshot(self, recovery, frame, seq: int, corners, fen: str):
+        """One CNN observation + anchor warp of the SAME frame → CnnSnapshot, stored under
+        lock. NEVER called under self.lock (inference is the expensive part).
+
+        The warp pair rides along so every consumer that commits on this observation can
+        anchor the new base truth on the frame the CNN actually LOOKED AT — `_last_cur` is
+        newer and may already contain the opponent's next move (historic anchoring bug)."""
+        try:
+            _t0 = time.perf_counter()
+            obs = recovery.observe(frame, corners)          # expensive, intentionally without lock
+            infer_ms = (time.perf_counter() - _t0) * 1000.0
+        except Exception as e:  # noqa: BLE001 — single failure, feature stays on
+            log.warning("CNN observation failed: %s", e)
+            # Backoff: with observer_interval_s=0 a persistent failure would otherwise
+            # retry (and log) at loop rate — hold the next spawn for a second.
+            self._observer_started_ts = time.time() + 1.0
+            return None
+        try:
+            warped = warp_from_corners(frame, self.profile, corners)
+            gray = None if warped is None else self._gray(warped)
+            # CNN reference must match the detection resolution (invariant: ref_gray size == _det_size).
+            if warped is not None and self.detect_scale < 1.0:
+                warped = cv2.resize(warped, (self._det_size, self._det_size),
+                                    interpolation=cv2.INTER_AREA)
+                gray = cv2.resize(gray, (self._det_size, self._det_size),
+                                  interpolation=cv2.INTER_AREA)
+        except Exception:  # noqa: BLE001 — snapshot still usable, consumers fall back
+            warped = gray = None
+        snap = CnnSnapshot(obs=obs, seq=seq, ts=time.time(), infer_ms=infer_ms,
+                           warped=warped, gray=gray, fen=fen)
+        with self.lock:
+            self._cnn_snap = snap
+            self._infer_ms = infer_ms
+        return snap
 
     def _resolve_device(self) -> str:
         """Resolve `device` once: 'auto' -> 'cuda' if available, else 'cpu'. torch is
@@ -1401,11 +1487,15 @@ class MoveTracker:
                 self.note = f"CNN recovery disabled: {e}"
             return None
 
-    def _cnn_tick(self, frame) -> None:
-        """An observation cycle, event-driven — never in the per-frame hot-path:
+    def _cnn_tick(self, snap: CnnSnapshot) -> None:
+        """Evaluate one CNN observation (recovery / periodic check). The observation itself
+        happens unconditionally in `_observe_snapshot` (Spec 11); the old demand conditions
+        stay as EVALUATION gates with unchanged semantics:
         - Recovery: diff path persistently stuck (no_legal_move/too_many_changed) + cooldown.
         - Check: board quiet and not checked since cnn_check_interval_s.
-        Flow: snapshot under lock → observe WITHOUT lock → under lock FEN revalidate + evaluate."""
+        The snapshot carries the anchor warp of the observed frame and the FEN at
+        observation start — commits anchor base truth on THAT frame, never on `_last_cur`
+        (several frames newer, may already contain the opponent's NEXT move)."""
         now = time.time()
         with self.lock:
             stable = len(self._gray_buf) >= self.avg_frames and self.state in ("waiting", "move")
@@ -1414,37 +1504,10 @@ class MoveTracker:
             periodic = stable and (now - self._last_cnn_ts) >= self.cnn_check_interval_s
             if not (stuck or periodic):
                 return
-            fen = self.board.fen()
-            corners = self._last_corners
-        if corners is None:
-            return
-        recovery = self._ensure_cnn()
+        recovery = self.recovery                            # built by the observer already
         if recovery is None:
             return
-        try:
-            _t0 = time.perf_counter()
-            obs = recovery.observe(frame, corners)          # expensive, intentionally without lock
-            infer_ms = (time.perf_counter() - _t0) * 1000.0
-        except Exception as e:  # noqa: BLE001 — single failure, feature stays on
-            with self.lock:
-                self._last_cnn_ts = now
-            log.warning("CNN observation failed: %s", e)
-            return
-        # Warp of the frame the CNN actually LOOKED AT (still without lock). The commit below
-        # must anchor the new base truth on THIS frame — `self._last_cur` is several seconds
-        # newer (worker latency + voting + cooldown) and may already contain the opponent's
-        # NEXT move; using it baked that move into the reference and it was never detected.
-        try:
-            obs_warped = warp_from_corners(frame, self.profile, corners)
-            obs_gray = None if obs_warped is None else self._gray(obs_warped)
-            # CNN reference must match the detection resolution (invariant: ref_gray size == _det_size).
-            if obs_warped is not None and self.detect_scale < 1.0:
-                obs_warped = cv2.resize(obs_warped, (self._det_size, self._det_size),
-                                        interpolation=cv2.INTER_AREA)
-                obs_gray = cv2.resize(obs_gray, (self._det_size, self._det_size),
-                                      interpolation=cv2.INTER_AREA)
-        except Exception:  # noqa: BLE001 — fall back to the live buffer below
-            obs_warped = obs_gray = None
+        obs, obs_warped, obs_gray, fen = snap.obs, snap.warped, snap.gray, snap.fen
         # Identity-based evaluation (pure) — fallback to occupancy if the run does not provide
         # piece identity (obs.label is None).
         has_identity = getattr(obs, "label", None) is not None
@@ -1475,9 +1538,6 @@ class MoveTracker:
 
         with self.lock:
             self._last_cnn_ts = now
-            self._last_cnn_obs = obs
-            self._last_cnn_obs_ts = now
-            self._infer_ms = infer_ms
             if self.board.fen() != fen:                     # state changed → discard
                 self._recovery_confirmer.reset()
                 return
@@ -1612,10 +1672,12 @@ class MoveTracker:
             self.note = (
                 f"Move detected by CNN recovery: {' + '.join(sans)} (agreement {agreement:.0%})")
 
-    def _verify_tick(self, frame) -> None:
+    def _verify_tick(self, snap: CnnSnapshot | None) -> None:
         """Pre-commit verification of a diff candidate (`self._pending`) via CNN, autonomously
-        over several frames — no user input. Flow like _cnn_tick: snapshot under lock →
-        observe WITHOUT lock → under lock FEN revalidate + multi-frame voting evaluate.
+        over several frames — no user input. The observation arrives as a seq-tagged snapshot
+        from the free-running observer (Spec 11); evaluation runs under lock with FEN
+        revalidation + multi-frame voting. `snap` is None when the CNN is unavailable or the
+        observation failed (fallback commit / retry on the next observation).
 
         Verification is by OCCUPANCY (the model's reliable axis), not piece identity:
           - occupancy says board unchanged → shadow/no move, pull reference forward.
@@ -1630,10 +1692,7 @@ class MoveTracker:
             pending = self._pending
             if pending is None or self.board.fen() != pending["fen"]:
                 return
-            corners = self._last_corners
             board_snap = self.board.copy(stack=False)       # race-free board reads below
-        if corners is None:
-            return
         pend_moves = [chess.Move.from_uci(u) for u in self._pending_ucis(pending)]
         recovery = self._ensure_cnn()
         if recovery is None:                                # CNN not available → fallback:
@@ -1644,15 +1703,11 @@ class MoveTracker:
                     else:
                         self._commit_sequence(pend_moves, pending["cur"], pending.get("cur_bgr"))
             return
-        try:
-            _t0 = time.perf_counter()
-            obs = recovery.observe(frame, corners)          # expensive, deliberately without lock
-            infer_ms = (time.perf_counter() - _t0) * 1000.0
-        except Exception as e:  # noqa: BLE001 — individual failure, retry on next frame
-            log.warning("CNN verify observation failed: %s", e)
+        if snap is None:                                    # observation failed → next one retries
             return
+        obs = snap.obs
         if len(pend_moves) > 1:                             # pair candidate (fast play)
-            self._verify_pair_tick(pending, pend_moves, board_snap, obs, recovery, infer_ms)
+            self._verify_pair_tick(pending, pend_moves, board_snap, snap, recovery)
             return
         # Prepare evaluation by OCCUPANCY (the new model's reliable axis: ~99.99% on `empty`,
         # ~88% per-square, but only ~40% on piece identity — so we verify "did a piece leave
@@ -1682,9 +1737,6 @@ class MoveTracker:
         cnn_agreement = float(occ_check.get("agreement", 0.0))
 
         with self.lock:
-            self._last_cnn_obs = obs
-            self._last_cnn_obs_ts = time.time()
-            self._infer_ms = infer_ms
             self._cnn_agreement = occ_agree
             self._cnn_best_move = cnn_uci
             if self._pending is not pending or self.board.fen() != pending["fen"]:
@@ -1775,12 +1827,13 @@ class MoveTracker:
         return pending.get("ucis") or [pending["uci"]]
 
     def _verify_pair_tick(self, pending: dict, moves: list[chess.Move], board_snap: chess.Board,
-                          obs, recovery, infer_ms: float) -> None:
+                          snap: CnnSnapshot, recovery) -> None:
         """Occupancy verify of a PAIR candidate (fast play, 2 half-moves): confirmed when the
         observation matches the position AFTER both half-moves, rejected as shadow when it
         still matches the CURRENT position, dropped after `verify_window` frames otherwise.
         Endpoint-level reasoning is skipped — with 3-4 touched squares the whole-position
         occupancy match is the more robust axis."""
+        obs = snap.obs
         before = recovery.resync_check(board_snap, obs)
         after_board = board_snap.copy(stack=False)
         for mv in moves:
@@ -1788,7 +1841,6 @@ class MoveTracker:
         after = recovery.resync_check(after_board, obs)
         key = " ".join(m.uci() for m in moves)
         with self.lock:
-            self._infer_ms = infer_ms
             self._cnn_agreement = float(after.get("agreement", 0.0))
             if self._pending is not pending or self.board.fen() != pending["fen"]:
                 return                                      # state changed → discard
@@ -2749,14 +2801,14 @@ class MoveTracker:
                 "cnn_conflicts": list(self.cnn_conflicts),
                 # Promotion wartet auf Nutzerwahl (nur ohne CNN-Verify): {"from","to"} | None
                 # Last CNN per-square opinion (UI hover overlay): {sq: [label, conf]} + age.
-                # Event-driven observations (verify/recovery/periodic check) — may be stale.
+                # Free-running observer (Spec 11): refreshed whenever the worker is idle.
                 "cnn_squares": (None if getattr(self._last_cnn_obs, "label", None) is None
                                 or getattr(self._last_cnn_obs, "conf", None) is None else
                                 {sq: [self._last_cnn_obs.label[sq],
                                       round(self._last_cnn_obs.conf[sq], 2)]
                                  for sq in self._last_cnn_obs.label}),
-                "cnn_obs_age_s": (None if self._last_cnn_obs_ts is None else
-                                  round(time.time() - self._last_cnn_obs_ts, 1)),
+                "cnn_obs_age_s": (None if self._cnn_snap is None else
+                                  round(time.time() - self._cnn_snap.ts, 1)),
                 # Referee alarm (illegal-move detector, Phase 01).
                 "alarm": (None if self._alarm is None else {
                     "kind": self._alarm["kind"],
@@ -2834,6 +2886,10 @@ class MoveTracker:
                     "cnn_agreement": round(self._cnn_agreement, 3),
                     "cnn_best_move": self._cnn_best_move,
                     "cnn_conf_thr": self.cnn_conf_thr,
+                    # Frame-signature contract (Spec 11): seq of the processed frame vs the
+                    # seq the last CNN observation actually saw.
+                    "frame_seq": self._frame_seq,
+                    "cnn_obs_seq": self._cnn_snap.seq if self._cnn_snap else None,
                 },
             }
 
