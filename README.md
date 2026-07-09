@@ -344,3 +344,5 @@ concepts and algorithmic inspiration:
 
 Dataset credit: **ChessReD** (CC-BY-4.0) and **chesscog** datasets are supported via
 `chesslab ingest` but are not distributed with this repository.
+
+For the Android tracker application, see [`android/`](android/).

@@ -1,0 +1,28 @@
+build:
+  weights:
+    complexity: 2
+    formatting: 1
+    style: 1
+    comments: 1
+    exceptions: 1
+    potential-bugs: 1
+    performance: 1
+    multi-rules: 1
+
+config:
+  validation: true
+  warningsAsErrors: false
+
+processors:
+  active: true
+
+console-reports:
+  active: true
+
+style:
+  UnusedPrivateMember:
+    active: true
+  UnusedParameter:
+    active: true
+  UnusedImports:
+    active: true
