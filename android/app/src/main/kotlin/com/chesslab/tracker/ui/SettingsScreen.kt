@@ -4,6 +4,8 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -14,8 +16,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,6 +26,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -51,6 +54,7 @@ fun SettingsScreen(
         Text(
             stringResource(R.string.settings_subtitle),
             style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
         )
         SectionHeader(stringResource(R.string.settings_game))
@@ -81,7 +85,12 @@ fun SettingsScreen(
 
         var advanced by remember { mutableStateOf(false) }
         SectionHeader(stringResource(R.string.settings_detection))
-        Text(stringResource(R.string.settings_detection_description), style = MaterialTheme.typography.bodyMedium)
+        Text(
+            stringResource(R.string.settings_detection_description),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 4.dp),
+        )
         SettingSwitch(stringResource(R.string.settings_detection_advanced), advanced) { advanced = it }
         if (advanced) {
             SettingSlider(stringResource(R.string.setting_motion_thr), settings.motionThr, 0f..2f, 0.25) { v ->
@@ -146,6 +155,12 @@ fun SettingsScreen(
         CnnModelSection(modelStore = modelStore)
 
         SectionHeader(stringResource(R.string.settings_debug))
+        Text(
+            stringResource(R.string.settings_debug_board_views_caption),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 4.dp),
+        )
         SettingSwitch(stringResource(R.string.setting_debug_card), settings.debugCard) { v ->
             onUpdate { it.copy(debugCard = v) }
         }
@@ -161,11 +176,27 @@ private fun ResolutionRow(
     Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         for (r in Resolution.entries) {
             val label = resolutionLabel(r)
+            val chipSelected = r == selected
             FilterChip(
-                selected = r == selected,
+                selected = chipSelected,
                 onClick = { onSelect(r) },
                 label = { Text(label) },
-                modifier = Modifier.semantics { contentDescription = label },
+                shape = MaterialTheme.shapes.small,
+                colors =
+                    FilterChipDefaults.filterChipColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        selectedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        selectedLabelColor = MaterialTheme.colorScheme.primary,
+                    ),
+                border =
+                    FilterChipDefaults.filterChipBorder(
+                        enabled = true,
+                        selected = chipSelected,
+                        borderColor = MaterialTheme.colorScheme.outline,
+                        selectedBorderColor = MaterialTheme.colorScheme.primary,
+                    ),
+                modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = label },
             )
         }
     }
@@ -186,36 +217,44 @@ private fun CnnModelSection(modelStore: CnnModelStore?) {
     var importVersion by remember { mutableIntStateOf(0) }
     val modelInstalled = remember(modelStore, importVersion) { modelStore?.isInstalled() ?: false }
 
-    Text(
-        text =
-            if (modelInstalled) {
-                stringResource(R.string.setting_cnn_model_installed)
-            } else {
-                stringResource(R.string.setting_cnn_model_not_installed)
-            },
-        style = MaterialTheme.typography.bodyMedium,
-        modifier = Modifier.padding(vertical = 4.dp),
-    )
-
-    val importLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-            if (uri == null || modelStore == null) return@rememberLauncherForActivityResult
-            val targetName = resolveModelTargetName(context, uri)
-            if (targetName != null) {
-                modelStore.install(context.contentResolver, uri, targetName)
-                importVersion++
-            }
-        }
-
-    val importLabel = stringResource(R.string.setting_import_model)
-    OutlinedButton(
-        onClick = { importLauncher.launch(arrayOf("application/octet-stream", "*/*")) },
+    Column(
         modifier =
             Modifier
-                .heightIn(min = 48.dp)
-                .semantics { contentDescription = importLabel },
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+                .clip(MaterialTheme.shapes.medium)
+                .background(MaterialTheme.colorScheme.surface)
+                .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.medium)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
     ) {
-        Text(importLabel)
+        Text(
+            text =
+                if (modelInstalled) {
+                    stringResource(R.string.setting_cnn_model_installed)
+                } else {
+                    stringResource(R.string.setting_cnn_model_not_installed)
+                },
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+
+        val importLauncher =
+            rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+                if (uri == null || modelStore == null) return@rememberLauncherForActivityResult
+                val targetName = resolveModelTargetName(context, uri)
+                if (targetName != null) {
+                    modelStore.install(context.contentResolver, uri, targetName)
+                    importVersion++
+                }
+            }
+
+        val importLabel = stringResource(R.string.setting_import_model)
+        GhostButton(
+            onClick = { importLauncher.launch(arrayOf("application/octet-stream", "*/*")) },
+            modifier = Modifier.semantics { contentDescription = importLabel },
+        ) {
+            Text(importLabel)
+        }
     }
 }
 
