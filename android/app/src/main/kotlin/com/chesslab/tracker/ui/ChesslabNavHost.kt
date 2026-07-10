@@ -49,6 +49,7 @@ fun ChesslabNavHost(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val board by viewModel.board.collectAsStateWithLifecycle()
+    val rawPreview by viewModel.rawPreview.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     Scaffold(
@@ -63,6 +64,7 @@ fun ChesslabNavHost(
                 TrackingScreen(
                     state = uiState,
                     board = board,
+                    rawPreview = rawPreview,
                     showDebug = settings.debugCard,
                     overlayView = settings.overlayView,
                     onUndo = viewModel::undo,

@@ -121,11 +121,12 @@ fun SettingsScreen(
         )
         CnnModelSection(modelStore = modelStore)
 
+        OverlayRow(settings.overlayView) { o -> onUpdate { it.copy(overlayView = o) } }
+
         SectionHeader(stringResource(R.string.settings_debug))
         SettingSwitch(stringResource(R.string.setting_debug_card), settings.debugCard) { v ->
             onUpdate { it.copy(debugCard = v) }
         }
-        OverlayRow(settings.overlayView) { o -> onUpdate { it.copy(overlayView = o) } }
     }
 }
 
@@ -184,6 +185,7 @@ private fun overlayLabel(o: OverlayView): String =
         OverlayView.SHADOW -> stringResource(R.string.overlay_shadow)
         OverlayView.OCCLUSION -> stringResource(R.string.overlay_occlusion)
         OverlayView.MOTION -> stringResource(R.string.overlay_motion)
+        OverlayView.CAMERA -> stringResource(R.string.overlay_camera)
     }
 
 @Suppress("ktlint:standard:function-naming", "FunctionNaming")

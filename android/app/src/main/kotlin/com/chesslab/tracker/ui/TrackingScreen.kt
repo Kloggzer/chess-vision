@@ -33,6 +33,7 @@ import com.chesslab.tracker.service.OverlayView
 fun TrackingScreen(
     state: UiState,
     board: android.graphics.Bitmap?,
+    rawPreview: android.graphics.Bitmap?,
     showDebug: Boolean,
     overlayView: OverlayView,
     onUndo: () -> Unit,
@@ -40,6 +41,14 @@ fun TrackingScreen(
     onPromote: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Auto-select CAMERA when no board frame yet, so user immediately sees the camera feed.
+    val effectiveView =
+        if (board == null && state.trackerState == com.chesslab.engine.api.TrackerState.WAITING_BOARD) {
+            OverlayView.CAMERA
+        } else {
+            overlayView
+        }
+
     Column(
         modifier =
             modifier
@@ -65,8 +74,14 @@ fun TrackingScreen(
 
         state.alarm?.let { AlarmBanner(it) }
 
-        if (showDebug && overlayView != OverlayView.BOARD) {
-            OverlayBoard(view = overlayView, bitmap = board, debug = state.debug, fen = state.fen)
+        if (effectiveView == OverlayView.CAMERA || (showDebug && effectiveView != OverlayView.BOARD)) {
+            OverlayBoard(
+                view = effectiveView,
+                bitmap = board,
+                rawPreview = rawPreview,
+                debug = state.debug,
+                fen = state.fen,
+            )
         } else {
             ChessBoard(fen = state.fen)
         }

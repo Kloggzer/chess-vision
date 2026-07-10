@@ -87,6 +87,8 @@
     <string name="overlay_shadow">Shadow</string>
     <string name="overlay_occlusion">Occlusion</string>
     <string name="overlay_motion">Motion</string>
+    <string name="overlay_camera">Camera</string>
+    <string name="raw_preview_desc">Camera preview before calibration</string>
 
     <!-- Shared -->
     <string name="value_and_default">%1$s (default %2$s)</string>

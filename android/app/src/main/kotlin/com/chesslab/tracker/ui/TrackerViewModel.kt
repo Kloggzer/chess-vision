@@ -42,6 +42,9 @@ class TrackerViewModel(
     private val _board = MutableStateFlow<Bitmap?>(null)
     val board: StateFlow<Bitmap?> = _board.asStateFlow()
 
+    private val _rawPreview = MutableStateFlow<Bitmap?>(null)
+    val rawPreview: StateFlow<Bitmap?> = _rawPreview.asStateFlow()
+
     private var service: TrackerService? = null
 
     /** The active calibration profile, or null when the board is not yet calibrated. */
@@ -52,6 +55,7 @@ class TrackerViewModel(
         service = bound
         viewModelScope.launch { bound.uiState.collect { _uiState.value = it } }
         viewModelScope.launch { bound.boardBitmap.collect { _board.value = it } }
+        viewModelScope.launch { bound.rawPreview.collect { _rawPreview.value = it } }
         calibrationStore.load(CAMERA_ID)?.let(bound::start)
     }
 
