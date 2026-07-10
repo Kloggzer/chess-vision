@@ -25,6 +25,7 @@ node_modules/
 .venv/
 venv/
 .pytest_cache/
+/tests/.tmp-pytest/
 .ruff_cache/
 .mypy_cache/
 

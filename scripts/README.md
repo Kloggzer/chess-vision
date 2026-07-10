@@ -9,6 +9,17 @@ Replay a test clip headless through the move tracker and log moves/states/scores
 Use `--realtime` to throttle to real-time speed; without it the clip runs as fast as
 possible (no camera needed).
 
+### `generate_blender_testclips.py`
+Render deterministic move sequences with the existing `synth_assets/Chess Scene.blend`
+and assemble compact regression videos under `tests/data/testclips/`. The generated
+manifest contains the exact SAN sequence and render calibration corners, so no camera or
+interactive calibration is needed during replay.
+
+```text
+uv run python scripts/generate_blender_testclips.py --scenario opening
+uv run pytest -m clips -v
+```
+
 ### `dump_warp.py`
 Grab a single frame from a clip, run marker detection + warp, and save
 `raw.jpg` (with corners overlaid) and `warp.jpg` (with rectified grid) for visual

@@ -11,6 +11,7 @@ Loop-Sleep von 5 ms bleibt); der Clip ersetzt die Kamera via open_source-Patch.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 
@@ -48,48 +49,84 @@ class VideoCap:
 def replay(clip: str, profile: str = "phone", cnn_run: str | None = None,
            realtime: bool = False, live_align: bool = True,
            start_fen: str | None = None, max_wall_s: float = 900.0,
-           tracker_kwargs: dict | None = None) -> dict:
+           tracker_kwargs: dict | None = None, corners: list | None = None,
+           frame_size: list | tuple | None = None, board_size: int | None = None) -> dict:
     """Clip headless durch den MoveTracker spielen. Gibt {history, fen, note, events} zurück.
     Auch vom pytest-Harness (`tests/test_clips.py`, Marker `clips`) genutzt.
     `tracker_kwargs` überschreibt einzelne MoveTracker-Parameter (Schwellen-Tuning)."""
     from chesslab.move_tracker import tracker as trk
 
     cap = VideoCap(clip, realtime=realtime)
+    original_open_source = trk.open_source
     trk.open_source = lambda src: cap                    # Kamera-Patch
 
-    mt = trk.MoveTracker(profile=profile, source="0", live_align=live_align, cnn_run=cnn_run,
-                         **(tracker_kwargs or {}))
-    mt.reset_to_start(start_fen)
-    mt.start()
+    temp_profile = None
+    if corners:
+        from chesslab.calibration import (
+            CalibrationProfile,
+            CropParams,
+            compute_homography,
+            profile_path,
+        )
 
-    events: list[str] = []
-    last_note, last_hist = "", 0
-    last_tick = 0.0
-    t0 = time.time()
-    while not cap.done and time.time() - t0 < max_wall_s:
-        time.sleep(0.05)
+        size = tuple(
+            frame_size
+            or (
+                int(cap.cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                int(cap.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+            )
+        )
+        target = int(board_size or min(size))
+        profile = f"__clip_replay_{os.getpid()}_{time.time_ns()}"
+        temp_profile = profile_path(profile)
+        CalibrationProfile(
+            profile=profile, camera_index=-1, frame_size=size, board_size=target,
+            image_corners=corners, homography=compute_homography(corners, target, 0.0),
+            white_pov=True, crop=CropParams.default(target), margin=0.0, source=clip,
+        ).save(temp_profile)
+        live_align = False
+
+    mt = None
+    try:
+        mt = trk.MoveTracker(profile=profile, source="0", live_align=live_align, cnn_run=cnn_run,
+                             **(tracker_kwargs or {}))
+        mt.reset_to_start(start_fen)
+        mt.start()
+
+        events: list[str] = []
+        last_note, last_hist = "", 0
+        last_tick = 0.0
+        t0 = time.time()
+        while not cap.done and time.time() - t0 < max_wall_s:
+            time.sleep(0.05)
+            s = mt.status()
+            dbg = s["debug"]
+            vframe = int(cap.cap.get(cv2.CAP_PROP_POS_FRAMES))
+            vtime = vframe / cap.fps
+            if len(s["history"]) > last_hist:
+                for san in s["history"][last_hist:]:
+                    events.append(f"[video {vtime:6.1f}s] ZUG: {san}   ({s['note']})")
+                last_hist = len(s["history"])
+            if s["note"] != last_note:
+                last_note = s["note"]
+                events.append(f"[video {vtime:6.1f}s] NOTE {s['state']:8s} {last_note}")
+            if time.time() - last_tick >= 0.5:               # Dauer-Telemetrie
+                last_tick = time.time()
+                events.append(
+                    f"[video {vtime:6.1f}s] tick {s['state']:8s} motion={dbg['motion']:.2f} "
+                    f"changed={dbg['n_changed']} vals={dbg['changed_vals'][:4]} "
+                    f"cand={dbg['candidate']} best={dbg['best_score']} 2nd={dbg['second_score']} "
+                    f"stable={dbg['stable_count']} stuck={dbg['stuck_reason']}")
+        time.sleep(1.0)
         s = mt.status()
-        dbg = s["debug"]
-        vframe = int(cap.cap.get(cv2.CAP_PROP_POS_FRAMES))
-        vtime = vframe / cap.fps
-        if len(s["history"]) > last_hist:
-            for san in s["history"][last_hist:]:
-                events.append(f"[video {vtime:6.1f}s] ZUG: {san}   ({s['note']})")
-            last_hist = len(s["history"])
-        if s["note"] != last_note:
-            last_note = s["note"]
-            events.append(f"[video {vtime:6.1f}s] NOTE {s['state']:8s} {last_note}")
-        if time.time() - last_tick >= 0.5:               # Dauer-Telemetrie
-            last_tick = time.time()
-            events.append(
-                f"[video {vtime:6.1f}s] tick {s['state']:8s} motion={dbg['motion']:.2f} "
-                f"changed={dbg['n_changed']} vals={dbg['changed_vals'][:4]} "
-                f"cand={dbg['candidate']} best={dbg['best_score']} 2nd={dbg['second_score']} "
-                f"stable={dbg['stable_count']} stuck={dbg['stuck_reason']}")
-    time.sleep(1.0)
-    mt.stop()
-    s = mt.status()
-    return {"history": s["history"], "fen": s["fen"], "note": s["note"], "events": events}
+        return {"history": s["history"], "fen": s["fen"], "note": s["note"], "events": events}
+    finally:
+        if mt is not None:
+            mt.stop()
+        trk.open_source = original_open_source
+        cap.release()
+        if temp_profile is not None:
+            temp_profile.unlink(missing_ok=True)
 
 
 def main() -> int:
