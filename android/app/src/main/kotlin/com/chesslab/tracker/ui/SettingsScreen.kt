@@ -33,7 +33,6 @@ import com.chesslab.tracker.R
 import com.chesslab.tracker.camera.Resolution
 import com.chesslab.tracker.cnn.CnnModelStore
 import com.chesslab.tracker.cnn.OnnxClassifier
-import com.chesslab.tracker.service.OverlayView
 import com.chesslab.tracker.service.TrackerSettings
 import kotlin.math.roundToInt
 
@@ -146,8 +145,6 @@ fun SettingsScreen(
         )
         CnnModelSection(modelStore = modelStore)
 
-        OverlayRow(settings.overlayView) { o -> onUpdate { it.copy(overlayView = o) } }
-
         SectionHeader(stringResource(R.string.settings_debug))
         SettingSwitch(stringResource(R.string.setting_debug_card), settings.debugCard) { v ->
             onUpdate { it.copy(debugCard = v) }
@@ -180,37 +177,6 @@ private fun resolutionLabel(r: Resolution): String =
         Resolution.R720P -> stringResource(R.string.res_720p)
         Resolution.R1080P -> stringResource(R.string.res_1080p)
         Resolution.R4K -> stringResource(R.string.res_4k)
-    }
-
-@Suppress("ktlint:standard:function-naming", "FunctionNaming")
-@Composable
-private fun OverlayRow(
-    selected: OverlayView,
-    onSelect: (OverlayView) -> Unit,
-) {
-    Text(stringResource(R.string.setting_overlay_view), style = MaterialTheme.typography.bodyLarge)
-    Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        for (o in OverlayView.entries) {
-            val label = overlayLabel(o)
-            FilterChip(
-                selected = o == selected,
-                onClick = { onSelect(o) },
-                label = { Text(label) },
-                modifier = Modifier.semantics { contentDescription = label },
-            )
-        }
-    }
-}
-
-@Composable
-private fun overlayLabel(o: OverlayView): String =
-    when (o) {
-        OverlayView.BOARD -> stringResource(R.string.overlay_board)
-        OverlayView.DIFF -> stringResource(R.string.overlay_diff)
-        OverlayView.SHADOW -> stringResource(R.string.overlay_shadow)
-        OverlayView.OCCLUSION -> stringResource(R.string.overlay_occlusion)
-        OverlayView.MOTION -> stringResource(R.string.overlay_motion)
-        OverlayView.CAMERA -> stringResource(R.string.overlay_camera)
     }
 
 @Suppress("ktlint:standard:function-naming", "FunctionNaming")
