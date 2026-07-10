@@ -66,6 +66,7 @@
     <string name="calib_aruco_auto">Auto (ArUco)</string>
     <string name="calib_aruco_not_found">Markers not found</string>
     <string name="calib_aiming">Aiming… point the camera at the board</string>
+    <string name="calib_loupe_zoom">2.6×</string>
 
     <!-- Settings sections -->
     <string name="settings_game">Game</string>

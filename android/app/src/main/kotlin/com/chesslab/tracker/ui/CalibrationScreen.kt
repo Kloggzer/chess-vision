@@ -29,30 +29,55 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.chesslab.tracker.R
 import com.chesslab.tracker.geometry.ArucoCornerDetector
 import com.chesslab.tracker.geometry.BoardCorners
 import com.chesslab.tracker.geometry.Point
+import com.chesslab.tracker.ui.theme.BoardPalette
 import kotlinx.coroutines.delay
 import org.opencv.core.Mat
 
 private val CORNER_LABELS = listOf("a8", "h8", "h1", "a1")
 private const val CORNER_COUNT = 4
-private const val LOUPE_RADIUS = 60f
-private const val LOUPE_ALPHA = 0.3f
 private const val CROSSHAIR_STROKE = 2f
 private const val LIVE_ASSIST_INTERVAL_MS = 1000L
 private const val DEFAULT_ASPECT = 4f / 3f
+
+// Zoom loupe (real pixel magnifier).
+private const val LOUPE_WINDOW_PX = 40 // source window (bitmap px) sampled around the finger
+private const val LOUPE_DIAMETER_DP = 104 // on-screen magnifier circle diameter
+private const val LOUPE_MARGIN_DP = 12 // inset from the board box edge
+private const val LOUPE_RING_STROKE = 3f
+private const val LOUPE_CENTER_RING_PX = 7f
+private const val LOUPE_LABEL_SP = 11
+private const val LOUPE_LABEL_GAP_PX = 6f
+private const val ARUCO_HALO_ALPHA = 0.53f
 
 /**
  * Manual 4-corner calibration with optional ArUco auto-detection.
@@ -92,6 +117,10 @@ fun CalibrationScreen(
 
     // Live assist: detected marker centers (canvas coords) from periodic run.
     var liveMarkers by remember { mutableStateOf<Map<Int, Offset>>(emptyMap()) }
+
+    val previewImage = remember(rawPreview) { rawPreview?.asImageBitmap() }
+    val textMeasurer = rememberTextMeasurer()
+    val zoomLabel = stringResource(R.string.calib_loupe_zoom)
 
     val aspect =
         if (rawPreview != null && rawPreview.height > 0) {
@@ -172,9 +201,9 @@ fun CalibrationScreen(
                         )
                     }.semantics { contentDescription = instruction },
         ) {
-            if (rawPreview != null) {
+            if (previewImage != null) {
                 Image(
-                    bitmap = rawPreview.asImageBitmap(),
+                    bitmap = previewImage,
                     contentDescription = null,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize(),
@@ -187,7 +216,7 @@ fun CalibrationScreen(
                 )
             }
 
-            // Overlay canvas: user taps + live assist dots.
+            // Overlay canvas: user taps + live assist dots + zoom loupe.
             Canvas(modifier = Modifier.fillMaxSize()) {
                 // User-tapped corners.
                 taps.forEachIndexed { i, p ->
@@ -204,7 +233,10 @@ fun CalibrationScreen(
                     }
                 }
 
-                loupe?.let { drawLoupe(it) }
+                val img = previewImage
+                if (img != null) {
+                    loupe?.let { drawMagnifier(img, it, canvasSize, BoardPalette.ArucoDot, textMeasurer, zoomLabel) }
+                }
             }
         }
 
@@ -302,6 +334,79 @@ private fun reorderForA8(
     return List(CORNER_COUNT) { taps[(start + it) % CORNER_COUNT] }
 }
 
+/**
+ * Pure canvas→bitmap source-window mapping for the zoom loupe.
+ *
+ * Maps the [touch] point (canvas coords) into [bmpW]×[bmpH] bitmap-pixel space using the
+ * same uniform `ContentScale.Fit` scale the taps use, then returns a [windowPx]²-sized
+ * source rect centered on it, **clamped so it never leaves the bitmap** (tapping an edge or
+ * corner must not crash `drawImage`). If the bitmap is smaller than the window, the window
+ * shrinks to the bitmap. Extracted (internal) so the clamping is unit-testable.
+ */
+internal fun loupeSourceRect(
+    touch: Offset,
+    canvas: Offset,
+    bmpW: Int,
+    bmpH: Int,
+    windowPx: Int,
+): IntRect {
+    if (bmpW <= 0 || bmpH <= 0) return IntRect(0, 0, 0, 0)
+    val win = windowPx.coerceAtMost(minOf(bmpW, bmpH)).coerceAtLeast(1)
+    val half = win / 2f
+    val cx = if (canvas.x > 0f) touch.x * bmpW / canvas.x else 0f
+    val cy = if (canvas.y > 0f) touch.y * bmpH / canvas.y else 0f
+    val left = (cx - half).toInt().coerceIn(0, bmpW - win)
+    val top = (cy - half).toInt().coerceIn(0, bmpH - win)
+    return IntRect(IntOffset(left, top), IntSize(win, win))
+}
+
+/**
+ * Real zoom loupe: a circular magnifier showing [image] pixels around the [touch] point so
+ * the user can place a corner tap on the exact pixel. The circle sits at the top of the
+ * board box, flipping left/right so the finger never covers it.
+ */
+private fun DrawScope.drawMagnifier(
+    image: ImageBitmap,
+    touch: Offset,
+    canvasSize: Offset,
+    accent: Color,
+    textMeasurer: TextMeasurer,
+    zoomLabel: String,
+) {
+    val src = loupeSourceRect(touch, canvasSize, image.width, image.height, LOUPE_WINDOW_PX)
+    if (src.width <= 0 || src.height <= 0) return
+
+    val radius = LOUPE_DIAMETER_DP.dp.toPx() / 2f
+    val margin = LOUPE_MARGIN_DP.dp.toPx()
+    val onLeft = touch.x < canvasSize.x / 2f
+    val centerX = if (onLeft) canvasSize.x - margin - radius else margin + radius
+    val center = Offset(centerX, margin + radius)
+    val boxTopLeft = Offset(center.x - radius, center.y - radius)
+    val diameter = radius * 2f
+    val circle = Path().apply { addOval(Rect(boxTopLeft, Size(diameter, diameter))) }
+
+    clipPath(circle) {
+        drawImage(
+            image = image,
+            srcOffset = src.topLeft,
+            srcSize = src.size,
+            dstOffset = IntOffset(boxTopLeft.x.toInt(), boxTopLeft.y.toInt()),
+            dstSize = IntSize(diameter.toInt(), diameter.toInt()),
+        )
+    }
+
+    // Placement ring + accent crosshair marking the exact pixel the tap commits.
+    drawCircle(color = accent, radius = radius, center = center, style = Stroke(width = LOUPE_RING_STROKE))
+    drawLine(accent, Offset(center.x - radius, center.y), Offset(center.x + radius, center.y), strokeWidth = CROSSHAIR_STROKE)
+    drawLine(accent, Offset(center.x, center.y - radius), Offset(center.x, center.y + radius), strokeWidth = CROSSHAIR_STROKE)
+    drawCircle(color = accent, radius = LOUPE_CENTER_RING_PX, center = center, style = Stroke(width = CROSSHAIR_STROKE))
+
+    // Mono zoom-factor label under the loupe.
+    val label = textMeasurer.measure(zoomLabel, style = TextStyle(color = accent, fontFamily = FontFamily.Monospace, fontSize = LOUPE_LABEL_SP.sp))
+    val labelX = center.x - label.size.width / 2f
+    drawText(label, topLeft = Offset(labelX, center.y + radius + LOUPE_LABEL_GAP_PX))
+}
+
 private val OffsetSaver =
     listSaver<Offset, Float>(
         save = { listOf(it.x, it.y) },
@@ -313,11 +418,3 @@ private val OffsetListSaver =
         save = { list -> list.flatMap { listOf(it.x, it.y) } },
         restore = { flat -> flat.chunked(2).map { Offset(it[0], it[1]) } },
     )
-
-@Suppress("ktlint:standard:function-naming", "FunctionNaming")
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLoupe(center: Offset) {
-    val r = LOUPE_RADIUS
-    drawCircle(color = Color.White.copy(alpha = LOUPE_ALPHA), radius = r, center = center)
-    drawLine(Color.White, Offset(center.x - r, center.y), Offset(center.x + r, center.y), strokeWidth = CROSSHAIR_STROKE)
-    drawLine(Color.White, Offset(center.x, center.y - r), Offset(center.x, center.y + r), strokeWidth = CROSSHAIR_STROKE)
-}
