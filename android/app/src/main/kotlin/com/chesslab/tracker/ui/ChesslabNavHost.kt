@@ -24,13 +24,19 @@ import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.chesslab.tracker.R
+import com.chesslab.tracker.analysis.AnalysisEngine
+import com.chesslab.tracker.analysis.StockfishEngine
 import com.chesslab.tracker.geometry.ArucoCornerDetector
-import com.chesslab.tracker.record.PgnBuilder
+
+private const val ANALYSIS_ROUTE = "analysis"
+private const val GAME_ID_ARG = "gameId"
 
 private enum class Dest(
     val route: String,
@@ -39,7 +45,7 @@ private enum class Dest(
 ) {
     TRACKING("tracking", Icons.Filled.Videocam, R.string.nav_tracking),
     CALIBRATION("calibration", Icons.Filled.GridOn, R.string.nav_calibration),
-    HISTORY("history", Icons.Filled.History, R.string.nav_history),
+    GAMES("games", Icons.Filled.History, R.string.nav_games),
     SETTINGS("settings", Icons.Filled.Settings, R.string.nav_settings),
 }
 
@@ -58,6 +64,15 @@ fun ChesslabNavHost(
     // ArUco corner detection for the calibration screen.
     val arucoDetector = remember { ArucoCornerDetector() }
 
+    // On-device analysis engine (native Stockfish). Constructed here (compile-safe; it only
+    // execs the native binary when analysis actually runs on a device). Tests inject a
+    // FakeAnalysisEngine instead — nothing at unit-test time touches the native lib.
+    val analysisEngine: AnalysisEngine =
+        remember { StockfishEngine("${context.applicationInfo.nativeLibraryDir}/libstockfish.so") }
+    DisposableEffect(analysisEngine) {
+        onDispose { analysisEngine.close() }
+    }
+
     Scaffold(
         bottomBar = { BottomNavBar(navController) },
     ) { padding ->
@@ -72,10 +87,27 @@ fun ChesslabNavHost(
             composable(Dest.CALIBRATION.route) {
                 CalibrationRoute(viewModel, navController, rawPreview, arucoDetector, settings.experimentalDetection)
             }
-            composable(Dest.HISTORY.route) {
-                HistoryScreen(
-                    moves = uiState.moves,
-                    onExport = { sharePgn(context, uiState) },
+            composable(Dest.GAMES.route) {
+                GamesScreen(
+                    games = viewModel.gameStore.list(),
+                    liveMoveCount = uiState.moves.size,
+                    onOpenGame = { id -> navController.navigate("$ANALYSIS_ROUTE/$id") { launchSingleTop = true } },
+                    onExport = { id -> sharePgn(context, viewModel.gameStore.loadPgn(id)) },
+                )
+            }
+            composable(
+                route = "$ANALYSIS_ROUTE/{$GAME_ID_ARG}",
+                arguments = listOf(navArgument(GAME_ID_ARG) { type = NavType.StringType }),
+            ) { entry ->
+                val gameId = entry.arguments?.getString(GAME_ID_ARG).orEmpty()
+                val pgn = remember(gameId) { viewModel.gameStore.loadPgn(gameId) }
+                val provenance = remember(gameId) { viewModel.gameStore.loadProvenance(gameId) }
+                AnalysisScreen(
+                    gameId = gameId,
+                    pgn = pgn,
+                    engine = analysisEngine,
+                    provenance = provenance,
+                    depth = settings.analysisDepth,
                 )
             }
             composable(Dest.SETTINGS.route) {
@@ -108,7 +140,6 @@ private fun TrackingRoute(
         rawPreview = rawPreview,
         calibrated = calibrated != null,
         showDebug = settings.debugCard,
-        overlayView = settings.overlayView,
         onUndo = viewModel::undo,
         onReset = viewModel::reset,
         onPromote = viewModel::forcePromote,
@@ -173,14 +204,13 @@ private fun BottomNavBar(navController: NavHostController) {
 
 private fun sharePgn(
     context: Context,
-    uiState: UiState,
+    pgn: String,
 ) {
-    val pgn = PgnBuilder.build(uiState.moves.map { it.san }, uiState.fen)
     val intent =
         Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, pgn)
             putExtra(Intent.EXTRA_SUBJECT, "chesslab game")
         }
-    context.startActivity(Intent.createChooser(intent, context.getString(R.string.history_export)))
+    context.startActivity(Intent.createChooser(intent, context.getString(R.string.games_export)))
 }

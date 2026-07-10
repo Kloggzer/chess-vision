@@ -11,16 +11,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import com.chesslab.tracker.ui.theme.BoardPalette
 
 private const val FILES = "abcdefgh"
-private val LIGHT = Color(0xFFEBECD0)
-private val DARK = Color(0xFF779556)
 
 /** Parse the placement field of [fen] into square ("e4") -> piece FEN char. */
 internal fun parseFenPlacement(fen: String): Map<String, Char> {
@@ -94,7 +92,7 @@ fun ChessBoard(
                 for (col in 0 until 8) {
                     val light = (row + col) % 2 == 0
                     drawRect(
-                        color = if (light) LIGHT else DARK,
+                        color = if (light) BoardPalette.LightSquare else BoardPalette.DarkSquare,
                         topLeft =
                             androidx.compose.ui.geometry
                                 .Offset(col * cell, row * cell),
@@ -116,7 +114,7 @@ fun ChessBoard(
                     val rank = square[1].digitToInt()
                     val cx = (file + 0.5f) * cell
                     val cy = (8 - rank + 0.5f) * cell - (paint.ascent() + paint.descent()) / 2f
-                    paint.color = (if (piece.isUpperCase()) Color.White else Color.Black).toArgb()
+                    paint.color = (if (piece.isUpperCase()) BoardPalette.WhitePiece else BoardPalette.BlackPiece).toArgb()
                     canvas.nativeCanvas.drawText(glyph(piece), cx, cy, paint)
                 }
             }
