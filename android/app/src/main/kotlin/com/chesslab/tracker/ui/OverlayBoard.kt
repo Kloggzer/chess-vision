@@ -2,6 +2,7 @@ package com.chesslab.tracker.ui
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,6 +17,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import com.chesslab.engine.STARTPOS
 import com.chesslab.tracker.R
 import com.chesslab.tracker.service.OverlayView
 
@@ -47,26 +49,30 @@ private fun DrawScope.markSquares(
 }
 
 /**
- * Debug overlay over the warped camera board: draws the per-square markers of the
- * selected [view] (colours per `tracker.py:2379`). Falls back to the digital board
- * when no camera frame is available yet.
+ * Shows the warped board with optional debug overlays, or the raw camera preview
+ * when [view] is [OverlayView.CAMERA].
  */
 @Suppress("ktlint:standard:function-naming", "FunctionNaming")
 @Composable
 fun OverlayBoard(
     view: OverlayView,
     bitmap: Bitmap?,
+    rawPreview: Bitmap?,
     debug: DebugSnapshot,
     fen: String,
     modifier: Modifier = Modifier,
 ) {
+    if (view == OverlayView.CAMERA) {
+        CameraPreview(rawPreview = rawPreview, modifier = modifier)
+        return
+    }
     if (bitmap == null) {
         ChessBoard(fen = fen, modifier = modifier)
         return
     }
     val label = stringResource(R.string.overlay_board_desc)
     Box(modifier = modifier.fillMaxWidth().aspectRatio(1f).semantics { contentDescription = label }) {
-        androidx.compose.foundation.Image(
+        Image(
             bitmap = bitmap.asImageBitmap(),
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
@@ -77,7 +83,32 @@ fun OverlayBoard(
                 OverlayView.DIFF, OverlayView.MOTION -> markSquares(debug.changed, MAGENTA)
                 OverlayView.SHADOW -> markSquares(debug.shadowVetoed, CYAN)
                 OverlayView.OCCLUSION -> markSquares(debug.occludedVetoed, ORANGE)
+                OverlayView.CAMERA -> Unit // handled above
             }
         }
+    }
+}
+
+/**
+ * Raw camera feed (downscaled, before warp/calibration), with accessibility label.
+ */
+@Suppress("ktlint:standard:function-naming", "FunctionNaming")
+@Composable
+private fun CameraPreview(
+    rawPreview: Bitmap?,
+    modifier: Modifier = Modifier,
+) {
+    val label = stringResource(R.string.raw_preview_desc)
+    val descMod = modifier.fillMaxWidth().aspectRatio(1f).semantics { contentDescription = label }
+    if (rawPreview == null) {
+        ChessBoard(fen = STARTPOS, modifier = descMod)
+        return
+    }
+    Box(modifier = descMod) {
+        Image(
+            bitmap = rawPreview.asImageBitmap(),
+            contentDescription = label,
+            modifier = Modifier.fillMaxSize(),
+        )
     }
 }

@@ -14,6 +14,7 @@ enum class OverlayView {
     SHADOW,
     OCCLUSION,
     MOTION,
+    CAMERA,
 }
 
 /**

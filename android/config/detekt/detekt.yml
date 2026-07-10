@@ -25,7 +25,8 @@ complexity:
     ignoreAnnotated: ['Composable']
   # TrackerService is the integration hub wiring engine + camera + geometry + settings.
   TooManyFunctions:
-    thresholdInClasses: 17
+    # Bumped 17→18 for publishRawPreview (raw camera preview feature).
+    thresholdInClasses: 18
 
 style:
   UnusedPrivateMember:

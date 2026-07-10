@@ -62,6 +62,14 @@ class TrackerService : LifecycleService() {
     /** Latest warped board for the overlay views; null until tracking starts. */
     val boardBitmap: StateFlow<Bitmap?> = _boardBitmap.asStateFlow()
 
+    private val _rawPreview = MutableStateFlow<Bitmap?>(null)
+
+    /**
+     * Downscaled (~640px max edge) raw camera frame, throttled to ~5 fps.
+     * Non-null from the first camera frame onward, independent of warp/tracking.
+     */
+    val rawPreview: StateFlow<Bitmap?> = _rawPreview.asStateFlow()
+
     /** Reduced UI state; the single source the UI observes. */
     val uiState get() = coordinator.uiState
 
@@ -131,6 +139,9 @@ class TrackerService : LifecycleService() {
         lifecycleScope.launch {
             camera.frames.collect { frame ->
                 val pipe = pipeline ?: return@collect
+
+                // Publish raw camera preview (independent of warp/tracking success).
+                publishRawPreview(frame.mat, frame.width, frame.height)
 
                 // Feed raw frame + corners before warp (phase 07 recorder).
                 val corners = baseWarper?.profile?.corners
@@ -226,6 +237,34 @@ class TrackerService : LifecycleService() {
         _boardBitmap.value = bitmap
     }
 
+    /** Downscale raw [mat] to ~640 px max edge and publish as [rawPreview], throttled ~5 fps. */
+    private fun publishRawPreview(
+        mat: Mat,
+        width: Int,
+        height: Int,
+    ) {
+        val now = System.nanoTime()
+        if (now - lastRawPreviewNs < RAW_PREVIEW_INTERVAL_NS) return
+        lastRawPreviewNs = now
+
+        val maxDim = maxOf(width, height)
+        val scale =
+            if (maxDim > RAW_PREVIEW_MAX_DIM) RAW_PREVIEW_MAX_DIM.toDouble() / maxDim else 1.0
+        val scaled = Mat()
+        if (scale < 1.0) {
+            Imgproc.resize(mat, scaled, org.opencv.core.Size(0.0, 0.0), scale, scale, Imgproc.INTER_LINEAR)
+        } else {
+            mat.copyTo(scaled)
+        }
+        val rgba = Mat()
+        Imgproc.cvtColor(scaled, rgba, Imgproc.COLOR_BGR2RGBA)
+        val bitmap = Bitmap.createBitmap(rgba.cols(), rgba.rows(), Bitmap.Config.ARGB_8888)
+        Utils.matToBitmap(rgba, bitmap)
+        rgba.release()
+        scaled.release()
+        _rawPreview.value = bitmap
+    }
+
     private fun startForegroundInternal() {
         val channelId = "tracker"
         val manager = getSystemService(NotificationManager::class.java)
@@ -248,9 +287,13 @@ class TrackerService : LifecycleService() {
         }
     }
 
+    private var lastRawPreviewNs = 0L
+
     companion object {
         private const val NOTIF_ID = 1
         private const val DRIFT_INTERVAL_NS = 5_000_000_000L
+        private const val RAW_PREVIEW_INTERVAL_NS = 200_000_000L // ~5 fps throttle
+        private const val RAW_PREVIEW_MAX_DIM = 640
 
         /** Start + bind the tracker service. */
         fun start(context: Context) {
