@@ -108,7 +108,6 @@ private fun TrackingRoute(
         rawPreview = rawPreview,
         calibrated = calibrated != null,
         showDebug = settings.debugCard,
-        overlayView = settings.overlayView,
         onUndo = viewModel::undo,
         onReset = viewModel::reset,
         onPromote = viewModel::forcePromote,
