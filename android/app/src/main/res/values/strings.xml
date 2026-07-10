@@ -115,6 +115,12 @@
     <string name="overlay_occlusion">Occlusion</string>
     <string name="overlay_motion">Motion</string>
     <string name="overlay_camera">Camera</string>
+
+    <!-- Tracking: two-level board view switch -->
+    <string name="board_mode_rendered">Rendered</string>
+    <string name="board_mode_video">Video</string>
+    <string name="overlay_raw">Raw</string>
+    <string name="overlay_warped">Warped</string>
     <string name="raw_preview_desc">Camera preview before calibration</string>
 
     <!-- Shared -->
