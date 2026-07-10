@@ -594,6 +594,70 @@ def corners_px(scene, cam):
     return out
 
 
+# --- Prozeduraler Occluder-Arm (nur für die Move-Clip-Fixtures, siehe render_move_clip.py) ---
+# Eine Hand/ein Unterarm, der über das Brett fährt: testet den Occlusion-Pfad des Trackers
+# (Baseline-Census + Farb-Gamut-Veto, Move-vs-Hand-Arbitrierung) UND wirft einen bewegten
+# Schatten (Schatten-vs-Occlusion-Klassifikation). Der Datensatz-Renderer (main()) nutzt ihn NICHT.
+ARM_RADIUS = 4.5    # ~1.5 Zellen Durchmesser — überdeckt die bewegten Felder sicher
+ARM_LENGTH = 55.0   # reicht von weit außerhalb (>±HALF) bis zur Brettmitte
+ARM_Z = 13.0        # über der höchsten Figur (König ~8.8), unter der Kamera (~94)
+# Hautton bewusst AUSSERHALB der braunen Brett-Gamut (heller + pinker): löst das
+# Farb-Occlusion-Veto (Lab a*/b* + Sättigung) zuverlässig aus, statt als Schatten zu gelten.
+ARM_SKIN = (0.86, 0.60, 0.50)
+
+
+def make_occluder_material():
+    mat = bpy.data.materials.new("OccluderSkin")
+    mat.use_nodes = True
+    nt = mat.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.inputs["Base Color"].default_value = (*ARM_SKIN, 1.0)
+    bsdf.inputs["Roughness"].default_value = 0.5   # leicht glänzend → sichtbarer Schatten/Form
+    nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+    return mat
+
+
+def make_occluder_arm(rng=None):
+    """Baut einen Unterarm+Faust-Mesh: Faust im lokalen Ursprung, Schaft entlang -X.
+    `place_occluder(arm, x, y, angle)` setzt die Faust auf Brett-Koordinaten (x, y); der
+    Arm reicht dann aus Richtung `angle` heran und trägt off-board hinaus. Initial verborgen."""
+    import bmesh  # noqa: PLC0415 — nur im Blender-Prozess verfügbar
+    from mathutils import Matrix  # noqa: PLC0415
+
+    bm = bmesh.new()
+    # Schaft: Zylinder entlang -X (Faust bei 0, Ellbogen bei -ARM_LENGTH).
+    shaft = Matrix.Translation((-ARM_LENGTH / 2.0, 0.0, 0.0)) @ Matrix.Rotation(math.radians(90), 4, "Y")
+    bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=True, segments=24,
+                          radius1=ARM_RADIUS, radius2=ARM_RADIUS, depth=ARM_LENGTH, matrix=shaft)
+    # Faust: etwas dickere Kugel am Brett-Ende.
+    bmesh.ops.create_uvsphere(bm, u_segments=20, v_segments=12, radius=ARM_RADIUS * 1.3,
+                              matrix=Matrix.Translation((0.0, 0.0, 0.0)))
+    mesh = bpy.data.meshes.new("OccluderArm")
+    bm.to_mesh(mesh)
+    bm.free()
+    for p in mesh.polygons:
+        p.use_smooth = True
+    obj = bpy.data.objects.new("OccluderArm", mesh)
+    obj.data.materials.append(make_occluder_material())
+    bpy.context.scene.collection.objects.link(obj)
+    hide_occluder(obj)
+    return obj
+
+
+def place_occluder(arm, x, y, angle):
+    """Faust auf Brett-Koordinate (x, y) (Einheiten wie square_center), Reach-Richtung `angle`."""
+    arm.location = (x, y, ARM_Z)
+    arm.rotation_euler = (0.0, 0.0, angle)
+    arm.hide_render = False
+
+
+def hide_occluder(arm):
+    arm.hide_render = True
+    arm.location = (0.0, 0.0, 1000.0)   # zusätzlich weit weg parken (Schatten-Sicherheit)
+
+
 def set_engine_fast(samples=24):
     scene = bpy.context.scene
     eng = scene.render.engine

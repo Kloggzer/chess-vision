@@ -1,7 +1,26 @@
-"""Render the stable positions of one deterministic move-replay clip in Blender.
+"""Render the frames of one deterministic move-replay clip in Blender.
 
-The host-side ``scripts/generate_blender_testclips.py`` creates the JSON spec,
-invokes this script, and assembles the rendered positions into a compact MP4.
+The host-side ``scripts/generate_blender_testclips.py`` builds the JSON spec (a flat
+list of frames: which position to show and where the occluder arm sits), invokes this
+script, and assembles the rendered frames into a compact MP4.
+
+Spec format::
+
+    {
+      "positions": ["<fen0>", "<fen1>", ...],       # one FEN per stable position
+      "moves_uci": ["e2e4", ...],                   # for the label sidecar
+      "frames": [
+        {"fen_index": 0, "arm": null,               # clear frame (no occluder)
+         "phase": "clear"},
+        {"fen_index": 0, "arm": [x, y, angle],      # occluder sweeping in over the board
+         "phase": "occluding"},
+        ...
+      ]
+    }
+
+Each frame is a single render. The arm (a skin-toned forearm+fist, see
+``render_board_v2.make_occluder_arm``) is placed on board coordinates ``(x, y)`` with
+reach direction ``angle`` (radians) when ``arm`` is given, otherwise hidden.
 """
 
 from __future__ import annotations
@@ -58,10 +77,19 @@ def main() -> None:
     templates, base_z, procedural = board_render.build_templates(pieces_dir)
     board_render.style_board_v2(board_texture)
     cam = board_render.setup_camera()
+    # Perfectly top-down (obliqueness 0): tall pieces project onto their true base cell, so a
+    # pawn on e4 does not lean into e3. A tilted camera makes the move tracker read the wrong
+    # rank; the deterministic fixture wants the geometry unambiguous. Real footage is oblique —
+    # that robustness is a live-tuning concern, not what these regression clips assert.
     board_render.place_camera(cam, rng, max_obliqueness=0.0)
     board_render.randomize_lights(rng)
+    arm = board_render.make_occluder_arm(rng)
 
-    for index, fen in enumerate(spec["positions"]):
+    positions = spec["positions"]
+    frames = spec["frames"]
+    frame_labels = []
+    for index, fr in enumerate(frames):
+        fen = positions[fr["fen_index"]]
         pieces = board_render.place_from_fen(
             fen,
             templates,
@@ -72,8 +100,19 @@ def main() -> None:
             placement_jitter=0.0,
             random_rotation=False,
         )
+        occluded = fr.get("arm") is not None
+        if occluded:
+            board_render.place_occluder(arm, *fr["arm"])
+        else:
+            board_render.hide_occluder(arm)
         scene.render.filepath = str((args.out / f"position_{index:03d}.png").resolve())
         bpy.ops.render.render(write_still=True)
+        frame_labels.append({
+            "index": index,
+            "phase": fr.get("phase", "occluding" if occluded else "clear"),
+            "occluded": occluded,
+            "position_index": fr["fen_index"],
+        })
         for obj in pieces:
             bpy.data.objects.remove(obj, do_unlink=True)
 
@@ -84,6 +123,7 @@ def main() -> None:
         "corners": corners,
         "frame_size": [args.res, args.res],
         "board_size": args.res,
+        "frame_labels": frame_labels,
     }
     (args.out / "render_metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
