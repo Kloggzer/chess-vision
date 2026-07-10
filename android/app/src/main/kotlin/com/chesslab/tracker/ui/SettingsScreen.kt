@@ -31,11 +31,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.chesslab.tracker.R
 import com.chesslab.tracker.camera.Resolution
-import kotlin.math.roundToInt
 import com.chesslab.tracker.cnn.CnnModelStore
 import com.chesslab.tracker.cnn.OnnxClassifier
 import com.chesslab.tracker.service.OverlayView
 import com.chesslab.tracker.service.TrackerSettings
+import kotlin.math.roundToInt
 
 @Suppress("ktlint:standard:function-naming", "FunctionNaming", "LongMethod")
 @Composable
