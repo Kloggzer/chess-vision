@@ -53,6 +53,16 @@ SCENARIOS: dict[str, dict] = {
     "hover": {"moves": [], "hovers": [0]},                       # hand passes, nothing moves -> []
     "phantom": {"moves": ["e2e4", "e7e5"], "hovers": [1]},       # hover between two real moves
     "jitter": {"moves": ["d2d4", "d7d5", "g1f3"], "jitter": 1.2},  # trembling hand during moves
+    # Longer sequences (sustained tracking: drift, repeated occlusion, mid-game castling,
+    # captures, checkmate). Famous games so the moves are easy to verify by eye.
+    "scholars": {"moves": ["e2e4", "e7e5", "f1c4", "b8c6", "d1h5", "g8f6", "h5f7"]},  # Qxf7#
+    "italian": {"moves": ["e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "f8c5", "c2c3", "g8f6",
+                          "d2d3", "d7d6", "e1g1", "e8g8", "b1d2", "a7a6", "c4b3"]},
+    "opera": {"moves": [  # Morphy, Paris Opera 1858 — ends 17.Rd8#
+        "e2e4", "e7e5", "g1f3", "d7d6", "d2d4", "c8g4", "d4e5", "g4f3", "d1f3", "d6e5",
+        "f1c4", "g8f6", "f3b3", "d8e7", "b1c3", "c7c6", "c1g5", "b7b5", "c3b5", "c6b5",
+        "c4b5", "b8d7", "e1c1", "a8d8", "d1d7", "d8d7", "h1d1", "e7e6", "b5d7", "f6d7",
+        "b3b8", "d7b8", "d1d8"]},
 }
 
 

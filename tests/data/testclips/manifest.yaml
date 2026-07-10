@@ -279,3 +279,246 @@ clips:
     min_grid_line_coverage: 0.0
     overhang: 0.0
     census_thr: 40.0
+- file: blender-scholars.mp4
+  source: blender
+  occlusion: true
+  start_fen: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  erwartete_zugliste:
+  - e4
+  - e5
+  - Bc4
+  - Nc6
+  - Qh5
+  - Nf6
+  - Qxf7#
+  positions:
+  - rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  - rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1
+  - rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2
+  - rnbqkbnr/pppp1ppp/8/4p3/2B1P3/8/PPPP1PPP/RNBQK1NR b KQkq - 1 2
+  - r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/8/PPPP1PPP/RNBQK1NR w KQkq - 2 3
+  - r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 3 3
+  - r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4
+  - r1bqkb1r/pppp1Qpp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4
+  moves_uci:
+  - e2e4
+  - e7e5
+  - f1c4
+  - b8c6
+  - d1h5
+  - g8f6
+  - h5f7
+  corners:
+  - - 444.4978332519531
+    - 444.4978332519531
+  - - 444.4978332519531
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 444.4978332519531
+  frame_size:
+  - 640
+  - 640
+  board_size: 640
+  tracker:
+    confirm_frames: 2
+    min_grid_line_coverage: 0.0
+    overhang: 0.0
+    census_thr: 40.0
+- file: blender-italian.mp4
+  source: blender
+  occlusion: true
+  start_fen: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  erwartete_zugliste:
+  - e4
+  - e5
+  - Nf3
+  - Nc6
+  - Bc4
+  - Bc5
+  - c3
+  - Nf6
+  - d3
+  - d6
+  - O-O
+  - O-O
+  - Nbd2
+  - a6
+  - Bb3
+  positions:
+  - rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  - rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1
+  - rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2
+  - rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2
+  - r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3
+  - r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3
+  - r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4
+  - r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R b KQkq - 0 4
+  - r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R w KQkq - 1 5
+  - r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2PP1N2/PP3PPP/RNBQK2R b KQkq - 0 5
+  - r1bqk2r/ppp2ppp/2np1n2/2b1p3/2B1P3/2PP1N2/PP3PPP/RNBQK2R w KQkq - 0 6
+  - r1bqk2r/ppp2ppp/2np1n2/2b1p3/2B1P3/2PP1N2/PP3PPP/RNBQ1RK1 b kq - 1 6
+  - r1bq1rk1/ppp2ppp/2np1n2/2b1p3/2B1P3/2PP1N2/PP3PPP/RNBQ1RK1 w - - 2 7
+  - r1bq1rk1/ppp2ppp/2np1n2/2b1p3/2B1P3/2PP1N2/PP1N1PPP/R1BQ1RK1 b - - 3 7
+  - r1bq1rk1/1pp2ppp/p1np1n2/2b1p3/2B1P3/2PP1N2/PP1N1PPP/R1BQ1RK1 w - - 0 8
+  - r1bq1rk1/1pp2ppp/p1np1n2/2b1p3/4P3/1BPP1N2/PP1N1PPP/R1BQ1RK1 b - - 1 8
+  moves_uci:
+  - e2e4
+  - e7e5
+  - g1f3
+  - b8c6
+  - f1c4
+  - f8c5
+  - c2c3
+  - g8f6
+  - d2d3
+  - d7d6
+  - e1g1
+  - e8g8
+  - b1d2
+  - a7a6
+  - c4b3
+  corners:
+  - - 444.4978332519531
+    - 444.4978332519531
+  - - 444.4978332519531
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 444.4978332519531
+  frame_size:
+  - 640
+  - 640
+  board_size: 640
+  tracker:
+    confirm_frames: 2
+    min_grid_line_coverage: 0.0
+    overhang: 0.0
+    census_thr: 40.0
+- file: blender-opera.mp4
+  source: blender
+  occlusion: true
+  start_fen: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  erwartete_zugliste:
+  - e4
+  - e5
+  - Nf3
+  - d6
+  - d4
+  - Bg4
+  - dxe5
+  - Bxf3
+  - Qxf3
+  - dxe5
+  - Bc4
+  - Nf6
+  - Qb3
+  - Qe7
+  - Nc3
+  - c6
+  - Bg5
+  - b5
+  - Nxb5
+  - cxb5
+  - Bxb5+
+  - Nbd7
+  - O-O-O
+  - Rd8
+  - Rxd7
+  - Rxd7
+  - Rd1
+  - Qe6
+  - Bxd7+
+  - Nxd7
+  - Qb8+
+  - Nxb8
+  - Rd8#
+  positions:
+  - rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  - rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1
+  - rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2
+  - rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2
+  - rnbqkbnr/ppp2ppp/3p4/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3
+  - rnbqkbnr/ppp2ppp/3p4/4p3/3PP3/5N2/PPP2PPP/RNBQKB1R b KQkq - 0 3
+  - rn1qkbnr/ppp2ppp/3p4/4p3/3PP1b1/5N2/PPP2PPP/RNBQKB1R w KQkq - 1 4
+  - rn1qkbnr/ppp2ppp/3p4/4P3/4P1b1/5N2/PPP2PPP/RNBQKB1R b KQkq - 0 4
+  - rn1qkbnr/ppp2ppp/3p4/4P3/4P3/5b2/PPP2PPP/RNBQKB1R w KQkq - 0 5
+  - rn1qkbnr/ppp2ppp/3p4/4P3/4P3/5Q2/PPP2PPP/RNB1KB1R b KQkq - 0 5
+  - rn1qkbnr/ppp2ppp/8/4p3/4P3/5Q2/PPP2PPP/RNB1KB1R w KQkq - 0 6
+  - rn1qkbnr/ppp2ppp/8/4p3/2B1P3/5Q2/PPP2PPP/RNB1K2R b KQkq - 1 6
+  - rn1qkb1r/ppp2ppp/5n2/4p3/2B1P3/5Q2/PPP2PPP/RNB1K2R w KQkq - 2 7
+  - rn1qkb1r/ppp2ppp/5n2/4p3/2B1P3/1Q6/PPP2PPP/RNB1K2R b KQkq - 3 7
+  - rn2kb1r/ppp1qppp/5n2/4p3/2B1P3/1Q6/PPP2PPP/RNB1K2R w KQkq - 4 8
+  - rn2kb1r/ppp1qppp/5n2/4p3/2B1P3/1QN5/PPP2PPP/R1B1K2R b KQkq - 5 8
+  - rn2kb1r/pp2qppp/2p2n2/4p3/2B1P3/1QN5/PPP2PPP/R1B1K2R w KQkq - 0 9
+  - rn2kb1r/pp2qppp/2p2n2/4p1B1/2B1P3/1QN5/PPP2PPP/R3K2R b KQkq - 1 9
+  - rn2kb1r/p3qppp/2p2n2/1p2p1B1/2B1P3/1QN5/PPP2PPP/R3K2R w KQkq - 0 10
+  - rn2kb1r/p3qppp/2p2n2/1N2p1B1/2B1P3/1Q6/PPP2PPP/R3K2R b KQkq - 0 10
+  - rn2kb1r/p3qppp/5n2/1p2p1B1/2B1P3/1Q6/PPP2PPP/R3K2R w KQkq - 0 11
+  - rn2kb1r/p3qppp/5n2/1B2p1B1/4P3/1Q6/PPP2PPP/R3K2R b KQkq - 0 11
+  - r3kb1r/p2nqppp/5n2/1B2p1B1/4P3/1Q6/PPP2PPP/R3K2R w KQkq - 1 12
+  - r3kb1r/p2nqppp/5n2/1B2p1B1/4P3/1Q6/PPP2PPP/2KR3R b kq - 2 12
+  - 3rkb1r/p2nqppp/5n2/1B2p1B1/4P3/1Q6/PPP2PPP/2KR3R w k - 3 13
+  - 3rkb1r/p2Rqppp/5n2/1B2p1B1/4P3/1Q6/PPP2PPP/2K4R b k - 0 13
+  - 4kb1r/p2rqppp/5n2/1B2p1B1/4P3/1Q6/PPP2PPP/2K4R w k - 0 14
+  - 4kb1r/p2rqppp/5n2/1B2p1B1/4P3/1Q6/PPP2PPP/2KR4 b k - 1 14
+  - 4kb1r/p2r1ppp/4qn2/1B2p1B1/4P3/1Q6/PPP2PPP/2KR4 w k - 2 15
+  - 4kb1r/p2B1ppp/4qn2/4p1B1/4P3/1Q6/PPP2PPP/2KR4 b k - 0 15
+  - 4kb1r/p2n1ppp/4q3/4p1B1/4P3/1Q6/PPP2PPP/2KR4 w k - 0 16
+  - 1Q2kb1r/p2n1ppp/4q3/4p1B1/4P3/8/PPP2PPP/2KR4 b k - 1 16
+  - 1n2kb1r/p4ppp/4q3/4p1B1/4P3/8/PPP2PPP/2KR4 w k - 0 17
+  - 1n1Rkb1r/p4ppp/4q3/4p1B1/4P3/8/PPP2PPP/2K5 b k - 1 17
+  moves_uci:
+  - e2e4
+  - e7e5
+  - g1f3
+  - d7d6
+  - d2d4
+  - c8g4
+  - d4e5
+  - g4f3
+  - d1f3
+  - d6e5
+  - f1c4
+  - g8f6
+  - f3b3
+  - d8e7
+  - b1c3
+  - c7c6
+  - c1g5
+  - b7b5
+  - c3b5
+  - c6b5
+  - c4b5
+  - b8d7
+  - e1c1
+  - a8d8
+  - d1d7
+  - d8d7
+  - h1d1
+  - e7e6
+  - b5d7
+  - f6d7
+  - b3b8
+  - d7b8
+  - d1d8
+  corners:
+  - - 444.4978332519531
+    - 444.4978332519531
+  - - 444.4978332519531
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 444.4978332519531
+  frame_size:
+  - 640
+  - 640
+  board_size: 640
+  tracker:
+    confirm_frames: 2
+    min_grid_line_coverage: 0.0
+    overhang: 0.0
+    census_thr: 40.0
