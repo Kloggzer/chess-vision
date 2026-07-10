@@ -69,53 +69,6 @@ clips:
     min_grid_line_coverage: 0.0
     overhang: 0.0
     census_thr: 40.0
-- file: blender-castle.mp4
-  source: blender
-  occlusion: true
-  start_fen: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
-  erwartete_zugliste:
-  - e4
-  - e5
-  - Nf3
-  - Nc6
-  - Bc4
-  - Bc5
-  - O-O
-  positions:
-  - rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
-  - rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1
-  - rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2
-  - rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2
-  - r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3
-  - r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3
-  - r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4
-  - r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQ1RK1 b kq - 5 4
-  moves_uci:
-  - e2e4
-  - e7e5
-  - g1f3
-  - b8c6
-  - f1c4
-  - f8c5
-  - e1g1
-  corners:
-  - - 444.4978332519531
-    - 444.4978332519531
-  - - 444.4978332519531
-    - 195.50216674804688
-  - - 195.50216674804688
-    - 195.50216674804688
-  - - 195.50216674804688
-    - 444.4978332519531
-  frame_size:
-  - 640
-  - 640
-  board_size: 640
-  tracker:
-    confirm_frames: 2
-    min_grid_line_coverage: 0.0
-    overhang: 0.0
-    census_thr: 40.0
 - file: blender-enpassant.mp4
   source: blender
   occlusion: true
@@ -522,33 +475,6 @@ clips:
     min_grid_line_coverage: 0.0
     overhang: 0.0
     census_thr: 40.0
-- file: blender-nudge.mp4
-  source: blender
-  occlusion: true
-  start_fen: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
-  erwartete_zugliste: []
-  expect_stuck: no_legal_move
-  positions:
-  - rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
-  moves_uci: []
-  corners:
-  - - 444.4978332519531
-    - 444.4978332519531
-  - - 444.4978332519531
-    - 195.50216674804688
-  - - 195.50216674804688
-    - 195.50216674804688
-  - - 195.50216674804688
-    - 444.4978332519531
-  frame_size:
-  - 640
-  - 640
-  board_size: 640
-  tracker:
-    confirm_frames: 2
-    min_grid_line_coverage: 0.0
-    overhang: 0.0
-    census_thr: 40.0
 - file: blender-shadowsweep.mp4
   source: blender
   occlusion: true
@@ -812,3 +738,79 @@ clips:
     overhang: 0.0
     census_thr: 40.0
     max_changed: 10
+- file: blender-castle.mp4
+  source: blender
+  occlusion: true
+  start_fen: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  erwartete_zugliste:
+  - e4
+  - e5
+  - Nf3
+  - Nc6
+  - Bc4
+  - Bc5
+  - O-O
+  expect_fen: r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQ1RK1 b kq - 5 4
+  positions:
+  - rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  - rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1
+  - rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2
+  - rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2
+  - r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3
+  - r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3
+  - r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4
+  - r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQ1RK1 b kq - 5 4
+  moves_uci:
+  - e2e4
+  - e7e5
+  - g1f3
+  - b8c6
+  - f1c4
+  - f8c5
+  - e1g1
+  corners:
+  - - 444.4978332519531
+    - 444.4978332519531
+  - - 444.4978332519531
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 444.4978332519531
+  frame_size:
+  - 640
+  - 640
+  board_size: 640
+  tracker:
+    confirm_frames: 3
+    min_grid_line_coverage: 0.0
+    overhang: 0.0
+    census_thr: 40.0
+- file: blender-nudge.mp4
+  source: blender
+  occlusion: true
+  start_fen: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  erwartete_zugliste: []
+  expect_fen: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  expect_stuck: no_legal_move
+  positions:
+  - rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  moves_uci: []
+  corners:
+  - - 444.4978332519531
+    - 444.4978332519531
+  - - 444.4978332519531
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 444.4978332519531
+  frame_size:
+  - 640
+  - 640
+  board_size: 640
+  tracker:
+    confirm_frames: 2
+    min_grid_line_coverage: 0.0
+    overhang: 0.0
+    census_thr: 40.0

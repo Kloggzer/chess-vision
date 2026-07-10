@@ -46,7 +46,11 @@ HALF = 24.0
 SCENARIOS: dict[str, dict] = {
     "opening": {"moves": ["d2d4", "e7e5", "b1c3"]},
     "capture": {"moves": ["e2e4", "d7d5", "e4d5"]},
-    "castle": {"moves": ["e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "f8c5", "e1g1"]},
+    # After white's O-O the dark king on the light e8 square (low contrast) can flicker a phantom
+    # Kf8 in the clear-hold frames on the more sensitive port; a 3rd confirmation frame suppresses
+    # the noise-driven move while the real O-O (held ~1.5 s) still confirms.
+    "castle": {"moves": ["e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "f8c5", "e1g1"],
+               "tracker": {"confirm_frames": 3}},
     "enpassant": {"moves": ["e2e4", "a7a6", "e4e5", "d7d5", "e5d6"]},
     "promotion": {"moves": ["e7e8q"], "start_fen": "6k1/4P3/8/8/8/8/8/6K1 w - - 0 1"},
     # Unusual clips ------------------------------------------------------------------
@@ -86,8 +90,9 @@ SCENARIOS: dict[str, dict] = {
     # Resting hand: a hand comes to rest over the board and leaves without moving anything ->
     # occlusion is detected (many squares vetoed) and no move is committed.
     "resting": {"actions": [{"rest": True}], "expect": {"expect_occlusion": True}},
-    # Nudge: a piece is bumped (sub-cell offset) — a one-square change fits no legal move.
-    "nudge": {"actions": [{"nudge": "e2"}],
+    # Noise: the (immobile) a1 rook is bumped (sub-cell offset) — a one-square change whose piece
+    # has no legal move fits nothing and must not be committed.
+    "nudge": {"actions": [{"nudge": "a1"}],
               "expect": {"expect_stuck": "no_legal_move"}},
     # Dedicated shadow: a soft shadow sweeps across the board (no visible hand) -> shadow veto.
     "shadowsweep": {"actions": [{"shadow": True}], "expect": {"expect_shadow": True}},
@@ -122,7 +127,11 @@ def _changed_squares(fen_a: str, fen_b: str) -> list[str]:
     return sorted(chess.square_name(sq) for sq in set(a) | set(b) if a.get(sq) != b.get(sq))
 
 
-NUDGE_OFFSET = [1.7, 1.7]   # sub-cell (cell=6) bump: a visible 1-square change, no legal move
+# Small sub-cell (cell=6) diagonal bump that stays inside the square. Applied to an IMMOBILE
+# piece (the a1 rook, blocked by a2/b1 in the start position): a lone changed square whose piece
+# has no legal move can't be salvaged into a move by either engine (a pawn bump can — the port
+# reads e2's change as the legal e2e3), so this is a robust cross-engine "not a move" test.
+NUDGE_OFFSET = [1.2, 1.2]
 
 
 def positions_and_steps(actions: list[dict], start_fen: str) -> tuple[list[str], list[str], list[dict]]:

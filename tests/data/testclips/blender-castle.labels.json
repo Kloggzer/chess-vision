@@ -58,6 +58,8 @@
       "index": 0,
       "phase": "clear",
       "occluded": false,
+      "shadow": false,
+      "nudged": false,
       "position_index": 0,
       "hold": 24,
       "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -66,6 +68,8 @@
       "index": 1,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 0,
       "hold": 2,
       "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -74,6 +78,8 @@
       "index": 2,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 0,
       "hold": 2,
       "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -82,6 +88,8 @@
       "index": 3,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 0,
       "hold": 2,
       "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -90,6 +98,8 @@
       "index": 4,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 1,
       "hold": 2,
       "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
@@ -98,6 +108,8 @@
       "index": 5,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 1,
       "hold": 2,
       "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
@@ -106,6 +118,8 @@
       "index": 6,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 1,
       "hold": 2,
       "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
@@ -114,6 +128,8 @@
       "index": 7,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 1,
       "hold": 2,
       "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
@@ -122,6 +138,8 @@
       "index": 8,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 1,
       "hold": 2,
       "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
@@ -130,6 +148,8 @@
       "index": 9,
       "phase": "clear",
       "occluded": false,
+      "shadow": false,
+      "nudged": false,
       "position_index": 1,
       "hold": 18,
       "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
@@ -138,6 +158,8 @@
       "index": 10,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 1,
       "hold": 2,
       "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
@@ -146,6 +168,8 @@
       "index": 11,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 1,
       "hold": 2,
       "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
@@ -154,6 +178,8 @@
       "index": 12,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 1,
       "hold": 2,
       "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
@@ -162,6 +188,8 @@
       "index": 13,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 2,
       "hold": 2,
       "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
@@ -170,6 +198,8 @@
       "index": 14,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 2,
       "hold": 2,
       "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
@@ -178,6 +208,8 @@
       "index": 15,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 2,
       "hold": 2,
       "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
@@ -186,6 +218,8 @@
       "index": 16,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 2,
       "hold": 2,
       "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
@@ -194,6 +228,8 @@
       "index": 17,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 2,
       "hold": 2,
       "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
@@ -202,6 +238,8 @@
       "index": 18,
       "phase": "clear",
       "occluded": false,
+      "shadow": false,
+      "nudged": false,
       "position_index": 2,
       "hold": 18,
       "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
@@ -210,6 +248,8 @@
       "index": 19,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 2,
       "hold": 2,
       "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
@@ -218,6 +258,8 @@
       "index": 20,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 2,
       "hold": 2,
       "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
@@ -226,6 +268,8 @@
       "index": 21,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 2,
       "hold": 2,
       "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
@@ -234,6 +278,8 @@
       "index": 22,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 3,
       "hold": 2,
       "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
@@ -242,6 +288,8 @@
       "index": 23,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 3,
       "hold": 2,
       "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
@@ -250,6 +298,8 @@
       "index": 24,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 3,
       "hold": 2,
       "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
@@ -258,6 +308,8 @@
       "index": 25,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 3,
       "hold": 2,
       "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
@@ -266,6 +318,8 @@
       "index": 26,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 3,
       "hold": 2,
       "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
@@ -274,6 +328,8 @@
       "index": 27,
       "phase": "clear",
       "occluded": false,
+      "shadow": false,
+      "nudged": false,
       "position_index": 3,
       "hold": 18,
       "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
@@ -282,6 +338,8 @@
       "index": 28,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 3,
       "hold": 2,
       "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
@@ -290,6 +348,8 @@
       "index": 29,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 3,
       "hold": 2,
       "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
@@ -298,6 +358,8 @@
       "index": 30,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 3,
       "hold": 2,
       "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
@@ -306,6 +368,8 @@
       "index": 31,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 4,
       "hold": 2,
       "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
@@ -314,6 +378,8 @@
       "index": 32,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 4,
       "hold": 2,
       "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
@@ -322,6 +388,8 @@
       "index": 33,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 4,
       "hold": 2,
       "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
@@ -330,6 +398,8 @@
       "index": 34,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 4,
       "hold": 2,
       "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
@@ -338,6 +408,8 @@
       "index": 35,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 4,
       "hold": 2,
       "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
@@ -346,6 +418,8 @@
       "index": 36,
       "phase": "clear",
       "occluded": false,
+      "shadow": false,
+      "nudged": false,
       "position_index": 4,
       "hold": 18,
       "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
@@ -354,6 +428,8 @@
       "index": 37,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 4,
       "hold": 2,
       "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
@@ -362,6 +438,8 @@
       "index": 38,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 4,
       "hold": 2,
       "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
@@ -370,6 +448,8 @@
       "index": 39,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 4,
       "hold": 2,
       "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
@@ -378,6 +458,8 @@
       "index": 40,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 5,
       "hold": 2,
       "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3"
@@ -386,6 +468,8 @@
       "index": 41,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 5,
       "hold": 2,
       "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3"
@@ -394,6 +478,8 @@
       "index": 42,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 5,
       "hold": 2,
       "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3"
@@ -402,6 +488,8 @@
       "index": 43,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 5,
       "hold": 2,
       "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3"
@@ -410,6 +498,8 @@
       "index": 44,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 5,
       "hold": 2,
       "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3"
@@ -418,6 +508,8 @@
       "index": 45,
       "phase": "clear",
       "occluded": false,
+      "shadow": false,
+      "nudged": false,
       "position_index": 5,
       "hold": 18,
       "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3"
@@ -426,6 +518,8 @@
       "index": 46,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 5,
       "hold": 2,
       "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3"
@@ -434,6 +528,8 @@
       "index": 47,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 5,
       "hold": 2,
       "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3"
@@ -442,6 +538,8 @@
       "index": 48,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 5,
       "hold": 2,
       "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3"
@@ -450,6 +548,8 @@
       "index": 49,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 6,
       "hold": 2,
       "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4"
@@ -458,6 +558,8 @@
       "index": 50,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 6,
       "hold": 2,
       "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4"
@@ -466,6 +568,8 @@
       "index": 51,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 6,
       "hold": 2,
       "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4"
@@ -474,6 +578,8 @@
       "index": 52,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 6,
       "hold": 2,
       "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4"
@@ -482,6 +588,8 @@
       "index": 53,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 6,
       "hold": 2,
       "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4"
@@ -490,6 +598,8 @@
       "index": 54,
       "phase": "clear",
       "occluded": false,
+      "shadow": false,
+      "nudged": false,
       "position_index": 6,
       "hold": 18,
       "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4"
@@ -498,6 +608,8 @@
       "index": 55,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 6,
       "hold": 2,
       "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4"
@@ -506,6 +618,8 @@
       "index": 56,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 6,
       "hold": 2,
       "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4"
@@ -514,6 +628,8 @@
       "index": 57,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 6,
       "hold": 2,
       "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4"
@@ -522,6 +638,8 @@
       "index": 58,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 7,
       "hold": 2,
       "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQ1RK1 b kq - 5 4"
@@ -530,6 +648,8 @@
       "index": 59,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 7,
       "hold": 2,
       "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQ1RK1 b kq - 5 4"
@@ -538,6 +658,8 @@
       "index": 60,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 7,
       "hold": 2,
       "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQ1RK1 b kq - 5 4"
@@ -546,6 +668,8 @@
       "index": 61,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 7,
       "hold": 2,
       "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQ1RK1 b kq - 5 4"
@@ -554,6 +678,8 @@
       "index": 62,
       "phase": "occluding",
       "occluded": true,
+      "shadow": false,
+      "nudged": false,
       "position_index": 7,
       "hold": 2,
       "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQ1RK1 b kq - 5 4"
@@ -562,6 +688,8 @@
       "index": 63,
       "phase": "clear",
       "occluded": false,
+      "shadow": false,
+      "nudged": false,
       "position_index": 7,
       "hold": 18,
       "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQ1RK1 b kq - 5 4"
