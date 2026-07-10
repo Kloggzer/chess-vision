@@ -18,15 +18,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,9 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -117,25 +112,6 @@ fun TrackingScreen(
         ) {
             TrackingAppBar(state.trackerState, state.lastMoveSan)
 
-            // Accessibility live region: announces each committed move once.
-            Text(
-                text = state.announcement?.text.orEmpty(),
-                style = MaterialTheme.typography.bodySmall,
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .semantics {
-                            liveRegion = LiveRegionMode.Assertive
-                            contentDescription = state.announcement?.text.orEmpty()
-                        },
-            )
-
-            if (!calibrated) CalibratePrompt(onCalibrate)
-
-            if (state.trackerState == TrackerState.STUCK || state.alarm != null) {
-                RecoveryCard(onTakeBack = onUndo, onRecalibrate = { confirmRecalibrate = true })
-            }
-
             BoardFrame(video = boardMode == BoardMode.VIDEO, modifier = Modifier.fillMaxWidth()) {
                 OverlayBoard(
                     view = render.view,
@@ -181,6 +157,38 @@ fun TrackingScreen(
                     onToggle = { debugExpanded = !debugExpanded },
                 )
             }
+        }
+
+        // Floating messaging layer — never reflows the board (see ui/Overlays.kt).
+        state.announcement?.let { OverlayToast(text = it.text) }
+
+        state.alarm?.let { alarm ->
+            OverlayBanner(text = stringResource(R.string.alarm_banner, alarm.detail))
+            LaunchedEffect(alarm) { playAlarmTone() }
+        }
+
+        if (!calibrated) {
+            OverlayCard(
+                title = stringResource(R.string.calib_prompt_title),
+                body = stringResource(R.string.calib_prompt),
+                actions = {
+                    GhostButton(onClick = onCalibrate) { Text(stringResource(R.string.calib_start)) }
+                },
+            )
+        }
+
+        if (state.trackerState == TrackerState.STUCK || state.alarm != null) {
+            OverlayCard(
+                title = stringResource(R.string.recovery_title),
+                body = stringResource(R.string.recovery_message),
+                attn = true,
+                actions = {
+                    PrimaryButton(onClick = onUndo) { Text(stringResource(R.string.alarm_take_back)) }
+                    GhostButton(onClick = { confirmRecalibrate = true }) {
+                        Text(stringResource(R.string.action_recalibrate))
+                    }
+                },
+            )
         }
     }
 
@@ -322,56 +330,6 @@ private fun ActionRows(
     }
 }
 
-@Suppress("ktlint:standard:function-naming", "FunctionNaming")
-@Composable
-private fun RecoveryCard(
-    onTakeBack: () -> Unit,
-    onRecalibrate: () -> Unit,
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-    ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                stringResource(R.string.recovery_title),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onErrorContainer,
-            )
-            Text(
-                stringResource(R.string.recovery_message),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onErrorContainer,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = onTakeBack, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text(stringResource(R.string.alarm_take_back))
-                }
-                OutlinedButton(onClick = onRecalibrate, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text(stringResource(R.string.action_recalibrate))
-                }
-            }
-        }
-    }
-}
-
-/**
- * Empty-state prompt shown before a board is calibrated: guides the user to aim
- * the camera and start calibration.
- */
-@Suppress("ktlint:standard:function-naming", "FunctionNaming")
-@Composable
-private fun CalibratePrompt(onCalibrate: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(stringResource(R.string.calib_prompt), style = MaterialTheme.typography.bodyMedium)
-            Button(onClick = onCalibrate, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text(stringResource(R.string.calib_start))
-            }
-        }
-    }
-}
-
 /** Generic confirm dialog for destructive session/geometry actions. */
 @Suppress("ktlint:standard:function-naming", "FunctionNaming")
 @Composable
@@ -388,54 +346,6 @@ private fun ConfirmDialog(
         confirmButton = { TextButton(onClick = onConfirm) { Text(stringResource(R.string.action_confirm)) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
     )
-}
-
-/**
- * Referee alarm banner (ports the Python alarm banner, 455d066/f6960f8): red, a TalkBack
- * live region, with a one-shot alert tone at most once per 30 s. Offers the user a
- * take-back (whole-board match auto-clears the alarm) or recalibrate (geometry drift).
- */
-@Suppress("ktlint:standard:function-naming", "FunctionNaming", "UnusedPrivateMember")
-@Composable
-private fun AlarmBanner(
-    alarm: AlarmUi,
-    note: String,
-    onTakeBack: () -> Unit,
-    onRecalibrate: () -> Unit,
-) {
-    val text = stringResource(R.string.alarm_banner, alarm.detail)
-    Card(
-        colors =
-            androidx.compose.material3.CardDefaults
-                .cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-    ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                text = text,
-                color = MaterialTheme.colorScheme.onErrorContainer,
-                style = MaterialTheme.typography.titleMedium,
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .semantics {
-                            liveRegion = LiveRegionMode.Assertive
-                            contentDescription = text
-                        },
-            )
-            if (note.isNotBlank()) {
-                Text(
-                    text = note,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TextButton(onClick = onTakeBack) { Text(stringResource(R.string.alarm_take_back)) }
-                TextButton(onClick = onRecalibrate) { Text(stringResource(R.string.action_recalibrate)) }
-            }
-        }
-    }
-    androidx.compose.runtime.LaunchedEffect(Unit) { playAlarmTone() }
 }
 
 private var lastAlarmToneMs = 0L
