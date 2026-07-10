@@ -50,6 +50,7 @@ class SettingsRepository(
         val AUTO_RECORD = booleanPreferencesKey("auto_record")
         val CNN_ENABLED = booleanPreferencesKey("cnn_enabled")
         val CNN_CONF_THR = doublePreferencesKey("cnn_conf_thr")
+        val ANALYSIS_DEPTH = intPreferencesKey("analysis_depth")
         val EXPERIMENTAL = booleanPreferencesKey("experimental_detection")
         val DEBUG_CARD = booleanPreferencesKey("debug_card")
         val OVERLAY_VIEW = stringPreferencesKey("overlay_view")
@@ -72,6 +73,7 @@ class SettingsRepository(
             autoRecord = prefs[AUTO_RECORD] ?: d.autoRecord,
             cnnEnabled = prefs[CNN_ENABLED] ?: d.cnnEnabled,
             cnnConfThr = prefs[CNN_CONF_THR] ?: d.cnnConfThr,
+            analysisDepth = prefs[ANALYSIS_DEPTH] ?: d.analysisDepth,
             experimentalDetection = prefs[EXPERIMENTAL] ?: d.experimentalDetection,
             debugCard = prefs[DEBUG_CARD] ?: d.debugCard,
             overlayView = prefs[OVERLAY_VIEW]?.let(::overlayOf) ?: d.overlayView,
@@ -108,6 +110,7 @@ class SettingsRepository(
         prefs[AUTO_RECORD] = s.autoRecord
         prefs[CNN_ENABLED] = s.cnnEnabled
         prefs[CNN_CONF_THR] = s.cnnConfThr
+        prefs[ANALYSIS_DEPTH] = s.analysisDepth
         prefs[MOTION_THR] = s.motionThr
         prefs[Z_THR] = s.zThr
         prefs[CENSUS_THR] = s.censusThr
