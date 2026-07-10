@@ -62,18 +62,24 @@ fun OverlayBoard(
     renderedMode: Boolean = false,
     showGrid: Boolean = false,
 ) {
-    if (renderedMode) {
-        ChessBoard(fen = fen, modifier = modifier)
-        return
+    when {
+        renderedMode -> ChessBoard(fen = fen, modifier = modifier)
+        view == OverlayView.CAMERA -> CameraPreview(rawPreview = rawPreview, modifier = modifier)
+        bitmap == null -> ChessBoard(fen = fen, modifier = modifier)
+        else -> WarpedBoard(view = view, bitmap = bitmap, debug = debug, showGrid = showGrid, modifier = modifier)
     }
-    if (view == OverlayView.CAMERA) {
-        CameraPreview(rawPreview = rawPreview, modifier = modifier)
-        return
-    }
-    if (bitmap == null) {
-        ChessBoard(fen = fen, modifier = modifier)
-        return
-    }
+}
+
+/** The warped camera board with the debug marks/grid for the Video sub-views. */
+@Suppress("ktlint:standard:function-naming", "FunctionNaming")
+@Composable
+private fun WarpedBoard(
+    view: OverlayView,
+    bitmap: Bitmap,
+    debug: DebugSnapshot,
+    showGrid: Boolean,
+    modifier: Modifier = Modifier,
+) {
     val label = stringResource(R.string.overlay_board_desc)
     Box(modifier = modifier.fillMaxWidth().aspectRatio(1f).semantics { contentDescription = label }) {
         Image(
@@ -87,7 +93,7 @@ fun OverlayBoard(
                 OverlayView.DIFF, OverlayView.MOTION -> markSquares(debug.changed, BoardPalette.MarkChanged)
                 OverlayView.SHADOW -> markSquares(debug.shadowVetoed, BoardPalette.MarkShadow)
                 OverlayView.OCCLUSION -> markSquares(debug.occludedVetoed, BoardPalette.MarkOcclusion)
-                OverlayView.CAMERA -> Unit // handled above
+                OverlayView.CAMERA -> Unit // handled by the caller
             }
             // Debug: 8x8 grid to verify the warp lines up with the physical squares.
             if (showGrid) drawBoardGrid()
