@@ -1,0 +1,118 @@
+package com.chesslab.tracker.geometry
+
+import org.opencv.core.Mat
+import org.opencv.imgproc.Imgproc
+import org.opencv.objdetect.ArucoDetector
+import org.opencv.objdetect.DetectorParameters
+import org.opencv.objdetect.Objdetect
+
+/**
+ * OpenCV wrapper for ArUco board-corner detection.
+ *
+ * Ports the Python `_aruco_dictionary` / `_detect_marker_quads` / `detect_board_markers`
+ * / `detect_board_corners_aruco` chain from `calibration.py:387-466` with
+ * `corner="center"` semantics (the centroid of each marker's four corner points).
+ *
+ * Marker dictionary: `DICT_4X4_50` (the project default, stored in
+ * `CalibrationProfile.marker_dict` on the Python side). Marker ids 0–3 map to
+ * (a8, h8, h1, a1) respectively — the project-invariant corner order.
+ *
+ * All OpenCV calls are in this class. The ordering/selection logic is in
+ * [ArucoCornerOrdering] and is unit-testable without OpenCV.
+ */
+class ArucoCornerDetector {
+    /** Each marker quad has exactly 4 corner points. */
+    private companion object {
+        private const val QUAD_CORNERS = 4
+        private const val COLUMN_INDEX = 0
+        private const val CHANNEL_BGR = 3
+    }
+
+    private val dictionary = Objdetect.getPredefinedDictionary(Objdetect.DICT_4X4_50)
+    private val parameters = DetectorParameters()
+    private val detector = ArucoDetector(dictionary, parameters)
+
+    /**
+     * Detect the four board corner markers in [frame] and return their centers
+     * as [BoardCorners], or `null` if fewer than 4 markers (ids 0–3) are found.
+     */
+    fun detect(frame: Mat): BoardCorners? {
+        val gray = toGray(frame)
+        try {
+            val markers = detectMarkersImpl(gray, filterExpected = true)
+            return ArucoCornerOrdering.orderCorners(markers)
+        } finally {
+            gray.release()
+        }
+    }
+
+    /**
+     * Lightweight detection returning raw marker centers without ordering.
+     *
+     * Intended for the live-assist overlay (show dots on preview). Returns ALL
+     * detected markers, or an empty map when nothing found.
+     */
+    fun detectRaw(frame: Mat): Map<Int, Point> {
+        val gray = toGray(frame)
+        try {
+            return detectMarkersImpl(gray, filterExpected = false)
+        } finally {
+            gray.release()
+        }
+    }
+
+    /**
+     * Shared detection implementation.
+     * @param filterExpected  when true, only return markers with ids in [ArucoCornerOrdering.EXPECTED_IDS].
+     */
+    private fun detectMarkersImpl(
+        gray: Mat,
+        filterExpected: Boolean,
+    ): Map<Int, Point> {
+        val corners = mutableListOf<Mat>()
+        val ids = Mat()
+        detector.detectMarkers(gray, corners, ids)
+        if (ids.empty() || corners.isEmpty()) return emptyMap()
+
+        val idsArray = IntArray(ids.total().toInt())
+        ids.get(0, 0, idsArray)
+
+        val result = mutableMapOf<Int, Point>()
+        // Zip ids with their corner mats so we never index out of bounds.
+        val validPairs =
+            idsArray.indices
+                .filter { i -> i < corners.size }
+                .map { i -> Pair(idsArray[i], corners[i]) }
+
+        for ((markerId, quad) in validPairs) {
+            if (filterExpected && markerId !in ArucoCornerOrdering.EXPECTED_IDS) continue
+            result[markerId] = computeCenter(quad)
+        }
+        return result
+    }
+
+    /** Compute the centroid of a 4×1 CV_32FC2 quad. */
+    private fun computeCenter(quad: Mat): Point {
+        var sumX = 0.0
+        var sumY = 0.0
+        val pointBuffer = DoubleArray(2)
+        for (j in 0 until QUAD_CORNERS) {
+            quad.get(j, COLUMN_INDEX, pointBuffer)
+            sumX += pointBuffer[0]
+            sumY += pointBuffer[1]
+        }
+        return Point(
+            x = (sumX / QUAD_CORNERS.toDouble()).toFloat(),
+            y = (sumY / QUAD_CORNERS.toDouble()).toFloat(),
+        )
+    }
+
+    private fun toGray(frame: Mat): Mat =
+        if (frame.channels() == CHANNEL_BGR) {
+            val gray = Mat()
+            Imgproc.cvtColor(frame, gray, Imgproc.COLOR_BGR2GRAY)
+            gray
+        } else {
+            frame.clone()
+        }
+}
