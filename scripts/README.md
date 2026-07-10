@@ -19,9 +19,17 @@ corners (no camera/calibration needed at replay), and a `<clip>.labels.json` sid
 the full ground truth (start FEN, UCI + SAN, per-position FEN, per-frame occlusion labels).
 
 ```text
-# named scenarios: opening, capture, castle, enpassant, promotion (special moves),
-#                  hover / phantom (hand moves nothing), jitter (trembling hand),
-#                  scholars / italian / opera (longer games, incl. checkmate)
+# named scenarios:
+#   moves      opening capture castle queenside enpassant promotion underpromo promocapture
+#   games      scholars italian opera            (longer games, incl. checkmate)
+#   end/state  stalemate                         (asserts game_over / draw result)
+#   occlusion  hover phantom resting             (hand present, moves nothing)
+#   shadow     shadowsweep                       (soft shadow sweep, no visible hand)
+#   noise      jitter nudge                      (trembling hand / bumped piece)
+#   failure    illegal takeback                  (should NOT commit an illegal transition)
+# Clips carry `erwartete_zugliste` (SAN) plus optional behaviour asserts in the manifest
+# (expect_occlusion / expect_shadow / expect_stuck / expect_note_contains / expect_game_over
+# / expect_result) — so occlusion, shadow and failure handling are tested, not just moves.
 uv run python scripts/generate_blender_testclips.py --scenario castle
 
 # arbitrary games / positions:

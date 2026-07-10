@@ -1,0 +1,140 @@
+{
+  "clip": "blender-promocapture.mp4",
+  "start_fen": "3r2k1/4P3/8/8/8/8/8/6K1 w - - 0 1",
+  "moves_uci": [
+    "e7d8q"
+  ],
+  "san": [
+    "exd8=Q+"
+  ],
+  "positions_fen": [
+    "3r2k1/4P3/8/8/8/8/8/6K1 w - - 0 1",
+    "3Q2k1/8/8/8/8/8/8/6K1 b - - 0 1"
+  ],
+  "corners": [
+    [
+      444.4978332519531,
+      444.4978332519531
+    ],
+    [
+      444.4978332519531,
+      195.50216674804688
+    ],
+    [
+      195.50216674804688,
+      195.50216674804688
+    ],
+    [
+      195.50216674804688,
+      444.4978332519531
+    ]
+  ],
+  "frame_size": [
+    640,
+    640
+  ],
+  "board_size": 640,
+  "fps": 12,
+  "frame_labels": [
+    {
+      "index": 0,
+      "phase": "clear",
+      "occluded": false,
+      "shadow": false,
+      "nudged": false,
+      "position_index": 0,
+      "hold": 24,
+      "fen": "3r2k1/4P3/8/8/8/8/8/6K1 w - - 0 1"
+    },
+    {
+      "index": 1,
+      "phase": "occluding",
+      "occluded": true,
+      "shadow": false,
+      "nudged": false,
+      "position_index": 0,
+      "hold": 2,
+      "fen": "3r2k1/4P3/8/8/8/8/8/6K1 w - - 0 1"
+    },
+    {
+      "index": 2,
+      "phase": "occluding",
+      "occluded": true,
+      "shadow": false,
+      "nudged": false,
+      "position_index": 0,
+      "hold": 2,
+      "fen": "3r2k1/4P3/8/8/8/8/8/6K1 w - - 0 1"
+    },
+    {
+      "index": 3,
+      "phase": "occluding",
+      "occluded": true,
+      "shadow": false,
+      "nudged": false,
+      "position_index": 0,
+      "hold": 2,
+      "fen": "3r2k1/4P3/8/8/8/8/8/6K1 w - - 0 1"
+    },
+    {
+      "index": 4,
+      "phase": "occluding",
+      "occluded": true,
+      "shadow": false,
+      "nudged": false,
+      "position_index": 1,
+      "hold": 2,
+      "fen": "3Q2k1/8/8/8/8/8/8/6K1 b - - 0 1"
+    },
+    {
+      "index": 5,
+      "phase": "occluding",
+      "occluded": true,
+      "shadow": false,
+      "nudged": false,
+      "position_index": 1,
+      "hold": 2,
+      "fen": "3Q2k1/8/8/8/8/8/8/6K1 b - - 0 1"
+    },
+    {
+      "index": 6,
+      "phase": "occluding",
+      "occluded": true,
+      "shadow": false,
+      "nudged": false,
+      "position_index": 1,
+      "hold": 2,
+      "fen": "3Q2k1/8/8/8/8/8/8/6K1 b - - 0 1"
+    },
+    {
+      "index": 7,
+      "phase": "occluding",
+      "occluded": true,
+      "shadow": false,
+      "nudged": false,
+      "position_index": 1,
+      "hold": 2,
+      "fen": "3Q2k1/8/8/8/8/8/8/6K1 b - - 0 1"
+    },
+    {
+      "index": 8,
+      "phase": "occluding",
+      "occluded": true,
+      "shadow": false,
+      "nudged": false,
+      "position_index": 1,
+      "hold": 2,
+      "fen": "3Q2k1/8/8/8/8/8/8/6K1 b - - 0 1"
+    },
+    {
+      "index": 9,
+      "phase": "clear",
+      "occluded": false,
+      "shadow": false,
+      "nudged": false,
+      "position_index": 1,
+      "hold": 18,
+      "fen": "3Q2k1/8/8/8/8/8/8/6K1 b - - 0 1"
+    }
+  ]
+}

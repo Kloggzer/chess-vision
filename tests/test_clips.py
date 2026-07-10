@@ -65,10 +65,41 @@ def test_clip_erwartete_zugliste(entry):
     res = _replay(entry)
     assert res["history"] == list(expected), \
         f"{entry['file']}: found {res['history']}, expected {expected}\nlast note: {res['note']}"
-    # If the manifest carries the full position list, the recovered end position must match
-    # the known final FEN (piece placement + side/castling/en-passant; clocks may differ).
+    # The recovered end position must match the board after the COMMITTED legal moves (for
+    # failure clips that is not the last rendered position — the tracker correctly withholds
+    # the illegal transition). `expect_fen` carries it explicitly; older move-only clips fall
+    # back to the last rendered position (identical there). Piece placement + side/castling/ep.
     positions = entry.get("positions")
-    if positions:
+    want_fen = entry.get("expect_fen") or (positions[-1] if positions else None)
+    if want_fen:
         got = " ".join(res["fen"].split()[:4])
-        want = " ".join(str(positions[-1]).split()[:4])
+        want = " ".join(str(want_fen).split()[:4])
         assert got == want, f"{entry['file']}: end FEN {got}, expected {want}"
+    _assert_behaviour(entry, res)
+
+
+def _assert_behaviour(entry: dict, res: dict) -> None:
+    """Optional per-clip assertions on occlusion / shadow / failure behaviour — not just the
+    move list. Each `expect_*` field runs only when present in the manifest, so move-only
+    clips are unaffected. The tracker exposes all of this via `status()` (aggregated by the
+    replay harness into the trace fields used here)."""
+    tag = entry["file"]
+    for state in entry.get("expect_states") or []:
+        assert state in res["states"], \
+            f"{tag}: state {state!r} never reached (states seen: {res['states']})"
+    if entry.get("expect_occlusion"):
+        assert res["occluded_vetoed"] or "occluded" in res["states"], \
+            f"{tag}: no occlusion detected (states {res['states']}, occluded_vetoed empty)"
+    if entry.get("expect_shadow"):
+        assert res["shadow_vetoed"], f"{tag}: no square was shadow-vetoed"
+    if entry.get("expect_stuck"):
+        assert any(entry["expect_stuck"] in r for r in res["stuck_reasons"]), \
+            f"{tag}: stuck reason {entry['expect_stuck']!r} not seen (got {res['stuck_reasons']})"
+    if entry.get("expect_note_contains"):
+        assert any(entry["expect_note_contains"] in n for n in res["notes"]), \
+            f"{tag}: no note contained {entry['expect_note_contains']!r}\nnotes: {res['notes']}"
+    if entry.get("expect_game_over"):
+        assert res["game_over"], f"{tag}: game not over (expected end of game)"
+    if entry.get("expect_result") is not None:
+        assert res["result"] == entry["expect_result"], \
+            f"{tag}: result {res['result']!r}, expected {entry['expect_result']!r}"

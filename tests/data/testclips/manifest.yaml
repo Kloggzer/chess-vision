@@ -522,3 +522,293 @@ clips:
     min_grid_line_coverage: 0.0
     overhang: 0.0
     census_thr: 40.0
+- file: blender-nudge.mp4
+  source: blender
+  occlusion: true
+  start_fen: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  erwartete_zugliste: []
+  expect_stuck: no_legal_move
+  positions:
+  - rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  moves_uci: []
+  corners:
+  - - 444.4978332519531
+    - 444.4978332519531
+  - - 444.4978332519531
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 444.4978332519531
+  frame_size:
+  - 640
+  - 640
+  board_size: 640
+  tracker:
+    confirm_frames: 2
+    min_grid_line_coverage: 0.0
+    overhang: 0.0
+    census_thr: 40.0
+- file: blender-shadowsweep.mp4
+  source: blender
+  occlusion: true
+  start_fen: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  erwartete_zugliste: []
+  expect_shadow: true
+  positions:
+  - rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  moves_uci: []
+  corners:
+  - - 444.4978332519531
+    - 444.4978332519531
+  - - 444.4978332519531
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 444.4978332519531
+  frame_size:
+  - 640
+  - 640
+  board_size: 640
+  tracker:
+    confirm_frames: 2
+    min_grid_line_coverage: 0.0
+    overhang: 0.0
+    census_thr: 40.0
+- file: blender-resting.mp4
+  source: blender
+  occlusion: true
+  start_fen: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  erwartete_zugliste: []
+  expect_occlusion: true
+  positions:
+  - rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  moves_uci: []
+  corners:
+  - - 444.4978332519531
+    - 444.4978332519531
+  - - 444.4978332519531
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 444.4978332519531
+  frame_size:
+  - 640
+  - 640
+  board_size: 640
+  tracker:
+    confirm_frames: 2
+    min_grid_line_coverage: 0.0
+    overhang: 0.0
+    census_thr: 40.0
+- file: blender-illegal.mp4
+  source: blender
+  occlusion: true
+  start_fen: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  erwartete_zugliste: []
+  expect_fen: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  expect_stuck: no_legal_move
+  expect_note_contains: no legal move
+  positions:
+  - rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  - rnbqkbnr/pppppppp/8/8/2B5/8/PPPPPPPP/RN1QKBNR b KQkq - 1 1
+  moves_uci: []
+  corners:
+  - - 444.4978332519531
+    - 444.4978332519531
+  - - 444.4978332519531
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 444.4978332519531
+  frame_size:
+  - 640
+  - 640
+  board_size: 640
+  tracker:
+    confirm_frames: 2
+    min_grid_line_coverage: 0.0
+    overhang: 0.0
+    census_thr: 40.0
+- file: blender-takeback.mp4
+  source: blender
+  occlusion: true
+  start_fen: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  erwartete_zugliste:
+  - e4
+  expect_fen: rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1
+  expect_stuck: no_legal_move
+  positions:
+  - rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  - rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1
+  - rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  moves_uci:
+  - e2e4
+  corners:
+  - - 444.4978332519531
+    - 444.4978332519531
+  - - 444.4978332519531
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 444.4978332519531
+  frame_size:
+  - 640
+  - 640
+  board_size: 640
+  tracker:
+    confirm_frames: 2
+    min_grid_line_coverage: 0.0
+    overhang: 0.0
+    census_thr: 40.0
+- file: blender-underpromo.mp4
+  source: blender
+  occlusion: true
+  start_fen: 6k1/4P3/8/8/8/8/8/6K1 w - - 0 1
+  erwartete_zugliste:
+  - e8=N
+  expect_fen: 4N1k1/8/8/8/8/8/8/6K1 b - - 0 1
+  positions:
+  - 6k1/4P3/8/8/8/8/8/6K1 w - - 0 1
+  - 4N1k1/8/8/8/8/8/8/6K1 b - - 0 1
+  moves_uci:
+  - e7e8n
+  corners:
+  - - 444.4978332519531
+    - 444.4978332519531
+  - - 444.4978332519531
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 444.4978332519531
+  frame_size:
+  - 640
+  - 640
+  board_size: 640
+  tracker:
+    confirm_frames: 2
+    min_grid_line_coverage: 0.0
+    overhang: 0.0
+    census_thr: 40.0
+- file: blender-promocapture.mp4
+  source: blender
+  occlusion: true
+  start_fen: 3r2k1/4P3/8/8/8/8/8/6K1 w - - 0 1
+  erwartete_zugliste:
+  - exd8=Q+
+  expect_fen: 3Q2k1/8/8/8/8/8/8/6K1 b - - 0 1
+  positions:
+  - 3r2k1/4P3/8/8/8/8/8/6K1 w - - 0 1
+  - 3Q2k1/8/8/8/8/8/8/6K1 b - - 0 1
+  moves_uci:
+  - e7d8q
+  corners:
+  - - 444.4978332519531
+    - 444.4978332519531
+  - - 444.4978332519531
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 444.4978332519531
+  frame_size:
+  - 640
+  - 640
+  board_size: 640
+  tracker:
+    confirm_frames: 2
+    min_grid_line_coverage: 0.0
+    overhang: 0.0
+    census_thr: 40.0
+- file: blender-stalemate.mp4
+  source: blender
+  occlusion: true
+  start_fen: k7/8/8/8/8/8/2Q5/7K w - - 0 1
+  erwartete_zugliste:
+  - Qc7
+  expect_fen: k7/2Q5/8/8/8/8/8/7K b - - 1 1
+  expect_game_over: true
+  expect_result: 1/2-1/2
+  positions:
+  - k7/8/8/8/8/8/2Q5/7K w - - 0 1
+  - k7/2Q5/8/8/8/8/8/7K b - - 1 1
+  moves_uci:
+  - c2c7
+  corners:
+  - - 444.4978332519531
+    - 444.4978332519531
+  - - 444.4978332519531
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 444.4978332519531
+  frame_size:
+  - 640
+  - 640
+  board_size: 640
+  tracker:
+    confirm_frames: 2
+    min_grid_line_coverage: 0.0
+    overhang: 0.0
+    census_thr: 40.0
+- file: blender-queenside.mp4
+  source: blender
+  occlusion: true
+  start_fen: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  erwartete_zugliste:
+  - d4
+  - d5
+  - Nc3
+  - Nc6
+  - Bf4
+  - Bf5
+  - Qd2
+  - Qd7
+  - O-O-O
+  expect_fen: r3kbnr/pppqpppp/2n5/3p1b2/3P1B2/2N5/PPPQPPPP/2KR1BNR b kq - 7 5
+  positions:
+  - rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  - rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq - 0 1
+  - rnbqkbnr/ppp1pppp/8/3p4/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 0 2
+  - rnbqkbnr/ppp1pppp/8/3p4/3P4/2N5/PPP1PPPP/R1BQKBNR b KQkq - 1 2
+  - r1bqkbnr/ppp1pppp/2n5/3p4/3P4/2N5/PPP1PPPP/R1BQKBNR w KQkq - 2 3
+  - r1bqkbnr/ppp1pppp/2n5/3p4/3P1B2/2N5/PPP1PPPP/R2QKBNR b KQkq - 3 3
+  - r2qkbnr/ppp1pppp/2n5/3p1b2/3P1B2/2N5/PPP1PPPP/R2QKBNR w KQkq - 4 4
+  - r2qkbnr/ppp1pppp/2n5/3p1b2/3P1B2/2N5/PPPQPPPP/R3KBNR b KQkq - 5 4
+  - r3kbnr/pppqpppp/2n5/3p1b2/3P1B2/2N5/PPPQPPPP/R3KBNR w KQkq - 6 5
+  - r3kbnr/pppqpppp/2n5/3p1b2/3P1B2/2N5/PPPQPPPP/2KR1BNR b kq - 7 5
+  moves_uci:
+  - d2d4
+  - d7d5
+  - b1c3
+  - b8c6
+  - c1f4
+  - c8f5
+  - d1d2
+  - d8d7
+  - e1c1
+  corners:
+  - - 444.4978332519531
+    - 444.4978332519531
+  - - 444.4978332519531
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 444.4978332519531
+  frame_size:
+  - 640
+  - 640
+  board_size: 640
+  tracker:
+    confirm_frames: 2
+    min_grid_line_coverage: 0.0
+    overhang: 0.0
+    census_thr: 40.0
+    max_changed: 10
