@@ -20,7 +20,8 @@ the full ground truth (start FEN, UCI + SAN, per-position FEN, per-frame occlusi
 
 ```text
 # named scenarios: opening, capture, castle, enpassant, promotion (special moves),
-#                  hover / phantom (hand moves nothing), jitter (trembling hand)
+#                  hover / phantom (hand moves nothing), jitter (trembling hand),
+#                  scholars / italian / opera (longer games, incl. checkmate)
 uv run python scripts/generate_blender_testclips.py --scenario castle
 
 # arbitrary games / positions:
