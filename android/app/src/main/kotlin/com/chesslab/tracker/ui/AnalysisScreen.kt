@@ -47,6 +47,7 @@ import com.chesslab.tracker.R
 import com.chesslab.tracker.analysis.AnalysisEngine
 import com.chesslab.tracker.analysis.MoveQuality
 import com.chesslab.tracker.analysis.PositionAnalysis
+import com.chesslab.tracker.games.MoveProvenance
 import kotlinx.coroutines.delay
 import java.util.Locale
 
@@ -66,6 +67,7 @@ fun AnalysisScreen(
     pgn: String,
     engine: AnalysisEngine,
     modifier: Modifier = Modifier,
+    provenance: List<MoveProvenance> = emptyList(),
     depth: Int = AnalysisEngine.DEFAULT_DEPTH,
 ) {
     val line = remember(pgn) { parseGameLine(pgn) }
@@ -114,6 +116,17 @@ fun AnalysisScreen(
             selectedPly = selectedPly,
             onSelect = { playing = false; selectedPly = it },
         )
+        if (selectedPly >= 1) {
+            val scored = analyses?.takeIf { selectedPly < it.size }
+            MoveDetailCard(
+                san = line.sans[selectedPly - 1],
+                quality = scored?.let { moveQualityAt(it, selectedPly - 1) },
+                verdict = analyses?.getOrNull(selectedPly),
+                cpLoss = scored?.let { cpLoss(it[selectedPly - 1], it[selectedPly]) },
+                bestUci = analyses?.getOrNull(selectedPly - 1)?.bestUci,
+                provenance = provenance.find { it.ply == selectedPly },
+            )
+        }
     }
 }
 
@@ -303,6 +316,65 @@ private fun MoveQualityChip(quality: MoveQuality) {
 }
 
 private const val QUALITY_CHIP_ALPHA = 0.18f
+
+/**
+ * Merged move detail: the engine verdict (eval, cp-loss, best move) AND the tracker's own
+ * decision provenance (`decider`, `reason`, `margin`, `changed`, `shadowVeto`, `priorUsed`)
+ * for the selected ply — the integration point of phases 04 (provenance) and 05 (engine).
+ */
+@Suppress("ktlint:standard:function-naming", "FunctionNaming", "LongParameterList")
+@Composable
+private fun MoveDetailCard(
+    san: String,
+    quality: MoveQuality?,
+    verdict: PositionAnalysis?,
+    cpLoss: Int?,
+    bestUci: String?,
+    provenance: MoveProvenance?,
+) {
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clip(MaterialTheme.shapes.medium)
+                .background(MaterialTheme.colorScheme.surface)
+                .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(san, style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Monospace)
+            if (quality != null) MoveQualityChip(quality)
+        }
+
+        SectionHeader(stringResource(R.string.analysis_verdict))
+        if (verdict == null) {
+            Text(stringResource(R.string.analysis_analyzing), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            KeyValueRow(label = stringResource(R.string.analysis_eval), value = formatEvalWhite(verdict), highlight = true)
+            KeyValueRow(label = stringResource(R.string.analysis_cp_loss), value = cpLoss?.toString() ?: "—")
+            KeyValueRow(label = stringResource(R.string.analysis_best), value = bestUci ?: "—")
+        }
+
+        SectionHeader(stringResource(R.string.analysis_provenance))
+        if (provenance == null) {
+            Text(stringResource(R.string.analysis_no_provenance), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            ProvenanceRows(provenance)
+        }
+    }
+}
+
+@Suppress("ktlint:standard:function-naming", "FunctionNaming")
+@Composable
+private fun ProvenanceRows(provenance: MoveProvenance) {
+    val style = MaterialTheme.typography.bodySmall
+    Text(stringResource(R.string.history_decider, provenance.decider ?: "—"), style = style)
+    Text(stringResource(R.string.history_reason, provenance.reason ?: "—"), style = style)
+    Text(stringResource(R.string.history_margin, provenance.margin, provenance.best, provenance.second), style = style)
+    Text(stringResource(R.string.history_changed, provenance.changed.joinToString(" ").ifEmpty { "-" }), style = style)
+    Text(stringResource(R.string.history_vetoed, provenance.shadowVeto.joinToString(" ").ifEmpty { "-" }), style = style)
+    Text(stringResource(R.string.history_prior, provenance.priorUsed.toString()), style = style)
+}
 
 @Composable
 private fun qualityColor(quality: MoveQuality): Color =
