@@ -38,13 +38,23 @@ fun HistoryScreen(
     var selected by remember { mutableStateOf<MoveEntry?>(null) }
 
     Column(modifier = modifier.fillMaxWidth().padding(16.dp)) {
+        Text(stringResource(R.string.history_title), style = MaterialTheme.typography.headlineSmall)
+        Text(
+            stringResource(R.string.history_subtitle, moves.size),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
+        )
         OutlinedButton(
             onClick = onExport,
             modifier = Modifier.heightIn(min = 48.dp),
         ) { Text(stringResource(R.string.history_export)) }
 
         if (moves.isEmpty()) {
-            Text(stringResource(R.string.moves_empty), style = MaterialTheme.typography.bodyLarge)
+            Text(
+                stringResource(R.string.history_empty),
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.padding(top = 24.dp),
+            )
         }
 
         LazyColumn(modifier = Modifier.fillMaxWidth()) {

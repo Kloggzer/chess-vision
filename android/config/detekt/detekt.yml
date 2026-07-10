@@ -26,7 +26,8 @@ complexity:
   # TrackerService is the integration hub wiring engine + camera + geometry + settings.
   TooManyFunctions:
     # Bumped 17â†’18 for publishRawPreview (raw camera preview feature).
-    thresholdInClasses: 19
+    # Bumped 19â†’22 for calibration-frame retention + stopTrackingToPreview (recalibrate flow).
+    thresholdInClasses: 22
 
 style:
   UnusedPrivateMember:

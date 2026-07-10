@@ -22,6 +22,11 @@ data class CalibrationProfile(
     // Resolution (in pixels) at which `corners` were tapped.
     val sourceWidth: Int,
     val sourceHeight: Int,
+    // Fraction the `corners` lie OUTSIDE the playing field. 0 for manually-tapped
+    // field corners; ~0.06 for ArUco markers, which sit just outside the board
+    // (ports the Python `margin`, calibration.py:289). The warp indents the field
+    // accordingly so the cropped board excludes the marker border.
+    val margin: Float = 0f,
 ) {
     /**
      * Return a copy with the corners rescaled to a new capture resolution.

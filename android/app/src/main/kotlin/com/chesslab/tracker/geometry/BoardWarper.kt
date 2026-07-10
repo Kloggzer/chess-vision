@@ -32,10 +32,30 @@ class WarpedBoard(
 class BoardWarper(
     val profile: CalibrationProfile,
 ) {
-    private val srcPoints: MatOfPoint2f =
-        MatOfPoint2f().apply {
-            fromList(profile.corners.toList().map { CvPoint(it.x.toDouble(), it.y.toDouble()) })
-        }
+    // Source corners are stored at profile.sourceWidth/Height. The incoming analysis
+    // frame may be a different resolution (rawPreview-space calibration, a camera that
+    // delivers a size other than the requested enum, etc.), so scale the corners to the
+    // frame's actual dimensions on every warp — otherwise the homography maps only a
+    // sub-region of the frame and the board cutout is wrong. Cached per frame size.
+    private var cachedSize: Pair<Int, Int>? = null
+    private var cachedSrc: MatOfPoint2f? = null
+
+    private fun srcPointsFor(
+        frameWidth: Int,
+        frameHeight: Int,
+    ): MatOfPoint2f {
+        val key = frameWidth to frameHeight
+        cachedSrc?.let { if (cachedSize == key) return it }
+        val sx = frameWidth.toDouble() / profile.sourceWidth.toDouble()
+        val sy = frameHeight.toDouble() / profile.sourceHeight.toDouble()
+        val src =
+            MatOfPoint2f().apply {
+                fromList(profile.corners.toList().map { CvPoint(it.x * sx, it.y * sy) })
+            }
+        cachedSrc = src
+        cachedSize = key
+        return src
+    }
 
     /**
      * Warp [frame] to the full-res BGR board plus the half-res detection gray.
@@ -43,13 +63,14 @@ class BoardWarper(
      * straight to the small size — no full-res intermediate — as the desktop does).
      */
     fun warp(frame: Mat): WarpedBoard {
+        val src = srcPointsFor(frame.cols(), frame.rows())
         val bs = profile.boardSize.toDouble()
         val boardBgr = Mat()
-        Imgproc.warpPerspective(frame, boardBgr, homographyTo(bs), Size(bs, bs))
+        Imgproc.warpPerspective(frame, boardBgr, homographyTo(src, bs), Size(bs, bs))
 
         val target = (profile.boardSize * DETECT_SCALE).toInt().toDouble()
         val small = Mat()
-        Imgproc.warpPerspective(frame, small, homographyTo(target), Size(target, target))
+        Imgproc.warpPerspective(frame, small, homographyTo(src, target), Size(target, target))
         val gray = Mat()
         Imgproc.cvtColor(small, gray, Imgproc.COLOR_BGR2GRAY)
         return WarpedBoard(boardBgr, gray)
@@ -69,15 +90,21 @@ class BoardWarper(
      * onto a [size]-square destination [(0,0), (size,0), (size,size), (0,size)].
      * Mirrors `compute_homography` with margin = 0.
      */
-    private fun homographyTo(size: Double): Mat {
+    private fun homographyTo(
+        src: MatOfPoint2f,
+        size: Double,
+    ): Mat {
+        // margin > 0: corners lie this fraction outside the field, so extend the
+        // destination outward by m and the output [0,size] shows only the field.
+        val m = profile.margin * size
         val dst =
             MatOfPoint2f(
-                CvPoint(0.0, 0.0),
-                CvPoint(size, 0.0),
-                CvPoint(size, size),
-                CvPoint(0.0, size),
+                CvPoint(-m, -m),
+                CvPoint(size + m, -m),
+                CvPoint(size + m, size + m),
+                CvPoint(-m, size + m),
             )
-        return Imgproc.getPerspectiveTransform(srcPoints, dst)
+        return Imgproc.getPerspectiveTransform(src, dst)
     }
 
     companion object {

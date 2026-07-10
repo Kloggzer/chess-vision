@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.chesslab.tracker.camera.Resolution
 import kotlinx.coroutines.flow.Flow
@@ -38,6 +39,9 @@ class SettingsRepository(
         val MOTION_THR = doublePreferencesKey("motion_thr")
         val Z_THR = doublePreferencesKey("z_thr")
         val CENSUS_THR = doublePreferencesKey("census_thr")
+        val CENSUS_Z_WEIGHT = doublePreferencesKey("census_z_weight")
+        val MAX_CHANGED = intPreferencesKey("max_changed")
+        val ARUCO_MARGIN = doublePreferencesKey("aruco_margin")
         val OCCLUSION_COLOR_THR = doublePreferencesKey("occlusion_color_thr")
         val MOTION_MARGIN = doublePreferencesKey("motion_margin")
         val OVERHANG = doublePreferencesKey("overhang")
@@ -82,6 +86,9 @@ class SettingsRepository(
             motionThr = prefs[MOTION_THR] ?: d.motionThr,
             zThr = prefs[Z_THR] ?: d.zThr,
             censusThr = prefs[CENSUS_THR] ?: d.censusThr,
+            censusZWeight = prefs[CENSUS_Z_WEIGHT] ?: d.censusZWeight,
+            maxChanged = prefs[MAX_CHANGED] ?: d.maxChanged,
+            arucoMargin = prefs[ARUCO_MARGIN] ?: d.arucoMargin,
             occlusionColorThr = prefs[OCCLUSION_COLOR_THR] ?: d.occlusionColorThr,
             motionMargin = prefs[MOTION_MARGIN] ?: d.motionMargin,
             overhang = prefs[OVERHANG] ?: d.overhang,
@@ -104,6 +111,9 @@ class SettingsRepository(
         prefs[MOTION_THR] = s.motionThr
         prefs[Z_THR] = s.zThr
         prefs[CENSUS_THR] = s.censusThr
+        prefs[CENSUS_Z_WEIGHT] = s.censusZWeight
+        prefs[MAX_CHANGED] = s.maxChanged
+        prefs[ARUCO_MARGIN] = s.arucoMargin
         prefs[OCCLUSION_COLOR_THR] = s.occlusionColorThr
         prefs[MOTION_MARGIN] = s.motionMargin
         prefs[OVERHANG] = s.overhang

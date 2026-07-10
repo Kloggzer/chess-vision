@@ -20,6 +20,7 @@ import com.chesslab.tracker.camera.DynamicResolutionController
 import com.chesslab.tracker.camera.Resolution
 import com.chesslab.tracker.camera.TrackerCamera
 import com.chesslab.tracker.cnn.CnnModelStore
+import com.chesslab.tracker.geometry.ArucoAutoCalibrator
 import com.chesslab.tracker.geometry.BoardWarper
 import com.chesslab.tracker.geometry.CalibrationProfile
 import com.chesslab.tracker.geometry.CornerDriftMonitor
@@ -56,6 +57,15 @@ class TrackerService : LifecycleService() {
     private var driftMonitor: CornerDriftMonitor? = null
     private var settings: TrackerSettings = TrackerSettings()
     private var cnn: CnnIntegration? = null
+
+    // ArUco self-calibration: while not yet tracking, detect the four board markers
+    // per-frame (throttled) and start tracking automatically — no manual step needed.
+    private val autoCalibrator = ArucoAutoCalibrator()
+
+    private val _activeProfile = MutableStateFlow<CalibrationProfile?>(null)
+
+    /** The profile currently driving the warp (manual or ArUco auto), or null in preview. */
+    val activeProfile: StateFlow<CalibrationProfile?> = _activeProfile.asStateFlow()
 
     private val _boardBitmap = MutableStateFlow<Bitmap?>(null)
 
@@ -134,12 +144,51 @@ class TrackerService : LifecycleService() {
         val pipe = BoardFramePipeline(warper, settings.claheClip)
         pipeline = pipe
         driftMonitor = CornerDriftMonitor(profile.corners, cornerJumpPx = 6.0)
+        _activeProfile.value = profile
 
         startPreviewOnly() // idempotent camera + frame-loop start
         startResolutionController(settings.toCameraConfig())
     }
 
+    /**
+     * Drop the warp/tracking pipeline but keep the camera + [rawPreview] running.
+     * Used by the "Recalibrate / New board" flow: the frame loop guards on a null
+     * [pipeline] and reverts to preview-only without touching the camera binding.
+     */
+    fun stopTrackingToPreview() {
+        resolutionController?.stop()
+        resolutionController = null
+        pipeline = null
+        baseWarper = null
+        driftMonitor = null
+        _activeProfile.value = null
+        coordinator.reset()
+    }
+
     private var cameraRunning = false
+
+    // Latest full-res BGR analysis frame retained for ArUco calibration. Only
+    // populated while the calibration screen is on-screen (calibrationActive), so
+    // tracking pays no clone cost otherwise. Guarded by calibFrameLock.
+    private val calibFrameLock = Any()
+    private var calibFrame: Mat? = null
+
+    @Volatile
+    private var calibrationActive = false
+
+    /** Toggle retention of the latest frame for ArUco (calibration screen on/off). */
+    fun setCalibrationActive(active: Boolean) {
+        synchronized(calibFrameLock) {
+            calibrationActive = active
+            if (!active) {
+                calibFrame?.release()
+                calibFrame = null
+            }
+        }
+    }
+
+    /** Clone of the latest full-res BGR frame for ArUco; caller MUST release. Null if none. */
+    fun latestCalibrationFrame(): Mat? = synchronized(calibFrameLock) { calibFrame?.clone() }
 
     fun undo(): Boolean = coordinator.undo()
 
@@ -153,8 +202,20 @@ class TrackerService : LifecycleService() {
                 // Publish raw camera preview (independent of warp/tracking success —
                 // also the ONLY consumer in preview-only mode before calibration).
                 publishRawPreview(frame.mat, frame.width, frame.height)
+
+                // Retain the latest full-res frame for ArUco while calibrating.
+                if (calibrationActive) {
+                    synchronized(calibFrameLock) {
+                        calibFrame?.release()
+                        calibFrame = frame.mat.clone()
+                    }
+                }
                 val pipe = pipeline
                 if (pipe == null) {
+                    // Preview-only: try to self-calibrate from ArUco markers (throttled).
+                    val auto =
+                        autoCalibrator.tryDetect(frame.mat, frame.width, frame.height, System.nanoTime(), settings.arucoMargin)
+                    if (auto != null) start(auto)
                     frame.mat.release()
                     return@collect
                 }
@@ -166,6 +227,16 @@ class TrackerService : LifecycleService() {
                 recorder?.onFrame(coordinator.uiState.value.fen, frame.timestampNs)
                 val processed = pipe.process(frame.mat, frame.timestampNs)
                 coordinator.onFrame(processed.gray, processed.bgr, processed.timestampNs)
+
+                val ui = coordinator.uiState.value
+                val d = ui.debug
+                diag(
+                    "state=${ui.trackerState} stuck=${d.stuckReason} " +
+                        "motion=${"%.4f".format(d.motion)}/${"%.4f".format(d.motionThr)} " +
+                        "changed=${d.changed} cand=${d.candidate} " +
+                        "best=${"%.2f".format(d.bestScore)} 2nd=${"%.2f".format(d.secondScore)} " +
+                        "shadowVeto=${d.shadowVetoed} occlVeto=${d.occludedVetoed}",
+                )
 
                 // Phase 07: flush pending capture when board is clean.
                 val state = coordinator.uiState.value.trackerState
@@ -179,6 +250,16 @@ class TrackerService : LifecycleService() {
                 frame.mat.release()
             }
         }
+    }
+
+    private var lastDiagNs = 0L
+
+    /** Throttled diagnostic log (~1/sec) for tracker bring-up debugging. */
+    private fun diag(msg: String) {
+        val now = System.nanoTime()
+        if (now - lastDiagNs < DIAG_INTERVAL_NS) return
+        lastDiagNs = now
+        android.util.Log.i("chesslabDiag", msg)
     }
 
     private fun startResolutionController(cameraConfig: CameraConfig) {
@@ -203,6 +284,16 @@ class TrackerService : LifecycleService() {
         pipeline?.warper = base.forResolution(res.width, res.height)
     }
 
+    /** Live-apply a new ArUco warp margin to the active profile (grid-fit tuning). */
+    private fun rewarpForMargin(margin: Double) {
+        val base = baseWarper ?: return
+        val profile = base.profile.copy(margin = margin.toFloat())
+        val warper = BoardWarper(profile)
+        baseWarper = warper
+        pipeline?.warper = warper
+        _activeProfile.value = profile
+    }
+
     private var driftTickNs = 0L
 
     private fun maybeCheckDrift(frame: Mat) {
@@ -222,6 +313,7 @@ class TrackerService : LifecycleService() {
                 val prev = settings
                 settings = next
                 pipeline?.claheClip = next.claheClip
+                if (next.arucoMargin != prev.arucoMargin) rewarpForMargin(next.arucoMargin)
                 if (next.requiresEngineRestart(prev)) {
                     coordinator.reconfigure(next.toTrackerConfig())
                 } else {
@@ -308,6 +400,7 @@ class TrackerService : LifecycleService() {
     companion object {
         private const val NOTIF_ID = 1
         private const val DRIFT_INTERVAL_NS = 5_000_000_000L
+        private const val DIAG_INTERVAL_NS = 700_000_000L
         private const val RAW_PREVIEW_INTERVAL_NS = 200_000_000L // ~5 fps throttle
         private const val RAW_PREVIEW_MAX_DIM = 640
 

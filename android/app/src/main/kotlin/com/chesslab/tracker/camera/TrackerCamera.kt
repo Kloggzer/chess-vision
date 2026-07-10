@@ -16,7 +16,9 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.suspendCancellableCoroutine
+import org.opencv.core.CvType
 import org.opencv.core.Mat
+import org.opencv.imgcodecs.Imgcodecs
 import java.util.concurrent.Executors
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -85,7 +87,7 @@ class TrackerCamera(
                 object : ImageCapture.OnImageCapturedCallback() {
                     override fun onCaptureSuccess(image: ImageProxy) {
                         try {
-                            cont.resume(converter.convert(image))
+                            cont.resume(decodeJpeg(image))
                         } catch (e: IllegalStateException) {
                             cont.resumeWithException(e)
                         } finally {
@@ -99,6 +101,25 @@ class TrackerCamera(
                 },
             )
         }
+    }
+
+    /**
+     * Decode an [ImageCapture] still into a BGR [Mat]. ImageCapture delivers JPEG
+     * (a single plane of compressed bytes) — not the YUV planes the analysis path
+     * uses — so it must be decoded, not run through [YuvToBgrConverter].
+     */
+    private fun decodeJpeg(image: ImageProxy): Mat {
+        val buffer = image.planes[0].buffer
+        val n = buffer.remaining()
+        val bytes = ByteArray(n)
+        buffer.get(bytes)
+        // Wrap the JPEG bytes in a 1×N CV_8U Mat (avoids MatOfByte's spread-operator copy).
+        val encoded = Mat(1, n, CvType.CV_8UC1)
+        encoded.put(0, 0, bytes)
+        val mat = Imgcodecs.imdecode(encoded, Imgcodecs.IMREAD_COLOR)
+        encoded.release()
+        check(!mat.empty()) { "Failed to decode captured JPEG still" }
+        return mat
     }
 
     private fun bindUseCases() {
