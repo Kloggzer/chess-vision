@@ -3,6 +3,8 @@ package com.chesslab.tracker.ui
 import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,14 +13,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,7 +25,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -44,7 +44,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
@@ -120,7 +120,11 @@ fun CalibrationScreen(
 
     val previewImage = remember(rawPreview) { rawPreview?.asImageBitmap() }
     val textMeasurer = rememberTextMeasurer()
-    val zoomLabel = stringResource(R.string.calib_loupe_zoom)
+    val zoomLabel =
+        textMeasurer.measure(
+            stringResource(R.string.calib_loupe_zoom),
+            style = TextStyle(color = BoardPalette.ArucoDot, fontFamily = FontFamily.Monospace, fontSize = LOUPE_LABEL_SP.sp),
+        )
 
     val aspect =
         if (rawPreview != null && rawPreview.height > 0) {
@@ -164,7 +168,9 @@ fun CalibrationScreen(
             }
         Text(instruction, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
 
-        TextButton(onClick = onCancel, modifier = Modifier.heightIn(min = 48.dp)) {
+        CornerStepIndicator(tapCount = taps.size, confirming = confirming)
+
+        QuietButton(onClick = onCancel) {
             Text(stringResource(R.string.calib_back_to_tracking))
         }
 
@@ -176,83 +182,84 @@ fun CalibrationScreen(
             )
         }
 
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(aspect)
-                    .onGloballyPositioned { canvasSize = Offset(it.size.width.toFloat(), it.size.height.toFloat()) }
-                    .pointerInput(confirming) {
-                        detectTapGestures(
-                            onPress = { pos ->
-                                loupe = pos
-                                tryAwaitRelease()
-                                loupe = null
-                            },
-                            onTap = { pos ->
-                                canvasSize = Offset(size.width.toFloat(), size.height.toFloat())
-                                if (confirming) {
-                                    taps = reorderForA8(taps, pos)
-                                    confirming = false
-                                } else if (taps.size < 4) {
-                                    taps = taps + pos
-                                }
-                            },
-                        )
-                    }.semantics { contentDescription = instruction },
-        ) {
-            if (previewImage != null) {
-                Image(
-                    bitmap = previewImage,
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                Text(
-                    stringResource(R.string.calib_aiming),
-                    modifier = Modifier.fillMaxSize(),
-                    textAlign = TextAlign.Center,
-                )
-            }
-
-            // Overlay canvas: user taps + live assist dots + zoom loupe.
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                // User-tapped corners.
-                taps.forEachIndexed { i, p ->
-                    drawCircle(color = Color(0xFFFF00FF), radius = 14f, center = p)
-                    if (i > 0) drawLine(Color(0xFFFF00FF), taps[i - 1], p, strokeWidth = 4f)
+        BoardFrame(modifier = Modifier.fillMaxWidth(), video = true) {
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(aspect)
+                        .onGloballyPositioned { canvasSize = Offset(it.size.width.toFloat(), it.size.height.toFloat()) }
+                        .pointerInput(confirming) {
+                            detectTapGestures(
+                                onPress = { pos ->
+                                    loupe = pos
+                                    tryAwaitRelease()
+                                    loupe = null
+                                },
+                                onTap = { pos ->
+                                    canvasSize = Offset(size.width.toFloat(), size.height.toFloat())
+                                    if (confirming) {
+                                        taps = reorderForA8(taps, pos)
+                                        confirming = false
+                                    } else if (taps.size < 4) {
+                                        taps = taps + pos
+                                    }
+                                },
+                            )
+                        }.semantics { contentDescription = instruction },
+            ) {
+                if (previewImage != null) {
+                    Image(
+                        bitmap = previewImage,
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Text(
+                        stringResource(R.string.calib_aiming),
+                        modifier = Modifier.fillMaxSize(),
+                        textAlign = TextAlign.Center,
+                    )
                 }
-                if (taps.size == 4) drawLine(Color(0xFFFF00FF), taps[3], taps[0], strokeWidth = 4f)
 
-                // Live-assist ArUco marker dots (small green circles).
-                if (arucoEnabled) {
-                    liveMarkers.forEach { (_, pos) ->
-                        drawCircle(color = Color(0x8800FF00), radius = 12f, center = pos)
-                        drawCircle(color = Color(0xFF00FF00), radius = 6f, center = pos)
+                // Overlay canvas: user taps + live assist dots + zoom loupe.
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    // User-tapped corners.
+                    taps.forEachIndexed { i, p ->
+                        drawCircle(color = BoardPalette.TapCorner, radius = 14f, center = p)
+                        if (i > 0) drawLine(BoardPalette.TapCorner, taps[i - 1], p, strokeWidth = 4f)
                     }
-                }
+                    if (taps.size == 4) drawLine(BoardPalette.TapCorner, taps[3], taps[0], strokeWidth = 4f)
 
-                val img = previewImage
-                if (img != null) {
-                    loupe?.let { drawMagnifier(img, it, canvasSize, BoardPalette.ArucoDot, textMeasurer, zoomLabel) }
+                    // Live-assist ArUco marker dots (accent circles with a soft halo).
+                    if (arucoEnabled) {
+                        liveMarkers.forEach { (_, pos) ->
+                            drawCircle(color = BoardPalette.ArucoDot.copy(alpha = ARUCO_HALO_ALPHA), radius = 12f, center = pos)
+                            drawCircle(color = BoardPalette.ArucoDot, radius = 6f, center = pos)
+                        }
+                    }
+
+                    val img = previewImage
+                    if (img != null) {
+                        loupe?.let { drawMagnifier(img, it, canvasSize, BoardPalette.ArucoDot, zoomLabel) }
+                    }
                 }
             }
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedButton(
+            GhostButton(
                 onClick = {
                     taps = emptyList()
                     confirming = false
                     arucoNotFound = false
                 },
-                modifier = Modifier.heightIn(min = 48.dp),
             ) { Text(stringResource(R.string.calib_clear)) }
 
             // Auto (ArUco) button — runs detection on the latest full-res frame.
             if (arucoDetector != null && arucoEnabled) {
-                OutlinedButton(
+                GhostButton(
                     onClick = {
                         val frame = frameProvider()
                         if (frame != null) {
@@ -273,7 +280,6 @@ fun CalibrationScreen(
                             arucoNotFound = true
                         }
                     },
-                    modifier = Modifier.heightIn(min = 48.dp),
                 ) {
                     Text(
                         stringResource(
@@ -285,18 +291,17 @@ fun CalibrationScreen(
 
             // Experimental suggest-corners (markerless) button.
             if (experimentalDetection) {
-                OutlinedButton(
+                GhostButton(
                     onClick = {
                         onSuggest()?.let { c ->
                             taps = c.toList().map { Offset(it.x, it.y) }
                             confirming = true
                         }
                     },
-                    modifier = Modifier.heightIn(min = 48.dp),
                 ) { Text(stringResource(R.string.calib_suggest)) }
             }
 
-            Button(
+            PrimaryButton(
                 onClick = {
                     val (srcW, srcH) =
                         if (rawPreview != null) {
@@ -307,8 +312,53 @@ fun CalibrationScreen(
                     onSave(cornersOf(taps, canvasSize, srcW, srcH), true, srcW, srcH)
                 },
                 enabled = taps.size == 4 && !confirming,
-                modifier = Modifier.heightIn(min = 48.dp),
             ) { Text(stringResource(R.string.calib_save)) }
+        }
+    }
+}
+
+/**
+ * a8 → h8 → h1 → a1 step indicator: one pill per corner. A placed corner is a done pill
+ * (accent outline), the corner being tapped is the current pill (filled accent), the rest
+ * are pending (muted). Derived from [tapCount] + [confirming] — during orientation confirm
+ * all four are placed, so all read done.
+ */
+@Suppress("ktlint:standard:function-naming", "FunctionNaming")
+@Composable
+private fun CornerStepIndicator(
+    tapCount: Int,
+    confirming: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val accent = MaterialTheme.colorScheme.primary
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        CORNER_LABELS.forEachIndexed { i, label ->
+            val done = i < tapCount
+            val current = i == tapCount && !confirming
+            val textColor =
+                when {
+                    current -> MaterialTheme.colorScheme.onPrimary
+                    done -> accent
+                    else -> muted
+                }
+            Box(
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .clip(MaterialTheme.shapes.small)
+                        .background(if (current) accent else Color.Transparent)
+                        .border(1.dp, if (done || current) accent else muted, MaterialTheme.shapes.small)
+                        .padding(vertical = 6.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontFamily = FontFamily.Monospace,
+                    color = textColor,
+                )
+            }
         }
     }
 }
@@ -370,8 +420,7 @@ private fun DrawScope.drawMagnifier(
     touch: Offset,
     canvasSize: Offset,
     accent: Color,
-    textMeasurer: TextMeasurer,
-    zoomLabel: String,
+    zoomLabel: TextLayoutResult,
 ) {
     val src = loupeSourceRect(touch, canvasSize, image.width, image.height, LOUPE_WINDOW_PX)
     if (src.width <= 0 || src.height <= 0) return
@@ -401,10 +450,9 @@ private fun DrawScope.drawMagnifier(
     drawLine(accent, Offset(center.x, center.y - radius), Offset(center.x, center.y + radius), strokeWidth = CROSSHAIR_STROKE)
     drawCircle(color = accent, radius = LOUPE_CENTER_RING_PX, center = center, style = Stroke(width = CROSSHAIR_STROKE))
 
-    // Mono zoom-factor label under the loupe.
-    val label = textMeasurer.measure(zoomLabel, style = TextStyle(color = accent, fontFamily = FontFamily.Monospace, fontSize = LOUPE_LABEL_SP.sp))
-    val labelX = center.x - label.size.width / 2f
-    drawText(label, topLeft = Offset(labelX, center.y + radius + LOUPE_LABEL_GAP_PX))
+    // Mono zoom-factor label under the loupe (pre-measured by the caller).
+    val labelX = center.x - zoomLabel.size.width / 2f
+    drawText(zoomLabel, topLeft = Offset(labelX, center.y + radius + LOUPE_LABEL_GAP_PX))
 }
 
 private val OffsetSaver =
