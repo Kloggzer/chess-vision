@@ -22,7 +22,23 @@ dependency). After 01: **02 ∥ 03**; then **07** (after 02). **06 last** (needs
 
 ## Blockers
 
-(none yet)
+(none — all phases done)
+
+## Build setup note (native Stockfish, phase 05)
+
+A fresh checkout MUST initialize the Stockfish submodule before `:app:assembleDebug`:
+`git submodule update --init --depth 1 android/third_party/stockfish`. Without it CMake
+fails with "Stockfish sources not found". The native build then compiles Stockfish for
+`arm64-v8a` + `x86_64` and downloads the NNUE nets (network, once) — verified
+**BUILD SUCCESSFUL**. Unit tests + lint need neither the submodule nor network
+(`FakeAnalysisEngine`).
+
+## Final orchestrator gate (2026-07-10) — ALL GREEN
+
+- `:app:testDebugUnitTest` (analysis/games/ui) + `:app:ktlintCheck` + `:app:detekt` — green
+- `:engine:test` + `:engine:ktlintCheck` + `:engine:detekt` — green (after WIP KDoc fix)
+- `:app:assembleDebug` incl. native Stockfish build (both ABIs) — **BUILD SUCCESSFUL**
+- No `src/chesslab/**` (Python) changes. Scope: `android/`, `specs/`, `.gitmodules` only.
 
 ## Discrepancies (spec vs code)
 
@@ -51,3 +67,11 @@ dependency). After 01: **02 ∥ 03**; then **07** (after 02). **06 last** (needs
 |---|---|---|---|---|
 | 2026-07-10 | — | opus | Spec pack authored (entry + 00–07 + STATUS) from approved mockups. No implementation. | ready |
 | 2026-07-10 | 07 | sonnet | Removed overlay-view picker, restyled Settings (SectionHeader/SettingSlider/SettingSwitch/resolution chips/CNN card), added Analysis-depth setting (05 analysis/ package already landed). Gate green. | done |
+| 2026-07-10 | 00 | opus | theme/ Color/BoardPalette/Type/Shape + Theme.kt (dynamicColor off). Confirmed base compiles. | done |
+| 2026-07-10 | 04 | sonnet | games/ GameStore + provenance sidecar; save on reset/gameover; recalibrate hook added post-merge. | done |
+| 2026-07-10 | 05 | fable | analysis/ interface + Accuracy + UciParser + Fake + StockfishEngine; Stockfish sf_18 NDK submodule build. | done |
+| 2026-07-10 | 01 | opus | Components.kt (StatusPill/SegmentedToggle/SubTabRow/BoardFrame/buttons/KeyValueRow) + Overlays.kt. | done |
+| 2026-07-10 | 02 | opus | Tracking rebuild + two-level board toggle + floating overlay messaging + BoardPalette swap. | done |
+| 2026-07-10 | 03 | opus | Calibration real zoom loupe (drawMagnifier, loupeSourceRect clamped) + restyle. | done |
+| 2026-07-10 | 06 | opus | GamesScreen + AnalysisScreen (eval bar/scrubber/accuracy/merged provenance); HistoryScreen deleted; nav History→Games. | done |
+| 2026-07-10 | orch | opus | Base detekt/ktlint cleanup (9de047d) + engine KDoc fix; merged 04/05 worktree branches; final gate incl. native assembleDebug — ALL GREEN. | done |
