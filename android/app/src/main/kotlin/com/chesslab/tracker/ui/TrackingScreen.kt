@@ -179,6 +179,7 @@ fun TrackingScreen(
     }
 }
 
+@Suppress("ktlint:standard:function-naming", "FunctionNaming")
 @Composable
 private fun TrackingHeader(
     trackerState: com.chesslab.engine.api.TrackerState,
@@ -198,6 +199,7 @@ private fun TrackingHeader(
     }
 }
 
+@Suppress("ktlint:standard:function-naming", "FunctionNaming")
 @Composable
 private fun RecoveryCard(
     onTakeBack: () -> Unit,
@@ -270,7 +272,7 @@ private fun ConfirmDialog(
  * live region, with a one-shot alert tone at most once per 30 s. Offers the user a
  * take-back (whole-board match auto-clears the alarm) or recalibrate (geometry drift).
  */
-@Suppress("ktlint:standard:function-naming", "FunctionNaming")
+@Suppress("ktlint:standard:function-naming", "FunctionNaming", "UnusedPrivateMember")
 @Composable
 private fun AlarmBanner(
     alarm: AlarmUi,
