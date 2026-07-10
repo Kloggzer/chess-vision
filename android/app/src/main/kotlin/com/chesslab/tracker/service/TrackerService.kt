@@ -25,6 +25,8 @@ import com.chesslab.tracker.geometry.BoardWarper
 import com.chesslab.tracker.geometry.CalibrationProfile
 import com.chesslab.tracker.geometry.CornerDriftMonitor
 import com.chesslab.tracker.geometry.DriftResult
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,6 +46,7 @@ import org.opencv.imgproc.Imgproc
  * [safeguard] (05), [stateSink] (06), [recorder] (07). Phases 05–07 plug in
  * without editing this file.
  */
+@Suppress("TooManyFunctions")
 class TrackerService : LifecycleService() {
     private val binder = LocalBinder()
 
@@ -51,12 +54,16 @@ class TrackerService : LifecycleService() {
     private lateinit var camera: TrackerCamera
     private val coordinator = TrackerCoordinator()
 
-    private var pipeline: BoardFramePipeline? = null
-    private var baseWarper: BoardWarper? = null
+    @Volatile private var pipeline: BoardFramePipeline? = null
+
+    @Volatile private var baseWarper: BoardWarper? = null
     private var resolutionController: DynamicResolutionController? = null
     private var driftMonitor: CornerDriftMonitor? = null
-    private var settings: TrackerSettings = TrackerSettings()
+
+    @Volatile private var settings: TrackerSettings = TrackerSettings()
     private var cnn: CnnIntegration? = null
+    private lateinit var cnnScope: CoroutineScope
+    private val cnnFrameStore = CnnFrameStore()
 
     // ArUco self-calibration: while not yet tracking, detect the four board markers
     // per-frame (throttled) and start tracking automatically — no manual step needed.
@@ -109,7 +116,8 @@ class TrackerService : LifecycleService() {
         super.onCreate()
         settingsRepo = SettingsRepository(settingsDataStore(this))
         camera = TrackerCamera(this, this)
-        cnn = CnnIntegration(coordinator, camera, { baseWarper }, { settings.claheClip }, lifecycleScope, CnnModelStore(filesDir))
+        cnnScope = CoroutineScope(lifecycleScope.coroutineContext + Dispatchers.Default)
+        cnn = CnnIntegration(coordinator, cnnFrameStore::latest, cnnScope, CnnModelStore(filesDir))
         observeSettings()
         forwardStateToSink()
         forwardEventsToRecorder()
@@ -123,6 +131,20 @@ class TrackerService : LifecycleService() {
         super.onStartCommand(intent, flags, startId)
         startForegroundInternal()
         return START_STICKY
+    }
+
+    override fun onDestroy() {
+        cnn?.detach()
+        pipeline?.close()
+        pipeline = null
+        baseWarper = null
+        camera.close()
+        cnnFrameStore.clear()
+        synchronized(calibFrameLock) {
+            calibFrame?.release()
+            calibFrame = null
+        }
+        super.onDestroy()
     }
 
     /**
@@ -140,6 +162,7 @@ class TrackerService : LifecycleService() {
     /** Begin tracking with a calibrated [profile]. Idempotent per profile. */
     fun start(profile: CalibrationProfile) {
         val warper = BoardWarper(profile)
+        pipeline?.close()
         baseWarper = warper
         val pipe = BoardFramePipeline(warper, settings.claheClip)
         pipeline = pipe
@@ -158,10 +181,12 @@ class TrackerService : LifecycleService() {
     fun stopTrackingToPreview() {
         resolutionController?.stop()
         resolutionController = null
+        pipeline?.close()
         pipeline = null
         baseWarper = null
         driftMonitor = null
         _activeProfile.value = null
+        cnnFrameStore.clear()
         coordinator.reset()
     }
 
@@ -197,57 +222,67 @@ class TrackerService : LifecycleService() {
     fun forcePromote(piece: String): Boolean = coordinator.forcePromote(piece)
 
     private fun startFrameLoop() {
-        lifecycleScope.launch {
+        lifecycleScope.launch(Dispatchers.Default) {
             camera.frames.collect { frame ->
-                // Publish raw camera preview (independent of warp/tracking success —
-                // also the ONLY consumer in preview-only mode before calibration).
-                publishRawPreview(frame.mat, frame.width, frame.height)
+                try {
+                    // Publish raw camera preview (independent of warp/tracking success —
+                    // also the ONLY consumer in preview-only mode before calibration).
+                    publishRawPreview(frame.mat, frame.width, frame.height)
 
-                // Retain the latest full-res frame for ArUco while calibrating.
-                if (calibrationActive) {
-                    synchronized(calibFrameLock) {
-                        calibFrame?.release()
-                        calibFrame = frame.mat.clone()
+                    // Retain the latest full-res frame for ArUco while calibrating.
+                    if (calibrationActive) {
+                        synchronized(calibFrameLock) {
+                            calibFrame?.release()
+                            calibFrame = frame.mat.clone()
+                        }
                     }
-                }
-                val pipe = pipeline
-                if (pipe == null) {
-                    // Preview-only: try to self-calibrate from ArUco markers (throttled).
-                    val auto =
-                        autoCalibrator.tryDetect(frame.mat, frame.width, frame.height, System.nanoTime(), settings.arucoMargin)
-                    if (auto != null) start(auto)
+                    val pipe = pipeline
+                    if (pipe == null) {
+                        // Preview-only: try to self-calibrate from ArUco markers (throttled).
+                        val auto =
+                            autoCalibrator.tryDetect(
+                                frame.mat,
+                                frame.width,
+                                frame.height,
+                                System.nanoTime(),
+                                settings.arucoMargin,
+                            )
+                        if (auto != null) start(auto)
+                        return@collect
+                    }
+
+                    // Feed raw frame + corners before warp (phase 07 recorder).
+                    val corners = baseWarper?.profile?.corners
+                    recorder?.onRawFrame(frame.mat, corners, frame.width, frame.height)
+
+                    recorder?.onFrame(coordinator.uiState.value.fen, frame.timestampNs)
+                    val processed = pipe.process(frame.mat, frame.timestampNs)
+                    try {
+                        coordinator.onFrame(processed.gray, processed.bgr, processed.timestampNs)
+                        cnnFrameStore.update(processed, coordinator.frameSeq)
+
+                        val ui = coordinator.uiState.value
+                        val d = ui.debug
+                        diag(
+                            "state=${ui.trackerState} stuck=${d.stuckReason} " +
+                                "motion=${"%.4f".format(d.motion)}/${"%.4f".format(d.motionThr)} " +
+                                "changed=${d.changed} cand=${d.candidate} " +
+                                "best=${"%.2f".format(d.bestScore)} 2nd=${"%.2f".format(d.secondScore)} " +
+                                "shadowVeto=${d.shadowVetoed} occlVeto=${d.occludedVetoed}",
+                        )
+
+                        // Phase 07: flush pending capture when board is clean.
+                        val state = coordinator.uiState.value.trackerState
+                        if (state == TrackerState.TRACKING) recorder?.onCleanFrame()
+
+                        publishBoard(processed.boardBgr)
+                        maybeCheckDrift(frame.mat)
+                    } finally {
+                        processed.boardBgr.release()
+                    }
+                } finally {
                     frame.mat.release()
-                    return@collect
                 }
-
-                // Feed raw frame + corners before warp (phase 07 recorder).
-                val corners = baseWarper?.profile?.corners
-                recorder?.onRawFrame(frame.mat, corners, frame.width, frame.height)
-
-                recorder?.onFrame(coordinator.uiState.value.fen, frame.timestampNs)
-                val processed = pipe.process(frame.mat, frame.timestampNs)
-                coordinator.onFrame(processed.gray, processed.bgr, processed.timestampNs)
-
-                val ui = coordinator.uiState.value
-                val d = ui.debug
-                diag(
-                    "state=${ui.trackerState} stuck=${d.stuckReason} " +
-                        "motion=${"%.4f".format(d.motion)}/${"%.4f".format(d.motionThr)} " +
-                        "changed=${d.changed} cand=${d.candidate} " +
-                        "best=${"%.2f".format(d.bestScore)} 2nd=${"%.2f".format(d.secondScore)} " +
-                        "shadowVeto=${d.shadowVetoed} occlVeto=${d.occludedVetoed}",
-                )
-
-                // Phase 07: flush pending capture when board is clean.
-                val state = coordinator.uiState.value.trackerState
-                if (state == TrackerState.TRACKING) {
-                    recorder?.onCleanFrame()
-                }
-
-                publishBoard(processed.boardBgr)
-                maybeCheckDrift(frame.mat)
-                processed.boardBgr.release()
-                frame.mat.release()
             }
         }
     }

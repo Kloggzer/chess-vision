@@ -35,4 +35,13 @@ class SquareNoiseTest {
         assertEquals(0.0, n.mean.getValue("e4"), 1e-9)
         assertEquals(SquareNoise.DEFAULT_INIT_STD, n.std.getValue("e4"), 1e-9)
     }
+
+    @Test
+    fun `reset forgets statistics from an old calibration`() {
+        val n = SquareNoise()
+        repeat(20) { n.update(Squares.all.associateWith { 50.0 }) }
+        n.reset()
+        assertEquals(0.0, n.mean.getValue("e4"), 1e-9)
+        assertEquals(SquareNoise.DEFAULT_INIT_STD, n.std.getValue("e4"), 1e-9)
+    }
 }

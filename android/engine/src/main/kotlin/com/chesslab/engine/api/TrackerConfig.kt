@@ -27,6 +27,8 @@ data class TrackerConfig(
     val confirmFrames: Int = DEFAULT_CONFIRM_FRAMES,
     val pairLookAhead: Boolean = DEFAULT_PAIR_LOOK_AHEAD,
     val usePrior: Boolean = DEFAULT_USE_PRIOR,
+    /** Unsafe legacy self-healing; off by default so unexplained changes stay visible. */
+    val autoPatchReference: Boolean = DEFAULT_AUTO_PATCH_REFERENCE,
     val cornerJumpPx: Double = DEFAULT_CORNER_JUMP_PX,
     val detectScale: Double = DEFAULT_DETECT_SCALE,
 ) {
@@ -62,6 +64,7 @@ data class TrackerConfig(
         const val DEFAULT_CONFIRM_FRAMES: Int = 2
         const val DEFAULT_PAIR_LOOK_AHEAD: Boolean = true
         const val DEFAULT_USE_PRIOR: Boolean = true
+        const val DEFAULT_AUTO_PATCH_REFERENCE: Boolean = false
         const val DEFAULT_CORNER_JUMP_PX: Double = 6.0
         const val DEFAULT_DETECT_SCALE: Double = 0.5
     }

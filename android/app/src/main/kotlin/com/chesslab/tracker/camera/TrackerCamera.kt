@@ -11,10 +11,9 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.opencv.core.CvType
 import org.opencv.core.Mat
@@ -39,19 +38,20 @@ import kotlin.coroutines.resumeWithException
 class TrackerCamera(
     private val context: Context,
     private val lifecycleOwner: LifecycleOwner,
-) : ResolutionTarget {
+) : ResolutionTarget,
+    AutoCloseable {
     private val analysisExecutor = Executors.newSingleThreadExecutor()
     private val converter = YuvToBgrConverter()
 
-    private val _frames =
-        MutableSharedFlow<CameraFrame>(
-            replay = 0,
-            extraBufferCapacity = 1,
+    private val frameChannel =
+        Channel<CameraFrame>(
+            capacity = 1,
             onBufferOverflow = BufferOverflow.DROP_OLDEST,
+            onUndeliveredElement = { it.mat.release() },
         )
 
-    /** Warped-ready analysis frames; conflated (grab-latest). */
-    val frames: Flow<CameraFrame> = _frames.asSharedFlow().conflate()
+    /** Warped-ready analysis frames; the single buffered frame owns its native Mat. */
+    val frames: Flow<CameraFrame> = frameChannel.receiveAsFlow()
 
     private var cameraProvider: ProcessCameraProvider? = null
     private var imageCapture: ImageCapture? = null
@@ -159,14 +159,15 @@ class TrackerCamera(
     private fun emitFrame(image: ImageProxy) {
         try {
             val mat = converter.convert(image)
-            _frames.tryEmit(
+            val frame =
                 CameraFrame(
                     mat = mat,
                     timestampNs = image.imageInfo.timestamp,
                     width = image.width,
                     height = image.height,
-                ),
-            )
+                )
+            val sent = frameChannel.trySend(frame)
+            if (sent.isFailure) mat.release()
         } finally {
             image.close()
         }
@@ -181,4 +182,11 @@ class TrackerCamera(
                     ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER,
                 ),
             ).build()
+
+    override fun close() {
+        frameChannel.cancel()
+        cameraProvider?.unbindAll()
+        imageCapture = null
+        analysisExecutor.shutdownNow()
+    }
 }

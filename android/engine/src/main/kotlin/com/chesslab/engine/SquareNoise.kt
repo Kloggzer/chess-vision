@@ -12,8 +12,17 @@ class SquareNoise(
     initStd: Double = DEFAULT_INIT_STD,
     private val stdFloor: Double = DEFAULT_STD_FLOOR,
 ) {
+    private val initialStd = initStd
     val mean: MutableMap<String, Double> = Squares.all.associateWith { 0.0 }.toMutableMap()
     val std: MutableMap<String, Double> = Squares.all.associateWith { initStd }.toMutableMap()
+
+    /** Forget statistics tied to an old position, camera geometry, or calibration. */
+    fun reset() {
+        for (sq in Squares.all) {
+            mean[sq] = 0.0
+            std[sq] = initialStd
+        }
+    }
 
     /**
      * Learn from a stable frame; `exclude` = current candidate/vetoed squares.

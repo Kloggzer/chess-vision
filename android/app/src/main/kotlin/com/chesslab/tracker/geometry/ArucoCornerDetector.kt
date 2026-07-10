@@ -71,24 +71,29 @@ class ArucoCornerDetector {
     ): Map<Int, Point> {
         val corners = mutableListOf<Mat>()
         val ids = Mat()
-        detector.detectMarkers(gray, corners, ids)
-        if (ids.empty() || corners.isEmpty()) return emptyMap()
+        try {
+            detector.detectMarkers(gray, corners, ids)
+            if (ids.empty() || corners.isEmpty()) return emptyMap()
 
-        val idsArray = IntArray(ids.total().toInt())
-        ids.get(0, 0, idsArray)
+            val idsArray = IntArray(ids.total().toInt())
+            ids.get(0, 0, idsArray)
 
-        val result = mutableMapOf<Int, Point>()
-        // Zip ids with their corner mats so we never index out of bounds.
-        val validPairs =
-            idsArray.indices
-                .filter { i -> i < corners.size }
-                .map { i -> Pair(idsArray[i], corners[i]) }
+            val result = mutableMapOf<Int, Point>()
+            // Zip ids with their corner mats so we never index out of bounds.
+            val validPairs =
+                idsArray.indices
+                    .filter { i -> i < corners.size }
+                    .map { i -> Pair(idsArray[i], corners[i]) }
 
-        for ((markerId, quad) in validPairs) {
-            if (filterExpected && markerId !in ArucoCornerOrdering.EXPECTED_IDS) continue
-            result[markerId] = computeCenter(quad)
+            for ((markerId, quad) in validPairs) {
+                if (filterExpected && markerId !in ArucoCornerOrdering.EXPECTED_IDS) continue
+                result[markerId] = computeCenter(quad)
+            }
+            return result
+        } finally {
+            corners.forEach(Mat::release)
+            ids.release()
         }
-        return result
     }
 
     /**

@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class CnnSafeguardTest {
+    private var inputSeq = 0
     private val classes =
         listOf(
             "empty",
@@ -53,7 +54,7 @@ class CnnSafeguardTest {
             }
     }
 
-    private fun input(seq: Int = 0): ObservationInput =
+    private fun input(seq: Int = ++inputSeq): ObservationInput =
         ObservationInput(
             crops = ALL_SQUARES.map { SquareCrop(1, 1, FloatArray(3)) },
             gray = GrayImage(1, 1, ByteArray(1)),
@@ -224,6 +225,25 @@ class CnnSafeguardTest {
             collector.cancel()
         }
 
+    @Test
+    fun `the same observation sequence cannot supply two verify votes`() =
+        runTest {
+            val guard =
+                CnnSafeguard(
+                    FakeClassifier(gameAfter("e2e4")),
+                    { input(seq = 5) },
+                    this,
+                    clock = { currentTime * 1_000_000 },
+                )
+            val verdicts = mutableListOf<VerifyVerdict>()
+            val collector = launch { guard.verdicts.toList(verdicts) }
+            runCurrent()
+            guard.requestVerify(MoveCandidate(listOf("e2e4"), STARTPOS, false, seq = 5), listOf("e2", "e4"))
+            advanceUntilIdle()
+            assertEquals(listOf<VerifyVerdict>(VerifyVerdict.Timeout(listOf("e2e4"))), verdicts)
+            collector.cancel()
+        }
+
     // -- illegal-move referee alarm (b80a03c, f6960f8, e065051 dedup) --
 
     private suspend fun tickThrice(
@@ -294,6 +314,18 @@ class CnnSafeguardTest {
             val moves = action as RecoveryAction.Moves
             assertEquals(listOf("e2e4"), moves.ucis)
             assertTrue(moves.resolvesAlarm)
+        }
+
+    @Test
+    fun `unreadable alarm conflict cannot clear the alarm`() =
+        runTest {
+            val labels = labelsOf(Game()).toMutableMap().apply { this["e2"] = "occluded" }
+            val classifier = LabelClassifier(labels)
+            val guard = CnnSafeguard(classifier, { input(seq = 1) }, this, clock = { 0L })
+
+            val action = guard.recoveryTick(STARTPOS, stuck = true, alarmConflicts = listOf("e2"))
+
+            assertNull(action)
         }
 
     @Test

@@ -161,7 +161,17 @@ object MoveScoring {
             g2.push(mv1)
             for (mv2 in g2.legalMoves()) {
                 if (!ok(mv2)) continue
-                val touched = t1 + moveTouchedSquares(g2, mv2)
+                val after = g2.copy().apply { push(mv2) }
+                // Score what the final settled image can actually differ on. The old union
+                // included intermediate squares that changed twice and returned to their
+                // original piece/occupancy, unfairly penalising captures and recaptures.
+                val touched =
+                    Squares.all.filterTo(mutableSetOf()) { sq ->
+                        game.pieceCharAt(sq) != after.pieceCharAt(sq)
+                    }
+                // A legal pair always changes placement, but retain the first-move set as a
+                // defensive fallback for unusual chess-library variants.
+                if (touched.isEmpty()) touched += t1 + moveTouchedSquares(g2, mv2)
                 scored.add(listOf(mv1, mv2) to touched.sumOf { lg.getValue(it) })
             }
         }

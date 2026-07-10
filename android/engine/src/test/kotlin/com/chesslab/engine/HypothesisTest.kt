@@ -71,12 +71,28 @@ class HypothesisTest {
     }
 
     @Test
+    fun `disabled pair look-ahead never emits a two-ply candidate`() {
+        val game = Game()
+        val z = zMap("e2" to 8.0, "e4" to 7.0, "e7" to 7.5, "e5" to 6.5)
+        val generator = HypothesisGenerator(config.copy(pairLookAhead = false)) { true }
+        val out = generator.generate(game, evidence(game, z), 0) as HypothesisOutcome.Candidate
+        assertEquals(listOf("e2e4"), out.moves.map(::uciOf))
+    }
+
+    @Test
     fun `promotion ambiguity without safeguard asks the user`() {
         val game = Game("8/4P3/8/8/8/2k5/8/K7 w - - 0 1")
         val out = gen().generate(game, evidence(game, zMap("e7" to 8.0, "e8" to 7.0)), 0)
         val promo = out as HypothesisOutcome.Promotion
         assertEquals("e7", promo.fromSquare)
         assertEquals("e8", promo.toSquare)
+    }
+
+    @Test
+    fun `promotion ambiguity with safeguard still asks the user`() {
+        val game = Game("8/4P3/8/8/8/2k5/8/K7 w - - 0 1")
+        val out = gen(safeguard = true).generate(game, evidence(game, zMap("e7" to 8.0, "e8" to 7.0)), 0)
+        assertTrue(out is HypothesisOutcome.Promotion)
     }
 
     @Test
