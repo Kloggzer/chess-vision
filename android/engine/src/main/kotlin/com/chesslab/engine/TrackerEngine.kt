@@ -21,7 +21,7 @@ import kotlinx.coroutines.flow.StateFlow
  * timestamps / the injected [clock]; no wall-clock reads in the logic.
  */
 class TrackerEngine(
-    private val config: TrackerConfig = TrackerConfig(),
+    private var config: TrackerConfig = TrackerConfig(),
     private val clock: () -> Long = System::nanoTime,
 ) {
     private val state = EngineState()
@@ -81,6 +81,12 @@ class TrackerEngine(
 
     /** Seq of the newest processed frame — observations are tagged with this (Spec 11). */
     val frameSeq: Int get() = state.frameSeq
+
+    /** Apply tuning without replacing the engine or losing game/reference state. */
+    fun updateConfig(newConfig: TrackerConfig) {
+        config = newConfig
+        detector.updateConfig(newConfig, safeguard != null)
+    }
 
     /**
      * Feed one warped stable-candidate frame (gray + BGR of the SAME rectified board view);
@@ -261,6 +267,8 @@ class TrackerEngine(
         state.cnnOccludedTsS = Double.NEGATIVE_INFINITY
         state.priorLast = false
         state.lastDecision = null
+        state.noise.reset()
+        state.censusNoise.reset()
         state.state = "waiting"
         state.note = "Reference set"
         state.motionSinceRef = false
@@ -366,9 +374,10 @@ class TrackerEngine(
                 state.pending = null
                 detector.confirmer.reset()
                 if (verdict.boardUnchanged) {
-                    // Shadow/no move: the observation still matches the pre-move position.
+                    // Shadow/no move: keep the existing known-good reference. The pending
+                    // diff frame is precisely the suspicious frame and must never become
+                    // base truth; recovery can re-anchor on its own verified CNN frame.
                     state.clearStuck()
-                    state.setRef(pending.curGray, pending.curBgr)
                 }
                 state.note = "candidate rejected by safeguard (${verdict.reason})"
             }

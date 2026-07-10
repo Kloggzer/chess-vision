@@ -116,9 +116,6 @@ fun SettingsScreen(
             SettingSlider(stringResource(R.string.setting_occlusion_thr), settings.occlusionColorThr, 0f..5f, 1.5) { v ->
                 onUpdate { it.copy(occlusionColorThr = v) }
             }
-            SettingSlider(stringResource(R.string.setting_motion_margin), settings.motionMargin, 0f..0.5f, 0.10) { v ->
-                onUpdate { it.copy(motionMargin = v) }
-            }
             SettingSlider(stringResource(R.string.setting_overhang), settings.overhang, 0f..1f, 0.25) { v ->
                 onUpdate { it.copy(overhang = v) }
             }

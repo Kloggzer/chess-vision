@@ -24,7 +24,9 @@ enum class OverlayView {
  * place, while the *constructor params* require an engine rebuild.
  *
  * Live tunables (mirror `_live_tuning_kwargs`): [motionThr], [zThr], [censusThr],
- * [occlusionColorThr], [motionMargin], [overhang], [motionHoldS], [claheClip].
+ * [occlusionColorThr], [overhang], [motionHoldS], [claheClip]. `motionMargin`
+ * remains persisted for backward compatibility but is not exposed: Android motion
+ * is measured on the already-warped board, where an outside-board ROI cannot exist.
  * Everything else is a constructor param.
  */
 data class TrackerSettings(

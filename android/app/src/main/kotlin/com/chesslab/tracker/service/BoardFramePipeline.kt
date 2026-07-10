@@ -31,42 +31,62 @@ class ProcessedFrame(
  * [WarpedBoard.detectGray]); the full-res board is exposed separately for overlays.
  */
 class BoardFramePipeline(
-    @Volatile var warper: BoardWarper,
+    warper: BoardWarper,
     @Volatile var claheClip: Double,
-) {
-    private val whitePov get() = warper.profile.whitePov
+) : AutoCloseable {
+    private val warperLock = Any()
+
+    @Volatile
+    var warper: BoardWarper = warper
+        set(value) {
+            synchronized(warperLock) {
+                if (field !== value) field.close()
+                field = value
+            }
+        }
 
     fun process(
         frame: Mat,
         timestampNs: Long,
     ): ProcessedFrame {
-        val warped = warper.warp(frame)
+        val (warped, whitePov) =
+            synchronized(warperLock) {
+                val active = warper
+                active.warp(frame) to active.profile.whitePov
+            }
         val boardBgr = warped.boardBgr
         val detectGray = warped.detectGray
-        if (!whitePov) {
-            Core.rotate(boardBgr, boardBgr, Core.ROTATE_180)
-            Core.rotate(detectGray, detectGray, Core.ROTATE_180)
-        }
-        applyClahe(detectGray)
-
         val detectBgr = Mat()
-        Imgproc.resize(boardBgr, detectBgr, detectGray.size())
-
-        val result =
+        return try {
+            if (!whitePov) {
+                Core.rotate(boardBgr, boardBgr, Core.ROTATE_180)
+                Core.rotate(detectGray, detectGray, Core.ROTATE_180)
+            }
+            applyClahe(detectGray)
+            Imgproc.resize(boardBgr, detectBgr, detectGray.size())
             ProcessedFrame(
                 gray = detectGray.toGrayImage(),
                 bgr = detectBgr.toBgrImage(),
                 boardBgr = boardBgr,
                 timestampNs = timestampNs,
             )
-        detectGray.release()
-        detectBgr.release()
-        return result
+        } catch (t: org.opencv.core.CvException) {
+            boardBgr.release()
+            throw t
+        } finally {
+            detectGray.release()
+            detectBgr.release()
+        }
     }
 
     private fun applyClahe(gray: Mat) {
         val clahe = Imgproc.createCLAHE(claheClip, Size(TILE, TILE))
-        clahe.apply(gray, gray)
+        try {
+            clahe.apply(gray, gray)
+        } finally {
+            clahe.collectGarbage()
+            clahe.clear()
+        }
     }
 
     private fun Mat.toGrayImage(): GrayImage {
@@ -79,6 +99,10 @@ class BoardFramePipeline(
         val buf = ByteArray(rows() * cols() * CHANNELS)
         get(0, 0, buf)
         return BgrImage(cols(), rows(), buf)
+    }
+
+    override fun close() {
+        synchronized(warperLock) { warper.close() }
     }
 
     private companion object {

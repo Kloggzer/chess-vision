@@ -133,15 +133,17 @@ class CnnSafeguard(
                 // decide single-shot, exactly like the Python ladder.
                 var outcome: String? = null
                 var votes = 0
+                var lastAcceptedSeq: Int? = null
                 val maxAttempts = (config.verifyWindow + config.verifyObsVotes) * MAX_ATTEMPT_FACTOR
                 while (attempts < maxAttempts) {
                     attempts++
                     val snap = observeOnce()
                     // Seq contract (e065051): an observation OLDER than the frame the
                     // candidate was decided on must neither confirm nor reject it.
-                    if (snap == null || snap.seq < move.seq) {
+                    if (snap == null || snap.seq < move.seq || snap.seq == lastAcceptedSeq) {
                         delay(if (snap == null) RETRY_DELAY_MS else OBSERVATION_GAP_MS)
                     } else {
+                        lastAcceptedSeq = snap.seq
                         framesSeen++
                         val step = verifier.evaluate(move.fenBefore, move.ucis, snap.obs, framesSeen)
                         if (step is VerifyStep.Decided) {
@@ -177,8 +179,13 @@ class CnnSafeguard(
             when (val outcome = recovery.evaluate(fen, snap.obs)) {
                 is RecoveryOutcome.Moves -> movesAction(fen, snap, input, outcome, alarmConflicts)
                 is RecoveryOutcome.BoardUnchanged -> {
-                    resetDesync()
-                    RecoveryAction.BoardUnchanged(input.gray, input.bgr)
+                    val restored = alarmConflicts == null || alarmSquaresMatch(Game(fen), snap.obs, alarmConflicts)
+                    if (restored) {
+                        resetDesync()
+                        RecoveryAction.BoardUnchanged(input.gray, input.bgr)
+                    } else {
+                        null
+                    }
                 }
                 is RecoveryOutcome.Inconclusive -> {
                     resetDesync() // occlusion breaks the desync streak
@@ -205,7 +212,7 @@ class CnnSafeguard(
         val labelOk = snap.obs.labelConfident(config.confThr)
         val unresolved =
             alarmConflicts.filter { sq ->
-                labelOk[sq] == true && snap.obs.label.getValue(sq) != expectedLabel(after, sq)
+                labelOk[sq] != true || snap.obs.label.getValue(sq) != expectedLabel(after, sq)
             }
         return if (unresolved.isNotEmpty()) {
             null // withhold — the sequence would not resolve the alarm conflicts
@@ -250,6 +257,18 @@ class CnnSafeguard(
         desyncObs = 0
         desyncConflicts = emptySet()
         desyncLastSeq = null
+    }
+
+    /** Alarm evidence is resolved only when every original conflict is visible and correct. */
+    private fun alarmSquaresMatch(
+        game: Game,
+        obs: OccupancyObservation,
+        conflicts: List<String>,
+    ): Boolean {
+        val labelOk = obs.labelConfident(config.confThr)
+        return conflicts.all { sq ->
+            labelOk[sq] == true && obs.label.getValue(sq) == expectedLabel(game, sq)
+        }
     }
 
     /**

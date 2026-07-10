@@ -14,7 +14,7 @@ import com.chesslab.engine.api.TrackerEvent
  * 7 motion prerequisite, 8 confirmer, 9 dispatch.
  */
 internal class Detector(
-    private val config: TrackerConfig,
+    private var config: TrackerConfig,
     private val state: EngineState,
     private val safeguard: () -> OccupancySafeguard?,
 ) {
@@ -24,6 +24,16 @@ internal class Detector(
     private val slack = 2
 
     private val geom get() = BoardGeometry(state.refGray?.width ?: 0, whitePov = true, extendUp = config.overhang)
+
+    fun updateConfig(
+        newConfig: TrackerConfig,
+        safeguardActive: Boolean,
+    ) {
+        config = newConfig
+        hypothesis.updateConfig(newConfig)
+        patcher.updateConfig(newConfig)
+        confirmer = Confirmer(if (safeguardActive) 1 else newConfig.confirmFrames)
+    }
 
     fun tryDetect(
         cur: GrayImage,
@@ -268,8 +278,12 @@ internal class Detector(
         state.markStuck(outcome.reason)
         val frames = AnomalyPatcher.Frames(state.refGray!!, state.refBgr, cur, curBgr)
         val patched =
-            patcher.maybePatch(ev.changed, ev.best, frames, nowS) { sq ->
-                state.game.pieceCharAt(sq) != null
+            if (config.autoPatchReference && !state.motionSinceRef && safeguard() == null) {
+                patcher.maybePatch(ev.changed, ev.best, frames, nowS) { sq ->
+                    state.game.pieceCharAt(sq) != null
+                }
+            } else {
+                emptyList()
             }
         if (patched.isNotEmpty()) {
             state.refCensus = null // ref mutated in place -> recode

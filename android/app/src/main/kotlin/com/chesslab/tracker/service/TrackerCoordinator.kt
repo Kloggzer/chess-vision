@@ -60,12 +60,13 @@ class TrackerCoordinator(
 
     /** Phase 05 plugs a CNN safeguard here; forwarded straight to the engine. */
     var safeguard: OccupancySafeguard?
-        get() = engine.safeguard
+        get() = synchronized(this) { engine.safeguard }
         set(value) {
-            engine.safeguard = value
+            synchronized(this) { engine.safeguard = value }
         }
 
     /** Feed one warped, white-POV, CLAHE-processed board frame. */
+    @Synchronized
     fun onFrame(
         gray: GrayImage,
         bgr: BgrImage,
@@ -88,12 +89,14 @@ class TrackerCoordinator(
      * Phase 05 wiring: feed a safeguard verdict back to the engine. Commit/reject
      * events queued by the engine surface on the next [onFrame].
      */
+    @Synchronized
     fun onVerifyVerdict(verdict: VerifyVerdict) {
         engine.onVerifyVerdict(verdict)
         publish(_uiState.value.announcement)
     }
 
     /** Phase 05 wiring: commit a CNN-recovery move sequence anchored on the observed frame. */
+    @Synchronized
     fun applyRecovery(
         ucis: List<String>,
         fenBefore: String,
@@ -107,12 +110,13 @@ class TrackerCoordinator(
     }
 
     /** Frame seq of the newest processed frame — tags safeguard observations (Spec 11). */
-    val frameSeq: Int get() = engine.frameSeq
+    val frameSeq: Int get() = synchronized(this) { engine.frameSeq }
 
     /** Conflict squares of the active illegal-move alarm, or null when not alarmed. */
-    val alarmConflicts: List<String>? get() = engine.status.alarm?.conflicts
+    val alarmConflicts: List<String>? get() = synchronized(this) { engine.status.alarm?.conflicts }
 
     /** Safeguard desync counting rang the referee alarm — block all commits in the engine. */
+    @Synchronized
     fun raiseAlarm(
         conflicts: List<String>,
         guessUci: String?,
@@ -122,17 +126,23 @@ class TrackerCoordinator(
     }
 
     /** Whole-board match while alarmed = take-back detected — clear the alarm. */
+    @Synchronized
     fun clearAlarm() {
         engine.clearAlarm()
         publish(_uiState.value.announcement)
     }
 
     /** Occluded-dominant squares of a fresh observation feed the engine's taint latch. */
-    fun reportOccluded(squares: Set<String>) {
-        engine.reportObservation(squares)
+    @Synchronized
+    fun reportOccluded(
+        squares: Set<String>,
+        ageS: Double = 0.0,
+    ) {
+        engine.reportObservation(squares, ageS)
     }
 
     /** Phase 05 wiring: CNN found the stuck board unchanged — pull the reference forward. */
+    @Synchronized
     fun pullReferenceForward(
         fenBefore: String,
         gray: GrayImage,
@@ -144,6 +154,7 @@ class TrackerCoordinator(
     }
 
     /** Undo the last committed move (queues a hard-negative feedback record). */
+    @Synchronized
     fun undo(): Boolean {
         val ok = engine.undo()
         if (ok && decisions.isNotEmpty()) decisions.removeAt(decisions.lastIndex)
@@ -152,6 +163,7 @@ class TrackerCoordinator(
     }
 
     /** Reset the position (default: start position) and re-arm reference capture. */
+    @Synchronized
     fun reset(fen: String = STARTPOS) {
         engine.reset(fen)
         decisions.clear()
@@ -159,39 +171,29 @@ class TrackerCoordinator(
     }
 
     /** Resolve a pending promotion with the chosen piece ("Q"/"R"/"B"/"N"). */
+    @Synchronized
     fun forcePromote(piece: String): Boolean {
         val ok = engine.forcePromote(piece)
         publish(_uiState.value.announcement)
         return ok
     }
 
-    /**
-     * Rebuild the engine for a **constructor-param** change (`app.py:50` split);
-     * live-tunable-only changes should use [applyConfig] instead. Re-arms the
-     * reference (brief re-anchor) — see STATUS.md discrepancy resolution.
-     */
+    /** Apply former constructor parameters in place; the Android engine supports live updates. */
+    @Synchronized
     fun reconfigure(newConfig: TrackerConfig) {
-        val hadSafeguard = engine.safeguard
-        engine = engineFactory(newConfig)
-        engine.safeguard = hadSafeguard
+        engine.updateConfig(newConfig)
         config = newConfig
-        decisions.clear()
-        publish(null)
+        publish(_uiState.value.announcement)
     }
 
     /**
-     * Apply a live-tunable [newConfig]. The pure engine holds an immutable config,
-     * so this rebuilds it too but preserves the game via FEN + SAN replay so slider
-     * tweaks never drop the running game (STATUS.md discrepancy resolution).
+     * Apply a live-tunable [newConfig] without replacing the engine. FEN, move stack,
+     * history, reference, learned noise, pending state, and provenance stay intact.
      */
+    @Synchronized
     fun applyConfig(newConfig: TrackerConfig) {
-        val fen = engine.status.fen
-        val hadSafeguard = engine.safeguard
-        engine = engineFactory(newConfig)
-        engine.safeguard = hadSafeguard
-        engine.reset(fen)
+        engine.updateConfig(newConfig)
         config = newConfig
-        // History/provenance are kept; the board FEN is carried across the swap.
         publish(_uiState.value.announcement)
     }
 

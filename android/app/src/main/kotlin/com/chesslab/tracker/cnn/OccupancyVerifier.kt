@@ -30,6 +30,7 @@ data class ResyncCheck(
     val conflicts: List<String>,
     val moveUci: String?,
     val agreement: Double,
+    val confidentN: Int,
 )
 
 /**
@@ -75,13 +76,14 @@ class OccupancyVerifier(
         framesSeen: Int,
     ): VerifyStep {
         val axes = axesOf(game, move, obs)
-        val check = resyncCheck(game, obs)
+        val touched = MoveScoring.moveTouchedSquares(game, move)
+        val check = resyncCheck(game, obs, requiredSquares = touched)
         return when {
-            // 1) Board unchanged -> shadow/no real move; engine pulls the reference forward.
+            // 1) Board unchanged -> shadow/no real move; engine keeps its known-good reference.
             check.match ->
                 decideAgainst(ucis, "board unchanged (shadow/no move)", boardUnchanged = true, outcome = "shadow")
             // 2) Positive confirmation via the reliable axes FIRST (before any veto).
-            commitEvidence(game, move, obs, axes, check) ->
+            commitEvidence(game, move, obs) ->
                 VerifyStep.Decided(VerifyVerdict.For(ucis), outcome = "commit", votes = true)
             // 3) HARD veto: destination confidently EMPTY and origin did NOT clearly empty.
             axes.toEmptyConf && !axes.fromLeftConf ->
@@ -109,18 +111,10 @@ class OccupancyVerifier(
         game: Game,
         move: Move,
         obs: OccupancyObservation,
-        axes: EndpointAxes,
-        check: ResyncCheck,
     ): Boolean {
-        val fromLeftOk =
-            axes.fromLeftConf &&
-                (
-                    MoveScoring.isCastling(game, move) ||
-                        (check.moveUci == uciOf(move) && check.agreement >= config.minAgreement)
-                )
-        val toArrivedOk = axes.toArrivedConf && !axes.fromOccConf
         val (occAgree, occN) = verifyMove(game, move, obs)
-        return fromLeftOk || toArrivedOk || (occAgree >= config.minAgreement && occN >= MIN_ENDPOINTS)
+        val touchedN = MoveScoring.moveTouchedSquares(game, move).size
+        return occN == touchedN && occAgree >= config.minAgreement
     }
 
     /**
@@ -179,14 +173,17 @@ class OccupancyVerifier(
             // occupancy conflict -> the move as believed did NOT happen -> discard.
             else -> {
                 val after = game.copy().apply { push(move) }
-                val postCheck = resyncCheck(after, obs)
-                if (postCheck.conflicts.isNotEmpty()) {
+                val touched = MoveScoring.moveTouchedSquares(game, move)
+                val postCheck = resyncCheck(after, obs, requiredSquares = touched)
+                if (postCheck.match) {
+                    VerifyStep.Decided(VerifyVerdict.For(ucis))
+                } else if (postCheck.conflicts.isNotEmpty()) {
                     decideAgainst(
                         ucis,
                         "board contradicts post-move position: ${postCheck.conflicts.take(SHOWN_CONFLICTS).joinToString(", ")}",
                     )
                 } else {
-                    VerifyStep.Decided(VerifyVerdict.For(ucis))
+                    VerifyStep.Decided(VerifyVerdict.Timeout(ucis))
                 }
             }
         }
@@ -202,12 +199,17 @@ class OccupancyVerifier(
         obs: OccupancyObservation,
         framesSeen: Int,
     ): VerifyStep {
-        val before = resyncCheck(game, obs)
+        val touched = mutableSetOf<String>()
         val after = game.copy()
-        for (mv in moves) after.push(mv)
+        for (mv in moves) {
+            touched += MoveScoring.moveTouchedSquares(after, mv)
+            after.push(mv)
+        }
+        val before = resyncCheck(game, obs, requiredSquares = touched)
+        val afterCheck = resyncCheck(after, obs, requiredSquares = touched)
         return when {
             before.match -> decideAgainst(ucis, "board unchanged (shadow/no move)", boardUnchanged = true)
-            resyncCheck(after, obs).match -> VerifyStep.Decided(VerifyVerdict.For(ucis))
+            afterCheck.match -> VerifyStep.Decided(VerifyVerdict.For(ucis))
             framesSeen >= config.verifyWindow -> VerifyStep.Decided(VerifyVerdict.Timeout(ucis))
             else ->
                 VerifyStep.Continue(
@@ -239,15 +241,21 @@ class OccupancyVerifier(
     fun resyncCheck(
         game: Game,
         obs: OccupancyObservation,
+        requiredSquares: Set<String> = emptySet(),
     ): ResyncCheck {
         val conf = obs.confident(config.confThr)
+        val confidentN = conf.count { it.value }
         val conflicts =
             ALL_SQUARES.filter { sq ->
                 conf[sq] == true && obs.occupied(sq) != (game.pieceCharAt(sq) != null)
             }
-        if (conflicts.isEmpty()) return ResyncCheck(match = true, emptyList(), null, 1.0)
+        val requiredVisible = requiredSquares.all { conf[it] == true }
+        val enoughBoard = confidentN >= config.minConfidentBoard
+        if (conflicts.isEmpty() && enoughBoard && requiredVisible) {
+            return ResyncCheck(match = true, emptyList(), null, 1.0, confidentN)
+        }
         val (mv, best, _) = scoreMoves(game, obs)
-        return ResyncCheck(match = false, conflicts, mv?.let(::uciOf), best.coerceAtLeast(0.0))
+        return ResyncCheck(match = false, conflicts, mv?.let(::uciOf), best.coerceAtLeast(0.0), confidentN)
     }
 
     /**

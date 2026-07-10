@@ -61,10 +61,14 @@ internal sealed interface HypothesisOutcome {
  * `_pair_candidate`, `_single_endpoint_candidate`).
  */
 internal class HypothesisGenerator(
-    private val config: TrackerConfig,
+    private var config: TrackerConfig,
     private val safeguardActive: () -> Boolean,
 ) {
     private val slack = 2
+
+    fun updateConfig(newConfig: TrackerConfig) {
+        config = newConfig
+    }
 
     fun generate(
         game: Game,
@@ -83,7 +87,7 @@ internal class HypothesisGenerator(
         ev: Evidence,
         blockedN: Int,
     ): HypothesisOutcome {
-        if (blockedN == 0 && ev.changed.size <= config.maxChanged + slack) {
+        if (config.pairLookAhead && blockedN == 0 && ev.changed.size <= config.maxChanged + slack) {
             pairCandidate(game, ev.z, ev.best, ev.shadowVeto)?.let { return it }
         }
         return HypothesisOutcome.Stuck(
@@ -100,7 +104,8 @@ internal class HypothesisGenerator(
         // Pair check BEFORE the single commit only with a safeguard: it goes pending and must
         // match the post-pair position. Without one, a garbage pair covering residue squares
         // outscores the true single — keep the conservative order there.
-        val earlyPair = if (safeguardActive()) pairCandidate(game, ev.z, ev.best, ev.shadowVeto) else null
+        val earlyPair =
+            if (config.pairLookAhead && safeguardActive()) pairCandidate(game, ev.z, ev.best, ev.shadowVeto) else null
         val obs = ev.top.obsMove
         return when {
             earlyPair != null -> earlyPair
@@ -114,7 +119,8 @@ internal class HypothesisGenerator(
         game: Game,
         ev: Evidence,
     ): HypothesisOutcome {
-        val pair = if (!safeguardActive()) pairCandidate(game, ev.z, ev.best, ev.shadowVeto) else null
+        val pair =
+            if (config.pairLookAhead && !safeguardActive()) pairCandidate(game, ev.z, ev.best, ev.shadowVeto) else null
         val endpoint = if (safeguardActive()) singleEndpointCandidate(ev.z, ev.scored, ev.shadowVeto) else null
         return when {
             pair != null -> pair
@@ -144,7 +150,7 @@ internal class HypothesisGenerator(
                 near.all { MoveScoring.isPromotion(it.first) } &&
                 near.map { it.first.from to it.first.to }.toSet().size == 1
         return when {
-            allPromoSameCell && !safeguardActive() ->
+            allPromoSameCell ->
                 HypothesisOutcome.Promotion(
                     near
                         .first()
@@ -157,8 +163,6 @@ internal class HypothesisGenerator(
                         .value()
                         .lowercase(),
                 )
-            // With a safeguard the best variant (default queen) goes to verify, which corrects it.
-            allPromoSameCell -> HypothesisOutcome.Candidate(listOf(ev.obsMove!!), priorUsed = false, vote = true)
             config.usePrior -> priorTieBreak(game, near)
             else -> HypothesisOutcome.Ambiguous("ambiguous change — please move cleanly / wait briefly")
         }
@@ -260,7 +264,7 @@ internal class HypothesisGenerator(
  * them are individually pulled forward in the reference (cell patch).
  */
 internal class AnomalyPatcher(
-    private val config: TrackerConfig,
+    private var config: TrackerConfig,
 ) {
     private val since = mutableMapOf<String, Double>()
     private val slack = 2
@@ -273,6 +277,11 @@ internal class AnomalyPatcher(
     )
 
     fun reset() = since.clear()
+
+    fun updateConfig(newConfig: TrackerConfig) {
+        config = newConfig
+        reset()
+    }
 
     /** Returns the patched squares (mutates the reference images in place). */
     fun maybePatch(

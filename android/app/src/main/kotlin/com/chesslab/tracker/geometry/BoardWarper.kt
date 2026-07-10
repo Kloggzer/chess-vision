@@ -1,5 +1,6 @@
 package com.chesslab.tracker.geometry
 
+import org.opencv.core.CvException
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Size
@@ -31,7 +32,7 @@ class WarpedBoard(
  */
 class BoardWarper(
     val profile: CalibrationProfile,
-) {
+) : AutoCloseable {
     // Source corners are stored at profile.sourceWidth/Height. The incoming analysis
     // frame may be a different resolution (rawPreview-space calibration, a camera that
     // delivers a size other than the requested enum, etc.), so scale the corners to the
@@ -52,6 +53,7 @@ class BoardWarper(
             MatOfPoint2f().apply {
                 fromList(profile.corners.toList().map { CvPoint(it.x * sx, it.y * sy) })
             }
+        cachedSrc?.release()
         cachedSrc = src
         cachedSize = key
         return src
@@ -66,14 +68,28 @@ class BoardWarper(
         val src = srcPointsFor(frame.cols(), frame.rows())
         val bs = profile.boardSize.toDouble()
         val boardBgr = Mat()
-        Imgproc.warpPerspective(frame, boardBgr, homographyTo(src, bs), Size(bs, bs))
+        val fullHomography = homographyTo(src, bs)
+        try {
+            Imgproc.warpPerspective(frame, boardBgr, fullHomography, Size(bs, bs))
+        } finally {
+            fullHomography.release()
+        }
 
         val target = (profile.boardSize * DETECT_SCALE).toInt().toDouble()
         val small = Mat()
-        Imgproc.warpPerspective(frame, small, homographyTo(src, target), Size(target, target))
-        val gray = Mat()
-        Imgproc.cvtColor(small, gray, Imgproc.COLOR_BGR2GRAY)
-        return WarpedBoard(boardBgr, gray)
+        val detectHomography = homographyTo(src, target)
+        return try {
+            Imgproc.warpPerspective(frame, small, detectHomography, Size(target, target))
+            val gray = Mat()
+            Imgproc.cvtColor(small, gray, Imgproc.COLOR_BGR2GRAY)
+            WarpedBoard(boardBgr, gray)
+        } catch (t: CvException) {
+            boardBgr.release()
+            throw t
+        } finally {
+            detectHomography.release()
+            small.release()
+        }
     }
 
     /**
@@ -84,6 +100,12 @@ class BoardWarper(
         width: Int,
         height: Int,
     ): BoardWarper = BoardWarper(profile.forResolution(width, height))
+
+    override fun close() {
+        cachedSrc?.release()
+        cachedSrc = null
+        cachedSize = null
+    }
 
     /**
      * 3x3 perspective transform mapping the four image corners (a8, h8, h1, a1)
@@ -104,7 +126,11 @@ class BoardWarper(
                 CvPoint(size + m, size + m),
                 CvPoint(-m, size + m),
             )
-        return Imgproc.getPerspectiveTransform(src, dst)
+        return try {
+            Imgproc.getPerspectiveTransform(src, dst)
+        } finally {
+            dst.release()
+        }
     }
 
     companion object {

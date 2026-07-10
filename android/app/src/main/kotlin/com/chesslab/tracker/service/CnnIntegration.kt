@@ -1,7 +1,8 @@
 package com.chesslab.tracker.service
 
+import com.chesslab.engine.api.BgrImage
+import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerState
-import com.chesslab.tracker.camera.TrackerCamera
 import com.chesslab.tracker.cnn.ALL_SQUARES
 import com.chesslab.tracker.cnn.BoardCropper
 import com.chesslab.tracker.cnn.CnnConfig
@@ -10,13 +11,12 @@ import com.chesslab.tracker.cnn.CnnSafeguard
 import com.chesslab.tracker.cnn.ObservationInput
 import com.chesslab.tracker.cnn.OnnxClassifier
 import com.chesslab.tracker.cnn.RecoveryAction
-import com.chesslab.tracker.geometry.BoardWarper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
+import org.opencv.core.Mat
 import java.io.File
 
 /**
@@ -25,15 +25,13 @@ import java.io.File
  * recovery/periodic tick loop (the port of `_cnn_worker` scheduling). Detached,
  * the tracker runs the plain diff path unchanged (null safeguard).
  *
- * Observation frames prefer a [TrackerCamera.captureHiRes] still, warped through
- * the calibration profile at the still's resolution (phase 03 design); when the
- * capture fails the tick is skipped (the analysis loop is never blocked).
+ * Observations use an owned clone of the exact full-resolution warped board that
+ * the engine just consumed. This keeps crop geometry, orientation, and frame sequence
+ * identical to diff detection and avoids a competing CameraX still-capture pipeline.
  */
 class CnnIntegration(
     private val coordinator: TrackerCoordinator,
-    private val camera: TrackerCamera,
-    private val baseWarper: () -> BoardWarper?,
-    private val claheClip: () -> Double,
+    private val frameProvider: () -> CnnFrame?,
     private val scope: CoroutineScope,
     private val modelStore: CnnModelStore,
 ) {
@@ -79,7 +77,8 @@ class CnnIntegration(
         // (p > 0.5) into the engine's taint latch (cf31c81).
         guard.onObservation = { snap ->
             val occluded = ALL_SQUARES.filterTo(mutableSetOf()) { snap.obs.pOccluded.getValue(it) > OCCLUDED_P }
-            coordinator.reportOccluded(occluded)
+            val ageS = ((System.nanoTime() - snap.timestampNs).coerceAtLeast(0L)) / NS_PER_S
+            coordinator.reportOccluded(occluded, ageS)
         }
         jobs += scope.launch { guard.verdicts.collect { coordinator.onVerifyVerdict(it) } }
         jobs += scope.launch { guard.observerLoop() }
@@ -118,35 +117,71 @@ class CnnIntegration(
         }
     }
 
-    /** Hi-res still -> warp/orient/CLAHE (BoardFramePipeline parity) -> 64 crops. */
+    /** Exact engine-frame board -> 64 crops; the provider transfers ownership of [CnnFrame.boardBgr]. */
     private suspend fun observationInput(cropper: BoardCropper): ObservationInput? {
-        val base = baseWarper() ?: return null
-        // Bound the capture: ImageCapture.takePicture can stall indefinitely (callback
-        // never fires) and would otherwise suspend the verify worker forever, pinning
-        // the engine in VERIFYING. On timeout, skip this observation.
-        val still = withTimeoutOrNull(CAPTURE_TIMEOUT_MS) { runCatching { camera.captureHiRes() }.getOrNull() }
-        return still?.let { mat ->
-            try {
-                val pipeline = BoardFramePipeline(base.forResolution(mat.cols(), mat.rows()), claheClip())
-                val processed = pipeline.process(mat, 0L)
-                val crops = cropper.crops(processed.boardBgr)
-                processed.boardBgr.release()
-                ObservationInput(
-                    crops,
-                    processed.gray,
-                    processed.bgr,
-                    seq = coordinator.frameSeq,
-                    timestampNs = System.nanoTime(),
-                )
-            } finally {
-                mat.release()
-            }
+        val frame = frameProvider() ?: return null
+        return try {
+            val crops = cropper.crops(frame.boardBgr)
+            ObservationInput(
+                crops,
+                frame.gray,
+                frame.bgr,
+                seq = frame.seq,
+                timestampNs = frame.timestampNs,
+            )
+        } finally {
+            frame.boardBgr.release()
         }
     }
 
     private companion object {
         const val RECOVERY_POLL_MS = 500L
         const val OCCLUDED_P = 0.5
-        const val CAPTURE_TIMEOUT_MS = 1500L
+        const val NS_PER_S = 1e9
+    }
+}
+
+/** Snapshot of the exact warped frame most recently consumed by the engine. */
+class CnnFrame(
+    val boardBgr: Mat,
+    val gray: GrayImage,
+    val bgr: BgrImage,
+    val seq: Int,
+    val timestampNs: Long,
+)
+
+/** Owns exactly one native board snapshot; every reader receives an owned clone. */
+class CnnFrameStore {
+    private val lock = Any()
+    private var frame: CnnFrame? = null
+
+    fun update(
+        processed: ProcessedFrame,
+        seq: Int,
+    ) {
+        synchronized(lock) {
+            frame?.boardBgr?.release()
+            frame =
+                CnnFrame(
+                    boardBgr = processed.boardBgr.clone(),
+                    gray = processed.gray,
+                    bgr = processed.bgr,
+                    seq = seq,
+                    timestampNs = System.nanoTime(),
+                )
+        }
+    }
+
+    /** Caller owns the returned board Mat and must release it. */
+    fun latest(): CnnFrame? =
+        synchronized(lock) {
+            frame?.let { CnnFrame(it.boardBgr.clone(), it.gray, it.bgr, it.seq, it.timestampNs) }
+        }
+
+    fun clear() {
+        synchronized(lock) {
+            frame?.boardBgr?.release()
+            frame = null
+        }
     }
 }

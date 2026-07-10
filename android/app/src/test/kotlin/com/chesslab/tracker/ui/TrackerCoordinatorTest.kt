@@ -4,6 +4,7 @@ import com.chesslab.engine.Game
 import com.chesslab.engine.Squares
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.GrayImage
+import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerState
 import com.chesslab.engine.uciOf
 import com.chesslab.tracker.service.TrackerCoordinator
@@ -120,5 +121,25 @@ class TrackerCoordinatorTest {
         coordinator.reset()
         assertEquals(emptyList<String>(), coordinator.uiState.value.san)
         assertEquals(TrackerState.WAITING_BOARD, coordinator.uiState.value.trackerState)
+    }
+
+    @Test
+    fun `config changes preserve fen history provenance and undo stack`() {
+        val coordinator = TrackerCoordinator()
+        val game = Game()
+        feed(coordinator, game, 8)
+        game.push(game.legalMoves().first { uciOf(it) == "e2e4" })
+        feed(coordinator, game, 8)
+        val before = coordinator.uiState.value
+
+        coordinator.applyConfig(TrackerConfig(zThr = 4.0))
+        coordinator.reconfigure(TrackerConfig(zThr = 4.0, usePrior = false))
+
+        val after = coordinator.uiState.value
+        assertEquals(before.fen, after.fen)
+        assertEquals(before.san, after.san)
+        assertNotNull(after.moves.single().decision)
+        assertTrue(coordinator.undo(), "the chess-library move stack must survive tuning")
+        assertEquals(emptyList<String>(), coordinator.uiState.value.san)
     }
 }
