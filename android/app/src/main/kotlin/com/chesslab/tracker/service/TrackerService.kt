@@ -115,6 +115,15 @@ class TrackerService : LifecycleService() {
         return START_STICKY
     }
 
+    /**
+     * Camera-only mode before calibration: frames feed [rawPreview] so the user can aim
+     * the phone; no warp, no detection. Without this, a fresh install never started the
+     * camera at all (start() was gated on a saved profile — chicken-and-egg).
+     */
+    fun startPreviewOnly() {
+        ensureCameraRunning(settings.toCameraConfig())
+    }
+
     /** Begin tracking with a calibrated [profile]. Idempotent per profile. */
     fun start(profile: CalibrationProfile) {
         val warper = BoardWarper(profile)
@@ -124,9 +133,17 @@ class TrackerService : LifecycleService() {
         driftMonitor = CornerDriftMonitor(profile.corners, cornerJumpPx = 6.0)
 
         val cameraConfig = settings.toCameraConfig()
+        ensureCameraRunning(cameraConfig)
+        startResolutionController(cameraConfig)
+    }
+
+    private var cameraRunning = false
+
+    private fun ensureCameraRunning(cameraConfig: CameraConfig) {
+        if (cameraRunning) return
+        cameraRunning = true
         camera.start(cameraConfig)
         startFrameLoop()
-        startResolutionController(cameraConfig)
     }
 
     fun undo(): Boolean = coordinator.undo()
@@ -138,10 +155,14 @@ class TrackerService : LifecycleService() {
     private fun startFrameLoop() {
         lifecycleScope.launch {
             camera.frames.collect { frame ->
-                val pipe = pipeline ?: return@collect
-
-                // Publish raw camera preview (independent of warp/tracking success).
+                // Publish raw camera preview (independent of warp/tracking success —
+                // also the ONLY consumer in preview-only mode before calibration).
                 publishRawPreview(frame.mat, frame.width, frame.height)
+                val pipe = pipeline
+                if (pipe == null) {
+                    frame.mat.release()
+                    return@collect
+                }
 
                 // Feed raw frame + corners before warp (phase 07 recorder).
                 val corners = baseWarper?.profile?.corners
