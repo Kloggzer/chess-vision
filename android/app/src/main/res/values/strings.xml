@@ -10,6 +10,7 @@
     <string name="nav_tracking">Tracking</string>
     <string name="nav_calibration">Calibration</string>
     <string name="nav_history">History</string>
+    <string name="nav_games">Games</string>
     <string name="nav_settings">Settings</string>
 
     <!-- Status chip -->
@@ -155,4 +156,46 @@
     <string name="history_prior">Prior used: %1$s</string>
     <!-- Referee alarm (illegal-move desync) -->
     <string name="alarm_banner">ILLEGAL MOVE? %1$s — take it back, or resync to accept</string>
+
+    <!-- Games library -->
+    <string name="games_title">Games</string>
+    <string name="games_count">%1$d saved</string>
+    <string name="games_empty">Finished games appear here. Play a game to the end, or reset, to save it.</string>
+    <string name="games_live">Live game</string>
+    <string name="games_move_count">%1$d moves</string>
+    <string name="games_untitled">Untitled game</string>
+    <string name="games_row_meta">%1$s · %2$d moves · %3$s</string>
+    <string name="games_row_desc">Game %1$s, %2$d moves</string>
+    <string name="games_export">Export game (PGN)</string>
+    <string name="games_sparkline_desc">Evaluation over the game</string>
+
+    <!-- Game analysis -->
+    <string name="analysis_title">Game analysis</string>
+    <string name="analysis_analyzing">Analyzing…</string>
+    <string name="analysis_eval_bar_desc">Evaluation bar</string>
+    <string name="analysis_engine">Engine</string>
+    <string name="analysis_eval">Eval</string>
+    <string name="analysis_best">Best</string>
+    <string name="analysis_line">Line</string>
+    <string name="analysis_depth_label">Depth</string>
+    <string name="analysis_first">First move</string>
+    <string name="analysis_prev">Previous move</string>
+    <string name="analysis_play">Play</string>
+    <string name="analysis_pause">Pause</string>
+    <string name="analysis_next">Next move</string>
+    <string name="analysis_last">Last move</string>
+    <string name="analysis_ply_desc">Move %1$d: %2$s</string>
+    <string name="analysis_start_position">Start position</string>
+    <string name="analysis_cp_loss">Centipawn loss</string>
+    <string name="analysis_verdict">Engine verdict</string>
+    <string name="analysis_provenance">Tracker decision</string>
+    <string name="analysis_no_provenance">No tracker provenance for this move.</string>
+
+    <!-- Move-quality chips -->
+    <string name="quality_book">Book</string>
+    <string name="quality_best">Best</string>
+    <string name="quality_good">Good</string>
+    <string name="quality_inaccuracy">Inaccuracy</string>
+    <string name="quality_mistake">Mistake</string>
+    <string name="quality_blunder">Blunder</string>
 </resources>
