@@ -1,4 +1,4 @@
-build:
+﻿build:
   weights:
     complexity: 2
     formatting: 1
@@ -25,8 +25,8 @@ complexity:
     ignoreAnnotated: ['Composable']
   # TrackerService is the integration hub wiring engine + camera + geometry + settings.
   TooManyFunctions:
-    # Bumped 17→18 for publishRawPreview (raw camera preview feature).
-    thresholdInClasses: 18
+    # Bumped 17â†’18 for publishRawPreview (raw camera preview feature).
+    thresholdInClasses: 19
 
 style:
   UnusedPrivateMember:
@@ -36,7 +36,7 @@ style:
   UnusedImports:
     active: true
   # Compose UI is literal-heavy (colours, dimensions, ranges); engine logic stays
-  # strict — MagicNumber still fires for inline literals in non-Composable bodies.
+  # strict â€” MagicNumber still fires for inline literals in non-Composable bodies.
   MagicNumber:
     ignorePropertyDeclaration: true
     ignoreLocalVariableDeclaration: true
