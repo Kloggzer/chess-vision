@@ -56,14 +56,17 @@ class BoardFramePipeline(
             }
         val boardBgr = warped.boardBgr
         val detectGray = warped.detectGray
-        val detectBgr = Mat()
+        // Detect BGR is warped straight to the small size (Python parity) instead of resized from
+        // the full-res board — the interpolation differs and can flip a low-contrast recapture's
+        // shadow classification.
+        val detectBgr = warped.detectBgr
         return try {
             if (!whitePov) {
                 Core.rotate(boardBgr, boardBgr, Core.ROTATE_180)
                 Core.rotate(detectGray, detectGray, Core.ROTATE_180)
+                Core.rotate(detectBgr, detectBgr, Core.ROTATE_180)
             }
             applyClahe(detectGray)
-            Imgproc.resize(boardBgr, detectBgr, detectGray.size())
             ProcessedFrame(
                 gray = detectGray.toGrayImage(),
                 bgr = detectBgr.toBgrImage(),

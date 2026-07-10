@@ -9,11 +9,9 @@ import org.bytedeco.javacv.FFmpegFrameGrabber
 import org.bytedeco.javacv.OpenCVFrameConverter
 import org.bytedeco.opencv.global.opencv_core.CV_32FC2
 import org.bytedeco.opencv.global.opencv_imgproc.COLOR_BGR2GRAY
-import org.bytedeco.opencv.global.opencv_imgproc.INTER_LINEAR
 import org.bytedeco.opencv.global.opencv_imgproc.createCLAHE
 import org.bytedeco.opencv.global.opencv_imgproc.cvtColor
 import org.bytedeco.opencv.global.opencv_imgproc.getPerspectiveTransform
-import org.bytedeco.opencv.global.opencv_imgproc.resize
 import org.bytedeco.opencv.global.opencv_imgproc.warpPerspective
 import org.bytedeco.opencv.opencv_core.Mat
 import org.bytedeco.opencv.opencv_core.Size
@@ -101,9 +99,7 @@ class ClipReplayTest {
         val engine = TrackerEngine(clip.config())
         engine.reset(clip.startFen)
 
-        val bs = clip.boardSize
-        val ds = (bs * TrackerConfig().detectScale).toInt()
-        val hFull = getPerspectiveTransform(quad(clip.corners), dstQuad(bs.toFloat()))
+        val ds = (clip.boardSize * TrackerConfig().detectScale).toInt()
         val hDetect = getPerspectiveTransform(quad(clip.corners), dstQuad(ds.toFloat()))
         val clahe = createCLAHE(CLAHE_CLIP, Size(CLAHE_TILE, CLAHE_TILE))
 
@@ -113,7 +109,7 @@ class ClipReplayTest {
         val fps = if (grabber.frameRate > 1.0) grabber.frameRate else DEFAULT_FPS
         val converter = OpenCVFrameConverter.ToMat()
 
-        val warp = WarpCtx(hFull, hDetect, clahe, bs, ds)
+        val warp = WarpCtx(hDetect, clahe, ds)
         try {
             var index = 0
             while (true) {
@@ -137,16 +133,16 @@ class ClipReplayTest {
         )
     }
 
-    /** Warp parameters reused for every frame of a clip (homographies + CLAHE + target sizes). */
+    /** Warp parameters reused for every frame of a clip (detect homography + CLAHE + size). */
     private class WarpCtx(
-        val hFull: Mat,
         val hDetect: Mat,
         val clahe: CLAHE,
-        val boardSize: Int,
         val detectSize: Int,
     )
 
-    /** Warp one camera frame exactly as the app's BoardFramePipeline and drive the engine. */
+    /** Warp one camera frame exactly as Python's tracker: one warp straight to the detect size,
+     * gray = cvtColor of that warp + CLAHE (NOT a resize from a full-res board — the interpolation
+     * differs enough to flip a low-contrast recapture's shadow classification). */
     private fun feedFrame(
         engine: TrackerEngine,
         cam: Mat,
@@ -154,20 +150,14 @@ class ClipReplayTest {
         promotion: String,
         tsNs: Long,
     ) {
-        val boardBgr = Mat()
-        warpPerspective(cam, boardBgr, w.hFull, Size(w.boardSize, w.boardSize))
         val detectBgr = Mat()
-        resize(boardBgr, detectBgr, Size(w.detectSize, w.detectSize), 0.0, 0.0, INTER_LINEAR)
-        val camGray = Mat()
-        cvtColor(cam, camGray, COLOR_BGR2GRAY)
+        warpPerspective(cam, detectBgr, w.hDetect, Size(w.detectSize, w.detectSize))
         val detectGray = Mat()
-        warpPerspective(camGray, detectGray, w.hDetect, Size(w.detectSize, w.detectSize))
+        cvtColor(detectBgr, detectGray, COLOR_BGR2GRAY)
         w.clahe.apply(detectGray, detectGray)
         engine.onFrame(toGray(detectGray), toBgr(detectBgr), tsNs)
         if (engine.status.promotionPending != null) engine.forcePromote(promotion)
-        boardBgr.release()
         detectBgr.release()
-        camGray.release()
         detectGray.release()
     }
 
@@ -224,15 +214,9 @@ class ClipReplayTest {
         const val CLAHE_CLIP = 2.0
         const val CLAHE_TILE = 8
 
-        // Clips the Kotlin engine port does NOT yet reproduce 1:1 with the Python tracker — kept
-        // green in the Python `pytest -m clips` suite, skipped (not failed) here and documented so
-        // the parity gap is visible. opera is a 33-ply sacrificial game whose colour-changing
-        // recaptures (a cream pawn replaced by a dark pawn reads as a darkening/shadow and gets
-        // salvaged into a push) desync the port mid-game — a real engine difference to chase later.
-        val KNOWN_DIVERGENCES =
-            mapOf(
-                "blender-opera.mp4" to "port diverges mid-game on colour-changing recaptures (e.g. d6xe5)",
-            )
+        // Clips the Kotlin engine does not yet reproduce 1:1 with the Python tracker (kept green in
+        // Python `pytest -m clips`, skipped — not failed — here and documented). Empty = full parity.
+        val KNOWN_DIVERGENCES = emptyMap<String, String>()
 
         fun findClipsDir(): File? {
             var dir: File? = File(System.getProperty("user.dir")).absoluteFile
