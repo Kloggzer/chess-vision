@@ -18,10 +18,25 @@
     <string name="status_occluded">Hand over board</string>
     <string name="status_stuck">Stuck</string>
     <string name="status_verifying">Verifying</string>
+    <string name="tracking_title">Board tracking</string>
+    <string name="tracking_last_move">Last move: %1$s</string>
+    <string name="recovery_title">Move needs attention</string>
+    <string name="recovery_message">The board changed, but the move could not be confirmed. Take back the last move if needed, or recalibrate the board.</string>
 
     <!-- Tracking screen -->
-    <string name="action_undo">Undo</string>
+    <string name="action_undo">Undo / correct last move</string>
     <string name="action_reset">Reset</string>
+    <string name="action_reset_game">Reset game</string>
+    <string name="action_recalibrate">Recalibrate</string>
+    <string name="action_confirm">Confirm</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="confirm_reset_title">Reset game?</string>
+    <string name="confirm_reset_message">Start a new game from the opening position. Calibration is kept.</string>
+    <string name="confirm_recalibrate_title">Recalibrate board?</string>
+    <string name="confirm_recalibrate_message">Discard the current board alignment and set it up again. The game in progress is cleared.</string>
+    <string name="calib_prompt">Point the camera at the board — it aligns automatically when the ArUco markers are visible. No markers? Tap Calibrate to set the corners by hand.</string>
+    <string name="calib_start">Calibrate manually</string>
+    <string name="alarm_take_back">Take back</string>
     <string name="moves_empty">No moves yet</string>
     <string name="promotion_title">Promotion</string>
     <string name="promotion_message">Choose the promotion piece for %1$s to %2$s</string>
@@ -43,14 +58,21 @@
     <string name="calib_confirm_orientation">Confirm orientation: tap the a8 corner</string>
     <string name="calib_ready">Corners set — review and save</string>
     <string name="calib_clear">Clear</string>
+    <string name="calib_back_to_tracking">Back to tracking</string>
     <string name="calib_suggest">Suggest corners</string>
     <string name="calib_save">Save</string>
+    <string name="calib_orientation_help">Corner order matters: start at a8, then go clockwise. a8 is the corner on Black’s left when White is at the bottom.</string>
     <string name="calib_aruco_auto">Auto (ArUco)</string>
     <string name="calib_aruco_not_found">Markers not found</string>
+    <string name="calib_aiming">Aiming… point the camera at the board</string>
 
     <!-- Settings sections -->
     <string name="settings_game">Game</string>
+    <string name="settings_title">Settings</string>
+    <string name="settings_subtitle">Everyday controls first. Detection tuning is optional.</string>
     <string name="settings_camera">Camera</string>
+    <string name="settings_detection">Detection</string>
+    <string name="settings_detection_description">Use the defaults unless you are troubleshooting a specific board or lighting setup.</string>
     <string name="settings_recording">Recording</string>
     <string name="settings_detection_advanced">Advanced detection</string>
     <string name="settings_experimental">Experimental</string>
@@ -72,8 +94,11 @@
 
     <!-- Settings: detection tunables -->
     <string name="setting_motion_thr">Motion threshold</string>
-    <string name="setting_z_thr">Z threshold</string>
+    <string name="setting_z_thr">Z threshold (change sensitivity)</string>
     <string name="setting_census_thr">Census threshold</string>
+    <string name="setting_census_z_weight">Census structural weight</string>
+    <string name="setting_max_changed">Max changed squares</string>
+    <string name="setting_aruco_margin">ArUco margin (warp fit)</string>
     <string name="setting_occlusion_thr">Occlusion threshold</string>
     <string name="setting_motion_margin">Motion ROI margin</string>
     <string name="setting_overhang">Overhang</string>
@@ -105,6 +130,9 @@
 
     <!-- History -->
     <string name="history_export">Export game (PGN)</string>
+    <string name="history_title">Game history</string>
+    <string name="history_subtitle">%1$d moves in this game</string>
+    <string name="history_empty">Moves will appear here after your first confirmed move.</string>
     <string name="history_no_provenance">No decision provenance recorded.</string>
     <string name="history_decider">Decider: %1$s</string>
     <string name="history_reason">Reason: %1$s</string>

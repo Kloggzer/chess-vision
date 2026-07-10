@@ -14,8 +14,8 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -31,7 +31,6 @@ import androidx.navigation.compose.rememberNavController
 import com.chesslab.tracker.R
 import com.chesslab.tracker.geometry.ArucoCornerDetector
 import com.chesslab.tracker.record.PgnBuilder
-import org.opencv.core.Mat
 
 private enum class Dest(
     val route: String,
@@ -58,7 +57,6 @@ fun ChesslabNavHost(
 
     // ArUco corner detection for the calibration screen.
     val arucoDetector = remember { ArucoCornerDetector() }
-    val arucoFrameRef = remember { mutableStateOf<Mat?>(null) }
 
     Scaffold(
         bottomBar = { BottomNavBar(navController) },
@@ -69,26 +67,10 @@ fun ChesslabNavHost(
             modifier = Modifier.padding(padding),
         ) {
             composable(Dest.TRACKING.route) {
-                TrackingScreen(
-                    state = uiState,
-                    board = board,
-                    rawPreview = rawPreview,
-                    showDebug = settings.debugCard,
-                    overlayView = settings.overlayView,
-                    onUndo = viewModel::undo,
-                    onReset = viewModel::reset,
-                    onPromote = viewModel::forcePromote,
-                )
+                TrackingRoute(viewModel, navController, uiState, board, rawPreview, settings)
             }
             composable(Dest.CALIBRATION.route) {
-                CalibrationScreen(
-                    experimentalDetection = settings.experimentalDetection,
-                    onSuggest = { null },
-                    onSave = viewModel::saveCalibration,
-                    arucoDetector = arucoDetector,
-                    arucoEnabled = true,
-                    arucoFrameRef = arucoFrameRef,
-                )
+                CalibrationRoute(viewModel, navController, rawPreview, arucoDetector, settings.experimentalDetection)
             }
             composable(Dest.HISTORY.route) {
                 HistoryScreen(
@@ -105,6 +87,65 @@ fun ChesslabNavHost(
             }
         }
     }
+}
+
+private fun NavHostController.navigateTab(route: String) = navigate(route) { launchSingleTop = true }
+
+@Suppress("ktlint:standard:function-naming", "FunctionNaming")
+@Composable
+private fun TrackingRoute(
+    viewModel: TrackerViewModel,
+    navController: NavHostController,
+    uiState: UiState,
+    board: android.graphics.Bitmap?,
+    rawPreview: android.graphics.Bitmap?,
+    settings: com.chesslab.tracker.service.TrackerSettings,
+) {
+    val calibrated by viewModel.profile.collectAsStateWithLifecycle()
+    TrackingScreen(
+        state = uiState,
+        board = board,
+        rawPreview = rawPreview,
+        calibrated = calibrated != null,
+        showDebug = settings.debugCard,
+        overlayView = settings.overlayView,
+        onUndo = viewModel::undo,
+        onReset = viewModel::reset,
+        onPromote = viewModel::forcePromote,
+        onCalibrate = { navController.navigateTab(Dest.CALIBRATION.route) },
+        onRecalibrate = {
+            viewModel.recalibrate()
+            navController.navigateTab(Dest.CALIBRATION.route)
+        },
+    )
+}
+
+@Suppress("ktlint:standard:function-naming", "FunctionNaming")
+@Composable
+private fun CalibrationRoute(
+    viewModel: TrackerViewModel,
+    navController: NavHostController,
+    rawPreview: android.graphics.Bitmap?,
+    arucoDetector: ArucoCornerDetector,
+    experimentalDetection: Boolean,
+) {
+    DisposableEffect(Unit) {
+        viewModel.setCalibrationActive(true)
+        onDispose { viewModel.setCalibrationActive(false) }
+    }
+    CalibrationScreen(
+        experimentalDetection = experimentalDetection,
+        onSuggest = { null },
+        onSave = { corners, whitePov, w, h ->
+            viewModel.saveCalibration(corners, whitePov, w, h)
+            navController.navigateTab(Dest.TRACKING.route)
+        },
+        onCancel = { navController.navigateTab(Dest.TRACKING.route) },
+        rawPreview = rawPreview,
+        arucoDetector = arucoDetector,
+        arucoEnabled = true,
+        frameProvider = viewModel::latestCalibrationFrame,
+    )
 }
 
 @Suppress("ktlint:standard:function-naming", "FunctionNaming")

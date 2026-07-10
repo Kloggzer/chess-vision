@@ -30,6 +30,7 @@ class TrackerEngine(
     private var lastPublicState: TrackerState? = null
     private val queued = mutableListOf<TrackerEvent>()
     private var lastNowS = 0.0
+    private var pendingSinceS = 0.0
     private val uncertaintyFlow = MutableStateFlow(Uncertainty())
 
     /** Phase 05 plugs in the CNN safeguard; null = pure diff tracking with confirmFrames voting. */
@@ -108,6 +109,7 @@ class TrackerEngine(
         state.motion = motion
         refreshOcclusion(gray, bgr, now)
         if (motion > config.motionThr) handleMotionSpike(now) else handleStableFrame(gray, bgr, now, events)
+        watchdogPending(now)
         val public = publicState()
         if (public != lastPublicState) {
             lastPublicState = public
@@ -318,6 +320,26 @@ class TrackerEngine(
     }
 
     /** Phase 05 wiring feeds safeguard verdicts back; commits/rejects the pending candidate. */
+    /**
+     * Backstop for a stalled safeguard: if a candidate has been parked in VERIFYING for
+     * longer than [PENDING_TIMEOUT_S] (the safeguard normally answers in ~7 s), drain it
+     * via the existing Timeout path so the engine can never deadlock in VERIFYING —
+     * even if the safeguard coroutine died without emitting a verdict.
+     */
+    private fun watchdogPending(now: Double) {
+        val pending = state.pending
+        if (pending == null) {
+            pendingSinceS = 0.0
+            return
+        }
+        if (pendingSinceS == 0.0) {
+            pendingSinceS = now
+        } else if (now - pendingSinceS > PENDING_TIMEOUT_S) {
+            pendingSinceS = 0.0
+            onVerifyVerdict(VerifyVerdict.Timeout(pending.ucis))
+        }
+    }
+
     fun onVerifyVerdict(verdict: VerifyVerdict) {
         val pending = state.pending
         if (pending == null || pending.ucis != verdict.ucis || state.game.fen() != pending.fen) return
@@ -452,5 +474,6 @@ class TrackerEngine(
         const val AVG_FRAMES = 3
         const val OCC_KEEPALIVE_S = 0.1
         const val OCC_THR_FACTOR = 4.0
+        const val PENDING_TIMEOUT_S = 10.0
     }
 }

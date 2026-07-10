@@ -31,6 +31,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.chesslab.tracker.R
 import com.chesslab.tracker.camera.Resolution
+import kotlin.math.roundToInt
 import com.chesslab.tracker.cnn.CnnModelStore
 import com.chesslab.tracker.cnn.OnnxClassifier
 import com.chesslab.tracker.service.OverlayView
@@ -47,6 +48,12 @@ fun SettingsScreen(
     Column(
         modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
     ) {
+        Text(stringResource(R.string.settings_title), style = MaterialTheme.typography.headlineSmall)
+        Text(
+            stringResource(R.string.settings_subtitle),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
+        )
         SectionHeader(stringResource(R.string.settings_game))
         SettingSwitch(stringResource(R.string.setting_look_forward), settings.pairLookAhead) { v ->
             onUpdate { it.copy(pairLookAhead = v) }
@@ -67,8 +74,15 @@ fun SettingsScreen(
         SettingSwitch(stringResource(R.string.setting_dynamic_resolution), settings.dynamicResolution) { v ->
             onUpdate { it.copy(dynamicResolution = v) }
         }
+        // Warp: how far the ArUco markers sit outside the playing field. Adjust until the
+        // debug grid overlay lines up with the physical squares (0 = markers at field corners).
+        SettingSlider(stringResource(R.string.setting_aruco_margin), settings.arucoMargin, 0f..0.15f, 0.06) { v ->
+            onUpdate { it.copy(arucoMargin = v) }
+        }
 
         var advanced by remember { mutableStateOf(false) }
+        SectionHeader(stringResource(R.string.settings_detection))
+        Text(stringResource(R.string.settings_detection_description), style = MaterialTheme.typography.bodyMedium)
         SettingSwitch(stringResource(R.string.settings_detection_advanced), advanced) { advanced = it }
         if (advanced) {
             SettingSlider(stringResource(R.string.setting_motion_thr), settings.motionThr, 0f..2f, 0.25) { v ->
@@ -80,6 +94,17 @@ fun SettingsScreen(
             SettingSlider(stringResource(R.string.setting_census_thr), settings.censusThr, 0f..400f, 160.0) { v ->
                 onUpdate { it.copy(censusThr = v) }
             }
+            SettingSlider(stringResource(R.string.setting_census_z_weight), settings.censusZWeight, 0f..2f, 1.0) { v ->
+                onUpdate { it.copy(censusZWeight = v) }
+            }
+            SettingSlider(
+                label = stringResource(R.string.setting_max_changed),
+                value = settings.maxChanged.toDouble(),
+                range = 2f..12f,
+                default = 6.0,
+                steps = 9,
+                onChange = { v -> onUpdate { it.copy(maxChanged = v.roundToInt()) } },
+            )
             SettingSlider(stringResource(R.string.setting_occlusion_thr), settings.occlusionColorThr, 0f..5f, 1.5) { v ->
                 onUpdate { it.copy(occlusionColorThr = v) }
             }

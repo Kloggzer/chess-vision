@@ -16,6 +16,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 
 /**
@@ -120,7 +121,10 @@ class CnnIntegration(
     /** Hi-res still -> warp/orient/CLAHE (BoardFramePipeline parity) -> 64 crops. */
     private suspend fun observationInput(cropper: BoardCropper): ObservationInput? {
         val base = baseWarper() ?: return null
-        val still = runCatching { camera.captureHiRes() }.getOrNull()
+        // Bound the capture: ImageCapture.takePicture can stall indefinitely (callback
+        // never fires) and would otherwise suspend the verify worker forever, pinning
+        // the engine in VERIFYING. On timeout, skip this observation.
+        val still = withTimeoutOrNull(CAPTURE_TIMEOUT_MS) { runCatching { camera.captureHiRes() }.getOrNull() }
         return still?.let { mat ->
             try {
                 val pipeline = BoardFramePipeline(base.forResolution(mat.cols(), mat.rows()), claheClip())
@@ -143,5 +147,6 @@ class CnnIntegration(
     private companion object {
         const val RECOVERY_POLL_MS = 500L
         const val OCCLUDED_P = 0.5
+        const val CAPTURE_TIMEOUT_MS = 1500L
     }
 }

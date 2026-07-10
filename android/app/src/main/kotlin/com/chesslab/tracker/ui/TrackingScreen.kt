@@ -8,15 +8,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -24,6 +28,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.chesslab.tracker.R
 import com.chesslab.tracker.service.OverlayView
@@ -34,11 +39,14 @@ fun TrackingScreen(
     state: UiState,
     board: android.graphics.Bitmap?,
     rawPreview: android.graphics.Bitmap?,
+    calibrated: Boolean,
     showDebug: Boolean,
     overlayView: OverlayView,
     onUndo: () -> Unit,
     onReset: () -> Unit,
     onPromote: (String) -> Unit,
+    onCalibrate: () -> Unit,
+    onRecalibrate: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Auto-select CAMERA when no board frame yet, so user immediately sees the camera feed.
@@ -49,14 +57,18 @@ fun TrackingScreen(
             overlayView
         }
 
+    var confirmReset by remember { mutableStateOf(false) }
+    var confirmRecalibrate by remember { mutableStateOf(false) }
+
     Column(
         modifier =
             modifier
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
                 .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        TrackingHeader(state.trackerState, state.lastMoveSan)
+
         // Accessibility live region: announces each committed move once.
         Text(
             text = state.announcement?.text.orEmpty(),
@@ -70,41 +82,84 @@ fun TrackingScreen(
                     },
         )
 
-        StatusChip(state = state.trackerState)
+        if (!calibrated) CalibratePrompt(onCalibrate)
 
-        state.alarm?.let { AlarmBanner(it) }
+        if (state.trackerState == com.chesslab.engine.api.TrackerState.STUCK || state.alarm != null) {
+            RecoveryCard(onTakeBack = onUndo, onRecalibrate = { confirmRecalibrate = true })
+        }
 
-        if (effectiveView == OverlayView.CAMERA || (showDebug && effectiveView != OverlayView.BOARD)) {
+        // Show the real cropped/warped camera board whenever tracking has produced
+        // one (or the live camera while still searching for the board). The synthetic
+        // FEN board is only a fallback before the first warped frame.
+        if (board != null || effectiveView == OverlayView.CAMERA) {
             OverlayBoard(
                 view = effectiveView,
                 bitmap = board,
                 rawPreview = rawPreview,
                 debug = state.debug,
                 fen = state.fen,
+                modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
+                showGrid = showDebug,
             )
         } else {
-            ChessBoard(fen = state.fen)
+            ChessBoard(fen = state.fen, modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp))
         }
 
-        Text(
-            text = state.note,
-            style = MaterialTheme.typography.bodyMedium,
-        )
+        if (state.note.isNotBlank() && state.trackerState != com.chesslab.engine.api.TrackerState.STUCK) {
+            Text(
+                text = state.note,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
 
         MoveList(state.san)
 
+        // Row 1 — move corrections (frequent, low-risk).
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(
                 onClick = onUndo,
                 modifier = Modifier.heightIn(min = 48.dp),
             ) { Text(stringResource(R.string.action_undo)) }
-            Button(
-                onClick = onReset,
+        }
+
+        // Row 2 — session / geometry (infrequent, confirm before firing).
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TextButton(
+                onClick = { confirmReset = true },
                 modifier = Modifier.heightIn(min = 48.dp),
-            ) { Text(stringResource(R.string.action_reset)) }
+            ) { Text(stringResource(R.string.action_reset_game)) }
+            OutlinedButton(
+                onClick = { confirmRecalibrate = true },
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) { Text(stringResource(R.string.action_recalibrate)) }
         }
 
         if (showDebug) DebugCard(state.debug)
+    }
+
+    if (confirmReset) {
+        ConfirmDialog(
+            title = stringResource(R.string.confirm_reset_title),
+            message = stringResource(R.string.confirm_reset_message),
+            onConfirm = {
+                confirmReset = false
+                onReset()
+            },
+            onDismiss = { confirmReset = false },
+        )
+    }
+    if (confirmRecalibrate) {
+        ConfirmDialog(
+            title = stringResource(R.string.confirm_recalibrate_title),
+            message = stringResource(R.string.confirm_recalibrate_message),
+            onConfirm = {
+                confirmRecalibrate = false
+                onRecalibrate()
+            },
+            onDismiss = { confirmRecalibrate = false },
+        )
     }
 
     val promotion = state.promotion
@@ -124,32 +179,136 @@ fun TrackingScreen(
     }
 }
 
+@Composable
+private fun TrackingHeader(
+    trackerState: com.chesslab.engine.api.TrackerState,
+    lastMove: String?,
+) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(stringResource(R.string.tracking_title), style = MaterialTheme.typography.headlineSmall)
+            StatusChip(state = trackerState)
+        }
+        if (lastMove != null) {
+            Text(
+                text = stringResource(R.string.tracking_last_move, lastMove),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+    }
+}
+
+@Composable
+private fun RecoveryCard(
+    onTakeBack: () -> Unit,
+    onRecalibrate: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                stringResource(R.string.recovery_title),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Text(
+                stringResource(R.string.recovery_message),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = onTakeBack, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text(stringResource(R.string.alarm_take_back))
+                }
+                OutlinedButton(onClick = onRecalibrate, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text(stringResource(R.string.action_recalibrate))
+                }
+            }
+        }
+    }
+}
+
 /**
- * Referee alarm banner (ports the Python alarm banner, 455d066/f6960f8): red, a TalkBack
- * live region, with a one-shot alert tone at most once per 30 s.
+ * Empty-state prompt shown before a board is calibrated: guides the user to aim
+ * the camera and start calibration.
  */
 @Suppress("ktlint:standard:function-naming", "FunctionNaming")
 @Composable
-private fun AlarmBanner(alarm: AlarmUi) {
+private fun CalibratePrompt(onCalibrate: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.calib_prompt), style = MaterialTheme.typography.bodyMedium)
+            Button(onClick = onCalibrate, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(stringResource(R.string.calib_start))
+            }
+        }
+    }
+}
+
+/** Generic confirm dialog for destructive session/geometry actions. */
+@Suppress("ktlint:standard:function-naming", "FunctionNaming")
+@Composable
+private fun ConfirmDialog(
+    title: String,
+    message: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(message) },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(stringResource(R.string.action_confirm)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
+    )
+}
+
+/**
+ * Referee alarm banner (ports the Python alarm banner, 455d066/f6960f8): red, a TalkBack
+ * live region, with a one-shot alert tone at most once per 30 s. Offers the user a
+ * take-back (whole-board match auto-clears the alarm) or recalibrate (geometry drift).
+ */
+@Suppress("ktlint:standard:function-naming", "FunctionNaming")
+@Composable
+private fun AlarmBanner(
+    alarm: AlarmUi,
+    note: String,
+    onTakeBack: () -> Unit,
+    onRecalibrate: () -> Unit,
+) {
     val text = stringResource(R.string.alarm_banner, alarm.detail)
     Card(
         colors =
             androidx.compose.material3.CardDefaults
                 .cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
     ) {
-        Text(
-            text = text,
-            color = MaterialTheme.colorScheme.onErrorContainer,
-            style = MaterialTheme.typography.titleMedium,
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(12.dp)
-                    .semantics {
-                        liveRegion = LiveRegionMode.Assertive
-                        contentDescription = text
-                    },
-        )
+        Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = text,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                style = MaterialTheme.typography.titleMedium,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .semantics {
+                            liveRegion = LiveRegionMode.Assertive
+                            contentDescription = text
+                        },
+            )
+            if (note.isNotBlank()) {
+                Text(
+                    text = note,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(onClick = onTakeBack) { Text(stringResource(R.string.alarm_take_back)) }
+                TextButton(onClick = onRecalibrate) { Text(stringResource(R.string.action_recalibrate)) }
+            }
+        }
     }
     androidx.compose.runtime.LaunchedEffect(Unit) { playAlarmTone() }
 }
@@ -191,6 +350,7 @@ private fun MoveList(san: List<String>) {
         text = text.ifEmpty { stringResource(R.string.moves_empty) },
         style = MaterialTheme.typography.bodyLarge,
         fontFamily = FontFamily.Monospace,
+        maxLines = 1,
         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
     )
 }

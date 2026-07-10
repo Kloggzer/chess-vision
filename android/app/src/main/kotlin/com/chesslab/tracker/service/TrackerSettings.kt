@@ -39,11 +39,15 @@ data class TrackerSettings(
     val motionThr: Double = TrackerConfig.DEFAULT_MOTION_THR,
     val zThr: Double = TrackerConfig.DEFAULT_Z_THR,
     val censusThr: Double = TrackerConfig.DEFAULT_CENSUS_THR,
+    val censusZWeight: Double = TrackerConfig.DEFAULT_CENSUS_Z_WEIGHT,
+    val maxChanged: Int = TrackerConfig.DEFAULT_MAX_CHANGED,
     val occlusionColorThr: Double = TrackerConfig.DEFAULT_OCCLUSION_COLOR_THR,
     val motionMargin: Double = TrackerConfig.DEFAULT_MOTION_MARGIN,
     val overhang: Double = TrackerConfig.DEFAULT_OVERHANG,
     val motionHoldS: Double = TrackerConfig.DEFAULT_MOTION_HOLD_S,
     val claheClip: Double = TrackerConfig.DEFAULT_DIFF_CLAHE_CLIP,
+    // Warp geometry: fraction the ArUco markers sit outside the playing field.
+    val arucoMargin: Double = DEFAULT_ARUCO_MARGIN,
     // Recording (phase 07)
     val autoRecord: Boolean = true,
     // CNN safeguard (phase 05); needs an imported model (CnnModelStore) to attach.
@@ -61,6 +65,8 @@ data class TrackerSettings(
             zThr = zThr,
             ambiguityMarginLl = ambiguityMargin,
             censusThr = censusThr,
+            censusZWeight = censusZWeight,
+            maxChanged = maxChanged,
             occlusionColorThr = occlusionColorThr,
             motionMargin = motionMargin,
             overhang = overhang,
@@ -92,5 +98,8 @@ data class TrackerSettings(
     companion object {
         /** `config.TRACK_DEFAULTS["cnn_conf_thr"]`. */
         const val DEFAULT_CNN_CONF_THR: Double = 0.85
+
+        /** ArUco markers sit ~6% outside the field (Python `profile_from_frame`, calibration.py:150). */
+        const val DEFAULT_ARUCO_MARGIN: Double = 0.06
     }
 }

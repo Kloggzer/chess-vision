@@ -91,13 +91,22 @@ class ArucoCornerDetector {
         return result
     }
 
-    /** Compute the centroid of a 4×1 CV_32FC2 quad. */
+    /**
+     * Compute the centroid of a CV_32FC2 marker quad. The quad is a 1×4 (or 4×1)
+     * two-channel float Mat, so points must be read with a FloatArray — OpenCV's
+     * Mat.get(..., double[]) rejects non-CV_64F mats ("data type not compatible").
+     */
     private fun computeCenter(quad: Mat): Point {
         var sumX = 0.0
         var sumY = 0.0
-        val pointBuffer = DoubleArray(2)
+        val pointBuffer = FloatArray(2)
         for (j in 0 until QUAD_CORNERS) {
-            quad.get(j, COLUMN_INDEX, pointBuffer)
+            // Corners come back as a 1-row, 4-column Mat; index by column.
+            if (quad.rows() == 1) {
+                quad.get(0, j, pointBuffer)
+            } else {
+                quad.get(j, COLUMN_INDEX, pointBuffer)
+            }
             sumX += pointBuffer[0]
             sumY += pointBuffer[1]
         }

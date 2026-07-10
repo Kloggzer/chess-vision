@@ -47,21 +47,46 @@ class TrackerViewModel(
 
     private var service: TrackerService? = null
 
-    /** The active calibration profile, or null when the board is not yet calibrated. */
-    val profile: StateFlow<CalibrationProfile?> =
-        MutableStateFlow(calibrationStore.load(CAMERA_ID)).asStateFlow()
+    /**
+     * The active calibration profile, or null when the board is not yet calibrated.
+     * Driven purely by the service's [TrackerService.activeProfile] — set by ArUco
+     * auto-calibration or a manual save, cleared on recalibrate. Not seeded from the
+     * store, so a stale saved profile never masks the "not calibrated yet" state.
+     */
+    private val _profile = MutableStateFlow<CalibrationProfile?>(null)
+    val profile: StateFlow<CalibrationProfile?> = _profile.asStateFlow()
 
     fun onServiceConnected(bound: TrackerService) {
         service = bound
         viewModelScope.launch { bound.uiState.collect { _uiState.value = it } }
         viewModelScope.launch { bound.boardBitmap.collect { _board.value = it } }
         viewModelScope.launch { bound.rawPreview.collect { _rawPreview.value = it } }
-        val saved = calibrationStore.load(CAMERA_ID)
-        if (saved != null) bound.start(saved) else bound.startPreviewOnly()
+        // Reflect the service's active profile (manual save OR ArUco auto-calibration).
+        viewModelScope.launch { bound.activeProfile.collect { _profile.value = it } }
+        // Always start in preview-only: ArUco auto-calibration is the primary geometry
+        // source and drives start() itself. A saved profile does not auto-start (it would
+        // block auto-calibration and can be stale); the manual tab remains a fallback.
+        bound.startPreviewOnly()
     }
 
     fun onServiceDisconnected() {
+        service?.setCalibrationActive(false)
         service = null
+    }
+
+    /** Retain (or release) the latest frame for ArUco while the calibration screen is shown. */
+    fun setCalibrationActive(active: Boolean) {
+        service?.setCalibrationActive(active)
+    }
+
+    /** Clone of the latest full-res frame for ArUco; caller MUST release. */
+    fun latestCalibrationFrame(): org.opencv.core.Mat? = service?.latestCalibrationFrame()
+
+    /** Drop the saved calibration and return to preview so the user can re-align. */
+    fun recalibrate() {
+        calibrationStore.delete(CAMERA_ID)
+        _profile.value = null
+        service?.stopTrackingToPreview()
     }
 
     fun updateSettings(transform: (TrackerSettings) -> TrackerSettings) {
@@ -83,6 +108,7 @@ class TrackerViewModel(
             )
         calibrationStore.save(CAMERA_ID, profile)
         service?.start(profile)
+        _profile.value = profile
     }
 
     fun undo() {

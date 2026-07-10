@@ -30,6 +30,7 @@ private const val MARKER_ALPHA = 0.5f
 private val MAGENTA = Color(0xFFFF00FF)
 private val CYAN = Color(0xFF00E5FF)
 private val ORANGE = Color(0xFFFF9800)
+private val GRID = Color(0x9900E5FF)
 
 private fun DrawScope.markSquares(
     squares: List<String>,
@@ -61,6 +62,7 @@ fun OverlayBoard(
     debug: DebugSnapshot,
     fen: String,
     modifier: Modifier = Modifier,
+    showGrid: Boolean = false,
 ) {
     if (view == OverlayView.CAMERA) {
         CameraPreview(rawPreview = rawPreview, modifier = modifier)
@@ -85,7 +87,19 @@ fun OverlayBoard(
                 OverlayView.OCCLUSION -> markSquares(debug.occludedVetoed, ORANGE)
                 OverlayView.CAMERA -> Unit // handled above
             }
+            // Debug: 8x8 grid to verify the warp lines up with the physical squares.
+            if (showGrid) drawBoardGrid()
         }
+    }
+}
+
+/** Draw an 8x8 grid over the warped board so warp misalignment is visible. */
+private fun DrawScope.drawBoardGrid() {
+    val cell = size.width / BOARD_DIM
+    for (i in 0..BOARD_DIM) {
+        val p = i * cell
+        drawLine(GRID, Offset(p, 0f), Offset(p, size.height), strokeWidth = 2f)
+        drawLine(GRID, Offset(0f, p), Offset(size.width, p), strokeWidth = 2f)
     }
 }
 
