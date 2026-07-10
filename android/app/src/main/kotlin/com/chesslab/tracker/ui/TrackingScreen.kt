@@ -85,7 +85,6 @@ fun TrackingScreen(
     rawPreview: android.graphics.Bitmap?,
     calibrated: Boolean,
     showDebug: Boolean,
-    overlayView: OverlayView,
     onUndo: () -> Unit,
     onReset: () -> Unit,
     onPromote: (String) -> Unit,
