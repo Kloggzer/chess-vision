@@ -42,6 +42,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.chesslab.engine.api.TrackerState
 import com.chesslab.tracker.R
 import com.chesslab.tracker.ui.theme.BoardPalette
@@ -375,6 +376,14 @@ fun BoardFrame(
     )
 }
 
+/** Shared card container for a settings row — themed `surface` background, hairline border. */
+@Composable
+private fun Modifier.settingCard(): Modifier =
+    this
+        .fillMaxWidth()
+        .padding(vertical = 4.dp)
+        .clip(MaterialTheme.shapes.medium)
+
 @Suppress("ktlint:standard:function-naming", "FunctionNaming", "LongParameterList")
 @Composable
 fun SettingSlider(
@@ -386,7 +395,14 @@ fun SettingSlider(
     steps: Int = 0,
     onChange: (Double) -> Unit,
 ) {
-    Column(modifier = modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+    Column(
+        modifier =
+            modifier
+                .settingCard()
+                .background(MaterialTheme.colorScheme.surface)
+                .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.medium)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -395,6 +411,8 @@ fun SettingSlider(
             Text(
                 stringResource(R.string.value_and_default, format(value), format(default)),
                 style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         androidx.compose.material3.Slider(
@@ -420,7 +438,13 @@ fun SettingSwitch(
     onChange: (Boolean) -> Unit,
 ) {
     Row(
-        modifier = modifier.fillMaxWidth().heightIn(min = MinTouch).padding(vertical = 4.dp),
+        modifier =
+            modifier
+                .settingCard()
+                .background(MaterialTheme.colorScheme.surface)
+                .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.medium)
+                .heightIn(min = MinTouch)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
@@ -433,14 +457,17 @@ fun SettingSwitch(
     }
 }
 
+private const val SECTION_HEADER_LETTER_SPACING_SP = 1.4f
+
 @Suppress("ktlint:standard:function-naming", "FunctionNaming")
 @Composable
 fun SectionHeader(text: String) {
     Text(
-        text = text,
-        style = MaterialTheme.typography.titleMedium,
+        text = text.uppercase(),
+        style = MaterialTheme.typography.titleSmall.copy(letterSpacing = SECTION_HEADER_LETTER_SPACING_SP.sp),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = TextAlign.Start,
-        modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 6.dp),
     )
 }
 

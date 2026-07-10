@@ -79,6 +79,7 @@
     <string name="settings_detection_advanced">Advanced detection</string>
     <string name="settings_experimental">Experimental</string>
     <string name="settings_debug">Debug</string>
+    <string name="settings_debug_board_views_caption">Board views (Rendered/Video/Raw and debug overlays) now live on the Tracking screen.</string>
 
     <!-- Settings: game -->
     <string name="setting_look_forward">Look-forward (fast play)</string>
