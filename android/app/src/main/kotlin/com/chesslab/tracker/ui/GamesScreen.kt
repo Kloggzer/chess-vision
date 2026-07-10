@@ -212,7 +212,13 @@ private fun EvalSparkline(
             val x = index * stepX
             if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
-        drawPath(path = path, color = line, style = androidx.compose.ui.graphics.drawscope.Stroke(width = SPARK_STROKE_DP * density))
+        drawPath(
+            path = path,
+            color = line,
+            style =
+                androidx.compose.ui.graphics.drawscope
+                    .Stroke(width = SPARK_STROKE_DP * density),
+        )
     }
 }
 
@@ -278,7 +284,11 @@ private fun stmCp(analysis: PositionAnalysis): Int =
 
 /** Centipawns from White's POV (positive = White better), mate clamped. */
 internal fun whitePovCp(analysis: PositionAnalysis): Int {
-    val whiteToMove = analysis.fen.substringAfter(' ').trimStart().startsWith("w")
+    val whiteToMove =
+        analysis.fen
+            .substringAfter(' ')
+            .trimStart()
+            .startsWith("w")
     val stm = stmCp(analysis)
     return if (whiteToMove) stm else -stm
 }
@@ -317,13 +327,11 @@ internal fun gameAccuracyPercent(analyses: List<PositionAnalysis>): Int? {
 }
 
 /** Eval-bar fill fraction for a White-POV centipawn score: 0 = Black winning, 1 = White winning. */
-internal fun evalBarFraction(cpWhite: Int): Float =
-    (HALF + cpWhite.toFloat() / (2f * EVAL_CLAMP_CP)).coerceIn(0f, 1f)
+internal fun evalBarFraction(cpWhite: Int): Float = (HALF + cpWhite.toFloat() / (2f * EVAL_CLAMP_CP)).coerceIn(0f, 1f)
 
 private val SAVED_AT_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 
-internal fun formatSavedAt(epochMs: Long): String =
-    SAVED_AT_FORMAT.format(Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()))
+internal fun formatSavedAt(epochMs: Long): String = SAVED_AT_FORMAT.format(Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()))
 
 internal const val MATE_CP = 1000
 private const val EVAL_CLAMP_CP = 800f

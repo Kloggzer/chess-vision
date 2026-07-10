@@ -17,10 +17,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.LastPage
+import androidx.compose.material.icons.automirrored.filled.NavigateBefore
+import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material.icons.filled.FirstPage
-import androidx.compose.material.icons.filled.LastPage
-import androidx.compose.material.icons.filled.NavigateBefore
-import androidx.compose.material.icons.filled.NavigateNext
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
@@ -53,6 +53,7 @@ import java.util.Locale
 
 private const val AUTOPLAY_DELAY_MS = 900L
 private const val PV_PREVIEW_MOVES = 4
+private const val CP_PER_PAWN = 100.0
 private val MistakeColor = Color(0xFFF5843C)
 
 /**
@@ -104,17 +105,32 @@ fun AnalysisScreen(
             playing = playing,
             atStart = selectedPly == 0,
             atEnd = selectedPly >= line.sans.size,
-            onFirst = { playing = false; selectedPly = 0 },
-            onPrev = { playing = false; if (selectedPly > 0) selectedPly -= 1 },
+            onFirst = {
+                playing = false
+                selectedPly = 0
+            },
+            onPrev = {
+                playing = false
+                if (selectedPly > 0) selectedPly -= 1
+            },
             onPlayPause = { playing = !playing },
-            onNext = { playing = false; if (selectedPly < line.sans.size) selectedPly += 1 },
-            onLast = { playing = false; selectedPly = line.sans.size },
+            onNext = {
+                playing = false
+                if (selectedPly < line.sans.size) selectedPly += 1
+            },
+            onLast = {
+                playing = false
+                selectedPly = line.sans.size
+            },
         )
         AnnotatedMoveList(
             sans = line.sans,
             analyses = analyses,
             selectedPly = selectedPly,
-            onSelect = { playing = false; selectedPly = it },
+            onSelect = {
+                playing = false
+                selectedPly = it
+            },
         )
         if (selectedPly >= 1) {
             val scored = analyses?.takeIf { selectedPly < it.size }
@@ -165,8 +181,12 @@ private fun EvalBar(
         val whiteHeight = size.height * fraction.coerceIn(0f, 1f)
         drawRect(
             color = white,
-            topLeft = androidx.compose.ui.geometry.Offset(0f, size.height - whiteHeight),
-            size = androidx.compose.ui.geometry.Size(size.width, whiteHeight),
+            topLeft =
+                androidx.compose.ui.geometry
+                    .Offset(0f, size.height - whiteHeight),
+            size =
+                androidx.compose.ui.geometry
+                    .Size(size.width, whiteHeight),
         )
     }
 }
@@ -184,12 +204,23 @@ private fun EngineLineRow(analysis: PositionAnalysis?) {
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         if (analysis == null) {
-            Text(stringResource(R.string.analysis_analyzing), fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                stringResource(R.string.analysis_analyzing),
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             return
         }
         KeyValueRow(label = stringResource(R.string.analysis_eval), value = formatEvalWhite(analysis), highlight = true)
         KeyValueRow(label = stringResource(R.string.analysis_best), value = analysis.bestUci ?: "—")
-        KeyValueRow(label = stringResource(R.string.analysis_line), value = analysis.pv.take(PV_PREVIEW_MOVES).joinToString(" ").ifEmpty { "—" })
+        KeyValueRow(
+            label = stringResource(R.string.analysis_line),
+            value =
+                analysis.pv
+                    .take(PV_PREVIEW_MOVES)
+                    .joinToString(" ")
+                    .ifEmpty { "—" },
+        )
         KeyValueRow(label = stringResource(R.string.analysis_depth_label), value = analysis.depth.toString())
     }
 }
@@ -212,15 +243,20 @@ private fun Scrubber(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ScrubberButton(Icons.Filled.FirstPage, stringResource(R.string.analysis_first), enabled = !atStart, onClick = onFirst)
-        ScrubberButton(Icons.Filled.NavigateBefore, stringResource(R.string.analysis_prev), enabled = !atStart, onClick = onPrev)
+        ScrubberButton(
+            Icons.AutoMirrored.Filled.NavigateBefore,
+            stringResource(R.string.analysis_prev),
+            enabled = !atStart,
+            onClick = onPrev,
+        )
         ScrubberButton(
             icon = if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
             desc = stringResource(if (playing) R.string.analysis_pause else R.string.analysis_play),
             enabled = !atEnd || playing,
             onClick = onPlayPause,
         )
-        ScrubberButton(Icons.Filled.NavigateNext, stringResource(R.string.analysis_next), enabled = !atEnd, onClick = onNext)
-        ScrubberButton(Icons.Filled.LastPage, stringResource(R.string.analysis_last), enabled = !atEnd, onClick = onLast)
+        ScrubberButton(Icons.AutoMirrored.Filled.NavigateNext, stringResource(R.string.analysis_next), enabled = !atEnd, onClick = onNext)
+        ScrubberButton(Icons.AutoMirrored.Filled.LastPage, stringResource(R.string.analysis_last), enabled = !atEnd, onClick = onLast)
     }
 }
 
@@ -402,12 +438,16 @@ private fun qualityLabel(quality: MoveQuality): String =
 
 /** Format a position's eval from White's POV: "+1.20", "-0.35", "M3", "-M2". */
 internal fun formatEvalWhite(analysis: PositionAnalysis): String {
-    val whiteToMove = analysis.fen.substringAfter(' ').trimStart().startsWith("w")
+    val whiteToMove =
+        analysis.fen
+            .substringAfter(' ')
+            .trimStart()
+            .startsWith("w")
     analysis.eval.mateIn?.let { mate ->
         val whiteMate = if (whiteToMove) mate else -mate
         return if (whiteMate >= 0) "M$whiteMate" else "-M${-whiteMate}"
     }
     val cp = whitePovCp(analysis)
     val sign = if (cp >= 0) "+" else ""
-    return sign + String.format(Locale.US, "%.2f", cp / 100.0)
+    return sign + String.format(Locale.US, "%.2f", cp / CP_PER_PAWN)
 }

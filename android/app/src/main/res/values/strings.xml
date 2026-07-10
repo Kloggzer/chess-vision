@@ -9,7 +9,6 @@
     <!-- Navigation -->
     <string name="nav_tracking">Tracking</string>
     <string name="nav_calibration">Calibration</string>
-    <string name="nav_history">History</string>
     <string name="nav_games">Games</string>
     <string name="nav_settings">Settings</string>
 
@@ -142,12 +141,7 @@
     <string name="setting_analysis_depth">Engine depth</string>
     <string name="setting_cnn_model_not_installed">Model: not imported</string>
 
-    <!-- History -->
-    <string name="history_export">Export game (PGN)</string>
-    <string name="history_title">Game history</string>
-    <string name="history_subtitle">%1$d moves in this game</string>
-    <string name="history_empty">Moves will appear here after your first confirmed move.</string>
-    <string name="history_no_provenance">No decision provenance recorded.</string>
+    <!-- Move decision provenance (shown in the analysis move detail) -->
     <string name="history_decider">Decider: %1$s</string>
     <string name="history_reason">Reason: %1$s</string>
     <string name="history_margin">Margin: %1$.2f (best %2$.2f, second %3$.2f)</string>
