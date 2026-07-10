@@ -34,6 +34,7 @@
     <string name="confirm_reset_message">Start a new game from the opening position. Calibration is kept.</string>
     <string name="confirm_recalibrate_title">Recalibrate board?</string>
     <string name="confirm_recalibrate_message">Discard the current board alignment and set it up again. The game in progress is cleared.</string>
+    <string name="calib_prompt_title">Set up the board</string>
     <string name="calib_prompt">Point the camera at the board — it aligns automatically when the ArUco markers are visible. No markers? Tap Calibrate to set the corners by hand.</string>
     <string name="calib_start">Calibrate manually</string>
     <string name="alarm_take_back">Take back</string>
