@@ -15,7 +15,7 @@
 | 04 | Game storage (PGN + provenance) | — | data | sonnet | done | sonnet/2026-07-10 | games/GameStore + provenance sidecar; save on reset/gameover/recalibrate. Merged (caceb40) + reconcile (f026732). games tests green. |
 | 05 | Analysis engine (Stockfish) | — | data | fable | done | fable/2026-07-10 | analysis/ (AnalysisEngine/Accuracy/UciParser/FakeAnalysisEngine/StockfishEngine) + Stockfish sf_18 NDK submodule build. Merged 7b5c8e7. 21 tests green. See disc #4-5. |
 | 06 | Games library + Analysis screens | 00,01,02,04,05 | — | opus | todo | | |
-| 07 | Settings restyle | 00, 01, 02 | UI | sonnet | in_progress | sonnet/2026-07-10 | |
+| 07 | Settings restyle | 00, 01, 02 | UI | sonnet | done | sonnet/2026-07-10 | Removed OverlayRow/overlayLabel picker (kept OverlayView enum + OVERLAY_VIEW persistence). Restyled SectionHeader (mono uppercase), SettingSlider/SettingSwitch (themed surface cards), resolution FilterChips (themed colors/border), CnnModelSection card (OutlinedButton→GhostButton). Added debug caption pointing to Tracking screen. Added Analysis section: `analysisDepth` field (TrackerSettings, default 12) + `ANALYSIS_DEPTH` DataStore key (SettingsRepository) + slider, mirroring cnnConfThr; extended SettingsRepositoryTest round-trip. Commits 7b9538d, 151e5cd, 32947b2. Gate green (`testDebugUnitTest --tests com.chesslab.tracker.ui.*`, `ktlintCheck`, `detekt`). |
 
 Recommended order: **00 → 01**, with **04 and 05 in parallel from the start** (no theme
 dependency). After 01: **02 ∥ 03**; then **07** (after 02). **06 last** (needs 02/04/05).
@@ -50,3 +50,4 @@ dependency). After 01: **02 ∥ 03**; then **07** (after 02). **06 last** (needs
 | Timestamp | Phase | Agent | Action | Result |
 |---|---|---|---|---|
 | 2026-07-10 | — | opus | Spec pack authored (entry + 00–07 + STATUS) from approved mockups. No implementation. | ready |
+| 2026-07-10 | 07 | sonnet | Removed overlay-view picker, restyled Settings (SectionHeader/SettingSlider/SettingSwitch/resolution chips/CNN card), added Analysis-depth setting (05 analysis/ package already landed). Gate green. | done |
