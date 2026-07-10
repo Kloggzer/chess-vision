@@ -53,6 +53,8 @@ data class TrackerSettings(
     // CNN safeguard (phase 05); needs an imported model (CnnModelStore) to attach.
     val cnnEnabled: Boolean = false,
     val cnnConfThr: Double = DEFAULT_CNN_CONF_THR,
+    // Analysis (phase 05/06): default Stockfish search depth for the games/analysis screen.
+    val analysisDepth: Int = DEFAULT_ANALYSIS_DEPTH,
     // Experimental + Debug
     val experimentalDetection: Boolean = false,
     val debugCard: Boolean = false,
@@ -101,5 +103,8 @@ data class TrackerSettings(
 
         /** ArUco markers sit ~6% outside the field (Python `profile_from_frame`, calibration.py:150). */
         const val DEFAULT_ARUCO_MARGIN: Double = 0.06
+
+        /** Mirrors `AnalysisEngine.DEFAULT_DEPTH` — deep enough for accuracy grading, fast on-device. */
+        const val DEFAULT_ANALYSIS_DEPTH: Int = 12
     }
 }

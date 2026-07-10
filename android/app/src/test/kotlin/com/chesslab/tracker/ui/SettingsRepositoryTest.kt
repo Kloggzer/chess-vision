@@ -84,6 +84,8 @@ class SettingsRepositoryTest {
                 overhang = 0.5,
                 motionHoldS = 0.6,
                 claheClip = 5.0,
+                cnnConfThr = 0.7,
+                analysisDepth = 18,
                 experimentalDetection = true,
                 debugCard = true,
                 overlayView = OverlayView.OCCLUSION,

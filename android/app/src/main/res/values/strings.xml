@@ -135,6 +135,10 @@
     <string name="setting_cnn_conf_thr">Confidence threshold</string>
     <string name="setting_import_model">Import model…</string>
     <string name="setting_cnn_model_installed">Model: installed (model.onnx + config.json)</string>
+
+    <!-- Settings: Analysis -->
+    <string name="settings_analysis">Analysis</string>
+    <string name="setting_analysis_depth">Engine depth</string>
     <string name="setting_cnn_model_not_installed">Model: not imported</string>
 
     <!-- History -->

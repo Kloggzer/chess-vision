@@ -154,6 +154,16 @@ fun SettingsScreen(
         )
         CnnModelSection(modelStore = modelStore)
 
+        SectionHeader(stringResource(R.string.settings_analysis))
+        SettingSlider(
+            label = stringResource(R.string.setting_analysis_depth),
+            value = settings.analysisDepth.toDouble(),
+            range = 4f..20f,
+            default = TrackerSettings.DEFAULT_ANALYSIS_DEPTH.toDouble(),
+            steps = 15,
+            onChange = { v -> onUpdate { it.copy(analysisDepth = v.roundToInt()) } },
+        )
+
         SectionHeader(stringResource(R.string.settings_debug))
         Text(
             stringResource(R.string.settings_debug_board_views_caption),
