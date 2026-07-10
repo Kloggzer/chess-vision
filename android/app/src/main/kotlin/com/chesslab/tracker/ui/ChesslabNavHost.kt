@@ -15,6 +15,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -27,7 +29,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.chesslab.tracker.R
+import com.chesslab.tracker.geometry.ArucoCornerDetector
 import com.chesslab.tracker.record.PgnBuilder
+import org.opencv.core.Mat
 
 private enum class Dest(
     val route: String,
@@ -51,6 +55,10 @@ fun ChesslabNavHost(
     val board by viewModel.board.collectAsStateWithLifecycle()
     val rawPreview by viewModel.rawPreview.collectAsStateWithLifecycle()
     val context = LocalContext.current
+
+    // ArUco corner detection for the calibration screen.
+    val arucoDetector = remember { ArucoCornerDetector() }
+    val arucoFrameRef = remember { mutableStateOf<Mat?>(null) }
 
     Scaffold(
         bottomBar = { BottomNavBar(navController) },
@@ -77,6 +85,9 @@ fun ChesslabNavHost(
                     experimentalDetection = settings.experimentalDetection,
                     onSuggest = { null },
                     onSave = viewModel::saveCalibration,
+                    arucoDetector = arucoDetector,
+                    arucoEnabled = true,
+                    arucoFrameRef = arucoFrameRef,
                 )
             }
             composable(Dest.HISTORY.route) {

@@ -45,6 +45,8 @@
     <string name="calib_clear">Clear</string>
     <string name="calib_suggest">Suggest corners</string>
     <string name="calib_save">Save</string>
+    <string name="calib_aruco_auto">Auto (ArUco)</string>
+    <string name="calib_aruco_not_found">Markers not found</string>
 
     <!-- Settings sections -->
     <string name="settings_game">Game</string>
