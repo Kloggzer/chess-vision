@@ -1,0 +1,25 @@
+clips:
+- file: blender-opening.mp4
+  source: blender
+  start_fen: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  erwartete_zugliste:
+  - d4
+  - e5
+  - Nc3
+  corners:
+  - - 444.4978332519531
+    - 444.4978332519531
+  - - 444.4978332519531
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 195.50216674804688
+  - - 195.50216674804688
+    - 444.4978332519531
+  frame_size:
+  - 640
+  - 640
+  board_size: 640
+  tracker:
+    confirm_frames: 2
+    min_grid_line_coverage: 0.0
+    overhang: 0.0

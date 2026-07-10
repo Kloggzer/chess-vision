@@ -15,7 +15,9 @@ import pytest
 import yaml
 
 _ROOT = Path(__file__).resolve().parents[1]
-_CLIPS = _ROOT / "data" / "testclips"
+_COMMITTED_CLIPS = _ROOT / "tests" / "data" / "testclips"
+_LOCAL_CLIPS = _ROOT / "data" / "testclips"
+_CLIPS = _COMMITTED_CLIPS if (_COMMITTED_CLIPS / "manifest.yaml").exists() else _LOCAL_CLIPS
 _MANIFEST = _CLIPS / "manifest.yaml"
 
 pytestmark = pytest.mark.clips
@@ -38,7 +40,9 @@ def _replay(entry: dict) -> dict:
     # compresses the quiet gaps and behaves nothing like the live tracker.
     return replay(str(_CLIPS / entry["file"]), cnn_run=None, realtime=True,
                   start_fen=entry.get("start_fen"),
-                  tracker_kwargs=entry.get("tracker") or {})
+                  tracker_kwargs=entry.get("tracker") or {},
+                  corners=entry.get("corners"), frame_size=entry.get("frame_size"),
+                  board_size=entry.get("board_size"))
 
 
 @pytest.mark.parametrize("entry", _entries() or [None],

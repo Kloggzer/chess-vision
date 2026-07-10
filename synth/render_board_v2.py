@@ -547,7 +547,16 @@ def randomize_board(rng):
                     node.inputs[key].default_value = (base[0] * f, base[1] * f, base[2] * f, 1.0)
 
 
-def place_from_fen(fen, templates, base_z, rng, procedural_types=frozenset(), fallback_subsurf=1):
+def place_from_fen(
+    fen,
+    templates,
+    base_z,
+    rng,
+    procedural_types=frozenset(),
+    fallback_subsurf=1,
+    placement_jitter=0.4,
+    random_rotation=True,
+):
     created = []
     for fi, ri, sym in parse_fen_placement(fen):
         color = "w" if sym.isupper() else "b"
@@ -559,8 +568,12 @@ def place_from_fen(fen, templates, base_z, rng, procedural_types=frozenset(), fa
         mesh = variants[0] if len(variants) == 1 else variants[int(rng.integers(len(variants)))]
         x, y = square_center(fi, ri)
         o = bpy.data.objects.new(f"pc_{fi}{ri}", mesh)
-        o.location = (x + rng.uniform(-0.4, 0.4), y + rng.uniform(-0.4, 0.4), base_z[t])
-        o.rotation_euler = (0, 0, rng.uniform(0, 2 * math.pi))
+        o.location = (
+            x + rng.uniform(-placement_jitter, placement_jitter),
+            y + rng.uniform(-placement_jitter, placement_jitter),
+            base_z[t],
+        )
+        o.rotation_euler = (0, 0, rng.uniform(0, 2 * math.pi) if random_rotation else 0.0)
         # Subsurf NUR für die Low-Poly-Staunton-Fallback-Figuren. Gescannte Meshes sind bereits
         # dicht (~35k tris, decimate_pieces.py) → Subsurf verdoppelte nur die GPU-Last ohne Nutzen.
         if t in procedural_types and fallback_subsurf > 0:
@@ -685,4 +698,5 @@ def main():
     print("[v2] DONE")
 
 
-main()
+if __name__ == "__main__":
+    main()
