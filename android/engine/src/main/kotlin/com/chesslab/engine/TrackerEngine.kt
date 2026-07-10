@@ -267,8 +267,10 @@ class TrackerEngine(
         state.cnnOccludedTsS = Double.NEGATIVE_INFINITY
         state.priorLast = false
         state.lastDecision = null
-        state.noise.reset()
-        state.censusNoise.reset()
+        // Keep the learned per-square noise across reset — parity with Python `reset_to_start`,
+        // which does not reset it. On a same-board game reset the statistics are still valid (a
+        // camera move is a recalibration, a separate action), so re-learning them would waste the
+        // model. A fresh reference is re-captured anyway, so the model re-adapts if the board changed.
         state.state = "waiting"
         state.note = "Reference set"
         state.motionSinceRef = false

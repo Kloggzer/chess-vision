@@ -19,6 +19,7 @@ import org.opencv.core.Point as CvPoint
  */
 class WarpedBoard(
     val boardBgr: Mat,
+    val detectBgr: Mat,
     val detectGray: Mat,
 )
 
@@ -82,13 +83,16 @@ class BoardWarper(
             Imgproc.warpPerspective(frame, small, detectHomography, Size(target, target))
             val gray = Mat()
             Imgproc.cvtColor(small, gray, Imgproc.COLOR_BGR2GRAY)
-            WarpedBoard(boardBgr, gray)
+            // Return the detect-scale BGR (warped straight to the small size) so the engine sees
+            // the SAME pixels the Python tracker does. Resizing the full-res board down instead
+            // interpolates differently and can flip a low-contrast recapture's shadow classification.
+            WarpedBoard(boardBgr, small, gray)
         } catch (t: CvException) {
             boardBgr.release()
+            small.release()
             throw t
         } finally {
             detectHomography.release()
-            small.release()
         }
     }
 
