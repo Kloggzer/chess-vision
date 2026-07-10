@@ -6,8 +6,11 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -15,6 +18,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -27,8 +32,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -37,6 +44,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.chesslab.engine.api.TrackerState
 import com.chesslab.tracker.R
+import com.chesslab.tracker.ui.theme.BoardPalette
 import kotlin.math.roundToInt
 
 private val MinTouch = 48.dp
@@ -244,6 +252,127 @@ fun KeyValueRow(
             color = if (highlight) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
         )
     }
+}
+
+private const val SUBTAB_ON_ALPHA = 0.18f
+
+/**
+ * Segmented control — a pill group where the selected segment sits on an elevated
+ * (`surfaceVariant`) background. The board-view primary switch (`Rendered | Video`,
+ * phase 02). Each segment carries a `contentDescription` and a ≥48 dp target.
+ */
+@Suppress("ktlint:standard:function-naming", "FunctionNaming")
+@Composable
+fun SegmentedToggle(
+    options: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier =
+            modifier
+                .clip(MaterialTheme.shapes.small)
+                .background(MaterialTheme.colorScheme.surface)
+                .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small)
+                .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        options.forEachIndexed { index, option ->
+            val selected = index == selectedIndex
+            Box(
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .heightIn(min = MinTouch)
+                        .clip(MaterialTheme.shapes.small)
+                        .background(if (selected) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent)
+                        .selectable(selected = selected, role = Role.Tab, onClick = { onSelect(index) })
+                        .semantics { contentDescription = option }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    option,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Sub-tab chip row — the debug views under Video (phase 02). Mono labels, outlined when
+ * off and filled-accent when on; [accentFor] tints an individual tab (e.g. Diff→magenta).
+ */
+@Suppress("ktlint:standard:function-naming", "FunctionNaming")
+@Composable
+fun SubTabRow(
+    labels: List<String>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    accentFor: (Int) -> Color = { MaterialTheme.colorScheme.primary },
+) {
+    Row(
+        modifier = modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        labels.forEachIndexed { index, label ->
+            val on = index == selected
+            val accent = accentFor(index)
+            Box(
+                modifier =
+                    Modifier
+                        .heightIn(min = MinTouch)
+                        .clip(MaterialTheme.shapes.small)
+                        .background(if (on) accent.copy(alpha = SUBTAB_ON_ALPHA) else Color.Transparent)
+                        .border(1.dp, if (on) accent else MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small)
+                        .selectable(selected = on, role = Role.Tab, onClick = { onSelect(index) })
+                        .semantics { contentDescription = label }
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontFamily = FontFamily.Monospace,
+                    color = if (on) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Board frame container — a rounded 12 dp [Box] with a warm-wood gradient border for the
+ * rendered board (or a cool border when [video]). Phases 02/03 place the board/camera and
+ * its floating overlays inside; it is a [Box] so overlays can absolutely-position.
+ */
+@Suppress("ktlint:standard:function-naming", "FunctionNaming")
+@Composable
+fun BoardFrame(
+    modifier: Modifier = Modifier,
+    video: Boolean = false,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val borderBrush =
+        if (video) {
+            Brush.linearGradient(listOf(BoardPalette.MarkShadow, MaterialTheme.colorScheme.secondary))
+        } else {
+            Brush.linearGradient(listOf(BoardPalette.LightSquare, BoardPalette.DarkSquare))
+        }
+    Box(
+        modifier =
+            modifier
+                .clip(MaterialTheme.shapes.medium)
+                .border(2.dp, borderBrush, MaterialTheme.shapes.medium)
+                .padding(3.dp),
+        content = content,
+    )
 }
 
 @Suppress("ktlint:standard:function-naming", "FunctionNaming", "LongParameterList")
