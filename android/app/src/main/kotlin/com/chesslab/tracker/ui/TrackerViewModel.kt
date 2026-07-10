@@ -108,6 +108,7 @@ class TrackerViewModel(
 
     /** Drop the saved calibration and return to preview so the user can re-align. */
     fun recalibrate() {
+        maybeSaveCurrentGame()
         calibrationStore.delete(CAMERA_ID)
         _profile.value = null
         service?.stopTrackingToPreview()
