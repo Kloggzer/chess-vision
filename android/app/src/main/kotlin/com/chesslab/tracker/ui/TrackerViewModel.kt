@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.chesslab.tracker.cnn.CnnModelStore
+import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.geometry.BoardCorners
 import com.chesslab.tracker.geometry.CalibrationProfile
 import com.chesslab.tracker.geometry.CalibrationStore
@@ -33,6 +34,9 @@ class TrackerViewModel(
     val modelStore = CnnModelStore(app.filesDir)
     private val calibrationStore = CalibrationStore(app.filesDir.resolve("calibration"))
 
+    /** Finished-game library, read by phase 06's games list/analysis screens. */
+    val gameStore = GameStore(app.filesDir.resolve("games"))
+
     val settings: StateFlow<TrackerSettings> =
         settingsRepo.settings.stateIn(viewModelScope, SharingStarted.Eagerly, TrackerSettings())
 
@@ -53,11 +57,31 @@ class TrackerViewModel(
 
     fun onServiceConnected(bound: TrackerService) {
         service = bound
-        viewModelScope.launch { bound.uiState.collect { _uiState.value = it } }
+        viewModelScope.launch {
+            var wasGameOver = false
+            bound.uiState.collect { state ->
+                _uiState.value = state
+                // Auto-save on the false -> true gameOver transition (checkmate/stalemate/
+                // draw reached live), so a finished game lands in the library even if the
+                // user never explicitly resets.
+                if (state.gameOver && !wasGameOver) {
+                    maybeSaveCurrentGame()
+                }
+                wasGameOver = state.gameOver
+            }
+        }
         viewModelScope.launch { bound.boardBitmap.collect { _board.value = it } }
         viewModelScope.launch { bound.rawPreview.collect { _rawPreview.value = it } }
         val saved = calibrationStore.load(CAMERA_ID)
         if (saved != null) bound.start(saved) else bound.startPreviewOnly()
+    }
+
+    /** Persist the current game if it has any moves. Idempotent to call redundantly. */
+    private fun maybeSaveCurrentGame() {
+        val state = _uiState.value
+        if (state.moves.isNotEmpty()) {
+            gameStore.save(state.moves, state.fen)
+        }
     }
 
     fun onServiceDisconnected() {
@@ -90,6 +114,7 @@ class TrackerViewModel(
     }
 
     fun reset() {
+        maybeSaveCurrentGame()
         service?.reset()
     }
 
