@@ -179,6 +179,7 @@ fun TrackingScreen(
     }
 }
 
+@Suppress("ktlint:standard:function-naming", "FunctionNaming")
 @Composable
 private fun TrackingHeader(
     trackerState: com.chesslab.engine.api.TrackerState,
@@ -198,6 +199,7 @@ private fun TrackingHeader(
     }
 }
 
+@Suppress("ktlint:standard:function-naming", "FunctionNaming")
 @Composable
 private fun RecoveryCard(
     onTakeBack: () -> Unit,
