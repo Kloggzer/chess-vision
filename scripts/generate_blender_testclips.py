@@ -63,6 +63,34 @@ SCENARIOS: dict[str, dict] = {
         "f1c4", "g8f6", "f3b3", "d8e7", "b1c3", "c7c6", "c1g5", "b7b5", "c3b5", "c6b5",
         "c4b5", "b8d7", "e1c1", "a8d8", "d1d7", "d8d7", "h1d1", "e7e6", "b5d7", "f6d7",
         "b3b8", "d7b8", "d1d8"]},
+    # More special legal moves --------------------------------------------------------
+    # Queenside castle moves king AND far rook (a1->d1) — 4 squares plus low-contrast back-rank
+    # noise exceeds the default max_changed(6); the rook landing next to the king origin also
+    # tempts a "Kd1" misread. A higher gate lets the full O-O-O pattern win.
+    "queenside": {"moves": ["d2d4", "d7d5", "b1c3", "b8c6", "c1f4", "c8f5", "d1d2", "d8d7",
+                            "e1c1"], "tracker": {"max_changed": 10}},            # ...O-O-O
+    "underpromo": {"moves": ["e7e8n"], "start_fen": "6k1/4P3/8/8/8/8/8/6K1 w - - 0 1"},  # e8=N
+    "promocapture": {"moves": ["e7d8q"], "start_fen": "3r2k1/4P3/8/8/8/8/8/6K1 w - - 0 1"},  # exd8=Q+
+    "stalemate": {"moves": ["c2c7"], "start_fen": "k7/8/8/8/8/8/2Q5/7K w - - 0 1",  # Qc7 stalemate
+                  "expect": {"expect_game_over": True, "expect_result": "1/2-1/2"}},
+    # Should-fail / negative + occlusion/shadow edge cases (action-driven) --------------
+    # Illegal: the c1 bishop teleports through its own pawns to c4. Its origin is immobile in the
+    # start position (no legal move touches c1) and no legal move fills c4 -> nothing committed.
+    "illegal": {"actions": [{"illegal_to_fen":
+                             "rnbqkbnr/pppppppp/8/8/2B5/8/PPPPPPPP/RN1QKBNR b KQkq - 1 1"}],
+                "expect": {"expect_stuck": "no_legal_move", "expect_note_contains": "no legal move"}},
+    # Take-back: e2e4 is played, then the board is reverted to the start -> only 'e4' commits,
+    # the reversal is an illegal backward "move" -> no second commit.
+    "takeback": {"actions": [{"move": "e2e4"}, {"illegal_to_fen": START_FEN}],
+                 "expect": {"expect_stuck": "no_legal_move"}},
+    # Resting hand: a hand comes to rest over the board and leaves without moving anything ->
+    # occlusion is detected (many squares vetoed) and no move is committed.
+    "resting": {"actions": [{"rest": True}], "expect": {"expect_occlusion": True}},
+    # Nudge: a piece is bumped (sub-cell offset) — a one-square change fits no legal move.
+    "nudge": {"actions": [{"nudge": "e2"}],
+              "expect": {"expect_stuck": "no_legal_move"}},
+    # Dedicated shadow: a soft shadow sweeps across the board (no visible hand) -> shadow veto.
+    "shadowsweep": {"actions": [{"shadow": True}], "expect": {"expect_shadow": True}},
 }
 
 
@@ -86,6 +114,106 @@ def _square_world(square: int) -> tuple[float, float]:
     fi = chess.square_file(square)   # 0..7 (a..h)
     ri = chess.square_rank(square)   # 0..7 (rank 1..8)
     return (-21.0 + CELL * ri, -21.0 + CELL * fi)
+
+
+def _changed_squares(fen_a: str, fen_b: str) -> list[str]:
+    """Square names whose occupant differs between two positions (for illegal/take-back sweeps)."""
+    a, b = chess.Board(fen_a).piece_map(), chess.Board(fen_b).piece_map()
+    return sorted(chess.square_name(sq) for sq in set(a) | set(b) if a.get(sq) != b.get(sq))
+
+
+NUDGE_OFFSET = [1.7, 1.7]   # sub-cell (cell=6) bump: a visible 1-square change, no legal move
+
+
+def positions_and_steps(actions: list[dict], start_fen: str) -> tuple[list[str], list[str], list[dict]]:
+    """Drive edge-case scenarios: build the FEN list, the legal SAN list (assertion target) and a
+    step list for the schedule. Action kinds: move / illegal_to_fen / rest / nudge / shadow."""
+    board = chess.Board(start_fen)
+    positions = [board.fen()]
+    sans: list[str] = []
+    steps: list[dict] = []
+    for act in actions:
+        prev = len(positions) - 1
+        if "move" in act:
+            mv = chess.Move.from_uci(act["move"])
+            if mv not in board.legal_moves:
+                raise ValueError(f"illegal scenario move {act['move']} for {board.fen()}")
+            sans.append(board.san(mv))
+            white = board.turn == chess.WHITE
+            board.push(mv)
+            positions.append(board.fen())
+            steps.append({"kind": "move", "before": prev, "after": prev + 1,
+                          "from": mv.from_square, "to": mv.to_square, "white": white})
+        elif "illegal_to_fen" in act:
+            before_fen, after_fen = positions[prev], act["illegal_to_fen"]
+            board = chess.Board(after_fen)
+            positions.append(board.fen())
+            steps.append({"kind": "illegal", "before": prev, "after": prev + 1,
+                          "changed": _changed_squares(before_fen, after_fen)})
+        elif act.get("rest"):
+            steps.append({"kind": "rest", "at": prev})
+        elif "nudge" in act:
+            steps.append({"kind": "nudge", "at": prev, "sq": act["nudge"]})
+        elif act.get("shadow"):
+            steps.append({"kind": "shadow", "at": prev})
+        else:
+            raise ValueError(f"unknown action {act}")
+    return positions, sans, steps
+
+
+def build_action_schedule(positions: list[str], steps: list[dict], *, sweep_frames: int,
+                          fps: int, initial_hold_s: float, hold_s: float, sweep_hold: int) -> list[dict]:
+    """Frame schedule for the action-driven edge cases (moves + illegal + rest + nudge + shadow)."""
+    frames: list[dict] = []
+    s = max(1, sweep_frames)
+    hold_frames = max(1, round(hold_s * fps))
+    rest_hold = max(hold_frames, round(1.5 * fps))
+
+    def add(fen_index, *, arm=None, shadow=None, nudge=None, phase="clear", hold=1):
+        frames.append({"fen_index": fen_index, "arm": arm, "shadow": shadow, "nudge": nudge,
+                       "phase": phase, "hold": hold})
+
+    def arm_sweep(before, after, target, entry, angle, nudge=None):
+        for k in range(s):                     # approach; apex switches position to `after`
+            t = (k + 1) / s
+            ax, ay = entry[0] + (target[0] - entry[0]) * t, entry[1] + (target[1] - entry[1]) * t
+            apex = k == s - 1
+            add(after if apex else before, arm=[ax, ay, angle],
+                nudge=(nudge if apex else None), phase="occluding", hold=sweep_hold)
+        for k in range(s):                     # retract
+            t = (k + 1) / s
+            ax, ay = target[0] + (entry[0] - target[0]) * t, target[1] + (entry[1] - target[1]) * t
+            add(after, arm=[ax, ay, angle], nudge=nudge, phase="occluding", hold=sweep_hold)
+
+    add(0, phase="clear", hold=max(1, round(initial_hold_s * fps)))
+    for st in steps:
+        if st["kind"] == "move":
+            fx, fy = _square_world(st["from"])
+            tx, ty = _square_world(st["to"])
+            target = ((fx + tx) / 2.0, (fy + ty) / 2.0)
+            entry = (-HALF - 12.0, target[1]) if st["white"] else (HALF + 12.0, target[1])
+            arm_sweep(st["before"], st["after"], target, entry, 0.0 if st["white"] else math.pi)
+            add(st["after"], phase="clear", hold=hold_frames)
+        elif st["kind"] == "illegal":
+            pts = [_square_world(chess.parse_square(sq)) for sq in st["changed"]] or [(0.0, 0.0)]
+            cx, cy = sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
+            arm_sweep(st["before"], st["after"], (cx, cy), (-HALF - 12.0, cy), 0.0)
+            add(st["after"], phase="clear", hold=hold_frames)
+        elif st["kind"] == "rest":            # hand arrives, rests static (occluded), leaves
+            add(st["at"], arm=[0.0, 0.0, 0.0], phase="occluding", hold=rest_hold)
+            add(st["at"], phase="clear", hold=hold_frames)
+        elif st["kind"] == "nudge":           # brief tap; the piece ends sub-cell offset
+            wx, wy = _square_world(chess.parse_square(st["sq"]))
+            arm_sweep(st["at"], st["at"], (wx, wy), (-HALF - 12.0, wy), 0.0,
+                      nudge={st["sq"]: NUDGE_OFFSET})
+            add(st["at"], phase="clear", hold=hold_frames, nudge={st["sq"]: NUDGE_OFFSET})
+        elif st["kind"] == "shadow":          # soft shadow band sweeps across; no hand, no move
+            n = 2 * s
+            for k in range(n):
+                xc = -49.0 + (42.0) * (k / (n - 1))   # caster x -> shadow crosses the board
+                add(st["at"], shadow=[xc, 0.0], phase="shadow", hold=sweep_hold)
+            add(st["at"], phase="clear", hold=hold_frames)
+    return frames
 
 
 def build_schedule(positions: list[str], moves: list[str], *, sweep_frames: int,
@@ -168,8 +296,8 @@ def assemble_video(images: list[Path], frames: list[dict], out: Path, fps: int) 
 
 
 def resolve_moves(args: argparse.Namespace) -> dict:
-    """Resolve {moves, start_fen, stem, hovers, jitter} from --pgn / --moves / --scenario.
-    CLI --hovers/--jitter override the scenario defaults."""
+    """Resolve {moves|actions, start_fen, stem, hovers, jitter, expect} from
+    --pgn / --moves / --scenario. CLI --hovers/--jitter override the scenario defaults."""
     if args.pgn:
         with open(args.pgn, encoding="utf-8") as fh:
             game = chess.pgn.read_game(fh)
@@ -183,28 +311,46 @@ def resolve_moves(args: argparse.Namespace) -> dict:
                "stem": args.name or "custom"}
     else:
         scenario = SCENARIOS[args.scenario]
-        cfg = {"moves": scenario["moves"],
+        cfg = {"moves": scenario.get("moves"), "actions": scenario.get("actions"),
                "start_fen": args.start_fen or scenario.get("start_fen") or START_FEN,
                "stem": args.name or args.scenario,
-               "hovers": scenario.get("hovers"), "jitter": scenario.get("jitter", 0.0)}
+               "hovers": scenario.get("hovers"), "jitter": scenario.get("jitter", 0.0),
+               "expect": scenario.get("expect") or {}, "tracker": scenario.get("tracker") or {}}
     if args.hovers is not None:
         cfg["hovers"] = [int(x) for x in args.hovers.split(",") if x.strip() != ""]
     if args.jitter is not None:
         cfg["jitter"] = args.jitter
     cfg.setdefault("hovers", None)
     cfg.setdefault("jitter", 0.0)
+    cfg.setdefault("expect", {})
+    cfg.setdefault("tracker", {})
     return cfg
 
 
 def generate(args: argparse.Namespace) -> Path:
     cfg = resolve_moves(args)
-    moves, start_fen, stem = cfg["moves"], cfg["start_fen"], cfg["stem"]
-    positions, sans = positions_and_san(moves, start_fen)
-    frames = build_schedule(positions, moves, sweep_frames=args.sweep_frames, fps=args.fps,
-                            initial_hold_s=args.initial_hold, hold_s=args.hold,
-                            sweep_hold=args.sweep_hold,
-                            hovers=set(cfg["hovers"]) if cfg["hovers"] else None,
-                            jitter=cfg["jitter"], seed=args.seed)
+    start_fen, stem, expect = cfg["start_fen"], cfg["stem"], cfg["expect"]
+    if cfg.get("actions"):
+        # Action-driven edge cases (illegal / take-back / rest / nudge / shadow).
+        positions, sans, steps = positions_and_steps(cfg["actions"], start_fen)
+        moves = [a["move"] for a in cfg["actions"] if "move" in a]
+        frames = build_action_schedule(positions, steps, sweep_frames=args.sweep_frames,
+                                       fps=args.fps, initial_hold_s=args.initial_hold,
+                                       hold_s=args.hold, sweep_hold=args.sweep_hold)
+    else:
+        moves = cfg["moves"]
+        positions, sans = positions_and_san(moves, start_fen)
+        frames = build_schedule(positions, moves, sweep_frames=args.sweep_frames, fps=args.fps,
+                                initial_hold_s=args.initial_hold, hold_s=args.hold,
+                                sweep_hold=args.sweep_hold,
+                                hovers=set(cfg["hovers"]) if cfg["hovers"] else None,
+                                jitter=cfg["jitter"], seed=args.seed)
+    # Board the tracker SHOULD end on = start + committed legal moves (for failure clips this is
+    # NOT the last rendered position; the illegal transition must be withheld).
+    _board = chess.Board(start_fen)
+    for _uci in moves:
+        _board.push(chess.Move.from_uci(_uci))
+    expect_fen = _board.fen()
     out_dir = args.out.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     clip_name = f"blender-{stem}.mp4"
@@ -262,6 +408,10 @@ def generate(args: argparse.Namespace) -> Path:
             "occlusion": True,
             "start_fen": start_fen,
             "erwartete_zugliste": sans,
+            "expect_fen": expect_fen,
+            # Behaviour assertions beyond the move list (occlusion/shadow/failure). Only the
+            # keys present here are checked (see tests/test_clips.py `_assert_behaviour`).
+            **expect,
             "positions": positions,
             "moves_uci": moves,
             "corners": metadata["corners"],
@@ -280,6 +430,7 @@ def generate(args: argparse.Namespace) -> Path:
                 # light square reads as a cast shadow and drops out of the move evidence. A
                 # lower structural threshold keeps low-contrast fills as real changes.
                 "census_thr": 40.0,
+                **cfg["tracker"],   # per-scenario overrides (e.g. queenside max_changed)
             },
         },
     )

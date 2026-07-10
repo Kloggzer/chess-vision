@@ -99,6 +99,16 @@ def replay(clip: str, profile: str = "phone", cnn_run: str | None = None,
         events: list[str] = []
         last_note, last_hist = "", 0
         last_tick = 0.0
+        # State/veto/alarm trace over the whole run — lets a test assert occlusion, shadow and
+        # failure behaviour, not only the final move list (see tests/test_clips.py `expect_*`).
+        states: set[str] = set()
+        shadow_vetoed: set[str] = set()
+        occluded_vetoed: set[str] = set()
+        tainted: set[str] = set()
+        stuck_reasons: set[str] = set()
+        notes: set[str] = set()
+        alarm_seen = False
+        max_motion = 0.0
         t0 = time.time()
         while not cap.done and time.time() - t0 < max_wall_s:
             time.sleep(0.05)
@@ -110,6 +120,16 @@ def replay(clip: str, profile: str = "phone", cnn_run: str | None = None,
             dbg = s["debug"]
             vframe = int(cap.cap.get(cv2.CAP_PROP_POS_FRAMES))
             vtime = vframe / cap.fps
+            states.add(s["state"])
+            shadow_vetoed.update(dbg.get("shadow_vetoed") or [])
+            occluded_vetoed.update(dbg.get("occluded_vetoed") or [])
+            tainted.update(dbg.get("tainted") or [])
+            if dbg.get("stuck_reason"):
+                stuck_reasons.add(dbg["stuck_reason"])
+            if s.get("note"):
+                notes.add(s["note"])
+            alarm_seen = alarm_seen or s.get("alarm") is not None
+            max_motion = max(max_motion, dbg.get("motion") or 0.0)
             if len(s["history"]) > last_hist:
                 for san in s["history"][last_hist:]:
                     events.append(f"[video {vtime:6.1f}s] ZUG: {san}   ({s['note']})")
@@ -126,7 +146,12 @@ def replay(clip: str, profile: str = "phone", cnn_run: str | None = None,
                     f"stable={dbg['stable_count']} stuck={dbg['stuck_reason']}")
         time.sleep(1.0)
         s = mt.status()
-        return {"history": s["history"], "fen": s["fen"], "note": s["note"], "events": events}
+        return {"history": s["history"], "fen": s["fen"], "note": s["note"], "events": events,
+                "states": sorted(states), "shadow_vetoed": sorted(shadow_vetoed),
+                "occluded_vetoed": sorted(occluded_vetoed), "tainted": sorted(tainted),
+                "stuck_reasons": sorted(stuck_reasons), "notes": sorted(notes),
+                "alarm_seen": alarm_seen, "max_motion": round(max_motion, 3),
+                "game_over": s.get("game_over", False), "result": s.get("result")}
     finally:
         if mt is not None:
             mt.stop()

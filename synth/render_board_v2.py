@@ -556,7 +556,10 @@ def place_from_fen(
     fallback_subsurf=1,
     placement_jitter=0.4,
     random_rotation=True,
+    offsets=None,
 ):
+    # offsets: {square_name -> (dx, dy)} world-unit shifts for individual pieces (nudge test).
+    offsets = offsets or {}
     created = []
     for fi, ri, sym in parse_fen_placement(fen):
         color = "w" if sym.isupper() else "b"
@@ -567,10 +570,11 @@ def place_from_fen(
         # Random variant per square → visual diversity across the dataset.
         mesh = variants[0] if len(variants) == 1 else variants[int(rng.integers(len(variants)))]
         x, y = square_center(fi, ri)
+        dx, dy = offsets.get(f"{chr(97 + fi)}{ri + 1}", (0.0, 0.0))
         o = bpy.data.objects.new(f"pc_{fi}{ri}", mesh)
         o.location = (
-            x + rng.uniform(-placement_jitter, placement_jitter),
-            y + rng.uniform(-placement_jitter, placement_jitter),
+            x + dx + rng.uniform(-placement_jitter, placement_jitter),
+            y + dy + rng.uniform(-placement_jitter, placement_jitter),
             base_z[t],
         )
         o.rotation_euler = (0, 0, rng.uniform(0, 2 * math.pi) if random_rotation else 0.0)
@@ -656,6 +660,70 @@ def place_occluder(arm, x, y, angle):
 def hide_occluder(arm):
     arm.hide_render = True
     arm.location = (0.0, 0.0, 1000.0)   # zusätzlich weit weg parken (Schatten-Sicherheit)
+
+
+# --- Schatten-Werfer (nur für den dedizierten Shadow-Sweep-Fixture) ---------------------
+# Ein neutraler Balken hoch über dem Brett + eine schräge Sonne: sein WEICHER Schatten
+# wandert quer übers Brett, während der Balken selbst neben dem sichtbaren Spielfeld
+# bleibt. Die assertierten Felder sehen nur den Schatten (flaches, census-invariantes
+# Abdunkeln → Shadow-Veto), KEINEN Chroma-Occluder. Testet den Schatten-vs-Zug-Pfad rein.
+SHADOW_Z = 22.0             # hoch → langer, weicher Schlagschatten
+SHADOW_SUN_TILT = 52.0      # Grad aus der Senkrechten (um Y): Schatten zieht in +X
+SHADOW_CASTER_GREY = (0.05, 0.05, 0.055)
+
+
+def setup_shadow_light():
+    """Add a fixed, angled sun so a raised caster throws a long directional shadow across the
+    board (existing scene lights are near-overhead → shadow directly under the caster)."""
+    sun = bpy.data.objects.get("ShadowSun")
+    if sun is None:
+        data = bpy.data.lights.new("ShadowSun", type="SUN")
+        sun = bpy.data.objects.new("ShadowSun", data)
+        bpy.context.scene.collection.objects.link(sun)
+    sun.data.energy = 4.0
+    sun.data.angle = math.radians(2.0)      # small angular size → soft-ish but defined shadow
+    sun.rotation_euler = (0.0, math.radians(SHADOW_SUN_TILT), 0.0)
+    return sun
+
+
+def make_shadow_caster():
+    """A neutral dark bar spanning the file (Y) axis, parked high above the board. Only its
+    shadow reaches the squares; swept in X the shadow band crosses the board. Initially hidden."""
+    import bmesh  # noqa: PLC0415
+    from mathutils import Matrix  # noqa: PLC0415
+
+    bm = bmesh.new()
+    # Bar along Y (files), ~ board-wide, so its shadow is a rank-spanning band.
+    bar = Matrix.Rotation(math.radians(90), 4, "X")   # cone default +Z → align to Y
+    bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=True, segments=16,
+                          radius1=2.6, radius2=2.6, depth=54.0, matrix=bar)
+    mesh = bpy.data.meshes.new("ShadowCaster")
+    bm.to_mesh(mesh)
+    bm.free()
+    mat = bpy.data.materials.new("ShadowCasterMat")
+    mat.use_nodes = True
+    nt = mat.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.inputs["Base Color"].default_value = (*SHADOW_CASTER_GREY, 1.0)
+    bsdf.inputs["Roughness"].default_value = 0.9
+    nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+    mesh.materials.append(mat)
+    obj = bpy.data.objects.new("ShadowCaster", mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    hide_shadow_caster(obj)
+    return obj
+
+
+def place_shadow_caster(caster, x, y=0.0):
+    caster.location = (x, y, SHADOW_Z)
+    caster.hide_render = False
+
+
+def hide_shadow_caster(caster):
+    caster.hide_render = True
+    caster.location = (0.0, 0.0, 1000.0)
 
 
 def set_engine_fast(samples=24):
