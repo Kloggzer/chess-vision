@@ -1,0 +1,5 @@
+[submodule "android/third_party/stockfish"]
+	path = android/third_party/stockfish
+	url = https://github.com/official-stockfish/Stockfish.git
+	shallow = true
+	ignore = untracked
