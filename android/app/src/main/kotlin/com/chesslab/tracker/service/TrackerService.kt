@@ -121,7 +121,10 @@ class TrackerService : LifecycleService() {
      * camera at all (start() was gated on a saved profile — chicken-and-egg).
      */
     fun startPreviewOnly() {
-        ensureCameraRunning(settings.toCameraConfig())
+        if (cameraRunning) return
+        cameraRunning = true
+        camera.start(settings.toCameraConfig())
+        startFrameLoop()
     }
 
     /** Begin tracking with a calibrated [profile]. Idempotent per profile. */
@@ -132,19 +135,11 @@ class TrackerService : LifecycleService() {
         pipeline = pipe
         driftMonitor = CornerDriftMonitor(profile.corners, cornerJumpPx = 6.0)
 
-        val cameraConfig = settings.toCameraConfig()
-        ensureCameraRunning(cameraConfig)
-        startResolutionController(cameraConfig)
+        startPreviewOnly() // idempotent camera + frame-loop start
+        startResolutionController(settings.toCameraConfig())
     }
 
     private var cameraRunning = false
-
-    private fun ensureCameraRunning(cameraConfig: CameraConfig) {
-        if (cameraRunning) return
-        cameraRunning = true
-        camera.start(cameraConfig)
-        startFrameLoop()
-    }
 
     fun undo(): Boolean = coordinator.undo()
 
