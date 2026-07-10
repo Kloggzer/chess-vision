@@ -319,7 +319,6 @@ class TrackerEngine(
         return move != null
     }
 
-    /** Phase 05 wiring feeds safeguard verdicts back; commits/rejects the pending candidate. */
     /**
      * Backstop for a stalled safeguard: if a candidate has been parked in VERIFYING for
      * longer than [PENDING_TIMEOUT_S] (the safeguard normally answers in ~7 s), drain it
