@@ -20,17 +20,12 @@ import androidx.compose.ui.semantics.semantics
 import com.chesslab.engine.STARTPOS
 import com.chesslab.tracker.R
 import com.chesslab.tracker.service.OverlayView
+import com.chesslab.tracker.ui.theme.BoardPalette
 
 private const val FILES = "abcdefgh"
 private const val BOARD_DIM = 8
 private const val SQUARE_LEN = 2
 private const val MARKER_ALPHA = 0.5f
-
-// Overlay colours (port of tracker.py:2379): changed=magenta, shadow=cyan, occlusion=orange.
-private val MAGENTA = Color(0xFFFF00FF)
-private val CYAN = Color(0xFF00E5FF)
-private val ORANGE = Color(0xFFFF9800)
-private val GRID = Color(0x9900E5FF)
 
 private fun DrawScope.markSquares(
     squares: List<String>,
@@ -50,8 +45,10 @@ private fun DrawScope.markSquares(
 }
 
 /**
- * Shows the warped board with optional debug overlays, or the raw camera preview
- * when [view] is [OverlayView.CAMERA].
+ * Board view host. When [renderedMode] is true it always draws the synthetic
+ * [ChessBoard] from [fen] (the "Rendered" board mode) regardless of any warped [bitmap].
+ * Otherwise it shows the warped board with optional debug overlays, or the raw camera
+ * preview when [view] is [OverlayView.CAMERA].
  */
 @Suppress("ktlint:standard:function-naming", "FunctionNaming")
 @Composable
@@ -62,16 +59,27 @@ fun OverlayBoard(
     debug: DebugSnapshot,
     fen: String,
     modifier: Modifier = Modifier,
+    renderedMode: Boolean = false,
     showGrid: Boolean = false,
 ) {
-    if (view == OverlayView.CAMERA) {
-        CameraPreview(rawPreview = rawPreview, modifier = modifier)
-        return
+    when {
+        renderedMode -> ChessBoard(fen = fen, modifier = modifier)
+        view == OverlayView.CAMERA -> CameraPreview(rawPreview = rawPreview, modifier = modifier)
+        bitmap == null -> ChessBoard(fen = fen, modifier = modifier)
+        else -> WarpedBoard(view = view, bitmap = bitmap, debug = debug, showGrid = showGrid, modifier = modifier)
     }
-    if (bitmap == null) {
-        ChessBoard(fen = fen, modifier = modifier)
-        return
-    }
+}
+
+/** The warped camera board with the debug marks/grid for the Video sub-views. */
+@Suppress("ktlint:standard:function-naming", "FunctionNaming")
+@Composable
+private fun WarpedBoard(
+    view: OverlayView,
+    bitmap: Bitmap,
+    debug: DebugSnapshot,
+    showGrid: Boolean,
+    modifier: Modifier = Modifier,
+) {
     val label = stringResource(R.string.overlay_board_desc)
     Box(modifier = modifier.fillMaxWidth().aspectRatio(1f).semantics { contentDescription = label }) {
         Image(
@@ -82,10 +90,10 @@ fun OverlayBoard(
         Canvas(modifier = Modifier.fillMaxSize()) {
             when (view) {
                 OverlayView.BOARD -> Unit
-                OverlayView.DIFF, OverlayView.MOTION -> markSquares(debug.changed, MAGENTA)
-                OverlayView.SHADOW -> markSquares(debug.shadowVetoed, CYAN)
-                OverlayView.OCCLUSION -> markSquares(debug.occludedVetoed, ORANGE)
-                OverlayView.CAMERA -> Unit // handled above
+                OverlayView.DIFF, OverlayView.MOTION -> markSquares(debug.changed, BoardPalette.MarkChanged)
+                OverlayView.SHADOW -> markSquares(debug.shadowVetoed, BoardPalette.MarkShadow)
+                OverlayView.OCCLUSION -> markSquares(debug.occludedVetoed, BoardPalette.MarkOcclusion)
+                OverlayView.CAMERA -> Unit // handled by the caller
             }
             // Debug: 8x8 grid to verify the warp lines up with the physical squares.
             if (showGrid) drawBoardGrid()
@@ -98,8 +106,8 @@ private fun DrawScope.drawBoardGrid() {
     val cell = size.width / BOARD_DIM
     for (i in 0..BOARD_DIM) {
         val p = i * cell
-        drawLine(GRID, Offset(p, 0f), Offset(p, size.height), strokeWidth = 2f)
-        drawLine(GRID, Offset(0f, p), Offset(size.width, p), strokeWidth = 2f)
+        drawLine(BoardPalette.Grid, Offset(p, 0f), Offset(p, size.height), strokeWidth = 2f)
+        drawLine(BoardPalette.Grid, Offset(0f, p), Offset(size.width, p), strokeWidth = 2f)
     }
 }
 
