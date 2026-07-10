@@ -17,6 +17,12 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+
+        // Stockfish (phase 05): built from the source submodule for the ABIs
+        // below. Filters apply APK-wide; 64-bit only (minSdk 29 hardware).
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
     }
 
     buildTypes {
@@ -41,6 +47,24 @@ android {
     testOptions {
         unitTests.all {
             it.useJUnitPlatform()
+        }
+    }
+
+    // Stockfish (phase 05): compiled from android/third_party/stockfish
+    // (pinned git submodule, GPL-3.0) as an executable named libstockfish.so.
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // Extract native libs to nativeLibraryDir: the Stockfish
+            // executable must exist as a real file to be exec'd (API 29+
+            // allows exec only from the app's native library directory).
+            useLegacyPackaging = true
         }
     }
 }
