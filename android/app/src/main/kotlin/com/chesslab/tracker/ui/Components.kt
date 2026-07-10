@@ -314,7 +314,7 @@ fun SubTabRow(
     selected: Int,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    accentFor: (Int) -> Color = { MaterialTheme.colorScheme.primary },
+    accentFor: @Composable (Int) -> Color = { MaterialTheme.colorScheme.primary },
 ) {
     Row(
         modifier = modifier.horizontalScroll(rememberScrollState()),
