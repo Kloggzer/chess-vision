@@ -11,12 +11,25 @@ possible (no camera needed).
 
 ### `generate_blender_testclips.py`
 Render deterministic move sequences with the existing `synth_assets/Chess Scene.blend`
-and assemble compact regression videos under `tests/data/testclips/`. The generated
-manifest contains the exact SAN sequence and render calibration corners, so no camera or
-interactive calibration is needed during replay.
+(scanned `synth_pieces/` meshes) and assemble compact regression videos under
+`tests/data/testclips/`. A skin-toned occluder arm sweeps over the board on every move
+(occlusion + moving shadow), the piece changing hidden under the fist. Everything is
+auto-labeled from `python-chess`: the manifest carries the exact SAN sequence + calibration
+corners (no camera/calibration needed at replay), and a `<clip>.labels.json` sidecar holds
+the full ground truth (start FEN, UCI + SAN, per-position FEN, per-frame occlusion labels).
 
 ```text
-uv run python scripts/generate_blender_testclips.py --scenario opening
+# named scenarios: opening, capture, castle, enpassant, promotion (special moves),
+#                  hover / phantom (hand moves nothing), jitter (trembling hand)
+uv run python scripts/generate_blender_testclips.py --scenario castle
+
+# arbitrary games / positions:
+uv run python scripts/generate_blender_testclips.py --moves "e2e4 e7e5 g1f3" --name mygame
+uv run python scripts/generate_blender_testclips.py --pgn game.pgn
+uv run python scripts/generate_blender_testclips.py --moves "e7e8q" \
+    --start-fen "6k1/4P3/8/8/8/8/8/6K1 w - - 0 1" --name promo
+# add a no-move hand sweep (phantom test) or trembling: --hovers 1  --jitter 1.2
+
 uv run pytest -m clips -v
 ```
 

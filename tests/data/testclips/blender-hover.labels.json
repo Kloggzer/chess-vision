@@ -1,0 +1,115 @@
+{
+  "clip": "blender-hover.mp4",
+  "start_fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+  "moves_uci": [],
+  "san": [],
+  "positions_fen": [
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+  ],
+  "corners": [
+    [
+      444.4978332519531,
+      444.4978332519531
+    ],
+    [
+      444.4978332519531,
+      195.50216674804688
+    ],
+    [
+      195.50216674804688,
+      195.50216674804688
+    ],
+    [
+      195.50216674804688,
+      444.4978332519531
+    ]
+  ],
+  "frame_size": [
+    640,
+    640
+  ],
+  "board_size": 640,
+  "fps": 12,
+  "frame_labels": [
+    {
+      "index": 0,
+      "phase": "clear",
+      "occluded": false,
+      "position_index": 0,
+      "hold": 24,
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    },
+    {
+      "index": 1,
+      "phase": "occluding",
+      "occluded": true,
+      "position_index": 0,
+      "hold": 2,
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    },
+    {
+      "index": 2,
+      "phase": "occluding",
+      "occluded": true,
+      "position_index": 0,
+      "hold": 2,
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    },
+    {
+      "index": 3,
+      "phase": "occluding",
+      "occluded": true,
+      "position_index": 0,
+      "hold": 2,
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    },
+    {
+      "index": 4,
+      "phase": "occluding",
+      "occluded": true,
+      "position_index": 0,
+      "hold": 2,
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    },
+    {
+      "index": 5,
+      "phase": "occluding",
+      "occluded": true,
+      "position_index": 0,
+      "hold": 2,
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    },
+    {
+      "index": 6,
+      "phase": "occluding",
+      "occluded": true,
+      "position_index": 0,
+      "hold": 2,
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    },
+    {
+      "index": 7,
+      "phase": "occluding",
+      "occluded": true,
+      "position_index": 0,
+      "hold": 2,
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    },
+    {
+      "index": 8,
+      "phase": "occluding",
+      "occluded": true,
+      "position_index": 0,
+      "hold": 2,
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    },
+    {
+      "index": 9,
+      "phase": "clear",
+      "occluded": false,
+      "position_index": 0,
+      "hold": 18,
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    }
+  ]
+}

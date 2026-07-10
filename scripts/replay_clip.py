@@ -50,10 +50,13 @@ def replay(clip: str, profile: str = "phone", cnn_run: str | None = None,
            realtime: bool = False, live_align: bool = True,
            start_fen: str | None = None, max_wall_s: float = 900.0,
            tracker_kwargs: dict | None = None, corners: list | None = None,
-           frame_size: list | tuple | None = None, board_size: int | None = None) -> dict:
+           frame_size: list | tuple | None = None, board_size: int | None = None,
+           promotion: str = "q") -> dict:
     """Clip headless durch den MoveTracker spielen. Gibt {history, fen, note, events} zurück.
     Auch vom pytest-Harness (`tests/test_clips.py`, Marker `clips`) genutzt.
-    `tracker_kwargs` überschreibt einzelne MoveTracker-Parameter (Schwellen-Tuning)."""
+    `tracker_kwargs` überschreibt einzelne MoveTracker-Parameter (Schwellen-Tuning).
+    `promotion` (q/r/b/n): ohne CNN pausiert der Tracker bei Umwandlungen auf die
+    Figurenwahl; headless wird sie automatisch mit dieser Figur (Default Dame) beantwortet."""
     from chesslab.move_tracker import tracker as trk
 
     cap = VideoCap(clip, realtime=realtime)
@@ -100,6 +103,10 @@ def replay(clip: str, profile: str = "phone", cnn_run: str | None = None,
         while not cap.done and time.time() - t0 < max_wall_s:
             time.sleep(0.05)
             s = mt.status()
+            # Without a CNN the tracker pauses a detected promotion for the piece choice.
+            # Headless we answer it automatically (default: queen) so the move commits.
+            if s.get("promotion_pending"):
+                mt.choose_promotion(promotion)
             dbg = s["debug"]
             vframe = int(cap.cap.get(cv2.CAP_PROP_POS_FRAMES))
             vtime = vframe / cap.fps
