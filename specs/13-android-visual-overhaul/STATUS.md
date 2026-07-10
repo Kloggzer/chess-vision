@@ -9,11 +9,11 @@
 | Phase | Concern | Depends on | Parallel | Model | Status | Agent/session | Notes |
 |---|---|---|---|---|---|---|---|
 | 00 | Design system & theme | — | foundation | opus | done | opus/2026-07-10 | theme/ Color/BoardPalette/Type/Shape + Theme.kt (dynamicColor off). assembleDebug green. Commits 3c21bc8..288f6fe. |
-| 01 | Shared components & overlay layer | 00 | — | opus | in_progress | opus/2026-07-10 | |
-| 02 | Tracking + two-level board toggle | 00, 01 | UI | opus | todo | | |
+| 01 | Shared components & overlay layer | 00 | — | opus | done | opus/2026-07-10 | Components.kt (StatusPill/SegmentedToggle/SubTabRow/BoardFrame/buttons/KeyValueRow) + Overlays.kt. Commits 368d752..f3d3049. Gate green. |
+| 02 | Tracking + two-level board toggle | 00, 01 | UI | opus | in_progress | opus/2026-07-10 | |
 | 03 | Calibration restyle + zoom loupe | 00, 01 | UI | opus | todo | | |
 | 04 | Game storage (PGN + provenance) | — | data | sonnet | done | sonnet/2026-07-10 | games/GameStore + provenance sidecar; save on reset/gameover/recalibrate. Merged (caceb40) + reconcile (f026732). games tests green. |
-| 05 | Analysis engine (Stockfish) | — | data | fable | in_progress | fable/2026-07-10 | worktree agent running |
+| 05 | Analysis engine (Stockfish) | — | data | fable | done | fable/2026-07-10 | analysis/ (AnalysisEngine/Accuracy/UciParser/FakeAnalysisEngine/StockfishEngine) + Stockfish sf_18 NDK submodule build. Merged 7b5c8e7. 21 tests green. See disc #4-5. |
 | 06 | Games library + Analysis screens | 00,01,02,04,05 | — | opus | todo | | |
 | 07 | Settings restyle | 00, 01, 02 | UI | codewhale | todo | | |
 
@@ -31,6 +31,8 @@ dependency). After 01: **02 ∥ 03**; then **07** (after 02). **06 last** (needs
 | 1 | orch | Agent worktree isolation branches from local HEAD (`worktree.baseRef head` git config). | The Claude Code harness `worktree.baseRef` **setting** (default `fresh`) governs it, NOT git config — worktree agents branched from `origin/main` = `cf3ff48`, missing the 2nd-round ArUco WIP in `1b4c2e0`. Remedy: stopped using worktree isolation after wave 1; ran the UI spine in the main tree; merged the two worktree branches (04, 05) with reconcile. | Medium — required a base-cleanup commit + manual reconcile of `recalibrate()` save hook. |
 | 2 | base | Base `1b4c2e0` builds clean. | It compiles (`assembleDebug` OK) but `:app:detekt`/`ktlint` FAIL on the auto-committed WIP (TrackerService 23 fns, TrackingScreen FunctionNaming/complexity, HistoryScreen LongMethod, SettingsScreen import order). Fixed in `9de047d` (threshold bumps + repo-standard @Suppress + ktlintFormat). | Low — one orchestrator cleanup commit; files owned by 02/06 get properly rewritten later. |
 | 3 | 04 | Save hook covers reset + recalibrate + gameOver. | Phase 04's worktree base (`cf3ff48`) had no `recalibrate()`; agent hooked reset + gameOver only. Recalibrate save added post-merge (`f026732`). `GameStore.save` returns nullable (empty-move games not saved). `MoveProvenance` omits `Decision.occluded` (matches spec field list; flag for 06 if wanted). | Low. |
+| 4 | 05 | Bundle Stockfish; no vendored binary. | Done via pinned git submodule `android/third_party/stockfish` (Stockfish **sf_18**, GPL-3.0) + CMake `externalNativeBuild` compiling `libstockfish.so` (executable trick), NNUE nets downloaded at configure time into gitignored build dir. `StockfishEngine` execs it, speaks UCI over pipes. No binary committed. | Native build needs NDK + **network on first configure** (NNUE download); APK grows ~80 MB/ABI. |
+| 5 | 05 | (build) | `ndk.abiFilters` restricts APK to `arm64-v8a` + `x86_64` (64-bit only; also drops OpenCV 32-bit ABIs). `MoveQuality` in own file (ktlint filename rule). `DEFAULT_DEPTH=12`. | `:app:assembleDebug` now drives the native build — heavier + network-once. Phase 06 builds/tests fine against `FakeAnalysisEngine` (no native needed). |
 
 ## Open decisions carried from mockup review (all decided)
 
