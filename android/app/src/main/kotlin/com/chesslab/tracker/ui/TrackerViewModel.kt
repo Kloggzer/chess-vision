@@ -56,7 +56,8 @@ class TrackerViewModel(
         viewModelScope.launch { bound.uiState.collect { _uiState.value = it } }
         viewModelScope.launch { bound.boardBitmap.collect { _board.value = it } }
         viewModelScope.launch { bound.rawPreview.collect { _rawPreview.value = it } }
-        calibrationStore.load(CAMERA_ID)?.let(bound::start)
+        val saved = calibrationStore.load(CAMERA_ID)
+        if (saved != null) bound.start(saved) else bound.startPreviewOnly()
     }
 
     fun onServiceDisconnected() {
