@@ -31,6 +31,21 @@ android {
         }
     }
 
+    // Two install channels so an experimental build can live NEXT TO the known-good
+    // install on the same phone: `stable` keeps the original applicationId, `lab`
+    // gets its own id + launcher label (res override in src/lab/res).
+    flavorDimensions += "channel"
+    productFlavors {
+        create("stable") {
+            dimension = "channel"
+            isDefault = true
+        }
+        create("lab") {
+            dimension = "channel"
+            applicationIdSuffix = ".lab"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
