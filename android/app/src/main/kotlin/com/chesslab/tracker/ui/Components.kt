@@ -467,7 +467,12 @@ fun SettingSwitch(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.clearAndSetSemantics {})
+        // weight(1f): a long (wrapping) label otherwise pushes the switch out of the card.
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f).clearAndSetSemantics {},
+        )
         Switch(
             checked = checked,
             onCheckedChange = onChange,
