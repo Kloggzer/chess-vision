@@ -1,6 +1,7 @@
 package com.chesslab.tracker.geometry
 
 import org.opencv.core.Mat
+import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import org.opencv.objdetect.ArucoDetector
 import org.opencv.objdetect.DetectorParameters
@@ -26,6 +27,7 @@ class ArucoCornerDetector {
         private const val QUAD_CORNERS = 4
         private const val COLUMN_INDEX = 0
         private const val CHANNEL_BGR = 3
+        private const val DEFAULT_MAX_DIMENSION = 960
     }
 
     private val dictionary = Objdetect.getPredefinedDictionary(Objdetect.DICT_4X4_50)
@@ -43,6 +45,25 @@ class ArucoCornerDetector {
             return ArucoCornerOrdering.orderCorners(markers)
         } finally {
             gray.release()
+        }
+    }
+
+    /** Detect on a bounded-size image and map marker centers back to source coordinates. */
+    fun detectScaled(
+        frame: Mat,
+        maxDimension: Int = DEFAULT_MAX_DIMENSION,
+    ): BoardCorners? {
+        val largest = maxOf(frame.cols(), frame.rows())
+        if (largest <= maxDimension) return detect(frame)
+        val scale = maxDimension.toDouble() / largest
+        val small = Mat()
+        return try {
+            Imgproc.resize(frame, small, Size(), scale, scale, Imgproc.INTER_AREA)
+            detect(small)?.mapPoints { point ->
+                Point((point.x / scale).toFloat(), (point.y / scale).toFloat())
+            }
+        } finally {
+            small.release()
         }
     }
 
@@ -129,4 +150,7 @@ class ArucoCornerDetector {
         } else {
             frame.clone()
         }
+
+    private fun BoardCorners.mapPoints(transform: (Point) -> Point): BoardCorners =
+        BoardCorners(transform(a8), transform(h8), transform(h1), transform(a1))
 }

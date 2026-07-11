@@ -60,6 +60,7 @@ fun ChesslabNavHost(
     val board by viewModel.board.collectAsStateWithLifecycle()
     val debugBitmaps by viewModel.debugBitmaps.collectAsStateWithLifecycle()
     val rawPreview by viewModel.rawPreview.collectAsStateWithLifecycle()
+    val spectatorUrl by viewModel.spectatorUrl.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     // ArUco corner detection for the calibration screen.
@@ -116,6 +117,7 @@ fun ChesslabNavHost(
                     settings = settings,
                     onUpdate = viewModel::updateSettings,
                     modelStore = viewModel.modelStore,
+                    spectatorUrl = spectatorUrl,
                 )
             }
         }

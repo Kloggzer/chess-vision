@@ -15,6 +15,8 @@ import com.chesslab.tracker.service.SettingsRepository
 import com.chesslab.tracker.service.TrackerService
 import com.chesslab.tracker.service.TrackerSettings
 import com.chesslab.tracker.service.settingsDataStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -54,8 +56,13 @@ class TrackerViewModel(
     private val _rawPreview = MutableStateFlow<Bitmap?>(null)
     val rawPreview: StateFlow<Bitmap?> = _rawPreview.asStateFlow()
 
+    private val _spectatorUrl = MutableStateFlow<String?>(null)
+    val spectatorUrl: StateFlow<String?> = _spectatorUrl.asStateFlow()
+
     private var service: TrackerService? = null
+    private val serviceJobs = mutableListOf<Job>()
     private var selectedOverlayView = OverlayView.BOARD
+    private var lastSavedGameKey: String? = null
 
     /**
      * The active calibration profile, or null when the board is not yet calibrated.
@@ -67,26 +74,30 @@ class TrackerViewModel(
     val profile: StateFlow<CalibrationProfile?> = _profile.asStateFlow()
 
     fun onServiceConnected(bound: TrackerService) {
+        disconnectServiceCollectors()
         service = bound
         bound.setOverlayView(selectedOverlayView)
-        viewModelScope.launch {
-            var wasGameOver = false
-            bound.uiState.collect { state ->
-                _uiState.value = state
-                // Auto-save on the false -> true gameOver transition (checkmate/stalemate/
-                // draw reached live), so a finished game lands in the library even if the
-                // user never explicitly resets.
-                if (state.gameOver && !wasGameOver) {
-                    maybeSaveCurrentGame()
+        serviceJobs +=
+            viewModelScope.launch {
+                var wasGameOver = false
+                bound.uiState.collect { state ->
+                    _uiState.value = state
+                    // Auto-save on the false -> true gameOver transition (checkmate/stalemate/
+                    // draw reached live), so a finished game lands in the library even if the
+                    // user never explicitly resets.
+                    if (state.gameOver && !wasGameOver) {
+                        maybeSaveCurrentGame()
+                    }
+                    if (state.moves.isEmpty()) lastSavedGameKey = null
+                    wasGameOver = state.gameOver
                 }
-                wasGameOver = state.gameOver
             }
-        }
-        viewModelScope.launch { bound.boardBitmap.collect { _board.value = it } }
-        viewModelScope.launch { bound.debugBitmaps.collect { _debugBitmaps.value = it } }
-        viewModelScope.launch { bound.rawPreview.collect { _rawPreview.value = it } }
+        serviceJobs += viewModelScope.launch { bound.boardBitmap.collect { _board.value = it } }
+        serviceJobs += viewModelScope.launch { bound.debugBitmaps.collect { _debugBitmaps.value = it } }
+        serviceJobs += viewModelScope.launch { bound.rawPreview.collect { _rawPreview.value = it } }
+        serviceJobs += viewModelScope.launch { bound.spectatorUrl.collect { _spectatorUrl.value = it } }
         // Reflect the service's active profile (manual save OR ArUco auto-calibration).
-        viewModelScope.launch { bound.activeProfile.collect { _profile.value = it } }
+        serviceJobs += viewModelScope.launch { bound.activeProfile.collect { _profile.value = it } }
         // Always start in preview-only: ArUco auto-calibration is the primary geometry
         // source and drives start() itself. A saved profile does not auto-start (it would
         // block auto-calibration and can be stale); the manual tab remains a fallback.
@@ -96,14 +107,25 @@ class TrackerViewModel(
     /** Persist the current game if it has any moves. Idempotent to call redundantly. */
     private fun maybeSaveCurrentGame() {
         val state = _uiState.value
-        if (state.moves.isNotEmpty()) {
-            gameStore.save(state.moves, state.fen)
+        val key = state.fen + "\n" + state.moves.joinToString("\n") { it.san }
+        if (state.moves.isNotEmpty() && key != lastSavedGameKey) {
+            lastSavedGameKey = key
+            viewModelScope.launch(Dispatchers.IO) {
+                runCatching { gameStore.save(state.moves, state.fen) }
+                    .onFailure { android.util.Log.e("GameStore", "Failed to persist game", it) }
+            }
         }
     }
 
     fun onServiceDisconnected() {
         service?.setCalibrationActive(false)
         service = null
+        disconnectServiceCollectors()
+    }
+
+    private fun disconnectServiceCollectors() {
+        serviceJobs.forEach(Job::cancel)
+        serviceJobs.clear()
     }
 
     /** Retain (or release) the latest frame for ArUco while the calibration screen is shown. */

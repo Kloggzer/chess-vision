@@ -36,7 +36,8 @@ data class TrackerSettings(
     val ambiguityMargin: Double = TrackerConfig.DEFAULT_AMBIGUITY_MARGIN_LL,
     val usePrior: Boolean = TrackerConfig.DEFAULT_USE_PRIOR,
     // Camera (constructor params)
-    val resolution: Resolution = Resolution.R1080P,
+    // 720p is sufficient for the 512px detector warp; uncertainty can escalate to 1080p.
+    val resolution: Resolution = Resolution.R720P,
     val dynamicResolution: Boolean = true,
     // Detection (live tunables)
     val motionThr: Double = TrackerConfig.DEFAULT_MOTION_THR,
@@ -50,7 +51,7 @@ data class TrackerSettings(
     val motionHoldS: Double = TrackerConfig.DEFAULT_MOTION_HOLD_S,
     val claheClip: Double = TrackerConfig.DEFAULT_DIFF_CLAHE_CLIP,
     // Wobble tolerance of the gray diff in px ("virtual wobble" min-diff); 0 = exact.
-    // App default 1 (phone-mount shake), engine default 0 (Python/clip parity).
+    // Default 0: one-pixel min filtering loses weak dark-on-dark moves in the Opera replay.
     val diffJitterPx: Int = DEFAULT_DIFF_JITTER_PX,
     // Lighting robustness: per-square illumination cancel (empty squares/gradients) + census-quiet
     // light veto (occupied squares — edges scale in place). App default on, engine default off (parity).
@@ -65,6 +66,7 @@ data class TrackerSettings(
     val arucoMargin: Double = DEFAULT_ARUCO_MARGIN,
     // Recording (phase 07)
     val autoRecord: Boolean = true,
+    val spectatorEnabled: Boolean = false,
     // CNN safeguard (phase 05); needs an imported model (CnnModelStore) to attach.
     val cnnEnabled: Boolean = false,
     val cnnConfThr: Double = DEFAULT_CNN_CONF_THR,
@@ -126,8 +128,8 @@ data class TrackerSettings(
         /** Pre-CLAHE mean gray below this = scene too dark to trust the diff (0..255 scale). */
         const val DEFAULT_DARK_LUMA_THR: Double = 18.0
 
-        /** Live default absorbs ~1px phone-mount wobble; engine keeps 0 for clip parity. */
-        const val DEFAULT_DIFF_JITTER_PX: Int = 1
+        /** Pixel-exact by default: virtual jitter filtering erases weak dark-on-dark move evidence. */
+        const val DEFAULT_DIFF_JITTER_PX: Int = TrackerConfig.DEFAULT_DIFF_JITTER_PX
 
         /** Live default on (real rooms have moving light); engine keeps false for clip parity. */
         const val DEFAULT_LIGHTING_ROBUST: Boolean = true

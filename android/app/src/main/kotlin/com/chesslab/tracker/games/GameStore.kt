@@ -6,6 +6,9 @@ import com.github.bhlangonijr.chesslib.Board
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
@@ -31,6 +34,7 @@ class GameStore(
      * Returns null (and writes nothing) if [moves] is empty — an empty game
      * is not worth a library entry.
      */
+    @Synchronized
     fun save(
         moves: List<MoveEntry>,
         finalFen: String,
@@ -40,7 +44,8 @@ class GameStore(
 
         val id = newId()
         val pgn = PgnBuilder.build(moves.map { it.san }, finalFen)
-        pgnFile(id).writeText(pgn)
+        val pgnFile = pgnFile(id)
+        val provenanceFile = provenanceFile(id)
 
         val provenance =
             moves.mapIndexedNotNull { index, entry ->
@@ -59,7 +64,7 @@ class GameStore(
                     )
                 }
             }
-        provenanceFile(id).writeText(json.encodeToString(provenance))
+        val provenanceText = json.encodeToString(provenance)
 
         val board = Board()
         board.loadFromFen(finalFen)
@@ -71,7 +76,18 @@ class GameStore(
                 moveCount = moves.size,
                 result = PgnBuilder.resultOf(board),
             )
-        writeIndex(readIndex() + summary)
+        var complete = false
+        try {
+            writeAtomic(pgnFile, pgn)
+            writeAtomic(provenanceFile, provenanceText)
+            writeIndex(readIndex() + summary)
+            complete = true
+        } finally {
+            if (!complete) {
+                pgnFile.delete()
+                provenanceFile.delete()
+            }
+        }
         return summary
     }
 
@@ -87,6 +103,7 @@ class GameStore(
     }
 
     /** Remove `<id>.pgn`, `<id>.provenance.json` and the index entry. */
+    @Synchronized
     fun delete(id: String) {
         pgnFile(id).delete()
         provenanceFile(id).delete()
@@ -107,12 +124,37 @@ class GameStore(
     private fun readIndex(): List<GameSummary> {
         val file = indexFile()
         if (!file.exists()) return emptyList()
-        return json.decodeFromString<List<GameSummary>>(file.readText())
+        return runCatching { json.decodeFromString<List<GameSummary>>(file.readText()) }
+            .getOrElse {
+                file.renameTo(File(dir, "index.corrupt-${System.currentTimeMillis()}.json"))
+                emptyList()
+            }
     }
 
     private fun writeIndex(summaries: List<GameSummary>) {
         dir.mkdirs()
-        indexFile().writeText(json.encodeToString(summaries))
+        writeAtomic(indexFile(), json.encodeToString(summaries))
+    }
+
+    private fun writeAtomic(
+        target: File,
+        content: String,
+    ) {
+        target.parentFile?.mkdirs()
+        val temp = File(target.parentFile, ".${target.name}.tmp")
+        temp.writeText(content)
+        try {
+            Files.move(
+                temp.toPath(),
+                target.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        } finally {
+            temp.delete()
+        }
     }
 
     private fun pgnFile(id: String): File = File(dir, "$id.pgn")

@@ -72,15 +72,21 @@ fun AnalysisScreen(
     depth: Int = AnalysisEngine.DEFAULT_DEPTH,
 ) {
     val line = remember(pgn) { parseGameLine(pgn) }
-    var analyses by remember(gameId) { mutableStateOf(AnalysisCache.get(gameId)) }
+    var analyses by remember(gameId, depth) { mutableStateOf(AnalysisCache.get(gameId, depth)) }
     var selectedPly by remember(gameId) { mutableIntStateOf(0) }
     var playing by remember(gameId) { mutableStateOf(false) }
+    var analysisError by remember(gameId) { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(gameId, line) {
+    LaunchedEffect(gameId, line, depth) {
         if (analyses == null) {
-            val result = engine.analyzeGame(line.fens, depth)
-            AnalysisCache.put(gameId, result)
-            analyses = result
+            runCatching { engine.analyzeGame(line.fens, depth) }
+                .onSuccess { result ->
+                    AnalysisCache.put(gameId, depth, result)
+                    analyses = result
+                }.onFailure { failure ->
+                    if (failure is kotlinx.coroutines.CancellationException) throw failure
+                    analysisError = failure.message ?: failure::class.java.simpleName
+                }
         }
     }
     LaunchedEffect(playing) {
@@ -100,7 +106,7 @@ fun AnalysisScreen(
     ) {
         Text(stringResource(R.string.analysis_title), style = MaterialTheme.typography.headlineSmall)
         BoardWithEvalBar(fen = line.fens[selectedPly], fraction = current?.let { evalBarFraction(whitePovCp(it)) } ?: 0.5f)
-        EngineLineRow(current)
+        EngineLineRow(current, analysisError)
         Scrubber(
             playing = playing,
             atStart = selectedPly == 0,
@@ -193,7 +199,10 @@ private fun EvalBar(
 
 @Suppress("ktlint:standard:function-naming", "FunctionNaming")
 @Composable
-private fun EngineLineRow(analysis: PositionAnalysis?) {
+private fun EngineLineRow(
+    analysis: PositionAnalysis?,
+    error: String?,
+) {
     Column(
         modifier =
             Modifier
@@ -203,7 +212,10 @@ private fun EngineLineRow(analysis: PositionAnalysis?) {
                 .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        if (analysis == null) {
+        if (error != null) {
+            Text(stringResource(R.string.analysis_failed, error), color = MaterialTheme.colorScheme.error)
+            return
+        } else if (analysis == null) {
             Text(
                 stringResource(R.string.analysis_analyzing),
                 fontFamily = FontFamily.Monospace,

@@ -122,6 +122,7 @@ class CnnSafeguard(
     override val verdicts: Flow<VerifyVerdict> = verdictFlow
 
     /** Non-blocking: schedules the multi-observation verify worker and returns. */
+    @Suppress("TooGenericExceptionCaught")
     override fun requestVerify(
         move: MoveCandidate,
         touched: List<String>,

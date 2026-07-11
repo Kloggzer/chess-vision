@@ -101,4 +101,14 @@ class GameStoreTest {
         assertNull(summary)
         assertTrue(store.list().isEmpty())
     }
+
+    @Test
+    fun `corrupt index is quarantined instead of crashing the library`(
+        @TempDir dir: File,
+    ) {
+        File(dir, "index.json").writeText("not-json")
+
+        assertTrue(GameStore(dir).list().isEmpty())
+        assertTrue(dir.listFiles().orEmpty().any { it.name.startsWith("index.corrupt-") })
+    }
 }

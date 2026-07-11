@@ -65,15 +65,20 @@ class BoardWarper(
      * Both warps map directly to their target size (the detection gray is warped
      * straight to the small size — no full-res intermediate — as the desktop does).
      */
-    fun warp(frame: Mat): WarpedBoard {
+    fun warp(
+        frame: Mat,
+        fullResolutionBoard: Boolean = true,
+    ): WarpedBoard {
         val src = srcPointsFor(frame.cols(), frame.rows())
         val bs = profile.boardSize.toDouble()
         val boardBgr = Mat()
-        val fullHomography = homographyTo(src, bs)
-        try {
-            Imgproc.warpPerspective(frame, boardBgr, fullHomography, Size(bs, bs))
-        } finally {
-            fullHomography.release()
+        if (fullResolutionBoard) {
+            val fullHomography = homographyTo(src, bs)
+            try {
+                Imgproc.warpPerspective(frame, boardBgr, fullHomography, Size(bs, bs))
+            } finally {
+                fullHomography.release()
+            }
         }
 
         val target = (profile.boardSize * DETECT_SCALE).toInt().toDouble()
@@ -81,6 +86,7 @@ class BoardWarper(
         val detectHomography = homographyTo(src, target)
         return try {
             Imgproc.warpPerspective(frame, small, detectHomography, Size(target, target))
+            if (!fullResolutionBoard) small.copyTo(boardBgr)
             val gray = Mat()
             Imgproc.cvtColor(small, gray, Imgproc.COLOR_BGR2GRAY)
             // Return the detect-scale BGR (warped straight to the small size) so the engine sees

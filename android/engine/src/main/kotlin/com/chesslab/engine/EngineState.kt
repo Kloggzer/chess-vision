@@ -47,6 +47,7 @@ internal class EngineState {
     var refGamut: OcclusionGamut.Gamut? = null
     var state = "init"
     val history = mutableListOf<String>()
+    val uciHistory = mutableListOf<String>()
     var lastMove: String? = null
     var note = ""
     var stuckReason: String? = null
@@ -83,6 +84,10 @@ internal class EngineState {
 
     /** Frame seq of the newest processed frame (seq contract, Spec 11). */
     var frameSeq: Int = 0
+
+    /** Monotonic identity of the visual reference, used by Android to couple warp geometry to it. */
+    var referenceVersion: Long = 0
+        private set
 
     /** Occluded-dominant squares of the last safeguard observation (resting-hand veto). */
     var cnnOccluded: Set<String> = emptySet()
@@ -122,6 +127,7 @@ internal class EngineState {
             }
         }
         refFen = game.fen()
+        referenceVersion++
         refCensus = null
         motionSinceRef = false
     }
@@ -167,6 +173,7 @@ internal class EngineState {
         for ((i, mv) in moves.withIndex()) {
             game.push(mv)
             history.add(sans[i])
+            uciHistory.add(uciOf(mv))
             events.add(TrackerEvent.MoveCommitted(sans[i], game.fen(), decision))
         }
         lastMove = uciOf(moves.last())

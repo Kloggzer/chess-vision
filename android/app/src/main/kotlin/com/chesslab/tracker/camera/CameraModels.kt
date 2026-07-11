@@ -22,7 +22,7 @@ data class CameraFrame(
  */
 data class CameraConfig(
     val lensFacing: Int = CameraSelector.LENS_FACING_BACK,
-    val resolution: Resolution = Resolution.R1080P,
+    val resolution: Resolution = Resolution.R720P,
     val dynamicResolution: Boolean = true,
 )
 

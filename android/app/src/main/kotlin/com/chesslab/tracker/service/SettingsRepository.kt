@@ -52,6 +52,7 @@ class SettingsRepository(
         val LIGHTING_ROBUST = booleanPreferencesKey("lighting_robust")
         val COMMIT_FLOOR = doublePreferencesKey("commit_floor")
         val AUTO_RECORD = booleanPreferencesKey("auto_record")
+        val SPECTATOR_ENABLED = booleanPreferencesKey("spectator_enabled")
         val CNN_ENABLED = booleanPreferencesKey("cnn_enabled")
         val CNN_CONF_THR = doublePreferencesKey("cnn_conf_thr")
         val ANALYSIS_DEPTH = intPreferencesKey("analysis_depth")
@@ -75,6 +76,7 @@ class SettingsRepository(
             resolution = prefs[RESOLUTION]?.let(::resolutionOf) ?: d.resolution,
             dynamicResolution = prefs[DYNAMIC_RESOLUTION] ?: d.dynamicResolution,
             autoRecord = prefs[AUTO_RECORD] ?: d.autoRecord,
+            spectatorEnabled = prefs[SPECTATOR_ENABLED] ?: d.spectatorEnabled,
             cnnEnabled = prefs[CNN_ENABLED] ?: d.cnnEnabled,
             cnnConfThr = prefs[CNN_CONF_THR] ?: d.cnnConfThr,
             analysisDepth = prefs[ANALYSIS_DEPTH] ?: d.analysisDepth,
@@ -116,6 +118,7 @@ class SettingsRepository(
         prefs[RESOLUTION] = s.resolution.name
         prefs[DYNAMIC_RESOLUTION] = s.dynamicResolution
         prefs[AUTO_RECORD] = s.autoRecord
+        prefs[SPECTATOR_ENABLED] = s.spectatorEnabled
         prefs[CNN_ENABLED] = s.cnnEnabled
         prefs[CNN_CONF_THR] = s.cnnConfThr
         prefs[ANALYSIS_DEPTH] = s.analysisDepth

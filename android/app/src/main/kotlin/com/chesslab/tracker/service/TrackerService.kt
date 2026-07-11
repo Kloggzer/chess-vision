@@ -17,7 +17,6 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.chesslab.engine.api.DebugImages
 import com.chesslab.engine.api.GrayImage
-import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerState
 import com.chesslab.tracker.R
 import com.chesslab.tracker.camera.CameraConfig
@@ -31,6 +30,8 @@ import com.chesslab.tracker.geometry.ArucoCornerSmoother
 import com.chesslab.tracker.geometry.BoardWarper
 import com.chesslab.tracker.geometry.CalibrationProfile
 import com.chesslab.tracker.geometry.CornerDriftMonitor
+import com.chesslab.tracker.record.SessionRecorderImpl
+import com.chesslab.tracker.spectate.SpectatorServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -42,6 +43,7 @@ import org.opencv.android.Utils
 import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.imgproc.Imgproc
+import java.io.File
 
 data class DebugBitmaps(
     val detectionDiff: Bitmap? = null,
@@ -74,12 +76,15 @@ class TrackerService : LifecycleService() {
     @Volatile private var baseWarper: BoardWarper? = null
     private var resolutionController: DynamicResolutionController? = null
     private var resolutionCollector: Job? = null
+    private var frameLoopJob: Job? = null
 
     // Live ArUco re-alignment during tracking: the primary geometry source is the markers,
     // not a frozen calibration. Re-detect them (throttled) and swap in a re-aligned warper.
     private val liveAlignDetector = ArucoCornerDetector()
     private val liveAlignSmoother = ArucoCornerSmoother()
     private var liveAlignTickNs = 0L
+    private var referenceProfile: CalibrationProfile? = null
+    private var observedReferenceVersion = -1L
 
     @Volatile private var settings: TrackerSettings = TrackerSettings()
     private var cnn: CnnIntegration? = null
@@ -127,9 +132,13 @@ class TrackerService : LifecycleService() {
 
     /** Phase 06: LAN spectator broadcast sink. */
     var stateSink: GameStateSink? = null
+    private var spectatorServer: SpectatorServer? = null
+    private val _spectatorUrl = MutableStateFlow<String?>(null)
+    val spectatorUrl: StateFlow<String?> = _spectatorUrl.asStateFlow()
 
     /** Phase 07: raw session recorder. */
     var recorder: SessionRecorder? = null
+    private var ownedRecorder: SessionRecorderImpl? = null
 
     inner class LocalBinder : Binder() {
         val service: TrackerService get() = this@TrackerService
@@ -153,6 +162,7 @@ class TrackerService : LifecycleService() {
                 CnnModelStore(filesDir),
                 debugDumpDir = getExternalFilesDir(null)?.let { java.io.File(it, "cnn_debug") },
             )
+        restoreCheckpoint()
         observeSettings()
         forwardStateToSink()
         forwardEventsToRecorder()
@@ -169,7 +179,7 @@ class TrackerService : LifecycleService() {
             // notification and stop the service. If the app is still bound (open in the
             // foreground) the service object lives until it unbinds, but tracking is stopped
             // and the notification is gone — which is what the user asked for.
-            stopTrackingToPreview()
+            stopCameraAndTracking()
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
@@ -180,8 +190,11 @@ class TrackerService : LifecycleService() {
 
     override fun onDestroy() {
         cnn?.detach()
+        ownedRecorder?.close()
+        spectatorServer?.stop()
         resolutionController?.stop()
         resolutionCollector?.cancel()
+        frameLoopJob?.cancel()
         pipeline?.close()
         baseWarper?.close()
         pipeline = null
@@ -202,6 +215,7 @@ class TrackerService : LifecycleService() {
      */
     fun startPreviewOnly() {
         if (cameraRunning) return
+        if (settings.spectatorEnabled && spectatorServer == null) reconcileSpectator()
         cameraRunning = true
         camera.start(settings.toCameraConfig())
         startFrameLoop()
@@ -218,6 +232,8 @@ class TrackerService : LifecycleService() {
         val pipe = BoardFramePipeline(warper, settings.claheClip)
         pipeline = pipe
         liveAlignTickNs = 0L
+        referenceProfile = null
+        observedReferenceVersion = coordinator.referenceVersion
         liveAlignSmoother.reset(profile.corners)
         _activeProfile.value = profile
 
@@ -241,8 +257,24 @@ class TrackerService : LifecycleService() {
         baseWarper = null
         liveAlignSmoother.reset()
         _activeProfile.value = null
+        referenceProfile = null
         cnnFrameStore.clear()
         coordinator.reset()
+        clearCheckpoint()
+    }
+
+    /** Stop all camera work as requested by the foreground-notification action. */
+    private fun stopCameraAndTracking() {
+        stopTrackingToPreview()
+        camera.stop()
+        cameraRunning = false
+        _rawPreview.value = null
+        _boardBitmap.value = null
+        _debugBitmaps.value = DebugBitmaps()
+        spectatorServer?.stop()
+        spectatorServer = null
+        stateSink = null
+        _spectatorUrl.value = null
     }
 
     private var cameraRunning = false
@@ -270,9 +302,13 @@ class TrackerService : LifecycleService() {
     /** Clone of the latest full-res BGR frame for ArUco; caller MUST release. Null if none. */
     fun latestCalibrationFrame(): Mat? = synchronized(calibFrameLock) { calibFrame?.clone() }
 
-    fun undo(): Boolean = coordinator.undo()
+    fun undo(): Boolean = coordinator.undo().also { if (it) writeCheckpoint() }
 
-    fun reset() = coordinator.reset()
+    fun reset() {
+        coordinator.reset()
+        clearCheckpoint()
+        reconcileRecorder(forceNew = true)
+    }
 
     fun renewBaseline() = coordinator.renewBaseline()
 
@@ -284,93 +320,99 @@ class TrackerService : LifecycleService() {
     }
 
     private fun startFrameLoop() {
-        lifecycleScope.launch(Dispatchers.Default) {
-            camera.frames.collect { frame ->
-                try {
-                    // Publish raw camera preview (independent of warp/tracking success —
-                    // also the ONLY consumer in preview-only mode before calibration).
-                    publishRawPreview(frame.mat, frame.width, frame.height)
-
-                    // Retain the latest full-res frame for ArUco while calibrating.
-                    if (calibrationActive) {
-                        synchronized(calibFrameLock) {
-                            calibFrame?.release()
-                            calibFrame = frame.mat.clone()
-                        }
-                    }
-                    val pipe = pipeline
-                    if (pipe == null) {
-                        // Preview-only: try to self-calibrate from ArUco markers (throttled).
-                        val auto =
-                            autoCalibrator.tryDetect(
-                                frame.mat,
-                                frame.width,
-                                frame.height,
-                                System.nanoTime(),
-                                settings.arucoMargin,
-                            )
-                        if (auto != null) start(auto)
-                        return@collect
-                    }
-
-                    // Live ArUco re-alignment: re-detect the markers and swap in a re-aligned
-                    // warper (inside this same pipeline) BEFORE warping, so a drifting
-                    // board/camera stays tracked instead of the calibration going stale.
-                    maybeLiveAlign(frame.mat, frame.width, frame.height)
-
-                    // Feed raw frame + corners before warp (phase 07 recorder).
-                    val corners = baseWarper?.profile?.corners
-                    recorder?.onRawFrame(frame.mat, corners, frame.width, frame.height)
-
-                    recorder?.onFrame(coordinator.uiState.value.fen, frame.timestampNs)
-                    val processed = pipe.process(frame.mat, frame.timestampNs)
+        if (frameLoopJob != null) return
+        frameLoopJob =
+            lifecycleScope.launch(Dispatchers.Default) {
+                camera.frames.collect { frame ->
                     try {
-                        // Dark-frame gate: below the pre-CLAHE luma floor the diff is pure
-                        // amplified sensor noise — freeze detection instead of feeding it.
-                        coordinator.meanLuma = processed.meanLuma
-                        val thr = settings.darkLumaThr
-                        if (thr > 0 && processed.meanLuma < thr) {
-                            coordinator.onDarkFrame()
-                            diag("dark frame gated: meanLuma=${"%.1f".format(processed.meanLuma)} < $thr")
-                        } else {
-                            coordinator.onFrame(processed.gray, processed.bgr, processed.timestampNs)
-                            cnnFrameStore.update(processed, coordinator.frameSeq)
+                        // Publish raw camera preview (independent of warp/tracking success —
+                        // also the ONLY consumer in preview-only mode before calibration).
+                        publishRawPreview(frame.mat, frame.width, frame.height)
+
+                        // Retain the latest full-res frame for ArUco while calibrating.
+                        if (calibrationActive) {
+                            synchronized(calibFrameLock) {
+                                calibFrame?.release()
+                                calibFrame = frame.mat.clone()
+                            }
+                        }
+                        val pipe = pipeline
+                        if (pipe == null) {
+                            // Preview-only: try to self-calibrate from ArUco markers (throttled).
+                            val auto =
+                                autoCalibrator.tryDetect(
+                                    frame.mat,
+                                    frame.width,
+                                    frame.height,
+                                    System.nanoTime(),
+                                    settings.arucoMargin,
+                                )
+                            if (auto != null) start(auto)
+                            return@collect
                         }
 
-                        val ui = coordinator.uiState.value
-                        val d = ui.debug
-                        diag(
-                            "state=${ui.trackerState} stuck=${d.stuckReason} " +
-                                "luma=${"%.1f".format(processed.meanLuma)} " +
-                                "motion=${"%.4f".format(d.motion)}/${"%.4f".format(d.motionThr)} " +
-                                "changed=${d.changed} cand=${d.candidate} " +
-                                "best=${"%.2f".format(d.bestScore)} 2nd=${"%.2f".format(d.secondScore)} " +
-                                "shadowVeto=${d.shadowVetoed} occlVeto=${d.occludedVetoed}",
-                        )
+                        // Live ArUco re-alignment: re-detect the markers and swap in a re-aligned
+                        // warper (inside this same pipeline) BEFORE warping, so a drifting
+                        // board/camera stays tracked instead of the calibration going stale.
+                        maybeLiveAlign(frame.mat, frame.width, frame.height)
 
-                        // Phase 07: flush pending capture when board is clean (never off a dark frame).
-                        if (ui.trackerState == TrackerState.TRACKING && !ui.sceneDark) recorder?.onCleanFrame()
+                        // Feed raw frame + corners before warp (phase 07 recorder).
+                        val corners = baseWarper?.profile?.corners
+                        recorder?.onRawFrame(frame.mat, corners, frame.width, frame.height)
 
-                        publishBoard(processed.boardBgr)
-                        publishDebug(coordinator.debugImages)
+                        recorder?.onFrame(coordinator.uiState.value.fen, frame.timestampNs)
+                        val processed = pipe.process(frame.mat, frame.timestampNs, fullResolutionBoard = cnn?.attached == true)
+                        try {
+                            // Dark-frame gate: below the pre-CLAHE luma floor the diff is pure
+                            // amplified sensor noise — freeze detection instead of feeding it.
+                            coordinator.meanLuma = processed.meanLuma
+                            val thr = settings.darkLumaThr
+                            if (thr > 0 && processed.meanLuma < thr) {
+                                coordinator.onDarkFrame()
+                                diag { "dark frame gated: meanLuma=${"%.1f".format(processed.meanLuma)} < $thr" }
+                            } else {
+                                coordinator.onFrame(processed.gray, processed.bgr, processed.timestampNs)
+                                synchronizeReferenceGeometry()
+                                cnnFrameStore.update(processed, coordinator.frameSeq)
+                            }
+
+                            val ui = coordinator.uiState.value
+                            val d = ui.debug
+                            diag {
+                                "state=${ui.trackerState} stuck=${d.stuckReason} " +
+                                    "luma=${"%.1f".format(processed.meanLuma)} " +
+                                    "motion=${"%.4f".format(d.motion)}/${"%.4f".format(d.motionThr)} " +
+                                    "changed=${d.changed} cand=${d.candidate} " +
+                                    "best=${"%.2f".format(d.bestScore)} 2nd=${"%.2f".format(d.secondScore)} " +
+                                    // Soft-hot fused z (>= zThr/2) — shows evidence that never reached
+                                    // `changed`, e.g. a dark-on-dark move hovering below threshold.
+                                    "zTop=${d.changedVals.joinToString(",") { (sq, v) -> "$sq:${"%.1f".format(v)}" }} " +
+                                    "shadowVeto=${d.shadowVetoed} occlVeto=${d.occludedVetoed}"
+                            }
+
+                            // Phase 07: flush pending capture when board is clean (never off a dark frame).
+                            if (ui.trackerState == TrackerState.TRACKING && !ui.sceneDark) recorder?.onCleanFrame()
+
+                            publishBoard(processed.boardBgr)
+                            publishDebug(coordinator.debugImages)
+                        } finally {
+                            processed.boardBgr.release()
+                        }
                     } finally {
-                        processed.boardBgr.release()
+                        frame.mat.release()
                     }
-                } finally {
-                    frame.mat.release()
                 }
             }
-        }
     }
 
     private var lastDiagNs = 0L
 
     /** Throttled diagnostic log (~1/sec) for tracker bring-up debugging. */
-    private fun diag(msg: String) {
+    private inline fun diag(message: () -> String) {
         val now = System.nanoTime()
         if (now - lastDiagNs < DIAG_INTERVAL_NS) return
         lastDiagNs = now
-        android.util.Log.i("chesslabDiag", msg)
+        android.util.Log.i("chesslabDiag", message())
     }
 
     private fun startResolutionController(cameraConfig: CameraConfig) {
@@ -429,15 +471,19 @@ class TrackerService : LifecycleService() {
         if (now - liveAlignTickNs < LIVE_ALIGN_INTERVAL_NS) return
         liveAlignTickNs = now
         val base = baseWarper ?: return
-        val fresh = liveAlignDetector.detect(frame) // null when markers are hidden → keep current warp
+        val fresh = liveAlignDetector.detectScaled(frame) // null when markers are hidden → keep current warp
         if (fresh != null) {
             val aligned = liveAlignSmoother.update(fresh)
-            val currentCorners = base.profile.forResolution(width, height).corners
-            if (CornerDriftMonitor.maxCornerShift(currentCorners, aligned) > TrackerConfig.DEFAULT_CORNER_JUMP_PX) {
+            val referenceCorners = referenceProfile?.forResolution(width, height)?.corners
+            if (
+                referenceCorners != null &&
+                CornerDriftMonitor.maxCornerShift(referenceCorners, aligned) > settings.toTrackerConfig().cornerJumpPx
+            ) {
                 // A discontinuous homography cannot be compared with the image that established
                 // the detector reference; otherwise geometry looks like pieces moving.
                 coordinator.renewBaseline()
-                diag("ArUco geometry jumped; invalidating detector reference")
+                referenceProfile = null
+                diag { "ArUco geometry jumped; invalidating detector reference" }
             }
             val updated = base.profile.copy(corners = aligned, sourceWidth = width, sourceHeight = height)
             val warper = BoardWarper(updated)
@@ -446,6 +492,14 @@ class TrackerService : LifecycleService() {
             _activeProfile.value = updated
             base.close()
         }
+    }
+
+    /** Capture the exact warp geometry whenever the engine establishes a new visual reference. */
+    private fun synchronizeReferenceGeometry() {
+        val version = coordinator.referenceVersion
+        if (version == observedReferenceVersion) return
+        observedReferenceVersion = version
+        referenceProfile = baseWarper?.profile
     }
 
     private fun observeSettings() {
@@ -472,8 +526,36 @@ class TrackerService : LifecycleService() {
                     coordinator.applyConfig(next.toTrackerConfig())
                 }
                 cnn?.reconcile(prev, next)
+                if (next.autoRecord != prev.autoRecord || next.autoRecord != (ownedRecorder != null)) reconcileRecorder()
+                if (next.spectatorEnabled != prev.spectatorEnabled) reconcileSpectator()
             }
         }
+    }
+
+    private fun reconcileRecorder(forceNew: Boolean = false) {
+        if (!forceNew && settings.autoRecord == (ownedRecorder != null)) return
+        ownedRecorder?.close()
+        ownedRecorder = null
+        recorder = null
+        if (settings.autoRecord) {
+            val sessionDir = File(filesDir.resolve("sessions"), "session-${System.currentTimeMillis()}")
+            ownedRecorder = SessionRecorderImpl(sessionDir)
+            recorder = ownedRecorder
+        }
+    }
+
+    private fun reconcileSpectator() {
+        spectatorServer?.stop()
+        spectatorServer = null
+        stateSink = null
+        _spectatorUrl.value = null
+        if (!settings.spectatorEnabled) return
+        val server = SpectatorServer(context = this)
+        if (runCatching { server.start() }.isFailure) return
+        spectatorServer = server
+        stateSink = server
+        server.onState(coordinator.uiState.value)
+        _spectatorUrl.value = server.url.value
     }
 
     private fun forwardStateToSink() {
@@ -484,8 +566,45 @@ class TrackerService : LifecycleService() {
 
     private fun forwardEventsToRecorder() {
         lifecycleScope.launch {
-            coordinator.events.collect { event -> recorder?.onEvent(event) }
+            coordinator.events.collect { event ->
+                recorder?.onEvent(event)
+                when (event) {
+                    is com.chesslab.engine.api.TrackerEvent.MoveCommitted,
+                    is com.chesslab.engine.api.TrackerEvent.FeedbackRecorded,
+                    -> writeCheckpoint()
+                    else -> Unit
+                }
+            }
         }
+    }
+
+    private val checkpointFile: File get() = File(filesDir, "tracker-checkpoint.txt")
+
+    private fun restoreCheckpoint() {
+        val file = checkpointFile
+        if (!file.exists()) return
+        val moves = runCatching { file.readLines().filter(String::isNotBlank) }.getOrElse { emptyList() }
+        if (moves.isEmpty() || !coordinator.restoreMoves(moves)) clearCheckpoint()
+    }
+
+    private fun writeCheckpoint() {
+        val moves = coordinator.uciHistory
+        if (moves.isEmpty()) {
+            clearCheckpoint()
+            return
+        }
+        val target = checkpointFile
+        val temp = File(target.parentFile, ".${target.name}.tmp")
+        temp.writeText(moves.joinToString("\n", postfix = "\n"))
+        if (!temp.renameTo(target)) {
+            target.delete()
+            temp.renameTo(target)
+        }
+        temp.delete()
+    }
+
+    private fun clearCheckpoint() {
+        checkpointFile.delete()
     }
 
     private fun publishBoard(boardBgr: Mat) {
@@ -612,8 +731,8 @@ class TrackerService : LifecycleService() {
         private const val NOTIF_ID = 1
         private const val ACTION_STOP = "com.chesslab.tracker.action.STOP"
 
-        // Re-detect the markers ~6×/s: keeps up with real drift without an ArUco pass every frame.
-        private const val LIVE_ALIGN_INTERVAL_NS = 160_000_000L
+        // Re-detect markers ~3×/s: enough for fixed-camera drift without monopolizing the frame loop.
+        private const val LIVE_ALIGN_INTERVAL_NS = 300_000_000L
         private const val DIAG_INTERVAL_NS = 700_000_000L
         private const val RAW_PREVIEW_INTERVAL_NS = 200_000_000L // ~5 fps throttle
         private const val BOARD_PREVIEW_INTERVAL_NS = 100_000_000L // ~10 fps throttle

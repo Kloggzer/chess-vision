@@ -86,6 +86,12 @@ class TrackerEngine(
     /** Seq of the newest processed frame — observations are tagged with this (Spec 11). */
     val frameSeq: Int get() = state.frameSeq
 
+    /** Changes whenever the engine captures or commits a new visual reference. */
+    val referenceVersion: Long get() = state.referenceVersion
+
+    /** Compact durable representation of the current game. */
+    val uciHistory: List<String> get() = state.uciHistory.toList()
+
     /** The exact pixel deltas most recently evaluated by each detector path. */
     val debugImages: DebugImages get() = latestDebugImages
 
@@ -283,6 +289,7 @@ class TrackerEngine(
         }
         state.game = Game(fen)
         state.history.clear()
+        state.uciHistory.clear()
         state.lastMove = null
         state.invalidateRef()
         state.clearStuck()
@@ -353,7 +360,7 @@ class TrackerEngine(
         val possible = state.history.isNotEmpty()
         if (possible) {
             val san = state.history.removeLast()
-            val uci = state.lastMove ?: ""
+            val uci = state.uciHistory.removeLast()
             state.game.pop()
             state.lastMove = null
             state.invalidateRef()
@@ -370,6 +377,25 @@ class TrackerEngine(
             state.note = "last move undone (logged as bad example)"
         }
         return possible
+    }
+
+    /** Restore a previously checkpointed standard game; visual reference is recaptured. */
+    fun restoreMoves(ucis: List<String>): Boolean {
+        reset()
+        for (uci in ucis) {
+            val move =
+                state.game.legalMoves().firstOrNull { uciOf(it) == uci } ?: run {
+                    reset()
+                    return false
+                }
+            val san = state.game.san(move)
+            state.game.push(move)
+            state.history.add(san)
+            state.uciHistory.add(uci)
+        }
+        state.lastMove = state.uciHistory.lastOrNull()
+        state.note = "Game restored — recapturing board reference"
+        return true
     }
 
     /** User choice for a pending promotion ("Q"/"R"/"B"/"N" or a SAN like "e8=Q"). */

@@ -36,16 +36,17 @@ class ArucoCornerSmoother(
         detected: Point,
     ): Point {
         val distance = l1(previous, detected)
-        if (distance <= moveThreshold) {
+        val accepted = distance > moveThreshold && (distance <= jumpRejectPx || jumpConfirmed(index, detected))
+        return if (accepted) {
             clearPending(index)
-            return previous
+            Point(
+                previous.x + smoothAlpha * (detected.x - previous.x),
+                previous.y + smoothAlpha * (detected.y - previous.y),
+            )
+        } else {
+            if (distance <= moveThreshold) clearPending(index)
+            previous
         }
-        if (distance > jumpRejectPx && !jumpConfirmed(index, detected)) return previous
-        clearPending(index)
-        return Point(
-            previous.x + smoothAlpha * (detected.x - previous.x),
-            previous.y + smoothAlpha * (detected.y - previous.y),
-        )
     }
 
     private fun jumpConfirmed(
