@@ -68,7 +68,9 @@ class CnnIntegration(
     ): Boolean {
         detach()
         val loaded =
-            runCatching { OnnxClassifier(modelDir) }.getOrElse { return false }
+            runCatching {
+                OnnxClassifier(modelDir, log = { msg -> android.util.Log.i(CNN_TAG, msg) })
+            }.getOrElse { return false }
         val cropper = BoardCropper(loaded.spec.outWidth, loaded.spec.outHeight)
         val config = CnnConfig(confThr = confThr)
         val guard =

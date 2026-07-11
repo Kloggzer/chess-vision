@@ -27,7 +27,11 @@ class CnnModelStore(
         source: Uri,
         targetName: String,
     ) {
-        require(targetName == OnnxClassifier.MODEL_FILE || targetName == OnnxClassifier.CONFIG_FILE) {
+        require(
+            targetName == OnnxClassifier.MODEL_FILE ||
+                targetName == OnnxClassifier.MODEL_QNN_FILE ||
+                targetName == OnnxClassifier.CONFIG_FILE,
+        ) {
             "unexpected model file name: $targetName"
         }
         modelDir.mkdirs()

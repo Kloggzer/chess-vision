@@ -3,12 +3,14 @@ package com.chesslab.tracker.cnn
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
+import ai.onnxruntime.providers.NNAPIFlags
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import java.nio.FloatBuffer
+import java.util.EnumSet
 import kotlin.math.exp
 
 /**
@@ -65,17 +67,78 @@ interface SquareClassifier {
  *
  * Preprocessing mirrors `serving.predict_arrays` exactly: RGB, /255, then
  * ImageNet mean/std normalization, NCHW.
+ *
+ * ## Execution provider (Hexagon NPU) selection
+ *
+ * The dev phone (Poco F7 Pro, Snapdragon 8 Gen 3) has a Hexagon NPU. We pick the
+ * fastest available backend with a graceful fallback chain and record which one
+ * actually loaded in [backend] (on-device confirmation via logcat):
+ *
+ *  1. **QNN EP → Hexagon HTP (NPU)** — requires the INT8/QDQ [MODEL_QNN_FILE]
+ *     produced by `chesslab export --format qnn`. Float32 graphs can't run on HTP.
+ *  2. **NNAPI EP** — Android's NPU/GPU/DSP abstraction on the FP32 graph (fp16 allowed).
+ *  3. **CPU** — always works (also where desktop JVM unit tests land). No behaviour
+ *     change vs. the original pure-CPU path.
+ *
+ * Each step is guarded: a missing provider (or missing QNN model) just falls through.
  */
 class OnnxClassifier(
     modelDir: File,
+    private val log: (String) -> Unit = {},
 ) : SquareClassifier,
     AutoCloseable {
     override val spec: ModelSpec = ModelSpec.parse(File(modelDir, CONFIG_FILE).readText())
 
     private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
-    private val session: OrtSession =
-        env.createSession(File(modelDir, MODEL_FILE).absolutePath, OrtSession.SessionOptions())
-    private val inputName: String = session.inputNames.first()
+
+    /** Which execution provider actually loaded, e.g. "QNN-HTP(NPU)", "NNAPI", "CPU". */
+    val backend: String
+
+    private val session: OrtSession
+    private val inputName: String
+
+    init {
+        val (sess, be) = createSession(modelDir)
+        session = sess
+        backend = be
+        inputName = sess.inputNames.first()
+        log("CNN inference backend: $be")
+    }
+
+    /**
+     * Build a session on the best available backend (NPU → NNAPI → CPU). Non-local
+     * `return`s (runCatching is inline) short-circuit on the first provider that loads.
+     */
+    private fun createSession(modelDir: File): Pair<OrtSession, String> {
+        val fp32 = File(modelDir, MODEL_FILE)
+        val qnnModel = File(modelDir, MODEL_QNN_FILE)
+
+        // 1) Hexagon NPU via QNN EP. Only attempted when the quantized model is present,
+        //    because the HTP backend rejects float32 graphs.
+        if (qnnModel.isFile) {
+            runCatching {
+                val opts = OrtSession.SessionOptions()
+                opts.addQnn(
+                    mapOf(
+                        "backend_path" to QNN_HTP_LIB,
+                        "htp_performance_mode" to "burst",
+                    ),
+                )
+                return env.createSession(qnnModel.absolutePath, opts) to "QNN-HTP(NPU)"
+            }.onFailure { log("QNN EP unavailable, falling back: ${it.message}") }
+        }
+
+        // 2) NNAPI on the FP32 graph (NPU/GPU/DSP; fp16 for speed). Deprecated in Android 15
+        //    but still the broadest NPU reach when QNN isn't usable.
+        runCatching {
+            val opts = OrtSession.SessionOptions()
+            opts.addNnapi(EnumSet.of(NNAPIFlags.USE_FP16))
+            return env.createSession(fp32.absolutePath, opts) to "NNAPI"
+        }.onFailure { log("NNAPI EP unavailable, falling back: ${it.message}") }
+
+        // 3) CPU (XNNPACK default) — the original path; always succeeds.
+        return env.createSession(fp32.absolutePath, OrtSession.SessionOptions()) to "CPU"
+    }
 
     override fun predict(crops: List<SquareCrop>): List<FloatArray> {
         if (crops.isEmpty()) return emptyList()
@@ -112,7 +175,13 @@ class OnnxClassifier(
 
     companion object {
         const val MODEL_FILE = "model.onnx"
+
+        /** INT8/QDQ model for the Hexagon NPU (QNN EP); optional, preferred when present. */
+        const val MODEL_QNN_FILE = "model.qnn.onnx"
         const val CONFIG_FILE = "config.json"
+
+        /** Qualcomm HTP (NPU) backend library, bundled inside the onnxruntime-android-qnn AAR. */
+        private const val QNN_HTP_LIB = "libQnnHtp.so"
         private const val CHANNELS = 3
         private const val PIXEL_MAX = 255f
 

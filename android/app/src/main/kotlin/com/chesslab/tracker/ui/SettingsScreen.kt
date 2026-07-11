@@ -365,6 +365,8 @@ private fun resolveModelTargetName(
         }
     val name = displayName ?: uri.lastPathSegment ?: return null
     return when {
+        // Quantized NPU model — check first (".qnn.onnx" also ends with ".onnx").
+        name.endsWith(".qnn.onnx") -> OnnxClassifier.MODEL_QNN_FILE
         name.endsWith(".onnx") -> OnnxClassifier.MODEL_FILE
         name.endsWith(".json") -> OnnxClassifier.CONFIG_FILE
         else -> null
