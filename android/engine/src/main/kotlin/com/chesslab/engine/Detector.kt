@@ -118,8 +118,15 @@ internal class Detector(
         return if (hot > config.maxChanged + slack) {
             // Channel-local guard: no legal move explains this many structurally-hot squares
             // → global disturbance (wobble, warp shift). Drop the census channel THIS frame
-            // and learn the disturbance into its noise model.
-            state.censusNoise.update(cens)
+            // and learn the disturbance into its noise model. With the light veto armed, learn
+            // SLOWLY: a full-alpha learn of the whole hot map inflates census σ board-wide, and
+            // the z-quiet veto condition would then kill the next real dark-on-dark arrival
+            // (the O-O/Rg8 failure class through the back door; review finding 2026-07-11).
+            if (config.diffLightVeto) {
+                state.censusNoise.update(cens, exclude = Squares.all.toSet(), excludeAlphaScale = CENSUS_SLOW_LANE)
+            } else {
+                state.censusNoise.update(cens)
+            }
             null
         } else {
             state.structVals =

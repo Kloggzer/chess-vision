@@ -275,15 +275,16 @@ class TrackerCoordinator(
             fps = fpsEma,
             motion = status.motion,
             motionThr = config.motionThr,
-            // A dark scene's changed set is pure CLAHE-amplified sensor noise — don't render it.
+            // A dark scene's square evidence is pure CLAHE-amplified sensor noise — don't
+            // render any of it (stale veto lists/candidate would otherwise survive the gate).
             changed = if (sceneDark) emptyList() else status.changed,
             changedVals = if (sceneDark) emptyList() else status.changedVals,
-            shadowVetoed = status.shadowVetoed,
-            occludedVetoed = status.occludedVetoed,
-            bestScore = status.bestScore,
-            secondScore = status.secondScore,
-            margin = status.margin,
-            candidate = status.candidate,
+            shadowVetoed = if (sceneDark) emptyList() else status.shadowVetoed,
+            occludedVetoed = if (sceneDark) emptyList() else status.occludedVetoed,
+            bestScore = if (sceneDark) 0.0 else status.bestScore,
+            secondScore = if (sceneDark) 0.0 else status.secondScore,
+            margin = if (sceneDark) 0.0 else status.margin,
+            candidate = if (sceneDark) null else status.candidate,
             decider = status.lastMove,
             stuckReason = status.stuckReason,
             confirmCount = status.confirmCount,
