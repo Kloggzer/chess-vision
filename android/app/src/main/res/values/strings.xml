@@ -125,6 +125,7 @@
     <string name="setting_experimental_detection">Automatic board detection (experimental)</string>
     <string name="setting_lock_exposure">Lock exposure &amp; white balance (experimental)</string>
     <string name="setting_focus_distance">Manual focus (diopters, 0 = auto)</string>
+    <string name="setting_intrinsic_gray">Shadow-free diff channel (experimental)</string>
     <string name="setting_debug_card">Debug card</string>
     <string name="overlay_diff">Diff</string>
     <string name="overlay_shadow">Shadow</string>
