@@ -513,6 +513,10 @@ TRACK_DEFAULTS: dict = {
     "diff_clahe_clip": 2.0,        # CLAHE contrast boost on the diff image (0=off; ~2-3 lifts dark moves)
     "require_motion_for_move": True,  # Only commit a move if a hand entered since the last reference (drift guard)
     "motion_recency_s": 20.0,
+    "commit_ll_floor": 2.0,        # Min ABSOLUTE loglik score a voting candidate needs to commit (0=off).
+                                   # A sole-viable candidate has infinite margin, so only an absolute floor
+                                   # stops weak phantoms (live: f6h5 @ 0.44 swallowed a castle; real moves
+                                   # score ~12-24). Endpoint candidates (CNN-verified) are exempt.
     "detect_scale": 0.5,           # Detection warp scale (0.5 = half-res board; 1.0 = off).
     "desync_obs_n": 3,             # Consecutive stable-mismatch CNN ticks before illegal-move alarm
     "verify_obs_votes": 2,         # Consecutive same-outcome CNN observations per verify decision (never act on one glance)

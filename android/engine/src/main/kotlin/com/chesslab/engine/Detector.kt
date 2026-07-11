@@ -218,10 +218,12 @@ internal class Detector(
 
     /**
      * Step 3 — cast-shadow veto: removes squares from `changed`, KEEPS their z (vacate evidence).
-     * With [com.chesslab.engine.api.TrackerConfig.diffLightVeto] the census-quiet condition vetoes
-     * ALONE (no chroma shadow classification needed): a lighting change scales a piece's edges in
-     * place — gray fires, but edge POSITIONS (census) don't move. A real move always relocates
-     * structure, so its destination stays census-hot and passes.
+     * With [com.chesslab.engine.api.TrackerConfig.diffLightVeto] a structure-quiet square vetoes
+     * WITHOUT the chroma shadow classification: a lighting change scales a piece's edges in place —
+     * gray fires, but edge POSITIONS (census) don't move. Structure-quiet is judged by the census
+     * z-score (noise-relative), NOT the absolute [TrackerConfig.censusThr] scale: light/cream pieces
+     * produce weak absolute census on arrival (the census_thr=40 clip lesson), but a real move is
+     * still a large census z, while lighting stays inside the census noise.
      */
     private fun applyShadowVeto(
         cur: GrayImage,
@@ -234,9 +236,13 @@ internal class Detector(
         // Fusion active: reuse the (median-normalized) census channel; otherwise raw census.
         val census = cens ?: Census.perSquareChange(state.refGray!!, cur, geom, refCodes = state.refCensusCodes())
         val shadows = ShadowVeto.shadowSquares(refBgr, curBgr, geom, changed)
+        // Light veto needs the live fused census channel; when it was dropped this frame
+        // (global disturbance) there is no trustworthy structure signal — chroma-only then.
+        val zc = if (config.diffLightVeto && cens != null) state.censusNoise.z(cens) else null
         val veto =
-            changed.filterTo(mutableSetOf()) {
-                (it in shadows || config.diffLightVeto) && census.getValue(it) < config.censusThr
+            changed.filterTo(mutableSetOf()) { sq ->
+                (sq in shadows && census.getValue(sq) < config.censusThr) ||
+                    (zc != null && config.censusZWeight * zc.getValue(sq) < config.zThr * HALF)
             }
         changed -= veto
         state.shadowVetoed = veto.sorted()
@@ -339,7 +345,19 @@ internal class Detector(
                 (!state.motionSinceRef || age > config.motionRecencyS)
         val key = cand.moves.joinToString(" ") { uciOf(it) }
         state.candidateUci = key
+        // Absolute evidence floor: a sole-viable candidate has an infinite margin, so a weak
+        // phantom (f6h5 @ 0.44 swallowed a castle) sails through margin checks. Endpoint
+        // candidates (vote=false) stay exempt — they are safeguard-verified by design.
+        val best = cand.scores?.first ?: state.bestScore
+        val belowFloor = cand.vote && config.commitLlFloor > 0 && best < config.commitLlFloor
         when {
+            belowFloor -> {
+                confirmer.reset()
+                state.note =
+                    "${sans.joinToString(" + ")}? evidence too weak (" +
+                        String.format(java.util.Locale.ROOT, "%.2f < %.1f", best, config.commitLlFloor) +
+                        ") — not committing"
+            }
             gateBlocked -> {
                 confirmer.reset()
                 val why = if (!state.motionSinceRef) "no motion since last move" else "last motion ${age.toInt()}s ago"

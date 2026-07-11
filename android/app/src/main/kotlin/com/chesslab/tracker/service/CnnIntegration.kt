@@ -34,6 +34,8 @@ class CnnIntegration(
     private val frameProvider: () -> CnnFrame?,
     private val scope: CoroutineScope,
     private val modelStore: CnnModelStore,
+    /** When set, every Against verdict dumps the warped board + endpoint crops here (crop-alignment debug). */
+    private val debugDumpDir: File? = null,
 ) {
     private var classifier: OnnxClassifier? = null
     private var safeguard: CnnSafeguard? = null
@@ -78,7 +80,12 @@ class CnnIntegration(
         coordinator.safeguard = guard
         // Resting-hand seam: every fresh observation feeds the occluded-dominant squares
         // (p > 0.5) into the engine's taint latch (cf31c81).
+        var probeDumped = false
         guard.onObservation = { snap ->
+            if (!probeDumped && debugDumpDir != null) {
+                probeDumped = true
+                dumpProbe()
+            }
             val occluded = ALL_SQUARES.filterTo(mutableSetOf()) { snap.obs.pOccluded.getValue(it) > OCCLUDED_P }
             val ageS = ((System.nanoTime() - snap.timestampNs).coerceAtLeast(0L)) / NS_PER_S
             coordinator.reportOccluded(occluded, ageS)
@@ -87,6 +94,7 @@ class CnnIntegration(
             scope.launch {
                 guard.verdicts.collect {
                     android.util.Log.i(CNN_TAG, "verdict -> engine: $it")
+                    if (it is com.chesslab.engine.api.VerifyVerdict.Against) dumpRejectDebug(it.ucis)
                     coordinator.onVerifyVerdict(it)
                 }
             }
@@ -124,6 +132,46 @@ class CnnIntegration(
                 is RecoveryAction.Alarm -> coordinator.raiseAlarm(action.conflicts, action.guessUci)
                 null -> Unit
             }
+        }
+    }
+
+    /**
+     * Crop-alignment probe: on a rejected candidate, write the full warped board plus the
+     * endpoint square crops (exact [BoardCropper.cropRect] geometry) as PNGs. Pull with
+     * `adb pull /sdcard/Android/data/<pkg>/files/cnn_debug` and eyeball whether the crop
+     * named d3 actually shows d3.
+     */
+    private fun dumpRejectDebug(ucis: List<String>) {
+        val squares = ucis.flatMap { listOf(it.substring(0, 2), it.substring(2, 4)) }.distinct()
+        dumpCrops("reject_${ucis.joinToString("_")}", squares)
+    }
+
+    /** One-time startup probe: full board + ALL 64 crops — verifies crop-grid alignment. */
+    private fun dumpProbe() {
+        dumpCrops("probe", ALL_SQUARES)
+    }
+
+    private fun dumpCrops(
+        tag: String,
+        squares: List<String>,
+    ) {
+        val dir = debugDumpDir ?: return
+        val frame = frameProvider() ?: return
+        try {
+            val out = File(dir, "${tag}_seq${frame.seq}")
+            out.mkdirs()
+            org.opencv.imgcodecs.Imgcodecs.imwrite(File(out, "board.png").absolutePath, frame.boardBgr)
+            for (sq in squares) {
+                val r = BoardCropper.cropRect(sq, frame.boardBgr.rows())
+                val sub = frame.boardBgr.submat(org.opencv.core.Rect(r.x, r.y, r.width, r.height))
+                org.opencv.imgcodecs.Imgcodecs.imwrite(File(out, "$sq.png").absolutePath, sub)
+                sub.release()
+            }
+            android.util.Log.i(CNN_TAG, "crop debug dumped: ${out.absolutePath}")
+        } catch (t: Exception) {
+            android.util.Log.w(CNN_TAG, "crop debug dump failed: $t")
+        } finally {
+            frame.boardBgr.release()
         }
     }
 

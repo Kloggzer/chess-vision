@@ -55,6 +55,9 @@ data class TrackerSettings(
     // Lighting robustness: per-square illumination cancel (empty squares/gradients) + census-quiet
     // light veto (occupied squares — edges scale in place). App default on, engine default off (parity).
     val lightingRobust: Boolean = DEFAULT_LIGHTING_ROBUST,
+    // Minimum absolute candidate score to commit (real moves ~12-24; phantom f6h5 was 0.44).
+    // App default 2.0, engine default 0 (parity). 0 disables.
+    val commitFloor: Double = DEFAULT_COMMIT_FLOOR,
     // Dark-frame gate: skip detection when the pre-CLAHE board mean is below this
     // (CLAHE stretches sensor noise on a near-black scene into phantom diffs). 0 disables.
     val darkLumaThr: Double = DEFAULT_DARK_LUMA_THR,
@@ -89,6 +92,7 @@ data class TrackerSettings(
             diffJitterPx = diffJitterPx,
             diffIllumCancel = lightingRobust,
             diffLightVeto = lightingRobust,
+            commitLlFloor = commitFloor,
             pairLookAhead = pairLookAhead,
             usePrior = usePrior,
         )
@@ -127,6 +131,9 @@ data class TrackerSettings(
 
         /** Live default on (real rooms have moving light); engine keeps false for clip parity. */
         const val DEFAULT_LIGHTING_ROBUST: Boolean = true
+
+        /** Live default 2.0 — blocks sole-viable phantoms (0.44) without touching real moves (12-24). */
+        const val DEFAULT_COMMIT_FLOOR: Double = 2.0
 
         /** Mirrors `AnalysisEngine.DEFAULT_DEPTH` — deep enough for accuracy grading, fast on-device. */
         const val DEFAULT_ANALYSIS_DEPTH: Int = 12
