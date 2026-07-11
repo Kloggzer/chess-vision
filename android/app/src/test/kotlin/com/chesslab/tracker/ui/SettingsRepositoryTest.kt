@@ -77,6 +77,41 @@ class SettingsRepositoryTest {
     }
 
     @Test
+    fun `intrinsic channel defaults off with no cached calibration`() {
+        // specs/14: experimental toggle must default OFF; NaN = "not calibrated".
+        val d = TrackerSettings()
+        assertFalse(d.intrinsicGray)
+        assertTrue(d.intrinsicAngle.isNaN())
+        assertTrue(d.intrinsicLo.isNaN())
+        assertTrue(d.intrinsicHi.isNaN())
+    }
+
+    @Test
+    fun `intrinsic keys round-trip including the NaN sentinel`() {
+        val repo = repo()
+        // Finite calibration cache round-trips.
+        val calibrated =
+            TrackerSettings(
+                intrinsicGray = true,
+                intrinsicAngle = 57.0,
+                intrinsicLo = -0.35,
+                intrinsicHi = 0.42,
+            )
+        val prefs = mutablePreferencesOf()
+        repo.encode(prefs, calibrated)
+        assertEquals(calibrated, repo.decode(prefs))
+        // NaN sentinel (recalibrate reset) survives encode/decode.
+        val reset = calibrated.copy(intrinsicAngle = Double.NaN, intrinsicLo = Double.NaN, intrinsicHi = Double.NaN)
+        val resetPrefs = mutablePreferencesOf()
+        repo.encode(resetPrefs, reset)
+        val decoded = repo.decode(resetPrefs)
+        assertTrue(decoded.intrinsicGray)
+        assertTrue(decoded.intrinsicAngle.isNaN())
+        assertTrue(decoded.intrinsicLo.isNaN())
+        assertTrue(decoded.intrinsicHi.isNaN())
+    }
+
+    @Test
     fun `encode then decode round-trips every field`() {
         val s =
             TrackerSettings(
