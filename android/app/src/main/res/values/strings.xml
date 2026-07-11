@@ -5,6 +5,7 @@
     <!-- Foreground service -->
     <string name="notif_channel">Move tracking</string>
     <string name="notif_title">chesslab is tracking the board</string>
+    <string name="notif_stop">Stop tracking</string>
 
     <!-- Navigation -->
     <string name="nav_tracking">Tracking</string>

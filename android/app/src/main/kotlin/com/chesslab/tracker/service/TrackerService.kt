@@ -3,6 +3,7 @@ package com.chesslab.tracker.service
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -11,6 +12,7 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.chesslab.engine.api.TrackerState
@@ -21,10 +23,9 @@ import com.chesslab.tracker.camera.Resolution
 import com.chesslab.tracker.camera.TrackerCamera
 import com.chesslab.tracker.cnn.CnnModelStore
 import com.chesslab.tracker.geometry.ArucoAutoCalibrator
+import com.chesslab.tracker.geometry.ArucoCornerDetector
 import com.chesslab.tracker.geometry.BoardWarper
 import com.chesslab.tracker.geometry.CalibrationProfile
-import com.chesslab.tracker.geometry.CornerDriftMonitor
-import com.chesslab.tracker.geometry.DriftResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,8 +40,9 @@ import org.opencv.imgproc.Imgproc
  * Foreground (camera-type) service that owns the running tracker: it wires
  * [TrackerCamera] → [BoardFramePipeline] → [TrackerCoordinator] on the lifecycle
  * scope, drives [DynamicResolutionController] (rewarping on resolution changes),
- * polls [CornerDriftMonitor] every 5 s **only** when experimental detection is on,
- * and applies live/constructor settings changes.
+ * re-detects the ArUco markers live during tracking and re-aligns the warp (the board/
+ * camera drifts during play; a frozen calibration goes stale fast), and applies live/
+ * constructor settings changes.
  *
  * Extension points for later phases (defined now, `null` in the base build):
  * [safeguard] (05), [stateSink] (06), [recorder] (07). Phases 05–07 plug in
@@ -58,7 +60,11 @@ class TrackerService : LifecycleService() {
 
     @Volatile private var baseWarper: BoardWarper? = null
     private var resolutionController: DynamicResolutionController? = null
-    private var driftMonitor: CornerDriftMonitor? = null
+
+    // Live ArUco re-alignment during tracking: the primary geometry source is the markers,
+    // not a frozen calibration. Re-detect them (throttled) and swap in a re-aligned warper.
+    private val liveAlignDetector = ArucoCornerDetector()
+    private var liveAlignTickNs = 0L
 
     @Volatile private var settings: TrackerSettings = TrackerSettings()
     private var cnn: CnnIntegration? = null
@@ -129,6 +135,16 @@ class TrackerService : LifecycleService() {
         startId: Int,
     ): Int {
         super.onStartCommand(intent, flags, startId)
+        if (intent?.action == ACTION_STOP) {
+            // "Stop tracking" action from the notification: drop detection, remove the
+            // notification and stop the service. If the app is still bound (open in the
+            // foreground) the service object lives until it unbinds, but tracking is stopped
+            // and the notification is gone — which is what the user asked for.
+            stopTrackingToPreview()
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
         startForegroundInternal()
         return START_STICKY
     }
@@ -166,7 +182,7 @@ class TrackerService : LifecycleService() {
         baseWarper = warper
         val pipe = BoardFramePipeline(warper, settings.claheClip)
         pipeline = pipe
-        driftMonitor = CornerDriftMonitor(profile.corners, cornerJumpPx = 6.0)
+        liveAlignTickNs = 0L
         _activeProfile.value = profile
 
         startPreviewOnly() // idempotent camera + frame-loop start
@@ -184,7 +200,6 @@ class TrackerService : LifecycleService() {
         pipeline?.close()
         pipeline = null
         baseWarper = null
-        driftMonitor = null
         _activeProfile.value = null
         cnnFrameStore.clear()
         coordinator.reset()
@@ -251,6 +266,11 @@ class TrackerService : LifecycleService() {
                         return@collect
                     }
 
+                    // Live ArUco re-alignment: re-detect the markers and swap in a re-aligned
+                    // warper (inside this same pipeline) BEFORE warping, so a drifting
+                    // board/camera stays tracked instead of the calibration going stale.
+                    maybeLiveAlign(frame.mat, frame.width, frame.height)
+
                     // Feed raw frame + corners before warp (phase 07 recorder).
                     val corners = baseWarper?.profile?.corners
                     recorder?.onRawFrame(frame.mat, corners, frame.width, frame.height)
@@ -276,7 +296,6 @@ class TrackerService : LifecycleService() {
                         if (state == TrackerState.TRACKING) recorder?.onCleanFrame()
 
                         publishBoard(processed.boardBgr)
-                        maybeCheckDrift(frame.mat)
                     } finally {
                         processed.boardBgr.release()
                     }
@@ -329,16 +348,29 @@ class TrackerService : LifecycleService() {
         _activeProfile.value = profile
     }
 
-    private var driftTickNs = 0L
-
-    private fun maybeCheckDrift(frame: Mat) {
+    /**
+     * Re-detect the four ArUco markers on the raw [frame] (throttled) and swap in a warper
+     * re-aligned to the fresh corners. ArUco gives ABSOLUTE board geometry every time, so the
+     * warped board stays locked to the same grid as the camera/board drifts and the engine's
+     * reference stays valid — no reset needed. When the markers aren't visible the current warp
+     * is kept. This is the project's per-frame self-calibration (ports tracker.py `live_align`).
+     */
+    private fun maybeLiveAlign(
+        frame: Mat,
+        width: Int,
+        height: Int,
+    ) {
         val now = System.nanoTime()
-        val monitor = driftMonitor
-        val due = settings.experimentalDetection && monitor != null && now - driftTickNs >= DRIFT_INTERVAL_NS
-        if (!due) return
-        driftTickNs = now
-        if (monitor!!.check(frame) is DriftResult.Drifted) {
-            coordinator.reset(coordinator.uiState.value.fen)
+        if (now - liveAlignTickNs < LIVE_ALIGN_INTERVAL_NS) return
+        liveAlignTickNs = now
+        val base = baseWarper ?: return
+        val fresh = liveAlignDetector.detect(frame) // null when markers are hidden → keep current warp
+        if (fresh != null) {
+            val updated = base.profile.copy(corners = fresh, sourceWidth = width, sourceHeight = height)
+            val warper = BoardWarper(updated)
+            baseWarper = warper
+            pipeline?.warper = warper
+            _activeProfile.value = updated
         }
     }
 
@@ -416,12 +448,22 @@ class TrackerService : LifecycleService() {
                 NotificationChannel(channelId, getString(R.string.notif_channel), NotificationManager.IMPORTANCE_LOW),
             )
         }
+        val stopIntent =
+            Intent(this, TrackerService::class.java).setAction(ACTION_STOP)
+        val stopPending =
+            PendingIntent.getService(
+                this,
+                0,
+                stopIntent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
         val notification: Notification =
             NotificationCompat
                 .Builder(this, channelId)
                 .setContentTitle(getString(R.string.notif_title))
                 .setSmallIcon(android.R.drawable.ic_menu_camera)
                 .setOngoing(true)
+                .addAction(0, getString(R.string.notif_stop), stopPending)
                 .build()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA)
@@ -434,7 +476,10 @@ class TrackerService : LifecycleService() {
 
     companion object {
         private const val NOTIF_ID = 1
-        private const val DRIFT_INTERVAL_NS = 5_000_000_000L
+        private const val ACTION_STOP = "com.chesslab.tracker.action.STOP"
+
+        // Re-detect the markers ~6×/s: keeps up with real drift without an ArUco pass every frame.
+        private const val LIVE_ALIGN_INTERVAL_NS = 160_000_000L
         private const val DIAG_INTERVAL_NS = 700_000_000L
         private const val RAW_PREVIEW_INTERVAL_NS = 200_000_000L // ~5 fps throttle
         private const val RAW_PREVIEW_MAX_DIM = 640
