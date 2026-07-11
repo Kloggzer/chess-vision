@@ -29,6 +29,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -395,6 +399,12 @@ fun SettingSlider(
     steps: Int = 0,
     onChange: (Double) -> Unit,
 ) {
+    // Drag-local state: committing every tick through DataStore made the thumb
+    // rubber-band against the async settings round-trip (unusable next to the 5fps
+    // calibration preview). Track the drag locally, commit ONCE on release; the
+    // remember(value) key resets the local state when the persisted value arrives.
+    var dragValue by remember(value) { mutableStateOf<Float?>(null) }
+    val shown = dragValue?.toDouble() ?: value
     Column(
         modifier =
             modifier
@@ -409,15 +419,16 @@ fun SettingSlider(
         ) {
             Text(label, style = MaterialTheme.typography.bodyLarge)
             Text(
-                stringResource(R.string.value_and_default, format(value), format(default)),
+                stringResource(R.string.value_and_default, format(shown), format(default)),
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         androidx.compose.material3.Slider(
-            value = value.toFloat(),
-            onValueChange = { onChange(it.toDouble()) },
+            value = dragValue ?: value.toFloat(),
+            onValueChange = { dragValue = it },
+            onValueChangeFinished = { dragValue?.let { onChange(it.toDouble()) } },
             valueRange = range,
             steps = steps,
             modifier =
