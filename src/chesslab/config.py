@@ -407,6 +407,7 @@ def build_blender_cmd(
     piece_scale: float = 1.0,
     cam_distance_jitter: float = 0.0,
     occlusion_p: float = 0.0,
+    borderless_p: float = 0.0,
 ) -> list[str]:
     """Build the Blender command line (pure function, no subprocess)."""
     cmd = [
@@ -423,6 +424,7 @@ def build_blender_cmd(
         "--piece-scale", str(piece_scale),
         "--cam-distance-jitter", str(cam_distance_jitter),
         "--occlusion-p", str(occlusion_p),
+        "--borderless-p", str(borderless_p),
     ]
     if fens is not None:
         cmd.extend(["--fens", str(fens)])
