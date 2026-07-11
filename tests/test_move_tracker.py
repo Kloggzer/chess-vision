@@ -710,7 +710,7 @@ class TestMoveTrackerHeadless:
         monkeypatch.setattr("chesslab.move_tracker.tracker.open_source", lambda s: fake)
         monkeypatch.setattr("chesslab.move_tracker.tracker.ensure_profile", lambda *a, **k: prof)
 
-        mt = MoveTracker(profile="phone", source="0", live_align=False,
+        mt = MoveTracker(profile="phone", source="0", live_align=False, auto_record=False,
                          motion_thr=100, settle_frames=3, confirm_frames=3,
                          avg_frames=2, max_changed=6, require_motion_for_move=False,
                          min_grid_line_coverage=0.0)
@@ -751,7 +751,8 @@ class TestMoveTrackerHeadless:
         monkeypatch.setattr("chesslab.move_tracker.tracker.open_source", lambda s: fake)
         monkeypatch.setattr("chesslab.move_tracker.tracker.ensure_profile", lambda *a, **k: prof)
 
-        mt = MoveTracker(profile="phone", source="0", live_align=False, settle_frames=10)
+        mt = MoveTracker(profile="phone", source="0", live_align=False, auto_record=False,
+                         settle_frames=10)
         mt.reset_to_start()
         mt.start()
         import time as _time
@@ -785,6 +786,9 @@ def _make_tracker(monkeypatch, **kwargs):
                     # Most detection tests drive _try_detect directly without simulating the hand
                     # motion that precedes a real move; disable the motion prerequisite by default.
                     "require_motion_for_move": False,
+                    # Never auto-record: committing a move here would otherwise write a real
+                    # session into config.DATA.sessions (recording tests opt in explicitly).
+                    "auto_record": False,
                     # Tests build 400px identity profiles; keep detection at full res.
                     "detect_scale": 1.0}
     defaults.update(kwargs)

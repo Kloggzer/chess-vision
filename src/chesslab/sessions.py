@@ -170,6 +170,7 @@ def list_sessions(paths: config.Paths = config.DATA) -> list[dict]:
                 "variant": tag,
                 "n_frames": _log_count(d),
                 "n_crops": n_crops,
+                "reviewed": bool(meta.get("reviewed", False)),
             })
     return out
 
@@ -202,6 +203,27 @@ def restore_session(session_id: str, paths: config.Paths = config.DATA) -> dict:
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(src), str(dst))
     return {"session_id": sid, "archived": False}
+
+
+def set_session_reviewed(session_id: str, reviewed: bool,
+                         paths: config.Paths = config.DATA) -> dict:
+    """Persist the per-session ``reviewed`` flag in session.yaml (active or archived).
+
+    "Reviewed" is a lightweight per-session marker so the UI can hide sessions the user has
+    already looked at and show only NEW ones. It lives in session.yaml (absent == not reviewed).
+    """
+    sid = _safe_id(session_id)
+    active, archived = paths.sessions / sid, paths.sessions_archive / sid
+    target = active if active.exists() else archived
+    if not target.exists():
+        raise FileNotFoundError(f"Session '{sid}' not found.")
+    import yaml
+
+    meta = _read_meta(target)
+    meta["reviewed"] = bool(reviewed)
+    (target / "session.yaml").write_text(
+        yaml.safe_dump(meta, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    return {"session_id": sid, "reviewed": bool(reviewed)}
 
 
 def delete_session(session_id: str, paths: config.Paths = config.DATA) -> dict:
