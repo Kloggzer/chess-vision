@@ -482,7 +482,10 @@ TRACK_DEFAULTS: dict = {
     "nudge_timeout_s": 5.0,        # Nudge patch (occupied squares) after this many seconds stuck
     "drift_window_s": 30.0,        # Drift patch (empty squares) — more conservative
     "max_changed": 6,              # Occlusion gate
-    "census_thr": 160.0,           # Structural change (census, 0..255); higher ⇒ more squares veto as shadow (160: live-tuned)
+    "census_thr": 40.0,            # Structural change (census, 0..255); higher ⇒ more squares veto as shadow.
+                                   # 160 (live-tuned pre-fusion) vetoed real dark-on-dark ARRIVALS as shadows
+                                   # (black rook onto dark f8 -> O-O blocked, Rg8 committed). 40 is the
+                                   # clip-validated floor; real cast shadows stay below it (structure unchanged).
     "census_z_weight": 1.0,        # Structural evidence fusion: z_eff = max(z_gray, w·z_census). Census is
                                    # illumination-invariant structure — lifts dark-on-dark moves the gray
                                    # absdiff misses without raising z_thr. 0 = off (legacy single-channel).

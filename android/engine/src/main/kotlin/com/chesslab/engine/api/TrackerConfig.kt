@@ -49,7 +49,15 @@ data class TrackerConfig(
         const val DEFAULT_NUDGE_TIMEOUT_S: Double = 5.0
         const val DEFAULT_DRIFT_WINDOW_S: Double = 30.0
         const val DEFAULT_MAX_CHANGED: Int = 6
-        const val DEFAULT_CENSUS_THR: Double = 160.0
+
+        /**
+         * 160 (live-tuned pre-fusion) vetoed real dark-on-dark ARRIVALS as shadows: a black
+         * rook landing on dark f8 stayed under 160 raw census, the shadow-destination rule
+         * then blocked O-O and Rg8 committed instead. 40 is the clip-validated floor (the
+         * cream-on-light Blender lesson, same trap in the other polarity); real cast shadows
+         * stay below it because their structure does not change.
+         */
+        const val DEFAULT_CENSUS_THR: Double = 40.0
 
         /** Structural evidence fusion: z_eff = max(z_gray, w * z_census). 0 = off (legacy single-channel). */
         const val DEFAULT_CENSUS_Z_WEIGHT: Double = 1.0
