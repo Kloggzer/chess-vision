@@ -40,7 +40,7 @@ class IntrinsicGrayTest {
     }
 
     private fun findGoldenFile(): File? {
-        var dir: File? = File(System.getProperty("user.dir")).absoluteFile
+        var dir: File? = File(System.getProperty("user.dir") ?: ".").absoluteFile
         repeat(6) {
             val candidate = File(dir, "tests/data/intrinsic_golden.json")
             if (candidate.exists()) return candidate
@@ -133,6 +133,7 @@ class IntrinsicGrayTest {
     fun `uniform shadow vanishes while material change stays`() {
         val size = 32
         val transform = IntrinsicGray(angleDeg = 57.0, lo = -0.35, hi = 0.42)
+
         // Even-valued bright texture so a 0.5x "shadow" is an exact integer scale.
         fun base(): ByteArray {
             val buf = ByteArray(size * size * 3)
