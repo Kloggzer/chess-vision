@@ -15,7 +15,12 @@ from pathlib import Path
 
 from ..ingest import ImportItem
 
-CHUNK = 500   # Samples pro Pseudo-Session
+# Samples pro Pseudo-Session. Synth-Frames sind UNABHÄNGIG (jeder Frame: eigenes zufälliges
+# FEN/Kamera/Brett/World) → keine Session-Korrelation wie bei echten Aufnahmen. Kleine Chunks →
+# viele Pseudo-Sessions → der session-basierte Split nähert sich einem sauberen 70/15/15-Random-Split
+# (bei 500 landete bei 1600 Bildern die Hälfte in nur 2 Train-Sessions). View-Paare einer Szene
+# (views_per_scene) bleiben durch die gerade Chunk-Größe zusammen.
+CHUNK = 100   # Samples pro Pseudo-Session
 
 
 def iter_items(root: Path) -> Iterator[ImportItem]:
@@ -36,6 +41,10 @@ def iter_items(root: Path) -> Iterator[ImportItem]:
             block = int(jf.stem) // CHUNK
         except ValueError:
             block = 0
+        # Vom Renderer als `occluded` gelabelte Felder (Occluder-Footprint) → meta durchreichen,
+        # slice_session überschreibt damit das FEN-Label. Fehlt der Key (Alt-Renders) → keine.
+        occ = d.get("occluded_squares") or []
+        meta = {"occluded_squares": [str(s) for s in occ]} if occ else {}
         yield ImportItem(image_path=img,
                          corners=[[float(x), float(y)] for x, y in corners],
-                         fen=fen, group=f"synth-{block:03d}")
+                         fen=fen, group=f"synth-{block:03d}", meta=meta)

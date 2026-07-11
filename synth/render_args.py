@@ -35,6 +35,12 @@ class RenderArgs:
     # Per-Szene Welt/Umgebung variieren (World-Farbe + Grund-Ebene hinter dem Brett) → auch der
     # Rand/Hintergrund jenseits des Bretts trägt keine Figur-Info (Rand-/Oblique-Crops).
     randomize_world: bool = True
+    # Kamera-Distanz pro View über ein Band variieren (0 = fix): H = base * uniform(1-j .. 1+j).
+    # Näher = stärkere Perspektive/Lean + größere Figur; ferner = flacher/kleiner (FixRes/Multi-Scale).
+    cam_distance_jitter: float = 0.0
+    # Anteil der Views mit einem gerenderten Occluder (Faust/Unterarm, wirft Schatten); verdeckte
+    # Felder werden als `occluded` gelabelt. 0 = keine Occluder (Default für Rückwärtskompatibilität).
+    occlusion_p: float = 0.0
 
 
 def parse_render_args(argv: list[str]) -> RenderArgs:
@@ -54,6 +60,8 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
     piece_scale = 1.0
     randomize_board = True
     randomize_world = True
+    cam_distance_jitter = 0.0
+    occlusion_p = 0.0
 
     i = 0
     while i < len(args):
@@ -126,6 +134,16 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
             randomize_world = True
         elif a == "--no-randomize-world":
             randomize_world = False
+        elif a == "--cam-distance-jitter":
+            i += 1
+            if i >= len(args):
+                raise SystemExit("ERROR: --cam-distance-jitter benötigt einen Wert.")
+            cam_distance_jitter = max(0.0, float(args[i]))
+        elif a == "--occlusion-p":
+            i += 1
+            if i >= len(args):
+                raise SystemExit("ERROR: --occlusion-p benötigt einen Wert.")
+            occlusion_p = min(1.0, max(0.0, float(args[i])))
         else:
             print(f"WARN: unbekanntes Flag ignoriert: {a}", file=sys.stderr)
         i += 1
@@ -137,4 +155,5 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
                       board_texture=board_texture, views_per_scene=views_per_scene,
                       samples=samples, max_obliqueness=max_obliqueness,
                       fallback_subsurf=fallback_subsurf, piece_scale=piece_scale,
-                      randomize_board=randomize_board, randomize_world=randomize_world)
+                      randomize_board=randomize_board, randomize_world=randomize_world,
+                      cam_distance_jitter=cam_distance_jitter, occlusion_p=occlusion_p)

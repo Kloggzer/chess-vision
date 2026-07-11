@@ -98,20 +98,23 @@ def test_iter_items_parses_fixture(tmp_path):
 
 
 def test_iter_items_chunks_by_stem(tmp_path):
-    """Stem 0–499 → synth-000, 500 → synth-001."""
+    """Stems chunk into pseudo-sessions of size CHUNK: stem // CHUNK → synth-<block>."""
+    ch = synthetic.CHUNK
     fen = _fixture_fen()
     board = _synthetic_board(256)
-    for stem in (0, 250, 499, 500, 750, 999):
+    # two stems in block 0, two in block 1
+    stems = (0, ch - 1, ch, 2 * ch - 1)
+    for stem in stems:
         cv2.imwrite(str(tmp_path / f"{stem:06d}.png"), board)
         (tmp_path / f"{stem:06d}.json").write_text(
             json.dumps({"fen": fen, "corners": _fixture_corners()}), encoding="utf-8")
 
     items = list(synthetic.iter_items(tmp_path))
-    assert len(items) == 6
+    assert len(items) == 4
     groups = {it.group for it in items}
     assert groups == {"synth-000", "synth-001"}
-    assert sum(1 for it in items if it.group == "synth-000") == 3
-    assert sum(1 for it in items if it.group == "synth-001") == 3
+    assert sum(1 for it in items if it.group == "synth-000") == 2
+    assert sum(1 for it in items if it.group == "synth-001") == 2
 
 
 def test_iter_items_skips_json_without_png(tmp_path):
@@ -243,6 +246,60 @@ def test_synthetic_ingest_rotated_corners_fails(tmp_path):
     # match the expected a8 color (col 0, row 0)
     assert not np.allclose(center_color("a8"), _cell_color(0, 0), atol=25), \
         "rotated corners should not yield the correct square colors"
+
+
+# =======================================================================================
+# Occluded-square labels (rendered occluders → `occluded` class)
+# =======================================================================================
+
+def test_iter_items_reads_occluded_squares(tmp_path):
+    """iter_items carries occluded_squares from the JSON into ImportItem.meta."""
+    cv2.imwrite(str(tmp_path / "000000.png"), _synthetic_board(256))
+    (tmp_path / "000000.json").write_text(
+        json.dumps({"fen": _fixture_fen(), "corners": _fixture_corners(),
+                    "occluded_squares": ["d4", "d5"]}), encoding="utf-8")
+    items = list(synthetic.iter_items(tmp_path))
+    assert len(items) == 1
+    assert items[0].meta.get("occluded_squares") == ["d4", "d5"]
+
+
+def test_iter_items_missing_occluded_squares_ok(tmp_path):
+    """Old-format JSON without occluded_squares → empty meta (no crash)."""
+    cv2.imwrite(str(tmp_path / "000000.png"), _synthetic_board(256))
+    (tmp_path / "000000.json").write_text(
+        json.dumps({"fen": _fixture_fen(), "corners": _fixture_corners()}), encoding="utf-8")
+    items = list(synthetic.iter_items(tmp_path))
+    assert items[0].meta.get("occluded_squares") in (None, [])
+
+
+def test_occluded_squares_relabeled_through_slice(tmp_path):
+    """E2E: occluded_squares override the FEN piece label with `occluded` in the manifest.
+
+    Covered squares that hold a piece in the FEN (a1=wR, e8=bK) become `occluded`; an
+    uncovered occupied square (h1=wR) keeps its piece label; empties stay `empty`.
+    """
+    paths = config.Paths(root=tmp_path)
+    corners = _fixture_corners()
+    fen = _fixture_fen()   # starting position
+    bs = 800
+    warped = _warp_board_to_fixture(_synthetic_board(bs), corners)
+    img_path = tmp_path / "board0.png"
+    cv2.imwrite(str(img_path), warped)
+
+    item = ig.ImportItem(image_path=img_path, corners=corners, fen=fen, group="g0",
+                         meta={"occluded_squares": ["a1", "e8", "e4"]})
+    sids = ig.synthesize_sessions([item], tag="occ", profile_name="occ", paths=paths)
+    prof = ig.ingestion_profile("occ", bs, out_size=(bs, bs))
+    ig.slice_imported(sids, profile=prof, variant_tag="occ", paths=paths)
+
+    manifest_path = paths.manifests / "squares__occ.jsonl"
+    rows = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    by_sq = {r["square"]: r for r in rows}
+    assert by_sq["a1"]["label"] == "occluded"   # was wR, now occluded
+    assert by_sq["e8"]["label"] == "occluded"   # was bK, now occluded
+    assert by_sq["e4"]["label"] == "occluded"   # was empty, now occluded
+    assert by_sq["h1"]["label"] == "wR"         # not covered → keeps piece label
+    assert by_sq["h8"]["label"] == "bR"         # not covered
 
 
 # --- Contract documentation --------------------------------------------------------------

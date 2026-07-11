@@ -675,6 +675,13 @@ def synth_render(
                                                "camera; image is reprojected to top-down via homography during ingest."),
     piece_scale: float = typer.Option(1.0, "--piece-scale",
                                       help="Global piece scale factor (match crop fill to the real camera; >1 = larger)."),
+    cam_distance_jitter: float = typer.Option(0.0, "--cam-distance-jitter",
+                                              help="Vary camera distance per view over a band (0 = fixed). "
+                                                   "H = base * uniform(1-j .. 1+j); e.g. 0.4 -> ~0.6x-1.4x distance "
+                                                   "(closer = stronger perspective/lean + bigger piece)."),
+    occlusion_p: float = typer.Option(0.0, "--occlusion-p",
+                                      help="Fraction of views with a rendered occluder (fist/forearm that casts a "
+                                           "shadow); covered squares are labeled `occluded`. 0 = none."),
     blender: str | None = typer.Option(None, "--blender", help="Blender executable (default: blender, via CHESSLAB_BLENDER)."),
 ) -> None:
     """Generate synthetic board renderings with Blender/EEVEE (v2: board texture + procedural fallback)."""
@@ -700,7 +707,8 @@ def synth_render(
 
     cmd = build_blender_cmd(bl, b, script, o, n=n, seed=seed, fens=fe, pieces=p, res=res,
                             board_texture=bt, views_per_scene=views_per_scene,
-                            samples=samples, max_obliqueness=max_obliqueness, piece_scale=piece_scale)
+                            samples=samples, max_obliqueness=max_obliqueness, piece_scale=piece_scale,
+                            cam_distance_jitter=cam_distance_jitter, occlusion_p=occlusion_p)
 
     print(" ".join(cmd))
     try:
