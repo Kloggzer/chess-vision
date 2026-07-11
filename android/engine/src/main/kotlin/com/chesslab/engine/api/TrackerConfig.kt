@@ -22,6 +22,12 @@ data class TrackerConfig(
     val overhang: Double = DEFAULT_OVERHANG,
     val motionHoldS: Double = DEFAULT_MOTION_HOLD_S,
     val diffClaheClip: Double = DEFAULT_DIFF_CLAHE_CLIP,
+    /** Wobble tolerance of the gray diff in px (min-diff vs shifted reference); 0 = exact (Python parity). */
+    val diffJitterPx: Int = DEFAULT_DIFF_JITTER_PX,
+    /** Cancel each square's own mean brightness shift (lighting robustness); false = Python parity. */
+    val diffIllumCancel: Boolean = DEFAULT_DIFF_ILLUM_CANCEL,
+    /** Census-quiet vetoes changed squares WITHOUT the chroma shadow test; false = Python parity. */
+    val diffLightVeto: Boolean = DEFAULT_DIFF_LIGHT_VETO,
     val requireMotionForMove: Boolean = DEFAULT_REQUIRE_MOTION_FOR_MOVE,
     val motionRecencyS: Double = DEFAULT_MOTION_RECENCY_S,
     val confirmFrames: Int = DEFAULT_CONFIRM_FRAMES,
@@ -59,6 +65,28 @@ data class TrackerConfig(
         const val DEFAULT_OVERHANG: Double = 0.25
         const val DEFAULT_MOTION_HOLD_S: Double = 0.4
         const val DEFAULT_DIFF_CLAHE_CLIP: Double = 2.0
+
+        /**
+         * 0 = Python parity (clip replays are a parity gate; jitter=1 costs weak dark-on-dark
+         * evidence — blender-opera loses its last 3 moves). The Android app defaults to 1
+         * ([com.chesslab.tracker.service.TrackerSettings]) where phone-mount wobble dominates.
+         */
+        const val DEFAULT_DIFF_JITTER_PX: Int = 0
+
+        /**
+         * false = Python parity (clip replays are the gate). The Android app defaults to true
+         * ([com.chesslab.tracker.service.TrackerSettings]) — live lighting shifts (clouds, lamps,
+         * auto-exposure) are square-uniform and cancel; a piece blob keeps ~half its signal.
+         */
+        const val DEFAULT_DIFF_ILLUM_CANCEL: Boolean = false
+
+        /**
+         * false = Python parity. The Android app enables it together with [DEFAULT_DIFF_ILLUM_CANCEL]
+         * (one "lighting robustness" switch): illum-cancel covers empty squares/gradients (uniform
+         * shift cancels), the light veto covers OCCUPIED squares where lighting scales the piece's
+         * sharp edges in place — gray fires but census structure stays put.
+         */
+        const val DEFAULT_DIFF_LIGHT_VETO: Boolean = false
         const val DEFAULT_REQUIRE_MOTION_FOR_MOVE: Boolean = true
         const val DEFAULT_MOTION_RECENCY_S: Double = 20.0
         const val DEFAULT_CONFIRM_FRAMES: Int = 2

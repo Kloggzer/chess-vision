@@ -90,6 +90,8 @@ class CnnSafeguard(
     private val scope: CoroutineScope,
     private val config: CnnConfig = CnnConfig(),
     private val clock: () -> Long = System::nanoTime,
+    /** Diagnostic sink (injected — android.util.Log is unavailable in JVM unit tests). */
+    private val log: (String) -> Unit = {},
 ) : OccupancySafeguard {
     private val verifier = OccupancyVerifier(config)
     private val recovery = CnnRecovery(config)
@@ -124,11 +126,15 @@ class CnnSafeguard(
         move: MoveCandidate,
         touched: List<String>,
     ) {
+        if (verifyJob?.isActive == true) log("verify ${move.ucis}: cancelling previous still-active verify job")
         verifyJob?.cancel()
         verifyJob =
             scope.launch {
+                log("verify ${move.ucis} start: seq>=${move.seq} touched=$touched")
                 var framesSeen = 0
                 var attempts = 0
+                var nullFrames = 0
+                var staleOrDup = 0
                 // Vote gate (83a1e88): no verify decision on a single CNN glance — the SAME
                 // outcome must be seen on `verifyObsVotes` consecutive observations; a
                 // different outcome resets the count. Window/pair resolutions (votes=false)
@@ -137,29 +143,53 @@ class CnnSafeguard(
                 var votes = 0
                 var lastAcceptedSeq: Int? = null
                 val maxAttempts = (config.verifyWindow + config.verifyObsVotes) * MAX_ATTEMPT_FACTOR
-                while (attempts < maxAttempts) {
-                    attempts++
-                    val snap = observeOnce()
-                    // Seq contract (e065051): an observation OLDER than the frame the
-                    // candidate was decided on must neither confirm nor reject it.
-                    if (snap == null || snap.seq < move.seq || snap.seq == lastAcceptedSeq) {
-                        delay(if (snap == null) RETRY_DELAY_MS else OBSERVATION_GAP_MS)
-                    } else {
-                        lastAcceptedSeq = snap.seq
-                        framesSeen++
-                        val step = verifier.evaluate(move.fenBefore, move.ucis, snap.obs, framesSeen)
-                        if (step is VerifyStep.Decided) {
-                            votes = if (outcome == step.outcome) votes + 1 else 1
-                            outcome = step.outcome
-                            if (!step.votes || votes >= config.verifyObsVotes) {
-                                verdictFlow.emit(step.verdict)
-                                return@launch
+                try {
+                    while (attempts < maxAttempts) {
+                        attempts++
+                        val snap = observeOnce()
+                        // Seq contract (e065051): an observation OLDER than the frame the
+                        // candidate was decided on must neither confirm nor reject it.
+                        if (snap == null || snap.seq < move.seq || snap.seq == lastAcceptedSeq) {
+                            if (snap == null) nullFrames++ else staleOrDup++
+                            delay(if (snap == null) RETRY_DELAY_MS else OBSERVATION_GAP_MS)
+                        } else {
+                            lastAcceptedSeq = snap.seq
+                            framesSeen++
+                            val step = verifier.evaluate(move.fenBefore, move.ucis, snap.obs, framesSeen)
+                            val endpoints = endpointStats(move.ucis, snap.obs)
+                            if (step is VerifyStep.Decided) {
+                                votes = if (outcome == step.outcome) votes + 1 else 1
+                                outcome = step.outcome
+                                log(
+                                    "verify ${move.ucis} obs#$framesSeen seq=${snap.seq}: " +
+                                        "outcome=${step.outcome} votes=$votes/${config.verifyObsVotes} " +
+                                        "single-shot=${!step.votes} infer=${"%.0f".format(snap.inferMs)}ms $endpoints",
+                                )
+                                if (!step.votes || votes >= config.verifyObsVotes) {
+                                    log("verify ${move.ucis} DECIDED: ${step.verdict}")
+                                    verdictFlow.emit(step.verdict)
+                                    return@launch
+                                }
+                            } else {
+                                log("verify ${move.ucis} obs#$framesSeen seq=${snap.seq}: undecided (window) $endpoints")
                             }
+                            delay(OBSERVATION_GAP_MS)
                         }
-                        delay(OBSERVATION_GAP_MS)
                     }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    log("verify ${move.ucis} CANCELLED after $attempts attempts (no verdict emitted)")
+                    throw e
+                } catch (t: Throwable) {
+                    // A crashed worker must never leave the engine's pending latched.
+                    log("verify ${move.ucis} CRASHED: $t — emitting Timeout")
+                    verdictFlow.emit(VerifyVerdict.Timeout(move.ucis))
+                    return@launch
                 }
                 // Defensive: evaluate() decides at the window; never leave a candidate hanging.
+                log(
+                    "verify ${move.ucis} TIMEOUT after $attempts attempts " +
+                        "(obs=$framesSeen nullFrames=$nullFrames staleOrDup=$staleOrDup lastOutcome=$outcome votes=$votes)",
+                )
                 verdictFlow.emit(VerifyVerdict.Timeout(move.ucis))
             }
     }
@@ -295,6 +325,24 @@ class CnnSafeguard(
         val nowS = clock() / NS_PER_S
         val gate = if (stuck) config.cooldownS else config.checkIntervalS
         return nowS - lastCnnTs >= gate
+    }
+
+    /** What the CNN saw on the candidate's endpoint squares — diagnoses ghost/crop issues. */
+    private fun endpointStats(
+        ucis: List<String>,
+        obs: OccupancyObservation,
+    ): String {
+        val squares = ucis.flatMap { listOf(it.substring(0, 2), it.substring(2, 4)) }.distinct()
+        return squares.joinToString(" ") { sq ->
+            "%s[%s c=%.2f occ=%.2f emp=%.2f ocl=%.2f]".format(
+                sq,
+                obs.label.getValue(sq),
+                obs.conf.getValue(sq),
+                obs.pOcc.getValue(sq),
+                obs.pEmpty.getValue(sq),
+                obs.pOccluded.getValue(sq),
+            )
+        }
     }
 
     private suspend fun observeOnce(): CnnSnapshot? {

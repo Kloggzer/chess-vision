@@ -111,6 +111,7 @@ fun TrackingScreen(
     var confirmRecalibrate by remember { mutableStateOf(false) }
     var debugExpanded by rememberSaveable { mutableStateOf(false) }
     var showStuckRecovery by remember { mutableStateOf(false) }
+    var recoveryCollapsed by remember { mutableStateOf(false) }
 
     val render = resolveBoardRender(boardMode, subView, board != null, state.trackerState)
 
@@ -119,6 +120,7 @@ fun TrackingScreen(
     }
     LaunchedEffect(state.trackerState) {
         showStuckRecovery = false
+        recoveryCollapsed = false
         if (state.trackerState == TrackerState.STUCK) {
             delay(STUCK_ATTENTION_DELAY_MS)
             showStuckRecovery = true
@@ -157,9 +159,10 @@ fun TrackingScreen(
                 onSubViewChange = { subView = it },
             )
 
-            if (state.note.isNotBlank() && state.trackerState != TrackerState.STUCK) {
+            val note = if (state.sceneDark) stringResource(R.string.note_scene_dark) else state.note
+            if (note.isNotBlank() && state.trackerState != TrackerState.STUCK) {
                 Text(
-                    text = state.note,
+                    text = note,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -204,20 +207,29 @@ fun TrackingScreen(
         }
 
         if (showStuckRecovery || state.alarm != null) {
-            OverlayCard(
-                title = stringResource(R.string.recovery_title),
-                body = stringResource(R.string.recovery_message),
-                attn = true,
-                actions = {
-                    // When STUCK because the board is actually correct but the tracker desynced,
-                    // re-anchoring the baseline at the current board is usually the right fix.
-                    PrimaryButton(onClick = onNewBaseline) { Text(stringResource(R.string.action_new_baseline)) }
-                    GhostButton(onClick = onUndo) { Text(stringResource(R.string.alarm_take_back)) }
-                    GhostButton(onClick = { confirmRecalibrate = true }) {
-                        Text(stringResource(R.string.action_recalibrate))
-                    }
-                },
-            )
+            if (recoveryCollapsed) {
+                // Tucked-away stand-in so the debug panel underneath stays readable.
+                OverlayPill(
+                    text = stringResource(R.string.recovery_pill),
+                    onClick = { recoveryCollapsed = false },
+                )
+            } else {
+                OverlayCard(
+                    title = stringResource(R.string.recovery_title),
+                    body = stringResource(R.string.recovery_message),
+                    attn = true,
+                    onCollapse = { recoveryCollapsed = true },
+                    actions = {
+                        // When STUCK because the board is actually correct but the tracker desynced,
+                        // re-anchoring the baseline at the current board is usually the right fix.
+                        PrimaryButton(onClick = onNewBaseline) { Text(stringResource(R.string.action_new_baseline)) }
+                        GhostButton(onClick = onUndo) { Text(stringResource(R.string.alarm_take_back)) }
+                        GhostButton(onClick = { confirmRecalibrate = true }) {
+                            Text(stringResource(R.string.action_recalibrate))
+                        }
+                    },
+                )
+            }
         }
     }
 
@@ -479,6 +491,7 @@ private fun DebugPanel(
         }
         if (expanded) {
             KeyValueRow(stringResource(R.string.debug_fps), "%.1f".format(debug.fps))
+            KeyValueRow(stringResource(R.string.debug_luma), "%.1f".format(debug.meanLuma))
             KeyValueRow(stringResource(R.string.debug_motion), "%.4f / %.4f".format(debug.motion, debug.motionThr))
             KeyValueRow(stringResource(R.string.debug_changed), debug.changed.joinToString(" ").ifEmpty { "-" })
             KeyValueRow(

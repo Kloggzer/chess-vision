@@ -47,6 +47,9 @@ class SettingsRepository(
         val OVERHANG = doublePreferencesKey("overhang")
         val MOTION_HOLD_S = doublePreferencesKey("motion_hold_s")
         val CLAHE_CLIP = doublePreferencesKey("clahe_clip")
+        val DARK_LUMA_THR = doublePreferencesKey("dark_luma_thr")
+        val DIFF_JITTER_PX = intPreferencesKey("diff_jitter_px")
+        val LIGHTING_ROBUST = booleanPreferencesKey("lighting_robust")
         val AUTO_RECORD = booleanPreferencesKey("auto_record")
         val CNN_ENABLED = booleanPreferencesKey("cnn_enabled")
         val CNN_CONF_THR = doublePreferencesKey("cnn_conf_thr")
@@ -96,6 +99,9 @@ class SettingsRepository(
             overhang = prefs[OVERHANG] ?: d.overhang,
             motionHoldS = prefs[MOTION_HOLD_S] ?: d.motionHoldS,
             claheClip = prefs[CLAHE_CLIP] ?: d.claheClip,
+            darkLumaThr = prefs[DARK_LUMA_THR] ?: d.darkLumaThr,
+            diffJitterPx = prefs[DIFF_JITTER_PX] ?: d.diffJitterPx,
+            lightingRobust = prefs[LIGHTING_ROBUST] ?: d.lightingRobust,
         )
 
     internal fun encode(
@@ -122,6 +128,9 @@ class SettingsRepository(
         prefs[OVERHANG] = s.overhang
         prefs[MOTION_HOLD_S] = s.motionHoldS
         prefs[CLAHE_CLIP] = s.claheClip
+        prefs[DARK_LUMA_THR] = s.darkLumaThr
+        prefs[DIFF_JITTER_PX] = s.diffJitterPx
+        prefs[LIGHTING_ROBUST] = s.lightingRobust
         prefs[EXPERIMENTAL] = s.experimentalDetection
         prefs[DEBUG_CARD] = s.debugCard
         prefs[OVERLAY_VIEW] = s.overlayView.name
