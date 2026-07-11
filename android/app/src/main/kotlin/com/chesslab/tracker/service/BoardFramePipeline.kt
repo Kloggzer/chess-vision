@@ -14,6 +14,8 @@ class ProcessedFrame(
     val bgr: BgrImage,
     val boardBgr: Mat,
     val timestampNs: Long,
+    /** Mean brightness of the rectified gray BEFORE CLAHE — the dark-frame gate's input. */
+    val meanLuma: Double,
 )
 
 /**
@@ -66,12 +68,16 @@ class BoardFramePipeline(
                 Core.rotate(detectGray, detectGray, Core.ROTATE_180)
                 Core.rotate(detectBgr, detectBgr, Core.ROTATE_180)
             }
+            // Measured pre-CLAHE: equalization stretches a near-black scene to mid-gray,
+            // which is exactly the noise amplification the dark-frame gate must catch.
+            val meanLuma = Core.mean(detectGray).`val`[0]
             preprocessGray(detectGray)
             ProcessedFrame(
                 gray = detectGray.toGrayImage(),
                 bgr = detectBgr.toBgrImage(),
                 boardBgr = boardBgr,
                 timestampNs = timestampNs,
+                meanLuma = meanLuma,
             )
         } catch (t: org.opencv.core.CvException) {
             boardBgr.release()

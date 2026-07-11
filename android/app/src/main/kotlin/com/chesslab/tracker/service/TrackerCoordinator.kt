@@ -45,6 +45,11 @@ class TrackerCoordinator(
     private var announcementId = 0L
     private var lastTsNs = 0L
     private var fpsEma = 0.0
+    private var sceneDark = false
+
+    /** Latest pre-CLAHE board mean brightness, set by the service frame loop (debug display). */
+    @Volatile
+    var meanLuma: Double = 0.0
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
@@ -73,6 +78,7 @@ class TrackerCoordinator(
         bgr: BgrImage,
         timestampNs: Long,
     ) {
+        sceneDark = false
         updateFps(timestampNs)
         val frameEvents = engine.onFrame(gray, bgr, timestampNs)
         var announcement: MoveAnnouncement? = _uiState.value.announcement
@@ -84,6 +90,19 @@ class TrackerCoordinator(
             }
         }
         publish(announcement)
+    }
+
+    /**
+     * Dark-frame gate: the pre-CLAHE scene is too dark to trust the diff (CLAHE
+     * stretches sensor noise into phantom changed squares), so the frame was NOT
+     * fed to the engine — this keeps the learned [com.chesslab.engine.SquareNoise]
+     * unpolluted. Publishes a flagged [UiState] with the stale changed set cleared.
+     */
+    @Synchronized
+    fun onDarkFrame() {
+        sceneDark = true
+        // Published per dark frame (like onFrame) so the debug card's luma stays live for tuning.
+        publish(_uiState.value.announcement)
     }
 
     /**
@@ -233,6 +252,7 @@ class TrackerCoordinator(
                 promotion = status.promotionPending?.let { PromotionRequest(it.first, it.second) },
                 announcement = announcement,
                 alarm = status.alarm?.let { AlarmUi(alarmDetail(status.fen, it)) },
+                sceneDark = sceneDark,
                 debug = debugOf(status),
             )
     }
@@ -242,8 +262,9 @@ class TrackerCoordinator(
             fps = fpsEma,
             motion = status.motion,
             motionThr = config.motionThr,
-            changed = status.changed,
-            changedVals = status.changedVals,
+            // A dark scene's changed set is pure CLAHE-amplified sensor noise — don't render it.
+            changed = if (sceneDark) emptyList() else status.changed,
+            changedVals = if (sceneDark) emptyList() else status.changedVals,
             shadowVetoed = status.shadowVetoed,
             occludedVetoed = status.occludedVetoed,
             bestScore = status.bestScore,
@@ -253,6 +274,7 @@ class TrackerCoordinator(
             decider = status.lastMove,
             stuckReason = status.stuckReason,
             confirmCount = status.confirmCount,
+            meanLuma = meanLuma,
         )
 
     private companion object {

@@ -124,6 +124,23 @@ class TrackerCoordinatorTest {
     }
 
     @Test
+    fun `dark frames flag the UiState, clear changed squares and heal on the next bright frame`() {
+        val coordinator = TrackerCoordinator()
+        val game = Game()
+        feed(coordinator, game, 8)
+        assertEquals(TrackerState.TRACKING, coordinator.uiState.value.trackerState)
+
+        coordinator.onDarkFrame()
+        val dark = coordinator.uiState.value
+        assertTrue(dark.sceneDark)
+        assertEquals(emptyList<String>(), dark.debug.changed)
+        assertEquals(game.fen(), dark.fen, "game state must survive the gate")
+
+        feed(coordinator, game, 1)
+        assertTrue(!coordinator.uiState.value.sceneDark)
+    }
+
+    @Test
     fun `config changes preserve fen history provenance and undo stack`() {
         val coordinator = TrackerCoordinator()
         val game = Game()

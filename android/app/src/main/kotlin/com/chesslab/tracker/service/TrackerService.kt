@@ -318,22 +318,31 @@ class TrackerService : LifecycleService() {
                     recorder?.onFrame(coordinator.uiState.value.fen, frame.timestampNs)
                     val processed = pipe.process(frame.mat, frame.timestampNs)
                     try {
-                        coordinator.onFrame(processed.gray, processed.bgr, processed.timestampNs)
-                        cnnFrameStore.update(processed, coordinator.frameSeq)
+                        // Dark-frame gate: below the pre-CLAHE luma floor the diff is pure
+                        // amplified sensor noise — freeze detection instead of feeding it.
+                        coordinator.meanLuma = processed.meanLuma
+                        val thr = settings.darkLumaThr
+                        if (thr > 0 && processed.meanLuma < thr) {
+                            coordinator.onDarkFrame()
+                            diag("dark frame gated: meanLuma=${"%.1f".format(processed.meanLuma)} < $thr")
+                        } else {
+                            coordinator.onFrame(processed.gray, processed.bgr, processed.timestampNs)
+                            cnnFrameStore.update(processed, coordinator.frameSeq)
+                        }
 
                         val ui = coordinator.uiState.value
                         val d = ui.debug
                         diag(
                             "state=${ui.trackerState} stuck=${d.stuckReason} " +
+                                "luma=${"%.1f".format(processed.meanLuma)} " +
                                 "motion=${"%.4f".format(d.motion)}/${"%.4f".format(d.motionThr)} " +
                                 "changed=${d.changed} cand=${d.candidate} " +
                                 "best=${"%.2f".format(d.bestScore)} 2nd=${"%.2f".format(d.secondScore)} " +
                                 "shadowVeto=${d.shadowVetoed} occlVeto=${d.occludedVetoed}",
                         )
 
-                        // Phase 07: flush pending capture when board is clean.
-                        val state = coordinator.uiState.value.trackerState
-                        if (state == TrackerState.TRACKING) recorder?.onCleanFrame()
+                        // Phase 07: flush pending capture when board is clean (never off a dark frame).
+                        if (ui.trackerState == TrackerState.TRACKING && !ui.sceneDark) recorder?.onCleanFrame()
 
                         publishBoard(processed.boardBgr)
                         publishDebug(coordinator.debugImages)

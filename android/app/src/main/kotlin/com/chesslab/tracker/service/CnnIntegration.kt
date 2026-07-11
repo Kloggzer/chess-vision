@@ -69,7 +69,10 @@ class CnnIntegration(
             runCatching { OnnxClassifier(modelDir) }.getOrElse { return false }
         val cropper = BoardCropper(loaded.spec.outWidth, loaded.spec.outHeight)
         val config = CnnConfig(confThr = confThr)
-        val guard = CnnSafeguard(loaded, { observationInput(cropper) }, scope, config)
+        val guard =
+            CnnSafeguard(loaded, { observationInput(cropper) }, scope, config, log = { msg ->
+                android.util.Log.i(CNN_TAG, msg)
+            })
         classifier = loaded
         safeguard = guard
         coordinator.safeguard = guard
@@ -80,7 +83,13 @@ class CnnIntegration(
             val ageS = ((System.nanoTime() - snap.timestampNs).coerceAtLeast(0L)) / NS_PER_S
             coordinator.reportOccluded(occluded, ageS)
         }
-        jobs += scope.launch { guard.verdicts.collect { coordinator.onVerifyVerdict(it) } }
+        jobs +=
+            scope.launch {
+                guard.verdicts.collect {
+                    android.util.Log.i(CNN_TAG, "verdict -> engine: $it")
+                    coordinator.onVerifyVerdict(it)
+                }
+            }
         jobs += scope.launch { guard.observerLoop() }
         jobs += scope.launch { recoveryLoop(guard) }
         return true
@@ -139,6 +148,7 @@ class CnnIntegration(
         const val RECOVERY_POLL_MS = 500L
         const val OCCLUDED_P = 0.5
         const val NS_PER_S = 1e9
+        const val CNN_TAG = "chesslabCnn"
     }
 }
 

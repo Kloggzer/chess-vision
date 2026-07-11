@@ -74,7 +74,10 @@ internal class Detector(
         curBgr: BgrImage,
         nowS: Double,
     ): Evidence {
-        val diffs = SquareDiff.normalizeDiffs(SquareDiff.perSquareDiff(state.refGray!!, cur, geom))
+        val diffs =
+            SquareDiff.normalizeDiffs(
+                SquareDiff.perSquareDiff(state.refGray!!, cur, geom, config.diffJitterPx, config.diffIllumCancel),
+            )
         val z = state.noise.z(diffs).toMutableMap()
         val cens = fuseCensusChannel(cur, z)
         applyTaintLatch(z, nowS)
@@ -213,7 +216,13 @@ internal class Detector(
             .sortedByDescending { it.second }
             .take(TOP_CHANGED)
 
-    /** Step 3 — cast-shadow veto: removes squares from `changed`, KEEPS their z (vacate evidence). */
+    /**
+     * Step 3 — cast-shadow veto: removes squares from `changed`, KEEPS their z (vacate evidence).
+     * With [com.chesslab.engine.api.TrackerConfig.diffLightVeto] the census-quiet condition vetoes
+     * ALONE (no chroma shadow classification needed): a lighting change scales a piece's edges in
+     * place — gray fires, but edge POSITIONS (census) don't move. A real move always relocates
+     * structure, so its destination stays census-hot and passes.
+     */
     private fun applyShadowVeto(
         cur: GrayImage,
         curBgr: BgrImage,
@@ -225,7 +234,10 @@ internal class Detector(
         // Fusion active: reuse the (median-normalized) census channel; otherwise raw census.
         val census = cens ?: Census.perSquareChange(state.refGray!!, cur, geom, refCodes = state.refCensusCodes())
         val shadows = ShadowVeto.shadowSquares(refBgr, curBgr, geom, changed)
-        val veto = changed.filterTo(mutableSetOf()) { it in shadows && census.getValue(it) < config.censusThr }
+        val veto =
+            changed.filterTo(mutableSetOf()) {
+                (it in shadows || config.diffLightVeto) && census.getValue(it) < config.censusThr
+            }
         changed -= veto
         state.shadowVetoed = veto.sorted()
         return veto

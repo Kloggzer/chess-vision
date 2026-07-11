@@ -2,6 +2,7 @@ package com.chesslab.tracker.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -9,6 +10,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -16,12 +22,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import com.chesslab.tracker.R
 
 /**
  * Floating overlay layer. Each composable is `BoxScope`-scoped and positions itself with
@@ -104,7 +112,9 @@ fun BoxScope.OverlayBanner(
 /**
  * Action card anchored above the bottom nav (`Align.BottomCenter`): translucent surface
  * with a shadow. [attn] switches it to an error-tinted, assertive live region (recovery
- * prompt). [actions] fills a trailing button row.
+ * prompt). [actions] fills a trailing button row. A non-null [onCollapse] adds a
+ * collapse control to the title row so the card can be tucked away (e.g. to read the
+ * debug panel underneath); the caller owns the collapsed state (see [OverlayPill]).
  */
 @Suppress("ktlint:standard:function-naming", "FunctionNaming")
 @Composable
@@ -112,6 +122,7 @@ fun BoxScope.OverlayCard(
     title: String,
     body: String,
     attn: Boolean = false,
+    onCollapse: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -141,8 +152,51 @@ fun BoxScope.OverlayCard(
                 ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(title, style = MaterialTheme.typography.titleMedium, color = onContainer)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium, color = onContainer)
+            if (onCollapse != null) {
+                IconButton(onClick = onCollapse, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        Icons.Filled.ExpandMore,
+                        contentDescription = stringResource(R.string.recovery_collapse),
+                        tint = onContainer,
+                    )
+                }
+            }
+        }
         Text(body, style = MaterialTheme.typography.bodyMedium, color = onContainer)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), content = actions)
     }
+}
+
+/**
+ * Compact bottom-corner pill standing in for a collapsed [OverlayCard] — small enough
+ * to leave the debug panel readable; tapping it re-expands the card.
+ */
+@Suppress("ktlint:standard:function-naming", "FunctionNaming")
+@Composable
+fun BoxScope.OverlayPill(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onErrorContainer,
+        modifier =
+            modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp)
+                .shadow(4.dp, MaterialTheme.shapes.large)
+                .clip(MaterialTheme.shapes.large)
+                .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = CARD_BG_ALPHA))
+                .border(1.dp, MaterialTheme.colorScheme.error, MaterialTheme.shapes.large)
+                .clickable(onClick = onClick)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+    )
 }

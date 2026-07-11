@@ -46,6 +46,8 @@ data class DebugSnapshot(
     val decider: String? = null,
     val stuckReason: String? = null,
     val confirmCount: Int = 0,
+    /** Pre-CLAHE board mean brightness of the latest frame (dark-frame gate input). */
+    val meanLuma: Double = 0.0,
 )
 
 /**
@@ -63,6 +65,8 @@ data class UiState(
     val promotion: PromotionRequest? = null,
     val announcement: MoveAnnouncement? = null,
     val alarm: AlarmUi? = null,
+    /** Dark-frame gate tripped: scene too dark to trust the diff, detection is paused. */
+    val sceneDark: Boolean = false,
     val debug: DebugSnapshot = DebugSnapshot(),
 ) {
     /** SAN history without provenance (for the compact move list). */

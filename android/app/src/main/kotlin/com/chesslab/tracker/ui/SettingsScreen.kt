@@ -125,6 +125,25 @@ fun SettingsScreen(
             SettingSlider(stringResource(R.string.setting_clahe_clip), settings.claheClip, 0f..8f, 2.0) { v ->
                 onUpdate { it.copy(claheClip = v) }
             }
+            SettingSlider(
+                stringResource(R.string.setting_dark_luma_thr),
+                settings.darkLumaThr,
+                0f..60f,
+                TrackerSettings.DEFAULT_DARK_LUMA_THR,
+            ) { v ->
+                onUpdate { it.copy(darkLumaThr = v) }
+            }
+            SettingSlider(
+                label = stringResource(R.string.setting_diff_jitter),
+                value = settings.diffJitterPx.toDouble(),
+                range = 0f..3f,
+                default = TrackerSettings.DEFAULT_DIFF_JITTER_PX.toDouble(),
+                steps = 2,
+                onChange = { v -> onUpdate { it.copy(diffJitterPx = v.roundToInt()) } },
+            )
+            SettingSwitch(stringResource(R.string.setting_lighting_robust), settings.lightingRobust) { v ->
+                onUpdate { it.copy(lightingRobust = v) }
+            }
         }
 
         SectionHeader(stringResource(R.string.settings_recording))

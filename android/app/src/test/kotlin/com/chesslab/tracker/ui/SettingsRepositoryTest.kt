@@ -22,7 +22,15 @@ class SettingsRepositoryTest {
 
     @Test
     fun `defaults map to TrackerConfig defaults`() {
-        assertEquals(TrackerConfig(), TrackerSettings().toTrackerConfig())
+        // Intended divergences (engine keeps Python/clip-replay parity, the app defaults to the
+        // live-robust values): 1px wobble tolerance + lighting robustness (illum cancel & light veto).
+        val expected =
+            TrackerConfig(
+                diffJitterPx = TrackerSettings.DEFAULT_DIFF_JITTER_PX,
+                diffIllumCancel = TrackerSettings.DEFAULT_LIGHTING_ROBUST,
+                diffLightVeto = TrackerSettings.DEFAULT_LIGHTING_ROBUST,
+            )
+        assertEquals(expected, TrackerSettings().toTrackerConfig())
     }
 
     @Test

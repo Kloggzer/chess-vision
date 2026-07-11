@@ -588,15 +588,69 @@ def _rand_square_colors(rng):
 
 
 def make_random_procedural_board(rng):
-    """Procedural checker board with randomized square colours, cell scale and gloss."""
+    """Procedural board for the BoardPlane: an 8x8 checker ALIGNED to the play area plus a
+    solid border ring — the real board's structure (frame + coordinate margin), only with
+    randomized colours/gloss for diversity.
+
+    Uses the plane's UV (play area occupies [0.5±BOARD_PLAY_HALF_FRAC] in U and V, the rest is
+    the border), so the 8x8 lands exactly on the true square world positions (a8/h8/h1/a1) and
+    the border sits outside ±HALF — same geometry as the photo texture. Earlier this reused
+    make_board_material's whole-plane checker (arbitrary Generated scale) → misaligned squares
+    and NO border.
+    """
     light, dark = _rand_square_colors(rng)
-    mat = make_board_material(light, dark)
-    for node in mat.node_tree.nodes:
-        if node.type == "MAPPING":
-            s = rng.uniform(6.0, 10.0)          # cell count → tile size varies per scene
-            node.inputs["Scale"].default_value = (s, s, s)
-        elif node.type == "BSDF_PRINCIPLED":
-            node.inputs["Roughness"].default_value = rng.uniform(0.4, 0.95)
+    # Border tone: a darker wood-ish frame, related to the dark tile so it reads as one set.
+    border = tuple(min(1.0, c * rng.uniform(0.6, 0.95)) for c in dark)
+
+    frac = BOARD_PLAY_HALF_FRAC
+    lo, span = 0.5 - frac, 2.0 * frac
+
+    mat = bpy.data.materials.new("ProcBoard")
+    mat.use_nodes = True
+    nt = mat.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.inputs["Roughness"].default_value = rng.uniform(0.4, 0.95)
+    coord = nt.nodes.new("ShaderNodeTexCoord")
+
+    # Remap UV so the play area [lo, lo+span] -> [0,1], then an 8-scale checker = aligned 8x8.
+    mapping = nt.nodes.new("ShaderNodeMapping")
+    mapping.inputs["Location"].default_value = (-lo / span, -lo / span, 0.0)
+    mapping.inputs["Scale"].default_value = (1.0 / span, 1.0 / span, 1.0)
+    checker = nt.nodes.new("ShaderNodeTexChecker")
+    checker.inputs["Scale"].default_value = 8.0
+    checker.inputs["Color1"].default_value = (*light, 1.0)
+    checker.inputs["Color2"].default_value = (*dark, 1.0)
+    nt.links.new(coord.outputs["UV"], mapping.inputs["Vector"])
+    nt.links.new(mapping.outputs["Vector"], checker.inputs["Vector"])
+
+    # Inside-play mask: Chebyshev distance from centre (0.5) < frac -> 1 (checker), else 0 (border).
+    sep = nt.nodes.new("ShaderNodeSeparateXYZ")
+    nt.links.new(coord.outputs["UV"], sep.inputs["Vector"])
+
+    def _absdev(comp):
+        sub = nt.nodes.new("ShaderNodeMath"); sub.operation = "SUBTRACT"
+        sub.inputs[1].default_value = 0.5
+        nt.links.new(sep.outputs[comp], sub.inputs[0])
+        ab = nt.nodes.new("ShaderNodeMath"); ab.operation = "ABSOLUTE"
+        nt.links.new(sub.outputs[0], ab.inputs[0])
+        return ab
+
+    du, dv = _absdev("X"), _absdev("Y")
+    dmax = nt.nodes.new("ShaderNodeMath"); dmax.operation = "MAXIMUM"
+    nt.links.new(du.outputs[0], dmax.inputs[0])
+    nt.links.new(dv.outputs[0], dmax.inputs[1])
+    inside = nt.nodes.new("ShaderNodeMath"); inside.operation = "LESS_THAN"
+    inside.inputs[1].default_value = frac
+    nt.links.new(dmax.outputs[0], inside.inputs[0])
+
+    mix = nt.nodes.new("ShaderNodeMixRGB")
+    mix.inputs["Color1"].default_value = (*border, 1.0)   # Fac 0 (outside) -> border
+    nt.links.new(inside.outputs[0], mix.inputs["Fac"])
+    nt.links.new(checker.outputs["Color"], mix.inputs["Color2"])  # Fac 1 (inside) -> checker
+    nt.links.new(mix.outputs["Color"], bsdf.inputs["Base Color"])
+    nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
     return mat
 
 
