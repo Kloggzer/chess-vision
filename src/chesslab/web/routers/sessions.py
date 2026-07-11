@@ -242,6 +242,19 @@ def session_restore(sid: str):
         raise HTTPException(409, str(e))
 
 
+@router.post("/api/sessions/{sid}/reviewed")
+def session_set_reviewed(sid: str, reviewed: bool = Body(..., embed=True)):
+    """Mark a session reviewed / not-reviewed so the UI can hide it from the NEW list."""
+    from ... import sessions as sessions_mod
+
+    try:
+        return sessions_mod.set_session_reviewed(sid, reviewed)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+
+
 @router.delete("/api/sessions/{sid}")
 def session_delete(sid: str):
     from ... import sessions as sessions_mod
@@ -286,11 +299,18 @@ def session_flag_unusable(sid: str, idx: int, unusable: bool = Body(..., embed=T
 @router.post("/api/sessions/{sid}/slice")
 def session_slice(sid: str, pad_up: float | None = Query(None), pad_side: float | None = Query(None)):
     from ... import labeling as labeling_mod
+    from ... import sessions as sessions_mod
 
     rc = labeling_mod.run_slice(session=sid, pad_up=pad_up, pad_side=pad_side)
     crops = _crop_count(sid)
     if rc != 0:
         raise HTTPException(400, f"Slicing for '{sid}' failed.")
+    # Slicing a session implies the user has accepted it → mark reviewed so it drops out of the
+    # NEW list. Best-effort: a bookkeeping failure must not fail the slice itself.
+    try:
+        sessions_mod.set_session_reviewed(sid, True)
+    except (ValueError, FileNotFoundError):
+        pass
     return {"ok": True, "session": sid, "crops": crops}
 
 

@@ -91,8 +91,12 @@ def replay(clip: str, profile: str = "phone", cnn_run: str | None = None,
 
     mt = None
     try:
+        # Headless throwaway run — must NEVER auto-record into config.DATA.sessions (that would
+        # leave synthetic __clip_replay_* / 400x400 sessions polluting the real dataset). An
+        # explicit caller override still wins (tracker_kwargs applied last).
+        tk = {"auto_record": False, **(tracker_kwargs or {})}
         mt = trk.MoveTracker(profile=profile, source="0", live_align=live_align, cnn_run=cnn_run,
-                             **(tracker_kwargs or {}))
+                             **tk)
         mt.reset_to_start(start_fen)
         mt.start()
 

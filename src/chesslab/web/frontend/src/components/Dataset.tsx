@@ -3,7 +3,7 @@ import { NavLink, Outlet, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Check, X, AlertTriangle, Images, Archive, ArchiveRestore, Trash2, Scissors, Loader2,
-  Boxes, Hammer, RotateCw, Eye, EyeOff, ChevronLeft, ChevronRight,
+  Boxes, Hammer, RotateCw, Eye, EyeOff, ChevronLeft, ChevronRight, CheckCircle2, Circle,
 } from "lucide-react";
 import { api, post, del } from "../api";
 import { Card, Button, Glyph, noteCls } from "./ui";
@@ -32,6 +32,50 @@ const useInvalidate = () => {
   return (...keys: string[]) => keys.forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
 };
 
+const spinner = <Loader2 className="h-3.5 w-3.5 animate-spin" />;
+const isBusy = (m: any, sid: string) => m.isPending && (m.variables === sid || m.variables?.sid === sid);
+const reviewedIcon = (busy: boolean, reviewed: boolean) => {
+  if (busy) return spinner;
+  return reviewed ? <Circle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />;
+};
+
+// Per-session action buttons. Extracted so the session-row map stays simple (and under the
+// cognitive-complexity gate) now that there's a review toggle alongside slice/archive/delete.
+function SessionActions({ m, openReview, reviewedM, sliceM, archiveM, restoreM, deleteM }: any) {
+  return (
+    <div className="flex justify-end gap-1.5">
+      <Button onClick={() => openReview(m.session_id)} disabled={!m.n_frames}
+              className="px-2 py-1 text-xs disabled:opacity-50">
+        <Eye className="h-3.5 w-3.5" /> Review
+      </Button>
+      <Button onClick={() => reviewedM.mutate({ sid: m.session_id, reviewed: !m.reviewed })}
+              disabled={reviewedM.isPending} className="px-2 py-1 text-xs disabled:opacity-50">
+        {reviewedIcon(isBusy(reviewedM, m.session_id), m.reviewed)} {m.reviewed ? "Mark new" : "Mark reviewed"}
+      </Button>
+      {!m.archived && (
+        <Button onClick={() => sliceM.mutate(m.session_id)} disabled={sliceM.isPending}
+                className="px-2 py-1 text-xs disabled:opacity-50">
+          {isBusy(sliceM, m.session_id) ? spinner : <Scissors className="h-3.5 w-3.5" />} {m.n_crops ? "Re-slice" : "Slice"}
+        </Button>
+      )}
+      {m.archived
+        ? <Button onClick={() => restoreM.mutateAsync(m.session_id)} disabled={restoreM.isPending}
+                  className="px-2 py-1 text-xs disabled:opacity-50">
+            {isBusy(restoreM, m.session_id) ? spinner : <ArchiveRestore className="h-3.5 w-3.5" />} Restore
+          </Button>
+        : <Button onClick={() => archiveM.mutateAsync(m.session_id)} disabled={archiveM.isPending}
+                  className="px-2 py-1 text-xs disabled:opacity-50">
+            {isBusy(archiveM, m.session_id) ? spinner : <Archive className="h-3.5 w-3.5" />} Archive
+          </Button>}
+      <Button onClick={() => window.confirm(`Delete session "${m.session_id}" permanently?`) && deleteM.mutateAsync(m.session_id)}
+              disabled={deleteM.isPending}
+              className="px-2 py-1 text-xs text-red-300 hover:text-red-200 disabled:opacity-50">
+        {isBusy(deleteM, m.session_id) ? spinner : <Trash2 className="h-3.5 w-3.5" />} Delete
+      </Button>
+    </div>
+  );
+}
+
 // --- Panel 1: Sessions (Rohmaterial) -------------------------------------------------
 export function SessionsPanel() {
   const invalidate = useInvalidate();
@@ -39,6 +83,7 @@ export function SessionsPanel() {
   const [noteKind, setNoteKind] = useState<"ok" | "err" | "busy" | "">("");
   const [reviewSid, setReviewSid] = useState("");
   const [reviewIdx, setReviewIdx] = useState(0);
+  const [showReviewed, setShowReviewed] = useState(false);
   const sessionsQ = useQuery({ queryKey: ["sessions-manage"], queryFn: () => api("/api/sessions/manage") });
   const reviewQ = useQuery({
     queryKey: ["session-review", reviewSid, reviewIdx],
@@ -46,8 +91,15 @@ export function SessionsPanel() {
     enabled: !!reviewSid,
   });
   const all: any[] = sessionsQ.data ?? [];
-  const sessions = all.filter((m) => !m.variant);
+  const cameraSessions = all.filter((m) => !m.variant);
+  // Hide reviewed sessions by default so only NEW ones need attention (toggle to reveal them).
+  const sessions = cameraSessions.filter((m) => showReviewed || !m.reviewed);
+  const newCount = cameraSessions.filter((m) => !m.reviewed).length;
+  const reviewedCount = cameraSessions.length - newCount;
   const ingested = all.filter((m) => m.variant);
+  const emptyMsg = cameraSessions.length === 0
+    ? "No sessions yet — capture some in the Collect tab."
+    : "No new sessions — all reviewed. Tick “Show reviewed” to see them.";
 
   const onOk = (msg: string) => { setNote(msg); setNoteKind("ok"); invalidate("sessions-manage", "stats", "datasets"); };
   const onErr = (e: any) => { setNote("Error: " + e.message); setNoteKind("err"); };
@@ -89,13 +141,29 @@ export function SessionsPanel() {
     onSuccess: () => { invalidate("session-review", "sessions-manage"); },
     onError: onErr,
   });
+  const reviewedM = useMutation({
+    mutationFn: ({ sid, reviewed }: { sid: string; reviewed: boolean }) =>
+      post(`/api/sessions/${sid}/reviewed`, { reviewed }),
+    onSuccess: (r: any) => onOk(r.reviewed ? "marked reviewed." : "marked new."),
+    onError: onErr,
+  });
 
   return (
-    <Card title="Sessions (raw material)" right={<span className="text-xs text-zinc-500">{sessions.length} camera / {ingested.length} ingested</span>}>
+    <Card title="Sessions (raw material)" right={
+      <div className="flex items-center gap-3 text-xs text-zinc-500">
+        <label className="flex cursor-pointer items-center gap-1.5 text-zinc-400">
+          <input type="checkbox" checked={showReviewed}
+                 onChange={(e) => setShowReviewed(e.target.checked)}
+                 className="accent-sky-500" />
+          Show reviewed ({reviewedCount})
+        </label>
+        <span>{newCount} new / {ingested.length} ingested</span>
+      </div>
+    }>
       {note && (
         <div className={`mb-2 rounded-lg px-3 py-1.5 text-sm ${noteCls(noteKind)}`}>{note}</div>
       )}
-      {sessions.length === 0 ? <span className="text-sm text-zinc-500">No sessions yet — capture some in the Collect tab.</span> : (
+      {sessions.length === 0 ? <span className="text-sm text-zinc-500">{emptyMsg}</span> : (
         <table className="w-full text-sm">
           <thead><tr className="text-zinc-500">
             <th className="text-left font-normal">Session</th><th className="text-left font-normal">Mode</th>
@@ -106,50 +174,18 @@ export function SessionsPanel() {
             {sessions.map((m) => (
               <tr key={m.session_id} className="border-t border-zinc-800">
                 <td className="py-1.5 text-zinc-200">{m.session_id}
+                  {m.reviewed && <span className="ml-2 rounded bg-emerald-900/60 px-1.5 py-0.5 text-[10px] text-emerald-300">reviewed</span>}
+                  {!m.reviewed && <span className="ml-2 rounded bg-sky-900/60 px-1.5 py-0.5 text-[10px] text-sky-300">new</span>}
                   {m.archived && <span className="ml-2 rounded bg-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-300">archived</span>}
                   {!m.archived && m.n_crops === 0 && <span className="ml-2 rounded bg-amber-900/60 px-1.5 py-0.5 text-[10px] text-amber-300">not sliced</span>}
                 </td>
                 <td className="text-zinc-400">{m.mode ?? "—"}</td>
                 <td className="text-right tabular-nums text-zinc-400">{m.n_frames}</td>
                 <td className="text-right tabular-nums text-zinc-400">{m.archived ? "—" : m.n_crops}</td>
-                <td className="py-1"><div className="flex justify-end gap-1.5">
-                  <Button onClick={() => openReview(m.session_id)}
-                          disabled={!m.n_frames}
-                          className="px-2 py-1 text-xs disabled:opacity-50">
-                    <Eye className="h-3.5 w-3.5" /> Review
-                  </Button>
-                  {!m.archived && (
-                    <Button onClick={() => sliceM.mutate(m.session_id)}
-                            disabled={sliceM.isPending}
-                            className="px-2 py-1 text-xs disabled:opacity-50">
-                      {sliceM.isPending && sliceM.variables === m.session_id
-                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        : <Scissors className="h-3.5 w-3.5" />} {m.n_crops ? "Re-slice" : "Slice"}
-                    </Button>
-                  )}
-                  {m.archived
-                    ? <Button onClick={() => restoreM.mutateAsync(m.session_id)}
-                              disabled={restoreM.isPending}
-                              className="px-2 py-1 text-xs disabled:opacity-50">
-                        {restoreM.isPending && restoreM.variables === m.session_id
-                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          : <ArchiveRestore className="h-3.5 w-3.5" />} Restore
-                      </Button>
-                    : <Button onClick={() => archiveM.mutateAsync(m.session_id)}
-                              disabled={archiveM.isPending}
-                              className="px-2 py-1 text-xs disabled:opacity-50">
-                        {archiveM.isPending && archiveM.variables === m.session_id
-                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          : <Archive className="h-3.5 w-3.5" />} Archive
-                      </Button>}
-                  <Button onClick={() => window.confirm(`Delete session "${m.session_id}" permanently?`) && deleteM.mutateAsync(m.session_id)}
-                          disabled={deleteM.isPending}
-                          className="px-2 py-1 text-xs text-red-300 hover:text-red-200 disabled:opacity-50">
-                    {deleteM.isPending && deleteM.variables === m.session_id
-                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      : <Trash2 className="h-3.5 w-3.5" />} Delete
-                  </Button>
-                </div></td>
+                <td className="py-1">
+                  <SessionActions m={m} openReview={openReview} reviewedM={reviewedM}
+                                  sliceM={sliceM} archiveM={archiveM} restoreM={restoreM} deleteM={deleteM} />
+                </td>
               </tr>
             ))}
           </tbody>
