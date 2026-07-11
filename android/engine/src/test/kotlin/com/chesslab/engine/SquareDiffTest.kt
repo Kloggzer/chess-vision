@@ -107,6 +107,45 @@ class SquareDiffTest {
     }
 
     @Test
+    fun `zncc calls a dimmed piece lighting but a structural change a move`() {
+        val bs = TestImages.BS
+        val box = Squares.region("e4", geom)
+
+        // Reference: textured "piece" (bright blob on dark cell) inside e4.
+        val ref = GrayImage(bs, bs, ByteArray(bs * bs) { 60.toByte() })
+        for (y in box.y0 until box.y1) {
+            for (x in box.x0 until box.x1) {
+                val inBlob = (x + y) % 3 == 0 // structured texture, std >> MIN_REF_STD
+                ref.data[y * bs + x] = (if (inBlob) 200 else 60).toByte()
+            }
+        }
+
+        // Shadow sweep: LINEAR dimming of the same structure -> ZNCC ~1 (lighting).
+        val dimmed = GrayImage(bs, bs, ref.data.copyOf())
+        for (y in box.y0 until box.y1) {
+            for (x in box.x0 until box.x1) {
+                dimmed.data[y * bs + x] = ((ref.data[y * bs + x].toInt() and 0xFF) * 6 / 10).toByte()
+            }
+        }
+        val shadowN = SquareDiff.squareZncc(ref, dimmed, box)
+        assertTrue(shadowN != null && shadowN > 0.95, "linear dimming must keep ZNCC high (got $shadowN)")
+
+        // Structural change: the blob pattern replaced by a different one -> low correlation.
+        val moved = GrayImage(bs, bs, ref.data.copyOf())
+        for (y in box.y0 until box.y1) {
+            for (x in box.x0 until box.x1) {
+                moved.data[y * bs + x] = (if ((x * 7 + y * 3) % 5 < 2) 30 else 180).toByte()
+            }
+        }
+        val moveN = SquareDiff.squareZncc(ref, moved, box)
+        assertTrue(moveN != null && moveN < 0.5, "a structural change must break ZNCC (got $moveN)")
+
+        // Flat (structureless) reference: no judgement -> null, so arrivals are never vetoed.
+        val flatRef = GrayImage(bs, bs, ByteArray(bs * bs) { 60.toByte() })
+        assertEquals(null, SquareDiff.squareZncc(flatRef, moved, box))
+    }
+
+    @Test
     fun `colRow rotates 180 degrees for black pov`() {
         assertEquals(4 to 4, Squares.colRow("e4", true))
         assertEquals(3 to 3, Squares.colRow("e4", false))

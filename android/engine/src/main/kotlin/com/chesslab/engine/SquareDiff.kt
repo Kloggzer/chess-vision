@@ -107,6 +107,52 @@ object SquareDiff {
     }
 
     /**
+     * Zero-mean normalized cross-correlation of ONE square between two grays — the literature's
+     * shadow test (Sanin et al. survey; ZNCC ≥ thr ⇒ same structure up to a LINEAR lighting
+     * change ⇒ shadow/illumination, not a piece change). Returns null when the REFERENCE square
+     * lacks structure (std < [minRefStd]): NCC is meaningless on a flat empty square, and a veto
+     * there would kill real arrivals (the dark-rook-on-f8 castle lesson).
+     */
+    fun squareZncc(
+        grayA: GrayImage,
+        grayB: GrayImage,
+        box: Box,
+        minRefStd: Double = MIN_REF_STD,
+    ): Double? {
+        if (box.area <= 0) return null
+        val w = grayA.width
+        var sumA = 0.0
+        var sumB = 0.0
+        for (y in box.y0 until box.y1) {
+            val row = y * w
+            for (x in box.x0 until box.x1) {
+                sumA += grayA.data[row + x].px()
+                sumB += grayB.data[row + x].px()
+            }
+        }
+        val n = box.area.toDouble()
+        val meanA = sumA / n
+        val meanB = sumB / n
+        var cov = 0.0
+        var varA = 0.0
+        var varB = 0.0
+        for (y in box.y0 until box.y1) {
+            val row = y * w
+            for (x in box.x0 until box.x1) {
+                val da = grayA.data[row + x].px() - meanA
+                val db = grayB.data[row + x].px() - meanB
+                cov += da * db
+                varA += da * da
+                varB += db * db
+            }
+        }
+        val stdA = kotlin.math.sqrt(varA / n)
+        if (stdA < minRefStd) return null
+        val denom = kotlin.math.sqrt(varA) * kotlin.math.sqrt(varB)
+        return if (denom < EPS) 0.0 else cov / denom
+    }
+
+    /**
      * Remove global brightness/exposure drift: per-square diff minus the median over all squares,
      * clamped at 0 (ports tracker.py:375 `normalize_diffs`; upper median like Python `vals[n // 2]`).
      */
@@ -152,4 +198,8 @@ object SquareDiff {
             }
         }
     }
+
+    /** Below this reference-square std there is no structure to correlate against. */
+    private const val MIN_REF_STD = 6.0
+    private const val EPS = 1e-9
 }

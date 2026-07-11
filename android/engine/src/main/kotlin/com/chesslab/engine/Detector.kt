@@ -242,11 +242,28 @@ internal class Detector(
         val veto =
             changed.filterTo(mutableSetOf()) { sq ->
                 (sq in shadows && census.getValue(sq) < config.censusThr) ||
-                    (zc != null && config.censusZWeight * zc.getValue(sq) < config.zThr * HALF)
+                    (zc != null && config.censusZWeight * zc.getValue(sq) < config.zThr * HALF) ||
+                    (config.diffLightVeto && znccLighting(sq, cur))
             }
         changed -= veto
         state.shadowVetoed = veto.sorted()
         return veto
+    }
+
+    /**
+     * ZNCC shadow test (literature-standard, e.g. Sanin et al. survey): a gray-hot square whose
+     * pixels still correlate ≥ [ZNCC_SHADOW_MIN] with the reference changed only by a LINEAR
+     * lighting factor — a shadow/light sweep over an existing piece, not a move. NCC is the
+     * continuous complement to the census bits (which flip under sensor noise / soft penumbra).
+     * `squareZncc` returns null on structureless reference squares (flat empty cell), so real
+     * ARRIVALS there can never be vetoed (the dark-rook-on-f8 castle lesson).
+     */
+    private fun znccLighting(
+        sq: String,
+        cur: GrayImage,
+    ): Boolean {
+        val n = SquareDiff.squareZncc(state.refGray!!, cur, Squares.region(sq, geom)) ?: return false
+        return n >= ZNCC_SHADOW_MIN
     }
 
     /** Step 5 — quiet board: re-anchor or wait (ports tracker.py:2007-2035). Returns true when handled. */
@@ -414,5 +431,8 @@ internal class Detector(
         const val NEG_INF = -1e9
         const val CENSUS_SLOW_LANE = 0.125
         const val OBS_MAX_AGE_S = 3.0
+
+        /** ZNCC at/above this = same structure up to linear lighting (0.9: literature-typical). */
+        const val ZNCC_SHADOW_MIN = 0.9
     }
 }
