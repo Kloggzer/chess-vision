@@ -85,6 +85,10 @@ data class TrackerSettings(
     // on the next quiet frame and caches theta/lo/hi below (NaN = not calibrated,
     // written by the SERVICE, never by the settings screen).
     val intrinsicGray: Boolean = false,
+    // EXPERIMENTAL lrTex gradient-direction shadow veto (Sanin survey winner; catches
+    // non-linear dimming ZNCC misses). Off by default: cost a confirm frame in the
+    // italian replay — enable live only if shadows still leak past the intrinsic channel.
+    val gradDirVeto: Boolean = false,
     val intrinsicAngle: Double = Double.NaN,
     val intrinsicLo: Double = Double.NaN,
     val intrinsicHi: Double = Double.NaN,
@@ -108,6 +112,7 @@ data class TrackerSettings(
             diffJitterPx = diffJitterPx,
             diffIllumCancel = lightingRobust,
             diffLightVeto = lightingRobust,
+            diffGradDirVeto = gradDirVeto,
             commitLlFloor = commitFloor,
             pairLookAhead = pairLookAhead,
             usePrior = usePrior,

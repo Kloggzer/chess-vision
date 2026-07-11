@@ -87,7 +87,7 @@ fun ChesslabNavHost(
                 TrackingRoute(viewModel, navController, uiState, board, debugBitmaps, rawPreview, settings)
             }
             composable(Dest.CALIBRATION.route) {
-                CalibrationRoute(viewModel, navController, rawPreview, arucoDetector, settings.experimentalDetection)
+                CalibrationRoute(viewModel, navController, rawPreview, arucoDetector, settings)
             }
             composable(Dest.GAMES.route) {
                 GamesScreen(
@@ -165,14 +165,14 @@ private fun CalibrationRoute(
     navController: NavHostController,
     rawPreview: android.graphics.Bitmap?,
     arucoDetector: ArucoCornerDetector,
-    experimentalDetection: Boolean,
+    settings: com.chesslab.tracker.service.TrackerSettings,
 ) {
     DisposableEffect(Unit) {
         viewModel.setCalibrationActive(true)
         onDispose { viewModel.setCalibrationActive(false) }
     }
     CalibrationScreen(
-        experimentalDetection = experimentalDetection,
+        experimentalDetection = settings.experimentalDetection,
         onSuggest = { null },
         onSave = { corners, whitePov, w, h ->
             viewModel.saveCalibration(corners, whitePov, w, h)
@@ -183,6 +183,8 @@ private fun CalibrationRoute(
         arucoDetector = arucoDetector,
         arucoEnabled = true,
         frameProvider = viewModel::latestCalibrationFrame,
+        settings = settings,
+        onUpdateSettings = viewModel::updateSettings,
     )
 }
 

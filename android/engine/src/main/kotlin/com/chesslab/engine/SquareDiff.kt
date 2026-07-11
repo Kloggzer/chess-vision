@@ -199,7 +199,61 @@ object SquareDiff {
         }
     }
 
+    /**
+     * Gradient-DIRECTION correlation of one square (the "large-region texture" test that won
+     * the Sanin et al. shadow survey): mean cosine similarity between the ref and cur gradient
+     * vectors over the reference's strong-edge pixels. A shadow or light sweep — even a
+     * NON-linear one (camera gamma, soft penumbra), which intensity-ZNCC can miss — dims
+     * magnitudes but keeps edge DIRECTIONS; a piece change relocates the edges themselves.
+     * Returns null when the reference square has fewer than [minSamples] strong edges
+     * (structureless — no veto, the flat-empty-cell arrival guard).
+     */
+    fun squareGradientDirCorrelation(
+        grayA: GrayImage,
+        grayB: GrayImage,
+        box: Box,
+        minMagnitude: Double = MIN_GRAD_MAG,
+        minSamples: Int = MIN_GRAD_SAMPLES,
+    ): Double? {
+        if (box.area <= 0) return null
+        val w = grayA.width
+        val h = grayA.height
+        var n = 0
+        var acc = 0.0
+        // Central differences; skip the outermost image row/col.
+        val y0 = maxOf(box.y0, 1)
+        val y1 = minOf(box.y1, h - 1)
+        val x0 = maxOf(box.x0, 1)
+        val x1 = minOf(box.x1, w - 1)
+        for (y in y0 until y1) {
+            val row = y * w
+            for (x in x0 until x1) {
+                val gxA = (grayA.data[row + x + 1].px() - grayA.data[row + x - 1].px()).toDouble()
+                val gyA = (grayA.data[row + w + x].px() - grayA.data[row - w + x].px()).toDouble()
+                val gxB = (grayB.data[row + x + 1].px() - grayB.data[row + x - 1].px()).toDouble()
+                val gyB = (grayB.data[row + w + x].px() - grayB.data[row - w + x].px()).toDouble()
+                val magA = kotlin.math.sqrt(gxA * gxA + gyA * gyA)
+                val magB = kotlin.math.sqrt(gxB * gxB + gyB * gyB)
+                // SYMMETRIC sampling: an edge in EITHER image votes. Sampling only the
+                // reference's edges vetoed real ARRIVALS — the empty square's grid/grain
+                // edges stay put while the piece's NEW edges were never counted
+                // (6 clip replays red until this was made two-sided).
+                if (magA < minMagnitude && magB < minMagnitude) continue
+                n++
+                // Edge exists in only one image -> structure changed here -> similarity 0.
+                acc += if (magA < EPS || magB < EPS) 0.0 else (gxA * gxB + gyA * gyB) / (magA * magB)
+            }
+        }
+        return if (n < minSamples) null else acc / n
+    }
+
     /** Below this reference-square std there is no structure to correlate against. */
     private const val MIN_REF_STD = 6.0
+
+    /** Central-difference magnitude below this is noise, not an edge (u8 scale). */
+    private const val MIN_GRAD_MAG = 8.0
+
+    /** Fewer strong-edge pixels than this = no structure to judge (null, no veto). */
+    private const val MIN_GRAD_SAMPLES = 12
     private const val EPS = 1e-9
 }
