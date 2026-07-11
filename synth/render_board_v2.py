@@ -492,13 +492,14 @@ _BASE_CHECKER_COLOR: dict = {}   # base tile colors for randomize_board (jitter 
 # photo (0.5 = unchanged brown wood); higher rotates toward green/teal/blue like vinyl tournament
 # boards. `sat_mul` < 1 pulls toward marble/greyscale. Weighted toward wood (the most common real
 # case) but with enough green/blue/marble that board appearance can't predict piece identity.
+# The REAL board keeps only a MILD recolor (stays recognizably the user's wood board) — the
+# strong colour diversity that breaks the board-shortcut now comes from the ~50% procedural
+# bordered boards (fully random colours). Hue stays near 0.5 (0.5 = unchanged brown wood).
 BOARD_FAMILIES = [
-    {"name": "wood", "hue": 0.50, "sat_mul": 1.0},
-    {"name": "wood", "hue": 0.50, "sat_mul": 1.0},     # doubled weight — wood is the common case
-    {"name": "mahogany", "hue": 0.47, "sat_mul": 1.1},
-    {"name": "green", "hue": 0.60, "sat_mul": 0.9},
-    {"name": "blue", "hue": 0.70, "sat_mul": 0.85},
-    {"name": "marble", "hue": 0.50, "sat_mul": 0.25},
+    {"name": "wood", "hue": 0.500, "sat_mul": 1.00},
+    {"name": "wood-warm", "hue": 0.490, "sat_mul": 1.05},
+    {"name": "wood-cool", "hue": 0.512, "sat_mul": 0.95},
+    {"name": "mahogany", "hue": 0.478, "sat_mul": 1.10},
 ]
 
 
@@ -574,17 +575,29 @@ def randomize_board(rng):
                     node.inputs[key].default_value = (base[0] * f, base[1] * f, base[2] * f, 1.0)
 
 
-# Per-scene probability of swapping the photo board for a fresh RANDOM procedural checker —
-# structural pattern/grain variety the hue-recolor cannot give (the pattern itself changes).
-BOARD_PROCEDURAL_P = 0.30
+# Per-scene probability of swapping the photo board for a fresh RANDOM procedural (bordered,
+# aligned) checker. ~0.5 = a balanced real+synthetic mix: half the scenes show the real custom
+# board (mild recolor), half show a diverse procedural board — the procedural half carries the
+# strong colour variety that keeps the board from predicting piece identity.
+BOARD_PROCEDURAL_P = 0.50
 
 
 def _rand_square_colors(rng):
-    """A related light/dark pair for a random procedural board (shared tint = looks like a set)."""
-    tint = (rng.uniform(0.75, 1.25), rng.uniform(0.75, 1.25), rng.uniform(0.75, 1.25))
-    light = tuple(min(1.0, rng.uniform(0.45, 0.9) * t) for t in tint)
-    dark = tuple(min(1.0, rng.uniform(0.08, 0.40) * t) for t in tint)
-    return light, dark
+    """A WILD two-colour checker pair for a random procedural board — the anti-shortcut lever
+    pushed hard. The two tiles are INDEPENDENT random hues at high saturation over the full
+    value range (pink/lime, purple/orange, teal/magenta, neon on black, …), so the board is
+    pure noise: it carries zero information about the piece on it and the CNN is forced onto the
+    figure. We only guarantee enough luminance contrast between the two tiles for the 8x8 to
+    still read as a chessboard; everything else is unconstrained."""
+    import colorsys
+
+    # Light tile: any hue, high saturation, BRIGHT. Dark tile: any (independent) hue, high
+    # saturation, DARK. Splitting the value ranges guarantees the checker is always obviously
+    # colourful and high-contrast — no procedural board can land on a muddy orange/brown that
+    # passes for wood, and light/dark independent hues give wild combos (pink×teal, lime×purple).
+    light = colorsys.hsv_to_rgb(rng.random(), rng.uniform(0.55, 1.0), rng.uniform(0.80, 1.0))
+    dark = colorsys.hsv_to_rgb(rng.random(), rng.uniform(0.65, 1.0), rng.uniform(0.18, 0.48))
+    return tuple(light), tuple(dark)
 
 
 def make_random_procedural_board(rng):
