@@ -543,13 +543,16 @@ def randomize_board(rng, borderless_p: float = 0.0):
     board = bpy.data.objects.get("BoardPlane")
     photo_mat = bpy.data.materials.get("BoardTexture")
     if board is not None and photo_mat is not None:
-        # Borderless procedural board (checker runs edge-to-edge, NO frame): edge squares are
-        # surrounded by more checker, so the model can't shortcut on the rim to spot a border
-        # piece (king/rook) — it must read the figure. `borderless_p` share of ALL scenes.
+        # Borderless procedural board (checker/solid runs edge-to-edge, NO frame): edge squares are
+        # surrounded by more board, so the model can't shortcut on the rim to spot a border piece
+        # (king/rook) — it must read the figure. `borderless_p` share of ALL scenes. The plane is
+        # scaled up so the pattern overhangs FAR beyond the board (world-aligned material stays put).
         if borderless_p > 0.0 and rng.random() < borderless_p:
+            board.scale = (BORDERLESS_PLANE_SCALE, BORDERLESS_PLANE_SCALE, 1.0)
             board.data.materials.clear()
             board.data.materials.append(make_random_procedural_board(rng, bordered=False))
             return
+        board.scale = (1.0, 1.0, 1.0)   # restore exact plane size — bordered/photo need it (UV-mapped)
         if rng.random() < BOARD_PROCEDURAL_P:
             board.data.materials.clear()
             board.data.materials.append(make_random_procedural_board(rng))
@@ -587,6 +590,12 @@ def randomize_board(rng, borderless_p: float = 0.0):
 # board (mild recolor), half show a diverse procedural board — the procedural half carries the
 # strong colour variety that keeps the board from predicting piece identity.
 BOARD_PROCEDURAL_P = 0.50
+
+# Plane scale factor for BORDERLESS scenes: the board plane (normally ±28.6, ~0.8 cells past the
+# 8x8) is enlarged so the edge-to-edge checker/solid overhangs FAR beyond the board (~5+ cells) and
+# no plane edge / background can appear in a rim-square crop. The world-aligned borderless material
+# is unaffected by the scale; bordered/photo scenes reset to 1.0 (their UV mapping needs ±28.6).
+BORDERLESS_PLANE_SCALE = 2.4
 
 
 def _rand_square_colors(rng):
@@ -643,8 +652,28 @@ def make_random_procedural_board(rng, bordered: bool = True):
     nt.links.new(coord.outputs["UV"], mapping.inputs["Vector"])
     nt.links.new(mapping.outputs["Vector"], checker.inputs["Vector"])
 
-    if not bordered:                                   # borderless: checker fills the whole plane
-        nt.links.new(checker.outputs["Color"], bsdf.inputs["Base Color"])
+    if not bordered:
+        # Some borderless boards carry NO pattern at all — a plain solid colour edge-to-edge. Then
+        # there is literally nothing (no frame, no checker) at the rim to shortcut on. Even stronger
+        # anti-edge-shortcut than the checker; adds board-appearance variety.
+        if rng.random() < 0.4:
+            bsdf.inputs["Base Color"].default_value = (*rng.choice((light, dark)), 1.0)
+            nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+            return mat
+        # Borderless: a WORLD-position checker (cell = CELL world units, aligned to the square
+        # grid at multiples of CELL), independent of the plane's size/UV. randomize_board scales
+        # the plane up for borderless scenes, so this checker overhangs FAR beyond ±HALF and edge
+        # crops are fully surrounded by checker (no plane edge / background at the rim).
+        geo = nt.nodes.new("ShaderNodeNewGeometry")
+        wmap = nt.nodes.new("ShaderNodeMapping")
+        wmap.inputs["Scale"].default_value = (1.0 / CELL, 1.0 / CELL, 1.0)
+        wchecker = nt.nodes.new("ShaderNodeTexChecker")
+        wchecker.inputs["Scale"].default_value = 1.0
+        wchecker.inputs["Color1"].default_value = (*light, 1.0)
+        wchecker.inputs["Color2"].default_value = (*dark, 1.0)
+        nt.links.new(geo.outputs["Position"], wmap.inputs["Vector"])
+        nt.links.new(wmap.outputs["Vector"], wchecker.inputs["Vector"])
+        nt.links.new(wchecker.outputs["Color"], bsdf.inputs["Base Color"])
         nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
         return mat
 
