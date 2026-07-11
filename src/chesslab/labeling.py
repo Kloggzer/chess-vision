@@ -339,10 +339,14 @@ def slice_session(
 
         explicit = entry.get("labels")          # Inference/Active-Learning: explicit 64 labels
         gs = None if explicit else GameState(entry["fen"])
+        # Vom Renderer/Ingest verdeckte Felder → `occluded` (überschreibt das FEN-Figur-Label).
+        occluded_set = set(entry.get("occluded_squares") or ())
         frame_stem = Path(entry["frame"]).stem  # '0007'
         squares = all_squares()
         for i, square in enumerate(squares):
             label = explicit.get(square, "empty") if explicit else gs.label_for(square)
+            if square in occluded_set:
+                label = "occluded"
             if label_overrides:
                 corrected = label_overrides.get((session_id, frame_stem, square))
                 if corrected is not None and corrected != label:

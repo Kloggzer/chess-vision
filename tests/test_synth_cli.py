@@ -98,6 +98,8 @@ def test_build_blender_cmd_minimal():
         "--samples", "24",
         "--max-obliqueness", "0.2",
         "--piece-scale", "1.0",
+        "--cam-distance-jitter", "0.0",
+        "--occlusion-p", "0.0",
     ]
 
 
@@ -108,6 +110,7 @@ def test_build_blender_cmd_all_flags():
         "blender", Path("b.blend"), Path("s.py"), Path("out"),
         n=10, seed=99, fens=Path("fens.txt"), pieces=Path("pieces"), res=512,
         views_per_scene=4, samples=16, max_obliqueness=0.15,
+        cam_distance_jitter=0.4, occlusion_p=0.25,
     )
     assert "--" in cmd
     sep = cmd.index("--")
@@ -121,6 +124,8 @@ def test_build_blender_cmd_all_flags():
         "--samples", "16",
         "--max-obliqueness", "0.15",
         "--piece-scale", "1.0",
+        "--cam-distance-jitter", "0.4",
+        "--occlusion-p", "0.25",
         "--fens", str(Path("fens.txt")),
         "--pieces", str(Path("pieces")),
     ]

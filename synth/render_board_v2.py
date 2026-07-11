@@ -456,16 +456,29 @@ def setup_camera():
     return cam
 
 
-def place_camera(cam, rng, max_obliqueness=0.10):
-    H = CAM_DISTANCE_MM / MM_PER_UNIT + rng.uniform(-6, 6)   # ~94 Einheiten = 55 cm
+def place_camera(cam, rng, max_obliqueness=0.10, distance_jitter=0.0):
+    base_H = CAM_DISTANCE_MM / MM_PER_UNIT   # ~94 Einheiten = 55 cm
+    # Kamera-DISTANZ pro View über ein reales Band variieren (distance_jitter > 0): näher =
+    # stärkere Perspektive/Lean + größere Figur, ferner = flacher/kleiner. Lehrt dem Modell
+    # mehrere Maßstäbe (FixRes) und die radiale Verzerrung der echten obliquen Aufnahmen.
+    if distance_jitter > 0:
+        lo_f = max(0.55, 1.0 - distance_jitter)
+        hi_f = 1.0 + distance_jitter
+        H = base_H * rng.uniform(lo_f, hi_f)
+    else:
+        H = base_H + rng.uniform(-6, 6)
     # Obliqueness = horizontaler Offset / Höhe. Untergrenze 0.04 (nie perfekt senkrecht),
-    # Obergrenze aus max_obliqueness — im gematchten Regime der echten ~0.06-Top-Down-Kamera.
+    # Obergrenze aus max_obliqueness — bei 0.45 bis ~25° gekippt (echte oblique Handaufnahmen).
     lo = min(0.04, max_obliqueness)
-    off = rng.uniform(lo, max_obliqueness) * H
+    obliq = rng.uniform(lo, max_obliqueness)
+    off = obliq * H
     ang = rng.uniform(0, 2 * math.pi)
     cam.location = Vector((off * math.cos(ang), off * math.sin(ang), H))
     direction = Vector((0, 0, 0)) - cam.location
     cam.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+    # Realisierte Kameraparameter (für Diversity-Probe / Verteilungs-Check).
+    return {"obliqueness": round(obliq, 4), "cam_height": round(H, 3),
+            "cam_distance_mm": round(H * MM_PER_UNIT, 1)}
 
 
 # Basis-Lichtenergie je Lampe, EINMAL aus der .blend gemerkt. Ohne diesen Anker würde
@@ -728,6 +741,41 @@ def hide_occluder(arm):
     arm.location = (0.0, 0.0, 1000.0)   # zusätzlich weit weg parken (Schatten-Sicherheit)
 
 
+def _point_seg_dist(px, py, ax, ay, bx, by):
+    """Kürzester Abstand Punkt (px,py) zu Segment (ax,ay)-(bx,by) in Brett-Einheiten."""
+    dx, dy = bx - ax, by - ay
+    seg2 = dx * dx + dy * dy
+    if seg2 <= 1e-9:
+        return math.hypot(px - ax, py - ay)
+    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / seg2))
+    cx, cy = ax + t * dx, ay + t * dy
+    return math.hypot(px - cx, py - cy)
+
+
+def occluder_footprint(fist_x, fist_y, angle, reach=ARM_LENGTH):
+    """Brett-Felder (Namen a1..h8), die vom Occluder (Faust + Unterarm-Schaft) verdeckt werden.
+
+    Gibt (heavy, partial) zurück: `heavy` = Feld-Zentrum liegt UNTER dem soliden Mesh → Label
+    `occluded`; `partial` = ein Zell-Ring weiter (Figur teilweise sichtbar) → Figur-Label behalten
+    (Robustheit gegen leichte Verdeckung). Der Schaft läuft von der Faust in Richtung `angle`
+    (lokales -X, um Z gedreht) nach außen — genau wie in place_occluder/make_occluder_arm.
+    """
+    fist_r = ARM_RADIUS * 1.3
+    ex, ey = fist_x - reach * math.cos(angle), fist_y - reach * math.sin(angle)
+    heavy, partial = set(), set()
+    for fi in range(8):
+        for ri in range(8):
+            cx, cy = square_center(fi, ri)
+            d_fist = math.hypot(cx - fist_x, cy - fist_y)
+            d_shaft = _point_seg_dist(cx, cy, fist_x, fist_y, ex, ey)
+            name = f"{chr(ord('a') + fi)}{ri + 1}"
+            if d_fist < fist_r or d_shaft < ARM_RADIUS:
+                heavy.add(name)
+            elif d_fist < fist_r + CELL * 0.9 or d_shaft < ARM_RADIUS + CELL * 0.9:
+                partial.add(name)
+    return heavy, partial
+
+
 # --- Schatten-Werfer (nur für den dedizierten Shadow-Sweep-Fixture) ---------------------
 # Ein neutraler Balken hoch über dem Brett + eine schräge Sonne: sein WEICHER Schatten
 # wandert quer übers Brett, während der Balken selbst neben dem sichtbaren Spielfeld
@@ -864,8 +912,14 @@ def main():
     templates, base_z, procedural_types = build_templates(pieces_dir)
     style_board_v2(board_tex)
     cam = setup_camera()
+    dist_jitter = ra.cam_distance_jitter
+    occ_p = ra.occlusion_p
+    # Occluder-Arm (Faust+Unterarm) EINMAL bauen, verborgen; pro View mit occ_p eingeblendet.
+    # EEVEE-Schatten sind an → der Occluder wirft automatisch einen Schatten (User-Anforderung).
+    occ_arm = make_occluder_arm(rng) if occ_p > 0 else None
     print(f"[v2] engine={eng}, samples={ra.samples}, views_per_scene={views}, "
-          f"max_obliqueness={max_ob}, fens={len(fens)}")
+          f"max_obliqueness={max_ob}, cam_distance_jitter={dist_jitter}, occlusion_p={occ_p}, "
+          f"fens={len(fens)}")
 
     # Szene = eine Figurenaufstellung, EINMAL gebaut; darüber `views` Kamera/Licht-Varianten.
     i = 0
@@ -881,15 +935,33 @@ def main():
         for _ in range(views):
             if i >= n:
                 break
-            place_camera(cam, rng, max_ob)
+            cam_meta = place_camera(cam, rng, max_ob, dist_jitter)
             randomize_lights(rng)
+
+            # Occluder: pro View mit occ_p eine Faust/Unterarm über ein Brett-Innenfeld legen.
+            # Verdeckte Felder → occluded_squares (heavy). Der Occluder wirft einen echten Schatten.
+            occluded_sq: list[str] = []
+            if occ_arm is not None and rng.random() < occ_p:
+                tfi, tri = rng.randint(1, 6), rng.randint(1, 6)   # Innenfeld, wo eine Hand hinreicht
+                fx, fy = square_center(tfi, tri)
+                fx += rng.uniform(-CELL / 2, CELL / 2)
+                fy += rng.uniform(-CELL / 2, CELL / 2)
+                angle = rng.uniform(0, 2 * math.pi)
+                place_occluder(occ_arm, fx, fy, angle)
+                heavy, _partial = occluder_footprint(fx, fy, angle)
+                occluded_sq = sorted(heavy)
+            elif occ_arm is not None:
+                hide_occluder(occ_arm)
 
             scene.render.filepath = str((out_dir / f"{i:06d}.png").resolve())
             bpy.ops.render.render(write_still=True)
             corners = corners_px(scene, cam)
-            (out_dir / f"{i:06d}.json").write_text(json.dumps({"fen": fen, "corners": corners}))
+            (out_dir / f"{i:06d}.json").write_text(
+                json.dumps({"fen": fen, "corners": corners, "occluded_squares": occluded_sq,
+                            "cam": cam_meta}))
             in_frame = all(0 <= c[0] <= scene.render.resolution_x and 0 <= c[1] <= scene.render.resolution_y for c in corners)
-            print(f"[v2] {i+1}/{n} scene={scene_idx} pieces={len(pieces)} corners_in_frame={in_frame}")
+            print(f"[v2] {i+1}/{n} scene={scene_idx} pieces={len(pieces)} "
+                  f"corners_in_frame={in_frame} occluded={len(occluded_sq)}")
             i += 1
 
         for o in pieces:

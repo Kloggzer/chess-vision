@@ -135,6 +135,11 @@ def synthesize_sessions(items: Iterable[ImportItem], *, tag: str, profile_name: 
                 "ts": _now_iso(),
                 "corners": [[float(x), float(y)] for x, y in it.corners],
             }
+            # Occluder-verdeckte Felder (aus dem Renderer) → als explizite `occluded`-Labels in den
+            # Log-Eintrag; slice_session überschreibt damit die FEN-abgeleiteten Labels dieser Felder.
+            occ = it.meta.get("occluded_squares") if it.meta else None
+            if occ:
+                entry["occluded_squares"] = [str(s) for s in occ]
             lines.append(json.dumps(entry, ensure_ascii=False))
         (sdir / "log.jsonl").write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
         session_ids.append(sid)
