@@ -86,6 +86,7 @@ fun TrackingScreen(
     calibrated: Boolean,
     showDebug: Boolean,
     onUndo: () -> Unit,
+    onNewBaseline: () -> Unit,
     onReset: () -> Unit,
     onPromote: (String) -> Unit,
     onCalibrate: () -> Unit,
@@ -145,6 +146,7 @@ fun TrackingScreen(
 
             ActionRows(
                 onUndo = onUndo,
+                onNewBaseline = onNewBaseline,
                 onReset = { confirmReset = true },
                 onRecalibrate = { confirmRecalibrate = true },
             )
@@ -182,7 +184,10 @@ fun TrackingScreen(
                 body = stringResource(R.string.recovery_message),
                 attn = true,
                 actions = {
-                    PrimaryButton(onClick = onUndo) { Text(stringResource(R.string.alarm_take_back)) }
+                    // When STUCK because the board is actually correct but the tracker desynced,
+                    // re-anchoring the baseline at the current board is usually the right fix.
+                    PrimaryButton(onClick = onNewBaseline) { Text(stringResource(R.string.action_new_baseline)) }
+                    GhostButton(onClick = onUndo) { Text(stringResource(R.string.alarm_take_back)) }
                     GhostButton(onClick = { confirmRecalibrate = true }) {
                         Text(stringResource(R.string.action_recalibrate))
                     }
@@ -315,12 +320,14 @@ private fun subViewAccent(index: Int): Color =
 @Composable
 private fun ActionRows(
     onUndo: () -> Unit,
+    onNewBaseline: () -> Unit,
     onReset: () -> Unit,
     onRecalibrate: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             GhostButton(onClick = onUndo) { Text(stringResource(R.string.action_undo)) }
+            GhostButton(onClick = onNewBaseline) { Text(stringResource(R.string.action_new_baseline)) }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             QuietButton(onClick = onReset) { Text(stringResource(R.string.action_reset_game)) }

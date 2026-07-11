@@ -145,6 +145,11 @@ class TrackerViewModel(
         service?.reset()
     }
 
+    /** Re-capture the reference from the current board without changing the game. */
+    fun renewBaseline() {
+        service?.renewBaseline()
+    }
+
     fun forcePromote(piece: String) {
         service?.forcePromote(piece)
     }

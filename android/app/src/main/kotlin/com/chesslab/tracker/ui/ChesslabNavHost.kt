@@ -141,6 +141,7 @@ private fun TrackingRoute(
         calibrated = calibrated != null,
         showDebug = settings.debugCard,
         onUndo = viewModel::undo,
+        onNewBaseline = viewModel::renewBaseline,
         onReset = viewModel::reset,
         onPromote = viewModel::forcePromote,
         onCalibrate = { navController.navigateTab(Dest.CALIBRATION.route) },

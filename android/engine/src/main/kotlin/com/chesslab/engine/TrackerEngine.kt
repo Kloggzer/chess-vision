@@ -284,6 +284,35 @@ class TrackerEngine(
     }
 
     /**
+     * Re-capture the reference from the next clear view WITHOUT changing the game — the current
+     * board/FEN/history are kept. Use when the board is actually correct for the game state but
+     * the tracker desynced (e.g. a persistent `too_many_changed` after the lighting/board shifted):
+     * "trust what I see now as the new baseline." Clears the same transient/veto state as reset().
+     */
+    fun renewBaseline() {
+        state.invalidateRef()
+        state.clearStuck()
+        state.pending = null
+        state.promoPending = null
+        state.tainted.clear()
+        state.occlusionExpiry.clear()
+        state.occlCoreExpiry.clear()
+        state.motionOccluded = emptySet()
+        state.cnnOccluded = emptySet()
+        state.cnnOccludedTsS = Double.NEGATIVE_INFINITY
+        state.state = "waiting"
+        state.note = "New baseline: capturing from the next clear view…"
+        state.motionSinceRef = false
+        state.lastMotionTs = 0.0
+        state.holdUntil = 0.0
+        state.stableCount = 0
+        detector.confirmer.reset()
+        detector.patcher.reset()
+        averager.clear()
+        prevGray = null
+    }
+
+    /**
      * Undo the last move. Implicit feedback: the undone move was WRONG — a hard-negative
      * [TrackerEvent.FeedbackRecorded] is queued for phase 07 (ports tracker.py:2673).
      */

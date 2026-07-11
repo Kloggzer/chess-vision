@@ -170,6 +170,13 @@ class TrackerCoordinator(
         publish(null)
     }
 
+    /** Re-capture the reference from the current board WITHOUT changing the game/position. */
+    @Synchronized
+    fun renewBaseline() {
+        engine.renewBaseline()
+        publish(_uiState.value.announcement)
+    }
+
     /** Resolve a pending promotion with the chosen piece ("Q"/"R"/"B"/"N"). */
     @Synchronized
     fun forcePromote(piece: String): Boolean {

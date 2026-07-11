@@ -234,6 +234,8 @@ class TrackerService : LifecycleService() {
 
     fun reset() = coordinator.reset()
 
+    fun renewBaseline() = coordinator.renewBaseline()
+
     fun forcePromote(piece: String): Boolean = coordinator.forcePromote(piece)
 
     private fun startFrameLoop() {
