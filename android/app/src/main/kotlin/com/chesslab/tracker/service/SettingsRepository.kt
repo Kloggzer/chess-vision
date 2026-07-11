@@ -59,6 +59,10 @@ class SettingsRepository(
         val EXPERIMENTAL = booleanPreferencesKey("experimental_detection")
         val LOCK_EXPOSURE = booleanPreferencesKey("lock_exposure")
         val FOCUS_DISTANCE = doublePreferencesKey("focus_distance")
+        val INTRINSIC_GRAY = booleanPreferencesKey("intrinsic_gray")
+        val INTRINSIC_ANGLE = doublePreferencesKey("intrinsic_angle")
+        val INTRINSIC_LO = doublePreferencesKey("intrinsic_lo")
+        val INTRINSIC_HI = doublePreferencesKey("intrinsic_hi")
         val DEBUG_CARD = booleanPreferencesKey("debug_card")
         val OVERLAY_VIEW = stringPreferencesKey("overlay_view")
     }
@@ -85,6 +89,10 @@ class SettingsRepository(
             experimentalDetection = prefs[EXPERIMENTAL] ?: d.experimentalDetection,
             lockExposure = prefs[LOCK_EXPOSURE] ?: d.lockExposure,
             focusDistance = prefs[FOCUS_DISTANCE] ?: d.focusDistance,
+            intrinsicGray = prefs[INTRINSIC_GRAY] ?: d.intrinsicGray,
+            intrinsicAngle = prefs[INTRINSIC_ANGLE] ?: d.intrinsicAngle,
+            intrinsicLo = prefs[INTRINSIC_LO] ?: d.intrinsicLo,
+            intrinsicHi = prefs[INTRINSIC_HI] ?: d.intrinsicHi,
             debugCard = prefs[DEBUG_CARD] ?: d.debugCard,
             overlayView = prefs[OVERLAY_VIEW]?.let(::overlayOf) ?: d.overlayView,
         )
@@ -144,6 +152,10 @@ class SettingsRepository(
         prefs[EXPERIMENTAL] = s.experimentalDetection
         prefs[LOCK_EXPOSURE] = s.lockExposure
         prefs[FOCUS_DISTANCE] = s.focusDistance
+        prefs[INTRINSIC_GRAY] = s.intrinsicGray
+        prefs[INTRINSIC_ANGLE] = s.intrinsicAngle
+        prefs[INTRINSIC_LO] = s.intrinsicLo
+        prefs[INTRINSIC_HI] = s.intrinsicHi
         prefs[DEBUG_CARD] = s.debugCard
         prefs[OVERLAY_VIEW] = s.overlayView.name
     }

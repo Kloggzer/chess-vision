@@ -222,6 +222,11 @@ fun SettingsScreen(
             default = 0.0,
             onChange = { v -> onUpdate { it.copy(focusDistance = v) } },
         )
+        // specs/14: intrinsic shadow-free channel. Toggle only — theta/lo/hi are the
+        // service-owned calibration cache, never user-tunable.
+        SettingSwitch(stringResource(R.string.setting_intrinsic_gray), settings.intrinsicGray) { v ->
+            onUpdate { it.copy(intrinsicGray = v) }
+        }
 
         SectionHeader(stringResource(R.string.settings_cnn_safeguard))
         SettingSwitch(stringResource(R.string.setting_cnn_enabled), settings.cnnEnabled) { v ->
