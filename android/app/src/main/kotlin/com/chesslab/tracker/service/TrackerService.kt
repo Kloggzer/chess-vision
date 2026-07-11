@@ -15,6 +15,9 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
+import com.chesslab.engine.api.DebugImages
+import com.chesslab.engine.api.GrayImage
+import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerState
 import com.chesslab.tracker.R
 import com.chesslab.tracker.camera.CameraConfig
@@ -26,15 +29,24 @@ import com.chesslab.tracker.geometry.ArucoAutoCalibrator
 import com.chesslab.tracker.geometry.ArucoCornerDetector
 import com.chesslab.tracker.geometry.BoardWarper
 import com.chesslab.tracker.geometry.CalibrationProfile
+import com.chesslab.tracker.geometry.CornerDriftMonitor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.opencv.android.Utils
+import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.imgproc.Imgproc
+
+data class DebugBitmaps(
+    val detectionDiff: Bitmap? = null,
+    val occlusionDiff: Bitmap? = null,
+    val motionDiff: Bitmap? = null,
+)
 
 /**
  * Foreground (camera-type) service that owns the running tracker: it wires
@@ -60,6 +72,7 @@ class TrackerService : LifecycleService() {
 
     @Volatile private var baseWarper: BoardWarper? = null
     private var resolutionController: DynamicResolutionController? = null
+    private var resolutionCollector: Job? = null
 
     // Live ArUco re-alignment during tracking: the primary geometry source is the markers,
     // not a frozen calibration. Re-detect them (throttled) and swap in a re-aligned warper.
@@ -84,6 +97,13 @@ class TrackerService : LifecycleService() {
 
     /** Latest warped board for the overlay views; null until tracking starts. */
     val boardBitmap: StateFlow<Bitmap?> = _boardBitmap.asStateFlow()
+
+    @Volatile private var requestedOverlayView = OverlayView.BOARD
+
+    private val _debugBitmaps = MutableStateFlow(DebugBitmaps())
+
+    /** Pixel heatmaps produced from the same gray frames consumed by the engine. */
+    val debugBitmaps: StateFlow<DebugBitmaps> = _debugBitmaps.asStateFlow()
 
     private val _rawPreview = MutableStateFlow<Bitmap?>(null)
 
@@ -151,7 +171,10 @@ class TrackerService : LifecycleService() {
 
     override fun onDestroy() {
         cnn?.detach()
+        resolutionController?.stop()
+        resolutionCollector?.cancel()
         pipeline?.close()
+        baseWarper?.close()
         pipeline = null
         baseWarper = null
         camera.close()
@@ -177,8 +200,11 @@ class TrackerService : LifecycleService() {
 
     /** Begin tracking with a calibrated [profile]. Idempotent per profile. */
     fun start(profile: CalibrationProfile) {
+        resolutionController?.stop()
+        resolutionCollector?.cancel()
         val warper = BoardWarper(profile)
         pipeline?.close()
+        baseWarper?.close()
         baseWarper = warper
         val pipe = BoardFramePipeline(warper, settings.claheClip)
         pipeline = pipe
@@ -197,8 +223,11 @@ class TrackerService : LifecycleService() {
     fun stopTrackingToPreview() {
         resolutionController?.stop()
         resolutionController = null
+        resolutionCollector?.cancel()
+        resolutionCollector = null
         pipeline?.close()
         pipeline = null
+        baseWarper?.close()
         baseWarper = null
         _activeProfile.value = null
         cnnFrameStore.clear()
@@ -237,6 +266,11 @@ class TrackerService : LifecycleService() {
     fun renewBaseline() = coordinator.renewBaseline()
 
     fun forcePromote(piece: String): Boolean = coordinator.forcePromote(piece)
+
+    /** Select which diagnostic bitmap the frame loop should materialize. */
+    fun setOverlayView(view: OverlayView) {
+        requestedOverlayView = view
+    }
 
     private fun startFrameLoop() {
         lifecycleScope.launch(Dispatchers.Default) {
@@ -298,6 +332,7 @@ class TrackerService : LifecycleService() {
                         if (state == TrackerState.TRACKING) recorder?.onCleanFrame()
 
                         publishBoard(processed.boardBgr)
+                        publishDebug(coordinator.debugImages)
                     } finally {
                         processed.boardBgr.release()
                     }
@@ -319,6 +354,8 @@ class TrackerService : LifecycleService() {
     }
 
     private fun startResolutionController(cameraConfig: CameraConfig) {
+        resolutionCollector?.cancel()
+        resolutionCollector = null
         if (!cameraConfig.dynamicResolution) return
         val controller =
             DynamicResolutionController(
@@ -329,9 +366,10 @@ class TrackerService : LifecycleService() {
             )
         resolutionController = controller
         controller.start()
-        lifecycleScope.launch {
-            controller.activeResolution.collect { res -> rewarpFor(res) }
-        }
+        resolutionCollector =
+            lifecycleScope.launch {
+                controller.activeResolution.collect { res -> rewarpFor(res) }
+            }
     }
 
     /** Rewarp when the dynamic controller changes the analysis resolution. */
@@ -348,6 +386,8 @@ class TrackerService : LifecycleService() {
         baseWarper = warper
         pipeline?.warper = warper
         _activeProfile.value = profile
+        base.close()
+        coordinator.renewBaseline()
     }
 
     /**
@@ -368,11 +408,19 @@ class TrackerService : LifecycleService() {
         val base = baseWarper ?: return
         val fresh = liveAlignDetector.detect(frame) // null when markers are hidden → keep current warp
         if (fresh != null) {
+            val currentCorners = base.profile.forResolution(width, height).corners
+            if (CornerDriftMonitor.maxCornerShift(currentCorners, fresh) > TrackerConfig.DEFAULT_CORNER_JUMP_PX) {
+                // A discontinuous homography cannot be compared with the image that established
+                // the detector reference; otherwise geometry looks like pieces moving.
+                coordinator.renewBaseline()
+                diag("ArUco geometry jumped; invalidating detector reference")
+            }
             val updated = base.profile.copy(corners = fresh, sourceWidth = width, sourceHeight = height)
             val warper = BoardWarper(updated)
             baseWarper = warper
             pipeline?.warper = warper
             _activeProfile.value = updated
+            base.close()
         }
     }
 
@@ -381,6 +429,17 @@ class TrackerService : LifecycleService() {
             settingsRepo.settings.collect { next ->
                 val prev = settings
                 settings = next
+                if (next.resolution != prev.resolution || next.dynamicResolution != prev.dynamicResolution) {
+                    resolutionController?.stop()
+                    resolutionController = null
+                    resolutionCollector?.cancel()
+                    resolutionCollector = null
+                    camera.setResolution(next.resolution)
+                    if (pipeline != null) {
+                        rewarpFor(next.resolution)
+                        startResolutionController(next.toCameraConfig())
+                    }
+                }
                 pipeline?.claheClip = next.claheClip
                 if (next.arucoMargin != prev.arucoMargin) rewarpForMargin(next.arucoMargin)
                 if (next.requiresEngineRestart(prev)) {
@@ -406,12 +465,59 @@ class TrackerService : LifecycleService() {
     }
 
     private fun publishBoard(boardBgr: Mat) {
+        val now = System.nanoTime()
+        if (now - lastBoardPreviewNs < BOARD_PREVIEW_INTERVAL_NS) return
+        lastBoardPreviewNs = now
+        val display = Mat()
+        val maxDim = maxOf(boardBgr.cols(), boardBgr.rows())
+        if (maxDim > BOARD_PREVIEW_MAX_DIM) {
+            val scale = BOARD_PREVIEW_MAX_DIM.toDouble() / maxDim
+            Imgproc.resize(boardBgr, display, org.opencv.core.Size(), scale, scale, Imgproc.INTER_LINEAR)
+        } else {
+            boardBgr.copyTo(display)
+        }
         val rgba = Mat()
-        Imgproc.cvtColor(boardBgr, rgba, Imgproc.COLOR_BGR2RGBA)
-        val bitmap = Bitmap.createBitmap(rgba.cols(), rgba.rows(), Bitmap.Config.ARGB_8888)
-        Utils.matToBitmap(rgba, bitmap)
-        rgba.release()
-        _boardBitmap.value = bitmap
+        try {
+            Imgproc.cvtColor(display, rgba, Imgproc.COLOR_BGR2RGBA)
+            val bitmap = Bitmap.createBitmap(rgba.cols(), rgba.rows(), Bitmap.Config.ARGB_8888)
+            Utils.matToBitmap(rgba, bitmap)
+            _boardBitmap.value = bitmap
+        } finally {
+            rgba.release()
+            display.release()
+        }
+    }
+
+    private fun publishDebug(images: DebugImages) {
+        val view = requestedOverlayView
+        if (view != OverlayView.DIFF && view != OverlayView.OCCLUSION && view != OverlayView.MOTION) return
+        val now = System.nanoTime()
+        if (now - lastDebugPreviewNs < DEBUG_PREVIEW_INTERVAL_NS) return
+        lastDebugPreviewNs = now
+        _debugBitmaps.value =
+            DebugBitmaps(
+                detectionDiff = if (view == OverlayView.DIFF) images.detectionDiff?.toHeatmap() else null,
+                occlusionDiff = if (view == OverlayView.OCCLUSION) images.occlusionDiff?.toHeatmap() else null,
+                motionDiff = if (view == OverlayView.MOTION) images.motionDiff?.toHeatmap() else null,
+            )
+    }
+
+    private fun GrayImage.toHeatmap(): Bitmap {
+        val gray = Mat(height, width, CvType.CV_8UC1)
+        val bgr = Mat()
+        val rgba = Mat()
+        try {
+            gray.put(0, 0, data)
+            Imgproc.applyColorMap(gray, bgr, Imgproc.COLORMAP_HOT)
+            Imgproc.cvtColor(bgr, rgba, Imgproc.COLOR_BGR2RGBA)
+            return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
+                Utils.matToBitmap(rgba, it)
+            }
+        } finally {
+            gray.release()
+            bgr.release()
+            rgba.release()
+        }
     }
 
     /** Downscale raw [mat] to ~640 px max edge and publish as [rawPreview], throttled ~5 fps. */
@@ -475,6 +581,8 @@ class TrackerService : LifecycleService() {
     }
 
     private var lastRawPreviewNs = 0L
+    private var lastBoardPreviewNs = 0L
+    private var lastDebugPreviewNs = 0L
 
     companion object {
         private const val NOTIF_ID = 1
@@ -484,7 +592,10 @@ class TrackerService : LifecycleService() {
         private const val LIVE_ALIGN_INTERVAL_NS = 160_000_000L
         private const val DIAG_INTERVAL_NS = 700_000_000L
         private const val RAW_PREVIEW_INTERVAL_NS = 200_000_000L // ~5 fps throttle
+        private const val BOARD_PREVIEW_INTERVAL_NS = 100_000_000L // ~10 fps throttle
+        private const val DEBUG_PREVIEW_INTERVAL_NS = 200_000_000L // ~5 fps throttle
         private const val RAW_PREVIEW_MAX_DIM = 640
+        private const val BOARD_PREVIEW_MAX_DIM = 640
 
         /** Start + bind the tracker service. */
         fun start(context: Context) {

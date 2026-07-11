@@ -19,6 +19,7 @@ class BoardModeTest {
         assertEquals(OverlayView.DIFF, VIDEO_SUBVIEWS[2], "Diff")
         assertEquals(OverlayView.SHADOW, VIDEO_SUBVIEWS[3], "Shadow")
         assertEquals(OverlayView.OCCLUSION, VIDEO_SUBVIEWS[4], "Occlusion")
+        assertEquals(OverlayView.MOTION, VIDEO_SUBVIEWS[5], "Motion")
     }
 
     @Test

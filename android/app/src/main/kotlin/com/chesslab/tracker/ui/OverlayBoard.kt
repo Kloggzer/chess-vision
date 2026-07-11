@@ -19,6 +19,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.chesslab.engine.STARTPOS
 import com.chesslab.tracker.R
+import com.chesslab.tracker.service.DebugBitmaps
 import com.chesslab.tracker.service.OverlayView
 import com.chesslab.tracker.ui.theme.BoardPalette
 
@@ -55,6 +56,7 @@ private fun DrawScope.markSquares(
 fun OverlayBoard(
     view: OverlayView,
     bitmap: Bitmap?,
+    debugBitmaps: DebugBitmaps = DebugBitmaps(),
     rawPreview: Bitmap?,
     debug: DebugSnapshot,
     fen: String,
@@ -66,9 +68,28 @@ fun OverlayBoard(
         renderedMode -> ChessBoard(fen = fen, modifier = modifier)
         view == OverlayView.CAMERA -> CameraPreview(rawPreview = rawPreview, modifier = modifier)
         bitmap == null -> ChessBoard(fen = fen, modifier = modifier)
-        else -> WarpedBoard(view = view, bitmap = bitmap, debug = debug, showGrid = showGrid, modifier = modifier)
+        else ->
+            WarpedBoard(
+                view = view,
+                bitmap = debugBitmapFor(view, bitmap, debugBitmaps),
+                debug = debug,
+                showGrid = showGrid,
+                modifier = modifier,
+            )
     }
 }
+
+internal fun debugBitmapFor(
+    view: OverlayView,
+    board: Bitmap,
+    debug: DebugBitmaps,
+): Bitmap =
+    when (view) {
+        OverlayView.DIFF -> debug.detectionDiff ?: board
+        OverlayView.OCCLUSION -> debug.occlusionDiff ?: board
+        OverlayView.MOTION -> debug.motionDiff ?: board
+        else -> board
+    }
 
 /** The warped camera board with the debug marks/grid for the Video sub-views. */
 @Suppress("ktlint:standard:function-naming", "FunctionNaming")
@@ -90,7 +111,8 @@ private fun WarpedBoard(
         Canvas(modifier = Modifier.fillMaxSize()) {
             when (view) {
                 OverlayView.BOARD -> Unit
-                OverlayView.DIFF, OverlayView.MOTION -> markSquares(debug.changed, BoardPalette.MarkChanged)
+                OverlayView.DIFF -> markSquares(debug.changed, BoardPalette.MarkChanged)
+                OverlayView.MOTION -> Unit
                 OverlayView.SHADOW -> markSquares(debug.shadowVetoed, BoardPalette.MarkShadow)
                 OverlayView.OCCLUSION -> markSquares(debug.occludedVetoed, BoardPalette.MarkOcclusion)
                 OverlayView.CAMERA -> Unit // handled by the caller

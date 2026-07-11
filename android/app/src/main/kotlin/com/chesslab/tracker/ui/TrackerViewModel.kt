@@ -9,6 +9,8 @@ import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.geometry.BoardCorners
 import com.chesslab.tracker.geometry.CalibrationProfile
 import com.chesslab.tracker.geometry.CalibrationStore
+import com.chesslab.tracker.service.DebugBitmaps
+import com.chesslab.tracker.service.OverlayView
 import com.chesslab.tracker.service.SettingsRepository
 import com.chesslab.tracker.service.TrackerService
 import com.chesslab.tracker.service.TrackerSettings
@@ -46,10 +48,14 @@ class TrackerViewModel(
     private val _board = MutableStateFlow<Bitmap?>(null)
     val board: StateFlow<Bitmap?> = _board.asStateFlow()
 
+    private val _debugBitmaps = MutableStateFlow(DebugBitmaps())
+    val debugBitmaps: StateFlow<DebugBitmaps> = _debugBitmaps.asStateFlow()
+
     private val _rawPreview = MutableStateFlow<Bitmap?>(null)
     val rawPreview: StateFlow<Bitmap?> = _rawPreview.asStateFlow()
 
     private var service: TrackerService? = null
+    private var selectedOverlayView = OverlayView.BOARD
 
     /**
      * The active calibration profile, or null when the board is not yet calibrated.
@@ -62,6 +68,7 @@ class TrackerViewModel(
 
     fun onServiceConnected(bound: TrackerService) {
         service = bound
+        bound.setOverlayView(selectedOverlayView)
         viewModelScope.launch {
             var wasGameOver = false
             bound.uiState.collect { state ->
@@ -76,6 +83,7 @@ class TrackerViewModel(
             }
         }
         viewModelScope.launch { bound.boardBitmap.collect { _board.value = it } }
+        viewModelScope.launch { bound.debugBitmaps.collect { _debugBitmaps.value = it } }
         viewModelScope.launch { bound.rawPreview.collect { _rawPreview.value = it } }
         // Reflect the service's active profile (manual save OR ArUco auto-calibration).
         viewModelScope.launch { bound.activeProfile.collect { _profile.value = it } }
@@ -152,5 +160,10 @@ class TrackerViewModel(
 
     fun forcePromote(piece: String) {
         service?.forcePromote(piece)
+    }
+
+    fun setOverlayView(view: OverlayView) {
+        selectedOverlayView = view
+        service?.setOverlayView(view)
     }
 }

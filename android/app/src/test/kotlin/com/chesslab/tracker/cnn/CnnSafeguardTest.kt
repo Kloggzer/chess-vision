@@ -337,4 +337,16 @@ class CnnSafeguardTest {
             nowNs += 5_000_000_000L // < 10 s interval
             assertNull(guard.recoveryTick(STARTPOS, stuck = false))
         }
+
+    @Test
+    fun `shutdown prevents inference from racing a closed classifier`() =
+        runTest {
+            val classifier = LabelClassifier(labelsOf(Game()))
+            val guard = CnnSafeguard(classifier, { input() }, this)
+
+            guard.shutdown()
+
+            assertNull(guard.recoveryTick(STARTPOS, stuck = true))
+            assertEquals(0, classifier.calls)
+        }
 }

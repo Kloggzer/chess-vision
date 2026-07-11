@@ -157,4 +157,49 @@ class TrackerEngineTest {
         assertEquals(TrackerState.TRACKING, engine.status.state)
         assertEquals(engine.status.fen, engine.status.refFen)
     }
+
+    @Test
+    fun `debug images preserve the actual baseline and consecutive frame deltas`() {
+        val engine = TrackerEngine()
+        var debugTs = 0L
+        val debugDt = 250_000_000L
+        val baseGray = GrayImage(8, 8, ByteArray(64) { 40 })
+        val baseBgr = BgrImage(8, 8, ByteArray(64 * 3) { 40 })
+        repeat(8) { engine.onFrame(baseGray, baseBgr, debugTs.also { debugTs += debugDt }) }
+
+        val changedGray = GrayImage(8, 8, ByteArray(64) { if (it == 9) 90 else 40 })
+        val changedBgr = BgrImage(8, 8, ByteArray(64 * 3) { 40 })
+        engine.onFrame(changedGray, changedBgr, debugTs.also { debugTs += debugDt })
+
+        assertEquals(
+            50,
+            engine.debugImages.motionDiff!!
+                .data[9]
+                .px(),
+        )
+
+        // Occlusion evaluates the live frame once the motion state has been entered.
+        engine.onFrame(changedGray, changedBgr, debugTs.also { debugTs += debugDt })
+        assertEquals(
+            50,
+            engine.debugImages.occlusionDiff!!
+                .data[9]
+                .px(),
+        )
+
+        // Move detection evaluates only the stable average after the settle window.
+        repeat(3) { engine.onFrame(changedGray, changedBgr, debugTs.also { debugTs += debugDt }) }
+        assertEquals(
+            50,
+            engine.debugImages.detectionDiff!!
+                .data[9]
+                .px(),
+        )
+        assertEquals(
+            0,
+            engine.debugImages.motionDiff!!
+                .data[9]
+                .px(),
+        )
+    }
 }

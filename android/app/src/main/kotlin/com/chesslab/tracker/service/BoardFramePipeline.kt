@@ -66,7 +66,7 @@ class BoardFramePipeline(
                 Core.rotate(detectGray, detectGray, Core.ROTATE_180)
                 Core.rotate(detectBgr, detectBgr, Core.ROTATE_180)
             }
-            applyClahe(detectGray)
+            preprocessGray(detectGray)
             ProcessedFrame(
                 gray = detectGray.toGrayImage(),
                 bgr = detectBgr.toBgrImage(),
@@ -82,14 +82,18 @@ class BoardFramePipeline(
         }
     }
 
-    private fun applyClahe(gray: Mat) {
-        val clahe = Imgproc.createCLAHE(claheClip, Size(TILE, TILE))
-        try {
-            clahe.apply(gray, gray)
-        } finally {
-            clahe.collectGarbage()
-            clahe.clear()
+    private fun preprocessGray(gray: Mat) {
+        if (claheClip > 0) {
+            val clahe = Imgproc.createCLAHE(claheClip, Size(TILE, TILE))
+            try {
+                clahe.apply(gray, gray)
+            } finally {
+                clahe.collectGarbage()
+                clahe.clear()
+            }
         }
+        // Desktop parity: motion and square evidence consume the same denoised gray.
+        Imgproc.GaussianBlur(gray, gray, Size(BLUR_KERNEL, BLUR_KERNEL), 0.0)
     }
 
     private fun Mat.toGrayImage(): GrayImage {
@@ -110,6 +114,7 @@ class BoardFramePipeline(
 
     private companion object {
         const val TILE = 8.0
+        const val BLUR_KERNEL = 5.0
         const val CHANNELS = 3
     }
 }

@@ -46,7 +46,7 @@ class CornerDriftMonitor(
         const val DEFAULT_CORNER_JUMP_PX: Double = 6.0
 
         /** Largest per-corner Euclidean displacement between two corner sets (same order). */
-        internal fun maxCornerShift(
+        fun maxCornerShift(
             a: BoardCorners,
             b: BoardCorners,
         ): Double {

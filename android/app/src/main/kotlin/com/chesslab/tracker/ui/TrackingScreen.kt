@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.chesslab.engine.api.TrackerState
 import com.chesslab.tracker.R
+import com.chesslab.tracker.service.DebugBitmaps
 import com.chesslab.tracker.service.OverlayView
 import com.chesslab.tracker.ui.theme.BoardPalette
 
@@ -49,7 +50,14 @@ enum class BoardMode { RENDERED, VIDEO }
 
 /** Video sub-views in picker order; the list index maps to the underlying [OverlayView]. */
 val VIDEO_SUBVIEWS: List<OverlayView> =
-    listOf(OverlayView.CAMERA, OverlayView.BOARD, OverlayView.DIFF, OverlayView.SHADOW, OverlayView.OCCLUSION)
+    listOf(
+        OverlayView.CAMERA,
+        OverlayView.BOARD,
+        OverlayView.DIFF,
+        OverlayView.SHADOW,
+        OverlayView.OCCLUSION,
+        OverlayView.MOTION,
+    )
 
 /** What [OverlayBoard] should draw once the two-level switch and waiting-fallback are resolved. */
 data class BoardRender(
@@ -82,6 +90,7 @@ private const val BOARD_MAX_DP = 360
 fun TrackingScreen(
     state: UiState,
     board: android.graphics.Bitmap?,
+    debugBitmaps: DebugBitmaps,
     rawPreview: android.graphics.Bitmap?,
     calibrated: Boolean,
     showDebug: Boolean,
@@ -89,6 +98,7 @@ fun TrackingScreen(
     onNewBaseline: () -> Unit,
     onReset: () -> Unit,
     onPromote: (String) -> Unit,
+    onOverlayViewChange: (OverlayView) -> Unit,
     onCalibrate: () -> Unit,
     onRecalibrate: () -> Unit,
     modifier: Modifier = Modifier,
@@ -100,6 +110,10 @@ fun TrackingScreen(
     var debugExpanded by rememberSaveable { mutableStateOf(false) }
 
     val render = resolveBoardRender(boardMode, subView, board != null, state.trackerState)
+
+    LaunchedEffect(boardMode, subView) {
+        onOverlayViewChange(if (boardMode == BoardMode.VIDEO) subView else OverlayView.BOARD)
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
         Column(
@@ -116,6 +130,7 @@ fun TrackingScreen(
                 OverlayBoard(
                     view = render.view,
                     bitmap = board,
+                    debugBitmaps = debugBitmaps,
                     rawPreview = rawPreview,
                     debug = state.debug,
                     fen = state.fen,
@@ -301,11 +316,13 @@ private fun subViewLabels(): List<String> =
         stringResource(R.string.overlay_diff),
         stringResource(R.string.overlay_shadow),
         stringResource(R.string.overlay_occlusion),
+        stringResource(R.string.overlay_motion),
     )
 
 private const val SUBVIEW_DIFF = 2
 private const val SUBVIEW_SHADOW = 3
 private const val SUBVIEW_OCCLUSION = 4
+private const val SUBVIEW_MOTION = 5
 
 @Composable
 private fun subViewAccent(index: Int): Color =
@@ -313,6 +330,7 @@ private fun subViewAccent(index: Int): Color =
         SUBVIEW_DIFF -> BoardPalette.MarkChanged
         SUBVIEW_SHADOW -> BoardPalette.MarkShadow
         SUBVIEW_OCCLUSION -> BoardPalette.MarkOcclusion
+        SUBVIEW_MOTION -> BoardPalette.MarkChanged
         else -> MaterialTheme.colorScheme.primary
     }
 
