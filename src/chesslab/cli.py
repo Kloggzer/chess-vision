@@ -329,15 +329,16 @@ def dataset_build_cmd(
     hamming: int = typer.Option(config.DEDUP.phash_hamming, "--hamming"),
     rotate: bool = typer.Option(True, "--rotate/--no-rotate", help="90/180/270°-Augmentation (default on)."),
     allow_degenerate: bool = typer.Option(False, "--allow-degenerate", help="Allow degenerate dataset (class only in one session etc.)."),
+    no_pack: bool = typer.Option(False, "--no-pack", help="Skip packing crops into a memmap (default: pack for fast training)."),
 ) -> None:
-    """Build named dataset from session selection (filter -> dedup -> rotation -> split)."""
+    """Build named dataset from session selection (filter -> dedup -> rotation -> split -> pack)."""
     from . import dataset_build as db
 
     sids = [s.strip() for s in sessions.split(",") if s.strip()]
     try:
         res = db.build_dataset(name, sids, per_cell_cap=per_cell_cap, phash_enabled=not no_phash,
                                phash_hamming=hamming, rotations=(config.DEDUP.rotations if rotate else (0,)),
-                               allow_degenerate=allow_degenerate)
+                               allow_degenerate=allow_degenerate, pack=not no_pack)
     except ValueError as e:
         print(f"[FAIL] {e}")
         raise typer.Exit(1)
@@ -346,6 +347,19 @@ def dataset_build_cmd(
           f"final {c['final']}. Split: {res['split_counts']}.")
     for w in res["warnings"]:
         print(f"  ! {w}")
+
+
+@dataset_app.command("pack")
+def dataset_pack_cmd(name: str = typer.Argument(..., help="Dataset to pack.")) -> None:
+    """Pack a dataset's crops into one memmap for fast training (1M+ PNG I/O fix).
+
+    Decodes every crop once into ``data/datasets/<name>/packed_images.u8``; `train --dataset <name>`
+    then reads from the memmap instead of opening 1M files per epoch. Re-run after rebuilding.
+    """
+    from .training.pack import pack_dataset
+
+    res = pack_dataset(name)
+    print(f"[OK] packed '{name}': {res['n']} crops, {res['gb']} GB -> {res['path']}")
 
 
 @dataset_app.command("list")

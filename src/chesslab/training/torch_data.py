@@ -183,6 +183,41 @@ class SquareDataset(Dataset):
         return x, y
 
 
+class PackedSquareDataset(Dataset):
+    """Same contract as SquareDataset, but crops come from a single memmap (see training.pack)
+    instead of one ``Image.open`` per item — the fix for the 1M-PNG I/O bottleneck. Background
+    randomization is intentionally not applied here (packed is used for the big synth pretrain,
+    which runs bg_p=0); the small real finetune keeps the per-PNG SquareDataset + bg augment."""
+
+    def __init__(self, rows, classes, transform, packed) -> None:
+        path, shape, path2idx = packed
+        c2i = class_to_idx(classes)
+        self.rows = rows            # kept for board-accuracy grouping in evaluate (picklable)
+        self.transform = transform
+        # Only small, picklable state survives to spawn workers: a per-row memmap index + label
+        # index (both int arrays), plus the packed file path/shape. The 1M-entry path2idx dict and
+        # the memmap itself are NOT stored (they don't pickle to Windows workers). Built once here.
+        self.idx = np.array([path2idx[r["path"]] for r in rows], dtype=np.int64)
+        self.labels = np.array([c2i[r["label"]] for r in rows], dtype=np.int64)
+        self._path = path
+        self._shape = shape
+        self._mm = None
+
+    def _memmap(self):
+        if self._mm is None:                                   # opened lazily, once per worker
+            from .pack import open_packed_memmap
+            self._mm = open_packed_memmap(self._path, self._shape)
+        return self._mm
+
+    def __len__(self) -> int:
+        return len(self.idx)
+
+    def __getitem__(self, i):
+        arr = np.array(self._memmap()[self.idx[i]])            # copy out of the read-only memmap
+        x = self.transform(Image.fromarray(arr))
+        return x, int(self.labels[i])
+
+
 def class_weights_tensor(split: dict, classes: list[str]) -> torch.Tensor:
     cw = split.get("class_weights", {})
     return torch.tensor([float(cw.get(c, 1.0)) or 1.0 for c in classes], dtype=torch.float32)
