@@ -77,6 +77,7 @@ class SessionRecorderImpl(
         frameHeight: Int,
     ) {
         synchronized(this) {
+            if (pendingCapture == null) return
             lastFrame?.release()
             lastFrame = mat.clone()
             lastCorners = corners
@@ -147,7 +148,7 @@ class SessionRecorderImpl(
         val corners: BoardCorners?
         synchronized(this) {
             pending = pendingCapture ?: return
-            frame = lastFrame ?: return
+            frame = lastFrame?.clone() ?: return
             corners = lastCorners
         }
 
@@ -183,9 +184,13 @@ class SessionRecorderImpl(
                 )
                 frameIdx++
                 pendingCapture = null
+                lastFrame?.release()
+                lastFrame = null
             }
         } catch (e: Exception) {
             // Recording is best-effort — never break tracking (tracker.py:1998).
+        } finally {
+            frame.release()
         }
     }
 

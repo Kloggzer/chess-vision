@@ -132,6 +132,11 @@ class TrackerCoordinator(
     /** Frame seq of the newest processed frame — tags safeguard observations (Spec 11). */
     val frameSeq: Int get() = synchronized(this) { engine.frameSeq }
 
+    /** Identity of the visual reference currently paired with the engine FEN. */
+    val referenceVersion: Long get() = synchronized(this) { engine.referenceVersion }
+
+    val uciHistory: List<String> get() = synchronized(this) { engine.uciHistory }
+
     /** Pixel-exact current/reference and frame-to-frame deltas for Android debug views. */
     val debugImages: DebugImages get() = synchronized(this) { engine.debugImages }
 
@@ -191,6 +196,14 @@ class TrackerCoordinator(
         engine.reset(fen)
         decisions.clear()
         publish(null)
+    }
+
+    @Synchronized
+    fun restoreMoves(ucis: List<String>): Boolean {
+        val restored = engine.restoreMoves(ucis)
+        decisions.clear()
+        publish(null)
+        return restored
     }
 
     /** Re-capture the reference from the current board WITHOUT changing the game/position. */

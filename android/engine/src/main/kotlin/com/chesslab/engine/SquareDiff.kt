@@ -51,21 +51,31 @@ object SquareDiff {
         grayB: GrayImage,
         j: Int,
     ) {
-        val w = grayA.width
-        val h = grayA.height
         for (dy in -j..j) {
             for (dx in -j..j) {
                 if (dx == 0 && dy == 0) continue
-                for (y in 0 until h) {
-                    val sy = (y + dy).coerceIn(0, h - 1)
-                    val rowA = y * w
-                    val rowB = sy * w
-                    for (x in 0 until w) {
-                        val sx = (x + dx).coerceIn(0, w - 1)
-                        val d = grayA.data[rowA + x].px() - grayB.data[rowB + sx].px()
-                        if (kotlin.math.abs(d) < kotlin.math.abs(signed[rowA + x])) signed[rowA + x] = d
-                    }
-                }
+                applyShift(signed, grayA, grayB, dx, dy)
+            }
+        }
+    }
+
+    private fun applyShift(
+        signed: IntArray,
+        grayA: GrayImage,
+        grayB: GrayImage,
+        dx: Int,
+        dy: Int,
+    ) {
+        val width = grayA.width
+        val height = grayA.height
+        for (y in 0 until height) {
+            val sourceY = (y + dy).coerceIn(0, height - 1)
+            val rowA = y * width
+            val rowB = sourceY * width
+            for (x in 0 until width) {
+                val sourceX = (x + dx).coerceIn(0, width - 1)
+                val d = grayA.data[rowA + x].px() - grayB.data[rowB + sourceX].px()
+                if (kotlin.math.abs(d) < kotlin.math.abs(signed[rowA + x])) signed[rowA + x] = d
             }
         }
     }

@@ -28,7 +28,7 @@ class ArucoAutoCalibrator(
     ): CalibrationProfile? {
         if (nowNs - lastAttemptNs < intervalNs) return null
         lastAttemptNs = nowNs
-        return detector.detect(frame)?.let { corners ->
+        return detector.detectScaled(frame)?.let { corners ->
             CalibrationProfile(
                 corners = corners,
                 whitePov = true,

@@ -12,6 +12,7 @@ import org.opencv.imgproc.Imgproc
  */
 internal class YuvToBgrConverter {
     private var nv21: ByteArray = ByteArray(0)
+    private var lumaRow: ByteArray = ByteArray(0)
 
     fun convert(image: ImageProxy): Mat {
         val width = image.width
@@ -59,7 +60,8 @@ internal class YuvToBgrConverter {
         val rowStride = plane.rowStride
         val pixelStride = plane.pixelStride
         var pos = 0
-        val row = ByteArray(rowStride)
+        if (lumaRow.size < rowStride) lumaRow = ByteArray(rowStride)
+        val row = lumaRow
         for (y in 0 until height) {
             buffer.position(y * rowStride)
             val remaining = minOf(rowStride, buffer.remaining())

@@ -151,6 +151,7 @@ class CnnIntegration(
         dumpCrops("probe", ALL_SQUARES)
     }
 
+    @Suppress("TooGenericExceptionCaught")
     private fun dumpCrops(
         tag: String,
         squares: List<String>,
@@ -160,11 +161,13 @@ class CnnIntegration(
         try {
             val out = File(dir, "${tag}_seq${frame.seq}")
             out.mkdirs()
-            org.opencv.imgcodecs.Imgcodecs.imwrite(File(out, "board.png").absolutePath, frame.boardBgr)
+            org.opencv.imgcodecs.Imgcodecs
+                .imwrite(File(out, "board.png").absolutePath, frame.boardBgr)
             for (sq in squares) {
                 val r = BoardCropper.cropRect(sq, frame.boardBgr.rows())
                 val sub = frame.boardBgr.submat(org.opencv.core.Rect(r.x, r.y, r.width, r.height))
-                org.opencv.imgcodecs.Imgcodecs.imwrite(File(out, "$sq.png").absolutePath, sub)
+                org.opencv.imgcodecs.Imgcodecs
+                    .imwrite(File(out, "$sq.png").absolutePath, sub)
                 sub.release()
             }
             android.util.Log.i(CNN_TAG, "crop debug dumped: ${out.absolutePath}")

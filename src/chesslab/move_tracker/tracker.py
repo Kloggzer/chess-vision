@@ -2727,20 +2727,26 @@ class MoveTracker:
         pairs = loglik_pair_scores(self.board, z, self.z_thr, self.ll_k)
         if not pairs:
             return None
-        # Filter pairs whose destination squares are shadow-vetoed (eval move 2 on board after move 1)
-        if shadow_veto:
-            sv_pairs = []
-            for seq_best in pairs:
-                mv1, mv2 = seq_best[0]
-                b1 = self.board.copy(stack=False)
-                b1.push(mv1)
-                dests = (move_destination_squares(self.board, mv1)
-                         | move_destination_squares(b1, mv2))
-                if not (dests & shadow_veto):
-                    sv_pairs.append(seq_best)
-            if not sv_pairs:
-                return None
-            pairs = sv_pairs
+        # Viability gate: EVERY touched square of BOTH halves needs at least soft evidence
+        # (z_thr/2). Without it the scorer fabricates the weaker half from noise: live,
+        # h2h4+Be7 (h2 decayed to 1.3) lost to a fabricated Nf3+Be7 whose g1/f3 "evidence"
+        # was 1.2/1.4 sensor noise — committing a move never played. Plus the
+        # shadow-destination rule (eval move 2 on the board after move 1).
+        soft = self.z_thr * 0.5
+        viable_pairs = []
+        for seq_best in pairs:
+            mv1, mv2 = seq_best[0]
+            b1 = self.board.copy(stack=False)
+            touched = move_touched_squares(self.board, mv1)
+            dests = move_destination_squares(self.board, mv1)
+            b1.push(mv1)
+            touched = touched | move_touched_squares(b1, mv2)
+            dests = dests | move_destination_squares(b1, mv2)
+            if all(z.get(s, 0.0) >= soft for s in touched) and not (dests & (shadow_veto or set())):
+                viable_pairs.append(seq_best)
+        if not viable_pairs:
+            return None
+        pairs = viable_pairs
         seq, best = pairs[0]
         second = pairs[1][1] if len(pairs) > 1 else -1e9
         if best < 0.0 or best - max(second, best_single) < self.ambiguity_margin_ll:

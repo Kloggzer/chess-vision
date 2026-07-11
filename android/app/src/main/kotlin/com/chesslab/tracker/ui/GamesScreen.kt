@@ -233,15 +233,26 @@ private fun EvalSparkline(
  * has no analysis-sidecar API (its package is out of this phase's scope), so nothing is persisted.
  */
 internal object AnalysisCache {
-    private val entries = HashMap<String, List<PositionAnalysis>>()
+    private data class Entry(
+        val depth: Int,
+        val analyses: List<PositionAnalysis>,
+    )
 
-    fun get(id: String): List<PositionAnalysis>? = entries[id]
+    private val entries = HashMap<String, Entry>()
+
+    fun get(id: String): List<PositionAnalysis>? = entries[id]?.analyses
+
+    fun get(
+        id: String,
+        depth: Int,
+    ): List<PositionAnalysis>? = entries[id]?.takeIf { it.depth == depth }?.analyses
 
     fun put(
         id: String,
+        depth: Int,
         analyses: List<PositionAnalysis>,
     ) {
-        entries[id] = analyses
+        entries[id] = Entry(depth, analyses)
     }
 }
 

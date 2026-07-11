@@ -202,4 +202,15 @@ class TrackerEngineTest {
                 .px(),
         )
     }
+
+    @Test
+    fun `checkpointed UCI history restores game and waits for a new visual reference`() {
+        val engine = TrackerEngine()
+
+        assertTrue(engine.restoreMoves(listOf("e2e4", "e7e5", "g1f3")))
+
+        assertEquals(listOf("e2e4", "e7e5", "g1f3"), engine.uciHistory)
+        assertEquals(listOf("e4", "e5", "Nf3"), engine.status.history)
+        assertEquals(TrackerState.WAITING_BOARD, engine.status.state)
+    }
 }

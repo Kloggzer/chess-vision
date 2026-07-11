@@ -44,6 +44,7 @@ class SquareDiffTest {
     @Test
     fun `jitter tolerance absorbs a 1px wobble but keeps a real change`() {
         val bs = TestImages.BS
+
         // High-contrast vertical stripes: a 1px horizontal shift flips every edge pixel.
         fun stripes(shift: Int): GrayImage {
             val g = ByteArray(bs * bs)
@@ -78,6 +79,7 @@ class SquareDiffTest {
     @Test
     fun `illumination cancel absorbs a brightness gradient but keeps a piece blob`() {
         val bs = TestImages.BS
+
         fun flat(v: Int): GrayImage = GrayImage(bs, bs, ByteArray(bs * bs) { v.toByte() })
         val ref = flat(100)
         // Lighting gradient: left quarter +30, rest +5 — the global median (5) leaves the

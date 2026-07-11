@@ -50,17 +50,21 @@ class ClipReplayTest {
                 .filter { File(clipsDir, it["file"] as String).exists() }
 
         return entries.map { entry ->
-            DynamicTest.dynamicTest(entry["file"] as String) { runClip(clipsDir, entry) }
+            DynamicTest.dynamicTest(entry["file"] as String) {
+                runClip(clipsDir, entry, productionProfile = false)
+                runClip(clipsDir, entry, productionProfile = true)
+            }
         }
     }
 
     private fun runClip(
         clipsDir: File,
         entry: Map<String, Any>,
+        productionProfile: Boolean,
     ) {
         val clip = ClipSpec.from(entry)
         KNOWN_DIVERGENCES[clip.file]?.let { assumeTrue(false, "known port divergence: $it") }
-        val result = replay(File(clipsDir, clip.file), clip)
+        val result = replay(File(clipsDir, clip.file), clip, productionProfile)
 
         // Dialect-free assertion (python-chess vs chesslib disagree on SAN spelling AND on the
         // en-passant FEN field — chesslib always sets it on a double push, python-chess only when
@@ -77,7 +81,8 @@ class ClipReplayTest {
                 .take(2)
                 .joinToString(" ")
         val msg =
-            "${clip.file}: committed ${result.history} (${result.history.size} moves), " +
+            "${clip.file} (${if (productionProfile) "Android" else "parity"} profile): " +
+                "committed ${result.history} (${result.history.size} moves), " +
                 "expected ${clip.movesUci.size}; end board $gotFen vs $wantFen; note='${result.note}'"
         check(result.history.size == clip.movesUci.size) { msg }
         check(gotFen == wantFen) { msg }
@@ -96,8 +101,9 @@ class ClipReplayTest {
     private fun replay(
         clipFile: File,
         clip: ClipSpec,
+        productionProfile: Boolean,
     ): ReplayResult {
-        val engine = TrackerEngine(clip.config())
+        val engine = TrackerEngine(clip.config(productionProfile))
         engine.reset(clip.startFen)
 
         val ds = (clip.boardSize * TrackerConfig().detectScale).toInt()
@@ -175,12 +181,15 @@ class ClipReplayTest {
     ) {
         val promotion: String = movesUci.firstOrNull { it.length == 5 }?.substring(4, 5) ?: "q"
 
-        fun config(): TrackerConfig {
+        fun config(productionProfile: Boolean): TrackerConfig {
             var c = TrackerConfig()
             (tracker["census_thr"] as? Number)?.let { c = c.copy(censusThr = it.toDouble()) }
             (tracker["overhang"] as? Number)?.let { c = c.copy(overhang = it.toDouble()) }
             (tracker["confirm_frames"] as? Number)?.let { c = c.copy(confirmFrames = it.toInt()) }
             (tracker["max_changed"] as? Number)?.let { c = c.copy(maxChanged = it.toInt()) }
+            if (productionProfile) {
+                c = c.copy(diffIllumCancel = true, diffLightVeto = true)
+            }
             return c
         }
 

@@ -7,6 +7,7 @@ import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.IOException
+import java.net.SocketTimeoutException
 
 /**
  * [AnalysisEngine] backed by a Stockfish process speaking UCI over stdin/stdout.
@@ -76,11 +77,12 @@ class StockfishEngine(
         ensureStarted()
         send("position fen $fen")
         send("go depth $depth")
+        val deadlineNs = System.nanoTime() + ANALYSIS_TIMEOUT_MS * NS_PER_MS
 
         var lastScored: UciParser.Info? = null
         var bestUci: String? = null
         while (true) {
-            val line = readLineOrThrow()
+            val line = readLineOrThrow(deadlineNs)
             val info = UciParser.parseInfo(line)
             if (info?.eval != null) lastScored = info
             if (UciParser.isBestMoveLine(line)) {
@@ -106,10 +108,10 @@ class StockfishEngine(
         reader = p.inputStream.bufferedReader()
 
         send("uci")
-        readUntil("uciok")
+        readUntil("uciok", HANDSHAKE_TIMEOUT_MS)
         send("setoption name Threads value $ENGINE_THREADS")
         send("isready")
-        readUntil("readyok")
+        readUntil("readyok", HANDSHAKE_TIMEOUT_MS)
     }
 
     private fun send(command: String) {
@@ -119,13 +121,31 @@ class StockfishEngine(
         w.flush()
     }
 
-    private fun readUntil(marker: String) {
+    private fun readUntil(
+        marker: String,
+        timeoutMs: Long,
+    ) {
+        val deadlineNs = System.nanoTime() + timeoutMs * NS_PER_MS
         while (true) {
-            if (readLineOrThrow().trim() == marker) return
+            if (readLineOrThrow(deadlineNs).trim() == marker) return
         }
     }
 
-    private fun readLineOrThrow(): String = reader?.readLine() ?: throw IOException("Stockfish process terminated unexpectedly")
+    private fun readLineOrThrow(deadlineNs: Long): String {
+        while (System.nanoTime() < deadlineNs) {
+            val activeReader = reader ?: fail("Stockfish process not started")
+            if (activeReader.ready()) return activeReader.readLine() ?: fail("Stockfish process terminated unexpectedly")
+            if (process?.isAlive != true) fail("Stockfish process terminated unexpectedly")
+            Thread.sleep(READ_POLL_MS)
+        }
+        process?.destroyForcibly()
+        process = null
+        writer = null
+        reader = null
+        throw SocketTimeoutException("Stockfish did not respond before the analysis timeout")
+    }
+
+    private fun fail(message: String): Nothing = throw IOException(message)
 
     private companion object {
         /** Modest parallelism: analysis is a background task on a phone. */
@@ -133,5 +153,9 @@ class StockfishEngine(
 
         /** How long to wait for a clean `quit` before force-killing. */
         const val QUIT_GRACE_MS = 500L
+        const val HANDSHAKE_TIMEOUT_MS = 5_000L
+        const val ANALYSIS_TIMEOUT_MS = 30_000L
+        const val READ_POLL_MS = 10L
+        const val NS_PER_MS = 1_000_000L
     }
 }

@@ -183,10 +183,15 @@ class TrackerCamera(
                 ),
             ).build()
 
-    override fun close() {
-        frameChannel.cancel()
+    /** Unbind camera use cases while keeping this instance restartable. */
+    fun stop() {
         cameraProvider?.unbindAll()
         imageCapture = null
+    }
+
+    override fun close() {
+        frameChannel.cancel()
+        stop()
         analysisExecutor.shutdownNow()
     }
 }

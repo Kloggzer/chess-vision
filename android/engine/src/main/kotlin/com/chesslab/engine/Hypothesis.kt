@@ -190,6 +190,11 @@ internal class HypothesisGenerator(
     /**
      * Fast play: 2 half-moves in one settle window. Candidate only when the best pair clearly
      * beats the best single AND the second-best pair (ports tracker.py:2239 `_pair_candidate`).
+     *
+     * Viability gate (added with Python `_pair_candidate` together): EVERY touched square of
+     * BOTH halves needs at least soft evidence (zThr/2). Without it the scorer fabricates the
+     * weaker half from noise: live, h2h4+Be7 (h2 decayed to 1.3) lost to a fabricated Nf3+Be7
+     * whose g1/f3 "evidence" was 1.2/1.4 sensor noise — committing a move never played.
      */
     fun pairCandidate(
         game: Game,
@@ -197,18 +202,18 @@ internal class HypothesisGenerator(
         bestSingle: Double,
         shadowVeto: Set<String> = emptySet(),
     ): HypothesisOutcome.Candidate? {
+        val soft = config.zThr * HALF
         // Shadow-destination rule: no pair whose destination squares (move 2 evaluated on
         // the board AFTER move 1) are shadow-vetoed (ports tracker.py 242ea94).
         val pairs =
             MoveScoring.loglikPairScores(game, z, config.zThr).filter { (seq, _) ->
-                shadowVeto.isEmpty() ||
-                    run {
-                        val g1 = game.copy()
-                        val dests = moveDestinationSquares(game, seq[0]).toMutableSet()
-                        g1.push(seq[0])
-                        dests += moveDestinationSquares(g1, seq[1])
-                        dests.none { it in shadowVeto }
-                    }
+                val g1 = game.copy()
+                val touched = MoveScoring.moveTouchedSquares(g1, seq[0]).toMutableSet()
+                val dests = moveDestinationSquares(game, seq[0]).toMutableSet()
+                g1.push(seq[0])
+                touched += MoveScoring.moveTouchedSquares(g1, seq[1])
+                dests += moveDestinationSquares(g1, seq[1])
+                touched.all { (z[it] ?: 0.0) >= soft } && dests.none { it in shadowVeto }
             }
         if (pairs.isEmpty()) return null
         val (seq, best) = pairs.first()
@@ -254,6 +259,7 @@ internal class HypothesisGenerator(
 
     private companion object {
         const val NEG_INF = -1e9
+        const val HALF = 0.5
         const val NEAR_SHOWN = 3
     }
 }

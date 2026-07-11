@@ -50,11 +50,12 @@ class BoardFramePipeline(
     fun process(
         frame: Mat,
         timestampNs: Long,
+        fullResolutionBoard: Boolean = true,
     ): ProcessedFrame {
         val (warped, whitePov) =
             synchronized(warperLock) {
                 val active = warper
-                active.warp(frame) to active.profile.whitePov
+                active.warp(frame, fullResolutionBoard) to active.profile.whitePov
             }
         val boardBgr = warped.boardBgr
         val detectGray = warped.detectGray
@@ -90,13 +91,8 @@ class BoardFramePipeline(
 
     private fun preprocessGray(gray: Mat) {
         if (claheClip > 0) {
-            val clahe = Imgproc.createCLAHE(claheClip, Size(TILE, TILE))
-            try {
-                clahe.apply(gray, gray)
-            } finally {
-                clahe.collectGarbage()
-                clahe.clear()
-            }
+            val clahe = claheFor(claheClip)
+            clahe.apply(gray, gray)
         }
         // Desktop parity: motion and square evidence consume the same denoised gray.
         Imgproc.GaussianBlur(gray, gray, Size(BLUR_KERNEL, BLUR_KERNEL), 0.0)
@@ -115,7 +111,23 @@ class BoardFramePipeline(
     }
 
     override fun close() {
-        synchronized(warperLock) { warper.close() }
+        synchronized(warperLock) {
+            warper.close()
+            cachedClahe?.clear()
+            cachedClahe = null
+        }
+    }
+
+    private var cachedClahe: org.opencv.imgproc.CLAHE? = null
+    private var cachedClaheClip = Double.NaN
+
+    private fun claheFor(clip: Double): org.opencv.imgproc.CLAHE {
+        if (cachedClahe == null || cachedClaheClip != clip) {
+            cachedClahe?.clear()
+            cachedClahe = Imgproc.createCLAHE(clip, Size(TILE, TILE))
+            cachedClaheClip = clip
+        }
+        return checkNotNull(cachedClahe)
     }
 
     private companion object {

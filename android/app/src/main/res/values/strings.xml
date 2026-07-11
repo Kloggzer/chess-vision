@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">chesslab tracker</string>
+    <string name="camera_permission_required">Camera access is required to detect the board and track moves.</string>
+    <string name="camera_permission_retry">Grant camera access</string>
 
     <!-- Foreground service -->
     <string name="notif_channel">Move tracking</string>
@@ -29,7 +31,6 @@
 
     <!-- Tracking screen -->
     <string name="action_undo">Undo / correct last move</string>
-    <string name="action_reset">Reset</string>
     <string name="action_reset_game">Reset game</string>
     <string name="action_new_baseline">New baseline</string>
     <string name="action_recalibrate">Recalibrate</string>
@@ -94,6 +95,8 @@
 
     <!-- Settings: recording -->
     <string name="setting_auto_record">Auto-record session</string>
+    <string name="setting_spectator_enabled">Share live game on local network</string>
+    <string name="setting_spectator_starting">Starting spectator server…</string>
 
     <!-- Settings: camera -->
     <string name="setting_dynamic_resolution">Dynamic resolution</string>
@@ -109,7 +112,6 @@
     <string name="setting_max_changed">Max changed squares</string>
     <string name="setting_aruco_margin">ArUco margin (warp fit)</string>
     <string name="setting_occlusion_thr">Occlusion threshold</string>
-    <string name="setting_motion_margin">Motion ROI margin</string>
     <string name="setting_overhang">Overhang</string>
     <string name="setting_motion_hold">Motion hold (s)</string>
     <string name="setting_clahe_clip">CLAHE clip</string>
@@ -121,13 +123,10 @@
     <!-- Settings: experimental + debug -->
     <string name="setting_experimental_detection">Automatic board detection (experimental)</string>
     <string name="setting_debug_card">Debug card</string>
-    <string name="setting_overlay_view">Overlay view</string>
-    <string name="overlay_board">Board</string>
     <string name="overlay_diff">Diff</string>
     <string name="overlay_shadow">Shadow</string>
     <string name="overlay_occlusion">Occlusion</string>
     <string name="overlay_motion">Motion</string>
-    <string name="overlay_camera">Camera</string>
 
     <!-- Tracking: two-level board view switch -->
     <string name="board_mode_rendered">Rendered</string>
@@ -176,8 +175,8 @@
     <!-- Game analysis -->
     <string name="analysis_title">Game analysis</string>
     <string name="analysis_analyzing">Analyzing…</string>
+    <string name="analysis_failed">Analysis failed: %1$s</string>
     <string name="analysis_eval_bar_desc">Evaluation bar</string>
-    <string name="analysis_engine">Engine</string>
     <string name="analysis_eval">Eval</string>
     <string name="analysis_best">Best</string>
     <string name="analysis_line">Line</string>
@@ -189,7 +188,6 @@
     <string name="analysis_next">Next move</string>
     <string name="analysis_last">Last move</string>
     <string name="analysis_ply_desc">Move %1$d: %2$s</string>
-    <string name="analysis_start_position">Start position</string>
     <string name="analysis_cp_loss">Centipawn loss</string>
     <string name="analysis_verdict">Engine verdict</string>
     <string name="analysis_provenance">Tracker decision</string>

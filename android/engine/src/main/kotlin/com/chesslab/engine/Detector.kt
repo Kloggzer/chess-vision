@@ -355,8 +355,8 @@ internal class Detector(
                 confirmer.reset()
                 state.note =
                     "${sans.joinToString(" + ")}? evidence too weak (" +
-                        String.format(java.util.Locale.ROOT, "%.2f < %.1f", best, config.commitLlFloor) +
-                        ") — not committing"
+                    String.format(java.util.Locale.ROOT, "%.2f < %.1f", best, config.commitLlFloor) +
+                    ") — not committing"
             }
             gateBlocked -> {
                 confirmer.reset()

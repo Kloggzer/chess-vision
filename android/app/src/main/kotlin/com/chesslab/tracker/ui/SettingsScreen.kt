@@ -32,6 +32,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.tracker.R
 import com.chesslab.tracker.camera.Resolution
 import com.chesslab.tracker.cnn.CnnModelStore
@@ -46,6 +47,7 @@ fun SettingsScreen(
     onUpdate: ((TrackerSettings) -> TrackerSettings) -> Unit,
     modifier: Modifier = Modifier,
     modelStore: CnnModelStore? = null,
+    spectatorUrl: String? = null,
 ) {
     Column(
         modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -113,7 +115,12 @@ fun SettingsScreen(
                 steps = 9,
                 onChange = { v -> onUpdate { it.copy(maxChanged = v.roundToInt()) } },
             )
-            SettingSlider(stringResource(R.string.setting_occlusion_thr), settings.occlusionColorThr, 0f..5f, 1.5) { v ->
+            SettingSlider(
+                stringResource(R.string.setting_occlusion_thr),
+                settings.occlusionColorThr,
+                0f..5f,
+                TrackerConfig.DEFAULT_OCCLUSION_COLOR_THR,
+            ) { v ->
                 onUpdate { it.copy(occlusionColorThr = v) }
             }
             SettingSlider(stringResource(R.string.setting_overhang), settings.overhang, 0f..1f, 0.25) { v ->
@@ -157,6 +164,16 @@ fun SettingsScreen(
         SectionHeader(stringResource(R.string.settings_recording))
         SettingSwitch(stringResource(R.string.setting_auto_record), settings.autoRecord) { v ->
             onUpdate { it.copy(autoRecord = v) }
+        }
+        SettingSwitch(stringResource(R.string.setting_spectator_enabled), settings.spectatorEnabled) { v ->
+            onUpdate { it.copy(spectatorEnabled = v) }
+        }
+        if (settings.spectatorEnabled) {
+            Text(
+                spectatorUrl ?: stringResource(R.string.setting_spectator_starting),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
         SectionHeader(stringResource(R.string.settings_experimental))
