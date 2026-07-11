@@ -1,0 +1,210 @@
+"""Stage 5 — INT8 static quantization for the on-device NPU (Qualcomm Hexagon).
+
+The Android tracker runs the per-square classifier through ONNX Runtime. On a
+Snapdragon phone (dev target: Poco F7 Pro / SD 8 Gen 3) the fastest, lowest-power
+backend is the **QNN Execution Provider**, which offloads the graph to the Hexagon
+NPU (HTP). The HTP backend runs **quantized models only** — a float32 graph would
+silently fall back to CPU. So we produce a QDQ (Quantize-Dequantize) ONNX next to
+the FP32 `model.onnx`:
+
+    model.onnx       — FP32, the CPU/NNAPI fallback (unchanged).
+    model.qnn.onnx   — INT8 static-quantized QDQ, loaded by the QNN EP on-device.
+
+The quantization uses ONNX Runtime's own QNN QDQ config helper (`get_qnn_qdq_config`),
+which enforces the HTP constraints (per-tensor scales, supported op set), calibrated
+on a small, class-balanced sample of the run's OWN training crops. Preprocessing for
+calibration is identical to inference/eval (`build_transform(..., train=False)`), so
+the recorded activation ranges match what the phone actually feeds the model.
+
+The device stays model-agnostic: whatever backbone `train` produced, export → quantize
+just walks its graph. No weights need to be final.
+"""
+
+from __future__ import annotations
+
+import json
+import random
+from collections import defaultdict
+from pathlib import Path
+
+import numpy as np
+
+from .. import config
+
+# Map CLI-friendly names to ONNX Runtime QuantType members (resolved lazily so this
+# module imports without onnxruntime present).
+_QUANT_TYPES = {"quint8", "qint8", "quint16", "qint16"}
+
+
+def _quant_type(name: str):
+    from onnxruntime.quantization import QuantType
+
+    return {
+        "quint8": QuantType.QUInt8,
+        "qint8": QuantType.QInt8,
+        "quint16": QuantType.QUInt16,
+        "qint16": QuantType.QInt16,
+    }[name]
+
+
+def _calibration_rows(cfg: dict, limit: int) -> list[dict]:
+    """A small, class-balanced sample of the run's TRAIN crops (never test — no eval
+    leak). ``empty`` dominates massively (see CLAUDE.md), so a flat random draw would
+    starve the piece classes of calibration range; we round-robin across labels."""
+    from .data import filter_rows_by_split, load_manifest, load_split
+
+    ds_name = cfg.get("dataset")
+    if ds_name:
+        from ..dataset_build import dataset_dir
+
+        dd = dataset_dir(ds_name)
+        manifest_path, split_path = dd / "manifest.jsonl", dd / "split.json"
+    else:
+        manifest_path = config.DATA.manifests / "squares.jsonl"
+        split_path = config.DATA.manifests / "split.json"
+    if not manifest_path.exists() or not split_path.exists():
+        raise FileNotFoundError(f"manifest/split missing ({manifest_path}) — build/split the dataset first.")
+
+    manifest = load_manifest(manifest_path)
+    split = load_split(split_path)
+    rows = filter_rows_by_split(manifest, split, "train") or filter_rows_by_split(manifest, split, "val")
+    if not rows:
+        return []
+
+    rng = random.Random(config.DEFAULT_SEED if hasattr(config, "DEFAULT_SEED") else 42)
+    by_label: dict[str, list[dict]] = defaultdict(list)
+    for r in rows:
+        by_label[r["label"]].append(r)
+    for bucket in by_label.values():
+        rng.shuffle(bucket)
+
+    # Round-robin over labels until we hit the limit or exhaust every bucket.
+    picked: list[dict] = []
+    cursors = dict.fromkeys(by_label, 0)
+    labels = sorted(by_label)
+    while len(picked) < limit:
+        advanced = False
+        for lab in labels:
+            c = cursors[lab]
+            if c < len(by_label[lab]):
+                picked.append(by_label[lab][c])
+                cursors[lab] = c + 1
+                advanced = True
+                if len(picked) >= limit:
+                    break
+        if not advanced:
+            break
+    return picked
+
+
+def _make_reader(rows: list[dict], input_name: str, out_size, mean, std):
+    """A rewindable CalibrationDataReader that yields one preprocessed crop at a time,
+    matching OnnxClassifier's on-device preprocessing exactly (RGB, /255, ImageNet
+    normalize, NCHW)."""
+    from onnxruntime.quantization import CalibrationDataReader
+    from PIL import Image
+
+    from .torch_data import build_transform
+
+    tf = build_transform(out_size, train=False, mean=mean, std=std)
+    samples: list[dict] = []
+    for r in rows:
+        with Image.open(r["path"]) as im:
+            img = im.convert("RGB")
+        x = tf(img).unsqueeze(0).numpy().astype(np.float32)  # (1, 3, H, W)
+        samples.append({input_name: x})
+
+    class _CropReader(CalibrationDataReader):
+        def __init__(self) -> None:
+            self._it = iter(samples)
+
+        def get_next(self):
+            return next(self._it, None)
+
+        def rewind(self) -> None:
+            self._it = iter(samples)
+
+    return _CropReader(), samples
+
+
+def _parity(fp32_path: Path, quant_path: Path, samples: list[dict]) -> float:
+    """Fraction of calibration crops where the quantized argmax matches FP32. A rough
+    on-parity sanity gate (INT8 rounding shifts logits but should rarely flip argmax)."""
+    import onnxruntime as ort
+
+    so = ort.SessionOptions()
+    so.log_severity_level = 3
+    ref = ort.InferenceSession(str(fp32_path), so, providers=["CPUExecutionProvider"])
+    q = ort.InferenceSession(str(quant_path), so, providers=["CPUExecutionProvider"])
+    agree = 0
+    n = min(len(samples), 32)
+    for feed in samples[:n]:
+        a = np.asarray(ref.run(None, feed)[0]).argmax(-1)
+        b = np.asarray(q.run(None, feed)[0]).argmax(-1)
+        agree += int((a == b).all())
+    return agree / max(1, n)
+
+
+def run_quantize(run: str, limit: int = 128, activation_type: str = "quint16",
+                 weight_type: str = "quint8") -> int:
+    """FP32 ``model.onnx`` → INT8-weight QDQ ``model.qnn.onnx`` for the QNN/Hexagon NPU EP.
+
+    Default is A16W8 (16-bit activations, INT8 weights) — the Hexagon HTP's recommended
+    accuracy/performance balance. MobileNet's depthwise convs are very sensitive to 8-bit
+    *activation* rounding: pure quint8/quint8 collapsed argmax parity to ~0.34 on the dev
+    model, while quint16 activations held it at 1.0 with the same INT8 weights. Pass
+    ``activation_type='quint8'`` for pure INT8 if a given model tolerates it.
+    """
+    run_dir = Path(run)
+    if not (run_dir / "config.json").exists():
+        print(f"[FAIL] no config.json in {run_dir}.")
+        return 1
+    fp32 = run_dir / "model.onnx"
+    if not fp32.exists():
+        print(f"[FAIL] {fp32} missing — run `chesslab export --run {run} --format onnx` first.")
+        return 1
+    if activation_type not in _QUANT_TYPES or weight_type not in _QUANT_TYPES:
+        print(f"[FAIL] quant types must be one of {sorted(_QUANT_TYPES)}.")
+        return 1
+
+    cfg = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
+    out_size = tuple(cfg["out_size"])
+    norm = cfg.get("normalize", {})
+    mean = tuple(norm.get("mean", config.NORMALIZE_MEAN))
+    std = tuple(norm.get("std", config.NORMALIZE_STD))
+
+    import onnxruntime as ort
+    from onnxruntime.quantization import quantize
+    from onnxruntime.quantization.execution_providers.qnn import get_qnn_qdq_config
+    from onnxruntime.quantization.shape_inference import quant_pre_process
+
+    so = ort.SessionOptions()
+    so.log_severity_level = 3
+    input_name = ort.InferenceSession(str(fp32), so, providers=["CPUExecutionProvider"]).get_inputs()[0].name
+
+    rows = _calibration_rows(cfg, limit)
+    if not rows:
+        print("[FAIL] no calibration crops found (empty train/val split).")
+        return 1
+    reader, samples = _make_reader(rows, input_name, out_size, mean, std)
+
+    prep = run_dir / "model.prep.onnx"
+    out = run_dir / "model.qnn.onnx"
+    quant_pre_process(str(fp32), str(prep))
+    try:
+        qnn_config = get_qnn_qdq_config(
+            str(prep), reader,
+            activation_type=_quant_type(activation_type),
+            weight_type=_quant_type(weight_type),
+        )
+        quantize(str(prep), str(out), qnn_config)
+    finally:
+        prep.unlink(missing_ok=True)
+
+    agreement = _parity(fp32, out, samples)
+    size_mb = out.stat().st_size / 1e6
+    print(f"[OK] quantized ({activation_type}/{weight_type}) -> {out} "
+          f"({size_mb:.1f} MB, {len(rows)} calib crops, argmax parity {agreement:.3f})")
+    if agreement < 0.9:
+        print("[WARN] low FP32↔INT8 argmax parity — consider quint16 activations or more calib crops.")
+    return 0

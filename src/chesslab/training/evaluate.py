@@ -129,7 +129,14 @@ def run_export(run: str, fmt: str = "torchscript") -> int:
     # batched inference. A batch-2 example forces genuinely dynamic shapes.
     example = torch.randn(2, 3, out_h, out_w)
 
-    formats = [fmt] if fmt != "all" else ["torchscript", "onnx"]
+    def _export_onnx() -> None:
+        torch.onnx.export(model, example, str(run_dir / "model.onnx"),
+                          input_names=["input"], output_names=["logits"],
+                          dynamic_axes={"input": {0: "batch"}, "logits": {0: "batch"}},
+                          opset_version=17, dynamo=False)
+
+    # "qnn" is the INT8/QDQ ONNX for the on-device Hexagon NPU (needs the FP32 onnx first).
+    formats = ["torchscript", "onnx", "qnn"] if fmt == "all" else [fmt]
     written: list[str] = []
     for f in formats:
         if f == "torchscript":
@@ -137,13 +144,21 @@ def run_export(run: str, fmt: str = "torchscript") -> int:
             ts.save(str(run_dir / "model.torchscript.pt"))
             written.append("torchscript")
         elif f == "onnx":
-            torch.onnx.export(model, example, str(run_dir / "model.onnx"),
-                              input_names=["input"], output_names=["logits"],
-                              dynamic_axes={"input": {0: "batch"}, "logits": {0: "batch"}},
-                              opset_version=17, dynamo=False)
+            _export_onnx()
             written.append("onnx")
+        elif f in ("qnn", "onnx-qnn"):
+            # NPU deployment: ensure the FP32 graph exists, then static-quantize it.
+            if "onnx" not in written and not (run_dir / "model.onnx").exists():
+                _export_onnx()
+                written.append("onnx")
+            from .quantize import run_quantize
+
+            rc = run_quantize(str(run_dir))
+            if rc != 0:
+                return rc
+            written.append("qnn")
         else:
-            print(f"[FAIL] unknown format {f!r} (torchscript | onnx | all).")
+            print(f"[FAIL] unknown format {f!r} (torchscript | onnx | qnn | onnx-qnn | all).")
             return 1
 
     metrics = {}
