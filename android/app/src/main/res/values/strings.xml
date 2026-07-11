@@ -119,6 +119,7 @@
     <string name="setting_diff_jitter">Diff wobble tolerance (px)</string>
     <string name="setting_lighting_robust">Lighting robustness (structure-gated diff)</string>
     <string name="setting_commit_floor">Commit floor (min move score)</string>
+    <string name="setting_reset_detection">Reset game &amp; detection to defaults</string>
 
     <!-- Settings: experimental + debug -->
     <string name="setting_experimental_detection">Automatic board detection (experimental)</string>
