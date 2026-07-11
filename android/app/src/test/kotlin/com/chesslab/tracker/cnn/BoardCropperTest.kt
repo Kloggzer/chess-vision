@@ -3,18 +3,18 @@ package com.chesslab.tracker.cnn
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
-/** Pure crop-geometry checks (`config.py CropDefaults`: pad_up 0.35, pad_side 0.05). */
+/** Pure crop-geometry checks (`config.py CropDefaults`: pad_up 0.0, pad_side 0.10 → square cell). */
 class BoardCropperTest {
     private val size = 800 // cell = 100 px
 
     @Test
-    fun `interior square extends upward for the 3d lean`() {
+    fun `interior square is a symmetric square cell`() {
         // e4 on white POV: file e (x 400..500), rank 4 -> y 400..500.
         val r = BoardCropper.cropRect("e4", size)
-        assertEquals(395, r.x) // - pad_side
-        assertEquals(110, r.width) // cell * (1 + 2*pad_side)
-        assertEquals(360, r.y) // - (pad_up + pad_side) * cell
-        assertEquals(145, r.height) // cell * (1 + pad_up + 2*pad_side)
+        assertEquals(390, r.x) // - pad_side * cell
+        assertEquals(120, r.width) // cell * (1 + 2*pad_side)
+        assertEquals(390, r.y) // - (pad_up + pad_side) * cell = - pad_side * cell (pad_up 0)
+        assertEquals(120, r.height) // cell * (1 + pad_up + 2*pad_side) = width -> square
     }
 
     @Test
@@ -22,14 +22,14 @@ class BoardCropperTest {
         val a8 = BoardCropper.cropRect("a8", size) // top-left corner
         assertEquals(0, a8.x)
         assertEquals(0, a8.y)
-        assertEquals(105, a8.width)
-        assertEquals(105, a8.height)
+        assertEquals(110, a8.width)
+        assertEquals(110, a8.height)
 
         val h1 = BoardCropper.cropRect("h1", size) // bottom-right corner
-        assertEquals(695, h1.x)
-        assertEquals(105, h1.width)
-        assertEquals(660, h1.y)
-        assertEquals(140, h1.height) // bottom pad clipped at the board edge
+        assertEquals(690, h1.x)
+        assertEquals(110, h1.width)
+        assertEquals(690, h1.y)
+        assertEquals(110, h1.height)
     }
 
     @Test
