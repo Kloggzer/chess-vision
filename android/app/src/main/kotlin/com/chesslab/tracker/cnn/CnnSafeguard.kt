@@ -280,7 +280,11 @@ class CnnSafeguard(
      */
     suspend fun observerLoop() {
         while (currentCoroutineContext().isActive) {
-            observeOnce()?.let { snap -> onObservation?.invoke(snap) }
+            // A pending move owns the classifier. Without this gate the free observer can
+            // repeatedly win the busy flag and starve verification until its watchdog fires.
+            if (verifyJob?.isActive != true) {
+                observeOnce()?.let { snap -> onObservation?.invoke(snap) }
+            }
             delay(config.observerIntervalMs.coerceAtLeast(OBSERVER_MIN_GAP_MS))
         }
     }

@@ -28,6 +28,7 @@
     <string name="action_undo">Undo / correct last move</string>
     <string name="action_reset">Reset</string>
     <string name="action_reset_game">Reset game</string>
+    <string name="action_new_baseline">New baseline</string>
     <string name="action_recalibrate">Recalibrate</string>
     <string name="action_confirm">Confirm</string>
     <string name="action_cancel">Cancel</string>
