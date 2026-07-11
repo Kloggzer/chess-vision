@@ -74,6 +74,11 @@ data class TrackerSettings(
     val analysisDepth: Int = DEFAULT_ANALYSIS_DEPTH,
     // Experimental + Debug
     val experimentalDetection: Boolean = false,
+    // EXPERIMENTAL sensor tuning (Camera2 interop): AE/AWB lock kills the auto-exposure
+    // swings (live luma 91..139) that manufacture global lighting shifts; focusDistance > 0
+    // fixes manual focus in diopters (1/m, ~2.0 = 50cm mount; 0 = continuous autofocus).
+    val lockExposure: Boolean = false,
+    val focusDistance: Double = 0.0,
     val debugCard: Boolean = false,
     val overlayView: OverlayView = OverlayView.BOARD,
 ) {

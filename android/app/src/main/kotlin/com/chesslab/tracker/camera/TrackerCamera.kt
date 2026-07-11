@@ -56,6 +56,52 @@ class TrackerCamera(
     private var cameraProvider: ProcessCameraProvider? = null
     private var imageCapture: ImageCapture? = null
     private var config: CameraConfig = CameraConfig()
+    private var camera: androidx.camera.core.Camera? = null
+
+    @Volatile private var lockExposure = false
+
+    @Volatile private var focusDistanceDiopters = 0.0
+
+    /**
+     * EXPERIMENTAL sensor tuning (Camera2 interop), re-applied after every rebind:
+     * - [lockExposure]: AE + AWB lock — the sensor's auto-exposure otherwise re-meters on
+     *   every hand entering the frame (live luma swung 91..139), manufacturing exactly the
+     *   global lighting shifts the diff robustness stack then has to veto. Lock AFTER the
+     *   board is calibrated and lit; the dark-frame gate still catches a truly darkened room.
+     * - [focusDistance] > 0: fixed manual focus in diopters (1/m; ~2.0 = 50 cm mount height,
+     *   0 = keep continuous autofocus). Stops AF hunting from blurring the reference.
+     */
+    fun applyTuning(
+        lockExposure: Boolean,
+        focusDistance: Double,
+    ) {
+        this.lockExposure = lockExposure
+        this.focusDistanceDiopters = focusDistance
+        camera?.let { applyCaptureOptions(it) }
+    }
+
+    @androidx.annotation.OptIn(androidx.camera.camera2.interop.ExperimentalCamera2Interop::class)
+    private fun applyCaptureOptions(camera: androidx.camera.core.Camera) {
+        val builder = androidx.camera.camera2.interop.CaptureRequestOptions.Builder()
+        if (lockExposure) {
+            builder.setCaptureRequestOption(android.hardware.camera2.CaptureRequest.CONTROL_AE_LOCK, true)
+            builder.setCaptureRequestOption(android.hardware.camera2.CaptureRequest.CONTROL_AWB_LOCK, true)
+        }
+        if (focusDistanceDiopters > 0) {
+            builder.setCaptureRequestOption(
+                android.hardware.camera2.CaptureRequest.CONTROL_AF_MODE,
+                android.hardware.camera2.CaptureRequest.CONTROL_AF_MODE_OFF,
+            )
+            builder.setCaptureRequestOption(
+                android.hardware.camera2.CaptureRequest.LENS_FOCUS_DISTANCE,
+                focusDistanceDiopters.toFloat(),
+            )
+        }
+        // Empty options clear previous locks (back to full auto).
+        androidx.camera.camera2.interop.Camera2CameraControl
+            .from(camera.cameraControl)
+            .setCaptureRequestOptions(builder.build())
+    }
 
     /** Binds the camera use cases. Idempotent per lifecycle. */
     fun start(config: CameraConfig) {
@@ -140,7 +186,10 @@ class TrackerCamera(
                 .build()
 
         provider.unbindAll()
-        provider.bindToLifecycle(lifecycleOwner, cameraSelector, analysis, capture)
+        val bound = provider.bindToLifecycle(lifecycleOwner, cameraSelector, analysis, capture)
+        camera = bound
+        // Rebinds (resolution change) reset the capture session — re-apply the tuning.
+        if (lockExposure || focusDistanceDiopters > 0) applyCaptureOptions(bound)
     }
 
     private fun buildAnalysis(selector: ResolutionSelector): ImageAnalysis {
@@ -187,6 +236,7 @@ class TrackerCamera(
     fun stop() {
         cameraProvider?.unbindAll()
         imageCapture = null
+        camera = null
     }
 
     override fun close() {

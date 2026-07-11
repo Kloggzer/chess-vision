@@ -212,6 +212,16 @@ fun SettingsScreen(
         SettingSwitch(stringResource(R.string.setting_experimental_detection), settings.experimentalDetection) { v ->
             onUpdate { it.copy(experimentalDetection = v) }
         }
+        SettingSwitch(stringResource(R.string.setting_lock_exposure), settings.lockExposure) { v ->
+            onUpdate { it.copy(lockExposure = v) }
+        }
+        SettingSlider(
+            label = stringResource(R.string.setting_focus_distance),
+            value = settings.focusDistance,
+            range = 0f..10f,
+            default = 0.0,
+            onChange = { v -> onUpdate { it.copy(focusDistance = v) } },
+        )
 
         SectionHeader(stringResource(R.string.settings_cnn_safeguard))
         SettingSwitch(stringResource(R.string.setting_cnn_enabled), settings.cnnEnabled) { v ->
