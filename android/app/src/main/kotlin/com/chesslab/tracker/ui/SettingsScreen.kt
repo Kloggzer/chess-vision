@@ -165,6 +165,33 @@ fun SettingsScreen(
                 onUpdate { it.copy(commitFloor = v) }
             }
         }
+        // Reset game + detection tunables to the code defaults. Deliberately preserves
+        // camera/warp (resolution, arucoMargin), recording, CNN, analysis and debug prefs —
+        // persisted old values otherwise shadow improved defaults forever (censusThr 160 lesson).
+        GhostButton(onClick = {
+            onUpdate { current ->
+                val d = TrackerSettings()
+                current.copy(
+                    pairLookAhead = d.pairLookAhead,
+                    ambiguityMargin = d.ambiguityMargin,
+                    usePrior = d.usePrior,
+                    motionThr = d.motionThr,
+                    zThr = d.zThr,
+                    censusThr = d.censusThr,
+                    censusZWeight = d.censusZWeight,
+                    maxChanged = d.maxChanged,
+                    occlusionColorThr = d.occlusionColorThr,
+                    motionMargin = d.motionMargin,
+                    overhang = d.overhang,
+                    motionHoldS = d.motionHoldS,
+                    claheClip = d.claheClip,
+                    darkLumaThr = d.darkLumaThr,
+                    diffJitterPx = d.diffJitterPx,
+                    lightingRobust = d.lightingRobust,
+                    commitFloor = d.commitFloor,
+                )
+            }
+        }) { Text(stringResource(R.string.setting_reset_detection)) }
 
         SectionHeader(stringResource(R.string.settings_recording))
         SettingSwitch(stringResource(R.string.setting_auto_record), settings.autoRecord) { v ->
