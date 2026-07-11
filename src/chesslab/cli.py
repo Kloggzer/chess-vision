@@ -696,6 +696,9 @@ def synth_render(
     occlusion_p: float = typer.Option(0.0, "--occlusion-p",
                                       help="Fraction of views with a rendered occluder (fist/forearm that casts a "
                                            "shadow); covered squares are labeled `occluded`. 0 = none."),
+    borderless_p: float = typer.Option(0.0, "--borderless-p",
+                                       help="Fraction of scenes with a BORDERLESS procedural board (checker runs "
+                                            "edge-to-edge, no frame) — anti edge-shortcut for rim pieces. 0 = none."),
     blender: str | None = typer.Option(None, "--blender", help="Blender executable (default: blender, via CHESSLAB_BLENDER)."),
 ) -> None:
     """Generate synthetic board renderings with Blender/EEVEE (v2: board texture + procedural fallback)."""
@@ -722,7 +725,8 @@ def synth_render(
     cmd = build_blender_cmd(bl, b, script, o, n=n, seed=seed, fens=fe, pieces=p, res=res,
                             board_texture=bt, views_per_scene=views_per_scene,
                             samples=samples, max_obliqueness=max_obliqueness, piece_scale=piece_scale,
-                            cam_distance_jitter=cam_distance_jitter, occlusion_p=occlusion_p)
+                            cam_distance_jitter=cam_distance_jitter, occlusion_p=occlusion_p,
+                            borderless_p=borderless_p)
 
     print(" ".join(cmd))
     try:

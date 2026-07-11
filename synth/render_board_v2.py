@@ -522,7 +522,7 @@ def randomize_lights(rng):
             bg.inputs[0].default_value = (1.0, rng.uniform(0.82, 0.95), rng.uniform(0.62, 0.82), 1.0)
 
 
-def randomize_board(rng):
+def randomize_board(rng, borderless_p: float = 0.0):
     """Per-scene board appearance jitter — breaks the "read the board, not the piece" shortcut.
 
     With a single fixed board photo/texture, the background under every piece is IDENTICAL across
@@ -543,6 +543,13 @@ def randomize_board(rng):
     board = bpy.data.objects.get("BoardPlane")
     photo_mat = bpy.data.materials.get("BoardTexture")
     if board is not None and photo_mat is not None:
+        # Borderless procedural board (checker runs edge-to-edge, NO frame): edge squares are
+        # surrounded by more checker, so the model can't shortcut on the rim to spot a border
+        # piece (king/rook) — it must read the figure. `borderless_p` share of ALL scenes.
+        if borderless_p > 0.0 and rng.random() < borderless_p:
+            board.data.materials.clear()
+            board.data.materials.append(make_random_procedural_board(rng, bordered=False))
+            return
         if rng.random() < BOARD_PROCEDURAL_P:
             board.data.materials.clear()
             board.data.materials.append(make_random_procedural_board(rng))
@@ -600,21 +607,19 @@ def _rand_square_colors(rng):
     return tuple(light), tuple(dark)
 
 
-def make_random_procedural_board(rng):
-    """Procedural board for the BoardPlane: an 8x8 checker ALIGNED to the play area plus a
-    solid border ring — the real board's structure (frame + coordinate margin), only with
-    randomized colours/gloss for diversity.
+def make_random_procedural_board(rng, bordered: bool = True):
+    """Procedural board for the BoardPlane: an 8x8 checker ALIGNED to the play area, in randomized
+    colours. With `bordered=True` a solid frame surrounds the play area (the real board's
+    structure). With `bordered=False` the checker runs edge-to-edge over the whole plane (NO
+    frame): edge squares (a-file, ranks 1/8, where kings/rooks sit) are then surrounded by MORE
+    checker instead of a constant border — this kills the edge-shortcut where the model reads the
+    frame to recognise a rim piece (seen as bK piece_frac ~0%) instead of the figure itself.
 
-    Uses the plane's UV (play area occupies [0.5±BOARD_PLAY_HALF_FRAC] in U and V, the rest is
-    the border), so the 8x8 lands exactly on the true square world positions (a8/h8/h1/a1) and
-    the border sits outside ±HALF — same geometry as the photo texture. Earlier this reused
-    make_board_material's whole-plane checker (arbitrary Generated scale) → misaligned squares
-    and NO border.
+    Uses the plane's UV (play area occupies [0.5±BOARD_PLAY_HALF_FRAC]) so the 8x8 lands on the
+    true square world positions (a8/h8/h1/a1) regardless of the border; the checker simply tiles
+    on beyond ±HALF when borderless.
     """
     light, dark = _rand_square_colors(rng)
-    # Border tone: a darker wood-ish frame, related to the dark tile so it reads as one set.
-    border = tuple(min(1.0, c * rng.uniform(0.6, 0.95)) for c in dark)
-
     frac = BOARD_PLAY_HALF_FRAC
     lo, span = 0.5 - frac, 2.0 * frac
 
@@ -638,6 +643,13 @@ def make_random_procedural_board(rng):
     nt.links.new(coord.outputs["UV"], mapping.inputs["Vector"])
     nt.links.new(mapping.outputs["Vector"], checker.inputs["Vector"])
 
+    if not bordered:                                   # borderless: checker fills the whole plane
+        nt.links.new(checker.outputs["Color"], bsdf.inputs["Base Color"])
+        nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+        return mat
+
+    # Border tone: a darker wood-ish frame, related to the dark tile so it reads as one set.
+    border = tuple(min(1.0, c * rng.uniform(0.6, 0.95)) for c in dark)
     # Inside-play mask: Chebyshev distance from centre (0.5) < frac -> 1 (checker), else 0 (border).
     sep = nt.nodes.new("ShaderNodeSeparateXYZ")
     nt.links.new(coord.outputs["UV"], sep.inputs["Vector"])
@@ -1042,7 +1054,7 @@ def main():
         fen = fens[scene_idx % len(fens)] if fens else "8/8/8/8/8/8/8/8"
         pieces = place_from_fen(fen, templates, base_z, rng, procedural_types, fb_subsurf)
         if ra.randomize_board:
-            randomize_board(rng)   # new board look per scene → board carries no piece-type signal
+            randomize_board(rng, ra.borderless_p)   # new board per scene; some borderless (anti edge-shortcut)
         if ra.randomize_world:
             randomize_world(rng)   # varied surroundings beyond the board (edge/oblique crops)
 

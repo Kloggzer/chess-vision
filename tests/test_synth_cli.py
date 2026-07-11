@@ -100,6 +100,7 @@ def test_build_blender_cmd_minimal():
         "--piece-scale", "1.0",
         "--cam-distance-jitter", "0.0",
         "--occlusion-p", "0.0",
+        "--borderless-p", "0.0",
     ]
 
 
@@ -126,6 +127,7 @@ def test_build_blender_cmd_all_flags():
         "--piece-scale", "1.0",
         "--cam-distance-jitter", "0.4",
         "--occlusion-p", "0.25",
+        "--borderless-p", "0.0",
         "--fens", str(Path("fens.txt")),
         "--pieces", str(Path("pieces")),
     ]
