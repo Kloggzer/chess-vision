@@ -113,7 +113,12 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
 
     from .engine import evaluate_dataset, get_device
     from .model import build_model
-    from .torch_data import SquareDataset, build_transform, class_weights_tensor
+    from .torch_data import (
+        PackedSquareDataset,
+        SquareDataset,
+        build_transform,
+        class_weights_tensor,
+    )
 
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -179,9 +184,28 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         policy = replace(policy, **({"erase_p": erase_p} if erase_p is not None else {}),
                          **({"bg_p": bg_p} if bg_p is not None else {}))
         print(f"[aug] override erase_p={policy.erase_p} bg_p={policy.bg_p}")
-    train_ds = SquareDataset(train_rows, classes, build_transform(out_size, train=True, policy=policy),
-                             bg_randomize=True, policy=policy)
-    val_ds = SquareDataset(val_rows, classes, build_transform(out_size, train=False, policy=policy))
+    # Packed memmap loader (training.pack): if the dataset was `chesslab dataset pack`ed, read
+    # crops from ONE memmap instead of 1M per-item Image.open (the I/O bottleneck). Not used for
+    # bg-randomization (packed is for the big synth pretrain, bg_p=0); the finetune stays per-PNG.
+    packed = None
+    if dataset:
+        from .pack import load_packed
+        packed = load_packed(dataset)
+        if packed is not None and (policy.bg_p or 0) > 0:
+            print(f"[pack] packed memmap present but bg_p={policy.bg_p}>0 — using per-PNG loader "
+                  "(bg-randomization needs the files); pack is ignored for this run.")
+            packed = None
+    if packed is not None:
+        n, h, w = packed[1]
+        print(f"[pack] fast memmap loader: {n} crops, {n * h * w * 3 / 1e9:.1f} GB")
+        train_ds = PackedSquareDataset(train_rows, classes,
+                                       build_transform(out_size, train=True, policy=policy), packed)
+        val_ds = PackedSquareDataset(val_rows, classes,
+                                     build_transform(out_size, train=False, policy=policy), packed)
+    else:
+        train_ds = SquareDataset(train_rows, classes, build_transform(out_size, train=True, policy=policy),
+                                 bg_randomize=True, policy=policy)
+        val_ds = SquareDataset(val_rows, classes, build_transform(out_size, train=False, policy=policy))
 
     # BatchNorm is broken on ROCm-Windows (MIOpen/HIPRTC) -> default GroupNorm there.
     norm_eff = norm or ("groupnorm" if sys.platform.startswith("win") else "batchnorm")

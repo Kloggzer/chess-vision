@@ -138,6 +138,11 @@ def _apply_rotations(rows: list[dict], rotations: tuple[int, ...], squares_dir: 
 
 # --- Build ----------------------------------------------------------------------------
 
+# Auto-pack (build_dataset) only kicks in above this crop count — below it the per-PNG loader is
+# fine and a 53 GB memmap / a multiprocessing pack pool would be wasteful (also keeps tests light).
+_PACK_MIN_CROPS = 100_000
+
+
 def build_dataset(
     name: str,
     session_ids: list[str],
@@ -156,6 +161,7 @@ def build_dataset(
     variant_tag: str | None = None,
     allow_degenerate: bool = False,
     force_train=None,
+    pack: bool = True,
 ) -> dict:
     """Build dataset <name> from `session_ids`: filter -> dedup -> rotation -> manifest+split+stats.
 
@@ -235,8 +241,18 @@ def build_dataset(
     import yaml
     (ds / "dataset.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True),
                                      encoding="utf-8")
+    # Pack crops into one memmap so `train` reads from it instead of 1M per-item Image.open (the
+    # I/O bottleneck). Best-effort: a pack failure just means training falls back to the per-PNG
+    # loader (load_packed returns None). The memmap is disk-backed — it does NOT load into RAM.
+    packed_info = None
+    if pack and n_final >= _PACK_MIN_CROPS:            # only big sets — small ones load fine per-PNG
+        try:
+            from .training.pack import pack_dataset
+            packed_info = pack_dataset(name, paths)
+        except Exception as e:  # noqa: BLE001 — packing is an optimization, never fail the build
+            print(f"  ! packing skipped ({e}); training will use the per-PNG loader.")
     return {"name": name, "counts": cfg["counts"], "split_counts": split["counts"],
-            "warnings": split.get("warnings", [])}
+            "warnings": split.get("warnings", []), "packed": packed_info}
 
 
 # --- CRUD -----------------------------------------------------------------------------
