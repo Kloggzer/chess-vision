@@ -519,6 +519,7 @@ class TrackerService : LifecycleService() {
                     }
                 }
                 pipeline?.claheClip = next.claheClip
+                camera.applyTuning(next.lockExposure, next.focusDistance)
                 if (next.arucoMargin != prev.arucoMargin) rewarpForMargin(next.arucoMargin)
                 if (next.requiresEngineRestart(prev)) {
                     coordinator.reconfigure(next.toTrackerConfig())

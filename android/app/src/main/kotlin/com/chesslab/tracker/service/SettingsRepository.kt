@@ -57,6 +57,8 @@ class SettingsRepository(
         val CNN_CONF_THR = doublePreferencesKey("cnn_conf_thr")
         val ANALYSIS_DEPTH = intPreferencesKey("analysis_depth")
         val EXPERIMENTAL = booleanPreferencesKey("experimental_detection")
+        val LOCK_EXPOSURE = booleanPreferencesKey("lock_exposure")
+        val FOCUS_DISTANCE = doublePreferencesKey("focus_distance")
         val DEBUG_CARD = booleanPreferencesKey("debug_card")
         val OVERLAY_VIEW = stringPreferencesKey("overlay_view")
     }
@@ -81,6 +83,8 @@ class SettingsRepository(
             cnnConfThr = prefs[CNN_CONF_THR] ?: d.cnnConfThr,
             analysisDepth = prefs[ANALYSIS_DEPTH] ?: d.analysisDepth,
             experimentalDetection = prefs[EXPERIMENTAL] ?: d.experimentalDetection,
+            lockExposure = prefs[LOCK_EXPOSURE] ?: d.lockExposure,
+            focusDistance = prefs[FOCUS_DISTANCE] ?: d.focusDistance,
             debugCard = prefs[DEBUG_CARD] ?: d.debugCard,
             overlayView = prefs[OVERLAY_VIEW]?.let(::overlayOf) ?: d.overlayView,
         )
@@ -138,6 +142,8 @@ class SettingsRepository(
         prefs[LIGHTING_ROBUST] = s.lightingRobust
         prefs[COMMIT_FLOOR] = s.commitFloor
         prefs[EXPERIMENTAL] = s.experimentalDetection
+        prefs[LOCK_EXPOSURE] = s.lockExposure
+        prefs[FOCUS_DISTANCE] = s.focusDistance
         prefs[DEBUG_CARD] = s.debugCard
         prefs[OVERLAY_VIEW] = s.overlayView.name
     }
