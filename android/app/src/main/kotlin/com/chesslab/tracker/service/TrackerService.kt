@@ -44,6 +44,7 @@ import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.imgproc.Imgproc
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class DebugBitmaps(
     val detectionDiff: Bitmap? = null,
@@ -91,7 +92,7 @@ class TrackerService : LifecycleService() {
     // specs/14: one-shot intrinsic calibration — armed when the toggle is on but no
     // cached theta/lo/hi exists; fired from the frame loop on a quiet, non-dark frame.
     @Volatile private var intrinsicCalibrationPending = false
-    private val intrinsicCalibrating = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val intrinsicCalibrating = AtomicBoolean(false)
     private var cnn: CnnIntegration? = null
     private lateinit var cnnScope: CoroutineScope
     private val cnnFrameStore = CnnFrameStore()
