@@ -258,19 +258,24 @@ internal class Detector(
     }
 
     /**
-     * ZNCC shadow test (literature-standard, e.g. Sanin et al. survey): a gray-hot square whose
-     * pixels still correlate ≥ [ZNCC_SHADOW_MIN] with the reference changed only by a LINEAR
-     * lighting factor — a shadow/light sweep over an existing piece, not a move. NCC is the
-     * continuous complement to the census bits (which flip under sensor noise / soft penumbra).
-     * `squareZncc` returns null on structureless reference squares (flat empty cell), so real
+     * Structure-intact lighting test (Sanin et al. survey), two complementary correlations:
+     * - ZNCC ≥ [ZNCC_SHADOW_MIN]: same structure up to a LINEAR lighting factor.
+     * - Gradient-DIRECTION correlation ≥ [GRAD_DIR_SHADOW_MIN] (the survey's winning
+     *   "large-region texture" test): edge directions unchanged — catches NON-linear
+     *   dimming (camera gamma, soft penumbra) that intensity-ZNCC can miss.
+     * Both return null on structureless reference squares (flat empty cell), so real
      * ARRIVALS there can never be vetoed (the dark-rook-on-f8 castle lesson).
      */
     private fun znccLighting(
         sq: String,
         cur: GrayImage,
     ): Boolean {
-        val n = SquareDiff.squareZncc(state.refGray!!, cur, Squares.region(sq, geom)) ?: return false
-        return n >= ZNCC_SHADOW_MIN
+        val box = Squares.region(sq, geom)
+        val n = SquareDiff.squareZncc(state.refGray!!, cur, box)
+        if (n != null && n >= ZNCC_SHADOW_MIN) return true
+        if (!config.diffGradDirVeto) return false
+        val g = SquareDiff.squareGradientDirCorrelation(state.refGray!!, cur, box) ?: return false
+        return g >= GRAD_DIR_SHADOW_MIN
     }
 
     /** Step 5 — quiet board: re-anchor or wait (ports tracker.py:2007-2035). Returns true when handled. */
@@ -441,5 +446,12 @@ internal class Detector(
 
         /** ZNCC at/above this = same structure up to linear lighting (0.9: literature-typical). */
         const val ZNCC_SHADOW_MIN = 0.9
+
+        /**
+         * Mean gradient-direction cosine at/above this = edges did not move (lrTex decider).
+         * 0.9: real shadows keep directions near-perfectly (~0.95+), while piece swaps /
+         * partial overlaps land ~0.8 — at 0.8 the veto delayed italian's Bb3 past clip end.
+         */
+        const val GRAD_DIR_SHADOW_MIN = 0.9
     }
 }

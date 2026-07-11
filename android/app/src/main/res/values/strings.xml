@@ -74,6 +74,7 @@
     <string name="calib_aruco_not_found">Markers not found</string>
     <string name="calib_aiming">Aiming… point the camera at the board</string>
     <string name="calib_loupe_zoom">2.6×</string>
+    <string name="calib_camera_tuning">Camera tuning (experimental)</string>
 
     <!-- Settings sections -->
     <string name="settings_game">Game</string>
@@ -124,6 +125,7 @@
     <!-- Settings: experimental + debug -->
     <string name="setting_experimental_detection">Automatic board detection (experimental)</string>
     <string name="setting_lock_exposure">Lock exposure &amp; white balance (experimental)</string>
+    <string name="setting_grad_dir_veto">Gradient shadow veto (experimental)</string>
     <string name="setting_focus_distance">Manual focus (diopters, 0 = auto)</string>
     <string name="setting_intrinsic_gray">Shadow-free diff channel (experimental)</string>
     <string name="setting_debug_card">Debug card</string>

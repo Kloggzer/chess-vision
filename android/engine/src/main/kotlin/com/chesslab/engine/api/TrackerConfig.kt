@@ -28,6 +28,13 @@ data class TrackerConfig(
     val diffIllumCancel: Boolean = DEFAULT_DIFF_ILLUM_CANCEL,
     /** Census-quiet vetoes changed squares WITHOUT the chroma shadow test; false = Python parity. */
     val diffLightVeto: Boolean = DEFAULT_DIFF_LIGHT_VETO,
+    /**
+     * Adds the lrTex gradient-DIRECTION correlation to the light veto (Sanin survey winner;
+     * catches NON-linear dimming ZNCC can miss). Default false EVERYWHERE: at 0.8/0.9 it cost
+     * italian's last Bb3 confirm frame in the Android-profile replay — enable live only if
+     * shadows still leak after the intrinsic channel.
+     */
+    val diffGradDirVeto: Boolean = DEFAULT_DIFF_GRAD_DIR_VETO,
     /** Minimum absolute loglik score a voting candidate needs to commit; 0 = off (Python parity). */
     val commitLlFloor: Double = DEFAULT_COMMIT_LL_FLOOR,
     val requireMotionForMove: Boolean = DEFAULT_REQUIRE_MOTION_FOR_MOVE,
@@ -97,6 +104,9 @@ data class TrackerConfig(
          * sharp edges in place — gray fires but census structure stays put.
          */
         const val DEFAULT_DIFF_LIGHT_VETO: Boolean = false
+
+        /** Off by default everywhere (incl. Android) — see [diffGradDirVeto]. */
+        const val DEFAULT_DIFF_GRAD_DIR_VETO: Boolean = false
 
         /**
          * Python parity (config.TRACK_DEFAULTS commit_ll_floor — added together): real moves

@@ -58,6 +58,7 @@ class SettingsRepository(
         val ANALYSIS_DEPTH = intPreferencesKey("analysis_depth")
         val EXPERIMENTAL = booleanPreferencesKey("experimental_detection")
         val LOCK_EXPOSURE = booleanPreferencesKey("lock_exposure")
+        val GRAD_DIR_VETO = booleanPreferencesKey("grad_dir_veto")
         val FOCUS_DISTANCE = doublePreferencesKey("focus_distance")
         val INTRINSIC_GRAY = booleanPreferencesKey("intrinsic_gray")
         val INTRINSIC_ANGLE = doublePreferencesKey("intrinsic_angle")
@@ -88,6 +89,7 @@ class SettingsRepository(
             analysisDepth = prefs[ANALYSIS_DEPTH] ?: d.analysisDepth,
             experimentalDetection = prefs[EXPERIMENTAL] ?: d.experimentalDetection,
             lockExposure = prefs[LOCK_EXPOSURE] ?: d.lockExposure,
+            gradDirVeto = prefs[GRAD_DIR_VETO] ?: d.gradDirVeto,
             focusDistance = prefs[FOCUS_DISTANCE] ?: d.focusDistance,
             intrinsicGray = prefs[INTRINSIC_GRAY] ?: d.intrinsicGray,
             intrinsicAngle = prefs[INTRINSIC_ANGLE] ?: d.intrinsicAngle,
@@ -151,6 +153,7 @@ class SettingsRepository(
         prefs[COMMIT_FLOOR] = s.commitFloor
         prefs[EXPERIMENTAL] = s.experimentalDetection
         prefs[LOCK_EXPOSURE] = s.lockExposure
+        prefs[GRAD_DIR_VETO] = s.gradDirVeto
         prefs[FOCUS_DISTANCE] = s.focusDistance
         prefs[INTRINSIC_GRAY] = s.intrinsicGray
         prefs[INTRINSIC_ANGLE] = s.intrinsicAngle

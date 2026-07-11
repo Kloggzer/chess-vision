@@ -212,16 +212,10 @@ fun SettingsScreen(
         SettingSwitch(stringResource(R.string.setting_experimental_detection), settings.experimentalDetection) { v ->
             onUpdate { it.copy(experimentalDetection = v) }
         }
-        SettingSwitch(stringResource(R.string.setting_lock_exposure), settings.lockExposure) { v ->
-            onUpdate { it.copy(lockExposure = v) }
+        // AE/AWB lock + manual focus moved to the CALIBRATION screen (live preview there).
+        SettingSwitch(stringResource(R.string.setting_grad_dir_veto), settings.gradDirVeto) { v ->
+            onUpdate { it.copy(gradDirVeto = v) }
         }
-        SettingSlider(
-            label = stringResource(R.string.setting_focus_distance),
-            value = settings.focusDistance,
-            range = 0f..10f,
-            default = 0.0,
-            onChange = { v -> onUpdate { it.copy(focusDistance = v) } },
-        )
         // specs/14: intrinsic shadow-free channel. Toggle only — theta/lo/hi are the
         // service-owned calibration cache, never user-tunable.
         SettingSwitch(stringResource(R.string.setting_intrinsic_gray), settings.intrinsicGray) { v ->

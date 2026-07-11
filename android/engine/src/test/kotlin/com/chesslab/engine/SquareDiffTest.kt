@@ -146,6 +146,51 @@ class SquareDiffTest {
     }
 
     @Test
+    fun `gradient direction correlation survives nonlinear dimming but breaks on a move`() {
+        val bs = TestImages.BS
+        val box = Squares.region("e4", geom)
+
+        // Textured reference (piece-like blob with strong edges).
+        val ref = GrayImage(bs, bs, ByteArray(bs * bs) { 60.toByte() })
+        for (y in box.y0 until box.y1) {
+            for (x in box.x0 until box.x1) {
+                ref.data[y * bs + x] = (if ((x + y) % 3 == 0) 210 else 50).toByte()
+            }
+        }
+
+        // NON-linear dimming (gamma 1.8): edge directions unchanged, magnitudes warped.
+        val dimmed = GrayImage(bs, bs, ref.data.copyOf())
+        for (y in box.y0 until box.y1) {
+            for (x in box.x0 until box.x1) {
+                val v = (ref.data[y * bs + x].toInt() and 0xFF) / 255.0
+                dimmed.data[y * bs + x] = (Math.pow(v, 1.8) * 255.0).toInt().toByte()
+            }
+        }
+        val shadowG = SquareDiff.squareGradientDirCorrelation(ref, dimmed, box)
+        assertTrue(shadowG != null && shadowG > 0.8, "gamma dimming must keep gradient directions (got $shadowG)")
+
+        // Structural change: different edge pattern -> directions decorrelate.
+        val moved = GrayImage(bs, bs, ref.data.copyOf())
+        for (y in box.y0 until box.y1) {
+            for (x in box.x0 until box.x1) {
+                moved.data[y * bs + x] = (if ((x * 7 + y * 3) % 5 < 2) 30 else 190).toByte()
+            }
+        }
+        val moveG = SquareDiff.squareGradientDirCorrelation(ref, moved, box)
+        assertTrue(moveG != null && moveG < 0.5, "a structural change must break gradient directions (got $moveG)")
+
+        // Arrival on a structureless reference: the piece's NEW edges vote (symmetric
+        // sampling) and drag the correlation to ~0 — an arrival can never look like lighting.
+        val flat = GrayImage(bs, bs, ByteArray(bs * bs) { 60.toByte() })
+        val arrivalG = SquareDiff.squareGradientDirCorrelation(flat, moved, box)
+        assertTrue(arrivalG != null && arrivalG < 0.3, "an arrival must not correlate (got $arrivalG)")
+
+        // Flat vs flat: nothing to judge -> null.
+        val flat2 = GrayImage(bs, bs, ByteArray(bs * bs) { 62.toByte() })
+        assertEquals(null, SquareDiff.squareGradientDirCorrelation(flat, flat2, box))
+    }
+
+    @Test
     fun `colRow rotates 180 degrees for black pov`() {
         assertEquals(4 to 4, Squares.colRow("e4", true))
         assertEquals(3 to 3, Squares.colRow("e4", false))

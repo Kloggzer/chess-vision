@@ -59,6 +59,7 @@ import com.chesslab.tracker.R
 import com.chesslab.tracker.geometry.ArucoCornerDetector
 import com.chesslab.tracker.geometry.BoardCorners
 import com.chesslab.tracker.geometry.Point
+import com.chesslab.tracker.service.TrackerSettings
 import com.chesslab.tracker.ui.theme.BoardPalette
 import kotlinx.coroutines.delay
 import org.opencv.core.Mat
@@ -108,6 +109,8 @@ fun CalibrationScreen(
     arucoDetector: ArucoCornerDetector? = null,
     arucoEnabled: Boolean = false,
     frameProvider: () -> Mat? = { null },
+    settings: TrackerSettings? = null,
+    onUpdateSettings: ((TrackerSettings) -> TrackerSettings) -> Unit = {},
 ) {
     var taps by rememberSaveable(stateSaver = OffsetListSaver) { mutableStateOf(listOf<Offset>()) }
     var loupe by remember { mutableStateOf<Offset?>(null) }
@@ -313,6 +316,27 @@ fun CalibrationScreen(
                 },
                 enabled = taps.size == 4 && !confirming,
             ) { Text(stringResource(R.string.calib_save)) }
+        }
+
+        // Camera tuning lives on THIS screen (the live preview is right above, so the
+        // effect of locking exposure / pulling focus is immediately visible; the values
+        // still persist through TrackerSettings like every other setting).
+        if (settings != null) {
+            Text(
+                stringResource(R.string.calib_camera_tuning),
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            SettingSwitch(stringResource(R.string.setting_lock_exposure), settings.lockExposure) { v ->
+                onUpdateSettings { it.copy(lockExposure = v) }
+            }
+            SettingSlider(
+                label = stringResource(R.string.setting_focus_distance),
+                value = settings.focusDistance,
+                range = 0f..10f,
+                default = 0.0,
+                onChange = { v -> onUpdateSettings { it.copy(focusDistance = v) } },
+            )
         }
     }
 }
