@@ -467,12 +467,28 @@ def reliance_cmd(
 @app.command("export")
 def export_cmd(
     run: str = typer.Option(..., "--run", help="Run directory from `train`."),
-    fmt: str = typer.Option("torchscript", "--format", help="torchscript | onnx | all"),
+    fmt: str = typer.Option("torchscript", "--format",
+                            help="torchscript | onnx | qnn | onnx-qnn | all "
+                                 "(qnn = INT8/QDQ ONNX for the on-device Hexagon NPU)"),
 ) -> None:
     """Export best.pt to TorchScript/ONNX + model_card.json (handoff to inference app)."""
     from .training.evaluate import run_export
 
     raise typer.Exit(run_export(run=run, fmt=fmt))
+
+
+@app.command("quantize")
+def quantize_cmd(
+    run: str = typer.Option(..., "--run", help="Run directory (must already contain model.onnx)."),
+    limit: int = typer.Option(128, "--limit", help="Number of calibration crops (class-balanced)."),
+    activation: str = typer.Option("quint16", "--activation",
+                                   help="quint16 (A16W8, recommended for HTP) | quint8 (pure INT8)."),
+    weight: str = typer.Option("quint8", "--weight", help="quint8 | qint8 (weight dtype)."),
+) -> None:
+    """Static-quantize model.onnx -> model.qnn.onnx (INT8 QDQ) for the Hexagon NPU QNN EP."""
+    from .training.quantize import run_quantize
+
+    raise typer.Exit(run_quantize(run=run, limit=limit, activation_type=activation, weight_type=weight))
 
 
 @app.command("web")
