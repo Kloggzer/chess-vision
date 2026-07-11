@@ -101,7 +101,12 @@ fun SettingsScreen(
             SettingSlider(stringResource(R.string.setting_z_thr), settings.zThr, 0f..8f, 3.0) { v ->
                 onUpdate { it.copy(zThr = v) }
             }
-            SettingSlider(stringResource(R.string.setting_census_thr), settings.censusThr, 0f..400f, 160.0) { v ->
+            SettingSlider(
+                stringResource(R.string.setting_census_thr),
+                settings.censusThr,
+                0f..400f,
+                TrackerConfig.DEFAULT_CENSUS_THR,
+            ) { v ->
                 onUpdate { it.copy(censusThr = v) }
             }
             SettingSlider(stringResource(R.string.setting_census_z_weight), settings.censusZWeight, 0f..2f, 1.0) { v ->

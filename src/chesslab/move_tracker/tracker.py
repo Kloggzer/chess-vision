@@ -676,7 +676,7 @@ class MoveTracker:
                  cnn_run: str | None = None, cnn_conf_thr: float = 0.85,
                  cnn_cooldown_s: float = 2.0, cnn_check_interval_s: float = 10.0,
                  device: str = "auto", verify_window: int = 8,
-                 census_thr: float = 160.0, cnn_verify: bool = True,
+                 census_thr: float = 40.0, cnn_verify: bool = True,
                  z_thr: float = 3.0, ll_k: float = 1.0, ambiguity_margin_ll: float = 2.0,
                  reanchor_ll_floor: float = -4.0, nudge_timeout_s: float = 5.0,
                  drift_window_s: float = 30.0, use_prior: bool = True,
