@@ -157,9 +157,17 @@ class AugmentPolicy:
     # Fractional (bg_p) so board-vs-random does not correlate with occupancy. Mask-free (works on
     # real crops too, which have no piece mask). Directly attacks the bN=8%-background shortcut:
     # among occupied squares the board carries no piece-type info → the type head must read the piece.
-    bg_p: float = 0.35                # prob per occupied crop (0 = off)
+    bg_p: float = 0.60                # prob per occupied crop (0 = off)
     bg_keep_w: float = 0.60           # centered box width kept (piece region), * crop
     bg_keep_h: float = 0.90           # centered box height kept (taller — pieces extend up)
+    # The replacement border is drawn from a MIX of self-generated procedural textures
+    # (checker/noise/gradient/wood — board-like but random) and random crops of OTHER board
+    # images in the dataset (real texture, uncorrelated with THIS crop's piece). A textured,
+    # realistic-but-uninformative border is far harder to shortcut than a flat colour: the model
+    # can't tell augmented from real, so it must read the figure. bg_procedural_frac = share drawn
+    # procedurally (the rest from the other-board pool); bg_pool_size = pool of donor crops.
+    bg_procedural_frac: float = 0.5   # fraction of bg draws that are procedural (rest: other-board)
+    bg_pool_size: int = 512           # donor crops sampled once for the other-board background pool
     allow_flip: bool = False        # explicitly forbidden
     allow_rotate90: bool = False    # explicitly forbidden
 

@@ -63,13 +63,69 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
     return T.Compose(ops)
 
 
-def randomize_border_bg(img: Image.Image, keep_w: float, keep_h: float) -> Image.Image:
-    """Replace the border ring (the board) with a random feathered background, keep the centered box.
+def _procedural_bg(h: int, w: int) -> np.ndarray:
+    """A random board-LIKE texture (float32 HxWx3, 0..255): checker / gradient / wood bands /
+    noise / solid. Board-like but carrying no piece information — so the border can't be a shortcut,
+    yet (unlike a flat colour) the model can't tell it apart from a real board and ignore it."""
+    kind = random.choice(("checker", "gradient", "wood", "noise", "solid"))
+    if kind == "checker":
+        c1 = np.array([random.uniform(30, 230) for _ in range(3)], np.float32)
+        c2 = np.array([random.uniform(30, 230) for _ in range(3)], np.float32)
+        cell = random.randint(max(8, w // 12), max(16, w // 3))
+        off_x, off_y = random.randint(0, cell), random.randint(0, cell)
+        yy, xx = np.mgrid[0:h, 0:w]
+        m = (((xx + off_x) // cell + (yy + off_y) // cell) % 2).astype(np.float32)[..., None]
+        bg = c1[None, None, :] * m + c2[None, None, :] * (1.0 - m)
+    elif kind == "gradient":
+        c1 = np.array([random.uniform(0, 255) for _ in range(3)], np.float32)
+        c2 = np.array([random.uniform(0, 255) for _ in range(3)], np.float32)
+        t = (np.linspace(0, 1, w)[None, :, None] if random.random() < 0.5
+             else np.linspace(0, 1, h)[:, None, None])
+        bg = c1[None, None, :] * (1.0 - t) + c2[None, None, :] * t
+    elif kind == "wood":
+        base = np.array([random.uniform(60, 200), random.uniform(40, 150), random.uniform(20, 110)], np.float32)
+        freq, phase = random.uniform(0.03, 0.18), random.uniform(0, 6.28)
+        bands = (np.sin(np.arange(h)[:, None] * freq + phase) * 0.5 + 0.5)[..., None]
+        bg = base[None, None, :] * (0.6 + 0.4 * bands) * np.ones((1, w, 1), np.float32)
+    elif kind == "noise":
+        base = np.array([random.uniform(30, 220) for _ in range(3)], np.float32)
+        bg = base[None, None, :] + np.random.normal(0, random.uniform(6, 45), (h, w, 3))
+    else:  # solid + gentle vertical gradient (the original behaviour, kept as one option)
+        base = np.array([random.uniform(0, 255) for _ in range(3)], np.float32)
+        bg = base[None, None, :] + np.linspace(random.uniform(-30, 30), random.uniform(-30, 30), h)[:, None, None]
+    bg = bg + np.random.normal(0, 4, bg.shape)  # mild grain on every kind
+    return np.clip(bg, 0, 255).astype(np.float32)
+
+
+def _pool_bg(h: int, w: int, pool: list[str]) -> np.ndarray | None:
+    """Random crop of ANOTHER board image (real texture, uncorrelated with this crop's piece).
+    The donor's own piece sits centred and is masked out by the keep-box, so only its board border
+    shows. Returns float32 HxWx3 (0..255), or None if the donor can't be read."""
+    for _ in range(3):
+        try:
+            donor = Image.open(random.choice(pool)).convert("RGB")
+        except (OSError, ValueError):
+            continue
+        # slight random zoom/crop for variety, then match the target size
+        dw, dh = donor.size
+        z = random.uniform(0.8, 1.0)
+        cw, ch = max(1, int(dw * z)), max(1, int(dh * z))
+        x0, y0 = random.randint(0, dw - cw), random.randint(0, dh - ch)
+        donor = donor.crop((x0, y0, x0 + cw, y0 + ch)).resize((w, h))
+        return np.asarray(donor).astype(np.float32)
+    return None
+
+
+def randomize_border_bg(img: Image.Image, keep_w: float, keep_h: float,
+                        pool: list[str] | None = None, procedural_frac: float = 0.5) -> Image.Image:
+    """Replace the border ring (the board) with a random TEXTURED background, keep the centered box.
 
     Mask-free class-conditional background randomization (caller applies it only to occupied crops).
     The centered box (keep_w x keep_h of the crop) preserves the piece; everything outside is blended
-    toward a random color + mild gradient, with a soft (blurred) edge so the model can't latch onto a
-    hard rectangle. Forces the type head off the board and onto the figure.
+    toward a background drawn from a MIX of procedural textures and crops of OTHER board images, with a
+    soft (blurred) edge so the model can't latch onto a hard rectangle. A textured, realistic-but-
+    uninformative border is far harder to shortcut than a flat colour — it forces the type head onto
+    the figure. Falls back to procedural when the donor pool is empty/unreadable.
     """
     from PIL import ImageFilter
 
@@ -83,11 +139,17 @@ def randomize_border_bg(img: Image.Image, keep_w: float, keep_h: float) -> Image
     m = np.asarray(Image.fromarray((m * 255).astype(np.uint8))
                    .filter(ImageFilter.GaussianBlur(radius=feather))).astype(np.float32) / 255.0
     m = m[..., None]
-    base = np.array([random.uniform(0, 255) for _ in range(3)], np.float32)
-    grad = np.linspace(random.uniform(-30, 30), random.uniform(-30, 30), h)[:, None, None]
-    bg = np.clip(base[None, None, :] + grad, 0, 255)
+    bg = None
+    if pool and random.random() >= procedural_frac:
+        bg = _pool_bg(h, w, pool)
+    if bg is None:
+        bg = _procedural_bg(h, w)
     out = arr * m + bg * (1.0 - m)
-    return Image.fromarray(out.astype(np.uint8))
+    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
+
+
+# Labels whose crop is mostly board/hand (no piece) — background randomization would corrupt them.
+_BG_SKIP_LABELS = {"empty", "occluded"}
 
 
 class SquareDataset(Dataset):
@@ -99,6 +161,13 @@ class SquareDataset(Dataset):
         # Class-conditional background randomization (train only). See config.AugmentPolicy.bg_*.
         self.bg_randomize = bg_randomize and getattr(policy, "bg_p", 0.0) > 0
         self.policy = policy
+        # Donor pool for the "other-board" background source: a random sample of crop paths whose
+        # borders (real board texture) get pasted around OTHER crops' pieces (uncorrelated).
+        self.bg_pool: list[str] = []
+        if self.bg_randomize and rows:
+            n = min(getattr(policy, "bg_pool_size", 0), len(rows))
+            if n > 0:
+                self.bg_pool = [r["path"] for r in random.sample(rows, n)]
 
     def __len__(self) -> int:
         return len(self.rows)
@@ -106,8 +175,9 @@ class SquareDataset(Dataset):
     def __getitem__(self, i):
         r = self.rows[i]
         img = Image.open(r["path"]).convert("RGB")
-        if self.bg_randomize and r["label"] != "empty" and random.random() < self.policy.bg_p:
-            img = randomize_border_bg(img, self.policy.bg_keep_w, self.policy.bg_keep_h)
+        if self.bg_randomize and r["label"] not in _BG_SKIP_LABELS and random.random() < self.policy.bg_p:
+            img = randomize_border_bg(img, self.policy.bg_keep_w, self.policy.bg_keep_h,
+                                      pool=self.bg_pool, procedural_frac=self.policy.bg_procedural_frac)
         x = self.transform(img)
         y = self.c2i[r["label"]]
         return x, y

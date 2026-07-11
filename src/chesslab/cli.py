@@ -416,6 +416,40 @@ def eval_cmd(
     raise typer.Exit(run_eval(run=run, split_name=split, input_size=input_size))
 
 
+@app.command("reliance")
+def reliance_cmd(
+    run: str = typer.Option(..., "--run", help="Run directory from `train`."),
+    split: str = typer.Option("test", "--split", help="train | val | test"),
+    per_class: int = typer.Option(16, "--per-class", help="Crops sampled per class for the occlusion test."),
+) -> None:
+    """Background reliance: per-class `piece_frac` (does it read the piece or the board?).
+
+    Mask-free Zeiler & Fergus occlusion: piece_frac near 1 = decision driven by the FIGURE,
+    near 0 = by the surrounding BOARD (the shortcut). Occupied classes < 45% are flagged WEAK.
+    Writes `<run>/reliance.json` for reproducible before/after comparison. NOTE: the split shares
+    the same physical board, so the shortcut inflates in-distribution recall — trust THIS metric
+    over recall when judging robustness."""
+    import json
+    from pathlib import Path
+
+    from .training.gradcam import reliance_for_run
+
+    run_dir = Path(run)
+    stats = reliance_for_run(run_dir, split=split, per_class=per_class)
+    typer.echo(f"{'class':>8}  {'n':>4}  {'piece%':>7}  {'base':>5}  flag")
+    for r in sorted(stats, key=lambda s: s["piece_frac"]):
+        pf = r["piece_frac"] * 100
+        weak = r["cls"] not in ("empty", "occluded") and pf < 45
+        typer.echo(f"{r['cls']:>8}  {r['n']:>4}  {pf:>6.1f}%  {r['base_prob']:>5.2f}  {'WEAK' if weak else ''}")
+    occ = [r for r in stats if r["cls"] not in ("empty", "occluded")]
+    if occ:
+        typer.echo(f"\nmean piece_frac (occupied classes): "
+                   f"{sum(r['piece_frac'] for r in occ) / len(occ) * 100:.1f}%")
+    (run_dir / "reliance.json").write_text(
+        json.dumps({"split": split, "per_class": per_class, "classes": stats}, indent=2), encoding="utf-8")
+    typer.echo(f"wrote {run_dir / 'reliance.json'}")
+
+
 @app.command("export")
 def export_cmd(
     run: str = typer.Option(..., "--run", help="Run directory from `train`."),
