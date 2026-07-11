@@ -59,11 +59,14 @@ class BoardCropper(
     )
 
     companion object {
-        /** `config.py CropDefaults.pad_up` — 3D pieces lean into the rank behind. */
-        const val PAD_UP: Double = 0.35
+        /** `config.py CropDefaults.pad_up` — kept 0: a tall (pad_up>0) crop drags the
+         *  neighbour rank's piece + board in, feeding the board-shortcut. Square cell only. */
+        const val PAD_UP: Double = 0.0
 
-        /** `config.py CropDefaults.pad_side` — symmetric expansion, all 4 sides. */
-        const val PAD_SIDE: Double = 0.05
+        /** `config.py CropDefaults.pad_side` — symmetric expansion, all 4 sides (10% margin
+         *  beyond the strict cell border). Symmetric → the crop stays SQUARE. Must match
+         *  training (config.py CropDefaults.pad_side) so live crops equal training crops 1:1. */
+        const val PAD_SIDE: Double = 0.10
 
         private const val CHANNELS = 3
         private const val BYTE_MASK = 0xFF

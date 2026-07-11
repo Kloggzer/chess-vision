@@ -98,7 +98,9 @@ def test_slice_start_position(tmp_path):
     e1 = next(r for r in rows if r["square"] == "e1")
     assert e1["label"] == "wK"
     assert e1["square_color"] == "dark"
-    assert e1["out_size"] == [128, 176]   # config default: taller-than-wide box (pad_up captures piece top)
+    from chesslab import config
+
+    assert e1["out_size"] == [config.CROP.out_w, config.CROP.out_h]  # follows CropDefaults (square since pad_up=0)
     # crop file actually written, ImageFolder-style
     assert (squares_root / "wK" / "sess1_0000_e1.png").exists()
 

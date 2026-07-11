@@ -45,16 +45,21 @@ class CropDefaults:
     cameras flat enough that 3D pieces lean into the rank behind; `crop_square` keeps the
     aspect ratio (letterbox) so any pad value stays distortion-free. Overridable per `slice`."""
 
-    pad_up: float = 0.35     # ADDITIONAL expansion only upward (3D lean), * cell. Non-zero: the
-                             # camera is oblique enough that tall pieces (N/B/R crown, knight ears)
-                             # clip at the cell's top edge — exactly the type-discriminative part.
-                             # Recovers it so the type head gets the silhouette it needs.
-    pad_side: float = 0.05   # symmetric expansion in ALL 4 directions, * cell (5% = more piece
-                             # visible instead of being cut off hard at the green square border)
+    pad_up: float = 0.0      # ADDITIONAL expansion only upward (3D lean), * cell. Kept 0 by default:
+                             # a non-zero pad_up makes the crop TALLER than wide and, on near-top-down
+                             # cameras/renders, drags the NEIGHBOUR rank's piece + board into the crop —
+                             # exactly the board-shortcut we fight (Grad-CAM then lands on the board, not
+                             # the piece). Raise it per `slice` only for a strongly oblique camera where
+                             # tall pieces genuinely clip at the cell's top edge.
+    pad_side: float = 0.10   # symmetric expansion in ALL 4 directions, * cell (10% MORE than the strict
+                             # cell border on every side). Symmetric → the box stays SQUARE (no aspect
+                             # distortion); gives margin so the piece isn't cut off hard at the square
+                             # border while still centred on its own cell. Inference crops read the same
+                             # profile.crop params, so live square crops match training 1:1 (parity).
     out_w: int = 128
-    out_h: int = 176         # TALLER than wide to match the pad_up box aspect
-                             # ((1+pad_up+2*pad_side)/(1+2*pad_side) ≈ 1.32) — keeps the piece at full
-                             # scale instead of letterboxing it smaller. AdaptiveAvgPool handles non-square.
+    out_h: int = 128         # SQUARE — matches the square (pad_up=0) box aspect, so the piece fills the
+                             # crop with no letterboxing and no neighbour-rank context. Raise out_h with
+                             # pad_up together if a per-slice oblique override reintroduces upward padding.
 
 
 CROP = CropDefaults()
