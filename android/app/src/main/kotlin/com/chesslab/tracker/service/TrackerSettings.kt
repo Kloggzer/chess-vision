@@ -79,6 +79,15 @@ data class TrackerSettings(
     // fixes manual focus in diopters (1/m, ~2.0 = 50cm mount; 0 = continuous autofocus).
     val lockExposure: Boolean = false,
     val focusDistance: Double = 0.0,
+    // EXPERIMENTAL shadow-free diff channel (specs/14, Finlayson intrinsic image):
+    // the invariant image replaces the CLAHE-gray detect input inside
+    // BoardFramePipeline. Needs a per-camera calibration; the service self-calibrates
+    // on the next quiet frame and caches theta/lo/hi below (NaN = not calibrated,
+    // written by the SERVICE, never by the settings screen).
+    val intrinsicGray: Boolean = false,
+    val intrinsicAngle: Double = Double.NaN,
+    val intrinsicLo: Double = Double.NaN,
+    val intrinsicHi: Double = Double.NaN,
     val debugCard: Boolean = false,
     val overlayView: OverlayView = OverlayView.BOARD,
 ) {

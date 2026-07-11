@@ -35,6 +35,8 @@ class ProcessedFrame(
 class BoardFramePipeline(
     warper: BoardWarper,
     @Volatile var claheClip: Double,
+    /** Non-null = intrinsic channel active (specs/14): replaces cvtColor-gray, skips CLAHE. */
+    @Volatile var intrinsic: IntrinsicGray? = null,
 ) : AutoCloseable {
     private val warperLock = Any()
 
@@ -63,6 +65,9 @@ class BoardFramePipeline(
         // the full-res board — the interpolation differs and can flip a low-contrast recapture's
         // shadow classification.
         val detectBgr = warped.detectBgr
+        // Reassigned when the intrinsic channel swaps in its own gray; the finally
+        // block always releases whichever Mat currently backs the engine gray.
+        var engineGray = detectGray
         return try {
             if (!whitePov) {
                 Core.rotate(boardBgr, boardBgr, Core.ROTATE_180)
@@ -71,10 +76,22 @@ class BoardFramePipeline(
             }
             // Measured pre-CLAHE: equalization stretches a near-black scene to mid-gray,
             // which is exactly the noise amplification the dark-frame gate must catch.
+            // Stays on the PLAIN gray even when the intrinsic channel is active — a dark
+            // room must still trip the dark-frame gate (specs/14 contract).
             val meanLuma = Core.mean(detectGray).`val`[0]
-            preprocessGray(detectGray)
+            val activeIntrinsic = intrinsic
+            if (activeIntrinsic != null) {
+                // Intrinsic channel (specs/14): the invariant image replaces the cvtColor
+                // gray. CLAHE is skipped — the transform carries its own fixed lo/hi
+                // normalization and CLAHE would re-introduce local gain. Blur stays.
+                engineGray = activeIntrinsic.apply(detectBgr)
+                detectGray.release()
+                Imgproc.GaussianBlur(engineGray, engineGray, Size(BLUR_KERNEL, BLUR_KERNEL), 0.0)
+            } else {
+                preprocessGray(engineGray)
+            }
             ProcessedFrame(
-                gray = detectGray.toGrayImage(),
+                gray = engineGray.toGrayImage(),
                 bgr = detectBgr.toBgrImage(),
                 boardBgr = boardBgr,
                 timestampNs = timestampNs,
@@ -84,7 +101,7 @@ class BoardFramePipeline(
             boardBgr.release()
             throw t
         } finally {
-            detectGray.release()
+            engineGray.release()
             detectBgr.release()
         }
     }

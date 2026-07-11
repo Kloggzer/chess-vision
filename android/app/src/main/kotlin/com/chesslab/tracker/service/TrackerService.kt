@@ -44,6 +44,7 @@ import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.imgproc.Imgproc
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class DebugBitmaps(
     val detectionDiff: Bitmap? = null,
@@ -87,6 +88,11 @@ class TrackerService : LifecycleService() {
     private var observedReferenceVersion = -1L
 
     @Volatile private var settings: TrackerSettings = TrackerSettings()
+
+    // specs/14: one-shot intrinsic calibration — armed when the toggle is on but no
+    // cached theta/lo/hi exists; fired from the frame loop on a quiet, non-dark frame.
+    @Volatile private var intrinsicCalibrationPending = false
+    private val intrinsicCalibrating = AtomicBoolean(false)
     private var cnn: CnnIntegration? = null
     private lateinit var cnnScope: CoroutineScope
     private val cnnFrameStore = CnnFrameStore()
@@ -231,6 +237,7 @@ class TrackerService : LifecycleService() {
         baseWarper = warper
         val pipe = BoardFramePipeline(warper, settings.claheClip)
         pipeline = pipe
+        applyIntrinsic(settings) // specs/14: pipeline is fresh — re-derive the intrinsic channel
         liveAlignTickNs = 0L
         referenceProfile = null
         observedReferenceVersion = coordinator.referenceVersion
@@ -261,6 +268,16 @@ class TrackerService : LifecycleService() {
         cnnFrameStore.clear()
         coordinator.reset()
         clearCheckpoint()
+        // specs/14: the Recalibrate flow invalidates the intrinsic calibration cache —
+        // new geometry/lighting means theta/lo/hi must be re-estimated on the next
+        // quiet frame after tracking resumes.
+        if (settings.intrinsicGray) {
+            lifecycleScope.launch {
+                settingsRepo.update {
+                    it.copy(intrinsicAngle = Double.NaN, intrinsicLo = Double.NaN, intrinsicHi = Double.NaN)
+                }
+            }
+        }
     }
 
     /** Stop all camera work as requested by the foreground-notification action. */
@@ -374,6 +391,9 @@ class TrackerService : LifecycleService() {
                                 coordinator.onFrame(processed.gray, processed.bgr, processed.timestampNs)
                                 synchronizeReferenceGeometry()
                                 cnnFrameStore.update(processed, coordinator.frameSeq)
+                                // specs/14: never calibrate off a dark-gated frame (this branch)
+                                // and only when the scene is quiet.
+                                maybeCalibrateIntrinsic(processed.boardBgr, coordinator.uiState.value.debug.motion)
                             }
 
                             val ui = coordinator.uiState.value
@@ -519,6 +539,7 @@ class TrackerService : LifecycleService() {
                     }
                 }
                 pipeline?.claheClip = next.claheClip
+                applyIntrinsic(next)
                 camera.applyTuning(next.lockExposure, next.focusDistance)
                 if (next.arucoMargin != prev.arucoMargin) rewarpForMargin(next.arucoMargin)
                 if (next.requiresEngineRestart(prev)) {
@@ -529,6 +550,67 @@ class TrackerService : LifecycleService() {
                 cnn?.reconcile(prev, next)
                 if (next.autoRecord != prev.autoRecord || next.autoRecord != (ownedRecorder != null)) reconcileRecorder()
                 if (next.spectatorEnabled != prev.spectatorEnabled) reconcileSpectator()
+            }
+        }
+    }
+
+    /**
+     * specs/14: derive the pipeline's intrinsic channel from a settings snapshot.
+     * Off → null; on + cached calibration (all three finite) → active transform;
+     * on + no cache → arm the one-shot calibration for the next quiet frame.
+     */
+    private fun applyIntrinsic(s: TrackerSettings) {
+        if (!s.intrinsicGray) {
+            pipeline?.intrinsic = null
+            intrinsicCalibrationPending = false
+            return
+        }
+        if (s.intrinsicAngle.isFinite() && s.intrinsicLo.isFinite() && s.intrinsicHi.isFinite()) {
+            val current = pipeline?.intrinsic
+            if (current == null ||
+                current.angleDeg != s.intrinsicAngle ||
+                current.lo != s.intrinsicLo ||
+                current.hi != s.intrinsicHi
+            ) {
+                pipeline?.intrinsic = IntrinsicGray(s.intrinsicAngle, s.intrinsicLo, s.intrinsicHi)
+            }
+            intrinsicCalibrationPending = false
+        } else {
+            pipeline?.intrinsic = null
+            intrinsicCalibrationPending = true
+        }
+    }
+
+    /**
+     * specs/14: one-shot on-device calibration. Clones [boardBgr] BEFORE the frame
+     * loop's `finally { release() }` (ownership rule, see [CnnFrameStore.update])
+     * and runs the 180-angle entropy sweep on [Dispatchers.Default] — never on the
+     * frame loop. Result is persisted via [settingsRepo]; the settings flow then
+     * re-enters [applyIntrinsic], which activates the pipeline channel.
+     */
+    private fun maybeCalibrateIntrinsic(
+        boardBgr: Mat,
+        motion: Double,
+    ) {
+        if (!intrinsicCalibrationPending) return
+        if (motion >= settings.motionThr) return
+        if (!intrinsicCalibrating.compareAndSet(false, true)) return
+        val frame = boardBgr.clone()
+        lifecycleScope.launch(Dispatchers.Default) {
+            try {
+                val calib = IntrinsicGray.calibrate(frame)
+                intrinsicCalibrationPending = false
+                android.util.Log.i(
+                    "chesslabDiag",
+                    "intrinsic calibrated: theta=${calib.angleDeg} " +
+                        "lo=${"%.4f".format(calib.lo)} hi=${"%.4f".format(calib.hi)}",
+                )
+                settingsRepo.update {
+                    it.copy(intrinsicAngle = calib.angleDeg, intrinsicLo = calib.lo, intrinsicHi = calib.hi)
+                }
+            } finally {
+                frame.release()
+                intrinsicCalibrating.set(false)
             }
         }
     }
