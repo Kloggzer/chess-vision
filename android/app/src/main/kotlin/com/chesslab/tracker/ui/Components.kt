@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -416,12 +417,16 @@ fun SettingSlider(
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(label, style = MaterialTheme.typography.bodyLarge)
+            // weight(1f): a long label otherwise consumes the full row and pushes the
+            // value text out entirely (observed on the calibration screen).
+            Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f, fill = false))
             Text(
                 stringResource(R.string.value_and_default, format(shown), format(default)),
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace,
+                maxLines = 1,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -434,7 +439,10 @@ fun SettingSlider(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(min = MinTouch)
+                    // FIXED height: with only a min constraint the M3 slider blew up to
+                    // fill the viewport inside unbounded/scrollable parents (observed:
+                    // a full-screen-tall slider card on the calibration screen).
+                    .height(MinTouch)
                     .semantics { contentDescription = label },
         )
     }
