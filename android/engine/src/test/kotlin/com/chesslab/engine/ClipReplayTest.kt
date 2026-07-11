@@ -9,6 +9,7 @@ import org.bytedeco.javacv.FFmpegFrameGrabber
 import org.bytedeco.javacv.OpenCVFrameConverter
 import org.bytedeco.opencv.global.opencv_core.CV_32FC2
 import org.bytedeco.opencv.global.opencv_imgproc.COLOR_BGR2GRAY
+import org.bytedeco.opencv.global.opencv_imgproc.GaussianBlur
 import org.bytedeco.opencv.global.opencv_imgproc.createCLAHE
 import org.bytedeco.opencv.global.opencv_imgproc.cvtColor
 import org.bytedeco.opencv.global.opencv_imgproc.getPerspectiveTransform
@@ -155,6 +156,7 @@ class ClipReplayTest {
         val detectGray = Mat()
         cvtColor(detectBgr, detectGray, COLOR_BGR2GRAY)
         w.clahe.apply(detectGray, detectGray)
+        GaussianBlur(detectGray, detectGray, Size(BLUR_KERNEL, BLUR_KERNEL), 0.0)
         engine.onFrame(toGray(detectGray), toBgr(detectBgr), tsNs)
         if (engine.status.promotionPending != null) engine.forcePromote(promotion)
         detectBgr.release()
@@ -213,6 +215,7 @@ class ClipReplayTest {
         const val DEFAULT_FPS = 12.0
         const val CLAHE_CLIP = 2.0
         const val CLAHE_TILE = 8
+        const val BLUR_KERNEL = 5
 
         // Clips the Kotlin engine does not yet reproduce 1:1 with the Python tracker (kept green in
         // Python `pytest -m clips`, skipped — not failed — here and documented). Empty = full parity.

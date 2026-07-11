@@ -89,6 +89,7 @@ class CnnIntegration(
     /** Detach and release (null safeguard path unchanged). */
     fun detach() {
         coordinator.safeguard = null
+        safeguard?.shutdown()
         for (job in jobs) job.cancel()
         jobs.clear()
         safeguard = null
@@ -167,6 +168,8 @@ class CnnFrameStore {
                     gray = processed.gray,
                     bgr = processed.bgr,
                     seq = seq,
+                    // Freshness uses the same monotonic clock as CnnSafeguard; CameraX's
+                    // sensor timestamp is not guaranteed to share System.nanoTime's timebase.
                     timestampNs = System.nanoTime(),
                 )
         }

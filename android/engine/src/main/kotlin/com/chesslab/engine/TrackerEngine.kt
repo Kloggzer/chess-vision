@@ -2,6 +2,7 @@ package com.chesslab.engine
 
 import com.chesslab.engine.api.AlarmState
 import com.chesslab.engine.api.BgrImage
+import com.chesslab.engine.api.DebugImages
 import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.OccupancySafeguard
 import com.chesslab.engine.api.TrackerConfig
@@ -27,6 +28,9 @@ class TrackerEngine(
     private val state = EngineState()
     private val averager = FrameAverager(AVG_FRAMES)
     private var prevGray: GrayImage? = null
+    private var latestDetectionDiff: GrayImage? = null
+    private var latestOcclusionDiff: GrayImage? = null
+    private var latestDebugImages = DebugImages()
     private var lastPublicState: TrackerState? = null
     private val queued = mutableListOf<TrackerEvent>()
     private var lastNowS = 0.0
@@ -82,6 +86,9 @@ class TrackerEngine(
     /** Seq of the newest processed frame — observations are tagged with this (Spec 11). */
     val frameSeq: Int get() = state.frameSeq
 
+    /** The exact pixel deltas most recently evaluated by each detector path. */
+    val debugImages: DebugImages get() = latestDebugImages
+
     /** Apply tuning without replacing the engine or losing game/reference state. */
     fun updateConfig(newConfig: TrackerConfig) {
         config = newConfig
@@ -105,6 +112,7 @@ class TrackerEngine(
         lastNowS = now
         state.frameSeq++
         val prev = prevGray
+        val motionDiff = absoluteDiff(prev, gray)
         val motion =
             if (prev == null || prev.data.size != gray.data.size) {
                 0.0
@@ -116,6 +124,12 @@ class TrackerEngine(
         refreshOcclusion(gray, bgr, now)
         if (motion > config.motionThr) handleMotionSpike(now) else handleStableFrame(gray, bgr, now, events)
         watchdogPending(now)
+        latestDebugImages =
+            DebugImages(
+                detectionDiff = latestDetectionDiff,
+                occlusionDiff = latestOcclusionDiff,
+                motionDiff = motionDiff,
+            )
         val public = publicState()
         if (public != lastPublicState) {
             lastPublicState = public
@@ -132,6 +146,16 @@ class TrackerEngine(
         return events
     }
 
+    private fun absoluteDiff(
+        first: GrayImage?,
+        second: GrayImage,
+    ): GrayImage? {
+        if (first == null || first.width != second.width || first.height != second.height) return null
+        val data = ByteArray(second.data.size)
+        for (i in data.indices) data[i] = kotlin.math.abs(first.data[i].px() - second.data[i].px()).toByte()
+        return GrayImage(second.width, second.height, data)
+    }
+
     /**
      * Per-square occlusion against the baseline reference — runs during motion/occlusion
      * states; the keep-alive bridges the gap between the hand leaving and motion-hold expiry
@@ -144,6 +168,7 @@ class TrackerEngine(
     ) {
         val ref = state.refGray
         if (ref != null && state.state !in listOf("waiting", "move") && ref.data.size == gray.data.size) {
+            latestOcclusionDiff = absoluteDiff(ref, gray)
             val result =
                 Motion.baselineOcclusionAndShadow(
                     gray,
@@ -189,7 +214,11 @@ class TrackerEngine(
         val ready = state.stableCount >= SETTLE_FRAMES && now >= state.holdUntil
         val cur = if (averager.size >= AVG_FRAMES) averager.meanGray() else null
         val curBgr = if (averager.size >= AVG_FRAMES) averager.meanBgr() else null
-        if (cur != null && curBgr != null) detectOrCapture(cur, curBgr, ready, now, events)
+        if (cur != null && curBgr != null) {
+            if (ready) latestDetectionDiff = absoluteDiff(state.refGray, cur)
+            detectOrCapture(cur, curBgr, ready, now, events)
+            if (ready && latestDetectionDiff == null) latestDetectionDiff = absoluteDiff(state.refGray, cur)
+        }
         if (state.state !in listOf("move", "occluded")) state.state = "waiting"
     }
 
@@ -281,6 +310,8 @@ class TrackerEngine(
         detector.patcher.reset()
         averager.clear()
         prevGray = null
+        latestDetectionDiff = null
+        latestOcclusionDiff = null
     }
 
     /**
@@ -310,6 +341,8 @@ class TrackerEngine(
         detector.patcher.reset()
         averager.clear()
         prevGray = null
+        latestDetectionDiff = null
+        latestOcclusionDiff = null
     }
 
     /**

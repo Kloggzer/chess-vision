@@ -94,6 +94,8 @@ class CnnSafeguard(
     private val verifier = OccupancyVerifier(config)
     private val recovery = CnnRecovery(config)
     private val busy = AtomicBoolean(false)
+    private val inferenceLock = Any()
+    private var active = true
     private var verifyJob: Job? = null
 
     @Volatile
@@ -303,20 +305,28 @@ class CnnSafeguard(
     private fun observe(input: ObservationInput): CnnSnapshot? {
         if (!busy.compareAndSet(false, true)) return null
         return try {
-            if (input.crops.size != ALL_SQUARES.size) {
-                null
-            } else {
-                val t0 = clock()
-                val probs = classifier.predict(input.crops)
-                val inferMs = (clock() - t0) / NS_PER_MS
-                val perSquare = ALL_SQUARES.withIndex().associate { (i, sq) -> sq to probs[i] }
-                val obs = OccupancyObservation.fromProbs(perSquare, classifier.spec.classes)
-                CnnSnapshot(obs, input.seq, input.timestampNs, inferMs, input.gray, input.bgr)
-                    .also { lastSnapshot = it }
+            synchronized(inferenceLock) {
+                if (!active || input.crops.size != ALL_SQUARES.size) {
+                    null
+                } else {
+                    val t0 = clock()
+                    val probs = classifier.predict(input.crops)
+                    val inferMs = (clock() - t0) / NS_PER_MS
+                    val perSquare = ALL_SQUARES.withIndex().associate { (i, sq) -> sq to probs[i] }
+                    val obs = OccupancyObservation.fromProbs(perSquare, classifier.spec.classes)
+                    CnnSnapshot(obs, input.seq, input.timestampNs, inferMs, input.gray, input.bgr)
+                        .also { lastSnapshot = it }
+                }
             }
         } finally {
             busy.set(false)
         }
+    }
+
+    /** Prevent new inference and wait for an in-flight classifier call before its session closes. */
+    fun shutdown() {
+        synchronized(inferenceLock) { active = false }
+        verifyJob?.cancel()
     }
 
     private companion object {

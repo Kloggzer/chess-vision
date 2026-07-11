@@ -5,6 +5,7 @@ import com.chesslab.engine.STARTPOS
 import com.chesslab.engine.TrackerEngine
 import com.chesslab.engine.api.AlarmState
 import com.chesslab.engine.api.BgrImage
+import com.chesslab.engine.api.DebugImages
 import com.chesslab.engine.api.Decision
 import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.OccupancySafeguard
@@ -111,6 +112,9 @@ class TrackerCoordinator(
 
     /** Frame seq of the newest processed frame — tags safeguard observations (Spec 11). */
     val frameSeq: Int get() = synchronized(this) { engine.frameSeq }
+
+    /** Pixel-exact current/reference and frame-to-frame deltas for Android debug views. */
+    val debugImages: DebugImages get() = synchronized(this) { engine.debugImages }
 
     /** Conflict squares of the active illegal-move alarm, or null when not alarmed. */
     val alarmConflicts: List<String>? get() = synchronized(this) { engine.status.alarm?.conflicts }

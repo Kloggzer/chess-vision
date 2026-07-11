@@ -58,6 +58,7 @@ fun ChesslabNavHost(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val board by viewModel.board.collectAsStateWithLifecycle()
+    val debugBitmaps by viewModel.debugBitmaps.collectAsStateWithLifecycle()
     val rawPreview by viewModel.rawPreview.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
@@ -82,7 +83,7 @@ fun ChesslabNavHost(
             modifier = Modifier.padding(padding),
         ) {
             composable(Dest.TRACKING.route) {
-                TrackingRoute(viewModel, navController, uiState, board, rawPreview, settings)
+                TrackingRoute(viewModel, navController, uiState, board, debugBitmaps, rawPreview, settings)
             }
             composable(Dest.CALIBRATION.route) {
                 CalibrationRoute(viewModel, navController, rawPreview, arucoDetector, settings.experimentalDetection)
@@ -130,6 +131,7 @@ private fun TrackingRoute(
     navController: NavHostController,
     uiState: UiState,
     board: android.graphics.Bitmap?,
+    debugBitmaps: com.chesslab.tracker.service.DebugBitmaps,
     rawPreview: android.graphics.Bitmap?,
     settings: com.chesslab.tracker.service.TrackerSettings,
 ) {
@@ -137,6 +139,7 @@ private fun TrackingRoute(
     TrackingScreen(
         state = uiState,
         board = board,
+        debugBitmaps = debugBitmaps,
         rawPreview = rawPreview,
         calibrated = calibrated != null,
         showDebug = settings.debugCard,
@@ -144,6 +147,7 @@ private fun TrackingRoute(
         onNewBaseline = viewModel::renewBaseline,
         onReset = viewModel::reset,
         onPromote = viewModel::forcePromote,
+        onOverlayViewChange = viewModel::setOverlayView,
         onCalibrate = { navController.navigateTab(Dest.CALIBRATION.route) },
         onRecalibrate = {
             viewModel.recalibrate()
