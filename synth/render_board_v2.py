@@ -843,6 +843,53 @@ def occluder_footprint(fist_x, fist_y, angle, reach=ARM_LENGTH):
     return heavy, partial
 
 
+def occluder_footprint_image(scene, cam, fist_x, fist_y, angle, reach=ARM_LENGTH, thr=0.30):
+    """Squares the occluder actually hides IN THE RENDERED IMAGE (names a1..h8).
+
+    The arm floats ARM_Z above the board, so under an oblique camera it covers squares OFFSET
+    from its board-plane base (parallax) and the fat cylinder hides more than its thin axis. The
+    board-plane `occluder_footprint` therefore mislabels: squares the hand really hides in the
+    photo keep their piece label, so the crop shows arm/skin pixels tagged as that piece and the
+    type head learns garbage. Here we project the arm (at its true height ARM_Z) AND each square's
+    cell into image space via the same camera as corners_px, and label a square `occluded` only
+    when the arm covers >= `thr` of the cell's projected area — matching what the square CROP sees.
+    """
+    rx, ry = scene.render.resolution_x, scene.render.resolution_y
+
+    def _px(x, y, z):
+        co = world_to_camera_view(scene, cam, Vector((x, y, z)))
+        return (co.x * rx, (1.0 - co.y) * ry)
+
+    # Arm silhouette: samples from fist to elbow at height ARM_Z, each with a projected pixel radius.
+    arm = []
+    n = 40
+    for i in range(n + 1):
+        t = reach * i / n
+        ax = fist_x - t * math.cos(angle)
+        ay = fist_y - t * math.sin(angle)
+        r_world = ARM_RADIUS * 1.3 if t <= ARM_RADIUS else ARM_RADIUS   # fatter fist near the board
+        cx, cy = _px(ax, ay, ARM_Z)
+        ex, ey = _px(ax + r_world, ay, ARM_Z)
+        r_px = math.hypot(ex - cx, ey - cy)
+        arm.append((cx, cy, r_px * r_px))
+
+    grid = (-0.8, -0.4, 0.0, 0.4, 0.8)      # 5x5 sample points across each cell
+    half = CELL / 2.0
+    occluded = []
+    for fi in range(8):
+        for ri in range(8):
+            bx, by = square_center(fi, ri)
+            covered = 0
+            for gx in grid:
+                for gy in grid:
+                    sx, sy = _px(bx + gx * half, by + gy * half, 0.0)
+                    if any((sx - ax) ** 2 + (sy - ay) ** 2 < r2 for ax, ay, r2 in arm):
+                        covered += 1
+            if covered >= thr * len(grid) * len(grid):
+                occluded.append(f"{chr(ord('a') + fi)}{ri + 1}")
+    return occluded
+
+
 # --- Schatten-Werfer (nur für den dedizierten Shadow-Sweep-Fixture) ---------------------
 # Ein neutraler Balken hoch über dem Brett + eine schräge Sonne: sein WEICHER Schatten
 # wandert quer übers Brett, während der Balken selbst neben dem sichtbaren Spielfeld
@@ -1015,8 +1062,9 @@ def main():
                 fy += rng.uniform(-CELL / 2, CELL / 2)
                 angle = rng.uniform(0, 2 * math.pi)
                 place_occluder(occ_arm, fx, fy, angle)
-                heavy, _partial = occluder_footprint(fx, fy, angle)
-                occluded_sq = sorted(heavy)
+                # Label the squares the arm actually hides IN THE IMAGE (parallax-correct), not
+                # its board-plane base — otherwise hand-covered squares keep their piece label.
+                occluded_sq = sorted(occluder_footprint_image(scene, cam, fx, fy, angle))
             elif occ_arm is not None:
                 hide_occluder(occ_arm)
 
