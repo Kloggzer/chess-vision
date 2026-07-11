@@ -436,6 +436,7 @@ class TrackerEngine(
             }
             is VerifyVerdict.Against -> {
                 state.pending = null
+                state.motionSinceRef = false
                 detector.confirmer.reset()
                 if (verdict.boardUnchanged) {
                     // Shadow/no move: keep the existing known-good reference. The pending
@@ -447,6 +448,7 @@ class TrackerEngine(
             }
             is VerifyVerdict.Timeout -> {
                 state.pending = null
+                state.motionSinceRef = false
                 detector.confirmer.reset()
                 state.note = "verification timed out — no move committed"
             }

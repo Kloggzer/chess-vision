@@ -27,6 +27,7 @@ import com.chesslab.tracker.camera.TrackerCamera
 import com.chesslab.tracker.cnn.CnnModelStore
 import com.chesslab.tracker.geometry.ArucoAutoCalibrator
 import com.chesslab.tracker.geometry.ArucoCornerDetector
+import com.chesslab.tracker.geometry.ArucoCornerSmoother
 import com.chesslab.tracker.geometry.BoardWarper
 import com.chesslab.tracker.geometry.CalibrationProfile
 import com.chesslab.tracker.geometry.CornerDriftMonitor
@@ -77,6 +78,7 @@ class TrackerService : LifecycleService() {
     // Live ArUco re-alignment during tracking: the primary geometry source is the markers,
     // not a frozen calibration. Re-detect them (throttled) and swap in a re-aligned warper.
     private val liveAlignDetector = ArucoCornerDetector()
+    private val liveAlignSmoother = ArucoCornerSmoother()
     private var liveAlignTickNs = 0L
 
     @Volatile private var settings: TrackerSettings = TrackerSettings()
@@ -209,6 +211,7 @@ class TrackerService : LifecycleService() {
         val pipe = BoardFramePipeline(warper, settings.claheClip)
         pipeline = pipe
         liveAlignTickNs = 0L
+        liveAlignSmoother.reset(profile.corners)
         _activeProfile.value = profile
 
         startPreviewOnly() // idempotent camera + frame-loop start
@@ -229,6 +232,7 @@ class TrackerService : LifecycleService() {
         pipeline = null
         baseWarper?.close()
         baseWarper = null
+        liveAlignSmoother.reset()
         _activeProfile.value = null
         cnnFrameStore.clear()
         coordinator.reset()
@@ -375,7 +379,9 @@ class TrackerService : LifecycleService() {
     /** Rewarp when the dynamic controller changes the analysis resolution. */
     private fun rewarpFor(res: Resolution) {
         val base = baseWarper ?: return
-        pipeline?.warper = base.forResolution(res.width, res.height)
+        val profile = base.profile.forResolution(res.width, res.height)
+        liveAlignSmoother.reset(profile.corners)
+        pipeline?.warper = BoardWarper(profile)
     }
 
     /** Live-apply a new ArUco warp margin to the active profile (grid-fit tuning). */
@@ -386,6 +392,7 @@ class TrackerService : LifecycleService() {
         baseWarper = warper
         pipeline?.warper = warper
         _activeProfile.value = profile
+        liveAlignSmoother.reset(profile.corners)
         base.close()
         coordinator.renewBaseline()
     }
@@ -408,14 +415,15 @@ class TrackerService : LifecycleService() {
         val base = baseWarper ?: return
         val fresh = liveAlignDetector.detect(frame) // null when markers are hidden → keep current warp
         if (fresh != null) {
+            val aligned = liveAlignSmoother.update(fresh)
             val currentCorners = base.profile.forResolution(width, height).corners
-            if (CornerDriftMonitor.maxCornerShift(currentCorners, fresh) > TrackerConfig.DEFAULT_CORNER_JUMP_PX) {
+            if (CornerDriftMonitor.maxCornerShift(currentCorners, aligned) > TrackerConfig.DEFAULT_CORNER_JUMP_PX) {
                 // A discontinuous homography cannot be compared with the image that established
                 // the detector reference; otherwise geometry looks like pieces moving.
                 coordinator.renewBaseline()
                 diag("ArUco geometry jumped; invalidating detector reference")
             }
-            val updated = base.profile.copy(corners = fresh, sourceWidth = width, sourceHeight = height)
+            val updated = base.profile.copy(corners = aligned, sourceWidth = width, sourceHeight = height)
             val warper = BoardWarper(updated)
             baseWarper = warper
             pipeline?.warper = warper

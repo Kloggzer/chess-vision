@@ -44,6 +44,7 @@ import com.chesslab.tracker.R
 import com.chesslab.tracker.service.DebugBitmaps
 import com.chesslab.tracker.service.OverlayView
 import com.chesslab.tracker.ui.theme.BoardPalette
+import kotlinx.coroutines.delay
 
 /** The primary board view mode: the digital rendered board, or the live/warped video feed. */
 enum class BoardMode { RENDERED, VIDEO }
@@ -84,6 +85,7 @@ fun resolveBoardRender(
     }
 
 private const val BOARD_MAX_DP = 360
+private const val STUCK_ATTENTION_DELAY_MS = 1_500L
 
 @Suppress("ktlint:standard:function-naming", "FunctionNaming", "LongMethod", "LongParameterList")
 @Composable
@@ -108,11 +110,19 @@ fun TrackingScreen(
     var confirmReset by remember { mutableStateOf(false) }
     var confirmRecalibrate by remember { mutableStateOf(false) }
     var debugExpanded by rememberSaveable { mutableStateOf(false) }
+    var showStuckRecovery by remember { mutableStateOf(false) }
 
     val render = resolveBoardRender(boardMode, subView, board != null, state.trackerState)
 
     LaunchedEffect(boardMode, subView) {
         onOverlayViewChange(if (boardMode == BoardMode.VIDEO) subView else OverlayView.BOARD)
+    }
+    LaunchedEffect(state.trackerState) {
+        showStuckRecovery = false
+        if (state.trackerState == TrackerState.STUCK) {
+            delay(STUCK_ATTENTION_DELAY_MS)
+            showStuckRecovery = true
+        }
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -193,7 +203,7 @@ fun TrackingScreen(
             )
         }
 
-        if (state.trackerState == TrackerState.STUCK || state.alarm != null) {
+        if (showStuckRecovery || state.alarm != null) {
             OverlayCard(
                 title = stringResource(R.string.recovery_title),
                 body = stringResource(R.string.recovery_message),
