@@ -87,7 +87,7 @@ android {
 // Unit tests run on the desktop JVM: keep the Android-only ONNX Runtime AAR off
 // their classpath so the JVM artifact (with desktop natives) resolves instead.
 configurations.matching { it.name.contains("UnitTest") }.configureEach {
-    exclude(group = "com.microsoft.onnxruntime", module = "onnxruntime-android")
+    exclude(group = "com.microsoft.onnxruntime", module = "onnxruntime-android-qnn")
 }
 
 dependencies {
@@ -134,10 +134,11 @@ dependencies {
     // ZXing (phase 06: QR code)
     implementation(libs.zxing.core)
 
-    // ONNX Runtime (phase 05: CNN safeguard). Device uses the Android AAR; JVM
-    // unit tests swap in the desktop artifact (same ai.onnxruntime API) because
-    // the AAR only ships Android ABIs.
-    implementation(libs.onnxruntime.android)
+    // ONNX Runtime (phase 05: CNN safeguard). Device uses the QNN AAR (bundles the
+    // Qualcomm Hexagon/NPU libs; OnnxClassifier selects the QNN EP when a quantized
+    // model.qnn.onnx is present, else NNAPI, else CPU). JVM unit tests swap in the
+    // desktop artifact (same ai.onnxruntime API) because the AAR only ships Android ABIs.
+    implementation(libs.onnxruntime.android.qnn)
     testImplementation(libs.onnxruntime.jvm)
 
     // Unit tests (JVM, JUnit5)
