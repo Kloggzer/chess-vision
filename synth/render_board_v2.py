@@ -523,6 +523,20 @@ def randomize_board(rng):
     # checker structure. All realistic, so this is safe for `empty` too (real empty squares come in
     # these colors). `sat_mul<1` desaturates toward marble/grey. Picked per scene → the board's
     # look carries no information about which piece stands on it.
+    # Structural variety: some scenes swap the ONE recolored photo for a fresh random procedural
+    # checker (different pattern/grain/cell size), which the hue-recolor cannot produce. The photo
+    # material is restored on non-procedural scenes.
+    board = bpy.data.objects.get("BoardPlane")
+    photo_mat = bpy.data.materials.get("BoardTexture")
+    if board is not None and photo_mat is not None:
+        if rng.random() < BOARD_PROCEDURAL_P:
+            board.data.materials.clear()
+            board.data.materials.append(make_random_procedural_board(rng))
+            return
+        if photo_mat.name not in {m.name for m in board.data.materials if m}:
+            board.data.materials.clear()
+            board.data.materials.append(photo_mat)
+
     family = rng.choice(BOARD_FAMILIES)
     hue = family["hue"] + rng.uniform(-0.02, 0.02)
     sat = BOARD_SATURATION * family["sat_mul"] * rng.uniform(0.85, 1.15)
@@ -545,6 +559,58 @@ def randomize_board(rng):
                     base = _BASE_CHECKER_COLOR.setdefault(bkey, tuple(node.inputs[key].default_value))
                     f = rng.uniform(0.85, 1.15)   # from BASE, not current → no drift across scenes
                     node.inputs[key].default_value = (base[0] * f, base[1] * f, base[2] * f, 1.0)
+
+
+# Per-scene probability of swapping the photo board for a fresh RANDOM procedural checker —
+# structural pattern/grain variety the hue-recolor cannot give (the pattern itself changes).
+BOARD_PROCEDURAL_P = 0.30
+
+
+def _rand_square_colors(rng):
+    """A related light/dark pair for a random procedural board (shared tint = looks like a set)."""
+    tint = (rng.uniform(0.75, 1.25), rng.uniform(0.75, 1.25), rng.uniform(0.75, 1.25))
+    light = tuple(min(1.0, rng.uniform(0.45, 0.9) * t) for t in tint)
+    dark = tuple(min(1.0, rng.uniform(0.08, 0.40) * t) for t in tint)
+    return light, dark
+
+
+def make_random_procedural_board(rng):
+    """Procedural checker board with randomized square colours, cell scale and gloss."""
+    light, dark = _rand_square_colors(rng)
+    mat = make_board_material(light, dark)
+    for node in mat.node_tree.nodes:
+        if node.type == "MAPPING":
+            s = rng.uniform(6.0, 10.0)          # cell count → tile size varies per scene
+            node.inputs["Scale"].default_value = (s, s, s)
+        elif node.type == "BSDF_PRINCIPLED":
+            node.inputs["Roughness"].default_value = rng.uniform(0.4, 0.95)
+    return mat
+
+
+def randomize_world(rng):
+    """Vary the surroundings BEYOND the board: world ambient (wide colour range) + a large ground
+    plane ("table") with a random material, so edge/oblique crops see varied context, not one flat
+    colour. Geometry/labels untouched — the board occludes the ground within the playing field."""
+    world = bpy.context.scene.world
+    if world and world.use_nodes:
+        bg = world.node_tree.nodes.get("Background")
+        if bg is not None:
+            bg.inputs[1].default_value = rng.uniform(0.2, 1.5)
+            bg.inputs[0].default_value = (rng.uniform(0.2, 1.0), rng.uniform(0.2, 1.0),
+                                          rng.uniform(0.2, 1.0), 1.0)
+    ground = bpy.data.objects.get("Ground")
+    if ground is None:
+        g = HALF * 6.0
+        mesh = bpy.data.meshes.new("Ground")
+        mesh.from_pydata([(-g, -g, -1.0), (g, -g, -1.0), (g, g, -1.0), (-g, g, -1.0)], [], [(0, 1, 2, 3)])
+        mesh.update()
+        ground = bpy.data.objects.new("Ground", mesh)
+        bpy.context.scene.collection.objects.link(ground)
+    # A random wood/solid table surface (not a checker — that would look like a second board).
+    c = tuple(rng.uniform(0.15, 0.75) for _ in range(3))
+    mat = make_wood_material("GroundMat", tuple(min(1.0, v * 1.3) for v in c), c)
+    ground.data.materials.clear()
+    ground.data.materials.append(mat)
 
 
 def place_from_fen(
@@ -809,6 +875,8 @@ def main():
         pieces = place_from_fen(fen, templates, base_z, rng, procedural_types, fb_subsurf)
         if ra.randomize_board:
             randomize_board(rng)   # new board look per scene → board carries no piece-type signal
+        if ra.randomize_world:
+            randomize_world(rng)   # varied surroundings beyond the board (edge/oblique crops)
 
         for _ in range(views):
             if i >= n:
