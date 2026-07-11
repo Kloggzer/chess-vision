@@ -29,6 +29,7 @@ class SettingsRepositoryTest {
                 diffJitterPx = TrackerSettings.DEFAULT_DIFF_JITTER_PX,
                 diffIllumCancel = TrackerSettings.DEFAULT_LIGHTING_ROBUST,
                 diffLightVeto = TrackerSettings.DEFAULT_LIGHTING_ROBUST,
+                commitLlFloor = TrackerSettings.DEFAULT_COMMIT_FLOOR,
             )
         assertEquals(expected, TrackerSettings().toTrackerConfig())
     }

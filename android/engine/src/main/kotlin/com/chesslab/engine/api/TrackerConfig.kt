@@ -28,6 +28,8 @@ data class TrackerConfig(
     val diffIllumCancel: Boolean = DEFAULT_DIFF_ILLUM_CANCEL,
     /** Census-quiet vetoes changed squares WITHOUT the chroma shadow test; false = Python parity. */
     val diffLightVeto: Boolean = DEFAULT_DIFF_LIGHT_VETO,
+    /** Minimum absolute loglik score a voting candidate needs to commit; 0 = off (Python parity). */
+    val commitLlFloor: Double = DEFAULT_COMMIT_LL_FLOOR,
     val requireMotionForMove: Boolean = DEFAULT_REQUIRE_MOTION_FOR_MOVE,
     val motionRecencyS: Double = DEFAULT_MOTION_RECENCY_S,
     val confirmFrames: Int = DEFAULT_CONFIRM_FRAMES,
@@ -87,6 +89,14 @@ data class TrackerConfig(
          * sharp edges in place — gray fires but census structure stays put.
          */
         const val DEFAULT_DIFF_LIGHT_VETO: Boolean = false
+
+        /**
+         * Python parity (config.TRACK_DEFAULTS commit_ll_floor — added together): real moves
+         * score ~12-24 live, while the phantom that swallowed a castle (f6h5, sole viable
+         * candidate) committed at 0.44 — a sole-viable candidate has an infinite margin, so
+         * only an ABSOLUTE floor can stop it. All 20 blender clips pass with the floor active.
+         */
+        const val DEFAULT_COMMIT_LL_FLOOR: Double = 2.0
         const val DEFAULT_REQUIRE_MOTION_FOR_MOVE: Boolean = true
         const val DEFAULT_MOTION_RECENCY_S: Double = 20.0
         const val DEFAULT_CONFIRM_FRAMES: Int = 2

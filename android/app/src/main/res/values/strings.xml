@@ -116,6 +116,7 @@
     <string name="setting_dark_luma_thr">Dark-scene floor (pause detection below)</string>
     <string name="setting_diff_jitter">Diff wobble tolerance (px)</string>
     <string name="setting_lighting_robust">Lighting robustness (structure-gated diff)</string>
+    <string name="setting_commit_floor">Commit floor (min move score)</string>
 
     <!-- Settings: experimental + debug -->
     <string name="setting_experimental_detection">Automatic board detection (experimental)</string>

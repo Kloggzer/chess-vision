@@ -692,7 +692,7 @@ class MoveTracker:
                  diff_clahe_clip: float = 2.0, auto_record: bool = True,
                  record_inventory_filter: bool = True,
                  require_motion_for_move: bool = True, detect_scale: float = 0.5,
-                 motion_recency_s: float = 20.0,
+                 motion_recency_s: float = 20.0, commit_ll_floor: float = 2.0,
                  census_z_weight: float = 1.0, occl_census_thr: float = 24.0,
                  desync_obs_n: int = 3, observer_interval_s: float = 0.0,
                  verify_obs_votes: int = 2) -> None:
@@ -781,6 +781,8 @@ class MoveTracker:
         # Require motion since the reference before committing a move (drift/light suppression).
         self.require_motion_for_move = require_motion_for_move
         self.motion_recency_s = motion_recency_s      # commit only within N s of the last motion
+        self.commit_ll_floor = commit_ll_floor        # min ABSOLUTE score to commit (0=off); sole-viable
+        #                                               phantoms (f6h5 @ 0.44) have infinite margin
         self._last_motion_ts = 0.0                    # wall-clock of the last motion spike
         self.overhang = overhang                      # extend diff cells upward (fraction of cell)
         self.corner_jump_px = corner_jump_px          # corner jump ⇒ base truth geometrically invalid
@@ -2478,6 +2480,15 @@ class MoveTracker:
         if cand is None:
             return
         moves = cand["moves"]
+
+        # 6b. Absolute evidence floor: a sole-viable candidate has an infinite margin, so a
+        #     weak phantom (f6h5 @ 0.44 swallowed a castle live) sails through every margin
+        #     check. Endpoint candidates (vote=False) stay exempt — CNN-verified by design.
+        if cand["vote"] and self.commit_ll_floor > 0 and self._best_score < self.commit_ll_floor:
+            self._confirmer.reset()
+            self.note = (f"{' + '.join(self._san_sequence(moves))}? evidence too weak "
+                         f"({self._best_score:.2f} < {self.commit_ll_floor:.1f}) — not committing")
+            return
 
         # 7. Motion prerequisite: a real move is always preceded by a hand entering the
         #    frame, and it becomes visible WITHIN SECONDS of the hand leaving (settle +

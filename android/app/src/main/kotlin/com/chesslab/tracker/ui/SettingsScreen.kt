@@ -144,6 +144,14 @@ fun SettingsScreen(
             SettingSwitch(stringResource(R.string.setting_lighting_robust), settings.lightingRobust) { v ->
                 onUpdate { it.copy(lightingRobust = v) }
             }
+            SettingSlider(
+                stringResource(R.string.setting_commit_floor),
+                settings.commitFloor,
+                0f..10f,
+                TrackerSettings.DEFAULT_COMMIT_FLOOR,
+            ) { v ->
+                onUpdate { it.copy(commitFloor = v) }
+            }
         }
 
         SectionHeader(stringResource(R.string.settings_recording))

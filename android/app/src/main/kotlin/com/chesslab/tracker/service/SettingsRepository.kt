@@ -50,6 +50,7 @@ class SettingsRepository(
         val DARK_LUMA_THR = doublePreferencesKey("dark_luma_thr")
         val DIFF_JITTER_PX = intPreferencesKey("diff_jitter_px")
         val LIGHTING_ROBUST = booleanPreferencesKey("lighting_robust")
+        val COMMIT_FLOOR = doublePreferencesKey("commit_floor")
         val AUTO_RECORD = booleanPreferencesKey("auto_record")
         val CNN_ENABLED = booleanPreferencesKey("cnn_enabled")
         val CNN_CONF_THR = doublePreferencesKey("cnn_conf_thr")
@@ -102,6 +103,7 @@ class SettingsRepository(
             darkLumaThr = prefs[DARK_LUMA_THR] ?: d.darkLumaThr,
             diffJitterPx = prefs[DIFF_JITTER_PX] ?: d.diffJitterPx,
             lightingRobust = prefs[LIGHTING_ROBUST] ?: d.lightingRobust,
+            commitFloor = prefs[COMMIT_FLOOR] ?: d.commitFloor,
         )
 
     internal fun encode(
@@ -131,6 +133,7 @@ class SettingsRepository(
         prefs[DARK_LUMA_THR] = s.darkLumaThr
         prefs[DIFF_JITTER_PX] = s.diffJitterPx
         prefs[LIGHTING_ROBUST] = s.lightingRobust
+        prefs[COMMIT_FLOOR] = s.commitFloor
         prefs[EXPERIMENTAL] = s.experimentalDetection
         prefs[DEBUG_CARD] = s.debugCard
         prefs[OVERLAY_VIEW] = s.overlayView.name

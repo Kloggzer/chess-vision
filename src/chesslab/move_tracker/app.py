@@ -34,6 +34,7 @@ def _live_tuning_kwargs(
     overhang: float | None = None,
     motion_hold_s: float | None = None,
     diff_clahe_clip: float | None = None,
+    commit_ll_floor: float | None = None,
 ) -> dict:
     vals = {
         "motion_thr": motion_thr,
@@ -47,6 +48,7 @@ def _live_tuning_kwargs(
         "overhang": overhang,
         "motion_hold_s": motion_hold_s,
         "diff_clahe_clip": diff_clahe_clip,
+        "commit_ll_floor": commit_ll_floor,
     }
     return {k: v for k, v in vals.items() if v is not None}
 
@@ -176,7 +178,8 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
                  motion_margin: float | None = Body(None),
                  overhang: float | None = Body(None),
                  motion_hold_s: float | None = Body(None),
-                 diff_clahe_clip: float | None = Body(None)):
+                 diff_clahe_clip: float | None = Body(None),
+                 commit_ll_floor: float | None = Body(None)):
         t = _STATE.get("tracker")
         if t is None:
             return {"ok": False, "error": "not started"}
@@ -190,6 +193,7 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
             overhang=overhang,
             motion_hold_s=motion_hold_s,
             diff_clahe_clip=diff_clahe_clip,
+            commit_ll_floor=commit_ll_floor,
         )
         return {"ok": True, "settings": _apply_live_tuning(t, kwargs)}
 

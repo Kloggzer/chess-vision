@@ -145,7 +145,14 @@ class TrackerService : LifecycleService() {
         settingsRepo = SettingsRepository(settingsDataStore(this))
         camera = TrackerCamera(this, this)
         cnnScope = CoroutineScope(lifecycleScope.coroutineContext + Dispatchers.Default)
-        cnn = CnnIntegration(coordinator, cnnFrameStore::latest, cnnScope, CnnModelStore(filesDir))
+        cnn =
+            CnnIntegration(
+                coordinator,
+                cnnFrameStore::latest,
+                cnnScope,
+                CnnModelStore(filesDir),
+                debugDumpDir = getExternalFilesDir(null)?.let { java.io.File(it, "cnn_debug") },
+            )
         observeSettings()
         forwardStateToSink()
         forwardEventsToRecorder()
