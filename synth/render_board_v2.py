@@ -522,7 +522,7 @@ def randomize_lights(rng):
             bg.inputs[0].default_value = (1.0, rng.uniform(0.82, 0.95), rng.uniform(0.62, 0.82), 1.0)
 
 
-def randomize_board(rng, borderless_p: float = 0.0):
+def randomize_board(rng, borderless_p: float = 0.0, isolate_p: float = 0.0):
     """Per-scene board appearance jitter — breaks the "read the board, not the piece" shortcut.
 
     With a single fixed board photo/texture, the background under every piece is IDENTICAL across
@@ -543,6 +543,14 @@ def randomize_board(rng, borderless_p: float = 0.0):
     board = bpy.data.objects.get("BoardPlane")
     photo_mat = bpy.data.materials.get("BoardTexture")
     if board is not None and photo_mat is not None:
+        # Curriculum stage 1: no board at all, just a randomized ground (see
+        # make_isolation_surface). Checked FIRST so it wins over the borderless/photo paths.
+        # The plane is scaled up like the borderless case so no plane edge shows at the rim.
+        if isolate_p > 0.0 and rng.random() < isolate_p:
+            board.scale = (BORDERLESS_PLANE_SCALE, BORDERLESS_PLANE_SCALE, 1.0)
+            board.data.materials.clear()
+            board.data.materials.append(make_isolation_surface(rng))
+            return
         # Borderless procedural board (checker/solid runs edge-to-edge, NO frame): edge squares are
         # surrounded by more board, so the model can't shortcut on the rim to spot a border piece
         # (king/rook) — it must read the figure. `borderless_p` share of ALL scenes. The plane is
@@ -614,6 +622,59 @@ def _rand_square_colors(rng):
     light = colorsys.hsv_to_rgb(rng.random(), rng.uniform(0.55, 1.0), rng.uniform(0.80, 1.0))
     dark = colorsys.hsv_to_rgb(rng.random(), rng.uniform(0.65, 1.0), rng.uniform(0.18, 0.48))
     return tuple(light), tuple(dark)
+
+
+def make_isolation_surface(rng):
+    """A NON-board surface for curriculum stage 1: pieces isolated on a random ground.
+
+    Stage 1 asks a narrower question than the full task — can the model tell the piece TYPES
+    apart at all? — so the plane carries no 8x8 structure, no frame, nothing that could stand in
+    for the figure. What it must NOT be is a *constant* backdrop: a fixed green would just become
+    the next shortcut ("the piece is the non-green thing"), a segmentation cue that does not exist
+    on a real board. So the surface is re-randomized per scene across three families:
+
+        solid     — one random colour
+        gradient  — two random colours along a random direction
+        noise     — coloured Perlin noise at a random scale
+
+    Geometry is untouched (same plane, same corner projection), so the crop framing and the FEN
+    label mapping stay identical to deployment — the geometry-match rule this project lives by.
+    """
+    a, b = _rand_square_colors(rng)
+    mat = bpy.data.materials.new("IsolationSurface")
+    mat.use_nodes = True
+    nt = mat.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.inputs["Roughness"].default_value = rng.uniform(0.3, 1.0)
+    nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+
+    kind = rng.choice(("solid", "gradient", "noise"))
+    if kind == "solid":
+        bsdf.inputs["Base Color"].default_value = (*rng.choice((a, b)), 1.0)
+        return mat
+
+    coord = nt.nodes.new("ShaderNodeTexCoord")
+    ramp = nt.nodes.new("ShaderNodeValToRGB")
+    ramp.color_ramp.elements[0].color = (*a, 1.0)
+    ramp.color_ramp.elements[1].color = (*b, 1.0)
+
+    if kind == "gradient":
+        mapping = nt.nodes.new("ShaderNodeMapping")
+        mapping.inputs["Rotation"].default_value = (0.0, 0.0, rng.uniform(0.0, 2.0 * math.pi))
+        grad = nt.nodes.new("ShaderNodeTexGradient")
+        nt.links.new(coord.outputs["Object"], mapping.inputs["Vector"])
+        nt.links.new(mapping.outputs["Vector"], grad.inputs["Vector"])
+        nt.links.new(grad.outputs["Fac"], ramp.inputs["Fac"])
+    else:
+        noise = nt.nodes.new("ShaderNodeTexNoise")
+        noise.inputs["Scale"].default_value = rng.uniform(1.5, 20.0)
+        nt.links.new(coord.outputs["Object"], noise.inputs["Vector"])
+        nt.links.new(noise.outputs["Fac"], ramp.inputs["Fac"])
+
+    nt.links.new(ramp.outputs["Color"], bsdf.inputs["Base Color"])
+    return mat
 
 
 def make_random_procedural_board(rng, bordered: bool = True):
@@ -1083,7 +1144,7 @@ def main():
         fen = fens[scene_idx % len(fens)] if fens else "8/8/8/8/8/8/8/8"
         pieces = place_from_fen(fen, templates, base_z, rng, procedural_types, fb_subsurf)
         if ra.randomize_board:
-            randomize_board(rng, ra.borderless_p)   # new board per scene; some borderless (anti edge-shortcut)
+            randomize_board(rng, ra.borderless_p, ra.isolate_p)   # new board per scene; some borderless (anti edge-shortcut)
         if ra.randomize_world:
             randomize_world(rng)   # varied surroundings beyond the board (edge/oblique crops)
 

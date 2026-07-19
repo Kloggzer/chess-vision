@@ -779,6 +779,10 @@ def synth_render(
     occlusion_p: float = typer.Option(0.0, "--occlusion-p",
                                       help="Fraction of views with a rendered occluder (fist/forearm that casts a "
                                            "shadow); covered squares are labeled `occluded`. 0 = none."),
+    isolate_p: float = typer.Option(0.0, "--isolate-p",
+                                    help="Curriculum stage 1: fraction of scenes on a NON-board "
+                                         "randomized ground (solid/gradient/noise, no 8x8, no frame) "
+                                         "so only the piece carries information. 1.0 = all."),
     borderless_p: float = typer.Option(0.0, "--borderless-p",
                                        help="Fraction of scenes with a BORDERLESS procedural board (checker runs "
                                             "edge-to-edge, no frame) — anti edge-shortcut for rim pieces. 0 = none."),
@@ -809,7 +813,7 @@ def synth_render(
                             board_texture=bt, views_per_scene=views_per_scene,
                             samples=samples, max_obliqueness=max_obliqueness, piece_scale=piece_scale,
                             cam_distance_jitter=cam_distance_jitter, occlusion_p=occlusion_p,
-                            borderless_p=borderless_p)
+                            borderless_p=borderless_p, isolate_p=isolate_p)
 
     print(" ".join(cmd))
     try:

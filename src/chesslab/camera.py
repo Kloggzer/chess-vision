@@ -22,10 +22,28 @@ because YUY2 is what is running. `scripts/probe_camera_format.py` compared reque
 
 Every variant reads back YUY2 and lands on the datasheet's YUY2 row, and CPU stays at
 0.3-0.6 cores throughout — bandwidth-bound uncompressed video, not decode-bound JPEG
-(4K YUY2 @23 fps is ~380 MB/s, i.e. the USB-3 ceiling). Setting FOURCC before the
-resolution is still correct and kept; it is simply ignored by this driver. Consequence:
-1440p is capped at 30 fps and 4K at ~19 instead of the 60 the sensor can do over MJPEG.
-Do NOT "fix" this by trusting `measure_fps` over `CAP_PROP_FOURCC` — here they agree.
+(4K YUY2 @23 fps is ~380 MB/s, i.e. the USB-3 ceiling).
+
+ROOT CAUSE — and it is the FOURCC-first order itself, not driver indifference: OpenCV's
+DSHOW backend tries the requested subtype, fails, and silently falls back through a
+hardcoded list in `cap_dshow.cpp` where YUY2 (index 4) beats MJPG (index 15) whenever both
+offer the resolution. Worse, `setProperty(CAP_PROP_FOURCC)` applies immediately and then
+resets `m_fourcc = -1`, so a LATER width/height renegotiates with no FOURCC at all and
+discards the MJPG selection. See opencv#7013 (open since 2016). The widely repeated advice
+to set FOURCC *before* the resolution is therefore backwards for OpenCV 4.x — measurement
+here confirms MJPG engages as soon as FOURCC is set LAST or passed to the open-time params
+constructor. The device really can do 4K60 MJPEG (`pygrabber` GetStreamCaps lists
+`MJPG 3840x2160 fps 60..10`).
+
+WHY WE STILL DO NOT DO IT: engaging MJPG only moves the bottleneck from USB bandwidth to
+single-threaded JPEG decode. Measured (unique frames, duplicates excluded): 1440p 29.7 ->
+31.2 fps for 0.43 -> 1.14 cores, and 4K 18.1 -> 17.1 fps, i.e. SLOWER, for 1.20 cores. MSMF
+looks like 59 fps but 52 of 120 frames are byte-identical repeats (33.6 unique) and it
+ignores the requested resolution entirely. `CAP_PROP_CONVERT_RGB=0` returns raw JPEG only on
+V4L2; DSHOW ignores it and MSMF hands back a raw NV12 buffer that breaks every consumer.
+So the FOURCC-first order stays — it costs ~5% at 1440p and buys back 0.7 CPU cores that the
+CNN and tracker need. If throughput ever matters, the lever is a faster DECODE path
+(PyTurboJPEG / decode pool), not the capture call.
 
 Public interface:
     CameraSpec           — declarative "what I want" (source, resolution, fps, controls).
