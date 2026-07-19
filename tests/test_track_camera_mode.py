@@ -154,6 +154,60 @@ def test_profile_regeneration_failure_never_raises(monkeypatch):
     assert "aruco exploded" in mt.status()["camera"]["profile_mismatch"]
 
 
+def test_failed_regeneration_is_retried_on_the_next_frame(monkeypatch):
+    """H3: the size must NOT be latched while the profile mismatch is unresolved.
+
+    Regeneration typically fails because the user's hand covers the ArUco markers at the
+    exact moment they hit "Apply resolution". With the size latched there was no second
+    attempt ever — the tracker kept warping with old-resolution corners while `auto_record`
+    wrote mislabeled frames into a session."""
+    mt = _tracker(monkeypatch, frame_size=(1280, 720))
+    blank = np.zeros((2160, 3840, 3), np.uint8)          # right size, no markers
+
+    calls = []
+    monkeypatch.setattr(mt, "_regenerate_profile", lambda f: calls.append(f))
+    for _ in range(4):
+        mt._note_frame_size(blank)
+    assert len(calls) == 4, "a failed regeneration must be retried, not latched"
+    assert mt.status()["camera"]["profile_mismatch"] is not None
+
+
+def test_successful_regeneration_stops_the_retries(monkeypatch):
+    mt = _tracker(monkeypatch, frame_size=(1280, 720))
+    frame = np.zeros((2160, 3840, 3), np.uint8)
+    calls = []
+
+    def _succeed(f):
+        calls.append(f)
+        mt.profile.frame_size = (3840, 2160)             # what a real regeneration does
+        mt._profile_size_note = None
+
+    monkeypatch.setattr(mt, "_regenerate_profile", _succeed)
+    for _ in range(5):
+        mt._note_frame_size(frame)
+    assert len(calls) == 1
+    assert mt.status()["camera"]["profile_mismatch"] is None
+
+
+def test_recording_is_suppressed_while_the_profile_size_is_unresolved(monkeypatch):
+    """H3: recording captures frame + profile corners; with a mismatch those corners belong
+    to another resolution, so `chesslab slice` would later cut correctly-labeled crops from
+    the wrong pixels."""
+    mt = _tracker(monkeypatch, frame_size=(1280, 720))
+    mt.auto_record = True
+    mt._note_frame_size(np.zeros((2160, 3840, 3), np.uint8))   # blank -> regeneration fails
+    assert mt._profile_size_note is not None
+
+    started = []
+    monkeypatch.setattr(mt, "_start_recorder_locked", lambda *a, **k: started.append(1))
+    mt._queue_session_capture("e4")
+    assert mt._pending_capture is None
+    mt._flush_session_capture()
+    assert started == []
+    assert "board geometry unresolved" in mt._record_skip_reason
+    assert mt.start_recording()["ok"] is False
+
+
 def test_frame_size_check_is_a_noop_while_the_size_is_stable(monkeypatch):
     mt = _tracker(monkeypatch, frame_size=(400, 400))
     frame = np.zeros((400, 400, 3), np.uint8)

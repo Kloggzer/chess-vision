@@ -669,23 +669,42 @@ def stamp_profile(profile, frame_size=None, source=None) -> bool:
     """Write the CORRECT intrinsics for the current lens state into a board profile.
 
     On undistorted frames the right values are the NEW optimal camera matrix and ZERO
-    distortion — the remap has already removed it. Returns True if anything changed.
+    distortion — the remap has already removed it. Returns True if the profile's lens stamp
+    or intrinsics were actually modified.
+
+    CRUCIAL: the stamp must describe what really happens to frames OF THIS SIZE. A
+    calibration exists is not enough — `Undistorter.maps_for` refuses a frame whose aspect
+    ratio differs from the calibration's and passes those frames through UNTOUCHED. Frames
+    are then fully distorted, so the profile must say `undistorted=False`; claiming
+    otherwise makes `profile_is_stale` report clean, `doctor` print PASS, and `collect`
+    stamp `undistorted: true` into a session recorded through raw optics — exactly the
+    distorted/undistorted mixing this metadata exists to prevent.
     """
+    had = (bool(getattr(profile, "undistorted", False)),
+           getattr(profile, "lens_calib_id", None))
     und = active(source)
-    if und is None:
-        changed = bool(getattr(profile, "undistorted", False))
+    maps = None
+    size = tuple(frame_size or getattr(profile, "frame_size", ()) or ())
+    if und is not None and len(size) == 2:
+        maps = und.maps_for(int(size[0]), int(size[1]))
+    if und is None or maps is None:
+        if und is not None:
+            log.warning(
+                "board profile %r is NOT marked undistorted: the lens calibration cannot be "
+                "applied to %s frames.", getattr(profile, "profile", "?"),
+                "x".join(str(int(v)) for v in size) or "unknown-size")
         profile.undistorted = False
         profile.lens_calib_id = None
-        return changed
-    size = tuple(frame_size or profile.frame_size)
-    und.maps_for(int(size[0]), int(size[1]))
+        return had != (False, None)
     k = und.new_camera_matrix
     profile.undistorted = True
     profile.lens_calib_id = und.calib.id
+    changed = had != (True, und.calib.id)
     if k is not None:
         profile.camera_matrix = [[float(v) for v in row] for row in np.asarray(k)]
         profile.dist_coeffs = [0.0] * 5
-    return True
+        changed = True
+    return changed
 
 
 # --- `chesslab lens calibrate` / `lens show` -------------------------------------------
@@ -880,6 +899,21 @@ def _solve_and_save(obj_points, img_points, size, out_path: Path, *, alpha: floa
     return 0
 
 
+def profile_source(profile):
+    """The capture source a board profile describes, for the undistortion source policy.
+
+    An explicit `source` (URL / file path) wins; otherwise a local camera index >= 0 IS the
+    rig camera. Anything else (index -1 = recorded frames / offline ingest) is deliberately
+    returned as a non-numeric string so `should_undistort` takes its file branch.
+    """
+    src = getattr(profile, "source", None)
+    if isinstance(src, str) and src.strip():
+        return src.strip()
+    idx = getattr(profile, "camera_index", -1)
+    idx = -1 if idx is None else int(idx)     # NOT `or -1`: index 0 is a valid camera
+    return idx if idx >= 0 else "offline"
+
+
 def _invalidate_profiles(calib: LensCalibration) -> None:
     """Re-stamp every board profile so nobody has to re-run `calibrate auto` by hand.
 
@@ -887,6 +921,16 @@ def _invalidate_profiles(calib: LensCalibration) -> None:
     we write the new optimal K + zero distortion straight into them. Corner geometry
     itself is re-detected per frame from ArUco anyway, and a profile that cannot be
     re-stamped is simply left for `ensure_profile` to regenerate on next use.
+
+    Two things are strictly per-profile here:
+
+    * The SOURCE. This lens belongs to the rig camera; a profile for the phone/IP cam (a
+      URL) or for recorded frames is never undistorted, so it must be left completely
+      alone. Re-stamping it with the rig's K would corrupt `track --profile phone`.
+    * The RESOLUTION. K scales with the frame size, so the stamp must be computed for the
+      PROFILE's `frame_size`, not for the size the lens happened to be calibrated at —
+      otherwise a 1440p profile gets 4K intrinsics while its `image_corners` stay in 1440p
+      pixels and every solvePnP/box3d crop lands systematically offset.
     """
     from .calibration import CalibrationProfile
 
@@ -896,8 +940,19 @@ def _invalidate_profiles(calib: LensCalibration) -> None:
     for p in sorted(d.glob("*.yaml")):
         try:
             prof = CalibrationProfile.load(p)
-            stamp_profile(prof, frame_size=calib.image_size)
-            prof.save(p)
+            src = profile_source(prof)
+            if not should_undistort(src):
+                log.info("board profile '%s' (source %r) is never undistorted — left untouched.",
+                         prof.profile, src)
+                continue
+            size = tuple(prof.frame_size or ())
+            if len(size) != 2 or not all(int(v) > 0 for v in size):
+                log.warning("board profile '%s' has no usable frame_size — not re-stamped.",
+                            prof.profile)
+                continue
+            if not stamp_profile(prof, frame_size=size, source=src):
+                continue
+            prof.save(p, backup=True)
             print(f"[OK] board profile '{prof.profile}' re-stamped for lens {calib.id}.")
         except Exception as e:  # noqa: BLE001 — never let bookkeeping break the calibration
             log.warning("could not re-stamp board profile %s: %r", p.name, e)

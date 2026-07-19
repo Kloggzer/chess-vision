@@ -1080,26 +1080,35 @@ class MoveTracker:
         grabbed frame is the only trustworthy number. A changed frame size also invalidates
         the calibration profile (its board corners are PIXEL coordinates), so the profile is
         regenerated from this very frame — cheap, and it needs no second camera open.
-        Runs only when the size actually changes (once per capture, in practice)."""
+        Runs only when the size actually changes — EXCEPT while a profile mismatch is still
+        unresolved: a regeneration can fail for a purely transient reason (the user's hand
+        covers the ArUco markers at the exact moment they hit "Apply resolution"), and with
+        the size latched there would never be a second attempt. The tracker would then run
+        forever on old-resolution corners while `auto_record` writes mislabeled frames into
+        a session. So we retry on every frame until the profile matches again."""
         h, w = frame.shape[:2]
-        if self._cam_actual == (w, h):
+        if self._cam_actual == (w, h) and self._profile_size_note is None:
             return
+        first_seen = self._cam_actual != (w, h)
         self._cam_actual = (w, h)
         req = self._cam_requested
-        if req is not None and req != (w, h):
-            log.warning("camera mode '%s' requested %dx%d but the source delivers %dx%d "
-                        "(driver fell back to its nearest supported mode).",
-                        self.res, req[0], req[1], w, h)
-        else:
-            log.info("camera delivers %dx%d (mode '%s').", w, h, self.res)
+        if first_seen:
+            if req is not None and req != (w, h):
+                log.warning("camera mode '%s' requested %dx%d but the source delivers %dx%d "
+                            "(driver fell back to its nearest supported mode).",
+                            self.res, req[0], req[1], w, h)
+            else:
+                log.info("camera delivers %dx%d (mode '%s').", w, h, self.res)
         if tuple(self.profile.frame_size) == (w, h):
             self._profile_size_note = None
             return
         pw, ph = self.profile.frame_size
         self._profile_size_note = (f"profile '{self.profile_name}' was calibrated at {pw}x{ph}, "
                                    f"camera delivers {w}x{h}")
-        log.warning("%s — its board corners are pixel coordinates and no longer valid; "
-                    "regenerating the profile from the current frame.", self._profile_size_note)
+        if first_seen:      # rate limit: the retry path must not spam the log every frame
+            log.warning("%s — its board corners are pixel coordinates and no longer valid; "
+                        "regenerating the profile from the current frame.",
+                        self._profile_size_note)
         self._regenerate_profile(frame)
 
     def _regenerate_profile(self, frame) -> None:
@@ -1121,7 +1130,8 @@ class MoveTracker:
                             self.profile_name)
                 return
             prof.crop = old.crop                       # crop geometry is a user setting, not measured
-            prof.save(profile_path(self.profile_name))
+            # backup=True: this overwrites the user's YAML (image_corners) unattended.
+            prof.save(profile_path(self.profile_name), backup=True)
             with self.lock:
                 self.profile = prof
                 self.marker_tracker = make_tracker(prof)
@@ -2408,11 +2418,32 @@ class MoveTracker:
         log.info("session capture skipped: physical inventory exceeded (%s)", self._record_skip_reason)
         return True
 
+    def _skip_recording_for_geometry(self) -> bool:
+        """True while the board profile does not match the live frame size.
+
+        Recording captures the RAW frame plus the profile's board corners, and `chesslab
+        slice` later cuts crops from exactly that pair. With an unresolved size mismatch the
+        corners belong to another resolution, so every crop would be labeled correctly and
+        cut from the wrong pixels — poisoned training data that is indistinguishable from
+        good data afterwards. We only SUSPEND capture (the recorder and everything already
+        written stay intact) and resume by itself once `_note_frame_size`'s retry succeeds.
+        """
+        note = self._profile_size_note
+        if not note:
+            return False
+        self._record_skipped_inventory += 1
+        self._record_skip_reason = f"board geometry unresolved ({note})"
+        log.info("session capture skipped: %s", self._record_skip_reason)
+        return True
+
     def _queue_session_capture(self, move_san) -> None:
         """Defer the session photo for the just-committed move. Flushes immediately when the
         board is clean (no occlusion); defers to the quiet re-anchor only when hands are
         still visible. Under self.lock."""
         if self._recorder is None and not self.auto_record:
+            return
+        if self._skip_recording_for_geometry():
+            self._pending_capture = None
             return
         if self._skip_recording_for_inventory(self.board.fen()):
             self._pending_capture = None
@@ -2429,6 +2460,9 @@ class MoveTracker:
         auto-labeled data; a WRONG move is removed again on undo."""
         pc = self._pending_capture
         if pc is None:
+            return
+        if self._skip_recording_for_geometry():
+            self._pending_capture = None
             return
         if self._skip_recording_for_inventory(pc["fen"]):
             self._pending_capture = None
@@ -2452,6 +2486,9 @@ class MoveTracker:
             if self._recorder is not None:
                 return {"ok": False, "error": "already recording",
                         "session_id": self._recorder.session_id}
+            if self._profile_size_note:      # corners belong to another resolution
+                return {"ok": False,
+                        "error": f"board geometry unresolved: {self._profile_size_note}"}
             rec = self._start_recorder_locked(notes)
             if rec is None:
                 return {"ok": False, "error": "no camera frame/corners yet — start the tracker first"}

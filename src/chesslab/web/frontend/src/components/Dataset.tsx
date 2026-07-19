@@ -316,7 +316,7 @@ export function DatasetsPanel() {
   const [cap, setCap] = useState(4);
   const [phash, setPhash] = useState(true);
   const [hamming, setHamming] = useState(6);
-  const [rotate, setRotate] = useState(true);
+  const [rotate, setRotate] = useState(false);
   const [valFrac, setValFrac] = useState(0.15);
   const [testFrac, setTestFrac] = useState(0.15);
 
@@ -351,7 +351,7 @@ export function DatasetsPanel() {
             <label className="flex items-center gap-1 text-xs text-zinc-400" title="max. crops per (session, square, piece)">Cap/cell<input type="number" min={1} value={cap} onChange={(e) => setCap(+e.target.value)} className={`${input} w-16`} /></label>
             <label className="flex items-center gap-1 text-xs text-zinc-400"><input type="checkbox" checked={phash} onChange={(e) => setPhash(e.target.checked)} /> pHash</label>
             <label className="flex items-center gap-1 text-xs text-zinc-400">Hamming<input type="number" min={0} max={32} value={hamming} disabled={!phash} onChange={(e) => setHamming(+e.target.value)} className={`${input} w-14`} /></label>
-            <label className="flex items-center gap-1 text-xs text-zinc-400" title="90/180/270° → 4× crops. WARNING: violates the fixed-camera assumption — A/B test."><input type="checkbox" checked={rotate} onChange={(e) => setRotate(e.target.checked)} /> <RotateCw className="h-3.5 w-3.5" /> Rotation</label>
+            <label className="flex items-center gap-1 text-xs text-zinc-400" title="Off by default. When on: 90/180/270° → 4× crops on disk. WARNING: violates the fixed-camera assumption — opt in only for an A/B test."><input type="checkbox" checked={rotate} onChange={(e) => setRotate(e.target.checked)} /> <RotateCw className="h-3.5 w-3.5" /> Rotation</label>
             <label className="flex items-center gap-1 text-xs text-zinc-400">val<input type="number" step={0.05} min={0} max={0.5} value={valFrac} onChange={(e) => setValFrac(+e.target.value)} className={`${input} w-14`} /></label>
             <label className="flex items-center gap-1 text-xs text-zinc-400">test<input type="number" step={0.05} min={0} max={0.5} value={testFrac} onChange={(e) => setTestFrac(+e.target.value)} className={`${input} w-14`} /></label>
           </div>

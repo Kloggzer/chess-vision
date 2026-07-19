@@ -41,7 +41,9 @@ class DatasetCreateRequest(BaseModel):
     per_cell_cap: int = config.DEDUP.per_cell_cap
     phash_enabled: bool = config.DEDUP.phash_enabled
     phash_hamming: int = config.DEDUP.phash_hamming
-    rotate: bool = True
+    # OFF by default, like `dataset build --rotate/--no-rotate`: rotating crops violates the
+    # fixed-camera assumption and 4x's the on-disk crops. Opt in for an A/B test.
+    rotate: bool = False
     max_empty_ratio: float = config.DEFAULT_MAX_EMPTY_RATIO
     seed: int = config.SEED
     allow_degenerate: bool = False

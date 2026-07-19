@@ -12,6 +12,9 @@ camera + display.
 
 from __future__ import annotations
 
+import logging
+import os
+import shutil
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,6 +25,8 @@ import yaml
 
 from . import config
 from .camera import open_camera
+
+log = logging.getLogger("chesslab.calibration")
 
 _FILES = "abcdefgh"
 
@@ -136,10 +141,29 @@ class CalibrationProfile:
             lens_calib_id=d.get("lens_calib_id"),
         )
 
-    def save(self, path: Path) -> Path:
+    def save(self, path: Path, *, backup: bool = False) -> Path:
+        """Persist the profile ATOMICALLY (temp file + `os.replace`).
+
+        A profile is safety-critical geometry (CLAUDE.md: a wrong a8 corner silently
+        transposes every label), so a half-written YAML — killed process, full disk — must
+        never be observable. `backup=True` additionally keeps the previous content as
+        `<name>.yaml.bak`; pass it wherever a profile the USER may have tuned by hand is
+        overwritten by an automatic regeneration.
+        """
+        path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w", encoding="utf-8") as fh:
-            yaml.safe_dump(self.to_dict(), fh, sort_keys=False, allow_unicode=True)
+        if backup and path.exists():
+            try:
+                shutil.copy2(path, path.with_suffix(path.suffix + ".bak"))
+            except OSError as e:
+                log.warning("could not back up calibration profile %s: %r", path, e)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        try:
+            with tmp.open("w", encoding="utf-8") as fh:
+                yaml.safe_dump(self.to_dict(), fh, sort_keys=False, allow_unicode=True)
+            os.replace(tmp, path)
+        finally:
+            tmp.unlink(missing_ok=True)
         return path
 
     @classmethod
@@ -211,6 +235,13 @@ def ensure_profile(profile: str, source: int | str | None = None, *,
     source — nobody has to re-run `calibrate auto` by hand. If it cannot be regenerated,
     the stale profile is re-stamped in place and used, never crashed on.
 
+    Regenerating a STALE profile only replaces what is actually measured — the pixel
+    corners, the homography and the lens stamp. Everything the user configured
+    (`board_size`, `margin`, `marker_dict`, `white_pov`, `crop`) is CARRIED OVER, because
+    only the lens changed, not the board. Silently falling back to the defaults here would
+    reset a hand-set `white_pov: false` and transpose every label of the next session.
+    Explicit caller kwargs still win over the carried-over values.
+
     `camera_mode` is a named capture mode (`config.CAMERA_MODES`): auto-calibration then
     opens the source at THAT resolution, so the recorded pixel corners + `frame_size` match
     the mode the caller is about to run at."""
@@ -232,6 +263,15 @@ def ensure_profile(profile: str, source: int | str | None = None, *,
         if source is None:
             raise
 
+    # Carry the stale profile's own geometry settings into the regeneration (see docstring);
+    # `setdefault` keeps an explicit caller kwarg authoritative.
+    gen_kwargs = dict(kwargs)
+    if stale_prof is not None:
+        gen_kwargs.setdefault("board_size", stale_prof.board_size)
+        gen_kwargs.setdefault("margin", stale_prof.margin)
+        gen_kwargs.setdefault("dict_name", stale_prof.marker_dict)
+        gen_kwargs.setdefault("white_pov", stale_prof.white_pov)
+
     src = int(source) if isinstance(source, str) and source.isdigit() else source
     if camera_mode:
         from .camera import spec_for_mode
@@ -252,7 +292,7 @@ def ensure_profile(profile: str, source: int | str | None = None, *,
             if not ok or frame is None:
                 continue
             prof = profile_from_frame(frame, profile, camera_index=src if isinstance(src, int) else -1,
-                                      **kwargs)
+                                      **gen_kwargs)
             if prof is not None:
                 break
     finally:
@@ -263,16 +303,19 @@ def ensure_profile(profile: str, source: int | str | None = None, *,
                   "re-stamping the existing profile for the current lens instead.")
             lens.stamp_profile(stale_prof, source=source)
             if save:
-                stale_prof.save(profile_path(profile))
+                stale_prof.save(profile_path(profile), backup=True)
             return stale_prof
         raise FileNotFoundError(
             f"profile '{profile}' missing and auto-calibration from {source!r} found no "
             "ArUco markers — tape the markers to the board (calibrate markers) or run "
             "'chesslab calibrate auto'.")
+    if stale_prof is not None:
+        # `crop` is a user setting (pad_up/pad_side/out_size), never measured from a frame.
+        prof.crop = stale_prof.crop
     if save:
         out = profile_path(profile)
         out.parent.mkdir(parents=True, exist_ok=True)
-        prof.save(out)
+        prof.save(out, backup=True)
         print(f"[OK] profile '{profile}' auto-calibrated from the camera source -> {out}")
     return prof
 

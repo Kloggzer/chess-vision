@@ -63,9 +63,10 @@ Four tabs:
   *slice/re-slice*, *archive* (remove from dataset, frames kept, reversible) / *delete*.
   **Curated datasets:** build named datasets from any set of sessions — with **dedup**
   (cap per `(session, square, piece)` **+** perceptual hash against never-moved pieces)
-  and optional **90/180/270° rotation** (4× crops; toggle, A/B-testable). Logic in
+  and optional **90/180/270° rotation** (**off by default** — opting in 4×'s the crops and
+  violates the fixed-camera assumption; toggle, A/B-testable). Logic in
   `dataset_build.py`; each dataset gets `data/datasets/<name>/{manifest.jsonl,split.json,stats.json}`.
-  CLI: `chesslab dataset build <name> --sessions s1,s2 [--cap 4] [--no-phash] [--no-rotate]`.
+  CLI: `chesslab dataset build <name> --sessions s1,s2 [--cap 4] [--no-phash] [--rotate]`.
 - **Training** (`/training`): pick a **dataset** + hyperparameters (backbone / epochs /
   batch / LR); progress bar (epoch i/N, board_acc), metric curves, eval + confusion
   matrix. **Continue training:** warm-start from an earlier run (`train --resume <run>`)

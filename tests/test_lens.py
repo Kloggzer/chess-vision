@@ -353,6 +353,98 @@ def test_stamp_profile_clears_stamp_when_no_calibration_exists():
     assert prof.undistorted is False and prof.lens_calib_id is None
 
 
+def test_stamp_profile_does_not_claim_undistortion_on_a_mismatched_aspect(tmp_path):
+    """C3: the calibration is 4:3, the driver fell back to a 16:9 mode → `maps_for` refuses
+    and frames pass through FULLY DISTORTED. The stamp must say so, otherwise
+    `profile_is_stale` reports clean and `collect` writes `undistorted: true` into a session
+    recorded through raw optics."""
+    _write_calib(tmp_path / "calib.npz", w=640, h=480)
+    prof = _profile(frame_size=(1920, 1080), undistorted=True, lens_calib_id="whatever",
+                    camera_matrix=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+                    dist_coeffs=[-0.25, 0, 0, 0, 0])
+    assert lens.stamp_profile(prof, frame_size=(1920, 1080), source=0) is True
+    assert prof.undistorted is False
+    assert prof.lens_calib_id is None
+    assert prof.camera_matrix == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]   # raw K left alone
+    assert prof.dist_coeffs == [-0.25, 0, 0, 0, 0]
+
+
+def test_stamp_profile_returns_false_when_nothing_changed():
+    """The docstring promises 'True if anything changed' — it used to hardcode True."""
+    prof = _profile(undistorted=False, lens_calib_id=None)
+    assert lens.stamp_profile(prof, source=0) is False
+
+
+# --- `lens calibrate` re-stamping of existing board profiles ---------------------------
+
+@pytest.fixture
+def calib_dir(monkeypatch, tmp_path):
+    """`config.DATA.calibration` pointed at a tmp dir (config.DATA is frozen → swap it)."""
+    d = tmp_path / "data" / "calibration"
+    d.mkdir(parents=True)
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    return d
+
+
+def test_invalidate_profiles_stamps_k_for_the_profiles_own_resolution(calib_dir, tmp_path):
+    """C4: lens calibrated at 1280x960, board profile shot at 640x480. The profile's K must
+    match ITS resolution — its `image_corners` are 640x480 pixels, and geometry3d feeds both
+    to solvePnP, so a 2x-too-large fx offsets every box3d crop."""
+    _write_calib(tmp_path / "calib.npz", w=1280, h=960)
+    calib = lens.load(tmp_path / "calib.npz")
+    _profile(profile="rig", camera_index=0, frame_size=(640, 480)).save(calib_dir / "rig.yaml")
+
+    lens._invalidate_profiles(calib)
+
+    prof = CalibrationProfile.load(calib_dir / "rig.yaml")
+    assert prof.undistorted is True
+    assert prof.lens_calib_id == calib.id
+    # K for 640x480 — roughly half the 1280x960 focal length, and never the 1280-scale one.
+    fx, cx, cy = prof.camera_matrix[0][0], prof.camera_matrix[0][2], prof.camera_matrix[1][2]
+    assert fx < calib.camera_matrix[0, 0]
+    assert 0 < cx < 640 and 0 < cy < 480
+    assert (calib_dir / "rig.yaml.bak").exists()          # H7: the old file is recoverable
+
+
+def test_invalidate_profiles_leaves_url_profiles_untouched(calib_dir, tmp_path):
+    """C6: `phone.yaml` is an IP-cam profile with a completely different lens. Re-stamping it
+    with the RIG's K + `undistorted: true` breaks `track --profile phone` (its default)."""
+    _write_calib(tmp_path / "calib.npz", w=640, h=480)
+    calib = lens.load(tmp_path / "calib.npz")
+    phone = _profile(profile="phone", camera_index=-1, frame_size=(1920, 1080),
+                     source="https://phone.local/video/mjpeg",
+                     camera_matrix=[[900, 0, 960], [0, 900, 540], [0, 0, 1]],
+                     dist_coeffs=[0.1, 0.0, 0.0, 0.0, 0.0])
+    phone.save(calib_dir / "phone.yaml")
+    before = (calib_dir / "phone.yaml").read_text(encoding="utf-8")
+
+    lens._invalidate_profiles(calib)
+
+    assert (calib_dir / "phone.yaml").read_text(encoding="utf-8") == before
+    back = CalibrationProfile.load(calib_dir / "phone.yaml")
+    assert back.undistorted is False
+    assert back.lens_calib_id is None
+    assert back.camera_matrix[0][0] == 900
+
+
+def test_invalidate_profiles_leaves_offline_profiles_untouched(calib_dir, tmp_path):
+    """camera_index -1 with no source = ingested/recorded frames — never remapped either."""
+    _write_calib(tmp_path / "calib.npz", w=640, h=480)
+    calib = lens.load(tmp_path / "calib.npz")
+    _profile(profile="synthetic", camera_index=-1).save(calib_dir / "synthetic.yaml")
+
+    lens._invalidate_profiles(calib)
+
+    assert CalibrationProfile.load(calib_dir / "synthetic.yaml").undistorted is False
+
+
+def test_profile_source_policy():
+    assert lens.profile_source(_profile(camera_index=0)) == 0
+    assert lens.profile_source(_profile(camera_index=2)) == 2
+    assert lens.profile_source(_profile(camera_index=-1)) == "offline"
+    assert lens.profile_source(_profile(camera_index=0, source="https://p/v")) == "https://p/v"
+
+
 # --- CLI ------------------------------------------------------------------------------
 
 def test_lens_show_on_missing_file_exits_nonzero(tmp_path):
