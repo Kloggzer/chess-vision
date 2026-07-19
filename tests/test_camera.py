@@ -252,3 +252,74 @@ def test_spec_for_mode_drives_the_real_open_path(fake_vc):
     sets = dict(fake_vc[0].sets)
     assert sets[cv2.CAP_PROP_FRAME_WIDTH] == 3840
     assert sets[cv2.CAP_PROP_FRAME_HEIGHT] == 2160
+
+
+# --- fps guard: the silent 640x480 collapse -------------------------------------------
+
+class TestFpsGuard:
+    """Requesting more fps than a resolution can sustain makes this DSHOW driver renegotiate
+    to a mode that CAN sustain it — 640x480 — while reporting a triumphant 60.0 fps. Measured
+    in every mode (scripts/probe_camera_mjpeg.py). The guard clamps instead."""
+
+    def test_max_fps_per_size_matches_the_measured_limits(self):
+        from chesslab.camera import _MAX_FPS_FOR_SIZE
+
+        assert _MAX_FPS_FOR_SIZE(3840, 2160) == 23     # datasheet YUY2 4K, measured 22.9
+        assert _MAX_FPS_FOR_SIZE(2560, 1440) == 30     # measured 29.9
+        assert _MAX_FPS_FOR_SIZE(1920, 1080) == 60     # measured 59.9
+        assert _MAX_FPS_FOR_SIZE(640, 480) == 60
+        assert _MAX_FPS_FOR_SIZE(None, None) == 60     # unknown -> permissive, guard is for the
+                                                       # obviously-impossible request only
+
+    def test_impossible_fps_is_clamped_not_passed_through(self, monkeypatch, caplog):
+        """60 fps at 4K must never reach the driver — that is what collapses the resolution."""
+        import logging
+
+        import cv2
+
+        from chesslab import camera as cam
+
+        sets: list[tuple[int, float]] = []
+
+        class FakeCap:
+            def set(self, prop, value):
+                sets.append((prop, value))
+                return True
+
+            def read(self):
+                return True, None
+
+            def isOpened(self):
+                return True
+
+        monkeypatch.setattr(cam.cv2, "VideoCapture", lambda *a, **kw: FakeCap())
+        with caplog.at_level(logging.WARNING, logger="chesslab.camera"):
+            cam._open_index(1, cam.CameraSpec(source=1, width=3840, height=2160, fps=60, warmup=0))
+
+        fps_sets = [v for p, v in sets if p == cv2.CAP_PROP_FPS]
+        assert fps_sets == [23], f"expected the 4K limit, got {fps_sets}"
+        assert any("640x480" in r.message for r in caplog.records), "the warning must name the trap"
+
+    def test_attainable_fps_is_passed_through_unchanged(self, monkeypatch):
+        """The house default (30 @ 1440p) is safe and must not be touched."""
+        import cv2
+
+        from chesslab import camera as cam
+
+        sets: list[tuple[int, float]] = []
+
+        class FakeCap:
+            def set(self, prop, value):
+                sets.append((prop, value))
+                return True
+
+            def read(self):
+                return True, None
+
+            def isOpened(self):
+                return True
+
+        monkeypatch.setattr(cam.cv2, "VideoCapture", lambda *a, **kw: FakeCap())
+        cam._open_index(1, cam.CameraSpec(source=1, width=2560, height=1440, fps=30, warmup=0))
+
+        assert [v for p, v in sets if p == cv2.CAP_PROP_FPS] == [30]
