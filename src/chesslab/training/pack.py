@@ -35,14 +35,24 @@ def _packed_paths(dd: Path) -> tuple[Path, Path]:
 
 
 def _manifest_digest(rows: list[dict]) -> str:
-    """Content fingerprint of a manifest: identifies WHICH crops, in which order, are packed.
+    """Fingerprint of a manifest: which crops, in which order, with which labels, are packed.
 
     Row count and crop size are not enough to tell two datasets apart — see the resume guard in
-    ``pack_dataset``. Hashing the ordered crop paths is cheap next to decoding a million PNGs.
+    ``pack_dataset``. Path + label + out_size covers reordering, substitution and relabelling,
+    and is cheap next to decoding a million PNGs.
+
+    What it deliberately does NOT cover: a crop file whose PIXELS changed while keeping the same
+    path (re-slicing with different photometry, a synth re-render writing over itself). Catching
+    that would need a stat() or hash per row. Callers that rewrite crops in place must re-pack;
+    ``build_dataset`` does so implicitly because it rmtree's the dataset dir first.
     """
     h = hashlib.sha256()
     for r in rows:
         h.update(str(r["path"]).encode("utf-8"))
+        h.update(b"\x00")
+        h.update(str(r.get("label", "")).encode("utf-8"))
+        h.update(b"\x00")
+        h.update(str(r.get("out_size", "")).encode("utf-8"))
         h.update(b"\n")
     return h.hexdigest()[:32]
 
@@ -111,6 +121,12 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
         with open(img_path, "wb") as fh:
             fh.truncate(total_bytes)
         progress_path.unlink(missing_ok=True)          # fresh file -> previous progress is void
+
+    # Un-publish the previous meta BEFORE touching the pixels. A re-pack rewrites the file in
+    # place, so if it dies half way the old meta would still be sitting there — and its digest
+    # still matches, since it describes the same manifest. load_packed would then serve a file
+    # that is half old pixels, half new, with no sidecar left to hint at it.
+    meta_path.unlink(missing_ok=True)
 
     # Many SMALL chunks instead of a few huge ones: each worker only maps its own chunk, so peak
     # commit stays flat regardless of dataset size, progress is fine-grained, and — with the

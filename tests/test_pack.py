@@ -179,13 +179,25 @@ def test_resume_refuses_when_manifest_changed_under_same_shape(tmp_path, paths, 
     dd, _ = _make_dataset(tmp_path, 8)
     crop_bytes = CROP * CROP * 3
     monkeypatch.setattr(pack_mod, "_PACK_CHUNK_BYTES", 4 * crop_bytes)
-    pack_mod.pack_dataset("ds", paths=paths, workers=1)
 
-    old_digest = pack_mod._manifest_digest(pack_mod._manifest_rows(dd))
-    (dd / "packed_progress.json").write_text(json.dumps({
-        "signature": {"n": 8, "h": CROP, "w": CROP, "csize": 4, "digest": old_digest},
-        "done": [0],                       # chunk 0 "already packed" — from the OLD dataset
-    }), encoding="utf-8")
+    # Produce the sidecar by INTERRUPTING a real pack, so the code's own digest computation is
+    # exercised. Hand-writing the sidecar would make this test pass even if `signature` stopped
+    # containing a digest at all — the comparison would then fail for the wrong reason.
+    real = pack_mod._pack_chunk
+
+    def die_on_second(task):
+        if task[2][0][0] != 0:
+            raise RuntimeError("simulated interrupt")
+        return real(task)
+
+    monkeypatch.setattr(pack_mod, "_pack_chunk", die_on_second)
+    with pytest.raises(RuntimeError, match="simulated interrupt"):
+        pack_mod.pack_dataset("ds", paths=paths, workers=1)
+    monkeypatch.setattr(pack_mod, "_pack_chunk", real)
+
+    sidecar = json.loads((dd / "packed_progress.json").read_text(encoding="utf-8"))
+    assert sidecar["done"] == [0], "expected exactly the first chunk to be recorded"
+    assert "digest" in sidecar["signature"], "the signature must carry a manifest digest"
 
     # Same row count and crop size, but different images (offset by 100) at different paths.
     rows = []
@@ -203,6 +215,40 @@ def test_resume_refuses_when_manifest_changed_under_same_shape(tmp_path, paths, 
         assert arr[i].min() == arr[i].max() == 100 + i, (
             f"row {i} holds stale pixels from the previous dataset — resume ignored the manifest "
             f"change (got {arr[i].flat[0]}, expected {100 + i})")
+
+
+def test_interrupted_repack_does_not_leave_old_meta_published(tmp_path, paths, monkeypatch,
+                                                             serial_pool):
+    """A re-pack rewrites the file in place — the OLD meta must not survive the interruption.
+
+    Otherwise load_packed serves a file that is half old pixels, half new, and its digest still
+    matches because it describes the same manifest. The progress sidecar is the only hint, and
+    on a completed-then-interrupted sequence there may not be one.
+    """
+    dd, _ = _make_dataset(tmp_path, 8)
+    crop_bytes = CROP * CROP * 3
+    monkeypatch.setattr(pack_mod, "_PACK_CHUNK_BYTES", 4 * crop_bytes)
+    pack_mod.pack_dataset("ds", paths=paths, workers=1)
+    assert pack_mod.load_packed("ds", paths=paths) is not None
+
+    # Same paths, new pixel content (a re-slice / synth re-render writing over itself).
+    for i in range(8):
+        Image.fromarray(np.full((CROP, CROP, 3), 100 + i, dtype=np.uint8)).save(
+            dd / "squares" / f"{i:04d}.png")
+
+    real = pack_mod._pack_chunk
+
+    def die_on_second(task):
+        if task[2][0][0] != 0:
+            raise RuntimeError("simulated interrupt")
+        return real(task)
+
+    monkeypatch.setattr(pack_mod, "_pack_chunk", die_on_second)
+    with pytest.raises(RuntimeError, match="simulated interrupt"):
+        pack_mod.pack_dataset("ds", paths=paths, workers=1)
+
+    assert pack_mod.load_packed("ds", paths=paths) is None, (
+        "load_packed accepted a half-rewritten pack — the stale meta was left published")
 
 
 def test_incomplete_pack_does_not_publish_meta(tmp_path, paths, monkeypatch, serial_pool):
