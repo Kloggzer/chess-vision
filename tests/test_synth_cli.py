@@ -101,6 +101,7 @@ def test_build_blender_cmd_minimal():
         "--cam-distance-jitter", "0.0",
         "--occlusion-p", "0.0",
         "--borderless-p", "0.0",
+        "--isolate-p", "0.0",
     ]
 
 
@@ -128,6 +129,7 @@ def test_build_blender_cmd_all_flags():
         "--cam-distance-jitter", "0.4",
         "--occlusion-p", "0.25",
         "--borderless-p", "0.0",
+        "--isolate-p", "0.0",
         "--fens", str(Path("fens.txt")),
         "--pieces", str(Path("pieces")),
     ]

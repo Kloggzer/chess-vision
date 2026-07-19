@@ -81,12 +81,13 @@ class CameraDefaults:
     ~19 fps and only on a direct USB-3 port — overkill for the chessboard's small per-square
     crops. To force 4K instead, set width=3840, height=2160 here.
 
-    On `fourcc`: keep "MJPG". It is requested before the resolution (which is the correct
-    order and does prevent the 640×480 cap), but measurement shows this camera's DSHOW driver
-    IGNORES the format request and runs YUY2 regardless — see the table in `camera.py`. So the
-    rates above are the datasheet's YUY2 limits, not MJPEG's: the sensor could do 60 fps at
-    both 1440p and 4K if MJPEG could be engaged. Uncompressed 4K is ~380 MB/s, which is why it
-    stalls near 20 fps on USB-3."""
+    On `fourcc`: "MJPG" is requested but does NOT take effect, and that is a deliberate
+    trade-off rather than an accident — setting FOURCC before the resolution is what makes
+    OpenCV's DSHOW backend fall back to YUY2 (opencv#7013; full explanation in `camera.py`).
+    Engaging MJPG was measured and is not worth it: +5% fps at 1440p, ~5% SLOWER at 4K, and
+    an extra ~0.7 CPU cores burned on JPEG decode. The rates above are therefore the
+    datasheet's YUY2 limits. Uncompressed 4K is ~380 MB/s, which is why it stalls near
+    20 fps on USB-3."""
 
     width: int = 2560          # → 3840 for 4K
     height: int = 1440         # → 2160 for 4K
@@ -505,6 +506,7 @@ def build_blender_cmd(
     cam_distance_jitter: float = 0.0,
     occlusion_p: float = 0.0,
     borderless_p: float = 0.0,
+                       isolate_p: float = 0.0,
 ) -> list[str]:
     """Build the Blender command line (pure function, no subprocess)."""
     cmd = [
@@ -522,6 +524,7 @@ def build_blender_cmd(
         "--cam-distance-jitter", str(cam_distance_jitter),
         "--occlusion-p", str(occlusion_p),
         "--borderless-p", str(borderless_p),
+        "--isolate-p", str(isolate_p),
     ]
     if fens is not None:
         cmd.extend(["--fens", str(fens)])

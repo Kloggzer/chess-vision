@@ -45,6 +45,9 @@ class RenderArgs:
     # Rahmen) → Randfelder sind von Checker umgeben, das Modell kann nicht am Rahmen abkürzen um
     # eine Randfigur (König/Turm) zu erkennen. 0 = aus.
     borderless_p: float = 0.0
+    # Curriculum stage 1: share of scenes rendered on a NON-board randomized ground (no 8x8,
+    # no frame) so only the piece itself carries information. 0 = off.
+    isolate_p: float = 0.0
 
 
 def parse_render_args(argv: list[str]) -> RenderArgs:
@@ -67,6 +70,7 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
     cam_distance_jitter = 0.0
     occlusion_p = 0.0
     borderless_p = 0.0
+    isolate_p = 0.0
 
     i = 0
     while i < len(args):
@@ -154,6 +158,11 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
             if i >= len(args):
                 raise SystemExit("ERROR: --borderless-p benötigt einen Wert.")
             borderless_p = min(1.0, max(0.0, float(args[i])))
+        elif a == "--isolate-p":
+            i += 1
+            if i >= len(args):
+                raise SystemExit("ERROR: --isolate-p benötigt einen Wert.")
+            isolate_p = min(1.0, max(0.0, float(args[i])))
         else:
             print(f"WARN: unbekanntes Flag ignoriert: {a}", file=sys.stderr)
         i += 1
@@ -167,4 +176,4 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
                       fallback_subsurf=fallback_subsurf, piece_scale=piece_scale,
                       randomize_board=randomize_board, randomize_world=randomize_world,
                       cam_distance_jitter=cam_distance_jitter, occlusion_p=occlusion_p,
-                      borderless_p=borderless_p)
+                      borderless_p=borderless_p, isolate_p=isolate_p)
