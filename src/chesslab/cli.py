@@ -25,6 +25,10 @@ app = typer.Typer(
 calibrate_app = typer.Typer(help="Stage 1 — Calibrate camera/board geometry.", no_args_is_help=True)
 app.add_typer(calibrate_app, name="calibrate")
 
+lens_app = typer.Typer(help="Camera LENS undistortion (optics) — distinct from `calibrate` (board geometry).",
+                       no_args_is_help=True)
+app.add_typer(lens_app, name="lens")
+
 collect_app = typer.Typer(help="Stage 3 — Capture positions (raw frame + FEN into session log).", no_args_is_help=True)
 app.add_typer(collect_app, name="collect")
 
@@ -56,6 +60,20 @@ def doctor(
     """Pre-flight: validate Python, app deps, optional GPU (ROCm) and camera."""
     code = doctor_mod.run(gpu=gpu, camera=camera, json_out=json_out)
     raise typer.Exit(code)
+
+
+@app.command()
+def cameras(
+    index: int | None = typer.Option(None, "--index", help="Probe only this camera index (else all)."),
+    probe: bool = typer.Option(True, "--probe/--no-probe", help="Measure the real resolutions/fps per index."),
+    grab: int = typer.Option(20, "--grab", help="Frames to time per mode when probing."),
+) -> None:
+    """List connected cameras and probe the resolutions/fps they REALLY deliver.
+
+    The name/index list shows what's connected; the probe table forces MJPG and times real
+    frames per mode (CAP_PROP_FPS lies). USB 4K cams need a direct USB-3 port to reach 4K."""
+    from .camera import cli_cameras
+    raise typer.Exit(cli_cameras(index=index, do_probe=probe, grab=grab))
 
 
 @calibrate_app.command("check")
@@ -99,6 +117,42 @@ def calibrate_auto(
     raise typer.Exit(calibration_mod.calibrate_auto(camera=camera, profile=profile, board_size=board_size,
                                                     dict_name=dict_name, margin=margin, preview=preview,
                                                     min_markers=min_markers))
+
+
+@lens_app.command("calibrate")
+def lens_calibrate(
+    camera: int = typer.Option(0, "--camera", help="Camera index (the rig camera whose lens this is)."),
+    out: str = typer.Option(None, "--out", help="Target .npz (default: data/lens/calib.npz)."),
+    min_frames: int = typer.Option(15, "--min-frames", help="Minimum accepted views before solving."),
+    cols: int = typer.Option(7, "--cols", help="INNER corners across (7 for a normal 8x8 board)."),
+    rows: int = typer.Option(7, "--rows", help="INNER corners down (7 for a normal 8x8 board)."),
+    square_mm: float = typer.Option(1.0, "--square-mm", help="Square edge length (world scale only; K/D do not depend on it)."),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing calibration file."),
+    alpha: float = typer.Option(None, "--alpha", help="0 = no black borders, 1 = keep all pixels (default: config.LENS.alpha)."),
+) -> None:
+    """Measure the lens distortion by waving a printed chessboard in front of the camera.
+
+    Frames are captured AUTOMATICALLY (novel pose + cooldown), a live HUD shows which image
+    regions are still uncovered, and the solve starts by itself once coverage is adequate.
+    Keys: q = quit, space = force capture, u = undo last.
+
+    WARNING: with the 5-50 mm VARIFOCAL lens the result is only valid at the zoom/focus it
+    was shot at. Re-run this after touching the lens ring, otherwise undistortion silently
+    bends straight lines the wrong way. Board profiles are re-stamped automatically.
+    """
+    from . import lens as lens_mod
+    raise typer.Exit(lens_mod.lens_calibrate(camera=camera, out=out, min_frames=min_frames,
+                                             cols=cols, rows=rows, square_mm=square_mm,
+                                             force=force, alpha=alpha))
+
+
+@lens_app.command("show")
+def lens_show(
+    path: str = typer.Option(None, "--path", help="Calibration .npz (default: data/lens/calib.npz)."),
+) -> None:
+    """Print the stored lens calibration (K, distortion, RMS, resolution it was shot at)."""
+    from . import lens as lens_mod
+    raise typer.Exit(lens_mod.lens_show(path))
 
 
 @collect_app.command("pgn")
@@ -327,17 +381,26 @@ def dataset_build_cmd(
     per_cell_cap: int = typer.Option(config.DEDUP.per_cell_cap, "--cap", help="Max. crops per (session,square,piece)."),
     no_phash: bool = typer.Option(False, "--no-phash", help="Disable perceptual hash dedup."),
     hamming: int = typer.Option(config.DEDUP.phash_hamming, "--hamming"),
-    rotate: bool = typer.Option(True, "--rotate/--no-rotate", help="90/180/270°-Augmentation (default on)."),
+    rotate: bool = typer.Option(False, "--rotate/--no-rotate",
+                                help="90/180/270° augmentation (off by default: quadruples the train split "
+                                     "on disk and contradicts the fixed-camera assumption)."),
     allow_degenerate: bool = typer.Option(False, "--allow-degenerate", help="Allow degenerate dataset (class only in one session etc.)."),
     no_pack: bool = typer.Option(False, "--no-pack", help="Skip packing crops into a memmap (default: pack for fast training)."),
+    source_manifest: str | None = typer.Option(None, "--source-manifest",
+                                               help="Crop pool(s) to filter, comma-separated. Default: "
+                                                    "manifests/squares.jsonl. Needed after `ingest --tag X "
+                                                    "--no-build`, which writes manifests/squares__X.jsonl."),
 ) -> None:
     """Build named dataset from session selection (filter -> dedup -> rotation -> split -> pack)."""
     from . import dataset_build as db
 
     sids = [s.strip() for s in sessions.split(",") if s.strip()]
+    srcs = [s.strip() for s in source_manifest.split(",") if s.strip()] if source_manifest else None
     try:
-        res = db.build_dataset(name, sids, per_cell_cap=per_cell_cap, phash_enabled=not no_phash,
-                               phash_hamming=hamming, rotations=(config.DEDUP.rotations if rotate else (0,)),
+        res = db.build_dataset(name, sids, source_manifest=srcs,
+                               per_cell_cap=per_cell_cap, phash_enabled=not no_phash,
+                               phash_hamming=hamming,
+                               rotations=(config.DEDUP.rotations_augmented if rotate else config.DEDUP.rotations),
                                allow_degenerate=allow_degenerate, pack=not no_pack)
     except ValueError as e:
         print(f"[FAIL] {e}")
@@ -527,6 +590,9 @@ def web_cmd(
 def track_cmd(
     profile: str = typer.Option("phone", "--profile", help="chesslab calibration profile."),
     source: str = typer.Option("0", "--source", help="Camera: 0=Webcam, URL=IP-Cam."),
+    res: str = typer.Option(config.DEFAULT_CAMERA_MODE, "--res",
+                            help="Capture mode: "
+                                 f"{'|'.join(config.CAMERA_MODES)} (the camera may ignore it)."),
     host: str = typer.Option(config.DEFAULT_TRACK_HOST, "--host"),
     port: int = typer.Option(config.DEFAULT_TRACK_PORT, "--port"),
     motion_thr: float = typer.Option(config.TRACK_DEFAULTS["motion_thr"], "--motion-thr",
@@ -650,6 +716,7 @@ def track_cmd(
         "cnn_min_agreement": cnn_min_agreement, "cnn_margin_squares": cnn_margin_squares, "recovery_max_plies": recovery_max_plies,
         "min_confident_board": min_confident_board, "min_confident_recovery": min_confident_recovery,
         "cnn_cooldown_s": cnn_cooldown_s, "cnn_check_interval_s": cnn_check_interval_s,
+        "res": res,
     }
     raise typer.Exit(run_track(host=host, port=port, default_profile=profile,
                                default_source=source, tracker_kwargs=tracker_kwargs))

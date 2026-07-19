@@ -16,8 +16,14 @@ from pathlib import Path
 
 
 def read_jsonl(path: Path) -> list[dict]:
-    """Read JSONL file, missing file → [], skip empty lines."""
+    """Read JSONL file, missing file → [], skip empty lines.
+
+    Streams line by line on purpose: reading the whole file into one string and then splitting it
+    held ~3 extra copies of a multi-GB manifest in memory at once (whole text + list of lines +
+    parsed dicts) and hit MemoryError on the million-crop synthetic manifests.
+    """
     p = Path(path)
     if not p.exists():
         return []
-    return [json.loads(line) for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
+    with p.open(encoding="utf-8") as fh:
+        return [json.loads(line) for line in fh if line.strip()]

@@ -23,11 +23,11 @@ from .calibration import (
     draw_board_grid,
     ensure_profile,
     make_tracker,
-    open_camera,
     square_center,
     warp_board,
     warp_from_corners,
 )
+from .camera import open_camera
 from .state import GameState, castling_rook_squares, en_passant_captured_square, pgn_positions
 
 
@@ -75,6 +75,12 @@ class SessionWriter:
     def _write_session_yaml(self) -> None:
         import yaml
 
+        from . import lens
+
+        # Record the LENS state these frames were captured under, so a dataset that mixes
+        # pre- and post-undistortion sessions stays queryable (absent on old sessions =
+        # raw frames). The frames on disk are never remapped again on replay.
+        undistorted, lens_calib_id = lens.profile_lens_state(self.camera_index)
         meta = {
             "session_id": self.session_id,
             "profile": self.profile,
@@ -82,6 +88,8 @@ class SessionWriter:
             "created_at": self.created_at,
             "camera_index": int(self.camera_index),
             "frame_size": [self.frame_size[0], self.frame_size[1]],
+            "undistorted": bool(undistorted),
+            "lens_calib_id": lens_calib_id,
             "notes": self.notes,
         }
         if self.mode == "pgn" and self.source_pgn:

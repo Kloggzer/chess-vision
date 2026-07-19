@@ -13,7 +13,7 @@ State machine per frame:
 Full picture: docs/move-tracker-flow.md (Mermaid).
 
 Reuse from chesslab: profile/geometry (load_profile, _square_to_col_row, board_corners_for_frame,
-make_tracker, warp_from_corners) and camera (web.camera.open_source: int|URL incl. IP cam).
+make_tracker, warp_from_corners) and camera (camera.open_source: int|URL incl. IP cam).
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ import numpy as np
 
 log = logging.getLogger("chesslab.move_tracker")
 
+from .. import config  # noqa: E402
 from ..calibration import (  # noqa: E402
     _square_to_col_row,
     board_corners_for_frame,
@@ -40,7 +41,13 @@ from ..calibration import (  # noqa: E402
     make_tracker,
     warp_from_corners,
 )
-from ..web.camera import LatestFrame, open_source  # noqa: E402
+from ..camera import (  # noqa: E402
+    LatestFrame,
+    open_capture,
+    open_source,
+    spec_for_mode,
+)
+from ..camera import mode_size as camera_mode_size  # noqa: E402
 
 _FILES = "abcdefgh"
 _ALL = [f"{f}{r}" for r in range(1, 9) for f in _FILES]
@@ -695,10 +702,16 @@ class MoveTracker:
                  motion_recency_s: float = 20.0, commit_ll_floor: float = 2.0,
                  census_z_weight: float = 1.0, occl_census_thr: float = 24.0,
                  desync_obs_n: int = 3, observer_interval_s: float = 0.0,
-                 verify_obs_votes: int = 2) -> None:
+                 verify_obs_votes: int = 2, res: str | None = None) -> None:
+        # Requested capture mode (named preset from config.CAMERA_MODES). None/"default"
+        # keeps the previous behaviour exactly: no CameraSpec, config.CAMERA decides.
+        self.res = res or config.DEFAULT_CAMERA_MODE
+        self._cam_requested = camera_mode_size(self.res)   # (w, h) or None = "camera's choice"
+        self._cam_actual: tuple[int, int] | None = None    # measured from a REAL grabbed frame
+        self._profile_size_note: str | None = None         # set when the profile geometry is stale
         # Auto-create a missing profile from the first frames of this source (ArUco).
         self.profile_name = profile           # string profile name (for session recording)
-        self.profile = ensure_profile(profile, source)
+        self.profile = ensure_profile(profile, source, camera_mode=res)
         self._src = source if not str(source).isdigit() else int(source)
         self.cap = self._open_capture()
         # Auto-reconnect: a dropped feed (URL stream closed, device unplugged) otherwise leaves
@@ -909,6 +922,12 @@ class MoveTracker:
         self._last_loop_ts = 0.0      # for FPS estimation (EMA)
         self._last_frame = None       # last raw frame (for toggleable alignment image)
         self._last_corners = None     # last used board corners (a8,h8,h1,a1) in raw frame
+        # Live lens-drift watchdog (see lens.DriftMonitor). Piggybacks on the ArUco
+        # alignment cadence — no extra per-frame detection pass. Fully optional and
+        # strictly non-blocking: any failure only ever reaches the debug log.
+        self._drift = None            # lazily built lens.DriftMonitor
+        self._drift_i = 0             # counts ALIGNMENTS (not frames) for the sample interval
+        self._drift_canon = None      # {marker_id: quad} baseline for the residual signal
         self._running = False
         self._thread = None
 
@@ -922,6 +941,7 @@ class MoveTracker:
                                               detect_scale=self.align_scale)
             if corners is not None:
                 self._last_corners = corners
+                self._check_lens_drift(frame, corners)
                 return warp_from_corners(frame, self.profile, corners, target_size)
         # frozen or fallback if (not yet) 4 corners known: fixed calibration geometry.
         corners = self.profile.image_corners
@@ -929,6 +949,50 @@ class MoveTracker:
             return None
         self._last_corners = corners
         return warp_from_corners(frame, self.profile, corners, target_size)
+
+    def _check_lens_drift(self, frame, corners) -> None:
+        """Watch for "somebody touched the varifocal lens" — see `lens.DriftMonitor`.
+
+        Called only from the ArUco alignment branch of `_warp`, i.e. at most every
+        `align_every`-th frame, and it does real work only every
+        `config.LENS.drift_sample_every`-th of THOSE. It never raises: the tracking loop
+        must not care whether this diagnostic works.
+        """
+        from .. import config as _cfg
+
+        try:
+            cfg = _cfg.LENS
+            if not cfg.drift_enabled:
+                return
+            self._drift_i += 1
+            if cfg.drift_sample_every > 1 and (self._drift_i % cfg.drift_sample_every):
+                return
+            from .. import lens as _lens
+
+            if self._drift is None:
+                self._drift = _lens.DriftMonitor()
+            # SIGNAL 1: the board quad recorded when the profile was made is the baseline.
+            baseline = self.profile.image_corners
+            if baseline and len(baseline) >= 4 and corners is not None and len(corners) >= 4:
+                self._drift.sample_geometry(corners, baseline)
+            # SIGNAL 2 (opt-in): needs the sub-pixel marker quads, i.e. one extra ArUco
+            # pass — that is why it only runs on sampled frames and is off by default.
+            if cfg.drift_residual_enabled:
+                from ..calibration import _detect_marker_quads
+
+                quads = _detect_marker_quads(frame, self.profile.marker_dict, (0, 1, 2, 3))
+                if len(quads) >= 4:
+                    if self._drift_canon is None:
+                        # First good observation IS the canonical frame. Caveat: if the lens
+                        # was already drifting before the tracker started, this baseline is
+                        # drifted too and the signal stays quiet.
+                        self._drift_canon = {i: q.copy() for i, q in quads.items()}
+                    else:
+                        desc = _lens.quad_descriptor(corners)
+                        self._drift.sample_residual(quads, self._drift_canon,
+                                                    scale=(desc or {}).get("mean_side", 1.0))
+        except Exception as e:  # noqa: BLE001 — a diagnostic must never break tracking
+            log.debug("lens drift check failed: %r", e)
 
     def _gray(self, warped):
         g = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
@@ -997,14 +1061,101 @@ class MoveTracker:
         """(Re)open the camera source. Grab-Latest ONLY for network streams (URL): kills the
         accumulating MJPEG backlog (read() otherwise returns the oldest buffered JPEG → latency).
         Local cameras already provide the current frame; wrapping would only cost a thread.
-        May BLOCK (URL open up to the socket timeout) — never call under self.lock."""
-        cap = open_source(self._src)
+        May BLOCK (URL open up to the socket timeout) — never call under self.lock.
+
+        With no explicit mode (`res` = "default") this goes through `open_source` exactly as
+        before — `config.CAMERA` stays the single source of the house default. Only an
+        explicitly requested mode builds a `CameraSpec`."""
+        if self._cam_requested is None:
+            cap = open_source(self._src)
+        else:
+            cap = open_capture(spec_for_mode(self.res, source=self._src))
         return LatestFrame(cap) if isinstance(self._src, str) and "://" in self._src else cap
 
-    def reattach_camera(self) -> dict:
+    def _note_frame_size(self, frame) -> None:
+        """Record the size the camera REALLY delivers and react to a profile mismatch.
+
+        The requested mode is only a wish — UVC drivers silently fall back to the nearest
+        supported mode, and `CAP_PROP_FRAME_WIDTH` lies on DSHOW, so the shape of an actually
+        grabbed frame is the only trustworthy number. A changed frame size also invalidates
+        the calibration profile (its board corners are PIXEL coordinates), so the profile is
+        regenerated from this very frame — cheap, and it needs no second camera open.
+        Runs only when the size actually changes (once per capture, in practice)."""
+        h, w = frame.shape[:2]
+        if self._cam_actual == (w, h):
+            return
+        self._cam_actual = (w, h)
+        req = self._cam_requested
+        if req is not None and req != (w, h):
+            log.warning("camera mode '%s' requested %dx%d but the source delivers %dx%d "
+                        "(driver fell back to its nearest supported mode).",
+                        self.res, req[0], req[1], w, h)
+        else:
+            log.info("camera delivers %dx%d (mode '%s').", w, h, self.res)
+        if tuple(self.profile.frame_size) == (w, h):
+            self._profile_size_note = None
+            return
+        pw, ph = self.profile.frame_size
+        self._profile_size_note = (f"profile '{self.profile_name}' was calibrated at {pw}x{ph}, "
+                                   f"camera delivers {w}x{h}")
+        log.warning("%s — its board corners are pixel coordinates and no longer valid; "
+                    "regenerating the profile from the current frame.", self._profile_size_note)
+        self._regenerate_profile(frame)
+
+    def _regenerate_profile(self, frame) -> None:
+        """Rebuild the calibration profile from `frame` (same board geometry settings, new
+        pixel corners). Never raises: without visible ArUco markers the old profile stays in
+        place and the note keeps the mismatch visible in the UI — a wrong-scale overlay is
+        far better than a dead tracker."""
+        from ..calibration import profile_from_frame, profile_path
+
+        try:
+            old = self.profile
+            prof = profile_from_frame(
+                frame, self.profile_name, board_size=old.board_size, margin=old.margin,
+                dict_name=old.marker_dict, white_pov=old.white_pov,
+                camera_index=old.camera_index)
+            if prof is None:
+                self._profile_size_note += " — no ArUco markers visible, keeping old corners"
+                log.warning("could not regenerate profile '%s': no markers visible.",
+                            self.profile_name)
+                return
+            prof.crop = old.crop                       # crop geometry is a user setting, not measured
+            prof.save(profile_path(self.profile_name))
+            with self.lock:
+                self.profile = prof
+                self.marker_tracker = make_tracker(prof)
+                self._last_corners = None
+                self.ref_gray = None
+                self.ref_bgr = None
+                self._ref_gamut = None
+                self._ref_census_for = None
+                self.note = f"camera resolution changed to {prof.frame_size[0]}x" \
+                            f"{prof.frame_size[1]} — profile recalibrated"
+            self._profile_size_note = None
+            log.info("profile '%s' regenerated for %dx%d.", self.profile_name,
+                     prof.frame_size[0], prof.frame_size[1])
+        except Exception as e:  # noqa: BLE001 — never let a geometry hiccup kill the loop
+            log.warning("profile regeneration failed: %s", e)
+            self._profile_size_note += f" — regeneration failed: {e}"
+
+    def set_camera_mode(self, res: str | None) -> None:
+        """Select a named capture mode (`config.CAMERA_MODES`). Takes effect on the NEXT
+        capture open — call `reattach_camera()` to apply it to the running session."""
+        self.res = res or config.DEFAULT_CAMERA_MODE
+        self._cam_requested = camera_mode_size(self.res)
+        self._cam_actual = None            # re-measured from the first frame of the new capture
+
+    def reattach_camera(self, res: str | None = None) -> dict:
         """Rebuild the capture from the same source WITHOUT restarting the session: board,
         history, calibration and recording are kept; only the transient detection state is
-        reset (base truth is re-captured on the next clear view). Recovers a dead feed."""
+        reset (base truth is re-captured on the next clear view). Recovers a dead feed.
+
+        `res` additionally switches the capture mode live — the game survives, but the board
+        profile's pixel corners do not: a changed frame size is detected on the first new
+        frame and the profile is regenerated from it (`_note_frame_size`)."""
+        if res is not None:
+            self.set_camera_mode(res)
         try:
             newcap = self._open_capture()                 # may block on URL open — outside lock
         except Exception as e:  # noqa: BLE001 — source still down: report, keep the old cap
@@ -1036,7 +1187,7 @@ class MoveTracker:
                 old.release()                              # LatestFrame.release joins its thread
             except Exception:  # noqa: BLE001
                 pass
-        return {"ok": True}
+        return {"ok": True, "res": self.res}
 
     def _grid_line_coverage(self, gray) -> float:
         """Fraction of the board's interior grid lines (7 vertical + 7 horizontal) that are
@@ -1213,6 +1364,9 @@ class MoveTracker:
                     continue
                 self._last_read_ok = time.time()
                 self._camera_ok = True
+                # Truth about the delivered mode + profile-geometry validity (no-op unless
+                # the frame size actually changed).
+                self._note_frame_size(frame)
                 # Frame signature (Spec 11): counts PROCESSED frames (dropped camera frames
                 # don't matter). Every detection decision / CNN observation this iteration
                 # is tagged with this seq — consumers enforce `obs_seq >= decision_seq`.
@@ -2942,6 +3096,9 @@ class MoveTracker:
         gc = getattr(self, "_grid_coverage", None)
         if gc is not None and gc < 0.95:
             extra = f"  grid={gc:.2f}"
+        dr = getattr(self, "_drift", None)
+        if dr is not None and (dr.status.get("geometry_alarm") or dr.status.get("residual_alarm")):
+            extra += "  LENS DRIFT"
         cv2.putText(img, f"{self.state}{extra}  {self.note}", (10, 26),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, badge, 2, cv2.LINE_AA)
         ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
@@ -3003,6 +3160,20 @@ class MoveTracker:
                 "record_skip_reason": self._record_skip_reason,
                 # Camera health: False = no frames arriving (feed dropped / device gone).
                 "camera_ok": self._camera_ok,
+                # Capture mode: what was ASKED for vs what the camera really delivers
+                # (measured from a grabbed frame — drivers fall back silently). `match` is
+                # None until the first frame arrived, and True when no mode was requested.
+                "camera": {
+                    "res": self.res,
+                    "requested": (None if self._cam_requested is None else
+                                  list(self._cam_requested)),
+                    "actual": None if self._cam_actual is None else list(self._cam_actual),
+                    "match": (None if self._cam_actual is None else
+                              (self._cam_requested is None
+                               or self._cam_requested == self._cam_actual)),
+                    "profile_frame_size": list(self.profile.frame_size),
+                    "profile_mismatch": self._profile_size_note,
+                },
                 # Base truth diagnosis: which FEN the reference image shows (None = re-capture running)
                 "ref_fen": self.ref_fen,
                 # Debug card: all relevant live metrics (display only).
@@ -3030,6 +3201,8 @@ class MoveTracker:
                     "occluded_vetoed": list(self._occluded_vetoed),
                     "tainted": sorted(self._tainted),
                     "grid_coverage": round(self._grid_coverage, 2),
+                    # Lens drift watchdog: rolling medians + alarm flags (None = not measured).
+                    "lens_drift": (None if self._drift is None else dict(self._drift.status)),
                     "max_changed": self.max_changed,
                     "z_thr": self.z_thr,
                     "census_thr": self.census_thr,

@@ -324,14 +324,22 @@ def write_augment_yaml(path: Path) -> Path:
     import yaml
 
     a = config.AUGMENT
+    # Mirror the FULL policy: an incomplete dump silently under-reports what training does,
+    # and a stale copy on disk is worse than none (it misleads the next reader into tuning
+    # against numbers that are no longer in effect).
     policy = {
         "allowed": {
             "brightness": a.brightness, "contrast": a.contrast, "gamma": list(a.gamma),
             "blur_sigma_max": a.blur_sigma_max, "jitter_translate": a.jitter_translate,
             "jitter_scale": a.jitter_scale, "color_jitter": a.color_jitter,
+            "noise_std": a.noise_std,
+            "erase_p": a.erase_p, "erase_scale": list(a.erase_scale),
+            "bg_p": a.bg_p, "bg_keep_w": a.bg_keep_w, "bg_keep_h": a.bg_keep_h,
+            "bg_procedural_frac": a.bg_procedural_frac, "bg_pool_size": a.bg_pool_size,
         },
         "forbidden": {"flip": not a.allow_flip, "rotate90_180": not a.allow_rotate90},
         "val_test": "only deterministic resize + normalize",
+        "note": "generated from config.AUGMENT — edit the dataclass, not this file",
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as fh:

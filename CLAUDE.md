@@ -22,6 +22,10 @@ live games without a CNN (frame diff + legality, optional CNN safeguard).
 - `docs/synth-pipeline.md` — synthetic data pipeline (Blender renders → ingest).
 - `docs/setup/` — PyTorch backends (ROCm / CUDA / CPU).
 - One CLI entry point: `chesslab <command>` (`src/chesslab/cli.py`, Typer).
+- **LENS vs BOARD calibration:** `chesslab lens` (`lens.py`) models the camera OPTICS
+  (barrel distortion → `data/lens/calib.npz`, applied only in `camera.open_capture`),
+  `chesslab calibrate` (`calibration.py`) models the BOARD geometry (ArUco → homography).
+  Roll-out order is lens first — a new lens calibration re-stamps all board profiles.
 
 ## Non-goals
 

@@ -21,6 +21,7 @@ import numpy as np
 import yaml
 
 from . import config
+from .camera import open_camera
 
 _FILES = "abcdefgh"
 
@@ -82,6 +83,13 @@ class CalibrationProfile:
     source: str | None = None
     camera_matrix: list[list[float]] | None = None
     dist_coeffs: list[float] | None = None
+    # Lens state this profile was made under (see chesslab/lens.py). On UNDISTORTED frames
+    # the correct intrinsics above are the NEW optimal camera matrix and ZERO distortion —
+    # a profile still carrying the raw-lens K/D would make solvePnP/box3d compensate the
+    # distortion a SECOND time. `lens_calib_id` pins WHICH lens calibration that was.
+    # Defaults keep old YAML (written before undistortion existed) loadable as raw frames.
+    undistorted: bool = False
+    lens_calib_id: str | None = None
 
     # -- serialization --
     def to_dict(self) -> dict:
@@ -101,6 +109,8 @@ class CalibrationProfile:
             "camera_matrix": (None if self.camera_matrix is None
                               else [[float(v) for v in row] for row in self.camera_matrix]),
             "dist_coeffs": (None if self.dist_coeffs is None else [float(v) for v in self.dist_coeffs]),
+            "undistorted": bool(self.undistorted),
+            "lens_calib_id": self.lens_calib_id,
         }
 
     @classmethod
@@ -122,6 +132,8 @@ class CalibrationProfile:
             source=d.get("source"),
             camera_matrix=(None if cm is None else [[float(v) for v in row] for row in cm]),
             dist_coeffs=(None if dc is None else [float(v) for v in dc]),
+            undistorted=bool(d.get("undistorted", False)),
+            lens_calib_id=d.get("lens_calib_id"),
         )
 
     def save(self, path: Path) -> Path:
@@ -160,7 +172,7 @@ def profile_from_frame(frame, profile: str, *, board_size: int = 1000, margin: f
         return None
     corners, _n_used = res
     h, w = frame.shape[:2]
-    return CalibrationProfile(
+    prof = CalibrationProfile(
         profile=profile,
         camera_index=camera_index,
         frame_size=(w, h),
@@ -172,28 +184,66 @@ def profile_from_frame(frame, profile: str, *, board_size: int = 1000, margin: f
         margin=margin,
         marker_dict=dict_name,
     )
+    # Stamp the lens state AND the intrinsics that match it: on undistorted frames the
+    # correct values are the new optimal camera matrix + zero distortion, never the raw
+    # lens K/D (that would compensate the distortion twice in geometry3d/box3d PnP).
+    # camera_index -1 = "not from a live local camera" (recorded frame / URL) — route it
+    # through the non-index branch of the source policy so it is NOT marked undistorted.
+    from . import lens
+    lens.stamp_profile(prof, frame_size=(w, h),
+                       source=camera_index if camera_index >= 0 else "offline")
+    return prof
 
 
 def ensure_profile(profile: str, source: int | str | None = None, *,
-                   save: bool = True, attempts: int = 30, **kwargs) -> CalibrationProfile:
+                   save: bool = True, attempts: int = 30, camera_mode: str | None = None,
+                   **kwargs) -> CalibrationProfile:
     """Load `profile`; if it does not exist, auto-calibrate it from `source` via ArUco.
 
     This removes the mandatory separate calibration step: `track`/`collect` can create a
     missing profile from the first frames of their own camera source, as long as the
     markers are on the board. `calibrate auto` stays available for interactive margin
     tuning. Raises FileNotFoundError if the profile is missing and no usable source or
-    no markers are found."""
+    no markers are found.
+
+    A profile whose LENS stamp no longer matches the active lens state (e.g. the user just
+    ran `chesslab lens calibrate`) is treated like a missing one and regenerated from the
+    source — nobody has to re-run `calibrate auto` by hand. If it cannot be regenerated,
+    the stale profile is re-stamped in place and used, never crashed on.
+
+    `camera_mode` is a named capture mode (`config.CAMERA_MODES`): auto-calibration then
+    opens the source at THAT resolution, so the recorded pixel corners + `frame_size` match
+    the mode the caller is about to run at."""
+    from . import lens
+
+    stale_prof: CalibrationProfile | None = None
     try:
-        return load_profile(profile)
+        prof0 = load_profile(profile)
+        is_stale, why = lens.profile_is_stale(prof0, source)
+        if not is_stale:
+            return prof0
+        print(f"[WARN] calibration profile '{profile}' is stale: {why} — regenerating from "
+              f"{source!r}.")
+        stale_prof = prof0
+        if source is None:
+            lens.stamp_profile(stale_prof, source=source)
+            return stale_prof
     except FileNotFoundError:
         if source is None:
             raise
 
     src = int(source) if isinstance(source, str) and source.isdigit() else source
-    cap = open_camera(src)
+    if camera_mode:
+        from .camera import spec_for_mode
+        cap = open_camera(src, spec=spec_for_mode(camera_mode, source=src))
+    else:
+        cap = open_camera(src)
     prof: CalibrationProfile | None = None
     try:
         if not cap.isOpened():
+            if stale_prof is not None:      # keep working: re-stamp instead of crashing
+                lens.stamp_profile(stale_prof, source=source)
+                return stale_prof
             raise FileNotFoundError(
                 f"profile '{profile}' missing and source {source!r} could not be opened "
                 "for auto-calibration.")
@@ -208,6 +258,13 @@ def ensure_profile(profile: str, source: int | str | None = None, *,
     finally:
         cap.release()
     if prof is None:
+        if stale_prof is not None:          # no markers right now — re-stamp and carry on
+            print(f"[WARN] could not regenerate '{profile}' (no ArUco markers visible) — "
+                  "re-stamping the existing profile for the current lens instead.")
+            lens.stamp_profile(stale_prof, source=source)
+            if save:
+                stale_prof.save(profile_path(profile))
+            return stale_prof
         raise FileNotFoundError(
             f"profile '{profile}' missing and auto-calibration from {source!r} found no "
             "ArUco markers — tape the markers to the board (calibrate markers) or run "
@@ -369,19 +426,8 @@ def draw_board_grid(board_img, profile: CalibrationProfile, labels: bool = True)
     return img
 
 
-# --- Camera helpers --------------------------------------------------------------------
-
-def open_camera(source: int | str):
-    """Open camera/source. `int` = local index (Windows: more stable DSHOW backend); `str` =
-    URL/path (e.g. phone IP webcam `http://.../video`) -> standard backend, no DSHOW. This way
-    a network/phone camera runs with identical code to a USB camera."""
-    import sys
-
-    if isinstance(source, str):
-        return cv2.VideoCapture(source)
-    if sys.platform.startswith("win") and hasattr(cv2, "CAP_DSHOW"):
-        return cv2.VideoCapture(source, cv2.CAP_DSHOW)
-    return cv2.VideoCapture(source)
+# Camera opening moved to `chesslab.camera` (open_camera is imported at the top of this
+# module for the calibration helpers below).
 
 
 # --- ArUco auto-corners (markers at a8/h8/h1/a1) -----------------------------------------

@@ -103,6 +103,7 @@ stream is only worth it for collection/slicing (quality crops for the CNN).
 | Stage | Command(s) | Status |
 |-------|------------|--------|
 | 0 — Pre-flight | `chesslab doctor [--gpu] [--camera N] [--json]` | ✅ implemented |
+| 0b — Lens (optics) | `chesslab lens calibrate\|show` | ✅ implemented |
 | 1 — Calibration | `chesslab calibrate auto\|check\|list\|markers` | ✅ implemented |
 | 2 — Game state | (library) | ✅ implemented |
 | 3 — Capture & label | `chesslab collect pgn\|play\|live`, `chesslab slice` | ✅ implemented |
@@ -125,6 +126,24 @@ chesslab doctor --gpu --json    # add a machine-readable JSON report
 Each line is `[PASS] / [WARN] / [FAIL] <check> — <detail>`. A mismatched PyTorch build
 produces a clear FAIL naming the build as the cause; the GPU path (`validate_gpu()`) is
 reused by `train` so it aborts loudly instead of silently falling back to CPU.
+
+## Stage 0b — `lens` (camera optics)
+
+`chesslab lens` calibrates the **LENS** (barrel distortion of the physical optics, stored
+once as `data/lens/calib.npz` and applied to every live frame), while `chesslab calibrate`
+calibrates the **BOARD** (where the 8×8 grid sits in the image) — run `lens` **first**, as
+a new lens calibration re-stamps the board profiles.
+
+```bash
+uv run chesslab lens calibrate --camera 0   # auto-captures views of a printed 8x8 board, then solves
+uv run chesslab lens show                   # K, distortion, RMS, the resolution it was shot at
+```
+
+Frames are captured automatically (novel pose + cooldown), a HUD shows which image regions
+are still uncovered, and the solve starts by itself. With the **5–50 mm varifocal** lens the
+result is only valid at the zoom/focus it was shot at — re-run after touching the lens.
+Only the local USB camera is undistorted; phone/IP-cam URLs and recorded files are not, so
+sessions on disk are never undistorted twice.
 
 ## Stage 1 — `calibrate` (ArUco markers, required)
 

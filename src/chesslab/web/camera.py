@@ -8,21 +8,18 @@ all use the same code here — no more duplicated camera/corner/encode code.
 from __future__ import annotations
 
 import os
-import ssl
 import threading
 import time
-import urllib.request
 
 import cv2
-import numpy as np
 
 from ..calibration import (
     CalibrationProfile,
     board_corners_for_frame,
     make_tracker,
-    open_camera,
     warp_from_corners,
 )
+from ..camera import _UrlSnapshotCapture, open_source
 
 _BOUNDARY = b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
 
@@ -31,159 +28,6 @@ _BOUNDARY = b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
 # connecting a phone/network camera without frontend changes. Example:
 #   set CHESSLAB_CAMERA_SOURCE=https://<PHONE-IP>:4444/video/snapshot   (Android IP Camera)
 CAMERA_SOURCE_ENV = "CHESSLAB_CAMERA_SOURCE"
-
-
-class _UrlSnapshotCapture:
-    """cv2.VideoCapture-compatible frame grabber for a JPEG snapshot URL (e.g. Android IP Camera
-    `/video/snapshot`). `cv2.VideoCapture` fails on self-signed HTTPS — so we fetch the bytes
-    ourselves via urllib (TLS verification off) and decode with `cv2.imdecode`. Polls one
-    image per `read()` (sufficient for calibration/collect preview at a few FPS)."""
-
-    def __init__(self, url: str, timeout: float = 4.0) -> None:
-        self.url = url
-        self.timeout = timeout
-        self._ctx = ssl.create_default_context()
-        self._ctx.check_hostname = False
-        self._ctx.verify_mode = ssl.CERT_NONE     # accept self-signed cert
-        self._ok = True
-
-    def isOpened(self) -> bool:
-        return self._ok
-
-    def read(self):
-        if not self._ok:
-            return False, None
-        try:
-            data = urllib.request.urlopen(self.url, timeout=self.timeout, context=self._ctx).read()
-            img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-            return (img is not None), img
-        except Exception:  # noqa: BLE001 — network/timeout: treat like an empty frame
-            return False, None
-
-    def release(self) -> None:
-        self._ok = False
-
-
-class _UrlMjpegCapture:
-    """cv2.VideoCapture-compatible reader for an MJPEG stream (multipart/x-mixed-replace),
-    e.g. Android IP Camera `/video/m.jpeg`. Holds ONE open connection (self-signed HTTPS
-    via urllib, TLS verification off) and extracts the next JPEG on each `read()` by looking
-    for SOI/EOI markers (0xFFD8 … 0xFFD9) in the buffer — much smoother than single snapshots."""
-
-    def __init__(self, url: str, timeout: float = 10.0) -> None:
-        self.url = url
-        self.timeout = timeout
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        self._stream = urllib.request.urlopen(url, timeout=timeout, context=ctx)
-        self._buf = bytearray()
-        self._ok = True
-
-    def isOpened(self) -> bool:
-        return self._ok
-
-    def read(self):
-        if not self._ok:
-            return False, None
-        try:
-            while True:
-                a = self._buf.find(b"\xff\xd8")               # JPEG start
-                b = self._buf.find(b"\xff\xd9", a + 2) if a != -1 else -1  # JPEG end
-                if a != -1 and b != -1:
-                    jpg = bytes(self._buf[a:b + 2])
-                    del self._buf[:b + 2]
-                    img = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
-                    return (img is not None), img
-                chunk = self._stream.read(16384)
-                if not chunk:
-                    return False, None
-                self._buf.extend(chunk)
-        except Exception:  # noqa: BLE001 — network/timeout: treat like an empty frame
-            return False, None
-
-    def release(self) -> None:
-        self._ok = False
-        try:
-            self._stream.close()
-        except Exception:  # noqa: BLE001
-            pass
-
-
-class LatestFrame:
-    """Grab-latest wrapper: continuously reads from a `cv2.VideoCapture`-compatible
-    source in the background and keeps only the NEWEST frame in a single-slot buffer. This way
-    a slow consumer (move tracker with CNN/encode) always gets the most recent image, instead of
-    working through an ever-growing backlog from the socket/JPEG buffer.
-
-    `read()` returns `(ok, frame)` of the latest frame immediately (no network blocking);
-    `release()` stops the reader thread and releases the underlying source."""
-
-    def __init__(self, cap, poll: float = 0.001) -> None:
-        self._cap = cap
-        self._poll = poll
-        self._lock = threading.Lock()
-        self._cond = threading.Condition(self._lock)
-        self._frame = None
-        self._ok = False
-        self._seq = 0                    # bumps per NEW camera frame (duplicate guard)
-        self._read_seq = 0
-        self._running = True
-        self._thread = threading.Thread(target=self._loop, daemon=True)
-        self._thread.start()
-
-    def _loop(self) -> None:
-        while self._running:
-            ok, f = self._cap.read()
-            if ok and f is not None:
-                with self._cond:
-                    self._frame, self._ok = f, True
-                    self._seq += 1
-                    self._cond.notify_all()
-            else:
-                # Source (still) empty/broken: wait briefly so the loop doesn't spin hot.
-                time.sleep(0.01)
-
-    def isOpened(self) -> bool:
-        return getattr(self._cap, "isOpened", lambda: True)()
-
-    def read(self, timeout: float = 0.5):
-        """Latest frame, but NEVER the same frame twice: if the consumer loop is faster
-        than the camera, a repeated frame would diff to zero and count as 'board stable'
-        even while a hand is waving (observed live: stable_count rising during motion).
-        Blocks up to `timeout` for a fresh frame, else (False, None)."""
-        with self._cond:
-            if self._seq == self._read_seq:
-                self._cond.wait(timeout)
-            if not self._ok or self._frame is None or self._seq == self._read_seq:
-                return False, None
-            self._read_seq = self._seq
-            return True, self._frame.copy()
-
-    def release(self) -> None:
-        self._running = False
-        if self._thread.is_alive():
-            self._thread.join(timeout=1.0)
-        if hasattr(self._cap, "release"):
-            self._cap.release()
-
-
-def _is_url(source) -> bool:
-    return isinstance(source, str) and "://" in source
-
-
-def open_source(source):
-    """Open source: URL -> MJPEG stream reader or snapshot grabber (both HTTPS/self-signed-
-    capable); otherwise local index/path via `open_camera` (DSHOW on Windows). If the URL
-    contains 'snapshot' -> single-image poll, otherwise multipart MJPEG stream (smoother)."""
-    if _is_url(source):
-        if "snapshot" in source.lower():
-            return _UrlSnapshotCapture(source)
-        return _UrlMjpegCapture(source)
-    return open_camera(source)
-
-
-_open_source = open_source  # backward-compat alias (move_tracker used this before phase 06)
 
 
 def effective_source(index):
@@ -228,7 +72,7 @@ class Camera:
                 return
             if self.cap is not None:
                 self.cap.release()
-            self.cap = _open_source(src)
+            self.cap = open_source(src)
             self.index = src
 
     def read(self):
