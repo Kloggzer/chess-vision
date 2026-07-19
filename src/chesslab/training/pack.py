@@ -16,7 +16,9 @@ Layout, per dataset dir ``data/datasets/<name>/``:
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 
@@ -25,9 +27,24 @@ from PIL import Image
 
 from .. import config
 
+log = logging.getLogger("chesslab.pack")
+
 
 def _packed_paths(dd: Path) -> tuple[Path, Path]:
     return dd / "packed_images.u8", dd / "packed_meta.json"
+
+
+def _manifest_digest(rows: list[dict]) -> str:
+    """Content fingerprint of a manifest: identifies WHICH crops, in which order, are packed.
+
+    Row count and crop size are not enough to tell two datasets apart — see the resume guard in
+    ``pack_dataset``. Hashing the ordered crop paths is cheap next to decoding a million PNGs.
+    """
+    h = hashlib.sha256()
+    for r in rows:
+        h.update(str(r["path"]).encode("utf-8"))
+        h.update(b"\n")
+    return h.hexdigest()[:32]
 
 
 def _manifest_rows(dd: Path) -> list[dict]:
@@ -101,7 +118,13 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
     csize = max(1, _PACK_CHUNK_BYTES // crop_bytes)
     starts = list(range(0, n, csize))
 
-    signature = {"n": n, "h": h, "w": w, "csize": csize}
+    # The digest is what makes resume SAFE. Without it the signature was effectively just
+    # (n, h, w) — so an interrupted pack could be resumed onto a DIFFERENT dataset that happened
+    # to have the same row count and crop size: the already-allocated file is not re-truncated,
+    # the recorded chunks are skipped, and packed_meta.json is then written from the NEW manifest.
+    # Result: old pixels sitting under new labels, exit code 0, "100%", no warning.
+    digest = _manifest_digest(rows)
+    signature = {"n": n, "h": h, "w": w, "csize": csize, "digest": digest}
     done_starts: set[int] = set()
     if progress_path.exists():
         try:
@@ -126,7 +149,12 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
                                      encoding="utf-8")
             print(f"[pack] {done}/{n} crops ({100.0 * done / n:.1f}%)", flush=True)
 
-    meta_path.write_text(json.dumps({"n": n, "h": h, "w": w,
+    # Never publish meta for a partially written file: load_packed would happily serve it and the
+    # unwritten rows are indistinguishable from legitimately black crops.
+    if done != n:
+        raise RuntimeError(f"pack incomplete: {done}/{n} crops written — refusing to write "
+                           f"{meta_path.name}. Re-run to resume from {progress_path.name}.")
+    meta_path.write_text(json.dumps({"n": n, "h": h, "w": w, "digest": digest,
                                      "paths": [r["path"] for r in rows]}), encoding="utf-8")
     progress_path.unlink(missing_ok=True)              # complete -> sidecar no longer needed
     gb = n * h * w * 3 / 1e9
@@ -149,6 +177,24 @@ def load_packed(name: str, paths: config.Paths = config.DATA):
         return None
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     n, h, w = int(meta["n"]), int(meta["h"]), int(meta["w"])
+
+    # Refuse a pack that does not belong to the CURRENT manifest. Training reads this by index, so
+    # a mismatch means images silently paired with the wrong labels — the one failure mode that
+    # produces a plausible-looking but wrong model. Packs written before digests existed have no
+    # entry; treat them as unverifiable and fall back to the (slow but correct) per-PNG loader.
+    expected = _manifest_digest(_manifest_rows(dd))
+    if meta.get("digest") != expected:
+        log.warning("packed data for '%s' does not match the current manifest (%s vs %s) — "
+                    "ignoring the pack. Re-run `chesslab dataset pack %s`.",
+                    name, meta.get("digest", "none"), expected, name)
+        return None
+
+    expected_bytes = n * h * w * 3
+    if img_path.stat().st_size != expected_bytes:
+        log.warning("packed file for '%s' is %d bytes, expected %d — ignoring the pack.",
+                    name, img_path.stat().st_size, expected_bytes)
+        return None
+
     path2idx = {p: i for i, p in enumerate(meta["paths"])}
     return str(img_path), (n, h, w), path2idx
 

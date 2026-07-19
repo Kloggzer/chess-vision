@@ -22,6 +22,7 @@ import json
 import logging
 import random
 import shutil
+import statistics
 from collections import Counter
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -176,7 +177,8 @@ def _apply_rotations(rows: list[dict], rotations: tuple[int, ...], squares_dir: 
 
 
 def _preflight_disk_check(train_rows: list[dict], holdout: list[dict],
-                          rotations: tuple[int, ...], pack: bool) -> None:
+                          rotations: tuple[int, ...], pack: bool,
+                          paths: config.Paths | None = None, seed: int = config.SEED) -> None:
     """Project the dataset's on-disk cost BEFORE writing anything, and refuse to start if it
     cannot fit.
 
@@ -192,16 +194,31 @@ def _preflight_disk_check(train_rows: list[dict], holdout: list[dict],
     n_new_pngs = len(train_rows) * (n_rot - 1)
     n_final = len(train_rows) * n_rot + len(holdout)
 
-    sample = next((r["path"] for r in (train_rows or holdout)), None)
-    img = cv2.imread(sample) if sample else None
-    if img is None:
-        log.warning("preflight: could not read a sample crop — skipping the disk projection.")
+    # Sample SEVERAL rows, not just the first: rows come in manifest order and `empty` dominates,
+    # so crop[0] is almost always a flat, highly compressible empty square whose png is a fraction
+    # of a piece crop's. Projecting from it under-estimates the rotated-png term badly — exactly
+    # the overrun this guard exists to prevent. Median over a seeded sample is stable and cheap.
+    pool = train_rows or holdout
+    if not pool:
         return
-    crop_bytes = int(img.shape[0]) * int(img.shape[1]) * 3
-    png_bytes = Path(sample).stat().st_size
+    rng = random.Random(seed)
+    sample_rows = pool if len(pool) <= 32 else rng.sample(pool, 32)
+    sizes, crop_bytes = [], None
+    for r in sample_rows:
+        img = cv2.imread(r["path"])
+        if img is None:
+            continue
+        crop_bytes = int(img.shape[0]) * int(img.shape[1]) * 3
+        sizes.append(Path(r["path"]).stat().st_size)
+    if not sizes or crop_bytes is None:
+        log.warning("preflight: could not read any sample crop — skipping the disk projection.")
+        return
+    png_bytes = int(statistics.median(sizes))
 
     need = n_new_pngs * png_bytes + (n_final * crop_bytes if pack and n_final >= _PACK_MIN_CROPS else 0)
-    free = shutil.disk_usage(str(config.DATA.root)).free
+    # Measure the volume the dataset is actually written to, not the module-global default —
+    # `paths` may point at another drive (test isolation, multi-drive setups).
+    free = shutil.disk_usage(str((paths or config.DATA).root)).free
     log.info("preflight: %s final crops (train %s x%s rotations + holdout %s); "
              "~%.1f GB rotated pngs + ~%.1f GB memmap = ~%.1f GB needed, %.1f GB free",
              f"{n_final:,}", f"{len(train_rows):,}", n_rot, f"{len(holdout):,}",
@@ -298,11 +315,14 @@ def build_dataset(
         train_rows = dedup_phash(train_rows, phash_hamming)
     n_dedup = len(train_rows) + len(holdout)
 
+    # BEFORE touching the existing dataset: a refusal must not leave the caller with neither the
+    # new dataset nor the old one.
+    _preflight_disk_check(train_rows, holdout, rotations, pack, paths=paths, seed=seed)
+
     ds = paths.datasets / name
     if ds.exists():
         shutil.rmtree(ds)                       # clean rebuild (old rotations gone)
     ds.mkdir(parents=True, exist_ok=True)
-    _preflight_disk_check(train_rows, holdout, rotations, pack)
     train_rows = _apply_rotations(train_rows, rotations, ds / "squares")   # Rotation ONLY on train
     rows = train_rows + holdout
     n_final = len(rows)
