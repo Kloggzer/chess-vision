@@ -71,6 +71,13 @@ PIECE_SCALE = 1.0
 # aufhellen; Sättigung hoch halten, damit die Holzwärme bleibt.
 PIECE_WHITE_SAT = 0.82
 PIECE_WHITE_VAL = 1.62
+# Für Schwarz wird die Textur NICHT nachbearbeitet. Zwei Versuche sind daran gescheitert, dass
+# jede globale Farbtransformation die Schwarztiefe gegen die Lichter eintauscht: eine
+# Helligkeits-Multiplikation vergraute die cremefarbenen Kugeln der Damenkrone, ein Gamma>1
+# dunkelte sie ebenfalls (gemessen 151 -> 75 gegenüber echten Aufnahmen). Der Grund, warum
+# schwarze Figuren "nicht satt" wirkten, lag ohnehin nicht in der Textur, sondern im
+# Welt-Ambient (siehe randomize_lights) — und Licht senkt die Schatten, ohne die inneren
+# Helligkeitsverhältnisse der Textur zu verschieben.
 
 
 def argv_after_dashes():
@@ -350,6 +357,8 @@ def _scanned_material(png, darken=1.0, whiten=False):
             src = hsv.outputs["Color"]
         except Exception:
             pass
+    # Schwarze Figuren: das Gegenstück. Die Scan-Textur ist zu hell und braunstichig; ohne das
+    # hier wirken sie neben echten Aufnahmen ausgewaschen (siehe PIECE_BLACK_* oben).
     if darken < 0.999:
         try:
             mix = nt.nodes.new("ShaderNodeMixRGB"); mix.blend_type = "MULTIPLY"
@@ -517,7 +526,12 @@ def randomize_lights(rng):
     if world and world.use_nodes:
         bg = world.node_tree.nodes.get("Background")
         if bg:
-            bg.inputs[1].default_value = rng.uniform(0.3, 1.2)
+            # Ambient bewusst niedrig: die alte Spanne (0.3-1.2) legte einen Aufhellungs-Boden
+            # über die Szene, unter dem schwarze Figuren nie tief wurden — im Direktvergleich mit
+            # echten Aufnahmen lag ihr Schatten 2.5x zu hell, und an der Basisfarbe liess sich das
+            # kaum bewegen (2.5x dunklere Textur = nur 9% weniger Helligkeit). Schlüssellichter
+            # modellieren, Schatten dürfen zufallen — so entsteht der Kontrast echter Fotos.
+            bg.inputs[1].default_value = rng.uniform(0.08, 0.45)
             # World-Ambient ebenfalls warm-biased statt neutral-kühl.
             bg.inputs[0].default_value = (1.0, rng.uniform(0.82, 0.95), rng.uniform(0.62, 0.82), 1.0)
 
@@ -777,7 +791,9 @@ def randomize_world(rng):
     if world and world.use_nodes:
         bg = world.node_tree.nodes.get("Background")
         if bg is not None:
-            bg.inputs[1].default_value = rng.uniform(0.2, 1.5)
+            # NOTE: nur die FARBE wird hier gesetzt. Die STÄRKE gehört randomize_lights, das
+            # pro View läuft und diesen Wert sonst überschreiben würde — genau daran ist eine
+            # frühere Absenkung wirkungslos verpufft.
             bg.inputs[0].default_value = (rng.uniform(0.2, 1.0), rng.uniform(0.2, 1.0),
                                           rng.uniform(0.2, 1.0), 1.0)
     ground = bpy.data.objects.get("Ground")

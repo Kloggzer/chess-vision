@@ -100,8 +100,15 @@ def test_thread_stress():
 
     assert len(errors) == 0, f"Thread errors: {errors}"
     final = ls.get("counter")
-    # Each writer wrote 500 values → letzter sollte >= 500 sein
-    assert final >= 500
+    # The invariant is that the surviving value is one a writer ACTUALLY wrote — i.e. no torn or
+    # interleaved update. Writer `idx` writes idx*500 + i for i in 0..499, so every legal value
+    # lies in [0, 8*500).
+    #
+    # This used to assert `final >= 500`, which quietly assumed writer 0 never finishes last.
+    # When it did, the final value was legitimately 499 and the suite went red for a scheduling
+    # coincidence rather than a defect — a flake that costs more trust than the assertion was
+    # ever worth. LockedState itself was never implicated.
+    assert 0 <= final < 8 * 500, f"final value {final} was never written by any writer"
 
 
 # ---------------------------------------------------------------------------
