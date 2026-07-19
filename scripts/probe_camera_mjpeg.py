@@ -1,34 +1,41 @@
-"""Hunt for a call sequence that actually engages MJPEG on the USB camera.
+"""Find a call sequence that actually engages MJPEG on the USB camera — and verify the
+frames it produces are real.
 
-Follow-up to `probe_camera_format.py`, which established that on this cam
-(ELP-U3CAM4K60-IB / IMX678) `cap.set(CAP_PROP_FOURCC, MJPG)` after opening with CAP_DSHOW is
-accepted and ignored: every variant reads back YUY2 and lands on the datasheet's YUY2 fps row
-while the CPU stays near idle (bandwidth-bound uncompressed video, not decode-bound JPEG).
+Background
+----------
+`probe_camera_format.py` established that on this cam (ELP-U3CAM4K60-IB / IMX678)
+`cap.set(CAP_PROP_FOURCC, MJPG)` *after* opening with CAP_DSHOW is accepted and ignored:
+the FOURCC reads back YUY2 and the fps lands on the datasheet's YUY2 row.
 
-This script sweeps the candidate escapes:
+This script sweeps the candidate escapes and — the part that turned out to matter — checks
+that each variant's frames are genuine. Two independent traps were found here, and both
+fake a high frame rate:
 
-    dshow-set-after      baseline — FOURCC set after open (what camera._open_index does)
-    dshow-params         FOURCC + size passed as open-time `params` (OpenCV >= 4.5.3)
-    dshow-size-first     size before FOURCC (inverted order)
-    dshow-reopen         set FOURCC, release, reopen, set again
-    dshow-convert-rgb0   CAP_PROP_CONVERT_RGB = 0 (ask for the compressed stream)
-    msmf-*               the same, on Media Foundation
+  * `CAP_PROP_FPS = 60` renegotiates the media type back to YUY2 and then delivers
+    near-empty buffers at exactly the requested rate. 4K YUY2 at 60 fps is ~1 GB/s, far
+    beyond USB-3, so the rate alone proves the frames cannot be real.
+  * CAP_MSMF reports ~60 fps at 1440p of which ~43% are byte-identical repeats of the
+    previous frame.
 
-Per variant it reports the FOURCC asked for, the FOURCC read back, the delivered frame shape,
-measured fps, CPU-cores burned, and — the part that matters for adoption — whether the frames
-are a decodable BGR image or raw bytes. A variant that reports MJPG but hands back a 1xN blob
-of JPEG bytes breaks every downstream consumer and is a failure, not a success.
+So a variant is only a success if it engages MJPG AND the frames are distinct AND they
+carry image content. The columns:
 
-`decode` column:
-    bgr HxWx3   normal image (what the codebase expects)
-    raw N bytes 1-D buffer — compressed passthrough, needs cv2.imdecode by the caller
-    jpeg-ok     that buffer did decode as a JPEG (size shown)
-    static      frames are byte-identical / near-zero variance — a dead or frozen stream
+    back      FOURCC the driver reports back after the sequence (MJPG = engaged)
+    raw fps   frames returned per second
+    uniq fps  raw fps minus byte-identical repeats — the rate that is actually useful
+    cores     CPU cores burned (JPEG decode shows up here; ~0.1 means nothing arrived)
+    mean      mean pixel value; near-zero across the board means empty buffers, not a
+              dark scene, and invalidates the row
+    delivered decoded shape, or a raw/JPEG buffer if CONVERT_RGB handed back compressed data
+
+IMPORTANT: run this with the LENS CAP OFF and a normally lit scene. A black scene makes
+`mean` useless as a validity signal and lets auto-exposure lengthen integration time, which
+throttles the frame rate for reasons that have nothing to do with the pixel format.
 
 Usage
 -----
     .venv/Scripts/python.exe scripts/probe_camera_mjpeg.py
-    .venv/Scripts/python.exe scripts/probe_camera_mjpeg.py --index 1 --frames 60 --modes 4k,1440p
+    .venv/Scripts/python.exe scripts/probe_camera_mjpeg.py --index 1 --modes 4k,1440p
 """
 
 from __future__ import annotations
@@ -40,14 +47,8 @@ import time
 import cv2
 import numpy as np
 
-MODES = {
-    "4k": (3840, 2160),
-    "1440p": (2560, 1440),
-    "1080p": (1920, 1080),
-}
-
+MODES = {"4k": (3840, 2160), "1440p": (2560, 1440), "1080p": (1920, 1080)}
 BACKENDS = {"dshow": cv2.CAP_DSHOW, "msmf": cv2.CAP_MSMF}
-
 MJPG = cv2.VideoWriter_fourcc(*"MJPG")
 
 
@@ -58,10 +59,12 @@ def fourcc_str(value: float) -> str:
 
 
 # --- open strategies ------------------------------------------------------------------
-# Each returns an opened VideoCapture (or None). They differ ONLY in how/when FOURCC,
-# resolution and CONVERT_RGB are applied — that is the whole question.
+# These differ ONLY in how and when FOURCC / resolution / CONVERT_RGB are applied, which
+# is the entire question: DirectShow negotiates the media type when the graph is built,
+# so anything set afterwards can only trigger a renegotiation the driver may refuse.
 
-def _open_set_after(index, backend, w, h, convert_rgb=None):
+def _open_set_after(index, backend, w, h, convert_rgb=None, set_fps=False):
+    """What camera._open_index does today: FOURCC first, then size, after opening."""
     cap = cv2.VideoCapture(index, backend)
     if not cap.isOpened():
         return None
@@ -70,159 +73,148 @@ def _open_set_after(index, backend, w, h, convert_rgb=None):
     cap.set(cv2.CAP_PROP_FOURCC, MJPG)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+    if set_fps:
+        cap.set(cv2.CAP_PROP_FPS, 60)
     return cap
 
 
-def _open_size_first(index, backend, w, h, convert_rgb=None):
+def _open_size_first(index, backend, w, h, convert_rgb=None, set_fps=False):
+    """Size before FOURCC — the inverse of the documented advice, which is what works."""
     cap = cv2.VideoCapture(index, backend)
     if not cap.isOpened():
         return None
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
     cap.set(cv2.CAP_PROP_FOURCC, MJPG)
+    if set_fps:
+        cap.set(cv2.CAP_PROP_FPS, 60)
     return cap
 
 
-def _open_params(index, backend, w, h, convert_rgb=None):
-    """OpenCV >= 4.5.3: properties applied AT open time, before the graph is built. This is
-    the documented way to influence media-type negotiation rather than renegotiate after."""
-    params = [
-        cv2.CAP_PROP_FOURCC, int(MJPG),
-        cv2.CAP_PROP_FRAME_WIDTH, int(w),
-        cv2.CAP_PROP_FRAME_HEIGHT, int(h),
-    ]
+def _open_params(index, backend, w, h, convert_rgb=None, set_fps=False):
+    """OpenCV >= 4.5.3: properties applied AT open time, so the graph is built with the
+    MJPEG media type instead of being asked to switch to it afterwards."""
+    params = [cv2.CAP_PROP_FOURCC, int(MJPG),
+              cv2.CAP_PROP_FRAME_WIDTH, int(w),
+              cv2.CAP_PROP_FRAME_HEIGHT, int(h)]
     if convert_rgb is not None:
         params += [cv2.CAP_PROP_CONVERT_RGB, int(convert_rgb)]
     cap = cv2.VideoCapture(index, backend, params)
+    if cap.isOpened() and set_fps:
+        cap.set(cv2.CAP_PROP_FPS, 60)
     return cap if cap.isOpened() else None
 
 
-def _open_reopen(index, backend, w, h, convert_rgb=None):
-    """Set FOURCC, tear the graph down, reopen and set again — the 'driver remembers the
-    last negotiated media type' folk remedy."""
-    cap = cv2.VideoCapture(index, backend)
-    if cap.isOpened():
-        cap.set(cv2.CAP_PROP_FOURCC, MJPG)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
-        cap.release()
-    time.sleep(0.3)
-    cap = cv2.VideoCapture(index, backend)
-    if not cap.isOpened():
-        return None
-    cap.set(cv2.CAP_PROP_FOURCC, MJPG)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
-    return cap
-
-
 VARIANTS = [
-    # (label, backend, opener, convert_rgb)
-    ("set-after (baseline)", "dshow", _open_set_after, None),
-    ("open-params", "dshow", _open_params, None),
-    ("size-first", "dshow", _open_size_first, None),
-    ("reopen", "dshow", _open_reopen, None),
-    ("convert_rgb=0", "dshow", _open_set_after, 0),
-    ("params+convert_rgb=0", "dshow", _open_params, 0),
-    ("set-after (baseline)", "msmf", _open_set_after, None),
-    ("open-params", "msmf", _open_params, None),
-    ("convert_rgb=0", "msmf", _open_set_after, 0),
-    ("params+convert_rgb=0", "msmf", _open_params, 0),
+    # (label, backend, opener, convert_rgb, set_fps)
+    ("set-after (current code)", "dshow", _open_set_after, None, False),
+    ("open-params", "dshow", _open_params, None, False),
+    ("size-first", "dshow", _open_size_first, None, False),
+    ("open-params + fps60", "dshow", _open_params, None, True),
+    ("convert_rgb=0", "dshow", _open_set_after, 0, False),
+    ("params+convert_rgb=0", "dshow", _open_params, 0, False),
+    ("set-after (current code)", "msmf", _open_set_after, None, False),
+    ("open-params", "msmf", _open_params, None, False),
+    ("convert_rgb=0", "msmf", _open_set_after, 0, False),
 ]
 
 
-def describe_frame(frame) -> str:
-    """Classify what read() handed back — a BGR image, or a compressed/raw buffer."""
+def describe(frame) -> str:
+    """Classify what read() handed back: a BGR image, or a compressed/raw buffer that
+    every downstream consumer in this codebase would choke on."""
     if frame is None:
         return "none"
     if frame.ndim == 3 and frame.shape[2] == 3:
-        return f"bgr {frame.shape[0]}x{frame.shape[1]}x3"
+        return f"bgr {frame.shape[1]}x{frame.shape[0]}"
     flat = frame.reshape(-1)
-    head = bytes(flat[:2].tobytes()) if flat.size >= 2 else b""
-    if head == b"\xff\xd8":                       # JPEG SOI — compressed passthrough
+    if flat.size >= 2 and flat[:2].tobytes() == b"\xff\xd8":     # JPEG SOI
         img = cv2.imdecode(flat, cv2.IMREAD_COLOR)
-        if img is not None:
-            return f"jpeg-ok {img.shape[1]}x{img.shape[0]} ({flat.size}B)"
-        return f"jpeg-bad ({flat.size}B)"
-    return f"raw {flat.size}B shape={tuple(frame.shape)}"
+        return (f"jpeg-ok {img.shape[1]}x{img.shape[0]}" if img is not None
+                else f"jpeg-bad {flat.size}B")
+    return f"raw {flat.size}B"
 
 
-def probe(index: int, backend_name: str, opener, w: int, h: int, convert_rgb, frames: int) -> dict:
+def probe(index, backend_name, opener, w, h, convert_rgb, set_fps, frames) -> dict:
     backend = BACKENDS[backend_name]
     try:
-        cap = opener(index, backend, w, h, convert_rgb)
-    except Exception as exc:                      # noqa: BLE001 — a backend may reject params
-        return {"error": f"open raised: {type(exc).__name__}"}
+        cap = opener(index, backend, w, h, convert_rgb, set_fps)
+    except Exception as exc:                                     # noqa: BLE001
+        return {"error": f"open raised {type(exc).__name__}"}
     if cap is None:
         return {"error": "could not open"}
     try:
-        for _ in range(8):                        # warm-up: let the graph and AE settle
+        for _ in range(12):                                      # let AE/AWB settle
             cap.read()
-
-        ok, frame = cap.read()
-        if not ok or frame is None:
+        ok, first = cap.read()
+        if not ok or first is None:
             return {"error": "no frame"}
-        shape_desc = describe_frame(frame)
-        first = frame.copy()
 
+        prev = None
+        dup = got = 0
         t0, c0 = time.perf_counter(), time.process_time()
-        got = 0
-        last = None
         for _ in range(frames):
             ok2, f = cap.read()
-            if ok2 and f is not None:
-                got += 1
-                last = f
+            if not ok2 or f is None:
+                continue
+            got += 1
+            # Byte-identical to its predecessor = the backend re-handed a stale buffer.
+            # Real sensor output always differs by at least noise.
+            if prev is not None and f.shape == prev.shape and np.array_equal(f, prev):
+                dup += 1
+            prev = f.copy()
         wall = time.perf_counter() - t0
         cpu = time.process_time() - c0
 
-        # A frozen stream can fake a high fps: check the last frame actually differs.
-        moving = True
-        if last is not None and last.shape == first.shape:
-            moving = float(np.mean(np.abs(last.astype(np.int16) - first.astype(np.int16)))) > 0.05
-
         return {
             "readback": fourcc_str(cap.get(cv2.CAP_PROP_FOURCC)),
-            "desc": shape_desc if moving else shape_desc + " STATIC",
-            "fps": got / wall if wall > 0 else 0.0,
-            "cores": cpu / wall if wall > 0 else 0.0,
-            "got": got,
+            "desc": describe(first),
+            "fps": got / wall if wall else 0.0,
+            "uniq": (got - dup) / wall if wall else 0.0,
+            "cores": cpu / wall if wall else 0.0,
+            "mean": float(prev.mean()) if prev is not None else -1.0,
         }
     finally:
         try:
             cap.release()
-        except Exception:                          # noqa: BLE001
+        except Exception:                                        # noqa: BLE001
             pass
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--index", type=int, default=1, help="camera index (the 4K cam is usually 1)")
-    ap.add_argument("--frames", type=int, default=60, help="frames to time per variant")
-    ap.add_argument("--modes", default="4k,1440p,1080p", help="comma-separated: 4k,1440p,1080p")
+    ap.add_argument("--index", type=int, default=1)
+    ap.add_argument("--frames", type=int, default=120)
+    ap.add_argument("--modes", default="4k,1440p,1080p")
     a = ap.parse_args()
 
     modes = [m.strip() for m in a.modes.split(",") if m.strip() in MODES]
-    print(f"OpenCV {cv2.__version__} — camera index {a.index}, {a.frames} timed frames/variant")
-    print("MJPG requested in every variant; 'readback' is what the driver reports back.\n")
+    print(f"OpenCV {cv2.__version__} — index {a.index}, {a.frames} frames/variant")
+    print("MJPG requested everywhere. Run with the LENS CAP OFF: a black scene makes 'mean'")
+    print("meaningless and lets auto-exposure throttle the frame rate on its own.\n")
 
-    header = (f"{'mode':>7} | {'backend':<5} | {'variant':<21} | {'back':>4} | "
-              f"{'delivered':<22} | {'fps':>6} | {'cores':>5}")
+    header = (f"{'mode':>6} | {'backend':<5} | {'variant':<24} | {'back':>4} | "
+              f"{'delivered':<14} | {'raw':>6} | {'uniq':>6} | {'cores':>5} | {'mean':>6}")
     print(header)
     print("-" * len(header))
 
     for mode in modes:
         w, h = MODES[mode]
-        for label, backend_name, opener, convert_rgb in VARIANTS:
-            r = probe(a.index, backend_name, opener, w, h, convert_rgb, a.frames)
+        for label, backend_name, opener, crgb, sfps in VARIANTS:
+            r = probe(a.index, backend_name, opener, w, h, crgb, sfps, a.frames)
             if "error" in r:
-                print(f"{mode:>7} | {backend_name:<5} | {label:<21} | {'-':>4} | "
-                      f"{'ERROR: ' + r['error']:<22} | {'-':>6} | {'-':>5}")
+                print(f"{mode:>6} | {backend_name:<5} | {label:<24} | {'-':>4} | "
+                      f"{'ERROR: ' + r['error']:<14} | {'-':>6} | {'-':>6} | "
+                      f"{'-':>5} | {'-':>6}")
                 continue
-            print(f"{mode:>7} | {backend_name:<5} | {label:<21} | {r['readback']:>4} | "
-                  f"{r['desc']:<22} | {r['fps']:6.1f} | {r['cores']:5.2f}")
+            print(f"{mode:>6} | {backend_name:<5} | {label:<24} | {r['readback']:>4} | "
+                  f"{r['desc']:<14} | {r['fps']:6.1f} | {r['uniq']:6.1f} | "
+                  f"{r['cores']:5.2f} | {r['mean']:6.1f}")
         print()
+
+    print("Reading the table: 'back' = MJPG means the format engaged. A large raw-vs-uniq")
+    print("gap means the backend repeats stale buffers. A near-zero 'mean' with the cap OFF")
+    print("means empty buffers — that row's frame rate is fiction regardless of what it says.")
     return 0
 
 

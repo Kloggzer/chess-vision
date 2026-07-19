@@ -1,28 +1,19 @@
 """Self-contained camera library for chesslab — the ONE place that knows how to open a
 video source correctly.
 
-Why this exists: `cv2.VideoCapture` on Windows silently caps USB webcams at 640×480
-unless you force MJPG *before* setting the resolution, drivers disagree on backends
-(DSHOW vs MSMF), and `CAP_PROP_FPS` lies. This module centralizes all of that behind a
-small interface so no caller has to think about it again.
+Why this exists: `cv2.VideoCapture` on Windows silently caps USB webcams at 640×480,
+drivers disagree on backends (DSHOW vs MSMF), `CAP_PROP_FPS` both lies and can collapse
+the resolution, and the pixel-format negotiation is order-dependent in a way that is
+widely documented BACKWARDS. This module centralizes all of that behind a small interface
+so no caller has to think about it again.
 
 Proven facts encoded here (dev machine, ELP-U3CAM4K60-IB / IMX678): a USB 4K cam needs a
 DIRECT USB-3 port (an external hub throttled it to 1.4 fps); MSMF never exposes 4K on that
 cam (so DSHOW stays the default int-backend on Windows).
 
-MEASURED 2026-07-19 — MJPG does NOT actually engage on this cam via DSHOW, and the old
+MJPG does NOT engage on this cam via DSHOW as the code currently asks for it, and the old
 claim that OpenCV "mislabels" the codec was wrong: `CAP_PROP_FOURCC` reads back YUY2
-because YUY2 is what is running. `scripts/probe_camera_format.py` compared requesting MJPG
-(with and without setting `CAP_PROP_FPS`) against an explicit YUY2 control:
-
-    mode        MJPG+fps   MJPG no-fps   YUY2 control   datasheet MJPEG / YUY2
-    3840x2160     15.4         18.8          19.3            60 / 23
-    2560x1440     30.0         29.4          30.0            60 / 30
-    1920x1080     60.5         60.4          60.5            60 / 60   (indistinguishable)
-
-Every variant reads back YUY2 and lands on the datasheet's YUY2 row, and CPU stays at
-0.3-0.6 cores throughout — bandwidth-bound uncompressed video, not decode-bound JPEG
-(4K YUY2 @23 fps is ~380 MB/s, i.e. the USB-3 ceiling).
+because YUY2 is what runs.
 
 ROOT CAUSE — and it is the FOURCC-first order itself, not driver indifference: OpenCV's
 DSHOW backend tries the requested subtype, fails, and silently falls back through a
@@ -35,15 +26,41 @@ here confirms MJPG engages as soon as FOURCC is set LAST or passed to the open-t
 constructor. The device really can do 4K60 MJPEG (`pygrabber` GetStreamCaps lists
 `MJPG 3840x2160 fps 60..10`).
 
-WHY WE STILL DO NOT DO IT: engaging MJPG only moves the bottleneck from USB bandwidth to
-single-threaded JPEG decode. Measured (unique frames, duplicates excluded): 1440p 29.7 ->
-31.2 fps for 0.43 -> 1.14 cores, and 4K 18.1 -> 17.1 fps, i.e. SLOWER, for 1.20 cores. MSMF
-looks like 59 fps but 52 of 120 frames are byte-identical repeats (33.6 unique) and it
-ignores the requested resolution entirely. `CAP_PROP_CONVERT_RGB=0` returns raw JPEG only on
-V4L2; DSHOW ignores it and MSMF hands back a raw NV12 buffer that breaks every consumer.
-So the FOURCC-first order stays — it costs ~5% at 1440p and buys back 0.7 CPU cores that the
-CNN and tracker need. If throughput ever matters, the lever is a faster DECODE path
-(PyTurboJPEG / decode pool), not the capture call.
+WE STILL DO NOT ENGAGE IT — measured on a normally lit scene (an earlier run with the lens
+cap on was confounded: a black scene lets auto-exposure ramp the integration time and throttle
+the rate for reasons unrelated to the pixel format). Unique frames, byte-identical duplicates
+excluded, `scripts/probe_camera_mjpeg.py`:
+
+    mode     current (YUY2)        MJPG (open-params)     verdict
+    4K       22.9 fps @0.93 cores  18.9 fps @1.38 cores   MJPG is SLOWER
+    1440p    29.9 fps @0.55        37.3 fps @1.18         +25% for 2x the CPU
+    1080p    59.9 fps @0.59        36.7 fps @0.68         MJPG is far SLOWER
+
+Uncapped, YUY2 reaches its datasheet limits (4K 22.9 ≈ 23, 1440p 29.9 ≈ 30, 1080p 59.9 ≈ 60),
+so the capture path is already extracting everything the uncompressed mode offers. MJPG never
+approaches 60 anywhere — and at 1080p it stalls at 37 while using only 0.68 cores, so it is not
+even purely decode-bound there. The device really can emit 4K60 MJPEG (pygrabber GetStreamCaps
+lists `MJPG 3840x2160 fps 60..10`); it simply does not survive the trip through OpenCV. Net:
+keeping the FOURCC-first order costs nothing at 4K/1080p, loses 25% at 1440p, and saves ~0.6
+CPU cores that the CNN and tracker need.
+
+*** NEVER SET `CAP_PROP_FPS` TO 60 *** — measured, in all three modes: the resolution silently
+collapses to 640x480 while the fps reads a triumphant 60.0. `config.CAMERA.fps = 30` is safe
+(the rows above used it), but any caller passing `CameraSpec(fps=60)` will get VGA. This is a
+live trap for the `--res` / UI mode selector: the delivered-vs-requested readout would flag the
+mismatch, but the cause would be baffling.
+
+Unexplained and worth knowing: the YUY2 rows come out ~6x darker than the MJPG rows on the same
+scene (mean 2.5-2.9 vs 16-17) regardless of resolution or frame rate, so it is not an exposure
+side effect of the rate. Possibly a limited-vs-full-range conversion difference. Captured data
+looks correctly exposed in practice, so this has not bitten anything — but it makes the
+brightness column unsuitable as evidence for anything else.
+
+Also settled: MSMF is a dead end (hard-stuck at 2560x1440 whatever is requested, rejects FOURCC
+outright, and its apparent ~60 fps was 27-43% byte-identical duplicate frames).
+`CAP_PROP_CONVERT_RGB=0` returns raw JPEG only on V4L2; DSHOW ignores it and MSMF hands back a
+raw NV12 buffer that would break every consumer. `CAP_FFMPEG` cannot open a dshow device in
+this build (`avdevice: NO`).
 
 Public interface:
     CameraSpec           — declarative "what I want" (source, resolution, fps, controls).
@@ -67,6 +84,7 @@ undistorted a second time.
 
 from __future__ import annotations
 
+import logging
 import ssl
 import sys
 import threading
@@ -78,6 +96,8 @@ import cv2
 import numpy as np
 
 from . import config
+
+log = logging.getLogger("chesslab.camera")
 
 # --- Data model -----------------------------------------------------------------------
 
@@ -344,6 +364,23 @@ def _open_url(url: str, url_mode: str = "auto"):
     return _UrlMjpegCapture(url)
 
 
+def _MAX_FPS_FOR_SIZE(width: int | None, height: int | None) -> int:
+    """Highest frame rate the uncompressed (YUY2) path actually sustains at this size.
+
+    From the measured matrix, which matches the datasheet's YUY2 column: 4K 23, 1440p 30,
+    1080p and below 60. Asking for more does not get more — it makes the DSHOW driver fall back
+    to a mode that can sustain the rate, i.e. 640x480, without telling anyone. Deliberately
+    conservative: an unknown/None size falls into the permissive bucket, since the guard only
+    exists to catch the obviously-impossible request.
+    """
+    px = (width or 0) * (height or 0)
+    if px >= 3840 * 2160:
+        return 23
+    if px >= 2560 * 1440:
+        return 30
+    return 60
+
+
 def _open_index(index: int, spec: CameraSpec):
     """Open a local USB index with the driver quirks handled: FOURCC (MJPG) BEFORE the
     resolution — otherwise the driver stays on YUY2 and caps at 640×480 — then fps, then
@@ -365,6 +402,16 @@ def _open_index(index: int, spec: CameraSpec):
     if height:
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, int(height))
     if fps:
+        # Guard the 640x480 trap: on this DSHOW driver a high fps request makes the driver
+        # renegotiate to a mode that can actually sustain it — and it picks VGA, silently, while
+        # reporting a triumphant 60.0 fps. Measured in ALL modes (4K/1440p/1080p). Requesting a
+        # rate the chosen resolution cannot deliver is never what the caller meant, so clamp to
+        # what the mode supports rather than hand back a quarter-size frame.
+        max_fps = _MAX_FPS_FOR_SIZE(width, height)
+        if fps > max_fps:
+            log.warning("camera: %d fps is not attainable at %dx%d (driver would silently drop to "
+                        "640x480) — requesting %d instead.", fps, width or 0, height or 0, max_fps)
+            fps = max_fps
         cap.set(cv2.CAP_PROP_FPS, int(fps))
     _apply_controls(cap, spec)
     for _ in range(max(0, spec.warmup)):
