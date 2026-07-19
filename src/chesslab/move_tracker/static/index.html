@@ -69,6 +69,9 @@
       <label class="muted">Profile <input id="profile" value="phone" /></label>
       <label class="muted">Source <input id="source" value="https://<PHONE-IP>:4444/video/m.jpeg" /></label>
       <label class="muted">CNN model <select id="cnnRun" title="off = frame-diff only"></select></label>
+      <label class="muted">Resolution <select id="camRes"
+             title="Requested capture mode — the camera may fall back to a lower one"></select></label>
+      <div class="muted" id="camModeInfo" style="margin:-2px 0 4px 0"></div>
       <div style="border-top:1px solid #27272a; margin:4px 0; padding-top:8px">
         <div class="muted" style="margin-bottom:6px">Rejection sensitivity (higher = crank shadow/hand)</div>
         <label class="muted">Shadow census <input id="censusThr" type="number" step="1" value="70"
@@ -92,6 +95,8 @@
       <div class="row" style="gap:8px">
         <button class="primary" onclick="start()">Start tracker</button>
         <button onclick="applySettings()" title="Apply tuning to the running tracker without restarting the game">Apply live</button>
+        <button onclick="applyResolution()"
+                title="Switch the capture resolution on the running tracker — the game is kept, the board profile is recalibrated automatically">Apply resolution</button>
       </div>
     </div>
   </details>
@@ -213,6 +218,20 @@ async function loadRuns() {
   } catch { /* tracker API not ready yet */ }
 }
 loadRuns();
+async function loadCameraModes() {          // dropdown comes from config.CAMERA_MODES, never hardcoded
+  try {
+    const r = await (await fetch("/api/camera/modes")).json();
+    const sel = document.getElementById("camRes");
+    sel.innerHTML = "";
+    for (const m of r.modes) {
+      const o = document.createElement("option");
+      o.value = m.name; o.textContent = m.label;
+      sel.appendChild(o);
+    }
+    sel.value = r.active ?? r.default ?? "default";
+  } catch { /* tracker API not ready yet */ }
+}
+loadCameraModes();
 async function loadDefaults() {
   try {
     const s = await (await fetch("/api/status")).json();
@@ -235,6 +254,7 @@ async function start() {
   document.getElementById("note").textContent = "starting…";
   await post("/api/start", {
     profile: profile.value, source: source.value, cnn_run: document.getElementById("cnnRun").value,
+    res: document.getElementById("camRes").value,
     record_inventory_filter: document.getElementById("recordInventory").checked,
     ...settingsPayload(),
   });
@@ -266,6 +286,28 @@ async function reattach() {                 // rebuild the camera feed without a
   note.textContent = "reattaching camera…";
   const r = await post("/api/reattach", {});
   note.textContent = (r && r.ok === false) ? (r.error || "reattach failed") : "camera reattached";
+}
+async function applyResolution() {          // switch capture mode live — game/history are kept
+  const note = document.getElementById("note");
+  note.textContent = "switching resolution…";
+  const r = await post("/api/reattach", { res: document.getElementById("camRes").value });
+  note.textContent = (r && r.ok === false) ? (r.error || "resolution switch failed")
+                                           : `capture mode '${r.res}' applied`;
+}
+// Requested vs ACTUALLY delivered mode. Cameras fall back silently, so the delivered size
+// is measured from a real frame — a mismatch is the difference between "I picked 4K" and
+// "I am getting 1440p" and must be visible, not buried in a log.
+function renderCameraMode(cam) {
+  const el = document.getElementById("camModeInfo");
+  if (!cam) { el.textContent = ""; return; }
+  const act = cam.actual ? `${cam.actual[0]}×${cam.actual[1]}` : "measuring…";
+  const req = cam.requested ? `${cam.requested[0]}×${cam.requested[1]}` : "camera default";
+  let txt = `mode '${cam.res}' — requested ${req}, delivering ${act}`;
+  let color = "#a1a1aa";
+  if (cam.match === false) { txt += " ⚠ camera ignored the request"; color = "#f59e0b"; }
+  if (cam.profile_mismatch) { txt += ` ⚠ ${cam.profile_mismatch}`; color = "#f59e0b"; }
+  el.textContent = txt;
+  el.style.color = color;
 }
 let recording = false;
 async function toggleRecord() {            // end (finalize) or manually start the session
@@ -427,6 +469,7 @@ async function poll() {
     badge.textContent = s.state;
     badge.className = "badge " + (s.state === "moving" ? "moving" : s.state === "move" ? "move" : "waiting");
     document.getElementById("camDown").style.display = (s.camera_ok === false) ? "" : "none";
+    renderCameraMode(s.camera);
     const cnn = document.getElementById("cnn");   // CNN check: green = matches, red = differs
     if (s.cnn_active) {
       cnn.style.display = "";

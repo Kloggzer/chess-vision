@@ -35,7 +35,13 @@ def _manifest_rows(dd: Path) -> list[dict]:
     return [json.loads(line) for line in mp.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def _pack_chunk(task) -> int:
+# Target bytes per pack chunk. Small on purpose: a worker maps exactly one chunk at a time, so
+# this — not the dataset size — bounds peak commit charge. It also sets the resume granularity
+# (an interrupt costs at most one chunk of redone work) and how often progress is reported.
+_PACK_CHUNK_BYTES = 256 * 1024 ** 2
+
+
+def _pack_chunk(task) -> tuple[int, int]:
     """Worker: decode a contiguous run of crops and write them into the shared memmap.
 
     Multiple workers write DISJOINT index ranges of the same on-disk memmap concurrently — the
@@ -43,17 +49,25 @@ def _pack_chunk(task) -> int:
     overlapping it across cores/disk-queue is the win. Module-level so it pickles to spawn workers.
     """
     mm_path, shape, items = task
-    n, h, w = shape
-    mm = np.memmap(mm_path, dtype=np.uint8, mode="r+", shape=(n, h, w, 3))
+    _n, h, w = shape
+    crop_bytes = h * w * 3
+    start = items[0][0]                    # `items` is a contiguous index run (see pack_dataset)
+    count = items[-1][0] - start + 1
+    # Map ONLY this worker's slice, not the whole file. Mapping the full array per worker made
+    # every worker reserve the entire size, which blew the Windows commit limit once the pack
+    # grew past ~100 GB (WinError 1455 "paging file too small") no matter how much disk was free.
+    # numpy handles the page-alignment of `offset` internally.
+    mm = np.memmap(mm_path, dtype=np.uint8, mode="r+", shape=(count, h, w, 3),
+                   offset=start * crop_bytes)
     for idx, p in items:
         im = Image.open(p).convert("RGB")
         a = np.asarray(im, dtype=np.uint8)
         if a.shape != (h, w, 3):                       # guard against odd edge crops
             a = np.asarray(im.resize((w, h)), dtype=np.uint8)
-        mm[idx] = a
+        mm[idx - start] = a
     mm.flush()
     del mm
-    return len(items)
+    return start, len(items)
 
 
 def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | None = None) -> dict:
@@ -69,21 +83,52 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
     w, h = (int(rows[0]["out_size"][0]), int(rows[0]["out_size"][1]))   # out_size = [W, H]
     n = len(rows)
     img_path, meta_path = _packed_paths(dd)
+    progress_path = meta_path.with_name("packed_progress.json")
+    crop_bytes = h * w * 3
+    total_bytes = n * crop_bytes
 
-    np.memmap(img_path, dtype=np.uint8, mode="w+", shape=(n, h, w, 3)).flush()   # allocate the file
+    # Allocate the file with plain I/O rather than a full-size w+ memmap: mapping it just to
+    # create it reserves that much commit charge up front and fails with WinError 1455 once the
+    # dataset exceeds RAM + pagefile, independently of free disk.
+    if not (img_path.exists() and img_path.stat().st_size == total_bytes):
+        with open(img_path, "wb") as fh:
+            fh.truncate(total_bytes)
+        progress_path.unlink(missing_ok=True)          # fresh file -> previous progress is void
+
+    # Many SMALL chunks instead of a few huge ones: each worker only maps its own chunk, so peak
+    # commit stays flat regardless of dataset size, progress is fine-grained, and — with the
+    # sidecar below — an interrupted pack resumes instead of redoing all of it.
+    csize = max(1, _PACK_CHUNK_BYTES // crop_bytes)
+    starts = list(range(0, n, csize))
+
+    signature = {"n": n, "h": h, "w": w, "csize": csize}
+    done_starts: set[int] = set()
+    if progress_path.exists():
+        try:
+            prev = json.loads(progress_path.read_text(encoding="utf-8"))
+            if prev.get("signature") == signature:
+                done_starts = set(prev.get("done", []))
+        except (OSError, ValueError):
+            done_starts = set()                        # unreadable sidecar -> just redo the work
+    if done_starts:
+        print(f"[pack] resuming: {len(done_starts)}/{len(starts)} chunks already packed", flush=True)
+
     items = [(i, r["path"]) for i, r in enumerate(rows)]
     workers = workers or max(2, min(8, (os.cpu_count() or 4)))
-    csize = (n + workers * 4 - 1) // (workers * 4)      # contiguous chunks, a few per worker
-    tasks = [(str(img_path), (n, h, w), items[k:k + csize]) for k in range(0, n, csize)]
+    tasks = [(str(img_path), (n, h, w), items[k:k + csize]) for k in starts if k not in done_starts]
 
-    done = 0
+    done = sum(min(csize, n - k) for k in done_starts)
     with Pool(workers) as pool:
-        for c in pool.imap_unordered(_pack_chunk, tasks):
+        for start, c in pool.imap_unordered(_pack_chunk, tasks):
             done += c
-            print(f"[pack] {done}/{n} crops", flush=True)
+            done_starts.add(start)
+            progress_path.write_text(json.dumps({"signature": signature, "done": sorted(done_starts)}),
+                                     encoding="utf-8")
+            print(f"[pack] {done}/{n} crops ({100.0 * done / n:.1f}%)", flush=True)
 
     meta_path.write_text(json.dumps({"n": n, "h": h, "w": w,
                                      "paths": [r["path"] for r in rows]}), encoding="utf-8")
+    progress_path.unlink(missing_ok=True)              # complete -> sidecar no longer needed
     gb = n * h * w * 3 / 1e9
     print(f"[OK] packed {n} crops -> {img_path} ({gb:.1f} GB, {workers} workers)")
     return {"n": n, "h": h, "w": w, "path": str(img_path), "gb": round(gb, 1)}

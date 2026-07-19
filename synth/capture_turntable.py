@@ -17,53 +17,22 @@ from pathlib import Path
 
 import cv2
 
-
-def lock_settings(cap, exposure=None, gain=None, wb=None, focus=None):
-    """Belichtung/WB/Fokus sperren → konstante Optik über ALLE Fotos (Photogrammetrie-Muss)
-    und Anti-Flicker: eine feste Belichtungszeit = Vielfaches der Netz-Periode (10 ms @ 50 Hz)
-    verhindert die wandernden LED-Streifen. DSHOW-`exposure` ist log2(Sekunden), z. B. -6 = 1/64 s."""
-    def _set(prop, val, name):
-        cap.set(prop, val)
-        got = cap.get(prop)
-        print(f"    {name:16} soll={val!s:>7}  ist={got:.3g}")
-
-    # 0.25 = manueller Modus (DSHOW-Konvention), 0.75 = auto
-    _set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25, "auto_exposure")
-    if exposure is not None:
-        _set(cv2.CAP_PROP_EXPOSURE, exposure, "exposure")
-    try:
-        _set(cv2.CAP_PROP_AUTO_WB, 0, "auto_wb")
-        if wb is not None:
-            _set(cv2.CAP_PROP_WB_TEMPERATURE, wb, "wb_temp")
-    except Exception:
-        pass
-    if gain is not None:
-        _set(cv2.CAP_PROP_GAIN, gain, "gain")
-    try:
-        _set(cv2.CAP_PROP_AUTOFOCUS, 0, "autofocus")
-        if focus is not None:
-            _set(cv2.CAP_PROP_FOCUS, focus, "focus")
-    except Exception:
-        pass
+from chesslab.camera import CameraSpec, open_capture
 
 
 def open_source(source: str, width: int = 3840, height: int = 2160, timeout: float = 8.0,
                 exposure=None, gain=None, wb=None, focus=None):
+    """USB index → 4K via the camera lib with optics locked (constant exposure/WB/focus over
+    ALL photos = photogrammetry must + anti-flicker); URL → snapshot grabber. Optics controls
+    are applied by the lib; DSHOW `exposure` is log2(seconds), e.g. -6 = 1/64 s."""
     if str(source).isdigit():
-        import platform
-        backend = cv2.CAP_DSHOW if platform.system() == "Windows" else cv2.CAP_ANY
-        cap = cv2.VideoCapture(int(source), backend)
-        # USB-Webcams liefern hohe Auflösung NUR mit MJPG; ohne das kappt der Treiber bei 640x480.
-        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        if exposure is not None or gain is not None or wb is not None or focus is not None:
-            print("[capture] Optik sperren (konstant über alle Fotos, Anti-Flicker):")
-            lock_settings(cap, exposure=exposure, gain=gain, wb=wb, focus=focus)
-        for _ in range(8):                # Auto-Exposure/Fokus einschwingen lassen
-            cap.read()
-        return cap
-    from chesslab.web.camera import _UrlSnapshotCapture
+        locked = any(v is not None for v in (exposure, gain, wb, focus))
+        if locked:
+            print("[capture] Optik gesperrt (konstant über alle Fotos, Anti-Flicker).")
+        spec = CameraSpec(source=int(source), width=width, height=height, warmup=8,
+                          exposure=exposure, gain=gain, white_balance=wb, focus=focus)
+        return open_capture(spec)
+    from chesslab.camera import _UrlSnapshotCapture
     return _UrlSnapshotCapture(source, timeout=timeout)
 
 

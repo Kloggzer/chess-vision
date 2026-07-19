@@ -19,14 +19,18 @@ Testable headless: all functions take `paths=config.DATA`.
 from __future__ import annotations
 
 import json
+import logging
 import random
 import shutil
 from collections import Counter
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
 from . import config
 from . import dataset as dataset_mod
+
+log = logging.getLogger("chesslab.dataset_build")
 
 _ROT_CODES = {90: 0, 180: 1, 270: 2}  # cv2.ROTATE_90_CLOCKWISE / 180 / 90_COUNTERCLOCKWISE
 
@@ -80,27 +84,62 @@ def dedup_metadata(rows: list[dict], cap: int | None, seed: int = config.SEED) -
     return kept
 
 
+_HASH_BITS = 64                    # dhash() width; band splitting below assumes this
+
+
+def _band_ranges(n_bands: int) -> list[tuple[int, int]]:
+    """Partition `_HASH_BITS` into `n_bands` contiguous (shift, width) ranges covering all bits."""
+    edges = [round(i * _HASH_BITS / n_bands) for i in range(n_bands + 1)]
+    return [(edges[i], edges[i + 1] - edges[i]) for i in range(n_bands) if edges[i + 1] > edges[i]]
+
+
 def dedup_phash(rows: list[dict], hamming: int) -> list[dict]:
-    """Discard visually nearly identical crops within each class (dhash, Hamming <= threshold)."""
+    """Discard visually nearly identical crops within each class (dhash, Hamming <= threshold).
+
+    Candidates are found via LSH banding rather than by scanning every previously kept hash:
+    if two 64-bit hashes differ in at most `hamming` bits, then across `hamming + 1` disjoint
+    bands at least one band must be identical (pigeonhole), so only crops sharing a band need
+    a real comparison. The result is IDENTICAL to a full pairwise scan — banding only narrows
+    the candidate set, it never hides a true near-duplicate.
+
+    Why this matters: the previous naive scan compared each crop against all kept hashes of its
+    class, i.e. O(n^2). On synthetic sets (~1M crops per class, nearly all unique because every
+    render has its own position/camera/lighting) that meant hours to days. Callers building
+    synthetic datasets usually want `phash_enabled=False` outright — there are no near-duplicates
+    to remove there, and `per_cell_cap` already bounds repeats.
+    """
     import cv2
 
     if hamming is None or hamming < 0:
         return list(rows)
+    if hamming >= _HASH_BITS:                   # everything within range -> keep one per class
+        hamming = _HASH_BITS - 1
+    bands = _band_ranges(max(1, int(hamming) + 1))
+
     by_label: dict[str, list[dict]] = {}
     for r in rows:
         by_label.setdefault(r["label"], []).append(r)
+
     kept: list[dict] = []
     for g in by_label.values():
-        seen: list[int] = []
+        seen: list[int] = []                                    # kept hashes, index-addressed
+        buckets: list[dict[int, list[int]]] = [{} for _ in bands]   # per band: value -> hash indices
         for r in sorted(g, key=lambda r: (str(r.get("session_id")), str(r.get("frame")), r.get("square", ""))):
             img = cv2.imread(r["path"])
             if img is None:
                 kept.append(r)                  # not readable -> keep, don't silently lose
                 continue
             h = dhash(img)
-            if any(_hamming(h, s) <= hamming for s in seen):
+            keys = [(h >> shift) & ((1 << width) - 1) for shift, width in bands]
+            candidates: set[int] = set()
+            for bucket, key in zip(buckets, keys, strict=True):
+                candidates.update(bucket.get(key, ()))
+            if any(_hamming(h, seen[i]) <= hamming for i in candidates):
                 continue                        # too similar -> discard
+            idx = len(seen)
             seen.append(h)
+            for bucket, key in zip(buckets, keys, strict=True):
+                bucket.setdefault(key, []).append(idx)
             kept.append(r)
     return kept
 
@@ -136,6 +175,47 @@ def _apply_rotations(rows: list[dict], rotations: tuple[int, ...], squares_dir: 
     return out
 
 
+def _preflight_disk_check(train_rows: list[dict], holdout: list[dict],
+                          rotations: tuple[int, ...], pack: bool) -> None:
+    """Project the dataset's on-disk cost BEFORE writing anything, and refuse to start if it
+    cannot fit.
+
+    Two traps this guards against, both of which silently blow up on large synthetic sets:
+      * rotation augmentation materializes one NEW png per non-zero rotation per TRAIN crop,
+        so the default (0, 90, 180, 270) quadruples the train split on disk;
+      * the packed memmap stores every final crop DECODED (h*w*3 bytes), so it dwarfs the pngs.
+    Raises ValueError with the concrete numbers rather than filling the disk over ~an hour.
+    """
+    import cv2
+
+    n_rot = max(1, len(rotations or (0,)))
+    n_new_pngs = len(train_rows) * (n_rot - 1)
+    n_final = len(train_rows) * n_rot + len(holdout)
+
+    sample = next((r["path"] for r in (train_rows or holdout)), None)
+    img = cv2.imread(sample) if sample else None
+    if img is None:
+        log.warning("preflight: could not read a sample crop — skipping the disk projection.")
+        return
+    crop_bytes = int(img.shape[0]) * int(img.shape[1]) * 3
+    png_bytes = Path(sample).stat().st_size
+
+    need = n_new_pngs * png_bytes + (n_final * crop_bytes if pack and n_final >= _PACK_MIN_CROPS else 0)
+    free = shutil.disk_usage(str(config.DATA.root)).free
+    log.info("preflight: %s final crops (train %s x%s rotations + holdout %s); "
+             "~%.1f GB rotated pngs + ~%.1f GB memmap = ~%.1f GB needed, %.1f GB free",
+             f"{n_final:,}", f"{len(train_rows):,}", n_rot, f"{len(holdout):,}",
+             n_new_pngs * png_bytes / 1e9,
+             (n_final * crop_bytes / 1e9) if pack and n_final >= _PACK_MIN_CROPS else 0.0,
+             need / 1e9, free / 1e9)
+    if need > free * 0.9:
+        raise ValueError(
+            f"dataset would need ~{need / 1e9:.0f} GB but only {free / 1e9:.0f} GB are free. "
+            f"Reduce it: rotations=(0,) drops ~{n_new_pngs * png_bytes / 1e9:.0f} GB of rotated "
+            f"pngs and shrinks the memmap {n_rot}x; pack=False skips the "
+            f"~{n_final * crop_bytes / 1e9:.0f} GB memmap; or lower per_cell_cap.")
+
+
 # --- Build ----------------------------------------------------------------------------
 
 # Auto-pack (build_dataset) only kicks in above this crop count — below it the per-PNG loader is
@@ -157,7 +237,7 @@ def build_dataset(
     max_class_ratio: float | None = None,
     seed: int = config.SEED,
     paths: config.Paths | None = None,
-    source_manifest: Path | None = None,
+    source_manifest: Path | str | Sequence[Path | str] | None = None,
     variant_tag: str | None = None,
     allow_degenerate: bool = False,
     force_train=None,
@@ -165,7 +245,9 @@ def build_dataset(
 ) -> dict:
     """Build dataset <name> from `session_ids`: filter -> dedup -> rotation -> manifest+split+stats.
 
-    `source_manifest`: crop pool from which to filter (default `data/manifests/squares.jsonl`).
+    `source_manifest`: crop pool(s) to filter — one path, or several when the sessions were
+    ingested under different tags (`ingest --tag X --no-build` writes `squares__X.jsonl`).
+    Default: `data/manifests/squares.jsonl`.
     For the bake-off, each variant points to its own `squares__<tag>.jsonl`; with identical
     `session_ids`+`seed`, the session-based split is byte-identical across all variants.
     """
@@ -179,13 +261,27 @@ def build_dataset(
     phash_hamming = d.phash_hamming if phash_hamming is None else phash_hamming
     rotations = d.rotations if rotations is None else tuple(rotations)
 
-    src = Path(source_manifest) if source_manifest else (paths.manifests / "squares.jsonl")
-    manifest = dataset_mod.load_manifest(src)
+    # One or several crop pools. Several matter when sessions were ingested under different tags
+    # (each `ingest --no-build` writes its own squares__<tag>.jsonl) — without this the caller had
+    # to concatenate them into one file by hand first.
+    if not source_manifest:
+        srcs = [paths.manifests / "squares.jsonl"]
+    elif isinstance(source_manifest, (str, Path)):
+        srcs = [Path(source_manifest)]
+    else:
+        srcs = [Path(p) for p in source_manifest]
+    missing = [str(p) for p in srcs if not p.exists()]
+    if missing:
+        raise ValueError(f"source manifest(s) not found: {', '.join(missing)}")
+
     wanted = set(session_ids)
-    rows = [r for r in manifest if r["session_id"] in wanted]
+    rows = [r for src in srcs for r in dataset_mod.load_manifest(src) if r["session_id"] in wanted]
     n_raw = len(rows)
     if not rows:
-        raise ValueError("no crops for the selected sessions (slice first?).")
+        raise ValueError(
+            f"no crops for the selected sessions in {', '.join(str(p.name) for p in srcs)} "
+            f"(wrong --source-manifest? the default pool is squares.jsonl, but `ingest --tag X "
+            f"--no-build` writes squares__X.jsonl).")
     # Determine split assignment on the RAW, COMPLETE data (full 64-square boards). Dedup +
     # rotation afterwards ONLY on train — val/test remain complete (exactly 64 crops/frame, rot 0), otherwise
     # board_accuracy would compute on incomplete/duplicated boards (bug).
@@ -206,6 +302,7 @@ def build_dataset(
     if ds.exists():
         shutil.rmtree(ds)                       # clean rebuild (old rotations gone)
     ds.mkdir(parents=True, exist_ok=True)
+    _preflight_disk_check(train_rows, holdout, rotations, pack)
     train_rows = _apply_rotations(train_rows, rotations, ds / "squares")   # Rotation ONLY on train
     rows = train_rows + holdout
     n_final = len(rows)
@@ -230,7 +327,7 @@ def build_dataset(
         "created_at": datetime.now(UTC).isoformat(),
         "session_ids": list(session_ids),
         "variant_tag": variant_tag,
-        "source_manifest": str(src.as_posix()),
+        "source_manifest": [p.as_posix() for p in srcs],
         "dedup": {"per_cell_cap": per_cell_cap, "phash_enabled": bool(phash_enabled),
                   "phash_hamming": phash_hamming},
         "rotations": list(rotations),

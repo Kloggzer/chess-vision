@@ -16,27 +16,23 @@ from pathlib import Path
 
 import cv2
 
-from .camera import _open_source, _UrlSnapshotCapture
+from ..camera import CameraSpec, _UrlSnapshotCapture, open_capture, open_source
 
 # scans/ lives at the repo level (next to data/) — anchored via file location, independent of cwd.
 SCANS_ROOT = Path(__file__).resolve().parents[3] / "scans"
 
 
 def _open(source, width: int, height: int):
-    """USB index -> DSHOW+MJPG+requested resolution (otherwise the driver caps at 640×480);
-    URL -> shared snapshot/MJPEG reader from camera.py (HTTPS/self-signed-capable)."""
+    """USB index -> DSHOW+MJPG+requested resolution via the camera lib (otherwise the driver
+    caps at 640×480); URL -> shared snapshot/MJPEG reader (HTTPS/self-signed-capable).
+
+    `undistort=False` on purpose: RealityScan solves its own lens model from the photos,
+    so pre-corrected input would only fight its bundle adjustment."""
     s = str(source).strip()
     if s.isdigit():
-        import platform
-        backend = cv2.CAP_DSHOW if platform.system() == "Windows" else cv2.CAP_ANY
-        cap = cv2.VideoCapture(int(s), backend)
-        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        for _ in range(6):
-            cap.read()
-        return cap
-    return _open_source(s)
+        return open_capture(CameraSpec(source=int(s), width=width, height=height, warmup=6,
+                                       undistort=False))
+    return open_source(s)
 
 
 def _next_index(out_dir: Path) -> int:

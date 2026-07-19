@@ -135,7 +135,8 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
               overhang: float | None = Body(None),
                motion_hold_s: float | None = Body(None),
                diff_clahe_clip: float | None = Body(None),
-               record_inventory_filter: bool | None = Body(None)):
+               record_inventory_filter: bool | None = Body(None),
+               res: str | None = Body(None)):
         # Atomic swap: take old tracker out under lock, stop+join OUTSIDE lock,
         # start new one, put in under lock. Double-start leaves exactly one thread.
         old = _STATE.get("tracker")
@@ -163,12 +164,14 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
             kwargs["device"] = device
         if record_inventory_filter is not None:
             kwargs["record_inventory_filter"] = record_inventory_filter
+        if res is not None:                          # named capture mode (config.CAMERA_MODES)
+            kwargs["res"] = res
         t = MoveTracker(profile=profile, source=source, **kwargs)
         t.reset_to_start()
         t.start()
         _STATE.update(tracker=t)
         return {"ok": True, "profile": profile, "source": source,
-                "cnn_run": kwargs.get("cnn_run")}
+                "cnn_run": kwargs.get("cnn_run"), "res": t.res}
 
     @app.post("/api/settings")
     def settings(motion_thr: float | None = Body(None), z_thr: float | None = Body(None),
@@ -254,13 +257,25 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
             t.undo()
         return {"ok": True}
 
+    @app.get("/api/camera/modes")
+    def camera_modes():
+        """Selectable capture modes (from `config.CAMERA_MODES`) + the active one. The UI
+        builds its resolution dropdown from this — never from a hardcoded list."""
+        from ..camera import camera_modes as _modes
+
+        t = _STATE.get("tracker")
+        return {"modes": _modes(), "default": _cfg.DEFAULT_CAMERA_MODE,
+                "active": None if t is None else t.res}
+
     @app.post("/api/reattach")
-    def reattach():
-        """Rebuild the camera capture without restarting the session (recover a dead feed)."""
+    def reattach(res: str | None = Body(None, embed=True)):
+        """Rebuild the camera capture without restarting the session (recover a dead feed).
+        With `res` this also switches the capture mode LIVE — the game/history survive; the
+        board profile is recalibrated automatically if the frame size actually changed."""
         t = _STATE.get("tracker")
         if t is None:
             return {"ok": False, "error": "not started"}
-        return t.reattach_camera()
+        return t.reattach_camera(res)
 
     @app.post("/api/record/start")
     def record_start(notes: str = Body("", embed=True),

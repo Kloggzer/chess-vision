@@ -1691,7 +1691,7 @@ class TestLatestFrame:
     """Grab-Latest-Wrapper: always returns the latest frame; clean release()."""
 
     def test_reads_newest_and_releases(self):
-        from chesslab.web.camera import LatestFrame
+        from chesslab.camera import LatestFrame
 
         class Counting:
             def __init__(self):
@@ -2631,3 +2631,72 @@ class TestSeqContract:
         assert t._desync_obs == 3
         assert t._alarm is not None
         assert t._alarm["kind"] == "illegal_move"
+
+
+class TestLensDriftHook:
+    """The drift watchdog is a DIAGNOSTIC: it may never affect or break tracking."""
+
+    def test_missing_image_corners_is_skipped_silently(self, monkeypatch):
+        from dataclasses import replace as _replace
+
+        mt = _make_tracker(monkeypatch)
+        mt.profile = _replace(mt.profile, image_corners=[])
+        mt._check_lens_drift(_bgr_frame([]), [[0, 0], [400, 0], [400, 400], [0, 400]])
+        assert mt._drift is None or mt._drift.status["geometry"] is None
+
+    def test_fewer_than_four_corners_is_skipped_silently(self, monkeypatch):
+        mt = _make_tracker(monkeypatch)
+        mt._check_lens_drift(_bgr_frame([]), [[0, 0], [400, 0]])
+        assert mt._drift is None or mt._drift.status["geometry"] is None
+
+    def test_an_exception_inside_the_check_never_escapes(self, monkeypatch):
+        from chesslab import lens
+
+        mt = _make_tracker(monkeypatch)
+
+        def boom(*a, **k):
+            raise RuntimeError("synthetic failure")
+
+        monkeypatch.setattr(lens, "DriftMonitor", boom)
+        mt._check_lens_drift(_bgr_frame([]), [[0, 0], [400, 0], [400, 400], [0, 400]])
+        assert mt._drift is None
+
+    def test_disabled_config_does_not_even_build_a_monitor(self, monkeypatch):
+        from dataclasses import replace as _replace
+
+        from chesslab import config
+
+        monkeypatch.setattr(config, "LENS", _replace(config.LENS, drift_enabled=False))
+        mt = _make_tracker(monkeypatch)
+        mt._check_lens_drift(_bgr_frame([]), [[0, 0], [400, 0], [400, 400], [0, 400]])
+        assert mt._drift is None
+
+    def test_zoom_drift_reaches_the_status_debug_card(self, monkeypatch):
+        from dataclasses import replace as _replace
+
+        from chesslab import config
+
+        monkeypatch.setattr(config, "LENS",
+                            _replace(config.LENS, drift_sample_every=1, drift_window=3,
+                                     drift_streak=2, drift_geometry_thr=0.05))
+        mt = _make_tracker(monkeypatch)
+        base = mt.profile.image_corners
+        cx = sum(p[0] for p in base) / 4.0
+        cy = sum(p[1] for p in base) / 4.0
+        zoomed = [[cx + (x - cx) * 1.4, cy + (y - cy) * 1.4] for x, y in base]
+        for _ in range(10):
+            mt._check_lens_drift(_bgr_frame([]), zoomed)
+        assert mt.status()["debug"]["lens_drift"]["geometry_alarm"] is True
+
+    def test_sampling_interval_limits_the_work(self, monkeypatch):
+        from dataclasses import replace as _replace
+
+        from chesslab import config
+
+        monkeypatch.setattr(config, "LENS", _replace(config.LENS, drift_sample_every=5))
+        mt = _make_tracker(monkeypatch)
+        for _ in range(4):
+            mt._check_lens_drift(_bgr_frame([]), mt.profile.image_corners)
+        assert mt._drift is None
+        mt._check_lens_drift(_bgr_frame([]), mt.profile.image_corners)
+        assert mt._drift is not None and mt._drift.status["samples"] == 1

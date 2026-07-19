@@ -70,6 +70,87 @@ CROP = CropDefaults()
 CROP_WARP_BORDER_CELLS: float = 0.1
 
 
+# --- Camera capture defaults (used by chesslab.camera when a caller sets nothing) -----
+@dataclass(frozen=True)
+class CameraDefaults:
+    """Default capture mode for local USB cameras. Applied by `chesslab.camera.open_capture`
+    whenever a `CameraSpec` leaves a field as `None`. This is the ONE place to switch the
+    house default between 1440p and 4K.
+
+    Why 1440p is the default: on the dev machine's "4K U3 Camera", DSHOW+MJPG delivers
+    2560×1440 @ full 30 fps, while true 4K (3840×2160) runs at ~21 fps (CPU-JPEG-decode
+    bound) and only on a direct USB-3 port — overkill for the chessboard's small per-square
+    crops. To force 4K instead, set width=3840, height=2160 here. `fourcc` MUST stay "MJPG"
+    for anything above 720p (the driver otherwise caps at 640×480 on YUY2)."""
+
+    width: int = 2560          # → 3840 for 4K
+    height: int = 1440         # → 2160 for 4K
+    fps: int = 30
+    fourcc: str = "MJPG"
+    backend: str = "auto"      # auto = DSHOW on Windows (MSMF caps 4K on this cam), else default
+
+
+CAMERA = CameraDefaults()
+
+# Named capture modes offered by the UI/CLI (`chesslab track --res`, the track web UI's
+# resolution selector) and mapped to a `CameraSpec` by `camera.spec_for_mode`. The ONE
+# place this list is defined — the UI derives its dropdown from `GET /api/camera/modes`,
+# it never hardcodes resolutions. `None` = leave the resolution unset, i.e. fall back to
+# `CAMERA` above. A camera is free to IGNORE a requested mode (UVC drivers silently pick
+# the nearest supported one), so callers must always read the delivered size back from an
+# actually grabbed frame instead of trusting the request.
+DEFAULT_CAMERA_MODE: str = "default"
+CAMERA_MODES: dict[str, tuple[int, int] | None] = {
+    DEFAULT_CAMERA_MODE: None,     # whatever config.CAMERA says (currently 1440p)
+    "720p": (1280, 720),
+    "1080p": (1920, 1080),
+    "1440p": (2560, 1440),
+    "4k": (3840, 2160),
+}
+
+
+# --- Lens undistortion (optics, NOT board geometry) -----------------------------------
+@dataclass(frozen=True)
+class LensDefaults:
+    """Barrel/pincushion removal for the rig camera. Applied at exactly one place —
+    `chesslab.camera.open_capture` wraps the capture in an undistort decorator. The
+    intrinsics come from `chesslab lens calibrate` (see `chesslab/lens.py`); this is the
+    LENS model and has nothing to do with `calibration.py` (BOARD geometry).
+
+    `path` "" resolves to `DATA.lens / "calib.npz"`. `alpha` trades black borders against
+    field of view (0 = crop-free-looking result with no black corners, 1 = keep every
+    source pixel); the output size always equals the input size, so `frame_size` stays
+    invariant everywhere. The `undistort_urls`/`undistort_files` switches stay off because
+    a URL source is the phone/IP cam (different lens) and a file holds pixels that were
+    already captured — remapping those would distort them a second time."""
+
+    enabled: bool = True
+    path: str = ""               # "" -> DATA.lens / "calib.npz"
+    alpha: float = 0.0           # 0 = no black borders; 1 = keep all pixels
+    interpolation: str = "linear"
+    undistort_urls: bool = False
+    undistort_files: bool = False
+
+    # -- Live drift detection (see `lens.DriftMonitor`) --
+    # Signal 1 (geometry/scale): the live board quad vs. the quad recorded in the
+    # board profile. A bumped zoom ring changes the board's apparent size a lot, so
+    # this is the large, robust signal. Thresholds below are RELATIVE deviations.
+    drift_enabled: bool = True
+    drift_sample_every: int = 30      # measure on every N-th ArUco alignment (not per frame)
+    drift_window: int = 9             # rolling-median window over sampled measurements
+    drift_streak: int = 3             # consecutive medians above threshold before warning
+    drift_geometry_thr: float = 0.06  # 6 % change of mean side length / sqrt(area)
+    # Signal 2 (distortion residual): leave-one-marker-out homography reprojection error
+    # in pixels, normalised by the board's mean side length. SPECULATIVE — the threshold
+    # is a starting guess and has never been tuned on the real rig, and the check costs
+    # one extra ArUco pass on sampled frames, so it is OFF by default.
+    drift_residual_enabled: bool = False
+    drift_residual_thr: float = 0.004  # 0.4 % of the board's mean side length
+
+
+LENS = LensDefaults()
+
+
 # --- Photometry (Stage 7, shared between Slicing and later live inference) -------
 # A deterministic preprocessing that is baked INTO the PNGs during slicing and must be
 # called identically by the live app (parity). Only deterministic methods.
@@ -105,10 +186,14 @@ class DedupDefaults:
     per_cell_cap: int = 4          # max crops per (session, square, piece) — catches "never moved"
     phash_enabled: bool = True     # additionally remove visually near-identical ones (dhash)
     phash_hamming: int = 6         # Hamming distance <= -> discard as duplicate (0..64)
-    # Rotation augmentation AFTER dedup (4x curated crops). WARNING: contradicts the
-    # fixed-camera assumption (CLAUDE.md: rotate90 forbidden because it distorts square color/light/angle).
-    # Intended as toggle A/B; () or (0,) = off. Square crops -> 90° stays format-pure.
-    rotations: tuple[int, ...] = (0, 90, 180, 270)
+    # Rotation augmentation AFTER dedup — OFF by default. It contradicts the fixed-camera
+    # assumption (CLAUDE.md: rotate90 distorts square colour/light/angle) and was only ever a
+    # crutch from before synthetic data existed, when the real set was too small. With 66k+
+    # renders carrying their own camera/board/lighting variance it buys nothing, while
+    # quadrupling the train split on disk (one extra png per crop per angle) and in the packed
+    # memmap. `rotations_augmented` is what `dataset build --rotate` opts into (A/B toggle).
+    rotations: tuple[int, ...] = (0,)
+    rotations_augmented: tuple[int, ...] = (0, 90, 180, 270)
 
 
 DEDUP = DedupDefaults()
@@ -295,6 +380,13 @@ class Paths:
     @property
     def calibration(self) -> Path:
         return self.root / "calibration"
+
+    @property
+    def lens(self) -> Path:
+        """Lens intrinsics (`calib.npz`). Deliberately NOT under `calibration/` — that
+        directory holds BOARD profiles and `calibrate list` enumerates its *.yaml. Kept
+        out of `all()` so `ensure_dirs` does not create an empty dir for everyone."""
+        return self.root / "lens"
 
     @property
     def sessions(self) -> Path:
