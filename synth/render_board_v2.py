@@ -846,6 +846,44 @@ def corners_px(scene, cam):
     return out
 
 
+# Ziel-Bildanteil des Bretts (grösste Ausdehnung, 1.0 = Bildkante). Der Grund, warum das
+# überhaupt geregelt wird: mit der festen 28-mm-Optik belegte das Brett nur ~39% der Bildbreite,
+# also blieben pro Feld nur ~51 px echte Information, die der Ingest anschliessend auf 128 px
+# Crops HOCHskaliert hat — während echte Aufnahmen aus ~200 px/Feld HERUNTERgerechnet werden.
+# Genau die Feinheiten, die Springer/Läufer/Turm trennen, fehlten dadurch in den Trainingsdaten.
+# 0.80 verdoppelt die lineare Auflösung (~102 px/Feld bei --res 1024, ~128 bei --res 1280) und
+# lässt trotzdem 20% Rand für Schräglage und den Crop-Überstand der Randfelder.
+BOARD_FRAME_FRAC = 0.80
+
+_BASE_CAM_LENS: dict = {}   # Basis-Brennweite EINMAL merken — sonst multipliziert sich die
+                            # Korrektur über die Frames auf (derselbe Fehler wie bei den Lichtern)
+
+
+def frame_board(scene, cam, target_frac: float = BOARD_FRAME_FRAC):
+    """Brennweite so setzen, dass das Brett `target_frac` des Bildes einnimmt — für DIESE Pose.
+
+    Exakt statt geschätzt: die vier Brettecken werden mit der Basis-Brennweite projiziert, die
+    grösste Abweichung von der Bildmitte gemessen und die Brennweite linear skaliert (Projektion
+    ist proportional zur Brennweite). Damit bleibt die Rahmung konstant, obwohl Distanz-Jitter
+    und Obliqueness pro View variieren — Perspektive/Lean bleiben also als Varianz erhalten,
+    nur der Massstab wird stabilisiert. Die Maximum-Abweichung (statt Mittelwert) garantiert,
+    dass auch bei Schräglage keine Ecke aus dem Bild fällt.
+    """
+    base = _BASE_CAM_LENS.setdefault(cam.name, cam.data.lens)
+    cam.data.lens = base
+    bpy.context.view_layer.update()          # Projektion braucht die aktualisierte Matrix
+
+    w, h = scene.render.resolution_x, scene.render.resolution_y
+    ext = 0.0
+    for x, y in corners_px(scene, cam):
+        ext = max(ext, abs(x - w / 2.0) / (w / 2.0), abs(y - h / 2.0) / (h / 2.0))
+    if ext <= 1e-6:
+        return base
+    cam.data.lens = base * (target_frac / ext)
+    bpy.context.view_layer.update()
+    return cam.data.lens
+
+
 # --- Prozeduraler Occluder-Arm (nur für die Move-Clip-Fixtures, siehe render_move_clip.py) ---
 # Eine Hand/ein Unterarm, der über das Brett fährt: testet den Occlusion-Pfad des Trackers
 # (Baseline-Census + Farb-Gamut-Veto, Move-vs-Hand-Arbitrierung) UND wirft einen bewegten
@@ -1152,6 +1190,9 @@ def main():
             if i >= n:
                 break
             cam_meta = place_camera(cam, rng, max_ob, dist_jitter)
+            # Rahmung NACH der Pose: Distanz/Obliqueness variieren pro View, die Brennweite
+            # zieht nach, damit das Brett konstant gross im Bild steht (Auflösung/Feld).
+            cam_meta["lens_mm"] = round(frame_board(scene, cam, ra.frame_frac), 2)
             randomize_lights(rng)
 
             # Occluder: pro View mit occ_p eine Faust/Unterarm über ein Brett-Innenfeld legen.

@@ -102,6 +102,7 @@ def test_build_blender_cmd_minimal():
         "--occlusion-p", "0.0",
         "--borderless-p", "0.0",
         "--isolate-p", "0.0",
+        "--frame-frac", "0.8",
     ]
 
 
@@ -130,6 +131,7 @@ def test_build_blender_cmd_all_flags():
         "--occlusion-p", "0.25",
         "--borderless-p", "0.0",
         "--isolate-p", "0.0",
+        "--frame-frac", "0.8",
         "--fens", str(Path("fens.txt")),
         "--pieces", str(Path("pieces")),
     ]
