@@ -73,7 +73,8 @@ def dataset_create(req: DatasetCreateRequest):
         return dataset_build_mod.build_dataset(
             req.name, req.session_ids, per_cell_cap=req.per_cell_cap,
             phash_enabled=req.phash_enabled, phash_hamming=req.phash_hamming,
-            rotations=(config.DEDUP.rotations if req.rotate else (0,)),
+            rotations=(config.DEDUP.rotations_augmented if req.rotate
+                       else config.DEDUP.rotations),
             max_empty_ratio=req.max_empty_ratio, seed=req.seed,
             allow_degenerate=req.allow_degenerate)
     except (ValueError, FileNotFoundError) as e:
