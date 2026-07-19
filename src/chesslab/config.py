@@ -507,6 +507,7 @@ def build_blender_cmd(
     occlusion_p: float = 0.0,
     borderless_p: float = 0.0,
                        isolate_p: float = 0.0,
+                       frame_frac: float = 0.80,
 ) -> list[str]:
     """Build the Blender command line (pure function, no subprocess)."""
     cmd = [
@@ -525,6 +526,7 @@ def build_blender_cmd(
         "--occlusion-p", str(occlusion_p),
         "--borderless-p", str(borderless_p),
         "--isolate-p", str(isolate_p),
+        "--frame-frac", str(frame_frac),
     ]
     if fens is not None:
         cmd.extend(["--fens", str(fens)])

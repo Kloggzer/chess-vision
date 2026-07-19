@@ -783,6 +783,10 @@ def synth_render(
                                     help="Curriculum stage 1: fraction of scenes on a NON-board "
                                          "randomized ground (solid/gradient/noise, no 8x8, no frame) "
                                          "so only the piece carries information. 1.0 = all."),
+    frame_frac: float = typer.Option(0.80, "--frame-frac",
+                                     help="Target share of the frame the board fills (largest extent). "
+                                          "Drives effective px/square: 0.80 ~ 102 px/square at --res 1024. "
+                                          "0 = leave the focal length alone (old behaviour, ~39% = 51 px)."),
     borderless_p: float = typer.Option(0.0, "--borderless-p",
                                        help="Fraction of scenes with a BORDERLESS procedural board (checker runs "
                                             "edge-to-edge, no frame) — anti edge-shortcut for rim pieces. 0 = none."),
@@ -813,7 +817,8 @@ def synth_render(
                             board_texture=bt, views_per_scene=views_per_scene,
                             samples=samples, max_obliqueness=max_obliqueness, piece_scale=piece_scale,
                             cam_distance_jitter=cam_distance_jitter, occlusion_p=occlusion_p,
-                            borderless_p=borderless_p, isolate_p=isolate_p)
+                            borderless_p=borderless_p, isolate_p=isolate_p,
+                            frame_frac=frame_frac)
 
     print(" ".join(cmd))
     try:

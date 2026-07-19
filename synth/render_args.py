@@ -48,6 +48,9 @@ class RenderArgs:
     # Curriculum stage 1: share of scenes rendered on a NON-board randomized ground (no 8x8,
     # no frame) so only the piece itself carries information. 0 = off.
     isolate_p: float = 0.0
+    # Ziel-Bildanteil des Bretts (grösste Ausdehnung). Steuert die effektive Auflösung pro
+    # Feld: 0.80 ≈ 102 px/Feld bei --res 1024. 0 = Brennweite unverändert lassen.
+    frame_frac: float = 0.80
 
 
 def parse_render_args(argv: list[str]) -> RenderArgs:
@@ -71,6 +74,7 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
     occlusion_p = 0.0
     borderless_p = 0.0
     isolate_p = 0.0
+    frame_frac = 0.80
 
     i = 0
     while i < len(args):
@@ -163,6 +167,11 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
             if i >= len(args):
                 raise SystemExit("ERROR: --isolate-p benötigt einen Wert.")
             isolate_p = min(1.0, max(0.0, float(args[i])))
+        elif a == "--frame-frac":
+            i += 1
+            if i >= len(args):
+                raise SystemExit("ERROR: --frame-frac benötigt einen Wert.")
+            frame_frac = min(0.98, max(0.0, float(args[i])))
         else:
             print(f"WARN: unbekanntes Flag ignoriert: {a}", file=sys.stderr)
         i += 1
@@ -176,4 +185,5 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
                       fallback_subsurf=fallback_subsurf, piece_scale=piece_scale,
                       randomize_board=randomize_board, randomize_world=randomize_world,
                       cam_distance_jitter=cam_distance_jitter, occlusion_p=occlusion_p,
-                      borderless_p=borderless_p, isolate_p=isolate_p)
+                      borderless_p=borderless_p, isolate_p=isolate_p,
+                      frame_frac=frame_frac)
