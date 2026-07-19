@@ -6,11 +6,26 @@ unless you force MJPG *before* setting the resolution, drivers disagree on backe
 (DSHOW vs MSMF), and `CAP_PROP_FPS` lies. This module centralizes all of that behind a
 small interface so no caller has to think about it again.
 
-Proven facts encoded here (dev machine, "4K U3 Camera"): a USB 4K cam needs a DIRECT
-USB-3 port (an external hub throttled it to 1.4 fps); `CAP_DSHOW` + MJPG-before-size
-yields 4K@21 / 1440p@30 / 1080p@58; OpenCV mislabels the active codec as YUY2 even when
-MJPG runs (trust `measure_fps`, not `CAP_PROP_FOURCC`); MSMF never exposes 4K on that cam
-(so DSHOW stays the default int-backend on Windows).
+Proven facts encoded here (dev machine, ELP-U3CAM4K60-IB / IMX678): a USB 4K cam needs a
+DIRECT USB-3 port (an external hub throttled it to 1.4 fps); MSMF never exposes 4K on that
+cam (so DSHOW stays the default int-backend on Windows).
+
+MEASURED 2026-07-19 — MJPG does NOT actually engage on this cam via DSHOW, and the old
+claim that OpenCV "mislabels" the codec was wrong: `CAP_PROP_FOURCC` reads back YUY2
+because YUY2 is what is running. `scripts/probe_camera_format.py` compared requesting MJPG
+(with and without setting `CAP_PROP_FPS`) against an explicit YUY2 control:
+
+    mode        MJPG+fps   MJPG no-fps   YUY2 control   datasheet MJPEG / YUY2
+    3840x2160     15.4         18.8          19.3            60 / 23
+    2560x1440     30.0         29.4          30.0            60 / 30
+    1920x1080     60.5         60.4          60.5            60 / 60   (indistinguishable)
+
+Every variant reads back YUY2 and lands on the datasheet's YUY2 row, and CPU stays at
+0.3-0.6 cores throughout — bandwidth-bound uncompressed video, not decode-bound JPEG
+(4K YUY2 @23 fps is ~380 MB/s, i.e. the USB-3 ceiling). Setting FOURCC before the
+resolution is still correct and kept; it is simply ignored by this driver. Consequence:
+1440p is capped at 30 fps and 4K at ~19 instead of the 60 the sensor can do over MJPEG.
+Do NOT "fix" this by trusting `measure_fps` over `CAP_PROP_FOURCC` — here they agree.
 
 Public interface:
     CameraSpec           — declarative "what I want" (source, resolution, fps, controls).

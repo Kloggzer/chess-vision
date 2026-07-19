@@ -77,11 +77,16 @@ class CameraDefaults:
     whenever a `CameraSpec` leaves a field as `None`. This is the ONE place to switch the
     house default between 1440p and 4K.
 
-    Why 1440p is the default: on the dev machine's "4K U3 Camera", DSHOW+MJPG delivers
-    2560×1440 @ full 30 fps, while true 4K (3840×2160) runs at ~21 fps (CPU-JPEG-decode
-    bound) and only on a direct USB-3 port — overkill for the chessboard's small per-square
-    crops. To force 4K instead, set width=3840, height=2160 here. `fourcc` MUST stay "MJPG"
-    for anything above 720p (the driver otherwise caps at 640×480 on YUY2)."""
+    Why 1440p is the default: 2560×1440 delivers 30 fps, while true 4K (3840×2160) runs at
+    ~19 fps and only on a direct USB-3 port — overkill for the chessboard's small per-square
+    crops. To force 4K instead, set width=3840, height=2160 here.
+
+    On `fourcc`: keep "MJPG". It is requested before the resolution (which is the correct
+    order and does prevent the 640×480 cap), but measurement shows this camera's DSHOW driver
+    IGNORES the format request and runs YUY2 regardless — see the table in `camera.py`. So the
+    rates above are the datasheet's YUY2 limits, not MJPEG's: the sensor could do 60 fps at
+    both 1440p and 4K if MJPEG could be engaged. Uncompressed 4K is ~380 MB/s, which is why it
+    stalls near 20 fps on USB-3."""
 
     width: int = 2560          # → 3840 for 4K
     height: int = 1440         # → 2160 for 4K
