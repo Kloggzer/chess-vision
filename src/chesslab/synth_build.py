@@ -31,10 +31,8 @@ from .dataset_build import _safe_name, dataset_dir, dedup_metadata
 
 _FILES = "abcdefgh"
 
-# Warp resolution for slicing. 1100 px board -> ~137 px/square, matching the ~134 px/square the
-# framed renders carry (frame_frac 0.80 @ res 1024) — the old default of 900 (112 px/square)
-# UPSCALED every crop to 128 and threw away real resolution.
-SYNTH_BOARD_SIZE = 1100
+# Warp resolution for slicing — single source: config.SYNTH.warp_board_size (rationale there).
+SYNTH_BOARD_SIZE = config.SYNTH.warp_board_size
 
 
 def _virtual_path(name: str, sid: str, frame: str, square: str) -> str:
@@ -137,13 +135,15 @@ def build_synth_dataset(
     allow_degenerate: bool = False,
     paths: config.Paths | None = None,
 ) -> dict:
-    """Renders -> sessions (metadata) -> curated split -> crops packed straight into the memmap."""
+    """Renders -> curated split (metadata only) -> crops packed straight into the memmap.
+
+    Session logs are written INTO the dataset dir (provenance) — they never enter the live
+    ``data/sessions`` pool, which is for real captures (the synthetic-session-leak class)."""
     import os
     from multiprocessing import Pool
 
-    from .ingest import synthesize_sessions
+    from .ingest import _safe_group, synthesize_sessions, to_full_fen
     from .ingest_adapters.synthetic import iter_items
-    from .labeling import read_log
     from .training.pack import _manifest_digest
 
     name = _safe_name(name)
@@ -155,25 +155,29 @@ def build_synth_dataset(
     items = list(iter_items(Path(renders_root)))
     if not items:
         raise ValueError(f"no render frames (json+jpg/png) found under {renders_root}")
-    session_ids = synthesize_sessions(items, tag=name, profile_name=name, paths=paths)
 
-    # ---- metadata pass -------------------------------------------------------------------
+    # ---- metadata pass (directly from adapter items — no session round-trip) -------------
     rows: list[dict] = []
     frame_src: dict[tuple[str, str], tuple[str, list]] = {}     # (sid, stem) -> (path, corners)
-    for sid in session_ids:
-        for entry in read_log(paths.sessions / sid):
-            stem = Path(str(entry["frame"])).stem
-            key = (sid, stem)
-            if key in frame_src:
-                # Two frames sharing (session, stem) would collide on the SAME mm:// path — one
-                # frame's labels would silently be served another frame's pixels. This is the
-                # shard-stem-collision class of bug; refuse loudly instead of corrupting.
-                raise ValueError(f"duplicate frame id {key} — two renders map to the same "
-                                 f"session/stem (shard collision? {entry['frame']} vs "
-                                 f"{frame_src[key][0]}).")
-            frame_src[key] = (entry["frame"], entry["corners"])
-            rows.extend(_rows_for_entry(name, sid, entry, out_size))
+    for ply, it in enumerate(items):
+        sid = f"{name}__{_safe_group(it.group)}"
+        stem = Path(str(it.image_path)).stem
+        key = (sid, stem)
+        if key in frame_src:
+            # Two frames sharing (session, stem) would collide on the SAME mm:// path — one
+            # frame's labels would silently be served another frame's pixels. This is the
+            # shard-stem-collision class of bug; refuse loudly instead of corrupting.
+            raise ValueError(f"duplicate frame id {key} — two renders map to the same "
+                             f"session/stem (shard collision? {it.image_path} vs "
+                             f"{frame_src[key][0]}).")
+        frame_src[key] = (str(it.image_path), it.corners)
+        entry = {"frame": str(it.image_path), "fen": to_full_fen(it.fen), "ply": ply,
+                 "occluded_squares": (it.meta or {}).get("occluded_squares") or []}
+        rows.extend(_rows_for_entry(name, sid, entry, out_size))
     n_raw = len(rows)
+    n_sessions = len({r["session_id"] for r in rows})
+    print(f"[fuse] {len(items)} frames -> {n_sessions} sessions, {n_raw} candidate crops",
+          flush=True)
 
     sizes = Counter(r["session_id"] for r in rows)
     splits = dataset_mod.assign_sessions_to_splits(dict(sizes), val_frac, test_frac, seed)
@@ -196,6 +200,10 @@ def build_synth_dataset(
     if ds.exists():
         shutil.rmtree(ds)
     ds.mkdir(parents=True, exist_ok=True)
+    # Provenance: session logs (frame paths + corners + FENs) live INSIDE the dataset dir —
+    # deleted with it, invisible to the live sessions pool / web session list.
+    session_ids = synthesize_sessions(items, tag=name, profile_name=name,
+                                      paths=config.Paths(root=ds))
     (ds / "manifest.jsonl").write_text(
         "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + ("\n" if rows else ""),
         encoding="utf-8")
