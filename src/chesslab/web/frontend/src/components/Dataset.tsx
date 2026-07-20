@@ -488,7 +488,12 @@ export function StatsPanel() {
         {browseErr && <div className="mb-2 rounded-lg bg-red-950/60 px-3 py-1.5 text-sm text-red-300">{browseErr}</div>}
         {browse ? (
           <div className="grid grid-cols-[repeat(auto-fill,56px)] gap-1.5">
-            {browse.crops.map((c: any, i: number) => <img key={i} src={c.url} title={`${c.session_id} ${c.frame} ${c.square}`} alt={`square ${c.square}`} className="h-[74px] w-[56px] rounded border border-zinc-800 object-cover" />)}
+            {browse.crops.map((c: any, i: number) => c.url ? (
+              <img key={i} src={c.url} title={`${c.session_id} ${c.frame} ${c.square}`} alt={`square ${c.square}`} className="h-[74px] w-[56px] rounded border border-zinc-800 object-cover" />
+            ) : (
+              // Fused datasets (mm:// crops) have no image files — the memmap holds the pixels.
+              <div key={i} title={`${c.session_id} ${c.frame} ${c.square} — packed (no file)`} className="flex h-[74px] w-[56px] items-center justify-center rounded border border-dashed border-zinc-700 text-[9px] text-zinc-600">packed</div>
+            ))}
           </div>
         ) : <span className="text-sm text-zinc-500">Select a class on the left to view crops.</span>}
       </Card>

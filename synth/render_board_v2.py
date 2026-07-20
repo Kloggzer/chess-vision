@@ -107,7 +107,9 @@ def parse_fen_placement(fen):
 # --- Prozedurale Holz-Materialien (Fallback, identisch zu render_chessboard.py) ---
 
 def make_wood_material(name, light, dark):
-    mat = bpy.data.materials.new(name)
+    # _fresh_material statt materials.new: GroundMat wird PRO SZENE erzeugt (randomize_world) —
+    # ohne Aufraeumen akkumulieren ueber 18k Szenen tausende verwaiste Node-Trees.
+    mat = _fresh_material(name)
     mat.use_nodes = True
     nt = mat.node_tree
     nt.nodes.clear()
@@ -620,6 +622,18 @@ BOARD_PROCEDURAL_P = 0.50
 BORDERLESS_PLANE_SCALE = 2.4
 
 
+def _fresh_material(name: str):
+    """Neues Material-Datablock; gleichnamige Reste vorheriger Szenen vorher entfernen.
+
+    Pro-Szene-Materialien (ProcBoard/IsolationSurface) wurden nur aus dem Slot geloescht — der
+    Datablock (kompletter Node-Tree) blieb in bpy.data.materials und Blender nummerierte neu
+    (.001, .002, ...): ueber 18k Szenen tausende verwaiste Node-Trees = RAM-Kriechen."""
+    for m in [m for m in bpy.data.materials
+              if m.name == name or m.name.startswith(name + ".")]:
+        bpy.data.materials.remove(m)
+    return bpy.data.materials.new(name)
+
+
 def _rand_square_colors(rng):
     """A WILD two-colour checker pair for a random procedural board — the anti-shortcut lever
     pushed hard. The two tiles are INDEPENDENT random hues at high saturation over the full
@@ -655,7 +669,7 @@ def make_isolation_surface(rng):
     label mapping stay identical to deployment — the geometry-match rule this project lives by.
     """
     a, b = _rand_square_colors(rng)
-    mat = bpy.data.materials.new("IsolationSurface")
+    mat = _fresh_material("IsolationSurface")
     mat.use_nodes = True
     nt = mat.node_tree
     nt.nodes.clear()
@@ -707,7 +721,7 @@ def make_random_procedural_board(rng, bordered: bool = True):
     frac = BOARD_PLAY_HALF_FRAC
     lo, span = 0.5 - frac, 2.0 * frac
 
-    mat = bpy.data.materials.new("ProcBoard")
+    mat = _fresh_material("ProcBoard")
     mat.use_nodes = True
     nt = mat.node_tree
     nt.nodes.clear()
@@ -832,7 +846,9 @@ def place_from_fen(
         if not variants:
             continue
         # Random variant per square → visual diversity across the dataset.
-        mesh = variants[0] if len(variants) == 1 else variants[int(rng.integers(len(variants)))]
+        # rng ist random.Random — .integers() gibt es nur auf np.random.Generator (latenter
+        # AttributeError, sobald ein Figurentyp mehrere Scan-Varianten hat).
+        mesh = variants[0] if len(variants) == 1 else variants[rng.randrange(len(variants))]
         x, y = square_center(fi, ri)
         dx, dy = offsets.get(f"{chr(97 + fi)}{ri + 1}", (0.0, 0.0))
         o = bpy.data.objects.new(f"pc_{fi}{ri}", mesh)
