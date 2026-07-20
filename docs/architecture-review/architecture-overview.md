@@ -22,7 +22,7 @@ spec layout (CLAUDE.md):
 │  Level 1  calibration.py     Homography, ArUco, MarkerTracker      │
 │  Level 2  state.py           Game State (python-chess)             │
 │  Level 3  collect.py, labeling.py, geometry3d.py, photometric.py   │
-│  Level 4  dataset.py, dataset_build.py, sessions.py                │
+│  Level 4  dataset.py, dataset_build.py, synth_build.py, sessions.py│
 │  Level 5  training/ (model, train, engine, evaluate, torch_data)   │
 │  Level 7  experiment.py      Bake-off Grids (Geometry×Photometry)  │
 │  NEW      ingest.py + ingest_adapters/ (chesscog, chessred, synth) │
@@ -45,9 +45,13 @@ Camera ──► calibration (profile YAML: homography, corners, crop params)
        ──► training (SquareDataset → SmallCNN/MobileNetV3 → best.pt + config.json)
        ──► Consumers: web/inference.predict_arrays · move_tracker (planned: CNN resync)
 
-Parallel:  synth/ (RealityScan→Blender→PNG+JSON) ─┐
-           chesscog / ChessReD (external)        ─┼─► ingest_adapters → ingest.synthesize_sessions
-                                                  ┘   → Pseudo-Sessions → same slice path
+Parallel:  synth/ (RealityScan→Blender→JPEG+JSON) ─┐
+           chesscog / ChessReD (external)         ─┼─► ingest_adapters → ingest.synthesize_sessions
+                                                   ┘   → Pseudo-Sessions → same slice path
+
+Fused:     synth renders ──► synth_build.py (`dataset build-synth`): metadata pass (labels
+           from FEN, curation/split) + ONE pixel pass straight into packed_images.u8 —
+           no crop PNGs, manifest rows are virtual mm:// paths, consumers read the memmap.
 ```
 
 The contracts are **file-based** (JSONL/YAML/JSON) — good for reproducibility and re-slicing,
@@ -79,9 +83,10 @@ median normalization → scoring over all legal moves → ambiguity check →
 multi-frame voting. Threading: daemon capture loop + one lock around shared state.
 No test, no packaging, no abstraction seam for a second (CNN) observer.
 
-**synth/** — four-stage, manually orchestrated Blender pipeline (turntable photos → RealityScan →
-isolate_piece → render_chessboard) with hardcoded relative paths; output flows through the
-`synthetic` ingest adapter into the normal slice pipeline.
+**synth/** — Blender pipeline (turntable photos → RealityScan → isolate_piece →
+render_board_v2, optionally sharded via `synth render --shards`); output flows either
+through `synth_build.py` (`dataset build-synth`, the fused big-run path) or through the
+`synthetic` ingest adapter into the normal slice pipeline (small sets, debug overlays).
 
 ## Test Landscape
 

@@ -26,6 +26,10 @@ live games without a CNN (frame diff + legality, optional CNN safeguard).
   (barrel distortion → `data/lens/calib.npz`, applied only in `camera.open_capture`),
   `chesslab calibrate` (`calibration.py`) models the BOARD geometry (ArUco → homography).
   Roll-out order is lens first — a new lens calibration re-stamps all board profiles.
+- **Fused synth builds:** `chesslab dataset build-synth` (`synth_build.py`) packs renders
+  straight into the memmap — its `mm://` manifest rows have NO files, consumers must read
+  the packed memmap. Rotation augmentation is train-time only (`torch_data._RandomRot90`),
+  never materialized. Classic `ingest synthetic` remains for small sets / debug overlays.
 
 ## Non-goals
 

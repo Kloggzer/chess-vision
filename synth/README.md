@@ -1,7 +1,7 @@
 # Synthetic Data Pipeline
 
 Complete pipeline from 3D scan to labeled training data source:
-Turntable photos → RealityScan → Isolation → Render → Ingest → Training.
+Turntable photos → RealityScan → Isolation → Render → Build (fused) → Training.
 
 ## Asset Expectations
 
@@ -81,6 +81,10 @@ uv run python synth/fens.py data/synth_fens.txt --n 200 --seed 42
 uv run chesslab synth render --out data/synth_raw --n 200 --fens data/synth_fens.txt
 ```
 
+Output per sample: `<i>.jpg` (JPEG q90 — smaller and closer to the real webcam's JPEG
+frames than PNG) + `<i>.json` (FEN + corners). The board is framed to fill the image
+(`--frame-frac 0.80` → ~134 px/square at `--res 1024`).
+
 Options:
 - `--blend` — Blender scene (default: `synth_assets/Chess Scene.blend`)
 - `--pieces-dir` — Piece templates (default: `synth_pieces/`)
@@ -88,29 +92,42 @@ Options:
 - `--seed` — Seed (default: 42)
 - `--fens` — FEN list (otherwise fallback to starting position)
 - `--res` — Resolution in px (default: 1024)
+- `--shards` — Parallel Blender processes; output in `<out>/shard-<k>/` with disjoint
+  seeds and an interleaved FEN split (1 proc ≈ 20% GPU, 4 shards ≈ 90%, ~4× wall-clock)
 - `--blender` — Blender executable (default: `blender`, via env `CHESSLAB_BLENDER`)
 
 ### Raw with Blender (Alternative)
 
 ```bash
 blender --background "synth_assets/Chess Scene.blend" \
-    --python synth/render_chessboard.py \
+    --python synth/render_board_v2.py \
     -- --out data/synth_raw --n 200 --seed 42 --res 1024 \
        --fens data/synth_fens.txt --pieces synth_pieces
 ```
 
-## 6. Ingest
+## 6. Build the Dataset
 
+**Visual check BEFORE anything else** (classic ingest, materializes overlay PNGs):
 ```bash
-uv run chesslab ingest synthetic data/synth_raw --tag synth
-```
-
-**Visual check BEFORE training:**
-```bash
-uv run chesslab ingest synthetic data/synth_raw --tag synth --debug-overlay 8
+uv run chesslab ingest synthetic data/synth_raw --tag synth-check --limit 32 --debug-overlay 8 --no-build
 ```
 The overlay PNGs show the rectified crop + FEN label — verify that the pieces land on the
 correct squares.
+
+Then the **fused build** (the entry point for synth datasets — renders go straight into
+the packed training memmap, no crop PNGs, no phash):
+```bash
+uv run chesslab dataset build-synth synth --renders data/synth_raw \
+    --cap 8 --val-frac 0.05 --test-frac 0.05
+```
+Shard subdirs from `--shards` are found recursively and become distinct pseudo-sessions.
+Manifest rows carry virtual `mm://` paths; training/eval read the memmap. `--rotate`
+records optional 90° augmentation, applied on-the-fly at train time (nothing on disk).
+See [`docs/synth-pipeline.md`](../docs/synth-pipeline.md) for flag guidance (`--cap 8`
+with `--views-per-scene 4`, holdout sizing).
+
+The classic chain (`chesslab ingest synthetic data/synth_raw --tag synth` → crop PNGs →
+`dataset build`) remains available for small sets and anything needing real crop files.
 
 ## 7. Training
 
