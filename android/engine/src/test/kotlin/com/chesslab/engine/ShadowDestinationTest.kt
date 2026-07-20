@@ -79,6 +79,38 @@ class ShadowDestinationTest {
     }
 
     @Test
+    fun `high raw census survives the shadow veto even when normalized dips below the threshold`() {
+        // Phantom-shadow-as-destination (tracker.py:2810-2813): a real dark-on-dark arrival
+        // reads as an HSV darkening, and median normalization (global disturbance lifts the
+        // board-wide census median) pulls its value under censusThr. The veto must consult
+        // the RAW census, which still proves the structural change.
+        val (detector, state) = detectorFor(null) { }
+        val cur = Phase00Boards()
+        cur.fill("f8", SHADOW_V) // flat darkening -> HSV flags f8 as a shadow candidate
+        val zero = Squares.all.associateWith { 0.0 }
+        val aboveThr = zero + ("f8" to config.censusThr + 20.0)
+        val belowThr = zero + ("f8" to config.censusThr - 30.0)
+        val kept =
+            detector.applyShadowVeto(
+                cur.gray(),
+                cur.bgr,
+                mutableSetOf("f8"),
+                Detector.CensusChannel(normalized = belowThr, raw = aboveThr),
+            )
+        assertTrue("f8" !in kept, "raw census above censusThr proves structure — must not veto")
+        // Control (maps swapped = the pre-fix consultation order): raw below the threshold
+        // plus the HSV shadow classification DOES veto — the raw map decides, not the normalized.
+        val vetoed =
+            detector.applyShadowVeto(
+                cur.gray(),
+                cur.bgr,
+                mutableSetOf("f8"),
+                Detector.CensusChannel(normalized = aboveThr, raw = belowThr),
+            )
+        assertTrue("f8" in vetoed, "structure-quiet raw census + HSV shadow must veto (${state.shadowVetoed})")
+    }
+
+    @Test
     fun `shadow on the from-square still allows the move`() {
         // White piece e2 -> e4; the vacated e2 returns to board color (reads as a darkening
         // = HSV shadow). Its z evidence must survive the veto and e2e4 must commit.

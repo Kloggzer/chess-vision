@@ -68,6 +68,18 @@ internal class Detector(
             else -> true
         }
 
+    /**
+     * The census evidence channel of one frame: the median-[SquareDiff.normalizeDiffs]d
+     * map serves scoring/z/noise, the RAW map serves the shadow veto — [TrackerConfig.censusThr]
+     * was live-tuned on raw census, and normalization can pull a structurally-changed
+     * destination square under the threshold (the phantom-shadow-as-destination class,
+     * tracker.py:2810-2813).
+     */
+    internal class CensusChannel(
+        val normalized: Map<String, Double>,
+        val raw: Map<String, Double>,
+    )
+
     /** Steps 2+3+4 — fused diff/census z-scores, occlusion taint, shadow veto, noise learning. */
     private fun computeEvidence(
         cur: GrayImage,
@@ -90,7 +102,9 @@ internal class Detector(
         // Noise learns on EVERY stable frame the non-candidate squares (tracker.py:1984);
         // the census channel learns excluded squares on a SLOW LANE (8c30888).
         state.noise.update(diffs, exclude = changed + shadowVeto)
-        cens?.let { state.censusNoise.update(it, exclude = changed + shadowVeto, excludeAlphaScale = CENSUS_SLOW_LANE) }
+        cens?.let {
+            state.censusNoise.update(it.normalized, exclude = changed + shadowVeto, excludeAlphaScale = CENSUS_SLOW_LANE)
+        }
         // (Taint release happens in applyTaintLatch — motion-or-baseline gated, not timer-only.)
         return scoreCandidates(z, changed, shadowVeto)
     }
@@ -100,18 +114,16 @@ internal class Detector(
      * and fused into `z` as max(zGray, w * zCensus). Census is illumination-invariant
      * (sees dark-on-dark moves) but NOT translation-invariant: median-normalize, and drop
      * the channel on a global disturbance (ports tracker.py b3d3825 + c3c2315).
-     * Returns the normalized census map, or null when off/dropped this frame.
+     * Returns the [CensusChannel] (normalized + raw), or null when off/dropped this frame.
      */
     private fun fuseCensusChannel(
         cur: GrayImage,
         z: MutableMap<String, Double>,
-    ): Map<String, Double>? {
+    ): CensusChannel? {
         state.structVals = emptyList()
         if (config.censusZWeight <= 0) return null
-        val cens =
-            SquareDiff.normalizeDiffs(
-                Census.perSquareChange(state.refGray!!, cur, geom, refCodes = state.refCensusCodes()),
-            )
+        val raw = Census.perSquareChange(state.refGray!!, cur, geom, refCodes = state.refCensusCodes())
+        val cens = SquareDiff.normalizeDiffs(raw)
         val zs = state.censusNoise.z(cens)
         val w = config.censusZWeight
         val hot = zs.values.count { w * it >= config.zThr }
@@ -136,7 +148,7 @@ internal class Detector(
                     .sortedByDescending { it.second }
                     .take(TOP_CHANGED)
             for ((sq, zc) in zs) z[sq] = maxOf(z.getValue(sq), w * zc)
-            cens
+            CensusChannel(normalized = cens, raw = raw)
         }
     }
 
@@ -232,20 +244,22 @@ internal class Detector(
      * produce weak absolute census on arrival (the census_thr=40 clip lesson), but a real move is
      * still a large census z, while lighting stays inside the census noise.
      */
-    private fun applyShadowVeto(
+    internal fun applyShadowVeto(
         cur: GrayImage,
         curBgr: BgrImage,
         changed: MutableSet<String>,
-        cens: Map<String, Double>? = null,
+        cens: CensusChannel? = null,
     ): Set<String> {
         val refBgr = state.refBgr
         if (refBgr == null || changed.isEmpty()) return emptySet()
-        // Fusion active: reuse the (median-normalized) census channel; otherwise raw census.
-        val census = cens ?: Census.perSquareChange(state.refGray!!, cur, geom, refCodes = state.refCensusCodes())
+        // Veto threshold on RAW census: censusThr was live-tuned raw, and median normalization
+        // can pull a structurally-changed destination under it — the phantom-shadow-as-destination
+        // class (tracker.py:2810-2813). When fusion is off/dropped, the local computation IS raw.
+        val census = cens?.raw ?: Census.perSquareChange(state.refGray!!, cur, geom, refCodes = state.refCensusCodes())
         val shadows = ShadowVeto.shadowSquares(refBgr, curBgr, geom, changed)
         // Light veto needs the live fused census channel; when it was dropped this frame
         // (global disturbance) there is no trustworthy structure signal — chroma-only then.
-        val zc = if (config.diffLightVeto && cens != null) state.censusNoise.z(cens) else null
+        val zc = if (config.diffLightVeto && cens != null) state.censusNoise.z(cens.normalized) else null
         val veto =
             changed.filterTo(mutableSetOf()) { sq ->
                 (sq in shadows && census.getValue(sq) < config.censusThr) ||
