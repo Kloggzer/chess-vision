@@ -22,7 +22,6 @@ import json
 import logging
 import random
 import shutil
-import statistics
 from collections import Counter
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -33,7 +32,6 @@ from . import dataset as dataset_mod
 
 log = logging.getLogger("chesslab.dataset_build")
 
-_ROT_CODES = {90: 0, 180: 1, 270: 2}  # cv2.ROTATE_90_CLOCKWISE / 180 / 90_COUNTERCLOCKWISE
 
 
 def _safe_name(name: str) -> str:
@@ -147,90 +145,59 @@ def dedup_phash(rows: list[dict], hamming: int) -> list[dict]:
 
 # --- Rotation-Augmentation ------------------------------------------------------------
 
-def _apply_rotations(rows: list[dict], rotations: tuple[int, ...], squares_dir: Path) -> list[dict]:
-    """Generate the desired rotations per crop. rot=0 references the original (no copy);
-    90/180/270 are materialized as new files under `squares_dir/<label>/`."""
-    import cv2
-
-    degs = [d % 360 for d in (rotations or (0,))]
-    if not degs:
-        degs = [0]
-    out: list[dict] = []
-    for r in rows:
-        for deg in degs:
-            nr = dict(r)
-            if deg == 0:
-                nr["rot"] = 0
-                out.append(nr)
-                continue
-            img = cv2.imread(r["path"])
-            if img is None:
-                continue
-            rimg = cv2.rotate(img, _ROT_CODES[deg])
-            dst = squares_dir / r["label"] / f"{Path(r['path']).stem}_r{deg}.png"
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            cv2.imwrite(str(dst), rimg)
-            nr["rot"] = deg
-            nr["path"] = dst.as_posix()
-            out.append(nr)
-    return out
+# Rotation augmentation is applied ON-THE-FLY at train time (torch_data._RandomRot90) when the
+# dataset was built with non-trivial `rotations`. Materializing rotated copies (the previous
+# `_apply_rotations`) quadrupled both the crop PNGs on disk and the packed memmap for zero
+# information gain — the rotated pixels are a pure function of the originals.
 
 
 def _preflight_disk_check(train_rows: list[dict], holdout: list[dict],
-                          rotations: tuple[int, ...], pack: bool,
+                          pack: bool,
                           paths: config.Paths | None = None, seed: int = config.SEED) -> None:
     """Project the dataset's on-disk cost BEFORE writing anything, and refuse to start if it
     cannot fit.
 
-    Two traps this guards against, both of which silently blow up on large synthetic sets:
-      * rotation augmentation materializes one NEW png per non-zero rotation per TRAIN crop,
-        so the default (0, 90, 180, 270) quadruples the train split on disk;
-      * the packed memmap stores every final crop DECODED (h*w*3 bytes), so it dwarfs the pngs.
-    Raises ValueError with the concrete numbers rather than filling the disk over ~an hour.
+    The dominant term is the packed memmap: it stores every final crop DECODED (h*w*3 bytes),
+    so it dwarfs the source pngs. (Rotation augmentation no longer materializes files — it runs
+    on-the-fly at train time.) Raises ValueError with the concrete numbers rather than filling
+    the disk over ~an hour.
     """
     import cv2
 
-    n_rot = max(1, len(rotations or (0,)))
-    n_new_pngs = len(train_rows) * (n_rot - 1)
-    n_final = len(train_rows) * n_rot + len(holdout)
+    n_final = len(train_rows) + len(holdout)
 
     # Sample SEVERAL rows, not just the first: rows come in manifest order and `empty` dominates,
-    # so crop[0] is almost always a flat, highly compressible empty square whose png is a fraction
-    # of a piece crop's. Projecting from it under-estimates the rotated-png term badly — exactly
-    # the overrun this guard exists to prevent. Median over a seeded sample is stable and cheap.
+    # so crop[0] is almost always a flat, highly compressible empty square. Median over a seeded
+    # sample is stable and cheap.
     pool = train_rows or holdout
     if not pool:
         return
     rng = random.Random(seed)
     sample_rows = pool if len(pool) <= 32 else rng.sample(pool, 32)
-    sizes, crop_bytes = [], None
+    crop_bytes = None
     for r in sample_rows:
         img = cv2.imread(r["path"])
         if img is None:
             continue
         crop_bytes = int(img.shape[0]) * int(img.shape[1]) * 3
-        sizes.append(Path(r["path"]).stat().st_size)
-    if not sizes or crop_bytes is None:
+        break
+    if crop_bytes is None:
         log.warning("preflight: could not read any sample crop — skipping the disk projection.")
         return
-    png_bytes = int(statistics.median(sizes))
 
-    need = n_new_pngs * png_bytes + (n_final * crop_bytes if pack and n_final >= _PACK_MIN_CROPS else 0)
+    need = n_final * crop_bytes if pack and n_final >= _PACK_MIN_CROPS else 0
+    if not need:
+        return
     # Measure the volume the dataset is actually written to, not the module-global default —
     # `paths` may point at another drive (test isolation, multi-drive setups).
     free = shutil.disk_usage(str((paths or config.DATA).root)).free
-    log.info("preflight: %s final crops (train %s x%s rotations + holdout %s); "
-             "~%.1f GB rotated pngs + ~%.1f GB memmap = ~%.1f GB needed, %.1f GB free",
-             f"{n_final:,}", f"{len(train_rows):,}", n_rot, f"{len(holdout):,}",
-             n_new_pngs * png_bytes / 1e9,
-             (n_final * crop_bytes / 1e9) if pack and n_final >= _PACK_MIN_CROPS else 0.0,
+    log.info("preflight: %s final crops (train %s + holdout %s); ~%.1f GB memmap needed, "
+             "%.1f GB free", f"{n_final:,}", f"{len(train_rows):,}", f"{len(holdout):,}",
              need / 1e9, free / 1e9)
     if need > free * 0.9:
         raise ValueError(
             f"dataset would need ~{need / 1e9:.0f} GB but only {free / 1e9:.0f} GB are free. "
-            f"Reduce it: rotations=(0,) drops ~{n_new_pngs * png_bytes / 1e9:.0f} GB of rotated "
-            f"pngs and shrinks the memmap {n_rot}x; pack=False skips the "
-            f"~{n_final * crop_bytes / 1e9:.0f} GB memmap; or lower per_cell_cap.")
+            f"Reduce it: pack=False skips the ~{need / 1e9:.0f} GB memmap; or lower per_cell_cap.")
 
 
 # --- Build ----------------------------------------------------------------------------
@@ -317,14 +284,13 @@ def build_dataset(
 
     # BEFORE touching the existing dataset: a refusal must not leave the caller with neither the
     # new dataset nor the old one.
-    _preflight_disk_check(train_rows, holdout, rotations, pack, paths=paths, seed=seed)
+    _preflight_disk_check(train_rows, holdout, pack, paths=paths, seed=seed)
 
     ds = paths.datasets / name
     if ds.exists():
-        shutil.rmtree(ds)                       # clean rebuild (old rotations gone)
+        shutil.rmtree(ds)                       # clean rebuild
     ds.mkdir(parents=True, exist_ok=True)
-    train_rows = _apply_rotations(train_rows, rotations, ds / "squares")   # Rotation ONLY on train
-    rows = train_rows + holdout
+    rows = train_rows + holdout                 # rotation happens on-the-fly at train time
     n_final = len(rows)
 
     (ds / "manifest.jsonl").write_text(

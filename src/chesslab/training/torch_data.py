@@ -37,12 +37,27 @@ class _GaussianNoise:
         return (t + torch.randn_like(t) * self.std).clamp_(0.0, 1.0)
 
 
+class _RandomRot90:
+    """Random k*90° rotation (k in 0..3). Square-color/geometry stay valid for 90°-multiples —
+    this replaces the former build-time materialization of rotated crop copies (4x disk/memmap):
+    same augmentation, applied on-the-fly, with fresh k per epoch instead of all four fixed."""
+
+    _TRANSPOSES = (None, Image.ROTATE_90, Image.ROTATE_180, Image.ROTATE_270)
+
+    def __call__(self, img):
+        t = self._TRANSPOSES[random.randrange(4)]
+        return img if t is None else img.transpose(t)
+
+
 def build_transform(out_size, train: bool, policy=config.AUGMENT,
-                    mean=config.NORMALIZE_MEAN, std=config.NORMALIZE_STD):
+                    mean=config.NORMALIZE_MEAN, std=config.NORMALIZE_STD,
+                    rot90: bool = False):
     from torchvision import transforms as T
 
     out_w, out_h = out_size
     ops = [T.Resize((out_h, out_w))]
+    if train and rot90:
+        ops += [_RandomRot90()]
     if train:
         ops += [
             T.ColorJitter(brightness=policy.brightness, contrast=policy.contrast, saturation=policy.color_jitter),
@@ -202,6 +217,15 @@ class PackedSquareDataset(Dataset):
         self._path = path
         self._shape = shape
         self._mm = None
+
+    def __getstate__(self):
+        # Spawn DataLoader workers only need the int arrays + path/shape to serve items. The row
+        # dicts (potentially millions) would otherwise be pickled into EVERY worker — gigabytes of
+        # redundant RAM. `rows` stays available in the parent for board-accuracy grouping.
+        state = dict(self.__dict__)
+        state["rows"] = None
+        state["_mm"] = None
+        return state
 
     def _memmap(self):
         if self._mm is None:                                   # opened lazily, once per worker

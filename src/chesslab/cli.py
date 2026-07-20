@@ -412,6 +412,43 @@ def dataset_build_cmd(
         print(f"  ! {w}")
 
 
+@dataset_app.command("build-synth")
+def dataset_build_synth_cmd(
+    name: str = typer.Argument(..., help="Name of the dataset."),
+    renders: str = typer.Option(..., "--renders", help="Render output root (searches recursively "
+                                                       "for <i>.json + <i>.jpg/.png, so --shards "
+                                                       "subdirs are found automatically)."),
+    board_size: int = typer.Option(1100, "--board-size",
+                                   help="Warp resolution (px). 1100 ~ 137 px/square, matching the "
+                                        "framed renders (~134); 900 silently upscaled crops."),
+    per_cell_cap: int = typer.Option(config.DEDUP.per_cell_cap, "--cap",
+                                     help="Max. crops per (session,square,piece)."),
+    rotate: bool = typer.Option(True, "--rotate/--no-rotate",
+                                help="Record 90-degree rotation augmentation (applied on-the-fly "
+                                     "at train time — nothing is materialized)."),
+    workers: int | None = typer.Option(None, "--workers", help="Pixel-pass processes (default: auto)."),
+) -> None:
+    """Fused synthetic build: renders -> packed memmap directly.
+
+    Skips the crop-PNG middle copy (~60 GB on a 100k/class set) and phash (synth scenes have no
+    near-duplicates). One pixel pass: load each render once, warp once, crop straight into
+    ``packed_images.u8``. Rotation augmentation happens at train time, not on disk."""
+    from .synth_build import build_synth_dataset
+
+    try:
+        res = build_synth_dataset(name, renders, board_size=board_size, per_cell_cap=per_cell_cap,
+                                  rotations=((0, 90, 180, 270) if rotate else (0,)),
+                                  workers=workers)
+    except (ValueError, RuntimeError) as e:
+        print(f"[FAIL] {e}")
+        raise typer.Exit(1)
+    c = res["counts"]
+    print(f"[OK] Dataset '{res['name']}': raw {c['raw']} -> final {c['final']}. "
+          f"Split: {res['split_counts']}. Packed: {res['packed']['gb']} GB.")
+    for w in res["warnings"]:
+        print(f"  ! {w}")
+
+
 @dataset_app.command("pack")
 def dataset_pack_cmd(name: str = typer.Argument(..., help="Dataset to pack.")) -> None:
     """Pack a dataset's crops into one memmap for fast training (1M+ PNG I/O fix).
@@ -790,6 +827,10 @@ def synth_render(
     borderless_p: float = typer.Option(0.0, "--borderless-p",
                                        help="Fraction of scenes with a BORDERLESS procedural board (checker runs "
                                             "edge-to-edge, no frame) — anti edge-shortcut for rim pieces. 0 = none."),
+    shards: int = typer.Option(1, "--shards",
+                               help="Parallel Blender processes. One process leaves the machine at ~20%; "
+                                    "4 shards reach ~90% GPU (~4x wall-clock). Output goes to <out>/shard-<k>/ "
+                                    "with disjoint seeds and an interleaved split of --fens."),
     blender: str | None = typer.Option(None, "--blender", help="Blender executable (default: blender, via CHESSLAB_BLENDER)."),
 ) -> None:
     """Generate synthetic board renderings with Blender/EEVEE (v2: board texture + procedural fallback)."""
@@ -813,23 +854,53 @@ def synth_render(
     elif SYNTH.board_texture.exists():
         bt = SYNTH.board_texture
 
-    cmd = build_blender_cmd(bl, b, script, o, n=n, seed=seed, fens=fe, pieces=p, res=res,
-                            board_texture=bt, views_per_scene=views_per_scene,
-                            samples=samples, max_obliqueness=max_obliqueness, piece_scale=piece_scale,
-                            cam_distance_jitter=cam_distance_jitter, occlusion_p=occlusion_p,
-                            borderless_p=borderless_p, isolate_p=isolate_p,
-                            frame_frac=frame_frac)
+    def _cmd(out_dir: Path, n_shard: int, seed_shard: int, fens_shard: Path | None) -> list[str]:
+        return build_blender_cmd(bl, b, script, out_dir, n=n_shard, seed=seed_shard,
+                                 fens=fens_shard, pieces=p, res=res, board_texture=bt,
+                                 views_per_scene=views_per_scene, samples=samples,
+                                 max_obliqueness=max_obliqueness, piece_scale=piece_scale,
+                                 cam_distance_jitter=cam_distance_jitter, occlusion_p=occlusion_p,
+                                 borderless_p=borderless_p, isolate_p=isolate_p,
+                                 frame_frac=frame_frac)
 
-    print(" ".join(cmd))
+    shards = max(1, int(shards))
+    if shards == 1:
+        jobs = [(o, _cmd(o, n, seed, fe))]
+    else:
+        # Interleaved FEN split (shard k gets lines k, k+shards, ...): every shard sees the same
+        # position MIX (density/type distribution) and no two shards render the same FEN.
+        fen_lines = ([line for line in fe.read_text(encoding="utf-8").splitlines() if line.strip()]
+                     if fe and fe.exists() else [])
+        base, rem = divmod(n, shards)
+        jobs = []
+        for k in range(shards):
+            so = o / f"shard-{k}"
+            so.mkdir(parents=True, exist_ok=True)
+            sfe = None
+            if fen_lines:
+                sfe = so / "fens.txt"
+                sfe.write_text("\n".join(fen_lines[k::shards]) + "\n", encoding="utf-8")
+            jobs.append((so, _cmd(so, base + (1 if k < rem else 0), seed + k, sfe)))
+
+    procs: list[tuple[Path, subprocess.Popen]] = []
     try:
-        subprocess.run(cmd, check=True)
-    except subprocess.CalledProcessError:
-        print("[FAIL] Blender render failed.")
-        raise typer.Exit(1)
+        for so, cmd in jobs:
+            print(" ".join(cmd))
+            # Shard stdout -> shard-k/render.log (concurrent writers would interleave on the tty).
+            log_fh = open(so / "render.log", "w", encoding="utf-8") if shards > 1 else None
+            procs.append((so, subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT)))
     except FileNotFoundError:
+        for _so, pr in procs:
+            pr.terminate()
         print(f"[FAIL] Blender not found ('{bl}'). Check path or set CHESSLAB_BLENDER.")
         raise typer.Exit(1)
-    print(f"[OK] synth render: {o}")
+
+    failed = [str(so) for so, pr in procs if pr.wait() != 0]
+    if failed:
+        print(f"[FAIL] Blender render failed for: {', '.join(failed)}"
+              + (" (see shard-*/render.log)" if shards > 1 else ""))
+        raise typer.Exit(1)
+    print(f"[OK] synth render: {o}" + (f" ({shards} shards)" if shards > 1 else ""))
 
 
 @synth_app.command("prepare")

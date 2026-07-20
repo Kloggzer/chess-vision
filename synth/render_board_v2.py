@@ -1169,7 +1169,10 @@ def main():
     scene = bpy.context.scene
     eng = set_engine_fast(ra.samples)
     scene.render.resolution_x = scene.render.resolution_y = ra.res
-    scene.render.image_settings.file_format = "PNG"
+    # JPEG q90 statt PNG: ~5x kleinere Roh-Renders UND naeher an der Domaene der echten Kamera
+    # (die Webcam liefert JPEG-komprimierte Frames — verlustfreie PNGs sind unrealistisch sauber).
+    scene.render.image_settings.file_format = "JPEG"
+    scene.render.image_settings.quality = 90
     # Mesh/BVH/GPU-Buffer zwischen Renders halten → Folge-Views einer Szene (nur Kamera+Licht
     # geändert) rendern ohne teuren Szenen-Neuaufbau. Zentraler Speed-Hebel des Szenen-Reuse.
     scene.render.use_persistent_data = True
@@ -1227,7 +1230,7 @@ def main():
             elif occ_arm is not None:
                 hide_occluder(occ_arm)
 
-            scene.render.filepath = str((out_dir / f"{i:06d}.png").resolve())
+            scene.render.filepath = str((out_dir / f"{i:06d}.jpg").resolve())
             bpy.ops.render.render(write_still=True)
             corners = corners_px(scene, cam)
             (out_dir / f"{i:06d}.json").write_text(

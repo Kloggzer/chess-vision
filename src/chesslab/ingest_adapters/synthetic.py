@@ -26,7 +26,10 @@ CHUNK = 100   # Samples pro Pseudo-Session
 def iter_items(root: Path) -> Iterator[ImportItem]:
     root = Path(root)
     for jf in sorted(root.rglob("*.json")):
-        img = jf.with_suffix(".png")
+        # Neuere Renders sind JPEG (q90, ~5x kleiner + Webcam-Domaene); Alt-Renders PNG.
+        img = jf.with_suffix(".jpg")
+        if not img.exists():
+            img = jf.with_suffix(".png")
         if not img.exists():
             continue
         try:
