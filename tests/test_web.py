@@ -433,3 +433,58 @@ def test_scan_models_and_files_variant_aware(tmp_path, monkeypatch):
     r = client.delete("/api/scan/piece/wP/v1")
     assert r.status_code == 200 and "v1.obj" in r.json()["removed"]
     assert not piece_dir.exists()  # empty folder pruned
+
+
+def test_scan_modes_endpoint_and_open_mode_plumbing(monkeypatch):
+    """GET /api/scan/modes is config-derived; POST /api/scan/open turns a named mode into
+    the matching CameraSpec, and no mode keeps the explicit resolution (backward compat).
+    No hardware: the public opener is faked at the scan module seam."""
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+
+    from chesslab import config
+    from chesslab.web import scan as scan_mod
+    from chesslab.web.app import create_app
+
+    client = TestClient(create_app())
+
+    body = client.get("/api/scan/modes").json()
+    assert [m["name"] for m in body["modes"]] == list(config.CAMERA_MODES)
+    assert body["default"] == config.DEFAULT_CAMERA_MODE
+    by_name = {m["name"]: m for m in body["modes"]}
+    assert (by_name["1080p"]["width"], by_name["1080p"]["height"]) == (1920, 1080)
+    assert by_name["default"]["width"] is None       # "default" carries no size
+
+    specs: list = []
+
+    class FakeCapture:
+        def isOpened(self):
+            return True
+
+        def read(self):
+            return True, np.zeros((16, 16, 3), np.uint8)
+
+        def release(self):
+            pass
+
+    def _fake_open(spec):
+        specs.append(spec)
+        return FakeCapture()
+
+    monkeypatch.setattr(scan_mod, "open_capture", _fake_open)
+    try:
+        # named mode overrides the explicit width×height
+        r = client.post("/api/scan/open",
+                        json={"source": "0", "width": 2880, "height": 2160, "mode": "1080p"})
+        assert r.status_code == 200
+        assert r.json()["mode"] == "1080p"
+        assert (specs[-1].width, specs[-1].height) == (1920, 1080)
+        assert specs[-1].undistort is False          # RealityScan wants raw optics
+        # no mode -> the explicit resolution stays in charge, exactly like before
+        r = client.post("/api/scan/open", json={"source": "0", "width": 2880, "height": 2160})
+        assert r.status_code == 200
+        assert r.json()["mode"] == ""
+        assert (specs[-1].width, specs[-1].height) == (2880, 2160)
+    finally:
+        client.post("/api/scan/close")
