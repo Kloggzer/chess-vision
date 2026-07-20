@@ -123,6 +123,18 @@ class ScanController:
             raise RuntimeError(f"No frames from {source!r}. Check source/URL/app.")
         cap_src = str(capture_source or "").strip()
         capture_cap = None
+        if cap_src and cap_src.isdigit():
+            # A numeric "Photo" source would open the SAME USB camera a second time — the driver
+            # then renegotiates the shared stream down (observed: 4k preview collapses to 1440p).
+            # Photos from the live stream need no second handle at all.
+            try:
+                cap.release()
+            except Exception:  # noqa: BLE001
+                pass
+            raise RuntimeError(
+                f"Photo source {cap_src!r} is a USB index — that would open the camera twice and "
+                "silently degrade the preview resolution. Leave Photo EMPTY to save from the live "
+                "stream, or give a snapshot URL (http…/video/snapshot).")
         if cap_src:
             probe = _open_snapshot(cap_src)        # Test snapshot once -> early, clear error
             ok_s, _ = probe.read()
