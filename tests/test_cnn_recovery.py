@@ -353,6 +353,9 @@ def _headless_tracker(monkeypatch, **kw):
     prof = _identity_profile()
     monkeypatch.setattr(trk, "ensure_profile", lambda *a, **k: prof)
     monkeypatch.setattr(trk, "open_source", lambda src: FakeCapture())
+    # Never let a headless test write real sessions (the auto_record leak class): today these
+    # tests can't start the recorder (no _last_frame), but that protection is accidental.
+    kw.setdefault("auto_record", False)
     return trk.MoveTracker(profile="t", source="0", live_align=False, **kw)
 
 

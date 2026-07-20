@@ -71,7 +71,7 @@ def _calibration_rows(cfg: dict, limit: int) -> list[dict]:
     if not rows:
         return []
 
-    rng = random.Random(config.DEFAULT_SEED if hasattr(config, "DEFAULT_SEED") else 42)
+    rng = random.Random(config.SEED)
     by_label: dict[str, list[dict]] = defaultdict(list)
     for r in rows:
         by_label[r["label"]].append(r)

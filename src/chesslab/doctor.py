@@ -308,7 +308,9 @@ def lens_checks(frame_size: tuple[int, int] | None = None) -> list[Check]:
         except Exception as e:  # noqa: BLE001
             stale.append(f"{p.name} (unreadable: {e!r})")
             continue
-        is_stale, why = lens.profile_is_stale(prof, prof.camera_index)
+        # Check against the profile's ACTUAL source (URL profiles carry camera_index=-1,
+        # which would validate against the wrong lens state).
+        is_stale, why = lens.profile_is_stale(prof, lens.profile_source(prof))
         if is_stale:
             stale.append(f"{prof.profile} ({why})")
     if stale:

@@ -244,4 +244,5 @@ class PackedSquareDataset(Dataset):
 
 def class_weights_tensor(split: dict, classes: list[str]) -> torch.Tensor:
     cw = split.get("class_weights", {})
-    return torch.tensor([float(cw.get(c, 1.0)) or 1.0 for c in classes], dtype=torch.float32)
+    # NOT `or 1.0`: that would silently turn an explicit weight of 0.0 into 1.0 (falsy trap).
+    return torch.tensor([float(cw.get(c, 1.0)) for c in classes], dtype=torch.float32)

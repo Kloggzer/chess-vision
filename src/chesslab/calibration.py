@@ -258,6 +258,8 @@ def ensure_profile(profile: str, source: int | str | None = None, *,
         stale_prof = prof0
         if source is None:
             lens.stamp_profile(stale_prof, source=source)
+            if save:                # persist — otherwise every process re-warns + re-stamps
+                stale_prof.save(profile_path(profile), backup=True)
             return stale_prof
     except FileNotFoundError:
         if source is None:
@@ -283,6 +285,8 @@ def ensure_profile(profile: str, source: int | str | None = None, *,
         if not cap.isOpened():
             if stale_prof is not None:      # keep working: re-stamp instead of crashing
                 lens.stamp_profile(stale_prof, source=source)
+                if save:
+                    stale_prof.save(profile_path(profile), backup=True)
                 return stale_prof
             raise FileNotFoundError(
                 f"profile '{profile}' missing and source {source!r} could not be opened "
