@@ -947,8 +947,17 @@ def synth_prepare_cmd(
         print("[FAIL] no scans found (expected: <in>/<piece>/*.glb/.obj + texture).")
         raise typer.Exit(1)
 
+    from dataclasses import replace as _dc_replace
+
+    from .scan_discover import is_bare_piece, next_variant
+
     results: list[tuple[str, str, list[str]]] = []
     for item in items:
+        # Parity with the web prepare route: a BARE folder name ("wP") means "add a new
+        # version" → next free slot. Without this, re-preparing a fresh scan of the same
+        # piece silently OVERWROTE v1 — the ground-truth meshes all past renders used.
+        if is_bare_piece(item.obj.parent.name):
+            item = _dc_replace(item, variant=next_variant(out / item.name))
         pid = f"{item.name}/{item.variant}"
         print(f"--- {pid}: {item.obj.name}" + (f" + {item.tex.name}" if item.tex else " (texture embedded)"))
         try:
@@ -956,6 +965,8 @@ def synth_prepare_cmd(
         except Exception as e:
             results.append((pid, "fail", [str(e)]))
             continue
+        # Provenance like the web route: which scan folder produced this variant.
+        (out / item.name / f"{item.variant}.src").write_text(item.obj.parent.name, encoding="utf-8")
         level, msgs = assess_report(report)
         results.append((pid, level, msgs))
         print(f"    {report.get('tris', '?')} triangles, "
