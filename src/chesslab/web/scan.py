@@ -16,23 +16,35 @@ from pathlib import Path
 
 import cv2
 
-from ..camera import CameraSpec, _UrlSnapshotCapture, open_capture, open_source
+from ..camera import CameraSpec, mode_size, open_capture, open_source, spec_for_mode
 
 # scans/ lives at the repo level (next to data/) — anchored via file location, independent of cwd.
 SCANS_ROOT = Path(__file__).resolve().parents[3] / "scans"
 
 
-def _open(source, width: int, height: int):
-    """USB index -> DSHOW+MJPG+requested resolution via the camera lib (otherwise the driver
-    caps at 640×480); URL -> shared snapshot/MJPEG reader (HTTPS/self-signed-capable).
+def _open(source, width: int, height: int, mode: str = ""):
+    """USB index -> the camera lib (public API) picks backend/FOURCC order/fps clamp; a
+    named mode from `camera_modes()` overrides the explicit width×height, otherwise the
+    explicit resolution is requested (backward-compatible default). URL -> shared
+    snapshot/MJPEG reader (HTTPS/self-signed-capable).
 
     `undistort=False` on purpose: RealityScan solves its own lens model from the photos,
     so pre-corrected input would only fight its bundle adjustment."""
     s = str(source).strip()
     if s.isdigit():
-        return open_capture(CameraSpec(source=int(s), width=width, height=height, warmup=6,
-                                       undistort=False))
+        if mode and mode_size(mode) is not None:
+            spec = spec_for_mode(mode, source=int(s), warmup=6, undistort=False)
+        else:
+            spec = CameraSpec(source=int(s), width=int(width), height=int(height),
+                              warmup=6, undistort=False)
+        return open_capture(spec)
     return open_source(s)
+
+
+def _open_snapshot(url: str):
+    """Single-image snapshot reader for the save path, via the public opener (`url_mode=
+    "snapshot"` forces one clean JPEG per read; undistort off — see `_open`)."""
+    return open_capture(CameraSpec(source=url, url_mode="snapshot", undistort=False))
 
 
 def _next_index(out_dir: Path) -> int:
@@ -66,7 +78,8 @@ class ScanController:
         # or recording is active. `configured` = source selected (UI panel open); the real
         # `cap` is opened lazily / released after `idle_timeout` seconds of inactivity.
         self.configured = False
-        self._cfg = ("0", 2880, 2160)          # (source, width, height) for lazy re-open
+        self._cfg = ("0", 2880, 2160, "")      # (source, width, height, mode) for lazy re-open
+        self.mode = ""                         # named camera mode ("" = explicit width×height)
         self._last_demand = 0.0                # last preview fetch (recording = continuous demand)
         self.idle_timeout = 12.0
 
@@ -89,14 +102,18 @@ class ScanController:
         self.quality = 92
 
     # -- Source open / close -------------------------------------------------
-    def open(self, source, width: int = 2880, height: int = 2160, capture_source: str = "") -> dict:
+    def open(self, source, width: int = 2880, height: int = 2160, capture_source: str = "",
+             mode: str = "") -> dict:
         """SELECT source + test once. After that the loop only holds the camera on demand
         (preview/recording) and releases it automatically when idle.
 
         `capture_source` (optional): snapshot URL from which images are saved during recording —
-        the preview stays on the smooth `source` stream."""
+        the preview stays on the smooth `source` stream.
+        `mode` (optional): named camera mode (`camera_modes()`); overrides width×height for a
+        USB source. Empty = explicit resolution (previous behavior)."""
         self.close()
-        cap = _open(source, width, height)     # Test open: fails early if the source is broken
+        mode = str(mode or "").strip()
+        cap = _open(source, width, height, mode)  # Test open: fails early if the source is broken
         ok, img = cap.read()
         if not ok or img is None:
             try:
@@ -107,7 +124,7 @@ class ScanController:
         cap_src = str(capture_source or "").strip()
         capture_cap = None
         if cap_src:
-            probe = _UrlSnapshotCapture(cap_src)   # Test snapshot once -> early, clear error
+            probe = _open_snapshot(cap_src)        # Test snapshot once -> early, clear error
             ok_s, _ = probe.read()
             if not ok_s:
                 try:
@@ -119,7 +136,8 @@ class ScanController:
         with self.lock:
             self.cap = cap                     # stays open initially (preview starts immediately)
             self.configured = True
-            self._cfg = (str(source), int(width), int(height))
+            self._cfg = (str(source), int(width), int(height), mode)
+            self.mode = mode
             self.source = str(source)
             self.capture_source = cap_src
             self.capture_cap = capture_cap
@@ -331,6 +349,7 @@ class ScanController:
                 "grabbing": self.cap is not None,  # camera currently physically active (otherwise parked)
                 "source": self.source,
                 "capture_source": self.capture_source,
+                "mode": self.mode,
                 "frame_size": list(self.frame_size),
                 "recording": self.recording,
                 "out": self.out_name,

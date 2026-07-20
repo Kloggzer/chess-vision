@@ -11,6 +11,8 @@ from pathlib import Path
 from fastapi import APIRouter, Body, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 
+from ... import config
+from ...camera import camera_modes
 from ..camera import mjpeg
 from ..scan import SCANNER, SCANS_ROOT
 from ..state import LockedState
@@ -47,11 +49,17 @@ def scan_status():
     return SCANNER.status()
 
 
+@router.get("/api/scan/modes")
+def scan_modes():
+    """Selectable USB capture modes (from `config.CAMERA_MODES`) for the mode dropdown."""
+    return {"modes": camera_modes(), "default": config.DEFAULT_CAMERA_MODE}
+
+
 @router.post("/api/scan/open")
 def scan_open(source: str = Body(...), width: int = Body(2880), height: int = Body(2160),
-              capture: str = Body("")):
+              capture: str = Body(""), mode: str = Body("")):
     try:
-        return SCANNER.open(source, width, height, capture_source=capture)
+        return SCANNER.open(source, width, height, capture_source=capture, mode=mode)
     except Exception as e:  # noqa: BLE001 — user error (source/URL) cleanly to frontend
         raise HTTPException(400, str(e))
 

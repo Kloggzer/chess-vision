@@ -14,8 +14,11 @@ const input =
 const PHONE = "https://<PHONE-IP>:4444/video/m.jpeg";       // smooth live preview stream
 const PHONE_SNAP = "https://<PHONE-IP>:4444/video/snapshot"; // Speicher-Foto (sauberes Einzelbild)
 
+type CamMode = { name: string; width: number | null; height: number | null; label: string };
+
 type Status = {
-  open: boolean; source: string; capture_source: string; frame_size: [number, number]; recording: boolean;
+  open: boolean; source: string; capture_source: string; mode: string;
+  frame_size: [number, number]; recording: boolean;
   out: string; crop: number[] | null; interval: number; count: number; quality: number;
   saved_run: number; total: number; index: number; error: string;
   default_source: string; default_capture: string;
@@ -77,6 +80,8 @@ export default function Scan() {
   const [capture, setCapture] = useState(PHONE_SNAP);
   const [width, setWidth] = useState(2880);
   const [height, setHeight] = useState(2160);
+  const [mode, setMode] = useState("");            // "" = custom width×height (previous behavior)
+  const [modes, setModes] = useState<CamMode[]>([]);
   const [out, setOut] = useState("pawn");
   const [interval, setIntervalS] = useState(0.8);
   const [count, setCount] = useState(80);
@@ -107,7 +112,12 @@ export default function Scan() {
       if (s.default_source) setSource(s.default_source);
       if (s.default_capture) setCapture(s.default_capture);
       if (s.out) setOut(s.out);
+      if (s.mode) setMode(s.mode);
     }).catch(() => {});
+    // Named USB modes ("default" carries no size and is the same as custom here -> filter).
+    api<{ modes: CamMode[] }>("/api/scan/modes")
+      .then((m) => setModes(m.modes.filter((x) => x.width != null)))
+      .catch(() => {});
     return () => clearInterval(pollTimer.current);
   }, []);
 
@@ -120,7 +130,7 @@ export default function Scan() {
   async function connect() {
     setMsg("");
     try {
-      const s = await post<Status>("/api/scan/open", { source, width, height, capture });
+      const s = await post<Status>("/api/scan/open", { source, width, height, capture, mode });
       setSt(s);
       startPolling();
     } catch (e: any) { setMsg("Connect failed: " + e.message); }
@@ -285,9 +295,15 @@ export default function Scan() {
           <label className="flex items-center gap-2 text-sm text-zinc-400" title="Photo to save per capture (snapshot URL, …/video/snapshot). Empty = use live frame.">Photo
             <input value={capture} onChange={(e) => setCapture(e.target.value)} className={`${input} w-96`}
               placeholder="Snapshot URL (…/video/snapshot), empty = live frame" /></label>
-          <label className="flex items-center gap-2 text-sm text-zinc-400" title="For USB cam only: requested resolution (MJPG).">USB Res
-            <input type="number" value={width} onChange={(e) => setWidth(+e.target.value)} className={`${input} w-20`} />×
-            <input type="number" value={height} onChange={(e) => setHeight(+e.target.value)} className={`${input} w-20`} /></label>
+          <label className="flex items-center gap-2 text-sm text-zinc-400" title="For USB cam only: named camera mode, or 'custom' with an explicit resolution.">USB Res
+            <select value={mode} onChange={(e) => setMode(e.target.value)} className={input}>
+              <option value="">custom</option>
+              {modes.map((m) => <option key={m.name} value={m.name}>{m.label}</option>)}
+            </select>
+            <input type="number" value={width} onChange={(e) => setWidth(+e.target.value)} disabled={!!mode}
+              className={`${input} w-20 disabled:opacity-40`} />×
+            <input type="number" value={height} onChange={(e) => setHeight(+e.target.value)} disabled={!!mode}
+              className={`${input} w-20 disabled:opacity-40`} /></label>
           {!st?.open
             ? <Button variant="primary" onClick={connect}><Plug className="h-4 w-4" /> Connect</Button>
             : <Button onClick={disconnect}><Plug className="h-4 w-4" /> Disconnect</Button>}
