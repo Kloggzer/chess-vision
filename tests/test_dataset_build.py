@@ -1,6 +1,7 @@
 """Named datasets: Dedup (metadata + pHash), rotation, build — headless with temp paths."""
 
 import json
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -71,7 +72,9 @@ def test_dhash_and_phash_dedup(tmp_path):
     assert len(kept) == 2
 
 
-def test_build_dataset_filters_dedups_rotates(tmp_path):
+def test_build_dataset_filters_dedups_records_rotations(tmp_path):
+    """Rotations are NO LONGER materialized (on-the-fly at train time) — the build only records
+    them in dataset.yaml; the manifest holds unique base crops."""
     paths = config.Paths(root=tmp_path)
     rows = []
     # s1: 6x identisches wP auf e2 (Dedup-Kandidat) + ein wK
@@ -87,16 +90,16 @@ def test_build_dataset_filters_dedups_rotates(tmp_path):
                            allow_degenerate=True)
     ds = paths.datasets / "set-a"
     built = [json.loads(line) for line in (ds / "manifest.jsonl").read_text().splitlines() if line.strip()]
-    # nur s1; wP auf 2 gedeckelt + wK = 3 Basis-Crops; x2 Rotationen = 6 Zeilen
+    # nur s1; wP auf 2 gedeckelt + wK = 3 Basis-Crops — KEINE zusaetzlichen Rotations-Zeilen
     assert all(r["session_id"] == "s1" for r in built)
-    assert res["counts"]["raw"] == 7 and res["counts"]["after_dedup"] == 3 and res["counts"]["final"] == 6
-    rots = sorted({r["rot"] for r in built})
-    assert rots == [0, 90]
-    # die r90-Datei existiert und ist wirklich die Rotation der Basis
-    r90 = next(r for r in built if r["rot"] == 90)
-    base = next(r for r in built if r["rot"] == 0 and r["square"] == r90["square"] and r["frame"] == r90["frame"])
-    rimg, bimg = cv2.imread(r90["path"]), cv2.imread(base["path"])
-    assert np.array_equal(rimg, cv2.rotate(bimg, cv2.ROTATE_90_CLOCKWISE))
+    assert res["counts"]["raw"] == 7 and res["counts"]["after_dedup"] == 3 and res["counts"]["final"] == 3
+    # keine rotierten Dateien materialisiert, alle Pfade zeigen auf existierende Basis-Crops
+    assert not any("_r90" in r["path"] or "_r180" in r["path"] or "_r270" in r["path"] for r in built)
+    assert all(Path(r["path"]).exists() for r in built)
+    # rotations landen als Trainings-Aug-Empfehlung in dataset.yaml
+    import yaml
+    cfg = yaml.safe_load((ds / "dataset.yaml").read_text(encoding="utf-8"))
+    assert cfg["rotations"] == [0, 90]
     assert (ds / "split.json").exists() and (ds / "stats.json").exists() and (ds / "dataset.yaml").exists()
 
 

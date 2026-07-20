@@ -195,15 +195,25 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             print(f"[pack] packed memmap present but bg_p={policy.bg_p}>0 — using per-PNG loader "
                   "(bg-randomization needs the files); pack is ignored for this run.")
             packed = None
+    # Rotation aug runs on-the-fly (torch_data._RandomRot90) when the dataset was built with
+    # non-trivial `rotations` — the build no longer materializes rotated copies (4x disk/memmap).
+    rot90 = False
+    if dataset:
+        from ..dataset_build import _read_yaml, dataset_dir
+        ds_rot = _read_yaml(dataset_dir(dataset) / "dataset.yaml").get("rotations") or []
+        rot90 = any(int(d) % 360 for d in ds_rot)
+        if rot90:
+            print("[aug] on-the-fly 90-degree rotations (dataset built with rotations="
+                  f"{list(ds_rot)})")
+    train_tf = build_transform(out_size, train=True, policy=policy, rot90=rot90)
     if packed is not None:
         n, h, w = packed[1]
         print(f"[pack] fast memmap loader: {n} crops, {n * h * w * 3 / 1e9:.1f} GB")
-        train_ds = PackedSquareDataset(train_rows, classes,
-                                       build_transform(out_size, train=True, policy=policy), packed)
+        train_ds = PackedSquareDataset(train_rows, classes, train_tf, packed)
         val_ds = PackedSquareDataset(val_rows, classes,
                                      build_transform(out_size, train=False, policy=policy), packed)
     else:
-        train_ds = SquareDataset(train_rows, classes, build_transform(out_size, train=True, policy=policy),
+        train_ds = SquareDataset(train_rows, classes, train_tf,
                                  bg_randomize=True, policy=policy)
         val_ds = SquareDataset(val_rows, classes, build_transform(out_size, train=False, policy=policy))
 
