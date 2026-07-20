@@ -388,8 +388,8 @@ def _baseline_occlusion_and_shadow(cur_gray, ref_gray, board_size, abs_thr: floa
                                    boxes: list[tuple[int, int, int, int, int]] | None = None,
                                    ref_codes=None, occl_census_thr: float = 0.0,
                                    cur_bgr=None, gamut=None, color_thr: float = 0.0,
-                                   ) -> tuple[set[str], set[str]]:
-    """Return (occluded_squares, shadow_squares) from absdiff vs baseline.
+                                   ) -> tuple[set[str], set[str], set[str]]:
+    """Return (occluded_squares, shadow_squares, core_squares) from absdiff vs baseline.
 
     Legacy mode (occl_census_thr == 0 or no ref_codes): occlusion = mean absdiff > abs_thr —
     which conflates hard cast shadows with hands (shadow → occlusion latch → z zeroed →
@@ -648,7 +648,7 @@ class Confirmer:
         self._cand: tuple[str, int] | None = None
 
     def feed(self, uci: str | None) -> bool:
-        """True = confirmed (commit!). No reset on None — call reset() explicitly."""
+        """True = confirmed (commit!). None clears the current candidate (streak restarts)."""
         if uci is None:
             self._cand = None
             return False
@@ -694,6 +694,8 @@ class MoveTracker:
                  corner_jump_px: float = 6.0, motion_cooldown: int | None = None,
                  motion_hold_s: float = 0.4,
                  occlusion_color_thr: float = 1.5,
+                 dark_luma_thr: float = 18.0,      # pre-CLAHE luma below this pauses detection
+                                                    # (Android parity: darkLumaThr)
                  min_grid_line_coverage: float = 0.5,
                  reconnect_grace_s: float = 2.0,
                  diff_clahe_clip: float = 2.0, auto_record: bool = True,
@@ -714,6 +716,7 @@ class MoveTracker:
         self.profile = ensure_profile(profile, source, camera_mode=res)
         self._src = source if not str(source).isdigit() else int(source)
         self.cap = self._open_capture()
+        self._retired_cap = None       # old capture handed to the loop thread for release
         # Auto-reconnect: a dropped feed (URL stream closed, device unplugged) otherwise leaves
         # a dead capture that read()s False forever. If no frame arrives for `reconnect_grace_s`,
         # the loop rebuilds the capture WITHOUT restarting the session (board/history kept).
@@ -750,6 +753,7 @@ class MoveTracker:
         # channel quiet right after a baseline until the noise model has SEEN each
         # square (slow lane converges within seconds; floor 2.5 keeps sensitivity).
         self.census_noise = SquareNoise(init_std=8.0, std_floor=2.5)
+        self._cens_raw: dict[str, float] | None = None   # raw census for the shadow veto
         self._struct_vals: list = []                  # debug: top census-z squares
         self.occl_census_thr = occl_census_thr        # baseline occlusion needs structure above this
         self.use_prior = use_prior                    # heuristic prior as ambiguity tie-break (part 2)
@@ -771,6 +775,7 @@ class MoveTracker:
         # Color-outlier occlusion veto (Defense 2): squares whose color lies far outside the
         # reference board's gamut (hand/arm) are neutralized before move scoring.
         self.occlusion_color_thr = occlusion_color_thr
+        self.dark_luma_thr = float(dark_luma_thr)
         self._ref_gamut = None                        # (mu, inv_cov) built from ref_bgr at capture
         self._occluded_vetoed: list[str] = []         # squares discarded as opaque occlusion (color)
         self._view_mode = "full"                        # overlay view: "full"|"motion"|"shadow"|"occlusion"|"raw"
@@ -1192,11 +1197,12 @@ class MoveTracker:
             self._last_reattach_ts = time.time()
             self._camera_ok = True
             self.note = "camera reattached — resuming with kept reference"
-        if old is not None and hasattr(old, "release"):
-            try:
-                old.release()                              # LatestFrame.release joins its thread
-            except Exception:  # noqa: BLE001
-                pass
+            # Do NOT release `old` here: the loop thread may be blocked inside old.read()
+            # (raw cv2.VideoCapture reads run outside the lock), and concurrent read()+
+            # release() on the native handle is undefined — it can crash the process. The
+            # loop thread is the single owner: it retires the old capture at the top of its
+            # next iteration, after its in-flight read returned.
+            self._retired_cap = old
         return {"ok": True, "res": self.res}
 
     def _grid_line_coverage(self, gray) -> float:
@@ -1347,11 +1353,26 @@ class MoveTracker:
         self._running = False
         if self._thread is not None and self._thread.is_alive():
             self._thread.join(timeout=2)
+            if self._thread.is_alive():
+                # Stuck in a slow driver read: the loop finishes its current iteration (and may
+                # still commit/record once) after stop() returned. Make the zombie visible.
+                log.warning("tracker loop did not stop within 2s — thread still alive "
+                            "(slow camera read?); it will exit after the current read.")
 
     # -- Main loop --
     def _loop(self):
         try:
             while self._running:
+                # Single-owner release of a capture retired by reattach_camera(): only THIS
+                # thread ever calls read(), so only this thread may release (see reattach).
+                if self._retired_cap is not None:
+                    with self.lock:
+                        retired, self._retired_cap = self._retired_cap, None
+                    if retired is not None and hasattr(retired, "release"):
+                        try:
+                            retired.release()              # LatestFrame.release joins its thread
+                        except Exception:  # noqa: BLE001
+                            pass
                 _t0 = time.perf_counter()
                 _ts = {}  # per-step wall time (seconds)
                 ok, frame = self.cap.read() if hasattr(self.cap, "read") else (False, None)
@@ -1364,9 +1385,10 @@ class MoveTracker:
                     # don't spam-open a source that is genuinely gone.
                     if (self.reconnect_grace_s > 0 and down_for > self.reconnect_grace_s
                             and (now_f - self._last_reattach_ts) > max(3.0, self.reconnect_grace_s)):
-                        self._camera_ok = False
-                        self.note = f"camera down {down_for:.0f}s — reconnecting…"
-                        self._last_reattach_ts = now_f
+                        with self.lock:                    # note/_camera_ok are read+written by API threads
+                            self._camera_ok = False
+                            self.note = f"camera down {down_for:.0f}s — reconnecting…"
+                            self._last_reattach_ts = now_f
                         self.reattach_camera()             # best-effort; blocks on URL open
                     elif down_for > 0.5:
                         self._camera_ok = False
@@ -1390,6 +1412,18 @@ class MoveTracker:
                         self.note = "waiting for markers…"
                     time.sleep(0.02)
                     continue
+                # Dark-frame gate (parity with Android darkLumaThr): CLAHE in _gray amplifies
+                # near-black sensor noise into phantom "changed" squares, and z-scores +
+                # legality can fabricate a move from them (lights off, lamp died). Measure the
+                # PRE-CLAHE luminance of the warped board and pause detection below threshold.
+                if self.dark_luma_thr > 0:
+                    luma = float(cv2.mean(cv2.cvtColor(warped_det, cv2.COLOR_BGR2GRAY))[0])
+                    if luma < self.dark_luma_thr:
+                        with self.lock:
+                            self.note = (f"frame too dark ({luma:.0f} < {self.dark_luma_thr}) — "
+                                         "detection paused")
+                        time.sleep(0.05)
+                        continue
                 gray_det = self._gray(warped_det)
                 _ts["gray"] = time.perf_counter()
                 # Extended motion gate (Spec 10, part 6): also capture motion in the margin
@@ -1551,9 +1585,24 @@ class MoveTracker:
                             "\n".join(self._perf_log[-100:]), encoding="utf-8")
                     except Exception:
                         pass
+        except Exception:
+            # Without this, ANY unexpected exception (cv2 native error, a veto bug) kills the
+            # thread with no log line while `_running` stays True — so `start()` refuses to
+            # revive it and the web UI serves frozen state forever. Log loudly, mark dead.
+            log.exception("tracker loop crashed — tracker is stopped.")
+            with self.lock:
+                self.note = "tracker loop crashed — see log; restart the tracker."
+                self._running = False
+                self._camera_ok = False
         finally:
             if hasattr(self.cap, "release"):
                 self.cap.release()
+            if self._retired_cap is not None and hasattr(self._retired_cap, "release"):
+                try:
+                    self._retired_cap.release()
+                except Exception:  # noqa: BLE001
+                    pass
+                self._retired_cap = None
 
     # -- CNN-Recovery & periodic check (Spec 09) / free-running observer (Spec 11) --
     def _observer_due(self, now: float) -> bool:
@@ -2758,6 +2807,10 @@ class MoveTracker:
             # wobble / pixel jitter shifts every piece edge and fires ALL textured
             # squares at once. Same cure as the gray channel: a global disturbance
             # moves the median, a real move (2-4 squares) doesn't.
+            # Keep the RAW values for the shadow veto: census_thr (40) was live-tuned on
+            # raw census, and normalization can pull a structurally-changed destination
+            # square under the threshold — the phantom-shadow-as-destination class.
+            self._cens_raw = dict(cens)
             cens = normalize_diffs(cens)
             zs = self.census_noise.z(cens)
             w = self.census_z_weight
@@ -2769,6 +2822,7 @@ class MoveTracker:
                 # disturbance into its noise model so it adapts away.
                 self.census_noise.update(cens)
                 cens = None
+                self._cens_raw = None
                 self._struct_vals = []
             else:
                 self._struct_vals = sorted(((s, round(v, 1)) for s, v in zs.items()
@@ -2804,11 +2858,18 @@ class MoveTracker:
             shadows = hsv_shadow_squares(self.ref_bgr, cur_bgr, self._det_size,
                                          self.profile.white_pov, changed,
                                          extend_up=self.overhang)
-            shadow_veto = {s for s in changed if s in shadows and cens[s] < self.census_thr}
+            # Veto threshold on RAW census (census_thr was live-tuned raw); the normalized
+            # dict serves scoring/noise. cens computed locally above IS raw already.
+            cens_for_veto = self._cens_raw if getattr(self, "_cens_raw", None) is not None else cens
+            shadow_veto = {s for s in changed
+                           if s in shadows and cens_for_veto[s] < self.census_thr}
             if shadow_veto:
                 changed -= shadow_veto
                 self._shadow_vetoed = sorted(shadow_veto)
-        return changed, shadow_veto, set()
+        # Opaque occlusion lives in the taint mechanism (z zeroed there) — report the currently
+        # tainted squares so the caller's "only photograph a clean board" guard is real rather
+        # than a permanently-true `not set()`.
+        return changed, shadow_veto, set(self._tainted)
 
     def _ref_census_codes(self):
         """Census codes of the current reference, cached — the reference changes rarely
@@ -3070,7 +3131,7 @@ class MoveTracker:
             mv = chess.Move(chess.parse_square(pp["from"]), chess.parse_square(pp["to"]),
                             promotion=symbols[piece])
             if mv not in self.board.legal_moves:
-                return {"ok": False, "error": f"{mv.uci()} ist nicht legal"}
+                return {"ok": False, "error": f"{mv.uci()} is not legal"}
             self._promo_pending = None
             self._commit_move(mv, pp["cur"], pp.get("cur_bgr"))
             return {"ok": True, "move": mv.uci(), "san": self.history[-1]}

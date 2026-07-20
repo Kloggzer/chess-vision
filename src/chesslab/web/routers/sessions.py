@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from urllib.parse import quote
 
@@ -292,7 +293,13 @@ def session_flag_unusable(sid: str, idx: int, unusable: bool = Body(..., embed=T
     entry = json.loads(lines[idx])
     entry["unusable"] = unusable
     lines[idx] = json.dumps(entry, ensure_ascii=False, default=str)
-    log_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Atomic replace: a crash mid-write must never leave a truncated log. NOTE this is still a
+    # read-modify-write — flagging is a REVIEW action; doing it while the same session is being
+    # actively recorded could drop a concurrently appended line. The UI only offers review on
+    # non-live sessions, so we accept that instead of introducing file locking here.
+    tmp = log_path.with_suffix(".jsonl.tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.replace(tmp, log_path)
     return {"ok": True, "session_id": sid, "index": idx, "unusable": unusable}
 
 

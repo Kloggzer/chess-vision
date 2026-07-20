@@ -62,8 +62,10 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     macro_recall = float(per_class_recall(cm)[present].mean()) if present.any() else 0.0
 
     # Board-Accuracy: Crops über (session, frame) gruppieren (dataset.rows ist ausgerichtet).
+    # strict: rows and predictions MUST align 1:1 — silent truncation here would compute
+    # board accuracy on a shifted pairing (the plausible-but-wrong failure mode).
     items = [((r["session_id"], str(r["frame"])), bool(t == p))
-             for r, t, p in zip(dataset.rows, trues, preds, strict=False)]
+             for r, t, p in zip(dataset.rows, trues, preds, strict=True)]
     board_acc = board_accuracy(items)
 
     return {
