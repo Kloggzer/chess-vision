@@ -63,8 +63,9 @@ Four tabs:
   *slice/re-slice*, *archive* (remove from dataset, frames kept, reversible) / *delete*.
   **Curated datasets:** build named datasets from any set of sessions — with **dedup**
   (cap per `(session, square, piece)` **+** perceptual hash against never-moved pieces)
-  and optional **90/180/270° rotation** (**off by default** — opting in 4×'s the crops and
-  violates the fixed-camera assumption; toggle, A/B-testable). Logic in
+  and optional **90/180/270° rotation** (**off by default** — it violates the fixed-camera
+  assumption; the toggle only records it in `dataset.yaml`, the rotation is applied
+  **on the fly at train time** (`_RandomRot90`), nothing is materialized). Logic in
   `dataset_build.py`; each dataset gets `data/datasets/<name>/{manifest.jsonl,split.json,stats.json}`.
   CLI: `chesslab dataset build <name> --sessions s1,s2 [--cap 4] [--no-phash] [--rotate]`.
 - **Training** (`/training`): pick a **dataset** + hyperparameters (backbone / epochs /
@@ -269,14 +270,25 @@ diverse public chess datasets, then `--resume`-finetune on your own fixed-camera
 converts a third-party dataset (full-board photos with known corners + FEN) into the
 per-square crop format with **no core-pipeline changes**. Adapters: `chesscog` (rendered,
 ~5k imgs), `chessred` (ChessReD2K real photos, ~2k imgs, CC-BY-4.0) and `synthetic`
-(this repo's Blender renderer, see [`docs/synth-pipeline.md`](docs/synth-pipeline.md)):
+(this repo's Blender renderer, see [`docs/synth-pipeline.md`](docs/synth-pipeline.md)).
+
+For **big synthetic runs** the entry point is the fused build, which packs renders straight
+into the training memmap without crop PNGs (`ingest synthetic` remains the tool for small
+sets and `--debug-overlay` label checks):
 
 ```bash
 # verify orientation FIRST (wrong corner order silently transposes all labels):
+chesslab ingest synthetic <renders> --tag synth-check --limit 32 --debug-overlay 8 --no-build
+# then the fused build (warp at 1100 px by default, matching the framed renders):
+chesslab dataset build-synth pretrain-synth --renders <renders> --cap 8 --val-frac 0.05 --test-frac 0.05
+```
+
+```bash
+# external datasets still go through ingest (same orientation check applies):
 chesslab ingest chessred <path> --tag pretrain-chessred --board-size 900 --debug-overlay 8
 # 3-stage curriculum (synthetic -> real -> yours), same backbone + head throughout:
-chesslab train --dataset pretrain-chesscog --head twostage --backbone mobilenet_v3_small --epochs 20 --out data/models/pre-chesscog
-chesslab train --dataset pretrain-chessred --resume pre-chesscog --head twostage --backbone mobilenet_v3_small --epochs 15 --out data/models/pre-chessred
+chesslab train --dataset pretrain-synth    --head twostage --backbone mobilenet_v3_small --epochs 20 --out data/models/pre-synth
+chesslab train --dataset pretrain-chessred --resume pre-synth --head twostage --backbone mobilenet_v3_small --epochs 15 --out data/models/pre-chessred
 chesslab train --dataset <your-sessions>   --resume pre-chessred --head twostage --backbone mobilenet_v3_small --epochs 15
 ```
 
