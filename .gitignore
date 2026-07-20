@@ -6,6 +6,7 @@
 tools/
 wheels/
 scans/
+scans_old/
 
 # Wegwerf-Artefakte (Debug-Frames, Zwischenstände)
 tmp/
