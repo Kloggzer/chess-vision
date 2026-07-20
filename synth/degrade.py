@@ -54,7 +54,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("dir", help="Verzeichnis mit gerenderten Board-PNGs (werden in place ersetzt).")
     a = ap.parse_args()
-    files = sorted(glob.glob(os.path.join(a.dir, "*.png")))
+    files = sorted(glob.glob(os.path.join(a.dir, "*.png")) + glob.glob(os.path.join(a.dir, "*.jpg")))
     n = 0
     for f in files:
         img = cv2.imread(f)

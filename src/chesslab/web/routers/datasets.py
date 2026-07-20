@@ -90,14 +90,20 @@ def dataset_rebuild(name: str):
         cfg = dataset_build_mod.get_dataset(name)["config"]
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))
+    if cfg.get("fused_synth"):
+        raise HTTPException(400, f"'{name}' is a fused synth build — rebuild it with "
+                                 f"`chesslab dataset build-synth` (it has no crop-file pool).")
     d, sp = cfg.get("dedup", {}), cfg.get("split", {})
-    res = dataset_build_mod.build_dataset(
-        name, cfg.get("session_ids", []), per_cell_cap=d.get("per_cell_cap"),
-        phash_enabled=d.get("phash_enabled"), phash_hamming=d.get("phash_hamming"),
-        rotations=tuple(cfg.get("rotations", (0,))),
-        max_empty_ratio=sp.get("max_empty_ratio"),
-        allow_degenerate=True,   # rebuild: original split was already accepted
-        seed=sp.get("seed", config.SEED))
+    try:
+        res = dataset_build_mod.build_dataset(
+            name, cfg.get("session_ids", []), per_cell_cap=d.get("per_cell_cap"),
+            phash_enabled=d.get("phash_enabled"), phash_hamming=d.get("phash_hamming"),
+            rotations=tuple(cfg.get("rotations", (0,))),
+            max_empty_ratio=sp.get("max_empty_ratio"),
+            allow_degenerate=True,   # rebuild: original split was already accepted
+            seed=sp.get("seed", config.SEED))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     return res
 
 

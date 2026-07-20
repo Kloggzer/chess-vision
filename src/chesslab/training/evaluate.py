@@ -73,7 +73,21 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None) 
 
     device = get_device(require_gpu=False)
     model.to(device)
-    ds = SquareDataset(rows, classes, build_transform(out_size, train=False))
+    # Packed memmap when available: required for fused datasets (mm:// rows have no files) and
+    # a free speedup for any packed one. Falls back to per-PNG for classic file-backed datasets.
+    packed = None
+    if ds_name:
+        from .pack import load_packed
+        packed = load_packed(ds_name)
+    if packed is not None:
+        from .torch_data import PackedSquareDataset
+        ds = PackedSquareDataset(rows, classes, build_transform(out_size, train=False), packed)
+    elif rows and str(rows[0].get("path", "")).startswith("mm://"):
+        print(f"[FAIL] dataset '{ds_name}' is a fused synth build but its packed memmap is "
+              "missing/stale — re-run `chesslab dataset build-synth`.")
+        return 1
+    else:
+        ds = SquareDataset(rows, classes, build_transform(out_size, train=False))
     res = evaluate_dataset(model, ds, device, batch_size=256, input_size=input_size)
 
     # 1. Board-Accuracy (Hauptmetrik)

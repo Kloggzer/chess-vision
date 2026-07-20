@@ -166,9 +166,9 @@ def _preflight_disk_check(train_rows: list[dict], holdout: list[dict],
 
     n_final = len(train_rows) + len(holdout)
 
-    # Sample SEVERAL rows, not just the first: rows come in manifest order and `empty` dominates,
-    # so crop[0] is almost always a flat, highly compressible empty square. Median over a seeded
-    # sample is stable and cheap.
+    # A seeded sample of rows, first readable one wins — all crops share one out_size, we only
+    # need the decoded byte count (the compressed-png-size median of the old check died with the
+    # rotated-png term).
     pool = train_rows or holdout
     if not pool:
         return

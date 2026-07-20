@@ -16,6 +16,32 @@ import torch.nn.functional as F
 from PIL import Image
 
 
+def _crop_reader(ds_name: str | None):
+    """Return ``row -> PIL.Image`` that reads from the packed memmap when the dataset has one
+    (required for fused builds, whose mm:// rows have no files) and from disk otherwise."""
+    packed = None
+    if ds_name:
+        from .pack import load_packed, open_packed_memmap
+        packed = load_packed(ds_name)
+    if packed is None:
+        def _read(r: dict) -> Image.Image:
+            p = str(r["path"])
+            if p.startswith("mm://"):
+                raise ValueError(f"dataset '{ds_name}' is a fused synth build but its packed "
+                                 "memmap is missing/stale — re-run `chesslab dataset build-synth`.")
+            return Image.open(p).convert("RGB")
+        return _read
+    path, shape, p2i = packed
+    mm = open_packed_memmap(path, shape)
+
+    def _read(r: dict) -> Image.Image:
+        idx = p2i.get(str(r["path"]))
+        if idx is None:
+            return Image.open(str(r["path"])).convert("RGB")
+        return Image.fromarray(np.array(mm[idx]))
+    return _read
+
+
 def last_conv(model: nn.Module) -> nn.Conv2d:
     """The deepest spatially meaningful Conv2d — Grad-CAM's target layer.
 
@@ -124,9 +150,10 @@ def gradcam_for_run(run_dir: Path, split: str = "test", per_class: int = 1,
 
     out_dir = run_dir / "gradcam"
     out_dir.mkdir(parents=True, exist_ok=True)
+    read_crop = _crop_reader(ds_name)
     results: list[dict] = []
     for i, r in enumerate(picked):
-        img = Image.open(r["path"]).convert("RGB")
+        img = read_crop(r)
         x = tf(img).unsqueeze(0)
         cam, idx, prob = compute_cam(model, x, layer, forced)
         stem = f"{i:02d}_{r['label']}"
@@ -195,6 +222,7 @@ def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
             logits = model(((t01 - mean) / std).unsqueeze(0))
             return float(F.softmax(logits, dim=1)[0, cls_idx])
 
+    read_crop = _crop_reader(ds_name)
     out: list[dict] = []
     for c in classes:
         hits = [r for r in rows if r["label"] == c][:per_class]
@@ -203,7 +231,7 @@ def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
         cls_idx = classes.index(c)
         base_l, dc_l, db_l = [], [], []
         for r in hits:
-            img = Image.open(r["path"]).convert("RGB")
+            img = read_crop(r)
             t = to_tensor(resize(img, [out_h, out_w]))        # [3,H,W] in [0,1]
             base = _prob(t, cls_idx)
             tc = t.clone(); tc[:, center] = gray              # piece hidden

@@ -188,13 +188,24 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # crops from ONE memmap instead of 1M per-item Image.open (the I/O bottleneck). Not used for
     # bg-randomization (packed is for the big synth pretrain, bg_p=0); the finetune stays per-PNG.
     packed = None
+    # Fused datasets (dataset build-synth) have NO crop files at all — manifest paths are virtual
+    # mm:// keys into the memmap. The per-PNG loader would crash on the first batch there.
+    fused = bool(train_rows) and str(train_rows[0].get("path", "")).startswith("mm://")
     if dataset:
         from .pack import load_packed
         packed = load_packed(dataset)
+        if fused and packed is None:
+            print(f"[FAIL] dataset '{dataset}' is a fused synth build (mm:// paths) but its "
+                  "packed memmap is missing/stale — re-run `chesslab dataset build-synth`.")
+            return 1
         if packed is not None and (policy.bg_p or 0) > 0:
-            print(f"[pack] packed memmap present but bg_p={policy.bg_p}>0 — using per-PNG loader "
-                  "(bg-randomization needs the files); pack is ignored for this run.")
-            packed = None
+            if fused:
+                print(f"[pack] fused dataset: bg_p={policy.bg_p} ignored — bg-randomization needs "
+                      "crop files, which a fused build does not have. Training from the memmap.")
+            else:
+                print(f"[pack] packed memmap present but bg_p={policy.bg_p}>0 — using per-PNG loader "
+                      "(bg-randomization needs the files); pack is ignored for this run.")
+                packed = None
     # Rotation aug runs on-the-fly (torch_data._RandomRot90) when the dataset was built with
     # non-trivial `rotations` — the build no longer materializes rotated copies (4x disk/memmap).
     rot90 = False

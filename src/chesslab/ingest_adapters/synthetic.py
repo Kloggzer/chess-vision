@@ -23,6 +23,10 @@ from ..ingest import ImportItem
 CHUNK = 100   # Samples pro Pseudo-Session
 
 
+def _safe_sub(rel: str) -> str:
+    return "".join(c if c.isalnum() or c in "-_" else "-" for c in rel)
+
+
 def iter_items(root: Path) -> Iterator[ImportItem]:
     root = Path(root)
     for jf in sorted(root.rglob("*.json")):
@@ -44,10 +48,16 @@ def iter_items(root: Path) -> Iterator[ImportItem]:
             block = int(jf.stem) // CHUNK
         except ValueError:
             block = 0
+        # Unterordner (z.B. shard-0/ aus `synth render --shards`) MUESSEN in die Gruppe: jeder
+        # Shard nummeriert ab 000000, der nackte Stem kollidiert also ueber Shards hinweg —
+        # gleiche Session-ID + gleicher Frame-Key => ein Shard bekaeme die Pixel eines anderen
+        # unter seinem Label (silent label corruption im fused Build).
+        sub = jf.parent.relative_to(root).as_posix()
+        prefix = f"{_safe_sub(sub)}-" if sub != "." else ""
         # Vom Renderer als `occluded` gelabelte Felder (Occluder-Footprint) → meta durchreichen,
         # slice_session überschreibt damit das FEN-Label. Fehlt der Key (Alt-Renders) → keine.
         occ = d.get("occluded_squares") or []
         meta = {"occluded_squares": [str(s) for s in occ]} if occ else {}
         yield ImportItem(image_path=img,
                          corners=[[float(x), float(y)] for x, y in corners],
-                         fen=fen, group=f"synth-{block:03d}", meta=meta)
+                         fen=fen, group=f"synth-{prefix}{block:03d}", meta=meta)

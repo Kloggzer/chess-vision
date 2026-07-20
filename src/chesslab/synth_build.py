@@ -86,7 +86,7 @@ def _crop_frames_into_memmap(task) -> int:
     import cv2
     import numpy as np
 
-    from .calibration import warp_from_corners
+    from .calibration import warp_board_for_crops
     from .ingest import ingestion_profile
     from .labeling import crop_square
 
@@ -104,8 +104,14 @@ def _crop_frames_into_memmap(task) -> int:
     for frame_path, corners, sqs in frames:
         img = cv2.imread(str(frame_path))
         if img is None:
-            continue                    # unreadable render -> rows stay black; counted by caller
-        warped = warp_from_corners(img, profile, corners)
+            # Name the culprit NOW — the caller only sees written != expected at the very end
+            # of a ~30-min pass, and you want to delete one bad pair, not bisect 64k frames.
+            print(f"[fuse] WARN unreadable render: {frame_path}", flush=True)
+            continue
+        # BORDERED warp (bs + 2*crop_border_px), the canvas crop_square's boxes are built for —
+        # the borderless warp_from_corners shifts every crop by +border (14 px at bs=1100) and
+        # diverges from the classic slice AND live-inference geometry (train/serve mismatch).
+        warped = warp_board_for_crops(img, profile, corners)
         for row_idx, sq in sqs:
             crop = crop_square(warped, sq, profile, (w, h))
             mm[row_idx - lo] = crop[:, :, ::-1]                # BGR -> RGB (pack stores RGB)
@@ -121,7 +127,7 @@ def build_synth_dataset(
     *,
     board_size: int = SYNTH_BOARD_SIZE,
     per_cell_cap: int | None = None,
-    rotations: tuple[int, ...] = (0, 90, 180, 270),
+    rotations: tuple[int, ...] = config.DEDUP.rotations,
     val_frac: float = config.DEFAULT_VAL_FRAC,
     test_frac: float = config.DEFAULT_TEST_FRAC,
     max_empty_ratio: float | None = config.DEFAULT_MAX_EMPTY_RATIO,
@@ -157,7 +163,15 @@ def build_synth_dataset(
     for sid in session_ids:
         for entry in read_log(paths.sessions / sid):
             stem = Path(str(entry["frame"])).stem
-            frame_src[(sid, stem)] = (entry["frame"], entry["corners"])
+            key = (sid, stem)
+            if key in frame_src:
+                # Two frames sharing (session, stem) would collide on the SAME mm:// path — one
+                # frame's labels would silently be served another frame's pixels. This is the
+                # shard-stem-collision class of bug; refuse loudly instead of corrupting.
+                raise ValueError(f"duplicate frame id {key} — two renders map to the same "
+                                 f"session/stem (shard collision? {entry['frame']} vs "
+                                 f"{frame_src[key][0]}).")
+            frame_src[key] = (entry["frame"], entry["corners"])
             rows.extend(_rows_for_entry(name, sid, entry, out_size))
     n_raw = len(rows)
 
@@ -245,6 +259,10 @@ def build_synth_dataset(
     gb = need / 1e9
     print(f"[OK] fused build '{name}': {n_final} crops -> {img_path} ({gb:.1f} GB, "
           f"{workers} workers, no crop PNGs)")
+    # The number that decides whether the render was big enough for the class targets:
+    tcc = split.get("train_class_counts") or {}
+    if tcc:
+        print("[OK] train per class: " + ", ".join(f"{k}={v}" for k, v in sorted(tcc.items())))
     return {"name": name, "counts": cfg["counts"], "split_counts": split["counts"],
             "warnings": split.get("warnings", []),
             "packed": {"n": n_final, "h": h, "w": w, "path": str(img_path), "gb": round(gb, 1)}}

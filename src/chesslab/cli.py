@@ -422,10 +422,20 @@ def dataset_build_synth_cmd(
                                    help="Warp resolution (px). 1100 ~ 137 px/square, matching the "
                                         "framed renders (~134); 900 silently upscaled crops."),
     per_cell_cap: int = typer.Option(config.DEDUP.per_cell_cap, "--cap",
-                                     help="Max. crops per (session,square,piece)."),
-    rotate: bool = typer.Option(True, "--rotate/--no-rotate",
-                                help="Record 90-degree rotation augmentation (applied on-the-fly "
-                                     "at train time — nothing is materialized)."),
+                                     help="Max. crops per (session,square,piece). NOTE: with "
+                                          "views-per-scene 4 the default 4 keeps only ~68% of the "
+                                          "focus classes (one scene's 4 views fill the cap) — use "
+                                          "--cap 8 for large balanced synth runs."),
+    val_frac: float = typer.Option(config.DEFAULT_VAL_FRAC, "--val-frac",
+                                   help="Val fraction (sessions). Synth holdout is uncapped — "
+                                        "0.05 shrinks the memmap considerably vs the default."),
+    test_frac: float = typer.Option(config.DEFAULT_TEST_FRAC, "--test-frac",
+                                    help="Test fraction (sessions)."),
+    rotate: bool = typer.Option(False, "--rotate/--no-rotate",
+                                help="Record 90-degree rotation augmentation (applied on-the-fly at "
+                                     "train time — nothing is materialized). OFF by default, like "
+                                     "`dataset build`: it contradicts the fixed-camera assumption "
+                                     "and diverse renders already carry the variance."),
     workers: int | None = typer.Option(None, "--workers", help="Pixel-pass processes (default: auto)."),
 ) -> None:
     """Fused synthetic build: renders -> packed memmap directly.
@@ -437,8 +447,9 @@ def dataset_build_synth_cmd(
 
     try:
         res = build_synth_dataset(name, renders, board_size=board_size, per_cell_cap=per_cell_cap,
-                                  rotations=((0, 90, 180, 270) if rotate else (0,)),
-                                  workers=workers)
+                                  rotations=(config.DEDUP.rotations_augmented if rotate
+                                             else config.DEDUP.rotations),
+                                  val_frac=val_frac, test_frac=test_frac, workers=workers)
     except (ValueError, RuntimeError) as e:
         print(f"[FAIL] {e}")
         raise typer.Exit(1)
@@ -883,19 +894,26 @@ def synth_render(
             jobs.append((so, _cmd(so, base + (1 if k < rem else 0), seed + k, sfe)))
 
     procs: list[tuple[Path, subprocess.Popen]] = []
+    log_fhs = []
     try:
         for so, cmd in jobs:
             print(" ".join(cmd))
             # Shard stdout -> shard-k/render.log (concurrent writers would interleave on the tty).
             log_fh = open(so / "render.log", "w", encoding="utf-8") if shards > 1 else None
+            if log_fh is not None:
+                log_fhs.append(log_fh)
             procs.append((so, subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT)))
     except FileNotFoundError:
         for _so, pr in procs:
             pr.terminate()
+        for fh in log_fhs:
+            fh.close()
         print(f"[FAIL] Blender not found ('{bl}'). Check path or set CHESSLAB_BLENDER.")
         raise typer.Exit(1)
 
     failed = [str(so) for so, pr in procs if pr.wait() != 0]
+    for fh in log_fhs:
+        fh.close()
     if failed:
         print(f"[FAIL] Blender render failed for: {', '.join(failed)}"
               + (" (see shard-*/render.log)" if shards > 1 else ""))

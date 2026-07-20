@@ -284,7 +284,17 @@ def predict_rows(run_dir: Path, rows: list[dict], device: str = "cpu",
     model, cfg = load_run(run_dir, device)
     classes = cfg["classes"]
     out_size = tuple(cfg["out_size"])
-    ds = SquareDataset(rows, classes, build_transform(out_size, train=False))
+    # Fused datasets (mm:// rows) have no crop files — route through the packed memmap.
+    if rows and str(rows[0].get("path", "")).startswith("mm://"):
+        from .training.pack import load_packed
+        packed = load_packed(cfg.get("dataset")) if cfg.get("dataset") else None
+        if packed is None:
+            raise ValueError("fused dataset without a valid packed memmap — re-run "
+                             "`chesslab dataset build-synth`.")
+        from .training.torch_data import PackedSquareDataset
+        ds = PackedSquareDataset(rows, classes, build_transform(out_size, train=False), packed)
+    else:
+        ds = SquareDataset(rows, classes, build_transform(out_size, train=False))
     loader = DataLoader(ds, batch_size=batch_size, shuffle=False)
 
     results: list[dict] = []
