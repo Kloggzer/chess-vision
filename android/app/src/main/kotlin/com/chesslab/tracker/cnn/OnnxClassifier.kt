@@ -5,6 +5,7 @@ import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import ai.onnxruntime.providers.NNAPIFlags
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -27,27 +28,42 @@ class SquareCrop(
 
 /**
  * The subset of a run's `config.json` the tracker needs (`serving.py:73`):
- * class list (13/14 safe — indices always derived from this list, never guessed)
- * and the crop `out_size` (W, H) the model was trained on.
+ * class list (13/14 safe — indices always derived from this list, never guessed),
+ * the crop `out_size` (W, H) the model was trained on, and the `normalize`
+ * mean/std the training pipeline applied (`train.py` writes the actual values;
+ * older configs without the key fall back to the ImageNet stats, matching
+ * `quantize.py:172-174`).
  */
 data class ModelSpec(
     val classes: List<String>,
     val outWidth: Int,
     val outHeight: Int,
+    val mean: List<Float> = IMAGENET_MEAN,
+    val std: List<Float> = IMAGENET_STD,
 ) {
     companion object {
+        /** ImageNet normalization (`config.py NORMALIZE_MEAN/STD`) — the pre-`normalize`-key default. */
+        val IMAGENET_MEAN = listOf(0.485f, 0.456f, 0.406f)
+        val IMAGENET_STD = listOf(0.229f, 0.224f, 0.225f)
+
         /** Parse a run `config.json` (unknown keys ignored). */
         fun parse(json: String): ModelSpec {
             val root = Json.parseToJsonElement(json).jsonObject
             val classes =
                 root.getValue("classes").jsonArray.map { it.jsonPrimitive.content }
             val outSize = root.getValue("out_size").jsonArray
+            val normalize = root["normalize"]?.jsonObject
             return ModelSpec(
                 classes = classes,
                 outWidth = outSize[0].jsonPrimitive.content.toInt(),
                 outHeight = outSize[1].jsonPrimitive.content.toInt(),
+                mean = normalize.floats("mean") ?: IMAGENET_MEAN,
+                std = normalize.floats("std") ?: IMAGENET_STD,
             )
         }
+
+        private fun JsonObject?.floats(key: String): List<Float>? =
+            this?.get(key)?.jsonArray?.map { it.jsonPrimitive.content.toFloat() }
     }
 }
 
@@ -66,7 +82,7 @@ interface SquareClassifier {
  * (64 crops per board observation) in ONE session call.
  *
  * Preprocessing mirrors `serving.predict_arrays` exactly: RGB, /255, then
- * ImageNet mean/std normalization, NCHW.
+ * mean/std normalization with the run's [ModelSpec.mean]/[ModelSpec.std], NCHW.
  *
  * ## Execution provider (Hexagon NPU) selection
  *
@@ -155,7 +171,7 @@ class OnnxClassifier(
                 val base = (i * CHANNELS + c) * plane
                 for (p in 0 until plane) {
                     val v = crop.rgb[p * CHANNELS + c] / PIXEL_MAX
-                    data[base + p] = (v - MEAN[c]) / STD[c]
+                    data[base + p] = (v - spec.mean[c]) / spec.std[c]
                 }
             }
         }
@@ -184,10 +200,6 @@ class OnnxClassifier(
         private const val QNN_HTP_LIB = "libQnnHtp.so"
         private const val CHANNELS = 3
         private const val PIXEL_MAX = 255f
-
-        /** ImageNet normalization (`config.py NORMALIZE_MEAN/STD`). */
-        private val MEAN = floatArrayOf(0.485f, 0.456f, 0.406f)
-        private val STD = floatArrayOf(0.229f, 0.224f, 0.225f)
 
         internal fun softmax(logits: FloatArray): FloatArray {
             val max = logits.max()

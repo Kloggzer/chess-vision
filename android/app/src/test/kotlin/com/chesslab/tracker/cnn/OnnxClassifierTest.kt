@@ -31,6 +31,26 @@ class OnnxClassifierTest {
     }
 
     @Test
+    fun `parses normalize mean and std from config`() {
+        val spec =
+            ModelSpec.parse(
+                """{"classes": ["empty", "wP"], "out_size": [128, 160], """ +
+                    """"normalize": {"mean": [0.5, 0.4, 0.3], "std": [0.2, 0.1, 0.05]}}""",
+            )
+        assertEquals(listOf(0.5f, 0.4f, 0.3f), spec.mean)
+        assertEquals(listOf(0.2f, 0.1f, 0.05f), spec.std)
+    }
+
+    @Test
+    fun `missing normalize key falls back to ImageNet stats`() {
+        val spec = ModelSpec.parse("""{"classes": ["empty"], "out_size": [128, 160]}""")
+        assertEquals(ModelSpec.IMAGENET_MEAN, spec.mean)
+        assertEquals(ModelSpec.IMAGENET_STD, spec.std)
+        // The fixture config also carries no normalize key -> same fallback.
+        assertEquals(ModelSpec.IMAGENET_MEAN, classifier.spec.mean)
+    }
+
+    @Test
     fun `argmax follows the hottest input pixel`() {
         // Flatten model: logits = normalized CHW pixels. Pixel (ch=1, p=2) hot ->
         // logit index 1*4 + 2 = 6 must win the softmax.
