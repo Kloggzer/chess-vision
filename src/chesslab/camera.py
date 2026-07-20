@@ -72,7 +72,7 @@ Public interface:
     list_devices()       — enumerate connected cameras (name + index).
     probe(source)        — measure delivered resolution + REAL fps per mode/backend.
 
-URL grabbers (`_UrlSnapshotCapture`, `_UrlMjpegCapture`) and the grab-latest wrapper
+URL grabbers (`UrlSnapshotCapture`, `_UrlMjpegCapture`) and the grab-latest wrapper
 (`LatestFrame`) live here as their single home; consumers import them from here directly.
 
 Lens undistortion (`chesslab/lens.py`) is applied here and NOWHERE else: `open_capture`
@@ -162,7 +162,7 @@ class ModeResult:
 
 # --- URL grabbers (single home; imported directly by consumers) -----------------------
 
-class _UrlSnapshotCapture:
+class UrlSnapshotCapture:
     """cv2.VideoCapture-compatible grabber for a JPEG snapshot URL (e.g. Android IP Camera
     `/video/snapshot`). `cv2.VideoCapture` fails on self-signed HTTPS — so we fetch the
     bytes via urllib (TLS verification off) and decode with `cv2.imdecode`. One image per
@@ -360,7 +360,7 @@ def _open_url(url: str, url_mode: str = "auto"):
     poll, otherwise a multipart MJPEG stream (smoother)."""
     mode = (url_mode or "auto").lower()
     if mode == "snapshot" or (mode == "auto" and "snapshot" in url.lower()):
-        return _UrlSnapshotCapture(url)
+        return UrlSnapshotCapture(url)
     return _UrlMjpegCapture(url)
 
 

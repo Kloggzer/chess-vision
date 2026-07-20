@@ -42,8 +42,10 @@ def class_crops(cls: str, offset: int = 0, limit: int = 60, dataset: str | None 
 
     rows = rows_for_label(_manifest_file(dataset), cls)
     page = rows[offset: offset + limit]
+    # Fused datasets (mm:// rows) have no crop files — no URL instead of a dead /img/mm:/ link.
     return {"label": cls, "total": len(rows), "dataset": dataset,
-            "crops": [{"url": _img_url(r["path"]), "session_id": r["session_id"],
+            "crops": [{"url": (None if str(r["path"]).startswith("mm://") else _img_url(r["path"])),
+                       "session_id": r["session_id"],
                        "frame": r["frame"], "square": r["square"]} for r in page]}
 
 

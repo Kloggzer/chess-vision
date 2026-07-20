@@ -418,7 +418,7 @@ def dataset_build_synth_cmd(
     renders: str = typer.Option(..., "--renders", help="Render output root (searches recursively "
                                                        "for <i>.json + <i>.jpg/.png, so --shards "
                                                        "subdirs are found automatically)."),
-    board_size: int = typer.Option(1100, "--board-size",
+    board_size: int = typer.Option(config.SYNTH.warp_board_size, "--board-size",
                                    help="Warp resolution (px). 1100 ~ 137 px/square, matching the "
                                         "framed renders (~134); 900 silently upscaled crops."),
     per_cell_cap: int = typer.Option(config.DEDUP.per_cell_cap, "--cap",

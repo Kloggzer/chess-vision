@@ -129,7 +129,7 @@ def test_extra_props_passthrough(fake_vc):
 # --- URL / file-path dispatch ---------------------------------------------------------
 
 def test_url_dispatch_snapshot_vs_mjpeg(monkeypatch):
-    monkeypatch.setattr(cam, "_UrlSnapshotCapture", lambda url, **k: ("snap", url))
+    monkeypatch.setattr(cam, "UrlSnapshotCapture", lambda url, **k: ("snap", url))
     monkeypatch.setattr(cam, "_UrlMjpegCapture", lambda url, **k: ("mjpeg", url))
     assert cam._open_url("https://x/video/snapshot")[0] == "snap"
     assert cam._open_url("https://x/video/m.jpeg")[0] == "mjpeg"

@@ -32,8 +32,8 @@ def open_source(source: str, width: int = 3840, height: int = 2160, timeout: flo
         spec = CameraSpec(source=int(source), width=width, height=height, warmup=8,
                           exposure=exposure, gain=gain, white_balance=wb, focus=focus)
         return open_capture(spec)
-    from chesslab.camera import _UrlSnapshotCapture
-    return _UrlSnapshotCapture(source, timeout=timeout)
+    from chesslab.camera import UrlSnapshotCapture
+    return UrlSnapshotCapture(source, timeout=timeout)
 
 
 def grab(cap):

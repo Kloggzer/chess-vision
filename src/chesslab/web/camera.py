@@ -19,7 +19,7 @@ from ..calibration import (
     make_tracker,
     warp_from_corners,
 )
-from ..camera import _UrlSnapshotCapture, open_source
+from ..camera import UrlSnapshotCapture, open_source
 
 _BOUNDARY = b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
 
@@ -90,7 +90,7 @@ class Camera:
         than the preview)."""
         url = capture_url()
         if url:
-            ok, f = _UrlSnapshotCapture(url, timeout=6.0).read()
+            ok, f = UrlSnapshotCapture(url, timeout=6.0).read()
             if ok and f is not None:
                 return f, True
         return self.read(), False

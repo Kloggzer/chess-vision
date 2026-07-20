@@ -463,6 +463,10 @@ class SynthDefaults:
     out_dir: Path = DATA.root / "synth_raw"
     res: int = 1024
     blender_exe: str = "blender"  # overridable via Env CHESSLAB_BLENDER
+    # Warp resolution for slicing renders (dataset build-synth): 1100 px board ~ 137 px/square,
+    # matching the ~134 px/square framed renders carry (frame_frac 0.80 @ res 1024). The classic
+    # ingest default of 900 (112 px/square) UPSCALES crops to 128 and wastes real resolution.
+    warp_board_size: int = 1100
 
     @property
     def board_texture(self) -> Path:
