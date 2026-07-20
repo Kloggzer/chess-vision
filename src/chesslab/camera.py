@@ -382,9 +382,11 @@ def _MAX_FPS_FOR_SIZE(width: int | None, height: int | None) -> int:
 
 
 def _open_index(index: int, spec: CameraSpec):
-    """Open a local USB index with the driver quirks handled: FOURCC (MJPG) BEFORE the
-    resolution — otherwise the driver stays on YUY2 and caps at 640×480 — then fps, then
-    optics controls, then warm-up reads to let auto-exposure/focus settle."""
+    """Open a local USB index with the driver quirks handled: resolution FIRST (setting FOURCC
+    before it is exactly what collapses MSMF to 640x480 — opencv#7013; the common advice is
+    backwards for 4.x, see config.py notes), then fps (clamped to what the size can do), then
+    optics controls, then warm-up reads to let auto-exposure/focus settle. YUY2 stays the
+    deliberate pixel format — MJPG only shifts the bottleneck to JPEG decode."""
     cam = config.CAMERA
     width = spec.width if spec.width is not None else cam.width
     height = spec.height if spec.height is not None else cam.height

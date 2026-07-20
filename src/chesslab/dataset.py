@@ -295,6 +295,8 @@ def verify(rows: list[dict], *, split: dict | None = None, check_files: bool = T
         if r["label"] not in CLASSES:
             problems.append(f"unknown label {r['label']!r} ({r.get('path')}).")
         if check_files:
+            if str(r["path"]).startswith("mm://"):
+                continue        # fused build: crops live in the packed memmap, not as files
             p = Path(r["path"])
             if not p.exists():
                 problems.append(f"file missing: {p}")

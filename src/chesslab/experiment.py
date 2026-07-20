@@ -189,7 +189,19 @@ def collect_metrics(v: Variant, session_profile: dict[str, str], split_name: str
 
     device = get_device(require_gpu=False)
     model.to(device)
-    ds = SquareDataset(rows, classes, build_transform(out_size, train=False))
+    # Fused datasets (mm:// rows) have no crop files — route through the packed memmap.
+    packed = None
+    if rows and str(rows[0].get("path", "")).startswith("mm://"):
+        from .training.pack import load_packed
+        packed = load_packed(cfg.get("dataset")) if cfg.get("dataset") else None
+        if packed is None:
+            raise ValueError("fused dataset without a valid packed memmap — re-run "
+                             "`chesslab dataset build-synth`.")
+    if packed is not None:
+        from .training.torch_data import PackedSquareDataset
+        ds = PackedSquareDataset(rows, classes, build_transform(out_size, train=False), packed)
+    else:
+        ds = SquareDataset(rows, classes, build_transform(out_size, train=False))
     res = evaluate_dataset(model, ds, device, batch_size=256, num_workers=0)
     trues = [int(t) for t in res["trues"]]
     preds = [int(p) for p in res["preds"]]

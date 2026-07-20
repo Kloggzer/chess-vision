@@ -107,6 +107,11 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
     rows = _manifest_rows(dd)
     if not rows:
         raise ValueError(f"dataset '{name}' has an empty manifest")
+    if str(rows[0].get("path", "")).startswith("mm://"):
+        # Fused build (dataset build-synth): the memmap IS the source of truth, there are no crop
+        # files to decode — re-packing would overwrite the pixels with garbage.
+        raise ValueError(f"dataset '{name}' is a fused synth build — it is already packed and has "
+                         f"no crop files. Re-create it with `chesslab dataset build-synth`.")
     w, h = (int(rows[0]["out_size"][0]), int(rows[0]["out_size"][1]))   # out_size = [W, H]
     n = len(rows)
     img_path, meta_path = _packed_paths(dd)

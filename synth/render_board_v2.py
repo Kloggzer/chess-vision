@@ -886,6 +886,10 @@ def frame_board(scene, cam, target_frac: float = BOARD_FRAME_FRAC):
     dass auch bei Schräglage keine Ecke aus dem Bild fällt.
     """
     base = _BASE_CAM_LENS.setdefault(cam.name, cam.data.lens)
+    if target_frac <= 0:                     # 0 = Rahmung aus (CLI-Versprechen) — NICHT lens=0
+        cam.data.lens = base
+        bpy.context.view_layer.update()
+        return base
     cam.data.lens = base
     bpy.context.view_layer.update()          # Projektion braucht die aktualisierte Matrix
 
