@@ -2798,6 +2798,10 @@ class MoveTracker:
         diffs = normalize_diffs(diffs)
         z = self.noise.z(diffs)
         cens: dict[str, float] | None = None
+        # Per-frame semantics (like the Android CensusChannel): never let a stale raw map from
+        # an earlier frame survive — census_z_weight is live-tunable, and a leftover _cens_raw
+        # would otherwise freeze the shadow veto's input after tuning the weight to 0.
+        self._cens_raw = None
         if self.census_z_weight > 0:
             cens = per_square_census_change(self.ref_gray, cur, self._det_size,
                                             self.profile.white_pov,
