@@ -168,11 +168,22 @@ def load_run(run_dir: Path, device: str = "cpu"):
     onnx_path = Path(run_dir) / "model.onnx"
     if onnx_path.exists():
         try:
-            import onnxruntime  # noqa: F401
-            cfg = json.loads((Path(run_dir) / "config.json").read_text(encoding="utf-8"))
-            model = _ONNXModel(str(onnx_path), device)
-            _CACHE[key] = (model, cfg)
-            return model, cfg
+            import onnxruntime
+            # ONNX is only a win when it can actually serve the REQUESTED device. This
+            # onnxruntime build ships CPU-only providers on Windows — preferring ONNX for a
+            # device="cuda" caller silently downgraded tracker inference to CPU while torch
+            # (ROCm/HIP) had a perfectly good GPU path. GPU wanted + no GPU provider -> torch.
+            gpu_wanted = str(device).startswith("cuda")
+            gpu_providers = {"CUDAExecutionProvider", "ROCMExecutionProvider",
+                             "DmlExecutionProvider", "MIGraphXExecutionProvider"}
+            if gpu_wanted and not (gpu_providers & set(onnxruntime.get_available_providers())):
+                log.info("model.onnx present but onnxruntime has no GPU provider — using "
+                         "PyTorch on %s instead of silent CPU inference.", device)
+            else:
+                cfg = json.loads((Path(run_dir) / "config.json").read_text(encoding="utf-8"))
+                model = _ONNXModel(str(onnx_path), device)
+                _CACHE[key] = (model, cfg)
+                return model, cfg
         except Exception as e:
             log.warning("ONNX load failed (%s) — falling back to PyTorch", e)
 
