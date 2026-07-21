@@ -296,8 +296,19 @@ def build_dataset(
     (ds / "manifest.jsonl").write_text(
         "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + ("\n" if rows else ""),
         encoding="utf-8")
+    # Mined hard-negative empties (scripts/mine_hard_empty.py) survive the empty cap:
+    # a random cap throws away exactly the rare hard cases (dark corner squares, pad_up
+    # neighbour bleed) that the deployed model confidently misreads.
+    hard_empty = paths.manifests / "hard_empty.jsonl"
+    priority_paths: set[str] | None = None
+    if hard_empty.exists():
+        priority_paths = {json.loads(ln)["path"]
+                          for ln in hard_empty.read_text(encoding="utf-8").splitlines()
+                          if ln.strip()}
+        print(f"[i] hard-empty keep list: {len(priority_paths)} crops protected from the empty cap")
     split = dataset_mod.make_split(rows, val_frac, test_frac, max_empty_ratio, seed, max_class_ratio,
-                                   force_train=force_train, precomputed_splits=splits)
+                                   force_train=force_train, precomputed_splits=splits,
+                                   priority_paths=priority_paths)
     errors, _warnings = dataset_mod.validate_split(split, rows)
     if errors:
         if not allow_degenerate:

@@ -61,6 +61,32 @@ def test_subsample_empty_caps_and_is_seed_stable():
     assert [r["square_color"] for r in sub] == [r["square_color"] for r in again]
 
 
+def test_subsample_priority_paths_survive_empty_cap():
+    """Mined hard-negative empties must never be dropped by the random empty cap."""
+    rows = _dataset()
+    hard = {f"hard_{i}.png" for i in range(5)}
+    n_empty_seen = 0
+    for r in rows:
+        if r["label"] == "empty" and n_empty_seen < 5:
+            r["path"] = f"hard_{n_empty_seen}.png"
+            n_empty_seen += 1
+    sub = subsample_classes(rows, max_empty_ratio=1.5, seed=42, priority_paths=hard)
+    kept_paths = {r["path"] for r in sub if r["label"] == "empty"}
+    assert hard <= kept_paths, "hard empties were dropped by the cap"
+    assert sum(r["label"] == "empty" for r in sub) == 60      # cap still respected
+    # more hard than cap -> deliberate overshoot, all hard kept
+    many = {f"h{i}.png" for i in range(70)}
+    i = 0
+    for r in rows:
+        if r["label"] == "empty" and i < 70:
+            r["path"] = f"h{i}.png"
+            i += 1
+    sub2 = subsample_classes(rows, max_empty_ratio=1.5, seed=42, priority_paths=many)
+    kept2 = {r["path"] for r in sub2 if r["label"] == "empty"}
+    assert many <= kept2
+    assert sum(r["label"] == "empty" for r in sub2) == 70
+
+
 def test_class_weights_largest_class_has_smallest_weight():
     counts = dict.fromkeys(config.CLASSES, 0)
     counts["empty"] = 1000

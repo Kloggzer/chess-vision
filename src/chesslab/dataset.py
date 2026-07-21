@@ -87,13 +87,21 @@ def render_stats(stats: dict) -> str:
 # --- Class balance -------------------------------------------------------------------
 
 def subsample_classes(rows: list[dict], max_empty_ratio: float | None = None,
-                      max_class_ratio: float | None = None, seed: int = config.SEED) -> list[dict]:
+                      max_class_ratio: float | None = None, seed: int = config.SEED,
+                      priority_paths: set[str] | None = None) -> list[dict]:
     """Seed-downsample overrepresented classes to balance distribution.
 
     - `max_class_ratio R`: cap each **piece** class to at most R * smallest piece class
       (e.g. reduces pawns down to the rare pieces).
     - `max_empty_ratio R`: cap `empty` to R * largest (capped) piece class.
     Order: first cap pieces, then `empty` relative to the new largest piece class.
+
+    `priority_paths`: crop paths that must SURVIVE the `empty` cap — the mined hard
+    negatives (`scripts/mine_hard_empty.py`: real empty squares the model confidently
+    misreads, e.g. dark corner squares / pad_up neighbour bleed). A random cap throws
+    away exactly these rare hard cases; here they are kept first and only the REST of
+    the cap budget is filled by random sampling. If there are more hard empties than
+    the cap allows, all of them are kept (deliberate overshoot — they are the point).
     """
     rng = random.Random(seed)
     by_label: dict[str, list] = {}
@@ -119,7 +127,13 @@ def subsample_classes(rows: list[dict], max_empty_ratio: float | None = None,
     if max_empty_ratio is not None and eff_piece:
         empty_cap = int(round(max_empty_ratio * max(eff_piece.values())))
         if len(empties) > empty_cap:
-            empties = rng.sample(empties, empty_cap)
+            if priority_paths:
+                hard = [r for r in empties if r.get("path") in priority_paths]
+                rest = [r for r in empties if r.get("path") not in priority_paths]
+                fill = max(0, empty_cap - len(hard))
+                empties = hard + (rng.sample(rest, fill) if len(rest) > fill else rest)
+            else:
+                empties = rng.sample(empties, empty_cap)
     kept.extend(empties)
     return kept
 
@@ -185,6 +199,7 @@ def make_split(
     max_class_ratio: float | None = None,
     force_train=None,
     precomputed_splits=None,
+    priority_paths: set[str] | None = None,
 ) -> dict:
     # Assign sessions. `precomputed_splits` (determined by build_dataset on the RAW, complete data)
     # wins -> this way Train gets duped/augmented, Val/Test stay complete.
@@ -197,7 +212,8 @@ def make_split(
 
     # Subsampling ONLY on train; val/test stay complete (real board accuracy).
     train_full = [r for r in rows if split_of.get(r["session_id"]) == "train"]
-    train_kept = subsample_classes(train_full, max_empty_ratio, max_class_ratio, seed)
+    train_kept = subsample_classes(train_full, max_empty_ratio, max_class_ratio, seed,
+                                   priority_paths=priority_paths)
     val_rows = [r for r in rows if split_of.get(r["session_id"]) == "val"]
     test_rows = [r for r in rows if split_of.get(r["session_id"]) == "test"]
     counts_split = {"train": len(train_kept), "val": len(val_rows), "test": len(test_rows)}
