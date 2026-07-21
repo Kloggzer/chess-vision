@@ -386,13 +386,16 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
                 logits = model(batch)
 
     with torch.no_grad():
-        probs = torch.softmax(logits.float(), dim=1)
+        # ONE device->host transfer for the whole batch: per-row `probs[i].tolist()`
+        # on a GPU tensor forced 64 separate syncs (~5 ms of the observation).
+        probs = torch.softmax(logits.float(), dim=1).cpu()
         conf, idx = probs.max(dim=1)
+    probs_np = probs.numpy()
     results: list[dict] = []
     for i, (c, ix) in enumerate(zip(conf.tolist(), idx.tolist(), strict=False)):
         entry: dict = {"pred_label": classes[int(ix)], "confidence": round(float(c), 4)}
         if return_probs:
-            entry["probs"] = [round(float(p), 6) for p in probs[i].tolist()]
+            entry["probs"] = [round(float(p), 6) for p in probs_np[i]]
         results.append(entry)
     return results
 
