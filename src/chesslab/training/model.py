@@ -67,6 +67,12 @@ def _create_timm_model(backbone: str, pretrained: bool, num_classes: int) -> nn.
     resolved = _resolve_timm_backbone(backbone)
     if resolved != backbone:
         print(f"[INFO] Backbone alias '{backbone}' -> '{resolved}'.")
+    if pretrained and not timm.is_model_pretrained(resolved):
+        # Some variants (e.g. mobilenetv4_conv_small_035) ship NO pretrained weights — timm's
+        # HF fetch then retries forever on this box (looked like a training hang) before
+        # raising. Random init is fine here: the synth curriculum IS the pretraining.
+        print(f"[INFO] '{resolved}' has no pretrained weights — random init.")
+        pretrained = False
     return timm.create_model(resolved, pretrained=pretrained, num_classes=num_classes)
 
 
