@@ -31,20 +31,9 @@ android {
         }
     }
 
-    // Two install channels so an experimental build can live NEXT TO the known-good
-    // install on the same phone: `stable` keeps the original applicationId, `lab`
-    // gets its own id + launcher label (res override in src/lab/res).
-    flavorDimensions += "channel"
-    productFlavors {
-        create("stable") {
-            dimension = "channel"
-            isDefault = true
-        }
-        create("lab") {
-            dimension = "channel"
-            applicationIdSuffix = ".lab"
-        }
-    }
+    // Single install channel (2026-07-22): the lab/stable flavor split (parallel
+    // experimental install with its own appId) was unused in practice — like the
+    // Python side, there is exactly ONE app.
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
