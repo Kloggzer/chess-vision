@@ -2457,14 +2457,18 @@ class MoveTracker:
             return {"ok": True, "match": False, "conflicts": res["conflicts"],
                     "move": res["move"], "agreement": res["agreement"], "note": self.note}
 
-    def accept_cnn_position(self) -> dict:
+    def accept_cnn_position(self, preview: bool = False) -> dict:
         """Manual "adopt what the CNN sees" correction (illegal-move alarm UI): rebuild the
         game state from the physical board as observed by the CNN. Label-confident squares
         take the observed piece; unconfident/occluded squares keep the current game-state
         piece (identity precision is limited — minimal edit, not a blind FEN rebuild).
         Side to move is preserved; castling rights are pruned to what the new position
         still supports; the move history is cleared (an illegal move broke game
-        continuity by definition) and the alarm latch is released."""
+        continuity by definition) and the alarm latch is released.
+
+        `preview=True` runs the identical observation + minimal edit but changes NOTHING —
+        it returns the would-be FEN plus the per-square change list so the UI can show the
+        user what would be adopted before they confirm."""
         if not self.cnn_run or self._cnn_failed:
             return {"ok": False, "error": "CNN not configured (--cnn-run) or disabled"}
         with self.lock:
@@ -2487,11 +2491,17 @@ class MoveTracker:
                 return {"ok": False, "error": "Board changed during analysis"}
             b = self.board.copy(stack=False)
             lc = obs.label_confident(getattr(recovery, "conf_thr", self.cnn_conf_thr))
+            changes = []                          # per-square edit list for the preview UI
             for sq in _ALL:
                 if not lc.get(sq):
                     continue                      # unsure/occluded → keep game-state piece
                 lab = obs.label[sq]
                 sq_i = chess.parse_square(sq)
+                old_piece = b.piece_at(sq_i)
+                old_lab = config.label_from_piece(old_piece.symbol() if old_piece else None)
+                if lab != old_lab:
+                    changes.append({"square": sq, "from": old_lab, "to": lab,
+                                    "conf": round(float(obs.conf.get(sq, 0.0)), 2)})
                 if lab == "empty":
                     b.remove_piece_at(sq_i)
                 else:
@@ -2500,17 +2510,20 @@ class MoveTracker:
             if (len(b.pieces(chess.KING, chess.WHITE)) != 1
                     or len(b.pieces(chess.KING, chess.BLACK)) != 1):
                 return {"ok": False, "error": "CNN position has missing/extra kings — "
-                                              "correct via Undo or an explicit FEN resync"}
+                                              "correct via Undo or an explicit FEN resync",
+                        "changes": changes}
             b.castling_rights = b.clean_castling_rights()
             b.ep_square = None
             fen = b.fen()
+        if preview:
+            return {"ok": True, "preview": True, "fen": fen, "changes": changes}
         # reset_to_start clears history + latch (logs illegal_move_accepted) and
         # capture_baseline re-captures the visual reference for the adopted position.
         self.reset_to_start(fen)
         self.capture_baseline()
         with self.lock:
             self.note = "CNN position adopted — alarm cleared, re-capturing reference…"
-            return {"ok": True, "fen": fen, "note": self.note}
+            return {"ok": True, "fen": fen, "changes": changes, "note": self.note}
 
     def _set_ref(self, cur, cur_bgr=None, from_commit: bool = False) -> None:
         """Set base truth as (image, FEN) pair: ref_gray/ref_bgr and ref_fen stay coupled.

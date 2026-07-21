@@ -2663,6 +2663,25 @@ def test_accept_cnn_position_adopts_board_and_clears_latch(monkeypatch):
     assert t.status()["alarm"] is None
 
 
+def test_accept_cnn_position_preview_changes_nothing(monkeypatch):
+    """preview=True returns the would-be FEN + per-square change list but must not
+    touch the board, the history or the alarm latch (the UI shows this before
+    asking the user to confirm)."""
+    t = _alarmed_tracker(monkeypatch)
+    t.history = ["Nf3"]
+    t._last_frame = np.zeros((8, 8, 3), np.uint8)
+    fen_before = t.board.fen()
+    res = t.accept_cnn_position(preview=True)
+    assert res["ok"] is True and res.get("preview") is True
+    assert {c["square"] for c in res["changes"]} == {"e1", "g1"}
+    ch = {c["square"]: c for c in res["changes"]}
+    assert ch["e1"]["from"] == "wK" and ch["e1"]["to"] == "empty"
+    assert ch["g1"]["from"] == "empty" and ch["g1"]["to"] == "wK"
+    assert t.board.fen() == fen_before, "preview mutated the board"
+    assert t.history == ["Nf3"], "preview cleared the history"
+    assert t._alarm is not None, "preview released the latch"
+
+
 def test_accept_cnn_position_rejects_missing_king(monkeypatch):
     """A CNN observation without both kings must NOT be adopted — latch stays."""
     t = _alarmed_tracker(monkeypatch)
