@@ -67,8 +67,11 @@ data class TrackerSettings(
     // Recording (phase 07)
     val autoRecord: Boolean = true,
     val spectatorEnabled: Boolean = false,
-    // CNN safeguard (phase 05); needs an imported model (CnnModelStore) to attach.
-    val cnnEnabled: Boolean = false,
+    // CNN safeguard (phase 05); needs an installed model (CnnModelStore) to attach.
+    // ON by default since 2026-07-21: tiny-p3 ships bundled in assets/cnn_model (occupancy
+    // is its reliable axis, occ_board 0.800) and the safeguard logic carries the pair-verify/
+    // latch/cnn_desync fixes — the old off-default guarded against a model that no longer ships.
+    val cnnEnabled: Boolean = true,
     val cnnConfThr: Double = DEFAULT_CNN_CONF_THR,
     // Analysis (phase 05/06): default Stockfish search depth for the games/analysis screen.
     val analysisDepth: Int = DEFAULT_ANALYSIS_DEPTH,
