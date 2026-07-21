@@ -2142,24 +2142,15 @@ class MoveTracker:
                 self.note = note
 
             def _voted(outcome: str) -> bool:
-                """No verify decision on a single CNN glance (g8h6 overrule incident,
-                2026-07-09: one frame's confident-empty misread overruled a real move).
-                The SAME outcome must be seen on `verify_obs_votes` consecutive
-                observations; a different outcome resets the count. With the
-                free-running observer a second glance costs ~one inference."""
-                if pending.get("_outcome") == outcome:
-                    pending["_votes"] = pending.get("_votes", 1) + 1
-                else:
-                    pending["_outcome"], pending["_votes"] = outcome, 1
-                if pending["_votes"] >= self.verify_obs_votes:
-                    return True
-                self.note = (f"verify: {outcome}? confirming "
-                             f"({pending['_votes']}/{self.verify_obs_votes})")
-                return False
+                return self._pending_voted(pending, outcome)
 
             # 1) Occupancy says the believed board is unchanged → shadow / no real move.
             #    Drop the candidate and pull the reference forward (reliable shadow killer).
-            if occ_check["match"]:
+            #    Guard: `resync_check` matches VACUOUSLY when almost nothing is confident
+            #    (hand over the board) — a near-blind glance must not reject a real move
+            #    and re-anchor the reference on the covered image; without the shadow
+            #    branch such a glance falls through to the occlusion timeout below.
+            if occ_check["match"] and sum(1 for ok in conf.values() if ok) >= recovery.min_confident_board:
                 if not _voted("shadow"):
                     return
                 self._clear_stuck()
@@ -2262,29 +2253,88 @@ class MoveTracker:
         """UCIs of a pending candidate — sequence-aware ("ucis") with single-move fallback."""
         return pending.get("ucis") or [pending["uci"]]
 
+    def _pending_voted(self, pending: dict, outcome: str) -> bool:
+        """No verify decision on a single CNN glance (g8h6 overrule incident, 2026-07-09:
+        one frame's confident-empty misread overruled a real move). The SAME outcome must
+        be seen on `verify_obs_votes` consecutive observations; a different outcome resets
+        the count. With the free-running observer a second glance costs ~one inference.
+        Must be called under self.lock (mutates `pending`, writes `self.note`)."""
+        if pending.get("_outcome") == outcome:
+            pending["_votes"] = pending.get("_votes", 1) + 1
+        else:
+            pending["_outcome"], pending["_votes"] = outcome, 1
+        if pending["_votes"] >= self.verify_obs_votes:
+            return True
+        self.note = (f"verify: {outcome}? confirming "
+                     f"({pending['_votes']}/{self.verify_obs_votes})")
+        return False
+
     def _verify_pair_tick(self, pending: dict, moves: list[chess.Move], board_snap: chess.Board,
                           snap: CnnSnapshot, recovery) -> None:
-        """Occupancy verify of a PAIR candidate (fast play, 2 half-moves): confirmed when the
-        observation matches the position AFTER both half-moves, rejected as shadow when it
-        still matches the CURRENT position, dropped after `verify_window` frames otherwise.
-        Endpoint-level reasoning is skipped — with 3-4 touched squares the whole-position
-        occupancy match is the more robust axis."""
-        if snap.seq < pending.get("seq", 0):                # seq contract: stale → ignore
-            return
+        """Occupancy verify of a PAIR candidate (fast play, 2 half-moves).
+
+        Reworked 2026-07-21: the original all-or-nothing whole-board match meant ONE
+        chronically misread confident square anywhere (the known dark-square bB false
+        positive) made both `before` and `after` unmatchable — the candidate burned the
+        full window, was discarded, the diff evidence re-fired a fresh candidate, and
+        the user watched "checking double move… (n/8)" forever. Decision axes now, in
+        order (each terminal outcome needs `verify_obs_votes` consecutive glances):
+          1. shadow — board still matches the CURRENT position on plenty of confident
+             squares. The min_confident guard keeps a near-blind glance (hand over the
+             board → `resync_check` matches vacuously) from rejecting a real pair and
+             re-anchoring the reference on the covered image.
+          2. commit — whole board matches the position AFTER both half-moves, OR the
+             touched-squares fast-accept: the 3-4 squares the pair physically changes
+             read correctly (the same local axis `verify_move` uses on the single-move
+             path) — immune to stale misreads elsewhere.
+          3. window end, clear view: every conflict with the post-move position already
+             existed against the CURRENT position too — such a conflict cannot
+             discriminate (chronic misread), the diff evidence stands → commit. Any NEW
+             conflict → the pair as believed did not happen → discard.
+          4. window end, touched squares never readable → occlusion timeout, discard
+             (never auto-accept under a covering hand), base truth stays."""
+        from .cnn_recovery import _move_touched_squares, expected_occupancy
         obs = snap.obs
         before = recovery.resync_check(board_snap, obs)
         after_board = board_snap.copy(stack=False)
         for mv in moves:
             after_board.push(mv)
         after = recovery.resync_check(after_board, obs)
+        # Touched-squares agreement vs the post-move position (confident squares only).
+        touched = _move_touched_squares(board_snap, moves[0])
+        mid_board = board_snap.copy(stack=False)
+        mid_board.push(moves[0])
+        touched |= _move_touched_squares(mid_board, moves[1])
+        conf = obs.confident(recovery.conf_thr)
+        exp_after = expected_occupancy(after_board)
+        checked = [sq for sq in touched if conf.get(sq)]
+        pair_agree = (sum(1 for sq in checked if obs.occupied(sq) == exp_after[sq])
+                      / len(checked)) if len(checked) >= 3 else 0.0
+        n_conf = sum(1 for ok in conf.values() if ok)
         key = " ".join(m.uci() for m in moves)
         with self.lock:
             self._cnn_agreement = float(after.get("agreement", 0.0))
             if self._pending is not pending or self.board.fen() != pending["fen"]:
                 return                                      # state changed → discard
             pending["frames"] += 1
-            if before["match"]:
-                # Board still matches the CURRENT position → shadow/no move.
+
+            def _reject_pair(state: str, note: str, conflicts=None) -> None:
+                self._pending = None
+                self._confirmer.reset()
+                self._recovery_confirmer.reset()
+                self._verify_state = state
+                self.cnn_status, self.cnn_conflicts = state, conflicts or []
+                self.note = note
+
+            def _commit_pair(decider: str) -> None:
+                self.cnn_status, self.cnn_conflicts = "ok", []
+                self._commit_sequence(moves, pending["cur"], pending.get("cur_bgr"),
+                                      decider=decider)
+                self._verify_state = "confirmed"
+
+            if before["match"] and n_conf >= recovery.min_confident_board:
+                if not self._pending_voted(pending, "shadow"):
+                    return
                 self._pending = None
                 self._confirmer.reset()
                 self._recovery_confirmer.reset()
@@ -2293,18 +2343,23 @@ class MoveTracker:
                 self._verify_state = "shadow"
                 self.cnn_status, self.cnn_conflicts = "shadow", []
                 self.note = "Shadow/no move (CNN: board unchanged)"
-            elif after["match"]:
-                self.cnn_status, self.cnn_conflicts = "ok", []
-                self._commit_sequence(moves, pending["cur"], pending.get("cur_bgr"),
-                                      decider="cnn_pair")
-                self._verify_state = "confirmed"
+            elif ((after["match"] and n_conf >= recovery.min_confident_board)
+                  or pair_agree >= recovery.min_agreement):
+                if not self._pending_voted(pending, "commit"):
+                    return
+                _commit_pair("cnn_pair")
             elif pending["frames"] >= self.verify_window:
-                self._pending = None
-                self._confirmer.reset()
-                self._recovery_confirmer.reset()
-                self._verify_state = "ghost"
-                self.cnn_status, self.cnn_conflicts = "ghost", []
-                self.note = f"Double move {key} not confirmed by CNN — discarded"
+                if checked and set(after["conflicts"]) <= set(before["conflicts"]):
+                    _commit_pair("diff_after_verify")
+                    self.note = (f"Double move {key} accepted "
+                                 "(CNN conflicts pre-existed the candidate)")
+                elif not checked:
+                    _reject_pair("ghost",
+                                 "Verification timed out under occlusion — no move committed")
+                else:
+                    _reject_pair("ghost",
+                                 f"Double move {key} not confirmed by CNN — discarded",
+                                 list(after["conflicts"]))
             else:
                 self.note = (f"checking double move {key} via CNN… "
                              f"({pending['frames']}/{self.verify_window})")

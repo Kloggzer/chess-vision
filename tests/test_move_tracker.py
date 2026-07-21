@@ -934,10 +934,13 @@ class _FakeRecovery:
 
     def __init__(self, match=False, occ_agree=0.0, occ_n=2, derive_move=None,
                  derive_agreement=0.99, min_agreement=0.97, conf_thr=0.85,
-                 occ=None, conf=None, conflicts=None):
+                 occ=None, conf=None, conflicts=None, min_confident_board=0):
         self.match, self.occ_agree, self.occ_n = match, occ_agree, occ_n
         self.derive_move, self.derive_agreement = derive_move, derive_agreement
         self.min_agreement, self.conf_thr = min_agreement, conf_thr
+        # 0 = permissive default so occupancy-axis tests need no big conf dict; the
+        # blind-glance shadow guard is exercised explicitly with the real default (32).
+        self.min_confident_board = min_confident_board
         self.conflicts = list(conflicts or [])   # occupancy conflicts vs ANY checked board
         # Default endpoints for candidate e2e4: to occupied+confident, from empty+confident.
         self._occ = occ if occ is not None else {"e4": True, "e2": False}
@@ -1301,7 +1304,8 @@ class TestPipelineRegressions:
             return {"match": board.fen() == after.fen(), "conflicts": [], "move": None,
                     "agreement": 0.99}
         mt.recovery.resync_check = _check
-        mt._verify_tick(_mk_snap(mt))
+        for _ in range(2):                       # verify_obs_votes: never act on one glance
+            mt._verify_tick(_mk_snap(mt))
         assert mt.history == ["e4", "e5"]
         assert mt._pending is None and mt._verify_state == "confirmed"
         assert mt._recent_decisions[-1]["rec"]["decider"] == "cnn_pair"
@@ -1311,9 +1315,68 @@ class TestPipelineRegressions:
         mt = _pending_tracker(monkeypatch, match=True)
         mt._pending = {"ucis": ["e2e4", "e7e5"], "uci": "e2e4", "fen": mt.board.fen(),
                        "cur": _gray_frame([]), "cur_bgr": None, "frames": 0}
-        mt._verify_tick(_mk_snap(mt))
+        for _ in range(2):                       # verify_obs_votes
+            mt._verify_tick(_mk_snap(mt))
         assert mt.history == [] and mt._pending is None
         assert mt._verify_state == "shadow"
+
+    def test_pair_touched_squares_fast_accept(self, monkeypatch):
+        """A chronic confident misread ELSEWHERE (dark-square bB false positive) keeps the
+        whole-board match false forever — but the 4 squares the pair physically changed
+        read correctly → local fast-accept commits instead of burning the window."""
+        mt = _pending_tracker(
+            monkeypatch, match=False, conflicts=["c6"],
+            occ={"e2": False, "e4": True, "e7": False, "e5": True, "c6": True},
+            conf={"e2": True, "e4": True, "e7": True, "e5": True, "c6": True})
+        mt._pending = {"ucis": ["e2e4", "e7e5"], "uci": "e2e4", "fen": mt.board.fen(),
+                       "cur": _gray_frame(["e4", "e5"]), "cur_bgr": None, "frames": 0}
+        for _ in range(2):                       # verify_obs_votes
+            mt._verify_tick(_mk_snap(mt))
+        assert mt.history == ["e4", "e5"]
+        assert mt._verify_state == "confirmed"
+        assert mt._recent_decisions[-1]["rec"]["decider"] == "cnn_pair"
+
+    def test_pair_window_end_preexisting_conflicts_commit(self, monkeypatch):
+        """Window end with a clear view and every post-move conflict identical to a
+        pre-move conflict (stale misread, cannot discriminate) → the diff evidence
+        stands, pair commits as diff_after_verify instead of the old endless
+        discard/re-fire loop."""
+        mt = _pending_tracker(monkeypatch, match=False, conflicts=["c6"],
+                              occ={"e4": True}, conf={"e4": True}, verify_window=3)
+        mt._pending = {"ucis": ["e2e4", "e7e5"], "uci": "e2e4", "fen": mt.board.fen(),
+                       "cur": _gray_frame(["e4", "e5"]), "cur_bgr": None, "frames": 0}
+        for _ in range(3):
+            mt._verify_tick(_mk_snap(mt))
+        assert mt.history == ["e4", "e5"]
+        assert mt._recent_decisions[-1]["rec"]["decider"] == "diff_after_verify"
+
+    def test_pair_window_end_occluded_discards(self, monkeypatch):
+        """Touched squares never confidently readable (hand hovering) → occlusion
+        timeout discards the pair, never auto-accepts, base truth stays."""
+        mt = _pending_tracker(monkeypatch, match=False, conflicts=["c6"],
+                              occ={}, conf={}, verify_window=3)
+        mt._pending = {"ucis": ["e2e4", "e7e5"], "uci": "e2e4", "fen": mt.board.fen(),
+                       "cur": _gray_frame(["e4", "e5"]), "cur_bgr": None, "frames": 0}
+        for _ in range(3):
+            mt._verify_tick(_mk_snap(mt))
+        assert mt.history == [] and mt._pending is None
+        assert mt._verify_state == "ghost"
+        assert "occlusion" in mt.note
+
+    def test_pair_blind_glance_never_shadow_rejects(self, monkeypatch):
+        """resync_check matches VACUOUSLY with zero confident squares (hand over the
+        board). With the real min_confident_board the blind 'match' must NOT shadow-
+        reject the pair (which would re-anchor the reference on the covered image)."""
+        mt = _pending_tracker(monkeypatch, match=True, occ={}, conf={},
+                              min_confident_board=32, verify_window=3)
+        mt._pending = {"ucis": ["e2e4", "e7e5"], "uci": "e2e4", "fen": mt.board.fen(),
+                       "cur": _gray_frame([]), "cur_bgr": None, "frames": 0}
+        ref_before = mt.ref_gray
+        for _ in range(3):
+            mt._verify_tick(_mk_snap(mt))
+        assert mt._verify_state != "shadow"
+        assert mt.ref_gray is ref_before          # reference NOT pulled onto covered board
+        assert mt.history == []
 
     def test_shadow_squares_not_learned_into_noise(self, monkeypatch):
         """Shadow-vetoed squares are excluded from noise-model learning — otherwise a
