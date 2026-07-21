@@ -7,6 +7,7 @@ Backbone-agnostic: hooks the deepest ``Conv2d`` in the network (works for both
 
 from __future__ import annotations
 
+import random
 from pathlib import Path
 
 import numpy as np
@@ -40,6 +41,44 @@ def _crop_reader(ds_name: str | None):
             return Image.open(str(r["path"])).convert("RGB")
         return Image.fromarray(np.array(mm[idx]))
     return _read
+
+
+def _diverse_sample(rows: list[dict], per_class: int, seed: int = 42) -> list[dict]:
+    """Pick up to ``per_class`` rows preferring DISTINCT (session_id, square) combos.
+
+    Real test splits are sliced from recorded game sessions: static pieces (kings!)
+    contribute dozens of near-identical frames of the same piece on the same square,
+    so taking the first N manifest rows shows one frame N times. Instead, group rows
+    by (session_id, square) and round-robin across the groups — every distinct
+    piece/lighting situation is represented before any near-duplicate frame repeats.
+    Group order and the frame picked within a group are seeded-shuffled, so the
+    sample is deterministic across reloads but not biased to manifest order. When a
+    class has fewer rows than ``per_class``, all rows are returned.
+    """
+    if len(rows) <= per_class:
+        return list(rows)
+    rng = random.Random(seed)
+    groups: dict[tuple, list[dict]] = {}
+    for r in rows:
+        groups.setdefault((r.get("session_id"), r.get("square")), []).append(r)
+    keys = sorted(groups, key=str)          # deterministic base order, then seeded shuffle
+    rng.shuffle(keys)
+    for k in keys:
+        rng.shuffle(groups[k])              # which frame of a static piece we show
+    picked: list[dict] = []
+    depth = 0
+    while len(picked) < per_class:
+        added = False
+        for k in keys:
+            if depth < len(groups[k]):
+                picked.append(groups[k][depth])
+                added = True
+                if len(picked) >= per_class:
+                    break
+        if not added:                       # all groups exhausted (can't happen: len(rows) > per_class)
+            break
+        depth += 1
+    return picked
 
 
 def last_conv(model: nn.Module) -> nn.Conv2d:
@@ -110,7 +149,7 @@ def overlay(pil_img: Image.Image, cam: np.ndarray, out_size: tuple[int, int]) ->
 
 
 def gradcam_for_run(run_dir: Path, split: str = "test", per_class: int = 1,
-                    force_class: str | None = None) -> list[dict]:
+                    force_class: str | None = None, seed: int = 42) -> list[dict]:
     """Generate Grad-CAM overlays for sample crops of a trained run.
 
     Picks up to ``per_class`` crops for each true class from the run's ``split`` (the
@@ -142,10 +181,10 @@ def gradcam_for_run(run_dir: Path, split: str = "test", per_class: int = 1,
     split_data = load_split(split_path)
     rows = filter_rows_by_split(manifest, split_data, split)
 
-    # up to `per_class` rows per true label, in class order
+    # up to `per_class` rows per true label, in class order — diversity-aware, seeded
     picked: list[dict] = []
     for c in classes:
-        hits = [r for r in rows if r["label"] == c][:per_class]
+        hits = _diverse_sample([r for r in rows if r["label"] == c], per_class, seed=seed)
         picked.extend(hits)
 
     out_dir = run_dir / "gradcam"
@@ -178,7 +217,7 @@ def _center_mask(h: int, w: int, frac: float) -> torch.Tensor:
 
 
 def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
-                     center_frac: float | None = None) -> list[dict]:
+                     center_frac: float | None = None, seed: int = 42) -> list[dict]:
     """Measure where each class's evidence lives: piece (center) vs. background (border ring).
 
     Mask-free occlusion test (Zeiler & Fergus style): for each crop, blank the centered box
@@ -232,7 +271,7 @@ def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
     read_crop = _crop_reader(ds_name)
     out: list[dict] = []
     for c in classes:
-        hits = [r for r in rows if r["label"] == c][:per_class]
+        hits = _diverse_sample([r for r in rows if r["label"] == c], per_class, seed=seed)
         if not hits:
             continue
         cls_idx = classes.index(c)
