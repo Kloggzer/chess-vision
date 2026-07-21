@@ -360,6 +360,15 @@ class TrackerService : LifecycleService() {
 
     private fun startFrameLoop() {
         if (frameLoopJob != null) return
+        // Per-stage engine timing (throttled ~1/s), tag `chesslabEnginePerf` — the fine-grained
+        // companion of the `chesslabPerf` frame stages (2026-07-22, engine was the fps eater).
+        com.chesslab.engine.EnginePerf.sink = { line ->
+            val now = System.nanoTime()
+            if (now - lastEnginePerfNs >= DIAG_INTERVAL_NS) {
+                lastEnginePerfNs = now
+                android.util.Log.i("chesslabEnginePerf", line)
+            }
+        }
         frameLoopJob =
             lifecycleScope.launch(Dispatchers.Default) {
                 camera.frames.collect { frame ->
@@ -476,6 +485,7 @@ class TrackerService : LifecycleService() {
     }
 
     private var lastPerfNs = 0L
+    private var lastEnginePerfNs = 0L
 
     /** Throttled per-frame stage timing (~1/sec), tag `chesslabPerf`. */
     private inline fun perf(message: () -> String) {

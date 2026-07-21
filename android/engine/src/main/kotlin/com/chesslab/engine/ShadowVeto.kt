@@ -44,18 +44,36 @@ object ShadowVeto {
         var shadowPx = 0
         var total = 0
         var dv = 0.0
+        // Memo-cached packed HSV per pixel (ColorSpace.packedHsv) — identical values to the
+        // former per-pixel conversions, without their cost (device shadow stage, 2026-07-22).
+        val ref = refBgr.data
+        val cur = curBgr.data
+        val mask = (1 shl ColorSpace.PACK_MID) - 1
         for (y in box.y0 until box.y1) {
-            for (x in box.x0 until box.x1) {
-                val i = (y * refBgr.width + x) * CHANNELS
-                val hr = ColorSpace.bgrToHsv(refBgr.data[i].px(), refBgr.data[i + 1].px(), refBgr.data[i + 2].px())
-                val hc = ColorSpace.bgrToHsv(curBgr.data[i].px(), curBgr.data[i + 1].px(), curBgr.data[i + 2].px())
-                val ratio = hc[2] / (hr[2] + V_EPS)
-                var dh = kotlin.math.abs(hc[0] - hr[0])
+            var i = (y * refBgr.width + box.x0) * CHANNELS
+            repeat(box.x1 - box.x0) {
+                val pr =
+                    ColorSpace.packedHsv(
+                        ref[i].toInt() and mask,
+                        ref[i + 1].toInt() and mask,
+                        ref[i + 2].toInt() and mask,
+                    )
+                val pc =
+                    ColorSpace.packedHsv(
+                        cur[i].toInt() and mask,
+                        cur[i + 1].toInt() and mask,
+                        cur[i + 2].toInt() and mask,
+                    )
+                val vr = (pr and mask).toDouble()
+                val vc = (pc and mask).toDouble()
+                val ratio = vc / (vr + V_EPS)
+                var dh = kotlin.math.abs(((pc ushr ColorSpace.PACK_HI) - (pr ushr ColorSpace.PACK_HI)).toDouble())
                 dh = minOf(dh, HUE_RANGE - dh)
-                val ds = hc[1] - hr[1]
+                val ds = ((pc ushr ColorSpace.PACK_MID) and mask) - ((pr ushr ColorSpace.PACK_MID) and mask)
                 if (ratio in V_LO..V_HI && dh <= H_TOL && ds <= S_TOL) shadowPx++
                 total++
-                dv += hc[2] - hr[2]
+                dv += vc - vr
+                i += CHANNELS
             }
         }
         return (if (total > 0) shadowPx.toDouble() / total else 0.0) to dv

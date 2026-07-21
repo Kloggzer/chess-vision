@@ -44,7 +44,13 @@ internal class EngineState {
     var refBgr: BgrImage? = null
     var refFen: String? = null
     var refCensus: ByteArray? = null
-    var refGamut: OcclusionGamut.Gamut? = null
+    private var refGamutMemo: OcclusionGamut.Gamut? = null
+    private var refGamutPending = false
+
+    // Census codes of the newest CURRENT frame (identity-keyed): a quiet re-anchor promotes
+    // exactly that frame to reference, so its codes become refCensus for free (2026-07-22).
+    private var curCensusFor: GrayImage? = null
+    private var curCensusCodes: ByteArray? = null
     var state = "init"
     val history = mutableListOf<String>()
     val uciHistory = mutableListOf<String>()
@@ -108,6 +114,44 @@ internal class EngineState {
     /** Census codes of the current reference, cached (ports tracker.py `_ref_census_codes`). */
     fun refCensusCodes(): ByteArray = refCensus ?: Census.transform(refGray!!).also { refCensus = it }
 
+    /** Remember the census codes of [cur] so a re-anchor on the same frame reuses them. */
+    fun cacheCurCensus(
+        cur: GrayImage,
+        codes: ByteArray,
+    ) {
+        curCensusFor = cur
+        curCensusCodes = codes
+    }
+
+    /** The reference was patched in place: all census caches keyed on it are stale. */
+    fun onRefPatched() {
+        refCensus = null
+        curCensusFor = null
+        curCensusCodes = null
+    }
+
+    /**
+     * Color gamut of the reference board, built LAZILY on first use (only motion/occlusion
+     * frames consume it) — the eager build on every quiet re-anchor cost ~14 ms/frame
+     * on-device for a result that idle frames never read (2026-07-22). [setRef] materializes
+     * a pending build before the reference it belongs to is replaced or patched, so the
+     * produced gamut is identical to the former eager build in all paths.
+     */
+    fun refGamut(): OcclusionGamut.Gamut? {
+        if (refGamutPending) {
+            refGamutPending = false
+            val bgr = refBgr
+            val gray = refGray
+            refGamutMemo =
+                if (bgr != null && gray != null) {
+                    EnginePerf.stage("gamut") { OcclusionGamut.boardColorGamut(bgr, BoardGeometry(gray.width)) }
+                } else {
+                    null
+                }
+        }
+        return refGamutMemo
+    }
+
     fun markStuck(reason: String) {
         stuckCount = if (stuckReason == reason) stuckCount + 1 else 1
         stuckReason = reason
@@ -129,16 +173,22 @@ internal class EngineState {
         curBgr: BgrImage?,
         fromCommit: Boolean = false,
     ) {
+        // A commit keeps the previous quiet-anchor gamut: materialize a still-pending build
+        // from the OLD reference before that reference is replaced below (lazy == eager).
+        if (fromCommit) refGamut()
         refGray = curGray
         if (curBgr != null) {
             refBgr = curBgr
             if (!fromCommit) {
-                refGamut = OcclusionGamut.boardColorGamut(curBgr, BoardGeometry(curGray.width))
+                refGamutMemo = null
+                refGamutPending = true
             }
         }
         refFen = game.fen()
         referenceVersion++
-        refCensus = null
+        // A quiet re-anchor promotes the frame whose census codes were just computed for
+        // detection — reuse them instead of re-encoding the new reference next frame.
+        refCensus = if (curGray === curCensusFor) curCensusCodes else null
         motionSinceRef = false
         // A new base truth invalidates conflicts computed against the previous pairing
         // (covers commit, quiet re-anchor, and CNN resync in one place).
@@ -151,7 +201,8 @@ internal class EngineState {
         refBgr = null
         refFen = null
         refCensus = null
-        refGamut = null
+        refGamutMemo = null
+        refGamutPending = false
     }
 
     /** Provenance snapshot of the evidence behind a decision (ports tracker.py:1777). */

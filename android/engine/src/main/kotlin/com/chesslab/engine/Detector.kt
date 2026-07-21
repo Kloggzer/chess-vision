@@ -46,7 +46,7 @@ internal class Detector(
         if (ev.changed.isEmpty() && quietHandled(ev, cur, curBgr, nowS)) return
         // Invariant: occlusion-latched squares ALWAYS count toward maxChanged — a hand whose
         // squares were z-zeroed must not leave 4-6 "clean" squares that read like a legal move.
-        when (val outcome = hypothesis.generate(state.game, ev, blockedN = state.tainted.size)) {
+        when (val outcome = EnginePerf.stage("hyp") { hypothesis.generate(state.game, ev, blockedN = state.tainted.size) }) {
             is HypothesisOutcome.Stuck -> onStuck(outcome, ev, cur, curBgr, nowS)
             is HypothesisOutcome.Ambiguous -> {
                 confirmer.reset()
@@ -87,17 +87,19 @@ internal class Detector(
         nowS: Double,
     ): Evidence {
         val diffs =
-            SquareDiff.normalizeDiffs(
-                SquareDiff.perSquareDiff(state.refGray!!, cur, geom, config.diffJitterPx, config.diffIllumCancel),
-            )
+            EnginePerf.stage("diff") {
+                SquareDiff.normalizeDiffs(
+                    SquareDiff.perSquareDiff(state.refGray!!, cur, geom, config.diffJitterPx, config.diffIllumCancel),
+                )
+            }
         val z = state.noise.z(diffs).toMutableMap()
-        val cens = fuseCensusChannel(cur, z)
+        val cens = EnginePerf.stage("census") { fuseCensusChannel(cur, z) }
         applyTaintLatch(z, nowS)
         state.occlusionExpiry.entries.removeIf { nowS >= it.value }
         state.occlCoreExpiry.entries.removeIf { nowS >= it.value }
         val changed = z.filterValues { it >= config.zThr }.keys.toMutableSet()
         state.changedVals = topScores(z)
-        val shadowVeto = applyShadowVeto(cur, curBgr, changed, cens)
+        val shadowVeto = EnginePerf.stage("shadow") { applyShadowVeto(cur, curBgr, changed, cens) }
         state.changed = changed.sorted()
         // Noise learns on EVERY stable frame the non-candidate squares (tracker.py:1984);
         // the census channel learns excluded squares on a SLOW LANE (8c30888).
@@ -106,13 +108,15 @@ internal class Detector(
         // into the EMA — desensitizing exactly the squares that prove the desync, letting
         // the alarm "heal" by drift instead of by user correction.
         if (state.alarm == null) {
-            state.noise.update(diffs, exclude = changed + shadowVeto)
-            cens?.let {
-                state.censusNoise.update(it.normalized, exclude = changed + shadowVeto, excludeAlphaScale = CENSUS_SLOW_LANE)
+            EnginePerf.stage("noise") {
+                state.noise.update(diffs, exclude = changed + shadowVeto)
+                cens?.let {
+                    state.censusNoise.update(it.normalized, exclude = changed + shadowVeto, excludeAlphaScale = CENSUS_SLOW_LANE)
+                }
             }
         }
         // (Taint release happens in applyTaintLatch — motion-or-baseline gated, not timer-only.)
-        return scoreCandidates(z, changed, shadowVeto)
+        return EnginePerf.stage("score") { scoreCandidates(z, changed, shadowVeto) }
     }
 
     /**
@@ -128,7 +132,18 @@ internal class Detector(
     ): CensusChannel? {
         state.structVals = emptyList()
         if (config.censusZWeight <= 0) return null
-        val raw = Census.perSquareChange(state.refGray!!, cur, geom, refCodes = state.refCensusCodes())
+        // Encode the current frame once and remember it: a quiet re-anchor promotes this
+        // exact frame to reference, and setRef then reuses the codes (no re-encode).
+        val curCodes = Census.transform(cur)
+        state.cacheCurCensus(cur, curCodes)
+        val raw =
+            Census.perSquareChange(
+                state.refGray!!,
+                cur,
+                geom,
+                refCodes = state.refCensusCodes(),
+                curCodes = curCodes,
+            )
         val cens = SquareDiff.normalizeDiffs(raw)
         val zs = state.censusNoise.z(cens)
         val w = config.censusZWeight
@@ -368,6 +383,9 @@ internal class Detector(
         val frames = AnomalyPatcher.Frames(state.refGray!!, state.refBgr, cur, curBgr)
         val patched =
             if (config.autoPatchReference && !state.motionSinceRef && safeguard() == null) {
+                // Materialize a still-pending gamut BEFORE the reference is mutated in place
+                // (the former eager build also predated the patch; lazy == eager).
+                state.refGamut()
                 patcher.maybePatch(ev.changed, ev.best, frames, nowS) { sq ->
                     state.game.pieceCharAt(sq) != null
                 }
@@ -375,7 +393,7 @@ internal class Detector(
                 emptyList()
             }
         if (patched.isNotEmpty()) {
-            state.refCensus = null // ref mutated in place -> recode
+            state.onRefPatched() // ref mutated in place -> recode, drop identity-keyed caches
             state.note = "Reference pulled forward (${patched.joinToString(", ")}) — no move"
             if (patched.size == ev.changed.size) {
                 state.clearStuck()

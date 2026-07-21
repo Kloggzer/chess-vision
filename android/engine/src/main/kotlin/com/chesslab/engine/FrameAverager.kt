@@ -5,14 +5,19 @@ import com.chesslab.engine.api.GrayImage
 
 /**
  * Moving average over the last N stable frames (gray + color kept aligned), the
- * denoising step of tracker.py's `_RunningMean` buffers. Exact mean over the small
- * window instead of an incremental sum (identical result, no drift bookkeeping).
+ * denoising step of tracker.py's `_RunningMean` buffers. Incremental sliding sums
+ * (append adds, evict subtracts — exact integer arithmetic, no drift) instead of
+ * re-summing the whole window per frame; the mean over the window is identical to
+ * the former full recomputation. A frame-size change (dynamic resolution rewarp)
+ * restarts the window instead of mixing sizes.
  */
 internal class FrameAverager(
     private val maxLen: Int,
 ) {
     private val grays = ArrayDeque<GrayImage>()
     private val bgrs = ArrayDeque<BgrImage>()
+    private var graySum = IntArray(0)
+    private var bgrSum = IntArray(0)
 
     val size: Int get() = grays.size
 
@@ -20,37 +25,62 @@ internal class FrameAverager(
         gray: GrayImage,
         bgr: BgrImage,
     ) {
+        if (graySum.size != gray.data.size || bgrSum.size != bgr.data.size) {
+            clear()
+            graySum = IntArray(gray.data.size)
+            bgrSum = IntArray(bgr.data.size)
+        }
         grays.addLast(gray)
         bgrs.addLast(bgr)
+        addTo(graySum, gray.data)
+        addTo(bgrSum, bgr.data)
         if (grays.size > maxLen) {
-            grays.removeFirst()
-            bgrs.removeFirst()
+            subtractFrom(graySum, grays.removeFirst().data)
+            subtractFrom(bgrSum, bgrs.removeFirst().data)
         }
     }
 
     fun clear() {
         grays.clear()
         bgrs.clear()
+        java.util.Arrays.fill(graySum, 0)
+        java.util.Arrays.fill(bgrSum, 0)
     }
 
     fun meanGray(): GrayImage? =
-        mean(grays.map { it.data })?.let {
-            GrayImage(grays.first().width, grays.first().height, it)
+        if (grays.isEmpty()) {
+            null
+        } else {
+            GrayImage(grays.first().width, grays.first().height, meanOf(graySum, grays.size))
         }
 
     fun meanBgr(): BgrImage? =
-        mean(bgrs.map { it.data })?.let {
-            BgrImage(bgrs.first().width, bgrs.first().height, it)
+        if (bgrs.isEmpty()) {
+            null
+        } else {
+            BgrImage(bgrs.first().width, bgrs.first().height, meanOf(bgrSum, bgrs.size))
         }
 
-    private fun mean(buffers: List<ByteArray>): ByteArray? {
-        if (buffers.isEmpty()) return null
-        val out = ByteArray(buffers.first().size)
-        for (i in out.indices) {
-            var s = 0
-            for (b in buffers) s += b[i].px()
-            out[i] = (s / buffers.size).toByte()
-        }
+    private fun addTo(
+        acc: IntArray,
+        data: ByteArray,
+    ) {
+        for (i in data.indices) acc[i] += data[i].toInt() and BYTE_MASK
+    }
+
+    private fun subtractFrom(
+        acc: IntArray,
+        data: ByteArray,
+    ) {
+        for (i in data.indices) acc[i] -= data[i].toInt() and BYTE_MASK
+    }
+
+    private fun meanOf(
+        acc: IntArray,
+        n: Int,
+    ): ByteArray {
+        val out = ByteArray(acc.size)
+        for (i in out.indices) out[i] = (acc[i] / n).toByte()
         return out
     }
 }

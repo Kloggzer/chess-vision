@@ -1,6 +1,6 @@
 package com.chesslab.engine
 
-private const val BYTE_MASK = 0xFF
+internal const val BYTE_MASK = 0xFF
 
 /** Interleaved channels of a [com.chesslab.engine.api.BgrImage]. */
 internal const val CHANNELS = 3

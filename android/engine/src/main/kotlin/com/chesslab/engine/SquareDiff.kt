@@ -28,9 +28,11 @@ object SquareDiff {
         require(grayA.width == grayB.width && grayA.height == grayB.height) { "image sizes differ" }
         val w = grayA.width
         val h = grayA.height
+        val a = grayA.data
+        val b = grayB.data
         val signed = IntArray(w * h)
         for (i in signed.indices) {
-            signed[i] = grayA.data[i].px() - grayB.data[i].px()
+            signed[i] = (a[i].toInt() and BYTE_MASK) - (b[i].toInt() and BYTE_MASK)
         }
         if (jitterPx > 0) minAbsAgainstShifted(signed, grayA, grayB, jitterPx)
         val boxes = Squares.boxes(geom)
@@ -44,57 +46,118 @@ object SquareDiff {
         return Squares.all.zip(means).toMap()
     }
 
-    /** Keep per pixel the SIGNED diff of the ≤[j] px translation of [grayB] with minimal |·|. */
+    /**
+     * Keep per pixel the SIGNED diff of the ≤[j] px translation of [grayB] with minimal |·|.
+     * Fused single pass per pixel over all (2j+1)²-1 shifts (was one full-image pass per
+     * shift — 8x the memory traffic at j=1; device hot loop, 2026-07-22). Shift visit order
+     * matches the original (dy, dx) row-major order, ties keep the earlier shift's diff.
+     */
     private fun minAbsAgainstShifted(
         signed: IntArray,
         grayA: GrayImage,
         grayB: GrayImage,
         j: Int,
     ) {
+        val w = grayA.width
+        val h = grayA.height
+        val a = grayA.data
+        val b = grayB.data
+        // Interior: all shifted neighbors are in bounds, flat index arithmetic.
+        for (y in j until h - j) {
+            var i = y * w + j
+            val end = y * w + (w - j)
+            while (i < end) {
+                signed[i] = jitterInterior(a[i].toInt() and BYTE_MASK, signed[i], b, i, w, j)
+                i++
+            }
+        }
+        // Border ring (j px wide): same shift order with replicated-edge clamping.
+        for (y in 0 until h) {
+            if (y < j || y >= h - j) {
+                for (x in 0 until w) jitterClamped(signed, a, b, w, h, x, y, j)
+            } else {
+                for (x in 0 until j) jitterClamped(signed, a, b, w, h, x, y, j)
+                for (x in w - j until w) jitterClamped(signed, a, b, w, h, x, y, j)
+            }
+        }
+    }
+
+    @Suppress("LongParameterList")
+    private fun jitterInterior(
+        av: Int,
+        init: Int,
+        b: ByteArray,
+        i: Int,
+        w: Int,
+        j: Int,
+    ): Int {
+        var best = init
+        var absBest = if (best < 0) -best else best
         for (dy in -j..j) {
+            val rowB = i + dy * w
             for (dx in -j..j) {
                 if (dx == 0 && dy == 0) continue
-                applyShift(signed, grayA, grayB, dx, dy)
+                val d = av - (b[rowB + dx].toInt() and BYTE_MASK)
+                val ad = if (d < 0) -d else d
+                if (ad < absBest) {
+                    best = d
+                    absBest = ad
+                }
             }
         }
+        return best
     }
 
-    private fun applyShift(
+    @Suppress("LongParameterList")
+    private fun jitterClamped(
         signed: IntArray,
-        grayA: GrayImage,
-        grayB: GrayImage,
-        dx: Int,
-        dy: Int,
+        a: ByteArray,
+        b: ByteArray,
+        w: Int,
+        h: Int,
+        x: Int,
+        y: Int,
+        j: Int,
     ) {
-        val width = grayA.width
-        val height = grayA.height
-        for (y in 0 until height) {
-            val sourceY = (y + dy).coerceIn(0, height - 1)
-            val rowA = y * width
-            val rowB = sourceY * width
-            for (x in 0 until width) {
-                val sourceX = (x + dx).coerceIn(0, width - 1)
-                val d = grayA.data[rowA + x].px() - grayB.data[rowB + sourceX].px()
-                if (kotlin.math.abs(d) < kotlin.math.abs(signed[rowA + x])) signed[rowA + x] = d
+        val i = y * w + x
+        val av = a[i].toInt() and BYTE_MASK
+        var best = signed[i]
+        var absBest = if (best < 0) -best else best
+        for (dy in -j..j) {
+            val rowB = (y + dy).coerceIn(0, h - 1) * w
+            for (dx in -j..j) {
+                if (dx == 0 && dy == 0) continue
+                val sx = (x + dx).coerceIn(0, w - 1)
+                val d = av - (b[rowB + sx].toInt() and BYTE_MASK)
+                val ad = if (d < 0) -d else d
+                if (ad < absBest) {
+                    best = d
+                    absBest = ad
+                }
             }
         }
+        signed[i] = best
     }
 
-    /** Per-box mean of |signed - boxMean(signed)| — the square's uniform brightness shift cancels. */
+    /**
+     * Per-box mean of |signed - boxMean(signed)| — the square's uniform brightness shift
+     * cancels. Box sums are computed directly (the boxes cover the image once, so this is
+     * the same work as building the full integral image minus its 2 MB/frame allocation).
+     */
     private fun meanCancelledMeans(
         signed: IntArray,
         w: Int,
         boxes: List<Box>,
-    ): List<Double> {
-        val stride = w + 1
-        val ii = integral(signed, w, signed.size / w)
-        return boxes.map { b ->
+    ): List<Double> =
+        boxes.map { b ->
             if (b.area <= 0) {
                 0.0
             } else {
-                val sum =
-                    ii[b.y1 * stride + b.x1] - ii[b.y0 * stride + b.x1] -
-                        ii[b.y1 * stride + b.x0] + ii[b.y0 * stride + b.x0]
+                var sum = 0L
+                for (y in b.y0 until b.y1) {
+                    val row = y * w
+                    for (x in b.x0 until b.x1) sum += signed[row + x]
+                }
                 val mean = sum.toDouble() / b.area
                 var acc = 0.0
                 for (y in b.y0 until b.y1) {
@@ -104,7 +167,6 @@ object SquareDiff {
                 acc / b.area
             }
         }
-    }
 
     /**
      * Zero-mean normalized cross-correlation of ONE square between two grays — the literature's
