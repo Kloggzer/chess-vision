@@ -37,6 +37,7 @@ def prepare_scan(
     make_preview: bool = True,
     seed: int = 42,
     process: bool = False,
+    smooth_iters: int = 0,
 ) -> dict:
     """Import a scanned piece into the render pipeline.
 
@@ -53,12 +54,20 @@ def prepare_scan(
     ``process=True`` runs the legacy minimal cleanup (largest component + base-plane
     uprighting + clean OBJ re-export).  Handy for raw RealityScan dumps, but it can
     distort an already-finished model, so it is no longer the default.
+
+    ``smooth_iters > 0`` (verbatim mode only) additionally runs shrink-free Taubin
+    smoothing over the vertices — for raw RealityScan exports whose reconstruction
+    noise shows as extreme surface roughness.  Faces/UVs/orientation are untouched;
+    only vertex positions relax.
     """
     piece_dir = Path(out_dir) / item.name
     piece_dir.mkdir(parents=True, exist_ok=True)
     stem = item.variant
 
     if not process:
+        if smooth_iters > 0:
+            return _import_smoothed(item, piece_dir, stem, smooth_iters,
+                                    make_preview=make_preview)
         return _import_verbatim(item, piece_dir, stem, make_preview=make_preview)
 
     rng = np.random.default_rng(seed)
@@ -118,6 +127,45 @@ def prepare_scan(
 # ==============================================================================
 # Verbatim import (no geometry processing — the default)
 # ==============================================================================
+def _import_smoothed(item: ScanItem, piece_dir: Path, stem: str, iters: int, *,
+                     make_preview: bool) -> dict:
+    """Verbatim import + Taubin smoothing (lambda/nu band-pass, no shrinkage).
+
+    Unlike ``process=True`` this does NOT upright, filter components or rescale —
+    it is the verbatim path with relaxed vertex positions.  Taubin over Laplacian
+    because pure Laplacian smoothing shrinks thin features (knight ears, cross on
+    the king); Taubin's negative second pass compensates.
+    """
+    import trimesh
+
+    rng = np.random.default_rng(0)                 # only consumed by texture extraction
+    mesh, tex_img = _load_and_extract(item, rng)
+    tris = len(mesh.faces)
+    _log.info("smoothing %s/%s: %d tris, taubin x%d", item.name, stem, tris, iters)
+    # Smooth on a WELDED copy, then map positions back to the original (UV-split) vertices.
+    # OBJ exports duplicate every vertex along a UV seam; smoothing the duplicates
+    # independently tears the seams open (visible dark crack lines in the render).
+    v = np.asarray(mesh.vertices)
+    uniq, inv = np.unique(np.round(v, 6), axis=0, return_inverse=True)
+    welded = trimesh.Trimesh(vertices=uniq.copy(), faces=inv[np.asarray(mesh.faces)],
+                             process=False)
+    trimesh.smoothing.filter_taubin(welded, lamb=0.5, nu=0.53, iterations=iters)
+    mesh.vertices = np.asarray(welded.vertices)[inv]
+
+    tex_dst = piece_dir / f"{stem}.png"
+    _write_trimesh_obj(mesh, stem, piece_dir, tex_img, tex_dst)
+
+    report = {"piece": item.name, "variant": stem, "verbatim": True,
+              "smooth_iters": int(iters), "tris": int(tris)}
+    (piece_dir / f"{stem}_report.json").write_text(json.dumps(report, indent=2),
+                                                   encoding="utf-8")
+    _log.info("smoothed import -> %s", piece_dir / f"{stem}.obj")
+
+    if make_preview:
+        _render_previews(mesh, stem, piece_dir, tex_dst)
+    return report
+
+
 def _import_verbatim(item: ScanItem, piece_dir: Path, stem: str, *, make_preview: bool) -> dict:
     """Place a render-ready model as ``<piece>/<variant>`` WITHOUT touching geometry.
 
