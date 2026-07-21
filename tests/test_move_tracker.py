@@ -2574,6 +2574,122 @@ def test_no_alarm_without_cnn(monkeypatch):
     assert t.status()["alarm"] is None
 
 
+def _alarmed_tracker(monkeypatch):
+    """Tracker with a LATCHED illegal-move alarm (board after Nf3; CNN sees the white
+    king teleported e1->g1). Mirrors test_alarm_triggers_after_n_stable_mismatches."""
+    t = _make_tracker(monkeypatch, cnn_run="stub", confirm_frames=1,
+                      cnn_cooldown_s=0.0, cnn_check_interval_s=3600.0,
+                      settle_frames=1, desync_obs_n=3)
+    t.board.push_san("Nf3")
+    t.board.castling_rights = 0
+    stub = _AlarmStub(match=False, conflicts=["e1", "g1"])
+    stub.set_obs_for_board(t.board, overrides={"e1": "empty", "g1": "wK"})
+    t.recovery = stub
+    t._last_corners = [[0, 0], [400, 0], [400, 400], [0, 400]]
+    [t._gray_buf.append(np.zeros((8, 8), np.uint8)) for _ in range(t.avg_frames)]
+    with t.lock:
+        t._mark_stuck("no_legal_move")
+    for seq in (1, 2, 3):
+        with t.lock:
+            t._mark_stuck("no_legal_move")
+        t._cnn_tick(_mk_snap(t, seq=seq))
+    assert t._alarm is not None, "helper precondition: alarm must be latched"
+    return t
+
+
+def test_alarm_latch_discards_candidates_and_freezes_learning(monkeypatch):
+    """(a) Latch semantics: while alarmed, a clean diff candidate is discarded, the
+    reference is NOT pulled forward and the noise model does NOT learn — nothing may
+    silently drift the tracker back toward 'legal'."""
+    t = _alarmed_tracker(monkeypatch)
+    t.ref_gray = _gray_frame(["e7"], base=128)     # black to move: clean e7e5 evidence
+    t.ref_fen = t.board.fen()
+    old_ref = t.ref_gray
+    noise_mean_before = dict(t.noise.mean)
+    t._motion_since_ref, t._last_motion_ts = True, time.time()
+    t._try_detect(_gray_frame(["e5"], base=128))
+    assert t.history == [], "move committed despite latched alarm"
+    assert "desynced" in t.note
+    assert t.ref_gray is old_ref, "reference pulled forward despite alarm"
+    assert dict(t.noise.mean) == noise_mean_before, "noise model learned while alarmed"
+
+
+def test_undo_clears_alarm_latch(monkeypatch):
+    """(b) Undo is a user correction: the latch releases (and re-arms only after
+    desync_obs_n FRESH observations if the board is still wrong)."""
+    t = _alarmed_tracker(monkeypatch)
+    t.history = ["Nf3"]                            # board stack holds Nf3 (push_san)
+    t.undo()
+    assert t._alarm is None
+    assert t._desync_obs == 0
+    assert t._desync_conflicts == set()
+    assert t.status()["alarm"] is None
+    assert t.history == []
+
+
+def test_baseline_clears_alarm_latch(monkeypatch):
+    """(b) 'Baseline' asserts the physical board matches the shown FEN — latch releases."""
+    t = _alarmed_tracker(monkeypatch)
+    res = t.capture_baseline()
+    assert res["ok"] is True
+    assert t._alarm is None
+    assert t._desync_obs == 0
+    assert t.status()["alarm"] is None
+
+
+def test_reset_fen_clears_alarm_latch(monkeypatch):
+    """(b) An explicit FEN resync (the /api/reset path) releases the latch and logs the
+    discontinuity."""
+    t = _alarmed_tracker(monkeypatch)
+    t.reset_to_start(t.board.fen())
+    assert t._alarm is None
+    assert any(d.get("reason") == "illegal_move_accepted" for d in t._decision_log)
+
+
+def test_accept_cnn_position_adopts_board_and_clears_latch(monkeypatch):
+    """(b) 'Accept CNN position' rebuilds the game state from the observation on the
+    label-confident squares, keeps the side to move, clears history + latch."""
+    t = _alarmed_tracker(monkeypatch)
+    t.history = ["Nf3"]
+    t._last_frame = np.zeros((8, 8, 3), np.uint8)
+    res = t.accept_cnn_position()
+    assert res["ok"] is True, res
+    assert t.board.piece_at(chess.E1) is None
+    assert t.board.piece_at(chess.G1) == chess.Piece.from_symbol("K")
+    assert t.board.piece_at(chess.F3) == chess.Piece.from_symbol("N")  # untouched squares kept
+    assert t.board.turn == chess.BLACK, "side to move must be preserved"
+    assert t.history == [], "history must be cleared (game continuity is broken)"
+    assert t._alarm is None
+    assert t.status()["alarm"] is None
+
+
+def test_accept_cnn_position_rejects_missing_king(monkeypatch):
+    """A CNN observation without both kings must NOT be adopted — latch stays."""
+    t = _alarmed_tracker(monkeypatch)
+    t.recovery.set_obs_for_board(t.board, overrides={"e1": "empty"})  # white king vanishes
+    fen_before = t.board.fen()
+    t._last_frame = np.zeros((8, 8, 3), np.uint8)
+    res = t.accept_cnn_position()
+    assert res["ok"] is False
+    assert "king" in res["error"].lower()
+    assert t.board.fen() == fen_before
+    assert t._alarm is not None, "latch must survive a rejected correction"
+
+
+def test_alarm_status_fields_for_ui(monkeypatch):
+    """(c) The status payload carries everything the red-board UI renders."""
+    t = _alarmed_tracker(monkeypatch)
+    s = t.status()
+    a = s["alarm"]
+    assert a is not None
+    assert a["kind"] == "illegal_move"
+    assert a["since"] > 0
+    assert set(a["conflicts"]) == {"e1", "g1"}
+    assert a["guess"] == "e1g1"
+    assert a["guess_san"], "guess_san must be renderable for the UI"
+    assert "ILLEGAL" in s["note"]
+
+
 # ---------------------------------------------------------------------------------------
 # Spec 11 phase 00: free-running observer + frame-signature snapshots
 # ---------------------------------------------------------------------------------------

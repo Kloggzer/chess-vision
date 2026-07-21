@@ -26,6 +26,12 @@
   .waiting { background: #14532d; color: #bbf7d0; }
   .move { background: #1e3a8a; color: #bfdbfe; }
   .alarm-banner { background: #7f1d1d; color: #fecaca; padding: 6px 12px; border-radius: 4px; font-weight: 700; font-size: 14px; text-align: center; margin-bottom: 8px; display: none; }
+  /* Illegal-move latch: the reconstructed board turns red until the user corrects. */
+  .card.alarmed { background: #200a0a; border-color: #dc2626; box-shadow: 0 0 0 2px #7f1d1d; }
+  .card.alarmed img.board { outline: 3px solid #dc2626; border-radius: 8px; }
+  .alarm-panel { display: none; background: #450a0a; border: 1px solid #dc2626; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+  .alarm-panel .title { color: #fecaca; font-weight: 700; }
+  .alarm-panel .info { color: #fca5a5; font-size: 12px; margin: 4px 0 8px; }
   .note { color: #a1a1aa; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   table.moves { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
   table.moves td { padding: 2px 8px; border-top: 1px solid #1f1f23; }
@@ -145,8 +151,18 @@
       </details>
     </div>
   </div>
-  <div class="card">
+  <div class="card" id="boardCard">
     <h2>Reconstructed board</h2>
+    <div id="alarmPanel" class="alarm-panel">
+      <div class="title">⚠ Illegal move detected — please correct the position</div>
+      <div id="alarmInfo" class="info"></div>
+      <div class="row" style="gap:8px">
+        <button onclick="undo()" title="Take back the last tracked move (use when the tracker committed a wrong move)">↩ Undo</button>
+        <button onclick="acceptCnn()" id="acceptCnnBtn"
+                title="Adopt the position as the CNN sees it — move history is cleared, tracking continues from the new position">✓ Accept CNN position</button>
+        <button onclick="baseline()" title="The physical board DOES match the shown FEN — just re-capture the reference image">📷 Baseline</button>
+      </div>
+    </div>
     <div class="row" style="margin-bottom:8px">
       <span>Turn: <b id="turn">—</b></span>
       <span id="check" style="color:#f87171"></span>
@@ -281,6 +297,13 @@ async function reset() {
 }
 async function baseline() { await post("/api/baseline", {}); }
 async function undo() { await post("/api/undo", {}); }
+async function acceptCnn() {              // illegal-move correction: adopt what the CNN sees
+  if (!window.confirm("Adopt the position as the CNN currently sees it?\n\nThe move history is cleared and tracking continues from the new position.")) return;
+  const r = await post("/api/accept_cnn", {});
+  document.getElementById("note").textContent =
+    (r && r.ok === false) ? (r.error || "accept failed") : (r.note || "CNN position adopted");
+  lastFen = "";                          // reload board SVG immediately
+}
 async function reattach() {                 // rebuild the camera feed without a session restart
   const note = document.getElementById("note");
   note.textContent = "reattaching camera…";
@@ -476,13 +499,22 @@ async function poll() {
       cnn.textContent = s.cnn_status === "mismatch" ? "CNN: weicht ab" : "CNN";
       cnn.className = "badge " + (s.cnn_status === "mismatch" ? "moving" : "waiting");
     } else { cnn.style.display = "none"; }
-    // Referee alarm (illegal-move detector).
+    // Referee alarm (illegal-move detector): header banner + red board card with
+    // correction buttons. Tracking is latched (no commits) until the user corrects.
     const banner = document.getElementById("alarmBanner");
+    const alarmPanel = document.getElementById("alarmPanel");
+    document.getElementById("boardCard").classList.toggle("alarmed", !!s.alarm);
     if (s.alarm) {
       const gs = s.alarm.guess_san || "";
-      const sqs = (s.alarm.conflicts || []).slice(0, 4).join(", ");
-      banner.textContent = `⚠ ILLEGAL MOVE: ${gs || sqs} — take it back, or Resync to accept`;
+      const sqs = (s.alarm.conflicts || []).join(", ");
+      banner.textContent = `⚠ ILLEGAL MOVE: ${gs || sqs} — take it back, or correct below`;
       banner.style.display = "block";   // class default is display:none — "" would fall back to it
+      alarmPanel.style.display = "block";
+      document.getElementById("alarmInfo").textContent =
+        (gs ? `Suspected illegal move: ${gs}. ` : "")
+        + (sqs ? `Conflict squares: ${sqs}. ` : "")
+        + "Tracking is frozen — no moves are committed until the position is corrected "
+        + "(take the move back, or use a button below).";
       // Single audio beep per alarm instance, max one per 30 s: a flapping alarm
       // (clears on a good observation, re-triggers on the next bad one) must not
       // beep on every re-activation — the banner carries the persistent signal.
@@ -496,6 +528,7 @@ async function poll() {
       }
     } else {
       banner.style.display = "none";
+      alarmPanel.style.display = "none";
     }
     document.getElementById("note").textContent = s.note || "";
     document.getElementById("turn").textContent = s.turn === "white" ? "White" : "Black";

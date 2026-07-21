@@ -232,6 +232,15 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
             return {"ok": False, "error": "not started"}
         return t.resync_cnn()
 
+    @app.post("/api/accept_cnn")
+    def accept_cnn():
+        """Adopt the CNN-observed position as the new game state (illegal-move correction:
+        history is cleared, the alarm latch is released, the reference is re-captured)."""
+        t = _STATE.get("tracker")
+        if t is None:
+            return {"ok": False, "error": "not started"}
+        return t.accept_cnn_position()
+
     @app.post("/api/reset")
     def reset(fen: str = Body(None, embed=True)):
         t = _STATE.get("tracker")

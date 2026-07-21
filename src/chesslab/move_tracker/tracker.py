@@ -1351,6 +1351,23 @@ class MoveTracker:
         return taint
 
     # -- Control --
+    def _clear_alarm(self, log_reason: str | None = None) -> None:
+        """Release the illegal-move latch (under self.lock). Only explicit user corrections
+        (undo / FEN resync / baseline / accept-CNN) and a VERIFIED board restore (match_ok /
+        a recovery sequence resolving all conflict squares) may call this — nothing in the
+        detection pipeline is allowed to heal the alarm silently. With `log_reason` the
+        discontinuity lands in the decision log (provenance)."""
+        if self._alarm is None:
+            return
+        self._alarm = None
+        self._desync_obs = 0
+        self._desync_conflicts = set()
+        if log_reason:
+            self._decision_log.append({"ts": time.time(), "ply": len(self.history),
+                                       "move": None, "san": None,
+                                       "fen_after": self.board.fen(),
+                                       "decider": "user", "reason": log_reason})
+
     def reset_to_start(self, fen: str | None = None):
         """Set board to start/FEN and use the current camera image as reference
         (= "I just set up this position")."""
@@ -1391,14 +1408,7 @@ class MoveTracker:
             self._occl_grid_active = False
             self._grid_coverage = 1.0
             # Clear any outstanding alarm (user accepted reality by resyncing).
-            if self._alarm is not None:
-                self._alarm = None
-                self._desync_obs = 0
-                self._desync_conflicts = set()
-                # Log the discontinuity
-                self._decision_log.append({"ts": time.time(), "ply": len(self.history),
-                                            "move": None, "san": None, "fen_after": self.board.fen(),
-                                            "decider": "user", "reason": "illegal_move_accepted"})
+            self._clear_alarm("illegal_move_accepted")
 
     def capture_baseline(self) -> dict:
         """Take a new baseline now: use the current camera image as reference for the
@@ -1423,6 +1433,9 @@ class MoveTracker:
             self._cnn_snap = None
             self._anomaly_since = {}
             self.state = "waiting"
+            # 📷 Baseline is a user correction path: "the physical board matches the shown
+            # FEN, refresh the reference" — release the illegal-move latch.
+            self._clear_alarm("illegal_move_accepted")
             self.note = "Baseline: re-capturing reference from the next clear frame…"
             return {"ok": True, "note": self.note}
 
@@ -1908,9 +1921,7 @@ class MoveTracker:
                 self.cnn_status, self.cnn_conflicts = "ok", []
                 # Clear any outstanding alarm: take-back detected (board restored).
                 if self._alarm is not None:
-                    self._alarm = None
-                    self._desync_obs = 0
-                    self._desync_conflicts = set()
+                    self._clear_alarm()
                     self.note = "board restored — alarm cleared"
                 self._recovery_confirmer.reset()
                 if self._stuck_reason is not None                         and (obs_gray is not None or self._last_cur is not None):
@@ -2033,11 +2044,8 @@ class MoveTracker:
             self.cnn_status, self.cnn_conflicts = "ok", []
             self._confirmer.reset()
             self._clear_stuck()
-            if self._alarm is not None:
-                # Successful commit while alarmed = the move resolved the conflict — clear alarm
-                self._alarm = None
-                self._desync_obs = 0
-                self._desync_conflicts = set()
+            # Successful commit while alarmed = the move resolved the conflict — clear alarm
+            self._clear_alarm()
             self.note = (
                 f"Move detected by CNN recovery: {' + '.join(sans)} (agreement {agreement:.0%})")
 
@@ -2415,14 +2423,7 @@ class MoveTracker:
             if self.board.fen() != fen:
                 return {"ok": False, "error": "Board changed during analysis"}
             # Any CNN-resync clears an outstanding alarm (user accepts reality).
-            if self._alarm is not None:
-                self._alarm = None
-                self._desync_obs = 0
-                self._desync_conflicts = set()
-                self._decision_log.append({"ts": time.time(), "ply": len(self.history),
-                                            "move": None, "san": None,
-                                            "fen_after": self.board.fen(),
-                                            "decider": "user", "reason": "illegal_move_accepted"})
+            self._clear_alarm("illegal_move_accepted")
             res = recovery.resync_check(self.board, obs)
             if res["match"]:
                 self.cnn_status, self.cnn_conflicts = "ok", []
@@ -2455,6 +2456,61 @@ class MoveTracker:
                 self.note = f"CNN resync: no unambiguous move — conflicts on {shown}"
             return {"ok": True, "match": False, "conflicts": res["conflicts"],
                     "move": res["move"], "agreement": res["agreement"], "note": self.note}
+
+    def accept_cnn_position(self) -> dict:
+        """Manual "adopt what the CNN sees" correction (illegal-move alarm UI): rebuild the
+        game state from the physical board as observed by the CNN. Label-confident squares
+        take the observed piece; unconfident/occluded squares keep the current game-state
+        piece (identity precision is limited — minimal edit, not a blind FEN rebuild).
+        Side to move is preserved; castling rights are pruned to what the new position
+        still supports; the move history is cleared (an illegal move broke game
+        continuity by definition) and the alarm latch is released."""
+        if not self.cnn_run or self._cnn_failed:
+            return {"ok": False, "error": "CNN not configured (--cnn-run) or disabled"}
+        with self.lock:
+            frame = None if self._last_frame is None else self._last_frame.copy()
+            corners = self._last_corners
+            fen0 = self.board.fen()
+        if frame is None or corners is None:
+            return {"ok": False, "error": "no camera image/no corners — tracker started?"}
+        recovery = self._ensure_cnn()
+        if recovery is None:
+            return {"ok": False, "error": "CNN recovery disabled (model missing/broken)"}
+        try:
+            obs = recovery.observe(frame, corners)
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": f"CNN observation failed: {e}"}
+        if getattr(obs, "label", None) is None:
+            return {"ok": False, "error": "CNN run provides no piece identity — use Undo/FEN"}
+        with self.lock:
+            if self.board.fen() != fen0:
+                return {"ok": False, "error": "Board changed during analysis"}
+            b = self.board.copy(stack=False)
+            lc = obs.label_confident(getattr(recovery, "conf_thr", self.cnn_conf_thr))
+            for sq in _ALL:
+                if not lc.get(sq):
+                    continue                      # unsure/occluded → keep game-state piece
+                lab = obs.label[sq]
+                sq_i = chess.parse_square(sq)
+                if lab == "empty":
+                    b.remove_piece_at(sq_i)
+                else:
+                    b.set_piece_at(sq_i, chess.Piece.from_symbol(
+                        lab[1].upper() if lab[0] == "w" else lab[1].lower()))
+            if (len(b.pieces(chess.KING, chess.WHITE)) != 1
+                    or len(b.pieces(chess.KING, chess.BLACK)) != 1):
+                return {"ok": False, "error": "CNN position has missing/extra kings — "
+                                              "correct via Undo or an explicit FEN resync"}
+            b.castling_rights = b.clean_castling_rights()
+            b.ep_square = None
+            fen = b.fen()
+        # reset_to_start clears history + latch (logs illegal_move_accepted) and
+        # capture_baseline re-captures the visual reference for the adopted position.
+        self.reset_to_start(fen)
+        self.capture_baseline()
+        with self.lock:
+            self.note = "CNN position adopted — alarm cleared, re-capturing reference…"
+            return {"ok": True, "fen": fen, "note": self.note}
 
     def _set_ref(self, cur, cur_bgr=None, from_commit: bool = False) -> None:
         """Set base truth as (image, FEN) pair: ref_gray/ref_bgr and ref_fen stay coupled.
@@ -2815,10 +2871,15 @@ class MoveTracker:
         # stuck state, otherwise jitter (marker/exposure) can never be adapted away. Shadowed
         # and occluded squares are excluded too: learning a shadow/hand into the EMA would
         # inflate that square's std and desensitize later real moves there.
-        self.noise.update(diffs, exclude=changed | shadow_veto)
-        if cens is not None:
-            self.census_noise.update(cens, exclude=changed | shadow_veto,
-                                     exclude_alpha_scale=0.125)
+        # EXCEPT while the illegal-move alarm is latched: the reference/game-state pairing
+        # is fiction, and the persistent illegal-position deltas would be adapted into the
+        # EMA — desensitizing exactly the squares that prove the desync, letting the alarm
+        # "heal" by drift instead of by user correction.
+        if self._alarm is None:
+            self.noise.update(diffs, exclude=changed | shadow_veto)
+            if cens is not None:
+                self.census_noise.update(cens, exclude=changed | shadow_veto,
+                                         exclude_alpha_scale=0.125)
         # (Taint release happens above in step 2 — motion-or-baseline gated, not timer-only.)
 
         # 5. LL-scoring + quiet/re-anchor. A move is viable only if BOTH endpoints carry at
@@ -2997,8 +3058,10 @@ class MoveTracker:
                 # Channel-local guard: no legal move (not even a pair) explains this
                 # many structurally-hot squares → global disturbance (wobble, warp
                 # shift). Drop the census channel THIS frame and learn the
-                # disturbance into its noise model so it adapts away.
-                self.census_noise.update(cens)
+                # disturbance into its noise model so it adapts away — unless the
+                # illegal-move alarm is latched (no learning while desynced).
+                if self._alarm is None:
+                    self.census_noise.update(cens)
                 cens = None
                 self._cens_raw = None
                 self._struct_vals = []
@@ -3669,6 +3732,10 @@ class MoveTracker:
         crop. Repeatable: each undo pops one move (handles a cascade of wrong decisions)."""
         bad = None
         with self.lock:
+            # Undo is a user correction path: the game state changes, so the alarm's
+            # conflict set is stale — release the latch; if the board is STILL desynced
+            # the detector re-arms it after desync_obs_n fresh observations.
+            self._clear_alarm("illegal_move_undone")
             if self.history:
                 self.board.pop()
                 self.history.pop()
