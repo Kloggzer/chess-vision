@@ -3719,6 +3719,36 @@ class MoveTracker:
         ok, buf = cv2.imencode(".jpg", warped, [cv2.IMWRITE_JPEG_QUALITY, 80])
         return buf.tobytes() if ok else None
 
+    def cnn_crops_jpeg(self):
+        """Debug view: the EXACT 64 crops the CNN receives, tiled 8x8 with square labels.
+        Built from the raw `_last_frame` through `serving.crops_for_model` (the live
+        inference path: run geometry, pad_up, photometry — NO display overlays), so what
+        you see here is byte-identical to the model input. User-requested 2026-07-21
+        while chasing the h6 dark-corner misread."""
+        with self.lock:
+            frame = None if self._last_frame is None else self._last_frame.copy()
+            corners = self._last_corners
+        if frame is None or corners is None:
+            return None
+        recovery = self._ensure_cnn()
+        if recovery is None:
+            return None
+        from .. import labeling, serving
+        spec = serving.run_spec(recovery.run_dir)
+        crops = serving.crops_for_model(frame, corners, recovery.profile, spec)
+        squares = labeling.all_squares()
+        tile_w = 128
+        tiles = []
+        for sq, c in zip(squares, crops, strict=False):
+            h = int(round(c.shape[0] * tile_w / max(1, c.shape[1])))
+            t = cv2.resize(c, (tile_w, h))
+            t = cv2.copyMakeBorder(t, 16, 1, 1, 1, cv2.BORDER_CONSTANT, value=(25, 25, 25))
+            cv2.putText(t, sq, (4, 12), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+            tiles.append(t)
+        rows = [np.hstack(tiles[i:i + 8]) for i in range(0, 64, 8)]
+        ok, buf = cv2.imencode(".jpg", np.vstack(rows), [cv2.IMWRITE_JPEG_QUALITY, 90])
+        return buf.tobytes() if ok else None
+
     def calib_overlay_jpeg(self, width: int = 640):
         """Raw camera image with calibration overlay (green grid/board + orange marker box) —
         for aligning/moving the board into view. Built on-demand only (toggle in the
