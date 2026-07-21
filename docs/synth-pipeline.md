@@ -49,7 +49,20 @@ with open('data/synth_fens.txt', 'w') as f:
     for fen in fens:
         f.write(fen + '\n')
 "
+
+# Targeted neighbour-bleed positions (2026-07-21): tall pieces (queens 2x) in
+# stripes with guaranteed empty lines between them — every empty square gets
+# 1-2 tall orthogonal neighbours whose 3D lean bleeds into its crop. This is
+# the hard-negative material for the "empty dark square read as a piece" gap.
+uv run python synth/fens.py data/fens_bleed.txt --mode bleed --n 3000 --seed 7
 ```
+
+> **Per-view piece-material jitter** (`randomize_piece_materials`, 2026-07-21):
+> every scanned piece material carries a neutral `PieceJitter` HSV node that the
+> render loop perturbs per view — black pieces get a wide VALUE range (0.55-1.5)
+> so the bright-crown outliers where a real bQ looks like a wQ enter training
+> with the correct label (the bQ→wQ color-flip class). Smoke-render 8 frames and
+> eyeball them before any big run.
 
 > Use a diverse position list — basic position only gives you no class balance variety.
 
