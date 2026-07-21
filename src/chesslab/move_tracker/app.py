@@ -362,6 +362,16 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
             return Response(status_code=204)
         return Response(jpg, media_type="image/jpeg")
 
+    @app.get("/crops.jpg")
+    def cnn_crops():
+        """The exact 64 CNN input crops (raw frame -> serving.crops_for_model), tiled 8x8.
+        Debug: shows what the model actually sees — no display overlays."""
+        t = _STATE.get("tracker")
+        jpg = t.cnn_crops_jpeg() if t is not None else None
+        if not jpg:
+            return Response(status_code=204)
+        return Response(jpg, media_type="image/jpeg")
+
     @app.get("/warped.mjpg")
     def warped(view: str = "board"):
         from ..serve import SHUTDOWN
