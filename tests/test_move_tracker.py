@@ -2597,6 +2597,32 @@ def _alarmed_tracker(monkeypatch):
     return t
 
 
+def test_quiet_reanchor_vetoed_by_confident_cnn_conflict(monkeypatch):
+    """Bxc3 incident (2026-07-21): a real move whose commit was rejected (motion gate
+    missed the hand) leaves the board ahead of the game state; once the diff evidence
+    decays the quiet re-anchor baked the un-committed move into the reference — a
+    silent desync with no alarm. A fresh observation with a confident OCCUPANCY
+    conflict must veto the re-anchor and mark stuck (recovery derives the move)."""
+    mt = _make_tracker(monkeypatch, cnn_run="stub", confirm_frames=1)
+    mt.recovery = _FakeRecovery()
+    ref = _gray_frame([])
+    mt.ref_gray, mt.ref_fen = ref, mt.board.fen()
+    old_ref = mt.ref_gray
+    # CNN confidently sees e2 EMPTY while the start position believes a pawn there.
+    obs = _FakeObs({"e2": False}, {"e2": True})
+    mt._cnn_snap = CnnSnapshot(obs=obs, seq=1, ts=time.time(), infer_ms=0.0,
+                               warped=None, gray=None, fen=mt.board.fen())
+    mt._try_detect(ref)                        # identical frame -> quiet path
+    assert mt.ref_gray is old_ref, "re-anchored over a CNN-confirmed desync"
+    assert mt._stuck_reason == "cnn_desync"
+    # Same quiet frame WITHOUT a conflicting observation -> re-anchor proceeds.
+    mt._clear_stuck()
+    mt._cnn_snap = CnnSnapshot(obs=_FakeObs({}, {}), seq=2, ts=time.time(),
+                               infer_ms=0.0, warped=None, gray=None, fen=mt.board.fen())
+    mt._try_detect(ref)
+    assert mt._stuck_reason is None
+
+
 def test_alarm_latch_discards_candidates_and_freezes_learning(monkeypatch):
     """(a) Latch semantics: while alarmed, a clean diff candidate is discarded, the
     reference is NOT pulled forward and the noise model does NOT learn — nothing may
