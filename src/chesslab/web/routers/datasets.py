@@ -49,6 +49,60 @@ def class_crops(cls: str, offset: int = 0, limit: int = 60, dataset: str | None 
                        "frame": r["frame"], "square": r["square"]} for r in page]}
 
 
+@router.get("/api/datasets/{name}/montage/{cls}")
+def class_montage(name: str, cls: str, n: int = Query(64, le=256), tile: int = Query(64, le=128)):
+    """One PNG montage (~8 cols) of `n` sample crops of a class — works for FUSED datasets too
+    (mm:// rows have no files; pixels come straight from the packed memmap)."""
+    import io
+    import random as _random
+
+    import numpy as np
+    from fastapi import Response
+    from PIL import Image
+
+    from ... import config
+    from ...manifest_cache import rows_for_label
+    from ...training.pack import load_packed, open_packed_memmap
+
+    if cls not in config.CLASSES:
+        raise HTTPException(404, f"unknown class {cls}")
+    rows = rows_for_label(_manifest_file(name), cls)
+    if not rows:
+        raise HTTPException(404, f"no '{cls}' crops in dataset '{name}'")
+    sample = rows if len(rows) <= n else _random.Random(config.SEED).sample(rows, n)
+
+    packed = load_packed(name)
+    mm = open_packed_memmap(packed[0], packed[1]) if packed else None
+    p2i = packed[2] if packed else {}
+
+    tiles = []
+    for r in sample:
+        idx = p2i.get(str(r["path"]))
+        if mm is not None and idx is not None:
+            im = Image.fromarray(np.array(mm[idx]))
+        else:
+            p = str(r["path"])
+            if p.startswith("mm://"):
+                continue                          # fused row without a valid pack — skip
+            try:
+                im = Image.open(p).convert("RGB")
+            except OSError:
+                continue
+        tiles.append(im.resize((tile, tile)))
+    if not tiles:
+        raise HTTPException(404, f"no readable crops for '{cls}' (missing packed memmap?)")
+
+    cols = 8
+    rows_n = (len(tiles) + cols - 1) // cols
+    grid = Image.new("RGB", (cols * tile, rows_n * tile), (24, 24, 27))
+    for i, t in enumerate(tiles):
+        grid.paste(t, ((i % cols) * tile, (i // cols) * tile))
+    buf = io.BytesIO()
+    grid.save(buf, format="PNG")
+    return Response(content=buf.getvalue(), media_type="image/png",
+                    headers={"Cache-Control": "max-age=300"})
+
+
 @router.get("/api/datasets")
 def datasets_list():
     from ... import dataset_build as dataset_build_mod
