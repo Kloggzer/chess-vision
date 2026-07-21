@@ -62,8 +62,7 @@ data class ModelSpec(
             )
         }
 
-        private fun JsonObject?.floats(key: String): List<Float>? =
-            this?.get(key)?.jsonArray?.map { it.jsonPrimitive.content.toFloat() }
+        private fun JsonObject?.floats(key: String): List<Float>? = this?.get(key)?.jsonArray?.map { it.jsonPrimitive.content.toFloat() }
     }
 }
 
