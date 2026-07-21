@@ -186,10 +186,17 @@ def session_review(sid: str, idx: int = Query(0)):
     }
 
 
+# Review images are cache-friendly: a frame's content never changes for a given index
+# (trim only cuts the TAIL, flags don't alter pixels), and the review UI preloads the
+# neighbouring indexes — without a Cache-Control the browser revalidates every step
+# and the overlay (server-side render) is recomputed although nothing changed.
+_REVIEW_CACHE = {"Cache-Control": "private, max-age=300"}
+
+
 @router.get("/api/sessions/{sid}/frame/{idx}")
 def session_frame(sid: str, idx: int):
     sdir, _archived, _rows, _clamped, entry = _review_entry(sid, idx)
-    return FileResponse(_frame_path(sdir, entry))
+    return FileResponse(_frame_path(sdir, entry), headers=_REVIEW_CACHE)
 
 
 @router.get("/api/sessions/{sid}/overlay/{idx}")
@@ -197,8 +204,8 @@ def session_overlay(sid: str, idx: int):
     sdir, _archived, _rows, _clamped, entry = _review_entry(sid, idx)
     jpg = _review_overlay_jpeg(sdir, entry)
     if jpg is None:
-        return FileResponse(_frame_path(sdir, entry))
-    return Response(jpg, media_type="image/jpeg")
+        return FileResponse(_frame_path(sdir, entry), headers=_REVIEW_CACHE)
+    return Response(jpg, media_type="image/jpeg", headers=_REVIEW_CACHE)
 
 
 @router.get("/api/sessions/{sid}/board/{idx}")
@@ -214,7 +221,8 @@ def session_board(sid: str, idx: int):
         board = chess.Board(fen)
     except ValueError as e:
         raise HTTPException(400, f"Invalid FEN in session log: {e}")
-    return Response(chess.svg.board(board, size=560), media_type="image/svg+xml")
+    return Response(chess.svg.board(board, size=560), media_type="image/svg+xml",
+                    headers=_REVIEW_CACHE)
 
 
 @router.post("/api/sessions/{sid}/archive")
