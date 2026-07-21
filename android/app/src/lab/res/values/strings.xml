@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- Lab channel: distinct launcher name so both installs are distinguishable. -->
-    <string name="app_name">chesslab LAB</string>
-</resources>
