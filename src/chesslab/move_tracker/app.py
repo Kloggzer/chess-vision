@@ -8,7 +8,6 @@ Start:  chesslab track --profile phone --source https://<PHONE-IP>:4444/video/m.
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
 import chess
@@ -109,8 +108,19 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
 
     @app.on_event("shutdown")
     def _shutdown():
+        # Signal the /warped.mjpg generator to stop, then tear down the worker threads so
+        # Ctrl+C exits within the graceful window (see chesslab/serve.py).
+        from ..serve import SHUTDOWN
+        SHUTDOWN.set()
         if analyzer is not None:
             analyzer.stop()
+        t = _STATE.get("tracker")
+        if t is not None:
+            _STATE.update(tracker=None)
+            try:
+                t.stop()          # sets _running=False, joins the capture thread (2s timeout)
+            except Exception:  # noqa: BLE001 — best-effort teardown
+                pass
 
     @app.get("/")
     def index():
@@ -343,16 +353,20 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
 
     @app.get("/warped.mjpg")
     def warped(view: str = "board"):
+        from ..serve import SHUTDOWN
+        from ..serve import sleep as _serve_sleep
+
         def gen():
             boundary = b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
-            while True:
+            while not SHUTDOWN.is_set():          # ends the stream cleanly on server shutdown
                 t = _STATE.get("tracker")
                 if t is not None:
                     t.mark_viewer()
                     jpg = t.overlay_jpeg(view)
                     if jpg:
                         yield boundary + jpg + b"\r\n"
-                time.sleep(0.05)
+                if not _serve_sleep(0.05):        # interruptible idle (Ctrl+C exits at once)
+                    break
         return StreamingResponse(gen(), media_type="multipart/x-mixed-replace; boundary=frame")
 
     return app
@@ -361,16 +375,15 @@ def create_app(default_profile: str = "phone", default_source: str = "0",
 def run(host: str = "127.0.0.1", port: int = 8001,
         default_profile: str = "phone", default_source: str = "0",
         tracker_kwargs: dict | None = None) -> int:
-    import uvicorn
-
     _STATE.update(default_profile=default_profile, default_source=default_source)
     print(f"move-tracker UI: http://{host}:{port}")
-    # timeout_graceful_shutdown: /warped.mjpg is an endless stream — without a cap,
-    # Ctrl+C waits for that connection forever (see web/app.py).
-    uvicorn.run(create_app(default_profile=default_profile, default_source=default_source,
-                           tracker_kwargs=tracker_kwargs),
-                host=host, port=port, log_level="warning", timeout_graceful_shutdown=2)
-    return 0
+    # /warped.mjpg is an endless stream — `serve.run` sets a process-wide shutdown flag in
+    # the signal handler so the generator and the tracker thread stop within the graceful
+    # window instead of blocking Ctrl+C (see chesslab/serve.py).
+    from ..serve import run as serve_run
+    app = create_app(default_profile=default_profile, default_source=default_source,
+                     tracker_kwargs=tracker_kwargs)
+    return serve_run(app, host=host, port=port)
 
 
 if __name__ == "__main__":

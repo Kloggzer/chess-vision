@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import os
 import threading
-import time
 
 import cv2
 
@@ -121,10 +120,16 @@ def mjpeg(frames, idle: float = 0.05):
     Wraps JPEG encode + multipart boundary + StreamingResponse — the caller only provides images."""
     from fastapi.responses import StreamingResponse
 
+    from ..serve import SHUTDOWN
+    from ..serve import sleep as _serve_sleep
+
     def gen():
         for img in frames:
+            if SHUTDOWN.is_set():          # server stopping: end the stream at once
+                break
             if img is None:
-                time.sleep(idle)
+                if not _serve_sleep(idle):  # idle, but interruptible by shutdown
+                    break
                 continue
             data = encode_jpeg(img)
             if data is not None:

@@ -724,6 +724,12 @@ class MoveTracker:
         self._last_read_ok = time.time()
         self._last_reattach_ts = 0.0
         self._camera_ok = True
+        # Reconnect escalation (see _loop): repeated failures back off exponentially, log ONE
+        # diagnosis instead of endless spam, and — on a local USB cam stuck at a high mode —
+        # auto-downshift once to a USB2-feasible resolution.
+        self._reconnect_attempts = 0
+        self._reconnect_diagnosed = False
+        self._reconnect_downshifted = False
         self.marker_tracker = make_tracker(self.profile)
         self.board = chess.Board()
         self.motion_thr = motion_thr          # percent of strongly-changed pixels (motion_score)
@@ -1177,6 +1183,20 @@ class MoveTracker:
             with self.lock:
                 self.note = f"camera reattach failed: {e}"
             return {"ok": False, "error": str(e)}
+        # Validate the new capture BEFORE swapping it in: a bandwidth-starved USB2 open (or a
+        # busy device) can return a handle that is open()==False or never delivers a frame.
+        # Swapping such a dead handle in makes read() return False forever → the loop reconnects
+        # every few seconds forever. Instead we release the new cap and report failure, so the
+        # loop's backoff/downshift escalation takes over.
+        if not self._capture_delivers(newcap):
+            if hasattr(newcap, "release"):
+                try:
+                    newcap.release()
+                except Exception:  # noqa: BLE001
+                    pass
+            with self.lock:
+                self.note = "camera reattach failed: opened but delivers no frames"
+            return {"ok": False, "error": "opened but delivers no frames"}
         with self.lock:
             old, self.cap = self.cap, newcap
             self.prev_gray = None
@@ -1204,6 +1224,71 @@ class MoveTracker:
             # next iteration, after its in-flight read returned.
             self._retired_cap = old
         return {"ok": True, "res": self.res}
+
+    @staticmethod
+    def _capture_delivers(cap, attempts: int = 8, per_read_s: float = 0.35) -> bool:
+        """True if `cap` opened AND actually hands back a frame within a short budget.
+
+        A USB2/busy open can return a handle that is `isOpened()==False`, or one that opens but
+        never produces a frame. Blocking driver reads at a high mode can take ~1 s each, so we
+        try a few times with small pauses (LatestFrame-wrapped URL sources also need a moment to
+        fill their single-slot buffer)."""
+        if cap is None:
+            return False
+        if hasattr(cap, "isOpened") and not cap.isOpened():
+            return False
+        for _ in range(max(1, attempts)):
+            try:
+                ok, frame = cap.read()
+            except Exception:  # noqa: BLE001 — a broken handle read is just "no frame"
+                ok, frame = False, None
+            if ok and frame is not None:
+                return True
+            time.sleep(per_read_s)
+        return False
+
+    def _reconnect_backoff(self) -> float:
+        """Seconds to wait between reconnect attempts, growing with consecutive failures so a
+        genuinely-gone source is not hammered (and its OpenCV open-failure line not spammed)
+        every 3 s forever. Base = the grace window (min 3 s), doubling per attempt, capped 30 s."""
+        base = max(3.0, self.reconnect_grace_s)
+        return min(30.0, base * (2 ** min(self._reconnect_attempts, 4)))
+
+    def _downshift_target(self) -> str | None:
+        """A lower capture mode to retry once when a LOCAL USB camera keeps failing at a
+        high-bandwidth mode — the classic USB2 case (measured: this cam does ~1 fps at 1440p
+        on USB2 and stalls, but ~5 fps at 720p). Returns "720p" once, then None. URL sources
+        (bandwidth is the network, not USB) and already-low modes are left alone."""
+        if self._reconnect_downshifted or not isinstance(self._src, int):
+            return None
+        cur = self._cam_actual or self._cam_requested
+        if self._reconnect_attempts >= 2 and cur is not None and cur[0] * cur[1] >= 1920 * 1080:
+            return "720p"
+        return None
+
+    def _log_reconnect_diagnosis(self) -> None:
+        """After a few failed reconnects, log ONE clear diagnosis (then stay quiet) instead of
+        an endless 3 s spam of OpenCV's opaque "can't be used to capture by index" line."""
+        if self._reconnect_diagnosed or self._reconnect_attempts < 2:
+            return
+        cur = self._cam_actual or self._cam_requested
+        if isinstance(self._src, int) and cur is not None:
+            w, h = cur
+            # YUY2 ≈ 2 bytes/px; ~10 fps is the floor a usable feed needs. USB2 real ≈ 35 MB/s.
+            mbps = w * h * 2 * 10 / 1e6
+            hint = ("Auto-downshifting to '720p'."
+                    if not self._reconnect_downshifted else
+                    "Even the 720p downshift failed — free the device or use a USB3 port.")
+            log.warning(
+                "camera index %s enumerates but cannot start/sustain %dx%d after %d attempts "
+                "(that mode needs ~%.0f MB/s; USB2 real bandwidth is ~35 MB/s). %s "
+                "Retry interval backing off to %.0fs.",
+                self._src, w, h, self._reconnect_attempts, mbps, hint, self._reconnect_backoff())
+        else:
+            log.warning("camera source %r keeps failing to reconnect after %d attempts; retry "
+                        "interval backing off to %.0fs.",
+                        self._src, self._reconnect_attempts, self._reconnect_backoff())
+        self._reconnect_diagnosed = True
 
     def _grid_line_coverage(self, gray) -> float:
         """Fraction of the board's interior grid lines (7 vertical + 7 horizontal) that are
@@ -1351,13 +1436,26 @@ class MoveTracker:
     def stop(self):
         """Set the shutdown signal and wait for the thread to finish (NEVER join under self.lock)."""
         self._running = False
+        alive = False
         if self._thread is not None and self._thread.is_alive():
             self._thread.join(timeout=2)
-            if self._thread.is_alive():
+            alive = self._thread.is_alive()
+            if alive:
                 # Stuck in a slow driver read: the loop finishes its current iteration (and may
                 # still commit/record once) after stop() returned. Make the zombie visible.
                 log.warning("tracker loop did not stop within 2s — thread still alive "
                             "(slow camera read?); it will exit after the current read.")
+        # Release the camera so a lingering USB/network handle can't block process shutdown.
+        # Only safe when the loop thread has actually exited (single-owner read/release rule);
+        # if it's still alive the daemon thread releases nothing and dies at interpreter exit.
+        if not alive:
+            for cap in (self.cap, self._retired_cap):
+                if cap is not None and hasattr(cap, "release"):
+                    try:
+                        cap.release()
+                    except Exception:  # noqa: BLE001 — best-effort teardown
+                        pass
+            self._retired_cap = None
 
     # -- Main loop --
     def _loop(self):
@@ -1381,19 +1479,40 @@ class MoveTracker:
                     now_f = time.time()
                     down_for = now_f - self._last_read_ok
                     # Auto-reconnect: feed has produced nothing for `reconnect_grace_s` → rebuild
-                    # the capture (dead socket/device won't recover on its own). Cooldown so we
-                    # don't spam-open a source that is genuinely gone.
+                    # the capture (dead socket/device won't recover on its own). Cooldown grows
+                    # with consecutive failures (exponential backoff) so a source that is
+                    # genuinely gone is not re-opened — and its OpenCV open-failure line not
+                    # spammed — every 3 s forever.
                     if (self.reconnect_grace_s > 0 and down_for > self.reconnect_grace_s
-                            and (now_f - self._last_reattach_ts) > max(3.0, self.reconnect_grace_s)):
+                            and (now_f - self._last_reattach_ts) > self._reconnect_backoff()):
+                        target = self._downshift_target()
                         with self.lock:                    # note/_camera_ok are read+written by API threads
                             self._camera_ok = False
-                            self.note = f"camera down {down_for:.0f}s — reconnecting…"
+                            self.note = (f"camera down {down_for:.0f}s — reconnecting"
+                                         + (f" at {target}…" if target else "…"))
                             self._last_reattach_ts = now_f
-                        self.reattach_camera()             # best-effort; blocks on URL open
+                        result = self.reattach_camera(target)   # best-effort; blocks on URL open
+                        if result.get("ok"):
+                            if target:
+                                self._reconnect_downshifted = True
+                            self._reconnect_attempts = 0
+                            self._reconnect_diagnosed = False
+                        else:
+                            self._reconnect_attempts += 1
+                            if target:
+                                # a downshift that itself failed to deliver: don't loop on it
+                                self._reconnect_downshifted = True
+                            self._log_reconnect_diagnosis()
                     elif down_for > 0.5:
                         self._camera_ok = False
                     time.sleep(0.03)
                     continue
+                # Sustained recovery: only clear the escalation state once the feed has been
+                # healthy for a real stretch (not one lucky frame between stalls), so a cam that
+                # oscillates open/stall still climbs toward the diagnosis + downshift.
+                if self._reconnect_attempts and (time.time() - self._last_reattach_ts) > 10.0:
+                    self._reconnect_attempts = 0
+                    self._reconnect_diagnosed = False
                 self._last_read_ok = time.time()
                 self._camera_ok = True
                 # Truth about the delivered mode + profile-geometry validity (no-op unless

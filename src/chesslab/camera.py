@@ -397,6 +397,15 @@ def _open_index(index: int, spec: CameraSpec):
     backend = _resolve_backend(backend_name)
     cap = cv2.VideoCapture(index, backend) if backend is not None else cv2.VideoCapture(index)
 
+    if not cap.isOpened():
+        # Make a failed open self-explanatory instead of a bare OpenCV
+        # "backend ... can't be used to capture by index" line. The most common cause on this
+        # rig is the device being busy (a second handle on the same USB cam) or bandwidth-starved
+        # on a USB2 port at a high mode — the caller (tracker reconnect) escalates from here.
+        log.warning("camera: could not open index %d on backend '%s' (device busy, unplugged, or "
+                    "another handle already has it?).", index, backend_name)
+        return cap
+
     if fourcc:
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*fourcc))
     if width:

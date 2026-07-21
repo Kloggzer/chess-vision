@@ -92,10 +92,12 @@ def scan_close():
 
 @router.get("/api/scan/preview.mjpg")
 def scan_preview():
+    from ...serve import SHUTDOWN
+
     def frames():
         last = -1
         try:
-            while True:
+            while not SHUTDOWN.is_set():   # ends the stream cleanly on server shutdown
                 img, fid = SCANNER.preview(last_id=last)
                 last = fid
                 yield img      # None -> mjpeg waits briefly (no new frame, no error image:

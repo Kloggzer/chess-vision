@@ -42,6 +42,24 @@ def create_app():
         from ..manifest_cache import manifest_stats
         manifest_stats(config.DATA.manifests / "squares.jsonl")
 
+    # Clean shutdown: signal the streaming generators to stop and release every camera
+    # handle + capture thread. Without this, the scan grab-thread keeps re-opening a dead
+    # camera and the collect stream holds a capture, blocking Ctrl+C (see chesslab/serve.py).
+    @app.on_event("shutdown")
+    def _shutdown():
+        from ..serve import SHUTDOWN
+        SHUTDOWN.set()
+        try:
+            from .camera import CAMERA
+            CAMERA.release()
+        except Exception:  # noqa: BLE001 — best-effort teardown
+            logging.getLogger("chesslab.web").debug("camera release on shutdown failed", exc_info=True)
+        try:
+            from .scan import SCANNER
+            SCANNER.close()
+        except Exception:  # noqa: BLE001 — best-effort teardown
+            logging.getLogger("chesslab.web").debug("scanner close on shutdown failed", exc_info=True)
+
     # Lazy-import routers (cv2-lazy convention: no router opens a camera on import).
     from .routers import ALL_ROUTERS
 
@@ -65,15 +83,15 @@ def run(host: str | None = None, port: int | None = None) -> int:
     host = host or config.DEFAULT_WEB_HOST
     port = port or config.DEFAULT_WEB_PORT
     try:
-        import uvicorn
+        import uvicorn  # noqa: F401 — presence check; the real serve happens in serve.run
     except ImportError:
         print("[FAIL] fastapi/uvicorn missing. Install with:  uv sync --extra web")
         return 1
     # For direct starts without CLI (python -m …): make logger visible (no-op if already configured).
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     print(f"chesslab web UI: http://{host}:{port}")
-    # timeout_graceful_shutdown: the MJPEG camera streams are endless generators —
-    # without a cap, Ctrl+C waits forever for those connections to finish.
-    uvicorn.run(create_app(), host=host, port=port, log_level="warning",
-                timeout_graceful_shutdown=2)
-    return 0
+    # The MJPEG camera streams are endless generators; `serve.run` sets a process-wide
+    # shutdown flag in the signal handler so they terminate within the graceful window
+    # instead of being force-cancelled on Ctrl+C.
+    from ..serve import run as serve_run
+    return serve_run(create_app(), host=host, port=port)
