@@ -163,12 +163,15 @@ class TrackerService : LifecycleService() {
         // itself with backoff and the status note shows "camera down" until frames flow again.
         camera.onCameraDown = { note -> coordinator.onCameraState(note) }
         cnnScope = CoroutineScope(lifecycleScope.coroutineContext + Dispatchers.Default)
+        // First start installs the bundled tiny model (no-op when a model is
+        // already imported/installed) — the safeguard works out-of-the-box.
+        val modelStore = CnnModelStore(filesDir).also { it.installBundledIfMissing(assets) }
         cnn =
             CnnIntegration(
                 coordinator,
                 cnnFrameStore::latest,
                 cnnScope,
-                CnnModelStore(filesDir),
+                modelStore,
                 debugDumpDir = getExternalFilesDir(null)?.let { java.io.File(it, "cnn_debug") },
             )
         restoreCheckpoint()
