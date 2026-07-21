@@ -184,6 +184,18 @@ class TrackerViewModel(
         service?.forcePromote(piece)
     }
 
+    /** Accept-CNN preview: the would-be minimal-edit adoption; null without CNN/observation. */
+    fun acceptCnnPreview(): com.chesslab.tracker.cnn.AcceptOutcome? = service?.acceptCnnOutcome()
+
+    /** Adopt a previewed CNN position (clears history + alarm, re-captures the reference). */
+    fun acceptCnnApply(fen: String) {
+        maybeSaveCurrentGame()
+        service?.acceptCnnApply(fen)
+    }
+
+    /** In-app CNN debug data (64 crops + per-square reads); null without CNN. */
+    fun cnnDebugData(): com.chesslab.tracker.service.CnnDebugData? = service?.cnnDebugData()
+
     fun setOverlayView(view: OverlayView) {
         selectedOverlayView = view
         service?.setOverlayView(view)

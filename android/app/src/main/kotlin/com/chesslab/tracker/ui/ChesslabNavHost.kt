@@ -155,6 +155,9 @@ private fun TrackingRoute(
             viewModel.recalibrate()
             navController.navigateTab(Dest.CALIBRATION.route)
         },
+        onAcceptCnnPreview = viewModel::acceptCnnPreview,
+        onAcceptCnnConfirm = viewModel::acceptCnnApply,
+        onCnnDebug = viewModel::cnnDebugData,
     )
 }
 

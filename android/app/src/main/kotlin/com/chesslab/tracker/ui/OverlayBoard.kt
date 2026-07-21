@@ -63,11 +63,12 @@ fun OverlayBoard(
     modifier: Modifier = Modifier,
     renderedMode: Boolean = false,
     showGrid: Boolean = false,
+    alarm: Boolean = false,
 ) {
     when {
-        renderedMode -> ChessBoard(fen = fen, modifier = modifier)
+        renderedMode -> ChessBoard(fen = fen, modifier = modifier, alarm = alarm)
         view == OverlayView.CAMERA -> CameraPreview(rawPreview = rawPreview, modifier = modifier)
-        bitmap == null -> ChessBoard(fen = fen, modifier = modifier)
+        bitmap == null -> ChessBoard(fen = fen, modifier = modifier, alarm = alarm)
         else ->
             WarpedBoard(
                 view = view,

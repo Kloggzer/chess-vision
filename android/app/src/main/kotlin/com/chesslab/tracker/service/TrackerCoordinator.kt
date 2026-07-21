@@ -47,6 +47,9 @@ class TrackerCoordinator(
     private var fpsEma = 0.0
     private var sceneDark = false
 
+    /** Non-null while the camera device is down/rebinding — overrides the engine note. */
+    private var cameraNote: String? = null
+
     /** Latest pre-CLAHE board mean brightness, set by the service frame loop (debug display). */
     @Volatile
     var meanLuma: Double = 0.0
@@ -106,6 +109,17 @@ class TrackerCoordinator(
     }
 
     /**
+     * Camera-device status (phase 03, ports dba6f29 adapted): a non-null note means the
+     * camera is down and rebinding — it overrides the engine note until frames flow again
+     * (null). The tracker keeps running; only the surfaced note changes.
+     */
+    @Synchronized
+    fun onCameraState(note: String?) {
+        cameraNote = note
+        publish(_uiState.value.announcement)
+    }
+
+    /**
      * Phase 05 wiring: feed a safeguard verdict back to the engine. Commit/reject
      * events queued by the engine surface on the next [onFrame].
      */
@@ -160,13 +174,18 @@ class TrackerCoordinator(
         publish(_uiState.value.announcement)
     }
 
-    /** Occluded-dominant squares of a fresh observation feed the engine's taint latch. */
+    /**
+     * Occluded-dominant squares of a fresh observation feed the engine's taint latch;
+     * confident occupancy conflicts against the believed position feed the quiet
+     * re-anchor veto (ports 21cf63c).
+     */
     @Synchronized
     fun reportOccluded(
         squares: Set<String>,
         ageS: Double = 0.0,
+        occupancyConflicts: Set<String> = emptySet(),
     ) {
-        engine.reportObservation(squares, ageS)
+        engine.reportObservation(squares, ageS, occupancyConflicts)
     }
 
     /** Phase 05 wiring: CNN found the stuck board unchanged — pull the reference forward. */
@@ -259,7 +278,7 @@ class TrackerCoordinator(
                 trackerState = status.state,
                 moves = status.history.mapIndexed { i, san -> MoveEntry(san, decisions.getOrNull(i)) },
                 lastMoveSan = status.history.lastOrNull(),
-                note = status.note,
+                note = cameraNote ?: status.note,
                 inCheck = status.inCheck,
                 gameOver = status.gameOver,
                 promotion = status.promotionPending?.let { PromotionRequest(it.first, it.second) },

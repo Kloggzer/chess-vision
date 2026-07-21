@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -33,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -104,11 +106,17 @@ fun TrackingScreen(
     onCalibrate: () -> Unit,
     onRecalibrate: () -> Unit,
     modifier: Modifier = Modifier,
+    onAcceptCnnPreview: () -> com.chesslab.tracker.cnn.AcceptOutcome? = { null },
+    onAcceptCnnConfirm: (String) -> Unit = {},
+    onCnnDebug: () -> com.chesslab.tracker.service.CnnDebugData? = { null },
 ) {
     var boardMode by rememberSaveable { mutableStateOf(BoardMode.RENDERED) }
     var subView by rememberSaveable { mutableStateOf(OverlayView.BOARD) }
     var confirmReset by remember { mutableStateOf(false) }
     var confirmRecalibrate by remember { mutableStateOf(false) }
+    var acceptPreview by remember { mutableStateOf<com.chesslab.tracker.cnn.AcceptOutcome?>(null) }
+    var acceptUnavailable by remember { mutableStateOf(false) }
+    var cnnDebug by remember { mutableStateOf<com.chesslab.tracker.service.CnnDebugData?>(null) }
     var debugExpanded by rememberSaveable { mutableStateOf(false) }
     var showStuckRecovery by remember { mutableStateOf(false) }
     var recoveryCollapsed by remember { mutableStateOf(false) }
@@ -149,6 +157,7 @@ fun TrackingScreen(
                     modifier = Modifier.fillMaxWidth().heightIn(max = BOARD_MAX_DP.dp),
                     renderedMode = render.rendered,
                     showGrid = showDebug,
+                    alarm = state.alarm != null,
                 )
             }
 
@@ -185,6 +194,10 @@ fun TrackingScreen(
                     expanded = debugExpanded,
                     onToggle = { debugExpanded = !debugExpanded },
                 )
+                // In-app view of the exact CNN inputs/reads (phase 04, ports 6e31e35).
+                GhostButton(onClick = { cnnDebug = onCnnDebug() }) {
+                    Text(stringResource(R.string.cnn_debug_action))
+                }
             }
         }
 
@@ -224,6 +237,14 @@ fun TrackingScreen(
                         // re-anchoring the baseline at the current board is usually the right fix.
                         PrimaryButton(onClick = onNewBaseline) { Text(stringResource(R.string.action_new_baseline)) }
                         GhostButton(onClick = onUndo) { Text(stringResource(R.string.alarm_take_back)) }
+                        if (state.alarm != null) {
+                            // Adopt-what-the-CNN-sees correction, preview first (779fb86).
+                            GhostButton(onClick = {
+                                val preview = onAcceptCnnPreview()
+                                acceptPreview = preview
+                                acceptUnavailable = preview == null
+                            }) { Text(stringResource(R.string.accept_cnn_action)) }
+                        }
                         GhostButton(onClick = { confirmRecalibrate = true }) {
                             Text(stringResource(R.string.action_recalibrate))
                         }
@@ -255,6 +276,18 @@ fun TrackingScreen(
             onDismiss = { confirmRecalibrate = false },
         )
     }
+    CnnDialogs(
+        acceptPreview = acceptPreview,
+        acceptUnavailable = acceptUnavailable,
+        cnnDebug = cnnDebug,
+        onAcceptConfirm = { fen ->
+            acceptPreview = null
+            onAcceptCnnConfirm(fen)
+        },
+        onDismissPreview = { acceptPreview = null },
+        onDismissUnavailable = { acceptUnavailable = false },
+        onDismissDebug = { cnnDebug = null },
+    )
 
     val promotion = state.promotion
     if (promotion != null) {
@@ -393,6 +426,130 @@ private fun ConfirmDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
     )
 }
+
+/** The three CNN-related dialogs of the tracking screen (phase 04). */
+@Suppress("ktlint:standard:function-naming", "FunctionNaming", "LongParameterList")
+@Composable
+private fun CnnDialogs(
+    acceptPreview: com.chesslab.tracker.cnn.AcceptOutcome?,
+    acceptUnavailable: Boolean,
+    cnnDebug: com.chesslab.tracker.service.CnnDebugData?,
+    onAcceptConfirm: (String) -> Unit,
+    onDismissPreview: () -> Unit,
+    onDismissUnavailable: () -> Unit,
+    onDismissDebug: () -> Unit,
+) {
+    acceptPreview?.let { outcome ->
+        AcceptCnnDialog(
+            outcome = outcome,
+            onConfirm = onAcceptConfirm,
+            onDismiss = onDismissPreview,
+        )
+    }
+    if (acceptUnavailable) {
+        ConfirmDialog(
+            title = stringResource(R.string.accept_cnn_title),
+            message = stringResource(R.string.accept_cnn_unavailable),
+            onConfirm = onDismissUnavailable,
+            onDismiss = onDismissUnavailable,
+        )
+    }
+    cnnDebug?.let { data ->
+        CnnDebugDialog(data = data, onDismiss = onDismissDebug)
+    }
+}
+
+private const val PERCENT = 100
+
+/** Human line of one accept-CNN edit: `e1: wK → empty (99%)`. */
+internal fun changeLine(change: com.chesslab.tracker.cnn.SquareChange): String =
+    "${change.square}: ${change.from} → ${change.to} (${(change.conf * PERCENT).toInt()}%)"
+
+/**
+ * Accept-CNN preview dialog (ports 779fb86): lists every per-square edit before the
+ * user confirms adoption; a kings-guard rejection shows the reason, no confirm.
+ */
+@Suppress("ktlint:standard:function-naming", "FunctionNaming")
+@Composable
+private fun AcceptCnnDialog(
+    outcome: com.chesslab.tracker.cnn.AcceptOutcome,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.accept_cnn_title)) },
+        text = {
+            Column(
+                modifier = Modifier.heightIn(max = DIALOG_MAX_DP.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                when (outcome) {
+                    is com.chesslab.tracker.cnn.AcceptOutcome.Rejected -> Text(outcome.reason)
+                    is com.chesslab.tracker.cnn.AcceptOutcome.Accepted ->
+                        if (outcome.changes.isEmpty()) {
+                            Text(stringResource(R.string.accept_cnn_no_changes))
+                        } else {
+                            for (change in outcome.changes) {
+                                Text(changeLine(change), fontFamily = FontFamily.Monospace)
+                            }
+                        }
+                }
+            }
+        },
+        confirmButton = {
+            if (outcome is com.chesslab.tracker.cnn.AcceptOutcome.Accepted) {
+                TextButton(onClick = { onConfirm(outcome.fen) }) { Text(stringResource(R.string.action_confirm)) }
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
+    )
+}
+
+/** In-app CNN debug dialog: the 64 exact model-input crops (8×8) + per-square reads. */
+@Suppress("ktlint:standard:function-naming", "FunctionNaming")
+@Composable
+private fun CnnDebugDialog(
+    data: com.chesslab.tracker.service.CnnDebugData,
+    onDismiss: () -> Unit,
+) {
+    val bySquare = data.crops.toMap()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.cnn_debug_title)) },
+        text = {
+            Column(
+                modifier = Modifier.heightIn(max = DIALOG_MAX_DP.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                // 8×8 crop grid, white POV (rank 8 on top) — square identity via contentDescription.
+                for (rank in 8 downTo 1) {
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        for (file in 'a'..'h') {
+                            val sq = "$file$rank"
+                            val bmp = bySquare[sq]
+                            if (bmp != null) {
+                                androidx.compose.foundation.Image(
+                                    bitmap = bmp.asImageBitmap(),
+                                    contentDescription = sq,
+                                    modifier = Modifier.weight(1f).aspectRatio(1f),
+                                )
+                            } else {
+                                Box(modifier = Modifier.weight(1f).aspectRatio(1f))
+                            }
+                        }
+                    }
+                }
+                for (line in data.reads) {
+                    Text(line, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_confirm)) } },
+    )
+}
+
+private const val DIALOG_MAX_DP = 420
 
 private var lastAlarmToneMs = 0L
 private const val ALARM_TONE_COOLDOWN_MS = 30_000L
