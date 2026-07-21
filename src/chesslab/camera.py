@@ -263,7 +263,15 @@ class LatestFrame:
 
     def _loop(self) -> None:
         while self._running:
-            ok, f = self._cap.read()
+            # A dying backend can THROW from read() (cv2.error "Unknown C++ exception",
+            # seen live on MSMF during a 4K re-negotiation) — an unhandled throw here
+            # would silently kill this grabber thread while consumers keep polling a
+            # frozen frame. Treat it as a failed read; the consumer-side reconnect
+            # logic decides what to do about a feed that stays down.
+            try:
+                ok, f = self._cap.read()
+            except Exception:  # noqa: BLE001 — backend-specific native errors
+                ok, f = False, None
             if ok and f is not None:
                 with self._cond:
                     self._frame, self._ok = f, True

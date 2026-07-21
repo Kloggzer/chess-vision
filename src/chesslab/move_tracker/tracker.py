@@ -1486,7 +1486,17 @@ class MoveTracker:
                             pass
                 _t0 = time.perf_counter()
                 _ts = {}  # per-step wall time (seconds)
-                ok, frame = self.cap.read() if hasattr(self.cap, "read") else (False, None)
+                # A dying capture can THROW from read() instead of returning False
+                # (observed live 2026-07-21: cv2.error "Unknown C++ exception" from the
+                # MSMF backend while re-negotiating 4K). Treat any read() exception as
+                # a failed read so the reconnect/backoff path below handles it — an
+                # unhandled throw here killed the whole tracker loop.
+                try:
+                    ok, frame = self.cap.read() if hasattr(self.cap, "read") else (False, None)
+                except Exception as e:  # noqa: BLE001 — backend-specific native errors
+                    log.warning("camera read() raised %s: %s — treating as dropped frame",
+                                type(e).__name__, e)
+                    ok, frame = False, None
                 _ts["network"] = time.perf_counter()
                 if not ok or frame is None:
                     now_f = time.time()
