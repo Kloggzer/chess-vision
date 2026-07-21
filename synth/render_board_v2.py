@@ -370,6 +370,15 @@ def _scanned_material(png, darken=1.0, whiten=False):
             src = mix.outputs["Color"]
         except Exception:
             pass
+    # Per-View-Jitter-Hook (siehe randomize_piece_materials): ein neutral initialisierter
+    # HSV-Node am Ende der Kette, den der Render-Loop pro View verstellt. Gegen den
+    # bQ→wQ-Flip: die cremefarbenen Kugeln der schwarzen Damenkrone kippen unter warmem
+    # Licht ins Helle — Kronen-Helligkeit/-Farbe darf kein Farbbeweis der FIGUR sein.
+    jit = nt.nodes.new("ShaderNodeHueSaturation")
+    jit.name = jit.label = "PieceJitter"
+    nt.links.new(src, jit.inputs["Color"])
+    src = jit.outputs["Color"]
+    mat["cl_black_piece"] = not whiten     # randomize_piece_materials braucht die Farbe
     nt.links.new(src, bsdf.inputs["Base Color"])
     return mat
 
@@ -545,6 +554,28 @@ def randomize_lights(rng):
             bg.inputs[1].default_value = rng.uniform(0.08, 0.45)
             # World-Ambient ebenfalls warm-biased statt neutral-kühl.
             bg.inputs[0].default_value = (1.0, rng.uniform(0.82, 0.95), rng.uniform(0.62, 0.82), 1.0)
+
+
+def randomize_piece_materials(rng):
+    """Per-View Farb-/Helligkeits-Jitter der gescannten Figuren-Texturen (Node "PieceJitter"
+    in _scanned_material). Gegen den bQ→wQ-Flip (Kronen-/Farbvarianz unter warmem Licht):
+    das Modell sieht dieselbe Figur mal heller/wärmer, mal dunkler/kühler und kann die
+    absolute Kronen-Helligkeit nicht mehr als Farbbeweis lesen. SCHWARZ bekommt die
+    deutlich breitere VALUE-Spanne (0.55–1.5): genau die hellen Ausreißer, in denen eine
+    reale bQ wie eine wQ wirkt, kommen so ins Training — mit korrektem bQ-Label. Hue nur
+    minimal (±0.015 um den Neutralwert 0.5): die Holz-Identität der Figuren bleibt.
+    Jitter ist global pro Template-Material (wie das Licht), nicht pro Figur-Instanz."""
+    for mat in bpy.data.materials:
+        if not mat.use_nodes:
+            continue
+        node = mat.node_tree.nodes.get("PieceJitter")
+        if node is None:
+            continue
+        black = bool(mat.get("cl_black_piece", False))
+        node.inputs["Hue"].default_value = 0.5 + rng.uniform(-0.015, 0.015)
+        node.inputs["Saturation"].default_value = rng.uniform(0.75, 1.15)
+        node.inputs["Value"].default_value = (rng.uniform(0.55, 1.50) if black
+                                              else rng.uniform(0.80, 1.25))
 
 
 def randomize_board(rng, borderless_p: float = 0.0, isolate_p: float = 0.0):
@@ -1242,6 +1273,7 @@ def main():
             # zieht nach, damit das Brett konstant gross im Bild steht (Auflösung/Feld).
             cam_meta["lens_mm"] = round(frame_board(scene, cam, ra.frame_frac), 2)
             randomize_lights(rng)
+            randomize_piece_materials(rng)   # Kronen-/Farbvarianz pro View (bQ→wQ-Flip)
 
             # Occluder: pro View mit occ_p eine Faust/Unterarm über ein Brett-Innenfeld legen.
             # Verdeckte Felder → occluded_squares (heavy). Der Occluder wirft einen echten Schatten.

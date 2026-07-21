@@ -77,20 +77,57 @@ def minor_heavy_fens(n: int, seed: int = 42, density: float = 0.25,
     return out
 
 
+# Gewichte für die Bleed-Streifen: die Dame (Noppenkrone = der Top-Fehlleser) doppelt,
+# die übrigen hohen Figuren gleich; Bauern niedrig (ihre Kugelköpfe erzeugen die kleinen
+# Ecken-Intrusionen, sind aber nicht die Hauptquelle).
+_BLEED_WEIGHTS = {"Q": 4, "K": 2, "B": 2, "R": 2, "N": 2, "P": 1}
+
+
+def bleed_fens(n: int, seed: int = 42, occupy_p: float = 0.9) -> list[str]:
+    """Gezielte Nachbar-Bleed-Aufbauten: hohe Figuren in STREIFEN (jede zweite Reihe oder
+    Spalte besetzt), dazwischen garantiert LEERE Linien — jedes leere Feld hat damit 1–2
+    hohe orthogonale Nachbarn, deren Kopf/Krone per pad_side + Perspektiven-Lean in den
+    leeren Crop ragt. Genau der gemessene Fehlermodus des deployten Modells (leeres Feld
+    neben Dame → bQ@0.99). Streifen-Orientierung und -Offset wechseln pro Brett, Farben
+    sind pro Figur zufällig → über die Liste ist jedes Feld mal leer-mit-Nachbar, mal
+    besetzt, in beiden Feldfarben, inkl. aller Randlagen. `occupy_p` < 1 reißt Lücken in
+    die Streifen (leere Felder AUF einer Streifenlinie, seitlicher statt vertikaler Bleed).
+    Wie `minor_heavy_fens` absichtlich illegal — die FEN ist nur Label-Quelle."""
+    rng = random.Random(seed)
+    types = list(_BLEED_WEIGHTS)
+    weights = [_BLEED_WEIGHTS[t] for t in types]
+    out = []
+    for _ in range(n):
+        horizontal = rng.random() < 0.5
+        offset = rng.randrange(2)
+        grid: list[list[str | None]] = [[None] * 8 for _ in range(8)]
+        for r in range(8):
+            for c in range(8):
+                line = r if horizontal else c
+                if line % 2 == offset and rng.random() < occupy_p:
+                    t = rng.choices(types, weights=weights, k=1)[0]
+                    grid[r][c] = t if rng.random() < 0.5 else t.lower()
+        out.append(_placement_from_grid(grid))
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("out")
     ap.add_argument("--n", type=int, default=200)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--max-plies", type=int, default=50)
-    ap.add_argument("--mode", choices=["random", "minor"], default="random",
-                    help="random = plausible Partie-Stellungen; minor = Aufbauten mit N/B/R/Q/K auf Parität.")
+    ap.add_argument("--mode", choices=["random", "minor", "bleed"], default="random",
+                    help="random = plausible Partie-Stellungen; minor = Aufbauten mit N/B/R/Q/K auf Parität; "
+                         "bleed = hohe Figuren in Streifen neben garantiert leeren Feldern (Nachbar-Bleed).")
     ap.add_argument("--density", type=float, default=0.25, help="Feld-Besetzung spärlicher Bretter (~0.25 -> ~16 Figuren; nur --mode minor).")
     ap.add_argument("--full-p", type=float, default=0.30, help="Anteil VOLLER Bretter im Mix (nur --mode minor).")
     ap.add_argument("--full-density", type=float, default=0.68, help="Feld-Besetzung voller Bretter (~0.68 -> ~44 Figuren; nur --mode minor).")
     a = ap.parse_args()
     if a.mode == "minor":
         fens = minor_heavy_fens(a.n, a.seed, a.density, a.full_p, a.full_density)
+    elif a.mode == "bleed":
+        fens = bleed_fens(a.n, a.seed)
     else:
         fens = random_fens(a.n, a.seed, a.max_plies)
     Path(a.out).write_text("\n".join(fens) + "\n", encoding="utf-8")

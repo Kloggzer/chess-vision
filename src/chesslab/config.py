@@ -264,6 +264,16 @@ class AugmentPolicy:
     # procedurally (the rest from the other-board pool); bg_pool_size = pool of donor crops.
     bg_procedural_frac: float = 0.5   # fraction of bg draws that are procedural (rest: other-board)
     bg_pool_size: int = 512           # donor crops sampled once for the other-board background pool
+    # Neighbour-bleed paste: for EMPTY crops only, composite the central band of a random
+    # OCCUPIED crop into one crop edge (feathered). Simulates the mined failure mode: a tall
+    # neighbour piece (queen crown, rook body) leans into the empty square's crop via
+    # pad_side + perspective and the model reads it as that piece with high confidence.
+    # The augment teaches the invariance "piece pixels at the EDGE + board in the CENTRE
+    # = empty". Never applied to occupied crops (their piece is centred, so edge content
+    # stays a valid negative there via jitter being tiny). Train-time only, real finetune
+    # path (SquareDataset); the synth pretrain covers bleed via targeted render FENs.
+    neighbour_p: float = 0.30         # prob per EMPTY train crop (0 = off)
+    neighbour_frac: tuple[float, float] = (0.10, 0.40)  # intrusion depth range, * crop size
     allow_flip: bool = False        # explicitly forbidden
     allow_rotate90: bool = False    # explicitly forbidden
 
