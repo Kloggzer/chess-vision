@@ -96,6 +96,15 @@ the **legal** move that best explains the change (castling/en passant/captures i
 with an optional CNN safeguard. Web UI on `http://127.0.0.1:8001`. Details and parameters:
 [`src/chesslab/move_tracker/README.md`](src/chesslab/move_tracker/README.md).
 
+Debug endpoints: `GET /crops.jpg` shows the **exact 64 CNN input crops** (raw frame
+through the live inference path, no display overlays) — the first stop for any
+misread. The illegal-move alarm card shows per-conflict reasoning (expected vs
+CNN@confidence) and offers *Undo / Accept CNN position (with per-square preview) /
+Baseline*; while alarmed, tracking is hard-latched (no commits, no reference pull,
+no noise learning) until corrected. GPU inference uses a captured CUDA/HIP graph
+(fp16, batch 64) — a full 64-crop observation runs in ~4 ms (tiny) / ~15 ms (medium)
+on the dev box.
+
 **Camera resolution:** 720p is sufficient for tracking — ArUco markers detect reliably at
 half-res anyway, and the detection warp runs at `detect_scale=0.5` by default. A 1080p
 stream is only worth it for collection/slicing (quality crops for the CNN).
@@ -242,10 +251,26 @@ uv run chesslab dataset verify                     # files exist/loadable, out_s
 `split` is **session-based** (whole sessions go to train/val/test — never split a
 session's near-identical crops, which would leak). It caps `empty` at
 `max_empty_ratio × largest piece class` (seeded) and writes inverse-frequency
-`class_weights` into `data/manifests/split.json`. The augmentation policy
+`class_weights` into `data/manifests/split.json`.
+
+**Hard-empty keep list** (2026-07-21): `scripts/mine_hard_empty.py` runs a model over
+all real `empty` crops and collects the confident misreads (neighbour-piece bleed,
+shadow blobs, uniform dark corners) into `data/manifests/hard_empty.jsonl`; every
+`dataset build` automatically protects those crops from the empty cap — the random
+cap used to throw away exactly the rare hard cases. Fixed-position captures for such
+hard negatives: `scripts/capture_empty_session.py` (live preview, auto-snap while
+varying the lighting over e.g. the empty board) or `scripts/ingest_video_session.py`
+(import a filmed board as a session); pin those sessions to the TRAIN split when
+building (web builder "pin→train" / API `force_train`) — all-empty sessions in
+val/test would distort board metrics. The augmentation policy
 (`data/manifests/augment.yaml`) is written here and applied in Stage 5 — brightness /
-contrast / gamma / light blur / small jitter allowed; **flips and 90/180° rotation
-forbidden** (the camera is fixed).
+contrast / gamma / light blur / small jitter allowed; **flips forbidden**. Note the
+distinction on rotation: the train-time TRANSFORM never rotates, but `dataset build`
+materializes 90/180/270° copies of the TRAIN split by default since 2026-07-21
+(val/test stay unrotated) — a no-rotate build starved the small-model finetune 4×
+and rotation demonstrably rescued rare classes (bK recall 0 → 0.28). Train-time
+augmentation also includes the neighbour-bleed paste for `empty` crops
+(`paste_neighbour_strip`, `AugmentPolicy.neighbour_p`).
 
 ## Stage 5 — `train` / `eval` / `export`
 
