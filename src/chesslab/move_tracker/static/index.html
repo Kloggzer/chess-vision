@@ -309,11 +309,29 @@ async function reset() {
 async function baseline() { await post("/api/baseline", {}); }
 async function undo() { await post("/api/undo", {}); }
 async function acceptCnn() {              // illegal-move correction: adopt what the CNN sees
-  if (!window.confirm("Adopt the position as the CNN currently sees it?\n\nThe move history is cleared and tracking continues from the new position.")) return;
+  const note = document.getElementById("note");
+  const p = await post("/api/accept_cnn", { preview: true });   // dry run: show WHAT first
+  if (!p || p.ok === false) { setText(note, (p && p.error) || "CNN preview failed"); return; }
+  const lines = (p.changes || []).map(c =>
+    `  ${c.square}: ${c.from} → ${c.to}  (${Math.round((c.conf || 0) * 100)}%)`);
+  const body = lines.length
+    ? `The CNN would change ${lines.length} square(s):\n${lines.join("\n")}`
+    : "The CNN sees the position exactly as shown — no squares would change.";
+  if (!window.confirm(`Adopt the position as the CNN currently sees it?\n\n${body}\n\nThe move history is cleared and tracking continues from the new position.`)) return;
   const r = await post("/api/accept_cnn", {});
-  document.getElementById("note").textContent =
-    (r && r.ok === false) ? (r.error || "accept failed") : (r.note || "CNN position adopted");
+  setText(note, (r && r.ok === false) ? (r.error || "accept failed") : (r.note || "CNN position adopted"));
   lastFen = "";                          // reload board SVG immediately
+}
+function fenLabelAt(fen, sq) {            // game-state label for a square ('wN'/'bQ'/'empty')
+  const row = fen.split(" ")[0].split("/")[8 - Number(sq[1])] || "";
+  let file = 0;
+  for (const ch of row) {
+    if (/\d/.test(ch)) { file += Number(ch); continue; }
+    if (file === sq.charCodeAt(0) - 97)
+      return (ch === ch.toUpperCase() ? "w" : "b") + ch.toUpperCase();
+    file += 1;
+  }
+  return "empty";
 }
 async function reattach() {                 // rebuild the camera feed without a session restart
   const note = document.getElementById("note");
@@ -521,9 +539,16 @@ async function poll() {
       setText(banner, `⚠ ILLEGAL MOVE: ${gs || sqs} — take it back, or correct below`);
       setDisp(banner, "block");   // class default is display:none — "" would fall back to it
       setDisp(alarmPanel, "block");
+      // Reasoning per conflict square: expected (game state) vs what the CNN sees.
+      const det = (s.alarm.conflicts || []).map(sq => {
+        const seen = (s.cnn_squares || {})[sq];
+        const exp = fenLabelAt(s.fen, sq);
+        return seen ? `${sq}: expected ${exp}, CNN sees ${seen[0]} (${Math.round(seen[1] * 100)}%)`
+                    : `${sq}: expected ${exp}`;
+      }).join("  ·  ");
       setText(document.getElementById("alarmInfo"),
         (gs ? `Suspected illegal move: ${gs}. ` : "")
-        + (sqs ? `Conflict squares: ${sqs}. ` : "")
+        + (det ? `${det}. ` : "")
         + "Tracking is frozen — no moves are committed until the position is corrected "
         + "(take the move back, or use a button below).");
       // Single audio beep per alarm instance, max one per 30 s: a flapping alarm
