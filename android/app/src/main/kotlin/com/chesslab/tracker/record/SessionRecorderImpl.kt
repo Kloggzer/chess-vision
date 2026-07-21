@@ -4,6 +4,17 @@ import com.chesslab.engine.api.Decision
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.tracker.geometry.BoardCorners
 import com.chesslab.tracker.service.SessionRecorder
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.trySendBlocking
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -39,13 +50,86 @@ import java.time.format.DateTimeFormatter
  * caller (the tracker must not break on I/O failures).
  *
  * Thread-safe: all public methods may be called from the tracker's frame thread.
+ *
+ * Disk I/O (JPEG encode + log writes) is decoupled from the frame thread: a flush
+ * commits the record in-memory and hands the frame to a single writer coroutine
+ * via a bounded channel, so the collect loop never blocks on storage. If the
+ * channel is full the flush is skipped WITHOUT consuming the pending capture —
+ * a later clean frame retries, so the on-disk session keeps the exact same
+ * files/order as the synchronous version in the success case. [awaitIdle] gives
+ * tests/shutdown a deterministic drain point.
  */
 class SessionRecorderImpl(
     private val dir: File,
+    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : SessionRecorder {
     private val framesDir = File(dir, "frames").apply { mkdirs() }
     private val logFile = File(dir, "log.jsonl")
     private val json = Json { prettyPrint = false }
+
+    /** Serialized disk work; a single consumer preserves file order. */
+    private sealed interface WriteTask {
+        /** Owns [frame]; the writer releases it. */
+        class Capture(
+            val frame: Mat,
+            val file: File,
+            val line: String,
+        ) : WriteTask
+
+        /** Full log.jsonl rewrite from a snapshot of the encoded lines. */
+        class Rewrite(
+            val lines: List<String>,
+        ) : WriteTask
+
+        /** Drain marker: completed once every earlier task has been executed. */
+        class Barrier(
+            val done: CompletableDeferred<Unit>,
+        ) : WriteTask
+    }
+
+    private val writeScope = CoroutineScope(SupervisorJob() + ioDispatcher)
+    private val writeChannel = Channel<WriteTask>(capacity = WRITE_QUEUE_CAPACITY)
+
+    init {
+        writeScope.launch {
+            for (task in writeChannel) runTask(task)
+        }
+    }
+
+    private fun runTask(task: WriteTask) {
+        when (task) {
+            is WriteTask.Capture -> runCapture(task)
+            is WriteTask.Rewrite -> runRewrite(task.lines)
+            is WriteTask.Barrier -> task.done.complete(Unit)
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught", "SwallowedException")
+    private fun runCapture(task: WriteTask.Capture) {
+        try {
+            task.file.parentFile?.mkdirs()
+            Imgcodecs.imwrite(task.file.absolutePath, task.frame)
+            logFile.appendText(task.line)
+        } catch (e: Exception) {
+            // Recording is best-effort — never break tracking (tracker.py:1998).
+        } finally {
+            task.frame.release()
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught", "SwallowedException")
+    private fun runRewrite(lines: List<String>) {
+        try {
+            logFile.bufferedWriter().use { w ->
+                for (line in lines) {
+                    w.write(line)
+                    w.newLine()
+                }
+            }
+        } catch (e: Exception) {
+            // Best-effort.
+        }
+    }
 
     /** In-memory copies of the full log for fast undo rewrites. */
     private val records = mutableListOf<MoveRecord>()
@@ -139,58 +223,47 @@ class SessionRecorderImpl(
     }
 
     /**
-     * Flush the pending capture to disk if the board is clean.
+     * Flush the pending capture if the board is clean: commit the record in-memory
+     * and enqueue the disk work (JPEG + log line) for the writer coroutine — the
+     * frame thread never touches storage. When the write queue is full the state
+     * is left untouched and a later clean frame retries.
      */
-    @Suppress("TooGenericExceptionCaught", "SwallowedException")
     fun flushIfClean() {
-        val pending: PendingCapture
-        val frame: Mat
-        val corners: BoardCorners?
         synchronized(this) {
-            pending = pendingCapture ?: return
-            frame = lastFrame?.clone() ?: return
-            corners = lastCorners
-        }
+            val pending = pendingCapture
+            val frame = lastFrame
+            if (pending == null || frame == null) return
+            val corners = lastCorners
 
-        try {
             val fname = "frames/${"%04d".format(frameIdx)}.jpg"
-            val file = File(dir, fname)
-            file.parentFile?.mkdirs()
-            Imgcodecs.imwrite(file.absolutePath, frame)
-
             val ts = System.currentTimeMillis()
             val tsStr =
                 Instant
                     .ofEpochMilli(ts)
                     .atOffset(ZoneOffset.UTC)
                     .format(DateTimeFormatter.ISO_INSTANT)
-
             val entry = buildLogEntry(pending, fname, corners, tsStr)
             val line = json.encodeToString(entry) + "\n"
 
-            synchronized(this) {
-                logFile.appendText(line)
-                records.add(
-                    MoveRecord(
-                        ply = pending.ply,
-                        san = pending.san,
-                        fen = pending.fen,
-                        corners = corners,
-                        decision = pending.decision,
-                        feedback = MoveRecord.FEEDBACK_GOOD,
-                        ts = ts,
-                        frameFile = fname,
-                    ),
-                )
-                frameIdx++
-                pendingCapture = null
-                lastFrame?.release()
-                lastFrame = null
-            }
-        } catch (e: Exception) {
-            // Recording is best-effort — never break tracking (tracker.py:1998).
-        } finally {
-            frame.release()
+            // Ownership of lastFrame transfers to the task; the writer releases it.
+            val task = WriteTask.Capture(frame, File(dir, fname), line)
+            if (writeChannel.trySend(task).isFailure) return // queue full — retry later
+
+            records.add(
+                MoveRecord(
+                    ply = pending.ply,
+                    san = pending.san,
+                    fen = pending.fen,
+                    corners = corners,
+                    decision = pending.decision,
+                    feedback = MoveRecord.FEEDBACK_GOOD,
+                    ts = ts,
+                    frameFile = fname,
+                ),
+            )
+            frameIdx++
+            pendingCapture = null
+            lastFrame = null
         }
     }
 
@@ -230,20 +303,15 @@ class SessionRecorderImpl(
             feedback = r.feedback,
         )
 
-    /** Rewrite the entire log.jsonl from the in-memory [records] list. */
-    @Suppress("TooGenericExceptionCaught", "SwallowedException")
+    /**
+     * Rewrite the entire log.jsonl from the in-memory [records] list (async: the
+     * encoded snapshot is enqueued for the writer, preserving order with captures).
+     * Undo is a rare user action, so a full queue may block briefly here — but
+     * never silently lose the feedback flip.
+     */
     private fun writeLog() {
-        try {
-            logFile.bufferedWriter().use { w ->
-                for (r in records) {
-                    val entry = buildLogEntry(r)
-                    w.write(json.encodeToString(entry))
-                    w.newLine()
-                }
-            }
-        } catch (e: Exception) {
-            // Best-effort.
-        }
+        val lines = records.map { json.encodeToString(buildLogEntry(it)) }
+        writeChannel.trySendBlocking(WriteTask.Rewrite(lines))
     }
 
     /** @return the number of flushed (captured) move records. */
@@ -258,12 +326,37 @@ class SessionRecorderImpl(
     /** @return the session ID (directory name). */
     fun sessionId(): String = dir.name
 
-    /** Release OpenCV resources. Safe to call multiple times. */
+    /**
+     * Deterministic drain: blocks until every write enqueued so far has hit disk
+     * (bounded by [timeoutMs]). Test/shutdown hook — never called from the frame thread.
+     */
+    fun awaitIdle(timeoutMs: Long = DRAIN_TIMEOUT_MS): Boolean {
+        val done = CompletableDeferred<Unit>()
+        // A full queue means the writer is behind but alive; block briefly to keep drain exact.
+        if (writeChannel.trySendBlocking(WriteTask.Barrier(done)).isFailure) return false
+        return runBlocking { withTimeoutOrNull(timeoutMs) { done.await() } } != null
+    }
+
+    /** Drain pending writes, stop the writer and release OpenCV resources. Safe to call multiple times. */
     fun close() {
+        awaitIdle()
+        writeChannel.close()
+        writeScope.cancel()
+        // If the drain timed out, release any Mats still queued (never leak natives).
+        while (true) {
+            val task = writeChannel.tryReceive().getOrNull() ?: break
+            if (task is WriteTask.Capture) task.frame.release()
+        }
         synchronized(this) {
             lastFrame?.release()
             lastFrame = null
         }
+    }
+
+    private companion object {
+        /** Two in-flight captures is plenty; beyond that, skip and retry (deferred-clean). */
+        const val WRITE_QUEUE_CAPACITY = 2
+        const val DRAIN_TIMEOUT_MS = 3_000L
     }
 
     private data class PendingCapture(

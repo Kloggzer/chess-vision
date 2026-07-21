@@ -52,6 +52,13 @@ data class DebugBitmaps(
     val motionDiff: Bitmap? = null,
 )
 
+/** Corners from a background ArUco live-align detect, awaiting frame-loop application. */
+private class LiveAlignResult(
+    val corners: com.chesslab.tracker.geometry.BoardCorners,
+    val width: Int,
+    val height: Int,
+)
+
 /**
  * Foreground (camera-type) service that owns the running tracker: it wires
  * [TrackerCamera] → [BoardFramePipeline] → [TrackerCoordinator] on the lifecycle
@@ -84,6 +91,9 @@ class TrackerService : LifecycleService() {
     private val liveAlignDetector = ArucoCornerDetector()
     private val liveAlignSmoother = ArucoCornerSmoother()
     private var liveAlignTickNs = 0L
+    private val liveAlignInFlight = AtomicBoolean(false)
+
+    @Volatile private var liveAlignPending: LiveAlignResult? = null
     private var referenceProfile: CalibrationProfile? = null
     private var observedReferenceVersion = -1L
 
@@ -405,6 +415,7 @@ class TrackerService : LifecycleService() {
                         // warper (inside this same pipeline) BEFORE warping, so a drifting
                         // board/camera stays tracked instead of the calibration going stale.
                         maybeLiveAlign(frame.mat, frame.width, frame.height)
+                        val tAlign = System.nanoTime()
 
                         // Feed raw frame + corners before warp (phase 07 recorder).
                         val corners = baseWarper?.profile?.corners
@@ -412,7 +423,12 @@ class TrackerService : LifecycleService() {
 
                         recorder?.onFrame(coordinator.uiState.value.fen, frame.timestampNs)
                         val tRecorder = System.nanoTime()
-                        val processed = pipe.process(frame.mat, frame.timestampNs, fullResolutionBoard = cnn?.attached == true)
+                        // Full-res (1024px) warp only on CNN demand: the free-running observer
+                        // consumes a few frames/s, so warping full-res EVERY frame (~2x the
+                        // detect warp) was pure waste. The store's consumed-flag is the demand
+                        // signal; without CNN the detect-res board serves the UI preview.
+                        val wantFullRes = cnn?.attached == true && cnnFrameStore.wantsFrame()
+                        val processed = pipe.process(frame.mat, frame.timestampNs, fullResolutionBoard = wantFullRes)
                         val tWarp = System.nanoTime()
                         try {
                             // Dark-frame gate: below the pre-CLAHE luma floor the diff is pure
@@ -427,7 +443,9 @@ class TrackerService : LifecycleService() {
                                 coordinator.onFrame(processed.gray, processed.bgr, processed.timestampNs)
                                 tEngine = System.nanoTime()
                                 synchronizeReferenceGeometry()
-                                cnnFrameStore.update(processed, coordinator.frameSeq)
+                                // Only full-res boards enter the store — CNN crops must never
+                                // come from the detect-res board (crop resolution!).
+                                if (wantFullRes) cnnFrameStore.update(processed, coordinator.frameSeq)
                                 // specs/14: never calibrate off a dark-gated frame (this branch)
                                 // and only when the scene is quiet.
                                 maybeCalibrateIntrinsic(processed.boardBgr, coordinator.uiState.value.debug.motion)
@@ -456,10 +474,14 @@ class TrackerService : LifecycleService() {
                             // fps eater factually instead of by guesswork (2026-07-22, 4fps).
                             val tEnd = System.nanoTime()
                             perf {
-                                fun ms(a: Long, b: Long) = if (a == 0L || b == 0L) -1.0 else (b - a) / 1e6
+                                fun ms(
+                                    a: Long,
+                                    b: Long,
+                                ) = if (a == 0L || b == 0L) -1.0 else (b - a) / 1e6
                                 "frame=${"%.0f".format(ms(tFrame0, tEnd))}ms " +
                                     "preview=${"%.0f".format(ms(tFrame0, tPreview))} " +
-                                    "recorder=${"%.0f".format(ms(tPreview, tRecorder))} " +
+                                    "align=${"%.0f".format(ms(tPreview, tAlign))} " +
+                                    "recorder=${"%.0f".format(ms(tAlign, tRecorder))} " +
                                     "warp=${"%.0f".format(ms(tRecorder, tWarp))} " +
                                     "engine=${"%.0f".format(ms(tWarp, tEngine))} " +
                                     "publish=${"%.0f".format(ms(if (tEngine != 0L) tEngine else tWarp, tEnd))}"
@@ -547,31 +569,53 @@ class TrackerService : LifecycleService() {
         width: Int,
         height: Int,
     ) {
-        val now = System.nanoTime()
-        if (now - liveAlignTickNs < LIVE_ALIGN_INTERVAL_NS) return
-        liveAlignTickNs = now
-        val base = baseWarper ?: return
-        val fresh = liveAlignDetector.detectScaled(frame) // null when markers are hidden → keep current warp
-        if (fresh != null) {
-            val aligned = liveAlignSmoother.update(fresh)
-            val referenceCorners = referenceProfile?.forResolution(width, height)?.corners
-            if (
-                referenceCorners != null &&
-                CornerDriftMonitor.maxCornerShift(referenceCorners, aligned) > settings.toTrackerConfig().cornerJumpPx
-            ) {
-                // A discontinuous homography cannot be compared with the image that established
-                // the detector reference; otherwise geometry looks like pieces moving.
-                coordinator.renewBaseline()
-                referenceProfile = null
-                diag { "ArUco geometry jumped; invalidating detector reference" }
-            }
-            val updated = base.profile.copy(corners = aligned, sourceWidth = width, sourceHeight = height)
-            val warper = BoardWarper(updated)
-            baseWarper = warper
-            pipeline?.warper = warper
-            _activeProfile.value = updated
-            base.close()
+        // Apply a finished background detection first — on the frame loop, so the
+        // warper swap stays on the same thread as before the async split.
+        liveAlignPending?.let { result ->
+            liveAlignPending = null
+            applyLiveAlign(result)
         }
+        val now = System.nanoTime()
+        if (now - liveAlignTickNs < LIVE_ALIGN_INTERVAL_NS || baseWarper == null) return
+        // The ArUco detect (resize + detectMarkers, 40-90ms) blocked the frame loop
+        // every 300ms — the former "recorder" spikes. A clone (~few ms) hands the
+        // frame to a background detect; at most one in flight.
+        if (!liveAlignInFlight.compareAndSet(false, true)) return
+        liveAlignTickNs = now
+        val clone = frame.clone()
+        lifecycleScope.launch(Dispatchers.Default) {
+            try {
+                // null when markers are hidden → keep current warp
+                val fresh = liveAlignDetector.detectScaled(clone)
+                if (fresh != null) liveAlignPending = LiveAlignResult(fresh, width, height)
+            } finally {
+                clone.release()
+                liveAlignInFlight.set(false)
+            }
+        }
+    }
+
+    /** Swap in a warper re-aligned to freshly detected corners (frame-loop thread). */
+    private fun applyLiveAlign(result: LiveAlignResult) {
+        val base = baseWarper ?: return
+        val aligned = liveAlignSmoother.update(result.corners)
+        val referenceCorners = referenceProfile?.forResolution(result.width, result.height)?.corners
+        if (
+            referenceCorners != null &&
+            CornerDriftMonitor.maxCornerShift(referenceCorners, aligned) > settings.toTrackerConfig().cornerJumpPx
+        ) {
+            // A discontinuous homography cannot be compared with the image that established
+            // the detector reference; otherwise geometry looks like pieces moving.
+            coordinator.renewBaseline()
+            referenceProfile = null
+            diag { "ArUco geometry jumped; invalidating detector reference" }
+        }
+        val updated = base.profile.copy(corners = aligned, sourceWidth = result.width, sourceHeight = result.height)
+        val warper = BoardWarper(updated)
+        baseWarper = warper
+        pipeline?.warper = warper
+        _activeProfile.value = updated
+        base.close()
     }
 
     /** Capture the exact warp geometry whenever the engine establishes a new visual reference. */
@@ -750,27 +794,42 @@ class TrackerService : LifecycleService() {
         checkpointFile.delete()
     }
 
+    /**
+     * Publish the warped board for the UI, throttled ~10 fps, converted off-thread.
+     * The preview dim equals the detect resolution (512), so the output size is
+     * stable whether the frame carried the full-res (1024, CNN-demand frames) or
+     * the detect-res board — no shimmer from the full-res warp gating.
+     */
     private fun publishBoard(boardBgr: Mat) {
         val now = System.nanoTime()
         if (now - lastBoardPreviewNs < BOARD_PREVIEW_INTERVAL_NS) return
+        if (!boardPreviewInFlight.compareAndSet(false, true)) return
         lastBoardPreviewNs = now
-        val display = Mat()
-        val maxDim = maxOf(boardBgr.cols(), boardBgr.rows())
-        if (maxDim > BOARD_PREVIEW_MAX_DIM) {
-            val scale = BOARD_PREVIEW_MAX_DIM.toDouble() / maxDim
-            Imgproc.resize(boardBgr, display, org.opencv.core.Size(), scale, scale, Imgproc.INTER_LINEAR)
-        } else {
-            boardBgr.copyTo(display)
-        }
-        val rgba = Mat()
-        try {
-            Imgproc.cvtColor(display, rgba, Imgproc.COLOR_BGR2RGBA)
-            val bitmap = Bitmap.createBitmap(rgba.cols(), rgba.rows(), Bitmap.Config.ARGB_8888)
-            Utils.matToBitmap(rgba, bitmap)
-            _boardBitmap.value = bitmap
-        } finally {
-            rgba.release()
-            display.release()
+        val clone = boardBgr.clone()
+        lifecycleScope.launch(Dispatchers.Default) {
+            try {
+                val display = Mat()
+                val maxDim = maxOf(clone.cols(), clone.rows())
+                if (maxDim > BOARD_PREVIEW_MAX_DIM) {
+                    val scale = BOARD_PREVIEW_MAX_DIM.toDouble() / maxDim
+                    Imgproc.resize(clone, display, org.opencv.core.Size(), scale, scale, Imgproc.INTER_LINEAR)
+                } else {
+                    clone.copyTo(display)
+                }
+                val rgba = Mat()
+                try {
+                    Imgproc.cvtColor(display, rgba, Imgproc.COLOR_BGR2RGBA)
+                    val bitmap = Bitmap.createBitmap(rgba.cols(), rgba.rows(), Bitmap.Config.ARGB_8888)
+                    Utils.matToBitmap(rgba, bitmap)
+                    _boardBitmap.value = bitmap
+                } finally {
+                    rgba.release()
+                    display.release()
+                }
+            } finally {
+                clone.release()
+                boardPreviewInFlight.set(false)
+            }
         }
     }
 
@@ -806,7 +865,11 @@ class TrackerService : LifecycleService() {
         }
     }
 
-    /** Downscale raw [mat] to ~640 px max edge and publish as [rawPreview], throttled ~5 fps. */
+    /**
+     * Downscale raw [mat] to ~640 px max edge and publish as [rawPreview], throttled ~5 fps.
+     * The resize/convert (up to ~30ms on a full-res frame) runs on a background coroutine
+     * off a clone — the frame loop only pays the clone (~few ms), and only when due.
+     */
     private fun publishRawPreview(
         mat: Mat,
         width: Int,
@@ -814,24 +877,32 @@ class TrackerService : LifecycleService() {
     ) {
         val now = System.nanoTime()
         if (now - lastRawPreviewNs < RAW_PREVIEW_INTERVAL_NS) return
+        if (!rawPreviewInFlight.compareAndSet(false, true)) return
         lastRawPreviewNs = now
-
-        val maxDim = maxOf(width, height)
-        val scale =
-            if (maxDim > RAW_PREVIEW_MAX_DIM) RAW_PREVIEW_MAX_DIM.toDouble() / maxDim else 1.0
-        val scaled = Mat()
-        if (scale < 1.0) {
-            Imgproc.resize(mat, scaled, org.opencv.core.Size(0.0, 0.0), scale, scale, Imgproc.INTER_LINEAR)
-        } else {
-            mat.copyTo(scaled)
+        val clone = mat.clone()
+        lifecycleScope.launch(Dispatchers.Default) {
+            try {
+                val maxDim = maxOf(width, height)
+                val scale =
+                    if (maxDim > RAW_PREVIEW_MAX_DIM) RAW_PREVIEW_MAX_DIM.toDouble() / maxDim else 1.0
+                val scaled = Mat()
+                if (scale < 1.0) {
+                    Imgproc.resize(clone, scaled, org.opencv.core.Size(0.0, 0.0), scale, scale, Imgproc.INTER_LINEAR)
+                } else {
+                    clone.copyTo(scaled)
+                }
+                val rgba = Mat()
+                Imgproc.cvtColor(scaled, rgba, Imgproc.COLOR_BGR2RGBA)
+                val bitmap = Bitmap.createBitmap(rgba.cols(), rgba.rows(), Bitmap.Config.ARGB_8888)
+                Utils.matToBitmap(rgba, bitmap)
+                rgba.release()
+                scaled.release()
+                _rawPreview.value = bitmap
+            } finally {
+                clone.release()
+                rawPreviewInFlight.set(false)
+            }
         }
-        val rgba = Mat()
-        Imgproc.cvtColor(scaled, rgba, Imgproc.COLOR_BGR2RGBA)
-        val bitmap = Bitmap.createBitmap(rgba.cols(), rgba.rows(), Bitmap.Config.ARGB_8888)
-        Utils.matToBitmap(rgba, bitmap)
-        rgba.release()
-        scaled.release()
-        _rawPreview.value = bitmap
     }
 
     private fun startForegroundInternal() {
@@ -867,7 +938,9 @@ class TrackerService : LifecycleService() {
     }
 
     private var lastRawPreviewNs = 0L
+    private val rawPreviewInFlight = AtomicBoolean(false)
     private var lastBoardPreviewNs = 0L
+    private val boardPreviewInFlight = AtomicBoolean(false)
     private var lastDebugPreviewNs = 0L
 
     companion object {
@@ -881,7 +954,10 @@ class TrackerService : LifecycleService() {
         private const val BOARD_PREVIEW_INTERVAL_NS = 100_000_000L // ~10 fps throttle
         private const val DEBUG_PREVIEW_INTERVAL_NS = 200_000_000L // ~5 fps throttle
         private const val RAW_PREVIEW_MAX_DIM = 640
-        private const val BOARD_PREVIEW_MAX_DIM = 640
+
+        // = detect resolution (boardSize 1024 * 0.5): keeps the preview size identical
+        // for full-res (CNN-demand) and detect-res frames under the warp gating.
+        private const val BOARD_PREVIEW_MAX_DIM = 512
 
         /** Start + bind the tracker service. */
         fun start(context: Context) {
