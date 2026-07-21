@@ -958,6 +958,469 @@ def _invalidate_profiles(calib: LensCalibration) -> None:
             log.warning("could not re-stamp board profile %s: %r", p.name, e)
 
 
+# --- `chesslab lens calibrate-board` — zero-interaction calibration from sessions ------
+#
+# The recorded sessions in `data/sessions/` already ARE a calibration dataset: every real
+# session stores per-frame board corners (`[a8, h8, h1, a1]` marker centres) next to the
+# frame image, and the physical board is an 8x8 checker whose 7x7 INNER corners are a
+# planar calibration grid with precisely known geometry. Different sessions were recorded
+# with the camera re-mounted at different heights/angles, so across sessions we get the
+# pose variety `calibrateCamera` needs — without the user ever waving a printed pattern.
+#
+# Detection is ARUCO-GUIDED, not `findChessboardCornersSB`: pieces stand on the board in
+# almost every recorded frame, so a full-grid detector fails, while we already know the
+# board's exact location from the logged corners. We project the ideal 7x7 lattice through
+# the corner homography, refine each intersection with `cornerSubPix`, and keep only the
+# points that (a) stayed near their prediction and (b) show real checker contrast in their
+# four quadrants — occluded intersections fail one of the two and drop out. Partial grids
+# are fine: `calibrateCamera` accepts a different point subset per view.
+
+@dataclass
+class BoardGridView:
+    """The detected inner-grid corners of ONE session frame — one `calibrateCamera` view.
+
+    `quad` is the logged board quad (marker centres, a8/h8/h1/a1) used for pose gating,
+    `img_points` the accepted refined corners (N,1,2 float32), `obj_points` their planar
+    board coordinates in CELL units (N,3 float32, z == 0), `grid_idx` the (col, row)
+    lattice index of each point (1..7) so bow lines can be regrouped later.
+    """
+
+    session_id: str
+    frame: str
+    image_size: tuple[int, int]
+    quad: np.ndarray
+    img_points: np.ndarray
+    obj_points: np.ndarray
+    grid_idx: np.ndarray
+
+    @property
+    def n_points(self) -> int:
+        return int(len(self.obj_points))
+
+
+def _lattice_from_quad(quad, margin: float) -> np.ndarray | None:
+    """Project the ideal 9x9 board lattice (cell units) through the quad's homography.
+
+    The logged corners are MARKER CENTRES which sit `margin` (fraction of the board edge)
+    OUTSIDE the playing field — same convention as `calibration.compute_homography`. The
+    returned array is (9, 9, 2) pixel positions of lattice point (col i, row j) at
+    `[j, i]`; inner corners are `[1..7, 1..7]`. None for a degenerate quad.
+    """
+    q = np.asarray(quad, dtype=np.float32).reshape(-1, 2)
+    if q.shape != (4, 2) or not np.isfinite(q).all():
+        return None
+    m = float(margin) * 8.0
+    src = np.array([[-m, -m], [8 + m, -m], [8 + m, 8 + m], [-m, 8 + m]], dtype=np.float32)
+    try:
+        h = cv2.getPerspectiveTransform(src, q)
+    except cv2.error:
+        return None
+    cells = np.array([[[float(i), float(j)] for i in range(9)] for j in range(9)],
+                     dtype=np.float32)
+    proj = cv2.perspectiveTransform(cells.reshape(-1, 1, 2), h)
+    if proj is None or not np.isfinite(proj).all():
+        return None
+    return proj.reshape(9, 9, 2)
+
+
+def _patch_mean(gray, pt) -> float | None:
+    """Mean intensity of a 3x3 patch at a sub-pixel position (None outside the image)."""
+    x, y = float(pt[0]), float(pt[1])
+    h, w = gray.shape[:2]
+    if not (1.0 <= x <= w - 2.0 and 1.0 <= y <= h - 2.0):
+        return None
+    return float(cv2.getRectSubPix(gray, (3, 3), (x, y)).mean())
+
+
+def detect_grid_points(gray, quad, *, margin: float = 0.06, min_points: int = 20,
+                       min_contrast: float = 10.0, max_shift_frac: float = 0.3):
+    """ArUco-guided detection of the board's inner 7x7 corners in one frame.
+
+    Returns (img_points (N,1,2) f32, obj_points (N,3) f32 in cell units, grid_idx (N,2)
+    int) or None when fewer than `min_points` intersections survive validation. Each
+    lattice prediction is refined with `cornerSubPix` and kept only if the refinement
+    stayed within `max_shift_frac` of a cell AND its four quadrants show checker contrast
+    of at least `min_contrast` grey levels — that is what rejects piece-occluded corners.
+    """
+    lattice = _lattice_from_quad(quad, margin)
+    if lattice is None:
+        return None
+    h, w = gray.shape[:2]
+    inner = lattice[1:8, 1:8].reshape(-1, 2)                    # row-major: j outer, i inner
+    idx = np.array([(i, j) for j in range(1, 8) for i in range(1, 8)], dtype=np.int32)
+    # Local cell size drives the refinement window: big enough to lock onto the true
+    # corner despite the distortion residual, small enough not to swallow a neighbour.
+    cell_px = float(np.linalg.norm(lattice[0, 1] - lattice[0, 0]) +
+                    np.linalg.norm(lattice[1, 0] - lattice[0, 0])) / 2.0
+    if not np.isfinite(cell_px) or cell_px < 8.0:
+        return None                                             # board too small to refine
+    win = int(np.clip(round(cell_px * 0.2), 4, 15))
+    inside = ((inner[:, 0] > win + 2) & (inner[:, 0] < w - win - 3) &
+              (inner[:, 1] > win + 2) & (inner[:, 1] < h - win - 3))
+    inner, idx = inner[inside], idx[inside]
+    if len(inner) < min_points:
+        return None
+    guesses = inner.reshape(-1, 1, 2).astype(np.float32).copy()
+    refined = cv2.cornerSubPix(gray, guesses, (win, win), (-1, -1), _SUBPIX_CRITERIA)
+    refined = refined.reshape(-1, 2)
+
+    keep_img: list[np.ndarray] = []
+    keep_idx: list[np.ndarray] = []
+    max_shift = max_shift_frac * cell_px
+    for p, p0, (i, j) in zip(refined, inner, idx, strict=True):
+        if float(np.linalg.norm(p - p0)) > max_shift:
+            continue                                            # ran away → occluded/blurred
+        # Grid-aligned quadrant directions from the projected lattice neighbours.
+        du = (lattice[j, i + 1] - lattice[j, i - 1]) / 2.0
+        dv = (lattice[j + 1, i] - lattice[j - 1, i]) / 2.0
+        means = [_patch_mean(gray, p + 0.25 * (su * du + sv * dv))
+                 for su, sv in ((1, 1), (-1, 1), (-1, -1), (1, -1))]
+        if any(v is None for v in means):
+            continue
+        if abs((means[0] + means[2]) / 2.0 - (means[1] + means[3]) / 2.0) < min_contrast:
+            continue                                            # no checker X → piece on top
+        keep_img.append(p)
+        keep_idx.append(np.array([i, j], dtype=np.int32))
+    if len(keep_img) < min_points:
+        return None
+    img_pts = np.asarray(keep_img, dtype=np.float32).reshape(-1, 1, 2)
+    grid_idx = np.asarray(keep_idx, dtype=np.int32)
+    obj_pts = np.zeros((len(grid_idx), 3), dtype=np.float32)
+    obj_pts[:, 0] = grid_idx[:, 0]
+    obj_pts[:, 1] = grid_idx[:, 1]
+    return img_pts, obj_pts, grid_idx
+
+
+def view_line_bows(img_points, grid_idx, camera_matrix=None, dist_coeffs=None) -> list[float]:
+    """`edge_bow` of every full-enough grid row/column of one view (>= 4 points each).
+
+    With K/D given, the points are undistorted first (P=K keeps pixel scale) — comparing
+    the returned bows with and without K/D quantifies how much straighter the solved
+    model makes the board's real lines.
+    """
+    pts = np.asarray(img_points, dtype=np.float64).reshape(-1, 2)
+    if camera_matrix is not None and dist_coeffs is not None and len(pts):
+        und = cv2.undistortPoints(pts.reshape(-1, 1, 2).astype(np.float64),
+                                  np.asarray(camera_matrix, dtype=np.float64),
+                                  np.asarray(dist_coeffs, dtype=np.float64),
+                                  P=np.asarray(camera_matrix, dtype=np.float64))
+        pts = und.reshape(-1, 2)
+    idx = np.asarray(grid_idx, dtype=np.int32).reshape(-1, 2)
+    bows: list[float] = []
+    for axis in (0, 1):                                         # 0: columns (i fixed), 1: rows
+        for v in np.unique(idx[:, axis]):
+            sel = idx[:, axis] == v
+            if int(sel.sum()) < 4:
+                continue
+            order = np.argsort(idx[sel][:, 1 - axis])
+            bows.append(edge_bow(pts[sel][order]))
+    return bows
+
+
+def _view_bow(view: BoardGridView, camera_matrix=None, dist_coeffs=None) -> float:
+    """Median line bow of one view (robust against a single mis-refined point)."""
+    bows = view_line_bows(view.img_points, view.grid_idx, camera_matrix, dist_coeffs)
+    return float(np.median(bows)) if bows else 0.0
+
+
+def gate_board_views(views, image_size, *, min_views: int = 8, novelty_px: float = 30.0,
+                     min_coverage: int = 4):
+    """Pose-diversity gate over harvested views: (accepted, coverage, best_tilt, refusal).
+
+    Frames of the SAME mount are near-identical (fixed camera) and add nothing but false
+    confidence to `calibrateCamera`, so novelty is measured on the board quad against
+    every already-accepted view — effectively one view per distinct camera pose survives.
+    `refusal` is None when the accepted set is usable, otherwise a printable reason that
+    tells the user exactly what is missing.
+    """
+    w, h = int(image_size[0]), int(image_size[1])
+    cov = CoverageGrid(w, h)
+    accepted: list[BoardGridView] = []
+    quads: list[np.ndarray] = []
+    best_tilt = 0.0
+    for v in sorted(views, key=lambda v: -v.n_points):
+        if pose_novelty(v.quad, quads) < novelty_px:
+            continue
+        accepted.append(v)
+        quads.append(np.asarray(v.quad, dtype=np.float64).reshape(-1, 2))
+        cov.add(v.img_points.reshape(-1, 2))
+        best_tilt = max(best_tilt, tilt_score(v.img_points.reshape(-1, 2)))
+    refusal = None
+    if len(accepted) < min_views:
+        refusal = (f"only {len(accepted)} sufficiently distinct board poses (need "
+                   f">= {min_views}) — the recorded sessions are near-identical (same "
+                   "fixed mount). Record sessions with the camera at different "
+                   "heights/angles, or run `chesslab lens calibrate` (pattern waving) once.")
+    elif cov.covered < min_coverage:
+        refusal = (f"grid points cover only {cov.covered}/{cov.n * cov.n} image regions "
+                   f"(need >= {min_coverage}); missing: {', '.join(cov.missing())}. "
+                   "Distortion cannot be constrained where the board was never seen — "
+                   "record sessions with the board nearer the frame edges, or run "
+                   "`chesslab lens calibrate` once.")
+    return accepted, cov, best_tilt, refusal
+
+
+@dataclass
+class BoardSolveResult:
+    """`calibrateCamera` outcome over accepted board views + held-out validation."""
+
+    rms: float
+    camera_matrix: np.ndarray
+    dist_coeffs: np.ndarray
+    image_size: tuple[int, int]
+    n_views: int
+    tilt: float
+    holdout: str                 # "session/frame" of the validation view
+    bow_before: float            # median line bow of the held-out view, raw pixels
+    bow_after: float             # same lines after undistorting with the solved model
+
+
+# Below this apparent tilt the poses are effectively all frontal — focal length and
+# principal point are then unobservable and get FIXED to the guess so only the
+# distortion coefficients (the thing we are actually after) absorb the residual.
+_MIN_TILT_FOR_FULL_SOLVE = 0.06
+
+
+def solve_board_views(accepted, image_size, *, f_guess: float | None = None) -> BoardSolveResult:
+    """Solve K/D from gated board views; the richest view is HELD OUT for validation.
+
+    The distortion model is deliberately restricted for weak pose variety: aspect ratio
+    fixed, tangential terms zero, k3 fixed — recorded top-down sessions cannot constrain
+    more, and a freed-up parameter would just soak noise into a confidently wrong model.
+    """
+    w, h = int(image_size[0]), int(image_size[1])
+    views = sorted(accepted, key=lambda v: -v.n_points)
+    hold, solve_set = views[0], views[1:]
+    tilt = max((tilt_score(v.img_points.reshape(-1, 2)) for v in views), default=0.0)
+
+    f = float(f_guess) if f_guess else float(max(w, h))
+    k0 = np.array([[f, 0.0, w / 2.0], [0.0, f, h / 2.0], [0.0, 0.0, 1.0]], dtype=np.float64)
+    flags = (cv2.CALIB_USE_INTRINSIC_GUESS | cv2.CALIB_FIX_ASPECT_RATIO |
+             cv2.CALIB_ZERO_TANGENT_DIST | cv2.CALIB_FIX_K3)
+    if tilt < _MIN_TILT_FOR_FULL_SOLVE:
+        flags |= cv2.CALIB_FIX_FOCAL_LENGTH | cv2.CALIB_FIX_PRINCIPAL_POINT
+    obj = [v.obj_points for v in solve_set]
+    img = [v.img_points for v in solve_set]
+    rms, k, d, _rv, _tv = cv2.calibrateCamera(obj, img, (w, h), k0, None, flags=flags)
+    d = np.asarray(d, dtype=np.float64).ravel()
+    if d.size < 5:                                              # normalise to the 5-vector
+        d = np.pad(d, (0, 5 - d.size))
+    return BoardSolveResult(
+        rms=float(rms), camera_matrix=np.asarray(k, dtype=np.float64), dist_coeffs=d,
+        image_size=(w, h), n_views=len(solve_set), tilt=float(tilt),
+        holdout=f"{hold.session_id}/{hold.frame}",
+        bow_before=_view_bow(hold), bow_after=_view_bow(hold, k, d))
+
+
+def board_solve_acceptable(res: BoardSolveResult, *, max_rms: float = 2.0,
+                           max_bow_ratio: float = 0.8,
+                           min_bow: float = 2e-4) -> tuple[bool, str]:
+    """Should this solve be saved? (ok, reason) — the reason is printed either way.
+
+    Refuses when the held-out board lines do not get meaningfully STRAIGHTER (bow_after
+    must drop below `max_bow_ratio` x bow_before), when there was nothing to fix in the
+    first place (bow_before < `min_bow` — saving would replace 'no model' with noise), or
+    when the reprojection RMS says the solve itself is poor.
+    """
+    if res.rms > max_rms:
+        return False, (f"reprojection RMS {res.rms:.3f} px > {max_rms} — the solve is "
+                       "poor (bad detections or too little pose variety).")
+    if res.bow_before < min_bow:
+        return False, (f"held-out board lines are already straight (bow "
+                       f"{res.bow_before:.5f} < {min_bow}) — no distortion left to "
+                       "correct, nothing saved.")
+    if res.bow_after >= res.bow_before * max_bow_ratio:
+        return False, (f"undistortion does not straighten the held-out board lines "
+                       f"(bow {res.bow_before:.5f} -> {res.bow_after:.5f}, need "
+                       f"<= {res.bow_before * max_bow_ratio:.5f}) — refusing to save a "
+                       "model that would not fix anything.")
+    return True, (f"held-out bow {res.bow_before:.5f} -> {res.bow_after:.5f} "
+                  f"({(1 - res.bow_after / res.bow_before) * 100.0:.0f}% straighter), "
+                  f"RMS {res.rms:.3f} px.")
+
+
+def _session_margin(profile_name: str, cache: dict) -> float:
+    """The board-corner margin of a session's profile (default 0.06 when unknown)."""
+    if profile_name not in cache:
+        margin = 0.06
+        try:
+            from .calibration import CalibrationProfile
+            p = config.DATA.calibration / f"{profile_name}.yaml"
+            if p.exists():
+                margin = float(CalibrationProfile.load(p).margin)
+        except Exception as e:  # noqa: BLE001 — a broken profile must not kill the harvest
+            log.warning("could not read margin from profile %r (%r) — using 0.06.",
+                        profile_name, e)
+        cache[profile_name] = margin
+    return cache[profile_name]
+
+
+def harvest_board_views(sessions_dir: Path | None = None, *, profile: str | None = None,
+                        max_frames_per_session: int = 6, min_points: int = 20,
+                        min_contrast: float = 10.0):
+    """Read-only sweep over `data/sessions/`: (views, stats). Never writes anything.
+
+    Skipped entirely: synthetic/ingested sessions (mode 'ingested' or camera_index -1 —
+    rendered pixels have no physical lens), sessions recorded through an ACTIVE
+    undistortion (their frames are already remapped; calibrating on them would model the
+    residual of a corrected image), sessions without readable frames, and — with
+    `profile` given — sessions of other board profiles. Within a session at most
+    `max_frames_per_session` evenly spaced frames are tried: a fixed camera makes frames
+    of one session near-duplicates and the pose gate would drop them anyway.
+    """
+    from .labeling import read_log, read_session_meta
+
+    root = Path(sessions_dir) if sessions_dir is not None else config.DATA.sessions
+    stats = {"sessions": 0, "skipped_synthetic": 0, "skipped_undistorted": 0,
+             "skipped_profile": 0, "skipped_no_frames": 0, "frames_tried": 0,
+             "frames_detected": 0}
+    views: list[BoardGridView] = []
+    margins: dict[str, float] = {}
+    if not root.is_dir():
+        return views, stats
+    for sdir in sorted(p for p in root.iterdir() if p.is_dir()):
+        try:
+            meta = read_session_meta(sdir) or {}
+            log_entries = read_log(sdir)
+        except Exception:  # noqa: BLE001 — unreadable session = not a candidate
+            continue
+        stats["sessions"] += 1
+        cam_idx = meta.get("camera_index")
+        cam_idx = -1 if cam_idx is None else int(cam_idx)
+        if meta.get("mode") == "ingested" or cam_idx < 0:
+            stats["skipped_synthetic"] += 1
+            continue
+        if meta.get("undistorted"):
+            stats["skipped_undistorted"] += 1
+            continue
+        prof_name = str(meta.get("profile") or config.DEFAULT_PROFILE)
+        if profile is not None and prof_name != profile:
+            stats["skipped_profile"] += 1
+            continue
+        margin = _session_margin(prof_name, margins)
+        entries = [e for e in log_entries if e.get("corners") and e.get("frame")]
+        if not entries:
+            stats["skipped_no_frames"] += 1
+            continue
+        take = np.unique(np.linspace(0, len(entries) - 1,
+                                     min(max_frames_per_session, len(entries))).round().astype(int))
+        session_views: list[BoardGridView] = []
+        any_frame = False
+        for e in (entries[i] for i in take):
+            fp = sdir / str(e["frame"])
+            frame = cv2.imread(str(fp)) if fp.exists() else None
+            if frame is None:
+                continue
+            any_frame = True
+            stats["frames_tried"] += 1
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            det = detect_grid_points(gray, e["corners"], margin=margin,
+                                     min_points=min_points, min_contrast=min_contrast)
+            if det is None:
+                continue
+            img_pts, obj_pts, grid_idx = det
+            fh, fw = frame.shape[:2]
+            session_views.append(BoardGridView(
+                session_id=sdir.name, frame=str(e["frame"]), image_size=(fw, fh),
+                quad=np.asarray(e["corners"], dtype=np.float64).reshape(-1, 2),
+                img_points=img_pts, obj_points=obj_pts, grid_idx=grid_idx))
+        if not any_frame:
+            stats["skipped_no_frames"] += 1
+            continue
+        stats["frames_detected"] += len(session_views)
+        views.extend(session_views)
+    return views, stats
+
+
+def lens_calibrate_board(sessions: str | None = None, out: str | None = None,
+                         force: bool = False, min_views: int = 8,
+                         novelty_px: float = 30.0, min_coverage: int = 4,
+                         min_points: int = 20, max_frames_per_session: int = 6,
+                         profile: str | None = None, size: str | None = None,
+                         max_rms: float = 2.0) -> int:
+    """`chesslab lens calibrate-board` — calibrate the lens from recorded sessions.
+
+    Zero interaction: harvest board views from disk, gate for pose diversity, solve,
+    VALIDATE on a held-out frame (board lines must get straighter) and only then save
+    through the same `save()`/re-stamp path as the interactive calibration.
+    """
+    out_path = Path(out) if out else default_path()
+    if out_path.exists() and not force:
+        print(f"[FAIL] {out_path} already exists — pass --force to overwrite.")
+        return 1
+
+    views, stats = harvest_board_views(
+        sessions_dir=Path(sessions) if sessions else None, profile=profile,
+        max_frames_per_session=max_frames_per_session, min_points=min_points)
+    print(f"harvest: {stats['sessions']} sessions "
+          f"({stats['skipped_synthetic']} synthetic/ingested, "
+          f"{stats['skipped_undistorted']} already-undistorted, "
+          f"{stats['skipped_profile']} other-profile, "
+          f"{stats['skipped_no_frames']} without usable frames skipped), "
+          f"{stats['frames_tried']} frames tried, {stats['frames_detected']} with a "
+          "detectable grid.")
+    if not views:
+        print("[FAIL] no usable board views found — record real sessions first (collect/"
+              "track), or run `chesslab lens calibrate` (pattern waving).")
+        return 1
+
+    # One calibration is only valid for ONE capture resolution — group and pick.
+    by_size: dict[tuple[int, int], list[BoardGridView]] = {}
+    for v in views:
+        by_size.setdefault(v.image_size, []).append(v)
+    for sz, group in sorted(by_size.items(), key=lambda kv: -len(kv[1])):
+        print(f"  {sz[0]}x{sz[1]}: {len(group)} views from "
+              f"{len({g.session_id for g in group})} sessions")
+    if size:
+        try:
+            w, h = (int(x) for x in size.lower().split("x"))
+        except ValueError:
+            print(f"[FAIL] --size {size!r} is not WxH.")
+            return 1
+        if (w, h) not in by_size:
+            print(f"[FAIL] no views at {w}x{h} — see the sizes listed above.")
+            return 1
+        image_size = (w, h)
+    else:
+        image_size = max(by_size, key=lambda s: len(by_size[s]))
+    group = by_size[image_size]
+    print(f"calibrating for {image_size[0]}x{image_size[1]} ({len(group)} candidate views).")
+
+    accepted, cov, best_tilt, refusal = gate_board_views(
+        group, image_size, min_views=min_views + 1,   # +1: one view is held out
+        novelty_px=novelty_px, min_coverage=min_coverage)
+    print(f"pose gate: {len(accepted)} distinct views, coverage "
+          f"{cov.covered}/{cov.n * cov.n} regions, best tilt {best_tilt:.2f}.")
+    if refusal:
+        print(f"[REFUSED] {refusal}")
+        return 1
+
+    res = solve_board_views(accepted, image_size)
+    if res.tilt < _MIN_TILT_FOR_FULL_SOLVE:
+        print(f"[note] all poses are near-frontal (tilt {res.tilt:.2f}) — focal length "
+              "and principal point were FIXED to a guess; only the distortion "
+              "coefficients were solved (that is what straightens the grid).")
+    ok, reason = board_solve_acceptable(res, max_rms=max_rms)
+    if not ok:
+        print(f"[REFUSED] {reason}")
+        return 1
+
+    k, d = res.camera_matrix, res.dist_coeffs
+    print(f"\nRMS reprojection error: {res.rms:.4f} px  ({res.n_views} views, "
+          f"{image_size[0]}x{image_size[1]}, held out: {res.holdout})")
+    print(f"K = fx {k[0, 0]:.1f}  fy {k[1, 1]:.1f}  cx {k[0, 2]:.1f}  cy {k[1, 2]:.1f}")
+    print("D = " + " ".join(f"{v:.5f}" for v in d))
+    print(f"validation: {reason}")
+
+    calib = LensCalibration(camera_matrix=k, dist_coeffs=d, image_size=image_size,
+                            rms=res.rms, created_at=datetime.now(UTC).isoformat(),
+                            id=calib_id(k, d))
+    save(out_path, calib, n_frames=res.n_views, pattern=(7, 7))
+    print(f"\n[OK] lens calibration saved: {out_path}  (id {calib.id})")
+    _invalidate_profiles(calib)
+    return 0
+
+
 def lens_show(path: str | None = None) -> int:
     """Print the stored lens calibration (or explain that there is none)."""
     p = Path(path) if path else default_path()
