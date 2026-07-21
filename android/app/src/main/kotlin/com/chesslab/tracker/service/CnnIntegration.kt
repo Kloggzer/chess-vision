@@ -75,7 +75,13 @@ class CnnIntegration(
         val loaded =
             runCatching {
                 OnnxClassifier(modelDir, log = { msg -> android.util.Log.i(CNN_TAG, msg) })
-            }.getOrElse { return false }
+            }.getOrElse { t ->
+                // A silent `return false` here cost a live-debugging session (2026-07-22:
+                // the bundled model failed to load, the app ran pure-diff with zero logs,
+                // and stuck states had no CNN rescue). Failures MUST be loud.
+                android.util.Log.e(CNN_TAG, "model load failed — safeguard NOT attached", t)
+                return false
+            }
         val cropper = BoardCropper(loaded.spec.outWidth, loaded.spec.outHeight)
         val config = CnnConfig(confThr = confThr)
         this.config = config
@@ -309,12 +315,22 @@ class CnnFrame(
 class CnnFrameStore {
     private val lock = Any()
     private var frame: CnnFrame? = null
+    private var consumed = true
+
+    /**
+     * Demand signal for the frame loop's full-res warp gate: true when no snapshot
+     * is stored yet or the stored one has already been handed out via [latest] —
+     * i.e. a consumer (observer/verify) will want a FRESH full-res board. While the
+     * current snapshot sits unread, the expensive full-resolution warp is skipped.
+     */
+    fun wantsFrame(): Boolean = synchronized(lock) { consumed }
 
     fun update(
         processed: ProcessedFrame,
         seq: Int,
     ) {
         synchronized(lock) {
+            consumed = false
             frame?.boardBgr?.release()
             frame =
                 CnnFrame(
@@ -332,11 +348,13 @@ class CnnFrameStore {
     /** Caller owns the returned board Mat and must release it. */
     fun latest(): CnnFrame? =
         synchronized(lock) {
+            consumed = true
             frame?.let { CnnFrame(it.boardBgr.clone(), it.gray, it.bgr, it.seq, it.timestampNs) }
         }
 
     fun clear() {
         synchronized(lock) {
+            consumed = true
             frame?.boardBgr?.release()
             frame = null
         }
