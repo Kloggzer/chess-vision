@@ -132,7 +132,8 @@ def dataset_create(req: DatasetCreateRequest):
             rotations=(config.DEDUP.rotations_augmented if req.rotate
                        else config.DEDUP.rotations),
             max_empty_ratio=req.max_empty_ratio, seed=req.seed,
-            allow_degenerate=req.allow_degenerate)
+            allow_degenerate=req.allow_degenerate,
+            force_train=req.force_train or None)
     except (ValueError, FileNotFoundError) as e:
         raise HTTPException(400, str(e))
 
@@ -157,7 +158,8 @@ def dataset_rebuild(name: str):
             rotations=tuple(cfg.get("rotations", (0,))),
             max_empty_ratio=sp.get("max_empty_ratio"),
             allow_degenerate=True,   # rebuild: original split was already accepted
-            seed=sp.get("seed", config.SEED))
+            seed=sp.get("seed", config.SEED),
+            force_train=cfg.get("force_train") or None)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return res

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -89,7 +89,29 @@ export function SessionsPanel() {
     queryKey: ["session-review", reviewSid, reviewIdx],
     queryFn: () => api(`/api/sessions/${encodeURIComponent(reviewSid)}/review?idx=${reviewIdx}`),
     enabled: !!reviewSid,
+    staleTime: 60_000,          // prefetched neighbours must not refetch on step
   });
+  // Preload the neighbouring review steps (metadata + both images) so stepping
+  // through a session needs no load pause: the overlay/board URLs are
+  // deterministic per index, so warming an Image() populates the browser cache
+  // the <img> tags then hit instantly (server sends Cache-Control for these).
+  const qc = useQueryClient();
+  useEffect(() => {
+    const count = (reviewQ.data as any)?.count ?? 0;
+    if (!reviewSid || !count) return;
+    const sid = encodeURIComponent(reviewSid);
+    for (const off of [1, 2, 3, -1]) {
+      const i = reviewIdx + off;
+      if (i < 0 || i >= count) continue;
+      qc.prefetchQuery({
+        queryKey: ["session-review", reviewSid, i],
+        queryFn: () => api(`/api/sessions/${sid}/review?idx=${i}`),
+        staleTime: 60_000,
+      });
+      new Image().src = `/api/sessions/${sid}/overlay/${i}`;
+      new Image().src = `/api/sessions/${sid}/board/${i}`;
+    }
+  }, [reviewSid, reviewIdx, reviewQ.data, qc]);
   const all: any[] = sessionsQ.data ?? [];
   const cameraSessions = all.filter((m) => !m.variant);
   // Hide reviewed sessions by default so only NEW ones need attention (toggle to reveal them).
@@ -316,9 +338,14 @@ export function DatasetsPanel() {
   const [cap, setCap] = useState(4);
   const [phash, setPhash] = useState(true);
   const [hamming, setHamming] = useState(6);
-  const [rotate, setRotate] = useState(false);
+  // Default ON since 2026-07-21: the no-rotate build starved the finetune (4x less train
+  // data) and rotation rescued rare classes (bK recall 0 -> 0.28). val/test stay rot-0.
+  const [rotate, setRotate] = useState(true);
   const [valFrac, setValFrac] = useState(0.15);
   const [testFrac, setTestFrac] = useState(0.15);
+  // Sessions pinned to the TRAIN split (fixed-position captures like the all-empty
+  // lighting sessions — in val/test they would distort board metrics).
+  const [pinTrain, setPinTrain] = useState<Record<string, boolean>>({});
 
   const sessionsQ = useQuery({ queryKey: ["sessions-manage"], queryFn: () => api("/api/sessions/manage") });
   const datasetsQ = useQuery({ queryKey: ["datasets"], queryFn: () => api("/api/datasets") });
@@ -327,7 +354,14 @@ export function DatasetsPanel() {
 
   const buildM = useMutation({
     mutationFn: (body: any) => post("/api/datasets", body),
-    onSuccess: (r: any) => { setNote(`"${r.name}" built: raw ${r.counts.raw} → dedup ${r.counts.after_dedup} → final ${r.counts.final}.`); setNoteKind("ok"); setOpen(false); setName(""); setSel({}); invalidate("datasets", "stats"); },
+    onSuccess: (r: any) => {
+      const extras = [
+        r.hard_empty_protected ? `${r.hard_empty_protected} hard empties protected` : "",
+        r.force_train?.length ? `${r.force_train.length} session(s) pinned to train` : "",
+      ].filter(Boolean).map((s) => ` · ${s}`).join("");
+      setNote(`"${r.name}" built: raw ${r.counts.raw} → dedup ${r.counts.after_dedup} → final ${r.counts.final}${extras}.`);
+      setNoteKind("ok"); setOpen(false); setName(""); setSel({}); setPinTrain({}); invalidate("datasets", "stats");
+    },
     onError: (e: any) => { setNote("Error: " + e.message); setNoteKind("err"); },
   });
   const dsDeleteM = useMutation({ mutationFn: (n: string) => del(`/api/datasets/${n}`), onSuccess: () => { setNote("deleted."); setNoteKind("ok"); invalidate("datasets"); }, onError: (e: any) => { setNote("Error: " + e.message); setNoteKind("err"); } });
@@ -336,7 +370,8 @@ export function DatasetsPanel() {
   function build() {
     const session_ids = active.filter((s: any) => sel[s.session_id]).map((s: any) => s.session_id);
     if (!name.trim() || session_ids.length === 0) { setNote("Name and at least one session required."); return; }
-    buildM.mutate({ name: name.trim(), session_ids, per_cell_cap: cap, phash_enabled: phash, phash_hamming: hamming, rotate, val_frac: valFrac, test_frac: testFrac });
+    const force_train = session_ids.filter((sid: string) => pinTrain[sid]);
+    buildM.mutate({ name: name.trim(), session_ids, per_cell_cap: cap, phash_enabled: phash, phash_hamming: hamming, rotate, val_frac: valFrac, test_frac: testFrac, force_train });
   }
 
   return (
@@ -351,7 +386,7 @@ export function DatasetsPanel() {
             <label className="flex items-center gap-1 text-xs text-zinc-400" title="max. crops per (session, square, piece)">Cap/cell<input type="number" min={1} value={cap} onChange={(e) => setCap(+e.target.value)} className={`${input} w-16`} /></label>
             <label className="flex items-center gap-1 text-xs text-zinc-400"><input type="checkbox" checked={phash} onChange={(e) => setPhash(e.target.checked)} /> pHash</label>
             <label className="flex items-center gap-1 text-xs text-zinc-400">Hamming<input type="number" min={0} max={32} value={hamming} disabled={!phash} onChange={(e) => setHamming(+e.target.value)} className={`${input} w-14`} /></label>
-            <label className="flex items-center gap-1 text-xs text-zinc-400" title="Off by default. When on: 90/180/270° → 4× crops on disk. WARNING: violates the fixed-camera assumption — opt in only for an A/B test."><input type="checkbox" checked={rotate} onChange={(e) => setRotate(e.target.checked)} /> <RotateCw className="h-3.5 w-3.5" /> Rotation</label>
+            <label className="flex items-center gap-1 text-xs text-zinc-400" title="On by default: 90/180/270° augmentation (4× train crops on disk, val/test stay unrotated). Proven to rescue rare classes (bK) and feed small-model finetunes — turn off only for a minimal A/B build."><input type="checkbox" checked={rotate} onChange={(e) => setRotate(e.target.checked)} /> <RotateCw className="h-3.5 w-3.5" /> Rotation</label>
             <label className="flex items-center gap-1 text-xs text-zinc-400">val<input type="number" step={0.05} min={0} max={0.5} value={valFrac} onChange={(e) => setValFrac(+e.target.value)} className={`${input} w-14`} /></label>
             <label className="flex items-center gap-1 text-xs text-zinc-400">test<input type="number" step={0.05} min={0} max={0.5} value={testFrac} onChange={(e) => setTestFrac(+e.target.value)} className={`${input} w-14`} /></label>
           </div>
@@ -366,8 +401,18 @@ export function DatasetsPanel() {
                 <label key={s.session_id} className="flex items-center gap-1.5 rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300">
                   <input type="checkbox" checked={!!sel[s.session_id]} onChange={(e) => setSel((p) => ({ ...p, [s.session_id]: e.target.checked }))} />
                   {s.session_id} <span className="text-zinc-500">({s.n_crops})</span>
+                  {sel[s.session_id] && (
+                    <button type="button" title="Pin to TRAIN split — for fixed-position captures (e.g. all-empty lighting sessions): in val/test they would distort board metrics."
+                            onClick={(e) => { e.preventDefault(); setPinTrain((p) => ({ ...p, [s.session_id]: !p[s.session_id] })); }}
+                            className={`rounded px-1 text-[10px] ${pinTrain[s.session_id] ? "bg-amber-900/70 text-amber-300" : "bg-zinc-800 text-zinc-500 hover:text-zinc-300"}`}>
+                      {pinTrain[s.session_id] ? "train ✓" : "pin→train"}
+                    </button>
+                  )}
                 </label>
               ))}
+            </div>
+            <div className="mt-1 text-[11px] text-zinc-500">
+              The mined hard-empty keep list (data/manifests/hard_empty.jsonl) is applied automatically — protected crops survive the empty cap.
             </div>
           </div>
           <Button variant="primary" onClick={build} disabled={buildM.isPending}>

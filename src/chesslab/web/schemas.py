@@ -41,9 +41,13 @@ class DatasetCreateRequest(BaseModel):
     per_cell_cap: int = config.DEDUP.per_cell_cap
     phash_enabled: bool = config.DEDUP.phash_enabled
     phash_hamming: int = config.DEDUP.phash_hamming
-    # OFF by default, like `dataset build --rotate/--no-rotate`: rotating crops violates the
-    # fixed-camera assumption and 4x's the on-disk crops. Opt in for an A/B test.
-    rotate: bool = False
+    # ON by default since 2026-07-21: the no-rotate real-all2 build starved the small-model
+    # finetune (4x less train data) and rotation demonstrably rescued rare classes (bK
+    # recall 0 -> 0.28 on real-all4). Costs 4x train crops on disk; val/test stay rot-0.
+    rotate: bool = True
     max_empty_ratio: float = config.DEFAULT_MAX_EMPTY_RATIO
     seed: int = config.SEED
     allow_degenerate: bool = False
+    # Sessions pinned to the TRAIN split — fixed-position captures (e.g. the all-empty
+    # lighting sessions) would distort board metrics if they landed in val/test.
+    force_train: list[str] = []

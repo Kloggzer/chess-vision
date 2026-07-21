@@ -328,6 +328,9 @@ def build_dataset(
         "dedup": {"per_cell_cap": per_cell_cap, "phash_enabled": bool(phash_enabled),
                   "phash_hamming": phash_hamming},
         "rotations": list(rotations),
+        # Sessions pinned to the train split (e.g. all-empty lighting captures — in
+        # val/test they would distort board metrics). Persisted so Rebuild keeps them.
+        "force_train": sorted(force_train) if force_train else [],
         "split": {"val_frac": val_frac, "test_frac": test_frac, "max_empty_ratio": max_empty_ratio,
                   "max_class_ratio": max_class_ratio, "seed": seed},
         "counts": {"raw": n_raw, "after_dedup": n_dedup, "final": n_final},
@@ -346,7 +349,9 @@ def build_dataset(
         except Exception as e:  # noqa: BLE001 — packing is an optimization, never fail the build
             print(f"  ! packing skipped ({e}); training will use the per-PNG loader.")
     return {"name": name, "counts": cfg["counts"], "split_counts": split["counts"],
-            "warnings": split.get("warnings", []), "packed": packed_info}
+            "warnings": split.get("warnings", []), "packed": packed_info,
+            "hard_empty_protected": len(priority_paths or ()),
+            "force_train": sorted(force_train) if force_train else []}
 
 
 # --- CRUD -----------------------------------------------------------------------------
