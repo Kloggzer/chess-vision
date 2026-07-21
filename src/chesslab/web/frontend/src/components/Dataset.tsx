@@ -486,6 +486,11 @@ export function StatsPanel() {
 
       <Card title={`Browse crops (${statsOfDs})`} right={<span className="flex items-center gap-1 text-xs text-zinc-500"><Images className="h-3.5 w-3.5" />{browse ? `${browse.label} (${browse.crops.length})` : "Click a class"}</span>}>
         {browseErr && <div className="mb-2 rounded-lg bg-red-950/60 px-3 py-1.5 text-sm text-red-300">{browseErr}</div>}
+        {browse && statsOf && (
+          <img src={`/api/datasets/${statsOf}/montage/${browse.label}?n=64`} key={`${statsOf}-${browse.label}`}
+               alt={`${browse.label} montage`} title={`64 sample ${browse.label} crops (from the packed memmap)`}
+               className="mb-3 max-w-xl rounded-lg border border-zinc-800" />
+        )}
         {browse ? (
           <div className="grid grid-cols-[repeat(auto-fill,56px)] gap-1.5">
             {browse.crops.map((c: any, i: number) => c.url ? (

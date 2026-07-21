@@ -178,7 +178,7 @@ def _center_mask(h: int, w: int, frac: float) -> torch.Tensor:
 
 
 def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
-                     center_frac: float = 0.55) -> list[dict]:
+                     center_frac: float | None = None) -> list[dict]:
     """Measure where each class's evidence lives: piece (center) vs. background (border ring).
 
     Mask-free occlusion test (Zeiler & Fergus style): for each crop, blank the centered box
@@ -196,6 +196,13 @@ def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
     model.eval()
     classes = cfg["classes"]
     out_w, out_h = cfg["out_size"]
+    if center_frac is None:
+        # The "piece region" of a crop is the CELL inside it: crop width = cell * (1 + 2*pad_side)
+        # (labeling.crop_square), so center_frac = 1/(1+2*pad_side) ~ 0.83 at pad_side 0.10.
+        # The old hardcoded 0.55 was authored for the 128x176 pad_up-0.35 crops, where the piece
+        # floated small inside a tall crop; on today's tight square crops it missed the whole
+        # silhouette — tall pieces (kings!) scored piece_frac ~0 although the model reads them.
+        center_frac = 1.0 / (1.0 + 2.0 * config.CROP.pad_side)
     mean = torch.tensor(config.NORMALIZE_MEAN).view(3, 1, 1)
     std = torch.tensor(config.NORMALIZE_STD).view(3, 1, 1)
     gray = 0.5  # neutral occluder value on the [0,1] scale
