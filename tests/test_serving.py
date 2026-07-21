@@ -370,6 +370,67 @@ def test_load_run_and_predict_arrays(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Test 6b: CUDA-graph fast path (GPU only)
+# ---------------------------------------------------------------------------
+
+
+def _mini_run(tmp_path, out_size=(96, 128)):
+    import torch
+
+    from chesslab.training.model import build_model
+
+    run_dir = tmp_path / "run_g"
+    run_dir.mkdir()
+    classes = config.CLASSES
+    model = build_model("smallcnn", len(classes), norm="batchnorm", head="combined",
+                        classes=classes)
+    torch.save(model.state_dict(), str(run_dir / "best.pt"))
+    (run_dir / "config.json").write_text(json.dumps({
+        "backbone": "smallcnn", "classes": classes, "out_size": list(out_size),
+        "norm": "batchnorm", "head": "combined",
+        "variant": {"geometry": "warp", "photometry": "none", "piece_height_cells": 1.6},
+    }), encoding="utf-8")
+    return run_dir
+
+
+def test_cuda_graph_path_matches_eager(tmp_path, monkeypatch):
+    """GPU: the graph fast path returns the same predictions (within fp16 tolerance)
+    as the eager path, for a full 64 batch and a partial batch."""
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("no CUDA/HIP device")
+
+    run_dir = _mini_run(tmp_path)
+    out_h, out_w = 128, 96
+    rng = np.random.RandomState(3)
+    crops = [rng.randint(0, 256, (out_h, out_w, 3), dtype=np.uint8) for _ in range(64)]
+
+    # Eager reference (graph disabled)
+    serving.clear_cache()
+    monkeypatch.setenv("CHESSLAB_DISABLE_CUDA_GRAPH", "1")
+    ref = serving.predict_arrays(run_dir, crops, device="cuda", return_probs=True)
+
+    # Graph path
+    serving.clear_cache()
+    monkeypatch.delenv("CHESSLAB_DISABLE_CUDA_GRAPH", raising=False)
+    got = serving.predict_arrays(run_dir, crops, device="cuda", return_probs=True)
+    key = f"{run_dir.resolve()}|cuda"
+    if serving._GRAPH_CACHE.get(key) is None:
+        pytest.skip("CUDA-graph capture not supported on this stack (eager fallback active)")
+
+    assert len(got) == 64
+    for r, g in zip(ref, got, strict=True):
+        assert np.allclose(r["probs"], g["probs"], atol=0.03), \
+            f"probs diverge: {max(abs(a - b) for a, b in zip(r['probs'], g['probs'], strict=True))}"
+
+    # Partial batch reuses the same captured graph
+    part = serving.predict_arrays(run_dir, crops[:5], device="cuda", return_probs=True)
+    assert len(part) == 5
+    for p, g in zip(part, got[:5], strict=True):
+        assert np.allclose(p["probs"], g["probs"], atol=1e-4)
+
+
+# ---------------------------------------------------------------------------
 # Test 7: model_classes
 # ---------------------------------------------------------------------------
 
