@@ -70,13 +70,27 @@ object OcclusionGamut {
         thr2: Double,
     ): Boolean {
         val f = squareFeature(bgr, box) ?: return false
-        val minD =
-            gamut.feats.minOf { ref ->
-                val d = DoubleArray(FEATURES) { ref[it] - f[it] }
-                var acc = 0.0
-                for (i in 0 until FEATURES) for (j in 0 until FEATURES) acc += d[i] * gamut.inv[i][j] * d[j]
-                acc
-            }
+        // Flat Mahalanobis loop without the per-reference DoubleArray (64 allocations per
+        // call showed up in the on-device occlusion stage, 2026-07-22). Same math.
+        var minD = Double.MAX_VALUE
+        val inv = gamut.inv
+        for (ref in gamut.feats) {
+            val d0 = ref[0] - f[0]
+            val d1 = ref[1] - f[1]
+            val d2 = ref[2] - f[2]
+            // Accumulation order matches the original i-major/j-inner loop bit-exactly.
+            var acc = 0.0
+            acc += d0 * inv[0][0] * d0
+            acc += d0 * inv[0][1] * d1
+            acc += d0 * inv[0][2] * d2
+            acc += d1 * inv[1][0] * d0
+            acc += d1 * inv[1][1] * d1
+            acc += d1 * inv[1][2] * d2
+            acc += d2 * inv[2][0] * d0
+            acc += d2 * inv[2][1] * d1
+            acc += d2 * inv[2][2] * d2
+            if (acc < minD) minD = acc
+        }
         return minD > thr2
     }
 
@@ -86,19 +100,26 @@ object OcclusionGamut {
         box: Box,
     ): DoubleArray? {
         if (box.area <= 0) return null
-        var a = 0.0
-        var b = 0.0
-        var s = 0.0
+        // Per-pixel features are 0..255 ints (see ColorSpace.packedGamutFeature): integer
+        // sums of whole-number doubles are exact, so the means match the unfused original.
+        var a = 0
+        var b = 0
+        var s = 0
+        val data = bgr.data
+        val w = bgr.width
         for (y in box.y0 until box.y1) {
-            for (x in box.x0 until box.x1) {
-                val i = (y * bgr.width + x) * CHANNELS
-                val blue = bgr.data[i].px()
-                val green = bgr.data[i + 1].px()
-                val red = bgr.data[i + 2].px()
-                val lab = ColorSpace.bgrToLab(blue, green, red)
-                a += lab[1]
-                b += lab[2]
-                s += ColorSpace.bgrToHsv(blue, green, red)[1]
+            var i = (y * w + box.x0) * CHANNELS
+            repeat(box.x1 - box.x0) {
+                val packed =
+                    ColorSpace.packedGamutFeature(
+                        data[i].toInt() and BYTE_MASK,
+                        data[i + 1].toInt() and BYTE_MASK,
+                        data[i + 2].toInt() and BYTE_MASK,
+                    )
+                a += (packed ushr ColorSpace.PACK_HI) and BYTE_MASK
+                b += (packed ushr ColorSpace.PACK_MID) and BYTE_MASK
+                s += packed and BYTE_MASK
+                i += CHANNELS
             }
         }
         val n = box.area.toDouble()

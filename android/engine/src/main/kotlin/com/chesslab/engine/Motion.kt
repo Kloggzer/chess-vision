@@ -18,10 +18,14 @@ object Motion {
         pxThr: Double,
     ): Double {
         var hits = 0
-        for (i in curGray.data.indices) {
-            if (kotlin.math.abs(curGray.data[i].px() - prevGray.data[i].px()) > pxThr) hits++
+        val cur = curGray.data
+        val prev = prevGray.data
+        val thr = pxThr.toInt() // |int diff| > pxThr  <=>  |int diff| > floor(pxThr) for pxThr >= 0
+        for (i in cur.indices) {
+            val d = (cur[i].toInt() and BYTE_MASK) - (prev[i].toInt() and BYTE_MASK)
+            if ((if (d < 0) -d else d) > thr) hits++
         }
-        return hits.toDouble() / curGray.data.size * PERCENT
+        return hits.toDouble() / cur.size * PERCENT
     }
 
     /** Result of [baselineOcclusionAndShadow]: dilated occlusion, dilated shadow, RAW occluded core. */
@@ -69,13 +73,19 @@ object Motion {
         val base = BoardGeometry(geom.boardSize, geom.whitePov)
         val boxes = Squares.boxes(base)
         val w = curGray.width
-        val absDiff =
-            IntArray(curGray.data.size) {
-                kotlin.math.abs(curGray.data[it].px() - refGray.data[it].px())
-            }
+        val cur = curGray.data
+        val ref = refGray.data
+        val absDiff = IntArray(cur.size)
+        val curVals = IntArray(cur.size)
+        val refVals = IntArray(ref.size)
+        for (i in cur.indices) {
+            val c = cur[i].toInt() and BYTE_MASK
+            val r = ref[i].toInt() and BYTE_MASK
+            curVals[i] = c
+            refVals[i] = r
+            absDiff[i] = if (c >= r) c - r else r - c
+        }
         val occMeans = SquareDiff.regionMeans(SquareDiff.integral(absDiff, w, curGray.height), w, boxes)
-        val curVals = IntArray(curGray.data.size) { curGray.data[it].px() }
-        val refVals = IntArray(refGray.data.size) { refGray.data[it].px() }
         val curMeans = SquareDiff.regionMeans(SquareDiff.integral(curVals, w, curGray.height), w, boxes)
         val refMeans = SquareDiff.regionMeans(SquareDiff.integral(refVals, w, refGray.height), w, boxes)
         val strong = Squares.all.filterIndexed { idx, _ -> occMeans[idx] > absThr }.toSet()

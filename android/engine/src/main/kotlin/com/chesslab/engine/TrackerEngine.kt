@@ -111,6 +111,7 @@ class TrackerEngine(
         bgr: BgrImage,
         timestampNs: Long = clock(),
     ): List<TrackerEvent> {
+        val perfStart = System.nanoTime()
         val events = mutableListOf<TrackerEvent>()
         events += queued
         queued.clear()
@@ -118,16 +119,16 @@ class TrackerEngine(
         lastNowS = now
         state.frameSeq++
         val prev = prevGray
-        val motionDiff = absoluteDiff(prev, gray)
+        val motionDiff = EnginePerf.stage("mdiff") { absoluteDiff(prev, gray) }
         val motion =
             if (prev == null || prev.data.size != gray.data.size) {
                 0.0
             } else {
-                Motion.motionScore(prev, gray, config.motionPxThr)
+                EnginePerf.stage("motion") { Motion.motionScore(prev, gray, config.motionPxThr) }
             }
         prevGray = gray
         state.motion = motion
-        refreshOcclusion(gray, bgr, now)
+        EnginePerf.stage("occl") { refreshOcclusion(gray, bgr, now) }
         if (motion > config.motionThr) handleMotionSpike(now) else handleStableFrame(gray, bgr, now, events)
         watchdogPending(now)
         latestDebugImages =
@@ -149,6 +150,7 @@ class TrackerEngine(
                 stuck = state.stuckReason != null,
                 pendingVerify = state.pending != null,
             )
+        EnginePerf.flushFrame(System.nanoTime() - perfStart)
         return events
     }
 
@@ -157,8 +159,13 @@ class TrackerEngine(
         second: GrayImage,
     ): GrayImage? {
         if (first == null || first.width != second.width || first.height != second.height) return null
-        val data = ByteArray(second.data.size)
-        for (i in data.indices) data[i] = kotlin.math.abs(first.data[i].px() - second.data[i].px()).toByte()
+        val a = first.data
+        val b = second.data
+        val data = ByteArray(b.size)
+        for (i in data.indices) {
+            val d = (a[i].toInt() and BYTE_MASK) - (b[i].toInt() and BYTE_MASK)
+            data[i] = (if (d < 0) -d else d).toByte()
+        }
         return GrayImage(second.width, second.height, data)
     }
 
@@ -185,7 +192,7 @@ class TrackerEngine(
                         refCodes = state.refCensusCodes(),
                         occlCensusThr = config.occlCensusThr,
                         curBgr = bgr,
-                        gamut = state.refGamut,
+                        gamut = state.refGamut(),
                         colorThr = config.occlusionColorThr,
                     ),
                 )
@@ -218,10 +225,10 @@ class TrackerEngine(
         state.stableCount++
         averager.append(gray, bgr)
         val ready = state.stableCount >= SETTLE_FRAMES && now >= state.holdUntil
-        val cur = if (averager.size >= AVG_FRAMES) averager.meanGray() else null
-        val curBgr = if (averager.size >= AVG_FRAMES) averager.meanBgr() else null
+        val cur = if (averager.size >= AVG_FRAMES) EnginePerf.stage("avg") { averager.meanGray() } else null
+        val curBgr = if (averager.size >= AVG_FRAMES) EnginePerf.stage("avgBgr") { averager.meanBgr() } else null
         if (cur != null && curBgr != null) {
-            if (ready) latestDetectionDiff = absoluteDiff(state.refGray, cur)
+            if (ready) latestDetectionDiff = EnginePerf.stage("ddiff") { absoluteDiff(state.refGray, cur) }
             detectOrCapture(cur, curBgr, ready, now, events)
             if (ready && latestDetectionDiff == null) latestDetectionDiff = absoluteDiff(state.refGray, cur)
         }
