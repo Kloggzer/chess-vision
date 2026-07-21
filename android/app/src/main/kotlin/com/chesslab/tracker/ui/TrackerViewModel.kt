@@ -35,7 +35,10 @@ class TrackerViewModel(
     app: Application,
 ) : AndroidViewModel(app) {
     private val settingsRepo = SettingsRepository(settingsDataStore(app))
-    val modelStore = CnnModelStore(app.filesDir)
+
+    // Bundled tiny model installs on first access (no-op after an import) so the
+    // settings screen shows "installed" even before the service ever ran.
+    val modelStore = CnnModelStore(app.filesDir).also { it.installBundledIfMissing(app.assets) }
     private val calibrationStore = CalibrationStore(app.filesDir.resolve("calibration"))
 
     /** Finished-game library, read by phase 06's games list/analysis screens. */
