@@ -138,12 +138,21 @@ a new lens calibration re-stamps the board profiles.
 
 ```bash
 uv run chesslab lens calibrate --camera 0   # auto-captures views of a printed 8x8 board, then solves
+uv run chesslab lens calibrate-board        # zero-interaction: solves from recorded sessions on disk
 uv run chesslab lens show                   # K, distortion, RMS, the resolution it was shot at
 ```
 
 Frames are captured automatically (novel pose + cooldown), a HUD shows which image regions
 are still uncovered, and the solve starts by itself. With the **5–50 mm varifocal** lens the
 result is only valid at the zoom/focus it was shot at — re-run after touching the lens.
+
+`lens calibrate-board` needs no interaction at all: the physical board **is** the pattern.
+It harvests real sessions from `data/sessions/` (per-frame board corners + frame images),
+detects the board's 7×7 inner checker corners around the logged corners (piece-occluded
+intersections are rejected), gates the views for pose diversity across differently mounted
+recordings, and only saves when a held-out frame's grid lines demonstrably get straighter
+after undistortion. If the recorded sessions are all from the same mount it refuses with a
+clear reason instead of producing a confidently wrong model.
 Only the local USB camera is undistorted; phone/IP-cam URLs and recorded files are not, so
 sessions on disk are never undistorted twice.
 
