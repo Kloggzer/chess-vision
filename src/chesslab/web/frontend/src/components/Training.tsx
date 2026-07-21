@@ -74,6 +74,7 @@ export default function Training() {
   const [status, setStatus] = useState<any>({ running: false });
   const [err, setErr] = useState("");
   const [exporting, setExporting] = useState<string | null>(null);
+  const [evaling, setEvaling] = useState<string | null>(null);
   const [backbone, setBackbone] = useState("smallcnn");
   const [head, setHead] = useState("combined");   // combined | factored | twostage (Occupancy→Piece)
   const [epochs, setEpochs] = useState(30);
@@ -134,13 +135,14 @@ export default function Training() {
     finally { setRelLoading(false); }
   }
   async function evalRun(r: string) {
-    setErr("");
+    setErr(""); setEvaling(r);
     try {
       const res = await post(`/api/runs/${r}/eval`, {});
       if (!res.ok) { setErr(res.output || "eval failed"); return; }
       if (run === r) showRun(r);            // refresh eval display for the selected run
       refreshRuns();                         // update test_board_acc column
     } catch (e: any) { setErr(e.message); }
+    finally { setEvaling(null); }
   }
   async function delRun(r: string) {
     if (!window.confirm(`Delete model "${r}"? (directory + weights will be removed)`)) return;
@@ -302,8 +304,9 @@ export default function Training() {
                     <td className="py-1"><div className="flex justify-end gap-1.5">
                       <Button onClick={() => showRun(r.run)}
                               className="px-2 py-1 text-xs"><Eye className="h-3.5 w-3.5" /> View</Button>
-                      <Button onClick={() => evalRun(r.run)}
-                              className="px-2 py-1 text-xs" title="Run eval (test split) — generates metrics + confusion matrix"><FlaskConical className="h-3.5 w-3.5" /> Eval</Button>
+                      <Button onClick={() => evalRun(r.run)} disabled={evaling === r.run}
+                              className="px-2 py-1 text-xs" title="Run eval (test split) — generates metrics + confusion matrix">
+                        {evaling === r.run ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="h-3.5 w-3.5" />} Eval</Button>
                       <Button onClick={() => exportRun(r.run)} disabled={exporting === r.run}
                               className="px-2 py-1 text-xs" title={r.has_onnx ? "model.onnx exists" : "Export to ONNX for faster inference"}>
                         {exporting === r.run ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> :
@@ -346,7 +349,15 @@ export default function Training() {
               );
             })}
           </div>
-        ) : <span className="text-sm text-zinc-500">No eval yet — <code>chesslab eval --run …</code></span>}
+        ) : run ? (
+          <div className="flex items-center gap-3">
+            <Button onClick={() => evalRun(run)} disabled={evaling === run} className="px-3 py-1.5 text-sm">
+              {evaling === run ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />}
+              {evaling === run ? " Evaluating…" : " Run eval (test split)"}
+            </Button>
+            <span className="text-xs text-zinc-500">generates metrics + confusion matrix for this run</span>
+          </div>
+        ) : <span className="text-sm text-zinc-500">No eval yet — select a run above.</span>}
       </Card>
 
       <Card title="Grad-CAM — which pixels drove the decision">
