@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -32,6 +33,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from chesslab import config  # noqa: E402
 from chesslab.dataset import load_manifest  # noqa: E402
+
+# Real capture sessions are timestamped `YYYYMMDD-HHMMSS`. Everything else in the crop
+# manifest (e.g. `pretrain-synth__synth-004`) is a classic-ingested SYNTHETIC pool whose
+# PNGs also live on disk — mining those drowns the deployment-relevant real failures:
+# on 2026-07-21, 697 of 786 mined "hard empties" turned out to be crops of the obsolete
+# unframed ~51 px/square renders, and the headline stats described the wrong problem.
+_CAMERA_SESSION_RE = re.compile(r"^\d{8}-\d{6}$")
+
+
+def is_camera_session(session_id: str | None) -> bool:
+    return bool(session_id and _CAMERA_SESSION_RE.match(str(session_id)))
 
 
 def main() -> None:
@@ -48,6 +60,9 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=0, help="cap crops scanned (0 = all)")
     ap.add_argument("--out", default=None,
                     help="output JSONL (default: data/manifests/hard_empty.jsonl)")
+    ap.add_argument("--include-synthetic", action="store_true",
+                    help="also scan classic-ingested synthetic sessions (PNG pools like "
+                         "pretrain-synth__*). Default OFF: they drown the real failures.")
     ap.add_argument("--montage", default=None,
                     help="montage PNG of the worst offenders (default: data/_perf/hard_empty.png)")
     args = ap.parse_args()
@@ -60,8 +75,14 @@ def main() -> None:
     run_dir = Path(args.run)
 
     rows = [r for r in load_manifest(src) if r["label"] == "empty" and r.get("path")]
-    # Synthetic pools are packed (mm:// rows have no files) — this miner targets REAL crops.
+    # Fused synthetic pools are packed (mm:// rows have no files) — this miner targets REAL crops.
     rows = [r for r in rows if not str(r["path"]).startswith("mm://")]
+    if not args.include_synthetic:
+        n_before = len(rows)
+        rows = [r for r in rows if is_camera_session(r.get("session_id"))]
+        if n_before != len(rows):
+            print(f"skipping {n_before - len(rows)} empty crops from non-camera sessions "
+                  f"(classic-ingested synth pools; --include-synthetic to scan them)")
     if args.limit:
         rows = rows[: args.limit]
     print(f"scanning {len(rows)} real empty crops from {src.name} "
@@ -109,6 +130,23 @@ def main() -> None:
                 merged[r["path"]] = r
     for h in hard:
         merged[h["path"]] = h
+    if not args.include_synthetic:
+        # Migrate legacy non-camera rows out of the keep list (kept, not deleted): they are
+        # crops of obsolete synth PNG pools and would silently distort every future stat.
+        legacy = {p: r for p, r in merged.items() if not is_camera_session(r.get("session_id"))}
+        if legacy:
+            side = out.with_suffix(".synthetic.jsonl")
+            existing = {}
+            if side.exists():
+                for line in side.read_text(encoding="utf-8").splitlines():
+                    if line.strip():
+                        r = json.loads(line)
+                        existing[r["path"]] = r
+            existing.update(legacy)
+            side.write_text("\n".join(json.dumps(r, ensure_ascii=False)
+                                      for r in existing.values()) + "\n", encoding="utf-8")
+            merged = {p: r for p, r in merged.items() if p not in legacy}
+            print(f"moved {len(legacy)} legacy synth-pool rows -> {side}")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in merged.values()) + "\n",
                    encoding="utf-8")

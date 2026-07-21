@@ -19,7 +19,12 @@ _frame_files = sorted(_session_dir.glob("*.png"))
 _frame = cv2.imdecode(np.fromfile(str(_frame_files[0]), dtype=np.uint8), cv2.IMREAD_COLOR)
 
 # --- Build 800² warp pair ---
-from chesslab.calibration import board_corners_for_frame, ensure_profile, make_tracker, warp_from_corners  # noqa: E402
+from chesslab.calibration import (  # noqa: E402
+    board_corners_for_frame,
+    ensure_profile,
+    make_tracker,
+    warp_from_corners,
+)
 
 profile = ensure_profile("phone")
 mt = make_tracker(profile)
@@ -45,8 +50,8 @@ def bench(stmt, setup="", n=N) -> float:
     return t / n * 1000.0
 
 
-# Pre-imports for shorter setup strings
-from chesslab.move_tracker.tracker import (  # noqa: E402
+# Pre-imports for shorter setup strings — used via timeit(globals=globals()), ruff can't see that.
+from chesslab.move_tracker.tracker import (  # noqa: E402, F401
     board_color_gamut,
     census_transform,
     hsv_shadow_squares,

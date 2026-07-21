@@ -166,6 +166,58 @@ def randomize_border_bg(img: Image.Image, keep_w: float, keep_h: float,
 # Labels whose crop is mostly board/hand (no piece) — background randomization would corrupt them.
 _BG_SKIP_LABELS = {"empty", "occluded"}
 
+# Edge weights for the neighbour-bleed paste. Top-heavy: in the warped top-down crop the
+# dominant real intrusion is the neighbour piece one rank away leaning across the upper
+# crop edge (3D lean away from the camera); side/bottom intrusions (pawn heads at the
+# corners) exist but are smaller. Measured on the mined hard empties (2026-07-21).
+_NEIGHBOUR_EDGES = ("top", "left", "right", "bottom")
+_NEIGHBOUR_EDGE_W = (0.5, 0.2, 0.2, 0.1)
+
+
+def paste_neighbour_strip(img: Image.Image, donor: Image.Image,
+                          frac_range: tuple[float, float]) -> Image.Image:
+    """Composite the donor's central band (where its piece body/head sits) into one edge of
+    `img`, feathered. Caller applies this to EMPTY crops only, with an OCCUPIED donor —
+    the result mimics a tall neighbour piece bleeding into the empty square's crop
+    (pad_side + perspective lean), which the label `empty` must survive.
+
+    The band comes from the donor's CENTRE (its piece), not its border (its board), and is
+    laterally rolled at random so the intruding blob is not always centred. The feathered
+    mask avoids a hard seam the model could key on (same trick as randomize_border_bg).
+    """
+    from PIL import ImageFilter
+
+    w, h = img.size
+    if donor.size != img.size:
+        donor = donor.resize((w, h))
+    arr = np.asarray(img).astype(np.float32)
+    dar = np.asarray(donor).astype(np.float32)
+    edge = random.choices(_NEIGHBOUR_EDGES, weights=_NEIGHBOUR_EDGE_W, k=1)[0]
+    frac = random.uniform(*frac_range)
+
+    comp = arr.copy()
+    m = np.zeros((h, w), np.float32)
+    if edge in ("top", "bottom"):
+        d = max(2, int(frac * h))
+        band = np.roll(dar, random.randint(-w // 4, w // 4), axis=1)
+        band = band[(h - d) // 2 : (h - d) // 2 + d, :]
+        sl = slice(0, d) if edge == "top" else slice(h - d, h)
+        comp[sl, :] = band
+        m[sl, :] = 1.0
+    else:
+        d = max(2, int(frac * w))
+        band = np.roll(dar, random.randint(-h // 4, h // 4), axis=0)
+        band = band[:, (w - d) // 2 : (w - d) // 2 + d]
+        sl = slice(0, d) if edge == "left" else slice(w - d, w)
+        comp[:, sl] = band
+        m[:, sl] = 1.0
+
+    feather = max(2, min(w, h) // 16)
+    m = np.asarray(Image.fromarray((m * 255).astype(np.uint8))
+                   .filter(ImageFilter.GaussianBlur(radius=feather))).astype(np.float32) / 255.0
+    out = arr * (1.0 - m[..., None]) + comp * m[..., None]
+    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
+
 
 class SquareDataset(Dataset):
     def __init__(self, rows, classes, transform, bg_randomize: bool = False,
@@ -183,9 +235,30 @@ class SquareDataset(Dataset):
             n = min(getattr(policy, "bg_pool_size", 0), len(rows))
             if n > 0:
                 self.bg_pool = [r["path"] for r in random.sample(rows, n)]
+        # Neighbour-bleed paste (train only, gated by the same constructor flag as bg —
+        # `bg_randomize=True` marks the augmented TRAIN dataset). Donors must be OCCUPIED
+        # crops: their centred piece is what bleeds into the empty crop's edge.
+        self.neighbour_paste = bg_randomize and getattr(policy, "neighbour_p", 0.0) > 0
+        self.piece_pool: list[str] = []
+        if self.neighbour_paste and rows:
+            pieces = [r["path"] for r in rows if r["label"] not in _BG_SKIP_LABELS]
+            n = min(getattr(policy, "bg_pool_size", 512), len(pieces))
+            if n > 0:
+                self.piece_pool = random.sample(pieces, n)
+            else:
+                self.neighbour_paste = False
 
     def __len__(self) -> int:
         return len(self.rows)
+
+    def _open_donor(self) -> Image.Image | None:
+        """A random occupied crop for the neighbour paste (a few retries on unreadable files)."""
+        for _ in range(3):
+            try:
+                return Image.open(random.choice(self.piece_pool)).convert("RGB")
+            except (OSError, ValueError):
+                continue
+        return None
 
     def __getitem__(self, i):
         r = self.rows[i]
@@ -193,6 +266,11 @@ class SquareDataset(Dataset):
         if self.bg_randomize and r["label"] not in _BG_SKIP_LABELS and random.random() < self.policy.bg_p:
             img = randomize_border_bg(img, self.policy.bg_keep_w, self.policy.bg_keep_h,
                                       pool=self.bg_pool, procedural_frac=self.policy.bg_procedural_frac)
+        elif (self.neighbour_paste and r["label"] == "empty"
+              and random.random() < self.policy.neighbour_p):
+            donor = self._open_donor()
+            if donor is not None:
+                img = paste_neighbour_strip(img, donor, self.policy.neighbour_frac)
         x = self.transform(img)
         y = self.c2i[r["label"]]
         return x, y
