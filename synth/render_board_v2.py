@@ -390,9 +390,18 @@ def _load_scanned_mesh(obj_path, type_letter):
     else:
         s = TARGET_HEIGHT.get(type_letter, 5.0) / (imp.dimensions.z or 1.0)
     s *= PIECE_SCALE   # globaler Angleich-Faktor (Crop-Füllung an reale Kamera)
-    co = [0.0] * (len(m.vertices) * 3)
+    import numpy as np
+    co = np.empty(len(m.vertices) * 3, dtype=np.float64)
     m.vertices.foreach_get("co", co)
-    m.vertices.foreach_set("co", [c * s for c in co])
+    v = co.reshape(-1, 3) * s
+    # Recentern NACH dem Skalieren: Basis-Mitte auf den Ursprung (x/y = bbox-Mitte, z-min = 0).
+    # RealityScan-Exporte tragen beliebige Welt-Origins (Turntable-Position); ohne Recentern
+    # landet die Figur um genau diesen — mitskalierten — Versatz NEBEN ihrem Feld (Verbatim-
+    # Importe haben keinen Prepare-Schritt mehr, der das frueher erledigte).
+    v[:, 0] -= (v[:, 0].min() + v[:, 0].max()) / 2.0
+    v[:, 1] -= (v[:, 1].min() + v[:, 1].max()) / 2.0
+    v[:, 2] -= v[:, 2].min()
+    m.vertices.foreach_set("co", v.ravel())
     m.update()
     bpy.data.objects.remove(imp, do_unlink=True)
     for p in m.polygons:
