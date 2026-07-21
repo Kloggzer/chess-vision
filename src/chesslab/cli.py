@@ -925,15 +925,14 @@ def synth_render(
 def synth_prepare_cmd(
     in_dir: str = typer.Option(..., "--in", help="Scans: each subfolder <piece>/ with .obj/.glb + texture."),
     out_dir: str = typer.Option(None, "--out", help="Target directory (default: synth_pieces/)."),
-    target_tris: int = typer.Option(20000, "--target-tris", help="Target triangle count (0 = no decimation)."),
-    smooth_iters: int = typer.Option(10, "--smooth-iters", help="Smoothing iterations (0 = none)."),
-    fill_holes: bool = typer.Option(True, "--fill-holes/--no-fill-holes",
-                                    help="Close open edges/base."),
+    smooth_iters: int = typer.Option(0, "--smooth-iters",
+                                     help="Taubin smoothing iterations (0 = verbatim). Use ~10 for "
+                                          "raw RealityScan exports with visible surface noise — "
+                                          "shrink-free, keeps UVs/orientation."),
 ) -> None:
-    """Batch-prepare scanned pieces: upright, decimate, quality report + preview.
+    """Batch-import scanned pieces (verbatim by default): variant slot, preview, report.
 
-    Runs completely in-process (Open3D + PyMeshLab) — no Blender needed.
-    Then check <out>/<piece>_preview.png and review the [WARN] hints."""
+    Then check <out>/<piece>/<variant>_preview.png and review the [WARN] hints."""
     from .config import SYNTH
     from .meshprep import prepare_scan
     from .scan_discover import assess_report, discover_scans
@@ -961,7 +960,7 @@ def synth_prepare_cmd(
         pid = f"{item.name}/{item.variant}"
         print(f"--- {pid}: {item.obj.name}" + (f" + {item.tex.name}" if item.tex else " (texture embedded)"))
         try:
-            report = prepare_scan(item, out, make_preview=True)
+            report = prepare_scan(item, out, make_preview=True, smooth_iters=smooth_iters)
         except Exception as e:
             results.append((pid, "fail", [str(e)]))
             continue
