@@ -1461,14 +1461,30 @@ class MoveTracker:
         # Release the camera so a lingering USB/network handle can't block process shutdown.
         # Only safe when the loop thread has actually exited (single-owner read/release rule);
         # if it's still alive the daemon thread releases nothing and dies at interpreter exit.
+        # The release itself runs on a DAEMON thread with a bounded join: cv2's MSMF
+        # release() of a 4K device was observed (2026-07-21) to hang in native code —
+        # inside the ASGI shutdown hook that froze Ctrl+C entirely. If it doesn't finish
+        # in 2s we abandon it (daemon thread dies at interpreter exit; the serve.py
+        # watchdog guarantees the process exits either way).
         if not alive:
-            for cap in (self.cap, self._retired_cap):
-                if cap is not None and hasattr(cap, "release"):
+            caps = [c for c in (self.cap, self._retired_cap)
+                    if c is not None and hasattr(c, "release")]
+            self._retired_cap = None
+
+            def _release_all() -> None:
+                for cap in caps:
                     try:
                         cap.release()
                     except Exception:  # noqa: BLE001 — best-effort teardown
                         pass
-            self._retired_cap = None
+
+            if caps:
+                t = threading.Thread(target=_release_all, daemon=True, name="cap-release")
+                t.start()
+                t.join(timeout=2)
+                if t.is_alive():
+                    log.warning("camera release blocked >2s (native driver hang) — "
+                                "abandoning handle, process exit will reclaim it.")
 
     # -- Main loop --
     def _loop(self):

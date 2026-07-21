@@ -50,9 +50,26 @@ def run(app, host: str, port: int, *, timeout_graceful_shutdown: int = 3) -> int
 
     SHUTDOWN.clear()
 
+    def _force_exit_watchdog() -> None:
+        """Hard exit guarantee: native code can hang the graceful path forever —
+        observed live 2026-07-21: cv2 `release()` of an MSMF 4K device blocked inside
+        the ASGI shutdown hook, so Ctrl+C never returned the prompt (uvicorn's
+        graceful timeout only covers task cancellation, not a stuck lifespan hook,
+        and a non-daemon thread stuck in a driver read blocks interpreter exit).
+        10 s after the signal we stop being polite."""
+        import os
+        import time
+
+        time.sleep(10)
+        print("[chesslab] shutdown exceeded 10s (native camera/driver hang) — forcing exit.",
+              flush=True)
+        os._exit(1)
+
     class GracefulServer(uvicorn.Server):
         def handle_exit(self, sig, frame):  # noqa: D401 — uvicorn signal-handler hook
             SHUTDOWN.set()                  # unblock streaming generators at once
+            threading.Thread(target=_force_exit_watchdog, daemon=True,
+                             name="shutdown-watchdog").start()
             super().handle_exit(sig, frame)
 
     config = uvicorn.Config(app, host=host, port=port, log_level="warning",
