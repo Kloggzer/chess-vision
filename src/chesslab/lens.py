@@ -727,12 +727,35 @@ def _draw_coverage(img, cov: CoverageGrid) -> None:
             cv2.rectangle(img, (x, y), (x + cell - 3, y + cell - 3), (200, 200, 200), 1)
 
 
+# The classic detector is a VGA-era algorithm: on SHARP hi-res frames its quad filters choke
+# on wood grain and oversized squares (user observation: works on a blurry image, fails on the
+# crisp 1440p one). Standard practice: detect on a DOWNSCALED copy, then map the hits back and
+# let cornerSubPix refine at full resolution. SB (sector-based) detector is tried first — it
+# is resolution-robust and subpixel-accurate out of the box.
+_DETECT_MAX_W = 960
+
+
 def _find_corners(gray, pattern, *, fast: bool):
-    """`findChessboardCorners` with the flag set used for preview (fast) vs accept (full)."""
+    """Robust corner detection for any resolution: SB first, then classic on a downscaled copy
+    (hits scaled back up; `_refine` re-polishes at full res afterwards)."""
+    if not fast:
+        try:
+            ok, corners = cv2.findChessboardCornersSB(gray, pattern, cv2.CALIB_CB_EXHAUSTIVE)
+            if ok:
+                return True, corners
+        except cv2.error:
+            pass                              # SB unavailable/failed -> classic path below
+    scale = 1.0
+    small = gray
+    if gray.shape[1] > _DETECT_MAX_W:
+        scale = _DETECT_MAX_W / gray.shape[1]
+        small = cv2.resize(gray, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
     flags = cv2.CALIB_CB_ADAPTIVE_THRESH | cv2.CALIB_CB_NORMALIZE_IMAGE
     if fast:
         flags |= cv2.CALIB_CB_FAST_CHECK
-    ok, corners = cv2.findChessboardCorners(gray, pattern, flags)
+    ok, corners = cv2.findChessboardCorners(small, pattern, flags)
+    if ok and scale != 1.0:
+        corners = corners / scale
     return bool(ok), corners
 
 
