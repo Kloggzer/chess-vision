@@ -177,6 +177,82 @@ class OccupancyVerifierTest {
         assertEquals(VerifyVerdict.Timeout(listOf("e2e4", "e7e5")), (end as VerifyStep.Decided).verdict)
     }
 
+    // -- pair rework (165726b): fast-accept, parity fallback, occlusion timeout, blind glance --
+
+    @Test
+    fun `pair touched-squares fast-accept despite chronic misread elsewhere`() {
+        // Chronic confident misread on c6 (dark-square bB false positive) keeps the
+        // whole-board match false forever — but the 4 squares the pair physically
+        // changed read correctly -> local fast-accept commits instead of burning
+        // the window.
+        val obs = obsOf(afterMoves("e2e4", "e7e5"), overrides = mapOf("c6" to true))
+        val step = verifier.evaluate(STARTPOS, listOf("e2e4", "e7e5"), obs, framesSeen = 1)
+        val decided = step as VerifyStep.Decided
+        assertEquals(VerifyVerdict.For(listOf("e2e4", "e7e5")), decided.verdict)
+        assertTrue(decided.votes, "pair commit must pass the multi-glance vote guard")
+        assertEquals("commit", decided.outcome)
+    }
+
+    @Test
+    fun `pair window end with pre-existing conflicts commits`() {
+        // Window end with a clear view: the only post-move conflict (c6) already
+        // existed against the CURRENT position too (stale misread, cannot
+        // discriminate) -> the diff evidence stands, pair commits single-shot
+        // instead of the old endless discard/re-fire loop.
+        val obs =
+            obsOf(
+                afterMoves("e2e4", "e7e5"),
+                occluded = setOf("e2", "e7", "e5"),
+                overrides = mapOf("c6" to true),
+            )
+        val mid = verifier.evaluate(STARTPOS, listOf("e2e4", "e7e5"), obs, framesSeen = 1)
+        assertTrue(mid is VerifyStep.Continue)
+        val end = verifier.evaluate(STARTPOS, listOf("e2e4", "e7e5"), obs, framesSeen = window)
+        val decided = end as VerifyStep.Decided
+        assertEquals(VerifyVerdict.For(listOf("e2e4", "e7e5")), decided.verdict)
+        assertFalse(decided.votes, "window-end parity fallback decides single-shot")
+        assertEquals("diff_after_verify", decided.outcome)
+    }
+
+    @Test
+    fun `pair window end under occlusion discards`() {
+        // Touched squares never confidently readable (hand hovering) -> occlusion
+        // timeout discards the pair, never auto-accepts.
+        val obs =
+            obsOf(
+                Game(),
+                occluded = setOf("e2", "e4", "e7", "e5"),
+                overrides = mapOf("c6" to true),
+            )
+        val mid = verifier.evaluate(STARTPOS, listOf("e2e4", "e7e5"), obs, framesSeen = 1)
+        assertTrue(mid is VerifyStep.Continue)
+        val end = verifier.evaluate(STARTPOS, listOf("e2e4", "e7e5"), obs, framesSeen = window)
+        assertEquals(VerifyVerdict.Timeout(listOf("e2e4", "e7e5")), (end as VerifyStep.Decided).verdict)
+    }
+
+    @Test
+    fun `pair blind glance never shadow rejects`() {
+        // resyncCheck matches VACUOUSLY with zero confident squares (hand over the
+        // board). The minConfidentBoard guard must keep the blind "match" from
+        // shadow-rejecting the pair (which would re-anchor the reference on the
+        // covered image): hold, then time out — never Against(boardUnchanged).
+        val obs = obsOf(Game(), occluded = ALL_SQUARES.toSet())
+        val mid = verifier.evaluate(STARTPOS, listOf("e2e4", "e7e5"), obs, framesSeen = 1)
+        assertTrue(mid is VerifyStep.Continue, "blind glance must hold, not shadow-reject")
+        val end = verifier.evaluate(STARTPOS, listOf("e2e4", "e7e5"), obs, framesSeen = window)
+        assertEquals(VerifyVerdict.Timeout(listOf("e2e4", "e7e5")), (end as VerifyStep.Decided).verdict)
+    }
+
+    @Test
+    fun `pair shadow terminal passes the vote guard`() {
+        val obs = obsOf(Game())
+        val step = verifier.evaluate(STARTPOS, listOf("e2e4", "e7e5"), obs, framesSeen = 1)
+        val decided = step as VerifyStep.Decided
+        assertTrue((decided.verdict as VerifyVerdict.Against).boardUnchanged)
+        assertTrue(decided.votes, "pair shadow must pass the multi-glance vote guard")
+        assertEquals("shadow", decided.outcome)
+    }
+
     // -- helpers ported from cnn_recovery.py --
 
     @Test

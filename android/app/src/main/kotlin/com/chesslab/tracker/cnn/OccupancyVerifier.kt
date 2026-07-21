@@ -9,8 +9,9 @@ import com.github.bhlangonijr.chesslib.move.Move
 /**
  * One verify observation either proposes a decision or asks for more frames.
  * `outcome` is the vote key (83a1e88: every verify outcome needs `verifyObsVotes`
- * consecutive agreeing observations); `votes=false` marks window/pair resolutions
- * that decide single-shot, exactly like the Python `_verify_tick`.
+ * consecutive agreeing observations); `votes=false` marks window resolutions
+ * that decide single-shot, exactly like the Python `_verify_tick`/`_verify_pair_tick`
+ * (165726b: pair shadow/commit terminals vote too; window-end stays single-shot).
  */
 sealed interface VerifyStep {
     data class Decided(
@@ -189,8 +190,24 @@ class OccupancyVerifier(
         }
 
     /**
-     * Pair candidate (fast play): whole-position occupancy match is the robust
-     * axis with 3-4 touched squares (ports `_verify_pair_tick`).
+     * Pair candidate (fast play). Ports `_verify_pair_tick` as reworked in
+     * `165726b`: the original all-or-nothing whole-board match meant ONE
+     * chronically misread confident square anywhere (the known dark-square bB
+     * false positive) made both `before` and `after` unmatchable — the candidate
+     * burned the full window, was discarded, the diff evidence re-fired it,
+     * forever. Decision axes now, in order:
+     *   1. shadow — board still matches the CURRENT position (the
+     *      `minConfidentBoard` guard inside [resyncCheck] keeps a near-blind
+     *      glance from rejecting a real pair);
+     *   2. commit — whole board matches the position AFTER both half-moves, OR
+     *      the touched-squares fast-accept ([pairAgree]) — immune to stale
+     *      misreads elsewhere;
+     *   3. window end, clear view: every post-move conflict already existed
+     *      against the CURRENT position too (a stale misread cannot
+     *      discriminate) — the diff evidence stands, commit ("diff_after_verify"
+     *      semantics);
+     *   4. window end, touched squares never readable — occlusion timeout,
+     *      discard (never auto-accept under a covering hand).
      */
     private fun evaluatePair(
         game: Game,
@@ -207,16 +224,57 @@ class OccupancyVerifier(
         }
         val before = resyncCheck(game, obs, requiredSquares = touched)
         val afterCheck = resyncCheck(after, obs, requiredSquares = touched)
+        val conf = obs.confident(config.confThr)
+        val checked = touched.filter { conf[it] == true }
+        val pairAgree = pairAgree(checked, after, obs)
         return when {
-            before.match -> decideAgainst(ucis, "board unchanged (shadow/no move)", boardUnchanged = true)
-            afterCheck.match -> VerifyStep.Decided(VerifyVerdict.For(ucis))
-            framesSeen >= config.verifyWindow -> VerifyStep.Decided(VerifyVerdict.Timeout(ucis))
+            before.match ->
+                decideAgainst(ucis, "board unchanged (shadow/no move)", boardUnchanged = true, outcome = "shadow")
+            afterCheck.match || pairAgree >= config.minAgreement ->
+                VerifyStep.Decided(VerifyVerdict.For(ucis), outcome = "commit", votes = true)
+            framesSeen >= config.verifyWindow -> resolvePairWindow(ucis, checked, before, afterCheck)
             else ->
                 VerifyStep.Continue(
                     "checking double move ${ucis.joinToString(" ")} via CNN… ($framesSeen/${config.verifyWindow})",
                 )
         }
     }
+
+    /**
+     * Touched-squares fast-accept axis: agreement of the confident touched
+     * squares with the post-pair occupancy; needs at least [MIN_PAIR_CHECKED]
+     * checked squares to be meaningful, else 0.0.
+     */
+    private fun pairAgree(
+        checked: List<String>,
+        after: Game,
+        obs: OccupancyObservation,
+    ): Double {
+        if (checked.size < MIN_PAIR_CHECKED) return 0.0
+        val hits = checked.count { obs.occupied(it) == (after.pieceCharAt(it) != null) }
+        return hits.toDouble() / checked.size
+    }
+
+    /**
+     * Window-end resolution of a pair candidate (single-shot, `votes=false` —
+     * the window already provides the temporal damping).
+     */
+    private fun resolvePairWindow(
+        ucis: List<String>,
+        checked: List<String>,
+        before: ResyncCheck,
+        afterCheck: ResyncCheck,
+    ): VerifyStep =
+        when {
+            // Every post-move conflict pre-existed against the CURRENT position — a
+            // stale misread cannot discriminate; the diff evidence stands.
+            checked.isNotEmpty() && before.conflicts.toSet().containsAll(afterCheck.conflicts) ->
+                VerifyStep.Decided(VerifyVerdict.For(ucis), outcome = "diff_after_verify")
+            // Touched squares never confidently readable — occlusion timeout, discard.
+            checked.isEmpty() ->
+                VerifyStep.Decided(VerifyVerdict.Timeout(ucis), outcome = "occlusion-timeout")
+            else -> VerifyStep.Decided(VerifyVerdict.Timeout(ucis))
+        }
 
     /**
      * LOCAL pre-commit check of one candidate move (ports `verify_move`,
@@ -310,6 +368,7 @@ class OccupancyVerifier(
 
     private companion object {
         const val MIN_ENDPOINTS = 2
+        const val MIN_PAIR_CHECKED = 3
         const val SHOWN_CONFLICTS = 4
     }
 }
