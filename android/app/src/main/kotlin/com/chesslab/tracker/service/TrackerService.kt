@@ -363,10 +363,12 @@ class TrackerService : LifecycleService() {
         frameLoopJob =
             lifecycleScope.launch(Dispatchers.Default) {
                 camera.frames.collect { frame ->
+                    val tFrame0 = System.nanoTime()
                     try {
                         // Publish raw camera preview (independent of warp/tracking success —
                         // also the ONLY consumer in preview-only mode before calibration).
                         publishRawPreview(frame.mat, frame.width, frame.height)
+                        val tPreview = System.nanoTime()
 
                         // Retain the latest full-res frame for ArUco while calibrating.
                         if (calibrationActive) {
@@ -400,10 +402,13 @@ class TrackerService : LifecycleService() {
                         recorder?.onRawFrame(frame.mat, corners, frame.width, frame.height)
 
                         recorder?.onFrame(coordinator.uiState.value.fen, frame.timestampNs)
+                        val tRecorder = System.nanoTime()
                         val processed = pipe.process(frame.mat, frame.timestampNs, fullResolutionBoard = cnn?.attached == true)
+                        val tWarp = System.nanoTime()
                         try {
                             // Dark-frame gate: below the pre-CLAHE luma floor the diff is pure
                             // amplified sensor noise — freeze detection instead of feeding it.
+                            var tEngine = 0L
                             coordinator.meanLuma = processed.meanLuma
                             val thr = settings.darkLumaThr
                             if (thr > 0 && processed.meanLuma < thr) {
@@ -411,6 +416,7 @@ class TrackerService : LifecycleService() {
                                 diag { "dark frame gated: meanLuma=${"%.1f".format(processed.meanLuma)} < $thr" }
                             } else {
                                 coordinator.onFrame(processed.gray, processed.bgr, processed.timestampNs)
+                                tEngine = System.nanoTime()
                                 synchronizeReferenceGeometry()
                                 cnnFrameStore.update(processed, coordinator.frameSeq)
                                 // specs/14: never calibrate off a dark-gated frame (this branch)
@@ -437,6 +443,18 @@ class TrackerService : LifecycleService() {
 
                             publishBoard(processed.boardBgr)
                             publishDebug(coordinator.debugImages)
+                            // Per-stage frame timing (throttled 1/s like diag): finds the
+                            // fps eater factually instead of by guesswork (2026-07-22, 4fps).
+                            val tEnd = System.nanoTime()
+                            perf {
+                                fun ms(a: Long, b: Long) = if (a == 0L || b == 0L) -1.0 else (b - a) / 1e6
+                                "frame=${"%.0f".format(ms(tFrame0, tEnd))}ms " +
+                                    "preview=${"%.0f".format(ms(tFrame0, tPreview))} " +
+                                    "recorder=${"%.0f".format(ms(tPreview, tRecorder))} " +
+                                    "warp=${"%.0f".format(ms(tRecorder, tWarp))} " +
+                                    "engine=${"%.0f".format(ms(tWarp, tEngine))} " +
+                                    "publish=${"%.0f".format(ms(if (tEngine != 0L) tEngine else tWarp, tEnd))}"
+                            }
                         } finally {
                             processed.boardBgr.release()
                         }
@@ -455,6 +473,16 @@ class TrackerService : LifecycleService() {
         if (now - lastDiagNs < DIAG_INTERVAL_NS) return
         lastDiagNs = now
         android.util.Log.i("chesslabDiag", message())
+    }
+
+    private var lastPerfNs = 0L
+
+    /** Throttled per-frame stage timing (~1/sec), tag `chesslabPerf`. */
+    private inline fun perf(message: () -> String) {
+        val now = System.nanoTime()
+        if (now - lastPerfNs < DIAG_INTERVAL_NS) return
+        lastPerfNs = now
+        android.util.Log.i("chesslabPerf", message())
     }
 
     private fun startResolutionController(cameraConfig: CameraConfig) {
