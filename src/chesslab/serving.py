@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,11 +31,13 @@ log = logging.getLogger("chesslab.serving")
 # ---------------------------------------------------------------------------
 
 _CACHE: dict[str, tuple] = {}
+_GRAPH_CACHE: dict[str, object] = {}  # run key+device -> _CudaGraphPredictor | None (=failed)
 
 
 def clear_cache() -> None:
     """Clear model cache (Windows file locks, run deletion)."""
     _CACHE.clear()
+    _GRAPH_CACHE.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +226,94 @@ def crops_for_model(frame: np.ndarray, corners, profile, spec: RunSpec) -> list[
 # Prediction
 # ---------------------------------------------------------------------------
 
+# Fixed capture size for the CUDA/HIP-graph fast path: the tracker's hot path is
+# always the full board (64 crops); smaller local-verify batches reuse the same
+# graph by writing into the head of the static buffer.
+_GRAPH_BATCH = 64
+
+
+class _CudaGraphPredictor:
+    """CUDA/HIP-graph replay of a fixed-shape fp16 forward pass.
+
+    On the Windows-ROCm wheels an eager forward launches hundreds of tiny
+    kernels, so for the tracker models GPU inference is almost pure launch/
+    framework overhead (tiny 0.64M: ~6.4 ms eager vs ~2.2 ms graph replay for
+    64 crops @128; medium 8.45M: ~19 ms vs ~13 ms). Capturing the forward once
+    and replaying it removes the per-kernel launch cost.
+
+    Details:
+    - Runs an fp16 copy of the model — same precision class as the autocast
+      fp16 the eager CUDA path already used (measured argmax parity vs fp32 on
+      real crops: 100% tiny / 99.8% medium, max prob delta ~0.005).
+    - Static input of ``_GRAPH_BATCH`` rows. Smaller batches fill only the head;
+      stale tail rows are harmless (eval-mode batchnorm — no cross-sample
+      interaction) and are sliced off the output.
+    - Preprocessing: one ``np.stack`` into a pinned staging buffer, async H2D
+      copy, then BGR->RGB flip + normalize on the GPU (folded to one mul+sub) —
+      ~0.8 ms vs ~8 ms for the per-crop numpy path.
+    """
+
+    def __init__(self, model, out_h: int, out_w: int, device: str):
+        import copy
+
+        import torch
+
+        self._device = device
+        self._model = copy.deepcopy(model).half().to(device).eval()
+        self._pin = torch.empty((_GRAPH_BATCH, out_h, out_w, 3), dtype=torch.uint8,
+                                pin_memory=True)
+        mean = torch.tensor(config.NORMALIZE_MEAN, dtype=torch.float32).view(1, 3, 1, 1)
+        std = torch.tensor(config.NORMALIZE_STD, dtype=torch.float32).view(1, 3, 1, 1)
+        # (x/255 - mean)/std  ==  x * 1/(255*std) - mean/std
+        self._scale = (1.0 / (255.0 * std)).to(device=device, dtype=torch.float16)
+        self._shift = (mean / std).to(device=device, dtype=torch.float16)
+        self._static_in = torch.zeros((_GRAPH_BATCH, 3, out_h, out_w),
+                                      dtype=torch.float16, device=device)
+        # Warm-up on a side stream, then capture (standard torch.cuda.graph recipe).
+        stream = torch.cuda.Stream()
+        stream.wait_stream(torch.cuda.current_stream())
+        with torch.cuda.stream(stream), torch.no_grad():
+            for _ in range(3):
+                self._model(self._static_in)
+        torch.cuda.current_stream().wait_stream(stream)
+        self._graph = torch.cuda.CUDAGraph()
+        with torch.cuda.graph(self._graph), torch.no_grad():
+            self._static_out = self._model(self._static_in)
+
+    def __call__(self, crops: list[np.ndarray]):
+        """``crops``: up to ``_GRAPH_BATCH`` BGR uint8 HWC arrays at model out_size.
+        Returns float32 logits ``(len(crops), n_classes)`` on the GPU."""
+        import torch
+
+        n = len(crops)
+        np.stack(crops, out=self._pin.numpy()[:n])
+        gpu = self._pin[:n].to(self._device, non_blocking=True)
+        x = gpu.permute(0, 3, 1, 2).flip(1).to(torch.float16) * self._scale - self._shift
+        self._static_in[:n].copy_(x)
+        self._graph.replay()
+        return self._static_out[:n].float()
+
+
+def _graph_predictor(key: str, model, out_h: int, out_w: int, device: str):
+    """Cached _CudaGraphPredictor for a run, or None when capture is unavailable.
+
+    A failed capture is cached as None so we do not retry (and re-log) per frame.
+    Opt-out: set CHESSLAB_DISABLE_CUDA_GRAPH=1 to always use the eager path.
+    """
+    if os.environ.get("CHESSLAB_DISABLE_CUDA_GRAPH") == "1":
+        return None
+    if key in _GRAPH_CACHE:
+        return _GRAPH_CACHE[key]
+    try:
+        pred = _CudaGraphPredictor(model, out_h, out_w, device)
+        log.info("CUDA-graph fast path captured for %s (batch %d, fp16).", key, _GRAPH_BATCH)
+    except Exception as e:
+        log.warning("CUDA-graph capture failed (%s: %s) — using eager forward.",
+                    type(e).__name__, e)
+        pred = None
+    _GRAPH_CACHE[key] = pred
+    return pred
+
 
 def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
                    return_probs: bool = False) -> list[dict]:
@@ -243,34 +334,58 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
 
     # Fast path: when all crops are already at out_size, vectorize preprocessing
     all_at_size = all(c.shape[0] == out_h and c.shape[1] == out_w for c in crops)
-    if all_at_size:
-        # BGR uint8 HWC -> RGB NCHW float/255 + Normalize, no PIL/torchvision
-        stacked = np.stack([c[..., ::-1].copy() for c in crops])  # (N,H,W,3) RGB
-        batch = torch.from_numpy(stacked).permute(0, 3, 1, 2).contiguous()
-        batch = batch.to(dtype=torch.float32).div_(255)
-        mean_t = torch.tensor(config.NORMALIZE_MEAN, dtype=torch.float32).view(1, 3, 1, 1)
-        std_t = torch.tensor(config.NORMALIZE_STD, dtype=torch.float32).view(1, 3, 1, 1)
-        batch = (batch - mean_t) / std_t
-        batch = batch.to(device)
-    else:
-        from PIL import Image
 
-        from .training.torch_data import build_transform
+    # CUDA-graph fast path (torch model on GPU, uniform crops, <= capture size):
+    # replays a pre-captured fp16 forward — removes the eager per-kernel launch
+    # overhead that dominates tracker inference on the Windows-ROCm wheels.
+    logits = None
+    if (all_at_size and len(crops) <= _GRAPH_BATCH
+            and device.startswith("cuda") and not isinstance(model, _ONNXModel)):
+        key = f"{Path(run_dir).resolve()}|{device}"
+        pred = _graph_predictor(key, model, out_h, out_w, device)
+        if pred is not None:
+            try:
+                with torch.no_grad():
+                    logits = pred(crops)
+            except Exception as e:
+                log.warning("CUDA-graph replay failed (%s: %s) — falling back to eager.",
+                            type(e).__name__, e)
+                _GRAPH_CACHE[key] = None
+                logits = None
 
-        tf = build_transform(out_size, train=False)
-        batch = torch.stack(
-            [tf(Image.fromarray(c[:, :, ::-1].copy())) for c in crops]
-        ).to(device)  # BGR->RGB
+    if logits is None:
+        if all_at_size:
+            # BGR uint8 HWC -> RGB NCHW float/255 + Normalize, no PIL/torchvision.
+            # One stack of the raw BGR crops + torch flip: same numerics as the
+            # previous per-crop `[..., ::-1].copy()` loop, ~3x cheaper.
+            stacked = np.stack(crops)  # (N,H,W,3) BGR uint8
+            batch = torch.from_numpy(stacked).permute(0, 3, 1, 2).flip(1)  # RGB, copies
+            batch = batch.to(dtype=torch.float32).div_(255)
+            mean_t = torch.tensor(config.NORMALIZE_MEAN, dtype=torch.float32).view(1, 3, 1, 1)
+            std_t = torch.tensor(config.NORMALIZE_STD, dtype=torch.float32).view(1, 3, 1, 1)
+            batch = (batch - mean_t) / std_t
+            batch = batch.to(device)
+        else:
+            from PIL import Image
+
+            from .training.torch_data import build_transform
+
+            tf = build_transform(out_size, train=False)
+            batch = torch.stack(
+                [tf(Image.fromarray(c[:, :, ::-1].copy())) for c in crops]
+            ).to(device)  # BGR->RGB
+
+        with torch.no_grad():
+            if device.startswith("cuda"):
+                try:
+                    with torch.autocast(device_type="cuda", dtype=torch.float16):
+                        logits = model(batch)
+                except Exception:
+                    logits = model(batch)
+            else:
+                logits = model(batch)
 
     with torch.no_grad():
-        if device.startswith("cuda"):
-            try:
-                with torch.autocast(device_type="cuda", dtype=torch.float16):
-                    logits = model(batch)
-            except Exception:
-                logits = model(batch)
-        else:
-            logits = model(batch)
         probs = torch.softmax(logits.float(), dim=1)
         conf, idx = probs.max(dim=1)
     results: list[dict] = []
