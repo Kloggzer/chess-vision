@@ -159,6 +159,9 @@ class TrackerService : LifecycleService() {
         super.onCreate()
         settingsRepo = SettingsRepository(settingsDataStore(this))
         camera = TrackerCamera(this, this)
+        // Phase 03: camera loss must not freeze the tracker silently — the camera rebinds
+        // itself with backoff and the status note shows "camera down" until frames flow again.
+        camera.onCameraDown = { note -> coordinator.onCameraState(note) }
         cnnScope = CoroutineScope(lifecycleScope.coroutineContext + Dispatchers.Default)
         cnn =
             CnnIntegration(
@@ -330,6 +333,22 @@ class TrackerService : LifecycleService() {
     fun renewBaseline() = coordinator.renewBaseline()
 
     fun forcePromote(piece: String): Boolean = coordinator.forcePromote(piece)
+
+    /** Accept-CNN preview (phase 04): the would-be adoption; null without CNN/observation. */
+    fun acceptCnnOutcome(): com.chesslab.tracker.cnn.AcceptOutcome? = cnn?.takeIf { it.attached }?.acceptCnnOutcome()
+
+    /**
+     * Adopt a previewed CNN position: reset to the FEN (clears history + alarm latch,
+     * logs the discontinuity) — the visual reference re-captures from the next clear frame.
+     */
+    fun acceptCnnApply(fen: String) {
+        coordinator.reset(fen)
+        clearCheckpoint()
+        reconcileRecorder(forceNew = true)
+    }
+
+    /** In-app CNN debug view data (phase 04); null without CNN/frame. */
+    fun cnnDebugData(): CnnDebugData? = cnn?.takeIf { it.attached }?.cnnDebugData()
 
     /** Select which diagnostic bitmap the frame loop should materialize. */
     fun setOverlayView(view: OverlayView) {

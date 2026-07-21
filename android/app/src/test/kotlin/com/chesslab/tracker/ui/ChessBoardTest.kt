@@ -22,4 +22,11 @@ class ChessBoardTest {
         val placement = parseFenPlacement("8/8/8/4p3/8/8/8/8 w - - 0 1")
         assertEquals(mapOf("e5" to 'p'), placement)
     }
+
+    @Test
+    fun `board is error-tinted exactly while the alarm is latched`() {
+        val tint = boardAlarmTint(alarm = true)
+        assertEquals(com.chesslab.tracker.ui.theme.Danger.red, tint?.red)
+        assertNull(boardAlarmTint(alarm = false))
+    }
 }

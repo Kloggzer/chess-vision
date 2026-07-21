@@ -2,6 +2,7 @@ package com.chesslab.tracker.ui
 
 import android.graphics.Paint
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,6 +17,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
 import com.chesslab.tracker.ui.theme.BoardPalette
 
 private const val FILES = "abcdefgh"
@@ -73,19 +75,47 @@ private fun pieceName(piece: Char): String {
 }
 
 /**
+ * Scrim drawn over the whole board while the illegal-move alarm is latched
+ * (phase 04): the game state provably mismatches the physical board, so the
+ * rendered position is fiction until corrected. Null = no tint.
+ */
+internal fun boardAlarmTint(alarm: Boolean): androidx.compose.ui.graphics.Color? =
+    if (alarm) {
+        com.chesslab.tracker.ui.theme.Danger
+            .copy(alpha = ALARM_SCRIM_ALPHA)
+    } else {
+        null
+    }
+
+private const val ALARM_SCRIM_ALPHA = 0.22f
+private const val ALARM_BORDER_DP = 3
+
+/**
  * Digital chess board rendered purely from [fen] on a Compose [Canvas] (no
  * webview/SVG). An invisible 8×8 semantics grid overlays the canvas so every
  * square is individually focusable by TalkBack with a piece description.
+ * While [alarm] is set the board is error-tinted (red scrim + border).
  */
 @Suppress("ktlint:standard:function-naming", "FunctionNaming")
 @Composable
 fun ChessBoard(
     fen: String,
     modifier: Modifier = Modifier,
+    alarm: Boolean = false,
 ) {
     val pieces = remember(fen) { parseFenPlacement(fen) }
+    val tint = boardAlarmTint(alarm)
+    val alarmMod =
+        if (tint != null) {
+            Modifier.border(
+                ALARM_BORDER_DP.dp,
+                com.chesslab.tracker.ui.theme.Danger,
+            )
+        } else {
+            Modifier
+        }
 
-    Box(modifier = modifier.fillMaxWidth().aspectRatio(1f)) {
+    Box(modifier = modifier.fillMaxWidth().aspectRatio(1f).then(alarmMod)) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val cell = size.width / 8f
             for (row in 0 until 8) {
@@ -118,6 +148,7 @@ fun ChessBoard(
                     canvas.nativeCanvas.drawText(glyph(piece), cx, cy, paint)
                 }
             }
+            tint?.let { drawRect(color = it) }
         }
         // Invisible semantics grid: one focusable node per square.
         Column(modifier = Modifier.fillMaxSize()) {

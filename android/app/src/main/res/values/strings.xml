@@ -44,6 +44,12 @@
     <string name="calib_prompt">Point the camera at the board — it aligns automatically when the ArUco markers are visible. No markers? Tap Calibrate to set the corners by hand.</string>
     <string name="calib_start">Calibrate manually</string>
     <string name="alarm_take_back">Take back</string>
+    <string name="accept_cnn_action">Accept CNN</string>
+    <string name="accept_cnn_title">Adopt CNN position?</string>
+    <string name="accept_cnn_no_changes">The CNN view already matches the game state — adopting changes nothing.</string>
+    <string name="accept_cnn_unavailable">No CNN observation available — is the CNN safeguard enabled and a model imported?</string>
+    <string name="cnn_debug_action">CNN crops + reads</string>
+    <string name="cnn_debug_title">CNN debug — exact model inputs</string>
     <string name="moves_empty">No moves yet</string>
     <string name="promotion_title">Promotion</string>
     <string name="promotion_message">Choose the promotion piece for %1$s to %2$s</string>
