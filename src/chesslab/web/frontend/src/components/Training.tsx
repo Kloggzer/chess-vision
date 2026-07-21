@@ -65,6 +65,32 @@ function RelianceBars({ items }: { items: any[] }) {
   );
 }
 
+function EvalButton({ r, evaling, onEval, wide }:
+                    { r: string; evaling: string | null; onEval: (r: string) => void; wide?: boolean }) {
+  const busy = evaling === r;
+  let label = " Eval";
+  if (wide) label = busy ? " Evaluating…" : " Run eval (test split)";
+  return (
+    <Button onClick={() => onEval(r)} disabled={busy}
+            className={wide ? "px-3 py-1.5 text-sm" : "px-2 py-1 text-xs"}
+            title="Run eval (test split) — generates metrics + confusion matrix">
+      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="h-3.5 w-3.5" />}
+      {label}
+    </Button>
+  );
+}
+
+function EvalEmptyState({ run, evaling, onEval }:
+                        { run: string; evaling: string | null; onEval: (r: string) => void }) {
+  if (!run) return <span className="text-sm text-zinc-500">No eval yet — select a run above.</span>;
+  return (
+    <div className="flex items-center gap-3">
+      <EvalButton r={run} evaling={evaling} onEval={onEval} wide />
+      <span className="text-xs text-zinc-500">generates metrics + confusion matrix for this run</span>
+    </div>
+  );
+}
+
 export default function Training() {
   const [runs, setRuns] = useState<any[]>([]);
   const [run, setRun] = useState("");
@@ -304,9 +330,7 @@ export default function Training() {
                     <td className="py-1"><div className="flex justify-end gap-1.5">
                       <Button onClick={() => showRun(r.run)}
                               className="px-2 py-1 text-xs"><Eye className="h-3.5 w-3.5" /> View</Button>
-                      <Button onClick={() => evalRun(r.run)} disabled={evaling === r.run}
-                              className="px-2 py-1 text-xs" title="Run eval (test split) — generates metrics + confusion matrix">
-                        {evaling === r.run ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="h-3.5 w-3.5" />} Eval</Button>
+                      <EvalButton r={r.run} evaling={evaling} onEval={evalRun} />
                       <Button onClick={() => exportRun(r.run)} disabled={exporting === r.run}
                               className="px-2 py-1 text-xs" title={r.has_onnx ? "model.onnx exists" : "Export to ONNX for faster inference"}>
                         {exporting === r.run ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> :
@@ -349,15 +373,7 @@ export default function Training() {
               );
             })}
           </div>
-        ) : run ? (
-          <div className="flex items-center gap-3">
-            <Button onClick={() => evalRun(run)} disabled={evaling === run} className="px-3 py-1.5 text-sm">
-              {evaling === run ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />}
-              {evaling === run ? " Evaluating…" : " Run eval (test split)"}
-            </Button>
-            <span className="text-xs text-zinc-500">generates metrics + confusion matrix for this run</span>
-          </div>
-        ) : <span className="text-sm text-zinc-500">No eval yet — select a run above.</span>}
+        ) : <EvalEmptyState run={run} evaling={evaling} onEval={evalRun} />}
       </Card>
 
       <Card title="Grad-CAM — which pixels drove the decision">
