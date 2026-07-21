@@ -212,6 +212,17 @@
 </main>
 <script>
 let lastFen = "";
+// DOM write guards — the status/analysis polls run every 250/700 ms and used to
+// write every field unconditionally. Rewriting a text node (even with an
+// identical value) collapses any active text selection, so copying text from the
+// page was impossible. These helpers only touch the DOM when the value actually
+// changes; attribute/style changes never clobber a selection but are gated too to
+// avoid needless reflow.
+function setText(el, v) { v = (v == null) ? "" : String(v); if (el && el.textContent !== v) el.textContent = v; }
+function setHTML(el, v) { v = (v == null) ? "" : String(v); if (el && el.innerHTML !== v) el.innerHTML = v; }
+function setDisp(el, v) { if (el && el.style.display !== v) el.style.display = v; }
+function setClass(el, v) { if (el && el.className !== v) el.className = v; }
+function setStyleProp(el, prop, v) { if (el && el.style[prop] !== v) el.style[prop] = v; }
 async function post(url, body) {
   const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
   return r.json();
@@ -322,15 +333,15 @@ async function applyResolution() {          // switch capture mode live — game
 // "I am getting 1440p" and must be visible, not buried in a log.
 function renderCameraMode(cam) {
   const el = document.getElementById("camModeInfo");
-  if (!cam) { el.textContent = ""; return; }
+  if (!cam) { setText(el, ""); return; }
   const act = cam.actual ? `${cam.actual[0]}×${cam.actual[1]}` : "measuring…";
   const req = cam.requested ? `${cam.requested[0]}×${cam.requested[1]}` : "camera default";
   let txt = `mode '${cam.res}' — requested ${req}, delivering ${act}`;
   let color = "#a1a1aa";
   if (cam.match === false) { txt += " ⚠ camera ignored the request"; color = "#f59e0b"; }
   if (cam.profile_mismatch) { txt += ` ⚠ ${cam.profile_mismatch}`; color = "#f59e0b"; }
-  el.textContent = txt;
-  el.style.color = color;
+  setText(el, txt);
+  setStyleProp(el, "color", color);
 }
 let recording = false;
 async function toggleRecord() {            // end (finalize) or manually start the session
@@ -477,28 +488,28 @@ function renderDebug(d) {
 
 function renderDecision(d) {
   const row = document.getElementById("decisionRow");
-  if (!d || !d.move) { row.style.display = "none"; return; }
-  row.style.display = "flex";
-  document.getElementById("decMove").textContent = d.san || d.move;
-  document.getElementById("decReason").textContent = d.reason || d.decider || "?";
+  if (!d || !d.move) { setDisp(row, "none"); return; }
+  setDisp(row, "flex");
+  setText(document.getElementById("decMove"), d.san || d.move);
+  setText(document.getElementById("decReason"), d.reason || d.decider || "?");
 }
 
 async function poll() {
   try {
     const s = await fetch("/api/status").then(r => r.json());
-    if (!s.active) { document.getElementById("note").textContent = "not started — choose source/profile, press Start."; return; }
+    if (!s.active) { setText(document.getElementById("note"), "not started — choose source/profile, press Start."); return; }
     const badge = document.getElementById("status");
     window._st = s;                        // latest status for the CNN hover tooltip
-    badge.textContent = s.state;
-    badge.className = "badge " + (s.state === "moving" ? "moving" : s.state === "move" ? "move" : "waiting");
-    document.getElementById("camDown").style.display = (s.camera_ok === false) ? "" : "none";
+    setText(badge, s.state);
+    setClass(badge, "badge " + (s.state === "moving" ? "moving" : s.state === "move" ? "move" : "waiting"));
+    setDisp(document.getElementById("camDown"), (s.camera_ok === false) ? "" : "none");
     renderCameraMode(s.camera);
     const cnn = document.getElementById("cnn");   // CNN check: green = matches, red = differs
     if (s.cnn_active) {
-      cnn.style.display = "";
-      cnn.textContent = s.cnn_status === "mismatch" ? "CNN: weicht ab" : "CNN";
-      cnn.className = "badge " + (s.cnn_status === "mismatch" ? "moving" : "waiting");
-    } else { cnn.style.display = "none"; }
+      setDisp(cnn, "");
+      setText(cnn, s.cnn_status === "mismatch" ? "CNN: weicht ab" : "CNN");
+      setClass(cnn, "badge " + (s.cnn_status === "mismatch" ? "moving" : "waiting"));
+    } else { setDisp(cnn, "none"); }
     // Referee alarm (illegal-move detector): header banner + red board card with
     // correction buttons. Tracking is latched (no commits) until the user corrects.
     const banner = document.getElementById("alarmBanner");
@@ -507,14 +518,14 @@ async function poll() {
     if (s.alarm) {
       const gs = s.alarm.guess_san || "";
       const sqs = (s.alarm.conflicts || []).join(", ");
-      banner.textContent = `⚠ ILLEGAL MOVE: ${gs || sqs} — take it back, or correct below`;
-      banner.style.display = "block";   // class default is display:none — "" would fall back to it
-      alarmPanel.style.display = "block";
-      document.getElementById("alarmInfo").textContent =
+      setText(banner, `⚠ ILLEGAL MOVE: ${gs || sqs} — take it back, or correct below`);
+      setDisp(banner, "block");   // class default is display:none — "" would fall back to it
+      setDisp(alarmPanel, "block");
+      setText(document.getElementById("alarmInfo"),
         (gs ? `Suspected illegal move: ${gs}. ` : "")
         + (sqs ? `Conflict squares: ${sqs}. ` : "")
         + "Tracking is frozen — no moves are committed until the position is corrected "
-        + "(take the move back, or use a button below).";
+        + "(take the move back, or use a button below).");
       // Single audio beep per alarm instance, max one per 30 s: a flapping alarm
       // (clears on a good observation, re-triggers on the next bad one) must not
       // beep on every re-activation — the banner carries the persistent signal.
@@ -527,31 +538,31 @@ async function poll() {
         }
       }
     } else {
-      banner.style.display = "none";
-      alarmPanel.style.display = "none";
+      setDisp(banner, "none");
+      setDisp(alarmPanel, "none");
     }
-    document.getElementById("note").textContent = s.note || "";
-    document.getElementById("turn").textContent = s.turn === "white" ? "White" : "Black";
-    document.getElementById("check").textContent = s.in_check ? "Check!" : "";
-    document.getElementById("result").textContent = s.game_over ? ("End: " + s.result) : "";
-    document.getElementById("fen").textContent = s.fen;
+    setText(document.getElementById("note"), s.note || "");
+    setText(document.getElementById("turn"), s.turn === "white" ? "White" : "Black");
+    setText(document.getElementById("check"), s.in_check ? "Check!" : "");
+    setText(document.getElementById("result"), s.game_over ? ("End: " + s.result) : "");
+    setText(document.getElementById("fen"), s.fen);
     const promo = document.getElementById("promoRow");   // promotion waiting for user choice?
     if (s.promotion_pending) {
-      promo.style.display = "";
-      document.getElementById("promoSq").textContent = s.promotion_pending.from + "→" + s.promotion_pending.to;
-    } else { promo.style.display = "none"; }
+      setDisp(promo, "");
+      setText(document.getElementById("promoSq"), s.promotion_pending.from + "→" + s.promotion_pending.to);
+    } else { setDisp(promo, "none"); }
     renderMoves(s.history, s.decisions);
     renderDebug(s.debug);
     renderDecision(s.last_decision);
     // Recording state: reflect in the Record button label.
     recording = !!s.recording;
     const recBtn = document.getElementById("recBtn");
-    recBtn.textContent = recording ? `⏹ End session (${s.record_count})` : "● Record";
-    recBtn.className = recording ? "primary" : "";
+    setText(recBtn, recording ? `⏹ End session (${s.record_count})` : "● Record");
+    setClass(recBtn, recording ? "primary" : "");
     const skipped = s.record_skipped_inventory || 0;
-    document.getElementById("recordSkip").textContent = skipped
+    setText(document.getElementById("recordSkip"), skipped
       ? `Skipped ${skipped} frame(s), not used for training: ${s.record_skip_reason || "physical inventory"}`
-      : "";
+      : "");
     if (s.fen !== lastFen) {           // Brett nur bei Änderung neu laden (kein Flackern)
       lastFen = s.fen;
       document.getElementById("board").src = "/board.svg?t=" + Date.now();
@@ -580,21 +591,21 @@ async function pollAnalysis() {         // Stockfish eval bar + best moves
     const a = await fetch("/api/analysis").then(r => r.json());
     const row = document.getElementById("engineRow");
     const bar = document.getElementById("evalBar");
-    if (!a.available) { row.style.display = "none"; bar.style.display = "none"; return; }
-    bar.style.display = "";
+    if (!a.available) { setDisp(row, "none"); setDisp(bar, "none"); return; }
+    setDisp(bar, "");
     if (a.win_white == null) {            // game over or not analysed yet
-      document.getElementById("evalNum").textContent = a.game_over ? "" : "…";
+      setText(document.getElementById("evalNum"), a.game_over ? "" : "…");
       if (!a.game_over) return;
     }
     const w = a.win_white == null ? 50 : a.win_white;
-    document.getElementById("evalFill").style.height = w + "%";
-    document.getElementById("evalNum").textContent = fmtScore(a.cp, a.mate);
-    row.style.display = "flex";
-    document.getElementById("evalText").textContent =
-      `${fmtScore(a.cp, a.mate)}  (${w}% White${a.depth ? ", d" + a.depth : ""})`;
-    document.getElementById("bestMoves").innerHTML = (a.lines || []).slice(0, 3).map(l =>
+    setStyleProp(document.getElementById("evalFill"), "height", w + "%");
+    setText(document.getElementById("evalNum"), fmtScore(a.cp, a.mate));
+    setDisp(row, "flex");
+    setText(document.getElementById("evalText"),
+      `${fmtScore(a.cp, a.mate)}  (${w}% White${a.depth ? ", d" + a.depth : ""})`);
+    setHTML(document.getElementById("bestMoves"), (a.lines || []).slice(0, 3).map(l =>
       `<code>${l.san || l.uci || "?"}</code> <span class="muted">(${fmtScore(l.cp, l.mate)})</span>`
-    ).join(" · ") || "—";
+    ).join(" · ") || "—");
   } catch (e) { /* engine may not be ready */ }
 }
 setInterval(pollAnalysis, 700);
