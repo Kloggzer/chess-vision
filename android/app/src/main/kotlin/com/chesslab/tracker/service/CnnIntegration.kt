@@ -1,16 +1,20 @@
 package com.chesslab.tracker.service
 
+import com.chesslab.engine.Game
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerState
 import com.chesslab.tracker.cnn.ALL_SQUARES
+import com.chesslab.tracker.cnn.AcceptOutcome
 import com.chesslab.tracker.cnn.BoardCropper
 import com.chesslab.tracker.cnn.CnnConfig
 import com.chesslab.tracker.cnn.CnnModelStore
 import com.chesslab.tracker.cnn.CnnSafeguard
 import com.chesslab.tracker.cnn.ObservationInput
+import com.chesslab.tracker.cnn.OccupancyObservation
 import com.chesslab.tracker.cnn.OnnxClassifier
 import com.chesslab.tracker.cnn.RecoveryAction
+import com.chesslab.tracker.cnn.acceptCnnPosition
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -39,6 +43,7 @@ class CnnIntegration(
 ) {
     private var classifier: OnnxClassifier? = null
     private var safeguard: CnnSafeguard? = null
+    private var config: CnnConfig = CnnConfig()
     private val jobs = mutableListOf<Job>()
 
     val attached: Boolean get() = safeguard != null
@@ -73,6 +78,7 @@ class CnnIntegration(
             }.getOrElse { return false }
         val cropper = BoardCropper(loaded.spec.outWidth, loaded.spec.outHeight)
         val config = CnnConfig(confThr = confThr)
+        this.config = config
         val guard =
             CnnSafeguard(loaded, { observationInput(cropper) }, scope, config, log = { msg ->
                 android.util.Log.i(CNN_TAG, msg)
@@ -90,7 +96,7 @@ class CnnIntegration(
             }
             val occluded = ALL_SQUARES.filterTo(mutableSetOf()) { snap.obs.pOccluded.getValue(it) > OCCLUDED_P }
             val ageS = ((System.nanoTime() - snap.timestampNs).coerceAtLeast(0L)) / NS_PER_S
-            coordinator.reportOccluded(occluded, ageS)
+            coordinator.reportOccluded(occluded, ageS, occupancyConflicts(snap.obs, config.confThr))
         }
         jobs +=
             scope.launch {
@@ -114,6 +120,22 @@ class CnnIntegration(
         safeguard = null
         classifier?.close()
         classifier = null
+    }
+
+    /**
+     * Squares where a CONFIDENT read disagrees with the believed occupancy of the
+     * engine's CURRENT position — the quiet re-anchor veto's evidence (ports 21cf63c:
+     * b4 confidently EMPTY while a bishop is believed there).
+     */
+    private fun occupancyConflicts(
+        obs: OccupancyObservation,
+        confThr: Double,
+    ): Set<String> {
+        val game = Game(coordinator.uiState.value.fen)
+        val conf = obs.confident(confThr)
+        return ALL_SQUARES.filterTo(mutableSetOf()) { sq ->
+            conf[sq] == true && obs.occupied(sq) != (game.pieceCharAt(sq) != null)
+        }
     }
 
     private suspend fun recoveryLoop(guard: CnnSafeguard) {
@@ -165,12 +187,9 @@ class CnnIntegration(
             out.mkdirs()
             org.opencv.imgcodecs.Imgcodecs
                 .imwrite(File(out, "board.png").absolutePath, frame.boardBgr)
-            for (sq in squares) {
-                val r = BoardCropper.cropRect(sq, frame.boardBgr.rows())
-                val sub = frame.boardBgr.submat(org.opencv.core.Rect(r.x, r.y, r.width, r.height))
+            forEachCrop(frame, squares) { sq, sub ->
                 org.opencv.imgcodecs.Imgcodecs
                     .imwrite(File(out, "$sq.png").absolutePath, sub)
-                sub.release()
             }
             android.util.Log.i(CNN_TAG, "crop debug dumped: ${out.absolutePath}")
         } catch (t: Exception) {
@@ -178,6 +197,71 @@ class CnnIntegration(
         } finally {
             frame.boardBgr.release()
         }
+    }
+
+    /** Shared crops-provider of the adb dump and the in-app debug view: exact [BoardCropper.cropRect] geometry. */
+    private inline fun forEachCrop(
+        frame: CnnFrame,
+        squares: List<String>,
+        block: (sq: String, sub: Mat) -> Unit,
+    ) {
+        for (sq in squares) {
+            val r = BoardCropper.cropRect(sq, frame.boardBgr.rows())
+            val sub = frame.boardBgr.submat(org.opencv.core.Rect(r.x, r.y, r.width, r.height))
+            try {
+                block(sq, sub)
+            } finally {
+                sub.release()
+            }
+        }
+    }
+
+    /**
+     * Accept-CNN preview/apply core over the latest free-running observation and the
+     * engine's current position (ports 779fb86); null when detached or no observation yet.
+     * The same call serves preview and apply — it mutates nothing; the caller adopts the
+     * returned FEN on user confirmation.
+     */
+    fun acceptCnnOutcome(): AcceptOutcome? {
+        val obs = safeguard?.lastSnapshot?.obs ?: return null
+        return acceptCnnPosition(Game(coordinator.uiState.value.fen), obs, config.confThr)
+    }
+
+    /**
+     * In-app CNN debug data (ports 6e31e35 `/crops.jpg` + the logcat endpoint stats):
+     * the exact 64 model-input crops of the newest frame plus every per-square read,
+     * sorted by confidence. Null when detached or no frame/observation yet.
+     */
+    fun cnnDebugData(): CnnDebugData? {
+        val obs = safeguard?.lastSnapshot?.obs
+        val frame = if (obs != null) frameProvider() else null
+        if (obs == null || frame == null) return null
+        val crops = mutableListOf<Pair<String, android.graphics.Bitmap>>()
+        try {
+            forEachCrop(frame, ALL_SQUARES) { sq, sub ->
+                val rgba = Mat()
+                try {
+                    org.opencv.imgproc.Imgproc
+                        .cvtColor(sub, rgba, org.opencv.imgproc.Imgproc.COLOR_BGR2RGBA)
+                    val bmp =
+                        android.graphics.Bitmap
+                            .createBitmap(rgba.cols(), rgba.rows(), android.graphics.Bitmap.Config.ARGB_8888)
+                    org.opencv.android.Utils
+                        .matToBitmap(rgba, bmp)
+                    crops.add(sq to bmp)
+                } finally {
+                    rgba.release()
+                }
+            }
+        } finally {
+            frame.boardBgr.release()
+        }
+        val reads =
+            ALL_SQUARES
+                .map { sq -> Triple(sq, obs.label.getValue(sq), obs.conf.getValue(sq)) }
+                .sortedByDescending { it.third }
+                .map { (sq, label, conf) -> "$sq  $label @ ${"%.0f".format(conf * PERCENT)}%" }
+        return CnnDebugData(crops, reads)
     }
 
     /** Exact engine-frame board -> 64 crops; the provider transfers ownership of [CnnFrame.boardBgr]. */
@@ -201,9 +285,16 @@ class CnnIntegration(
         const val RECOVERY_POLL_MS = 500L
         const val OCCLUDED_P = 0.5
         const val NS_PER_S = 1e9
+        const val PERCENT = 100.0
         const val CNN_TAG = "chesslabCnn"
     }
 }
+
+/** In-app CNN debug payload: the 64 exact model-input crops + per-square reads (conf-sorted). */
+class CnnDebugData(
+    val crops: List<Pair<String, android.graphics.Bitmap>>,
+    val reads: List<String>,
+)
 
 /** Snapshot of the exact warped frame most recently consumed by the engine. */
 class CnnFrame(

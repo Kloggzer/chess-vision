@@ -95,6 +95,16 @@ internal class EngineState {
     /** Engine-time the last safeguard observation was captured (negative = never). */
     var cnnOccludedTsS: Double = Double.NEGATIVE_INFINITY
 
+    /**
+     * Squares where a CONFIDENT safeguard read disagrees with the believed occupancy of the
+     * CURRENT game state (quiet re-anchor veto, ports 21cf63c). Cleared with [setRef] — a new
+     * (reference, FEN) pair invalidates conflicts computed against the previous position.
+     */
+    var cnnOccupancyConflicts: Set<String> = emptySet()
+
+    /** Engine-time the conflict observation was captured (negative = never). */
+    var cnnConflictsTsS: Double = Double.NEGATIVE_INFINITY
+
     /** Census codes of the current reference, cached (ports tracker.py `_ref_census_codes`). */
     fun refCensusCodes(): ByteArray = refCensus ?: Census.transform(refGray!!).also { refCensus = it }
 
@@ -130,6 +140,10 @@ internal class EngineState {
         referenceVersion++
         refCensus = null
         motionSinceRef = false
+        // A new base truth invalidates conflicts computed against the previous pairing
+        // (covers commit, quiet re-anchor, and CNN resync in one place).
+        cnnOccupancyConflicts = emptySet()
+        cnnConflictsTsS = Double.NEGATIVE_INFINITY
     }
 
     fun invalidateRef() {
