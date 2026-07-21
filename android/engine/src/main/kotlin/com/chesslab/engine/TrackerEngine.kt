@@ -301,6 +301,8 @@ class TrackerEngine(
         state.motionOccluded = emptySet()
         state.cnnOccluded = emptySet()
         state.cnnOccludedTsS = Double.NEGATIVE_INFINITY
+        state.cnnOccupancyConflicts = emptySet()
+        state.cnnConflictsTsS = Double.NEGATIVE_INFINITY
         state.priorLast = false
         state.lastDecision = null
         // Keep the learned per-square noise across reset — parity with Python `reset_to_start`,
@@ -338,6 +340,8 @@ class TrackerEngine(
         state.motionOccluded = emptySet()
         state.cnnOccluded = emptySet()
         state.cnnOccludedTsS = Double.NEGATIVE_INFINITY
+        state.cnnOccupancyConflicts = emptySet()
+        state.cnnConflictsTsS = Double.NEGATIVE_INFINITY
         state.state = "waiting"
         state.note = "New baseline: capturing from the next clear view…"
         state.motionSinceRef = false
@@ -368,6 +372,9 @@ class TrackerEngine(
             state.pending = null
             state.promoPending = null
             state.tainted.clear()
+            // Undo changes the believed position — conflicts computed against it are stale.
+            state.cnnOccupancyConflicts = emptySet()
+            state.cnnConflictsTsS = Double.NEGATIVE_INFINITY
             state.priorLast = false
             detector.confirmer.reset()
             detector.patcher.reset()
@@ -517,14 +524,19 @@ class TrackerEngine(
      * the taint latch (resting-hand veto, cf31c81): a motionless hand sits inside the wood
      * gamut and would otherwise surface as plain "change". `ageS` = observation age at
      * delivery; observations older than the freshness bound are ignored by detection.
-     * Consumed by phase 05.
+     * `occupancyConflicts` = squares where a CONFIDENT read disagrees with the believed
+     * occupancy of the CURRENT game state — a fresh non-empty set vetoes the quiet
+     * re-anchor (ports 21cf63c, Bxc3 incident). Consumed by phase 05.
      */
     fun reportObservation(
         occludedDominant: Set<String>,
         ageS: Double = 0.0,
+        occupancyConflicts: Set<String> = emptySet(),
     ) {
         state.cnnOccluded = occludedDominant
         state.cnnOccludedTsS = lastNowS - ageS
+        state.cnnOccupancyConflicts = occupancyConflicts
+        state.cnnConflictsTsS = lastNowS - ageS
     }
 
     /** Resolve a UCI sequence against the current position; null when any move is illegal. */

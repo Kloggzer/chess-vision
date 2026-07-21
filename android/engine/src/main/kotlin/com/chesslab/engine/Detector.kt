@@ -43,7 +43,7 @@ internal class Detector(
     ) {
         if (!guards()) return
         val ev = computeEvidence(cur, curBgr, nowS)
-        if (ev.changed.isEmpty() && quietHandled(ev, cur, curBgr)) return
+        if (ev.changed.isEmpty() && quietHandled(ev, cur, curBgr, nowS)) return
         // Invariant: occlusion-latched squares ALWAYS count toward maxChanged — a hand whose
         // squares were z-zeroed must not leave 4-6 "clean" squares that read like a legal move.
         when (val outcome = hypothesis.generate(state.game, ev, blockedN = state.tainted.size)) {
@@ -101,9 +101,15 @@ internal class Detector(
         state.changed = changed.sorted()
         // Noise learns on EVERY stable frame the non-candidate squares (tracker.py:1984);
         // the census channel learns excluded squares on a SLOW LANE (8c30888).
-        state.noise.update(diffs, exclude = changed + shadowVeto)
-        cens?.let {
-            state.censusNoise.update(it.normalized, exclude = changed + shadowVeto, excludeAlphaScale = CENSUS_SLOW_LANE)
+        // EXCEPT while the illegal-move alarm is latched (de6f84c): the reference/game-state
+        // pairing is fiction, and the persistent illegal-position deltas would be adapted
+        // into the EMA — desensitizing exactly the squares that prove the desync, letting
+        // the alarm "heal" by drift instead of by user correction.
+        if (state.alarm == null) {
+            state.noise.update(diffs, exclude = changed + shadowVeto)
+            cens?.let {
+                state.censusNoise.update(it.normalized, exclude = changed + shadowVeto, excludeAlphaScale = CENSUS_SLOW_LANE)
+            }
         }
         // (Taint release happens in applyTaintLatch — motion-or-baseline gated, not timer-only.)
         return scoreCandidates(z, changed, shadowVeto)
@@ -134,10 +140,13 @@ internal class Detector(
             // SLOWLY: a full-alpha learn of the whole hot map inflates census σ board-wide, and
             // the z-quiet veto condition would then kill the next real dark-on-dark arrival
             // (the O-O/Rg8 failure class through the back door; review finding 2026-07-11).
-            if (config.diffLightVeto) {
-                state.censusNoise.update(cens, exclude = Squares.all.toSet(), excludeAlphaScale = CENSUS_SLOW_LANE)
-            } else {
-                state.censusNoise.update(cens)
+            // No learning while the illegal-move alarm is latched (de6f84c).
+            if (state.alarm == null) {
+                if (config.diffLightVeto) {
+                    state.censusNoise.update(cens, exclude = Squares.all.toSet(), excludeAlphaScale = CENSUS_SLOW_LANE)
+                } else {
+                    state.censusNoise.update(cens)
+                }
             }
             null
         } else {
@@ -297,6 +306,7 @@ internal class Detector(
         ev: Evidence,
         cur: GrayImage,
         curBgr: BgrImage,
+        nowS: Double,
     ): Boolean {
         val obs = ev.top.obsMove
         val touched = obs?.let { MoveScoring.moveTouchedSquares(state.game, it).size } ?: 2
@@ -311,6 +321,24 @@ internal class Detector(
                     // Alarm active: the illegal position must not become base truth.
                     state.markStuck("no_legal_move")
                     state.note = "ILLEGAL MOVE? board cannot be anchored to game state"
+                } else if (state.cnnOccupancyConflicts.isNotEmpty() &&
+                    nowS - state.cnnConflictsTsS < CNN_DESYNC_FRESH_S
+                ) {
+                    // CNN disagrees -> do NOT re-anchor (Bxc3 incident, ports 21cf63c): a real
+                    // move whose commit was rejected (motion gate missed the hand) leaves the
+                    // board physically ahead of the game state; once its diff evidence decays
+                    // the board looks "quiet" and the re-anchor would bake the un-committed
+                    // move into the reference — a silent, permanent desync with no alarm.
+                    // A fresh observation with a confident OCCUPANCY conflict against the
+                    // believed position vetoes the re-anchor; marking stuck hands the
+                    // standoff to the CNN recovery, which derives the missed move.
+                    state.markStuck("cnn_desync")
+                    state.note = "quiet board but CNN disagrees on " +
+                        state.cnnOccupancyConflicts
+                            .sorted()
+                            .take(CNN_DESYNC_SHOWN)
+                            .joinToString(", ") +
+                        " — holding reference (recovery will resolve)"
                 } else {
                     confirmer.reset()
                     state.clearStuck()
@@ -457,6 +485,12 @@ internal class Detector(
         const val NEG_INF = -1e9
         const val CENSUS_SLOW_LANE = 0.125
         const val OBS_MAX_AGE_S = 3.0
+
+        /** Freshness bound of a reported occupancy-conflict set (matches Python's 5 s, 21cf63c). */
+        const val CNN_DESYNC_FRESH_S = 5.0
+
+        /** Conflict squares shown in the cnn_desync note. */
+        const val CNN_DESYNC_SHOWN = 4
 
         /** ZNCC at/above this = same structure up to linear lighting (0.9: literature-typical). */
         const val ZNCC_SHADOW_MIN = 0.9

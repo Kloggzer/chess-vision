@@ -85,6 +85,76 @@ class AlarmTest {
     }
 
     @Test
+    fun `alarm freezes noise learning`() {
+        // de6f84c: while the latch is set the persistent illegal-position deltas must NOT
+        // be adapted into the EMA — the alarm would "heal" by drift instead of correction.
+        val rig = Rig(config)
+        rig.state.alarm = alarm
+        val meanBefore =
+            rig.state.noise.mean
+                .toMap()
+        val stdBefore =
+            rig.state.noise.std
+                .toMap()
+        val censusMeanBefore =
+            rig.state.censusNoise.mean
+                .toMap()
+        val censusStdBefore =
+            rig.state.censusNoise.std
+                .toMap()
+        rig.detect("e4") // persistent illegal-position delta on e2/e4
+        assertEquals(meanBefore, rig.state.noise.mean)
+        assertEquals(stdBefore, rig.state.noise.std)
+        assertEquals(censusMeanBefore, rig.state.censusNoise.mean)
+        assertEquals(censusStdBefore, rig.state.censusNoise.std)
+    }
+
+    @Test
+    fun `noise learning resumes when not alarmed`() {
+        // Guard the guard: the same evidence pass DOES learn once the alarm is gone.
+        val rig = Rig(config)
+        val stdBefore =
+            rig.state.noise.std
+                .toMap()
+        rig.detect("e2") // quiet frame (matches the reference) -> all squares learn
+        assertFalse(stdBefore == rig.state.noise.std, "un-alarmed frame must update the noise model")
+    }
+
+    @Test
+    fun `quiet re-anchor vetoed by a fresh confident cnn conflict`() {
+        // Bxc3 incident (21cf63c): a real move whose commit was rejected leaves the board
+        // ahead of the game state; once its diff evidence decays the quiet re-anchor would
+        // bake the un-committed move into the reference — silent desync with no alarm.
+        val rig = Rig(config)
+        rig.state.cnnOccupancyConflicts = setOf("b4")
+        rig.state.cnnConflictsTsS = NOW - 1.0
+        val refBefore = rig.state.refGray
+        rig.detect("e2") // identical frame -> quiet path
+        assertEquals("cnn_desync", rig.state.stuckReason)
+        assertTrue(rig.state.refGray === refBefore, "re-anchored over a CNN-confirmed desync")
+        assertTrue("b4" in rig.state.note)
+    }
+
+    @Test
+    fun `stale or absent cnn conflicts do not veto the quiet re-anchor`() {
+        // Conflicts older than the 5 s freshness bound cannot veto.
+        val stale = Rig(config)
+        stale.state.cnnOccupancyConflicts = setOf("b4")
+        stale.state.cnnConflictsTsS = NOW - 10.0
+        val staleRefBefore = stale.state.refGray
+        stale.detect("e2")
+        assertNull(stale.state.stuckReason)
+        assertFalse(stale.state.refGray === staleRefBefore, "quiet re-anchor must proceed on stale conflicts")
+
+        // No conflicts at all -> re-anchor proceeds.
+        val clean = Rig(config)
+        val cleanRefBefore = clean.state.refGray
+        clean.detect("e2")
+        assertNull(clean.state.stuckReason)
+        assertFalse(clean.state.refGray === cleanRefBefore)
+    }
+
+    @Test
     fun `clearAlarm on take-back match`() {
         val engine = TrackerEngine()
         engine.raiseAlarm(alarm)
