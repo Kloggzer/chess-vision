@@ -180,11 +180,12 @@ def camera_collect():
     import cv2
 
     from ...calibration import draw_board_grid
+    from ...serve import SHUTDOWN
 
     def frames():
         none_count = 0
         try:
-          while True:
+          while not SHUTDOWN.is_set():   # ends the stream cleanly on server shutdown
             f = CAMERA.read()
             c = COLLECT.snapshot()   # exactly ONE snapshot per frame (H1)
             prof, board, pos, i = c["profile"], c["board"], c["positions"], c["i"]
