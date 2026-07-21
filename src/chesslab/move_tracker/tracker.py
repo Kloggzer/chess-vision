@@ -2966,6 +2966,30 @@ class MoveTracker:
                     self._mark_stuck("no_legal_move")
                     self.note = "ILLEGAL MOVE? board cannot be anchored to game state"
                     return
+                # CNN disagrees → do NOT re-anchor (Bxc3 incident, 2026-07-21): a real
+                # move whose commit was rejected (motion gate missed the hand) leaves the
+                # board physically ahead of the game state; once its diff evidence decays
+                # the board looks "quiet" and the re-anchor would bake the un-committed
+                # move into the reference — a silent, permanent desync with no alarm.
+                # A fresh observation with a confident OCCUPANCY conflict against the
+                # believed position (the reliable axis: b4 confidently EMPTY while a
+                # bishop is believed there) vetoes the re-anchor; marking stuck hands
+                # the standoff to the CNN recovery, which derives the missed move.
+                snap = self._cnn_snap
+                if (snap is not None and getattr(snap, "obs", None) is not None
+                        and snap.fen == self.board.fen()
+                        and (time.time() - snap.ts) < 5.0):
+                    from .cnn_recovery import expected_occupancy
+                    conf_map = snap.obs.confident(self.cnn_conf_thr)
+                    believed = expected_occupancy(self.board)
+                    dis = [sq for sq in believed
+                           if conf_map.get(sq) and snap.obs.occupied(sq) != believed[sq]]
+                    if dis:
+                        self._mark_stuck("cnn_desync")
+                        self.note = (f"quiet board but CNN disagrees on "
+                                     f"{', '.join(dis[:4])} — holding reference "
+                                     "(recovery will resolve)")
+                        return
                 # Quiet board → re-anchor. This is also the only verifiably CLEAN moment:
                 # run the deferred jobs (gamut rebuild via _set_ref, session photo) here.
                 self._confirmer.reset()
