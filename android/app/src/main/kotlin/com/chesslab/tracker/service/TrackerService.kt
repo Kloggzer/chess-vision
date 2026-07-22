@@ -21,7 +21,6 @@ import com.chesslab.engine.api.TrackerState
 import com.chesslab.tracker.R
 import com.chesslab.tracker.camera.CameraConfig
 import com.chesslab.tracker.camera.DynamicResolutionController
-import com.chesslab.tracker.camera.Resolution
 import com.chesslab.tracker.camera.TrackerCamera
 import com.chesslab.tracker.cnn.CnnModelStore
 import com.chesslab.tracker.geometry.ArucoAutoCalibrator
@@ -62,7 +61,7 @@ private class LiveAlignResult(
 /**
  * Foreground (camera-type) service that owns the running tracker: it wires
  * [TrackerCamera] → [BoardFramePipeline] → [TrackerCoordinator] on the lifecycle
- * scope, drives [DynamicResolutionController] (rewarping on resolution changes),
+ * scope, drives [DynamicResolutionController] (geometry follows each frame's actual size),
  * re-detects the ArUco markers live during tracking and re-aligns the warp (the board/
  * camera drifts during play; a frozen calibration goes stale fast), and applies live/
  * constructor settings changes.
@@ -530,18 +529,14 @@ class TrackerService : LifecycleService() {
             )
         resolutionController = controller
         controller.start()
-        resolutionCollector =
-            lifecycleScope.launch {
-                controller.activeResolution.collect { res -> rewarpFor(res) }
-            }
-    }
-
-    /** Rewarp when the dynamic controller changes the analysis resolution. */
-    private fun rewarpFor(res: Resolution) {
-        val base = baseWarper ?: return
-        val profile = base.profile.forResolution(res.width, res.height)
-        liveAlignSmoother.reset(profile.corners)
-        pipeline?.warper = BoardWarper(profile)
+        // NO geometry rescale on resolution changes: the REQUESTED enum size is not
+        // necessarily what the camera delivers (this device answers a 1280x720 request
+        // with a 4:3 1280x960 stream). Rescaling the profile to the enum squashed the
+        // corner y by 720/960 while frames stayed 960 high — the warp was shifted by
+        // ~2.3 ranks and the live-align smoother then EMA-mixed the two coordinate
+        // spaces. BoardWarper.srcPointsFor already rescales the corners to each frame's
+        // ACTUAL dimensions, and applyLiveAlign re-anchors the profile to real frame
+        // sizes, so a resolution switch needs no explicit rewarp at all.
     }
 
     /** Live-apply a new ArUco warp margin to the active profile (grid-fit tuning). */
@@ -598,6 +593,13 @@ class TrackerService : LifecycleService() {
     /** Swap in a warper re-aligned to freshly detected corners (frame-loop thread). */
     private fun applyLiveAlign(result: LiveAlignResult) {
         val base = baseWarper ?: return
+        // The smoother state lives in the profile's source-frame space. When the
+        // detection's frame size differs (resolution switch, requested-vs-delivered
+        // mismatch), EMA-blending old-space state with new-space corners produces
+        // geometry that is wrong in ANY space — re-seed instead of smoothing across.
+        if (base.profile.sourceWidth != result.width || base.profile.sourceHeight != result.height) {
+            liveAlignSmoother.reset(result.corners)
+        }
         val aligned = liveAlignSmoother.update(result.corners)
         val referenceCorners = referenceProfile?.forResolution(result.width, result.height)?.corners
         if (
@@ -637,10 +639,10 @@ class TrackerService : LifecycleService() {
                     resolutionCollector?.cancel()
                     resolutionCollector = null
                     camera.setResolution(next.resolution)
-                    if (pipeline != null) {
-                        rewarpFor(next.resolution)
-                        startResolutionController(next.toCameraConfig())
-                    }
+                    // No geometry rescale here: the warper follows each frame's ACTUAL
+                    // size (the requested enum is not necessarily delivered — see
+                    // startResolutionController) and live-align re-anchors the profile.
+                    if (pipeline != null) startResolutionController(next.toCameraConfig())
                 }
                 pipeline?.claheClip = next.claheClip
                 applyIntrinsic(next)
