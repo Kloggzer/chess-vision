@@ -1,0 +1,128 @@
+package com.chesslab.cnn
+
+import com.github.bhlangonijr.chesslib.Board
+import com.github.bhlangonijr.chesslib.Piece
+import com.github.bhlangonijr.chesslib.move.Move
+import kotlin.math.max
+
+private class SearchChannel(
+    val squares: List<String>,
+    val target: Map<String, Any>,
+    val value: (Board, String) -> Any,
+)
+
+private class SearchState(
+    val seq: List<Move>,
+    val board: Board,
+    val conflicts: Set<String>,
+)
+
+/**
+ * Port of `cnn_recovery.py:285 derive_moves_deep` — conflict-guided beam search over up to
+ * [maxPlies] half-moves. Only moves touching at least one CONFLICTING square are expanded,
+ * so 4 plies stay a few hundred boards.
+ *
+ * Terminal candidates are keyed by the **placement-only FEN**: the camera cannot see whose
+ * turn it is, so a longer transposition to the same placement is the SAME hypothesis (the
+ * shortest sequence wins) — not a rival that would destroy the acceptance margin.
+ */
+fun CnnRecovery.deriveMovesDeepFull(
+    board: Board,
+    obs: OccupancyObservation,
+    maxPlies: Int = config.recoveryMaxPlies,
+    beam: Int = config.beam,
+): DerivedMoves {
+    val channel = channelFor(obs, config.confThr)
+    val n = channel.squares.size
+    if (n < config.minConfidentRecovery) {
+        return DerivedMoves(emptyList(), NO_AGREEMENT, NO_AGREEMENT)
+    }
+    val finals = LinkedHashMap<String, Pair<Int, List<Move>>>()
+    var states = listOf(SearchState(emptyList(), board, conflictsOf(channel, board)))
+    note(finals, emptyList(), board, n - states.first().conflicts.size)
+    var remainingPlies = maxPlies
+    while (remainingPlies > 0) {
+        remainingPlies--
+        val next = ArrayList<SearchState>()
+        for (state in states) {
+            // A fully explained state is not expanded further.
+            if (state.conflicts.isEmpty()) continue
+            next.addAll(expand(channel, state, finals, n))
+        }
+        if (next.isEmpty()) break
+        states = next.sortedWith(compareBy({ it.conflicts.size }, { it.seq.size })).take(beam)
+    }
+    val byHitsThenLength = compareByDescending<Pair<Int, List<Move>>> { it.first }.thenBy { it.second.size }
+    val ranked = finals.values.sortedWith(byHitsThenLength)
+    val bestHits = ranked.first().first
+    val bestSeq = ranked.first().second
+    val secondHits = if (ranked.size > 1) ranked[1].first else NO_HITS
+    val best = bestHits.toDouble() / n
+    val second = max(NO_AGREEMENT, secondHits.toDouble() / n)
+    val accepted =
+        bestSeq.isNotEmpty() &&
+            best >= config.minAgreement &&
+            (bestHits - max(secondHits, 0)) >= config.marginSquares
+    return DerivedMoves(if (accepted) bestSeq else emptyList(), best, second)
+}
+
+/**
+ * Identity when the observation carries labels, else occupancy — same code path, different
+ * value function (`cnn_recovery.py:298-312`).
+ */
+private fun channelFor(
+    obs: OccupancyObservation,
+    confThr: Double,
+): SearchChannel =
+    if (obs.label != null) {
+        val squares = obs.labelConfidentSquares(confThr)
+        SearchChannel(squares, squares.associateWith { obs.label(it) as Any }) { b, sq -> labelAt(b, sq) }
+    } else {
+        val squares = obs.confidentSquares(confThr)
+        SearchChannel(squares, squares.associateWith { obs.occupied(it) as Any }) { b, sq ->
+            b.getPiece(squareOf(sq)) != Piece.NONE
+        }
+    }
+
+private fun conflictsOf(
+    channel: SearchChannel,
+    board: Board,
+): Set<String> = channel.squares.filterTo(LinkedHashSet()) { channel.target[it] != channel.value(board, it) }
+
+private fun expand(
+    channel: SearchChannel,
+    state: SearchState,
+    finals: MutableMap<String, Pair<Int, List<Move>>>,
+    n: Int,
+): List<SearchState> {
+    val out = ArrayList<SearchState>()
+    for (move in state.board.legalMoves()) {
+        // Touches no conflicting square -> fixes nothing.
+        if (moveTouchedSquares(state.board, move).none { it in state.conflicts }) continue
+        val next = state.board.clone().also { it.doMove(move) }
+        val conflicts = conflictsOf(channel, next)
+        val seq = state.seq + move
+        out.add(SearchState(seq, next, conflicts))
+        note(finals, seq, next, n - conflicts.size)
+    }
+    return out
+}
+
+/** `_note`: keyed by placement only; more hits wins, and the SHORTEST sequence wins ties. */
+private fun note(
+    finals: MutableMap<String, Pair<Int, List<Move>>>,
+    seq: List<Move>,
+    board: Board,
+    hits: Int,
+) {
+    val key = board.boardFen()
+    val prev = finals[key]
+    val better = prev == null || hits > prev.first
+    val shorterTie = prev != null && hits == prev.first && seq.size < prev.second.size
+    if (better || shorterTie) {
+        finals[key] = hits to seq
+    }
+}
+
+/** The placement-only FEN field — `chess.Board.board_fen()`. */
+private fun Board.boardFen(): String = getFen(false).substringBefore(' ')
