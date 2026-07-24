@@ -1,0 +1,14 @@
+.gradle/
+build/
+bin/
+local.properties
+.idea/
+*.iml
+.DS_Store
+captures/
+
+# NDK / externalNativeBuild intermediates (Stockfish, phase 05)
+.cxx/
+*.o
+*.so
+*.nnue

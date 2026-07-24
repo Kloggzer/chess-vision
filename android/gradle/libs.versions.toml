@@ -21,6 +21,14 @@ activity-compose = "1.9.3"
 navigation = "2.8.5"
 ktlint = "12.2.0"
 detekt = "1.23.8"
+# Host-only natives for the desktop-JVM geometry tests (JavaCV wraps OpenCV/FFmpeg
+# so :core-geometry unit tests can decode the shared Blender clips and warp frames
+# without an emulator). Classified artifacts are pulled via `variantOf { classifier(...) }`.
+javacv = "1.5.11"
+bytedeco-opencv = "4.10.0-1.5.11"
+bytedeco-ffmpeg = "7.1-1.5.11"
+bytedeco-openblas = "0.3.28-1.5.11"
+snakeyaml = "2.3"
 
 [libraries]
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "compose-bom" }
@@ -55,6 +63,11 @@ onnxruntime-android-qnn = { group = "com.microsoft.onnxruntime", name = "onnxrun
 onnxruntime-jvm = { group = "com.microsoft.onnxruntime", name = "onnxruntime", version.ref = "onnxruntime" }
 junit-jupiter = { group = "org.junit.jupiter", name = "junit-jupiter", version.ref = "junit-jupiter" }
 junit-platform-launcher = { group = "org.junit.platform", name = "junit-platform-launcher", version.ref = "junit-platform" }
+javacv = { group = "org.bytedeco", name = "javacv", version.ref = "javacv" }
+bytedeco-opencv = { group = "org.bytedeco", name = "opencv", version.ref = "bytedeco-opencv" }
+bytedeco-ffmpeg = { group = "org.bytedeco", name = "ffmpeg", version.ref = "bytedeco-ffmpeg" }
+bytedeco-openblas = { group = "org.bytedeco", name = "openblas", version.ref = "bytedeco-openblas" }
+snakeyaml = { group = "org.yaml", name = "snakeyaml", version.ref = "snakeyaml" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

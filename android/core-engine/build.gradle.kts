@@ -1,0 +1,29 @@
+plugins {
+    id("java-library")
+    alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.ktlint)
+    alias(libs.plugins.detekt)
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+// The parity-critical module. Its runtime classpath is chesslib + kotlin-stdlib and
+// NOTHING else - no Android, no native image library, no concurrency runtime.
+// Enforced by ClasspathPurityTest; see entry.md "Hard rules".
+dependencies {
+    api(libs.chesslib)
+
+    testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.platform.launcher)
+    // Test scope only: the phase-00b parity-fixture loader parses golden JSON.
+    testImplementation(libs.kotlinx.serialization.json)
+}
+
+tasks.withType<Test> {
+    useJUnitPlatform()
+}
