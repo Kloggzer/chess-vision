@@ -1,0 +1,7 @@
+{"coverage":1.0,"height":320,"name":"clear","plane":"planes/clear.gray.bin.gz","width":320}
+{"coverage":1.0,"height":320,"name":"hand","plane":"planes/hand.gray.bin.gz","width":320}
+{"coverage":1.0,"height":320,"name":"late","plane":"planes/late.gray.bin.gz","width":320}
+{"coverage":1.0,"height":320,"name":"synthetic_grid","plane":"planes/synthetic_grid.gray.bin.gz","width":320}
+{"coverage":0.714286,"height":320,"name":"synthetic_blanked","plane":"planes/synthetic_blanked.gray.bin.gz","width":320}
+{"coverage":0.0,"height":320,"name":"synthetic_flat","plane":"planes/synthetic_flat.gray.bin.gz","width":320}
+{"coverage":1.0,"height":8,"name":"synthetic_tiny","plane":"planes/synthetic_tiny.gray.bin.gz","width":8}

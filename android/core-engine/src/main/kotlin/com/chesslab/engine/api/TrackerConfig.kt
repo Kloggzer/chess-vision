@@ -50,13 +50,20 @@ data class TrackerConfig(
     val usePrior: Boolean = true,
     // config.DEFAULT_BOARD_SIZE
     val boardSize: Int = 1600,
+    // Python takes settle/avg/confirm as constructor params defaulting to None, and only
+    // then falls back to the CNN-conditional counts (tracker.py:675-707, :739-742). A clip
+    // manifest may override them (blender-castle sets confirm_frames: 3), so the seam must
+    // be able to express an explicit value. null = "use the CNN-conditional default".
+    val settleFramesOverride: Int? = null,
+    val avgFramesOverride: Int? = null,
+    val confirmFramesOverride: Int? = null,
 ) {
-    // Python: settle/avg/confirm are CNN-conditional (tracker.py:739-742)
-    fun settleFrames(cnnOn: Boolean) = if (cnnOn) SETTLE_FRAMES_CNN else SETTLE_FRAMES_NO_CNN
+    // Python: settle/avg/confirm are CNN-conditional unless explicitly given (tracker.py:739-742)
+    fun settleFrames(cnnOn: Boolean) = settleFramesOverride ?: if (cnnOn) SETTLE_FRAMES_CNN else SETTLE_FRAMES_NO_CNN
 
-    fun avgFrames(cnnOn: Boolean) = if (cnnOn) AVG_FRAMES_CNN else AVG_FRAMES_NO_CNN
+    fun avgFrames(cnnOn: Boolean) = avgFramesOverride ?: if (cnnOn) AVG_FRAMES_CNN else AVG_FRAMES_NO_CNN
 
-    fun confirmFrames(cnnOn: Boolean) = if (cnnOn) CONFIRM_FRAMES_CNN else CONFIRM_FRAMES_NO_CNN
+    fun confirmFrames(cnnOn: Boolean) = confirmFramesOverride ?: if (cnnOn) CONFIRM_FRAMES_CNN else CONFIRM_FRAMES_NO_CNN
 
     val detSize: Int get() = if (detectScale < 1.0) (boardSize * detectScale).toInt() else boardSize
 

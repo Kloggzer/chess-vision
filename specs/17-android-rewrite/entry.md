@@ -128,11 +128,17 @@ data class TrackerConfig(
     val liveAlign: Boolean = true,
     val usePrior: Boolean = true,
     val boardSize: Int = 1600,          // config.DEFAULT_BOARD_SIZE
+    // Python takes these as constructor params defaulting to None and only THEN falls back
+    // to the CNN-conditional counts (tracker.py:675-707). Clip manifests override them
+    // (blender-castle sets confirm_frames: 3). null = use the CNN-conditional default.
+    val settleFramesOverride: Int? = null,
+    val avgFramesOverride: Int? = null,
+    val confirmFramesOverride: Int? = null,
 ) {
-    // Python: settle/avg/confirm are CNN-conditional (tracker.py:739-742)
-    fun settleFrames(cnnOn: Boolean) = if (cnnOn) 3 else 4
-    fun avgFrames(cnnOn: Boolean) = if (cnnOn) 2 else 3
-    fun confirmFrames(cnnOn: Boolean) = if (cnnOn) 1 else 2
+    // Python: settle/avg/confirm are CNN-conditional unless explicit (tracker.py:739-742)
+    fun settleFrames(cnnOn: Boolean) = settleFramesOverride ?: if (cnnOn) 3 else 4
+    fun avgFrames(cnnOn: Boolean) = avgFramesOverride ?: if (cnnOn) 2 else 3
+    fun confirmFrames(cnnOn: Boolean) = confirmFramesOverride ?: if (cnnOn) 1 else 2
     val detSize: Int get() = if (detectScale < 1.0) (boardSize * detectScale).toInt() else boardSize
 }
 
