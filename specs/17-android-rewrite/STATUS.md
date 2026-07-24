@@ -16,7 +16,7 @@ Read `entry.md` completely before your phase file.
 | 01b | `01b-census.md` | census transform + per-square census change | done | `Census.kt` + 2 test files, 11 tests green; 5 discrepancies (D01b-1..5) — **01d must drop the `boardSize` argument at its `perSquareCensusChange` call site** |
 | 01c | `01c-shadow-gamut.md` | HSV shadow, BGR→HSV/Lab, colour gamut, occlusion outliers | done | 3 src + 3 test files, 13 tests green; OpenCV's integer LUT paths ported (HSV bit-exact, Lab ≤1 LSB) — 7 discrepancies (D01c-1..7) |
 | 01d | `01d-motion-noise.md` | motion score, SquareNoise, baseline occlusion/shadow | done | 3 src + 2 test files, 17 tests green; 969 motion / 247 noise / 173 baseline frames asserted (D01d-1..5) |
-| 02a | `02a-scoring.md` | LL scoring, pair scoring, prior, touched/destination, confirmer, Game | todo | |
+| 02a | `02a-scoring.md` | LL scoring, pair scoring, prior, touched/destination, confirmer, Game | done | 5 src + 4 test files, 30 tests green (module 100/100); 969 FEN round-trips, 5463 legal-move rows, 2877 loglik + 58 pair rows asserted (D02a-1..10) |
 | 02b | `02b-geometry.md` | `:core-geometry` — homography, warps, crops, ArUco, MarkerTracker, grid lines | done | 9 main files, 10 test classes / 58 tests green, natives loaded (0 skipped) |
 | 02c | `02c-cnn-observation.md` | `:core-cnn` — observation model, recovery search, resync, preprocessing | done | whole `cnn_recovery.py` ported + preprocessing; 49 tests over all 7 `_cnn` families (34 rows); seam implemented, 8 discrepancies |
 | 03a | `03a-evidence.md` | `EngineState`, guards, evidence, frame loop | todo | owns `EngineState.kt` — 03b/c/d may not edit it |
@@ -772,6 +772,148 @@ all reference features (never a distance to `mu`), checked on the base box and �
   **42 carry a non-empty `chromaOutliers` set**), using the same "gamut of the next tier-A frame"
   reconstruction 01d proved in D01d-3 (the 14 blocks with no later tier-A frame are skipped).
 
+### 02a (`Game` wrapper / touched+destination squares / LL scoring / prior / confirmer), 2026-07-25
+
+Files created (all `internal`, package `com.chesslab.engine`, module `:core-engine`):
+`Game.kt`, `MoveSquares.kt`, `Scoring.kt`, `MovePrior.kt`, `Confirmer.kt`; tests
+`MoveSquaresTest.kt` (11), `ScoringTest.kt` (8), `MovePriorTest.kt` (5), `ConfirmerTest.kt` (6)
+— **30 tests**. No other file was touched; no build file, no `libs.versions.toml`.
+
+Semantics landed verbatim: `moveTouchedSquares` = from + to + **both** rook squares on castling
++ the **captured pawn's square** on en passant; `moveDestinationSquares` = to-square + the rook's
+**to**-square only (f1/f8, d1/d8) — the two are separate functions and were not unified;
+`loglikScores` = `sum over touched of clip(k*(z - zThr), -12, +12)`, sorted descending, empty on
+no legal move; `loglikPairScores` = order fixed by side-to-move, endpoint gate `z[from] >= soft`
+**and** `z[to] >= soft` (endpoints only, `soft = zThr * 0.5`), score over the UNION of both plies'
+touched squares; `movePrior` = capture +0.5, check +0.3, forward +0.2, `min(p, 1.0)`.
+
+#### The `Game.kt` chesslib API surface phase 03 codes against
+
+```kotlin
+internal const val STARTPOS = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+internal class Game(fen: String = STARTPOS) {
+    fun fen(): String                       // board.getFen(true, true) — see D02a-1
+    val whiteToMove: Boolean                // board.sideToMove == Side.WHITE
+    fun legalMoves(): List<Move>            // MoveGenerator.generateLegalMoves(board)
+    fun push(move: Move)                    // board.doMove(move)
+    fun pop()                               // board.undoMove()
+    fun pieceCharAt(square: String): Char?  // 'P'..'k', null = empty
+    fun hasCastlingRights(white: Boolean): Boolean   // board.getCastleRight(side) != NONE
+    fun sanSequence(moves: List<Move>): List<String> // MoveList(fen()) + toSanArray()
+    fun result(): GameResult                // data class(inCheck, checkmate, over)
+}
+internal data class GameResult(val inCheck: Boolean, val checkmate: Boolean, val over: Boolean)
+
+// top-level extensions (D02a-5) — call sites read exactly as the phase file specifies
+internal fun Game.boardFen(): String        // placement field only
+internal fun Game.labelAt(square: String): String   // config.label_from_piece
+internal fun Game.san(move: Move): String
+internal fun Game.copy(): Game              // via fen(); the move stack is NOT copied
+internal fun uciOf(move: Move): String      // "e2e4", "e7e8q"
+```
+
+`Square.ordinal` is rank-major from `a1`, i.e. **exactly `Squares.ALL`'s order**, so
+`Squares.ALL[mv.from.ordinal]` is the square name and `rank * 8 + file` the index — no string
+work in the hot loop. `File`/`Rank` ordinals are 0..7 (`NONE` is last).
+
+Scoring surface: `zArrayOf(Map<String, Double>): DoubleArray`, `logits(z, zThr, k, out)`,
+`loglikScores(g, z, zThr, k)` and `loglikPairScores(g, z, zThr, k, soft)` each in a `DoubleArray`
+and a `Map<String, Double>` flavour, `moveTouchedIndices(g, mv, out): Int` + `TOUCHED_MAX = 4`,
+`movePrior(g, mv)`, `Confirmer(confirmFrames)` with `feed/reset/key/count`, and the constants
+`Z_THR_DEFAULT`, `LL_K_DEFAULT`, `LOGIT_CLIP`, `PAIR_SOFT_FACTOR`, `PRIOR_CAPTURE`,
+`PRIOR_CHECK`, `PRIOR_FORWARD`, `PRIOR_CAP`.
+
+#### Discrepancies
+
+- **D02a-1 — `Game.fen()` must be `board.getFen(true, true)`; chesslib's plain `getFen()` is
+  WRONG for this port.** chesslib always prints the en-passant target square when one exists,
+  while python-chess's `Board.fen()` defaults to `en_passant="legal"` and prints it only when a
+  legal en-passant capture actually exists. Every double-pawn push would therefore differ:
+  `blender-opening/0044.json` is `... b KQkq - 0 1` after 1.d4, chesslib's default would emit
+  `d3`. `getFen(includeCounters = true, onlyOutputEnPassantIfCapturable = true)` uses
+  `pawnCanBeCapturedEnPassant()`, which is exactly python-chess's `has_legal_en_passant()`
+  (pawn attacks the square AND is not pinned). Proven by
+  `everyFixtureFenRoundTripsThroughTheGameWrapper`: **all 969 emitted frame FENs of all 18 clips
+  round-trip byte-identically**. Phase 03d's `tierB.commit.fenAfter` comparisons depend on this.
+- **D02a-2 — the four fixture files the phase file names do not exist (00b's schema wins).**
+  There is no `src/test/resources/fixtures/scoring_*.jsonl`. Per the 00b mapping table the real
+  sources are `tierA.moveTouchedSquares` / `tierA.moveDestinationSquares` / `tierA.loglikScores`
+  (top 12) / `tierA.loglikPairScores` (top 12) / `tierA.movePrior`, with `frame.fen`,
+  `tierA.zFused` and `zThr` / `llK` from `meta.effectiveConfig`. All five are consumed with an
+  asserted row count. **No fixture was invented.** `top_unique` is likewise not emitted (same as
+  D02c-2); uniqueness of the top entry is derived from the fixture's own top-two scores.
+- **D02a-3 — the Tier-A scoring block belongs to the POST-frame board, i.e. to `frame.fen`.**
+  `emit_parity_fixtures.py:476` takes `board = mt.board` *after* the frame has been processed,
+  including a commit made on that very frame, and `frame.fen` is read at the same moment
+  (`:788`). So on a commit frame the scores are for the position AFTER the move. The README's
+  illustrative frame block (`"fen": "…b KQkq…"` together with `loglikScores [["d2d4", 12.36]]`)
+  is self-inconsistent; the real `blender-opening/0044.json` has `[["d7d6", -1.946644], …]`.
+  Consumers must build their board from `frame.fen`, which is what all four test classes do.
+- **D02a-4 — detekt forbids the literal the acceptance criterion greps for.** `MagicNumber`
+  fires on numeric literals in function bodies and on default parameter values (D00a-3 / D01a-1),
+  so `Scoring.kt` reads `coerceIn(-LOGIT_CLIP, LOGIT_CLIP)` with
+  `internal const val LOGIT_CLIP = 12.0`, and likewise `Z_THR_DEFAULT = 3.0`,
+  `LL_K_DEFAULT = 1.0`, `PAIR_SOFT_FACTOR = 0.5`, `PRIOR_CAPTURE/CHECK/FORWARD/CAP`,
+  `CASTLING_FILE_SPAN = 2`, `ROOK_FILE_KINGSIDE = 7`, `ROOK_FILE_QUEENSIDE = 0`,
+  `ROOK_TARGET_KINGSIDE = 5`, `ROOK_TARGET_QUEENSIDE = 3`. **Every value is unchanged**;
+  the acceptance grep `coerceIn(-12.0, 12.0)` must be read as "the clip is +/-12".
+  No `@Suppress`, no baseline, no detekt.yml change.
+- **D02a-5 — detekt `TooManyFunctions` (fires at >= 11, per class and per file's top level)
+  shaped `Game.kt`.** The published surface is 12 members, which is unbuildable. `Game` keeps 8
+  functions + the `whiteToMove` property; `boardFen()`, `labelAt()`, `san()` and `copy()` are
+  top-level `internal` **extension** functions in the same file, so every call site reads exactly
+  as the phase file writes it (`g.boardFen()`, `g.san(mv)`, `g.copy()`). Same precedent as
+  D02c-7. Nothing was renamed, removed or given a different signature.
+- **D02a-6 — everything is `internal`, not `public`.** `entry.md` hard rule 3 makes
+  `com.chesslab.engine.api` the only public surface of `:core-engine`; the phase file's code block
+  omits the modifier. The Kotlin JVM plugin associates the `test` compilation with `main`, so the
+  tests see them (as 01a-01d already rely on).
+- **D02a-7 — additive, for the hot path: `moveTouchedIndices` + the `DoubleArray` scoring
+  flavours.** `moveTouchedIndices(g, mv, out: IntArray): Int` fills `Squares.ALL` indices
+  (`TOUCHED_MAX = 4`) and is what `loglikScores`/`loglikPairScores` use, so no `Set<String>` is
+  allocated per legal move per frame; `moveTouchedSquares` is implemented on top of it and keeps
+  its published `Set<String>` signature, including Python's set de-duplication. Likewise
+  `zArrayOf(Map): DoubleArray` and `DoubleArray` overloads of both scorers; **the published
+  `Map<String, Double>` signatures are kept** as delegating overloads (asserted equal by
+  `theMapOverloadsAgreeWithThePrimitiveOnes`), so phases 03/04 may use either.
+- **D02a-8 — `givesCheck` and `loglikPairScores` use `push`/`pop`, not Python's
+  `board.copy(stack=False)`.** chesslib restores the complete state in `undoMove`, and neither
+  legal-move generation nor `isKingAttacked` reads the move stack, so the result is identical
+  while a FEN re-parse per legal move is avoided. Consequence for phase 03: both functions
+  transiently mutate the `Game` they are handed and restore it before returning — do not call
+  them re-entrantly on the same instance. `Game.copy()` exists and is tested for callers that
+  need a detached board.
+- **D02a-9 — `Confirmer` gained `val key: String?` (additive).** Python reaches into
+  `_confirmer._cand[0]` for `TrackerStatus.confirmerKey` (and the fixture's `tierB.confirmerKey`),
+  so the port exposes it instead of forcing a later phase to duplicate the field. Reset semantics
+  are transcribed exactly: `feed(null)` clears the candidate (`count == 0`, `key == null`) and
+  returns false, a DIFFERENT key restarts the streak at **1** (not 0), and `confirmFrames <= 1`
+  confirms on the very first feed. A confirmed streak keeps counting while the key stays.
+- **D02a-10 — no tie-break was added, and none was needed.** The sort is a stable, purely
+  numeric descending comparator (`a < b -> 1`, `a > b -> -1`, else `0`), which mirrors Python's
+  `sort(key=lambda t: -t[1])` including its treatment of `-0.0 == 0.0`; Kotlin's
+  `sortedByDescending` uses `Double.compareTo` and would order `-0.0` before `0.0`. Because
+  chesslib and python-chess enumerate legal moves in different orders (D02c-2), the parity tests
+  compare the SCORE sequence element by element (order-independent) plus a per-uci score lookup,
+  and pin the top move only where the fixture's top score is strictly separated from the
+  runner-up. **In the event every fixture row matched by uci as well** — all 2877 `loglikScores`
+  rows and all 58 `loglikPairScores` rows — so 02a needed no equivalence escape hatch at all.
+- **Note (not a discrepancy):** the legal-move COUNT is asserted per frame against
+  `tierA.moveTouchedSquares` / `tierA.movePrior` (5463 rows over 247 positions), and every
+  fixture uci resolves in the port's own list. That pins chesslib's legal-move set, and the
+  `uciOf` encoding (incl. lowercase promotion suffixes and `e1g1`-style castling), against
+  python-chess's over all 18 clips.
+- **Coverage actually asserted:** **969** FEN round-trips (every emitted frame of all 18 clips);
+  **247 tier-A frames** x **5463 legal-move rows** for `moveTouchedSquares`,
+  `moveDestinationSquares` and `movePrior`, sets EXACT and priors at the 1e-4 fixture tolerance;
+  **2877 `loglikScores` rows** over 247 frames and **58 `loglikPairScores` rows** over the 11
+  frames that have any, each with a sorted-descending check on the port's full list;
+  plus the hand-written branches the quiet clips never reach (both castlings, en passant, q/n
+  promotion, capture-promotion, the `>= soft` pair gate at and just below the boundary, the
+  shared-square union, the +/-12 clip, an all-zero z-map and a stalemate position).
+  `TrackerConfig` is built from `meta.effectiveConfig` throughout (`zThr` / `llK`).
+
 ## Blockers
 
 - ~~02c has no CNN fixtures~~ — **withdrawn**, see D00b-2: `parity/_cnn/` now carries 7
@@ -926,3 +1068,23 @@ _(implementing agent appends one line per finished phase)_
   Gate green on the real tree: `:core-engine:test` 13/13 (`ColorSpaceParityTest` 3,
   `ShadowGamutParityTest` 5, `GamutUnitTest` 5), `ktlintFormat`, `ktlintCheck` + `detekt` — zero
   findings module-wide, no `@Suppress`, no baseline.
+- 2026-07-25 — **02a done**: the chesslib wrapper (`Game.kt`, incl. the
+  `getFen(true, true)` en-passant fix that makes FENs byte-identical to python-chess),
+  `move_touched_squares` vs `move_destination_squares` as two deliberately different functions
+  (`MoveSquares.kt`), the clipped log-likelihood move and pair scoring with Python's endpoint-only
+  `soft` gate and union scoring (`Scoring.kt`), `move_prior` (`MovePrior.kt`) and the
+  `confirm_frames` streak voter (`Confirmer.kt`). Primitive-array hot path
+  (`moveTouchedIndices` into an `IntArray`, `DoubleArray(64)` z indexed by `Squares.ALL`), the
+  published `Map<String, Double>` signatures kept as delegating overloads, no tie-break added
+  anywhere. Parity over the real fixtures: **969 FEN round-trips**, **247 tier-A frames /
+  5463 legal-move rows** for touched, destination and prior, **2877 loglik rows** and **58 pair
+  rows** — every fixture row matched by uci AND by score, so no tie escape hatch was needed;
+  plus hand-written coverage of both castlings, en passant, promotions, the `>= soft` boundary,
+  the shared-square union, the +/-12 clip and stalemate. 10 discrepancies (D02a-1..10), the
+  important ones: chesslib's default `getFen()` would corrupt every double-pawn-push FEN
+  (D02a-1), the phase file's four `scoring_*.jsonl` fixtures do not exist and 00b's `tierA` keys
+  are the real source (D02a-2), and the Tier-A scoring block belongs to the POST-frame board
+  `frame.fen` (D02a-3). Gate green: `:core-engine:test` **100/100** for the whole module
+  (`MoveSquaresTest` 11, `ScoringTest` 8, `MovePriorTest` 5, `ConfirmerTest` 6 = 30 new),
+  `ktlintFormat`, `ktlintCheck` + `detekt` — zero findings, no `@Suppress`, no baseline, and
+  `ktlintFormat` touched no file outside 02a's nine.
