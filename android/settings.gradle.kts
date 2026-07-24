@@ -18,5 +18,7 @@ dependencyResolutionManagement {
     }
 }
 
-include(":engine")
+include(":core-engine")
+include(":core-geometry")
+include(":core-cnn")
 include(":app")

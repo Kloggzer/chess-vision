@@ -18,7 +18,7 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
-        // Stockfish (phase 05): built from the source submodule for the ABIs
+        // Stockfish (phase 07c): built from the source submodule for the ABIs
         // below. Filters apply APK-wide; 64-bit only (minSdk 29 hardware).
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
@@ -30,10 +30,6 @@ android {
             isMinifyEnabled = false
         }
     }
-
-    // Single install channel (2026-07-22): the lab/stable flavor split (parallel
-    // experimental install with its own appId) was unused in practice — like the
-    // Python side, there is exactly ONE app.
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -54,14 +50,10 @@ android {
         }
     }
 
-    // Stockfish (phase 05): compiled from android/third_party/stockfish
-    // (pinned git submodule, GPL-3.0) as an executable named libstockfish.so.
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
-        }
-    }
+    // externalNativeBuild { cmake { ... } } is DELIBERATELY NOT WIRED here.
+    // Owner: phase 07c (Stockfish). src/main/cpp/CMakeLists.txt is already in the tree;
+    // wiring it now would compile Stockfish for two ABIs on every assembleDebug in
+    // phases 00-06.
 
     packaging {
         jniLibs {
@@ -80,7 +72,9 @@ configurations.matching { it.name.contains("UnitTest") }.configureEach {
 }
 
 dependencies {
-    implementation(project(":engine"))
+    implementation(project(":core-engine"))
+    implementation(project(":core-geometry"))
+    implementation(project(":core-cnn"))
 
     // Compose
     implementation(platform(libs.compose.bom))
@@ -112,19 +106,19 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
 
-    // Ktor CIO (phase 06: LAN spectator server)
+    // Ktor CIO (phase 08b: LAN spectator server)
     implementation(libs.ktor.server.cio)
     implementation(libs.ktor.server.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
 
-    // chesslib (phase 07: PGN result determination)
+    // chesslib (phase 08a: PGN result determination)
     implementation(libs.chesslib)
 
-    // ZXing (phase 06: QR code)
+    // ZXing (phase 08b: QR code)
     implementation(libs.zxing.core)
 
-    // ONNX Runtime (phase 05: CNN safeguard). Device uses the QNN AAR (bundles the
-    // Qualcomm Hexagon/NPU libs; OnnxClassifier selects the QNN EP when a quantized
+    // ONNX Runtime (phase 05c: CNN safeguard). Device uses the QNN AAR (bundles the
+    // Qualcomm Hexagon/NPU libs; the classifier selects the QNN EP when a quantized
     // model.qnn.onnx is present, else NNAPI, else CPU). JVM unit tests swap in the
     // desktop artifact (same ai.onnxruntime API) because the AAR only ships Android ABIs.
     implementation(libs.onnxruntime.android.qnn)

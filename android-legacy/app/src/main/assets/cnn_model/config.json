@@ -1,0 +1,58 @@
+{
+  "backbone": "mobilenetv4_conv_small_035",
+  "epochs": 40,
+  "batch_size": 256,
+  "lr": 0.0001,
+  "seed": 42,
+  "amp": true,
+  "norm": "groupnorm",
+  "classes": [
+    "empty",
+    "wP",
+    "wN",
+    "wB",
+    "wR",
+    "wQ",
+    "wK",
+    "bP",
+    "bN",
+    "bB",
+    "bR",
+    "bQ",
+    "bK",
+    "occluded"
+  ],
+  "out_size": [
+    128,
+    128
+  ],
+  "dataset": "real-all",
+  "resumed_from": "tiny-p2",
+  "head": "twostage",
+  "normalize": {
+    "mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "std": [
+      0.229,
+      0.224,
+      0.225
+    ]
+  },
+  "variant": {
+    "geometry": "warp",
+    "photometry": "none",
+    "piece_height_cells": 1.6
+  },
+  "scales": [
+    64,
+    96,
+    128
+  ],
+  "aug": {
+    "erase_p": 0.25,
+    "bg_p": 0.15
+  }
+}

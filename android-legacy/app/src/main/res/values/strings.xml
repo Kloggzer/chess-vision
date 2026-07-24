@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">chesslab tracker</string>
+    <string name="camera_permission_required">Camera access is required to detect the board and track moves.</string>
+    <string name="camera_permission_retry">Grant camera access</string>
+
+    <!-- Foreground service -->
+    <string name="notif_channel">Move tracking</string>
+    <string name="notif_title">chesslab is tracking the board</string>
+    <string name="notif_stop">Stop tracking</string>
+
+    <!-- Navigation -->
+    <string name="nav_tracking">Tracking</string>
+    <string name="nav_calibration">Calibration</string>
+    <string name="nav_games">Games</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Status chip -->
+    <string name="status_waiting">Waiting for board</string>
+    <string name="status_tracking">Tracking</string>
+    <string name="status_occluded">Hand over board</string>
+    <string name="status_stuck">Stuck</string>
+    <string name="status_verifying">Verifying</string>
+    <string name="tracking_title">Board tracking</string>
+    <string name="tracking_last_move">Last move: %1$s</string>
+    <string name="recovery_title">Move needs attention</string>
+    <string name="recovery_message">The board changed, but the move could not be confirmed. Take back the last move if needed, or recalibrate the board.</string>
+    <string name="recovery_collapse">Collapse recovery card</string>
+    <string name="recovery_pill">⚠ Needs attention</string>
+    <string name="note_scene_dark">Scene too dark — detection paused, check lighting/camera</string>
+
+    <!-- Tracking screen -->
+    <string name="action_undo">Undo / correct last move</string>
+    <string name="action_reset_game">Reset game</string>
+    <string name="action_new_baseline">New baseline</string>
+    <string name="action_recalibrate">Recalibrate</string>
+    <string name="action_confirm">Confirm</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="confirm_reset_title">Reset game?</string>
+    <string name="confirm_reset_message">Start a new game from the opening position. Calibration is kept.</string>
+    <string name="confirm_recalibrate_title">Recalibrate board?</string>
+    <string name="confirm_recalibrate_message">Discard the current board alignment and set it up again. The game in progress is cleared.</string>
+    <string name="calib_prompt_title">Set up the board</string>
+    <string name="calib_prompt">Point the camera at the board — it aligns automatically when the ArUco markers are visible. No markers? Tap Calibrate to set the corners by hand.</string>
+    <string name="calib_start">Calibrate manually</string>
+    <string name="alarm_take_back">Take back</string>
+    <string name="accept_cnn_action">Accept CNN</string>
+    <string name="accept_cnn_title">Adopt CNN position?</string>
+    <string name="accept_cnn_no_changes">The CNN view already matches the game state — adopting changes nothing.</string>
+    <string name="accept_cnn_unavailable">No CNN observation available — is the CNN safeguard enabled and a model imported?</string>
+    <string name="cnn_debug_action">CNN crops + reads</string>
+    <string name="cnn_debug_title">CNN debug — exact model inputs</string>
+    <string name="moves_empty">No moves yet</string>
+    <string name="promotion_title">Promotion</string>
+    <string name="promotion_message">Choose the promotion piece for %1$s to %2$s</string>
+    <string name="overlay_board_desc">Camera board with detection overlay</string>
+
+    <!-- Debug card -->
+    <string name="debug_title">Debug</string>
+    <string name="debug_fps">FPS</string>
+    <string name="debug_luma">Luma (pre-CLAHE)</string>
+    <string name="debug_motion">Motion / threshold</string>
+    <string name="debug_changed">Changed squares</string>
+    <string name="debug_scores">Best / second (margin)</string>
+    <string name="debug_candidate">Candidate</string>
+    <string name="debug_decider">Last decider</string>
+    <string name="debug_stuck">Stuck reason</string>
+    <string name="debug_confirm">Confirm votes</string>
+
+    <!-- Calibration -->
+    <string name="calib_tap_corner">Tap corner %1$s</string>
+    <string name="calib_confirm_orientation">Confirm orientation: tap the a8 corner</string>
+    <string name="calib_ready">Corners set — review and save</string>
+    <string name="calib_clear">Clear</string>
+    <string name="calib_back_to_tracking">Back to tracking</string>
+    <string name="calib_suggest">Suggest corners</string>
+    <string name="calib_save">Save</string>
+    <string name="calib_orientation_help">Corner order matters: start at a8, then go clockwise. a8 is the corner on Black’s left when White is at the bottom.</string>
+    <string name="calib_aruco_auto">Auto (ArUco)</string>
+    <string name="calib_aruco_not_found">Markers not found</string>
+    <string name="calib_aiming">Aiming… point the camera at the board</string>
+    <string name="calib_loupe_zoom">2.6×</string>
+    <string name="calib_camera_tuning">Camera tuning (experimental)</string>
+
+    <!-- Settings sections -->
+    <string name="settings_game">Game</string>
+    <string name="settings_title">Settings</string>
+    <string name="settings_subtitle">Everyday controls first. Detection tuning is optional.</string>
+    <string name="settings_camera">Camera</string>
+    <string name="settings_detection">Detection</string>
+    <string name="settings_detection_description">Use the defaults unless you are troubleshooting a specific board or lighting setup.</string>
+    <string name="settings_recording">Recording</string>
+    <string name="settings_detection_advanced">Advanced detection</string>
+    <string name="settings_experimental">Experimental</string>
+    <string name="settings_debug">Debug</string>
+    <string name="settings_debug_board_views_caption">Board views (Rendered/Video/Raw and debug overlays) now live on the Tracking screen.</string>
+
+    <!-- Settings: game -->
+    <string name="setting_look_forward">Look-forward (fast play)</string>
+    <string name="setting_ambiguity_margin">Ambiguity margin</string>
+    <string name="setting_move_prior">Move prior tie-break</string>
+
+    <!-- Settings: recording -->
+    <string name="setting_auto_record">Auto-record session</string>
+    <string name="setting_spectator_enabled">Share live game on local network</string>
+    <string name="setting_spectator_starting">Starting spectator server…</string>
+
+    <!-- Settings: camera -->
+    <string name="setting_dynamic_resolution">Dynamic resolution</string>
+    <string name="res_720p">720p</string>
+    <string name="res_1080p">1080p</string>
+    <string name="res_4k">4K</string>
+
+    <!-- Settings: detection tunables -->
+    <string name="setting_motion_thr">Motion threshold</string>
+    <string name="setting_z_thr">Z threshold (change sensitivity)</string>
+    <string name="setting_census_thr">Census threshold</string>
+    <string name="setting_census_z_weight">Census structural weight</string>
+    <string name="setting_max_changed">Max changed squares</string>
+    <string name="setting_aruco_margin">ArUco margin (warp fit)</string>
+    <string name="setting_occlusion_thr">Occlusion threshold</string>
+    <string name="setting_overhang">Overhang</string>
+    <string name="setting_motion_hold">Motion hold (s)</string>
+    <string name="setting_clahe_clip">CLAHE clip</string>
+    <string name="setting_dark_luma_thr">Dark-scene floor (pause detection below)</string>
+    <string name="setting_diff_jitter">Diff wobble tolerance (px)</string>
+    <string name="setting_lighting_robust">Lighting robustness (structure-gated diff)</string>
+    <string name="setting_commit_floor">Commit floor (min move score)</string>
+    <string name="setting_reset_detection">Reset game &amp; detection to defaults</string>
+
+    <!-- Settings: experimental + debug -->
+    <string name="setting_experimental_detection">Automatic board detection (experimental)</string>
+    <string name="setting_lock_exposure">Lock exposure &amp; white balance (experimental)</string>
+    <string name="setting_grad_dir_veto">Gradient shadow veto (experimental)</string>
+    <string name="setting_focus_distance">Manual focus (diopters, 0 = auto)</string>
+    <string name="setting_intrinsic_gray">Shadow-free diff channel (experimental)</string>
+    <string name="setting_debug_card">Debug card</string>
+    <string name="overlay_diff">Diff</string>
+    <string name="overlay_shadow">Shadow</string>
+    <string name="overlay_occlusion">Occlusion</string>
+    <string name="overlay_motion">Motion</string>
+
+    <!-- Tracking: two-level board view switch -->
+    <string name="board_mode_rendered">Rendered</string>
+    <string name="board_mode_video">Video</string>
+    <string name="overlay_raw">Raw</string>
+    <string name="overlay_warped">Warped</string>
+    <string name="raw_preview_desc">Camera preview before calibration</string>
+
+    <!-- Shared -->
+    <string name="value_and_default">%1$s (default %2$s)</string>
+
+    <!-- Settings: CNN Safeguard (resolved discrepancy #14) -->
+    <string name="settings_cnn_safeguard">CNN Safeguard</string>
+    <string name="setting_cnn_enabled">Enable CNN safeguard</string>
+    <string name="setting_cnn_conf_thr">Confidence threshold</string>
+    <string name="setting_import_model">Import model…</string>
+    <string name="setting_cnn_model_installed">Model: installed (model.onnx + config.json)</string>
+
+    <!-- Settings: Analysis -->
+    <string name="settings_analysis">Analysis</string>
+    <string name="setting_analysis_depth">Engine depth</string>
+    <string name="setting_cnn_model_not_installed">Model: not imported</string>
+
+    <!-- Move decision provenance (shown in the analysis move detail) -->
+    <string name="history_decider">Decider: %1$s</string>
+    <string name="history_reason">Reason: %1$s</string>
+    <string name="history_margin">Margin: %1$.2f (best %2$.2f, second %3$.2f)</string>
+    <string name="history_changed">Changed: %1$s</string>
+    <string name="history_vetoed">Shadow-vetoed: %1$s</string>
+    <string name="history_prior">Prior used: %1$s</string>
+    <!-- Referee alarm (illegal-move desync) -->
+    <string name="alarm_banner">ILLEGAL MOVE? %1$s — take it back, or resync to accept</string>
+
+    <!-- Games library -->
+    <string name="games_title">Games</string>
+    <string name="games_count">%1$d saved</string>
+    <string name="games_empty">Finished games appear here. Play a game to the end, or reset, to save it.</string>
+    <string name="games_live">Live game</string>
+    <string name="games_move_count">%1$d moves</string>
+    <string name="games_untitled">Untitled game</string>
+    <string name="games_row_meta">%1$s · %2$d moves · %3$s</string>
+    <string name="games_row_desc">Game %1$s, %2$d moves</string>
+    <string name="games_export">Export game (PGN)</string>
+    <string name="games_sparkline_desc">Evaluation over the game</string>
+
+    <!-- Game analysis -->
+    <string name="analysis_title">Game analysis</string>
+    <string name="analysis_analyzing">Analyzing…</string>
+    <string name="analysis_failed">Analysis failed: %1$s</string>
+    <string name="analysis_eval_bar_desc">Evaluation bar</string>
+    <string name="analysis_eval">Eval</string>
+    <string name="analysis_best">Best</string>
+    <string name="analysis_line">Line</string>
+    <string name="analysis_depth_label">Depth</string>
+    <string name="analysis_first">First move</string>
+    <string name="analysis_prev">Previous move</string>
+    <string name="analysis_play">Play</string>
+    <string name="analysis_pause">Pause</string>
+    <string name="analysis_next">Next move</string>
+    <string name="analysis_last">Last move</string>
+    <string name="analysis_ply_desc">Move %1$d: %2$s</string>
+    <string name="analysis_cp_loss">Centipawn loss</string>
+    <string name="analysis_verdict">Engine verdict</string>
+    <string name="analysis_provenance">Tracker decision</string>
+    <string name="analysis_no_provenance">No tracker provenance for this move.</string>
+
+    <!-- Move-quality chips -->
+    <string name="quality_book">Book</string>
+    <string name="quality_best">Best</string>
+    <string name="quality_good">Good</string>
+    <string name="quality_inaccuracy">Inaccuracy</string>
+    <string name="quality_mistake">Mistake</string>
+    <string name="quality_blunder">Blunder</string>
+</resources>
