@@ -39,8 +39,8 @@ data class DerivedMoves(
 )
 
 /**
- * `cnn_recovery.py:386 resync_check` result — the seam's `ResyncResult` drops move/agreement.
- * Declared here with the other result types; `Resync.kt` holds the functions.
+ * `cnn_recovery.py:386 resync_check` result. Declared here with the other result types;
+ * `Resync.kt` holds the functions.
  */
 data class ResyncCheck(
     val match: Boolean,
@@ -62,9 +62,9 @@ data class IdentityCheck(
  * (pixels -> probabilities) lives behind [SquareClassifier]; the ONNX implementation is
  * phase 05c in `:app`.
  *
- * Implements the frozen engine seam [CnnEvaluator] (phase 00a). The seam is intentionally
- * narrower than Python in two places, so the Python-faithful results are also exposed:
- * [boardMatchesIdentityFull] (carries `n`) and [resyncCheckFull] (carries `move`/`agreement`).
+ * Implements the frozen engine seam [CnnEvaluator] (phase 00a), which takes the position as a
+ * FEN. The seam is still narrower than Python on the identity axis, so the Python-faithful
+ * [boardMatchesIdentityFull] (which carries `n`) stays exposed alongside it.
  */
 class CnnRecovery(
     val config: CnnConfig = CnnConfig(),
@@ -108,11 +108,11 @@ class CnnRecovery(
      * unconfirmed (0.0) so the multi-frame window waits for a clear view.
      */
     override fun verifyMove(
-        board: Any,
+        boardFen: String,
         moveUci: String,
         obs: CnnObservation,
     ): Pair<Double, Int> {
-        val b = asBoard(board)
+        val b = boardOf(boardFen)
         val o = asObservation(obs)
         val move = parseMove(b, moveUci)
         val after = b.clone().also { it.doMove(move) }
@@ -145,10 +145,10 @@ class CnnRecovery(
     }
 
     override fun boardMatchesIdentity(
-        board: Any,
+        boardFen: String,
         obs: CnnObservation,
     ): IdentityResult {
-        val full = boardMatchesIdentityFull(asBoard(board), asObservation(obs))
+        val full = boardMatchesIdentityFull(boardOf(boardFen), asObservation(obs))
         return IdentityResult(match = full.match, inconclusive = full.inconclusive, conflicts = full.conflicts)
     }
 
@@ -207,11 +207,11 @@ class CnnRecovery(
     }
 
     override fun deriveMovesDeep(
-        board: Any,
+        boardFen: String,
         obs: CnnObservation,
         maxPlies: Int,
     ): DeriveResult {
-        val derived = deriveMovesDeepFull(asBoard(board), asObservation(obs), maxPlies, config.beam)
+        val derived = deriveMovesDeepFull(boardOf(boardFen), asObservation(obs), maxPlies, config.beam)
         return DeriveResult(
             moves = derived.moves.map { uciOf(it) },
             agreement = derived.best,
@@ -220,31 +220,35 @@ class CnnRecovery(
     }
 
     override fun resyncCheck(
-        board: Any,
+        boardFen: String,
         obs: CnnObservation,
     ): ResyncResult {
         val o = asObservation(obs)
-        val full = resyncCheckFull(asBoard(board), o)
+        val full = resyncCheckFull(boardOf(boardFen), o)
+        // `move`/`agreement` ARE the overrule rung and `_cnn_tick`'s occupancy path; dropping them
+        // made both silently dead against the real evaluator (STATUS D04a-1).
         return ResyncResult(
             match = full.match,
             conflicts = full.conflicts,
             checked = o.confidentSquares(config.confThr).size,
+            move = full.move,
+            agreement = full.agreement,
         )
     }
 
     override fun hasOccupancyConflict(
-        board: Any,
+        boardFen: String,
         obs: CnnObservation,
         thr: Double,
         conflicts: List<String>,
         // fully qualified: the member would otherwise shadow the top-level function
-    ): Boolean = com.chesslab.cnn.hasOccupancyConflict(asBoard(board), asObservation(obs), thr, conflicts)
+    ): Boolean = com.chesslab.cnn.hasOccupancyConflict(boardOf(boardFen), asObservation(obs), thr, conflicts)
 
     override fun guessIllegalMove(
-        board: Any,
+        boardFen: String,
         obs: CnnObservation,
         thr: Double,
-    ): String? = com.chesslab.cnn.guessIllegalMove(asBoard(board), asObservation(obs), thr)
+    ): String? = com.chesslab.cnn.guessIllegalMove(boardOf(boardFen), asObservation(obs), thr)
 }
 
 /**
@@ -264,10 +268,8 @@ fun CnnRecovery.boardMatchesIdentityFull(
     return IdentityCheck(match = conflicts.isEmpty(), conflicts = conflicts, n = checked.size, inconclusive = false)
 }
 
-internal fun asBoard(board: Any): Board {
-    require(board is Board) { "CnnEvaluator expects a chesslib Board, got ${board.javaClass.name}" }
-    return board
-}
+/** The seam speaks FEN (see [CnnEvaluator]); this is the one place it becomes a chesslib board. */
+internal fun boardOf(fen: String): Board = Board().also { it.loadFromFen(fen) }
 
 internal fun asObservation(obs: CnnObservation): OccupancyObservation {
     require(obs is OccupancyObservation) { "expected an OccupancyObservation, got ${obs.javaClass.name}" }

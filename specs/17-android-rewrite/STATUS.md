@@ -23,9 +23,10 @@ Read `entry.md` completely before your phase file.
 | 03b | `03b-vetoes.md` | shadow/occlusion vetoes, taint latch, noise learning | done | 3 src + 3 test files, 33 tests green; invariant 2 split proven both ways, latch mapped onto the expiry map (D03b-1..10) |
 | 03c | `03c-hypothesis.md` | hypothesis, pair, endpoint, ambiguity, promotion | done | 4 src + 3 test files, 31 tests green; step 5 (`scoreViableMoves`) landed here too — **03d must call it** (D03c-2); 204 tier-A frames replayed (D03c-1..10) |
 | 03d | `03d-dispatch.md` | dispatch, commit, set-ref, anomaly patcher, `TrackerEngine` wiring | done | 3 src + `TrackerEngine.kt` filled in + 4 test files, 41 tests green (module 239/239); **full-clip replay: 18/18 clips, 969 frames, ZERO diverging frames** (D03d-1..12) |
-| 04a | `04a-verify-single.md` | `_verify_tick` ladder, verdict with replacement move, vote gate | todo | |
-| 04b | `04b-verify-pair.md` | `_verify_pair_tick` fast-accept + parity fallback | todo | |
-| 04c | `04c-recovery-alarm.md` | `_cnn_tick`, recovery, alarm latch/freeze/release, observer schedule | todo | |
+| 04a | `04a-verify-single.md` | `_verify_tick` ladder, verdict with replacement move, vote gate | done | `VerifySingle.kt` + `PendingVote.kt` + `onCnnSnapshot` routing + 2 test files, 19 tests green; `ResyncResult` extended with `move`/`agreement` (D04a-1) — without it `cnn_overrule` is inexpressible |
+| 04b | `04b-verify-pair.md` | `_verify_pair_tick` fast-accept + parity fallback | done | `VerifyPair.kt` + 2 test files, 10 tests green; seam gaps recorded (D04b-1..6), `cnnAgreement` not expressible |
+| 04c | `04c-recovery-alarm.md` | `_cnn_tick`, recovery, alarm latch/freeze/release, observer schedule | done | 3 src + 3 test files, 32 tests green (module 280/280 incl. zero-divergence clip replay); entry point `EngineState.cnnTick(cnn, snap)` for 04a (D04c-1..10) |
+| 04x | — (orchestrator) | cross-module seam reconciliation: FEN seam, `move`/`agreement` forwarding, `attachCnn`, `acceptCnnPosition`, first REAL-evaluator integration test | done | see "04x" below (D04x-1..7); 412 tests, 0 failures, clip replay still 18/18 / 969 frames / zero divergence |
 | 05a | `05a-camera.md` | CameraX single owner, reconnect backoff, delivered-resolution truth | todo | |
 | 05b | `05b-frame-pipeline.md` | YUV→BGR, two warps, gray pipeline, ROI motion, dark gate, timings | todo | |
 | 05c | `05c-onnx.md` | ONNX `SquareClassifier` (QNN→NNAPI→CPU), loud attach, observer thread | todo | |
@@ -1565,8 +1566,428 @@ tolerance loosened, no clip degraded, and the fixtures/generator were not touche
 
 `:core-geometry` and `:core-cnn` needed **no** edits — nothing in the seam they consume changed.
 
+### 04b (`_verify_pair_tick` — touched-squares fast-accept + pre-existing-conflict fallback), 2026-07-25
+
+Files created (package `com.chesslab.engine`, module `:core-engine`): main `VerifyPair.kt`; tests
+`VerifyPairFixtures.kt` (`PairObs`/`PairRecovery` + builders) and `VerifyPairTest.kt` (**10 tests**).
+Nothing else was touched — no build file, no `EngineState.kt`, no `api/` file, no file owned by
+04a/04c. Every `EngineState` field and every 03d entry point the pair path needs existed
+(`commitSequence`, `setRef(fromCommit = true)`, `clearStuck`, `PendingVerify.frames/voteOutcome/
+voteCount`) — **no blocker from 03a/03d**.
+
+#### Entry point 04a routes to
+
+```kotlin
+internal object VerifyPair {
+    fun tick(state: EngineState, cnn: CnnEvaluator, moves: List<Move>,
+             boardSnap: Game, snap: CnnSnapshot): List<TrackerEvent>
+}
+```
+
+#### Discrepancies
+
+- **D04b-1 — the entry signature drops `obs` and takes a `Game`, not a chesslib `Board`.** The
+  phase file quotes six parameters ending `snap: CnnSnapshot, obs: CnnObservation`; `obs` IS
+  `snap.obs` (Python's body starts with `obs = snap.obs`), and a duplicated parameter would be
+  either unused — detekt `style.UnusedParameter` is active — or a redundant consistency check.
+  `boardSnap` is the engine's `Game` wrapper because `:core-engine` has no other board type;
+  `Game` holds its chesslib `Board` privately. **04a: call `VerifyPair.tick(state, cnn, pendMoves,
+  boardSnap, snap)` with `boardSnap = state.board.copy()`.**
+- **D04b-2 (RESOLVED by 04a's D04a-1) — `self._cnn_agreement = float(after["agreement"])` was not
+  expressible.** The seam's original `ResyncResult(match, conflicts, checked)` carried no
+  `agreement`, and 04b refused to fake one. 04a landed `move` / `agreement` on `ResyncResult`
+  mid-phase, so `state.cnnAgreement = after.agreement` is now in `VerifyPair.tick`, in Python's
+  position (before the pending-identity guard). Nothing in the pair ladder READS it — it is
+  provenance (`DecisionRecord.cnnAgreement`, `TrackerStatus`).
+- **D04b-3 — the `board: Any` seam is unresolvable at runtime as it stands (cross-phase).**
+  `:core-engine` hands `cnn.resyncCheck` a `Game`, while `:core-cnn`'s `CnnRecovery`
+  `require`s a concrete chesslib `Board` (D02c-1). It compiles (`Any`), and the 04b tests use a
+  hand-written `CnnEvaluator`, but the first live call with the real evaluator will throw.
+  Resolution is an orchestrator/seam decision — `:core-cnn` accepting a FEN `String`, or `Game`
+  exposing its `Board`. Neither file is 04b's.
+- **D04b-4 — `cnn.moveTouchedSquares` / `cnn.expectedOccupancy` (the phase file's pseudocode) do
+  not exist on `CnnEvaluator`.** Used the engine's own `moveTouchedMask` (02a) and
+  `Game.pieceCharAt(i) != null` — exactly the re-derivation 03d already landed for the desync veto
+  (D03d-12), and required by the module rule that `:core-engine` must not depend on `:core-cnn`.
+  Both square sets are `Long` bitboards, so `checked` is `touched and confident` and "checked is
+  empty" is `checked == 0L`.
+- **D04b-5 — the decider grep hits constants, not literals.** The acceptance criterion greps
+  `cnn_pair\|diff_after_verify`; the file uses `DECIDER_CNN_PAIR` / `DECIDER_DIFF_AFTER_VERIFY`
+  from `Commit.kt`, whose values are exactly those strings. Re-spelling the literals would fork the
+  decider vocabulary. `pairAgree` (3 hits), `minConfidentBoard` (3 hits) and `pendingVoted`
+  (exactly 2 — shadow rung and commit rung, none in the window-end block) are as specified.
+- **D04b-6 — `pendingVoted` (04a) did not exist while 04b ran**, so the first gate ran in an
+  **isolated copy** of `android/` with a transcribed 17-line `PendingVote.kt` stub (scratchpad
+  only, deleted afterwards, never in the repo tree). 04a has since landed `PendingVote.kt` with
+  byte-identical semantics and calls `VerifyPair.tick(this, cnn, moves, board.copy(), snap)` — the
+  D04b-1 signature — so nothing needed adjusting; the final gate below was re-run against the real
+  file in the repo.
+- **D04b-7 — the two discard paths reset the recovery confirmer differently, on purpose.** The
+  shadow rung calls `confirmer.reset()` then `clearStuck()`, and `clearStuck` already resets the
+  recovery confirmer (`Guards.kt`), which is what Python's explicit `_recovery_confirmer.reset()`
+  before `_clear_stuck` amounts to. `rejectPair` resets it **explicitly**, because Python's
+  `_reject_pair` deliberately does not clear the stuck state.
+- **Coverage actually asserted (10 tests):** the five Python pair scenarios
+  (`test_pair_verify_commits_on_after_match`, `..._rejects_shadow`,
+  `..._touched_squares_fast_accept`, `..._window_end_preexisting_conflicts_commit`,
+  `..._window_end_occluded_discards`, `..._blind_glance_never_shadow_rejects`) plus
+  `pairFastAcceptNeedsThreeCheckedSquares`, `pairSecondHalfTouchedOnMidBoard`,
+  `pairTerminalsNeedTwoGlances` and `windowEndTerminalIsNotVoteGated` (the spec's ninth case split
+  in two: the window end must fire on a SINGLE glance, `verifyWindow = 1`). The shadow test pins
+  invariant 5 (`refGray` becomes `pending.cur`), the blind-glance test pins that `refGray` is
+  untouched. `pairSecondHalfTouchedOnMidBoard` uses `Nb1c3` + `b4xc3`: on the mid board the reply
+  is an ordinary capture, on the pre-move board it would classify as en passant and drag in `c4`,
+  the one square the fixture misreads. **Both invariants were mutation-checked in the isolated
+  copy** — computing the second half on `boardSnap` and dropping the `>= 3` guard each turn the
+  suite red (4 failures); the file was restored before the final run.
+
+### 04a (`_verify_tick` — five signals, five-rung ladder, `cnn_overrule`, vote gate), 2026-07-25
+
+Files created (package `com.chesslab.engine`, module `:core-engine`): main `VerifySingle.kt`,
+`PendingVote.kt`; tests `VerifySingleTest.kt` (19), `VerifySingleFixtures.kt`. Edited: the
+`onCnnSnapshot` routing in `api/TrackerEngine.kt` and `ResyncResult` in `api/CnnObservation.kt`
+(both recorded below). No build file, no `libs.versions.toml`, and no file owned by 03*/04b/04c.
+`EngineState` had every field 04a needs (`pending` with `frames`/`voteOutcome`/`voteCount`/`seq`,
+`alarm`, `verifyState`, `cnnStatus`/`cnnConflicts`/`cnnAgreement`/`cnnBestMove`, `confirmer`,
+`recoveryConfirmer`) — **no blocker**.
+
+#### The routing wired into `onCnnSnapshot`
+
+```
+state.cnnSnap = snap                       // `_observe_snapshot`, unchanged
+state.pending != null -> VerifySingle.tick(state, cnn, snap)   // PRIORITY over the periodic check
+else                  -> state.cnnTick(cnn, snap)              // 04c
+```
+`VerifySingle` forks to `VerifyPair.tick` internally for multi-move candidates, so the router has
+exactly the two arms `_cnn_worker` has. 04c's `ObserverSchedule` has no `onSnapshot` — this is the
+only router; 04c's `observerDue`/`observationStarted`/`observationFailed` are bookkeeping driven by
+`:app`.
+
+#### Discrepancies
+
+- **D04a-1 — `api/ResyncResult` had no `move`/`agreement`, which makes `cnn_overrule` (entry.md
+  invariant 10, the whole reason this phase exists) inexpressible. Two defaulted fields were added.**
+  Python's `resync_check` returns `{match, conflicts, move, agreement}` (`cnn_recovery.py`), and
+  BOTH `_verify_tick` (rung 2's `cnnUci == pending.uci` clause and rung 4) and `_cnn_tick`'s
+  occupancy path read `move`/`agreement`. The 04a and 04c phase files declare `ResyncResult` WITH
+  them; 00a's transcription of `entry.md`'s seam block dropped them. `:core-cnn` computes them and
+  throws them away (`Recovery.kt resyncCheck` already holds `full.move` / `full.agreement` from
+  `resyncCheckFull` and discards both). Landed: `val move: String? = null, val agreement: Double =
+  0.0` **appended with defaults**, so `:core-cnn` (which constructs the type with named arguments)
+  still compiles untouched. Sanctioned by the ownership registry's "may be extended by nobody
+  *without a STATUS.md discrepancy note*"; the `api/` seam is otherwise unchanged. This also
+  resolves 04b's D04b-2.
+  **ACTION REQUIRED (orchestrator, one line in a file no phase-04 agent may edit):** `:core-cnn`'s
+  `CnnRecovery.resyncCheck` must pass `move = full.move, agreement = full.agreement`. Until it
+  does, the overrule rung and `_cnn_tick`'s occupancy path are silently dead against the REAL
+  evaluator — see the Blockers section.
+- **D04a-2 — `TrackerEngine` gained `internal var cnn: CnnEvaluator? = null`.** The frozen seam has
+  no way to reach an evaluator: `onCnnSnapshot(snap)` takes only the snapshot, `EngineState` (03a,
+  frozen) holds no evaluator, and `VerifySingle.tick` / `cnnTick` both require one. Additive and
+  `internal`, so the public surface and the function count are unchanged (D03d-1 precedent). It is
+  `internal`, i.e. **not reachable from `:app`** — phase 05c needs a public injection point, which
+  is an orchestrator decision on a frozen file.
+- **D04a-3 — `VerifyVerdict` lives in `Dispatch.kt` (03d) with `For(decider, replacement)`, not in a
+  new `VerifySingle`-owned `VerifyVerdict.kt` with `Hold/Shadow/Reject/Commit`.** The phase file's
+  acceptance grep `val move: Move?` in `VerifyVerdict.kt` is therefore superseded: the replacement
+  move is `VerifyVerdict.For.replacement: List<Move>?`, already landed and already pinned by
+  `DispatchTest.cnnOverruleReplacementMoveIsExpressible`. Invariant 10 is satisfied by that field;
+  no second verdict type was introduced. `Hold` maps to "return `emptyList()`", `Reject`/`Shadow`
+  to the file-private `reject(...)`, exactly as Python's `_reject` / `_commit` closures do.
+- **D04a-4 — the verify path anchors on `pending.cur`, NOT on `snap.gray` (invariant 5 narrowed).**
+  `_verify_tick`'s shadow re-anchor and every commit pass `pending["cur"]` / `pending["cur_bgr"]`,
+  the AVERAGED frame the candidate was raised from; only the *recovery* path (`_cnn_tick`, 04c)
+  anchors on the observed frame. `applyVerdict`'s default `anchor` is already exactly that, so no
+  `CommitAnchor` is passed here. Pinned by `VerifySingleTest.shadowSuppressedNoCommit`
+  (`refGray === pending.cur`). `entry.md` invariant 5 already states both paths since the authoring
+  round; this records that the code follows the narrower reading.
+- **D04a-5 — `CnnEvaluator.board: Any` is fed a chesslib `Board` here and a `Game` in 04b.**
+  `:core-cnn`'s `asBoard` `require`s a chesslib `Board` (D02c-1), and `Game` (02a) exposes no
+  accessor for the one it wraps, so `VerifySingle` builds the snapshot itself:
+  `Board().also { it.loadFromFen(game.fen()) }` — which IS Python's `board.copy(stack=False)`.
+  04b's `VerifyPair.tick(…, boardSnap: Game, …)` passes the wrapper instead and will throw against
+  the real evaluator (their D04b-3). 04a calls `VerifyPair.tick` with `board.copy()` to match the
+  signature they published. **The two must be unified by the orchestrator** — see Blockers.
+- **D04a-6 — the fallback commit uses the plain diff deciders, not a verdict.** Python's
+  CNN-unavailable branch calls `_commit_move` / `_commit_sequence` with their DEFAULTS
+  (`decider = "diff"` / `"diff_pair"`, `prior_used = False`) rather than the verified path's
+  `_commit`. Routing it through `applyVerdict` would have silently upgraded the decider to a
+  verified one and carried `pending.prior_used`, so `fallbackCommit` calls the two commit functions
+  directly. Pinned by `cnnUnavailableCommitsPending` (asserts `decider == "diff"`).
+- **D04a-7 — test-fake naming and the constructor cap.** `TaintTest.kt` (03b) already declares a
+  *private* top-level `FakeObservation` in this package, which collides with an `internal` one, so
+  04a's fakes are `VerifyObs` / `VerifyEvaluator` (04b's are `PairObs` / `PairRecovery`). And
+  `LongParameterList` fires at **8** parameters (not above 8), so `VerifyEvaluator` carries 7
+  constructor parameters with `minAgreement` / `confThr` as fixed properties — no test overrides
+  them. Same finding family as D00a-3 / D01b-1 / D03c-1. No `@Suppress`, no baseline.
+- **D04a-8 — the "isolated copy" gate was needed once.** 04b and 04c were editing this module
+  concurrently; `CnnTick.kt` was mid-refactor and broke `:core-engine:compileKotlin` for a while.
+  The first full gate therefore ran in a copy of `android/` under the session scratchpad with
+  `CnnTick.kt` stubbed and 04c's two test classes removed (**267 tests, 0 failures, 0 skipped**,
+  `ClipReplayParityTest` 2/2). Everything was re-run **in the repo** afterwards, with all three
+  phases landed: see the session log. Nothing was copied back except the (unchanged) ktlint output.
+- **Note (not a discrepancy):** the ladder is transcribed rung for rung with the vote gate on
+  rungs 1–4 and NOT on the window end (Python calls `_reject`/`_commit` directly there — the window
+  itself is the temporal damping). `fromOccConf` hard-rejects in exactly one place, the window-end
+  ghost. `grep -rn "synchronized\|@Volatile\|Atomic\|Mutex\|System.currentTimeMillis\|Instant.now\|
+  nanoTime"` over `VerifySingle.kt` / `PendingVote.kt` is empty; the lock-scoped re-checks became
+  plain sequential identity checks (`pending !== pend || board.fen() != pend.fen`).
+- **Coverage actually asserted (19 tests):** all 18 scenarios the phase file names —
+  `shadowSuppressedNoCommit`, `occupancyConfirmsCommit`, `hardVetoRejectsGhostToStillEmpty`,
+  `fromEmptyButToEmptyHoldsNonCastling`, `fromLeftAloneNeverCommitsNonCastling` (**b1c4**),
+  `fromLeftCommitsWhenOccupancyDerivesSameMove`, `castlingCommitsDespiteKingSquareMisreadEmpty`,
+  `fromOccupiedButArrivedCommitsAfterWindow`, `arrivedButOriginNeverEmptiedDiscards` (**d4b3**),
+  `alarmDiscardsPendingCandidate`, `fromOccupiedNoArrivalRejectsAfterWindow`, `counterMoveOverrules`
+  (**invariant 10** — asserts the `MoveCommitted` event carries `d2d4` with
+  `decider == "cnn_overrule"` in the SAME cycle, plus the `(CNN overruled e4)` note suffix),
+  `occlusionTimesOutRejects`, `fallbackRejectsWhenPostmoveBoardContradicts` (**b1d4**),
+  `clearviewBorderlineAcceptsAfterWindow`, `cnnUnavailableCommitsPending`,
+  `staleObservationNeitherConfirmsNorRejects` (asserts `frames == 0` and `voteOutcome == null` after
+  the stale glance — ignored, not held), `singleGlanceNeverDecides` (**invariant 13**, both
+  directions: one glance holds at `1/2`, a differing glance resets the count) — plus
+  `blindGlanceDoesNotReAnchorOnACoveredBoard`, which drives the shadow rung with the REAL
+  `minConfidentBoard = 32` and proves a vacuous match neither re-anchors nor accepts.
+
+### 04c (observer schedule / `_cnn_tick` recovery / illegal-move alarm), 2026-07-25
+
+Files created (package `com.chesslab.engine`, module `:core-engine`): main `ObserverSchedule.kt`,
+`Alarm.kt`, `CnnTick.kt`; tests `RecoveryFixtures.kt` + `CnnTickTest` (18), `AlarmLatchTest` (14)
+— **32 tests**. Nothing else was touched: no build file, no `api/` file, no `EngineState.kt`, no
+file owned by 03*/04a/04b. `EngineState` had every field 04c needs — **no blocker**.
+
+#### The entry point 04a routes to (this is the whole 04a↔04c seam)
+
+```kotlin
+internal fun EngineState.cnnTick(cnn: CnnEvaluator?, snap: CnnSnapshot): List<TrackerEvent>
+```
+
+A top-level extension, not `CnnTick.evaluate(state, cnn, snap)` — that is the house style since the
+lean pass (`dispatch`, `commitMove`, `applyVerdict` are all `EngineState.` extensions), and an
+`object` wrapper would be a tenth holder type. Call it from `_cnn_worker`'s routing when
+`state.pending == null && snap != null`; it is a no-op when `cnn == null` or when no evaluation gate
+is open, so an unconditional call is safe.
+
+#### Alarm-release call sites — status for the orchestrator
+
+| Path | Reason | Wired |
+|---|---|---|
+| `undo()` | `illegal_move_undone` | yes — 03d (`TrackerEngine.undo`) |
+| `resetToStart()` / `setFen()` | `illegal_move_accepted` | yes — 03d |
+| `captureBaseline()` | `illegal_move_accepted` | yes — 03d |
+| verified restore — `matchOk` | *(none)* | yes — 04c (`onMatchOk` → `releaseAlarm()`) |
+| recovery commit resolving all conflicts | *(none)* | yes — 04c (`commitRecovery`) |
+| **`acceptCnnPosition()`** | `illegal_move_accepted` | **NO — still 03d's `emptyList()` stub** |
+| CNN resync (`resync_cnn`, apply observed move) | `illegal_move_accepted` | **NO — no Kotlin counterpart; the frozen seam has no `resyncCnn()`** |
+
+The last two are **reconciliation items, not 04c defects**: both live in `api/TrackerEngine.kt`
+(03d's file — its `acceptCnnPosition` carries a `/** Owner: phase 04c */` comment that the
+orchestrator's brief overrides with "do not touch `TrackerEngine.kt`"). Implementing
+`acceptCnnPosition` is real work, not a one-liner: it rebuilds the position from the observation on
+the label-confident squares, preserves the side to move, prunes castling rights, REJECTS an
+observation without both kings, clears the history, and only then releases the latch — plus the
+`preview = true` variant. Python: `tracker.py::accept_cnn_position :2486`, tests
+`test_accept_cnn_position_*:2675-2716`. The corresponding Kotlin tests
+(`acceptCnnPositionClearsLatch`, preview, missing-king) were therefore **not written** rather than
+landed red.
+
+#### Discrepancies
+
+- **D04c-1 — there is no `AlarmState`.** The phase file declares
+  `data class AlarmState(kind, sinceMs, conflicts, guess)`; 03a's FROZEN `EngineState` already
+  carries `alarm: TrackerEvent.Alarm?` (kind / conflicts / guess / **guessSan**) plus a separate
+  `alarmSince: Double`, and `TrackerStatus.alarm` is that same seam type. Adding `AlarmState` would
+  have meant a tenth wrapper plus a conversion at the status boundary. The seam type is used as-is;
+  `guessSan` is filled at raise time.
+- **D04c-2 — the frozen `ResyncResult` cannot express Python's occupancy-only move.**
+  `ResyncResult(match, conflicts, checked)` has no `move` and no `agreement`, but `_cnn_tick`'s
+  `else` arm (`obs.label is None`, `tracker.py:1927-1934`) reads exactly those two. `:core-cnn`'s
+  Python-faithful `resyncCheckFull` is unreachable from `:core-engine` (module cycle). Landed: in
+  occupancy-only mode `matchOk`/`conflicts` come from `resyncCheck` and the MOVE comes from
+  `deriveMovesDeep(maxPlies = recoveryMaxPlies)` alone, with `agreement` from the deep search. The
+  deep search reaches the same 1-ply move `resync_check` reports, so the delta is the `agreement`
+  number, not the decision — and the path is **unreachable with the bundled 14-class model**
+  (identity is always present). Extending `ResyncResult` is an orchestrator decision; 00a owns
+  `api/CnnObservation.kt`.
+- **D04c-3 — the `_cnn_worker` routing is 04a's, not 04c's.** The phase file puts
+  `ObserverSchedule.onSnapshot` / `onFrameTick` here, but the orchestrator assigned `PendingVote.kt`
+  and the `onCnnSnapshot` routing to 04a. `ObserverSchedule.kt` therefore owns only `observerDue`,
+  the single-flight/backoff bookkeeping (`observationStarted` / `observationFinished` /
+  `observationFailed`), the `_observe_snapshot` contract as KDoc, and `anchorAtDetSize`. That also
+  keeps 04c free of any compile-time dependency on `VerifySingle.kt`, which is why 04c could gate
+  while 04a was mid-flight.
+- **D04c-4 — `Alarm.clear(state, reason)` is `EngineState.releaseAlarm(logReason: String? = null)`,
+  and the reasoned path DELEGATES to 03d.** `api/TrackerEngine.kt` already has
+  `EngineState.clearAlarm(logReason: String)` (non-null reason, always writes the provenance row).
+  Rather than duplicate that 25-line row builder, `releaseAlarm` calls it when `logReason != null`
+  and does the silent reset itself otherwise. **Consequence, recorded not fixed:** the verified
+  restores emit `AlarmCleared("board_restored")` (what the phase file specifies) while 03d's user
+  corrections emit `AlarmCleared(alarm.kind)` = `"illegal_move"`. Unifying them means editing 03d's
+  file. Recommendation: give 03d's `clearAlarm` a `String?` parameter and let it emit
+  `AlarmCleared(logReason ?: "restored")`, after which `releaseAlarm` collapses to a one-line
+  delegate.
+- **D04c-5 — `onStableMismatch` drops the phase file's `inconclusive` parameter, and the raise
+  condition drops `obs.label != null`.** Branch B (`inconclusive`) returns before branch C, so
+  Python's `has_identity and not inconclusive` (`:1978`) IS `has_identity` there, and
+  `has_identity and obs.label is not None` (`:1998`) tests the same dict twice. Both are recorded as
+  dead sub-terms rather than transcribed. `inconclusiveObservationBreaksStreak` proves the streak
+  drops to 0 and restarts at 1.
+- **D04c-6 — `hasIdentity` is `Squares.ALL.any { obs.label(it) != null }`.** Python tests the whole
+  `obs.label` dict for `None`; the frozen seam is per-square (`label(square): String?`).
+  `:core-cnn`'s `OccupancyObservation` returns `null` for EVERY square when labels are absent, so
+  `any` is exact.
+- **D04c-7 — `expected_labels` and `_build_alarm_guess_san` are re-derived inside `:core-engine`.**
+  Both live in `cnn_recovery.py`, which the engine may not depend on (module cycle — same reasoning
+  as D03d-12). `expected_labels` is 02a's `Game.labelAt(square)` on the post-sequence board
+  (identical `config.label_from_piece` mapping); `_build_alarm_guess_san` is
+  `Game.alarmGuessSan(guess)` in `Alarm.kt`, whose castling arm uses `Game.hasCastlingRights`.
+- **D04c-8 — `Squares.colOf` takes the PACKED `colRow` value, not a square index.** Passing an index
+  compiles and silently returns `index shr 3`, which made every suspected castling read "illegal move
+  suspected". The FILE of a `Squares.ALL` index is `index % Squares.N`. Caught by
+  `alarmStatusFieldsForUi`; flagged because the signature invites the same mistake.
+- **D04c-9 — detekt `LongParameterList` fires at 8 (the post-lean-pass threshold).** The fake's 11
+  constructor parameters became 7 + four body properties: `RecoveryEvaluator(match, conflicts, moves,
+  agreement, occupancyMatch, occupancyConflict, guess)`, with `inconclusive` and the three
+  `CnnEvaluator` thresholds set in the body. Same family as D01b-1 / D03d-4. No `@Suppress`, no
+  baseline, no config change. Related: `CnnRead` (the five values one observation yields, which must
+  travel together) is a **private** top-level class — `MatchingDeclarationName` exempts private
+  classes, so it can live in `CnnTick.kt` beside nine functions.
+- **D04c-10 — the recovery commit does NOT reuse `commitSequence` / `commitMove`.** Python's
+  `_cnn_tick` commit tail (`:2044-2076`) genuinely differs from `_commit_move`'s: it does not set
+  `verifyState = "confirmed"`, does not clear `anomalySince`, sets `recoveredLast = true`, and has
+  the "no anchor at all" arm that drops `refGray`/`refBgr`/`refFen` and the gray buffer.
+  `commitRecovery` transcribes that tail literally; only `recordDecision`, `queueSessionCapture` and
+  `setRef` are reused.
+- **Tests deliberately not written** (beyond the two `acceptCnnPosition` items above):
+  `pendingCandidateTakesPriorityOverPeriodicCheck` — the routing is 04a's (D04c-3), so 04a owns that
+  test; `quietReanchorVetoedByConfidentCnnConflict` — already landed by 03d (`cnnDesyncConflicts` +
+  `alarmBlocksCommitReanchorAndPending`), and the half 04c owns (the pipeline never healing the
+  alarm) is covered by `alarmBlocksFabricatedRecovery`.
+- **Coverage actually asserted:** the desync streak over DISTINCT seqs, same-seq dedup, subset
+  stability vs a disjoint reset-to-ONE, inconclusive breaking the streak, identity-only conflicts
+  never alarming, occupancy-only mode never alarming, no-CNN never alarming, the three user-correction
+  releases through the PUBLIC `TrackerEngine` API, the verified restore leaving no `decider = "user"`
+  row, and the full UI status payload incl. `guessSan`. On the tick side: the four observer-schedule
+  rules (interval throttle, single flight, 1 s failure backoff, observing while no evaluation is due),
+  both evaluation gates in both directions, the discard-on-FEN-change guard, `matchOk` anchoring on
+  `snap.gray` and NOT on `lastCur`, the `detSize` rejection falling back to `lastCur`, no gamut
+  rebuild on that anchor, the occupancy fallback rescuing an identity mismatch, the recovery confirmer
+  needing `confirmFrames` votes, atomic sequence commit, the granted motion window, the
+  unplayable-sequence drop and the no-anchor base-truth drop.
+
+### 04x (cross-module seam reconciliation — orchestrator), 2026-07-25
+
+Closes the four open phase-04 items (D04a-1 / D04a-2 / D04a-5 / D04b-3 / D04c-2 / D04c-4) plus
+04c's `acceptCnnPosition` reconciliation item. Files touched: `api/CnnObservation.kt`,
+`api/TrackerEngine.kt`, `Alarm.kt`, `CnnTick.kt`, `VerifySingle.kt`, `VerifyPair.kt`,
+`:core-cnn`'s `Recovery.kt`, six test files, plus the new
+`core-cnn/src/test/.../EngineSeamIntegrationTest.kt`. `entry.md`'s seam block was updated (the one
+sanctioned spec edit) to match.
+
+#### D04x-1 — `CnnEvaluator` now takes the position as a FEN, not as `Any`
+
+```kotlin
+fun verifyMove(boardFen: String, moveUci: String, obs: CnnObservation): Pair<Double, Int>
+fun resyncCheck(boardFen: String, obs: CnnObservation): ResyncResult
+fun boardMatchesIdentity(boardFen: String, obs: CnnObservation): IdentityResult
+fun deriveMovesDeep(boardFen: String, obs: CnnObservation, maxPlies: Int): DeriveResult
+fun hasOccupancyConflict(boardFen: String, obs: CnnObservation, thr: Double, conflicts: List<String>): Boolean
+fun guessIllegalMove(boardFen: String, obs: CnnObservation, thr: Double): String?
+```
+
+`board: Any` was fed a chesslib `Board` by `VerifySingle` and a `Game` by `VerifyPair`, `CnnTick`
+and `Alarm`, while `:core-cnn`'s `asBoard` `require`d the former — it compiled, every test passed,
+and it threw on the first live call. A FEN is the only position type both modules already speak.
+The cost is one `loadFromFen` per call, and these calls happen per CNN **observation** (a few per
+second), never per frame. `Game.fen()` is `getFen(true, true)` (D02a-1), so placement, side to
+move, castling rights and the en-passant target all survive; the move stack does not, and none of
+`verify_move` / `resync_check` / `board_matches_identity` / `derive_moves_deep` reads it.
+`:core-cnn`'s `asBoard` is gone, replaced by `boardOf(fen)`; `VerifySingle` no longer imports
+chesslib's `Board` at all and passes `board.copy()` (a `Game`, Python's `copy(stack=False)`).
+
+#### D04x-2 — `:core-cnn` forwards `move` / `agreement` (04a's ACTION REQUIRED)
+
+`CnnRecovery.resyncCheck` computed `resyncCheckFull` and dropped both fields, so rung 4 of the
+verify ladder (`cnn_overrule`, entry.md invariant 10 / legacy specs/12 D3) could never fire against
+the real evaluator, silently. Two named arguments. **Verified by mutation:** removing them again
+turns `overruleRungCommitsTheCnnsReplacementMove` red.
+
+#### D04x-3 — `TrackerEngine.attachCnn(evaluator: CnnEvaluator?)` replaces `internal var cnn`
+
+Phase 05c owns the ONNX classifier and could not reach an `internal` field. `attachCnn` also sets
+`state.cnnRun` — without it the detection pipeline commits straight from the diff and no candidate
+is ever queued for verification, i.e. injecting an evaluator alone would have been a no-op. Twelve
+public functions, under the 15 the lean pass allows.
+
+#### D04x-4 — `acceptCnnPosition()` implemented; **no `preview` variant**
+
+Ported from `tracker.py::accept_cnn_position`: a MINIMAL edit over the label-confident squares
+(unsure/occluded squares keep the game-state piece), side to move preserved, castling rights pruned
+to what the rebuilt position supports (`clean_castling_rights`), en passant dropped, both clocks
+carried over, an observation without exactly one king per side REJECTED, then `setFen` (history +
+latch) and `captureBaseline` (visual reference). The observation comes from `state.cnnSnap`, so no
+seam change was needed. **Partial in one respect:** Python's `preview = true` returns a would-be
+FEN plus a per-square change list, which the `List<TrackerEvent>` return type cannot express. It is
+a UI affordance, not a correctness item — phase 06/07 needs either a status field or a second
+entry point, and that is a seam decision, so it is recorded here rather than improvised.
+Second deviation: Python calls `chess.Piece.from_symbol(lab[1])`, which **throws** on an
+`"occluded"` label; the port treats any non-piece label as "keep the game-state piece", which is
+what `label_confident` is supposed to have excluded anyway.
+
+#### D04x-5 — `clearAlarm` takes a `String?` and `releaseAlarm` is gone (04c's D04c-4 recommendation)
+
+`clearAlarm(logReason: String?)` is now the single release: `null` = verified restore (no
+`decider = "user"` row, `AlarmCleared("board_restored")`), non-null = user correction (log row,
+`AlarmCleared(logReason)`). It previously emitted `AlarmCleared(alarm.kind)` — i.e. the string
+`"illegal_move"` for a *cleared* alarm — so the event's reason is now always why the latch went.
+No test asserted the old value.
+
+#### D04x-6 — the integration test lives in `:core-cnn` and is the point of the exercise
+
+`EngineSeamIntegrationTest` (3 tests) drives the PUBLIC `TrackerEngine` API against a real
+`CnnRecovery`, over synthetic 400 px warps and model-free `FakeSquareClassifier` observations
+(no fixture was invented or edited; the committed `parity/_cnn/*.jsonl` families are all keyed to
+`resyncCheckFull`/`deriveMovesDeepFull` directly and are already asserted by the 02c tests):
+
+- `overruleRungCommitsTheCnnsReplacementMove` — the diff raises `e2e4`, the board shows `d2d4`, e4
+  reads `occluded` so rungs 1–3 cannot decide; two glances later the ladder commits `d2d4` with
+  `decider = "cnn_overrule"`. **Red without D04x-2** (verified).
+- `recoveryCommitsAMoveDerivedThroughTheSeam` — no pending candidate, so `_cnn_tick` runs
+  `boardMatchesIdentity` + `deriveMovesDeep` + `resyncCheck` with a real FEN and commits
+  `cnn_recovery`. **Red without D04x-1** (verified by feeding the call a non-FEN string, which
+  reproduces the pre-fix `IllegalArgumentException` class).
+- `alarmRaisesOnARealOccupancyConflict` — a vanished e2 pawn explains no legal move, so the deep
+  search stays silent, the desync streak runs, and the third glance raises through
+  `hasOccupancyConflict` / `guessIllegalMove`. **Red without D04x-1** (same experiment).
+
+`:core-engine` did NOT gain a dependency on `:core-cnn`.
+
+#### D04x-7 — three `acceptCnnPosition` tests landed in `AlarmLatchTest`
+
+`acceptCnnPositionAdoptsTheObservationAndClearsTheLatch`,
+`...RejectsAnObservationWithoutBothKings`, `...PrunesCastlingRightsAndKeepsSideToMove`
+(04c's third named test was the preview variant, which does not exist — see D04x-4; the
+castling/side-to-move test replaces it). `alarmedEngine()` now latches through
+`attachCnn` + `onCnnSnapshot` instead of calling `cnnTick` directly, which is what puts
+`state.cnnSnap` in place and exercises the new injection point.
+
+#### Still open after 04x
+
+- **D04c-2 stays open** — `ResyncResult` now carries `move`/`agreement`, but `_cnn_tick`'s
+  occupancy-only arm still reaches its move through `deriveMovesDeep` (`CnnTick.occupancyRead`)
+  rather than through `resync_check`'s own. Unreachable with the bundled 14-class model, and
+  changing it now would touch 04c's file for a path no test can reach.
+- **No Kotlin counterpart to `resync_cnn`** (04c's release table, row 7). Unchanged.
+
+
 ## Blockers
 
+- ~~**OPEN (04a, D04a-1) — `:core-cnn`'s `CnnRecovery.resyncCheck` drops the derived move**~~ —
+  **RESOLVED by 04x**, see D04x-2 (and mutation-verified: the overrule test goes red without it).
+- ~~**OPEN (04a D04a-5 / 04b D04b-3) — `CnnEvaluator.board: Any` is fed two different types**~~ —
+  **RESOLVED by 04x**, see D04x-1: the seam takes `boardFen: String`, so neither module names the
+  other's board type. `entry.md`'s seam block was updated to match.
+- ~~**OPEN (04a, D04a-2) — `TrackerEngine.cnn` is `internal`**~~ — **RESOLVED by 04x**, see D04x-3:
+  `attachCnn(evaluator)` is public and also arms `cnnRun`.
 - ~~02c has no CNN fixtures~~ — **withdrawn**, see D00b-2: `parity/_cnn/` now carries 7
   synthetic, model-free JSONL families covering every pure function 02c names.
 - ~~02b has no `geometry_resolve_corners.jsonl`~~ — **withdrawn**, see the mapping table:
@@ -1586,6 +2007,16 @@ tolerance loosened, no clip degraded, and the fixtures/generator were not touche
 - **Open orchestrator decision (D00b-17):** whether `TrackerConfig` should gain explicit
   `settleFrames`/`avgFrames`/`confirmFrames` overrides. Until then, phases 03* must read
   those three from `meta.effectiveConfig`.
+- **04c reconciliation — (a) RESOLVED by 04x** (D04x-4: `acceptCnnPosition()` is implemented, minus
+  Python's `preview` variant, which the `List<TrackerEvent>` return type cannot express).
+  **(b) still open:** there is no Kotlin counterpart to `resync_cnn` at all. See the 04c release
+  table.
+- **04c open (orchestrator), narrowed:** `ResyncResult` now carries `move` / `agreement`
+  (D04a-1 + D04x-2), but `_cnn_tick`'s occupancy-only arm still reaches its move through
+  `deriveMovesDeep` alone (D04c-2). Unreachable with the bundled 14-class model.
+- ~~**04c open (cosmetic but user-visible):** the two release families emit different
+  `AlarmCleared` reasons~~ — **RESOLVED by 04x**, see D04x-5: `clearAlarm(String?)` is the single
+  release and always emits the REASON.
 
 ## Session log
 
@@ -1830,3 +2261,74 @@ _(implementing agent appends one line per finished phase)_
   13, `AnomalyPatcherTest` 7, `ClipReplayParityTest` 2), `ktlintFormat`, `ktlintCheck` + `detekt`
   — zero findings module-wide, no `@Suppress`, no baseline, and `ktlintFormat` touched no file
   outside 03d's eight.
+- 2026-07-25 — **04b done**: `VerifyPair.tick` ports `_verify_pair_tick` verbatim — touched-squares
+  fast-accept (second half read on the MID board, `pairAgree = 0.0` below 3 confident touched
+  squares), the vote-gated shadow / commit rungs with the `minConfidentBoard` blind-glance guard on
+  both, and the un-gated window end whose "every post-move conflict pre-existed" branch commits as
+  `diff_after_verify` instead of re-firing forever. Square sets are `Long` bitboards, no
+  `Set<String>`/`Map<String, Double>` outside `api/`, no new holder type. Gate (isolated copy, 04a's
+  `pendingVoted` stubbed — D04b-6): `VerifyPairTest` **10/10**, `ktlintFormat` (no reformat of the
+  three files), `ktlintCheck` + `detekt` zero findings, whole `:core-engine:test` **248/248, 0
+  skipped, 0 failures** with `ClipReplayParityTest` still **18/18 clips, 969 frames, zero
+  divergence**. Re-run in the repo once 04a/04c had landed: `VerifyPairTest` 10/10 and the whole
+  module **299/299, 0 skipped, 0 failures** (`ClipReplayParityTest` 2/2, still zero divergence).
+  The two `ktlintCheck`/`detekt` findings left in the tree at that moment are 04c's `Alarm.kt`
+  (`function-signature`) and the `LongParameterList` on 04a's `VerifySingleFixtures` / 04c's
+  `RecoveryFixtures` constructors — **none of the three 04b files is involved**. 7 discrepancies (D04b-1..7); the ones the orchestrator must act on: the entry
+  signature drops the redundant `obs` and takes `Game` (D04b-1), `ResyncResult` has no `agreement`
+  so `_cnn_agreement` is not expressible and was NOT faked (D04b-2), and `CnnEvaluator`'s
+  `board: Any` will throw against the real `:core-cnn` evaluator, which requires a chesslib `Board`
+  (D04b-3).
+- 2026-07-25 — **04a done**: `_verify_tick` ported rung for rung — five occupancy signals with their
+  deliberate asymmetry, the five-rung ladder (shadow / commit / ghost hard veto / `cnn_overrule` /
+  window end), `_pending_voted` in `PendingVote.kt`, and the `onCnnSnapshot` router (pending has
+  priority over the periodic check; `VerifySingle` forks to `VerifyPair` internally). The b1c4,
+  d4b3, b1d4, h2h4 and g8h6 incidents each have a named test. **`ResyncResult` had to be extended
+  with `move` / `agreement`** — without them `cnn_overrule` (invariant 10, the legacy D3 bug this
+  pack exists to fix) cannot be expressed at all; two defaulted fields, `:core-cnn` untouched and
+  still compiling, recorded as D04a-1 with the one-line `:core-cnn` follow-up in Blockers. Gate:
+  `VerifySingleTest` **19/19**; `ktlintFormat` reformatted none of the four files; `ktlintCheck` +
+  `detekt` **zero findings**; whole `:core-engine:test` **299/299, 0 skipped, 0 failures** with
+  `ClipReplayParityTest` still **18/18 clips, 969 frames, zero divergence**. The first gate ran in
+  an isolated scratchpad copy because 04c's `CnnTick.kt` was mid-refactor (267/267 there, D04a-8);
+  every number above is from the re-run **in the repo** with 04b and 04c landed. 8 discrepancies
+  (D04a-1..8); three open items for the orchestrator, all in Blockers: `:core-cnn` must forward
+  `move`/`agreement`, `board: Any` is fed `Board` here and `Game` in 04b, and `TrackerEngine.cnn`
+  is `internal` so `:app` cannot inject.
+- 2026-07-25 — **04c done**: the free-running observer schedule (`ObserverSchedule.kt` —
+  `_observer_due` with single-flight `cnnBusy` and the 1 s failure backoff, the `_observe_snapshot`
+  contract as engine law, and `anchorAtDetSize` which REJECTS a warp that is not at `detSize`
+  instead of corrupting the reference resolution), the illegal-move latch (`Alarm.kt` — the per-seq
+  desync streak with subset-stability and reset-to-ONE, the occupancy-gated raise that makes
+  identity-only conflicts unable to alarm, `releaseAlarm` as the one closed release, and the
+  re-derived `_build_alarm_guess_san`) and `_cnn_tick` itself (`CnnTick.kt` — the stuck/periodic
+  evaluation gates, the identity read with the b8b6->c6 occupancy fallback, the discard-on-FEN-change
+  guard, the match-ok reference pull-forward, the D6 recovery-vote confirmer, the while-alarmed
+  "resolves EVERY conflict square or withhold" rule, and the commit that anchors on **`snap.gray` /
+  `snap.warped`** with `fromCommit = true` and grants exactly one motion window). Entry point for
+  04a's routing: **`EngineState.cnnTick(cnn, snap)`**. 10 discrepancies (D04c-1..10); the ones the
+  orchestrator must act on: **`acceptCnnPosition()` and the CNN-resync release are NOT wired** (both
+  in 03d's `api/TrackerEngine.kt`, the first is a real feature, not a call), the frozen
+  `ResyncResult` carries no `move`/`agreement` so occupancy-only mode reaches its move through
+  `deriveMovesDeep` alone, and the two release families emit different `AlarmCleared` reasons.
+  Gate (isolated copy of `android/`, because 04a's `VerifySingleFixtures.kt`/`VerifySingleTest.kt`
+  were mid-flight and red in the shared tree — those two files were the ONLY ones excluded):
+  `:core-engine:test --tests CnnTickTest --tests AlarmLatchTest` **32/32**, then the whole
+  `:core-engine:test` **280/280, 0 skipped — `ClipReplayParityTest` still 18/18 clips, 969 frames,
+  ZERO divergence** — `ktlintFormat`, `ktlintCheck` and `detekt` all clean; zero findings, no
+  `@Suppress`, no baseline, and `ktlintFormat` touched no file outside 04c's six.
+- 2026-07-25 — **04x done** (orchestrator, cross-module seam): `CnnEvaluator` now takes
+  `boardFen: String` instead of `board: Any` (the mismatch that would have thrown on the first live
+  call — `VerifySingle` passed a chesslib `Board`, `VerifyPair`/`CnnTick`/`Alarm` a `Game`,
+  `:core-cnn` accepted only the former); `:core-cnn` forwards `resync_check`'s `move`/`agreement`,
+  which brings `cnn_overrule` back from the dead; `TrackerEngine.attachCnn()` is the public
+  injection point for 05c and arms `cnn_run`; `acceptCnnPosition()` is a real implementation
+  (minimal edit, castling pruning, missing-king rejection, latch release) instead of a stub;
+  `clearAlarm(String?)` is the single alarm release. New `EngineSeamIntegrationTest` in `:core-cnn`
+  drives the public engine API against the REAL `CnnRecovery` — overrule / recovery / alarm — and
+  each of its three tests was confirmed RED against the pre-fix behaviour. Gate:
+  `:core-engine:test` + `:core-geometry:testDebugUnitTest` + `:core-cnn:testDebugUnitTest`
+  **412 tests, 0 failures, 0 skipped** (302/58/52), `ClipReplayParityTest` still **18/18 clips,
+  969 frames, ZERO divergence**; `ktlintFormat`, `ktlintCheck`, `detekt` all clean, no `@Suppress`,
+  no baseline. 7 discrepancies (D04x-1..7); two items stay open: no `resync_cnn` counterpart and
+  no `preview` variant of `acceptCnnPosition`.

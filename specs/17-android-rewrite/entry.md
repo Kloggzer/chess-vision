@@ -166,17 +166,22 @@ interface CnnObservation {
     fun pOccluded(square: String): Double
     fun occupancyOnly(): CnnObservation             // identity stripped (the _cnn_tick fallback)
 }
-data class ResyncResult(val match: Boolean, val conflicts: List<String>, val checked: Int)
+// `move`/`agreement` carry `resync_check`'s derived move — without them `cnn_overrule` (invariant
+// 10) is inexpressible. Defaulted, so an evaluator that derives no move stays source-compatible.
+data class ResyncResult(val match: Boolean, val conflicts: List<String>, val checked: Int,
+                        val move: String? = null, val agreement: Double = 0.0)
 data class IdentityResult(val match: Boolean, val inconclusive: Boolean, val conflicts: List<String>)
 data class DeriveResult(val moves: List<String>, val agreement: Double, val inconclusive: Boolean)
+// The position crosses as a FEN: neither module may name the other's board type (`Game` here,
+// chesslib `Board` there), and `Any` only deferred the mismatch to the first live call.
 interface CnnEvaluator {                            // implemented by :core-cnn CnnRecovery
     val confThr: Double
-    fun verifyMove(board: Any, moveUci: String, obs: CnnObservation): Pair<Double, Int>
-    fun resyncCheck(board: Any, obs: CnnObservation): ResyncResult
-    fun boardMatchesIdentity(board: Any, obs: CnnObservation): IdentityResult
-    fun deriveMovesDeep(board: Any, obs: CnnObservation, maxPlies: Int): DeriveResult
-    fun hasOccupancyConflict(board: Any, obs: CnnObservation, thr: Double, conflicts: List<String>): Boolean
-    fun guessIllegalMove(board: Any, obs: CnnObservation, thr: Double): String?
+    fun verifyMove(boardFen: String, moveUci: String, obs: CnnObservation): Pair<Double, Int>
+    fun resyncCheck(boardFen: String, obs: CnnObservation): ResyncResult
+    fun boardMatchesIdentity(boardFen: String, obs: CnnObservation): IdentityResult
+    fun deriveMovesDeep(boardFen: String, obs: CnnObservation, maxPlies: Int): DeriveResult
+    fun hasOccupancyConflict(boardFen: String, obs: CnnObservation, thr: Double, conflicts: List<String>): Boolean
+    fun guessIllegalMove(boardFen: String, obs: CnnObservation, thr: Double): String?
     val minConfidentBoard: Int
     val minAgreement: Double
 }
@@ -236,6 +241,7 @@ The engine's entry points:
 ```kotlin
 class TrackerEngine(config: TrackerConfig, startFen: String = STARTPOS) {
     fun onFrame(input: FrameInput): List<TrackerEvent>   // the whole per-frame loop + _try_detect
+    fun attachCnn(evaluator: CnnEvaluator?)              // :app injects :core-cnn's CnnRecovery
     fun onCnnSnapshot(snap: CnnSnapshot): List<TrackerEvent>  // observer results (verify / cnn tick)
     fun status(): TrackerStatus
     fun undo(): List<TrackerEvent>
