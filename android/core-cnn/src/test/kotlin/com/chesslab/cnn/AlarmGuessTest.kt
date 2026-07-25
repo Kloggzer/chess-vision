@@ -53,7 +53,7 @@ class AlarmGuessTest {
     fun `the seam delegates to the same guess`() {
         val row = CnnFixtures.rows(CnnFixtures.GUESS).first { it.str("name") == "one_source_one_destination" }
         val recovery = recoveryFor(row)
-        assertEquals("e2e5", recovery.guessIllegalMove(row.board(), row.observation(), row.num("confThr")))
+        assertEquals("e2e5", recovery.guessIllegalMove(row.str("fen"), row.observation(), row.num("confThr")))
     }
 
     private fun board(fen: String): Board = Board().also { it.loadFromFen(fen) }

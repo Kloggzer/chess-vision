@@ -29,7 +29,7 @@ class RecoveryTest {
             val recovery = recoveryFor(row)
             val board = row.board()
             val obs = row.observation()
-            val (agreement, checked) = recovery.verifyMove(board, row.str("uci"), obs)
+            val (agreement, checked) = recovery.verifyMove(row.str("fen"), row.str("uci"), obs)
             assertClose(row.num("agreement"), agreement, "$name agreement")
             assertEquals(row.int("checked"), checked, "$name checked")
             val (idAgreement, idChecked) = recovery.verifyMoveIdentity(board, row.str("uci"), obs)
@@ -73,7 +73,7 @@ class RecoveryTest {
     @Test
     fun `verify_move is local - a far misread does not lower a correct e2e4`() {
         val obs = FakeSquareClassifier(fenAfter("e2e4"), overrides = mapOf("c6" to ("bN" to 0.99))).observe()
-        val (agreement, checked) = RECOVERY.verifyMove(startBoard(), "e2e4", obs)
+        val (agreement, checked) = RECOVERY.verifyMove(START_FEN, "e2e4", obs)
         assertEquals(1.0, agreement)
         assertEquals(2, checked)
     }

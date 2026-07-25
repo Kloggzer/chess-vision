@@ -67,7 +67,7 @@ class ResyncTest {
     @Test
     fun `the seam reports the confident-square count`() {
         val obs = FakeSquareClassifier(START_FEN).observe()
-        val result = CnnRecovery().resyncCheck(startBoard(), obs)
+        val result = CnnRecovery().resyncCheck(START_FEN, obs)
         assertTrue(result.match)
         assertEquals(ALL_SQUARES.size, result.checked)
     }

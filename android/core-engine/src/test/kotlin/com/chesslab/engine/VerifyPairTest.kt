@@ -1,0 +1,161 @@
+package com.chesslab.engine
+
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+
+/**
+ * `_verify_pair_tick`. Python reference: `tests/test_move_tracker.py::TestPipelineRegressions`
+ * (the five pair scenarios) plus the three properties the 2026-07-21 rework turns on.
+ */
+class VerifyPairTest {
+    @Test
+    fun pairVerifyCommitsOnAfterMatch() {
+        val state = pairState()
+        val moves = pairMoves(state, listOf("e2e4", "e7e5"))
+        val cnn = PairRecovery(matchFen = afterFen(state, moves))
+        val obs = PairObs()
+        repeat(2) { pairTick(state, cnn, moves, obs) }
+        assertEquals(listOf("e4", "e5"), state.history)
+        assertNull(state.pending)
+        assertEquals(VERIFY_STATE_CONFIRMED, state.verifyState)
+        assertEquals(DECIDER_CNN_PAIR, state.decisionLog.last().decider)
+    }
+
+    @Test
+    fun pairVerifyRejectsShadow() {
+        val state = pairState(cur = grayFrame())
+        val moves = pairMoves(state, listOf("e2e4", "e7e5"))
+        val cnn = PairRecovery(match = true)
+        val candidateFrame = state.pending!!.cur
+        repeat(2) { pairTick(state, cnn, moves, PairObs()) }
+        assertEquals(emptyList<String>(), state.history)
+        assertNull(state.pending)
+        assertEquals("shadow", state.verifyState)
+        // The shadow re-anchors on the frame the candidate was raised from (invariant 5).
+        assertSame(candidateFrame, state.refGray)
+    }
+
+    @Test
+    fun pairTouchedSquaresFastAccept() {
+        val state = pairState()
+        val moves = pairMoves(state, listOf("e2e4", "e7e5"))
+        // A chronic confident misread on c6 keeps the whole-board match false forever; the four
+        // squares the pair physically changed read correctly.
+        val cnn = PairRecovery(conflicts = listOf("c6"))
+        val obs =
+            PairObs(
+                occupancy = mapOf("e2" to false, "e4" to true, "e7" to false, "e5" to true, "c6" to true),
+                sure = setOf("e2", "e4", "e7", "e5", "c6"),
+            )
+        repeat(2) { pairTick(state, cnn, moves, obs) }
+        assertEquals(listOf("e4", "e5"), state.history)
+        assertEquals(VERIFY_STATE_CONFIRMED, state.verifyState)
+        assertEquals(DECIDER_CNN_PAIR, state.decisionLog.last().decider)
+    }
+
+    @Test
+    fun pairFastAcceptNeedsThreeCheckedSquares() {
+        val state = pairState()
+        val moves = pairMoves(state, listOf("e2e4", "e7e5"))
+        val cnn = PairRecovery(conflicts = listOf("c6"))
+        // Two correct touched squares — a fraction of two must never reach minAgreement.
+        val obs = PairObs(occupancy = mapOf("e4" to true, "e5" to true), sure = setOf("e4", "e5"))
+        repeat(2) { pairTick(state, cnn, moves, obs) }
+        assertEquals(emptyList<String>(), state.history)
+        assertNotNull(state.pending)
+    }
+
+    @Test
+    fun pairSecondHalfTouchedOnMidBoard() {
+        // Nb1c3 followed by b4xc3: on the MID board c3 is occupied, so the reply is an ordinary
+        // capture. Read on the pre-move board it would look like en passant and drag in c4 —
+        // the one square this observation misreads.
+        val state =
+            pairState(
+                fen = "4k3/8/8/8/1pP5/8/8/1N2K3 w - - 0 1",
+                ucis = listOf("b1c3", "b4c3"),
+                cur = grayFrame(listOf("c3")),
+            )
+        val moves = pairMoves(state, listOf("b1c3", "b4c3"))
+        val cnn = PairRecovery(conflicts = listOf("c4"))
+        val obs =
+            PairObs(
+                occupancy = mapOf("b1" to false, "c3" to true, "b4" to false, "c4" to false),
+                sure = setOf("b1", "c3", "b4", "c4"),
+            )
+        repeat(2) { pairTick(state, cnn, moves, obs) }
+        assertEquals(DECIDER_CNN_PAIR, state.decisionLog.last().decider)
+        assertNull(state.pending)
+    }
+
+    @Test
+    fun pairWindowEndPreexistingConflictsCommit() {
+        val state = pairState(verifyWindow = 3)
+        val moves = pairMoves(state, listOf("e2e4", "e7e5"))
+        val cnn = PairRecovery(conflicts = listOf("c6"))
+        val obs = PairObs(occupancy = mapOf("e4" to true), sure = setOf("e4"))
+        repeat(3) { pairTick(state, cnn, moves, obs) }
+        assertEquals(listOf("e4", "e5"), state.history)
+        assertEquals(DECIDER_DIFF_AFTER_VERIFY, state.decisionLog.last().decider)
+        assertTrue(state.note!!.contains("pre-existed"), state.note!!)
+    }
+
+    @Test
+    fun pairWindowEndOccludedDiscards() {
+        val state = pairState(verifyWindow = 3)
+        val moves = pairMoves(state, listOf("e2e4", "e7e5"))
+        val cnn = PairRecovery(conflicts = listOf("c6"))
+        repeat(3) { pairTick(state, cnn, moves, PairObs()) }
+        assertEquals(emptyList<String>(), state.history)
+        assertNull(state.pending)
+        assertEquals("ghost", state.verifyState)
+        assertTrue(state.note!!.contains("occlusion"), state.note!!)
+    }
+
+    @Test
+    fun pairBlindGlanceNeverShadowRejects() {
+        val state = pairState(verifyWindow = 3, cur = grayFrame())
+        val moves = pairMoves(state, listOf("e2e4", "e7e5"))
+        val refBefore = state.refGray
+        // resyncCheck matches VACUOUSLY under a covering hand: zero confident squares.
+        val cnn = PairRecovery(minConfidentBoard = 32, match = true)
+        repeat(3) { pairTick(state, cnn, moves, PairObs()) }
+        assertNotEquals("shadow", state.verifyState)
+        assertSame(refBefore, state.refGray)
+        assertEquals(emptyList<String>(), state.history)
+    }
+
+    @Test
+    fun pairTerminalsNeedTwoGlances() {
+        val state = pairState()
+        val moves = pairMoves(state, listOf("e2e4", "e7e5"))
+        val cnn = PairRecovery(conflicts = listOf("c6"))
+        val obs =
+            PairObs(
+                occupancy = mapOf("e2" to false, "e4" to true, "e7" to false, "e5" to true),
+                sure = setOf("e2", "e4", "e7", "e5"),
+            )
+        pairTick(state, cnn, moves, obs)
+        assertNotNull(state.pending)
+        assertEquals(emptyList<String>(), state.history)
+        assertTrue(state.note!!.contains("confirming"), state.note!!)
+        pairTick(state, cnn, moves, obs)
+        assertEquals(listOf("e4", "e5"), state.history)
+    }
+
+    @Test
+    fun windowEndTerminalIsNotVoteGated() {
+        val state = pairState(verifyWindow = 1)
+        val moves = pairMoves(state, listOf("e2e4", "e7e5"))
+        val cnn = PairRecovery(conflicts = listOf("c6"))
+        val obs = PairObs(occupancy = mapOf("e4" to true), sure = setOf("e4"))
+        pairTick(state, cnn, moves, obs)
+        assertEquals(listOf("e4", "e5"), state.history)
+        assertEquals(DECIDER_DIFF_AFTER_VERIFY, state.decisionLog.last().decider)
+    }
+}

@@ -84,11 +84,11 @@ class DeepSearchTest {
     @Test
     fun `the seam maps the deep result onto DeriveResult`() {
         val row = deepRow("deep_four_ply")
-        val result = recoveryFor(row).deriveMovesDeep(row.board(), row.observation(), 4)
+        val result = recoveryFor(row).deriveMovesDeep(row.str("fen"), row.observation(), 4)
         assertSequenceEquivalent(listOf("g1f3", "b8c6", "e2e4", "e7e5"), result.moves, row.board(), "seam")
         assertClose(1.0, result.agreement, "agreement")
         assertTrue(!result.inconclusive)
-        val empty = recoveryFor(row).deriveMovesDeep(startBoard(), row.observation().occupancyOnly(), 0)
+        val empty = recoveryFor(row).deriveMovesDeep(START_FEN, row.observation().occupancyOnly(), 0)
         assertTrue(empty.inconclusive, "no sequence == inconclusive")
     }
 

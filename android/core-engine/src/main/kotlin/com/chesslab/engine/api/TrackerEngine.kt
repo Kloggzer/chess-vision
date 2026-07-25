@@ -1,5 +1,6 @@
 package com.chesslab.engine.api
 
+import com.chesslab.engine.ALARM_BOARD_RESTORED
 import com.chesslab.engine.Candidate
 import com.chesslab.engine.Confirmer
 import com.chesslab.engine.DECIDER_USER
@@ -11,10 +12,12 @@ import com.chesslab.engine.Game
 import com.chesslab.engine.STATE_WAITING
 import com.chesslab.engine.STUCK_NO_LEGAL_MOVE
 import com.chesslab.engine.Squares
+import com.chesslab.engine.VerifySingle
 import com.chesslab.engine.ViableMoves
 import com.chesslab.engine.applyTaints
 import com.chesslab.engine.applyVetoes
 import com.chesslab.engine.clearStuck
+import com.chesslab.engine.cnnTick
 import com.chesslab.engine.commitMove
 import com.chesslab.engine.computeEvidence
 import com.chesslab.engine.detectGuards
@@ -69,6 +72,20 @@ private const val ALARM_UNDONE = "illegal_move_undone"
 
 private val PROMO_PIECES = setOf('q', 'r', 'b', 'n')
 
+private const val NOTE_NO_CNN_IDENTITY = "no CNN observation with piece identity — use Undo or a FEN resync"
+
+private const val NOTE_CNN_KINGS = "CNN position has missing/extra kings — use Undo or a FEN resync"
+
+/** The empty slot of the rebuilt placement — `' '` is not a FEN piece symbol. */
+private const val EMPTY_SQUARE = ' '
+
+private const val PIECE_TYPES = "PNBRQK"
+
+/** FEN field indices of the two clocks (`placement side castling ep halfmove fullmove`). */
+private const val FEN_HALFMOVE = 4
+
+private const val FEN_FULLMOVE = 5
+
 /**
  * The public entry point of `:core-engine` — the whole per-frame state machine.
  *
@@ -108,14 +125,36 @@ class TrackerEngine(
         return events
     }
 
+    private var cnn: CnnEvaluator? = null
+
     /**
-     * Observer results. Phase 04a/04b/04c own `_verify_tick` / `_verify_pair_tick` / `_cnn_tick`;
-     * until they land the observation is only stored, exactly as `_observe_snapshot` does — the
-     * taint filter in step 2 already reads it.
+     * Inject the evaluator behind the observation model. `:core-engine` may not depend on
+     * `:core-cnn`, so `:app` (which owns the ONNX classifier) hands it in here.
+     *
+     * `null` is the CNN-unavailable case — the model is missing or broke — which the verify path
+     * resolves by committing the pending candidate rather than stalling. Attaching also arms
+     * `cnn_run`, i.e. it is what makes the detection pipeline queue candidates for verification
+     * instead of committing them straight from the diff.
+     */
+    fun attachCnn(evaluator: CnnEvaluator?) {
+        cnn = evaluator
+        state.cnnRun = evaluator != null
+    }
+
+    /**
+     * Observer results (`_cnn_worker`). Storing the snapshot is `_observe_snapshot`; the taint
+     * filter reads it from there.
+     *
+     * A pending candidate has **priority** over the periodic check — that is what makes the
+     * pre-commit ghost filter responsive. `VerifySingle` forks to the pair ladder internally.
      */
     fun onCnnSnapshot(snap: CnnSnapshot): List<TrackerEvent> {
         state.cnnSnap = snap
-        return emptyList()
+        return if (state.pending != null) {
+            VerifySingle.tick(state, cnn, snap)
+        } else {
+            state.cnnTick(cnn, snap)
+        }
     }
 
     /** Immutable UI snapshot; the debug screen is a pure function of it. */
@@ -208,8 +247,32 @@ class TrackerEngine(
         }
     }
 
-    /** Owner: phase 04c (`accept_cnn_position`). */
-    fun acceptCnnPosition(): List<TrackerEvent> = emptyList() // phase 04c
+    /**
+     * `accept_cnn_position` — the illegal-move alarm's "adopt what the CNN sees" correction.
+     *
+     * A **minimal edit**, not a blind FEN rebuild: only label-confident squares take the observed
+     * piece, everything unsure or occluded keeps the game-state piece, because identity precision
+     * is the model's weak axis. Side to move survives, castling rights are pruned to what the
+     * rebuilt position still supports, and the history is dropped — an illegal move broke game
+     * continuity by definition, so the ply numbering is fiction from here on.
+     *
+     * An observation without both kings is REJECTED rather than adopted: it is a misread, and a
+     * kingless position would make every later legality check meaningless.
+     */
+    fun acceptCnnPosition(): List<TrackerEvent> {
+        val obs = state.cnnSnap?.obs?.takeIf { o -> Squares.ALL.any { o.label(it) != null } }
+        val fen = obs?.let { state.cnnAdoptedFen(it, cnn?.confThr ?: state.config.cnnConfThr) }
+        if (fen == null) {
+            val why = if (obs == null) NOTE_NO_CNN_IDENTITY else NOTE_CNN_KINGS
+            state.note = why
+            return listOf(TrackerEvent.Note(why))
+        }
+        // setFen clears the history and the latch (logging `illegal_move_accepted`);
+        // captureBaseline re-captures the visual reference for the adopted position.
+        val events = setFen(fen) + captureBaseline()
+        state.note = "CNN position adopted — alarm cleared, re-capturing reference…"
+        return events
+    }
 
     /**
      * Live tuning. Mirrors `app.py`'s `_live_tuning_kwargs` side effects: the averaging buffers and
@@ -463,6 +526,79 @@ internal fun EngineState.clearReferenceState() {
     state = STATE_WAITING
 }
 
+/**
+ * The FEN of the position `accept_cnn_position` would adopt, or `null` when the result has no
+ * clean pair of kings. Nothing is mutated here — the caller decides whether to adopt it.
+ */
+private fun EngineState.cnnAdoptedFen(
+    obs: CnnObservation,
+    thr: Double,
+): String? {
+    val pieces = CharArray(Squares.COUNT)
+    for (i in 0 until Squares.COUNT) {
+        val square = Squares.ALL[i]
+        val believed = board.pieceCharAt(i) ?: EMPTY_SQUARE
+        val label = if (obs.labelConfident(square, thr)) obs.label(square) else null
+        // An unreadable label ("occluded") is not an observation of an empty square.
+        pieces[i] = if (label == null) believed else pieceCharOf(label) ?: believed
+    }
+    if (pieces.count { it == 'K' } != 1 || pieces.count { it == 'k' } != 1) return null
+    // Side to move and the clocks are carried over; the en-passant target is dropped, because the
+    // adopted position has no move that could have created it.
+    val fields = board.fen().split(' ')
+    val clocks = "${fields[FEN_HALFMOVE]} ${fields[FEN_FULLMOVE]}"
+    return "${placementOf(pieces)} ${fields[1]} ${castlingOf(pieces, fields[2])} - $clocks"
+}
+
+/** `config.label_from_piece` inverted; `"empty"` and `"occluded"` are not pieces. */
+private fun pieceCharOf(label: String): Char? {
+    if (label.length != 2) return EMPTY_SQUARE.takeIf { label == "empty" }
+    val type = label[1].uppercaseChar()
+    return when {
+        type !in PIECE_TYPES -> null
+        label[0] == 'w' -> type
+        label[0] == 'b' -> type.lowercaseChar()
+        else -> null
+    }
+}
+
+/** The placement field, rank 8 down to rank 1 — [Squares.ALL] runs the other way. */
+private fun placementOf(pieces: CharArray): String = (Squares.N - 1 downTo 0).joinToString("/") { rankOf(pieces, it) }
+
+private fun rankOf(
+    pieces: CharArray,
+    rank: Int,
+): String {
+    val out = StringBuilder()
+    var run = 0
+    for (file in 0 until Squares.N) {
+        val piece = pieces[rank * Squares.N + file]
+        if (piece == EMPTY_SQUARE) {
+            run += 1
+            continue
+        }
+        if (run > 0) out.append(run)
+        run = 0
+        out.append(piece)
+    }
+    if (run > 0) out.append(run)
+    return out.toString()
+}
+
+/** `clean_castling_rights` — a right survives only if its king AND its rook are still at home. */
+private fun castlingOf(
+    pieces: CharArray,
+    current: String,
+): String {
+    val at = { square: String -> pieces[Squares.index(square)] }
+    val out = StringBuilder()
+    if ('K' in current && at("e1") == 'K' && at("h1") == 'R') out.append('K')
+    if ('Q' in current && at("e1") == 'K' && at("a1") == 'R') out.append('Q')
+    if ('k' in current && at("e8") == 'k' && at("h8") == 'r') out.append('k')
+    if ('q' in current && at("e8") == 'k' && at("a8") == 'r') out.append('q')
+    return if (out.isEmpty()) "-" else out.toString()
+}
+
 /** A `Squares.ALL`-keyed view of a 64-value channel — built for the UI, never for the engine. */
 private fun squareValueMap(values: DoubleArray): Map<String, Double> {
     val out = LinkedHashMap<String, Double>(Squares.COUNT)
@@ -473,19 +609,26 @@ private fun squareValueMap(values: DoubleArray): Map<String, Double> {
 }
 
 /**
- * `_clear_alarm` — release the illegal-move latch.
+ * `_clear_alarm` — the ONLY release of the illegal-move latch, and the list of callers is closed:
+ * `undo`, `resetToStart` / `setFen`, `captureBaseline`, `acceptCnnPosition` (all with a
+ * [logReason]), plus the two VERIFIED restores in `cnnTick` — a `matchOk` observation and a
+ * recovery sequence that resolves every conflict square (both `null`).
  *
- * **entry.md invariant 9:** only explicit user corrections and a VERIFIED board restore may call
- * this; nothing in the detection pipeline heals the alarm silently. The discontinuity lands in the
- * decision log with `decider = "user"`.
+ * **entry.md invariant 9:** nothing in the detection pipeline may call this; the alarm does not
+ * heal by EMA drift, by timeout, or by "it looks fine now".
+ *
+ * A [logReason] marks a user correction, whose discontinuity lands in the decision log with
+ * `decider = "user"`; the verified restores leave no row because no user acted. Either way the
+ * emitted reason is why the latch went, never the kind of alarm it was.
  */
-internal fun EngineState.clearAlarm(logReason: String): List<TrackerEvent> {
-    val latched = alarm ?: return emptyList()
+internal fun EngineState.clearAlarm(logReason: String?): List<TrackerEvent> {
+    if (alarm == null) return emptyList()
     alarm = null
     alarmSince = 0.0
     desyncObs = 0
     desyncConflicts = 0L
     desyncLastSeq = null
+    if (logReason == null) return listOf(TrackerEvent.AlarmCleared(ALARM_BOARD_RESTORED))
     decisionLog.add(
         DecisionRecord(
             tsS = nowS,
@@ -512,5 +655,5 @@ internal fun EngineState.clearAlarm(logReason: String): List<TrackerEvent> {
             cnnBestMove = cnnBestMove,
         ),
     )
-    return listOf(TrackerEvent.AlarmCleared(latched.kind))
+    return listOf(TrackerEvent.AlarmCleared(logReason))
 }
