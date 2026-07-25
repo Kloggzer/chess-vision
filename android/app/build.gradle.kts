@@ -54,6 +54,10 @@ android {
     testOptions {
         unitTests.all {
             it.useJUnitPlatform()
+            // The end-to-end clip simulation (`com.chesslab.tracker.sim`) decodes 18 videos and
+            // runs real ONNX inference over every frame — minutes, not seconds. It is gated on
+            // this property so `testDebugUnitTest` stays a fast gate; see CnnClipSimulationTest.
+            it.systemProperty("chesslab.sim", providers.gradleProperty("chesslab.sim").getOrElse("false"))
         }
     }
 
@@ -168,6 +172,17 @@ dependencies {
     // desktop artifact (same ai.onnxruntime API) because the AAR only ships Android ABIs.
     implementation(libs.onnxruntime.android.qnn)
     testImplementation(libs.onnxruntime.jvm)
+
+    // Host-only natives for the opt-in clip simulation (`com.chesslab.tracker.sim`). Same set
+    // :core-geometry already uses: JavaCV's FFmpeg decodes tests/data/testclips/*.mp4 and the
+    // bytedeco OpenCV artifact carries the JNI library that makes the `org.opencv` API — which
+    // this module compiles against as an AAR — actually runnable on the desktop JVM. :app is
+    // the only module that can host this harness: it owns the ONNX classifier and the model
+    // assets, and neither can be seen from :core-cnn or :core-geometry test sources.
+    testImplementation(libs.javacv)
+    testRuntimeOnly(variantOf(libs.bytedeco.opencv) { classifier("windows-x86_64") })
+    testRuntimeOnly(variantOf(libs.bytedeco.ffmpeg) { classifier("windows-x86_64") })
+    testRuntimeOnly(variantOf(libs.bytedeco.openblas) { classifier("windows-x86_64") })
 
     // Unit tests (JVM, JUnit5)
     testImplementation(libs.junit.jupiter)

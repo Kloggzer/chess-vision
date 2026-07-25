@@ -3412,7 +3412,7 @@ failures**. No build file, no catalog entry, no manifest edit, no `@Suppress`, n
   time by construction, so this costs nothing in practice; (b) the driver is a composable
   (`AttachGameSession`), so **recording pauses when the app UI is destroyed** while the service keeps
   tracking. The fix is one construction site in `TrackerService` and is filed for the orchestrator,
-  not improvised across an ownership line.
+  not improvised across an ownership line. **RESOLVED** — see "Game session ownership (D08a-4 fix)".
 - **D08a-5 — `EngineState.flushSessionCapture()` is unusable from `:app`.** It is `internal`, and
   `TrackerEngine` **discards** its return value (`Commit.kt:236`, `TrackerEngine.kt:405`); no event
   crosses the seam. So `_queue_session_capture` / `_flush_session_capture` are re-ported app-side in
@@ -3953,9 +3953,9 @@ _(implementing agent appends one line per finished phase)_
   17 src (1701 LOC, max 199), 8 test files, **41 tests green**, ktlint + detekt clean, no manifest
   edit and no storage permission of any kind. 12 discrepancies (D08a-1..12); the ones to read are
   **D08a-1** (no `FileProvider` — the manifest is 06c's, so a PGN shares as `EXTRA_TEXT`),
-  **D08a-4** (the `TrackerService` API the phase file assumes does not exist; recording is driven
-  from the composition and therefore pauses when the UI is destroyed — one construction site in
-  `TrackerService` fixes it) and **D08a-5** (`flushSessionCapture` never crosses the seam, so the
+  **D08a-4** (the `TrackerService` API the phase file assumes does not exist; recording was driven
+  from the composition and therefore paused when the UI was destroyed — since fixed, see "Game
+  session ownership (D08a-4 fix)") and **D08a-5** (`flushSessionCapture` never crosses the seam, so the
   deferral is re-ported app-side on `MoveCommitted` + `ReAnchored`).
 
 ## APK size
@@ -4086,3 +4086,181 @@ back empty): that QNN still actually selects on the 8 Gen 3 after the Skel prune
 line — `CnnState` reports the chosen EP, and the debug screen's EP panel must read `QNN-HTP(NPU)`,
 not `NNAPI`. If it reads `NNAPI`, restore `libQnnHtpV73*` first; that is the only plausible
 mis-prune.
+
+## Game session ownership (D08a-4 fix)
+
+The game/recording driver moved out of the composition and into the service.
+
+- **New `service/GameSessionWiring.kt` (125 LOC).** `wireGameSession(context, scope, frames,
+  publisher, calibration)` builds the `GameSessionController` (08a's `buildController` moved
+  verbatim, including the `totalBytes()` baseline snapshot) and publishes it to `GameSessionHost`;
+  `attachGameSession(scope, controller, events, status, profileName)` is the driving half and the
+  part under test. `TrackerService.wireSession` calls it in the **session** half — one line —
+  and `onDestroy` publishes `null` and calls `endAndSave()`.
+- **`ui/games/GameSessionAttachment.kt` → `GameSessionHost.kt`.** `AttachGameSession()` is gone,
+  and with it its call in `ChesslabNavHost`. What remains is observation only: `GameSessionHost`,
+  `RecordingSettingsHost`, `gamesDir`/`sessionsDir`/`gameId`. `GamesScreen` already read the host,
+  so no screen changed.
+
+### Discrepancies
+
+- **D08a-13 — recording survives a tracker restart, on purpose.** The session is attached to the
+  service's `lifecycleScope`, not to `TrackerStack.scope`. A restart exists to apply the 34
+  construction-time knobs; the game being played is not a knob, and the position, the calibration
+  and the camera binding survive it too. Making recording stack-lifetime would end a session (and
+  split a game) every time the user changed a threshold. `StatusPublisher` and `CameraFrameBus` are
+  themselves session-lifetime, so nothing has to be re-collected after the swap.
+  `GameSessionDriverTest.aTrackerRestartDoesNotInterruptTheSession` pins it against a scope built
+  exactly the way `TrackerStack` builds its own.
+- **D08a-14 — the service now ends the game on destroy.** Previously the controller died with the
+  composition and an in-progress game was simply lost. `onDestroy` calls `endAndSave()`, which
+  returns `null` for a zero-move game, so a start/stop cycle still leaves the library alone. Kept
+  cheap on purpose: `SessionRecorder` already writes `session.yaml` at init and appends `log.jsonl`
+  per capture, so even a killed process leaves a session `slice` can read; `finish()` only restates
+  the yaml.
+- **D08a-15 — the calibration profile is now read from a `StateFlow` inside the wiring**, not from
+  a composable's `rememberUpdatedState`. `wireGameSession` collects `CalibrationStore.profile` into
+  a `MutableStateFlow` on the service scope and hands the capture path `latest::value`, so a
+  recalibration under a running game reaches the next capture (same behaviour as 08a, without the
+  composition).
+- **D08a-16 — threading is deliberately unchanged**: both collectors run on the service's main
+  scope, exactly where the composition used to run them. The frame grab
+  (`latestCalibrationFrame()` → clone → JPEG → release, in `LiveCaptureSource`) therefore still
+  never touches the analyzer thread, and the 15 fps tracking budget is untouched. Moving the driver
+  to `Dispatchers.Default` was considered and rejected: `GameSessionController` has no locks and the
+  games screen calls `endAndSave()` from the main thread, so a background driver would introduce a
+  data race for no measured gain.
+- **Not verifiable without a device:** that recording actually continues while the screen is off —
+  the proof is that the driver's scope is the service's, which is asserted in JVM tests, but the
+  end-to-end behaviour (foreground service kept alive, frames still arriving at ~5 fps, JPEGs landing
+  in `filesDir/sessions`) needs a phone. Check on device by starting a recorded game, locking the
+  screen for a few moves and confirming the session's `log.jsonl` has no gap.
+
+### Gate
+
+- `:app:testDebugUnitTest` — **BUILD SUCCESSFUL**, 292 tests in `:app`, 0 failures, including the 3
+  new `service/GameSessionDriverTest` cases; 08a's `GameSessionControllerTest` unchanged and green.
+- `:app:ktlintFormat` then `:app:ktlintCheck` — **BUILD SUCCESSFUL**.
+- `:app:detekt` — **FAILS on a foreign file**: `LongParameterList - 9/8 - [SimClip] at
+  app/src/test/kotlin/com/chesslab/tracker/sim/SimClips.kt:37`, the concurrent simulation-harness
+  agent's new test source set. It is the only finding in the whole report; no file touched here
+  appears in it.
+- `:core-engine:test --rerun-tasks` — **BUILD SUCCESSFUL**, 312 tests, 0 failures;
+  `ClipReplayParityTest` green, i.e. **18/18 clips, zero diverging frames**.
+
+---
+
+## CNN clip simulation (2026-07-25)
+
+`scripts/emit_parity_fixtures.py:262` replays every clip with `cnn_run=None`, so all 969
+committed parity frames exercise the **diff path only**. The verify ladder, pair verify, recovery
+and the illegal-move alarm had never run against real video — only against hand-built probability
+arrays. This section records what happened when they did.
+
+**Harness:** `android/app/src/test/kotlin/com/chesslab/tracker/sim/`, class
+`CnnClipSimulationTest`. mp4 → board warp → 64 crops → the committed `model.onnx` on the ONNX
+Runtime CPU provider → `CnnRecovery` → `TrackerEngine` (public seam only) → committed move list,
+compared to `tests/data/testclips/<clip>.labels.json`. Opt-in:
+
+```
+.\gradlew.bat :app:testDebugUnitTest -Pchesslab.sim=true --tests "com.chesslab.tracker.sim.*"
+```
+
+It lives in `:app` because `:app` is the only module that can see BOTH the ONNX classifier and the
+model assets; `:core-cnn` and `:core-geometry` test sources cannot. JavaCV/bytedeco (the same
+artifacts `:core-geometry` already declares) were added to `:app`'s test classpath for mp4 decode
+and the desktop OpenCV JNI library.
+
+**Config** is `parity/<clip>/meta.json → effectiveConfig`, field for field, including the explicit
+`settleFrames`/`avgFrames`/`confirmFrames` overrides. The ONLY deliberate change is
+`attachCnn(CnnRecovery(...))`; the overrides are what keep that from silently also flipping the
+frame counts from 4/3/2 to 3/2/1 via `EngineState.cnnOn`. Corners come from the clip's
+`labels.json` and are frozen (`liveAlign = false`), exactly as the fixture generator establishes
+them — the clips carry no ArUco markers.
+
+### Result
+
+| | clips |
+|---|---|
+| diff-only baseline, full rate | **18/18** reproduce `labels.json` |
+| CNN attached, full rate | **14/18** |
+| CNN-caused regressions | **4**: `blender-promotion`, `blender-underpromo`, `blender-stalemate`, `blender-queenside` |
+
+The 18/18 diff-only line is itself new information: the committed fixtures only assert a *sampled*
+frame subset, and this is the first Kotlin run over every frame of every clip.
+
+### Findings — record only, NOT fixed in this task
+
+Every one of the four is triggered by a **confident and wrong** occupancy reading. The audit built
+into the harness scores each observation against `labels.json`'s per-frame FEN (occluded frames
+excluded), so the observation is measured independently of what the engine believed.
+
+- **S17-SIM-1 — `onMatchOk` pulls base truth forward past an unseen move.**
+  `blender-stalemate`, frame 27. The board is `k7/8/8/8/8/8/2Q5/7K`; after `Qc7` the model reads
+  c2 as `wQ` again (its ONE confident error in the whole clip, 1/111). `resyncCheck` therefore
+  matches, `CnnTick.onMatchOk` fires the stuck-path re-anchor
+  (`setRef(anchor, fromCommit = true)`, note *"CNN: board unchanged — reference pulled forward
+  (no move)"*, `verifyState = resynced`) and the move is baked into the reference. From frame 43
+  the diff sees 7–8 changed squares → `too_many_changed`, and `Qc7` is never committed. The
+  diff-only run commits it at frame 44. CNN recovery does start at frame 51
+  (*"CNN recovery checks c2c7… (1/2)"*) but the clip ends before the second confirming
+  observation. Evidence: the note streams of both runs are identical up to f21 and diverge only
+  after the f27 pull-forward.
+- **S17-SIM-2 — one persistent misread latches `cnn_desync` and starves the reference.**
+  `blender-promotion` / `blender-underpromo` (same scene, `6k1/4P3/8/8/8/8/8/6K1`), frames 3–15.
+  The white king on g1 is confidently read as EMPTY in every clear observation (`wK→empty ×2`).
+  `TrackerEngine.quietOutcome`'s desync branch then marks `cnn_desync` and refuses the quiet
+  re-anchor (*"quiet board but CNN disagrees on g1 — holding reference"*). With no commit to
+  refresh the reference either, drift accumulates: 13–14 changed squares from frame 43, and the
+  promotion is never committed. The diff-only run commits `e8=Q+` at frame 44. On a sparse board
+  a single stuck square is enough to hold the veto indefinitely.
+- **S17-SIM-3 — `cnn_overrule` replaced a correct diff move on a 1-square margin.**
+  `blender-queenside`, frame 182. The diff correctly proposes `Bf4`; `VerifySingle` rung 4 sees
+  the CNN's `scoreMoves` prefer `c1g5`, collects `verifyObsVotes = 2` votes and commits **Bg5**
+  (*"Move detected: Bg5 (CNN overruled Bf4)"*, `verifyState = overruled`). With `cnnMarginSquares
+  = 1`, "strictly better by one square" is enough — a missed piece on the true destination plus an
+  unconfident alternative destination clears the bar. The phantom bishop on g5 then poisons the
+  rest of the game: rung 5's whole-board check rejects `Qd2` twice with *"board contradicts
+  post-move position: g5"*, `Qd7` is lost, and `O-O-O` never commits. This clip has the set's
+  worst observations: 13.5 % of confident occupancy statements wrong, `wB→empty ×5`.
+
+### Model behaviour on these renders (context for all three)
+
+Confident-occupancy error rate per clip ranges from 0.9 % (`blender-stalemate`) to 13.5 %
+(`blender-queenside`); confident-identity error tracks it closely. The dominant confusion is
+`piece → empty` (`bP→empty`, `wN→empty`, `wB→empty`, `wK→empty`) — the model *misses* pieces
+rather than mistyping them, which is the failure mode all three findings are built on.
+
+This is not a harness artefact. Measured A/B: rendering the crops from a `boardSize = 1600` warp
+instead of the clip's 640 moves the error by < 0.2 pp and changes no clip's outcome, at 4× the
+crop cost (15.6 vs 3.9 ms per observation). The board spans only ~249 px of the 640×640 render, so
+a square carries ~31 real pixels either way — see the memory note *"Synth crop resolution gap"*.
+Whether the same three engine behaviours would also fire in Python with this model is **not
+established here**; the Python emitter has no CNN path. That cross-check is the natural follow-up
+before any of S17-SIM-1..3 is treated as a port bug rather than as documented behaviour.
+
+### Timing (desktop CPU — bounds nothing about on-device fps)
+
+Over 2168 frames / 2168 observations, one observation per frame (`observerIntervalS = 0.0`):
+
+| stage | ms |
+|---|---|
+| detection warp | 0.63 / frame |
+| gray + CLAHE | 0.35 / frame |
+| ROI motion | 0.84 / frame |
+| engine `onFrame` | 1.33 / frame |
+| 64 crops (bordered warp + `cropSquare`) | 3.98 / observation |
+| ONNX inference, 64 crops, CPU provider | 34.22 / observation |
+| **total** | **41.3 / frame → 24.2 fps** |
+
+The CPU provider is ~11× the whole rest of the pipeline. On device that call goes to the QNN/HTP
+NPU, so this ratio is an upper bound on the CNN's relative cost, not a prediction — the point it
+does make is that everything OTHER than inference costs ~3 ms/frame, i.e. the diff path alone
+would run at >300 fps on this machine.
+
+### What the harness cannot exercise
+
+CameraX (binding, delivered-vs-requested resolution, reconnect), Compose UI, the foreground
+service and its threading, QNN/NNAPI execution providers, thermal throttling and sustained-load
+behaviour, ArUco marker detection and live corner alignment (`liveAlign = false` on these clips),
+and real-camera photometry — every clip here is a Blender render.

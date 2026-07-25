@@ -14,6 +14,7 @@ import com.chesslab.tracker.camera.TrackerCamera
 import com.chesslab.tracker.camera.cameraRequestFor
 import com.chesslab.tracker.cnn.Attached
 import com.chesslab.tracker.cnn.CnnState
+import com.chesslab.tracker.games.GameSessionController
 import com.chesslab.tracker.geometry.calibrationStore
 import com.chesslab.tracker.pipeline.StageTimings
 import com.chesslab.tracker.settings.DataStoreConfigStore
@@ -22,6 +23,7 @@ import com.chesslab.tracker.speech.MoveAnnouncer
 import com.chesslab.tracker.speech.androidSpeechEngine
 import com.chesslab.tracker.ui.debug.DebugSessionHost
 import com.chesslab.tracker.ui.debug.debugSession
+import com.chesslab.tracker.ui.games.GameSessionHost
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -36,9 +38,9 @@ private const val PREVIEW_MAX_SIDE = 640
  * the legacy `TrackerService.kt` grew to 970 LOC of camera control, warper swaps, CNN
  * integration, recording and settings, and a real bug lived in it invisibly for weeks.
  *
- * Two lifetimes live here. The **session** — camera, frame bus, status publisher, settings — lasts
- * as long as the service, because the UI collects its flows and the camera may have exactly one
- * owner. The **stack** — pipeline, engine, CNN observer, coordinator — is rebuilt by
+ * Two lifetimes live here. The **session** — camera, frame bus, status publisher, settings, game
+ * recording — lasts as long as the service, because the UI collects its flows and the camera may
+ * have exactly one owner. The **stack** — pipeline, engine, CNN observer, coordinator — is rebuilt by
  * [restartTracker] so the 34 construction-time knobs can be applied without killing the process.
  */
 class TrackerService : LifecycleService() {
@@ -49,6 +51,7 @@ class TrackerService : LifecycleService() {
     private lateinit var binder: TrackerBinder
     private lateinit var notification: TrackerNotification
     private lateinit var speech: MoveAnnouncer
+    private lateinit var games: GameSessionController
 
     private val calibration by lazy { calibrationStore(this) }
     private val timings = StageTimings()
@@ -92,6 +95,10 @@ class TrackerService : LifecycleService() {
     override fun onDestroy() {
         DebugSessionHost.publish(null)
         TrackerRestartHost.publish(null)
+        GameSessionHost.publish(null)
+        // The service IS the session: stopping it ends the game rather than losing it. A game with
+        // no moves saves nothing, so a start/stop cycle still leaves the library alone.
+        games.endAndSave()
         // Reverse construction order: nothing may deliver a frame into a closed pipeline.
         speech.close()
         camera.close()
@@ -134,6 +141,8 @@ class TrackerService : LifecycleService() {
         // until an announcement is actually due, so it costs nothing while disabled.
         speech = MoveAnnouncer(lifecycleScope, androidSpeechEngine(this), settings).also { it.attach(publisher.events) }
         cnnProbe.observations = { stacks.current?.observations ?: 0L }
+        // 08a's recorder, in the SESSION half: it must outlive both the UI and a tracker restart.
+        games = wireGameSession(this, lifecycleScope, frames, publisher, calibration)
     }
 
     /** Persisted truth first, then the stack, then the camera — a frame with no stack is wasted. */
