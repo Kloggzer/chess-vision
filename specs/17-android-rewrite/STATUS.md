@@ -27,9 +27,9 @@ Read `entry.md` completely before your phase file.
 | 04b | `04b-verify-pair.md` | `_verify_pair_tick` fast-accept + parity fallback | done | `VerifyPair.kt` + 2 test files, 10 tests green; seam gaps recorded (D04b-1..6), `cnnAgreement` not expressible |
 | 04c | `04c-recovery-alarm.md` | `_cnn_tick`, recovery, alarm latch/freeze/release, observer schedule | done | 3 src + 3 test files, 32 tests green (module 280/280 incl. zero-divergence clip replay); entry point `EngineState.cnnTick(cnn, snap)` for 04a (D04c-1..10) |
 | 04x | — (orchestrator) | cross-module seam reconciliation: FEN seam, `move`/`agreement` forwarding, `attachCnn`, `acceptCnnPosition`, first REAL-evaluator integration test | done | see "04x" below (D04x-1..7); 412 tests, 0 failures, clip replay still 18/18 / 969 frames / zero divergence |
-| 05a | `05a-camera.md` | CameraX single owner, reconnect backoff, delivered-resolution truth | todo | |
-| 05b | `05b-frame-pipeline.md` | YUV→BGR, two warps, gray pipeline, ROI motion, dark gate, timings | todo | |
-| 05c | `05c-onnx.md` | ONNX `SquareClassifier` (QNN→NNAPI→CPU), loud attach, observer thread | todo | |
+| 05a | `05a-camera.md` | CameraX single owner, reconnect backoff, delivered-resolution truth | done | 4 src (356 LOC total, max 184) + 3 test files, 9 tests green; single `getInstance` call site, `ImageAnalysis` only (D05a-1..7) |
+| 05b | `05b-frame-pipeline.md` | YUV→BGR, two warps, gray pipeline, ROI motion, dark gate, timings | done | 7 src (845 LOC) + 5 test files, 23 tests green; OpenCV-backed steps behind the `FrameStages` seam and untested on the JVM (D05b-2) |
+| 05c | `05c-onnx.md` | ONNX `SquareClassifier` (QNN→NNAPI→CPU), loud attach, observer thread | done | 5 src + 4 test files, 19 tests green; the REAL bundled model runs 64 crops through ORT on the host CPU EP (D05c-8) |
 | 06a | `06a-calibration.md` | ArUco auto + manual corner tap, profile persistence, orientation check | todo | |
 | 06b | `06b-tracking-ui.md` | board, move list, alarm card, promotion dialog, overlay | todo | |
 | 06c | `06c-service.md` | `TrackerService` single owner, coordinator, settings persistence | todo | |
@@ -1978,9 +1978,258 @@ castling/side-to-move test replaces it). `alarmedEngine()` now latches through
   changing it now would touch 04c's file for a path no test can reach.
 - **No Kotlin counterpart to `resync_cnn`** (04c's release table, row 7). Unchanged.
 
+### 05a (camera — single CameraX owner, delivered-resolution truth, rebind backoff), 2026-07-25
+
+Files created (package `com.chesslab.tracker.camera`, module `:app`): main `CameraModels.kt` (63),
+`ReconnectPolicy.kt` (80), `ResolutionMismatchLogger.kt` (29), `TrackerCamera.kt` (184) — 356 LOC,
+no file over 250; tests `ReconnectPolicyTest` (5), `ResolutionMismatchLoggerTest` (2),
+`DeliveredSizeTest` (2) — **9 tests, 0 skipped, 0 failures**. Nothing else was touched: no build
+file, no catalog entry, no manifest, no file owned by 05b/05c. **No dependency was missing.**
+
+`TrackerCamera` is the class 06c constructs and owns:
+`TrackerCamera(context, request: CameraRequest, sink: FrameSink, policy: ReconnectPolicy)`, with
+`bind(lifecycleOwner)` / `close()`, `cameraState: StateFlow<CameraHealth>`,
+`deliveredSize: DeliveredSize?` and `requestedSize: Size` (kept strictly separate).
+06a renders the calibration preview from the frames 06b/06c publish out of the same `FrameSink` —
+it must never bind a provider of its own.
+
+#### Discrepancies
+
+- **D05a-1 — the `grep -c "ProcessCameraProvider" == 1` acceptance criterion is unachievable as
+  written.** The name necessarily occurs on three lines of `TrackerCamera.kt`: the `import`, the
+  `private var provider: ProcessCameraProvider?` field, and the single call. (A fourth is the KDoc
+  sentence naming the bug.) The criterion's *intent* — one binding owner — is met and greppable as
+  **`grep -c "ProcessCameraProvider.getInstance" … == 1`**, and
+  `grep -rn "ProcessCameraProvider" android/app/src/main/kotlin/` hits `camera/TrackerCamera.kt`
+  and no other file. Suggest the orchestrator reads the criterion that way for phases 06+.
+- **D05a-2 — `shouldDiagnose()` fires after **2** failures, not the 3 the phase file states.**
+  Python `_log_reconnect_diagnosis` guards with `if self._reconnect_diagnosed or
+  self._reconnect_attempts < 2: return`, and `_reconnect_attempts` is incremented *before* the
+  call — so the diagnosis lands on the second consecutive failure. `entry.md` says trust the Python
+  code, so `DIAGNOSE_AFTER = 2`. The legacy app used 3. The test keeps the spec's name
+  (`diagnosisFiresExactlyOnceAfterThreeFailures`) and asserts what actually matters: nothing after
+  the first failure, and **exactly one** `true` across ten consecutive failures.
+- **D05a-3 — the downshift is not restricted to local USB (deliberate deviation, as instructed).**
+  Python's `_downshift_target` bails on `not isinstance(self._src, int)`. Android has no such
+  distinction; the bandwidth argument applies to the ISP/HAL path too, so `offerDownshift` always
+  applies. Threshold and latch are Python's: `attempts >= 2`, delivered `>= 1920*1080`, once ever.
+  `offerDownshift(null)` is **false** — with no frame yet there is no trustworthy size, and the
+  request may never substitute for one (that is `a7dab73`).
+- **D05a-4 — sustained recovery is measured from the last FAILURE, not from a frame-continuity
+  counter.** Python resets when `self._reconnect_attempts and (time.time() -
+  self._last_reattach_ts) > 10.0` on a good read — i.e. 10 s since the last reattach, evaluated
+  only while frames arrive. `onFrameDelivered(nowMs)` reproduces exactly that (`nowMs -
+  lastFailureMs >= 10 s`), which is also what makes "one lucky frame at t+1 s does not reset"
+  true. No separate continuity state was invented.
+- **D05a-5 — test names are camelCase, not the phase file's snake_case.** The house style of every
+  existing test in this pack (`pairVerifyCommitsOnAfterMatch`, …). Mapping:
+  `backoff_schedule_is_3_6_12_24_30_30` → `backoffScheduleIs3612243030`,
+  `backoff_base_follows_reconnect_grace_s` → `backoffBaseFollowsReconnectGraceS`,
+  `one_lucky_frame_does_not_reset_escalation` → `oneLuckyFrameDoesNotResetEscalation`,
+  `diagnosis_fires_exactly_once_after_three_failures` → `diagnosisFiresExactlyOnceAfterThreeFailures`,
+  `downshift_offered_once_above_1080p_then_latched` → `downshiftOfferedOnceAbove1080pThenLatched`,
+  `logs_once_per_distinct_pair` → `logsOncePerDistinctPair`,
+  `no_log_when_delivered_matches_requested` → `noLogWhenDeliveredMatchesRequested`,
+  `delivered_size_is_read_from_the_image_never_from_the_request` →
+  `deliveredSizeIsReadFromTheImageNeverFromTheRequest`. One extra test
+  (`requestAndDeliveredAreNeverConflated`) pins that `CameraRequest.downshifted()` changes the WISH
+  only and that no `DeliveredSize` can be produced from a `CameraRequest`.
+- **D05a-6 — `CameraRequest` carries `width`/`height` as `Int`, not an `android.util.Size`.**
+  `Size` is an android.jar stub on the unit-test JVM and its constructor throws; the phase file's
+  `val requestedSize: Size` is still exposed on `TrackerCamera` (built on demand from the ints), so
+  the "requested and delivered are never conflated" rule is unaffected. Same reason the fake
+  `ImageProxy` returns a literal `0x23` for `getFormat()` instead of touching `ImageFormat`.
+- **D05a-7 — `runCatching` instead of `try/catch` in the two must-not-throw paths.** detekt's
+  default `TooGenericExceptionCaught` forbids catching `Throwable`/`Exception`/`RuntimeException`,
+  which is exactly what "a sink exception must never kill the analyzer thread" requires.
+  `runCatching { … }.onFailure { Log.w(...) }` (analyzer) and `runCatching { bindToLifecycle(…) }
+  .getOrElse { scheduleRebind(…) }` express it with no `@Suppress` and no baseline. Related:
+  `offerDownshift` was reshaped to 3 returns for `ReturnCount` (behaviour unchanged).
+- **Note (not a discrepancy) — the gate was run in an isolated copy.** 05b is editing
+  `app/src/main/kotlin/com/chesslab/tracker/pipeline/` concurrently and it does not currently
+  compile (`BoardWarps.kt`: `Unresolved reference 'FrameStages'`, ~20 `overrides nothing` errors),
+  which fails `:app:compileDebugKotlin` and therefore every `:app` task. The full gate was
+  therefore run against `git archive HEAD android` + only this phase's seven files: tests,
+  `ktlintCheck` and `detekt` all **green, zero findings**. In the live tree `:app:detekt` also runs
+  (it needs no compilation) and reports exactly one finding, in 05b's `pipeline/RoiMotion.kt`
+  (unused `org.opencv.core.CvType` import) — **nothing in `camera/`**.
+
+#### Manual verification checklist — NOT executed
+
+No device was attached in this session, so all four items (tab-switch feed survival, the
+requested-vs-delivered WARN, the 3/6/12/24/30 s backoff with one diagnosis line, the ~10 s
+escalation reset) are **open for phase 09 / the first live bring-up**. Everything that can be
+checked without a device is covered by the 9 unit tests and the acceptance greps.
+
+### 05c (ONNX `SquareClassifier`, loud attach state, CNN observer thread), 2026-07-25
+
+Files created (package `com.chesslab.tracker.cnn`, module `:app`): main `ModelSpec.kt` (56),
+`CnnState.kt` (114), `CnnModelAssets.kt` (60), `OnnxSquareClassifier.kt` (170),
+`CnnObserver.kt` (158); tests `ModelSpecTest` (5), `OnnxSquareClassifierContractTest` (6),
+`CnnStateTest` (3), `CnnObserverScheduleTest` (5) — **19 tests**. No build file, no manifest, no
+file outside `cnn/` was touched; nothing was needed from `camera/`, `pipeline/`, `:core-cnn` or
+the version catalog, so **no blocker**.
+
+**Entry points 06c drives:** `CnnObserver(source, fen, onSnapshot, log, nowMs, dispatcher)` →
+`attach { Attached(OnnxSquareClassifier.open(staged, log), backend, model) }`,
+`onFrameAvailable()` once per analyzer frame (returns immediately), `wantsFrame()` as the gate
+for 05b's `CropFrameStore.wantsFrame()`, `setIntervalS(observerIntervalS)`, `setEnabled`,
+`retryAttach` (07b), `state: StateFlow<CnnState>`, `close()`. `onSnapshot` is the callback that
+marshals the `CnnSnapshot` onto the engine thread (`TrackerEngine.onCnnSnapshot`).
+
+#### Discrepancies
+
+- **D05c-1 — the 14-class assertion is `:core-cnn`'s `requireExpectedClasses`, so it throws
+  `IllegalArgumentException`, not the `IllegalStateException` the phase file names.** Reusing it
+  keeps the canonical class list in exactly one place (CLAUDE.md), which is why **both acceptance
+  greps over `cnn/` return ZERO hits, not "only `ModelSpec.kt`"**: there is no `wP`/`bK` literal
+  and no `0.485`/`0.229` literal anywhere in `:app` — the ImageNet fallback is `:core-cnn`'s
+  `IMAGENET_MEAN`/`IMAGENET_STD` and is applied **only** when the `normalize` key is absent
+  (`fallsBackToImagenetOnlyWhenNormalizeKeyIsAbsent` asserts both directions, the `ee7c83c`
+  regression). Both exception types are unchecked and both fail loudly at load.
+- **D05c-2 — the `addQnn` guard is structural, not an in-function file check.** `Ep` is an enum
+  pairing each provider with the graph it may run (`QNN -> model.qnn.onnx`, `NNAPI`/`CPU` ->
+  `model.onnx`) and `epChain(hasQnnModel)` does not even offer `Ep.QNN` without the staged
+  quantized file. The acceptance grep expects the existence check inside the same function as
+  `addQnn`; the enum makes the wrong pairing unrepresentable instead, and
+  `prefersQuantizedModelForQnnAndFp32Otherwise` pins it.
+- **D05c-3 — `grep -c "session.run\|runner.run"` is 2, not 1.** `runner.run(...)` in `classify`
+  is the ONE inference call site; the second hit is `session.run(...)` inside the file-private
+  `OrtSessionRunner`, which exists **because** the phase file's own test section demands a fake
+  `SessionRunner` seam. Splitting it into another file would break the file-ownership list.
+- **D05c-4 — `CnnSnapshot.inferMs` is preprocess + inference, not the bare `run`.** The observer
+  can only time the `SquareClassifier` seam. The pure session time is
+  `OnnxSquareClassifier.lastRunMs` (measured around `runner.run` only, `@Volatile`), which 07b
+  should read for the debug screen.
+- **D05c-5 — the observer's input seam is `CnnFrameSource`/`CnnFrame` (owned by `cnn/`), not
+  05b's `CropFrameStore`.** 05b runs concurrently and 05c may not name a type it owns, so the
+  observer takes `fun take(): CnnFrame?` and 06c adapts the store to it. `take()` is called **on
+  the observer thread**, so the bordered warp's cropping happens off the analyzer thread; the
+  analyzer's only inbound coupling stays `wantsFrame()` + `onFrameAvailable()`, both non-blocking
+  volatile reads.
+- **D05c-6 — `:core-cnn`'s `preprocess` allocates a fresh `FloatArray` per call** (64 x 3 x 128 x
+  128 = 12.6 MB). The direct `FloatBuffer` handed to ORT is allocated once and reused
+  (`reusesTheInputBufferAcrossCalls`), but removing the intermediate copy would mean an `out`
+  overload in `:core-cnn`, which 05c does not own. ~6-10 allocations/s at observer rate.
+- **D05c-7 — `attach` takes `() -> Attached` (classifier + backend + model).** The observer never
+  casts to the ONNX implementation, so `CnnState.Ready` carries a named EP for any classifier and
+  the schedule tests run against a pure fake.
+- **D05c-8 — the real bundled model IS testable on the host, and is tested.** `onnxruntime-jvm` is
+  a `testImplementation` (00a) and the QNN AAR is excluded from unit-test configurations, so
+  `stagesAndRunsTheRealAssetModelOnTheFallbackProvider` stages `assets/cnn_model/` into a
+  `@TempDir`, walks the real EP chain (QNN fails → WARN, NNAPI fails → WARN, **CPU builds**), runs
+  all 64 crops through the committed `model.onnx` in one session call and asserts the softmax
+  rows. This covers `ModelSpec.parse` on the real asset, staging, the fall-through logging and the
+  batched run end to end — everything except which EP a *device* picks.
+- **D05c-9 — `android.util.Log` is stubbed in JVM unit tests**, so every log goes through a
+  `CnnLog` seam (`AndroidCnnLog` is the Android binding). That is what makes "an attach failure is
+  an ERROR log **and** a state" assertable at all.
+- **Not testable on the host (by construction):** QNN-HTP(NPU) and NNAPI selection, the QNN
+  `backend_path`/`htp_performance_mode` options, `CnnModelAssets.fromAssets(Context)`, and the
+  steady-state on-device `inferMs`. All four are in the phase file's manual checklist, which is
+  **not yet run** — no device was attached in this session.
+- **Note:** `grep -rn "catch" cnn/` is EMPTY — every failure path is `runCatching(...)` with an
+  `onFailure` that logs **and** transitions state (attach → sticky `Failed` at ERROR; observation
+  → WARN + the 1 s backoff). No `@Suppress`, no baseline, no detekt config change.
+
+### 05b (frame pipeline — YUV→BGR, the two warps, gray, ROI motion, dark gate, timings), 2026-07-25
+
+Files created (package `com.chesslab.tracker.pipeline`, module `:app`): main `YuvToBgr.kt` (146),
+`FrameSizeGuard.kt` (108), `GrayPipeline.kt` (37), `RoiMotion.kt` (166), `BoardWarps.kt` (176),
+`StageTimings.kt` (61), `FramePipeline.kt` (151); tests `YuvToBgrTest` (5), `FrameSizeGuardTest`
+(4), `RoiMotionGeometryTest` (6), `StageTimingsTest` (2), `FramePipelineOrderTest` (6) — **23
+tests, 0 failures** — plus the fixtures `app/src/test/resources/pipeline/yuv420_64x48.bin` and
+`…_expected_nv21.bin`. No build file, no `camera/`, no `cnn/`, no `core-*` file was touched.
+
+#### The entry point 06c calls per frame
+
+```kotlin
+class FramePipeline(config: TrackerConfig, stages: FrameStages, cropStore: CropFrameStore,
+                    sizeGuard: FrameSizeGuard, timings: StageTimings = StageTimings()) {
+    @Volatile var corners: FloatArray?          // [a8,h8,h1,a1] in source px, swapped by 06c
+    fun onFrame(image: ImageProxy, timestampMs: Long): FrameResult   // Ready(FrameInput) | Skipped(note)
+    fun onConfigChanged(config: TrackerConfig)  // CLAHE rebuild + prevRoi reset
+    fun onGeometryChanged(geometry: BoardGeometry)
+    fun close()
+}
+// production wiring: FramePipeline(cfg, CameraStages(geom, cfg, store), store, guard)
+```
+
+#### Discrepancies
+
+- **D05b-1 — `:core-engine`'s `motionScore` is `internal`, so `:app` cannot call it.** The phase
+  file's "do not reimplement `motionScore` — call `:core-engine`" is not executable: `Motion.kt`
+  is `internal fun`, `:core-engine`'s public surface is `api/` only (entry.md hard rule 3), and
+  both `:core-engine` and the seam are frozen for this phase. Rather than stop the phase over an
+  8-line pure function, `RoiMotion.kt` carries `changedPixelPercent(prev, cur, pxThr)` — the same
+  arithmetic (unsigned bytes, strict `>`, result in PERCENT), unit-tested, with the duplication
+  flagged in its KDoc. **Orchestrator decision needed:** promote `motionScore` into
+  `engine.api` (one line) and delete the copy, or keep the copy. It is the ONLY duplicated logic
+  in the package.
+- **D05b-2 — `:app` unit tests have no OpenCV natives, so the OpenCV steps are untested.**
+  `app/build.gradle.kts` depends on the OpenCV **AAR** (Android `.so` only) and has no bytedeco
+  host artifact the way `:core-geometry` does; build files are frozen for this phase. Consequence:
+  `cvtColor(COLOR_YUV2BGR_NV21)`, `warpFromCorners`, `warpBoardForCrops`, CLAHE/blur, `Canny`
+  coverage and the ROI warp/resize/blur are **not** exercised by `:app:testDebugUnitTest` — every
+  one of them is already covered by `:core-geometry`'s 58 native-backed tests except the two
+  `cvtColor` calls. What this phase owns and tests is the arithmetic around them: NV21 packing
+  (byte-exact vs the fixture, incl. `rowStride > width` and `pixelStride 2`), the centre
+  expansion, the change score, the buffer lifecycle, the size guard and the per-frame order.
+  **The phase file's `yuv420_64x48_expected_bgr.bin` was therefore replaced by
+  `yuv420_64x48_expected_nv21.bin`** — an expected-BGR fixture would need a decoder this module
+  cannot run. Everything OpenCV-backed sits behind the `FrameStages` interface so the order test
+  runs with fakes.
+- **D05b-3 — `pipeline/GrayPipeline.kt` DELEGATES to `:core-geometry`'s `GrayPipeline`.** 02b
+  already landed the `_gray` port (cvtColor → CLAHE(clip, 8x8) → GaussianBlur(5,5,0)) with a
+  cached CLAHE handle. Re-typing it in `:app` would create a second source of truth for a parity
+  primitive. The app class adds only what 02b's cannot know: the reused destination `Mat` and the
+  CLAHE **rebuild** on a live `diffClaheClip` change (`_apply_live_tuning` sets `_clahe = None`).
+  **The acceptance grep `grep -n "GaussianBlur" pipeline/GrayPipeline.kt` therefore does not
+  hit** — it hits `core-geometry/.../GrayPipeline.kt:47` with kernel `5, 5`. The same grep on
+  `pipeline/RoiMotion.kt` does hit, as specified.
+- **D05b-4 — `CropFrameStore` hands over a `Pending` record, not a bare `Mat`.** 05c's
+  `CnnFrame(crops, seq, tsMs, warped, gray)` needs the observed frame's **detection** warps and
+  its seq; a bare crop `Mat` cannot supply them, and invariant 5 (recovery anchors on the frame
+  the CNN looked at) then has no way to be satisfied. `Pending(cropWarp, seq, tsMs, bgrDet,
+  grayDet)` bundles what the pipeline already holds at emit time. Ownership is as specified:
+  `update()` releases the previous `cropWarp`, `take()` transfers it, `close()` releases.
+  A second addition: `internal fun served()`, called by the pipeline right after the warp, is what
+  makes one `request()` yield exactly one bordered warp (`wantsFrame() = wanted && pending ==
+  null`). The 06c adapter is `CnnFrameSource { store.take()?.let { … } ?: run { store.request();
+  null } }` — 05c's file already documents that adapter as 06c's.
+- **D05b-5 — `FrameSizeGuard` takes plain ints, not 05a's `DeliveredSize`.** 05a runs
+  concurrently and its files are not mine; the guard is deliberately Android-free and OpenCV-free
+  (`setRequested`, `setProfile`, `note(w, h)`, `mismatch: SizeMismatch?`). `requestRegeneration`
+  is a **signal only** — it carries no frame, because ArUco must not run on the analyzer thread
+  (`4a7609e`). Python's rate-limit rule, the retry-every-frame rule and the a7dab73 "delivered is
+  truth" rule are all ported and asserted.
+- **D05b-6 — `FrameInput`'s `ByteArray`s are freshly allocated per frame, ON PURPOSE.** The
+  engine's `RunningMean*` stores appended planes by reference (invariant 14 / `FrameLoop.kt`
+  KDoc), so handing it a reused buffer would silently average one plane against itself. "Zero
+  per-frame allocation" therefore governs the YUV→BGR path and every `Mat` (all long-lived
+  fields, `release()`d in `close()`); the two seam copies at `detSize` (~1.0 MB/frame at
+  `detSize = 800`) are the price of the engine's contract, not an oversight.
+- **D05b-7 — `gridLineCoverage` runs on EVERY emitted frame.** Python calls
+  `_occluded_by_grid` only inside the motion/stable branches, but `gridLineCoverage` is a
+  `FrameInput` field, so the app cannot know whether the engine will need it. The values are
+  identical; only the Canny cost is unconditional. If the on-device budget needs it back, the
+  seam would have to carry a lazy accessor — recorded rather than improvised.
+- **D05b-8 — the manual checklist is NOT run and the fps/median numbers are NOT measured.** No
+  device was attached in this session, and `:app` has no UI/service yet (06b/06c) to run the
+  pipeline end to end. The four checklist items (1/s `chesslabPerf` line, ≤ 20 ms median, dark-gate
+  flip, mid-session resolution change) stay **open for phase 09**.
+- **Note (not a discrepancy):** the acceptance greps are otherwise green —
+  `warpBoardForCrops` appears only in `BoardWarps.kt` and only under `cropStore.wantsFrame()`;
+  `detSize`/`detectScale` hit `BoardWarps.kt`; `160` hits `RoiMotion.kt`; and
+  `Aruco|MarkerTracker|detectMarkers` and `SquareClassifier|OrtSession|runBlocking|.await()` are
+  both **empty** over `pipeline/`. No file exceeds 250 LOC (largest: `BoardWarps.kt` at 176);
+  `FramePipeline.kt` is 151 (≤ 200) and `YuvToBgr.kt` 146 (≤ 150).
 
 ## Blockers
 
+- **OPEN (05b, D05b-1) — `motionScore` is `internal` to `:core-engine` and unreachable from
+  `:app`.** Worked around with an 8-line, unit-tested local port in `RoiMotion.kt`; the clean fix
+  is one line in `engine.api` and is an orchestrator/seam decision.
 - ~~**OPEN (04a, D04a-1) — `:core-cnn`'s `CnnRecovery.resyncCheck` drops the derived move**~~ —
   **RESOLVED by 04x**, see D04x-2 (and mutation-verified: the overrule test goes red without it).
 - ~~**OPEN (04a D04a-5 / 04b D04b-3) — `CnnEvaluator.board: Any` is fed two different types**~~ —
@@ -2332,3 +2581,46 @@ _(implementing agent appends one line per finished phase)_
   969 frames, ZERO divergence**; `ktlintFormat`, `ktlintCheck`, `detekt` all clean, no `@Suppress`,
   no baseline. 7 discrepancies (D04x-1..7); two items stay open: no `resync_cnn` counterpart and
   no `preview` variant of `acceptCnnPosition`.
+- 2026-07-25 — **05a done**: `camera/` in `:app` — `TrackerCamera` is the ONLY class in the app
+  that calls `ProcessCameraProvider.getInstance` (one call site, greppable), binds `ImageAnalysis`
+  as the only use case with `STRATEGY_KEEP_ONLY_LATEST` + `OUTPUT_IMAGE_FORMAT_YUV_420_888` on a
+  dedicated `chesslab-analyzer` thread, and hands the raw `ImageProxy` to a `FrameSink` it closes
+  in a `finally`. `DeliveredSize` is built only from the `ImageProxy` (the `a7dab73` regression
+  test), `ResolutionMismatchLogger` reports a mismatch once per pair, `ReconnectPolicy` is the pure
+  3/6/12/24/30 s backoff with the one-shot diagnosis, the single 720p downshift and the 10 s
+  sustained-recovery reset. 4 main files (356 LOC, max 184), 3 test files, 9 tests green;
+  gate run in an isolated copy because 05b's `pipeline/` does not compile right now — tests +
+  ktlintCheck + detekt all clean, zero findings in `camera/`. 7 discrepancies (D05a-1..7); the
+  4-item manual device checklist is untested and deferred.
+- 2026-07-25 — **05c done**: the ONNX classifier and the CNN observer thread. `ModelSpec.parse`
+  reads classes / `out_size` / `normalize` from the asset `config.json` and refuses to load on a
+  reordered 14-class list or a non-128 crop (`ee7c83c`); `OnnxSquareClassifier` walks the
+  **QNN-HTP(NPU) → NNAPI → CPU** chain with the graph pairing made unrepresentable-if-wrong by an
+  `Ep` enum (QNN only ever sees `model.qnn.onnx`), and runs **all 64 crops in ONE session call**
+  through a reused direct `FloatBuffer`, calling `:core-cnn`'s `preprocess` (no second copy) and
+  softmaxing the log-probability head; `CnnObserver` is a single-thread dispatcher with
+  `_observer_due`'s spawn guard, single-flight `cnnBusy`, `observerIntervalS` pacing, the 1 s
+  failure backoff and the FEN captured **at observation start**, producing `CnnSnapshot` for the
+  callback 06c wires. **Attach failure is loud by construction**: `CnnState`
+  (`Off | Attaching | Ready(backend, model) | Failed(reason)`) as a `StateFlow`, ERROR log with
+  the throwable, sticky `Failed` that only `retryAttach()` clears, and exactly one
+  `CNN inference backend: …` line per session — `grep -rn "catch" cnn/` is empty (runCatching +
+  log + transition everywhere). Gate: `:app:testDebugUnitTest --tests "com.chesslab.tracker.cnn.*"`
+  **19/19, 0 skipped, 0 failures**, `ktlintFormat` (touched no file outside `cnn/`), `ktlintCheck`
+  + `detekt` **zero findings for the whole `:app` module** (run with `--rerun-tasks`, so 05a's and
+  05b's in-flight files were analysed too and were clean at that moment). 9 discrepancies
+  (D05c-1..9); the notable one is D05c-8: `onnxruntime-jvm` lets the **real committed
+  `model.onnx`** load and classify 64 crops on the host CPU EP, so the whole
+  stage → parse → EP-fallback → batched-run path is covered by a test, and only the device EP
+  selection and the on-device `inferMs` remain manual.
+- 2026-07-25 — **05b done**: `pipeline/` ports `_loop`'s per-frame order (size guard → YUV→BGR →
+  detection warp @ `detSize` → dark gate on PRE-CLAHE luma → `_gray` → `_roi_motion` → grid
+  coverage → `FrameInput`; the bordered `warpBoardForCrops` runs ONLY on `CropFrameStore`
+  demand, per invariant 1 and `4a7609e`). 7 main files (845 LOC, largest 176), all `Mat`s and the
+  NV21 buffer are long-lived fields, no ArUco / no classifier / no blocking call in the package.
+  `StageTimings` fills `convert/warp/gray/motion/grid/total` for `TrackerStatus.stageTimingsMs`
+  (the engine cannot: wall-clock ban) and logs `chesslabPerf` at 1/s. Gate:
+  `:app:testDebugUnitTest --tests "com.chesslab.tracker.pipeline.*"` **23/23, 0 failures**,
+  `:app:ktlintFormat` (no drive-by outside `pipeline/`), `:app:ktlintCheck :app:detekt` BUILD
+  SUCCESSFUL, zero findings. 8 discrepancies (D05b-1..8); one blocker-grade item stays open —
+  `motionScore` is `internal` to `:core-engine`, so the ROI stage carries a local 8-line port.

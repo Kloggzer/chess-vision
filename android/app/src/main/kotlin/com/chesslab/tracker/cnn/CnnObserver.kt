@@ -1,0 +1,158 @@
+package com.chesslab.tracker.cnn
+
+import com.chesslab.cnn.SquareClassifier
+import com.chesslab.cnn.observationFromProbs
+import com.chesslab.engine.api.BgrImage
+import com.chesslab.engine.api.CnnSnapshot
+import com.chesslab.engine.api.GrayImage
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import java.util.concurrent.Executors
+
+/** Python's 1 s guard after a failed observation (`_observe_snapshot`), so interval 0 cannot spin. */
+private const val BACKOFF_MS = 1000L
+private const val MS_PER_S = 1000.0
+
+/**
+ * One observation's input. Built on the observer thread by the adapter 06c wires over 05b's
+ * `CropFrameStore`, so neither the cropping nor the full-resolution warp lands on the analyzer
+ * thread's 15 fps budget.
+ *
+ * `warped`/`gray` are the SAME frame's warps at `detSize` — the recovery and verify commits
+ * anchor on the frame the CNN actually looked at (entry.md invariants 1 and 5).
+ */
+class CnnFrame(
+    val crops: List<BgrImage>,
+    val seq: Long,
+    val tsMs: Long,
+    val warped: BgrImage?,
+    val gray: GrayImage?,
+)
+
+fun interface CnnFrameSource {
+    /** @return null when no crop frame is pending. Called on the observer thread only. */
+    fun take(): CnnFrame?
+}
+
+/** A loaded classifier plus the execution provider it actually got — both go into [CnnState.Ready]. */
+class Attached(
+    val classifier: SquareClassifier,
+    val backend: String,
+    val model: String,
+)
+
+/**
+ * Port of `tracker.py::_observer_due` / `_cnn_worker` / `_observe_snapshot`: a single thread
+ * that runs at most ONE observation at a time and hands the result to the engine through a
+ * callback (06c marshals it onto the engine's single owning thread — the engine is driven by
+ * exactly one thread).
+ */
+class CnnObserver(
+    private val source: CnnFrameSource,
+    private val fen: () -> String?,
+    private val onSnapshot: (CnnSnapshot) -> Unit,
+    private val log: CnnLog = AndroidCnnLog,
+    private val nowMs: () -> Long = System::currentTimeMillis,
+    dispatcher: CoroutineDispatcher = Executors.newSingleThreadExecutor { Thread(it, "chesslab-cnn") }.asCoroutineDispatcher(),
+) : AutoCloseable {
+    private val holder = CnnStateHolder(log)
+    private val scope = CoroutineScope(dispatcher + SupervisorJob())
+
+    val state: StateFlow<CnnState> get() = holder.state
+
+    @Volatile
+    private var classifier: SquareClassifier? = null
+
+    @Volatile
+    private var busy = false
+
+    @Volatile
+    private var startedMs = 0L
+
+    @Volatile
+    private var intervalMs = 0L
+
+    @Volatile
+    private var enabled = true
+
+    /** `_observer_due`. Also drives 05b's `CropFrameStore.wantsFrame()` — no crop warp while busy. */
+    fun wantsFrame(): Boolean = enabled && state.value is CnnState.Ready && !busy && nowMs() - startedMs >= intervalMs
+
+    /** Called per frame from the analyzer thread; returns immediately. */
+    fun onFrameAvailable() {
+        if (!wantsFrame()) return
+        // Captured HERE, not inside the coroutine: a FEN that changes mid-inference must not
+        // overwrite the snapshot's discard-on-change guard.
+        val startFen = fen()
+        busy = true
+        startedMs = nowMs()
+        scope.launch { observe(startFen) }
+    }
+
+    fun attach(open: () -> Attached) {
+        if (!holder.beginAttach()) return
+        scope.launch { load(open) }
+    }
+
+    /** The explicit way out of the sticky [CnnState.Failed] — 07b's debug screen calls it. */
+    fun retryAttach(open: () -> Attached) {
+        if (!holder.retry()) return
+        scope.launch { load(open) }
+    }
+
+    fun setEnabled(on: Boolean) {
+        enabled = on
+        if (!on) holder.off()
+    }
+
+    fun setIntervalS(seconds: Double) {
+        intervalMs = (seconds * MS_PER_S).toLong()
+    }
+
+    override fun close() {
+        classifier?.close()
+        classifier = null
+        scope.cancel()
+    }
+
+    private fun load(open: () -> Attached) {
+        runCatching(open)
+            .onSuccess {
+                classifier = it.classifier
+                holder.ready(it.backend, it.model, it.classifier.classes.size)
+            }.onFailure { holder.failed(it.message.orEmpty(), it) }
+    }
+
+    private fun observe(startFen: String?) {
+        runCatching { runObservation(startFen) }
+            .onFailure {
+                log.warn("CNN observation failed", it)
+                startedMs = nowMs() + BACKOFF_MS
+            }
+        busy = false
+    }
+
+    private fun runObservation(startFen: String?) {
+        val cnn = classifier ?: return
+        val frame = source.take() ?: return
+        val started = nowMs()
+        val probs = cnn.classify(frame.crops)
+        val obs = observationFromProbs(probs, cnn.classes)
+        onSnapshot(
+            CnnSnapshot(
+                obs = obs,
+                seq = frame.seq,
+                tsMs = frame.tsMs,
+                inferMs = (nowMs() - started).toDouble(),
+                warped = frame.warped,
+                gray = frame.gray,
+                fen = startFen,
+            ),
+        )
+    }
+}
