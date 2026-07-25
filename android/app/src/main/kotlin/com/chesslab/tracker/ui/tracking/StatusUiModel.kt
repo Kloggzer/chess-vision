@@ -74,6 +74,8 @@ data class TrackingUiState(
     val infoLine: String?,
     val alarm: AlarmUi?,
     val overlay: OverlayLayers,
+    // `[a8, h8, h1, a1]` in source px, or null before the first calibration.
+    val corners: FloatArray? = null,
 ) {
     /** The board scrim and the frozen fps colour are the SAME condition — a latched alarm. */
     val boardTinted: Boolean get() = alarm != null
@@ -104,6 +106,7 @@ fun trackingUiState(status: TrackerStatus): TrackingUiState {
                 shadowVetoed = status.shadowVetoed,
                 occlusionVetoed = status.occlusionVetoed,
             ),
+        corners = status.corners,
     )
 }
 

@@ -2,6 +2,7 @@ package com.chesslab.tracker.camera
 
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageProxy
+import com.chesslab.tracker.settings.ResolutionMode
 
 /**
  * The size the camera REALLY delivers, built only from the [ImageProxy].
@@ -58,6 +59,27 @@ data class CameraRequest(
     fun downshifted(): CameraRequest = copy(width = DOWNSHIFT_WIDTH, height = DOWNSHIFT_HEIGHT)
 }
 
+/**
+ * 07a's [ResolutionMode] as a request.
+ *
+ * This changes what is ASKED for and nothing else: the delivered [DeliveredSize] read off the
+ * `ImageProxy` remains the single source of truth for calibration, live-align and the size guard
+ * (commit `a7dab73`). AUTO is 1080p rather than "whatever CameraX picks", because 1080p is the
+ * mode the 15 fps analyzer budget was measured at — an unnamed default is not a measured one.
+ */
+fun cameraRequestFor(mode: ResolutionMode): CameraRequest =
+    when (mode) {
+        ResolutionMode.AUTO, ResolutionMode.R1080 -> CameraRequest(WIDTH_1080, HEIGHT_1080)
+        ResolutionMode.R1440 -> CameraRequest(WIDTH_1440, HEIGHT_1440)
+        ResolutionMode.R2160 -> CameraRequest(WIDTH_2160, HEIGHT_2160)
+    }
+
 private const val DEFAULT_TARGET_FPS = 30
 private const val DOWNSHIFT_WIDTH = 1280
 private const val DOWNSHIFT_HEIGHT = 720
+private const val WIDTH_1080 = 1920
+private const val HEIGHT_1080 = 1080
+private const val WIDTH_1440 = 2560
+private const val HEIGHT_1440 = 1440
+private const val WIDTH_2160 = 3840
+private const val HEIGHT_2160 = 2160

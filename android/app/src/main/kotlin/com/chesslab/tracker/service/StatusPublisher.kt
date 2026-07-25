@@ -85,6 +85,16 @@ class StatusPublisher(
     var sizeMismatch: SizeMismatch? = null
 
     /**
+     * The corners the frame pipeline warped with, `[a8, h8, h1, a1]` in source px (invariant 11).
+     *
+     * They come from here rather than from the engine because the engine is under a "no pixels,
+     * no geometry" contract: it is handed corners per frame but owns no notion of the source
+     * image. The preview overlay draws its board quad from this (D06b-4).
+     */
+    @Volatile
+    var corners: FloatArray? = null
+
+    /**
      * The UNSAMPLED game FEN. The CNN observer captures it when an observation starts, as its
      * discard-on-change guard — a 100 ms-stale FEN from [status] would let an observation of the
      * position BEFORE a move be accepted as an observation of the position after it.
@@ -105,6 +115,7 @@ class StatusPublisher(
                 // The engine cannot time the frame pipeline (it is under a wall-clock ban), so the
                 // app's stage timings are merged in here; engine keys win on a name collision.
                 stageTimingsMs = timings.snapshot() + snapshot.stageTimingsMs,
+                corners = corners,
             )
         events.forEach { bus.tryEmit(it) }
     }

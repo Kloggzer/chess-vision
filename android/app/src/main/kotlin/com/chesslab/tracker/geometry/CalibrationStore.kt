@@ -83,6 +83,23 @@ class CalibrationStore(
     }
 
     /**
+     * Make [whitePov] the profile's orientation and return the geometry that follows from it.
+     *
+     * 07a's orientation setting is written INTO the profile rather than applied beside it: only
+     * the profile is carried over by [saveRecalibrated] (`ensure_profile`, calibration.py:222), so
+     * a value living anywhere else would be silently reset by the next recalibration — and a wrong
+     * a8 transposes every label of the session.
+     */
+    suspend fun applyOrientation(whitePov: Boolean): BoardGeometry {
+        val stored = (load() as? ProfileLoad.Ok)?.profile
+        when {
+            stored == null -> geometry = geometry.copy(whitePov = whitePov)
+            stored.whitePov != whitePov -> save(stored.copy(whitePov = whitePov))
+        }
+        return geometry
+    }
+
+    /**
      * Persist a recalibration. Only the corners and the source size are replaced; `whitePov`,
      * `boardSize`, `margin`, `markerDict` and `crop` survive from the existing profile unless the
      * user changed them on the confirmation screen ([whitePovOverride]).

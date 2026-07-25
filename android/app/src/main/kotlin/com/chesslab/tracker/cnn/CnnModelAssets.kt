@@ -29,11 +29,13 @@ class StagedModel(
 class CnnModelAssets(
     private val open: (String) -> InputStream?,
     private val dir: File,
+    /** 07a's `AppSettings.modelAsset` — the graph NNAPI and CPU are given. QNN always gets [MODEL_QNN_FILE]. */
+    private val graph: String = MODEL_FP32_FILE,
 ) {
     fun stage(): StagedModel {
         dir.mkdirs()
         val config = stageFile(MODEL_CONFIG_FILE) ?: error("missing asset $ASSET_DIR/$MODEL_CONFIG_FILE")
-        val fp32 = stageFile(MODEL_FP32_FILE) ?: error("missing asset $ASSET_DIR/$MODEL_FP32_FILE")
+        val fp32 = stageFile(graph) ?: error("missing asset $ASSET_DIR/$graph")
         return StagedModel(dir = dir, configJson = config.readText(), fp32 = fp32, qnn = stageFile(MODEL_QNN_FILE))
     }
 
@@ -51,10 +53,14 @@ class CnnModelAssets(
     }
 
     companion object {
-        fun fromAssets(context: Context): CnnModelAssets =
+        fun fromAssets(
+            context: Context,
+            graph: String = MODEL_FP32_FILE,
+        ): CnnModelAssets =
             CnnModelAssets(
                 open = { name -> runCatching { context.assets.open("$ASSET_DIR/$name") }.getOrNull() },
                 dir = File(context.filesDir, ASSET_DIR),
+                graph = graph,
             )
     }
 }

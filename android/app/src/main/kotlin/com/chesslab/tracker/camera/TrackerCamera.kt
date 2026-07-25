@@ -80,6 +80,32 @@ class TrackerCamera(
         }, context.mainExecutor)
     }
 
+    /**
+     * Ask the device for a different mode.
+     *
+     * It rebinds the ONE analysis use case; it does not create a second [ProcessCameraProvider]
+     * binding, and it does not create a second camera owner — a tracker restart keeps this object
+     * alive for exactly that reason (MEMORY `android-single-camera-owner`). What changes is the
+     * request; what the device delivers still decides everything downstream.
+     */
+    fun retarget(request: CameraRequest) {
+        if (request == target) return
+        target = request
+        mainHandler.post(::bindAnalysis)
+    }
+
+    /**
+     * Run [block] on the analyzer thread, serialized against [deliver].
+     *
+     * The tracker restart uses it: the pipeline, the engine and the ONNX observer may only be torn
+     * down when no frame is inside them, and "the analyzer thread is not currently delivering" is
+     * exactly what running on its single-thread executor guarantees.
+     */
+    fun runOnAnalyzer(block: () -> Unit) {
+        runCatching { analyzerExecutor.execute(block) }
+            .onFailure { Log.w(TAG, "analyzer thread is gone, skipped a queued task", it) }
+    }
+
     override fun close() {
         mainHandler.removeCallbacksAndMessages(null)
         rebindPending = false

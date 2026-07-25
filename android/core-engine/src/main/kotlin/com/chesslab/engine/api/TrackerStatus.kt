@@ -29,6 +29,9 @@ data class TrackerStatus(
     val stageTimingsMs: Map<String, Double>,
     val fps: Double,
     val note: String?,
+    // 8 floats [a8, h8, h1, a1] in SOURCE-image px (invariant 11), or null before the first
+    // calibration. The engine never sets this — the app fills in the corners it warped with.
+    val corners: FloatArray? = null,
     // null unless debugEnabled — see 07b
     val debug: DebugPayload? = null,
 )

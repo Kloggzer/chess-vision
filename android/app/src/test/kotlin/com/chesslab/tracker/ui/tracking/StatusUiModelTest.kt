@@ -2,6 +2,7 @@ package com.chesslab.tracker.ui.tracking
 
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
+import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -95,5 +96,16 @@ class StatusUiModelTest {
                 .intersect(ui.overlay.occlusionVetoed)
                 .isEmpty(),
         )
+    }
+
+    /** D06b-4: without this the overlay is parameterized for a quad it can never draw. */
+    @Test
+    fun theBoardCornersReachTheOverlay() {
+        val corners = floatArrayOf(10f, 20f, 110f, 22f, 108f, 120f, 12f, 118f)
+        assertArrayEquals(corners, trackingUiState(idleTrackerStatus().copy(corners = corners)).corners)
+        assertNull(trackingUiState(idleTrackerStatus()).corners)
+        // …and the drawing side accepts exactly that shape (invariant 11 order, 4 points).
+        assertEquals(4, cornerOffsets(corners)?.size)
+        assertNull(cornerOffsets(floatArrayOf(1f, 2f)))
     }
 }

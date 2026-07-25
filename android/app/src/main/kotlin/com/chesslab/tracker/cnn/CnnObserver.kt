@@ -7,6 +7,7 @@ import com.chesslab.engine.api.CnnSnapshot
 import com.chesslab.engine.api.GrayImage
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
@@ -58,7 +59,8 @@ class CnnObserver(
     private val onSnapshot: (CnnSnapshot) -> Unit,
     private val log: CnnLog = AndroidCnnLog,
     private val nowMs: () -> Long = System::currentTimeMillis,
-    dispatcher: CoroutineDispatcher = Executors.newSingleThreadExecutor { Thread(it, "chesslab-cnn") }.asCoroutineDispatcher(),
+    private val dispatcher: CoroutineDispatcher =
+        Executors.newSingleThreadExecutor { Thread(it, "chesslab-cnn") }.asCoroutineDispatcher(),
 ) : AutoCloseable {
     private val holder = CnnStateHolder(log)
     private val scope = CoroutineScope(dispatcher + SupervisorJob())
@@ -114,10 +116,24 @@ class CnnObserver(
         intervalMs = (seconds * MS_PER_S).toLong()
     }
 
+    /**
+     * Closes the session and gives the observer thread back.
+     *
+     * Both halves matter for a tracker restart, which closes an observer while the app keeps
+     * running: the session is freed ON the observer thread (closing an ORT session under a live
+     * `classify` is a native use-after-free, and `scope.cancel` cannot interrupt one that is
+     * already inside the runtime), and the executor is shut down afterwards, or every restart
+     * would leak a thread and a few hundred MB of arena.
+     */
     override fun close() {
-        classifier?.close()
-        classifier = null
         scope.cancel()
+        val cnn = classifier
+        classifier = null
+        enabled = false
+        CoroutineScope(dispatcher).launch {
+            cnn?.close()
+            (dispatcher as? ExecutorCoroutineDispatcher)?.close()
+        }
     }
 
     private fun load(open: () -> Attached) {

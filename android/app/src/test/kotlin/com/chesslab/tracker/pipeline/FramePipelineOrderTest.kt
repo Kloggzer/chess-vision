@@ -83,6 +83,21 @@ class FramePipelineOrderTest {
         assertEquals(1.75, input.motionRoiScore)
         assertEquals(0.5, input.gridLineCoverage)
         assertEquals(1, stages.convertCalls)
+        assertEquals(1, stages.gridCalls)
+    }
+
+    /**
+     * A disabled gate (`minGridLineCoverage <= 0`, which several parity clips run) makes the
+     * engine return before it reads the value, so the Canny pass behind [FrameStages.gridCoverage]
+     * must not run at all.
+     */
+    @Test
+    fun `a disabled grid gate skips the canny pass`() {
+        stages.coverage = 0.1
+        pipeline.onConfigChanged(TrackerConfig(minGridLineCoverage = 0.0))
+        val input = ready(pipeline.onFrame(FakeImage(), 1_000L))
+        assertEquals(0, stages.gridCalls)
+        assertEquals(GRID_GATE_OFF, input.gridLineCoverage)
     }
 
     private fun skipNote(result: FrameResult) = assertInstanceOf(FrameResult.Skipped::class.java, result).note
@@ -98,6 +113,7 @@ private class FakeStages : FrameStages {
     var coverage = 1.0
     var convertCalls = 0
     var grayCalls = 0
+    var gridCalls = 0
     var cropWarps = 0
     val cropSeqs = mutableListOf<Long>()
 
@@ -116,7 +132,10 @@ private class FakeStages : FrameStages {
 
     override fun bgrDet(): BgrImage = BgrImage(2, 2, ByteArray(12))
 
-    override fun gridCoverage(): Double = coverage
+    override fun gridCoverage(): Double {
+        gridCalls += 1
+        return coverage
+    }
 
     override fun roiMotion(corners: FloatArray): Double = motion
 

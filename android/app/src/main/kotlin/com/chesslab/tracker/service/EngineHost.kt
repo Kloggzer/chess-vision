@@ -123,19 +123,25 @@ class EngineHost(
 }
 
 /**
- * Builds the app's ONE engine, arms it with the CNN evaluator and locks it behind a host.
+ * Builds the app's ONE LIVE engine, arms it with the CNN evaluator and locks it behind a host.
  *
  * It happens here so no other file names `TrackerEngine` at all: a reference is all it takes for
  * some future screen to call it from the main thread. `attachCnn` is part of construction because
  * it also arms `cnnRun` — an engine without it commits straight from the diff and never queues a
  * candidate for verification.
+ *
+ * A tracker restart builds a NEW host, and that is deliberate: [EngineHost.owner] starts unset, so
+ * the rebuilt engine re-latches onto whichever thread drives it first instead of inheriting a
+ * claim from the stack that is being thrown away. Nothing here claims the engine, so construction
+ * itself may happen anywhere. [startFen] is how the game survives the restart.
  */
 fun engineHost(
     config: TrackerConfig,
     cnn: CnnEvaluator?,
+    startFen: String,
     onConfigApplied: (TrackerConfig) -> Unit,
 ): EngineHost {
-    val engine = TrackerEngine(config)
+    val engine = TrackerEngine(config, startFen)
     engine.attachCnn(cnn)
     return EngineHost(TrackerEngineOps(engine, onConfigApplied))
 }

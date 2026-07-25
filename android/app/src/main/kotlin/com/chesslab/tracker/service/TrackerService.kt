@@ -6,35 +6,24 @@ import android.content.pm.ServiceInfo
 import android.os.IBinder
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
-import com.chesslab.cnn.CnnConfig
-import com.chesslab.cnn.CnnRecovery
-import com.chesslab.engine.api.TrackerConfig
+import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.geometry.BoardGeometry
-import com.chesslab.tracker.camera.CameraRequest
 import com.chesslab.tracker.camera.DeliveredSize
 import com.chesslab.tracker.camera.TrackerCamera
-import com.chesslab.tracker.cnn.AndroidCnnLog
+import com.chesslab.tracker.camera.cameraRequestFor
 import com.chesslab.tracker.cnn.Attached
-import com.chesslab.tracker.cnn.CnnModelAssets
-import com.chesslab.tracker.cnn.CnnObserver
-import com.chesslab.tracker.cnn.OnnxSquareClassifier
-import com.chesslab.tracker.pipeline.CameraStages
-import com.chesslab.tracker.pipeline.CropFrameStore
-import com.chesslab.tracker.pipeline.FramePipeline
-import com.chesslab.tracker.pipeline.FrameSizeGuard
+import com.chesslab.tracker.cnn.CnnState
+import com.chesslab.tracker.geometry.calibrationStore
 import com.chesslab.tracker.pipeline.StageTimings
 import com.chesslab.tracker.settings.DataStoreConfigStore
 import com.chesslab.tracker.settings.SettingsRepository
 import com.chesslab.tracker.ui.debug.DebugSessionHost
 import com.chesslab.tracker.ui.debug.debugSession
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
-
-private const val REQUEST_WIDTH = 1920
-
-private const val REQUEST_HEIGHT = 1080
 
 private const val PREVIEW_MAX_SIDE = 640
 
@@ -44,27 +33,39 @@ private const val PREVIEW_MAX_SIDE = 640
  * It constructs, wires and closes; it holds no tracker logic at all. That is the whole point:
  * the legacy `TrackerService.kt` grew to 970 LOC of camera control, warper swaps, CNN
  * integration, recording and settings, and a real bug lived in it invisibly for weeks.
+ *
+ * Two lifetimes live here. The **session** — camera, frame bus, status publisher, settings — lasts
+ * as long as the service, because the UI collects its flows and the camera may have exactly one
+ * owner. The **stack** — pipeline, engine, CNN observer, coordinator — is rebuilt by
+ * [restartTracker] so the 34 construction-time knobs can be applied without killing the process.
  */
 class TrackerService : LifecycleService() {
     private lateinit var settings: SettingsRepository
-    private lateinit var host: EngineHost
-    private lateinit var observer: CnnObserver
-    private lateinit var pipeline: FramePipeline
-    private lateinit var camera: TrackerCamera
-    private lateinit var coordinator: TrackerCoordinator
     private lateinit var publisher: StatusPublisher
+    private lateinit var camera: TrackerCamera
     private lateinit var frames: CameraFrameBus
     private lateinit var binder: TrackerBinder
     private lateinit var notification: TrackerNotification
 
+    private val calibration by lazy { calibrationStore(this) }
+    private val timings = StageTimings()
+    private val cnnProbe = CnnRuntimeProbe()
+    private val stacks = StackSwitch { buildStack() }
+
+    /** Mirrors the CURRENT stack's observer, so the binder and 07b survive a restart. */
+    private val cnn = MutableStateFlow<CnnState>(CnnState.Off)
+
     @Volatile
     private var geometry = BoardGeometry()
 
-    private var moves = 0
+    @Volatile
+    private var corners: FloatArray? = null
 
-    // 07b's two debug probes. Both are inert until the debug screen arms them.
-    private lateinit var cropTap: DebugCropTap
-    private val cnnProbe = CnnRuntimeProbe()
+    /** Survives the restart that rebuilds the tap it arms. */
+    @Volatile
+    private var debugOn = false
+
+    private var moves = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -76,11 +77,8 @@ class TrackerService : LifecycleService() {
             notification.build("waiting", 0),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA,
         )
-        wire()
-        camera.bind(this)
-        lifecycleScope.launch { settings.load() }
-        publisher.events.onEach(::onEvent).launchIn(lifecycleScope)
-        settings.debugEnabled.onEach { if (it) setDebugEnabled(true) }.launchIn(lifecycleScope)
+        wireSession()
+        lifecycleScope.launch { start() }
     }
 
     override fun onBind(intent: Intent): IBinder {
@@ -90,99 +88,121 @@ class TrackerService : LifecycleService() {
 
     override fun onDestroy() {
         DebugSessionHost.publish(null)
+        TrackerRestartHost.publish(null)
         // Reverse construction order: nothing may deliver a frame into a closed pipeline.
         camera.close()
-        observer.close()
-        pipeline.close()
+        stacks.close()
         frames.close()
         super.onDestroy()
     }
 
-    private fun wire() {
-        val config = TrackerConfig()
-        val timings = StageTimings()
-        val store = CropFrameStore()
-        val guard = FrameSizeGuard()
+    /** The long-lived half. Nothing here is rebuilt by a restart — see the class doc. */
+    private fun wireSession() {
         publisher = StatusPublisher(lifecycleScope, timings)
-        pipeline = FramePipeline(config, CameraStages(geometry, config, store), store, guard, timings)
-        host = engineHost(config, CnnRecovery(cnnConfig(config))) { pipeline.onConfigChanged(it) }
         settings =
-            SettingsRepository(DataStoreConfigStore(this), lifecycleScope) {
-                host.submit(EngineAction.UpdateConfig(it))
+            SettingsRepository(DataStoreConfigStore(this), lifecycleScope) { config ->
+                stacks.current?.host?.submit(EngineAction.UpdateConfig(config))
             }
-        observer = openObserver(store)
-        frames = CameraFrameBus(openCamera(), lifecycleScope, { bgrToBitmap(it, PREVIEW_MAX_SIDE) })
-        val align = LiveAlign(lifecycleScope, ::geometry, settings.config::value) { pipeline.corners = it }
-        coordinator = TrackerCoordinator(pipeline, host, publisher, frames, observer, align, guard)
-        binder = TrackerBinder(host, publisher, frames, settings, observer.state, ::calibrate)
+        camera =
+            TrackerCamera(this, cameraRequestFor(settings.appSettings.value.resolutionMode), { image, delivered ->
+                binder.deliveredSize = delivered
+                publisher.cameraHealth = camera.cameraState.value
+                // Dropped, not queued, while a restart swaps the stack: `StackSwitch` detaches
+                // before it closes, so this is the window in which there is nothing to run.
+                stacks.current?.coordinator?.onFrame(image, delivered)
+            })
+        frames = CameraFrameBus(camera.cameraState, lifecycleScope, { bgrToBitmap(it, PREVIEW_MAX_SIDE) })
+        binder =
+            TrackerBinder(publisher, frames, settings, cnn, { stacks.current?.host?.submit(it) }, ::calibrate, this::restartTracker)
         DebugSessionHost.publish(
             debugSession(
                 status = publisher.status,
-                cnnState = observer.state,
+                cnnState = cnn,
                 settings = settings,
                 onDebugEnabled = ::setDebugEnabled,
-                crops = { cropTap.latest },
+                crops = { stacks.current?.cropTap?.latest },
                 runtime = cnnProbe::info,
-                retry = { observer.retryAttach(::openClassifier) },
+                retry = { stacks.current?.let { it.observer.retryAttach(::attachCnn) } },
             ),
         )
+        TrackerRestartHost.publish(binder)
+        cnnProbe.observations = { stacks.current?.observations ?: 0L }
     }
+
+    /** Persisted truth first, then the stack, then the camera — a frame with no stack is wasted. */
+    private suspend fun start() {
+        settings.load()
+        geometry = adoptStoredOrientation(calibration, settings)
+        swapStack()
+        // Before the bind, so the FIRST binding already asks for the persisted mode instead of
+        // binding at the default and immediately rebinding.
+        camera.retarget(cameraRequestFor(settings.appSettings.value.resolutionMode))
+        camera.bind(this)
+        publisher.events.onEach(::onEvent).launchIn(lifecycleScope)
+        settings.debugEnabled.onEach { if (it) setDebugEnabled(true) }.launchIn(lifecycleScope)
+    }
+
+    /**
+     * D07a-1: apply the 34 construction-time knobs without killing the process.
+     *
+     * Order: the orientation setting reaches the profile, the stack is swapped on the analyzer
+     * thread, and only then is the camera retargeted — a request change is the one part that must
+     * happen on the main thread, and doing it last means no frame is delivered into a half-built
+     * stack. The camera object itself is never replaced: exactly one `ProcessCameraProvider`
+     * binding may exist app-wide.
+     */
+    private fun restartTracker() {
+        lifecycleScope.launch {
+            geometry = calibration.applyOrientation(settings.appSettings.value.orientation.whitePov)
+            swapStack()
+            camera.retarget(cameraRequestFor(settings.appSettings.value.resolutionMode))
+        }
+    }
+
+    /**
+     * The swap runs on the ANALYZER thread, serialized against frame delivery, so no frame can be
+     * inside the pipeline while it is torn down. The rebuilt [EngineHost] latches its owning thread
+     * on its first tick — which is this same analyzer thread — so the ownership `check` is
+     * re-established rather than defeated.
+     */
+    private fun swapStack() =
+        camera.runOnAnalyzer {
+            stacks.restart()
+            stacks.current?.let { stack ->
+                stack.cropTap.enabled = debugOn
+                stack.host.submit(EngineAction.SetDebugEnabled(debugOn))
+                // In the STACK's scope: mirrored into the service scope, every restart would leave
+                // a collector behind on an observer that no longer exists.
+                stack.observer.state
+                    .onEach { cnn.value = it }
+                    .launchIn(stack.scope)
+            }
+        }
+
+    private fun buildStack(): TrackerStack =
+        TrackerStack(
+            TrackerSeed(settings.config.value, ::geometry, corners, publisher.lastFen ?: STARTPOS),
+            settings,
+            publisher,
+            frames,
+            timings,
+            lifecycleScope,
+            ::attachCnn,
+        )
 
     /**
      * Arms BOTH halves of the debug payload — the engine's assembly and the crop tap. 07a's
      * persisted switch only ever ARMS from here; disarming belongs to the screen that armed it.
      */
     private fun setDebugEnabled(on: Boolean) {
-        cropTap.enabled = on
-        host.submit(EngineAction.SetDebugEnabled(on))
+        debugOn = on
+        stacks.current?.let {
+            it.cropTap.enabled = on
+            it.host.submit(EngineAction.SetDebugEnabled(on))
+        }
     }
 
-    /** The app's ONLY `TrackerCamera`. Its health flow is what the frame bus republishes. */
-    private fun openCamera() =
-        TrackerCamera(this, CameraRequest(REQUEST_WIDTH, REQUEST_HEIGHT), { image, delivered ->
-            binder.deliveredSize = delivered
-            publisher.cameraHealth = camera.cameraState.value
-            coordinator.onFrame(image, delivered)
-        }).also { camera = it }.cameraState
-
-    private fun openObserver(store: CropFrameStore): CnnObserver {
-        cropTap = DebugCropTap(cropFrameSource(store, ::geometry))
-        val cnn =
-            CnnObserver(
-                source = cropTap,
-                fen = { publisher.lastFen },
-                onSnapshot = {
-                    cnnProbe.observations += 1
-                    host.submit(it)
-                },
-            )
-        // Attaching is asynchronous and LOUD on failure: a silent one once let the tracker run
-        // diff-only for a whole session (MEMORY android-live-bringup-2607).
-        cnn.attach(::openClassifier)
-        cnn.state.onEach { publisher.cnnState = it }.launchIn(lifecycleScope)
-        settings.config
-            .onEach {
-                cnn.setIntervalS(it.observerIntervalS)
-                cnn.setEnabled(it.cnnVerify)
-            }.launchIn(lifecycleScope)
-        return cnn
-    }
-
-    /**
-     * Opens the classifier and records what the EP chain asked for next to what it got. The
-     * requested provider is the head of the chain, which QNN only joins when the quantized graph
-     * was staged; anything else is a fall-through and 07b renders it as one.
-     */
-    private fun openClassifier(): Attached {
-        val staged = CnnModelAssets.fromAssets(this).stage()
-        val classifier = OnnxSquareClassifier.open(staged, AndroidCnnLog)
-        cnnProbe.requestedEp = if (staged.qnn != null) "QNN-HTP(NPU)" else "NNAPI"
-        cnnProbe.actualEp = classifier.backend
-        cnnProbe.model = classifier.model
-        cnnProbe.inputShape = classifier.inputShape
-        cnnProbe.lastRunMs = classifier::lastRunMs
-        return Attached(classifier, classifier.backend, classifier.model)
-    }
+    private fun attachCnn(): Attached = openClassifier(this, settings.appSettings.value, cnnProbe)
 
     private fun onEvent(event: TrackerEvent) {
         moves +=
@@ -197,22 +217,13 @@ class TrackerService : LifecycleService() {
 
     private fun calibrate(
         geom: BoardGeometry,
-        corners: FloatArray,
+        pts: FloatArray,
         profileName: String,
     ) {
         geometry = geom
+        corners = pts
         val requested = camera.requestedSize
         val delivered = camera.deliveredSize ?: DeliveredSize(requested.width, requested.height, 0)
-        coordinator.applyCalibration(geom, corners, profileName, delivered)
+        stacks.current?.coordinator?.applyCalibration(geom, pts, profileName, delivered)
     }
 }
-
-private fun cnnConfig(config: TrackerConfig) =
-    CnnConfig(
-        confThr = config.cnnConfThr,
-        minAgreement = config.cnnMinAgreement,
-        marginSquares = config.cnnMarginSquares,
-        minConfidentBoard = config.minConfidentBoard,
-        minConfidentRecovery = config.minConfidentRecovery,
-        recoveryMaxPlies = config.recoveryMaxPlies,
-    )

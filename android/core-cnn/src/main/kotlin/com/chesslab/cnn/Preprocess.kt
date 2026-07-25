@@ -56,10 +56,29 @@ fun preprocess(
     outH: Int,
     mean: List<Float> = IMAGENET_MEAN,
     std: List<Float> = IMAGENET_STD,
-): FloatArray {
+): FloatArray = FloatArray(crops.size * CHANNELS * outW * outH).also { preprocessInto(crops, outW, outH, it, mean, std) }
+
+/**
+ * [preprocess] into a **caller-owned** buffer — same arithmetic, same layout, no allocation.
+ *
+ * The live path observes a few times per second with `64 * 3 * 128 * 128` floats = 12.6 MB per
+ * call, which is sustained GC pressure next to a 15 fps camera loop. [out] must hold exactly
+ * `crops.size * 3 * outW * outH` floats; every element is written, so a reused buffer carries
+ * nothing over from the previous observation.
+ */
+fun preprocessInto(
+    crops: List<BgrImage>,
+    outW: Int,
+    outH: Int,
+    out: FloatArray,
+    mean: List<Float> = IMAGENET_MEAN,
+    std: List<Float> = IMAGENET_STD,
+) {
     require(mean.size == CHANNELS && std.size == CHANNELS) { "mean/std must have $CHANNELS entries" }
     val plane = outW * outH
-    val out = FloatArray(crops.size * CHANNELS * plane)
+    require(out.size == crops.size * CHANNELS * plane) {
+        "out holds ${out.size} floats, expected ${crops.size * CHANNELS * plane}"
+    }
     for ((index, crop) in crops.withIndex()) {
         require(crop.width == outW && crop.height == outH) {
             "crop $index is ${crop.width}x${crop.height}, expected ${outW}x$outH"
@@ -75,7 +94,6 @@ fun preprocess(
             out[base + 2 * plane + pixel] = (blue - mean[2]) / std[2]
         }
     }
-    return out
 }
 
 /**

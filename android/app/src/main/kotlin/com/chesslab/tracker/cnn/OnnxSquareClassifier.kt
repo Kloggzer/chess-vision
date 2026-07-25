@@ -6,9 +6,10 @@ import ai.onnxruntime.OrtSession
 import ai.onnxruntime.providers.NNAPIFlags
 import com.chesslab.cnn.ALL_SQUARES
 import com.chesslab.cnn.SquareClassifier
-import com.chesslab.cnn.preprocess
+import com.chesslab.cnn.preprocessInto
 import com.chesslab.cnn.softmax
 import com.chesslab.engine.api.BgrImage
+import com.chesslab.tracker.settings.EpRequest
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -21,22 +22,51 @@ private const val FLOAT_BYTES = 4
 /** Qualcomm HTP (NPU) backend library, bundled inside the onnxruntime-android-qnn AAR. */
 private const val QNN_HTP_LIB = "libQnnHtp.so"
 
-/** An execution provider and the graph it is allowed to run — the pairing is not negotiable. */
+/** An execution provider. The graph it is allowed to run comes from [StagedModel], not from here. */
 internal enum class Ep(
     val backend: String,
-    val model: String,
 ) {
-    QNN("QNN-HTP(NPU)", MODEL_QNN_FILE),
-    NNAPI("NNAPI", MODEL_FP32_FILE),
-    CPU("CPU", MODEL_FP32_FILE),
+    QNN("QNN-HTP(NPU)"),
+    NNAPI("NNAPI"),
+    CPU("CPU"),
 }
 
+/** QNN runs **quantized graphs only**; NNAPI and CPU take whichever graph 07a selected. */
+internal fun modelFor(
+    staged: StagedModel,
+    ep: Ep,
+): File = if (ep == Ep.QNN) requireNotNull(staged.qnn) else staged.fp32
+
 /**
- * QNN (Hexagon NPU) runs **quantized graphs only**, so it takes `model.qnn.onnx` and is not
- * even offered without it; NNAPI and CPU take the FP32 graph. CPU always builds, so the chain
- * cannot come up empty.
+ * The providers to try, in order.
+ *
+ * QNN (Hexagon NPU) is not even offered without the quantized graph — the HTP backend rejects
+ * float32. An explicit [request] cuts everything ABOVE it off the chain, so "CPU" really means CPU
+ * and a suspected NPU problem can be ruled in or out; what stays BELOW it is kept, because a
+ * provider that fails to build must still leave the app with a classifier. A request the device
+ * cannot serve (QNN with no quantized graph) falls back to the whole automatic chain, and the
+ * caller reports requested-vs-actual rather than pretending it got what it asked for.
  */
-internal fun epChain(hasQnnModel: Boolean): List<Ep> = if (hasQnnModel) Ep.entries.toList() else listOf(Ep.NNAPI, Ep.CPU)
+internal fun epChain(
+    hasQnnModel: Boolean,
+    request: EpRequest = EpRequest.AUTO,
+): List<Ep> {
+    val available = if (hasQnnModel) Ep.entries.toList() else listOf(Ep.NNAPI, Ep.CPU)
+    val head =
+        when (request) {
+            EpRequest.AUTO -> return available
+            EpRequest.QNN -> Ep.QNN
+            EpRequest.NNAPI -> Ep.NNAPI
+            EpRequest.CPU -> Ep.CPU
+        }
+    return if (head in available) available.dropWhile { it != head } else available
+}
+
+/** The head of the chain — what the app ASKED for, next to which 07b renders what it got. */
+fun requestedBackend(
+    staged: StagedModel,
+    request: EpRequest,
+): String = epChain(staged.qnn != null, request).first().backend
 
 /** The native session, behind a seam so the wrapper is testable without ORT natives. */
 internal interface SessionRunner : AutoCloseable {
@@ -84,10 +114,15 @@ class OnnxSquareClassifier internal constructor(
             .order(ByteOrder.nativeOrder())
             .asFloatBuffer()
 
+    // Reused for the same reason as [input]: `preprocess` would hand back a fresh 12.6 MB array
+    // per observation. Writing it here and bulk-putting is one memcpy and zero allocation.
+    private val staging = FloatArray(batch * CHANNELS * spec.outWidth * spec.outHeight)
+
     override fun classify(crops: List<BgrImage>): Array<FloatArray> {
         require(crops.size == batch) { "expected $batch crops, got ${crops.size}" }
+        preprocessInto(crops, spec.outWidth, spec.outHeight, staging, spec.mean, spec.std)
         input.clear()
-        input.put(preprocess(crops, spec.outWidth, spec.outHeight, spec.mean, spec.std))
+        input.put(staging)
         input.flip()
         val started = System.nanoTime()
         val logits = runner.run(input, shape)
@@ -113,12 +148,13 @@ class OnnxSquareClassifier internal constructor(
         fun open(
             staged: StagedModel,
             log: CnnLog,
+            request: EpRequest = EpRequest.AUTO,
         ): OnnxSquareClassifier {
             val spec = ModelSpec.parse(staged.configJson)
             val env = OrtEnvironment.getEnvironment()
             var last: Throwable? = null
-            for (choice in epChain(staged.qnn != null)) {
-                val attempt = runCatching { OrtSessionRunner(env, File(staged.dir, choice.model), choice) }
+            for (choice in epChain(staged.qnn != null, request)) {
+                val attempt = runCatching { OrtSessionRunner(env, modelFor(staged, choice), choice) }
                 attempt.onSuccess { return OnnxSquareClassifier(spec, it) }
                 attempt.onFailure {
                     last = it
@@ -136,7 +172,9 @@ private class OrtSessionRunner(
     choice: Ep,
 ) : SessionRunner {
     override val backend: String = choice.backend
-    override val model: String = choice.model
+
+    /** The file that was really loaded — never the one 07a asked for. */
+    override val model: String = modelFile.name
 
     private val session: OrtSession = env.createSession(modelFile.absolutePath, options(choice))
     private val inputName: String = session.inputNames.first()
@@ -162,8 +200,8 @@ private class OrtSessionRunner(
     private fun options(choice: Ep): OrtSession.SessionOptions {
         val opts = OrtSession.SessionOptions()
         when (choice) {
-            // epChain only offers QNN when model.qnn.onnx was staged, and Ep.QNN names that
-            // file — the HTP backend would reject the float32 graph.
+            // epChain only offers QNN when model.qnn.onnx was staged, and `modelFor` hands it
+            // exactly that file — the HTP backend would reject the float32 graph.
             Ep.QNN -> opts.addQnn(mapOf("backend_path" to QNN_HTP_LIB, "htp_performance_mode" to "burst"))
             Ep.NNAPI -> opts.addNnapi(EnumSet.of(NNAPIFlags.USE_FP16))
             Ep.CPU -> Unit
