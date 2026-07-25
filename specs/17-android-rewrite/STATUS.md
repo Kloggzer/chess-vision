@@ -30,9 +30,9 @@ Read `entry.md` completely before your phase file.
 | 05a | `05a-camera.md` | CameraX single owner, reconnect backoff, delivered-resolution truth | done | 4 src (356 LOC total, max 184) + 3 test files, 9 tests green; single `getInstance` call site, `ImageAnalysis` only (D05a-1..7) |
 | 05b | `05b-frame-pipeline.md` | YUV→BGR, two warps, gray pipeline, ROI motion, dark gate, timings | done | 7 src (845 LOC) + 5 test files, 23 tests green; OpenCV-backed steps behind the `FrameStages` seam and untested on the JVM (D05b-2) |
 | 05c | `05c-onnx.md` | ONNX `SquareClassifier` (QNN→NNAPI→CPU), loud attach, observer thread | done | 5 src + 4 test files, 19 tests green; the REAL bundled model runs 64 crops through ORT on the host CPU EP (D05c-8) |
-| 06a | `06a-calibration.md` | ArUco auto + manual corner tap, profile persistence, orientation check | todo | |
-| 06b | `06b-tracking-ui.md` | board, move list, alarm card, promotion dialog, overlay | todo | |
-| 06c | `06c-service.md` | `TrackerService` single owner, coordinator, settings persistence | todo | |
+| 06a | `06a-calibration.md` | ArUco auto + manual corner tap, profile persistence, orientation check | done | 9 src (1113 LOC, max 207) + 4 test files, 18 tests green; zero camera types under `ui/`, `getInstance` still 1; needed `android/.editorconfig` + a detekt `FunctionNaming` exemption for Compose (D06a-1) |
+| 06b | `06b-tracking-ui.md` | board, move list, alarm card, promotion dialog, overlay | done | 16 src (1606 LOC, max 170) + 4 test files, 17 tests green; nav host + service binding wired, alarm-accept preview is status-derived only (D06b-3) |
+| 06c | `06c-service.md` | `TrackerService` single owner, coordinator, settings persistence | done | 14 src (1189 LOC, max 172 vs the legacy 970-in-one) + 5 test files, 23 tests green; one camera owner, one engine thread, 12 live knobs (D06c-1..14) |
 | 07a | `07a-settings.md` | every knob live-tunable, Python defaults shown, reset actions | todo | |
 | 07b | `07b-debug.md` | timings, evidence heatmap, 64-crop grid, CNN reads, decision log | todo | |
 | 07c | `07c-analysis.md` | Stockfish + eval bar + move quality | todo | |
@@ -2225,8 +2225,463 @@ class FramePipeline(config: TrackerConfig, stages: FrameStages, cropStore: CropF
   both **empty** over `pipeline/`. No file exceeds 250 LOC (largest: `BoardWarps.kt` at 176);
   `FramePipeline.kt` is 151 (≤ 200) and `YuvToBgr.kt` 146 (≤ 150).
 
+### 06b (tracking UI — board, moves, alarm card, promotion, preview, navigation), 2026-07-25
+
+Files created (module `:app`): `MainActivity.kt` (87), `ui/ChesslabNavHost.kt` (42),
+`ui/TrackerServiceBinding.kt` (88), `ui/theme/Color.kt` (42), `Theme.kt` (33), `Type.kt` (57),
+`ui/tracking/StatusUiModel.kt` (135), `TrackerSession.kt` (99), `TrackingViewModel.kt` (123),
+`TrackingScreen.kt` (148), `BoardCanvas.kt` (170), `MoveList.kt` (135), `AlarmCard.kt` (87),
+`AcceptCnnDialog.kt` (147), `PromotionDialog.kt` (75), `PreviewOverlay.kt` (138) — **1606 LOC,
+largest file 170**, versus the legacy `TrackingScreen.kt`'s 664 in ONE file. Tests
+`StatusUiModelTest` (5), `TrackingViewModelTest` (5), `MoveListModelTest` (3),
+`AcceptCnnDialogModelTest` (4) — **17 tests, 0 failures, 0 skipped**, JVM only, no Compose test
+dependency. No file under `service/`, `camera/`, `pipeline/`, `cnn/`, `ui/calibration/`, no build
+file, no manifest and no catalog entry was edited.
+
+Nav routes registered (07a/08a extend them): `tracking` (start) and `calibration`, wired to 06a's
+pinned `CalibrationRoute(onCalibrated, onBack)`; `ROUTE_SETTINGS` / `ROUTE_DEBUG` /
+`ROUTE_ANALYSIS` / `ROUTE_GAMES` are declared as constants with `TODO(phase 07a/07c/08a)` markers
+and **no** composable, so a later phase attaches to this host instead of inventing a second one.
+
+#### Discrepancies
+
+- **D06b-1 — ktlint 1.5.0 rejects EVERY `@Composable` function and there was no `.editorconfig`.**
+  `standard:function-naming` reports "Function name should start with a lowercase letter" on
+  PascalCase composables and marks it **not auto-correctable**, so `:app:ktlintCheck` was
+  unpassable for any Compose file — 06a's five files failed identically. Fixed by adding
+  `android/.editorconfig` with
+  `ktlint_function_naming_ignore_when_annotated_with = Composable`. 06a landed the same file
+  concurrently; the content converged. This is infrastructure neither phase owns — recorded here so
+  the orchestrator knows why it appeared.
+- **D06b-2 — two additive files beyond the phase file's list**, both inside this phase's packages
+  and touched by nobody else:
+  - `ui/tracking/TrackerSession.kt` — the seam the UI codes against (`StateFlow<TrackerStatus?>`,
+    event `Flow`, `rawPreview`, five actions) plus `TrackerSessionHost` and `idleTrackerStatus()`.
+    The phase file pins the *data*, not where it is declared; declaring it inside
+    `TrackingViewModel.kt` would have pushed that file past its 180-LOC cap.
+  - `ui/TrackerServiceBinding.kt` — `BindTrackerService()` (start-foreground + bind) and the
+    `TrackerBinder -> TrackerSession` adapter. The composition root is the only place where 06c's
+    binder and the UI are both visible, and `MainActivity.kt` has a 120-LOC cap.
+- **D06b-3 — "Accept CNN position" cannot show a real per-square diff, and the dialog says so.**
+  The phase file asks for a preview "computed by `:core-cnn`'s pure accept-CNN function via
+  `TrackerEngine.acceptCnnPosition()`'s preview path". That path does not exist (**D04x-4**: the
+  `List<TrackerEvent>` return type cannot express a would-be FEN plus a change list), and
+  `TrackerStatus` carries **no CNN label map**, so from the status alone only the *believed* side of
+  each conflicting square is knowable. Landed: `acceptCnnPreview(fen, conflicts, reads = emptyMap())`
+  lists every conflicting square as `square: <believed piece> → ? `, sets `complete = false`, and
+  the dialog then reads *"The CNN's own reading is not previewable here — the adopted position may
+  differ from this list. Adopting drops the move history and cannot be undone."* The `reads`
+  parameter is already the full `from → to (conf %)` form and is asserted by
+  `previewListsEveryChangedSquareWithFromToAndConfidence`, so the day a status field (07b's
+  `DebugPayload`) or a second engine entry point carries the CNN labels, one call site changes.
+  **Cancel mutates nothing** — `cancelDispatchesNoAction` asserts the fake session recorded zero
+  calls after open+cancel.
+- **D06b-4 — `TrackerStatus` has no corners, so the overlay's board quad is currently undrawable.**
+  The phase file says "Overlay draws the board quad from `status` corners"; the frozen seam has no
+  such field (00a). `PreviewOverlay(corners: FloatArray? = null, sourceWidth, sourceHeight)` takes
+  them as an optional `[a8,h8,h1,a1]` parameter (invariant 11) and draws nothing when they are
+  absent — which is the state today, since no one can supply them. The three evidence sets ARE
+  plumbed through and drawn once corners exist. Adding `corners` to `TrackerStatus` is a seam
+  decision, recorded rather than improvised.
+- **D06b-5 — 06c's `TrackerBinder.status` is `StateFlow<TrackerStatus?>`, not `StateFlow<TrackerStatus>`.**
+  The phase file pins the non-null form. Adapting 06c's file is forbidden, so `TrackerSession.status`
+  is nullable and the view model substitutes `idleTrackerStatus()` for the pre-first-sample `null`.
+  No extra collector was introduced to hide it (that would have broken the one-collector rule).
+- **D06b-6 — detekt `MatchingDeclarationName` shaped two placements** (no `@Suppress`, no baseline,
+  no config change): `object Routes` in `ChesslabNavHost.kt` became top-level `ROUTE_*` constants,
+  and `PromotionPrompt` + `promotionAfter` moved from `PromotionDialog.kt` into
+  `StatusUiModel.kt` — which is where the other pure event/status folds live anyway. The dialog file
+  keeps only the composable and its private choice list. Also detekt-shaped:
+  `parseFenPlacement` split out a `parseRank` helper (NestedBlockDepth) and `quadPoint` reads the
+  four corners by index instead of destructuring (DestructuringDeclarationWithTooManyEntries).
+- **D06b-7 — two acceptance greps read differently than written.**
+  `grep -rn "status.fen" ui/tracking/BoardCanvas.kt` does **not** hit: `BoardCanvas(fen: String, …)`
+  takes the FEN as a parameter and `TrackingScreen` passes `ui.fen`, which is `status.fen` mapped by
+  the pure model. The rule the grep protects — one board source — is asserted by
+  `boardRendersOnlyFromStatusFen` (a commit whose `fenAfter` disagrees with the status does not move
+  the board) and by the absence of any other placement parser in the package.
+  `grep -c "collect" ui/tracking/TrackingViewModel.kt` is **3**: one `.collect(` call on the status
+  flow and two occurrences of the word in the comments explaining why there is only one. The event
+  and preview flows use `onEach { }.launchIn(…)`.
+- **D06b-8 — the engine's state strings are `internal`.** `STATE_WAITING`/`MOVING`/`OCCLUDED`/`MOVE`
+  live in `:core-engine`'s `EngineState.kt` and the module's public surface is `api/` only
+  (entry.md hard rule 3), so `StatusUiModel.kt` re-declares the four literals. They are a string
+  contract of `TrackerStatus.state`; promoting them into `engine.api` is a one-line seam change and
+  would delete the duplication — same class of item as **D05b-1** (`motionScore`).
+- **D06b-9 — nobody can build 06a's `CalibrationHost` from 06c's `TrackerBinder`, so
+  `LocalCalibrationHost` is never provided.** 06a's route needs `latestCalibrationFrame()`,
+  `rawPreview`, **`boardGeometry(): BoardGeometry`** and **`onProfileSaved(CalibrationProfile)`**;
+  the binder implements `CalibrationFrames` (the first two) and offers
+  `applyCalibration(geometry, corners, profileName)` instead of the last two. The composition root
+  therefore provides no host and 06a's own "waiting for the tracker service" fallback renders. This
+  is 06a<->06c glue that neither phase's file list covers — **orchestrator item**: either the binder
+  gains `boardGeometry()` + a profile hook, or 06c provides the host. 06b deliberately did not
+  invent the geometry mapping.
+- **D06b-10 — test names are camelCase**, per the house style of every test in this pack (same as
+  D05a-5): `state_text_and_colour_per_tracker_state` → `stateTextAndColourPerTrackerState`,
+  `alarm_present_sets_board_tint_and_pins_the_state_line` →
+  `alarmPresentSetsBoardTintAndPinsTheStateLine`, and so on for all named tests. One extra test,
+  `previewIsIncompleteWithoutCnnReadsAndStillNamesTheBelievedPiece`, pins D06b-3.
+- **Note — `:app:detekt` is not zero on the shared tree, and the one finding is not 06b's.**
+  `service/TrackerCoordinator.kt:30` trips `LongParameterList` (8-parameter constructor). Every
+  finding in `MainActivity.kt`, `ui/**` was fixed in code. `:app:ktlintCheck` and
+  `:app:ktlintFormat` are BUILD SUCCESSFUL. `ktlintFormat` runs over the whole source set, so it
+  will have reformatted 06a's and 06c's concurrently-added files too; both phases run the same
+  formatter, so this is not a drive-by edit of content.
+- **Note — the phase file's "camera preview is collapsible, off by default" is implemented as a
+  text toggle** above the action bar, remembered per composition. `grep -rn "androidx.camera"` over
+  `ui/` is empty and no `PreviewView` exists: the bitmap comes from the service's `rawPreview`.
+
+#### Manual verification checklist — NOT executed
+
+No device was attached in this session and the app has not been run, so all five items are **open
+for phase 09 / the first live bring-up**:
+
+- [ ] Readable at arm's length: state text (34sp, colour-coded) and board legible from ~1 m.
+- [ ] Play 10 moves — move list and board track them; fps does not drop with the screen on.
+- [ ] Trigger an alarm → board turns red, card appears, the Accept-CNN preview lists the
+      conflicting squares (see D06b-3 for what it can and cannot show); Cancel changes nothing.
+- [ ] Promote a pawn → dialog appears, back button does not dismiss it, choosing Q commits.
+- [ ] Toggle the preview overlay → changed squares light up while a hand moves (the quad needs
+      D06b-4 resolved first).
+
+### 06a (calibration — ArUco auto, manual 4-tap, orientation confirmation, profile store), 2026-07-25
+
+Files created — main, `com.chesslab.tracker.geometry`: `CalibrationProfile.kt` (123),
+`CalibrationStore.kt` (123), `ArucoCalibrator.kt` (131); `com.chesslab.tracker.ui.calibration`:
+`CalibrationHost.kt` (38), `CalibrationViewModel.kt` (172), `CalibrationRoute.kt` (139),
+`CalibrationOverlay.kt` (207), `ManualCornerPicker.kt` (117), `OrientationConfirm.kt` (63) —
+**1113 LOC, no file over 250**. Tests: `CalibrationProfileSerializationTest` (4),
+`CalibrationStoreTest` (5), `CornerMappingTest` (4), `CalibrationViewModelTest` (5) — **18 tests,
+0 failures, 0 skipped**. No build file, no catalog entry, no manifest, no file owned by 06b/06c
+was touched.
+
+**The route/seam 06b + 06c wire:** `CalibrationRoute(onCalibrated, onBack)` — the pinned 2-arg
+signature, unchanged; 06b's `ChesslabNavHost` already calls it verbatim. Frames arrive through
+`LocalCalibrationHost` (`CalibrationHost.kt`), provided once by whoever owns the service binding:
+
+```kotlin
+ProvideCalibrationHost(
+    CalibrationHost(
+        latestCalibrationFrame = binder::latestCalibrationFrame,
+        rawPreview = binder.rawPreview,
+        onCalibrated = binder::applyCalibration,      // (BoardGeometry, FloatArray, String) -> Unit
+    ),
+) { ChesslabNavHost() }
+```
+
+**No second camera binding, proven:**
+`grep -rn "ProcessCameraProvider\|androidx.camera" app/src/main/kotlin/com/chesslab/tracker/ui/`
+hits only two COMMENT lines in `CalibrationHost.kt` naming the bug — zero imports, zero types;
+`grep -rn "ProcessCameraProvider.getInstance" app/src/main/kotlin/ | wc -l` is still **1**
+(`camera/TrackerCamera.kt`, per D05a-1's reading of the criterion). The screen's only pixel
+sources are `latestCalibrationFrame()` and `rawPreview` (4 hits under `ui/calibration/`).
+
+#### Discrepancies
+
+- **D06a-1 — Compose could not be linted at all: `android/.editorconfig` and one detekt rule had
+  to be added (SHARED FILES — coordinate).** ktlint 1.5's `standard:function-naming` and detekt's
+  `naming>FunctionNaming` both flag every PascalCase `@Composable`, and neither exempts
+  `@Composable` by default in this project's setup. Two minimal additions, no `@Suppress`, no
+  baseline, no rule disabled:
+  - **new** `android/.editorconfig`: `ktlint_function_naming_ignore_when_annotated_with = Composable`
+  - `android/config/detekt/detekt.yml`: a `naming: FunctionNaming: ignoreAnnotated: ['Composable']`
+    block, in the same spirit as the Lean pass's recorded threshold changes.
+  Both are shared infrastructure that 06b/06c/07*/08* need identically — verified: with them,
+  `:app:ktlintCheck` is **green over the whole module including 06b's and 06c's files**. If another
+  06 agent landed the same change, keep one copy.
+- **D06a-2 — `CalibrationHost` is a class of lambdas, not an interface, and it replaced the phase
+  file's `onProfileSaved(profile)` with 06c's `applyCalibration(geometry, corners, profileName)`.**
+  06c landed `TrackerBinder.applyCalibration(BoardGeometry, FloatArray, String)` and a
+  `CalibrationFrames` interface of its own; making 06c implement a 06a interface would have meant
+  editing their file. A lambda holder is constructible from their binder in one expression, so
+  **neither phase edits the other**. The phase file's `boardGeometry()` member is gone with it:
+  the geometry to detect against comes from the persisted profile (`CalibrationStore.geometry`,
+  `@Volatile`, defaulting to `margin = 0.06`) — the same value, and one fewer thing 06c supplies.
+- **D06a-3 — `CalibrationStoreTest` uses an in-memory `ProfileBacking` fake, not an in-memory
+  DataStore.** `androidx.datastore:datastore-preferences` is an Android artifact and its file
+  backing is not reliably constructible on the unit-test JVM. `CalibrationStore` therefore takes a
+  two-method `ProfileBacking` seam (`text: Flow<String?>`, `write(String)`); production is
+  `DataStoreProfileBacking` over a DataStore of its OWN (`preferencesDataStore(name =
+  "calibration")` — the safety-critical geometry does not share a write path with 06c's settings
+  store). Everything the phase file asks the store test to prove is proven against the fake, and
+  the carry-over rule itself is a **pure function** (`carryOver`) tested directly.
+- **D06a-4 — the `<2 markers` failure and the `3 of 4` case are different outcomes.** The phase
+  file's checklist reads "cover one marker -> explicit 'only 3 of 4 markers visible'". Python's
+  `resolve_board_corners` reconstructs the quad from 3 (affine) and even 2 (similarity) markers, so
+  failing at 3 would be a regression against the reference. `CalibrationResult` is therefore
+  `ok = true` with a non-null `reason` ("only 3 of 4 markers visible — quad reconstructed") for
+  2/3 markers, and `ok = false` with a reason for `<2` or a degenerate quad. Either way the count
+  is on screen and stale corners are never presented as fresh.
+- **D06a-5 — the confirmation warp is a `Bitmap` produced by `ArucoCalibrator.warp`, not by the
+  screen.** `warpFromCorners` needs OpenCV and `ui/` must stay JVM-testable, so `BoardDetector`
+  (the seam the view model owns) has two methods: `detect()` and `warp(corners, whitePov)`. The
+  warp is `warpFromCorners(frame, geom.copy(whitePov = …), corners, 512)` converted BGR→RGBA→
+  Bitmap. On top of it the screen draws a8/h1 and the file/rank gutters through
+  `:core-geometry`'s `squareToColRow`, so the labels flip live with the `White plays from the
+  bottom` switch.
+- **D06a-6 — `CalibrationViewModel` is a plain class taking a `CoroutineScope`, not an
+  `androidx.lifecycle.ViewModel`.** `viewModelScope` is `Dispatchers.Main.immediate` and would have
+  forced `Dispatchers.setMain` plumbing into every test for no benefit; the route creates it with
+  `rememberCoroutineScope()`. Same reason `CalibrationState` holds no Compose type.
+- **D06a-7 — test names are camelCase** (house style, D05a-5). Mapping:
+  `round_trips_all_fields_including_corner_order` → `roundTripsAllFieldsIncludingCornerOrder`,
+  `rejects_an_unknown_schema_version_instead_of_migrating` →
+  `rejectsAnUnknownSchemaVersionInsteadOfMigrating`,
+  `rejects_a_corners_array_that_is_not_8_floats` → `rejectsACornersArrayThatIsNot8Floats`,
+  `recalibration_carries_over_white_pov_board_size_margin_and_crop` →
+  `recalibrationCarriesOverWhitePovBoardSizeMarginAndCrop`,
+  `recalibration_replaces_corners_and_source_size` → `recalibrationReplacesCornersAndSourceSize`,
+  `explicit_white_pov_change_on_confirm_wins_over_carry_over` →
+  `explicitWhitePovChangeOnConfirmWinsOverCarryOver`,
+  `tap_maps_to_source_pixels_using_the_rendered_bitmap_size` →
+  `tapMapsToSourcePixelsUsingTheRenderedBitmapSize`,
+  `four_taps_are_stored_in_tap_order_not_sorted` → `fourTapsAreStoredInTapOrderNotSorted`,
+  `save_is_blocked_until_orientation_is_confirmed` → `saveIsBlockedUntilOrientationIsConfirmed`,
+  `detection_failure_surfaces_a_reason_and_keeps_the_previous_profile_untouched` →
+  `detectionFailureSurfacesAReasonAndKeepsThePreviousProfileUntouched`,
+  `only_one_detection_runs_at_a_time` → `onlyOneDetectionRunsAtATime`,
+  `frame_size_is_taken_from_the_detected_frame` → `frameSizeIsTakenFromTheDetectedFrame`.
+  Six extra tests were added (absent-vs-discarded profile, first-calibration defaults, a discarded
+  profile is not carried over, unmappable taps, incomplete tap sets, and
+  `recalibrationDoesNotResetAHandSetWhitePov` end to end through the view model).
+- **D06a-8 — one extra file beyond the phase file's list: `ui/calibration/CalibrationHost.kt`.**
+  detekt's `MatchingDeclarationName` fires when a file's single top-level class-like declaration
+  does not match its name, so the host could not live in `CalibrationRoute.kt`. The same rule moved
+  `TapPoint` from `ManualCornerPicker.kt` into `CalibrationViewModel.kt`, where it is anyway part
+  of the screen state. Both files are inside 06a's own packages.
+- **Note (not a discrepancy) — the a8-transposition mitigation.** `toConfirm()` is the ONLY path to
+  `CalibrationStep.CONFIRM` and it sets `orientationSeen`; `canSave` is
+  `step == CONFIRM && orientationSeen && corners != null`, and `save()` returns early otherwise
+  (`saveIsBlockedUntilOrientationIsConfirmed` asserts the store is untouched before and written
+  after). Tapped corners are appended in tap order by `tapsToCorners` and **never sorted**
+  (`fourTapsAreStoredInTapOrderNotSorted` taps a deliberately non-canonical order and asserts the
+  array element by element).
+- **Note — `sourceWidth`/`sourceHeight` come from the `Mat` that was detected on**, on the failure
+  path too, because the manual 4-tap fallback maps its taps into exactly that size. There is no
+  `forResolution`/rescale anywhere in `geometry/` (a7dab73); the only hit for that grep is the
+  comment saying so.
+
+#### Manual verification checklist — NOT executed
+
+No device was attached in this session, so all seven items are **open for phase 09 / the first
+live bring-up**:
+
+- [ ] tracking → calibration → tracking repeatedly: the feed never freezes (the MEMORY second-
+      binding bug). Statically defended: zero CameraX types under `ui/`, one `getInstance` in `:app`.
+- [ ] auto-calibrate shows 4 marker ids, the quad, a8 highlighted, correct file/rank letters;
+      `White plays from the bottom` flips them 180°.
+- [ ] cover one marker → the explicit "only 3 of 4 markers visible" note, no stale corners.
+- [ ] manual 4-tap on a marker-less board produces a correct warp.
+- [ ] a8/h1 tapped swapped is obvious on the confirmation screen before save.
+- [ ] `whitePov = false` survives a recalibration (unit-tested end to end; on-device unverified).
+- [ ] "Recalibrate" leaves the move list intact; "Reset game" leaves the profile intact.
+
+#### Gate (run in an isolated `git archive HEAD` copy first, then re-run LIVE)
+
+Both runs green. Live `:app:detekt` reports exactly **one** finding and it is 06c's
+(`service/TrackerCoordinator.kt:30 LongParameterList`, 8 constructor parameters) — nothing in
+`geometry/` or `ui/calibration/`.
+
+```
+:app:testDebugUnitTest --tests "com.chesslab.tracker.geometry.*" --tests "com.chesslab.tracker.ui.calibration.*"
+  BUILD SUCCESSFUL
+  CalibrationProfileSerializationTest: tests=4 failures=0 errors=0 skipped=0
+  CalibrationStoreTest:                tests=5 failures=0 errors=0 skipped=0
+  CalibrationViewModelTest:            tests=5 failures=0 errors=0 skipped=0
+  CornerMappingTest:                   tests=4 failures=0 errors=0 skipped=0
+:app:ktlintFormat   BUILD SUCCESSFUL
+:app:ktlintCheck    BUILD SUCCESSFUL   (live, whole module — 06b/06c included)
+:app:detekt         BUILD SUCCESSFUL   (isolated copy: 0 findings)
+```
+
+### 06c (service — the single camera + engine owner, coordinator, settings persistence), 2026-07-25
+
+Files created (module `:app`) — `AndroidManifest.xml` (rewritten, 8 permissions), `ChesslabApp.kt`
+(33); `service/`: `EngineAction.kt` (32), `EngineHost.kt` (144), `TrackerCoordinator.kt` (119),
+`StatusPublisher.kt` (111), `CameraFrameBus.kt` (140), `CnnCropAdapter.kt` (42),
+`TrackerBinder.kt` (63), `TrackerNotification.kt` (45), `TrackerService.kt` (172); `settings/`:
+`ConfigKnobs.kt` (109), `ConfigCodec.kt` (73), `SettingsRepository.kt` (71),
+`SettingsDataStore.kt` (35). **1189 LOC across 14 files, largest 172** — against the legacy
+`service/TrackerService.kt`'s **970 in one file**. Every file is under its phase-file cap.
+
+Tests: `EngineActionQueueTest` (4), `StatusPublisherTest` (5), `NotePrecedenceTest` (3),
+`ConfigCodecTest` (6), `SettingsRepositoryTest` (5) — **23 tests, 0 failures, 0 skipped**, JVM only.
+No build file, no catalog entry, no `camera/`, `pipeline/`, `cnn/`, `ui/`, `geometry/` or `core-*`
+file was touched. **No dependency was missing** (DataStore, kotlinx-serialization,
+lifecycle-service and coroutines-test were all already in 00a's catalog).
+
+#### Decomposition (what replaced the 970-LOC monolith)
+
+| File | Owns |
+|---|---|
+| `TrackerService` | Android lifecycle, foreground notification, construction order, teardown |
+| `TrackerCoordinator` | the analyzer-thread loop; `LiveAlign` (async ArUco) lives beside it |
+| `EngineHost` | thread ownership + the two bounded queues; the ONLY file naming `TrackerEngine` |
+| `StatusPublisher` | 10 Hz sampling, event fan-out, note precedence, stage-timing merge |
+| `CameraFrameBus` | 06a's pixel seam + preview publishing behind an in-flight gate |
+| `TrackerBinder` | the whole API the UI sees |
+| `CnnCropAdapter` | 05b's `CropFrameStore` -> 05c's `CnnFrameSource`, on the observer thread |
+| `settings/**` | knob catalog, JSON codec, DataStore, live-vs-restart classification |
+
+#### The seam 06a/06b consume (all three already match what they landed)
+
+```kotlin
+interface CalibrationFrames {                       // TrackerBinder implements it
+    fun latestCalibrationFrame(): Mat?              // a CLONE; the caller releases it
+    val rawPreview: StateFlow<Bitmap?>              // ~5 fps, off the analyzer thread
+    val cameraHealth: StateFlow<CameraHealth>
+}
+class TrackerBinder : Binder(), CalibrationFrames {
+    val status: StateFlow<TrackerStatus?>           // sampled at 10 Hz — do not throttle again
+    val events: SharedFlow<TrackerEvent>            // replay 0, 64-deep, DROP_OLDEST
+    val config: StateFlow<TrackerConfig>
+    val cnnState: StateFlow<CnnState>
+    var deliveredSize: DeliveredSize?               // internal set
+    fun submit(action: EngineAction)
+    fun updateConfig(config: TrackerConfig): UpdateResult
+    fun applyCalibration(geometry: BoardGeometry, corners: FloatArray, profileName: String)
+}
+```
+
+#### Discrepancies
+
+- **D06c-1 — three files beyond the phase file's list, all inside this phase's own packages.**
+  `service/CnnCropAdapter.kt` (42): 05c's D05c-5 explicitly names the store->source adapter as 06c's
+  job, and it is neither lifecycle (`TrackerService`, already at 172) nor loop (`TrackerCoordinator`).
+  `settings/ConfigKnobs.kt` (109): the 46-row knob table plus `ConfigCodec`'s codec would be ~180
+  lines in one file; the phase file's own rule is "if a file wants to grow past its cap, split it and
+  record the split". `service/EngineAction.kt` is in the phase file's list; `LiveAlign` deliberately
+  is **not** a separate file — it is the coordinator's own concern and both together are 119 lines.
+- **D06c-2 — `TrackerConfig` is persisted through a KNOB TABLE, not a mirrored `@Serializable` DTO.**
+  `TrackerConfig` lives in `:core-engine`, which has no kotlinx-serialization on its classpath
+  (entry.md hard rule 1) and is frozen, so it cannot be annotated. A DTO would restate all 46 fields
+  three times (property, `toConfig`, `fromConfig`) and drift silently. `KNOBS` is one row per field
+  with a `get`/`set` pair, and it is simultaneously what the codec, the live-vs-restart diff and
+  07a's settings UI read. Every value travels as a `Double`; `Int?` overrides travel as **NaN**
+  (`allowSpecialFloatingPointValues = true`), which is why `ConfigCodec.same` treats NaN == NaN.
+  `roundTripsEveryTrackerConfigField` mutates **every** knob off its default before the round trip,
+  so a forgotten row cannot pass.
+- **D06c-3 — the twelve live-tunable keys are declared as `LIVE_TUNABLE_KEYS`, in `app.py`'s order;
+  `KNOBS` keeps `TrackerConfig`'s field order.** `Knob.live` is `key in LIVE_TUNABLE_KEYS`. The two
+  orders necessarily differ, so `liveTunableTableContainsExactlyTheTwelveAppPyKnobs` compares the
+  declaration as an ordered list and the derived knob subset as a set (both directions asserted).
+- **D06c-4 — the `_apply_live_tuning` side effects are NOT implemented in the repository, by design
+  and per the phase file's own "do not duplicate the pipeline's internal reset logic".** The chain is
+  `SettingsRepository.update` -> `EngineAction.UpdateConfig` -> `EngineHost.tick` (engine thread) ->
+  `TrackerEngineOps.apply`, which calls `TrackerEngine.updateConfig(cfg)` **and**
+  `FramePipeline.onConfigChanged(cfg)` in the same action, so a frame can never observe half a
+  config change. `motionMargin` -> `RoiMotion.prevRoi` and `diffClaheClip` -> CLAHE rebuild are 05b's
+  (`CameraStages.onConfigChanged`); `overhang` -> `rebuildBoxes()` is the engine's. `SettingsRepositoryTest`
+  therefore asserts that the changed config REACHES a pipeline stub, once — not that 05b's internals
+  reset, which 05b already tests. `restartRequired` names every changed non-live knob.
+- **D06c-5 — `StatusPublisher.status` is `StateFlow<TrackerStatus?>`** (06b recorded the mirror item
+  as D06b-5). There is no `TrackerStatus` before the first frame, and manufacturing an all-zero one
+  would be a fake reading the debug screen cannot distinguish from a real one.
+- **D06c-6 — the preview drop test lives in `StatusPublisherTest` but exercises `InFlightGate`,
+  which `CameraFrameBus` owns.** The conversion itself (`bgrToBitmap`) touches `android.graphics.Bitmap`
+  and `org.opencv.android.Utils` and is not runnable on the desktop JVM; the decidable part is the
+  gate, and the phase file pins the test's name and file. `previewConversionDropsWhenOneIsInFlight`
+  asserts drop-not-queue in both directions.
+- **D06c-7 — `StatusPublisher` takes the `StageTimings` instead of receiving a map per frame.**
+  `TrackerCoordinator`'s constructor hit detekt's `LongParameterList` at exactly 8 (the Lean pass
+  threshold), and the honest fix was to move the timing source to the object that publishes it
+  rather than to invent a holder type — which is the class of thing the Lean pass deleted nine of.
+  The coordinator is now 7 parameters. `publish(snapshot, events, pipelineNote)`.
+- **D06c-8 — `TrackerEngine` is constructed by a top-level `engineHost(config, cnn, onConfigApplied)`
+  factory in `EngineHost.kt`.** The acceptance criterion `grep -rn "TrackerEngine"` hits that file
+  and no other, which needs the construction there too — and `attachCnn` belongs to construction
+  anyway (D04x-3: without it `cnnRun` stays false and no candidate is ever queued for verification).
+  Verified: the grep hits only `service/EngineHost.kt` in `:app`'s main sources.
+- **D06c-9 — the camera frame bus runs its OWN `YuvToBgr`, i.e. one extra colour conversion at
+  ~5 fps.** `CameraStages` keeps its converted `Mat` private (05b's file, not mine), and the
+  `ImageProxy` is dead the moment the analyzer callback returns, so the calibration/preview copy has
+  to be made on the analyzer thread. Throttled to 200 ms, it is ~1 frame in 6. Exposing the
+  pipeline's frame would remove it — a 05b seam change, recorded rather than improvised.
+- **D06c-10 — `publisher.lastFen` is an unsampled `@Volatile` beside the 10 Hz `status`.** The CNN
+  observer captures the FEN when an observation starts as its discard-on-change guard; reading it off
+  a 100 ms-sampled flow could hand it the position from BEFORE the move it is about to verify.
+- **D06c-11 — the notification's move count is counted from the event bus**, because `TrackerStatus`
+  carries no ply count. `MoveCommitted` counts 1, `SequenceCommitted` counts its `ucis.size`.
+- **D06c-12 — `StatusPublisherTest` must use `runTest`'s `backgroundScope`.** `sample` + `stateIn`
+  never complete by construction, and a hand-rolled `TestScope(testScheduler)` made
+  `:app:testDebugUnitTest` **hang forever** (not fail) — two 10-minute runs before the cause was
+  found. Recorded because every later phase testing a publisher-shaped flow will hit it.
+- **D06c-13 — `Flow.sample` is `@FlowPreview` in coroutines 1.9**, so `StatusPublisher.status`
+  carries `@OptIn(FlowPreview::class)`. That is an opt-in marker, not a `@Suppress`.
+- **D06c-14 — the manifest declares `<uses-feature android:required="true">` for the camera** as the
+  phase file specifies, which makes the app uninstallable on camera-less devices. Deliberate.
+
+#### 06b's D06b-9 is closed on this side
+
+`TrackerBinder` exposes all three members 06a's `CalibrationHost` needs
+(`latestCalibrationFrame`, `rawPreview`, `applyCalibration(BoardGeometry, FloatArray, String)`) —
+06a's D06a-2 dropped `boardGeometry()`/`onProfileSaved` in favour of exactly this shape. What is
+still missing is the one `ProvideCalibrationHost(...)` call, and it belongs in **06b's**
+`ui/TrackerServiceBinding.kt`, which this phase may not edit. **Orchestrator item, three lines.**
+
+#### Manual verification checklist — NOT executed
+
+No device was attached in this session, so all six items are **open for phase 09 / the first live
+bring-up**:
+
+- [ ] foreground + notification before the camera binds; no `ForegroundServiceStartNotAllowedException`.
+- [ ] tab switch tracking <-> calibration <-> settings: the feed never freezes.
+- [ ] rotate / background+foreground: the tracker keeps running, the game state survives.
+- [ ] change `censusThr` live -> "tracker tuning updated live", effect next frame, survives restart.
+- [ ] change `diffClaheClip` -> contrast visibly changes within a frame.
+- [ ] `chesslabPerf` median >= 15 fps with the UI open.
+
+#### Acceptance greps (verbatim)
+
+```
+wc -l service/*.kt settings/*.kt        -> 14 files, max 172, none over 250 (legacy: 970 in one)
+grep -rn "ProcessCameraProvider" main/kotlin/  -> camera/TrackerCamera.kt, ui/calibration/CalibrationHost.kt (06a comment)
+grep -rn "TrackerCamera(" main/kotlin/         -> service/TrackerService.kt only
+grep -rn "TrackerEngine" main/kotlin/          -> service/EngineHost.kt only (+ 06b's ui/tracking/TrackerSession.kt KDoc)
+grep -n "runBlocking|Thread.sleep|.await()" service/TrackerCoordinator.kt -> the KDoc line saying there are none
+grep -rn "forResolution|rewarpFor" service/    -> empty
+grep -c "uses-permission" AndroidManifest.xml  -> 8
+grep -c "sample(" service/StatusPublisher.kt   -> 1
+grep -rn "@Suppress" service/ settings/        -> empty
+```
+
+#### Gate (run in an isolated `git archive HEAD` copy first, then re-run LIVE)
+
+Both green. The isolated copy was needed at the start (06b's `MainActivity.kt` referenced a
+`ui.BindTrackerService` that did not exist yet); by the end of the session the shared tree compiled
+and the LIVE run is the one quoted:
+
+```
+:app:testDebugUnitTest --tests "com.chesslab.tracker.service.*" --tests "com.chesslab.tracker.settings.*"
+  BUILD SUCCESSFUL          23 testcases, 0 failures, 0 errors, 0 skipped
+  EngineActionQueueTest 4 · StatusPublisherTest 5 · NotePrecedenceTest 3
+  ConfigCodecTest 6 · SettingsRepositoryTest 5
+:app:ktlintFormat   BUILD SUCCESSFUL   (isolated copy; only 06c files reformatted, copied back)
+:app:ktlintCheck    BUILD SUCCESSFUL   (LIVE, whole module)
+:app:detekt         BUILD SUCCESSFUL   (LIVE, whole module — 0 findings; 06a/06b's recorded
+                                        `TrackerCoordinator LongParameterList` is fixed, see D06c-7)
+```
+
 ## Blockers
 
+- **OPEN (06b/06c, D06b-9) — the `CalibrationHost` is CONSTRUCTIBLE but nobody provides it.**
+  06c's `TrackerBinder` has all three members 06a's final host needs (`latestCalibrationFrame`,
+  `rawPreview`, `applyCalibration(BoardGeometry, FloatArray, String)` — see 06a's D06a-2, which
+  dropped `boardGeometry()`/`onProfileSaved`). The missing piece is one `ProvideCalibrationHost(...)`
+  call in 06b's `ui/TrackerServiceBinding.kt`; neither 06a nor 06c may edit that file. **Three-line
+  orchestrator item.** The stale wording below is 06b's original reading:
+- ~~**OPEN (06b, D06b-9) — no one can provide 06a's `CalibrationHost`.** The binder has
+  `latestCalibrationFrame()` and `rawPreview` but no `boardGeometry()` and no profile-saved hook, so
+  the composition root cannot build the host and the calibration screen renders 06a's fallback. Not
+  worked around: the missing piece is geometry state, and inventing it in the UI is exactly the
+  class of drive-by this pack forbids. Needs 06c (two members on `TrackerBinder`) or an orchestrator
+  decision.
+- **OPEN (06b, D06b-4) — `TrackerStatus` carries no corners**, so the preview overlay's board quad
+  cannot be drawn. Parameterized and inert today; adding `corners` to the seam is a one-field change.
+- **OPEN (06b, D06b-3) — `acceptCnnPosition()` has no preview variant (D04x-4) and `TrackerStatus`
+  has no CNN label map**, so the alarm dialog can only name the believed piece per conflicting
+  square and must present the action as irreversible. Needs a status field or a second entry point.
 - **OPEN (05b, D05b-1) — `motionScore` is `internal` to `:core-engine` and unreachable from
   `:app`.** Worked around with an 8-line, unit-tested local port in `RoiMotion.kt`; the clean fix
   is one line in `engine.api` and is an orchestrator/seam decision.
@@ -2624,3 +3079,45 @@ _(implementing agent appends one line per finished phase)_
   `:app:ktlintFormat` (no drive-by outside `pipeline/`), `:app:ktlintCheck :app:detekt` BUILD
   SUCCESSFUL, zero findings. 8 discrepancies (D05b-1..8); one blocker-grade item stays open —
   `motionScore` is `internal` to `:core-engine`, so the ROI stage carries a local 8-line port.
+
+- 2026-07-25 — **06b done**: the tracking screen the user actually looks at. 16 source files,
+  **1606 LOC, largest 170** (legacy: one 664-LOC `TrackingScreen.kt`); the board renders from
+  `status.fen` and nothing else, the UI holds no `TrackerEngine` reference and collects the sampled
+  status exactly once, and every action is an `EngineAction` value handed to 06c's binder. Alarm =
+  red board scrim + card + Accept-CNN preview whose Cancel provably dispatches nothing; promotion
+  dialog is a pure fold over `PromotionPending`/`MoveCommitted` and is not dismissible. Nav host
+  registers `tracking` + `calibration` and reserves the four later routes. Gate:
+  `:app:testDebugUnitTest --tests "com.chesslab.tracker.ui.tracking.*"` **17/17, 0 failures**,
+  `:app:ktlintFormat` + `:app:ktlintCheck` BUILD SUCCESSFUL, `:app:detekt` clean for every file
+  06b owns (one remaining finding is 06c's `TrackerCoordinator`). 10 discrepancies (D06b-1..10);
+  three items open: no `CalibrationHost` provider, no corners in `TrackerStatus`, no CNN-read
+  preview for the alarm dialog. Manual checklist not run (no device).
+- 2026-07-25 — **06a done**: board calibration that binds no camera. 9 source files, **1113 LOC,
+  largest 207**; ArUco auto-detect single-flight on `Dispatchers.Default` off the service's
+  `latestCalibrationFrame()`, manual 4-tap fallback whose taps are stored in TAP ORDER and never
+  sorted, and a **mandatory** orientation-confirmation step (rectified board + a8/h1 outlines +
+  live-flipping file/rank gutters) without which `canSave` is false and `save()` writes nothing.
+  Profile persists as versioned JSON in its own DataStore with Python's `ensure_profile`
+  carry-over: `whitePov`/`boardSize`/`margin`/`markerDict`/`crop` survive a recalibration, only the
+  corners and the source size are replaced. `grep ProcessCameraProvider.getInstance` over `:app` is
+  still **1**; `ui/` has zero CameraX types. Gate:
+  `:app:testDebugUnitTest --tests "com.chesslab.tracker.geometry.*" --tests
+  "com.chesslab.tracker.ui.calibration.*"` **18/18, 0 failures**, `:app:ktlintFormat` +
+  `:app:ktlintCheck` BUILD SUCCESSFUL live over the whole module, `:app:detekt` clean for every
+  06a file. 8 discrepancies (D06a-1..8); **D06a-1 touches two SHARED files** (`android/.editorconfig`
+  is new, `config/detekt/detekt.yml` gains a Compose `FunctionNaming` exemption) — without them no
+  Compose file in `:app`, 06b's included, can pass lint. Open for the orchestrator: nobody provides
+  `LocalCalibrationHost` yet (06b's D06b list has the mirror item). Manual checklist not run (no device).
+- **06c (service), 2026-07-25** — the app is runnable: `TrackerService` is the single camera AND
+  engine owner, `EngineHost` enforces the one-thread contract with a latching
+  `check(Thread.currentThread() == owner)`, and the analyzer loop drains queued UI actions and CNN
+  snapshots BEFORE `onFrame`. 14 source files, **1189 LOC, largest 172** — the legacy
+  `TrackerService.kt` was 970 in one file. `TrackerConfig` persists through a 46-row knob table
+  (`ConfigKnobs.kt`), of which exactly the twelve `app.py::_live_tuning_kwargs` knobs are live; the
+  rest report `restartRequired`. Side effects are routed, never reimplemented: one `UpdateConfig`
+  action calls `TrackerEngine.updateConfig` and `FramePipeline.onConfigChanged` on the same thread
+  in the same tick. 23 tests green; `:app:ktlintCheck` + `:app:detekt` BUILD SUCCESSFUL **live over
+  the whole module** (06a/06b's recorded `TrackerCoordinator LongParameterList` finding is fixed,
+  D06c-7). 14 discrepancies (D06c-1..14); the one that costs time twice is **D06c-12** — a
+  hand-rolled `TestScope` around `sample`/`stateIn` makes `:app:testDebugUnitTest` HANG, use
+  `backgroundScope`. Manual checklist not run (no device).

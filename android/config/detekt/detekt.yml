@@ -59,3 +59,9 @@ style:
   # Align with ktlint's default line width (ktlintFormat collapses to 140).
   MaxLineLength:
     maxLineLength: 140
+
+naming:
+  # Same reason as the ktlint `function-naming` exemption in `android/.editorconfig`: Compose
+  # composables are PascalCase by convention, and detekt does not exempt them by default.
+  FunctionNaming:
+    ignoreAnnotated: ['Composable']

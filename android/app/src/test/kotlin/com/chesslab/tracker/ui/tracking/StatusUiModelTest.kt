@@ -1,0 +1,99 @@
+package com.chesslab.tracker.ui.tracking
+
+import com.chesslab.engine.api.TrackerEvent
+import com.chesslab.engine.api.TrackerStatus
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+
+private fun status(
+    state: String = STATE_WAITING,
+    fps: Double = 0.0,
+    note: String? = null,
+    stuckReason: String? = null,
+    alarm: TrackerEvent.Alarm? = null,
+): TrackerStatus =
+    idleTrackerStatus().copy(
+        state = state,
+        fps = fps,
+        note = note,
+        stuckReason = stuckReason,
+        alarm = alarm,
+    )
+
+class StatusUiModelTest {
+    @Test
+    fun stateTextAndColourPerTrackerState() {
+        assertEquals(StateTone.Idle, trackingUiState(status(STATE_WAITING)).tone)
+        assertEquals("WAITING", trackingUiState(status(STATE_WAITING)).stateText)
+        assertEquals(StateTone.Busy, trackingUiState(status(STATE_MOVING)).tone)
+        assertEquals("MOVING", trackingUiState(status(STATE_MOVING)).stateText)
+        assertEquals(StateTone.Busy, trackingUiState(status(STATE_OCCLUDED)).tone)
+        assertEquals("HAND OVER BOARD", trackingUiState(status(STATE_OCCLUDED)).stateText)
+        assertEquals(StateTone.Active, trackingUiState(status(STATE_MOVE)).tone)
+        assertEquals("MOVE", trackingUiState(status(STATE_MOVE)).stateText)
+        // Every tone is distinguishable — three states that read the same are one state.
+        val tones = listOf(STATE_WAITING, STATE_MOVING, STATE_MOVE).map { trackingUiState(status(it)).tone }
+        assertEquals(tones.size, tones.toSet().size)
+    }
+
+    @Test
+    fun alarmPresentSetsBoardTintAndPinsTheStateLine() {
+        val alarm = TrackerEvent.Alarm("illegal_move", listOf("e4", "d5"), "g1f3", "Nf3")
+        val ui = trackingUiState(status(state = STATE_MOVING, alarm = alarm))
+        assertTrue(ui.boardTinted)
+        assertEquals(StateTone.Alarm, ui.tone)
+        // The engine blocks every commit while alarmed: the line may not say "MOVING".
+        assertNotEquals("MOVING", ui.stateText)
+        assertEquals("illegal_move", ui.alarm?.kind)
+        assertEquals(listOf("e4", "d5"), ui.alarm?.conflicts)
+        assertEquals("Nf3", ui.alarm?.guessSan)
+        assertFalse(trackingUiState(status(state = STATE_MOVING)).boardTinted)
+    }
+
+    @Test
+    fun noteAndStuckReasonCollapseToOneLineWithStuckWinning() {
+        assertEquals("note text", trackingUiState(status(note = "note text")).infoLine)
+        assertEquals(
+            "stuck: too_many_changed",
+            trackingUiState(status(note = "note text", stuckReason = "too_many_changed")).infoLine,
+        )
+        assertNull(trackingUiState(status()).infoLine)
+    }
+
+    @Test
+    fun fpsIsRoundedToOneDecimal() {
+        assertEquals("12.4 fps", trackingUiState(status(fps = 12.44)).fpsText)
+        assertEquals("12.5 fps", trackingUiState(status(fps = 12.45123)).fpsText)
+        assertEquals("0.0 fps", trackingUiState(status(fps = 0.0)).fpsText)
+    }
+
+    @Test
+    fun changedShadowAndOcclusionSetsMapToThreeDistinctOverlayLayers() {
+        val ui =
+            trackingUiState(
+                idleTrackerStatus().copy(
+                    changed = setOf("e2", "e4"),
+                    shadowVetoed = setOf("d4"),
+                    occlusionVetoed = setOf("h8"),
+                ),
+            )
+        assertEquals(setOf("e2", "e4"), ui.overlay.changed)
+        assertEquals(setOf("d4"), ui.overlay.shadowVetoed)
+        assertEquals(setOf("h8"), ui.overlay.occlusionVetoed)
+        // Invariant 2: shadow PRESERVES z, occlusion ZEROES it — merging the sets hides that.
+        assertTrue(
+            ui.overlay.changed
+                .intersect(ui.overlay.shadowVetoed)
+                .isEmpty(),
+        )
+        assertTrue(
+            ui.overlay.shadowVetoed
+                .intersect(ui.overlay.occlusionVetoed)
+                .isEmpty(),
+        )
+    }
+}

@@ -1,0 +1,123 @@
+package com.chesslab.tracker.ui.tracking
+
+import android.graphics.Bitmap
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.chesslab.engine.api.TrackerEvent
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
+
+/**
+ * Collects the tracker's sampled status and its event stream, and dispatches user actions back
+ * through the session seam. It holds no engine reference and no second copy of the position.
+ *
+ * The status flow is collected **once**, in [attach]. It is already sampled at ~10 Hz by the
+ * service; a second `sample()` here would only add latency to a screen whose whole job is to be
+ * current.
+ */
+class TrackingViewModel : ViewModel() {
+    private var session: TrackerSession = NoTrackerSession
+    private val jobs = mutableListOf<Job>()
+
+    private val statusState = MutableStateFlow(idleTrackerStatus())
+
+    private val uiState = MutableStateFlow(trackingUiState(idleTrackerStatus()))
+    val ui: StateFlow<TrackingUiState> = uiState.asStateFlow()
+
+    private val movesState = MutableStateFlow<List<MoveEntry>>(emptyList())
+    val moves: StateFlow<List<MoveEntry>> = movesState.asStateFlow()
+
+    private val promotionState = MutableStateFlow<PromotionPrompt?>(null)
+    val promotion: StateFlow<PromotionPrompt?> = promotionState.asStateFlow()
+
+    private val acceptCnnState = MutableStateFlow<AcceptCnnPreview?>(null)
+    val acceptCnn: StateFlow<AcceptCnnPreview?> = acceptCnnState.asStateFlow()
+
+    private val previewState = MutableStateFlow<Bitmap?>(null)
+    val preview: StateFlow<Bitmap?> = previewState.asStateFlow()
+
+    private val recalibrate = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    /** Recalibration is NAVIGATION, not a tracker action — it must never share a handler with Reset game. */
+    val recalibrateRequests: SharedFlow<Unit> = recalibrate.asSharedFlow()
+
+    /** The last committed ply's UCI — a two-square highlight hint, never a board source. */
+    val lastMoveUci: String? get() = movesState.value.lastOrNull()?.uci
+
+    /**
+     * Bind to the service's session. Re-attaching to the SAME session is a no-op, so a
+     * recomposition or a second bind callback cannot start a second status collector.
+     */
+    fun attach(session: TrackerSession) {
+        if (this.session === session) return
+        jobs.forEach { it.cancel() }
+        jobs.clear()
+        this.session = session
+        jobs +=
+            viewModelScope.launch {
+                session.status.collect { published ->
+                    // Before the service's first sample there is no truth to render — the start
+                    // position stands in, and it is still the ONE source the board draws from.
+                    val status = published ?: idleTrackerStatus()
+                    statusState.value = status
+                    uiState.value = trackingUiState(status)
+                }
+            }
+        jobs += session.events.onEach(::onEvent).launchIn(viewModelScope)
+        jobs += session.rawPreview.onEach { previewState.value = it }.launchIn(viewModelScope)
+    }
+
+    private fun onEvent(event: TrackerEvent) {
+        val committed = movesOf(event)
+        if (committed.isNotEmpty()) movesState.value = movesState.value + committed
+        promotionState.value = promotionAfter(promotionState.value, event)
+    }
+
+    fun onUndo() = session.undo()
+
+    fun onResetGame() {
+        movesState.value = emptyList()
+        session.resetGame()
+    }
+
+    fun onNewBaseline() = session.captureBaseline()
+
+    fun onRecalibrate() {
+        recalibrate.tryEmit(Unit)
+    }
+
+    /** Opening the preview mutates nothing — it is derived from the status snapshot alone. */
+    fun onAcceptCnnRequested() {
+        val status = statusState.value
+        acceptCnnState.value = acceptCnnPreview(status.fen, status.alarm?.conflicts.orEmpty())
+    }
+
+    /** `specs/16/04-alarm-ux.md`: Cancel dispatches NOTHING. */
+    fun onAcceptCnnCancelled() {
+        acceptCnnState.value = null
+    }
+
+    fun onAcceptCnnConfirmed() {
+        acceptCnnState.value = null
+        session.acceptCnnPosition()
+    }
+
+    /**
+     * The engine is blocked on this answer, so the dialog closes only when the commit comes back as
+     * an event — not optimistically here.
+     */
+    fun onPromotionChosen(piece: Char) = session.choosePromotion(piece)
+
+    override fun onCleared() {
+        jobs.forEach { it.cancel() }
+        jobs.clear()
+    }
+}

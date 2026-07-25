@@ -1,0 +1,6 @@
+root = true
+
+# Compose composables are PascalCase by convention. ktlint 1.5 does NOT exempt @Composable from
+# standard:function-naming by default, so every Compose file in :app would be a style error.
+[*.{kt,kts}]
+ktlint_function_naming_ignore_when_annotated_with = Composable

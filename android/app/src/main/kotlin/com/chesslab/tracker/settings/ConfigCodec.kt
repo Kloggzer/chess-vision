@@ -1,0 +1,73 @@
+package com.chesslab.tracker.settings
+
+import com.chesslab.engine.api.TrackerConfig
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+
+// `TrackerConfig` <-> JSON, driven entirely by the [KNOBS] table.
+//
+// Defaults are NEVER re-declared here: they are `TrackerConfig`'s own, which are
+// `src/chesslab/config.py TRACK_DEFAULTS` verbatim (entry.md invariant 12). A missing key
+// therefore decodes to the Python default, and an unknown key from a future build is ignored
+// rather than fatal.
+
+/** Bump when a knob's MEANING changes; an unreadable version resets to defaults with a note. */
+const val CONFIG_SCHEMA_VERSION = 1
+
+@Serializable
+private data class ConfigEnvelope(
+    val version: Int,
+    val values: Map<String, Double>,
+)
+
+/** The decoded config plus the reason it is not what was on disk, if any. */
+class DecodeResult(
+    val config: TrackerConfig,
+    val note: String?,
+)
+
+object ConfigCodec {
+    // NaN carries "no override" for the three Int? knobs, so the encoder must be allowed to
+    // write it; unknown keys are tolerated so a downgrade does not wipe the user's settings.
+    private val json =
+        Json {
+            allowSpecialFloatingPointValues = true
+            ignoreUnknownKeys = true
+        }
+
+    val defaults: TrackerConfig = TrackerConfig()
+
+    fun encode(config: TrackerConfig): String =
+        json.encodeToString(
+            ConfigEnvelope.serializer(),
+            ConfigEnvelope(CONFIG_SCHEMA_VERSION, KNOBS.associate { it.key to it.get(config) }),
+        )
+
+    fun decode(text: String?): DecodeResult {
+        if (text.isNullOrBlank()) return DecodeResult(defaults, null)
+        val envelope = runCatching { json.decodeFromString(ConfigEnvelope.serializer(), text) }.getOrNull()
+        return when {
+            envelope == null -> DecodeResult(defaults, "settings could not be read — reset to defaults")
+            envelope.version != CONFIG_SCHEMA_VERSION ->
+                DecodeResult(defaults, "settings schema ${envelope.version} is unknown — reset to defaults")
+            else -> DecodeResult(apply(defaults, envelope.values), null)
+        }
+    }
+
+    /** The keys whose value differs, split by whether Python can retune them without a restart. */
+    fun changedKeys(
+        old: TrackerConfig,
+        new: TrackerConfig,
+    ): List<Knob> = KNOBS.filter { !same(it.get(old), it.get(new)) }
+
+    private fun apply(
+        base: TrackerConfig,
+        values: Map<String, Double>,
+    ): TrackerConfig = KNOBS.fold(base) { config, knob -> values[knob.key]?.let { knob.set(config, it) } ?: config }
+
+    /** NaN == NaN here: it is the "no override" marker, not a measurement. */
+    private fun same(
+        a: Double,
+        b: Double,
+    ): Boolean = a == b || (a.isNaN() && b.isNaN())
+}
