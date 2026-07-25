@@ -44,11 +44,26 @@ class SettingsRepository(
     /** Non-null when the stored settings could not be read and the defaults were used instead. */
     val note: StateFlow<String?> = loadNote.asStateFlow()
 
+    private val appState = MutableStateFlow(AppSettings())
+    val appSettings: StateFlow<AppSettings> = appState.asStateFlow()
+
+    // Kept in step with [appSettings] by hand rather than derived with `map(...).stateIn(scope)`:
+    // an eagerly started flow in this scope is a live coroutine, and a test that owns the scope
+    // then never completes (STATUS D06c-12).
+    private val debugState = MutableStateFlow(AppSettings().debugEnabled)
+
+    /** Read by 07b's debug payload; only the settings screen writes it. */
+    val debugEnabled: StateFlow<Boolean> = debugState.asStateFlow()
+
     suspend fun load() {
-        val decoded = ConfigCodec.decode(store.read())
+        val decoded = ConfigCodec.decode(store.read(SLOT_CONFIG))
         loadNote.value = decoded.note
         current.value = decoded.config
+        publishApp(decodeAppSettings(store.read(SLOT_APP)))
         submit(decoded.config)
+        // The service constructs this repository; there is no other path from the composition
+        // root to it, so it announces itself once it holds the persisted truth (D07a-2).
+        SettingsHost.publish(this)
     }
 
     /**
@@ -59,13 +74,42 @@ class SettingsRepository(
         val changed = ConfigCodec.changedKeys(current.value, new)
         current.value = new
         submit(new)
-        scope.launch { store.write(ConfigCodec.encode(new)) }
+        scope.launch { store.write(SLOT_CONFIG, ConfigCodec.encode(new)) }
         return UpdateResult(
             note = if (changed.any { it.live }) NOTE_TUNED_LIVE else null,
             restartRequired = changed.filterNot { it.live }.map { it.key },
         )
     }
 
-    /** 07a's "back to the Python defaults" action. */
+    /** "Back to the Python defaults" — same live/restart rules as any other edit. */
     fun resetToDefaults(): UpdateResult = update(ConfigCodec.defaults)
+
+    /** App-level settings. None of them is live: every one is read at construction (D07a-3). */
+    fun updateApp(new: AppSettings) {
+        publishApp(new)
+        scope.launch { store.write(SLOT_APP, encodeAppSettings(new)) }
+    }
+
+    fun setDebugEnabled(on: Boolean) = updateApp(appState.value.copy(debugEnabled = on))
+
+    private fun publishApp(new: AppSettings) {
+        appState.value = new
+        debugState.value = new.debugEnabled
+    }
+}
+
+/**
+ * Where the UI picks the repository up, mirroring 06b's `TrackerSessionHost`.
+ *
+ * The settings screen needs the ONE repository the service owns — a second one over the same
+ * DataStore would be a second source of truth, and the engine would never see its edits.
+ */
+object SettingsHost {
+    private val current = MutableStateFlow<SettingsRepository?>(null)
+
+    val repository: StateFlow<SettingsRepository?> = current
+
+    fun publish(repository: SettingsRepository?) {
+        current.value = repository
+    }
 }

@@ -26,6 +26,8 @@ import com.chesslab.tracker.pipeline.FrameSizeGuard
 import com.chesslab.tracker.pipeline.StageTimings
 import com.chesslab.tracker.settings.DataStoreConfigStore
 import com.chesslab.tracker.settings.SettingsRepository
+import com.chesslab.tracker.ui.debug.DebugSessionHost
+import com.chesslab.tracker.ui.debug.debugSession
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -60,6 +62,10 @@ class TrackerService : LifecycleService() {
 
     private var moves = 0
 
+    // 07b's two debug probes. Both are inert until the debug screen arms them.
+    private lateinit var cropTap: DebugCropTap
+    private val cnnProbe = CnnRuntimeProbe()
+
     override fun onCreate() {
         super.onCreate()
         notification = TrackerNotification(this)
@@ -74,6 +80,7 @@ class TrackerService : LifecycleService() {
         camera.bind(this)
         lifecycleScope.launch { settings.load() }
         publisher.events.onEach(::onEvent).launchIn(lifecycleScope)
+        settings.debugEnabled.onEach { if (it) setDebugEnabled(true) }.launchIn(lifecycleScope)
     }
 
     override fun onBind(intent: Intent): IBinder {
@@ -82,6 +89,7 @@ class TrackerService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        DebugSessionHost.publish(null)
         // Reverse construction order: nothing may deliver a frame into a closed pipeline.
         camera.close()
         observer.close()
@@ -107,6 +115,26 @@ class TrackerService : LifecycleService() {
         val align = LiveAlign(lifecycleScope, ::geometry, settings.config::value) { pipeline.corners = it }
         coordinator = TrackerCoordinator(pipeline, host, publisher, frames, observer, align, guard)
         binder = TrackerBinder(host, publisher, frames, settings, observer.state, ::calibrate)
+        DebugSessionHost.publish(
+            debugSession(
+                status = publisher.status,
+                cnnState = observer.state,
+                settings = settings,
+                onDebugEnabled = ::setDebugEnabled,
+                crops = { cropTap.latest },
+                runtime = cnnProbe::info,
+                retry = { observer.retryAttach(::openClassifier) },
+            ),
+        )
+    }
+
+    /**
+     * Arms BOTH halves of the debug payload — the engine's assembly and the crop tap. 07a's
+     * persisted switch only ever ARMS from here; disarming belongs to the screen that armed it.
+     */
+    private fun setDebugEnabled(on: Boolean) {
+        cropTap.enabled = on
+        host.submit(EngineAction.SetDebugEnabled(on))
     }
 
     /** The app's ONLY `TrackerCamera`. Its health flow is what the frame bus republishes. */
@@ -118,18 +146,19 @@ class TrackerService : LifecycleService() {
         }).also { camera = it }.cameraState
 
     private fun openObserver(store: CropFrameStore): CnnObserver {
+        cropTap = DebugCropTap(cropFrameSource(store, ::geometry))
         val cnn =
             CnnObserver(
-                source = cropFrameSource(store, ::geometry),
+                source = cropTap,
                 fen = { publisher.lastFen },
-                onSnapshot = { host.submit(it) },
+                onSnapshot = {
+                    cnnProbe.observations += 1
+                    host.submit(it)
+                },
             )
         // Attaching is asynchronous and LOUD on failure: a silent one once let the tracker run
         // diff-only for a whole session (MEMORY android-live-bringup-2607).
-        cnn.attach {
-            val classifier = OnnxSquareClassifier.open(CnnModelAssets.fromAssets(this).stage(), AndroidCnnLog)
-            Attached(classifier, classifier.backend, classifier.model)
-        }
+        cnn.attach(::openClassifier)
         cnn.state.onEach { publisher.cnnState = it }.launchIn(lifecycleScope)
         settings.config
             .onEach {
@@ -137,6 +166,22 @@ class TrackerService : LifecycleService() {
                 cnn.setEnabled(it.cnnVerify)
             }.launchIn(lifecycleScope)
         return cnn
+    }
+
+    /**
+     * Opens the classifier and records what the EP chain asked for next to what it got. The
+     * requested provider is the head of the chain, which QNN only joins when the quantized graph
+     * was staged; anything else is a fall-through and 07b renders it as one.
+     */
+    private fun openClassifier(): Attached {
+        val staged = CnnModelAssets.fromAssets(this).stage()
+        val classifier = OnnxSquareClassifier.open(staged, AndroidCnnLog)
+        cnnProbe.requestedEp = if (staged.qnn != null) "QNN-HTP(NPU)" else "NNAPI"
+        cnnProbe.actualEp = classifier.backend
+        cnnProbe.model = classifier.model
+        cnnProbe.inputShape = classifier.inputShape
+        cnnProbe.lastRunMs = classifier::lastRunMs
+        return Attached(classifier, classifier.backend, classifier.model)
     }
 
     private fun onEvent(event: TrackerEvent) {

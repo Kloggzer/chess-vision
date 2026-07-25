@@ -94,10 +94,23 @@ class TrackingViewModel : ViewModel() {
         recalibrate.tryEmit(Unit)
     }
 
-    /** Opening the preview mutates nothing — it is derived from the status snapshot alone. */
+    /**
+     * Opening the preview mutates nothing — it is derived from the status snapshot alone.
+     *
+     * D06b-3 is closed as far as the status can close it: 07b's `DebugPayload` carries the CNN's
+     * per-square reads, so whenever the debug payload is armed the dialog shows the real
+     * `from → to (conf %)` instead of `→ ?`. Without it the payload is null and the preview falls
+     * back to naming only the believed side, which is what it always did.
+     */
     fun onAcceptCnnRequested() {
         val status = statusState.value
-        acceptCnnState.value = acceptCnnPreview(status.fen, status.alarm?.conflicts.orEmpty())
+        val reads =
+            status.debug
+                ?.cnnReads
+                ?.filter { it.label != null }
+                ?.associate { it.square to CnnRead(it.label!!, it.conf) }
+                .orEmpty()
+        acceptCnnState.value = acceptCnnPreview(status.fen, status.alarm?.conflicts.orEmpty(), reads)
     }
 
     /** `specs/16/04-alarm-ux.md`: Cancel dispatches NOTHING. */

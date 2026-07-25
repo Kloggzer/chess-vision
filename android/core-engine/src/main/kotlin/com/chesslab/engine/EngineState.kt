@@ -226,7 +226,8 @@ internal class EngineState(
 
     // -- provenance -----------------------------------------------------------------------------------
 
-    val decisionLog: MutableList<DecisionRecord> = mutableListOf() // `_decision_log`
+    // `_decision_log` — ring-capped (see DecisionLog); the list contract is unchanged.
+    val decisionLog: MutableList<DecisionRecord> = DecisionLog()
     var pendingCapture: PendingCapture? = null // `_pending_capture`
 
     // -- derived geometry (Python rebuilds `_square_boxes` per call; the port caches) ------------------
@@ -320,6 +321,12 @@ internal data class DecisionRecord(
     val cnnRun: Boolean,
     val cnnAgreement: Double,
     val cnnBestMove: String?,
+    // Provenance the debug screen needs and Python does not record. Defaulted, so the existing
+    // construction sites keep their exact shape; `accepted = false` marks a REJECTED candidate,
+    // which Python never logs at all.
+    val stuckReason: String? = null,
+    val verifyOutcome: String? = null,
+    val accepted: Boolean = true,
 )
 
 /** `_queue_session_capture` — the deferred auto-labeled session photo. */

@@ -12,14 +12,18 @@ import org.junit.jupiter.api.Test
 
 /** DataStore needs a Context and a real file; the repository's decisions do not. */
 private class MemoryStore(
-    var text: String? = null,
+    text: String? = null,
 ) : ConfigStore {
+    val slots = mutableMapOf<String, String>().apply { text?.let { put(SLOT_CONFIG, it) } }
     var writes = 0
 
-    override suspend fun read(): String? = text
+    override suspend fun read(slot: String): String? = slots[slot]
 
-    override suspend fun write(text: String) {
-        this.text = text
+    override suspend fun write(
+        slot: String,
+        text: String,
+    ) {
+        slots[slot] = text
         writes += 1
     }
 }
@@ -85,6 +89,37 @@ class SettingsRepositoryTest {
             advanceUntilIdle()
             assertNull(result.note)
             assertEquals(listOf("verifyWindow", "boardSize"), result.restartRequired)
+        }
+
+    @Test
+    fun aConfigWrittenByAnOlderBuildKeepsThePythonDefaultForMissingKeys() =
+        runTest {
+            // A build that predates a knob simply has no key for it — the fallback must be the
+            // Python default, never a zero, and never a crash that costs the user every setting.
+            val store = MemoryStore("""{"version":1,"values":{"censusThr":55.0}}""")
+            val repo = repository(store, FakePipeline())
+            repo.load()
+            assertNull(repo.note.value)
+            assertEquals(55.0, repo.config.value.censusThr)
+            assertEquals(TrackerConfig().occlusionColorThr, repo.config.value.occlusionColorThr)
+        }
+
+    @Test
+    fun appSettingsRoundTripAndFallBackToDefaults() =
+        runTest {
+            val store = MemoryStore()
+            val repo = repository(store, FakePipeline())
+            repo.updateApp(AppSettings(resolutionMode = ResolutionMode.R1440, debugEnabled = true))
+            advanceUntilIdle()
+            assertTrue(repo.debugEnabled.value)
+            val reloaded = repository(store, FakePipeline())
+            reloaded.load()
+            assertEquals(ResolutionMode.R1440, reloaded.appSettings.value.resolutionMode)
+
+            store.slots[SLOT_APP] = "not json"
+            val broken = repository(store, FakePipeline())
+            broken.load()
+            assertEquals(AppSettings(), broken.appSettings.value)
         }
 
     @Test

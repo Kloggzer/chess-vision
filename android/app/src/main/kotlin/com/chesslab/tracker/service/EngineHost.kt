@@ -55,6 +55,10 @@ class TrackerEngineOps(
             is EngineAction.CaptureBaseline -> engine.captureBaseline()
             is EngineAction.ChoosePromotion -> engine.choosePromotion(action.piece)
             is EngineAction.AcceptCnnPosition -> engine.acceptCnnPosition()
+            is EngineAction.SetDebugEnabled -> {
+                engine.setDebugEnabled(action.on)
+                emptyList()
+            }
             is EngineAction.UpdateConfig -> {
                 engine.updateConfig(action.config)
                 onConfigApplied(action.config)
