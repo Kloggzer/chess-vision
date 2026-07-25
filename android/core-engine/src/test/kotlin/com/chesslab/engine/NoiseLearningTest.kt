@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-// Step 4 of `_try_detect` — per-square noise learning (`tracker.py:2909-2921`).
+// Step 4 of `_try_detect` — per-square noise learning.
 //
 // entry.md invariant 9: the illegal-move alarm FREEZES learning. Excluded squares learn nothing in
 // the gray lane and at 0.125 * alpha in the census lane; the two lanes are never unified.
@@ -61,15 +61,17 @@ class NoiseLearningTest {
                 val where = "$name/${frame.frame}"
                 state.refGray = refs.getOrPut(refFrames) { meanGray(clip, refFrames) }
 
-                val evidence = state.computeEvidence(meanGray(clip, tierA.curFrames))
+                state.computeEvidence(meanGray(clip, tierA.curFrames))
                 val changed = tierB.changed.toSet()
                 val shadowVeto = tierB.shadowVeto.toSet()
-                // The emitter records `noiseExclude = changed | shadowVeto` (00b); asserting it
-                // here pins that the two sets the port learns from are the ones Python used.
+                // The emitter records `noiseExclude = changed | shadowVeto`; asserting it here pins
+                // that the two sets the port learns from are the ones Python used.
                 assertEquals(tierA.noiseExclude.toSet(), changed + shadowVeto, "$where noiseExclude")
                 if (changed.isNotEmpty()) excludeFrames++
+                state.changed = ofSquares(changed)
+                state.shadowVetoed = ofSquares(shadowVeto)
 
-                state.learnNoise(evidence.diffs, evidence.cens, changed, shadowVeto)
+                state.learnNoise()
 
                 assertCloseMap(tierA.noiseMean, toMap(state.noise.mean), "$where noiseMean")
                 assertCloseMap(tierA.noiseStd, toMap(state.noise.std), "$where noiseStd")
@@ -91,15 +93,14 @@ class NoiseLearningTest {
     @Test
     fun alarmFreezesNoiseLearning() {
         val state = testState()
-        val diffs = channel(hot = 40.0)
-        val cens = channel(hot = 30.0)
+        state.feed(diffs = 40.0, cens = 30.0)
         state.alarm = TrackerEvent.Alarm("illegal_move", listOf("e4"), null, null)
         val grayMean = state.noise.mean.copyOf()
         val grayStd = state.noise.std.copyOf()
         val censMean = state.censusNoise.mean.copyOf()
         val censStd = state.censusNoise.std.copyOf()
 
-        state.learnNoise(diffs, cens, emptySet(), emptySet())
+        state.learnNoise()
 
         for (i in 0 until Squares.COUNT) {
             assertEquals(grayMean[i], state.noise.mean[i], 0.0, "${Squares.ALL[i]} gray mean")
@@ -110,7 +111,7 @@ class NoiseLearningTest {
 
         // Control: the very same call learns once the alarm is released.
         state.alarm = null
-        state.learnNoise(diffs, cens, emptySet(), emptySet())
+        state.learnNoise()
         assertNotEquals(grayMean[Squares.index("a1")], state.noise.mean[Squares.index("a1")], "learning must resume")
     }
 
@@ -123,13 +124,11 @@ class NoiseLearningTest {
     fun censusLaneUsesExcludeAlphaScale() {
         val state = testState()
         val value = 40.0
-        val diffs = channel(hot = value)
-        val cens = channel(hot = value)
-        val excluded = setOf("e4")
         val i = Squares.index("e4")
         val j = Squares.index("a1")
+        state.feed(diffs = value, cens = value, changedSquares = ofSquares("e4"))
 
-        state.learnNoise(diffs, cens, excluded, emptySet())
+        state.learnNoise()
 
         assertEquals(0.0, state.noise.mean[i], 0.0, "the gray lane must learn NOTHING on an excluded square")
         val alpha = NOISE_ALPHA_DEFAULT
@@ -139,13 +138,13 @@ class NoiseLearningTest {
         assertEquals(alpha * value, state.censusNoise.mean[j], 1e-12, "and at full alpha elsewhere")
     }
 
-    /** The exclusion set is `changed | shadowVeto` — both, never only one of them (`:2918`). */
+    /** The exclusion set is `changed | shadowVeto` — both, never only one of them. */
     @Test
     fun bothChangedAndShadowVetoAreExcluded() {
         val state = testState()
-        val diffs = channel(hot = 40.0)
+        state.feed(diffs = 40.0, cens = null, changedSquares = ofSquares("e4"), veto = ofSquares("d5"))
 
-        state.learnNoise(diffs, null, setOf("e4"), setOf("d5"))
+        state.learnNoise()
 
         assertEquals(0.0, state.noise.mean[Squares.index("e4")], 0.0, "a candidate square must not be learned")
         assertEquals(0.0, state.noise.mean[Squares.index("d5")], 0.0, "a shadow-vetoed square must not be learned")
@@ -157,8 +156,9 @@ class NoiseLearningTest {
     fun censusLaneUntouchedWithoutAChannel() {
         val state = testState()
         val before = state.censusNoise.mean.copyOf()
+        state.feed(diffs = 40.0, cens = null)
 
-        state.learnNoise(channel(hot = 40.0), null, emptySet(), emptySet())
+        state.learnNoise()
 
         for (i in 0 until Squares.COUNT) {
             assertEquals(before[i], state.censusNoise.mean[i], 0.0, "${Squares.ALL[i]} census mean")
@@ -178,25 +178,34 @@ class NoiseLearningTest {
         val cur = shadowGray()
         val curBgr = shadowBgr()
 
-        val evidence = state.computeEvidence(cur)
-        val changed =
-            evidence.z
-                .filterValues { it >= state.config.zThr }
-                .keys
-                .toCollection(LinkedHashSet())
-        val result = state.applyVetoes(cur, curBgr, changed, evidence.cens)
-        state.learnNoise(evidence.diffs, evidence.cens, result.changed, result.shadowVeto)
+        state.computeEvidence(cur)
+        var hot = 0L
+        for (i in 0 until Squares.COUNT) {
+            if (state.lastZ[i] >= state.config.zThr) hot = hot.with(i)
+        }
+        state.applyVetoes(cur, curBgr, hot)
+        state.learnNoise()
 
-        assertTrue(result.shadowVeto.isNotEmpty(), "the veto must actually have fired")
-        for (square in result.shadowVeto) {
-            assertEquals(0.0, state.noise.mean[Squares.index(square)], 0.0, "$square must not be learned")
+        assertTrue(state.shadowVetoed != 0L, "the veto must actually have fired")
+        state.shadowVetoed.forEachSquare { i ->
+            assertEquals(0.0, state.noise.mean[i], 0.0, "${Squares.ALL[i]} must not be learned")
         }
     }
 
     // -- helpers -----------------------------------------------------------------------------------
 
-    /** A 64-key channel map with every square at [hot]. */
-    private fun channel(hot: Double): Map<String, Double> = Squares.ALL.associateWith { hot }
+    /** Both channels flat at the given levels, plus the post-veto sets `learnNoise` reads. */
+    private fun EngineState.feed(
+        diffs: Double,
+        cens: Double?,
+        changedSquares: Long = 0L,
+        veto: Long = 0L,
+    ) {
+        lastDiffs.fill(diffs)
+        lastCens = if (cens == null) null else DoubleArray(Squares.COUNT) { cens }
+        changed = changedSquares
+        shadowVetoed = veto
+    }
 
     private fun toMap(values: DoubleArray): Map<String, Double> = Squares.ALL.withIndex().associate { (i, s) -> s to values[i] }
 

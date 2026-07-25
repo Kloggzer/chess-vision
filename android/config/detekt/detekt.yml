@@ -21,12 +21,31 @@ console-reports:
 
 complexity:
   # Compose screens legitimately take many parameters (state + event callbacks).
+  #
+  # The engine's thresholds were raised in the 17 "lean pass": the 6-parameter cap forced a family
+  # of single-use holder classes (DetectContext, QuietContext, VetoResult, …) whose only purpose was
+  # to get under it, and the 11-function cap fixed TrackerEngine's public surface at exactly what
+  # fitted rather than at what the seam needs. A config that shapes the architecture is the wrong
+  # config; 8 / 15 are the honest numbers for this code, recorded here instead of in @Suppress.
   LongParameterList:
+    functionThreshold: 8
+    constructorThreshold: 8
     ignoreAnnotated: ['Composable']
+  TooManyFunctions:
+    thresholdInFiles: 15
+    thresholdInClasses: 15
+    thresholdInObjects: 15
+    thresholdInInterfaces: 15
+    thresholdInEnums: 15
+    ignoreAnnotatedFunctions: ['Composable']
 
 style:
   UnusedPrivateMember:
     active: true
+  # Single-exit gymnastics (a `var out` threaded through four branches) is harder to read than
+  # three honest returns; 2 was too tight for the engine's guard-then-compute shape.
+  ReturnCount:
+    max: 3
   UnusedParameter:
     active: true
   UnusedImports:

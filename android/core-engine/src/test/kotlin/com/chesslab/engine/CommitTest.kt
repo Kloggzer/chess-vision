@@ -83,7 +83,7 @@ class CommitTest {
     @Test
     fun priorTieBreakIsAppendedToTheReason() {
         val state = detectState()
-        state.commitMove(moveOf(state, "e2e4"), grayFrame(), null, CommitOptions(priorUsed = true))
+        state.commitMove(moveOf(state, "e2e4"), grayFrame(), null, priorUsed = true)
         assertEquals("frame-diff (no CNN verify) + prior tie-break", state.decisionLog.last().reason)
         assertTrue(state.priorLast)
         assertTrue(state.note.orEmpty().contains("decided by prior"))
@@ -138,7 +138,7 @@ class CommitTest {
             val engine = TrackerEngine(detectConfig())
             engine.state.alarm = TrackerEvent.Alarm("illegal_move", listOf("b1", "d4"), null, null)
             engine.state.desyncObs = 3
-            engine.state.desyncConflicts.add("b1")
+            engine.state.desyncConflicts = ofSquares("b1")
             val events =
                 when (correction) {
                     "undo" -> engine.undo()
@@ -147,7 +147,7 @@ class CommitTest {
                 }
             assertNull(engine.state.alarm, "$correction must release the latch")
             assertEquals(0, engine.state.desyncObs, correction)
-            assertTrue(engine.state.desyncConflicts.isEmpty(), correction)
+            assertEquals(0L, engine.state.desyncConflicts, correction)
             assertTrue(events.any { it is TrackerEvent.AlarmCleared }, correction)
             val logged = engine.state.decisionLog.last()
             assertEquals(DECIDER_USER, logged.decider, correction)

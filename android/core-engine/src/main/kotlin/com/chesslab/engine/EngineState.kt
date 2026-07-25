@@ -10,10 +10,12 @@ import com.chesslab.engine.api.TrackerEvent
  * The ONE mutable state object of the engine — every field of Python's `MoveTracker` that survives
  * between frames, each named with its Python counterpart.
  *
- * Owned by phase 03a; phases 03b/03c/03d and 04a/04b/04c read and write these fields but never edit
- * this file. Plain `var`s: `:core-engine` is driven by exactly one thread, so there is no
- * `synchronized`, no `Atomic*`, no `Mutex` and no `@Volatile` anywhere (entry.md hard rule 2) — the
- * whole race class Python's `self.lock` guards simply does not exist here.
+ * Plain `var`s: `:core-engine` is driven by exactly one thread, so there is no `synchronized`, no
+ * `Atomic*`, no `Mutex` and no `@Volatile` anywhere (entry.md hard rule 2) — the whole race class
+ * Python's `self.lock` guards simply does not exist here.
+ *
+ * Square SETS are `Long` bitboards (`Bitboard.kt`) and per-square scalars are `DoubleArray(64)`
+ * indexed by [Squares.ALL]; both are converted to names only in `toStatus()`.
  *
  * **Determinism (binding):** [nowS] is set ONCE per `onFrame` from `FrameInput.timestampMs`, and
  * every Python `time.time()` maps to it. There is no wall clock in this module.
@@ -32,20 +34,11 @@ internal class EngineState(
 
     // -- base truth (image, FEN) pair ------------------------------------------------------------
 
-    /** `ref_gray` */
-    var refGray: GrayImage? = null
-
-    /** `ref_bgr` */
-    var refBgr: BgrImage? = null
-
-    /** `ref_fen` */
-    var refFen: String? = null
-
-    /** `_ref_corners` */
-    var refCorners: FloatArray? = null
-
-    /** `_last_corners` */
-    var lastCorners: FloatArray? = null
+    var refGray: GrayImage? = null // `ref_gray`
+    var refBgr: BgrImage? = null // `ref_bgr`
+    var refFen: String? = null // `ref_fen`
+    var refCorners: FloatArray? = null // `_ref_corners`
+    var lastCorners: FloatArray? = null // `_last_corners`
 
     /** `_ref_gamut` (type from 01c: `ColorGamut`, not the spec's `BoardColorGamut`). */
     var refGamut: ColorGamut? = null
@@ -58,172 +51,134 @@ internal class EngineState(
 
     // -- frame loop -------------------------------------------------------------------------------
 
-    /** `_frame_seq` */
-    var frameSeq: Long = 0
+    var frameSeq: Long = 0 // `_frame_seq`
 
     /** `FrameInput.seq` of the previous frame; invariant 14 (a frame is never delivered twice). */
     var lastInputSeq: Long = -1
 
-    /** `prev_gray` */
-    var prevGray: GrayImage? = null
-
-    /** `_gray_buf` */
-    val grayBuf: RunningMeanGray = RunningMeanGray(config.avgFrames(cnnOn = false))
-
-    /** `_bgr_buf` */
-    val bgrBuf: RunningMeanBgr = RunningMeanBgr(config.avgFrames(cnnOn = false))
-
-    /** `stable_count` */
-    var stableCount: Int = 0
-
-    /** `_hold_until` */
-    var holdUntil: Double = 0.0
-
-    /** `_last_cur` */
-    var lastCur: GrayImage? = null
-
-    /** `_last_cur_bgr` */
-    var lastCurBgr: BgrImage? = null
-
-    /** `state`: waiting | moving | occluded | move */
-    var state: String = STATE_WAITING
-
-    /** `_motion` */
-    var motion: Double = 0.0
-
-    /** `_last_motion_ts` */
-    var lastMotionTs: Double = 0.0
-
-    /** `_motion_since_ref` */
-    var motionSinceRef: Boolean = false
-
-    /** `_occl_grid_active` */
-    var occlGridActive: Boolean = false
-
-    /** `_grid_coverage` */
-    var gridCoverage: Double = 1.0
-
-    /** `_fps` */
-    var fps: Double = 0.0
-
-    /** `_last_loop_ts` */
-    var lastLoopTs: Double = 0.0
+    var prevGray: GrayImage? = null // `prev_gray`
+    val grayBuf: RunningMeanGray = RunningMeanGray(config.avgFrames(cnnOn = false)) // `_gray_buf`
+    val bgrBuf: RunningMeanBgr = RunningMeanBgr(config.avgFrames(cnnOn = false)) // `_bgr_buf`
+    var stableCount: Int = 0 // `stable_count`
+    var holdUntil: Double = 0.0 // `_hold_until`
+    var lastCur: GrayImage? = null // `_last_cur`
+    var lastCurBgr: BgrImage? = null // `_last_cur_bgr`
+    var state: String = STATE_WAITING // `state`: waiting | moving | occluded | move
+    var motion: Double = 0.0 // `_motion`
+    var lastMotionTs: Double = 0.0 // `_last_motion_ts`
+    var motionSinceRef: Boolean = false // `_motion_since_ref`
+    var occlGridActive: Boolean = false // `_occl_grid_active`
+    var gridCoverage: Double = 1.0 // `_grid_coverage`
+    var fps: Double = 0.0 // `_fps`
+    var lastLoopTs: Double = 0.0 // `_last_loop_ts`
 
     /**
      * `_ts` / `_diff_ms` — per-stage wall time in ms.
      *
      * The engine NEVER writes a measured duration in here: measuring one would need a wall clock,
      * which this module must not have (see the class KDoc). `:app` fills it from outside; the map
-     * exists so `TrackerStatus.stageTimingsMs` has a home (STATUS D03a-5).
+     * exists so `TrackerStatus.stageTimingsMs` has a home.
      */
     val stageTimingsMs: MutableMap<String, Double> = mutableMapOf()
 
-    // -- occlusion / taint (03b owns the logic, not the fields) ------------------------------------
+    // -- occlusion / taint --------------------------------------------------------------------------
 
-    /** `_occlusion_expiry` — square -> expiry timestamp of the DILATED occlusion keep-alive. */
-    val occlusionExpiry: MutableMap<String, Double> = mutableMapOf()
+    /**
+     * `_occlusion_expiry` — expiry timestamp of the DILATED occlusion keep-alive, per square.
+     * An untouched slot is `0.0`, which is always in the past, so there is no separate latch mask
+     * and nothing to prune.
+     */
+    val occlusionExpiry = DoubleArray(Squares.COUNT)
 
     /** `_occl_core_expiry` — the RAW UNDILATED core; the `>2 -> occluded` gate counts THIS. */
-    val occlCoreExpiry: MutableMap<String, Double> = mutableMapOf()
+    val occlCoreExpiry = DoubleArray(Squares.COUNT)
 
-    /** `_motion_occluded_squares` */
-    var motionOccludedSquares: MutableSet<String> = mutableSetOf()
+    var motionOccluded: Long = 0L // `_motion_occluded_squares`
 
-    /** `_tainted` — square -> expiry (Python counts frames; the port latches on [nowS]). */
-    val tainted: MutableMap<String, Double> = mutableMapOf()
+    /**
+     * `_tainted` — the LATCHED squares (Python counts frames; the port latches on [nowS]).
+     * Unlike the expiry-only sets above this needs its own mask: a taint outlives its timer until
+     * the release rule in `Taint.kt` fires.
+     */
+    var tainted: Long = 0L
+
+    /** Expiry timestamp per tainted square; only meaningful for squares set in [tainted]. */
+    val taintExpiry = DoubleArray(Squares.COUNT)
 
     /** `_occl_whitelist` — persistent-occlusion squares exempt from the veto. */
-    val occlWhitelist: MutableSet<String> = mutableSetOf()
+    var occlWhitelist: Long = 0L
 
     /** `_occluded_since` — occlusion-latch timer (gamut escape hatch); `null` = not latched. */
     var occludedSince: Double? = null
 
-    /** `_occluded_vetoed` */
-    var occludedVetoed: List<String> = emptyList()
-
-    /** `_shadow_vetoed` */
-    var shadowVetoed: List<String> = emptyList()
+    var occludedVetoed: Long = 0L // `_occluded_vetoed`
+    var shadowVetoed: Long = 0L // `_shadow_vetoed`
 
     /** `_shadow_blocked` — candidate ucis rejected because their destination was vetoed. */
     val shadowBlocked: MutableList<String> = mutableListOf()
 
     // -- evidence -----------------------------------------------------------------------------------
 
-    /** `noise` — the GRAY lane (01d defaults). */
-    val noise: SquareNoise = SquareNoise()
+    val noise: SquareNoise = SquareNoise() // `noise` — the GRAY lane.
 
     /**
-     * `census_noise` — the CENSUS lane. Python is `SquareNoise(init_std=8.0, std_floor=2.5)`
-     * (`tracker.py:761`); the two lanes must never be unified (STATUS D03a-3).
+     * `census_noise` — the CENSUS lane. Python is `SquareNoise(init_std=8.0, std_floor=2.5)`;
+     * the two lanes must never be unified (STATUS D03a-3).
      */
     val censusNoise: SquareNoise =
         SquareNoise(initStd = CENSUS_NOISE_INIT_STD, stdFloor = CENSUS_NOISE_STD_FLOOR)
 
-    /** `_cens_raw` — the RAW census channel, the shadow veto's threshold input (invariant 8). */
-    var censRaw: MutableMap<String, Double>? = null
+    /**
+     * `_cens_raw` — the RAW census channel, the shadow veto's threshold input (invariant 8).
+     * Points at [censValues] while the channel ran this frame, `null` otherwise.
+     */
+    var censRaw: DoubleArray? = null
 
-    /** normalized gray channel (status) */
-    var lastDiffs: Map<String, Double> = emptyMap()
+    /** normalized gray channel — also `_diffs` for noise learning and the status heatmap. */
+    val lastDiffs = DoubleArray(Squares.COUNT)
 
-    /** normalized census channel (status) */
-    var lastCens: Map<String, Double> = emptyMap()
+    /** normalized census channel, or `null` when the channel was off / dropped this frame. */
+    var lastCens: DoubleArray? = null
 
-    /** fused z (status heatmap) */
-    var lastZ: Map<String, Double> = emptyMap()
+    /** fused z — the one evidence array every gate and the LL scoring read. */
+    val lastZ = DoubleArray(Squares.COUNT)
 
-    /** `_changed` */
-    var changed: MutableSet<String> = mutableSetOf()
+    // Per-frame evidence scratch, owned per engine so two engines can never alias each other.
+    val diffRaw = DoubleArray(Squares.COUNT)
+    val zGray = DoubleArray(Squares.COUNT)
+    val censValues = DoubleArray(Squares.COUNT)
+    val censNorm = DoubleArray(Squares.COUNT)
+    val zCensus = DoubleArray(Squares.COUNT)
 
-    /** `_changed_vals` (top 8) */
-    var changedVals: List<Pair<String, Double>> = emptyList()
-
-    /** `_struct_vals` (top 8) */
-    var structVals: List<Pair<String, Double>> = emptyList()
+    var changed: Long = 0L // `_changed`
+    var changedVals: List<Pair<String, Double>> = emptyList() // `_changed_vals` (top 8)
+    var structVals: List<Pair<String, Double>> = emptyList() // `_struct_vals` (top 8)
 
     // -- scoring / hypothesis -----------------------------------------------------------------------
 
-    /** `_best_score` */
-    var bestScore: Double = 0.0
-
-    /** `_second_score` */
-    var secondScore: Double = 0.0
-
-    /** `_candidate_uci` */
-    var candidateUci: String? = null
+    var bestScore: Double = 0.0 // `_best_score`
+    var secondScore: Double = 0.0 // `_second_score`
+    var candidateUci: String? = null // `_candidate_uci`
 
     // -- game state ---------------------------------------------------------------------------------
 
     /**
-     * `board` — 02a's [Game] wrapper, NOT a raw chesslib `Board`: `Game.fen()` is
+     * `board` — the [Game] wrapper, NOT a raw chesslib `Board`: `Game.fen()` is
      * `getFen(true, true)`, which is the only spelling that matches python-chess (STATUS D02a-1).
      */
     var board: Game = Game(startFen)
 
-    /** `history` (SAN) */
-    val history: MutableList<String> = mutableListOf()
-
-    /** `last_move` (uci) */
-    var lastMove: String? = null
-
-    /** `note` */
-    var note: String? = null
-
-    /** `prior_last` */
-    var priorLast: Boolean = false
-
-    /** `recovered_last` */
-    var recoveredLast: Boolean = false
+    val history: MutableList<String> = mutableListOf() // `history` (SAN)
+    var lastMove: String? = null // `last_move` (uci)
+    var note: String? = null // `note`
+    var priorLast: Boolean = false // `prior_last`
+    var recoveredLast: Boolean = false // `recovered_last`
 
     // -- pending / promotion / confirmation ----------------------------------------------------------
 
-    /** `_pending` */
-    var pending: PendingVerify? = null
-
-    /** `_promo_pending` */
-    var promoPending: PromoPending? = null
-
-    /** `_verify_state`: null | "verifying" | "confirmed" | "ghost" */
-    var verifyState: String? = null
+    var pending: PendingVerify? = null // `_pending`
+    var promoPending: PromoPending? = null // `_promo_pending`
+    var verifyState: String? = null // `_verify_state`: null | "verifying" | "confirmed" | "ghost"
 
     /** `_confirmer`. Python builds it with the resolved `confirm_frames` at construction time. */
     var confirmer: Confirmer = Confirmer(config.confirmFrames(cnnOn = false))
@@ -233,46 +188,29 @@ internal class EngineState(
 
     // -- stuck / anomaly -------------------------------------------------------------------------------
 
-    /** `_stuck_reason` */
-    var stuckReason: String? = null
+    var stuckReason: String? = null // `_stuck_reason`
+    var stuckCount: Int = 0 // `_stuck_count`
 
-    /** `_stuck_count` */
-    var stuckCount: Int = 0
+    /** `_anomaly_since` — squares persistently changed but unexplained, and since when. */
+    var anomalySince: Long = 0L
 
-    /** `_anomaly_since` — square -> since when persistently changed but unexplained. */
-    val anomalySince: MutableMap<String, Double> = mutableMapOf()
+    val anomalyStart = DoubleArray(Squares.COUNT)
 
     // -- CNN coupling (03b reads snap; 04x owns the machines) --------------------------------------------
 
-    /** `_cnn_snap` */
-    var cnnSnap: CnnSnapshot? = null
-
-    /** `cnn_run` */
-    var cnnRun: Boolean = false
-
-    /** `_cnn_failed` */
-    var cnnFailed: Boolean = false
-
-    /** `_cnn_busy` — one observation at a time. */
-    var cnnBusy: Boolean = false
+    var cnnSnap: CnnSnapshot? = null // `_cnn_snap`
+    var cnnRun: Boolean = false // `cnn_run`
+    var cnnFailed: Boolean = false // `_cnn_failed`
+    var cnnBusy: Boolean = false // `_cnn_busy` — one observation at a time.
 
     /** `_observer_started_ts` — when the last observation was spawned (`_observer_due`). */
     var observerStartedTs: Double = 0.0
 
-    /** `_last_cnn_ts` — recovery-observation cooldown anchor. */
-    var lastCnnTs: Double = 0.0
-
-    /** `cnn_status`: null | "ok" | "mismatch" */
-    var cnnStatus: String? = null
-
-    /** `cnn_conflicts` */
-    var cnnConflicts: List<String> = emptyList()
-
-    /** `_cnn_agreement` */
-    var cnnAgreement: Double = 0.0
-
-    /** `_cnn_best_move` */
-    var cnnBestMove: String? = null
+    var lastCnnTs: Double = 0.0 // `_last_cnn_ts` — recovery-observation cooldown anchor.
+    var cnnStatus: String? = null // `cnn_status`: null | "ok" | "mismatch"
+    var cnnConflicts: List<String> = emptyList() // `cnn_conflicts`
+    var cnnAgreement: Double = 0.0 // `_cnn_agreement`
+    var cnnBestMove: String? = null // `_cnn_best_move`
 
     /** `_alarm` — the latch. Non-null freezes noise learning and blocks every commit (invariant 9). */
     var alarm: TrackerEvent.Alarm? = null
@@ -280,27 +218,20 @@ internal class EngineState(
     /** `_alarm["since"]` — kept separately because the seam's `Alarm` carries no timestamp. */
     var alarmSince: Double = 0.0
 
-    /** `_desync_obs` — consecutive desync observations. */
-    var desyncObs: Int = 0
-
-    /** `_desync_conflicts` — the stable conflict set of the streak. */
-    val desyncConflicts: MutableSet<String> = mutableSetOf()
+    var desyncObs: Int = 0 // `_desync_obs` — consecutive desync observations.
+    var desyncConflicts: Long = 0L // `_desync_conflicts` — the stable conflict set of the streak.
 
     /** `_desync_last_seq` — last observation seq counted (dedup, Spec 11). */
     var desyncLastSeq: Long? = null
 
     // -- provenance -----------------------------------------------------------------------------------
 
-    /** `_decision_log` */
-    val decisionLog: MutableList<DecisionRecord> = mutableListOf()
+    val decisionLog: MutableList<DecisionRecord> = mutableListOf() // `_decision_log`
+    var pendingCapture: PendingCapture? = null // `_pending_capture`
 
-    /** `_pending_capture` */
-    var pendingCapture: PendingCapture? = null
+    // -- derived geometry (Python rebuilds `_square_boxes` per call; the port caches) ------------------
 
-    // -- derived geometry (Python rebuilds `_square_boxes` per call; the port caches, 01a) -------------
-
-    /** `_det_boxes` (`tracker.py:820`) — `extendUp = 0.0`. */
-    var detBoxes: SquareBoxes = squareBoxes(config.detSize, whitePov)
+    var detBoxes: SquareBoxes = squareBoxes(config.detSize, whitePov) // `_det_boxes` — `extendUp = 0.0`.
 
     /** The evidence boxes, `extendUp = config.overhang` — what `per_square_diff` builds per call. */
     var evidenceBoxes: SquareBoxes = squareBoxes(config.detSize, whitePov, config.overhang)
@@ -311,7 +242,7 @@ internal class EngineState(
         evidenceBoxes = squareBoxes(config.detSize, whitePov, config.overhang)
     }
 
-    // -- CNN-conditional derived knobs (tracker.py:739-742) --------------------------------------------
+    // -- CNN-conditional derived knobs ----------------------------------------------------------------
     val cnnOn: Boolean get() = config.cnnVerify && cnnRun && !cnnFailed
 
     val settleFrames: Int get() = config.settleFrames(cnnOn)
@@ -333,12 +264,12 @@ internal const val STATE_OCCLUDED = "occluded"
 internal const val STATE_MOVE = "move"
 
 /**
- * `_pending` (`tracker.py:3341-3343`) — a confirmed diff candidate awaiting CNN verification.
+ * `_pending` — a confirmed diff candidate awaiting CNN verification.
  *
  * [frames] counts the verify ticks; [voteOutcome]/[voteCount] are Python's `_outcome`/`_votes`
- * multi-glance vote (`_pending_voted` `:2290`, entry.md invariant 13 — never act on one glance).
- * [cur]/[curBgr] are the AVERAGED frame the candidate was raised from and the verify path's only
- * legal anchor (invariant 5).
+ * multi-glance vote (entry.md invariant 13 — never act on one glance). [cur]/[curBgr] are the
+ * AVERAGED frame the candidate was raised from and the verify path's only legal anchor
+ * (invariant 5).
  */
 internal data class PendingVerify(
     val ucis: List<String>,
@@ -356,7 +287,7 @@ internal data class PendingVerify(
 /** Alias for the name phases 04a/04b use for the same object. */
 internal typealias PendingCandidate = PendingVerify
 
-/** `_promo_pending` (`tracker.py:3255-3258`) — waits for `choose_promotion()`. */
+/** `_promo_pending` — waits for `choose_promotion()`. */
 internal data class PromoPending(
     val from: String,
     val to: String,
@@ -365,7 +296,7 @@ internal data class PromoPending(
     val fen: String,
 )
 
-/** `_record_decision` (`tracker.py:2650-2674`) — the per-move provenance row. */
+/** `_record_decision` — the per-move provenance row. */
 internal data class DecisionRecord(
     val tsS: Double,
     val ply: Int,

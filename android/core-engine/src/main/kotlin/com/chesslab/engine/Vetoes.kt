@@ -12,7 +12,8 @@ private var curHsvBuf = ByteArray(0)
 private var censBandBuf = DoubleArray(Squares.COUNT)
 
 /**
- * Step 3 of `_try_detect` — Python `_apply_vetoes` (`tracker.py:3141-3176`).
+ * Step 3 of `_try_detect` — Python `_apply_vetoes`. Takes the hot squares and writes the survivors
+ * to [EngineState.changed] and the vetoed ones to [EngineState.shadowVetoed].
  *
  * **entry.md invariant 2, the half that PRESERVES z.** A cast shadow (Cucchiara HSV + a census
  * confirmation) only removes the square from `changed`, i.e. from the gates; its z-value survives
@@ -27,43 +28,39 @@ private var censBandBuf = DoubleArray(Squares.COUNT)
 internal fun EngineState.applyVetoes(
     cur: GrayImage,
     curBgr: BgrImage?,
-    changed: MutableSet<String>,
-    cens: Map<String, Double>?,
-): VetoResult {
-    shadowVetoed = emptyList()
-    var shadowVeto: Set<String> = emptySet()
+    hot: Long,
+) {
+    shadowVetoed = 0L
+    changed = hot
+    var shadowVeto = 0L
     val ref = refBgr
-    if (curBgr != null && ref != null && changed.isNotEmpty()) {
+    if (curBgr != null && ref != null && hot != 0L) {
         // Invariant 8: `censusThr` (40.0) was live-tuned on the RAW census channel. The normalized
-        // dict serves scoring and noise learning; using it here lets normalization pull a
+        // channel serves scoring and noise learning; using it here lets normalization pull a
         // structurally changed destination square under the threshold, which is the
-        // phantom-shadow-as-destination class (`:3165-3169`).
-        val censForVeto = censRaw ?: bandCensusForVeto(cur, changed, cens)
-        val shadows = hsvShadows(ref, curBgr, changed)
+        // phantom-shadow-as-destination class.
+        val censForVeto = censRaw ?: bandCensusForVeto(cur, hot)
+        val shadows = hsvShadows(ref, curBgr, hot)
         val thr = config.censusThr
-        shadowVeto = changed.filterTo(LinkedHashSet()) { it in shadows && censForVeto.getValue(it) < thr }
-        if (shadowVeto.isNotEmpty()) {
-            changed.removeAll(shadowVeto)
-            shadowVetoed = shadowVeto.sorted()
+        shadows.forEachSquare { i -> if (censForVeto[i] < thr) shadowVeto = shadowVeto.with(i) }
+        if (shadowVeto != 0L) {
+            changed = hot.without(shadowVeto)
+            shadowVetoed = shadowVeto
         }
     }
-    // Opaque occlusion lives in the taint mechanism (z is zeroed there) — report the CURRENTLY
-    // latched squares so 03d's "only photograph a clean board" guard in step 5 is a real condition
-    // and not a permanently-true `not set()` (`:3173-3176`).
-    return VetoResult(changed, shadowVeto, tainted.keys.toSet())
 }
 
 /**
- * `hsv_shadow_squares(self.ref_bgr, cur_bgr, ...)` (`:3162-3164`).
+ * `hsv_shadow_squares(self.ref_bgr, cur_bgr, ...)`.
  *
- * Python hands `cv2.cvtColor` the two BGR planes on every call; 01c's port takes the converted HSV
+ * Python hands `cv2.cvtColor` the two BGR planes on every call; this port takes the converted HSV
  * planes, so the conversion happens here, into reusable buffers.
  */
 private fun EngineState.hsvShadows(
     ref: BgrImage,
     cur: BgrImage,
-    candidates: Set<String>,
-): Set<String> {
+    candidates: Long,
+): Long {
     val need = cur.width * cur.height * BGR_CHANNELS
     if (refHsvBuf.size != need) refHsvBuf = ByteArray(need)
     if (curHsvBuf.size != need) curHsvBuf = ByteArray(need)
@@ -74,54 +71,26 @@ private fun EngineState.hsvShadows(
 }
 
 /**
- * The `censusZWeight == 0` fast path (`:3155-3161`): no evidence-side census channel exists this
- * frame, so the veto computes its own over the candidate rows only.
+ * The `censusZWeight == 0` fast path: no evidence-side census channel exists this frame, so the
+ * veto computes its own over the candidate rows only.
  *
  * `rows = (min y0 - 1, max y1 + 1)` over the candidates' extended boxes — the +/-1 halo is what
  * makes the band-local census codes identical to the full transform inside the band. The locally
- * computed map **is raw already**, so it needs no `censRaw` counterpart.
+ * computed channel **is raw already**, so it needs no `censRaw` counterpart.
  *
  * This never runs when [EngineState.censRaw] is available: a second census evaluation over a
  * different band would be a divergent channel, not a cheaper one.
  */
 private fun EngineState.bandCensusForVeto(
     cur: GrayImage,
-    changed: Set<String>,
-    cens: Map<String, Double>?,
-): Map<String, Double> {
-    if (cens != null) return cens
+    changed: Long,
+): DoubleArray {
     val boxes = evidenceBoxes
     var yLo = Int.MAX_VALUE
     var yHi = Int.MIN_VALUE
-    for (square in changed) {
-        val i = Squares.index(square)
-        if (i < 0) continue
+    changed.forEachSquare { i ->
         if (boxes.y0[i] < yLo) yLo = boxes.y0[i]
         if (boxes.y1[i] > yHi) yHi = boxes.y1[i]
     }
-    perSquareCensusChange(
-        refCensusCodes(),
-        cur,
-        boxes,
-        censBandBuf,
-        rows = intArrayOf(yLo - 1, yHi + 1),
-    )
-    val out = LinkedHashMap<String, Double>(Squares.COUNT)
-    for (i in 0 until Squares.COUNT) {
-        out[Squares.ALL[i]] = censBandBuf[i]
-    }
-    return out
+    return perSquareCensusChange(refCensusCodes(), cur, boxes, censBandBuf, rows = intArrayOf(yLo - 1, yHi + 1))
 }
-
-/**
- * What `_apply_vetoes` returns (`tracker.py:3176`): the surviving candidate set, the shadow-vetoed
- * squares, and the currently latched (occluded) squares.
- *
- * Declared LAST on purpose: as the first top-level declaration of a file named `Vetoes.kt` it trips
- * detekt's `MatchingDeclarationName` (STATUS D03b-3).
- */
-internal data class VetoResult(
-    val changed: MutableSet<String>,
-    val shadowVeto: Set<String>,
-    val occludedSet: Set<String>,
-)

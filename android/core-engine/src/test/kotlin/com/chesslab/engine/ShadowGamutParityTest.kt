@@ -46,11 +46,11 @@ class ShadowGamutParityTest {
                         refHsv = refHsv,
                         curHsv = curHsv,
                         geom = geom,
-                        candidates = tierA.vetoCandidates,
+                        candidates = ofSquares(tierA.vetoCandidates),
                     )
                 assertExact(
                     tierA.hsvShadowSquares.toSet(),
-                    actual,
+                    actual.sortedSquareNames().toSet(),
                     "$name/${frame.frame}: hsvShadowSquares",
                 )
                 if (tierA.hsvShadowSquares.isNotEmpty()) nonEmpty++
@@ -163,10 +163,11 @@ class ShadowGamutParityTest {
                 if (tierA.refFrames == null) continue
                 val gamut = boardColorGamut(colorPlanes(averaged(planes, tierA.activeGamutFrames, size), size), geom)
                 val cur = colorPlanes(averaged(planes, tierA.curFrames, size), size)
-                val actual = occlusionColorSquares(cur, geom, gamut, tierA.vetoCandidates, tierA.occlusionColorThr)
+                val actual =
+                    occlusionColorSquares(cur, geom, gamut, ofSquares(tierA.vetoCandidates), tierA.occlusionColorThr)
                 assertExact(
                     tierA.occlusionColorSquares.toSet(),
-                    actual,
+                    actual.sortedSquareNames().toSet(),
                     "$name/${frame.frame}: occlusionColorSquares",
                 )
                 checked++
@@ -198,10 +199,11 @@ class ShadowGamutParityTest {
                 if (baseline == null || from == null) continue
                 val gamut = gamuts.getOrPut(from) { boardColorGamut(colorPlanes(averaged(planes, from, size), size), geom) }
                 val cur = colorPlanes(planes.getValue(frame.frame), size)
-                val actual = occlusionColorSquares(cur, geom, gamut, baseline.strongCandidates, baseline.colorThr)
+                val actual =
+                    occlusionColorSquares(cur, geom, gamut, ofSquares(baseline.strongCandidates), baseline.colorThr)
                 assertExact(
                     baseline.chromaOutliers.toSet(),
-                    actual,
+                    actual.sortedSquareNames().toSet(),
                     "$name/${frame.frame}: baselineOcclusion.chromaOutliers",
                 )
                 if (baseline.chromaOutliers.isNotEmpty()) nonEmpty++

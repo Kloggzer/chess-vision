@@ -48,7 +48,7 @@ class SquareDiffParityTest {
                 val expected = set.regions.getValue(square)
                 val actual =
                     squareRegion(
-                        square,
+                        Squares.index(square),
                         set.boardSize,
                         set.whitePov,
                         inset = set.inset,
@@ -102,7 +102,7 @@ class SquareDiffParityTest {
                 for ((square, expected) in regions) {
                     assertEquals(
                         expected,
-                        squareRegion(square, cfg.detSize, clip.meta.whitePov, extendUp = cfg.overhang).toList(),
+                        squareRegion(Squares.index(square), cfg.detSize, clip.meta.whitePov, extendUp = cfg.overhang).toList(),
                         "$name/${frame.frame}: tierA.squareRegion[$square]",
                     )
                     checked++

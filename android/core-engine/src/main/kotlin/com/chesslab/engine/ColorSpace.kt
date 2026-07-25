@@ -34,12 +34,8 @@ private const val R_Y1 = 3
 
 /**
  * Geometry of one interleaved colour plane: its pixel size plus the `square_region` parameters
- * the per-square means are taken over.
- *
- * Exists as a holder because the Python signatures carry `width, board_size, white_pov, extend_up`
- * next to two image buffers, which lands well past detekt's `LongParameterList` threshold
- * (STATUS D01c-2). [extendUp] is the *overhang* of the pack's evidence boxes; the gamut and the
- * base occlusion box always use `extendUp = 0.0`, exactly like Python.
+ * the per-square means are taken over. [extendUp] is the *overhang* of the pack's evidence boxes;
+ * the gamut and the base occlusion box always use `extendUp = 0.0`, exactly like Python.
  */
 internal class PlaneGeometry(
     val width: Int,
@@ -53,7 +49,7 @@ internal class PlaneGeometry(
      * `null` means an empty region — Python's `reg.size == 0`, which is *skipped*, never flagged.
      */
     fun region(
-        square: String,
+        square: Int,
         extendUp: Double,
     ): IntArray? {
         val r = squareRegion(square, boardSize, whitePov, extendUp = extendUp)
@@ -69,21 +65,6 @@ internal class PlaneGeometry(
 internal class ColorPlanes(
     val lab: ByteArray,
     val hsv: ByteArray,
-)
-
-/**
- * The live-tuned Cucchiara constants of `hsvShadowSquares` (`ShadowVeto.kt`). Never change these
- * to make something pass.
- *
- * Lives here with the other parameter bundles: Python's signature carries these five next to two
- * images and the geometry, which detekt's `LongParameterList` cap does not allow (STATUS D01c-2).
- */
-internal data class ShadowParams(
-    val vLo: Double = 0.35,
-    val vHi: Double = 0.97,
-    val hTol: Double = 15.0,
-    val sTol: Double = 40.0,
-    val frac: Double = 0.5,
 )
 
 // ---------------------------------------------------------------------------------------

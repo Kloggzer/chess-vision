@@ -86,7 +86,7 @@ internal fun integralAbsDiff(
 }
 
 /**
- * Per-region means from an integral image. Python `_region_means` (`tracker.py:110`).
+ * Per-region means from an integral image. Python `_region_means`.
  *
  * Zero-area boxes yield `0.0`, never NaN. [out] is caller-owned and reused across frames; it is
  * returned for chaining.

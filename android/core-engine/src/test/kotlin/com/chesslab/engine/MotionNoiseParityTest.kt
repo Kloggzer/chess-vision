@@ -8,6 +8,7 @@ import com.chesslab.engine.parity.assertClose
 import com.chesslab.engine.parity.assertCloseMap
 import com.chesslab.engine.parity.assertExact
 import com.chesslab.engine.parity.toTrackerConfig
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -95,7 +96,7 @@ class MotionNoiseParityTest {
                 val where = "$name/${frame.frame}"
                 val diffs = toArray(tierA.normalizedDiffs)
                 val cens = toArray(tierA.censusNormalized)
-                val exclude = Squares.setToMask(tierA.noiseExclude)
+                val exclude = ofSquares(tierA.noiseExclude)
 
                 assertCloseMap(tierA.noiseZ, toMap(gray.z(diffs, scratch)), "$where noiseZ")
                 val censusZ = tierA.censusNoiseZ
@@ -199,17 +200,17 @@ class MotionNoiseParityTest {
                 clip.gray(frame.frame),
                 inputs.refGray,
                 boxes,
-                BaselineParams(det, block.absThr, clip.meta.whitePov),
+                det,
+                block.absThr,
+                clip.meta.whitePov,
                 evidence,
             )
         val where = "${clip.name}/${frame.frame}"
-        assertExact(block.occludedDilated.toSet(), Squares.maskToSet(result.occluded), "$where occludedDilated")
-        assertExact(block.shadowDilated.toSet(), Squares.maskToSet(result.shadow), "$where shadowDilated")
-        assertExact(block.core.toSet(), Squares.maskToSet(result.core), "$where baselineOcclusion.core")
-        for (i in 0 until Squares.COUNT) {
-            assertTrue(!result.core[i] || result.occluded[i], "$where core square outside the dilated set")
-            assertTrue(!(result.shadow[i] && result.occluded[i]), "$where shadow and occluded overlap")
-        }
+        assertExact(block.occludedDilated.toSet(), result.occluded.sortedSquareNames().toSet(), "$where occludedDilated")
+        assertExact(block.shadowDilated.toSet(), result.shadow.sortedSquareNames().toSet(), "$where shadowDilated")
+        assertExact(block.core.toSet(), result.core.sortedSquareNames().toSet(), "$where baselineOcclusion.core")
+        assertEquals(0L, result.core.without(result.occluded), "$where core square outside the dilated set")
+        assertEquals(0L, result.shadow and result.occluded, "$where shadow and occluded overlap")
     }
 
     private fun baselineInputs(

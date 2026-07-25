@@ -51,13 +51,14 @@ internal class Game(
         board.undoMove()
     }
 
-    /** Piece FEN char at the square (`'P'..'k'`), or `null` when the square is empty. */
-    fun pieceCharAt(square: String): Char? {
-        val piece = board.getPiece(squareOf(square))
+    /** Piece FEN char at the [Squares.ALL] index (`'P'..'k'`), or `null` when the square is empty. */
+    fun pieceCharAt(index: Int): Char? {
+        val piece = board.getPiece(Square.squareAt(index))
         return if (piece == null || piece == Piece.NONE) null else piece.fenSymbol.first()
     }
 
-    /** True when the side still holds at least one castling right. */
+    fun pieceCharAt(square: String): Char? = pieceCharAt(indexOf(square))
+
     fun hasCastlingRights(white: Boolean): Boolean = board.getCastleRight(if (white) Side.WHITE else Side.BLACK) != CastleRight.NONE
 
     /**
@@ -111,11 +112,11 @@ internal fun uciOf(move: Move): String {
 }
 
 /**
- * `"e4"` -> the chesslib [Square]. `Square.ordinal` is rank-major from `a1`, i.e. exactly
- * [Squares.ALL]'s order (engine invariant 11).
+ * `"e4"` -> its [Squares.ALL] index, which is also chesslib's `Square.ordinal` — that order
+ * equality is engine invariant 11.
  */
-private fun squareOf(name: String): Square {
+private fun indexOf(name: String): Int {
     val index = Squares.index(name.trim().lowercase())
     require(index >= 0) { "invalid square: '$name'" }
-    return Square.squareAt(index)
+    return index
 }

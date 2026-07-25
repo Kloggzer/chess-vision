@@ -3,7 +3,7 @@ package com.chesslab.engine
 import kotlin.math.max
 
 /**
- * Python normalize_diffs (tracker.py:487).
+ * Python normalize_diffs.
  *
  * Removes global brightness/exposure drift: every value minus the robust baseline, the UPPER
  * median `sorted[n / 2]` of all values (index 32 for 64 squares — NOT the average of 31 and 32),

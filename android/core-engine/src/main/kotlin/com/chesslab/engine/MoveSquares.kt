@@ -5,10 +5,9 @@ import kotlin.math.abs
 
 // Move classification and the two square sets the detection pipeline scores against.
 //
-// Python reference: `move_touched_squares` (`tracker.py:456`) and `move_destination_squares`
-// (`tracker.py:474`). The two are deliberately DIFFERENT — a move whose *destination* is
-// shadow-vetoed must be blocked, while its other touched squares must not block it
-// (`specs/09`). Never unify them.
+// Python reference: `move_touched_squares` and `move_destination_squares`. The two are deliberately
+// DIFFERENT — a move whose *destination* is shadow-vetoed must be blocked, while its other touched
+// squares must not block it (`specs/09`). Never unify them.
 //
 // A chesslib `Move` alone does not say "castling" or "en passant", so the classification is
 // derived from the position. That derivation is exact for LEGAL moves only.
@@ -18,7 +17,7 @@ internal fun isCastling(
     g: Game,
     mv: Move,
 ): Boolean =
-    g.pieceCharAt(Squares.ALL[mv.from.ordinal])?.uppercaseChar() == 'K' &&
+    g.pieceCharAt(mv.from.ordinal)?.uppercaseChar() == 'K' &&
         abs(mv.to.file.ordinal - mv.from.file.ordinal) == CASTLING_FILE_SPAN
 
 internal fun isKingsideCastling(
@@ -36,15 +35,15 @@ internal fun isEnPassant(
     g: Game,
     mv: Move,
 ): Boolean =
-    g.pieceCharAt(Squares.ALL[mv.from.ordinal])?.uppercaseChar() == 'P' &&
+    g.pieceCharAt(mv.from.ordinal)?.uppercaseChar() == 'P' &&
         mv.to.file.ordinal != mv.from.file.ordinal &&
-        g.pieceCharAt(Squares.ALL[mv.to.ordinal]) == null
+        g.pieceCharAt(mv.to.ordinal) == null
 
 /** Python `board.is_capture(move)`. */
 internal fun isCapture(
     g: Game,
     mv: Move,
-): Boolean = g.pieceCharAt(Squares.ALL[mv.to.ordinal]) != null || isEnPassant(g, mv)
+): Boolean = g.pieceCharAt(mv.to.ordinal) != null || isEnPassant(g, mv)
 
 /**
  * Python `board.gives_check(move)`. Uses push/pop on [g] rather than a FEN copy — the move
@@ -92,39 +91,38 @@ internal fun moveTouchedIndices(
 
 /**
  * Squares a move physically CHANGES: from, to, both rook squares on castling, and the captured
- * pawn's square on en passant. Port of `tracker.py:456`.
+ * pawn's square on en passant. Port of `move_touched_squares`.
  */
-internal fun moveTouchedSquares(
+internal fun moveTouchedMask(
     g: Game,
     mv: Move,
-): Set<String> {
+): Long {
     val buffer = IntArray(TOUCHED_MAX)
     val n = moveTouchedIndices(g, mv, buffer)
-    val out = LinkedHashSet<String>(n)
-    for (i in 0 until n) out.add(Squares.ALL[buffer[i]])
-    return out
+    var mask = 0L
+    for (i in 0 until n) mask = mask.with(buffer[i])
+    return mask
 }
 
 /**
  * Squares a move GAINS a piece on: the to-square, plus the rook's TO-square on castling
- * (f1/f8 kingside, d1/d8 queenside). Port of `tracker.py:474`.
+ * (f1/f8 kingside, d1/d8 queenside). Port of `move_destination_squares`.
  *
  * The rook's from-square and the en-passant captured square are vacated, not gained, so they
- * are absent here — that asymmetry against [moveTouchedSquares] is load-bearing.
+ * are absent here — that asymmetry against [moveTouchedMask] is load-bearing.
  */
-internal fun moveDestinationSquares(
+internal fun moveDestinationMask(
     g: Game,
     mv: Move,
-): Set<String> {
-    val out = LinkedHashSet<String>(TOUCHED_MAX)
-    out.add(Squares.ALL[mv.to.ordinal])
+): Long {
+    var mask = bit(mv.to.ordinal)
     val rank = mv.from.rank.ordinal
     if (isKingsideCastling(g, mv)) {
-        out.add(Squares.ALL[rank * Squares.N + ROOK_TARGET_KINGSIDE])
+        mask = mask.with(rank * Squares.N + ROOK_TARGET_KINGSIDE)
     } else if (isQueensideCastling(g, mv)) {
-        out.add(Squares.ALL[rank * Squares.N + ROOK_TARGET_QUEENSIDE])
+        mask = mask.with(rank * Squares.N + ROOK_TARGET_QUEENSIDE)
     }
-    return out
+    return mask
 }
 
 /** Appends [index] unless it is already present — Python builds a `set`. */

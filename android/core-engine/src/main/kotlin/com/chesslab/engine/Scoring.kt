@@ -4,16 +4,12 @@ import com.github.bhlangonijr.chesslib.move.Move
 
 // Log-likelihood scoring of legal moves against the fused per-square z-map.
 //
-// Python reference: `loglik_scores` (`tracker.py:544`) and `loglik_pair_scores`
-// (`tracker.py:563`).
+// Python reference: `loglik_scores` and `loglik_pair_scores`.
 //
 // `p(square changed) = sigmoid(k * (z - zThr))` and `logit(sigmoid(x)) == x`, so a square's
 // contribution to a move that "explains" it is directly `k * (z - zThr)`, clipped to +/-12 so
 // one extremely hot square cannot dominate. Hot squares a move does NOT touch therefore
 // penalise it relative to moves that do.
-//
-// The z-map is a `DoubleArray(64)` indexed by `Squares.ALL`; the `Map<String, Double>`
-// overloads exist for call sites that already hold a map.
 
 /** `zThr` default of `config.TRACK_DEFAULTS`. */
 internal const val Z_THR_DEFAULT = 3.0
@@ -21,20 +17,11 @@ internal const val Z_THR_DEFAULT = 3.0
 /** `ll_k` default of the `MoveTracker` constructor. */
 internal const val LL_K_DEFAULT = 1.0
 
-/** `np.clip(..., -12.0, 12.0)` — `tracker.py:556`. */
+/** `np.clip(..., -12.0, 12.0)`. */
 internal const val LOGIT_CLIP = 12.0
 
-/** `soft = z_thr * 0.5` when the caller passes none — `tracker.py:572`. */
+/** `soft = z_thr * 0.5` when the caller passes none. */
 internal const val PAIR_SOFT_FACTOR = 0.5
-
-/** Per-square z as a `DoubleArray(64)` indexed by [Squares.ALL]. Every square must be present. */
-internal fun zArrayOf(z: Map<String, Double>): DoubleArray {
-    val out = DoubleArray(Squares.COUNT)
-    for (i in 0 until Squares.COUNT) {
-        out[i] = z.getValue(Squares.ALL[i])
-    }
-    return out
-}
 
 /** `logit = clip(k * (z - zThr), -12, +12)` per square. */
 internal fun logits(
@@ -75,16 +62,9 @@ internal fun loglikScores(
         for (i in 0 until n) sum += logit[touched[i]]
         scored.add(mv to sum)
     }
-    sortDescending(scored)
+    sortByValueDescending(scored)
     return scored
 }
-
-internal fun loglikScores(
-    g: Game,
-    z: Map<String, Double>,
-    zThr: Double = Z_THR_DEFAULT,
-    k: Double = LL_K_DEFAULT,
-): List<Pair<Move, Double>> = loglikScores(g, zArrayOf(z), zThr, k)
 
 /**
  * LL score for MOVE PAIRS (half-move + reply) — rescues fast play without a CNN.
@@ -119,17 +99,9 @@ internal fun loglikPairScores(
         }
         g.pop()
     }
-    sortDescending(scored)
+    sortByValueDescending(scored)
     return scored
 }
-
-internal fun loglikPairScores(
-    g: Game,
-    z: Map<String, Double>,
-    zThr: Double = Z_THR_DEFAULT,
-    k: Double = LL_K_DEFAULT,
-    soft: Double? = null,
-): List<Pair<List<Move>, Double>> = loglikPairScores(g, zArrayOf(z), zThr, k, soft)
 
 /** Sum of the logits over the UNION of two index runs — a shared square counts once. */
 private fun unionSum(
@@ -166,9 +138,11 @@ private fun endpointsOk(
 
 /**
  * Python's `sort(key=lambda t: -score)`: a stable, purely numeric descending sort with NO
- * secondary key. Never add a tie-break — Python does not have one.
+ * secondary key. Never add a tie-break, and never `sortedByDescending` — Python has no tie-break,
+ * and its key negation keeps `-0.0` behind `0.0` where a comparator on the raw value would not
+ * (STATUS D02a-10).
  */
-private fun <T> sortDescending(scored: MutableList<Pair<T, Double>>) {
+internal fun <T> sortByValueDescending(scored: MutableList<Pair<T, Double>>) {
     scored.sortWith { a, b ->
         when {
             a.second < b.second -> 1

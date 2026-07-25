@@ -51,14 +51,14 @@ data class TrackerConfig(
     // config.DEFAULT_BOARD_SIZE
     val boardSize: Int = 1600,
     // Python takes settle/avg/confirm as constructor params defaulting to None, and only
-    // then falls back to the CNN-conditional counts (tracker.py:675-707, :739-742). A clip
+    // then falls back to the CNN-conditional counts. A clip
     // manifest may override them (blender-castle sets confirm_frames: 3), so the seam must
     // be able to express an explicit value. null = "use the CNN-conditional default".
     val settleFramesOverride: Int? = null,
     val avgFramesOverride: Int? = null,
     val confirmFramesOverride: Int? = null,
 ) {
-    // Python: settle/avg/confirm are CNN-conditional unless explicitly given (tracker.py:739-742)
+    // Python: settle/avg/confirm are CNN-conditional unless explicitly given
     fun settleFrames(cnnOn: Boolean) = settleFramesOverride ?: if (cnnOn) SETTLE_FRAMES_CNN else SETTLE_FRAMES_NO_CNN
 
     fun avgFrames(cnnOn: Boolean) = avgFramesOverride ?: if (cnnOn) AVG_FRAMES_CNN else AVG_FRAMES_NO_CNN
@@ -73,7 +73,7 @@ data class TrackerConfig(
         // declaration; the value is verbatim from config.py.
         const val REANCHOR_LL_FLOOR_DEFAULT = -4.0
 
-        // tracker.py:739-742 settle/avg/confirm frame counts. Named only because detekt's
+        // tracker.py settle/avg/confirm frame counts. Named only because detekt's
         // MagicNumber fires on 3 and 4 inside a function body; the values are verbatim.
         const val SETTLE_FRAMES_CNN = 3
         const val SETTLE_FRAMES_NO_CNN = 4

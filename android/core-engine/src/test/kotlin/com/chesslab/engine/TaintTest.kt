@@ -5,7 +5,6 @@ import com.chesslab.engine.api.CnnObservation
 import com.chesslab.engine.api.CnnSnapshot
 import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.parity.ParityFixtures
-import com.chesslab.engine.parity.assertExact
 import com.chesslab.engine.parity.assertExactList
 import com.chesslab.engine.parity.toTrackerConfig
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -13,8 +12,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-// The occlusion taint latch (`_try_detect` step 2, `tracker.py:2853-2900`) and
-// `_cnn_occlusion_filter` (`:1328-1351`).
+// The occlusion taint latch (`_try_detect` step 2) and `_cnn_occlusion_filter`.
 //
 // entry.md invariant 2, this half: an occluded square's z is **ZEROED** — on the taint frame and on
 // every frame until the latch releases. The shadow veto (`Vetoes.kt`) does the opposite.
@@ -43,53 +41,53 @@ class TaintTest {
      * **Named invariant test (entry.md 2).** A tainted square's z is 0.0 after `applyTaints` — on
      * the taint frame AND on every subsequent frame, because the latch re-zeroes it every time.
      * A still hand outlived the 0.4 s hold and surfaced as "change" when the zeroing happened only
-     * at taint time (`:2881-2883`).
+     * at taint time.
      */
     @Test
     fun occlusionVetoZeroesZ() {
         val state = handState()
-        state.motionOccludedSquares = mutableSetOf("e3", "e4", "e5")
-        val z = hotZ("e3", "e4", "e5")
+        state.motionOccluded = ofSquares("e3", "e4", "e5")
+        state.setZ("e3", "e4", "e5")
 
-        state.applyTaints(z)
+        state.applyTaints()
 
-        assertExact(setOf("e3", "e4", "e5"), state.tainted.keys, "the hand must latch")
-        for (square in listOf("e3", "e4", "e5")) {
-            assertEquals(0.0, z.getValue(square), 0.0, "$square z must be zeroed on the taint frame")
-        }
+        assertEquals(ofSquares("e3", "e4", "e5"), state.tainted, "the hand must latch")
+        state.assertZeroed("e3", "e4", "e5")
         // Next frame: nothing new is occluded, no motion, evidence still hot -> still latched.
         state.nowS += 1.0
-        val next = hotZ("e3", "e4", "e5")
-        state.applyTaints(next)
-        for (square in listOf("e3", "e4", "e5")) {
-            assertEquals(0.0, next.getValue(square), 0.0, "$square z must stay zeroed while latched")
-        }
+        state.setZ("e3", "e4", "e5")
+        state.applyTaints()
+        state.assertZeroed("e3", "e4", "e5")
     }
 
     /**
      * **Named invariant test (entry.md 4).** Latched squares carry no evidence but still count:
-     * 03c reads `blockedN = tainted.size`. 3 changed + 4 latched against `maxChanged = 6` must
-     * reach the too-much-change gate, and the latched squares must NOT be in `changed`.
+     * the hypothesis gate reads `blockedN = tainted.countOneBits()`. 3 changed + 4 latched against
+     * `maxChanged = 6` must reach the too-much-change gate, and the latched squares must NOT be in
+     * `changed`.
      */
     @Test
     fun taintedSquaresCountTowardMaxChanged() {
         val state = handState(maxChanged = 6)
-        state.motionOccludedSquares = mutableSetOf("a6", "b6", "c6", "d6")
-        val z = hotZ("a6", "b6", "c6", "d6", "e2", "e4", "g1")
+        state.motionOccluded = ofSquares("a6", "b6", "c6", "d6")
+        state.setZ("a6", "b6", "c6", "d6", "e2", "e4", "g1")
 
-        state.applyTaints(z)
+        state.applyTaints()
 
-        val changed = z.filterValues { it >= state.config.zThr }.keys
-        val blockedN = state.tainted.size
+        var changed = 0L
+        for (i in 0 until Squares.COUNT) {
+            if (state.lastZ[i] >= state.config.zThr) changed = changed.with(i)
+        }
+        val blockedN = state.tainted.countOneBits()
         assertEquals(4, blockedN, "every occluded square must be latched")
-        assertExact(setOf("e2", "e4", "g1"), changed, "latched squares must not be candidates")
-        assertTrue(changed.size + blockedN > state.config.maxChanged, "the gate must trip: 3 + 4 > 6")
+        assertEquals(ofSquares("e2", "e4", "g1"), changed, "latched squares must not be candidates")
+        assertTrue(changed.countOneBits() + blockedN > state.config.maxChanged, "the gate must trip: 3 + 4 > 6")
     }
 
     /**
      * **Named invariant test.** A square where the CNN is confident and DISAGREES with the FEN is a
-     * real move and must pass through untainted (`:1346-1350`). Tainting it would zero the evidence
-     * of the very move being detected.
+     * real move and must pass through untainted. Tainting it would zero the evidence of the very
+     * move being detected.
      */
     @Test
     fun cnnDisagreementIsNotTainted() {
@@ -106,10 +104,10 @@ class TaintTest {
                 ),
             )
 
-        val taint = state.cnnOcclusionFilter(setOf("e2", "a3", "b3"), state.board)
+        val taint = state.cnnOcclusionFilter(ofSquares("e2", "a3", "b3"))
 
-        assertExact(setOf("a3", "b3"), taint, "only agreement and unconfidence are tainted")
-        assertFalse("e2" in taint, "a confident CNN/FEN disagreement is a real move")
+        assertEquals(ofSquares("a3", "b3"), taint, "only agreement and unconfidence are tainted")
+        assertFalse(taint.has(Squares.index("e2")), "a confident CNN/FEN disagreement is a real move")
     }
 
     /**
@@ -120,18 +118,19 @@ class TaintTest {
     fun latchReleaseNeedsMotionOrBaselineReturn() {
         val state = handState()
         state.nowS = 100.0
-        state.tainted["e3"] = state.nowS - 5.0
+        state.latch("e3", expiry = state.nowS - 5.0)
         state.lastMotionTs = 0.0
 
-        val held = hotZ("e3")
-        state.applyTaints(held)
-        assertTrue("e3" in state.tainted, "an expired taint without motion must survive")
-        assertEquals(0.0, held.getValue("e3"), 0.0, "a held square carries no evidence")
+        state.setZ("e3")
+        state.applyTaints()
+        assertTrue(state.tainted.has(Squares.index("e3")), "an expired taint without motion must survive")
+        state.assertZeroed("e3")
 
         // Motion after the taint was last refreshed -> released at expiry.
         state.lastMotionTs = state.nowS - 1.0
-        state.applyTaints(hotZ("e3"))
-        assertFalse("e3" in state.tainted, "motion since the taint releases the latch")
+        state.setZ("e3")
+        state.applyTaints()
+        assertFalse(state.tainted.has(Squares.index("e3")), "motion since the taint releases the latch")
     }
 
     /** `test_resting_hand_taints_and_blocks_reanchor` — the observer's `occluded` class latches. */
@@ -139,14 +138,13 @@ class TaintTest {
     fun restingHandTaintsAndBlocksReanchor() {
         val state = handState()
         state.cnnSnap = snapshot(state, FakeObservation(pOccluded = mapOf("e3" to 0.9, "e4" to 0.9)))
-        val z = hotZ("e3", "e4")
+        state.setZ("e3", "e4")
 
-        state.applyTaints(z)
+        state.applyTaints()
 
-        assertExact(setOf("e3", "e4"), state.tainted.keys, "the resting hand must latch")
-        assertEquals(0.0, z.getValue("e3"), 0.0)
-        assertEquals(0.0, z.getValue("e4"), 0.0)
-        assertExactList(listOf("e3", "e4"), state.occludedVetoed, "latched squares are occluded for the UI")
+        assertEquals(ofSquares("e3", "e4"), state.tainted, "the resting hand must latch")
+        state.assertZeroed("e3", "e4")
+        assertExactList(listOf("e3", "e4"), state.occludedVetoed.sortedSquareNames(), "latched squares are occluded")
     }
 
     /** `test_taint_persists_without_motion_while_evidence_hot` — a still hand cannot vanish. */
@@ -156,11 +154,12 @@ class TaintTest {
         state.nowS = 100.0
         // Last motion long BEFORE the taint was set, hold long expired.
         state.lastMotionTs = state.nowS - 60.0
-        state.tainted["e3"] = state.nowS - 5.0
+        state.latch("e3", expiry = state.nowS - 5.0)
 
-        state.applyTaints(hotZ("e3"))
+        state.setZ("e3")
+        state.applyTaints()
 
-        assertTrue("e3" in state.tainted, "the latch must survive — no motion since the taint")
+        assertTrue(state.tainted.has(Squares.index("e3")), "the latch must survive — no motion since the taint")
     }
 
     /** `test_taint_releases_on_motion_or_baseline` — both release paths. */
@@ -170,16 +169,18 @@ class TaintTest {
         state.nowS = 100.0
 
         // A: motion AFTER the taint was last refreshed.
-        state.tainted["e3"] = state.nowS - 5.0
+        state.latch("e3", expiry = state.nowS - 5.0)
         state.lastMotionTs = state.nowS - 1.0
-        state.applyTaints(hotZ("e3"))
-        assertFalse("e3" in state.tainted, "release path A (motion)")
+        state.setZ("e3")
+        state.applyTaints()
+        assertFalse(state.tainted.has(Squares.index("e3")), "release path A (motion)")
 
         // B: no motion since, but the evidence is back to baseline.
-        state.tainted["f5"] = state.nowS - 5.0
+        state.latch("f5", expiry = state.nowS - 5.0)
         state.lastMotionTs = state.nowS - 60.0
-        state.applyTaints(hotZ())
-        assertFalse("f5" in state.tainted, "release path B (evidence back to baseline)")
+        state.setZ()
+        state.applyTaints()
+        assertFalse(state.tainted.has(Squares.index("f5")), "release path B (evidence back to baseline)")
     }
 
     /** `test_stale_snapshot_does_not_taint` — an old observation says nothing about this frame. */
@@ -190,9 +191,10 @@ class TaintTest {
         state.cnnSnap =
             snapshot(state, FakeObservation(pOccluded = mapOf("e3" to 0.9, "e4" to 0.9)), ageS = 10.0)
 
-        state.applyTaints(hotZ("e3", "e4"))
+        state.setZ("e3", "e4")
+        state.applyTaints()
 
-        assertTrue(state.tainted.isEmpty(), "a stale snapshot must not taint anything")
+        assertEquals(0L, state.tainted, "a stale snapshot must not taint anything")
     }
 
     /**
@@ -208,13 +210,13 @@ class TaintTest {
         val obs = FakeObservation(occupied = mapOf("a3" to false), confident = setOf("a3"))
         state.cnnSnap = snapshot(state, obs)
 
-        assertExact(setOf("a3"), state.cnnOcclusionFilter(setOf("a3"), state.board), "fresh: FEN agreement = noise")
+        assertEquals(ofSquares("a3"), state.cnnOcclusionFilter(ofSquares("a3")), "fresh: FEN agreement = noise")
 
         state.cnnSnap = snapshot(state, obs, ageS = 10.0)
-        assertTrue(state.cnnOcclusionFilter(setOf("a3"), state.board).isEmpty(), "stale: one square is not a hand")
-        assertExact(
-            setOf("a3", "b3", "c3"),
-            state.cnnOcclusionFilter(setOf("a3", "b3", "c3"), state.board),
+        assertEquals(0L, state.cnnOcclusionFilter(ofSquares("a3")), "stale: one square is not a hand")
+        assertEquals(
+            ofSquares("a3", "b3", "c3"),
+            state.cnnOcclusionFilter(ofSquares("a3", "b3", "c3")),
             "stale: >2 squares are a hand",
         )
     }
@@ -228,13 +230,13 @@ class TaintTest {
     fun handOverPiecesKeepsBaseTruth() {
         val state = handState(maxChanged = 6)
         val squares = listOf("a1", "b1", "c1", "d1", "e1", "f1", "g1", "h1", "a2", "b2")
-        val z = hotZ(*squares.toTypedArray())
+        state.setZ(*squares.toTypedArray())
 
-        state.applyTaints(z)
+        state.applyTaints()
 
-        assertTrue(state.tainted.isEmpty(), "nothing may latch without occlusion evidence")
+        assertEquals(0L, state.tainted, "nothing may latch without occlusion evidence")
         for (square in squares) {
-            assertTrue(z.getValue(square) >= state.config.zThr, "$square must keep its evidence")
+            assertTrue(state.lastZ[Squares.index(square)] >= state.config.zThr, "$square must keep its evidence")
         }
     }
 
@@ -248,15 +250,16 @@ class TaintTest {
         val cur = scrambleSquare(ref, "c3", seed = 11L)
         val result = classify(ref, cur)
 
-        assertTrue("c3" in Squares.maskToSet(result.occluded), "a textured occluder is occluded")
-        assertFalse("c3" in Squares.maskToSet(result.shadow), "and it is not a shadow")
+        val c3 = Squares.index("c3")
+        assertTrue(result.occluded.has(c3), "a textured occluder is occluded")
+        assertFalse(result.shadow.has(c3), "and it is not a shadow")
 
         val state = handState()
-        state.motionOccludedSquares = Squares.maskToSet(result.occluded).toMutableSet()
-        val z = hotZ("c3")
-        state.applyTaints(z)
-        assertEquals(0.0, z.getValue("c3"), 0.0, "the occluder's evidence must be zeroed")
-        assertTrue("c3" in state.tainted, "and latched")
+        state.motionOccluded = result.occluded
+        state.setZ("c3")
+        state.applyTaints()
+        state.assertZeroed("c3")
+        assertTrue(state.tainted.has(c3), "and latched")
     }
 
     /**
@@ -274,9 +277,10 @@ class TaintTest {
         val geom = PlaneGeometry(BOARD, BOARD, BOARD, true)
         val gamut = requireNotNull(boardColorGamut(planesOf(refBgr), geom)) { "the gamut must build" }
 
+        val f6 = Squares.index("f6")
         val blind = classify(ref, cur)
-        assertTrue("f6" in Squares.maskToSet(blind.shadow), "without chroma it reads as a shadow")
-        assertFalse("f6" in Squares.maskToSet(blind.occluded), "that is the blind spot")
+        assertTrue(blind.shadow.has(f6), "without chroma it reads as a shadow")
+        assertFalse(blind.occluded.has(f6), "that is the blind spot")
 
         val planes = planesOf(curBgr)
         val seen =
@@ -284,7 +288,9 @@ class TaintTest {
                 cur,
                 ref,
                 squareBoxes(BOARD, true),
-                BaselineParams(BOARD, BASELINE_ABS_THR, true),
+                BOARD,
+                BASELINE_ABS_THR,
+                true,
                 BaselineEvidence(
                     refCodes = censusTransform(ref, out = ByteArray(BOARD * BOARD)),
                     occlCensusThr = OCCL_CENSUS_THR,
@@ -294,8 +300,8 @@ class TaintTest {
                     colorThr = OCCLUSION_COLOR_THR,
                 ),
             )
-        assertTrue("f6" in Squares.maskToSet(seen.occluded), "the chroma outlier makes it an occluder")
-        assertFalse("f6" in Squares.maskToSet(seen.shadow), "and no longer a shadow")
+        assertTrue(seen.occluded.has(f6), "the chroma outlier makes it an occluder")
+        assertFalse(seen.shadow.has(f6), "and no longer a shadow")
     }
 
     /**
@@ -314,14 +320,14 @@ class TaintTest {
                 assertTrue(tierB.tainted.isEmpty(), "$name/${frame.frame} fixture taint changed — re-read this test")
                 val tierA = frame.tierA ?: continue
                 state.nowS = frame.frame.toDouble()
-                val z = tierA.zFused.toMutableMap()
-                val before = LinkedHashMap(z)
+                for (i in 0 until Squares.COUNT) state.lastZ[i] = tierA.zFused.getValue(Squares.ALL[i])
+                val before = state.lastZ.copyOf()
 
-                state.applyTaints(z)
+                state.applyTaints()
 
-                assertTrue(state.tainted.isEmpty(), "$name/${frame.frame} nothing may latch")
-                for (square in Squares.ALL) {
-                    assertEquals(before.getValue(square), z.getValue(square), 0.0, "$name/${frame.frame} $square z")
+                assertEquals(0L, state.tainted, "$name/${frame.frame} nothing may latch")
+                for (i in 0 until Squares.COUNT) {
+                    assertEquals(before[i], state.lastZ[i], 0.0, "$name/${frame.frame} ${Squares.ALL[i]} z")
                 }
                 checked++
             }
@@ -329,20 +335,18 @@ class TaintTest {
         assertTrue(checked >= MIN_TIER_A_FRAMES, "only $checked tier-A frames replayed")
     }
 
-    /** The dilated/core keep-alive maps are pruned by `nowS`, never by frame count (`:2897-2900`). */
+    /** The dilated/core keep-alive stamps expire on `nowS`, never on a frame count. */
     @Test
-    fun expiryMapsArePrunedByTheEngineClock() {
+    fun expiryStampsAreReadAgainstTheEngineClock() {
         val state = handState()
         state.nowS = 10.0
-        state.occlusionExpiry["a1"] = 9.9
-        state.occlusionExpiry["a2"] = 10.5
-        state.occlCoreExpiry["a1"] = 9.9
-        state.occlCoreExpiry["a3"] = 10.5
+        state.occlusionExpiry[Squares.index("a1")] = 9.9
+        state.occlusionExpiry[Squares.index("a2")] = 10.5
+        state.occlCoreExpiry[Squares.index("a1")] = 9.9
+        state.occlCoreExpiry[Squares.index("a3")] = 10.5
 
-        state.applyTaints(hotZ())
-
-        assertExact(setOf("a2"), state.occlusionExpiry.keys, "expired dilated entries must go")
-        assertExact(setOf("a3"), state.occlCoreExpiry.keys, "expired core entries must go")
+        assertEquals(ofSquares("a2"), state.liveExpiry(state.occlusionExpiry), "expired dilated stamps are dead")
+        assertEquals(ofSquares("a3"), state.liveExpiry(state.occlCoreExpiry), "expired core stamps are dead")
     }
 
     // -- helpers -----------------------------------------------------------------------------------
@@ -353,12 +357,26 @@ class TaintTest {
         return state
     }
 
-    /** A z map with every square cold except the named ones. */
-    private fun hotZ(vararg hot: String): MutableMap<String, Double> {
-        val z = LinkedHashMap<String, Double>(Squares.COUNT)
-        for (square in Squares.ALL) z[square] = 0.0
-        for (square in hot) z[square] = Z_HOT
-        return z
+    /** Every square cold except the named ones, written into the state's live z. */
+    private fun EngineState.setZ(vararg hot: String) {
+        lastZ.fill(0.0)
+        for (square in hot) lastZ[Squares.index(square)] = Z_HOT
+    }
+
+    private fun EngineState.assertZeroed(vararg squares: String) {
+        for (square in squares) {
+            assertEquals(0.0, lastZ[Squares.index(square)], 0.0, "$square z must be zeroed while latched")
+        }
+    }
+
+    /** Latch [square] with an explicit expiry stamp — the shape `releaseLatches` reads. */
+    private fun EngineState.latch(
+        square: String,
+        expiry: Double,
+    ) {
+        val i = Squares.index(square)
+        tainted = tainted.with(i)
+        taintExpiry[i] = expiry
     }
 
     private fun snapshot(
@@ -382,7 +400,9 @@ class TaintTest {
         cur,
         ref,
         squareBoxes(BOARD, true),
-        BaselineParams(BOARD, BASELINE_ABS_THR, true),
+        BOARD,
+        BASELINE_ABS_THR,
+        true,
         BaselineEvidence(
             refCodes = censusTransform(ref, out = ByteArray(BOARD * BOARD)),
             occlCensusThr = OCCL_CENSUS_THR,
@@ -416,7 +436,7 @@ class TaintTest {
         g: Int,
         r: Int,
     ) {
-        val box = squareRegion(square, BOARD, true)
+        val box = squareRegion(Squares.index(square), BOARD, true)
         for (y in (box[1] - HALO).coerceAtLeast(0) until (box[3] + HALO).coerceAtMost(BOARD)) {
             for (x in (box[0] - HALO).coerceAtLeast(0) until (box[2] + HALO).coerceAtMost(BOARD)) {
                 val i = (y * BOARD + x) * BGR
@@ -478,7 +498,7 @@ class TaintTest {
     ): GrayImage {
         val out = GrayImage(BOARD, BOARD, image.data.copyOf())
         val rng = java.util.Random(seed)
-        val box = squareRegion(square, BOARD, true)
+        val box = squareRegion(Squares.index(square), BOARD, true)
         for (y in (box[1] - HALO).coerceAtLeast(0) until (box[3] + HALO).coerceAtMost(BOARD)) {
             for (x in (box[0] - HALO).coerceAtLeast(0) until (box[2] + HALO).coerceAtMost(BOARD)) {
                 out.data[y * BOARD + x] = rng.nextInt(U8 + 1).toByte()

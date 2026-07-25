@@ -1,7 +1,7 @@
 package com.chesslab.engine
 
 /**
- * The `confirm_frames` streak voter. Port of `Confirmer` (`tracker.py:639`).
+ * The `confirm_frames` streak voter. Port of `Confirmer`.
  *
  * The same key fed [confirmFrames] times in a row confirms. A DIFFERENT key restarts the streak
  * at 1 (not 0) and does not confirm unless `confirmFrames <= 1`; `feed(null)` clears the

@@ -50,8 +50,8 @@ class SquareGeometryTest {
     fun blackPovIsTheRotationOfWhitePov() {
         val boardSize = 800
         assertArrayEquals(
-            squareRegion("h8", boardSize, whitePov = true),
-            squareRegion("a1", boardSize, whitePov = false),
+            squareRegion(Squares.index("h8"), boardSize, whitePov = true),
+            squareRegion(Squares.index("a1"), boardSize, whitePov = false),
         )
         assertArrayEquals(
             squareCenter("h8", boardSize, whitePov = true),
@@ -62,16 +62,16 @@ class SquareGeometryTest {
     @Test
     fun extendUpClampsY0ToZeroAndLeavesXAlone() {
         val boardSize = 800
-        val plain = squareRegion("e8", boardSize, whitePov = true)
-        val extended = squareRegion("e8", boardSize, whitePov = true, extendUp = 0.5)
+        val plain = squareRegion(Squares.index("e8"), boardSize, whitePov = true)
+        val extended = squareRegion(Squares.index("e8"), boardSize, whitePov = true, extendUp = 0.5)
         assertEquals(0, extended[1], "y0 clamps at 0")
         assertEquals(plain[0], extended[0], "x0 unchanged")
         assertEquals(plain[2], extended[2], "x1 unchanged")
         assertEquals(plain[3], extended[3], "y1 unchanged")
         // A rank further down: y0 moves up by exactly extendUp * cell (truncated), never clamped.
         val cell = boardSize / 8.0
-        val e4Plain = squareRegion("e4", boardSize, whitePov = true)
-        val e4Ext = squareRegion("e4", boardSize, whitePov = true, extendUp = 0.25)
+        val e4Plain = squareRegion(Squares.index("e4"), boardSize, whitePov = true)
+        val e4Ext = squareRegion(Squares.index("e4"), boardSize, whitePov = true, extendUp = 0.25)
         assertEquals((4 * cell + cell * 0.16 - 0.25 * cell).toInt(), e4Ext[1])
         assertTrue(e4Ext[1] < e4Plain[1])
     }
@@ -80,8 +80,8 @@ class SquareGeometryTest {
     fun extendedBoxesMayOverlapAndAreNotDeOverlapped() {
         val boardSize = 800
         // extendUp must exceed 2 * inset (0.32) before the boxes actually touch.
-        val e4 = squareRegion("e4", boardSize, whitePov = true, extendUp = 0.5)
-        val e5 = squareRegion("e5", boardSize, whitePov = true, extendUp = 0.5)
+        val e4 = squareRegion(Squares.index("e4"), boardSize, whitePov = true, extendUp = 0.5)
+        val e5 = squareRegion(Squares.index("e5"), boardSize, whitePov = true, extendUp = 0.5)
         // e5 sits directly above e4 in white POV: e4's top edge is above e5's bottom edge.
         assertTrue(e4[1] < e5[3], "extended boxes overlap by design")
     }
@@ -89,7 +89,7 @@ class SquareGeometryTest {
     @Test
     fun degenerateBoxHasZeroAreaAndYieldsZeroMean() {
         val boardSize = 320
-        val degenerate = squareRegion("d4", boardSize, whitePov = true, inset = 0.5)
+        val degenerate = squareRegion(Squares.index("d4"), boardSize, whitePov = true, inset = 0.5)
         assertEquals(degenerate[0], degenerate[2], "inset 0.5 collapses the box horizontally")
         assertEquals(degenerate[1], degenerate[3], "inset 0.5 collapses the box vertically")
 
@@ -144,14 +144,18 @@ class SquareGeometryTest {
     }
 
     @Test
-    fun maskRoundTrip() {
+    fun bitboardRoundTrip() {
         val squares = setOf("a1", "e4", "h8", "d2")
-        val mask = Squares.setToMask(squares)
-        assertEquals(squares.size, mask.count { it })
-        assertEquals(squares.sorted(), Squares.maskToSet(mask).sorted())
-        // Ordered by ALL, not by insertion order of the input.
-        assertEquals(listOf("a1", "d2", "e4", "h8"), Squares.maskToSet(mask).toList())
-        assertTrue(Squares.setToMask(listOf("zz")).none { it }, "unknown names are ignored")
+        val mask = ofSquares(squares)
+        assertEquals(squares.size, mask.countOneBits())
+        // `squareNames` is ALL order (rank-major); `sortedSquareNames` is Python's `sorted(set)`.
+        assertEquals(listOf("a1", "d2", "e4", "h8"), mask.squareNames())
+        assertEquals(listOf("a1", "d2", "e4", "h8"), mask.sortedSquareNames())
+        assertEquals(listOf("a1", "a8", "h1"), ofSquares("h1", "a8", "a1").sortedSquareNames())
+        assertEquals(listOf("a1", "h1", "a8"), ofSquares("h1", "a8", "a1").squareNames())
+        assertEquals(0L, ofSquares("zz"), "unknown names are ignored")
+        assertTrue(mask.has(Squares.index("e4")) && !mask.has(Squares.index("e5")))
+        assertEquals(ofSquares("a1", "e4"), mask.without(ofSquares("h8", "d2")))
     }
 
     @Test

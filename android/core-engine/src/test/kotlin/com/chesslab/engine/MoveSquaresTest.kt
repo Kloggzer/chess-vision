@@ -43,7 +43,7 @@ class MoveSquaresTest {
                     val uci = uciOf(mv)
                     assertExactList(
                         requireNotNull(expected[uci]) { "$name/${frame.frame}: unknown uci $uci" },
-                        moveTouchedSquares(game, mv).sorted(),
+                        moveTouchedMask(game, mv).sortedSquareNames(),
                         "$name/${frame.frame}: moveTouchedSquares[$uci]",
                     )
                     checked++
@@ -65,7 +65,7 @@ class MoveSquaresTest {
                     val uci = uciOf(mv)
                     assertExactList(
                         requireNotNull(expected[uci]) { "$name/${frame.frame}: unknown uci $uci" },
-                        moveDestinationSquares(game, mv).sorted(),
+                        moveDestinationMask(game, mv).sortedSquareNames(),
                         "$name/${frame.frame}: moveDestinationSquares[$uci]",
                     )
                     checked++
@@ -84,8 +84,8 @@ class MoveSquaresTest {
         val game = Game(CASTLING_FEN)
         val mv = legal(game, "e1g1")
         assertTrue(isCastling(game, mv) && isKingsideCastling(game, mv), "e1g1 is kingside castling")
-        assertEquals(setOf("e1", "g1", "h1", "f1"), moveTouchedSquares(game, mv))
-        assertEquals(setOf("g1", "f1"), moveDestinationSquares(game, mv))
+        assertEquals(ofSquares("e1", "g1", "h1", "f1"), moveTouchedMask(game, mv))
+        assertEquals(ofSquares("g1", "f1"), moveDestinationMask(game, mv))
     }
 
     @Test
@@ -93,8 +93,8 @@ class MoveSquaresTest {
         val game = Game(CASTLING_FEN.replace(" w ", " b "))
         val mv = legal(game, "e8c8")
         assertTrue(isQueensideCastling(game, mv), "e8c8 is queenside castling")
-        assertEquals(setOf("e8", "c8", "a8", "d8"), moveTouchedSquares(game, mv))
-        assertEquals(setOf("c8", "d8"), moveDestinationSquares(game, mv))
+        assertEquals(ofSquares("e8", "c8", "a8", "d8"), moveTouchedMask(game, mv))
+        assertEquals(ofSquares("c8", "d8"), moveDestinationMask(game, mv))
     }
 
     @Test
@@ -102,8 +102,8 @@ class MoveSquaresTest {
         val game = Game(EN_PASSANT_FEN)
         val mv = legal(game, "e5d6")
         assertTrue(isEnPassant(game, mv) && isCapture(game, mv), "e5d6 is an en-passant capture")
-        assertEquals(setOf("e5", "d6", "d5"), moveTouchedSquares(game, mv))
-        assertEquals(setOf("d6"), moveDestinationSquares(game, mv))
+        assertEquals(ofSquares("e5", "d6", "d5"), moveTouchedMask(game, mv))
+        assertEquals(ofSquares("d6"), moveDestinationMask(game, mv))
     }
 
     @Test
@@ -111,8 +111,8 @@ class MoveSquaresTest {
         val game = Game(PROMOTION_FEN)
         for (uci in listOf("e7e8q", "e7e8n")) {
             val mv = legal(game, uci)
-            assertEquals(setOf("e7", "e8"), moveTouchedSquares(game, mv), uci)
-            assertEquals(setOf("e8"), moveDestinationSquares(game, mv), uci)
+            assertEquals(ofSquares("e7", "e8"), moveTouchedMask(game, mv), uci)
+            assertEquals(ofSquares("e8"), moveDestinationMask(game, mv), uci)
         }
     }
 
@@ -121,8 +121,8 @@ class MoveSquaresTest {
         val game = Game(CAPTURE_PROMOTION_FEN)
         val mv = legal(game, "e7d8q")
         assertTrue(isCapture(game, mv) && !isEnPassant(game, mv), "e7d8q is a plain capture")
-        assertEquals(setOf("e7", "d8"), moveTouchedSquares(game, mv))
-        assertEquals(setOf("d8"), moveDestinationSquares(game, mv))
+        assertEquals(ofSquares("e7", "d8"), moveTouchedMask(game, mv))
+        assertEquals(ofSquares("d8"), moveDestinationMask(game, mv))
     }
 
     @Test
@@ -130,8 +130,8 @@ class MoveSquaresTest {
         val game = Game()
         val mv = legal(game, "e2e4")
         assertTrue(!isCastling(game, mv) && !isEnPassant(game, mv) && !isCapture(game, mv), "e2e4 is quiet")
-        assertEquals(setOf("e2", "e4"), moveTouchedSquares(game, mv))
-        assertEquals(setOf("e4"), moveDestinationSquares(game, mv))
+        assertEquals(ofSquares("e2", "e4"), moveTouchedMask(game, mv))
+        assertEquals(ofSquares("e4"), moveDestinationMask(game, mv))
     }
 
     @Test

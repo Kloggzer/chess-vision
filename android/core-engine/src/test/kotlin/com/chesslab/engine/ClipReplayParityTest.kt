@@ -166,10 +166,10 @@ private fun compareFrame(
         if (want != got) out.add(Divergence(clip.name, frame.frame, field, want, got))
     }
     check("state", expected.state, state.state)
-    check("changed", expected.changed, state.changed.sorted())
-    check("shadowVeto", expected.shadowVeto, state.shadowVetoed.sorted())
-    check("occlusionVetoed", expected.occlusionVetoed, state.occludedVetoed.sorted())
-    check("tainted", expected.tainted, state.tainted.keys.sorted())
+    check("changed", expected.changed, state.changed.sortedSquareNames())
+    check("shadowVeto", expected.shadowVeto, state.shadowVetoed.sortedSquareNames())
+    check("occlusionVetoed", expected.occlusionVetoed, state.occludedVetoed.sortedSquareNames())
+    check("tainted", expected.tainted, state.tainted.sortedSquareNames())
     if (!parityClose(expected.bestLl, state.bestScore)) {
         out.add(Divergence(clip.name, frame.frame, "bestLl", expected.bestLl, state.bestScore))
     }

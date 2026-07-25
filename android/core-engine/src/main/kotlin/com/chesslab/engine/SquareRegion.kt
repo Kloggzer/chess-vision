@@ -2,7 +2,7 @@ package com.chesslab.engine
 
 import kotlin.math.max
 
-/** Default inset of a square region, as a fraction of the cell (Python `square_region`, `:119`). */
+/** Default inset of a square region, as a fraction of the cell (Python `square_region`). */
 internal const val SQUARE_REGION_INSET: Double = 0.16
 
 // Indices into the `intArrayOf(x0, y0, x1, y1)` returned by [squareRegion].
@@ -21,7 +21,7 @@ internal class SquareBoxes(
 )
 
 /**
- * Pre-computes all 64 square-region boxes. Python `_square_boxes` (`tracker.py:99`).
+ * Pre-computes all 64 square-region boxes. Python `_square_boxes`.
  *
  * Extended boxes may overlap their neighbours — that is intended (3D pieces protrude toward the
  * back rank; the soft LL scoring tolerates it). Never de-overlap, never clamp `y1`.
@@ -38,29 +38,25 @@ internal fun squareBoxes(
     val y1 = IntArray(n)
     val area = IntArray(n)
     for (i in 0 until n) {
-        val r = squareRegion(Squares.ALL[i], boardSize, whitePov, extendUp = extendUp)
-        val bx0 = r[X0]
-        val by0 = r[Y0]
-        val bx1 = r[X1]
-        val by1 = r[Y1]
-        x0[i] = bx0
-        y0[i] = by0
-        x1[i] = bx1
-        y1[i] = by1
-        area[i] = if (by1 > by0 && bx1 > bx0) (bx1 - bx0) * (by1 - by0) else 0
+        val r = squareRegion(i, boardSize, whitePov, extendUp = extendUp)
+        x0[i] = r[X0]
+        y0[i] = r[Y0]
+        x1[i] = r[X1]
+        y1[i] = r[Y1]
+        area[i] = if (r[Y1] > r[Y0] && r[X1] > r[X0]) (r[X1] - r[X0]) * (r[Y1] - r[Y0]) else 0
     }
     return SquareBoxes(x0, y0, x1, y1, area)
 }
 
-/** Returns intArrayOf(x0, y0, x1, y1). Python square_region (tracker.py:119). */
+/** Returns intArrayOf(x0, y0, x1, y1). Python `square_region`. */
 internal fun squareRegion(
-    square: String,
+    index: Int,
     boardSize: Int,
     whitePov: Boolean,
     inset: Double = SQUARE_REGION_INSET,
     extendUp: Double = 0.0,
 ): IntArray {
-    val packed = Squares.colRow(square, whitePov)
+    val packed = Squares.colRow(index, whitePov)
     val col = Squares.colOf(packed)
     val row = Squares.rowOf(packed)
     val cell = boardSize / Squares.N.toDouble()
@@ -74,7 +70,7 @@ internal fun squareRegion(
     )
 }
 
-/** intArrayOf(cx, cy). Python square_center (tracker.py:133). */
+/** intArrayOf(cx, cy). Python `square_center`. */
 internal fun squareCenter(
     square: String,
     boardSize: Int,

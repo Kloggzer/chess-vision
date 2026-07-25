@@ -4,7 +4,7 @@ import com.github.bhlangonijr.chesslib.move.Move
 
 /**
  * The best legal move that is strongly evidenced at its DESTINATION only. Port of
- * `_single_endpoint_candidate` (`tracker.py:3355-3375`).
+ * `_single_endpoint_candidate`.
  *
  * The origin sits below step 5's both-endpoints viability gate — a low-contrast vacated square
  * (white piece leaving a white square). Exactly **one** square may be strongly changed; with two
@@ -20,25 +20,23 @@ import com.github.bhlangonijr.chesslib.move.Move
  * @param scored the full `loglikScores` ranking, already sorted descending.
  */
 internal fun EngineState.singleEndpointCandidate(
-    z: Map<String, Double>,
+    z: DoubleArray,
     scored: List<Pair<Move, Double>>,
-    shadowVeto: Set<String>,
 ): Move? {
-    // Exactly TWO returns — detekt's ReturnCount cap (STATUS D03a-7).
-    val strong = Squares.ALL.filter { (z[it] ?: 0.0) >= config.zThr }
-    if (strong.size != 1) return null
-    val target = strong[0]
-    val cands =
-        scored.filter { (mv, sc) ->
-            val to = Squares.ALL[mv.to.ordinal]
-            to == target && sc > 0.0 && to !in shadowVeto
-        }
+    var strong = 0L
+    for (i in 0 until Squares.COUNT) {
+        if (z[i] >= config.zThr) strong = strong.with(i)
+    }
+    if (strong.countOneBits() != 1) return null
+    val target = java.lang.Long.numberOfTrailingZeros(strong)
+    if (shadowVetoed.has(target)) return null
+    val cands = scored.filter { (mv, sc) -> mv.to.ordinal == target && sc > 0.0 }
     return if (cands.isEmpty()) null else unambiguousTop(cands, config.ambiguityMarginLl)
 }
 
 /**
- * `tracker.py:3371-3374` — the top candidate, or `null` when a candidate to a DIFFERENT
- * destination is within [margin] of it.
+ * The top candidate, or `null` when a candidate to a DIFFERENT destination is within [margin]
+ * of it.
  */
 private fun unambiguousTop(
     cands: List<Pair<Move, Double>>,

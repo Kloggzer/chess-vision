@@ -38,7 +38,7 @@ class GamutUnitTest {
         }
         // A square of the very same colour matches its own reference feature exactly.
         val cur = planes(uniform(), BOARD, BOARD)
-        assertEquals(emptySet<String>(), occlusionColorSquares(cur, geom, gamut, listOf("e4"), THR))
+        assertEquals(0L, occlusionColorSquares(cur, geom, gamut, ofSquares("e4"), THR))
     }
 
     @Test
@@ -46,10 +46,10 @@ class GamutUnitTest {
         val geom = geometry()
         val cur = planes(checkerboard(1.0), BOARD, BOARD)
         val gamut = requireNotNull(boardColorGamut(planes(checkerboard(1.0), BOARD, BOARD), geom))
-        assertEquals(emptySet<String>(), occlusionColorSquares(cur, geom, gamut, emptyList(), THR))
-        assertEquals(emptySet<String>(), occlusionColorSquares(cur, geom, gamut, listOf("e4"), 0.0))
-        assertEquals(emptySet<String>(), occlusionColorSquares(cur, geom, gamut, listOf("e4"), -1.0))
-        assertEquals(emptySet<String>(), occlusionColorSquares(cur, geom, null, listOf("e4"), THR))
+        assertEquals(0L, occlusionColorSquares(cur, geom, gamut, 0L, THR))
+        assertEquals(0L, occlusionColorSquares(cur, geom, gamut, ofSquares("e4"), 0.0))
+        assertEquals(0L, occlusionColorSquares(cur, geom, gamut, ofSquares("e4"), -1.0))
+        assertEquals(0L, occlusionColorSquares(cur, geom, null, ofSquares("e4"), THR))
     }
 
     @Test
@@ -59,19 +59,19 @@ class GamutUnitTest {
         paint(painted, "e4")
         // Base box only (Python's production call).
         val base = PlaneGeometry(BOARD, BOARD, BOARD, true, 0.0)
-        assertEquals(setOf("e4"), occlusionColorSquares(planes(painted, BOARD, BOARD), base, gamut, listOf("e4"), THR))
+        assertEquals(ofSquares("e4"), occlusionColorSquares(planes(painted, BOARD, BOARD), base, gamut, ofSquares("e4"), THR))
 
         // The extended-box arm: paint only the strip ABOVE e4, so the base box stays clean.
         val above = checkerboard(1.0)
         paintStrip(above, "e4")
         val extended = PlaneGeometry(BOARD, BOARD, BOARD, true, OVERHANG)
         assertEquals(
-            emptySet<String>(),
-            occlusionColorSquares(planes(above, BOARD, BOARD), base, gamut, listOf("e4"), THR),
+            0L,
+            occlusionColorSquares(planes(above, BOARD, BOARD), base, gamut, ofSquares("e4"), THR),
         )
         assertEquals(
-            setOf("e4"),
-            occlusionColorSquares(planes(above, BOARD, BOARD), extended, gamut, listOf("e4"), THR),
+            ofSquares("e4"),
+            occlusionColorSquares(planes(above, BOARD, BOARD), extended, gamut, ofSquares("e4"), THR),
         )
     }
 
@@ -80,17 +80,17 @@ class GamutUnitTest {
         val geom = geometry()
         val ref = checkerboard(1.0)
         val refHsv = bgrToHsv(ref, BOARD, BOARD, ByteArray(ref.size))
-        val candidates = listOf("e4")
+        val candidates = ofSquares("e4")
 
         val darker = checkerboard(SHADOW_GAIN)
         assertEquals(
-            setOf("e4"),
+            ofSquares("e4"),
             hsvShadowSquares(refHsv, bgrToHsv(darker, BOARD, BOARD, ByteArray(ref.size)), geom, candidates),
         )
 
         val brighter = checkerboard(BRIGHT_GAIN)
         assertEquals(
-            emptySet<String>(),
+            0L,
             hsvShadowSquares(refHsv, bgrToHsv(brighter, BOARD, BOARD, ByteArray(ref.size)), geom, candidates),
         )
 
@@ -98,11 +98,11 @@ class GamutUnitTest {
         val recoloured = checkerboard(SHADOW_GAIN)
         rotateChannels(recoloured)
         assertEquals(
-            emptySet<String>(),
+            0L,
             hsvShadowSquares(refHsv, bgrToHsv(recoloured, BOARD, BOARD, ByteArray(ref.size)), geom, candidates),
         )
 
-        assertEquals(emptySet<String>(), hsvShadowSquares(refHsv, refHsv, geom, emptyList()))
+        assertEquals(0L, hsvShadowSquares(refHsv, refHsv, geom, 0L))
     }
 
     // -----------------------------------------------------------------------------------
@@ -144,7 +144,7 @@ class GamutUnitTest {
         data: ByteArray,
         square: String,
     ) {
-        fill(data, requireNotNull(geometry().region(square, 0.0)))
+        fill(data, requireNotNull(geometry().region(Squares.index(square), 0.0)))
     }
 
     /** Fills only the band the `extendUp` overhang adds above [square]'s base box. */
@@ -152,8 +152,9 @@ class GamutUnitTest {
         data: ByteArray,
         square: String,
     ) {
-        val base = requireNotNull(geometry().region(square, 0.0))
-        val ext = requireNotNull(PlaneGeometry(BOARD, BOARD, BOARD, true, OVERHANG).region(square, OVERHANG))
+        val base = requireNotNull(geometry().region(Squares.index(square), 0.0))
+        val ext =
+            requireNotNull(PlaneGeometry(BOARD, BOARD, BOARD, true, OVERHANG).region(Squares.index(square), OVERHANG))
         fill(data, intArrayOf(ext[0], ext[1], ext[2], base[1]))
     }
 

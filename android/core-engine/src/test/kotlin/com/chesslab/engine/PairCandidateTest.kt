@@ -1,5 +1,6 @@
 package com.chesslab.engine
 
+import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerConfig
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -8,7 +9,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * `_pair_candidate` (`tracker.py:3279-3311`).
+ * `_pair_candidate`.
  *
  * Mirrors `tests/test_move_tracker.py::TestPairScores` plus the named invariant tests of
  * `specs/17-android-rewrite/03c-hypothesis.md`.
@@ -18,10 +19,10 @@ class PairCandidateTest {
     @Test
     fun pairExplainsTwoMoves() {
         val state = hypothesisState()
-        val z = zMap("e2" to HOT, "e4" to HOT, "e7" to HOT, "e5" to HOT)
-        val moves = state.scoreViableMoves(z, emptySet())
+        val z = zOf("e2" to HOT, "e4" to HOT, "e7" to HOT, "e5" to HOT)
+        val moves = state.scoreViableMoves(z)
 
-        val pair = state.pairCandidate(z, moves.best, emptySet())
+        val pair = state.pairCandidate(z, moves.best)
 
         assertNotNull(pair)
         assertEquals(listOf("e2e4", "e7e5"), pair!!.moves.map { uciOf(it) })
@@ -33,13 +34,13 @@ class PairCandidateTest {
     @Test
     fun pairRequiresEndpointEvidence() {
         val state = hypothesisState()
-        val z = zMap("e2" to HOT, "e4" to HOT)
+        val z = zOf("e2" to HOT, "e4" to HOT)
 
-        assertNull(state.pairCandidate(z, NO_SCORE, emptySet()))
+        assertNull(state.pairCandidate(z, NO_SCORE))
     }
 
     /**
-     * The second half is evaluated on the INTERMEDIATE board (`tracker.py:3297-3300`).
+     * The second half is evaluated on the INTERMEDIATE board.
      *
      * White pushes `e5e6`; Black recaptures `f7xe6`. On the PRE-push board `e6` is still empty, so
      * `f7e6` would be classified as an en-passant capture and would drag the cold square `e7` into
@@ -49,11 +50,11 @@ class PairCandidateTest {
     @Test
     fun secondHalfEvaluatedOnIntermediateBoard() {
         val state = hypothesisState("4k3/5p2/8/4P3/8/8/8/4K3 w - - 0 1")
-        val z = zMap("e5" to HOT, "e6" to HOT, "f7" to HOT)
-        val moves = state.scoreViableMoves(z, emptySet())
-        assertEquals(0.0, z.getValue("e7"), "e7 must stay cold for this test to mean anything")
+        val z = zOf("e5" to HOT, "e6" to HOT, "f7" to HOT)
+        val moves = state.scoreViableMoves(z)
+        assertEquals(0.0, z[Squares.index("e7")], "e7 must stay cold for this test to mean anything")
 
-        val pair = state.pairCandidate(z, moves.best, emptySet())
+        val pair = state.pairCandidate(z, moves.best)
 
         assertNotNull(pair)
         assertEquals(listOf("e5e6", "f7e6"), pair!!.moves.map { uciOf(it) })
@@ -63,29 +64,29 @@ class PairCandidateTest {
     @Test
     fun pairMarginBeatsBestSingleAndSecondPair() {
         val state = hypothesisState()
-        val z = zMap("e2" to HOT, "e4" to HOT, "e7" to HOT, "e5" to HOT)
-        assertNotNull(state.pairCandidate(z, NO_SCORE, emptySet()))
+        val z = zOf("e2" to HOT, "e4" to HOT, "e7" to HOT, "e5" to HOT)
+        assertNotNull(state.pairCandidate(z, NO_SCORE))
         val best = state.bestScore
 
         assertNull(
-            state.pairCandidate(z, best - state.config.ambiguityMarginLl + STEP, emptySet()),
+            state.pairCandidate(z, best - state.config.ambiguityMarginLl + STEP),
             "a single 0.01 LL inside the margin must block the pair",
         )
         assertNotNull(
-            state.pairCandidate(z, best - state.config.ambiguityMarginLl, emptySet()),
+            state.pairCandidate(z, best - state.config.ambiguityMarginLl),
             "exactly at the margin the pair is accepted",
         )
     }
 
-    /** `:3310` — the pair's scores replace the single's; 03d's absolute LL floor reads them. */
+    /** The pair's scores replace the single's; the absolute LL floor reads them. */
     @Test
     fun pairWritesBackBestAndSecondScore() {
         val state = hypothesisState()
-        val z = zMap("e2" to HOT, "e4" to HOT, "e7" to HOT, "e5" to HOT)
-        val moves = state.scoreViableMoves(z, emptySet())
+        val z = zOf("e2" to HOT, "e4" to HOT, "e7" to HOT, "e5" to HOT)
+        val moves = state.scoreViableMoves(z)
         val singleBest = state.bestScore
 
-        val pair = state.pairCandidate(z, moves.best, emptySet())
+        val pair = state.pairCandidate(z, moves.best)
 
         assertNotNull(pair)
         assertTrue(state.bestScore > singleBest, "bestScore must be the pair's, not the single's")
@@ -96,15 +97,14 @@ class PairCandidateTest {
     @Test
     fun shadowVetoedDestinationBlocksThePairButAShadowedOriginDoesNot() {
         val state = hypothesisState()
-        val z = zMap("e2" to HOT, "e4" to HOT, "e7" to HOT, "e5" to HOT)
-        val moves = state.scoreViableMoves(z, emptySet())
+        val z = zOf("e2" to HOT, "e4" to HOT, "e7" to HOT, "e5" to HOT)
+        val moves = state.scoreViableMoves(z)
 
-        assertNull(
-            state.pairCandidate(z, moves.best, setOf("e5")),
-            "e5 is the second half's destination",
-        )
+        state.shadowVetoed = ofSquares("e5")
+        assertNull(state.pairCandidate(z, moves.best), "e5 is the second half's destination")
+        state.shadowVetoed = ofSquares("e7")
         assertNotNull(
-            state.pairCandidate(z, moves.best, setOf("e7")),
+            state.pairCandidate(z, moves.best),
             "e7 is the second half's ORIGIN — vacate evidence, never a block",
         )
     }
@@ -115,9 +115,9 @@ class PairCandidateTest {
         val state = hypothesisState()
         // Both endpoints just above the soft gate, but every logit is negative.
         val weak = state.config.zThr * PAIR_SOFT_FACTOR
-        val z = zMap("e2" to weak, "e4" to weak, "e7" to weak, "e5" to weak)
+        val z = zOf("e2" to weak, "e4" to weak, "e7" to weak, "e5" to weak)
 
-        assertNull(state.pairCandidate(z, NO_SCORE, emptySet()))
+        assertNull(state.pairCandidate(z, NO_SCORE))
     }
 
     private companion object {
@@ -131,10 +131,9 @@ class PairCandidateTest {
 internal const val HOT = 8.0
 
 /** All 64 squares at 0.0, with the named ones overridden — Python's `_z(...)` test helper. */
-internal fun zMap(vararg hot: Pair<String, Double>): Map<String, Double> {
-    val out = LinkedHashMap<String, Double>(Squares.COUNT)
-    for (square in Squares.ALL) out[square] = 0.0
-    for ((square, value) in hot) out[square] = value
+internal fun zOf(vararg hot: Pair<String, Double>): DoubleArray {
+    val out = DoubleArray(Squares.COUNT)
+    for ((square, value) in hot) out[Squares.index(square)] = value
     return out
 }
 
@@ -143,3 +142,21 @@ internal fun hypothesisState(
     fen: String = STARTPOS,
     config: TrackerConfig = TrackerConfig(),
 ): EngineState = EngineState(config, fen, whitePov = true)
+
+/** `generateHypothesis` never reads these pixels; only the anomaly patcher would. */
+internal val DUMMY_GRAY = GrayImage(1, 1, ByteArray(1))
+
+/**
+ * Arms the per-frame state steps 5 and 6 read off [EngineState]: the post-veto `changed` set, the
+ * shadow veto, and [blockedN] occlusion latches (invariant 4 counts them, never names them — the
+ * highest squares are used so they cannot collide with a named candidate).
+ */
+internal fun EngineState.armDetection(
+    changed: Set<String> = emptySet(),
+    shadowVeto: Set<String> = emptySet(),
+    blockedN: Int = 0,
+) {
+    this.changed = ofSquares(changed)
+    shadowVetoed = ofSquares(shadowVeto)
+    tainted = if (blockedN == 0) 0L else -1L shl (Squares.COUNT - blockedN)
+}

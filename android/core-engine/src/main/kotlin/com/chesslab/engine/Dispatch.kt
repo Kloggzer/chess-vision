@@ -8,34 +8,21 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 import kotlin.math.abs
 
-/** `tracker.py:3336-3337` — the note the alarm gate leaves behind. */
+/** The note the alarm gate leaves behind. */
 internal const val NOTE_ALARM_BLOCKED =
     "board desynced (ILLEGAL MOVE alarm) — no moves committed until take-back or resync"
 
-/** `_changed_vals` keeps the strongest 8 squares (`tracker.py:2904`). */
+/** `_changed_vals` keeps the strongest 8 squares. */
 private const val CHANGED_VALS_LIMIT = 8
 
-/** The `z_thr * 0.5` soft gate of the `_changed_vals` debug list (`tracker.py:2903`). */
+/** The `z_thr * 0.5` soft gate of the `_changed_vals` debug list. */
 private const val CHANGED_VALS_SOFT_FACTOR = 0.5
 
 /** Python's `round(v, 1)` — one decimal, half-to-EVEN. */
 private const val ROUND_ONE_DECIMAL = 10.0
 
 /**
- * What `_dispatch` needs beyond the moves and the images (`tracker.py:3322-3323`), grouped because
- * detekt's `LongParameterList` fires at six parameters (STATUS D01b-1).
- *
- * @property seq the decision's frame signature — the newest frame in the averaged buffer. Phase
- *   04's verify accepts only observations with `obs.seq >= seq` (Spec 11).
- */
-internal class DispatchContext(
-    val priorUsed: Boolean,
-    val note: String?,
-    val seq: Long,
-)
-
-/**
- * Step 9 — the ONE commit gate for every candidate kind (`_dispatch`, `tracker.py:3322-3353`).
+ * Step 9 — the ONE commit gate for every candidate kind (`_dispatch`).
  *
  * With CNN verify the candidate becomes pending and must survive occupancy verification (single
  * AND pair); without CNN it commits directly. The pair path does NOT get a shortcut: it arrived
@@ -51,37 +38,39 @@ internal fun EngineState.dispatch(
     moves: List<Move>,
     cur: GrayImage,
     curBgr: BgrImage?,
-    ctx: DispatchContext,
+    priorUsed: Boolean,
+    candidateNote: String?,
+    seq: Long,
 ): List<TrackerEvent> {
     if (alarm != null) {
         confirmer.reset()
         note = NOTE_ALARM_BLOCKED
         return emptyList()
     }
-    val sans = board.sanSequence(moves)
-    val events: List<TrackerEvent>
-    if (cnnOn) {
-        pending =
-            PendingVerify(
-                ucis = moves.map { uciOf(it) },
-                uci = uciOf(moves[0]),
-                fen = board.fen(),
-                cur = cur,
-                curBgr = curBgr,
-                frames = 0,
-                priorUsed = ctx.priorUsed,
-                seq = ctx.seq,
-            )
-        recoveryConfirmer.reset()
-        verifyState = VERIFY_STATE_VERIFYING
-        note = ctx.note ?: "checking ${sans.joinToString(" + ")} via CNN…"
-        events = emptyList()
-    } else if (moves.size == 1) {
-        events = listOf(commitMove(moves[0], cur, curBgr, CommitOptions(priorUsed = ctx.priorUsed)))
-    } else {
-        events = listOf(commitSequence(moves, cur, curBgr, DECIDER_DIFF_PAIR))
+    if (!cnnOn) {
+        return if (moves.size == 1) {
+            listOf(commitMove(moves[0], cur, curBgr, priorUsed = priorUsed))
+        } else {
+            listOf(commitSequence(moves, cur, curBgr, DECIDER_DIFF_PAIR))
+        }
     }
-    return events
+    // `seq` is the decision's frame signature — the newest frame in the averaged buffer. Phase 04's
+    // verify accepts only observations with `obs.seq >= seq` (Spec 11).
+    pending =
+        PendingVerify(
+            ucis = moves.map { uciOf(it) },
+            uci = uciOf(moves[0]),
+            fen = board.fen(),
+            cur = cur,
+            curBgr = curBgr,
+            frames = 0,
+            priorUsed = priorUsed,
+            seq = seq,
+        )
+    recoveryConfirmer.reset()
+    verifyState = VERIFY_STATE_VERIFYING
+    note = candidateNote ?: "checking ${board.sanSequence(moves).joinToString(" + ")} via CNN…"
+    return emptyList()
 }
 
 /**
@@ -89,8 +78,8 @@ internal fun EngineState.dispatch(
  * declared here because it is the commit seam.
  *
  * **entry.md invariant 10:** [For.replacement] is what makes Python's `cnn_overrule` expressible.
- * The legacy port (`specs/12` D3) had no such field, so an overruled move could only be dropped and
- * re-detected — the real move landed a whole cycle late.
+ * The legacy port had no such field, so an overruled move could only be dropped and re-detected —
+ * the real move landed a whole cycle late.
  */
 internal sealed interface VerifyVerdict {
     data class For(
@@ -128,15 +117,19 @@ internal fun EngineState.applyVerdict(
     val at = anchor ?: CommitAnchor(pend.cur, pend.curBgr)
     val moves = verdict.replacement ?: pend.ucis.mapNotNull { legalMoveFor(it) }
     pending = null
-    val opts =
-        CommitOptions(
-            recovered = verdict.decider == DECIDER_CNN_RECOVERY,
-            priorUsed = pend.priorUsed,
-            decider = verdict.decider,
-        )
     return when {
         moves.isEmpty() -> emptyList()
-        moves.size == 1 -> listOf(commitMove(moves[0], at.cur, at.curBgr, opts))
+        moves.size == 1 ->
+            listOf(
+                commitMove(
+                    moves[0],
+                    at.cur,
+                    at.curBgr,
+                    decider = verdict.decider,
+                    priorUsed = pend.priorUsed,
+                    recovered = verdict.decider == DECIDER_CNN_RECOVERY,
+                ),
+            )
         else -> listOf(commitSequence(moves, at.cur, at.curBgr, verdict.decider))
     }
 }
@@ -144,27 +137,18 @@ internal fun EngineState.applyVerdict(
 /** The legal move with this uci in the CURRENT position, or `null`. */
 internal fun EngineState.legalMoveFor(uci: String): Move? = board.legalMoves().firstOrNull { uciOf(it) == uci }
 
-/** `_changed_vals` (`tracker.py:2902-2904`): the debug list of squares at or just below `z_thr`. */
+/** `_changed_vals`: the debug list of squares at or just below `z_thr`. */
 internal fun topChangedVals(
-    z: Map<String, Double>,
+    z: DoubleArray,
     zThr: Double,
 ): List<Pair<String, Double>> {
     val soft = zThr * CHANGED_VALS_SOFT_FACTOR
     val out = ArrayList<Pair<String, Double>>()
-    for (square in Squares.ALL) {
-        val value = z[square] ?: continue
+    for (i in 0 until Squares.COUNT) {
         // The gate reads the UNROUNDED value; only the emitted number is rounded.
-        if (value >= soft) out.add(square to Math.rint(value * ROUND_ONE_DECIMAL) / ROUND_ONE_DECIMAL)
+        if (z[i] >= soft) out.add(Squares.ALL[i] to Math.rint(z[i] * ROUND_ONE_DECIMAL) / ROUND_ONE_DECIMAL)
     }
-    // Python's `sort` is stable and its key is `-value`, so equal values keep `_ALL` order and
-    // `-0.0` never overtakes `0.0` (which `sortedByDescending` would do). Same rule as D02a-10.
-    out.sortWith { a, b ->
-        when {
-            a.second < b.second -> 1
-            a.second > b.second -> -1
-            else -> 0
-        }
-    }
+    sortByValueDescending(out)
     return if (out.size > CHANGED_VALS_LIMIT) ArrayList(out.subList(0, CHANGED_VALS_LIMIT)) else out
 }
 
@@ -173,7 +157,7 @@ internal fun topChangedVals(
  *
  * `String.format` rounds HALF_UP on the exact decimal value of the double while Python rounds
  * HALF_EVEN, and it prints `0.00` where Python prints `-0.00`. Both are reproduced: the sign comes
- * from the raw value, the magnitude from an exact `BigDecimal` (STATUS D03c-6).
+ * from the raw value, the magnitude from an exact `BigDecimal`.
  */
 internal fun pyFixed(
     value: Double,

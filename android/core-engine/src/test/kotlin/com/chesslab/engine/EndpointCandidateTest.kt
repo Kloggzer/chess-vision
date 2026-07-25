@@ -1,6 +1,5 @@
 package com.chesslab.engine
 
-import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerConfig
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -10,7 +9,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * `_single_endpoint_candidate` (`tracker.py:3355-3375`) — the destination-only rescue path for a
+ * `_single_endpoint_candidate` — the destination-only rescue path for a
  * low-contrast vacated origin. Mirrors `test_single_endpoint_candidate_unambiguous` and
  * `test_single_endpoint_none_when_multi_changed`.
  */
@@ -27,10 +26,10 @@ class EndpointCandidateTest {
     @Test
     fun unambiguousEndpoint() {
         val state = hypothesisState(AFTER_E4)
-        val z = zMap("c6" to HOT)
+        val z = zOf("c6" to HOT)
         val scored = loglikScores(state.board, z, state.config.zThr, state.config.llK)
 
-        val move = state.singleEndpointCandidate(z, scored, emptySet())
+        val move = state.singleEndpointCandidate(z, scored)
 
         assertNotNull(move)
         assertEquals("c6", Squares.ALL[move!!.to.ordinal])
@@ -40,34 +39,35 @@ class EndpointCandidateTest {
     @Test
     fun noneWhenMultipleStrongSquares() {
         val state = hypothesisState()
-        val z = zMap("c6" to HOT, "e4" to HOT)
+        val z = zOf("c6" to HOT, "e4" to HOT)
         val scored = loglikScores(state.board, z, state.config.zThr, state.config.llK)
 
-        assertNull(state.singleEndpointCandidate(z, scored, emptySet()))
+        assertNull(state.singleEndpointCandidate(z, scored))
     }
 
     /** Exactly one strong square is required — zero is as fatal as two. */
     @Test
     fun noneWhenNoStrongSquare() {
         val state = hypothesisState(AFTER_E4)
-        val z = zMap("c6" to state.config.zThr - 0.01)
+        val z = zOf("c6" to state.config.zThr - 0.01)
         val scored = loglikScores(state.board, z, state.config.zThr, state.config.llK)
 
-        assertNull(state.singleEndpointCandidate(z, scored, emptySet()))
+        assertNull(state.singleEndpointCandidate(z, scored))
     }
 
     /** A shadow-vetoed destination can never be an endpoint candidate. */
     @Test
     fun shadowVetoedDestinationYieldsNull() {
         val state = hypothesisState(AFTER_E4)
-        val z = zMap("c6" to HOT)
+        val z = zOf("c6" to HOT)
         val scored = loglikScores(state.board, z, state.config.zThr, state.config.llK)
+        state.shadowVetoed = ofSquares("c6")
 
-        assertNull(state.singleEndpointCandidate(z, scored, setOf("c6")))
+        assertNull(state.singleEndpointCandidate(z, scored))
     }
 
     /**
-     * Rivals to the SAME destination do not make the candidate ambiguous (`:3371-3374`) — the CNN
+     * Rivals to the SAME destination do not make the candidate ambiguous — the CNN
      * then simply confirms this one move.
      *
      * This test also pins a finding (STATUS D03c-3): because `cands` is filtered to the ONE strong
@@ -77,10 +77,10 @@ class EndpointCandidateTest {
     @Test
     fun rivalsToTheSameDestinationDoNotBlock() {
         val state = hypothesisState(TWO_KNIGHTS)
-        val z = zMap("d2" to HOT)
+        val z = zOf("d2" to HOT)
         val scored = loglikScores(state.board, z, state.config.zThr, state.config.llK)
 
-        val move = state.singleEndpointCandidate(z, scored, emptySet())
+        val move = state.singleEndpointCandidate(z, scored)
 
         assertNotNull(move)
         assertEquals("d2", Squares.ALL[move!!.to.ordinal])
@@ -94,16 +94,17 @@ class EndpointCandidateTest {
 
     /**
      * `vote = false`: the endpoint candidate skips the confirmer AND the absolute LL floor, because
-     * the CNN verify IS its multi-frame confirmation. 03d asserts the downstream exemption.
+     * the CNN verify IS its multi-frame confirmation. The dispatch tests assert the exemption.
      */
     @Test
     fun voteFalseSkipsConfirmerAndFloor() {
         val state = cnnState(AFTER_E4)
-        val z = zMap("c6" to HOT)
-        val moves = state.scoreViableMoves(z, emptySet())
+        val z = zOf("c6" to HOT)
+        state.armDetection(changed = setOf("c6"))
+        val moves = state.scoreViableMoves(z)
         assertNull(moves.obsMove, "no single move fits — the origin is below the viability gate")
 
-        val cand = state.generateHypothesis(z, moves, detectContext(setOf("c6")))
+        val cand = state.generateHypothesis(z, moves, DUMMY_GRAY, null)
 
         assertNotNull(cand)
         assertFalse(cand!!.vote)
@@ -118,10 +119,11 @@ class EndpointCandidateTest {
     @Test
     fun withoutCnnThereIsNoEndpointCandidate() {
         val state = hypothesisState(AFTER_E4)
-        val z = zMap("c6" to HOT)
-        val moves = state.scoreViableMoves(z, emptySet())
+        val z = zOf("c6" to HOT)
+        state.armDetection(changed = setOf("c6"))
+        val moves = state.scoreViableMoves(z)
 
-        val cand = state.generateHypothesis(z, moves, detectContext(setOf("c6")))
+        val cand = state.generateHypothesis(z, moves, DUMMY_GRAY, null)
 
         assertNull(cand)
         assertEquals(STUCK_NO_LEGAL_MOVE, state.stuckReason)
@@ -139,17 +141,3 @@ internal fun cnnState(fen: String = STARTPOS): EngineState {
     state.cnnRun = true
     return state
 }
-
-/** A [DetectContext] with dummy images — nothing in phase 03c reads their pixels. */
-internal fun detectContext(
-    changed: Set<String>,
-    shadowVeto: Set<String> = emptySet(),
-    blockedN: Int = 0,
-): DetectContext =
-    DetectContext(
-        changed = changed,
-        shadowVeto = shadowVeto,
-        blockedN = blockedN,
-        cur = GrayImage(1, 1, ByteArray(1)),
-        curBgr = null,
-    )

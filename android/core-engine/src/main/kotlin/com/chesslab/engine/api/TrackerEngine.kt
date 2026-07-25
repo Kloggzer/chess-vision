@@ -4,8 +4,6 @@ import com.chesslab.engine.Candidate
 import com.chesslab.engine.Confirmer
 import com.chesslab.engine.DECIDER_USER
 import com.chesslab.engine.DecisionRecord
-import com.chesslab.engine.DetectContext
-import com.chesslab.engine.DispatchContext
 import com.chesslab.engine.EngineState
 import com.chesslab.engine.FrameLoop
 import com.chesslab.engine.FrameOutcome
@@ -26,14 +24,16 @@ import com.chesslab.engine.generateHypothesis
 import com.chesslab.engine.learnNoise
 import com.chesslab.engine.legalMoveFor
 import com.chesslab.engine.markStuck
-import com.chesslab.engine.maybePatchAnomaly
-import com.chesslab.engine.moveTouchedSquares
+import com.chesslab.engine.moveTouchedMask
 import com.chesslab.engine.pyFixed
 import com.chesslab.engine.san
 import com.chesslab.engine.scoreViableMoves
 import com.chesslab.engine.setRef
+import com.chesslab.engine.sortedSquareNames
+import com.chesslab.engine.squareNames
 import com.chesslab.engine.topChangedVals
 import com.chesslab.engine.uciOf
+import com.chesslab.engine.with
 
 /** Standard chess starting position (FEN). */
 const val STARTPOS = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -41,28 +41,28 @@ const val STARTPOS = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 /** `_mark_stuck("occluded")` — the occlusion latch blocks the quiet re-anchor. */
 private const val STUCK_OCCLUDED = "occluded"
 
-/** `_mark_stuck("cnn_desync")` — the Bxc3 guard (`tracker.py:2988`). */
+/** `_mark_stuck("cnn_desync")` — the Bxc3 guard. */
 private const val STUCK_CNN_DESYNC = "cnn_desync"
 
 private const val NOTE_WAITING_OCCLUDED = "waiting for occluded squares to clear…"
 
 private const val NOTE_CANNOT_ANCHOR = "ILLEGAL MOVE? board cannot be anchored to game state"
 
-/** `n_touched` of a move with no observed candidate (`tracker.py:2953`). */
+/** `n_touched` of a move with no observed candidate. */
 private const val TOUCHED_FALLBACK = 2
 
-/** The re-anchor floor is scaled by `n_touched / 2` (`tracker.py:2954`). */
+/** The re-anchor floor is scaled by `n_touched / 2`. */
 private const val TOUCHED_BASE = 2.0
 
-/** `(time.time() - snap.ts) < 5.0` — the cnn_desync veto's freshness window (`tracker.py:2981`). */
+/** `(time.time() - snap.ts) < 5.0` — the cnn_desync veto's freshness window. */
 private const val DESYNC_MAX_AGE_S = 5.0
 
-/** `', '.join(dis[:4])` — the desync note lists at most four squares (`tracker.py:2990`). */
+/** `', '.join(dis[:4])` — the desync note lists at most four squares. */
 private const val DESYNC_NOTE_LIMIT = 4
 
 private const val MS_PER_S = 1000.0
 
-/** `_clear_alarm` provenance reasons (`tracker.py:1411` / `:3831`). */
+/** `_clear_alarm` provenance reasons. */
 private const val ALARM_ACCEPTED = "illegal_move_accepted"
 
 private const val ALARM_UNDONE = "illegal_move_undone"
@@ -110,8 +110,8 @@ class TrackerEngine(
 
     /**
      * Observer results. Phase 04a/04b/04c own `_verify_tick` / `_verify_pair_tick` / `_cnn_tick`;
-     * until they land the observation is only stored, exactly as `_observe_snapshot` does
-     * (`tracker.py:1824`) — the taint filter in step 2 already reads it.
+     * until they land the observation is only stored, exactly as `_observe_snapshot` does — the
+     * taint filter in step 2 already reads it.
      */
     fun onCnnSnapshot(snap: CnnSnapshot): List<TrackerEvent> {
         state.cnnSnap = snap
@@ -122,8 +122,8 @@ class TrackerEngine(
     fun status(): TrackerStatus = state.toStatus()
 
     /**
-     * `undo` (`tracker.py:3822-3858`) — the undone move was WRONG, so it is a user correction: the
-     * alarm latch is released and the decision rows of the undone plies are dropped.
+     * `undo` — the undone move was WRONG, so it is a user correction: the alarm latch is released
+     * and the decision rows of the undone plies are dropped.
      */
     fun undo(): List<TrackerEvent> {
         val events = state.clearAlarm(ALARM_UNDONE).toMutableList()
@@ -146,7 +146,7 @@ class TrackerEngine(
     /** `reset_to_start()` — start position plus "I just set up this position". */
     fun resetToStart(): List<TrackerEvent> = setFen(STARTPOS)
 
-    /** `reset_to_start(fen)` (`tracker.py:1371-1411`). */
+    /** `reset_to_start(fen)`. */
     fun setFen(fen: String): List<TrackerEvent> {
         state.board = Game(fen)
         state.history.clear()
@@ -171,9 +171,9 @@ class TrackerEngine(
     }
 
     /**
-     * `capture_baseline` (`tracker.py:1413-1440`) — "the physical board matches the shown FEN,
-     * refresh the visual reference". The FEN is trusted; `holdUntil` is zeroed because this is a
-     * deliberate user action, not a post-motion settle.
+     * `capture_baseline` — "the physical board matches the shown FEN, refresh the visual
+     * reference". The FEN is trusted; `holdUntil` is zeroed because this is a deliberate user
+     * action, not a post-motion settle.
      */
     fun captureBaseline(): List<TrackerEvent> {
         state.clearReferenceState()
@@ -183,7 +183,7 @@ class TrackerEngine(
         return events
     }
 
-    /** `choose_promotion` (`tracker.py:3422-3441`) — the Q/R/B/N answer for a pending promotion. */
+    /** `choose_promotion` — the Q/R/B/N answer for a pending promotion. */
     fun choosePromotion(piece: Char): List<TrackerEvent> {
         val symbol = piece.lowercaseChar()
         val pending = state.promoPending
@@ -208,7 +208,7 @@ class TrackerEngine(
         }
     }
 
-    /** Owner: phase 04c (`accept_cnn_position`, `tracker.py:2486`). */
+    /** Owner: phase 04c (`accept_cnn_position`). */
     fun acceptCnnPosition(): List<TrackerEvent> = emptyList() // phase 04c
 
     /**
@@ -235,18 +235,8 @@ class TrackerEngine(
 }
 
 /**
- * The images and the occlusion verdict step 5's quiet branch needs — grouped because detekt's
- * `LongParameterList` fires at six parameters (STATUS D01b-1).
- */
-internal class QuietContext(
-    val cur: GrayImage,
-    val curBgr: BgrImage?,
-    val occludedSet: Set<String>,
-)
-
-/**
- * `_try_detect` (`tracker.py:2834-3058`) — the ordered detection pipeline. The order IS the
- * contract; every candidate kind (single, pair, endpoint) passes the same steps 6b -> 9.
+ * `_try_detect` — the ordered detection pipeline. The order IS the contract; every candidate kind
+ * (single, pair, endpoint) passes the same steps 6b -> 9.
  *
  * 1. guards, 2. evidence + taints, 3. vetoes, 4. noise learning, 5. scoring + quiet/re-anchor,
  * 6. hypothesis, 6b. absolute LL floor, 7. motion gate, 8. confirmer, 9. dispatch.
@@ -257,36 +247,28 @@ internal fun EngineState.tryDetect(
     seq: Long,
 ): List<TrackerEvent> {
     if (!detectGuards()) return emptyList()
-    // 2. Evidence — every gate and the LL scoring operate on the SAME fused z.
-    val evidence = computeEvidence(cur)
-    val z = evidence.z
-    applyTaints(z)
-    val hot = LinkedHashSet<String>()
-    for ((square, value) in z) {
-        if (value >= config.zThr) hot.add(square)
+    // 2. Evidence — every gate and the LL scoring operate on the SAME fused z (`lastZ`).
+    computeEvidence(cur)
+    applyTaints()
+    var hot = 0L
+    for (i in 0 until Squares.COUNT) {
+        if (lastZ[i] >= config.zThr) hot = hot.with(i)
     }
-    changedVals = topChangedVals(z, config.zThr)
+    changedVals = topChangedVals(lastZ, config.zThr)
     // 3. Vetoes (shadow keeps z as vacate evidence; occlusion zeroed it in step 2).
-    val veto = applyVetoes(cur, curBgr, hot, evidence.cens)
-    changed = veto.changed.sorted().toMutableSet()
+    applyVetoes(cur, curBgr, hot)
     // 4. Noise learning on the post-veto sets, on EVERY stable frame — even while stuck.
-    learnNoise(evidence.diffs, evidence.cens, veto.changed, veto.shadowVeto)
-    lastDiffs = evidence.diffs
-    lastCens = evidence.cens ?: emptyMap()
-    lastZ = z
-    // 5. LL scoring + viability filter (03c owns it), then the quiet/re-anchor branch.
-    val moves = scoreViableMoves(z, veto.shadowVeto)
+    learnNoise()
+    // 5. LL scoring + viability filter, then the quiet/re-anchor branch.
+    val moves = scoreViableMoves(lastZ)
     val events = mutableListOf<TrackerEvent>()
     val promoBefore = promoPending
-    val quiet = QuietContext(cur, curBgr, veto.occludedSet)
-    if (!(veto.changed.isEmpty() && quietOutcome(moves, quiet, events))) {
-        // 6. Hypothesis — the ONE place that turns evidence into a candidate. Occlusion-latched
-        // squares ALWAYS count toward maxChanged (entry.md invariant 4).
-        val ctx = DetectContext(veto.changed, veto.shadowVeto, blockedN = tainted.size, cur, curBgr)
-        val cand = generateHypothesis(z, moves, ctx, this::maybePatchAnomaly)
+    if (!(changed == 0L && quietOutcome(moves, cur, curBgr, events))) {
+        // 6. Hypothesis — the ONE place that turns evidence into a candidate.
+        val cand = generateHypothesis(lastZ, moves, cur, curBgr)
         if (cand != null && commitGates(cand)) {
-            anomalySince.clear()
-            events += dispatch(cand.moves, cur, curBgr, DispatchContext(cand.priorUsed, cand.note, seq))
+            anomalySince = 0L
+            events += dispatch(cand.moves, cur, curBgr, cand.priorUsed, cand.note, seq)
         }
     }
     val promo = promoPending
@@ -295,8 +277,8 @@ internal fun EngineState.tryDetect(
 }
 
 /**
- * Step 5's quiet branch (`tracker.py:2949-3006`) — nothing changed, so either pull the reference
- * forward or refuse to. Returns `true` when the frame is HANDLED (no hypothesis this frame).
+ * Step 5's quiet branch — nothing changed, so either pull the reference forward or refuse to.
+ * Returns `true` when the frame is HANDLED (no hypothesis this frame).
  *
  * The re-anchor floor scales with the number of physically touched squares: castling (4) gets
  * `-8.0`, so weak-but-equal per-square evidence does not penalise it against a normal move (2).
@@ -310,17 +292,18 @@ internal fun EngineState.tryDetect(
  */
 internal fun EngineState.quietOutcome(
     moves: ViableMoves,
-    quiet: QuietContext,
+    cur: GrayImage,
+    curBgr: BgrImage?,
     events: MutableList<TrackerEvent>,
 ): Boolean {
     val obsMove = moves.obsMove
-    val nTouched = if (obsMove == null) TOUCHED_FALLBACK else moveTouchedSquares(board, obsMove).size
+    val nTouched = if (obsMove == null) TOUCHED_FALLBACK else moveTouchedMask(board, obsMove).countOneBits()
     val scaledFloor = config.reanchorLlFloor * (nTouched / TOUCHED_BASE)
     var handled = true
     if (obsMove == null || moves.best < scaledFloor) {
         val desync = cnnDesyncConflicts()
         when {
-            tainted.isNotEmpty() -> {
+            tainted != 0L -> {
                 markStuck(STUCK_OCCLUDED)
                 note = NOTE_WAITING_OCCLUDED
             }
@@ -328,20 +311,19 @@ internal fun EngineState.quietOutcome(
                 markStuck(STUCK_NO_LEGAL_MOVE)
                 note = NOTE_CANNOT_ANCHOR
             }
-            desync.isNotEmpty() -> {
+            desync != 0L -> {
                 markStuck(STUCK_CNN_DESYNC)
-                note =
-                    "quiet board but CNN disagrees on ${desync.take(DESYNC_NOTE_LIMIT).joinToString(", ")} — " +
-                    "holding reference (recovery will resolve)"
+                val listed = desync.squareNames().take(DESYNC_NOTE_LIMIT).joinToString(", ")
+                note = "quiet board but CNN disagrees on $listed — holding reference (recovery will resolve)"
             }
             else -> {
                 // The only verifiably CLEAN moment: re-anchor AND run the deferred jobs (the gamut
                 // rebuild inside setRef, the session photo). `fromCommit = false` — invariant 6.
                 confirmer.reset()
                 clearStuck()
-                anomalySince.clear()
-                setRef(quiet.cur, quiet.curBgr)
-                if (quiet.occludedSet.isEmpty()) flushSessionCapture()
+                anomalySince = 0L
+                setRef(cur, curBgr)
+                if (tainted == 0L) flushSessionCapture()
                 events += TrackerEvent.ReAnchored
             }
         }
@@ -356,23 +338,23 @@ internal fun EngineState.quietOutcome(
 }
 
 /**
- * The confident OCCUPANCY conflicts between a fresh observation and the believed position
- * (`tracker.py:2978-2992`). Occupancy is the reliable axis: "b4 confidently EMPTY while a bishop is
- * believed there" is a desync, a misread piece TYPE is not.
+ * The confident OCCUPANCY conflicts between a fresh observation and the believed position.
+ * Occupancy is the reliable axis: "b4 confidently EMPTY while a bishop is believed there" is a
+ * desync, a misread piece TYPE is not.
  *
  * `snap.obs is None` is unreachable here — the frozen seam declares `CnnSnapshot.obs` non-null
  * (same finding as STATUS D03b-2).
  */
-private fun EngineState.cnnDesyncConflicts(): List<String> {
-    val snap = cnnSnap
-    val conflicts = ArrayList<String>()
-    if (snap != null && snap.fen == board.fen() && nowS - snap.tsMs / MS_PER_S < DESYNC_MAX_AGE_S) {
-        val thr = config.cnnConfThr
-        for (square in Squares.ALL) {
-            val believed = board.pieceCharAt(square) != null
-            if (snap.obs.confident(square, thr) && snap.obs.occupied(square) != believed) {
-                conflicts.add(square)
-            }
+private fun EngineState.cnnDesyncConflicts(): Long {
+    val snap = cnnSnap ?: return 0L
+    if (snap.fen != board.fen() || nowS - snap.tsMs / MS_PER_S >= DESYNC_MAX_AGE_S) return 0L
+    val thr = config.cnnConfThr
+    var conflicts = 0L
+    for (i in 0 until Squares.COUNT) {
+        val square = Squares.ALL[i]
+        val believed = board.pieceCharAt(i) != null
+        if (snap.obs.confident(square, thr) && snap.obs.occupied(square) != believed) {
+            conflicts = conflicts.with(i)
         }
     }
     return conflicts
@@ -381,14 +363,14 @@ private fun EngineState.cnnDesyncConflicts(): List<String> {
 /**
  * Steps 6b, 7 and 8 — the three gates between a candidate and dispatch. `true` = commit it.
  *
- * - **6b, absolute LL floor** (`:3025-3029`): a sole-viable candidate has an infinite margin, so a
- *   weak phantom (`f6h5 @ 0.44` swallowed a live castle) sails through every margin check.
- *   Endpoint candidates (`vote = false`) stay exempt — they are CNN-verified by design.
- * - **7, motion gate** (`:3036-3044`): a real move is always preceded by a hand, and it becomes
- *   visible within seconds of the hand leaving. BOTH conditions are needed —
- *   `motionSinceRef` alone was armed forever by a single wobble spike.
- * - **8, confirmer** (`:3048-3053`): the same candidate over N stable frames. The endpoint
- *   candidate skips the vote; the CNN verify IS its multi-frame confirmation.
+ * - **6b, absolute LL floor**: a sole-viable candidate has an infinite margin, so a weak phantom
+ *   (`f6h5 @ 0.44` swallowed a live castle) sails through every margin check. Endpoint candidates
+ *   (`vote = false`) stay exempt — they are CNN-verified by design.
+ * - **7, motion gate**: a real move is always preceded by a hand, and it becomes visible within
+ *   seconds of the hand leaving. BOTH conditions are needed — `motionSinceRef` alone was armed
+ *   forever by a single wobble spike.
+ * - **8, confirmer**: the same candidate over N stable frames. The endpoint candidate skips the
+ *   vote; the CNN verify IS its multi-frame confirmation.
  */
 internal fun EngineState.commitGates(cand: Candidate): Boolean {
     val sans = board.sanSequence(cand.moves).joinToString(" + ")
@@ -420,17 +402,20 @@ internal fun EngineState.commitGates(cand: Candidate): Boolean {
     return pass
 }
 
-/** The immutable UI snapshot (`status()`, `tracker.py:3510`), a pure function of the state. */
+/**
+ * The immutable UI snapshot (`status()`), a pure function of the state. This is the ONE place that
+ * turns the engine's bitboards and 64-element arrays into the square-name maps the UI wants.
+ */
 internal fun EngineState.toStatus(): TrackerStatus =
     TrackerStatus(
         state = state,
         fen = board.fen(),
-        z = lastZ,
-        diffs = lastDiffs,
-        census = lastCens,
-        changed = changed.toSet(),
-        shadowVetoed = shadowVetoed.toSet(),
-        occlusionVetoed = occludedVetoed.toSet(),
+        z = squareValueMap(lastZ),
+        diffs = squareValueMap(lastDiffs),
+        census = lastCens?.let { squareValueMap(it) } ?: emptyMap(),
+        changed = changed.sortedSquareNames().toSet(),
+        shadowVetoed = shadowVetoed.sortedSquareNames().toSet(),
+        occlusionVetoed = occludedVetoed.sortedSquareNames().toSet(),
         bestLl = bestScore,
         secondLl = secondScore,
         bestUci = candidateUci,
@@ -461,16 +446,16 @@ internal fun EngineState.clearReferenceState() {
     grayBuf.clear()
     bgrBuf.clear()
     clearStuck()
-    tainted.clear()
-    occlWhitelist.clear()
+    tainted = 0L
+    occlWhitelist = 0L
     occludedSince = null
-    shadowVetoed = emptyList()
+    shadowVetoed = 0L
     shadowBlocked.clear()
-    occludedVetoed = emptyList()
-    motionOccludedSquares = mutableSetOf()
-    occlusionExpiry.clear()
-    occlCoreExpiry.clear()
-    anomalySince.clear()
+    occludedVetoed = 0L
+    motionOccluded = 0L
+    occlusionExpiry.fill(0.0)
+    occlCoreExpiry.fill(0.0)
+    anomalySince = 0L
     cnnSnap = null
     pending = null
     promoPending = null
@@ -478,8 +463,17 @@ internal fun EngineState.clearReferenceState() {
     state = STATE_WAITING
 }
 
+/** A `Squares.ALL`-keyed view of a 64-value channel — built for the UI, never for the engine. */
+private fun squareValueMap(values: DoubleArray): Map<String, Double> {
+    val out = LinkedHashMap<String, Double>(Squares.COUNT)
+    for (i in 0 until Squares.COUNT) {
+        out[Squares.ALL[i]] = values[i]
+    }
+    return out
+}
+
 /**
- * `_clear_alarm` (`tracker.py:1354-1369`) — release the illegal-move latch.
+ * `_clear_alarm` — release the illegal-move latch.
  *
  * **entry.md invariant 9:** only explicit user corrections and a VERIFIED board restore may call
  * this; nothing in the detection pipeline heals the alarm silently. The discontinuity lands in the
@@ -490,7 +484,7 @@ internal fun EngineState.clearAlarm(logReason: String): List<TrackerEvent> {
     alarm = null
     alarmSince = 0.0
     desyncObs = 0
-    desyncConflicts.clear()
+    desyncConflicts = 0L
     desyncLastSeq = null
     decisionLog.add(
         DecisionRecord(
@@ -506,10 +500,10 @@ internal fun EngineState.clearAlarm(logReason: String): List<TrackerEvent> {
             bestScore = bestScore,
             secondScore = secondScore,
             margin = bestScore - secondScore,
-            changed = changed.toList(),
+            changed = changed.sortedSquareNames(),
             changedVals = changedVals.toList(),
-            shadowVetoed = shadowVetoed.toList(),
-            occludedVetoed = occludedVetoed.toList(),
+            shadowVetoed = shadowVetoed.sortedSquareNames(),
+            occludedVetoed = occludedVetoed.sortedSquareNames(),
             gridCoverage = gridCoverage,
             zThr = config.zThr,
             motion = motion,

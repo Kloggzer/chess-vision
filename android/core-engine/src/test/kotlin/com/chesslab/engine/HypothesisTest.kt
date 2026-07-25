@@ -1,6 +1,5 @@
 package com.chesslab.engine
 
-import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.parity.ParityFixtures
 import com.chesslab.engine.parity.ParityFrame
@@ -13,8 +12,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * `_generate_hypothesis` (`tracker.py:3188-3277`) and the step-5 viability filter it consumes
- * (`:2995-3011`).
+ * `_generate_hypothesis` and the step-5 viability filter it consumes.
  *
  * Mirrors the scenario tests of `tests/test_move_tracker.py` named in
  * `specs/17-android-rewrite/03c-hypothesis.md` plus the parity replay over the phase-00b Tier-B
@@ -28,7 +26,7 @@ class HypothesisTest {
     fun weakTargetStillViable() {
         val state = hypothesisState()
         val soft = state.config.zThr * PAIR_SOFT_FACTOR
-        val moves = state.scoreViableMoves(zMap("e2" to HOT, "e4" to soft), emptySet())
+        val moves = state.scoreViableMoves(zOf("e2" to HOT, "e4" to soft))
 
         assertEquals("e2e4", moves.obsMove?.let { uciOf(it) })
         assertTrue(moves.best > 0.0, "the evidence speaks net FOR the move")
@@ -39,12 +37,13 @@ class HypothesisTest {
     fun targetBelowTheSoftGateIsNotViable() {
         val state = hypothesisState()
         val soft = state.config.zThr * PAIR_SOFT_FACTOR
-        val z = zMap("e2" to HOT, "e4" to soft - 0.01)
+        val z = zOf("e2" to HOT, "e4" to soft - 0.01)
+        state.armDetection(changed = setOf("e2"))
 
-        val moves = state.scoreViableMoves(z, emptySet())
+        val moves = state.scoreViableMoves(z)
 
         assertNull(moves.obsMove)
-        assertNull(state.generateHypothesis(z, moves, detectContext(setOf("e2"))))
+        assertNull(state.generateHypothesis(z, moves, DUMMY_GRAY, null))
         assertEquals(STUCK_NO_LEGAL_MOVE, state.stuckReason)
     }
 
@@ -52,10 +51,11 @@ class HypothesisTest {
     @Test
     fun castlingSignature() {
         val state = hypothesisState(CASTLING_FEN)
-        val z = zMap("e1" to HOT, "f1" to HOT, "g1" to HOT, "h1" to HOT)
-        val moves = state.scoreViableMoves(z, emptySet())
+        val z = zOf("e1" to HOT, "f1" to HOT, "g1" to HOT, "h1" to HOT)
+        state.armDetection(changed = setOf("e1", "f1", "g1", "h1"))
+        val moves = state.scoreViableMoves(z)
 
-        val cand = state.generateHypothesis(z, moves, detectContext(setOf("e1", "f1", "g1", "h1")))
+        val cand = state.generateHypothesis(z, moves, DUMMY_GRAY, null)
 
         assertEquals(listOf("e1g1"), cand?.moves?.map { uciOf(it) })
         assertEquals(true, cand?.vote)
@@ -65,10 +65,11 @@ class HypothesisTest {
     @Test
     fun enPassantSignature() {
         val state = hypothesisState(EN_PASSANT_FEN)
-        val z = zMap("e5" to HOT, "f5" to HOT, "f6" to HOT)
-        val moves = state.scoreViableMoves(z, emptySet())
+        val z = zOf("e5" to HOT, "f5" to HOT, "f6" to HOT)
+        state.armDetection(changed = setOf("e5", "f5", "f6"))
+        val moves = state.scoreViableMoves(z)
 
-        val cand = state.generateHypothesis(z, moves, detectContext(setOf("e5", "f5", "f6")))
+        val cand = state.generateHypothesis(z, moves, DUMMY_GRAY, null)
 
         assertEquals(listOf("e5f6"), cand?.moves?.map { uciOf(it) })
     }
@@ -77,13 +78,13 @@ class HypothesisTest {
     @Test
     fun hotUntouchedSquarePenalizes() {
         val state = hypothesisState()
-        val z = zMap("e2" to HOT, "e4" to HOT, "a3" to HOT)
+        val z = zOf("e2" to HOT, "e4" to HOT, "a3" to HOT)
         val scored = loglikScores(state.board, z, state.config.zThr, state.config.llK).associate { uciOf(it.first) to it.second }
 
         assertTrue(scored.getValue("e2e4") > scored.getValue("d2d4"), "d2d4 explains nothing hot")
         // a3 is hot but only a2a3 / b1a3 cover it — and their other endpoint is cold, so neither is
         // viable. The candidate is still e2e4.
-        val moves = state.scoreViableMoves(z, emptySet())
+        val moves = state.scoreViableMoves(z)
         assertEquals("e2e4", moves.obsMove?.let { uciOf(it) })
     }
 
@@ -91,9 +92,10 @@ class HypothesisTest {
     @Test
     fun shadowDestinationBlocksPhantomMove() {
         val state = hypothesisState(ROOK_H1_FEN)
-        val z = zMap("h1" to HOT, "g1" to HOT)
+        val z = zOf("h1" to HOT, "g1" to HOT)
+        state.shadowVetoed = ofSquares("g1")
 
-        val moves = state.scoreViableMoves(z, setOf("g1"))
+        val moves = state.scoreViableMoves(z)
 
         assertEquals(listOf("h1g1"), state.shadowBlocked)
         assertTrue(moves.viableRaw.any { uciOf(it.first) == "h1g1" }, "raw viability still sees it")
@@ -105,9 +107,10 @@ class HypothesisTest {
     @Test
     fun shadowOnFromSquareStillAllowsMove() {
         val state = hypothesisState()
-        val z = zMap("e2" to HOT, "e4" to HOT)
+        val z = zOf("e2" to HOT, "e4" to HOT)
+        state.shadowVetoed = ofSquares("e2")
 
-        val moves = state.scoreViableMoves(z, setOf("e2"))
+        val moves = state.scoreViableMoves(z)
 
         assertEquals("e2e4", moves.obsMove?.let { uciOf(it) })
         assertTrue(state.shadowBlocked.isEmpty())
@@ -119,16 +122,12 @@ class HypothesisTest {
     @Test
     fun taintedSquaresCountTowardMaxChanged() {
         val state = hypothesisState()
-        val z = zMap("e2" to HOT, "e4" to HOT, "e7" to HOT, "e5" to HOT)
-        val moves = state.scoreViableMoves(z, emptySet())
+        val z = zOf("e2" to HOT, "e4" to HOT, "e7" to HOT, "e5" to HOT)
+        val moves = state.scoreViableMoves(z)
         val singleBest = state.bestScore
+        state.armDetection(changed = setOf("e2", "e4", "e5"), blockedN = 4)
 
-        val cand =
-            state.generateHypothesis(
-                z,
-                moves,
-                detectContext(changed = setOf("e2", "e4", "e5"), blockedN = 4),
-            )
+        val cand = state.generateHypothesis(z, moves, DUMMY_GRAY, null)
 
         assertNull(cand)
         assertEquals(STUCK_TOO_MANY_CHANGED, state.stuckReason)
@@ -149,11 +148,11 @@ class HypothesisTest {
     @Test
     fun pairRescuesTooMuchChangeWhenNothingIsTainted() {
         val state = hypothesisState()
-        val z = zMap("e2" to HOT, "e4" to HOT, "e7" to HOT, "e5" to HOT)
-        val moves = state.scoreViableMoves(z, emptySet())
-        val changed = setOf("e2", "e4", "e5", "e7", "a3", "b3", "h3")
+        val z = zOf("e2" to HOT, "e4" to HOT, "e7" to HOT, "e5" to HOT)
+        val moves = state.scoreViableMoves(z)
+        state.armDetection(changed = setOf("e2", "e4", "e5", "e7", "a3", "b3", "h3"))
 
-        val cand = state.generateHypothesis(z, moves, detectContext(changed))
+        val cand = state.generateHypothesis(z, moves, DUMMY_GRAY, null)
 
         assertEquals(listOf("e2e4", "e7e5"), cand?.moves?.map { uciOf(it) })
         assertNull(state.stuckReason)
@@ -163,11 +162,11 @@ class HypothesisTest {
     @Test
     fun beyondMaxChangedPlusTwoNoPairIsTried() {
         val state = hypothesisState()
-        val z = zMap("e2" to HOT, "e4" to HOT, "e7" to HOT, "e5" to HOT)
-        val moves = state.scoreViableMoves(z, emptySet())
-        val changed = setOf("e2", "e4", "e5", "e7", "a3", "b3", "h3", "a6", "b6")
+        val z = zOf("e2" to HOT, "e4" to HOT, "e7" to HOT, "e5" to HOT)
+        val moves = state.scoreViableMoves(z)
+        state.armDetection(changed = setOf("e2", "e4", "e5", "e7", "a3", "b3", "h3", "a6", "b6"))
 
-        assertNull(state.generateHypothesis(z, moves, detectContext(changed)))
+        assertNull(state.generateHypothesis(z, moves, DUMMY_GRAY, null))
         assertEquals(STUCK_TOO_MANY_CHANGED, state.stuckReason)
     }
 
@@ -176,17 +175,19 @@ class HypothesisTest {
     /** The load-bearing ordering: pair BEFORE single with CNN, single first without. */
     @Test
     fun pairOrderIsCnnConditional() {
-        val z = zMap("e2" to HOT, "e4" to HOT, "e7" to HOT, "e5" to HOT)
+        val z = zOf("e2" to HOT, "e4" to HOT, "e7" to HOT, "e5" to HOT)
         val changed = setOf("e2", "e4", "e5", "e7")
 
         val without = hypothesisState()
-        val withoutMoves = without.scoreViableMoves(z, emptySet())
-        val withoutCand = without.generateHypothesis(z, withoutMoves, detectContext(changed))
+        val withoutMoves = without.scoreViableMoves(z)
+        without.armDetection(changed = changed)
+        val withoutCand = without.generateHypothesis(z, withoutMoves, DUMMY_GRAY, null)
         assertEquals(listOf("e2e4"), withoutCand?.moves?.map { uciOf(it) })
 
         val with = cnnState()
-        val withMoves = with.scoreViableMoves(z, emptySet())
-        val withCand = with.generateHypothesis(z, withMoves, detectContext(changed))
+        val withMoves = with.scoreViableMoves(z)
+        with.armDetection(changed = changed)
+        val withCand = with.generateHypothesis(z, withMoves, DUMMY_GRAY, null)
         assertEquals(listOf("e2e4", "e7e5"), withCand?.moves?.map { uciOf(it) })
     }
 
@@ -196,12 +197,13 @@ class HypothesisTest {
     @Test
     fun twoKnightsAmbiguous() {
         val state = hypothesisState(TWO_KNIGHTS_FEN)
-        val z = zMap("b1" to HOT, "f3" to 7.0, "d2" to HOT)
-        val moves = state.scoreViableMoves(z, emptySet())
+        val z = zOf("b1" to HOT, "f3" to 7.0, "d2" to HOT)
+        val moves = state.scoreViableMoves(z)
         assertEquals("b1d2", moves.obsMove?.let { uciOf(it) })
         assertTrue(moves.best - moves.second < state.config.ambiguityMarginLl)
+        state.armDetection(changed = setOf("b1", "f3", "d2"))
 
-        val cand = state.generateHypothesis(z, moves, detectContext(setOf("b1", "f3", "d2")))
+        val cand = state.generateHypothesis(z, moves, DUMMY_GRAY, null)
 
         assertNull(cand)
         assertTrue(state.note!!.startsWith("ambiguous: "), state.note!!)
@@ -215,15 +217,17 @@ class HypothesisTest {
     fun priorRerankNeedsTheFullMargin() {
         // b1d2 gains +0.2 (forward), f3d2 gains nothing: the reranked gap is z[b1] - z[f3] + 0.2.
         val short = hypothesisState(TWO_KNIGHTS_FEN)
-        val zShort = zMap("b1" to HOT, "f3" to 6.21, "d2" to HOT)
-        val shortMoves = short.scoreViableMoves(zShort, emptySet())
-        assertNull(short.generateHypothesis(zShort, shortMoves, detectContext(setOf("b1", "d2"))))
+        val zShort = zOf("b1" to HOT, "f3" to 6.21, "d2" to HOT)
+        val shortMoves = short.scoreViableMoves(zShort)
+        short.armDetection(changed = setOf("b1", "d2"))
+        assertNull(short.generateHypothesis(zShort, shortMoves, DUMMY_GRAY, null))
         assertTrue(short.note!!.startsWith("ambiguous: "))
 
         val ok = hypothesisState(TWO_KNIGHTS_FEN)
-        val zOk = zMap("b1" to HOT, "f3" to 6.19, "d2" to HOT)
-        val okMoves = ok.scoreViableMoves(zOk, emptySet())
-        val cand = ok.generateHypothesis(zOk, okMoves, detectContext(setOf("b1", "d2")))
+        val zOk = zOf("b1" to HOT, "f3" to 6.19, "d2" to HOT)
+        val okMoves = ok.scoreViableMoves(zOk)
+        ok.armDetection(changed = setOf("b1", "d2"))
+        val cand = ok.generateHypothesis(zOk, okMoves, DUMMY_GRAY, null)
 
         assertEquals(listOf("b1d2"), cand?.moves?.map { uciOf(it) })
         assertEquals(true, cand?.priorUsed)
@@ -234,10 +238,11 @@ class HypothesisTest {
     fun promotionWithoutCnnYieldsPromoPending() {
         val state = hypothesisState(PROMOTION_FEN)
         state.confirmer.feed("a7a8q")
-        val z = zMap("a7" to HOT, "a8" to HOT)
-        val moves = state.scoreViableMoves(z, emptySet())
+        val z = zOf("a7" to HOT, "a8" to HOT)
+        state.armDetection(changed = setOf("a7", "a8"))
+        val moves = state.scoreViableMoves(z)
 
-        val cand = state.generateHypothesis(z, moves, detectContext(setOf("a7", "a8")))
+        val cand = state.generateHypothesis(z, moves, DUMMY_GRAY, null)
 
         assertNull(cand)
         assertNotNull(state.promoPending)
@@ -252,10 +257,11 @@ class HypothesisTest {
     @Test
     fun promotionWithCnnPassesQueenVariant() {
         val state = cnnState(PROMOTION_FEN)
-        val z = zMap("a7" to HOT, "a8" to HOT)
-        val moves = state.scoreViableMoves(z, emptySet())
+        val z = zOf("a7" to HOT, "a8" to HOT)
+        state.armDetection(changed = setOf("a7", "a8"))
+        val moves = state.scoreViableMoves(z)
 
-        val cand = state.generateHypothesis(z, moves, detectContext(setOf("a7", "a8")))
+        val cand = state.generateHypothesis(z, moves, DUMMY_GRAY, null)
 
         assertNotNull(cand)
         assertEquals(1, cand!!.moves.size)
@@ -272,10 +278,11 @@ class HypothesisTest {
     @Test
     fun withoutPriorAnAmbiguousFrameGetsThePlainNote() {
         val state = hypothesisState(TWO_KNIGHTS_FEN, NO_PRIOR_CONFIG)
-        val z = zMap("b1" to HOT, "f3" to 7.0, "d2" to HOT)
-        val moves = state.scoreViableMoves(z, emptySet())
+        val z = zOf("b1" to HOT, "f3" to 7.0, "d2" to HOT)
+        state.armDetection(changed = setOf("b1", "f3", "d2"))
+        val moves = state.scoreViableMoves(z)
 
-        assertNull(state.generateHypothesis(z, moves, detectContext(setOf("b1", "f3", "d2"))))
+        assertNull(state.generateHypothesis(z, moves, DUMMY_GRAY, null))
         assertEquals(NOTE_AMBIGUOUS_PLAIN, state.note)
     }
 
@@ -324,19 +331,17 @@ class HypothesisTest {
     ): Boolean {
         val tierA = frame.tierA!!
         val tierB = frame.tierB!!
-        val shadowVeto = tierB.shadowVeto.toSet()
-        val moves = state.scoreViableMoves(tierA.zFused, shadowVeto)
+        val z = DoubleArray(Squares.COUNT) { tierA.zFused.getValue(Squares.ALL[it]) }
+        state.shadowVetoed = ofSquares(tierB.shadowVeto)
+        val moves = state.scoreViableMoves(z)
         var asserted = false
         if (tierB.changed.isNotEmpty()) {
-            val ctx =
-                DetectContext(
-                    changed = tierB.changed.toSet(),
-                    shadowVeto = shadowVeto,
-                    blockedN = tierB.tainted.size,
-                    cur = GrayImage(1, 1, ByteArray(1)),
-                    curBgr = null,
-                )
-            state.generateHypothesis(tierA.zFused, moves, ctx)
+            state.armDetection(
+                changed = tierB.changed.toSet(),
+                shadowVeto = tierB.shadowVeto.toSet(),
+                blockedN = tierB.tainted.size,
+            )
+            state.generateHypothesis(z, moves, DUMMY_GRAY, null)
             if (state.stuckReason != null) {
                 assertEquals(tierB.stuckReason, state.stuckReason, "${frame.frame} stuckReason")
                 assertEquals(tierB.note, state.note, "${frame.frame} note")

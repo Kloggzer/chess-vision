@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * `loglik_scores` (`tracker.py:544`) and `loglik_pair_scores` (`:563`) against the phase-00b
+ * `loglik_scores` and `loglik_pair_scores` against the phase-00b
  * golden fixtures (`tierA.loglikScores` / `tierA.loglikPairScores`, the top 12 in Python's own
  * order over `tierA.zFused`, with `zThr` / `llK` from `meta.effectiveConfig`).
  *
@@ -28,7 +28,7 @@ class ScoringTest {
             for (frame in clip.tierAFrames()) {
                 val tierA = requireNotNull(frame.tierA)
                 val game = Game(requireNotNull(frame.fen))
-                val actual = loglikScores(game, tierA.zFused, cfg.zThr, cfg.llK)
+                val actual = loglikScores(game, tierA.zFused.toZArray(), cfg.zThr, cfg.llK)
                 val expected = tierA.loglikTop()
                 val where = "$name/${frame.frame}"
                 assertSortedDescending(actual.map { it.second }, where)
@@ -50,7 +50,7 @@ class ScoringTest {
             for (frame in clip.tierAFrames()) {
                 val tierA = requireNotNull(frame.tierA)
                 val game = Game(requireNotNull(frame.fen))
-                val actual = loglikPairScores(game, tierA.zFused, cfg.zThr, cfg.llK)
+                val actual = loglikPairScores(game, tierA.zFused.toZArray(), cfg.zThr, cfg.llK)
                 val expected = tierA.loglikPairTop()
                 val where = "$name/${frame.frame}"
                 assertSortedDescending(actual.map { it.second }, where)
@@ -76,7 +76,7 @@ class ScoringTest {
         val scored = loglikScores(game, z, Z_THR, K)
         assertTrue(scored.isNotEmpty(), "startpos has legal moves")
         for ((mv, score) in scored) {
-            val expected = moveTouchedSquares(game, mv).size * -Z_THR
+            val expected = moveTouchedMask(game, mv).countOneBits() * -Z_THR
             assertClose(expected, score, "loglikScores[${uciOf(mv)}]")
         }
         assertSortedDescending(scored.map { it.second }, "all-zero z")
@@ -122,23 +122,6 @@ class ScoringTest {
         assertTrue(game.legalMoves().isEmpty(), "the fixture position must be stalemate")
         assertTrue(loglikScores(game, flat(HOT_Z), Z_THR, K).isEmpty())
         assertTrue(loglikPairScores(game, flat(HOT_Z), Z_THR, K).isEmpty())
-    }
-
-    @Test
-    fun theMapOverloadsAgreeWithThePrimitiveOnes() {
-        val game = Game()
-        val z = flat(0.0)
-        z[Squares.index("e4")] = HOT_Z
-        z[Squares.index("e2")] = HOT_Z
-        val asMap = Squares.ALL.indices.associate { Squares.ALL[it] to z[it] }
-        assertEquals(
-            loglikScores(game, z, Z_THR, K).map { uciOf(it.first) to it.second },
-            loglikScores(game, asMap, Z_THR, K).map { uciOf(it.first) to it.second },
-        )
-        assertEquals(
-            loglikPairScores(game, z, Z_THR, K).size,
-            loglikPairScores(game, asMap, Z_THR, K).size,
-        )
     }
 
     // ---------------------------------------------------------------------------------------

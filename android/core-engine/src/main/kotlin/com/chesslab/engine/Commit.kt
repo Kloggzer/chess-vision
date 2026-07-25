@@ -5,7 +5,7 @@ import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerEvent
 import com.github.bhlangonijr.chesslib.move.Move
 
-/** `_DECIDER_REASON` keys (`tracker.py:2631-2640`) — the vocabulary is FIXED. */
+/** `_DECIDER_REASON` keys — the vocabulary is FIXED. */
 internal const val DECIDER_DIFF = "diff"
 
 internal const val DECIDER_DIFF_PAIR = "diff_pair"
@@ -22,12 +22,12 @@ internal const val DECIDER_CNN_RECOVERY = "cnn_recovery"
 
 internal const val DECIDER_CNN_RESYNC = "cnn_resync"
 
-/** The user-correction row of the decision log (`_clear_alarm`, `tracker.py:1369`). */
+/** The user-correction row of the decision log (`_clear_alarm`). */
 internal const val DECIDER_USER = "user"
 
 /**
- * `_DECIDER_REASON` verbatim (`tracker.py:2631-2640`). Phase 07's debug screen and the
- * `track-feedback` ingest read these strings, so they are part of the contract, not prose.
+ * `_DECIDER_REASON` verbatim. Phase 07's debug screen and the `track-feedback` ingest read these
+ * strings, so they are part of the contract, not prose.
  */
 internal val DECIDER_REASON: Map<String, String> =
     mapOf(
@@ -41,13 +41,13 @@ internal val DECIDER_REASON: Map<String, String> =
         DECIDER_CNN_RESYNC to "manual CNN resync",
     )
 
-/** `" + prior tie-break"` (`tracker.py:2649`). */
+/** `" + prior tie-break"`. */
 private const val PRIOR_REASON_SUFFIX = " + prior tie-break"
 
-/** `_verify_state` after a commit (`tracker.py:2620`). */
+/** `_verify_state` after a commit. */
 internal const val VERIFY_STATE_CONFIRMED = "confirmed"
 
-/** `_verify_state` while a candidate is pending (`tracker.py:3345`). */
+/** `_verify_state` while a candidate is pending. */
 internal const val VERIFY_STATE_VERIFYING = "verifying"
 
 private const val ROUND_2 = 100.0
@@ -65,17 +65,7 @@ private var gamutLab = ByteArray(0)
 private var gamutHsv = ByteArray(0)
 
 /**
- * The three commit-time knobs of `_commit_move` (`tracker.py:2598-2599`), grouped because detekt's
- * `LongParameterList` fires at six parameters (STATUS D01b-1). Every default is Python's.
- */
-internal data class CommitOptions(
-    val recovered: Boolean = false,
-    val priorUsed: Boolean = false,
-    val decider: String = DECIDER_DIFF,
-)
-
-/**
- * `_set_ref` (`tracker.py:2554-2576`) — base truth is the `(image, FEN)` PAIR, never one half.
+ * `_set_ref` — base truth is the `(image, FEN)` PAIR, never one half.
  *
  * **entry.md invariant 6:** `fromCommit = true` marks a reference taken at commit time. That frame
  * may still carry hand residue (a slow hand under the motion gate), and a colour gamut built from
@@ -99,7 +89,7 @@ internal fun EngineState.setRef(
     motionSinceRef = false
 }
 
-/** `board_color_gamut(cur_bgr, self._det_size, white_pov)` (`tracker.py:2570`). */
+/** `board_color_gamut(cur_bgr, self._det_size, white_pov)`. */
 private fun EngineState.rebuildGamut(curBgr: BgrImage): ColorGamut? {
     val need = curBgr.width * curBgr.height * BGR_CHANNELS
     if (gamutLab.size != need) gamutLab = ByteArray(need)
@@ -111,14 +101,16 @@ private fun EngineState.rebuildGamut(curBgr: BgrImage): ColorGamut? {
 }
 
 /**
- * `_commit_move` (`tracker.py:2598-2628`) — apply the move and set base truth to
- * `(image, FEN after the move)`. Used by the direct diff commit AND by every verified path.
+ * `_commit_move` — apply the move and set base truth to `(image, FEN after the move)`. Used by the
+ * direct diff commit AND by every verified path; every default is Python's.
  */
 internal fun EngineState.commitMove(
     move: Move,
     cur: GrayImage,
     curBgr: BgrImage?,
-    opts: CommitOptions = CommitOptions(),
+    decider: String = DECIDER_DIFF,
+    priorUsed: Boolean = false,
+    recovered: Boolean = false,
 ): TrackerEvent {
     val fenBefore = board.fen()
     val san = board.san(move)
@@ -126,26 +118,26 @@ internal fun EngineState.commitMove(
     board.push(move)
     history.add(san)
     lastMove = uci
-    recordDecision(move, san, fenBefore, opts.decider, opts.priorUsed)
+    recordDecision(move, san, fenBefore, decider, priorUsed)
     queueSessionCapture(san)
     // The reference comes from the DETECTION frame and may contain hand residue; re-capturing
     // instead catches the same hands and makes the tracker additionally blind (clip01 replay).
     // Residue is healed by `maybePatchAnomaly` or the CNN recovery.
     finishCommit(cur, curBgr)
-    recoveredLast = opts.recovered
+    recoveredLast = recovered
     // Make prior decisions visible (Spec 10 part 2): the prior can guess on a genuine image tie.
-    priorLast = opts.priorUsed
+    priorLast = priorUsed
     note =
         "Move detected: $san" +
-        (if (opts.recovered) " (CNN recovery)" else "") +
-        (if (opts.priorUsed) " (decided by prior — undo if needed)" else "") +
+        (if (recovered) " (CNN recovery)" else "") +
+        (if (priorUsed) " (decided by prior — undo if needed)" else "") +
         (if (board.result().checkmate) " — Checkmate!" else "")
-    return TrackerEvent.MoveCommitted(uci, san, board.fen(), opts.decider, opts.priorUsed)
+    return TrackerEvent.MoveCommitted(uci, san, board.fen(), decider, priorUsed)
 }
 
 /**
- * `_commit_sequence` (`tracker.py:2401-2427`) — atomically apply a confirmed move sequence
- * (fast play: half-move + reply). Provenance is recorded on the LAST move, never on both.
+ * `_commit_sequence` — atomically apply a confirmed move sequence (fast play: half-move + reply).
+ * Provenance is recorded on the LAST move, never on both.
  */
 internal fun EngineState.commitSequence(
     moves: List<Move>,
@@ -172,7 +164,7 @@ internal fun EngineState.commitSequence(
     return TrackerEvent.SequenceCommitted(moves.map { uciOf(it) }, sans, board.fen(), decider)
 }
 
-/** The state tail both commit paths share (`tracker.py:2614-2620` / `:2416-2424`). */
+/** The state tail both commit paths share. */
 private fun EngineState.finishCommit(
     cur: GrayImage,
     curBgr: BgrImage?,
@@ -183,14 +175,14 @@ private fun EngineState.finishCommit(
     // also resets the recovery confirmer
     clearStuck()
     pending = null
-    anomalySince.clear()
+    anomalySince = 0L
     verifyState = VERIFY_STATE_CONFIRMED
 }
 
 /**
- * `_record_decision` (`tracker.py:2642-2681`) — WHO decided this move plus the evidence it was
- * decided on. The image-carrying `_recent_decisions` ring stays in `:app` (`:core-engine` does no
- * I/O and holds no frame history); this is the log half.
+ * `_record_decision` — WHO decided this move plus the evidence it was decided on. The
+ * image-carrying `_recent_decisions` ring stays in `:app` (`:core-engine` does no I/O and holds no
+ * frame history); this is the log half.
  */
 internal fun EngineState.recordDecision(
     move: Move,
@@ -214,10 +206,10 @@ internal fun EngineState.recordDecision(
             bestScore = roundTo(bestScore, ROUND_2),
             secondScore = roundTo(secondScore, ROUND_2),
             margin = roundTo(bestScore - secondScore, ROUND_2),
-            changed = changed.toList(),
+            changed = changed.sortedSquareNames(),
             changedVals = changedVals.toList(),
-            shadowVetoed = shadowVetoed.toList(),
-            occludedVetoed = occludedVetoed.toList(),
+            shadowVetoed = shadowVetoed.sortedSquareNames(),
+            occludedVetoed = occludedVetoed.sortedSquareNames(),
             gridCoverage = roundTo(gridCoverage, ROUND_2),
             zThr = config.zThr,
             motion = roundTo(motion, ROUND_2),
@@ -229,22 +221,21 @@ internal fun EngineState.recordDecision(
 }
 
 /**
- * `_queue_session_capture` (`tracker.py:2757-2772`) — defer the auto-labeled session photo for the
- * move just committed, and take it immediately when the board is already clean.
+ * `_queue_session_capture` — defer the auto-labeled session photo for the move just committed, and
+ * take it immediately when the board is already clean.
  *
  * `:core-engine` does no file I/O and owns no recorder, so this only maintains
- * [EngineState.pendingCapture]; `:app` (08a) turns it into a frame.
+ * [EngineState.pendingCapture]; `:app` turns it into a frame.
  */
 internal fun EngineState.queueSessionCapture(san: String) {
     pendingCapture = PendingCapture(san, board.fen())
-    if (motionOccludedSquares.isEmpty() && tainted.isEmpty()) flushSessionCapture()
+    if (motionOccluded == 0L && tainted == 0L) flushSessionCapture()
 }
 
 /**
- * `_flush_session_capture` (`tracker.py:2774-2798`) — the deferred photo is due now that the board
- * has a clean stable view. Returns what was flushed (`null` = nothing pending) instead of writing
- * a file; the seam has no capture event and inventing a `Note` would put engine-internal text on
- * the user's screen.
+ * `_flush_session_capture` — the deferred photo is due now that the board has a clean stable view.
+ * Returns what was flushed (`null` = nothing pending) instead of writing a file; the seam has no
+ * capture event and inventing a `Note` would put engine-internal text on the user's screen.
  */
 internal fun EngineState.flushSessionCapture(): PendingCapture? {
     val due = pendingCapture
