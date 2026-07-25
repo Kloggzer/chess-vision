@@ -1,5 +1,6 @@
 package com.chesslab.tracker.settings
 
+import com.chesslab.tracker.speech.SpeechVerbosity
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -51,6 +52,13 @@ data class AppSettings(
     val epRequest: EpRequest = EpRequest.AUTO,
     /** Read by 07b; only the settings screen writes it. Off means the payload is not assembled. */
     val debugEnabled: Boolean = false,
+    /** 08c. Off by default: an app that starts talking uninvited is a bug, not a feature. */
+    val speechEnabled: Boolean = false,
+    val speechLanguage: String = "en-US",
+    val speechVerbosity: SpeechVerbosity = SpeechVerbosity.WORDS,
+    val speechAnnounceAlarms: Boolean = true,
+    /** 08b's LAN spectator. Persisted so the flag stays inspectable; never read back to auto-start. */
+    val spectatorEnabled: Boolean = false,
 )
 
 private val json =
