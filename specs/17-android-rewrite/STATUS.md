@@ -22,7 +22,7 @@ Read `entry.md` completely before your phase file.
 | 03a | `03a-evidence.md` | `EngineState`, guards, evidence, frame loop | done | 4 src + 4 test files, 34 tests green (module 134/134); `EngineState.kt` complete incl. the phase-04 fields (D03a-1..12) |
 | 03b | `03b-vetoes.md` | shadow/occlusion vetoes, taint latch, noise learning | done | 3 src + 3 test files, 33 tests green; invariant 2 split proven both ways, latch mapped onto the expiry map (D03b-1..10) |
 | 03c | `03c-hypothesis.md` | hypothesis, pair, endpoint, ambiguity, promotion | done | 4 src + 3 test files, 31 tests green; step 5 (`scoreViableMoves`) landed here too — **03d must call it** (D03c-2); 204 tier-A frames replayed (D03c-1..10) |
-| 03d | `03d-dispatch.md` | dispatch, commit, set-ref, anomaly patcher, `TrackerEngine` wiring | todo | |
+| 03d | `03d-dispatch.md` | dispatch, commit, set-ref, anomaly patcher, `TrackerEngine` wiring | done | 3 src + `TrackerEngine.kt` filled in + 4 test files, 41 tests green (module 239/239); **full-clip replay: 18/18 clips, 969 frames, ZERO diverging frames** (D03d-1..12) |
 | 04a | `04a-verify-single.md` | `_verify_tick` ladder, verdict with replacement move, vote gate | todo | |
 | 04b | `04b-verify-pair.md` | `_verify_pair_tick` fast-accept + parity fallback | todo | |
 | 04c | `04c-recovery-alarm.md` | `_cnn_tick`, recovery, alarm latch/freeze/release, observer schedule | todo | |
@@ -1321,6 +1321,147 @@ frame**, not only at taint time (`:2881-2883`): a still hand outlived the 0.4 s 
   `test_stale_snapshot_does_not_taint`, `test_occlusion_filter_ignores_old_snapshot`,
   `test_hand_over_pieces_keeps_base_truth` and `test_shadow_squares_not_learned_into_noise`.
 
+### 03d (dispatch / commit / set-ref / anomaly patcher / `TrackerEngine` wiring), 2026-07-25
+
+Files created (package `com.chesslab.engine`, module `:core-engine`): main `Commit.kt`,
+`Dispatch.kt`, `AnomalyPatcher.kt` plus the filled-in seam file
+`api/TrackerEngine.kt`; tests `DispatchTest.kt` (19), `CommitTest.kt` (13),
+`AnomalyPatcherTest.kt` (7), `ClipReplayParityTest.kt` (2) — **41 tests**. No other file was
+touched: no build file, no `libs.versions.toml`, no other `api/` file, and no file owned by
+03a/03b/03c. `EngineState` had every field 03d needs — **no blocker**.
+
+#### `TrackerEngine` wiring order (`onFrame` = `_loop` body + `_try_detect`)
+
+`FrameLoop.step(input)` (03a, constructed with `::setRef` as the QUIET capture,
+`fromCommit = false`, D03a-5) → on `FrameOutcome.Detect` → `tryDetect(cur, curBgr, seq)`:
+
+1. `detectGuards()` (03a) → 2. `computeEvidence(cur)` (03a) → `applyTaints(z)` (03b) →
+`changed = {s : z >= zThr}` + `changedVals` (top 8) → 3. `applyVetoes(cur, curBgr, changed, cens)`
+(03b) → `state.changed = sorted` → 4. `learnNoise(diffs, cens, changed, shadowVeto)` (03b) →
+5. `scoreViableMoves(z, shadowVeto)` (03c, **called, not reimplemented**, D03c-2) + the quiet
+branch (03d) → 6. `generateHypothesis(z, moves, DetectContext(changed, shadowVeto,
+blockedN = tainted.size, cur, curBgr), this::maybePatchAnomaly)` (03c) → 6b/7/8 `commitGates`
+(LL floor → motion → confirmer, in that order) → `anomalySince.clear()` → 9. `dispatch(...)`.
+
+#### Discrepancies
+
+- **D03d-1 — `TrackerEngine` gained `internal val state: EngineState` (additive, no signature
+  change).** The class has to own the state object, and both the parity replay and the unit tests
+  drive it through that handle (`TrackerStatus` carries neither `tainted` nor `promotionPending`,
+  see D03d-9). It is a PROPERTY, so detekt's `TooManyFunctions` is untouched — the class still has
+  exactly the 10 frozen functions.
+- **D03d-2 — `onCnnSnapshot` is not a pure `emptyList()` stub: it stores the snapshot.** detekt's
+  `style.UnusedParameter` is active and reports public functions (D00a-4), so a body that ignores
+  `snap` is unbuildable without a forbidden `@Suppress`. Storing it is exactly the one line
+  Python's `_observe_snapshot` does before the ticks (`tracker.py:1824`), and 03b's taint filter
+  already reads `state.cnnSnap`. **Every tick/verify/recovery behaviour is still phase 04's**;
+  `acceptCnnPosition` remains a real `emptyList()` stub (it takes no parameter).
+- **D03d-3 — `applyVerdict` takes a third parameter `anchor: CommitAnchor? = null`.** The phase
+  file's two-parameter signature cannot express entry.md invariant 5, which requires the recovery
+  path to anchor on `snap.gray` / `snap.warped` while the verify path anchors on `pending.cur`.
+  The default IS `pending.cur` / `pending.curBgr`, so the phase file's call shape is unchanged;
+  phase 04c passes the observed frame explicitly. Pinned by
+  `DispatchTest.verdictAnchorsOnTheCallerSuppliedFrame`.
+- **D03d-4 — detekt's parameter/return caps shaped four signatures and four bodies (additive, no
+  semantic change).** Same family as D01b-1 / D01c-2 / D01d-2 / D02a-5 / D03c-1: `LongParameterList`
+  fires at **6**, `ReturnCount` caps at **2**, `ComplexCondition` at **4**, `NestedBlockDepth` at
+  **4**. Landed: `CommitOptions(recovered, priorUsed, decider)` for `commitMove`,
+  `DispatchContext(priorUsed, note, seq)` for `dispatch`, `QuietContext(cur, curBgr, occludedSet)`
+  for the quiet branch and `RegionPlane` for the patcher's `copyRegion` — every argument of the
+  phase file's signatures is present with the same name, type, order and default. `tryDetect`,
+  `quietOutcome`, `commitGates` and `maybePatchAnomaly` are single-exit with a result variable, the
+  patcher's four-term bail-out became an `eligible` local, and its per-square loop moved into
+  `patchDueSquares`. No `@Suppress`, no baseline, no config change.
+- **D03d-5 — `TooManyFunctions` caps a FILE at 10 top-level functions as well as a class, which is
+  why `tryDetect` and friends are top-level `internal` extensions in `TrackerEngine.kt` rather than
+  members.** `TrackerEngine` is at exactly 10 functions (D00a-4's note) and cannot take an
+  eleventh. **ACTION FOR PHASE 04: do not add a public method to `TrackerEngine`** — a needed
+  eleventh method is a real design decision for the orchestrator, not something to suppress.
+  `quietOutcome` and `commitGates` are `internal` (not `private`) so the named invariant tests can
+  drive them directly.
+- **D03d-6 — the session capture emits no event.** `:core-engine` does no I/O, owns no recorder and
+  the frozen seam has no capture event, so `queueSessionCapture` only sets `state.pendingCapture`
+  and `flushSessionCapture` clears it and **returns** the due capture for `:app` (08a). The phase
+  file's "emit `TrackerEvent.Note`" was deliberately not done: it would put engine-internal text on
+  the same channel the parity test compares `state.note` on. Python's `_queue_session_capture`
+  additionally returns early when no recorder exists; the port always sets `pendingCapture`, since
+  that is the only way `:app` can ever learn a photo is due. Nothing reads the field yet, so this
+  is invisible to Tier B.
+- **D03d-7 — `_record_decision`'s image half is not ported.** The phase file already assigns the
+  `_recent_decisions` ring to `:app`, so `pre_ref_bgr` has no counterpart and
+  `recordDecision(move, san, fenBefore, decider, priorUsed)` writes the log row only. Because
+  `DecisionRecord` (03a) is a fixed data class, `_clear_alarm`'s 7-key user row is filled with the
+  current evidence values rather than being a shorter dict; `decider` / `reason` / `ply` /
+  `fenAfter` are exactly Python's.
+- **D03d-8 — event semantics (the seam has an event bus, Python has polled state).** `Stuck` and
+  `Note` are emitted **only on a change** of `stuckReason` / `note` (the phase file's "do not emit
+  `Stuck` every frame", extended to notes for the same reason). `PromotionPending` is emitted when
+  `promoPending` becomes non-null, `ReAnchored` from the quiet re-anchor, `AlarmCleared(kind)` from
+  `clearAlarm`. `choosePromotion`'s error paths return a `TrackerEvent.Note` and — like Python,
+  which returns an error dict — do **not** touch `state.note`.
+- **D03d-9 — `TrackerStatus` carries neither `tainted` nor `promotionPending`.** Both exist on
+  `EngineState` and both are part of Python's `status()` payload (`debug.tainted`,
+  `promotion_pending`). The parity test therefore reads them off `engine.state` (D03d-1).
+  **Flagged for 07b:** the debug screen cannot show the taint latch or the promotion dialog through
+  the seam as it stands; extending `TrackerStatus` is an orchestrator decision (00a owns the file).
+- **D03d-10 — two things the clip replay needs that the fixture schema does not spell out.**
+  (a) The emitter calls `reset_to_start(start_fen)` after construction
+  (`emit_parity_fixtures.py:266`) — that is what puts `"Reference set"` on frame 0; without the
+  equivalent `engine.setFen(meta.startFen)` **every clip diverges on frame 0's note**.
+  (b) The virtual clock starts at `VCLOCK_START = 1.7e9` and advances by **video** time
+  (`1/fps` for the first emitted frame, `(idx - prev)/fps` afterwards, D00b-6).
+  `FrameInput.timestampMs` is a `Long`, so the replay rounds that clock to whole milliseconds; at
+  12 fps every interval is a multiple of 1/12 s and no threshold (`motionHoldS` 0.4,
+  `motionRecencyS` 20.0, `nudgeTimeoutS` 5.0) lands within 1 ms of a frame boundary, so the
+  rounding is not observable — **all 969 frames match exactly**.
+- **D03d-11 — `corners` / `gridLineCoverage` / `timestampMs` are not in the fixtures** (D00b's
+  mapping table). The replay passes a frozen 8-float corner array — the clips run with
+  `live_align=False`, so Python's `_last_corners` never changes and `_corners_jumped` is constantly
+  false, and the Kotlin guard compares a copy of the same array and is false as well — and
+  `gridLineCoverage = 1.0`, which is never read because every clip sets
+  `min_grid_line_coverage = 0.0` and `_occluded_by_grid` returns before touching it.
+  **No fixture was invented**; `TrackerConfig` comes from `meta.effectiveConfig` via
+  `toTrackerConfig()` for every clip.
+- **D03d-12 — `expected_occupancy` is re-derived inside `:core-engine`.** The cnn_desync veto
+  (`tracker.py:2982`) imports it from `cnn_recovery`, which the engine may not depend on (cycle,
+  entry.md module table). `cnnDesyncConflicts` iterates `Squares.ALL` and tests
+  `board.pieceCharAt(sq) != null` — the same list in the same order, so `dis[:4]` in the note is
+  identical. Related: the acceptance grep `grep -rn "boardColorGamut" .../src/main` also hits
+  `Gamut.kt`, which is where 01c DECLARES the function; the criterion holds as intended — the only
+  **call site** is `Commit.kt:110`.
+- **Note (not a discrepancy):** the `:1696-1697` state reset stays where 03a proved it belongs
+  (D03a-4) and was NOT re-added; `scoreViableMoves` is called, never reimplemented (D03c-2); the
+  anomaly patcher is wired as `this::maybePatchAnomaly` (D03c-5); `applyVetoes` is called without a
+  `z` argument (D03b-1); and `grep -rn "synchronized\|@Volatile\|Atomic\|Mutex\|
+  System.currentTimeMillis\|Instant.now\|nanoTime"` over `core-engine/src/main` hits only two
+  comment lines in `TrackerEngine.kt`'s KDoc.
+- **Coverage actually asserted:** **`ClipReplayParityTest` replays all 18 clips / 969 frames
+  through `TrackerEngine.onFrame` with ZERO diverging frames**, comparing `state`, `changed`,
+  `shadowVeto`, `occlusionVetoed`, `tainted`, `bestLl`, `secondLl`, `motionScore`, `bestUci`,
+  `candidateUci`, `stuckReason`, `confirmerKey`, `confirmerCount`, `note` and every `commit`
+  (uci/san/fenAfter/decider) per frame — sets and strings EXACT, floats at the 1e-4 fixture
+  tolerance — and it re-derives every clip's full SAN list and final FEN (`meta.replayedSans` /
+  `replayedFen`). `meta.tierBComplete` and `index.tierBDegraded` are asserted per clip, so a
+  degraded clip can never count as passing. On failure the test prints only the FIRST divergence
+  (clip, frame, field, expected, actual). Hand-written on top: the Python scenarios
+  `test_no_cnn_commits_directly`, `test_alarm_blocks_dispatch_commits`,
+  `test_alarm_discards_pending_candidate`, `test_cnn_unavailable_commits_pending`,
+  `test_pair_respects_motion_gate`, all four `TestMotionPrerequisite` cases,
+  `test_valid_move_advances_base_truth_with_fen`, `test_decision_recorded_on_commit`,
+  `test_undo_clears_bgr_buffer`, the three alarm-latch user corrections,
+  `test_weak_candidate_does_not_reanchor`, `test_quiet_reanchor_vetoed_by_confident_cnn_conflict`,
+  `test_nudge_patches_occupied_square`, `test_empty_square_not_patched_before_drift_window`,
+  `test_cnn_overrules_diff_candidate`, `test_choose_promotion_invalid_piece` and
+  `test_promotion_waits_for_user_choice`; plus the named invariant tests
+  `cnnOverruleReplacementMoveIsExpressible` (invariant 10 — the replacement commits in the SAME
+  cycle, `decider == "cnn_overrule"`), `setRefFromCommitDoesNotRebuildGamut` +
+  `gamutRebuildHappensOnlyOnQuietReanchor` (invariant 6, proven in both directions),
+  `alarmBlocksCommitReanchorAndPending` (invariant 9), `commitLlFloorExemptsEndpointCandidates`,
+  `reanchorFloorScalesWithTouchedSquares` (castling clears -8.0 where a normal move fails -4.0),
+  `verdictAnchorsOnTheCallerSuppliedFrame` (invariant 5), `patchInvalidatesRefCensusCache`,
+  `patchRegionIncludesOverhang` (pixel-exact box equality against
+  `squareRegion(inset = 0.0, extendUp = overhang)`) and `statusIsAPureFunctionOfState`.
+
 ## Blockers
 
 - ~~02c has no CNN fixtures~~ — **withdrawn**, see D00b-2: `parity/_cnn/` now carries 7
@@ -1559,3 +1700,27 @@ _(implementing agent appends one line per finished phase)_
   `LoopWithTooManyJumpStatements` in 03c's in-flight `HypothesisTest.kt:298`, outside my scope — the
   orchestrator must re-run the module gate). Zero findings in 03b's six files, no `@Suppress`, no
   baseline; `ktlintFormat` touched nothing outside them.
+- 2026-07-25 — **03d done**: the engine is assembled. `Commit.kt` (`_set_ref` with the
+  `fromCommit` gamut rule — the ONLY `boardColorGamut` call site in the module, `_commit_move` /
+  `_commit_sequence` with the shared state tail, `_record_decision` + the verbatim
+  `_DECIDER_REASON` vocabulary, and the recorder-free session-capture state machine),
+  `Dispatch.kt` (the ONE commit gate: the alarm block as the literal first statement, the pending
+  path with its Spec-11 `seq` signature, the direct single/pair commit, and the `VerifyVerdict` /
+  `applyVerdict` / `CommitAnchor` seam that makes `cnn_overrule` structurally expressible),
+  `AnomalyPatcher.kt` (per-square nudge/drift timers, the overhang-inclusive patch box, the
+  identity-keyed census-cache invalidation and the resting-hand ceiling) and the filled-in
+  `api/TrackerEngine.kt` — `onFrame` = `FrameLoop.step` + the 9-step `_try_detect`, plus step 5's
+  remainder (the scaled re-anchor floor, the ORDERED occluded / no_legal_move / cnn_desync
+  bail-outs and the weak-evidence hold), the three commit gates, `status()`, the four
+  user-correction paths with the alarm latch release, `choosePromotion` and `updateConfig`.
+  **Headline: `ClipReplayParityTest` replays all 18 clips (969 frames) through the public
+  `TrackerEngine.onFrame` and matches Python's Tier B frame for frame — ZERO diverging frames,
+  every SAN list and final FEN re-derived**, `TrackerConfig` always from `meta.effectiveConfig`.
+  12 discrepancies (D03d-1..12); the ones phase 04 must read: **`TrackerEngine` is at exactly 10
+  functions and cannot take an eleventh** (D03d-5), `applyVerdict` carries an optional
+  `CommitAnchor` because invariant 5 is path-specific (D03d-3), `onCnnSnapshot` already stores the
+  snapshot (D03d-2), and `TrackerStatus` has no `tainted`/`promotionPending` field (D03d-9).
+  Gate green: `:core-engine:test` **239/239, 0 skipped** (41 new: `DispatchTest` 19, `CommitTest`
+  13, `AnomalyPatcherTest` 7, `ClipReplayParityTest` 2), `ktlintFormat`, `ktlintCheck` + `detekt`
+  — zero findings module-wide, no `@Suppress`, no baseline, and `ktlintFormat` touched no file
+  outside 03d's eight.

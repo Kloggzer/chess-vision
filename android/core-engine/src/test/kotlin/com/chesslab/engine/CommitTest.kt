@@ -1,0 +1,220 @@
+package com.chesslab.engine
+
+import com.chesslab.engine.api.TrackerEngine
+import com.chesslab.engine.api.TrackerEvent
+import com.chesslab.engine.api.tryDetect
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNotSame
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+
+/**
+ * `_commit_move` / `_commit_sequence` / `_set_ref` / `_record_decision` plus the user-correction
+ * paths of the public API (`undo`, `reset_to_start`, `capture_baseline`, `choose_promotion`).
+ */
+class CommitTest {
+    @Test
+    fun commitAdvancesBaseTruthPair() {
+        // `test_valid_move_advances_base_truth_with_fen`: base truth becomes the AFTER image and
+        // the FEN moves with it — the pair is never split.
+        val state = detectState(ref = grayFrame(listOf("e2")))
+        val cur = grayFrame(listOf("e4"))
+        state.tryDetect(cur, null, seq = 1)
+        assertEquals(listOf("e4"), state.history)
+        assertEquals("e2e4", state.lastMove)
+        assertSame(cur, state.refGray)
+        assertEquals(state.board.fen(), state.refFen)
+        assertEquals(STATE_MOVE, state.state)
+        assertEquals(VERIFY_STATE_CONFIRMED, state.verifyState)
+    }
+
+    @Test
+    fun commitSequenceAppliesBothMovesAtomically() {
+        val state = detectState()
+        val first = moveOf(state, "e2e4")
+        state.board.push(first)
+        val second = moveOf(state, "e7e5")
+        state.board.pop()
+        val cur = grayFrame()
+        val event = state.commitSequence(listOf(first, second), cur, null)
+        assertEquals(listOf("e4", "e5"), state.history)
+        assertEquals("e7e5", state.lastMove)
+        assertEquals(DECIDER_DIFF_PAIR, state.decisionLog.last().decider)
+        assertEquals(1, state.decisionLog.size, "provenance is recorded ONCE, on the last move")
+        assertTrue(event is TrackerEvent.SequenceCommitted)
+    }
+
+    @Test
+    fun decisionRecordedOnCommit() {
+        val state = detectState(ref = grayFrame(listOf("e2")))
+        state.tryDetect(grayFrame(listOf("e4")), null, seq = 1)
+        assertEquals(1, state.decisionLog.size)
+        val record = state.decisionLog.last()
+        assertEquals(DECIDER_DIFF, record.decider)
+        assertEquals("e2e4", record.move)
+        assertEquals("e4", record.san)
+        assertEquals("frame-diff (no CNN verify)", record.reason)
+        assertEquals(1, record.ply)
+        assertEquals(state.board.fen(), record.fenAfter)
+    }
+
+    @Test
+    fun deciderVocabularyIsPortedVerbatim() {
+        // Phase 07's debug screen and the `track-feedback` ingest read these strings.
+        assertEquals(
+            listOf(
+                "diff",
+                "diff_pair",
+                "cnn_pair",
+                "cnn_occupancy",
+                "cnn_overrule",
+                "diff_after_verify",
+                "cnn_recovery",
+                "cnn_resync",
+            ),
+            DECIDER_REASON.keys.toList(),
+        )
+        assertEquals("CNN recovery (diff was stuck)", DECIDER_REASON.getValue(DECIDER_CNN_RECOVERY))
+    }
+
+    @Test
+    fun priorTieBreakIsAppendedToTheReason() {
+        val state = detectState()
+        state.commitMove(moveOf(state, "e2e4"), grayFrame(), null, CommitOptions(priorUsed = true))
+        assertEquals("frame-diff (no CNN verify) + prior tie-break", state.decisionLog.last().reason)
+        assertTrue(state.priorLast)
+        assertTrue(state.note.orEmpty().contains("decided by prior"))
+    }
+
+    @Test
+    fun setRefFromCommitDoesNotRebuildGamut() {
+        // entry.md invariant 6: a commit-time reference may still carry hand residue.
+        val state = detectState()
+        state.setRef(grayFrame(), bgrFrame(), fromCommit = false)
+        val quietGamut = requireNotNull(state.refGamut) { "the quiet capture builds the gamut" }
+        state.setRef(grayFrame(), bgrFrame(level = 90), fromCommit = true)
+        assertSame(quietGamut, state.refGamut, "a commit-time reference must not rebuild the gamut")
+        state.setRef(grayFrame(), bgrFrame(level = 90), fromCommit = false)
+        assertNotSame(quietGamut, state.refGamut, "the quiet re-anchor DOES rebuild it")
+    }
+
+    @Test
+    fun setRefCouplesImageFenAndCorners() {
+        val state = detectState()
+        state.lastCorners = floatArrayOf(1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f)
+        state.motionSinceRef = true
+        val cur = grayFrame()
+        state.setRef(cur, null)
+        assertSame(cur, state.refGray)
+        assertEquals(state.board.fen(), state.refFen)
+        assertNotNull(state.refCorners)
+        assertNotSame(state.lastCorners, state.refCorners, "the corners are copied, not aliased")
+        assertTrue(!state.motionSinceRef, "a fresh reference requires a new hand before the next commit")
+    }
+
+    @Test
+    fun undoClearsBuffers() {
+        val engine = TrackerEngine(detectConfig())
+        val state = engine.state
+        state.refGray = grayFrame(listOf("e2"))
+        state.refFen = state.board.fen()
+        state.tryDetect(grayFrame(listOf("e4")), null, seq = 1)
+        state.grayBuf.append(grayFrame(listOf("e4")))
+        state.bgrBuf.append(bgrFrame())
+        engine.undo()
+        assertEquals(0, state.grayBuf.size)
+        assertEquals(0, state.bgrBuf.size)
+        assertEquals(emptyList<String>(), state.history)
+        assertNull(state.refGray, "undo forces a fresh reference capture")
+        assertEquals(0, state.decisionLog.size, "the undone move's provenance row is dropped")
+    }
+
+    @Test
+    fun userCorrectionClearsAlarmLatch() {
+        for (correction in listOf("undo", "setFen", "captureBaseline")) {
+            val engine = TrackerEngine(detectConfig())
+            engine.state.alarm = TrackerEvent.Alarm("illegal_move", listOf("b1", "d4"), null, null)
+            engine.state.desyncObs = 3
+            engine.state.desyncConflicts.add("b1")
+            val events =
+                when (correction) {
+                    "undo" -> engine.undo()
+                    "setFen" -> engine.setFen(STARTPOS)
+                    else -> engine.captureBaseline()
+                }
+            assertNull(engine.state.alarm, "$correction must release the latch")
+            assertEquals(0, engine.state.desyncObs, correction)
+            assertTrue(engine.state.desyncConflicts.isEmpty(), correction)
+            assertTrue(events.any { it is TrackerEvent.AlarmCleared }, correction)
+            val logged = engine.state.decisionLog.last()
+            assertEquals(DECIDER_USER, logged.decider, correction)
+            assertTrue(logged.reason.startsWith("illegal_move_"), correction)
+        }
+    }
+
+    @Test
+    fun choosePromotionRejectsInvalidPiece() {
+        val engine = TrackerEngine(detectConfig())
+        assertTrue(engine.choosePromotion('k').single() is TrackerEvent.Note)
+        // A valid piece with nothing pending is an error too.
+        assertTrue(engine.choosePromotion('q').single() is TrackerEvent.Note)
+        assertEquals(emptyList<String>(), engine.state.history)
+    }
+
+    @Test
+    fun choosePromotionCommitsChosenPiece() {
+        val engine = TrackerEngine(detectConfig(), "8/P6k/8/8/8/8/7K/8 w - - 0 1")
+        val state = engine.state
+        state.refGray = grayFrame(listOf("a7"))
+        state.refFen = state.board.fen()
+        state.tryDetect(grayFrame(listOf("a8")), null, seq = 1)
+        val pending = requireNotNull(state.promoPending) { "a promotion must wait for the user" }
+        assertEquals("a7", pending.from)
+        assertEquals("a8", pending.to)
+        assertEquals(emptyList<String>(), state.history)
+        val events = engine.choosePromotion('n')
+        assertEquals(1, events.filterIsInstance<TrackerEvent.MoveCommitted>().size)
+        assertTrue(state.history.single().startsWith("a8=N"), "history was ${state.history}")
+        assertNull(state.promoPending)
+    }
+
+    @Test
+    fun statusIsAPureFunctionOfState() {
+        val engine = TrackerEngine(detectConfig())
+        val state = engine.state
+        state.refGray = grayFrame(listOf("e2"))
+        state.refFen = state.board.fen()
+        state.tryDetect(grayFrame(listOf("e4")), null, seq = 1)
+        val first = engine.status()
+        assertEquals(first, engine.status(), "two calls with no frame in between must be equal")
+        assertEquals(state.board.fen(), first.fen)
+        assertEquals(STATE_MOVE, first.state)
+        assertEquals(Squares.COUNT, first.z.size)
+        assertEquals(Squares.COUNT, first.diffs.size)
+        assertEquals(Squares.COUNT, first.census.size)
+        assertTrue(first.changed.isNotEmpty())
+        assertNotNull(first.note)
+        assertEquals("e2e4", first.bestUci)
+        assertEquals(VERIFY_STATE_CONFIRMED, first.verifyState)
+        assertEquals(0, first.pendingFrames)
+        assertNull(first.debug)
+    }
+
+    @Test
+    fun updateConfigRebuildsBuffersAndConfirmerButKeepsTheReference() {
+        val engine = TrackerEngine(detectConfig())
+        val ref = grayFrame()
+        engine.state.refGray = ref
+        engine.state.grayBuf.append(grayFrame())
+        engine.updateConfig(detectConfig(confirmFrames = 3).copy(avgFramesOverride = 4))
+        assertSame(ref, engine.state.refGray, "live tuning must never drop the reference")
+        assertEquals(0, engine.state.grayBuf.size, "the averaging window was resized")
+        engine.state.confirmer.feed("e2e4")
+        engine.state.confirmer.feed("e2e4")
+        assertEquals(2, engine.state.confirmer.count)
+        assertTrue(engine.state.confirmer.feed("e2e4"), "confirmFrames = 3 confirms on the third feed")
+    }
+}
