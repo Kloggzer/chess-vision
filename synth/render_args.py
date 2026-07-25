@@ -48,8 +48,9 @@ class RenderArgs:
     # Curriculum stage 1: share of scenes rendered on a NON-board randomized ground (no 8x8,
     # no frame) so only the piece itself carries information. 0 = off.
     isolate_p: float = 0.0
-    # Ziel-Bildanteil des Bretts (grösste Ausdehnung). Steuert die effektive Auflösung pro
-    # Feld: 0.80 ≈ 102 px/Feld bei --res 1024. 0 = Brennweite unverändert lassen.
+    # Ziel-Bildanteil des Bretts (achsenparallele Bounding-Box). Steuert die effektive Auflösung
+    # pro Feld: 0.80 = GEMESSEN ~79 px/Feld bei --res 1024 (102 nur achsenparallel, 71 bei 45°
+    # In-Plane-Rotation). 0 = Brennweite unverändert lassen.
     frame_frac: float = 0.80
 
 

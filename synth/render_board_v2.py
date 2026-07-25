@@ -56,6 +56,19 @@ BOARD_WARM_FAC = 0.0
 BOARD_ROUGHNESS = 0.85
 # Board-Sättigung: das echte Brettfoto ist warm-gelblich → leicht entsättigen zieht das Gelb raus.
 BOARD_SATURATION = 0.92
+# LIGHT-TILE GAIN. The board texture is a PHOTOGRAPH of the board at its own exposure, used as
+# albedo: measured on the file, its light tiles read 191 sRGB and its dark tiles 43, and they
+# render at ~169 / ~48. The dark tiles are already inside the real camera's band (45-90); only
+# the light tiles fall below every real session (193-246), which is what makes a white piece
+# (~140) nearly invisible on a synth light square — a hard case real capture does not have.
+# Light energy, world ambient and the HueSat Value all scale BOTH tiles, so they would lift the
+# black-on-dark case out of the hard regime the model has to learn. This gain is therefore
+# masked by the texture's OWN linear luminance: 1.0 at dark-tile level, full gain at light-tile
+# level, ramped in between. Multiplicative (not a mix toward white) so the wood grain keeps its
+# relative contrast.
+BOARD_LIGHT_GAIN = 1.60
+BOARD_LIGHT_GAIN_LO = 0.15   # linear luma of the darkest pixel that stays untouched (dark tile: 0.024)
+BOARD_LIGHT_GAIN_HI = 0.45   # linear luma at which the full gain applies (light tile: 0.523)
 # Figuren leicht glänzend (echtes lackiertes Holz fängt Glanzlichter, die die 3D-Form verraten →
 # hilft, N/B/R von oben zu unterscheiden). Frühere 0.7/Specular 0.2 waren ZU matt (formarm).
 PIECE_ROUGHNESS = 0.45
@@ -182,13 +195,29 @@ def make_textured_board_material(texture_path):
         bsdf.inputs["Specular"].default_value = 0.2
     tx = nt.nodes.new("ShaderNodeTexImage")
     tx.image = img
+    # Light-tile gain (see BOARD_LIGHT_GAIN): luminance-masked multiplier that lifts ONLY the
+    # bright half of the texture, so the light squares reach the real camera's 193-246 band
+    # while the dark squares (and with them the black-on-dark hard case) stay where they are.
+    bw = nt.nodes.new("ShaderNodeRGBToBW")
+    nt.links.new(tx.outputs["Color"], bw.inputs["Color"])
+    gain = nt.nodes.new("ShaderNodeMapRange")
+    gain.inputs["From Min"].default_value = BOARD_LIGHT_GAIN_LO
+    gain.inputs["From Max"].default_value = BOARD_LIGHT_GAIN_HI
+    gain.inputs["To Min"].default_value = 1.0
+    gain.inputs["To Max"].default_value = BOARD_LIGHT_GAIN
+    nt.links.new(bw.outputs["Val"], gain.inputs["Value"])
+    lift = nt.nodes.new("ShaderNodeMixRGB")
+    lift.blend_type = "MULTIPLY"
+    lift.inputs["Fac"].default_value = 1.0
+    nt.links.new(tx.outputs["Color"], lift.inputs["Color1"])
+    nt.links.new(gain.outputs["Result"], lift.inputs["Color2"])
     # Warm-Tint: der dunkle Brett-Lack fotografiert sich neutral-grau -> per COLOR-Blend
     # mit einem warmen Ton Richtung Braun ziehen. BOARD_WARM_TINT/BOARD_WARM_FAC oben.
     warm = nt.nodes.new("ShaderNodeMixRGB")
     warm.blend_type = "COLOR"
     warm.inputs["Fac"].default_value = BOARD_WARM_FAC
     warm.inputs["Color2"].default_value = (*BOARD_WARM_TINT, 1.0)
-    nt.links.new(tx.outputs["Color"], warm.inputs["Color1"])
+    nt.links.new(lift.outputs["Color"], warm.inputs["Color1"])
     # Board leicht entsättigen: das echte Brettfoto ist warm-gelblich; Sättigung runter zieht
     # das Gelb raus, ohne die Helligkeit/den Kontrast der Felder zu ändern.
     desat = nt.nodes.new("ShaderNodeHueSaturation")
@@ -676,18 +705,27 @@ def _fresh_material(name: str):
 
 def _rand_square_colors(rng):
     """A WILD two-colour checker pair for a random procedural board — the anti-shortcut lever
-    pushed hard. The two tiles are INDEPENDENT random hues at high saturation over the full
-    value range (pink/lime, purple/orange, teal/magenta, neon on black, …), so the board is
-    pure noise: it carries zero information about the piece on it and the CNN is forced onto the
-    figure. We only guarantee enough luminance contrast between the two tiles for the 8x8 to
-    still read as a chessboard; everything else is unconstrained."""
+    pushed hard. The two tiles are INDEPENDENT random hues (pastel pink/lime, teal, neon on
+    black, …), so the board is pure noise: it carries zero information about the piece on it and
+    the CNN is forced onto the figure. The only constraint is LUMINANCE — the light tile must be
+    as bright as a real light square and the dark tile as dark as a real dark one, so that the
+    8x8 reads as a chessboard and, more importantly, a piece is never rendered on a square whose
+    brightness does not occur in real capture. Hue is unconstrained; saturation only where it
+    would fight the luminance requirement (see below)."""
     import colorsys
 
-    # Light tile: any hue, high saturation, BRIGHT. Dark tile: any (independent) hue, high
+    # Light tile: any hue, LOW saturation, BRIGHT. Dark tile: any (independent) hue, high
     # saturation, DARK. Splitting the value ranges guarantees the checker is always obviously
     # colourful and high-contrast — no procedural board can land on a muddy orange/brown that
     # passes for wood, and light/dark independent hues give wild combos (pink×teal, lime×purple).
-    light = colorsys.hsv_to_rgb(rng.random(), rng.uniform(0.55, 1.0), rng.uniform(0.80, 1.0))
+    # The light tile's saturation is capped because HSV *value* is not luminance: a saturated
+    # blue at value 0.9 has linear luma 0.26 and renders at ~100-140, i.e. DARKER than the white
+    # piece standing on it — a light square that dark does not exist in real capture (193-246),
+    # and it both drags the synth light-square median down and inflates the empty-light spread
+    # that white-on-light ambiguity is measured against. sat <= 0.35 with value >= 0.85 keeps
+    # linear luma >= 0.58 for EVERY hue (worst case blue) = albedo 204+ sRGB, while hue stays
+    # fully random so the board still carries no information about the piece on it.
+    light = colorsys.hsv_to_rgb(rng.random(), rng.uniform(0.05, 0.35), rng.uniform(0.85, 1.0))
     dark = colorsys.hsv_to_rgb(rng.random(), rng.uniform(0.65, 1.0), rng.uniform(0.18, 0.48))
     return tuple(light), tuple(dark)
 
@@ -923,8 +961,11 @@ def corners_px(scene, cam):
 # also blieben pro Feld nur ~51 px echte Information, die der Ingest anschliessend auf 128 px
 # Crops HOCHskaliert hat — während echte Aufnahmen aus ~200 px/Feld HERUNTERgerechnet werden.
 # Genau die Feinheiten, die Springer/Läufer/Turm trennen, fehlten dadurch in den Trainingsdaten.
-# 0.80 verdoppelt die lineare Auflösung (~102 px/Feld bei --res 1024, ~128 bei --res 1280) und
-# lässt trotzdem 20% Rand für Schräglage und den Crop-Überstand der Randfelder.
+# 0.80 verdoppelt die lineare Auflösung und lässt trotzdem 20% Rand für Schräglage und den
+# Crop-Überstand der Randfelder. ACHTUNG: geregelt wird die ACHSENPARALLELE Bounding-Box; das
+# Brett ist zufällig in der Ebene rotiert, also ist die Brett-SEITE um bis zu √2 kürzer.
+# Gemessen bei --res 1024: 79 px/Feld im Mittel (71 bei 45°, 102 achsenparallel) — NICHT die
+# 102, die die arithmetische Obergrenze 1024*0.80/8 suggeriert.
 BOARD_FRAME_FRAC = 0.80
 
 _BASE_CAM_LENS: dict = {}   # Basis-Brennweite EINMAL merken — sonst multipliziert sich die

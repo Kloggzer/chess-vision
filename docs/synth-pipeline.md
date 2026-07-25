@@ -81,8 +81,23 @@ Output per sample (in `data/synth_train/` or, with `--shards`, in `shard-<k>/` s
 
 Renders are **JPEG quality 90**, not PNG — ~5× smaller and closer to the real webcam's
 JPEG-compressed frames. The board is framed to fill the image (`--frame-frac`, default
-0.80), which yields **~134 px per square at `--res 1024`** — matching the ~200 px/square
-the real camera delivers far better than the old unframed ~51 px.
+0.80) — much better than the old unframed ~51 px/square, but **far short of the ~200 px/square
+the real camera delivers**:
+
+| | px per square at `--res 1024` |
+|---|---|
+| documented (wrong, was here until 2026-07-26) | ~134 |
+| arithmetic ceiling `1024 × 0.80 / 8` | 102.4 |
+| **measured** (mean over a 24-frame probe) | **79** (min 71, max 100) |
+
+134 px/square is arithmetically impossible: it needs a board 8 × 134 = 1072 px wide inside a
+1024 px image. Even 102.4 is only the ceiling, reached when the board sits axis-aligned:
+`frame_board()` scales the lens until the board's **axis-aligned bounding box** fills
+`--frame-frac` of the frame, and the board is randomly rotated in-plane, so the board's *side*
+is shorter than that box by up to √2 → 72 px/square at 45°, 102 px/square at 0°, ~79 on average.
+Note the consequence for the build path below: warping synth at `--board-size 1100`
+(137.5 px/square) **upscales** these renders. Raise `--res` (~1600 gives ~123 px/square,
+~2048 gives ~158) if synth is to match the real camera's px/square.
 
 `--shards N` spawns N parallel Blender processes: one process leaves the GPU at ~20%,
 4 shards reach ~90% (~4× wall-clock). Each shard writes to `<out>/shard-<k>/` with a
