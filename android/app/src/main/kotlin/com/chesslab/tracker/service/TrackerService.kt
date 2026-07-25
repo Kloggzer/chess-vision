@@ -18,6 +18,8 @@ import com.chesslab.tracker.geometry.calibrationStore
 import com.chesslab.tracker.pipeline.StageTimings
 import com.chesslab.tracker.settings.DataStoreConfigStore
 import com.chesslab.tracker.settings.SettingsRepository
+import com.chesslab.tracker.speech.MoveAnnouncer
+import com.chesslab.tracker.speech.androidSpeechEngine
 import com.chesslab.tracker.ui.debug.DebugSessionHost
 import com.chesslab.tracker.ui.debug.debugSession
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,6 +48,7 @@ class TrackerService : LifecycleService() {
     private lateinit var frames: CameraFrameBus
     private lateinit var binder: TrackerBinder
     private lateinit var notification: TrackerNotification
+    private lateinit var speech: MoveAnnouncer
 
     private val calibration by lazy { calibrationStore(this) }
     private val timings = StageTimings()
@@ -90,6 +93,7 @@ class TrackerService : LifecycleService() {
         DebugSessionHost.publish(null)
         TrackerRestartHost.publish(null)
         // Reverse construction order: nothing may deliver a frame into a closed pipeline.
+        speech.close()
         camera.close()
         stacks.close()
         frames.close()
@@ -126,6 +130,9 @@ class TrackerService : LifecycleService() {
             ),
         )
         TrackerRestartHost.publish(binder)
+        // 08c: speech collects the same events off `Dispatchers.Default`; it opens no speech engine
+        // until an announcement is actually due, so it costs nothing while disabled.
+        speech = MoveAnnouncer(lifecycleScope, androidSpeechEngine(this), settings).also { it.attach(publisher.events) }
         cnnProbe.observations = { stacks.current?.observations ?: 0L }
     }
 

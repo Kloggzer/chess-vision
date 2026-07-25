@@ -36,9 +36,9 @@ Read `entry.md` completely before your phase file.
 | 07a | `07a-settings.md` | every knob live-tunable, Python defaults shown, reset actions | done | 8 src (965 LOC, max 209) + 4 test files, 33 tests green; 46/46 knobs exposed, exactly 12 live; **tracker restart wired later, see "Restart + app-settings wiring"** (D07a-1/-11 closed) |
 | 07b | `07b-debug.md` | timings, evidence heatmap, 64-crop grid, CNN reads, decision log | done | 17 src (1774 LOC, max 178) + 2 test files, 21 tests green; `DebugPayload` filled in, decision ring capped at 64, rejections logged, `:core-engine:test` still 18/18 clips zero divergence (D07b-1..12) |
 | 07c | `07c-analysis.md` | Stockfish + eval bar + move quality | done | native build WIRED and proven (42 s, 2 ABIs, `assembleDebug` 57 s); 11 src (985 LOC, max 219) + 7 test files, 31 tests green; own lowest-priority thread, off by default (D07c-1..9) |
-| 08a | `08a-games-pgn.md` | game library, PGN export, optional session recording | todo | |
-| 08b | `08b-spectator.md` | Ktor LAN spectator + QR, read-only, off by default | todo | |
-| 08c | `08c-tts.md` | move announcement | todo | |
+| 08a | `08a-games-pgn.md` | game library, PGN export, optional session recording | done | 17 src (1701 LOC, max 199) + 8 test files, 41 tests green; all 18 named tests present; recording wired to the service's raw frames via the binder, off by default (D08a-1..12) |
+| 08b | `08b-spectator.md` | Ktor LAN spectator + QR, read-only, off by default | done | 7 src (661 LOC, max 190) + 5 test files, 21 tests green; two GET routes, Wi-Fi-only bind on 8420, +0.08 MB APK (Ktor+ZXing themselves cost 5.8 MB, already paid at `dc6b38a`); 6 discrepancies (D08b-1..6) |
+| 08c | `08c-tts.md` | move announcement | done | 6 src (698 LOC, max 143) + 3 test files, 30 tests green; off by default, silent while alarmed, queue capped at 3; `TextToSpeech` behind the `Tts` seam and untested on the host (D08c-1..6) |
 | 09 | `09-validation.md` | full gate, clip regression, live game, legacy deletion | todo | orchestrator only |
 
 ## Dependencies
@@ -3100,6 +3100,60 @@ data class DebugCnnRead(square, label, conf, pOccluded, occupied, confident, bel
   `AlarmCleared` reasons~~ — **RESOLVED by 04x**, see D04x-5: `clearAlarm(String?)` is the single
   release and always emits the REASON.
 
+### 08b (LAN spectator), 2026-07-25
+
+- **D08b-1 — the phase file's data source does not exist.** 08b codes against
+  `TrackerService.uiState: StateFlow<UiState>`; there is no `UiState` type and no `uiState` on the
+  service (that was the legacy app's shape). What exists is 06b's published seam
+  `ui.tracking.TrackerSessionHost.session` -> `status: StateFlow<TrackerStatus?>` +
+  `events: Flow<TrackerEvent>`, which the service fills (`ui/TrackerServiceBinding.kt:87`).
+  `SpectatorController` folds those two into `GameSnapshot`: `fen`/`status` from `TrackerStatus`,
+  `sanHistory`/`lastMoveUci` from `MoveCommitted`/`SequenceCommitted`. Not a blocker — the seam is
+  strictly narrower than the one the spec assumed, which is the right direction for this feature.
+- **D08b-2 — `SpectatorState.Running` carries no `ssidLabel`.** Reading the SSID needs
+  `WifiManager` plus `ACCESS_FINE_LOCATION` from API 27 on (it returns `<unknown ssid>` otherwise),
+  and a location permission for a cosmetic label on a read-only page is not a trade worth making.
+  `Running(url, port)` is what the screen shows.
+- **D08b-3 — `result`/`"over"` are derived from the FEN with chesslib, not read from a game store.**
+  The spec's `GameSnapshot` carries a `result` but names no source (08a's game store is a
+  concurrent phase and off-limits). `Board.loadFromFen(fen)` -> `isMated`/`isDraw`/`isStaleMate` is
+  a pure function of data the spectator already gets, so no new coupling was introduced. A
+  malformed FEN reads as "live"; a fabricated result would be worse than none.
+- **D08b-4 — one field added to `AppSettings` (`spectatorEnabled`), and nothing else outside
+  `spectate/**`.** The spec says persist through the shared repository and forbids a second store,
+  so the field is unavoidable; it is written through the existing `updateApp`, so
+  `SettingsRepository` itself needed **no** change. 08c added four speech keys to the same file in
+  the same phase — the two edits are append-only and disjoint.
+- **D08b-5 — the persisted flag is written but never read back at launch.** "Persisted" and "never
+  auto-started" are in tension; the resolution is that `spectatorEnabled` is a *mirror* of what is
+  running (so the settings export cannot lie), not a boot-time intent. The controller writes
+  `false` on construction. The server can therefore never come back up serving after a process
+  restart, which is the stronger of the two guarantees.
+- **D08b-6 — one file more than the phase file lists: `spectate/SpectatorController.kt`.**
+  The lifecycle glue (settings write-through, the status/event fold, the Wi-Fi `NetworkCallback`,
+  the ongoing notification + its Stop broadcast) has no home in the spec's six files without
+  pushing `SpectatorServer.kt` past 250 LOC or putting Android types into the JVM-testable server.
+  The spec's owning-service-scope lifecycle is not available either — `service/TrackerService.kt`
+  belongs to 08c this phase — so the controller is a process singleton (`SpectatorHost`) created by
+  the screen and outliving it deliberately: a server that stops because somebody pressed Back is a
+  server whose QR silently rots. The Stop receiver is registered at **runtime**, not in the
+  manifest (06c owns the manifest).
+
+Design notes worth keeping: the port is **probed with a `ServerSocket` before `embeddedServer`
+binds**, because CIO's `start(wait = false)` surfaces a bind failure asynchronously and the spec
+requires a *loud* `Error("port 8420 in use")` rather than a silent drift to another port.
+`SpectatorServer.refresh(enabled)` is the single reconciliation point — start, stop, Wi-Fi loss and
+Wi-Fi return are all the same call, so there is no state in which a bound socket and the displayed
+URL can disagree. `bindsWifiAddressNotWildcard` proves the bind is not `0.0.0.0` by binding 8420 on
+another local IPv4 *while the server runs* (skipped via `assumeTrue` on a machine with only
+loopback), which is a real proof rather than a string check.
+
+**Not covered by tests** (JVM-only, no instrumented tests): `QrCode.forUrl`'s `Bitmap` conversion
+(`matrixFor` is tested and decoded back to the URL), `SpectatorScreen`'s composition, the ongoing
+notification and its Stop broadcast, `SystemWifiAddress`'s real `wlan*` enumeration, and the
+`ConnectivityManager` callback wiring. Phase 09 must confirm on device that the timings panel does
+not move while a spectator is connected.
+
 ## Perf + overlay pass (D05c-6, D05b-7, D06b-4), 2026-07-25
 
 Three follow-ups from phases 05b/05c/06b, no behaviour change intended and none measured.
@@ -3262,6 +3316,148 @@ and `StatusPublisher.corners` are now written by a stack that can be replaced mi
                                              (everyClipReplaysPythonsDecisionsFrameForFrame, 18/18,
                                               zero divergence)
 ```
+
+### Phase 08c — spoken move announcement (2026-07-25)
+
+- **D08c-1 — `AppSettings` had to be extended; the phase file forbade a second store.** 08c owns no
+  settings file, but design §1 binds the four keys (`speechEnabled`, `speechLanguage`,
+  `speechVerbosity`, `speechAnnounceAlarms`) to the shared `SettingsRepository`. They were added to
+  `settings/AppSettings.kt` as four fields (defaults `false` / `"en-US"` / `WORDS` / `true`) —
+  additive only, `ignoreUnknownKeys` already covers older payloads, and 08a/08b do not own that
+  file either. Nothing else in `settings/` was touched.
+- **D08c-2 — two extra files in `speech/`, to keep every file under ~150 LOC.** The phase file lists
+  three main files; the platform half (`AndroidTts`, `AndroidSilence`, the `androidSpeechEngine`
+  factory) lives in `speech/AndroidSpeech.kt` and the bounded queue in `speech/UtteranceQueue.kt`.
+  Both are inside the package this phase exclusively owns, so no ownership boundary moves. The split
+  is what makes the policy host-testable: `SpeechEngine` never names `TextToSpeech`.
+- **D08c-3 — the acceptance greps land in the neighbouring file, not the named one.** `QUEUE_FLUSH`
+  occurs exactly once, in `AndroidSpeech.kt:83`, as the `flush` flag's translation; the flag is set
+  only by the alarm branch of `MoveAnnouncer` (`speaker.say(..., flush = true)`), which is what the
+  criterion means. Likewise `RINGER_MODE_NORMAL` / `INTERRUPTION_FILTER_ALL` sit in
+  `AndroidSpeech.kt`'s pure `silencedBy(ringerMode, interruptionFilter)` rather than in
+  `SpeechEngine.kt` — the point of putting them there is that the rule is unit-tested.
+- **D08c-4 — `MoveAnnouncer` takes the `Speaker` interface, not the concrete `SpeechEngine`.** The
+  phase file's signature says `engine: SpeechEngine`; a `TextToSpeech`-free seam is what lets the
+  alarm-suppression and thread rules be tested at all. `SpeechEngine` implements `Speaker`, so the
+  service wiring is unchanged.
+- **D08c-5 — the side comes from `fenAfter`, not from a ply counter.** `MovePhrase` still takes the
+  1-based ply the spec describes, but the announcer derives its parity from the committed FEN's
+  side-to-move (" b " = White just played). A counter would be a second, drifting move history —
+  and after a `SequenceCommitted` or an undo it would drift silently.
+- **D08c-6 — pawn moves do not say "pawn".** The spec's own table has `exd5` -> "e takes d5", which
+  drops it; saying "pawn e takes d5" for a capture and "pawn e4" for a push would be inconsistent
+  with the very example it is specified by. So the pawn is never named: `e4` -> "e4".
+
+**What the host cannot test** (and is therefore untested): everything below the `Tts` seam —
+`TextToSpeech` construction, its async init callback, `setLanguage`'s `LANG_MISSING_DATA` /
+`LANG_NOT_SUPPORTED` return and the `Locale.US` fallback, `UtteranceProgressListener` delivery, the
+`AudioAttributes` usage tag, and `AudioManager`'s real ringer/DND/focus values. Tested instead: the
+state the engine surfaces when a `Tts` reports `LanguageMissing`, the pure `silencedBy` rule against
+the platform constants, and the fact that a denied focus or a silenced ringer never even opens an
+engine. Phase 09 must confirm on the device that a `de-DE` selection either speaks German or shows
+the "install voice data" card.
+
+```
+:app:testDebugUnitTest --tests "com.chesslab.tracker.speech.*"   BUILD SUCCESSFUL
+    MoveAnnouncerTest 10, MovePhraseTest 9, SpeechEngineTest 7, UtteranceQueueTest 4
+    = 30 tests, 0 failures, 0 errors
+:app:ktlintFormat              BUILD SUCCESSFUL
+:app:ktlintCheck :app:detekt   BUILD SUCCESSFUL   (0 findings; one LongParameterList on the
+                                                   12-field `Words` table was FIXED, not suppressed
+                                                   — it is now two maps keyed by a `Term` enum)
+```
+Gate run in an isolated worktree of `dc6b38a` with only 08c's files applied: the shared tree did not
+compile while 08a's `games/**` and `record/**` were mid-write (`SessionExporter.kt:30 Unclosed
+comment`). None of those errors is 08c's; nothing outside `speech/**` + the two registration lines
+was changed.
+
+
+### 08a (games, PGN, session recording), 2026-07-25
+
+17 main files (1701 LOC, largest `ui/games/GamesScreen.kt` 199) + 8 test files, **41 tests, 0
+failures**. No build file, no catalog entry, no manifest edit, no `@Suppress`, no baseline.
+
+- **D08a-1 — `AndroidManifest.xml` was NOT edited; the ownership registry overrides the phase file.**
+  08a's file list claims the manifest and a `FileProvider`; `entry.md`'s registry says 06c owns it and
+  "nobody" extends it, and the orchestrator's brief repeated that. The two permissions 08a was told to
+  add for 08b (`INTERNET`, `ACCESS_NETWORK_STATE`) are **already declared** by 06c, so nothing was
+  missing. Consequence: **no `FileProvider`**, so a PGN is shared as `Intent.EXTRA_TEXT`
+  (`text/plain`, subject `<id>.pgn`) — the same decision and the same reason as 07b's decision-log
+  share, and a PGN is a few kB. The session ZIP goes through SAF (`ACTION_CREATE_DOCUMENT`), which
+  needs no provider and no permission either. `res/xml/file_paths.xml` was therefore not created.
+- **D08a-2 — there is no `ui/Nav.kt` and `ui/settings/SettingsScreen.kt` was not touched.** The nav
+  host is `ui/ChesslabNavHost.kt` (registry); 08a added `ROUTE_GAMES`, `ROUTE_GAME_DETAIL`, a "Games"
+  button next to the existing "Settings" one, and one call to `AttachGameSession()` **outside** the
+  `NavHost` (the running game must not be scoped to a back-stack entry). The three settings rows the
+  phase file asks for would have meant editing 07a's screen, which the brief froze; the games entry
+  point lives on the tracking screen's action row instead. **08b's and 08c's routes ARE wired**, once
+  their files had landed and compiled: `ROUTE_SPECTATOR` -> `spectate.ui.SpectatorScreen(onBack)` and
+  `ROUTE_SPEECH` -> `speech.ui.SpeechSettingsScreen(onBack)`, with a button each in the same action
+  row. Both agents recorded that their screens are unreachable until 08a wires them, and the nav host
+  is the one file in phase 08 only 08a may touch.
+- **D08a-3 — storage is `<id>.json` + `<id>.pgn`, not `<id>.pgn` + `<id>.provenance.json`.** The spec
+  contradicts itself: `StoredMove` carries `provenance` inline *and* a separate provenance file is
+  listed. Splitting one record over two files (or duplicating it) buys nothing — the PGN is a
+  rendered artifact, so the JSON is the source of truth and the PGN is regenerated on save and on
+  rename. `index.json` is a derived listing exactly as specified.
+- **D08a-4 — the `TrackerService` API the phase file codes against does not exist.** There is no
+  `uiState: StateFlow<UiState>`, no `frames: SharedFlow<CapturedFrame>` and no `recordingSink`; 06c
+  and the restart pass built `TrackerBinder` (status + events + actions), `TrackerSessionHost` and
+  `CalibrationHost` instead. Not raised as a blocker, because everything 08a needs is reachable
+  without touching a foreign file: the game is reconstructed from `TrackerEvent.MoveCommitted` /
+  `ReAnchored` plus `TrackerStatus`, and the raw frame comes from
+  `CalibrationHost.latestCalibrationFrame()` (a clone of the analyzer frame, the same pixels 06a
+  calibrates on) with `TrackerStatus.corners` as its geometry. **Two honest consequences:**
+  (a) that frame is published at ~5 fps, so it can be up to 200 ms old — the board is static at flush
+  time by construction, so this costs nothing in practice; (b) the driver is a composable
+  (`AttachGameSession`), so **recording pauses when the app UI is destroyed** while the service keeps
+  tracking. The fix is one construction site in `TrackerService` and is filed for the orchestrator,
+  not improvised across an ownership line.
+- **D08a-5 — `EngineState.flushSessionCapture()` is unusable from `:app`.** It is `internal`, and
+  `TrackerEngine` **discards** its return value (`Commit.kt:236`, `TrackerEngine.kt:405`); no event
+  crosses the seam. So `_queue_session_capture` / `_flush_session_capture` are re-ported app-side in
+  `record/SessionCapture.kt`, driven by the two signals that DO cross: a commit queues the capture,
+  and `TrackerEvent.ReAnchored` flushes it — the engine emits that event in exactly the branch where
+  Python calls `flushSessionCapture()` (the quiet re-anchor). Both gates run at queue time and again
+  at flush time, as Python does.
+- **D08a-6 — the "clean board" test is weaker without the debug payload.** Python's condition is
+  `not _motion_occluded_squares and not _tainted`. `TrackerStatus` has no `tainted` set (D03d-9) — it
+  rides on `DebugPayload` — so with debug off only `occlusionVetoed` decides. A missed taint means a
+  capture is taken one flush too early, never a wrong label for the position.
+- **D08a-7 — an undo is detected from the FEN, because there is no undo event.** `TrackerEngine.undo`
+  only sets a note. `LiveGame.onFen` pops the last move when the published position equals the one
+  *before* it, and the controller then calls `SessionCaptureController.undo()`, which deletes the
+  frame file and rewrites `log.jsonl` (`tracker.py:2782`, "a WRONG move is removed again on undo").
+- **D08a-8 — `SessionWriter` schema deltas, desktop read first (`collect.py:42-120`).** Frames are
+  **JPEG q90** here (`frames/%04d.jpg`) where the desktop writes PNG — the spec asks for JPEG and
+  `slice` reads the frame path out of the log, so the extension is free. `camera_index: -1` (the
+  phone is not a rig capture device; `ingest.py:123` sets -1 for the same reason) instead of 0. The
+  two lens keys `undistorted` / `lens_calib_id` are **omitted**: they come from
+  `lens.profile_lens_state(camera_index)`, which has no phone equivalent, and the desktop's own
+  comment says an absent key means raw frames — `ingest.py` omits them too. Everything else is
+  verbatim: `session_id`, `profile`, `mode`, `created_at`, `camera_index`, `frame_size`, `notes`, and
+  one `log.jsonl` line per capture with `frame`, `ply`, `fen`, `ts`, `move_san`, `corners` as
+  `[[x, y], …]` in `[a8, h8, h1, a1]` order.
+- **D08a-9 — the size cap sets a visible reason but posts no notification.** `TrackerNotification` and
+  `TrackerService` are 06c/08c files. The reason is shown on the games screen next to the toggle and
+  on the live-game row; a notification is a two-line addition once someone owns that file.
+- **D08a-10 — `SessionRecorder`'s constructor is `(dir, SessionMeta, now)`.** The spec's flat
+  signature is 8 parameters wide and detekt caps at 8 (`>=`). `SessionMeta` is a real unit — it is
+  exactly what `session.yaml` contains — not a lint holder.
+- **D08a-11 — a tracker restart (D07x-3) does not lose the game.** The engine is re-seeded with a FEN
+  and no history, but `LiveGame` keeps its own move list and `AttachGameSession` remembers on the
+  binder, which a restart does not replace. The PGN therefore still starts where the game started.
+  What a restart does lose is the engine-side undo depth, which is D07x-3's finding, not a new one.
+- **D08a-12 — `chesslib` in `:app` was already declared** ("phase 08a: PGN result determination") and
+  is used for exactly two things: the result tag (`isMated`/`isDraw`) and
+  `physicalInventoryViolations`. The latter counts by `fenSymbol`, **not** by `PieceType.name` —
+  KNIGHT and KING share their first letter, which is a silent way to make the queen limit wrong.
+
+**Gate** (live tree): `:app:testDebugUnitTest --tests "com.chesslab.tracker.games.*" --tests
+"com.chesslab.tracker.record.*" --rerun-tasks` → BUILD SUCCESSFUL, **8 classes / 41 tests / 0
+failures**; `:app:ktlintFormat` → BUILD SUCCESSFUL (reformatted only 08a's own files);
+`:app:ktlintCheck :app:detekt` → BUILD SUCCESSFUL, 0 findings (two `MagicNumber` findings on
+`1024` were fixed by naming the constant, not suppressed).
 
 ## Session log
 
@@ -3709,6 +3905,58 @@ _(implementing agent appends one line per finished phase)_
   `entry.md` seam updated). Gate run in an isolated worktree (the shared tree was mid-edit by a
   concurrent agent): 312 / 54 / 177 tests, 0 failures, 18/18 clips zero divergence, ktlint + detekt
   clean.
+- 2026-07-25 — **08c done**: spoken move announcement. `MovePhrase` (SAN -> speech, three verbosity
+  modes, en/de table with an English fallback, disambiguators kept), `SpeechEngine` + `UtteranceQueue`
+  (lazy `TextToSpeech`, transient-may-duck focus per utterance, silent/vibrate/DND suppression, at
+  most 3 live utterances — a 10-move burst speaks 3 and "and 7 more moves"), `MoveAnnouncer`
+  (collects on `Dispatchers.Default`, drops the backlog and stays silent while the alarm is latched,
+  announces the alarm once with the only `QUEUE_FLUSH` in the package), `SpeechSettingsScreen`, and
+  one registration + teardown in `TrackerService`. Off by default; 6 src (698 LOC, max 143), 30
+  tests green, ktlint + detekt clean. 6 discrepancies (D08c-1..6); the ones to read are **D08c-1**
+  (four keys added to `AppSettings` — a second store was forbidden) and **D08c-3** (the acceptance
+  greps land in `AndroidSpeech.kt`, the file that exists so the policy is host-testable).
+
+- 2026-07-25 — **08b done**: LAN spectator. `SpectatorServer` (Ktor CIO, `refresh(enabled)` as the one
+  reconciliation point, port probed before binding), `WifiAddress` (`wlan*` + site-local IPv4 only,
+  never `0.0.0.0`), `GameSnapshot` (6 fields, no engine internals), `SpectatorPage` (one
+  self-contained document, inline CSS/JS/glyphs, polls `/api/status` every 1000 ms, first paint from
+  an embedded snapshot), `QrCode`, `SpectatorController` (status/event fold, Wi-Fi callback, ongoing
+  notification with Stop) and `SpectatorScreen`. Two GET routes and nothing else — proven by route
+  inspection (`RoutingRoot` leaves), by 405 on POST/PUT/PATCH/DELETE across both paths, and by 404
+  on unknown paths. Off by default; 7 src (661 LOC, max 190), 21 tests green, ktlint + detekt clean,
+  `:app:assembleDebug` green. APK 163.22 -> 163.30 MB (+0.08); Ktor+ZXing measured separately at
+  **5.82 MB** of dex, already paid at `dc6b38a`. Gated in an isolated worktree at `dc6b38a` — the
+  shared tree did not compile (08a's `games/`, `record/` mid-edit). 6 discrepancies (D08b-1..6); the
+  ones to read are **D08b-1** (`TrackerService.uiState` never existed; `TrackerSessionHost` replaces
+  it) and **D08b-6** (a 7th file, `SpectatorController.kt`, and a process-singleton lifecycle because
+  the owning service scope belongs to 08c this phase).
+  **The nav route and the settings row are 08a's**, per the ownership registry; the screen is
+  `com.chesslab.tracker.spectate.ui.SpectatorScreen(onBack: () -> Unit = {})` and is unreachable
+  until 08a wires it.
+- 2026-07-25 — **08a done**: the game library, PGN export and opt-in session recording.
+  `games/` — `GameStore` (app-private `index.json` + `<id>.json` + `<id>.pgn`, every write temp-file
+  + `ATOMIC_MOVE` with a copy fallback), `PgnBuilder` (seven-tag roster, **`SetUp`/`FEN` whenever
+  the game did not start from the start position**, correct move numbering and the `12...` ellipsis
+  for a black-to-move start, 80-column wrapping, sanitized brace comments behind an export toggle
+  that is **off by default and byte-identical to a plain PGN**), `LiveGame` (accumulates committed
+  moves, detects an undo from the published FEN) and `GameSessionController` (event stream -> saved
+  game, auto-saves on a mate/draw, never saves an empty game).
+  `record/` — `RecordingGates` (`physicalInventoryViolations` ported from `state.py`, plus the
+  geometry gate that SUSPENDS instead of stopping, docstring included), `SessionRecorder`
+  (`collect.py::SessionWriter` on the phone: `session.yaml` + one `log.jsonl` line per capture with
+  `ply`/`fen`/`move_san`/`corners` in `[a8, h8, h1, a1]`, raw frames only, consistent undo),
+  `SessionCaptureController` (`_queue_session_capture` / `_flush_session_capture` incl. deferral to
+  the quiet re-anchor, both gates re-run at flush, no auto-start with the toggle off, size cap),
+  `SessionStore`/`SessionExporter` (size indicator, delete, SAF ZIP) and `LiveCaptureSource`
+  (JPEG q90 at grab time, `Mat` released immediately). Recording is **off by default**, capped at
+  1 GB, and its cost is stated on the toggle.
+  17 src (1701 LOC, max 199), 8 test files, **41 tests green**, ktlint + detekt clean, no manifest
+  edit and no storage permission of any kind. 12 discrepancies (D08a-1..12); the ones to read are
+  **D08a-1** (no `FileProvider` — the manifest is 06c's, so a PGN shares as `EXTRA_TEXT`),
+  **D08a-4** (the `TrackerService` API the phase file assumes does not exist; recording is driven
+  from the composition and therefore pauses when the UI is destroyed — one construction site in
+  `TrackerService` fixes it) and **D08a-5** (`flushSessionCapture` never crosses the seam, so the
+  deferral is re-ported app-side on `MoveCommitted` + `ReAnchored`).
 
 ## APK size
 
