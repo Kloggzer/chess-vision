@@ -19,7 +19,7 @@ Read `entry.md` completely before your phase file.
 | 02a | `02a-scoring.md` | LL scoring, pair scoring, prior, touched/destination, confirmer, Game | done | 5 src + 4 test files, 30 tests green (module 100/100); 969 FEN round-trips, 5463 legal-move rows, 2877 loglik + 58 pair rows asserted (D02a-1..10) |
 | 02b | `02b-geometry.md` | `:core-geometry` — homography, warps, crops, ArUco, MarkerTracker, grid lines | done | 9 main files, 10 test classes / 58 tests green, natives loaded (0 skipped) |
 | 02c | `02c-cnn-observation.md` | `:core-cnn` — observation model, recovery search, resync, preprocessing | done | whole `cnn_recovery.py` ported + preprocessing; 49 tests over all 7 `_cnn` families (34 rows); seam implemented, 8 discrepancies |
-| 03a | `03a-evidence.md` | `EngineState`, guards, evidence, frame loop | todo | owns `EngineState.kt` — 03b/c/d may not edit it |
+| 03a | `03a-evidence.md` | `EngineState`, guards, evidence, frame loop | done | 4 src + 4 test files, 34 tests green (module 134/134); `EngineState.kt` complete incl. the phase-04 fields (D03a-1..12) |
 | 03b | `03b-vetoes.md` | shadow/occlusion vetoes, taint latch, noise learning | todo | |
 | 03c | `03c-hypothesis.md` | hypothesis, pair, endpoint, ambiguity, promotion | todo | |
 | 03d | `03d-dispatch.md` | dispatch, commit, set-ref, anomaly patcher, `TrackerEngine` wiring | todo | |
@@ -914,6 +914,132 @@ and a `Map<String, Double>` flavour, `moveTouchedIndices(g, mv, out): Int` + `TO
   shared-square union, the +/-12 clip, an all-zero z-map and a stalemate position).
   `TrackerConfig` is built from `meta.effectiveConfig` throughout (`zThr` / `llK`).
 
+### 03a (`EngineState` / detect guards / evidence / frame loop), 2026-07-25
+
+Files created (all `internal`, package `com.chesslab.engine`, module `:core-engine`):
+main `EngineState.kt`, `Guards.kt`, `Evidence.kt`, `FrameLoop.kt`; tests `EngineTestImages.kt`
+(shared synthetic-image helpers), `GuardsTest.kt` (8), `EvidenceTest.kt` (10),
+`FrameLoopTest.kt` (16) — **34 tests**. No other file was touched; no build file, no
+`libs.versions.toml`, no `api/` seam file.
+
+#### 03a contract change — the surface 03b/03c/03d and 04a/04b/04c code against
+
+**Every field the phase file lists is declared, with its Python name in a comment.** Two of them
+have a different TYPE than the phase file guessed (the guess predates 01c/02a), and the field set
+is a strict SUPERSET — the additions are all Python state that phase 04 provably needs:
+
+| Deviation | Phase file | Landed | Why |
+|---|---|---|---|
+| `refGamut` | `BoardColorGamut?` | **`ColorGamut?`** | that is 01c's landed type name (`Gamut.kt`) |
+| `board` | `Board = Board(startFen)` (chesslib) | **`Game = Game(startFen)`** | 02a's wrapper is the ONLY place that may know chesslib, and `Game.fen()` is `getFen(true, true)` (D02a-1). A raw `Board` would corrupt every double-pawn-push FEN. |
+| `censusNoise` | `SquareNoise()` | **`SquareNoise(initStd = 8.0, stdFloor = 2.5)`** | `tracker.py:761`. The phase file's spelling would have run the census lane on the GRAY constants and diverged on frame one. Not a judgement call — see D03a-2. |
+| `confirmer` / `recoveryConfirmer` | `Confirmer(1)` | **`Confirmer(config.confirmFrames(cnnOn = false))`** | Python builds both with the resolved `confirm_frames` at construction (`tracker.py:827`/`:855`), and `blender-castle` runs at 3 (D00b-17). `Confirmer(1)` would confirm every candidate on its first frame. |
+
+**Additive fields (all present in Python, none invented):** `lastInputSeq` (invariant 14's
+duplicate-frame guard), `occlWhitelist` (`_occl_whitelist`), `occludedSince` (`_occluded_since`),
+`cnnBusy` (`_cnn_busy`), `observerStartedTs` (`_observer_started_ts`), `lastCnnTs`
+(`_last_cnn_ts`), `alarmSince` (`_alarm["since"]` — the seam's `TrackerEvent.Alarm` carries no
+timestamp), `desyncLastSeq` (`_desync_last_seq`, the Spec-11 observation dedup), `detBoxes` +
+`evidenceBoxes` + `rebuildBoxes()` (Python rebuilds `_square_boxes` inside every
+`per_square_diff`; 01a's contract says the tracker caches one set per `extendUp`).
+
+**Phase-04 fields, as instructed:** `PendingVerify(ucis, uci, fen, cur, curBgr, var frames,
+priorUsed, seq, var voteOutcome, var voteCount)` — `voteOutcome`/`voteCount` are Python's
+`pending["_outcome"]`/`["_votes"]` (`_pending_voted`, `:2290`); `internal typealias
+PendingCandidate = PendingVerify` so either spelling compiles; plus `alarm`/`alarmSince`,
+`desyncObs`/`desyncConflicts`/`desyncLastSeq` and `recoveryConfirmer`.
+
+**Function ownership — 03b/03c/03d must NOT redeclare these:** `Guards.kt` owns
+`detectGuards()`, `clearRef()`, `cornersJumped()`, `clearStuck()` (`_clear_stuck`, resets the
+recovery confirmer) and `markStuck()` (`_mark_stuck`); `Evidence.kt` owns the `Evidence` data
+class, `computeEvidence()` and both `refCensusCodes()` overloads; `FrameLoop.kt` owns
+`FrameOutcome`, `FrameLoop`, `RunningMeanGray`/`RunningMeanBgr` and the constants
+`STATE_WAITING/MOVING/OCCLUDED/MOVE`, `NOTE_WAITING_CLEAR`, `NOTE_GRID_COVERED`,
+`NOTE_GEOMETRY_SHIFTED`, `SKIP_DARK/MOVING/SETTLING/OCCLUDED`.
+
+#### Discrepancies
+
+- **D03a-1 — the two type corrections above** (`ColorGamut`, `Game`) are not optional: the phase
+  file's `BoardColorGamut` does not exist, and `Board(startFen)` would both break hard rule 3's
+  spirit and reintroduce the en-passant FEN bug 02a fixed.
+- **D03a-2 — `censusNoise` must carry the census constants.** `tracker.py:761` is
+  `SquareNoise(init_std=8.0, std_floor=2.5)`; the phase file writes `SquareNoise()`. Caught by
+  `computeEvidenceMatchesPython`, which is red with the gray constants on the very first tier-A
+  frame of every clip.
+- **D03a-3 — `stageTimingsMs` is never written by the engine.** The phase file's "Record
+  `stageTimingsMs["evidence"]`" needs a wall clock, and the determinism ban ("no
+  `System.currentTimeMillis`/`Instant.now`/`nanoTime` anywhere in `:core-engine`") forbids one.
+  The map stays on `EngineState` as the home of `TrackerStatus.stageTimingsMs`; **`:app` (05b/07b)
+  fills it by timing the `onFrame` call from outside.** `grep -rn
+  "System.currentTimeMillis\|Instant.now\|nanoTime" android/core-engine/src/main` → 0 hits.
+- **D03a-4 — the `:1696-1697` state reset is applied BEFORE a `Detect` is returned, not after
+  `_try_detect`; the equivalence is proved, not assumed.** The phase file splits the loop so 03d
+  runs `tryDetect` on `FrameOutcome.Detect`, which puts the reset on the wrong side of the call.
+  Proof that it does not matter: `grep -n "self\.state" tracker.py` shows the only READS are
+  `:1611`, `:1683`, `:1696` and `_cnn_tick`'s `:1879` (observer thread, a separate entry point in
+  the port), and `awk 'NR>=2834 && NR<=3460' | grep self.state` is **empty** — `_try_detect` and
+  everything it calls up to `_dispatch` never touch `self.state`. The only write on that path is
+  `_commit_move`/`_commit_sequence`'s `state = "move"` (`:2417`, `:2615`), which the reset
+  preserves. So reset-before ≡ reset-after, and 03d cannot forget a follow-up call.
+- **D03a-5 — `FrameLoop` is a class taking `setRef` as a constructor callback**, not the phase
+  file's `internal fun FrameLoop.step(input)` extension. `_set_ref` lives in 03d's `Commit.kt`,
+  which does not exist yet and which 03a may not edit; a `(GrayImage, BgrImage?) -> Unit`
+  dependency keeps the loop compilable and testable on its own. **03d constructs
+  `FrameLoop(state, ::setRef)` with the QUIET variant (`fromCommit = false`).**
+- **D03a-6 — a live resolution change is treated like `prev_gray is None` instead of throwing.**
+  Python's `motion_score` would raise from `cv2.absdiff` on a size mismatch and kill the loop
+  thread. Constant per clip, so no parity impact; it removes a crash class on Android where the
+  camera renegotiates.
+- **D03a-7 — detekt shaped three signatures/bodies** (no `@Suppress`, no baseline, no config
+  change): `ReturnCount` caps a function at **2** returns, so `detectGuards()` and
+  `cornersJumped()` are single-exit with a result variable and `stableMeans()` collapses five
+  returns into one; `LongParameterList` fires at **6**, so the test harness's `feed()` derives its
+  BGR plane from the gray one instead of taking both; `LoopWithTooManyJumpStatements` allows one
+  `continue` per loop, so `EvidenceTest`'s replay merges its two skip conditions. Same class of
+  finding as D00a-3 / D01a-1 / D01b-1 / D01c-2 / D01d-2 / D02a-4 / D02c-7.
+- **D03a-8 — ktlint's `no-consecutive-comments` again** (D00b-16): a `// -- section ---` banner
+  immediately followed by a KDoc is a violation that `ktlintFormat` cannot auto-correct. Every
+  banner in `EngineState.kt` is followed by a blank line for that reason. No hand-styling
+  otherwise; the formatter owns the rest.
+- **D03a-9 — there is no `parity/steps/`.** The phase file's "step-scoped Tier B fixtures … in
+  `core-engine/src/test/resources/parity/steps/`" does not exist; per the 00b mapping table the
+  real source is `parity/<clip>/frames/NNNN.json` with `tierA.*` / `tierB.*`, which is what
+  `EvidenceTest.computeEvidenceMatchesPython` consumes. **No fixture was invented.**
+  `TrackerConfig` is built from `meta.effectiveConfig` via `toTrackerConfig()` throughout
+  (`detSize` 320, `overhang` 0.0 on several clips, `occlusionColorThr` 1.5).
+- **D03a-10 — one additive test file, `EngineTestImages.kt`.** The phase file names only the three
+  test classes, but all three need the same synthetic board images (Python's `_gray_frame`,
+  `tests/test_move_tracker.py:765`) and a `testConfig()` whose `detSize` equals its `boardSize`.
+  Same precedent as 02b's `testutil/` and 02c's `CnnFixtures.kt`.
+- **D03a-11 — the phase file's `EngineState` ctor has no defaults; the landed one defaults
+  `startFen = STARTPOS` and `whitePov = true`.** Purely additive (every existing call site is
+  unchanged), and it is what makes `EngineState(config)` usable in a test without repeating the
+  start position.
+- **D03a-12 — `tainted` is `Map<String, Double>` (an expiry), not Python's `dict[str, int]`
+  (a frame countdown).** The phase file already declares it that way and it is the right call for
+  a `nowS`-driven engine — **but 03b owns the latch and must transcribe `tracker.py`'s frame
+  counting onto this representation deliberately, not accidentally.** Flagged here because it is
+  the one field whose semantics the port changes.
+- **Note (not a discrepancy):** the fusion is `z = max(zGray, w * zCensus)` over ALL 64 squares,
+  `_struct_vals` keeps the top 8 with `w * v >= zThr * 0.5` **rounded half-to-even to one
+  decimal** (`Math.rint(v*10)/10`, Python's `round(v, 1)`) and sorted with the same
+  stable numeric comparator 02a uses (D02a-10), and the channel-local guard's
+  `censusNoise.update(cens)` runs with **full alpha and no exclusion** unless the alarm is
+  latched — the branch D01d-4 discovered, now asserted from the other side.
+- **Coverage actually asserted:** `computeEvidence` replayed over **247 tier-A frames of all 18
+  clips** — `normalizedDiffs`, `zFused`, `censusNormalized`, `censusRaw`, `noiseMean` and
+  `censusNoiseStd` per frame, with the noise models never reset and the **3 channel-guard frames**
+  asserting `cens == null && censRaw == null && structVals.isEmpty()`; plus the hand-written
+  scenarios `test_normalize_diffs_isolates_hot_fields`, `test_global_exposure_shift_not_stuck`,
+  `test_dark_on_dark_seen_by_census_not_gray`, `test_global_jitter_median_normalized`,
+  `test_raw_core_vs_dilated`, `test_mean_equals_stack`, `test_drift_resync_after_64`,
+  `test_clear_and_reuse`, `test_detect_scale_half_det_size_and_e2e4`,
+  `test_stale_ref_fen_forces_recapture`, `test_valid_move_advances_base_truth_with_fen` and every
+  named invariant test the phase file lists (corner jump at 5.9/6.1 px on **all 8 corner axes**,
+  raw-vs-normalized census, the guard drop, alarm-frozen learning, `censRaw` cleared when the
+  weight is tuned to 0, the pre-CLAHE dark gate, the grid-gate release, `ready` needing both
+  conditions, `setRef` only on a null reference, and the duplicate-frame rejection).
+
 ## Blockers
 
 - ~~02c has no CNN fixtures~~ — **withdrawn**, see D00b-2: `parity/_cnn/` now carries 7
@@ -1088,3 +1214,23 @@ _(implementing agent appends one line per finished phase)_
   (`MoveSquaresTest` 11, `ScoringTest` 8, `MovePriorTest` 5, `ConfirmerTest` 6 = 30 new),
   `ktlintFormat`, `ktlintCheck` + `detekt` — zero findings, no `@Suppress`, no baseline, and
   `ktlintFormat` touched no file outside 02a's nine.
+- 2026-07-25 — **03a done**: the shared mutable state (`EngineState.kt`, every Python field named,
+  complete incl. the phase-04 vote/alarm/desync/recovery-confirmer fields and a
+  `PendingCandidate` alias), `_detect_guards` with the `(image, FEN)` base-truth invariant and the
+  axis-wise `_corners_jumped` (`Guards.kt`), `_compute_evidence` with the RAW census copy taken
+  BEFORE normalization, the channel-local `hot > maxChanged + 2` guard that still LEARNS unless
+  the alarm is latched, and the `max(zGray, w·zCensus)` fusion (`Evidence.kt`), and the frame loop
+  — pre-CLAHE dark gate, FPS EMA, `max(frame, ROI)` motion, the baseline-occlusion expiry stamps,
+  the motion/stable branches, the grid gate with its "just cleared → extend hold + drop both
+  buffers" rule, the `_RunningMean` pair with the every-64-appends resync and NumPy truncation,
+  and the `>2` gate on the RAW UNDILATED core (`FrameLoop.kt`). Determinism enforced: `nowS` is
+  set once per frame from `FrameInput.timestampMs` and the module contains zero wall-clock and
+  zero concurrency primitives (both greps are empty). Parity: **247 tier-A frames across all 18
+  clips** replayed through `computeEvidence` at the 1e-4 fixture tolerance, `TrackerConfig` always
+  from `meta.effectiveConfig`, including the 3 channel-guard frames. 12 discrepancies (D03a-1..12)
+  plus a "03a contract change" table — the load-bearing ones: `censusNoise` needs the census
+  constants (the phase file's `SquareNoise()` diverges immediately), `board` is 02a's `Game` not a
+  chesslib `Board`, `stageTimingsMs` cannot be filled inside a clock-free engine, and the
+  `:1696-1697` state reset moves ahead of `_try_detect` with a proof of equivalence. Gate green:
+  `:core-engine:test` **134/134** (34 new: `GuardsTest` 8, `EvidenceTest` 10, `FrameLoopTest` 16),
+  `ktlintFormat`, `ktlintCheck` + `detekt` — zero findings, no `@Suppress`, no baseline.
