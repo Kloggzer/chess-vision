@@ -21,7 +21,6 @@ import com.chesslab.tracker.spectate.ui.SpectatorScreen
 import com.chesslab.tracker.speech.ui.SpeechSettingsScreen
 import com.chesslab.tracker.ui.calibration.CalibrationRoute
 import com.chesslab.tracker.ui.debug.DebugRoute
-import com.chesslab.tracker.ui.games.AttachGameSession
 import com.chesslab.tracker.ui.games.GameDetailRoute
 import com.chesslab.tracker.ui.games.GamesRoute
 import com.chesslab.tracker.ui.settings.SettingsRoute
@@ -47,9 +46,8 @@ const val ROUTE_SPEECH = "speech"
 
 @Composable
 fun ChesslabNavHost(navController: NavHostController = rememberNavController()) {
-    // Outside the NavHost on purpose: the running game and its optional frame recording must
-    // survive navigating to any screen — they follow the board, not the back stack.
-    AttachGameSession()
+    // The running game and its recording are NOT attached here: they belong to the service, which
+    // outlives the whole UI (D08a-4). Screens observe them through `GameSessionHost`.
     NavHost(navController = navController, startDestination = ROUTE_TRACKING) {
         composable(ROUTE_TRACKING) {
             // The settings entry sits here rather than inside `TrackingScreen`: that file belongs
