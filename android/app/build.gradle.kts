@@ -20,8 +20,15 @@ android {
 
         // Stockfish (phase 07c): built from the source submodule for the ABIs
         // below. Filters apply APK-wide; 64-bit only (minSdk 29 hardware).
+        //
+        // arm64-v8a ONLY, deliberately. x86_64 served nothing but the emulator, and
+        // this app is a camera-driven board tracker: an emulator has no board to film
+        // and no Hexagon NPU, so the CNN would drop to CPU there anyway. The x86_64
+        // slice cost 99.7 MB of the APK (mostly a second copy of the embedded NNUE
+        // nets) and a second full Stockfish compile. src/main/cpp/CMakeLists.txt keeps
+        // its x86_64 flag branch, so re-enabling is a one-word revert.
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            abiFilters += listOf("arm64-v8a")
         }
     }
 
@@ -66,6 +73,34 @@ android {
             // executable must exist as a real file to be exec'd (API 29+
             // allows exec only from the app's native library directory).
             useLegacyPackaging = true
+
+            // The onnxruntime-android-qnn AAR ships every QNN backend Qualcomm
+            // supports; this app asks for exactly one. OnnxSquareClassifier passes
+            // `backend_path = libQnnHtp.so`, so the GPU and the legacy DSP backends
+            // are dead weight. Of the HTP variants only the SoC's own Hexagon
+            // version is ever dlopen'd: v75 = Snapdragon 8 Gen 3 (the target
+            // device), v79 = 8 Elite, kept so a newer phone does not silently lose
+            // the NPU. v68/v69/v73 (SD 888 / 8 Gen 1 / 8 Gen 2) are dropped.
+            //
+            // libQnnHtpPrepare.so (52.5 MB raw) is deliberately KEPT: the staged
+            // model.qnn.onnx is a plain QDQ graph, not a pre-compiled EPContext
+            // binary (verified — it contains QuantizeLinear/DequantizeLinear nodes
+            // and no `EPContext` / `ep_cache_context` marker), so QNN compiles the
+            // graph on device at session creation and needs Prepare. Excluding it
+            // would not fail loudly, it would make the QNN EP fall through to NNAPI.
+            excludes +=
+                listOf(
+                    "**/libQnnGpu.so",
+                    "**/libQnnDsp.so",
+                    "**/libQnnDspV66Skel.so",
+                    "**/libQnnDspV66Stub.so",
+                    "**/libQnnHtpV68Skel.so",
+                    "**/libQnnHtpV68Stub.so",
+                    "**/libQnnHtpV69Skel.so",
+                    "**/libQnnHtpV69Stub.so",
+                    "**/libQnnHtpV73Skel.so",
+                    "**/libQnnHtpV73Stub.so",
+                )
         }
     }
 }
@@ -92,7 +127,12 @@ dependencies {
     implementation(libs.lifecycle.runtime.compose)
     implementation(libs.lifecycle.service)
     implementation(libs.navigation.compose)
-    implementation(libs.compose.material.icons)
+    // NOTE: `material-icons-extended` was declared but never imported by a single
+    // source file (`androidx.compose.material.icons` appears nowhere in :app). It
+    // ships the whole extended icon set as generated Kotlin, which cost a measured
+    // 31.2 MB of debug dex across three classesN.dex files. material3 still brings
+    // material-icons-core transitively, so Icon/IconButton keep working; add the
+    // extended set back only alongside an actual `Icons.*` usage.
     debugImplementation(libs.compose.ui.tooling)
 
     // CameraX

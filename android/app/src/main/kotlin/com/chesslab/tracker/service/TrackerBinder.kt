@@ -24,14 +24,16 @@ import org.opencv.core.Mat
  * adds no throttle of its own.
  */
 class TrackerBinder(
-    private val host: EngineHost,
     private val publisher: StatusPublisher,
     private val frames: CalibrationFrames,
     private val settings: SettingsRepository,
     private val cnn: StateFlow<CnnState>,
+    private val queue: (EngineAction) -> Unit,
     private val calibrate: (BoardGeometry, FloatArray, String) -> Unit,
+    private val restart: TrackerRestart,
 ) : Binder(),
-    CalibrationFrames {
+    CalibrationFrames,
+    TrackerRestart {
     val status: StateFlow<TrackerStatus?> get() = publisher.status
     val events: SharedFlow<TrackerEvent> get() = publisher.events
     val config: StateFlow<TrackerConfig> get() = settings.config
@@ -43,11 +45,23 @@ class TrackerBinder(
     /** A CLONE; the caller releases it. 06a's only source of pixels — it binds no camera. */
     override fun latestCalibrationFrame(): Mat? = frames.latestCalibrationFrame()
 
-    /** Queued, applied on the engine thread before the next detection. */
-    fun submit(action: EngineAction) = host.submit(action)
+    /**
+     * Queued, applied on the engine thread before the next detection.
+     *
+     * A lambda and not the host itself, because the host is rebuilt by a restart — handing the UI
+     * a direct reference would leave it submitting into a torn-down engine (D07x-1).
+     */
+    fun submit(action: EngineAction) = queue(action)
 
     /** Persists, and tells the caller which knobs need a tracker restart to take effect. */
     fun updateConfig(config: TrackerConfig): UpdateResult = settings.update(config)
+
+    /**
+     * Rebuilds the tracker with the persisted config and app settings — the 34 knobs that are read
+     * at construction. The process, the camera binding, the calibration and the current position
+     * all survive; the move history does not (see [TrackerSeed]).
+     */
+    override fun restartTracker() = restart.restartTracker()
 
     /** 06a hands the accepted corners over; the pipeline picks them up on its next frame. */
     fun applyCalibration(

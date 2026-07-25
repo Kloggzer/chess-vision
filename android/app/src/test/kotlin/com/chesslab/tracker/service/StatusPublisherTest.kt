@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -82,6 +83,18 @@ class StatusPublisherTest {
                     ?.stageTimingsMs
                     ?.get("warp"),
             )
+        }
+
+    /** D06b-4: the engine owns no geometry, so the overlay's board quad comes from here. */
+    @Test
+    fun theBoardCornersArePublishedIntoTheStatus() =
+        runTest {
+            val publisher = StatusPublisher(backgroundScope)
+            val corners = floatArrayOf(0f, 0f, 100f, 0f, 100f, 100f, 0f, 100f)
+            publisher.corners = corners
+            publisher.publish(statusOf(), emptyList(), null)
+            advanceTimeBy(STATUS_SAMPLE_MS * 2)
+            assertArrayEquals(corners, publisher.status.value?.corners)
         }
 
     @Test

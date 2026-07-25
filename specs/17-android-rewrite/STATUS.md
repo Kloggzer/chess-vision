@@ -33,7 +33,7 @@ Read `entry.md` completely before your phase file.
 | 06a | `06a-calibration.md` | ArUco auto + manual corner tap, profile persistence, orientation check | done | 9 src (1113 LOC, max 207) + 4 test files, 18 tests green; zero camera types under `ui/`, `getInstance` still 1; needed `android/.editorconfig` + a detekt `FunctionNaming` exemption for Compose (D06a-1) |
 | 06b | `06b-tracking-ui.md` | board, move list, alarm card, promotion dialog, overlay | done | 16 src (1606 LOC, max 170) + 4 test files, 17 tests green; nav host + service binding wired, alarm-accept preview is status-derived only (D06b-3) |
 | 06c | `06c-service.md` | `TrackerService` single owner, coordinator, settings persistence | done | 14 src (1189 LOC, max 172 vs the legacy 970-in-one) + 5 test files, 23 tests green; one camera owner, one engine thread, 12 live knobs (D06c-1..14) |
-| 07a | `07a-settings.md` | every knob live-tunable, Python defaults shown, reset actions | done | 8 src (965 LOC, max 209) + 4 test files, 33 tests green; 46/46 knobs exposed, exactly 12 live; **tracker restart is NOT wired** (D07a-1) |
+| 07a | `07a-settings.md` | every knob live-tunable, Python defaults shown, reset actions | done | 8 src (965 LOC, max 209) + 4 test files, 33 tests green; 46/46 knobs exposed, exactly 12 live; **tracker restart wired later, see "Restart + app-settings wiring"** (D07a-1/-11 closed) |
 | 07b | `07b-debug.md` | timings, evidence heatmap, 64-crop grid, CNN reads, decision log | done | 17 src (1774 LOC, max 178) + 2 test files, 21 tests green; `DebugPayload` filled in, decision ring capped at 64, rejections logged, `:core-engine:test` still 18/18 clips zero divergence (D07b-1..12) |
 | 07c | `07c-analysis.md` | Stockfish + eval bar + move quality | done | native build WIRED and proven (42 s, 2 ABIs, `assembleDebug` 57 s); 11 src (985 LOC, max 219) + 7 test files, 31 tests green; own lowest-priority thread, off by default (D07c-1..9) |
 | 08a | `08a-games-pgn.md` | game library, PGN export, optional session recording | todo | |
@@ -3036,14 +3036,12 @@ data class DebugCnnRead(square, label, conf, pOccluded, occupied, confident, bel
 
 
 
-- **OPEN (07a, D07a-1) — nothing can restart the tracker, so 34 of the 46 knobs only take effect on
-  the next app start.** `TrackerService` has no `restartTracker()` (the phase file assumed one). The
-  settings screen is honest about it rather than offering a dead button, and takes an
-  `onRestartTracker: (() -> Unit)?` that is `null` today. **One line in `ui/ChesslabNavHost.kt`** once
-  06c's file gains the method.
-- **OPEN (07a, D07a-11) — `resolutionMode` / `orientation` / `modelAsset` / `epRequest` are stored
-  and exported but nothing reads them yet** (05a's camera request, 05c's EP chain and model staging,
-  06a's profile `whitePov`). Four one-line wirings in files this phase does not own.
+- ~~**OPEN (07a, D07a-1) — nothing can restart the tracker**~~ — **RESOLVED**, see the
+  "Restart + app-settings wiring" section below (D07x-1..7).
+- ~~**OPEN (07a, D07a-11) — `resolutionMode` / `orientation` / `modelAsset` / `epRequest` are stored
+  and exported but nothing reads them yet**~~ — **RESOLVED**, same section (D07x-4..6). They were
+  not "one line each": the camera one needed a retarget path that keeps the single owner, and the
+  model/EP ones needed `Ep` to stop hardcoding its graph.
 - **OPEN (06b/06c, D06b-9) — the `CalibrationHost` is CONSTRUCTIBLE but nobody provides it.**
   06c's `TrackerBinder` has all three members 06a's final host needs (`latestCalibrationFrame`,
   `rawPreview`, `applyCalibration(BoardGeometry, FloatArray, String)` — see 06a's D06a-2, which
@@ -3056,8 +3054,9 @@ data class DebugCnnRead(square, label, conf, pOccluded, occupied, confident, bel
   worked around: the missing piece is geometry state, and inventing it in the UI is exactly the
   class of drive-by this pack forbids. Needs 06c (two members on `TrackerBinder`) or an orchestrator
   decision.
-- **OPEN (06b, D06b-4) — `TrackerStatus` carries no corners**, so the preview overlay's board quad
-  cannot be drawn. Parameterized and inert today; adding `corners` to the seam is a one-field change.
+- ~~**OPEN (06b, D06b-4) — `TrackerStatus` carries no corners**~~ — **RESOLVED by the perf/overlay
+  pass**, see D-perf-3: `TrackerStatus.corners: FloatArray? = null`, filled by `StatusPublisher`,
+  drawn by `PreviewOverlay`. `entry.md`'s seam block was updated to match.
 - **OPEN (06b, D06b-3) — `acceptCnnPosition()` has no preview variant (D04x-4) and `TrackerStatus`
   has no CNN label map**, so the alarm dialog can only name the believed piece per conflicting
   square and must present the action as irreversible. Needs a status field or a second entry point.
@@ -3100,6 +3099,169 @@ data class DebugCnnRead(square, label, conf, pOccluded, occupied, confident, bel
 - ~~**04c open (cosmetic but user-visible):** the two release families emit different
   `AlarmCleared` reasons~~ — **RESOLVED by 04x**, see D04x-5: `clearAlarm(String?)` is the single
   release and always emits the REASON.
+
+## Perf + overlay pass (D05c-6, D05b-7, D06b-4), 2026-07-25
+
+Three follow-ups from phases 05b/05c/06b, no behaviour change intended and none measured.
+
+- **D-perf-1 (closes D05c-6) — `preprocess` no longer allocates per observation.**
+  `:core-cnn` gained `preprocessInto(crops, outW, outH, out, mean, std)`; `preprocess` is now
+  `FloatArray(n).also { preprocessInto(...) }`, so the numerical contract lives in exactly one
+  body (BGR→RGB, `/255`, ImageNet mean/std, NCHW, N-then-R/G/B planes — every line unchanged).
+  `OnnxSquareClassifier` keeps a reused `staging` array next to its reused direct `FloatBuffer`.
+  **Measured** (`PreprocessTest`, HotSpot per-thread allocation counter, 64 × 128 × 128 crops):
+  `preprocess` **12 583 128 B** per call → `preprocessInto` **72 B** per call (the counter's own
+  overhead). The 12.6 MB heap buffer is now a one-off per classifier, and the copy into the direct
+  buffer is a bulk `put`, i.e. one memcpy and zero allocation.
+- **D-perf-2 (narrows D05b-7) — the grid-line Canny is skipped when the gate is off.**
+  `FramePipeline` computes `stages.gridCoverage()` only while `minGridLineCoverage > 0` and passes
+  `GRID_GATE_OFF = 1.0` otherwise. That is exact, not a heuristic: `FrameLoop.occludedByGrid`
+  returns `false` before it reads the value, so nothing downstream can observe the difference (the
+  parity clips run `min_grid_line_coverage = 0.0` and are unaffected — verified by the 18/18 replay).
+  **Measured cost of the pass itself**: `gridLineCoverage` on an 800×800 (`detSize`) gray Mat is
+  **0.87 ms/call** on the dev machine (200 iterations after 30 warm-ups, throwaway bench, deleted).
+  **Honest limitation:** the live default is `minGridLineCoverage = 0.5`, so on a normally
+  configured phone this saves nothing — it only pays off when the user disables the gate or a clip
+  replays with it off. Making it lazy in the general case needs the seam to carry `() -> Double`
+  instead of a `Double`; that was NOT done (it would touch `FrameInput`, every parity test's frame
+  construction, and buys ~1 ms on a 66 ms budget). D05b-7 stays open in that reduced form.
+- **D-perf-3 (closes D06b-4) — the board quad is live.** `TrackerStatus` gained
+  `corners: FloatArray? = null` (`[a8, h8, h1, a1]`, source px, invariant 11), `entry.md`'s seam
+  block was updated to match. The engine never sets it — it owns no geometry — so `StatusPublisher`
+  carries a `@Volatile var corners` that `TrackerCoordinator` assigns from `pipeline.corners` right
+  next to `sizeMismatch`, and `trackingUiState` passes it to `PreviewOverlay`. No source size is
+  passed: the preview bitmap is a uniformly downscaled copy of the same analyzer frame
+  (`bgrToBitmap`), so the bitmap's own size is the correct divisor.
+
+**Out-of-list files touched** (owned by no concurrent agent, one or three lines each, recorded here
+rather than improvised silently): `service/TrackerCoordinator.kt` (assigns the corners),
+`ui/tracking/StatusUiModel.kt` + `ui/tracking/TrackingScreen.kt` (carry them to the overlay — item 3
+is undeliverable without its call site). No file owned by another agent was edited.
+
+**Gate** (run in an isolated `git worktree` at `HEAD` with only these changes applied — the shared
+tree did not compile at the time: a concurrent agent's in-flight `Ep`/`EpRequest` rework had
+`OnnxSquareClassifierContractTest` and `TrackerService.kt` mid-edit): `:core-engine:test` **312
+tests, 0 failures**, `:core-cnn:testDebugUnitTest` **54, 0**, `:app:testDebugUnitTest` **177, 0**;
+`ClipReplayParityTest` green (18/18 clips, zero divergence — the test asserts
+`clipsPassed == index.clips.size`); `ktlintFormat` changed nothing, `ktlintCheck detekt` BUILD
+SUCCESSFUL. No `@Suppress`, no baseline, no threshold touched.
+
+## Restart + app-settings wiring (closes D07a-1 and D07a-11), 2026-07-25
+
+Files created (`:app`): `service/TrackerStack.kt` (188), `service/AppSettingsWiring.kt` (60).
+Extended: `service/TrackerService.kt` (218 → 229), `service/TrackerBinder.kt`,
+`service/EngineHost.kt`, `service/DebugProbes.kt`,
+`camera/TrackerCamera.kt`, `camera/CameraModels.kt`, `cnn/CnnModelAssets.kt`,
+`cnn/OnnxSquareClassifier.kt`, `cnn/CnnObserver.kt`, `geometry/CalibrationStore.kt`,
+`ui/ChesslabNavHost.kt`. Tests added: `service/TrackerRestartTest` (4), `cnn/EpRequestChainTest` (7),
+`cnn/CnnObserverCloseTest` (2), `camera/ResolutionModeRequestTest` (3),
+`geometry/OrientationSettingTest` (4) — **20 new, JVM only**; `:app` goes 177 → 197 tests. No build file, no catalog entry, no
+`@Suppress`, no baseline, no threshold change.
+
+### What a restart actually does
+
+Two lifetimes now live in `TrackerService`. The **session** (camera, `CameraFrameBus`,
+`StatusPublisher`, `SettingsRepository`, `TrackerBinder`, `TrackerNotification`) lasts as long as
+the service. The **stack** (`FramePipeline` + `CameraStages` + `CropFrameStore` + `FrameSizeGuard`,
+`EngineHost` + `TrackerEngine` + `CnnRecovery`, `DebugCropTap`, `CnnObserver` + the ONNX session,
+`LiveAlign`, `TrackerCoordinator`, and a `SupervisorJob` child scope) is what `restartTracker()`
+rebuilds. Order, and each step's reason:
+
+1. `calibration.applyOrientation(...)` — 07a's orientation reaches the profile (see D07x-4).
+2. `camera.runOnAnalyzer { stacks.restart() }` — the swap runs on the analyzer thread, i.e.
+   serialized against `TrackerCamera.deliver`, so no frame is inside the stack while it is closed.
+3. `StackSwitch.restart()` = **detach → close → build**. Detaching first (`current = null`) makes a
+   frame arriving mid-restart a dropped frame, not a call into a closed pipeline. Closing before
+   building is what keeps two ONNX sessions, two observer threads and two sets of full-resolution
+   warps from coexisting on a phone.
+4. `TrackerStack.close()` = `scope.cancel()` (collectors + in-flight live-align) → `observer.close()`
+   (the only member with a thread and a native session) → `pipeline.close()` (OpenCV Mats + the
+   pending crop warp). The engine host is not closed: it is queues and plain objects, and the point
+   of rebuilding it is that its thread claim goes with it.
+5. `camera.retarget(...)` on the main thread, last, so no frame is delivered into a half-built stack.
+
+### Discrepancies
+
+- **D07x-1 — `TrackerBinder` no longer holds the `EngineHost`.** It takes `queue: (EngineAction) ->
+  Unit` and reads the CURRENT stack, because the binder object is handed to `BindTrackerService` once
+  and a restart would otherwise leave every screen submitting into a torn-down engine. Same reason
+  the `StatusPublisher`, the `CameraFrameBus` and the `CnnState` flow are session-scoped: a swapped
+  `StateFlow` instance is a screen that silently stops updating.
+- **D07x-2 — the restart entry point is `TrackerRestartHost`, not the binder.** `TrackerBinder`
+  *does* gain `restartTracker()` (it is the real API and it implements the `TrackerRestart` fun
+  interface), but the only composable holding a binder is `ui/TrackerServiceBinding.kt`, which this
+  change does not own. The service publishes the action exactly the way it publishes the settings
+  repository (D07a-2), and `ChesslabNavHost` reads it — so 07a's `onRestartTracker` is non-null once
+  the service is up, and still null (with 07a's honest "close and reopen the app" text) before that.
+- **D07x-3 — a restart preserves the position, not the move history.** `TrackerEngine` is re-seeded
+  with `publisher.lastFen`, plus the geometry and the last corners, so calibration and alignment
+  survive. It takes a FEN and not a history, so **undo starts empty after a restart** and 08a's PGN
+  would restart from the resumed position. Not worked around: carrying history would mean a new
+  engine entry point, which is a seam change.
+- **D07x-4 — orientation is reconciled in BOTH directions, not wired one way.** At service START the
+  stored profile wins and `AppSettings.orientation` is synced to it (06a's calibration screen has its
+  own a8 switch, and a stale setting must not transpose the board behind the user's back). At a
+  user-triggered RESTART the setting wins and `CalibrationStore.applyOrientation` writes it INTO the
+  profile — only the profile is carried over by `saveRecalibrated` (`ensure_profile`), so a value
+  living anywhere else would be silently reset by the next recalibration. An unchanged orientation
+  writes nothing.
+- **D07x-5 — `resolutionMode` needed a camera *retarget*, not a new camera.** `TrackerCamera` gained
+  `retarget(request)` (rebinds the ONE `ImageAnalysis` use case on the main thread) and
+  `runOnAnalyzer(block)`. Rebuilding the camera per restart was the alternative and is exactly the
+  two-owner bug from MEMORY `android-single-camera-owner`; `ProcessCameraProvider.getInstance` stays
+  at **1** call site. `cameraRequestFor(mode)` lives in `camera/CameraModels.kt`; AUTO maps to 1080p
+  because that is the mode the 15 fps budget was measured at. The delivered `ImageProxy` size is
+  untouched as the source of truth — asserted by `ResolutionModeRequestTest`.
+- **D07x-6 — `Ep` no longer names its own graph.** `modelAsset` made the `Ep.model` constant a lie,
+  so `Ep` carries only the backend, `modelFor(staged, ep)` resolves the file (QNN always
+  `model.qnn.onnx` — the HTP backend rejects float32), and `SessionRunner.model` is
+  `modelFile.name`, i.e. what was really loaded. `CnnState.Ready(backend, model)` therefore reports
+  actual, never requested, and `requestedBackend(staged, request)` is the separate head-of-chain
+  value 07b renders beside it. `epChain(hasQnn, request)` = `available.dropWhile { it != head }`, so
+  an explicit CPU request tries CPU **only**, NNAPI keeps CPU below it as a last resort, QNN may
+  still fall back, and a QNN request with no quantized graph falls back to the whole automatic chain
+  and reports NNAPI as requested.
+- **D07x-7 — `CnnObserver.close()` was leaking, and closing the session on the wrong thread.** It
+  used to `classifier.close()` inline from the caller's thread and never shut its executor down —
+  harmless when it only ran at process death, a native use-after-free plus a leaked thread per
+  restart now. It now cancels the scope, then frees the session **on the observer thread** and closes
+  the `ExecutorCoroutineDispatcher` behind it. `CnnRuntimeProbe.observations` became a `() -> Long`
+  supplier for the same reason: the counter belongs to the stack, and a restart legitimately
+  restarts it.
+- **D07x-8 — `TrackerService` was 264 LOC after the restart path, so the four app settings moved
+  out.** `service/AppSettingsWiring.kt` holds `openClassifier(context, app, probe)` and
+  `adoptStoredOrientation(store, settings)` — a real unit ("07a's app settings, applied at
+  construction"), not a lint holder. The service is back to 229 and 12 functions.
+
+### For the concurrent-agent owners (no file of theirs was edited)
+
+Nothing is required of them. Recorded only so the coupling is visible: `StatusPublisher.cnnState`
+and `StatusPublisher.corners` are now written by a stack that can be replaced mid-session, and
+`TrackerCoordinator` is constructed per stack rather than once.
+
+### Not verifiable without a device
+
+- That a restart is visually seamless (the preview keeps rendering; `camera.retarget` only rebinds
+  when the mode actually changed, so an unchanged mode should not blink at all).
+- That the ONNX session and the observer thread are really reclaimed — the JVM test asserts `close()`
+  is called on the observer thread, not that native memory dropped. Watch `chesslabCnn` for exactly
+  one "CNN inference backend:" line per restart, and the process RSS across five restarts.
+- That an explicit `QNN` request selects `QNN-HTP(NPU)` on a Snapdragon (only the fall-back arms are
+  reachable on the desktop JVM), and that the 2160p request is honoured or honestly reported as a
+  mismatch on the user's phone.
+- That a restart after changing `detectScale` really re-warps at the new `detSize` in the live feed.
+
+### Gate (LIVE tree; concurrent agents' edits present and compiling)
+
+```
+:app:testDebugUnitTest   BUILD SUCCESSFUL   197 tests, 0 failures, 0 errors (40 classes, --rerun-tasks)
+:app:ktlintFormat        BUILD SUCCESSFUL   (one fix by hand first: my KDoc insert had split
+                                             saveRecalibrated's KDoc, which ktlint cannot auto-correct)
+:app:ktlintCheck :app:detekt   BUILD SUCCESSFUL   (0 findings, whole module)
+:core-engine:test        BUILD SUCCESSFUL   312 tests, 0 failures — ClipReplayParityTest green
+                                             (everyClipReplaysPythonsDecisionsFrameForFrame, 18/18,
+                                              zero divergence)
+```
 
 ## Session log
 
@@ -3541,3 +3703,138 @@ _(implementing agent appends one line per finished phase)_
   `TrackerService.setDebugEnabled` / `05c.latestObservation` seams never existed — an `EngineAction`
   and a `CnnFrameSource` decorator replace them) and **D07b-4** (rejections are logged with a
   consecutive-duplicate fold, or one static phantom evicts the whole ring in a second).
+- 2026-07-25 — **perf + overlay pass done**: `preprocessInto` (12 583 128 B → 72 B per observation,
+  measured), grid-line Canny skipped while the gate is off (0.87 ms/frame, only when disabled —
+  D05b-7 stays open in reduced form), `TrackerStatus.corners` + a drawn board quad (closes D06b-4;
+  `entry.md` seam updated). Gate run in an isolated worktree (the shared tree was mid-edit by a
+  concurrent agent): 312 / 54 / 177 tests, 0 failures, 18/18 clips zero divergence, ktlint + detekt
+  clean.
+
+## APK size
+
+2026-07-25 — the debug APK went from **329.8 MB to 163.2 MB (-50.5 %)** with three build-config
+changes. Scope was `android/app/build.gradle.kts` and `android/gradle/libs.versions.toml`;
+`android/app/src/main/cpp/CMakeLists.txt` was read in full but **not modified** (see "declined"
+below). No Kotlin source was touched.
+
+### Measurement caveat, read this before comparing numbers
+
+AGP packages the APK incrementally and leaves *holes* where entries were removed — the file keeps a
+gap instead of being rewritten. The 329.8 MB baseline carried ~23 MB of such holes (sum of zip
+entries was only ~306.8 MB), and the first post-change measurement reported an unchanged 207.3 MB
+while the entry sum had already dropped 13 MB. **Every number below is from a clean repackage**
+(`Remove-Item app/build/intermediates/apk; :app:packageDebug --rerun-tasks`), and file size and
+entry sum are quoted together so the two can never drift apart again unnoticed.
+
+| step | APK file | zip entry sum | delta |
+|---|---|---|---|
+| baseline (HEAD 65d7186) | 329.8 MB | ~306.8 MB | — |
+| 1. arm64-v8a only | 207.3 MB | 207.0 MB | -122.5 MB |
+| 2. + unused QNN backends excluded | 194.4 MB | 194.3 MB | -12.9 MB |
+| 3. + `material-icons-extended` dropped | **163.2 MB** | 163.1 MB | -31.2 MB |
+
+Final `lib/arm64-v8a` = 121.9 MB, dex = 37.3 MB (was 66.4 MB across 3 fat `classesN.dex`),
+`assets/cnn_model` = 2.9 MB.
+
+### 1. x86_64 dropped — capability traded away, stated plainly
+
+`abiFilters` is now `listOf("arm64-v8a")`. **This removes emulator support**, and x86_64
+Chromebooks with it. The trade is deliberate: the app is a camera-driven board tracker, so an
+emulator has no board to film, and it has no Hexagon NPU either — the CNN would run on the
+emulator's CPU path, which is not the path anyone needs to test. The x86_64 slice cost 99.7 MB of
+packed APK (mostly a *second* copy of the embedded NNUE nets) plus a full second Stockfish compile
+on every clean build. ABI *splits* were considered and rejected: with one ABI left they add nothing,
+and they would have kept paying the x86_64 native build cost. `CMakeLists.txt` keeps its `x86_64`
+flag branch untouched, so re-enabling is a one-word revert of the `abiFilters` line.
+
+### 2. Unused QNN backends excluded — 12.9 MB, `libQnnHtpPrepare.so` deliberately KEPT
+
+`OnnxSquareClassifier` passes `backend_path = libQnnHtp.so`, so the GPU and legacy DSP backends can
+never be loaded, and of the HTP variants only the SoC's own Hexagon version is ever `dlopen`'d.
+Excluded via `packaging.jniLibs.excludes`: `libQnnGpu.so`, `libQnnDsp.so`,
+`libQnnDspV66Skel/Stub.so`, `libQnnHtpV68/V69/V73 Skel+Stub.so` (SD 888 / 8 Gen 1 / 8 Gen 2).
+**Kept**: `libQnnHtpV75*` (the 8 Gen 3 target device) and `libQnnHtpV79*` (8 Elite, so a newer phone
+does not silently lose the NPU) — V79 costs 3.2 MB and is cheap insurance against exactly the
+silent-fallback failure this lever risks.
+
+`libQnnHtpPrepare.so` (52.5 MB raw / 22.9 MB packed) is the single biggest item that was *not*
+removed, and that is a decision, not an oversight. The hypothesis that the staged model is
+"pre-prepared" is **false**: `assets/cnn_model/model.qnn.onnx` was inspected and contains
+`QuantizeLinear` / `DequantizeLinear` nodes and **no** `EPContext`, `ep_cache_context`,
+`main_context` or `QNNExecutionProvider` marker. It is a plain QDQ graph, so QNN compiles it on
+device at `createSession` time and needs Prepare. Excluding it would not fail loudly — the EP chain
+in `OnnxSquareClassifier.open` catches the failure, logs a WARN and falls through to NNAPI, i.e. the
+NPU fast path would disappear while everything still "worked".
+
+### 3. `material-icons-extended` was declared and never used — 31.2 MB of dex
+
+`androidx.compose.material.icons` appears in **zero** Kotlin files in the whole `android/` tree
+(`grep -rn "material.icons\|Icons\." --include=*.kt` -> no hits), yet the dependency shipped the
+entire extended icon set as generated Kotlin: 31.2 MB packed across `classes.dex` (33.7 -> 15.9 MB),
+`classes15.dex` (20.2 -> 11.3) and `classes16.dex` (12.5 -> 8.4). Removing it needed no code change
+and the build proves it — `:app:compileDebugKotlin` is green without it. `material3` still brings
+`material-icons-core` transitively, so `Icon` / `IconButton` are unaffected. The version-catalog
+alias is kept with a comment; wire it back in the module that first writes an actual `Icons.*`
+symbol.
+
+Untouched per instruction: **no R8/minify for debug**, and `release { isMinifyEnabled = false }` was
+left exactly as it was, so 07a's `declaredFields` settings-catalog reflection is not at risk.
+
+### Declined: the 76 MB Stockfish net — needs a code change, filed for the orchestrator
+
+`libstockfish.so` is 108.5 MB raw / 76.0 MB packed and is now **47 % of the whole APK**. Essentially
+all of it is one file: the build dir holds `nn-c288c895ea92.nnue` at **108.9 MB** (big) next to
+`nn-37f18f62d772.nnue` at **3.5 MB** (small), both `INCBIN`-embedded by `nnue/network.cpp`.
+
+"Embed only the small net" **does not work, and this was verified in the submodule source, not
+assumed**: `Network::verify()` in `third_party/stockfish/src/nnue/network.cpp` prints
+`"The engine will be terminated now."` and calls `exit(EXIT_FAILURE)` when the named net did not
+load, and `Engine::verify_networks()` runs it for *both* nets. A stubbed or truncated big net does
+not degrade analysis strength — it kills the engine process at startup. There is also no smaller
+compatible big net: the file name encodes a SHA-256 prefix and the architecture hash is checked on
+load.
+
+The viable route is the other one, and it is **out of this agent's scope because it is Kotlin**:
+
+1. `CMakeLists.txt` compiles with `NNUE_EMBEDDING_OFF` and stops embedding (both nets — the macro is
+   all-or-nothing).
+2. `AnalysisHost` / `UciEngine` fetch `nn-c288c895ea92.nnue` on first *use of analysis* into app
+   storage. Note `UciEngine` currently does `ProcessBuilder(it)` with **no** `.directory(...)`;
+   `Network::load` searches `{"<internal>", "", rootDirectory}`, so setting the process working
+   directory to the download dir is what makes the file findable — `rootDirectory` is
+   `nativeLibraryDir`, which is read-only.
+3. Ship the 3.5 MB small net as an asset (cheap) and pull only the 108 MB big net over the network.
+
+Payoff ~ **76 MB packed, taking the debug APK to ~87 MB**. Cost: analysis needs a one-time 108 MB
+download, and the first-run UX for a feature that is off by default has to be designed. Worth doing;
+not worth an unreviewed cross-scope edit while two agents are live in `service/` and `cnn/`.
+
+### Also declined
+
+- **ABI splits** — see lever 1; pointless with a single ABI and they keep the x86_64 build cost.
+- **Dropping `libQnnHtpV79*`** — 3.2 MB is not worth a silent NPU loss on a future phone.
+- **A pre-compiled QNN EPContext binary** (which *would* let `libQnnHtpPrepare.so` go, -22.9 MB) —
+  it must be generated on/for the exact SoC, it is a new build artifact plus an `ep.context_enable`
+  code path, and getting it wrong degrades silently. Filed as a follow-up, not attempted.
+- **`useLegacyPackaging`** — left `true`. It is load-bearing (the Stockfish executable must be a
+  real file in `nativeLibraryDir` to be exec'd on API 29+) *and* it is already the APK-size-friendly
+  setting: flipping it to `false` stores the libs uncompressed and would push the APK back to
+  ~300 MB.
+
+### Gate
+
+`:app:assembleDebug` + `:app:ktlintCheck` + `:app:detekt` — **all green**, run in an isolated
+worktree at HEAD `65d7186` with only the two config files copied in. The shared tree could not be
+gated: concurrent agents had `service/TrackerStack.kt` mid-extraction
+(`Cannot access 'fun cnnConfig': it is private in file`) and two ktlint violations in
+`geometry/CalibrationStore.kt` — neither is reachable from a build-config change, and the worktree
+run reproduced the same 163.19 MB APK byte-for-byte.
+
+**Verified**: the exact `lib/arm64-v8a/*` contents of the shipped APK (V75 + V79 Skel and Stub,
+`libQnnHtp.so`, `libQnnHtpPrepare.so`, `libQnnSystem.so` all present; every excluded lib absent, and
+no `lib/x86_64/` at all), that the QDQ model is not an EPContext binary, and that Stockfish exits on
+a missing net. **Not verified, deferred to phase 09** (no device was attached — `adb devices` came
+back empty): that QNN still actually selects on the 8 Gen 3 after the Skel prune. The check is one
+line — `CnnState` reports the chosen EP, and the debug screen's EP panel must read `QNN-HTP(NPU)`,
+not `NNAPI`. If it reads `NNAPI`, restore `libQnnHtpV73*` first; that is the only plausible
+mis-prune.

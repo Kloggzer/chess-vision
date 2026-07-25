@@ -82,7 +82,10 @@ private fun TrackingScreen(viewModel: TrackingViewModel) {
         TextButton(onClick = { showPreview = !showPreview }) {
             Text(if (showPreview) "Hide camera view" else "Show camera view", color = OnSurfaceMuted)
         }
-        if (showPreview) PreviewOverlay(bitmap = preview, overlay = ui.overlay)
+        // No source size: the preview bitmap is a UNIFORMLY downscaled copy of the analyzer frame
+        // the corners were measured in (`bgrToBitmap`), so the bitmap's own size is the right
+        // divisor. Passing a stale delivered size here would offset the quad.
+        if (showPreview) PreviewOverlay(bitmap = preview, overlay = ui.overlay, corners = ui.corners)
         ActionBar(
             onUndo = viewModel::onUndo,
             onResetGame = viewModel::onResetGame,

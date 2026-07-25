@@ -43,6 +43,8 @@ class TrackerCoordinator(
         val result = pipeline.onFrame(image, System.currentTimeMillis())
         val events = host.tick((result as? FrameResult.Ready)?.input)
         publisher.sizeMismatch = sizeGuard.mismatch
+        // The corners this frame was warped with — the overlay's board quad (D06b-4).
+        publisher.corners = pipeline.corners
         publisher.publish(host.status(), events, (result as? FrameResult.Skipped)?.note)
         observer.onFrameAvailable()
         align.maybeAlign(bus, delivered)

@@ -1,0 +1,188 @@
+package com.chesslab.tracker.service
+
+import com.chesslab.cnn.CnnConfig
+import com.chesslab.cnn.CnnRecovery
+import com.chesslab.engine.api.TrackerConfig
+import com.chesslab.geometry.BoardGeometry
+import com.chesslab.tracker.cnn.Attached
+import com.chesslab.tracker.cnn.CnnObserver
+import com.chesslab.tracker.pipeline.CameraStages
+import com.chesslab.tracker.pipeline.CropFrameStore
+import com.chesslab.tracker.pipeline.FramePipeline
+import com.chesslab.tracker.pipeline.FrameSizeGuard
+import com.chesslab.tracker.pipeline.StageTimings
+import com.chesslab.tracker.settings.SettingsRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
+import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * What a rebuilt tracker must NOT forget.
+ *
+ * A restart exists to apply the 34 construction-time knobs; it is not a reset. The position, the
+ * calibration and the corner alignment are the user's, not the config's, so they are handed to the
+ * new stack. Move HISTORY is not carried: `TrackerEngine` is seeded with a FEN, so undo starts
+ * empty after a restart (STATUS D07x-3).
+ */
+class TrackerSeed(
+    val config: TrackerConfig,
+    /** The LIVE geometry holder — calibration outlives a restart, and live-align reads it per tick. */
+    val geometry: () -> BoardGeometry,
+    /** Last accepted corners; null only before the first calibration or marker detection. */
+    val corners: FloatArray?,
+    val startFen: String,
+)
+
+/**
+ * Everything a tracker restart tears down and rebuilds — and, by omission, everything it does not.
+ *
+ * NOT here, on purpose: the [com.chesslab.tracker.camera.TrackerCamera] (exactly ONE
+ * `ProcessCameraProvider` binding may exist app-wide — MEMORY `android-single-camera-owner`; a
+ * restart retargets it instead), the [CameraFrameBus], the [StatusPublisher] and the
+ * [SettingsRepository]. The last three because the UI already collects their `StateFlow`s: a
+ * swapped flow instance is a screen that silently stops updating, which is the failure mode this
+ * whole pack exists to avoid.
+ */
+class TrackerStack(
+    seed: TrackerSeed,
+    settings: SettingsRepository,
+    publisher: StatusPublisher,
+    frames: CameraFrameBus,
+    timings: StageTimings,
+    parent: CoroutineScope,
+    openClassifier: () -> Attached,
+) : AutoCloseable {
+    /** A child of the service scope, cancelled with the stack: no collector outlives its stack. */
+    val scope = CoroutineScope(parent.coroutineContext + SupervisorJob())
+
+    private val cropStore = CropFrameStore()
+    private val guard = FrameSizeGuard()
+    private val pipeline =
+        FramePipeline(seed.config, CameraStages(seed.geometry(), seed.config, cropStore), cropStore, guard, timings)
+
+    val host =
+        engineHost(seed.config, CnnRecovery(cnnConfig(seed.config)), seed.startFen) { pipeline.onConfigChanged(it) }
+
+    /** 07b's crop tap. Inert until the debug switch arms it; the service re-arms it after a restart. */
+    val cropTap = DebugCropTap(cropFrameSource(cropStore, seed.geometry))
+
+    private val observed = AtomicLong()
+
+    /** Successful glances of THIS stack — a restart legitimately restarts the count. */
+    val observations: Long get() = observed.get()
+
+    val observer =
+        CnnObserver(
+            source = cropTap,
+            fen = { publisher.lastFen },
+            onSnapshot = {
+                observed.incrementAndGet()
+                host.submit(it)
+            },
+        )
+
+    val coordinator =
+        TrackerCoordinator(
+            pipeline,
+            host,
+            publisher,
+            frames,
+            observer,
+            LiveAlign(scope, seed.geometry, settings.config::value) { pipeline.corners = it },
+            guard,
+        )
+
+    init {
+        pipeline.corners = seed.corners
+        // Attaching is asynchronous and LOUD on failure: a silent one once let the tracker run
+        // diff-only for a whole session (MEMORY android-live-bringup-2607).
+        observer.attach(openClassifier)
+        observer.state.onEach { publisher.cnnState = it }.launchIn(scope)
+        settings.config
+            .onEach {
+                observer.setIntervalS(it.observerIntervalS)
+                observer.setEnabled(it.cnnVerify)
+            }.launchIn(scope)
+    }
+
+    /**
+     * Reverse construction order, and the observer first.
+     *
+     * It is the only member holding a thread and a native session, and it must stop before the
+     * pipeline it crops from: an observation that survived into a closed pipeline would read
+     * released OpenCV memory. The engine host needs no close — it is queues and plain objects,
+     * and the whole point of rebuilding it is that its thread claim goes with it.
+     */
+    override fun close() {
+        scope.cancel()
+        observer.close()
+        pipeline.close()
+    }
+}
+
+/**
+ * Owns the one live [TrackerStack] and performs the swap. Generic over [T] only so the ORDER can
+ * be asserted against a fake on the desktop JVM — the real stack needs OpenCV and ONNX natives.
+ *
+ * The order IS the contract: **detach, close, build**. Detaching first is what makes a frame
+ * arriving mid-restart a dropped frame instead of a call into a closed pipeline; closing before
+ * building is what keeps a restart from holding two ONNX sessions, two observer threads and two
+ * sets of full-resolution warps at once — on a phone that is an OOM, not an inefficiency.
+ */
+class StackSwitch<T : AutoCloseable>(
+    private val build: () -> T,
+) {
+    @Volatile
+    var current: T? = null
+        private set
+
+    fun restart() {
+        val old = current
+        current = null
+        old?.close()
+        current = build()
+    }
+
+    fun close() {
+        val old = current
+        current = null
+        old?.close()
+    }
+}
+
+/**
+ * Where the settings screen reaches the restart.
+ *
+ * [TrackerBinder] is the real API, but the only composable holding a binder is
+ * `ui/TrackerServiceBinding.kt`, which this change does not own — so the service publishes the
+ * action the same way it publishes the settings repository (STATUS D07a-2).
+ */
+object TrackerRestartHost {
+    private val current = MutableStateFlow<TrackerRestart?>(null)
+
+    val restart: StateFlow<TrackerRestart?> = current
+
+    fun publish(restart: TrackerRestart?) {
+        current.value = restart
+    }
+}
+
+fun interface TrackerRestart {
+    fun restartTracker()
+}
+
+/** The CNN-facing slice of [TrackerConfig]. Rebuilt with the stack, so a retuned threshold lands. */
+private fun cnnConfig(config: TrackerConfig) =
+    CnnConfig(
+        confThr = config.cnnConfThr,
+        minAgreement = config.cnnMinAgreement,
+        marginSquares = config.cnnMarginSquares,
+        minConfidentBoard = config.minConfidentBoard,
+        minConfidentRecovery = config.minConfidentRecovery,
+        recoveryMaxPlies = config.recoveryMaxPlies,
+    )

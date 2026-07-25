@@ -17,6 +17,9 @@ import com.chesslab.geometry.BoardGeometry
 
 internal const val NOTE_WAITING_MARKERS = "waiting for markers…"
 
+/** "Clear board" — what a disabled grid gate must never be able to act on. */
+internal const val GRID_GATE_OFF = 1.0
+
 /** What one camera frame produced. */
 sealed interface FrameResult {
     data class Ready(
@@ -129,7 +132,7 @@ class FramePipeline(
         timings.mark(Stage.GRAY)
         val motion = stages.roiMotion(pts)
         timings.mark(Stage.MOTION)
-        val coverage = stages.gridCoverage()
+        val coverage = gridCoverage()
         timings.mark(Stage.GRID)
         seq += 1
         // Last, and only on demand: the bordered full-resolution warp is the expensive one.
@@ -141,6 +144,15 @@ class FramePipeline(
         timings.maybeLog()
         return FrameResult.Ready(FrameInput(seq, gray, bgr, pts, motion, coverage, luma, timestampMs))
     }
+
+    /**
+     * Python computes the coverage inside `_occluded_by_grid`, i.e. only in the branches that
+     * consult it; here it is a plain `FrameInput` field, so the app cannot see the engine's
+     * branch. What it CAN see is the gate being switched off — `minGridLineCoverage <= 0` is the
+     * engine's own first line, before it even reads the value — and then the Canny pass is pure
+     * waste. Any value would do; [GRID_GATE_OFF] is the one that cannot gate anything.
+     */
+    private fun gridCoverage(): Double = if (config.minGridLineCoverage > 0) stages.gridCoverage() else GRID_GATE_OFF
 
     private fun darkNote(): String? =
         if (config.darkLumaThr > 0 && luma < config.darkLumaThr) {

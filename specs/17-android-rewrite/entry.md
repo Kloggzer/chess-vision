@@ -230,6 +230,10 @@ data class TrackerStatus(
     val stageTimingsMs: Map<String, Double>, // warp, gray, motion, evidence, veto, score, total
     val fps: Double,
     val note: String?,
+    // 8 floats [a8, h8, h1, a1] in SOURCE px (invariant 11), or null before the first calibration.
+    // The ENGINE never sets it — it owns no geometry; `:app`'s StatusPublisher fills in the corners
+    // the frame was warped with, so the preview overlay can draw the board quad (D06b-4).
+    val corners: FloatArray? = null,
     val debug: DebugPayload? = null,         // null unless debugEnabled — see 07b
 )
 

@@ -80,8 +80,9 @@ class CnnRuntimeProbe {
     @Volatile
     var lastRunMs: () -> Double = { 0.0 }
 
+    /** Pulled, not counted here: the counter belongs to the stack, and a restart restarts it. */
     @Volatile
-    var observations: Long = 0
+    var observations: () -> Long = { 0L }
 
-    fun info(): CnnRuntimeInfo = CnnRuntimeInfo(requestedEp, actualEp, model, inputShape, lastRunMs(), observations)
+    fun info(): CnnRuntimeInfo = CnnRuntimeInfo(requestedEp, actualEp, model, inputShape, lastRunMs(), observations())
 }

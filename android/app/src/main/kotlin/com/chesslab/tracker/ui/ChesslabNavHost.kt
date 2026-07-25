@@ -9,11 +9,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.chesslab.tracker.service.TrackerRestartHost
 import com.chesslab.tracker.ui.calibration.CalibrationRoute
 import com.chesslab.tracker.ui.debug.DebugRoute
 import com.chesslab.tracker.ui.settings.SettingsRoute
@@ -56,9 +59,13 @@ fun ChesslabNavHost(navController: NavHostController = rememberNavController()) 
             )
         }
         composable(ROUTE_SETTINGS) {
+            // Null until the service has published its restart action, and the settings screen
+            // renders the honest "close and reopen the app" text for exactly that window.
+            val restart by TrackerRestartHost.restart.collectAsStateWithLifecycle()
             SettingsRoute(
                 onBack = { navController.popBackStack() },
                 onOpenDebug = { navController.navigate(ROUTE_DEBUG) },
+                onRestartTracker = restart?.let { { it.restartTracker() } },
             )
         }
         // Reachable ONLY from the settings screen: `TrackerStatus.debug` is assembled while this
