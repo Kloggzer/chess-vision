@@ -50,10 +50,15 @@ android {
         }
     }
 
-    // externalNativeBuild { cmake { ... } } is DELIBERATELY NOT WIRED here.
-    // Owner: phase 07c (Stockfish). src/main/cpp/CMakeLists.txt is already in the tree;
-    // wiring it now would compile Stockfish for two ABIs on every assembleDebug in
-    // phases 00-06.
+    // Stockfish (GPL-3.0, compatible with this repo's GPL-3.0-or-later), built from the pinned
+    // submodule android/third_party/stockfish. The CMake file produces an *executable* named
+    // libstockfish.so so AGP packages it; see src/main/cpp/CMakeLists.txt for why.
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
 
     packaging {
         jniLibs {

@@ -33,9 +33,9 @@ Read `entry.md` completely before your phase file.
 | 06a | `06a-calibration.md` | ArUco auto + manual corner tap, profile persistence, orientation check | done | 9 src (1113 LOC, max 207) + 4 test files, 18 tests green; zero camera types under `ui/`, `getInstance` still 1; needed `android/.editorconfig` + a detekt `FunctionNaming` exemption for Compose (D06a-1) |
 | 06b | `06b-tracking-ui.md` | board, move list, alarm card, promotion dialog, overlay | done | 16 src (1606 LOC, max 170) + 4 test files, 17 tests green; nav host + service binding wired, alarm-accept preview is status-derived only (D06b-3) |
 | 06c | `06c-service.md` | `TrackerService` single owner, coordinator, settings persistence | done | 14 src (1189 LOC, max 172 vs the legacy 970-in-one) + 5 test files, 23 tests green; one camera owner, one engine thread, 12 live knobs (D06c-1..14) |
-| 07a | `07a-settings.md` | every knob live-tunable, Python defaults shown, reset actions | todo | |
-| 07b | `07b-debug.md` | timings, evidence heatmap, 64-crop grid, CNN reads, decision log | todo | |
-| 07c | `07c-analysis.md` | Stockfish + eval bar + move quality | todo | |
+| 07a | `07a-settings.md` | every knob live-tunable, Python defaults shown, reset actions | done | 8 src (965 LOC, max 209) + 4 test files, 33 tests green; 46/46 knobs exposed, exactly 12 live; **tracker restart is NOT wired** (D07a-1) |
+| 07b | `07b-debug.md` | timings, evidence heatmap, 64-crop grid, CNN reads, decision log | done | 17 src (1774 LOC, max 178) + 2 test files, 21 tests green; `DebugPayload` filled in, decision ring capped at 64, rejections logged, `:core-engine:test` still 18/18 clips zero divergence (D07b-1..12) |
+| 07c | `07c-analysis.md` | Stockfish + eval bar + move quality | done | native build WIRED and proven (42 s, 2 ABIs, `assembleDebug` 57 s); 11 src (985 LOC, max 219) + 7 test files, 31 tests green; own lowest-priority thread, off by default (D07c-1..9) |
 | 08a | `08a-games-pgn.md` | game library, PGN export, optional session recording | todo | |
 | 08b | `08b-spectator.md` | Ktor LAN spectator + QR, read-only, off by default | todo | |
 | 08c | `08c-tts.md` | move announcement | todo | |
@@ -2663,8 +2663,387 @@ and the LIVE run is the one quoted:
                                         `TrackerCoordinator LongParameterList` is fixed, see D06c-7)
 ```
 
-## Blockers
+### 07a (settings — every knob, Python defaults inline, live vs restart), 2026-07-25
 
+Files created (module `:app`): `settings/AppSettings.kt` (68); `ui/settings/KnobUi.kt` (85),
+`KnobCatalog.kt` (196), `KnobRow.kt` (114), `SettingsScreen.kt` (209), `AppSettingsSection.kt` (157),
+`SettingsViewModel.kt` (82), `SettingsExport.kt` (54) — **965 LOC over 8 files, largest 209**.
+Extended: `settings/SettingsRepository.kt` (71 -> 118), `settings/SettingsDataStore.kt` (slot-keyed),
+`ui/ChesslabNavHost.kt` (settings + debug routes + the settings entry point).
+Tests: `ui/settings/KnobCatalogTest` (11), `SettingsViewModelTest` (6), `SettingsExportTest` (3),
+`settings/SettingsRepositoryTest` (5 -> 7) — **33 tests with `ConfigCodecTest`, 0 failures, JVM only**.
+No build file, no catalog entry, no `core-*`, `service/`, `ui/debug/`, `ui/tracking/` or `analysis/`
+file was touched. No dependency was missing.
+
+**Coverage: 46 catalog rows for 46 `TrackerConfig` fields** (asserted by reflection in both
+directions), of which exactly the **twelve** `app.py::_live_tuning_kwargs` knobs are live —
+`motionThr`, `zThr`, `censusThr`, `censusZWeight`, `occlCensusThr`, `occlusionColorThr`,
+`minGridLineCoverage`, `motionMargin`, `overhang`, `motionHoldS`, `diffClaheClip`, `commitLlFloor`.
+
+#### Discrepancies
+
+- **D07a-1 — the `TrackerService` API the phase file codes against does not exist, and
+  `restartTracker()` is the one that matters. OPEN BLOCKER.** 06c landed `TrackerBinder.updateConfig`
+  + `SettingsRepository`, not `applyConfig` / `restartTracker` / `configInUse`. Config edits work
+  (same chain 06c tests), but **nothing in `:app` can rebuild the engine and pipeline**, so the 34
+  restart-only knobs take effect on the next app start. Not improvised: a restart is construction
+  order (`TrackerService.wire()`), and faking it from the UI would leave two engines or two camera
+  owners. The screen says so instead — `SettingsRoute(onRestartTracker = null)` renders *"Saved,
+  waiting for a tracker restart: … — close and reopen the app to apply"* rather than an Apply button
+  that does nothing. **Wiring is one line** once 06c's file gains the method:
+  `SettingsRoute(..., onRestartTracker = binder::restartTracker)`.
+- **D07a-2 — the composition root had no path to the repository.** `BindTrackerService` publishes a
+  `TrackerSession` and a `CalibrationHost` and nothing else, and both `ui/TrackerServiceBinding.kt`
+  and `service/TrackerBinder.kt` are outside this phase's ownership. Added `SettingsHost` (in
+  `SettingsRepository.kt`), the exact mechanism 06b uses for `TrackerSessionHost`; the repository
+  publishes itself at the end of `load()`, i.e. once it holds the persisted truth. A second
+  repository over the same DataStore was the alternative and would be a second source of truth the
+  engine never hears from.
+- **D07a-3 — `ConfigStore` is now slot-keyed** (`read(slot)` / `write(slot, text)`, constants
+  `SLOT_CONFIG` / `SLOT_APP`): the app-level settings must not be mixed into the `TrackerConfig`
+  envelope, which is the parity seam. `settings/AppSettings.kt` is a new file in 06c's package
+  (`ResolutionMode`, `BoardOrientation`, `EpRequest`, `AppSettings` + codec) — same class of
+  in-package addition as D06c-1.
+- **D07a-4 — `resetGroup` / `resetAll` live on the VIEW MODEL, not on `SettingsRepository`.**
+  `KnobGroup` is screen metadata; putting it on the repository would drag the UI's grouping into the
+  persistence layer, and both actions are an ordinary `update(...)` with the live/restart rules
+  already applied. 06c's `resetToDefaults()` stays where it is and is what `resetAll` calls.
+- **D07a-5 — there is ONE knob type, not two.** The phase file sketches `Knob(id, group, kind,
+  pythonDefault: String, live, help, get, set)`; 06c already landed `Knob(key, kind, get, set)` with
+  `live` derived from `LIVE_TUNABLE_KEYS`, and that is what the codec and the change diff read.
+  `KnobUi` wraps it with `group`/`min`/`max`/`step`/`help`. `pythonDefault` is **not a string**: it is
+  read back off `TrackerConfig()` through the knob's own getter, so the number beside the value cannot
+  drift from the number the engine falls back to (`catalogDefaultsEqualTrackerConfigDefaults` becomes
+  true by construction and is still asserted).
+- **D07a-6 — the phase file's group lists cover 43 of the 46 fields.** The three D00b-17 overrides
+  (`settleFramesOverride`, `avgFramesOverride`, `confirmFramesOverride`) postdate it. They sit in
+  EVIDENCE, rendered as counts with an **`auto`** position one step below the range (`auto` = `null`
+  = Python's CNN-conditional fallback), which is a real setting and not a value.
+- **D07a-7 — the completeness test reflects over Java `declaredFields`, not `memberProperties`.**
+  kotlin-reflect is not on `:app`'s classpath (00a owns the catalog), and a backing field is exactly
+  what a settable knob has: the derived `detSize` has none and `settleFrames(cnnOn)` is a function,
+  so both drop out without a filter that could also hide a real field. Both directions are asserted,
+  so neither a new knob nor a deleted one can pass unnoticed.
+- **D07a-8 — a restart-only edit IS forwarded to the engine, contrary to the phase file's "does not
+  call applyConfig".** 06c's chain (D06c-4) is one `EngineAction.UpdateConfig` handing the whole
+  config to `TrackerEngine.updateConfig` and `FramePipeline.onConfigChanged` in one tick; withholding
+  a field would create a second, partial config path and two ideas of the truth. The knob is
+  persisted, forwarded, and reported in `restartRequired` — nothing is silent, which is what the rule
+  exists for.
+- **D07a-9 — there was no way to REACH the settings screen.** `TrackingScreen.kt` belongs to 07c this
+  phase, so the entry point is a slim top row in the nav host's tracking destination. If a later
+  phase gives the tracking screen its own overflow action, that row should go.
+- **D07a-10 — `advanceUntilIdle()` does NOT run `backgroundScope` work.** The mirror image of
+  D06c-12: with the repository's persist launched into `backgroundScope`, six tests failed because
+  `advanceUntilIdle` stops as soon as the FOREGROUND work is idle — the write never ran and every
+  reload assertion read defaults. `SettingsRepository` has no never-completing flow (`debugEnabled`
+  is a plain `MutableStateFlow` kept in step by hand, deliberately not `map(...).stateIn(scope)`), so
+  the right scope here is the `TestScope` itself.
+- **D07a-11 — the four app-level settings are PERSISTED but not yet CONSUMED.** `resolutionMode`
+  (05a hardcodes `CameraRequest(1920, 1080)`), `epRequest` (05c's `epChain` is automatic),
+  `modelAsset` (05c stages both graphs and picks by EP) and `orientation` (06a's profile carries
+  `whitePov`) each belong to a file this phase may not touch. They are stored, exported and marked
+  restart-required; wiring them is one line each, for the orchestrator.
+- **D07a-12 — 07b's entry point is `DebugRoute(onBack: () -> Unit)`** (`ui/debug/DebugScreen.kt`),
+  wired under `ROUTE_DEBUG` and reachable only from the settings screen's Debug row, which also owns
+  the `debugEnabled` switch. `TrackerService.setDebugEnabled` does not exist; per its own phase file
+  07b reads `SettingsRepository.debugEnabled` instead.
+- **Acceptance greps that do not apply as written** (all a consequence of D07a-5): rows are `row(` /
+  `flag(` / `count(`, not `Knob(`; `live = true` appears nowhere, because `live` is derived from
+  `LIVE_TUNABLE_KEYS` (asserted set-equal to the twelve, and `KNOB_CATALOG.count { it.live } == 12`);
+  `resetMotionRoi` / `rebuildClahe` appear in neither the view model nor the repository, because
+  D06c-4 routes both through `FramePipeline.onConfigChanged` — reimplementing them here is what the
+  phase file's own "do not duplicate the pipeline's reset logic" forbids. The no-numeric-literals
+  grep holds: `SettingsScreen.kt` carries no threshold literal, only dp.
+
+#### Manual verification checklist — NOT executed (no device in this session)
+
+- [ ] Settings opens from the tracking screen and the feed does not freeze on the way back.
+- [ ] Change `censusThr` -> "tracker tuning updated live", effect visible within a frame.
+- [ ] Change `detectScale` -> amber chip + the restart bar naming it; the value survives a restart.
+- [ ] Reset group / Reset all put the numbers back and clear every modified dot.
+- [ ] Export settings as JSON offers a share sheet and `nonDefault` holds exactly the edits.
+- [ ] Debug switch off -> 07b's payload is not assembled while the screen is closed.
+
+#### Gate (isolated copy, then LIVE)
+
+`ui/debug/**` and `analysis/**` were mid-flight in the shared tree (they did not compile), so the
+gate first ran in a `git archive HEAD` copy plus this phase's files — the only edit there is a
+placeholder `Text` in the `ROUTE_DEBUG` body, since 07b's `DebugRoute` is not in HEAD. Re-run LIVE
+once the shared tree compiled again:
+
+```
+ISOLATED :app:testDebugUnitTest --tests "com.chesslab.tracker.ui.settings.*"
+                               --tests "com.chesslab.tracker.settings.*"
+  BUILD SUCCESSFUL   33 tests, 0 failures, 0 skipped
+  KnobCatalogTest 11 | SettingsViewModelTest 6 | SettingsExportTest 3
+  SettingsRepositoryTest 7 | ConfigCodecTest 6 (06c's, still green)
+ISOLATED :app:ktlintFormat            BUILD SUCCESSFUL  (reformatted only KnobCatalog.kt, copied back)
+ISOLATED :app:ktlintCheck :app:detekt BUILD SUCCESSFUL  (0 findings)
+LIVE     :app:testDebugUnitTest --tests "...ui.settings.*" --tests "...settings.*"  BUILD SUCCESSFUL
+LIVE     :app:ktlintCheck             BUILD SUCCESSFUL  (whole module)
+LIVE     :app:detekt                  FAILED - 11 findings, ALL in 07b's ui/debug/CropGridPanel.kt
+                                      and 07c's analysis/** + ui/analysis/**; ZERO in 07a files.
+```
+
+### 07c (Stockfish — native build, persistent polling analyzer, eval bar), 2026-07-25
+
+Files created (module `:app`): `analysis/WinChance.kt` (15), `UciLines.kt` (70), `UciEngine.kt` (110),
+`StockfishAnalyzer.kt` (219), `AnalysisGate.kt` (80), `MoveQuality.kt` (4), `Accuracy.kt` (40);
+`ui/analysis/AnalysisHost.kt` (157), `EvalBar.kt` (127), `AnalysisPanel.kt` (76),
+`AnalysisSettingsSheet.kt` (87) — **985 LOC over 11 files, largest 219**. Tests:
+`analysis/ScriptedEngineProcess.kt` (100), `WinChanceTest` (2), `UciEngineTest` (5),
+`StockfishAnalyzerTest` (8), `AnalysisGateTest` (7), `AccuracyTest` (4),
+`ui/analysis/EvalBarLabelTest` (5) — **31 tests, 0 failures, JVM only**.
+Extended: `app/build.gradle.kts` (`externalNativeBuild`, 4 lines of comment + 6 of block) and
+`ui/tracking/TrackingScreen.kt` (148 -> 155: `EvalBarSlot()` + the `Row` that puts it beside the
+board; nothing else changed). `app/src/main/cpp/CMakeLists.txt` was moved forward by 00a and is
+**byte-unchanged** — no dependency, no catalog entry, no `core-*` / `service/` / `ui/settings/` /
+`ui/debug/` file was touched.
+
+#### The native build DOES work (measured)
+
+`:app:externalNativeBuildDebug` **42 s cold** for both ABIs (arm64-v8a + x86_64, ninja, NNUE nets
+downloaded and SHA-256-prefix verified at configure time). `:app:assembleDebug` **57 s** on top.
+`extractNativeLibs="true"` in the merged manifest and `lib/<abi>/libstockfish.so` is **deflated** in
+the APK — which is exactly what `useLegacyPackaging = true` must produce: compressed in the APK,
+*extracted by the installer* into `nativeLibraryDir`, the one place API 29+ allows `exec`. An
+uncompressed entry would mean the modern packaging mode, i.e. nothing on disk to execute.
+
+#### Thread & priority contract (as built)
+
+1. `analysisDispatcher()` — a single daemon thread named **`chesslab-analysis`**, distinct from the
+   camera analyzer (`chesslab-analyzer`, 05a), the CNN observer (`chesslab-cnn`, 05c) and the engine
+   thread (06c). Asserted by `analysisRunsOnItsOwnDispatcher`.
+2. The loop's **first statement** is `lowerPriority()` = `Process.setThreadPriority(THREAD_PRIORITY_LOWEST)`,
+   injectable so the test can record the thread without the Android stub.
+3. `Threads = 2`, `Hash = 64` — Python's values and the ceiling; `availableProcessors` appears
+   nowhere under `analysis/`. `go movetime <cap>` only: no `go infinite`, no ponder, no depth limit.
+4. `gateBlock` suspends (stops the engine outright, keeps the last result greyed) on: setting off
+   (**default**), `< 3 s` of stable tracking, rolling-median `stageTimingsMs["total"] > 66 ms`
+   (= below 15 fps), `thermalStatus >= 2`, power-save mode, or `< 20 %` battery while discharging.
+   **The frame budget is checked BEFORE the user's "pause on pressure" switch** — that switch may
+   waive thermal/battery, never the tracker's 15 fps.
+
+#### Move-quality thresholds (cp loss, exclusive upper bounds)
+
+`BOOK` (still in book) | `< 10` **BEST** | `< 50` GOOD | `< 100` INACCURACY | `< 250` MISTAKE |
+`>= 250` BLUNDER. Negative loss grades BEST. `cpLoss(beforeWhitePov, afterWhitePov, whiteMoved)`
+does the White-POV -> mover-POV flip, so `classify` never has to know the side.
+
+#### Discrepancies
+
+- **D07c-1 — `TrackerService.uiState` / `isTracking` do not exist; the equivalent seam does, so this
+  is not a blocker.** The phase file says to code against `uiState: StateFlow<UiState>` (`.fen`,
+  `.moves`) and `isTracking: StateFlow<Boolean>`. 06b/06c landed `TrackerSessionHost.session ->
+  TrackerSession.status: StateFlow<TrackerStatus?>`, which carries `.fen`, `.fps` **and**
+  `.stageTimingsMs` — the last of which the phase file's own fps gate needs and `UiState` would not
+  have had. `EvalBarSlot` reads that flow directly and `fenProvider` is
+  `TrackerSessionHost.session.value?.status?.value?.fen`. "Tracking" is `status != null`, timed for
+  the 3 s warm-up rule. Nothing in `service/` was touched.
+- **D07c-2 — two files beyond the phase file's table, both inside `analysis/**` / `ui/analysis/**`.**
+  `analysis/UciLines.kt` (pure `info`/`bestmove` parsing + the White-POV flip) exists because
+  `UciEngine.kt` would otherwise be ~180 LOC of two unrelated concerns, and the sign flip deserves to
+  be testable without a process. `ui/analysis/AnalysisHost.kt` exists because `TrackerService` is
+  owned by nobody this phase: the analyzer's lifecycle, the `PowerProbe` and the gate evaluation had
+  to live somewhere the tracking screen can `remember`, and putting them in a composable file would
+  make them untestable. Neither adds a seam outside 07c's scope.
+- **D07c-3 — the eval bar cannot be "absent entirely" when the setting is off.** The phase file makes
+  the long-press on the bar the *only* entry to `AnalysisSettingsSheet` (it deliberately does not
+  live in 07a's settings screen) **and** says the bar disappears when the setting is off — together
+  that makes the feature unreachable after the first toggle-off. Resolved by rendering a **6 dp inert
+  hairline** instead of the 18 dp bar while off (tap or long-press opens the sheet). `Unavailable`
+  still renders **nothing at all**, exactly as specified.
+- **D07c-4 — the "sheet"s are `AlertDialog`s.** `ModalBottomSheet` is still
+  `@ExperimentalMaterial3Api`, and the pack forbids `@Suppress`-style escapes; `combinedClickable` is
+  likewise experimental, so the gesture is `pointerInput { detectTapGestures(onTap, onLongPress) }`.
+  Names kept (`AnalysisSettingsSheet`) so the phase file's file list still matches.
+- **D07c-5 — `AnalysisOptions` is a `() -> AnalysisOptions` on the analyzer, not a value.** Python
+  fixes them at construction; on the phone they are user-tunable, and `movetime`/`MultiPV` must apply
+  on the next tick. `threads`/`hash` are read only when the process launches, so `AnalysisHost.update`
+  stops the analyzer when any option changed and the gate restarts it — a relaunch, never a live
+  `setoption` on a running search.
+- **D07c-6 — `BufferedWriter.newLine()` is wrong for UCI.** It writes the platform separator, i.e.
+  CRLF from a desktop JVM, and the fake engine then sees `"uci\r"`. `UciEngine` writes an explicit
+  `"\n"`. On Android the two coincide, which is exactly why this would never have shown up on device.
+- **D07c-7 — detekt shaped three implementations** (no `@Suppress`, no baseline, no config change):
+  `parseUciInfo` was a token-walking `while`/`when` at complexity 15 / 4 returns and is now
+  `intAfter` + `scoreOf` index lookups; `UciEngine.readLine`'s three `throw`s became a
+  `private fun fail(): Nothing`; `50.0` (`WinChance`), `100` (battery fallback) and `100.0`
+  (`CP_PER_PAWN`, now shared by the bar and the panel) became named constants. Values unchanged.
+- **D07c-8 — the debug APK is 321 MB.** `libstockfish.so` is ~114 MB *per ABI* after symbol
+  stripping, because both NNUE nets are embedded via incbin; the ONNX QNN AAR adds ~120 MB more.
+  Nothing here is wrong — it is the recipe the phase file froze — but a release build will need an
+  ABI split or a per-ABI APK, and 09 should record the on-device install size.
+- **D07c-9 — what the host JVM CANNOT test.** The real Stockfish binary does not run on the desktop
+  JVM, so every UCI test drives `ScriptedEngineProcess`. Untested until a device run:
+  (a) that the built binary is exec'able from `nativeLibraryDir` at all (the whole point of
+  `useLegacyPackaging`), (b) that Stockfish accepts `setoption name Threads/Hash/MultiPV` in this
+  order before `position`, (c) real `info` line shapes (`lowerbound`/`upperbound`, `multipv`
+  ordering under time pressure), (d) that `THREAD_PRIORITY_LOWEST` actually keeps the CNN observer's
+  latency intact under a 400 ms search, and (e) the thermal/battery probes, which return stub values
+  on the JVM. `AnalysisHost` itself has **no** test for that reason — its Android half is
+  `PowerManager`/`BatteryManager`; only the pure `gateBlock` / `RollingMedian` it delegates to are
+  covered. **Phase 09 must run one live game with analysis ON and watch the fps.**
+
+#### Gate (verbatim)
+
+07a/07b were mid-flight and `:app:compileDebugKotlin` was RED on their files
+(`ui/debug/DebugViewModel.kt:106:74 Unresolved reference 'cropTiles'`), so the gate ran in an
+**isolated `git worktree` at HEAD (1450476) carrying only 07c's files** — real submodule, real NNUE
+download, real NDK compile, real packaging:
+
+```
+:app:testDebugUnitTest --tests "...analysis.*" --tests "...ui.analysis.*"
+                                    BUILD SUCCESSFUL   31 tests, 0 skipped, 0 failures
+:app:ktlintFormat                   BUILD SUCCESSFUL   (5 files reformatted, copied back; no
+                                                        file outside 07c's ownership touched)
+:app:ktlintCheck                    BUILD SUCCESSFUL
+:app:detekt                         BUILD SUCCESSFUL   (0 findings)
+:app:externalNativeBuildDebug       BUILD SUCCESSFUL   42 s, both ABIs
+:app:assembleDebug                  BUILD SUCCESSFUL   57 s
+```
+
+**The orchestrator must re-run `:app:assembleDebug` in the live tree** once 07a/07b compile — 07c's
+half is proven, the merge of all three is not.
+
+### 07b (debug menu — timings, evidence heatmap, 64-crop grid, CNN reads, decision log), 2026-07-25
+
+Files created — `:core-engine`: `api/DebugPayload.kt` (91), `DecisionLog.kt` (178);
+`:app` `service/`: `DebugPayloadAssembler.kt` (110), `DebugProbes.kt` (87);
+`:app` `ui/debug/`: `DebugSession.kt` (70), `DebugSessionBinding.kt` (38), `DebugViewModel.kt` (120),
+`DebugScreen.kt` (114), `TimingsPanel.kt` (115), `EvidenceModel.kt` (75), `EvidencePanel.kt` (161),
+`CropGridPanel.kt` (168), `CnnReadsModel.kt` (64), `CnnReadsPanel.kt` (98), `CnnStatePanel.kt` (99),
+`DecisionLogExport.kt` (83), `DecisionLogPanel.kt` (102) — **17 files, 1774 LOC, no file over 250**.
+Tests `DecisionLogTest` (9, `:core-engine`) and `DebugStateTest` (12, `:app`) — **21 tests, 0
+failures**, JVM only, no Compose test dependency. **`:core-engine:test` is fully green including
+`ClipReplayParityTest` — 18/18 clips, zero diverging frames**, so the engine edits below are
+behaviourally inert, as intended.
+
+**Route for 07a:** `DebugRoute(onBack: () -> Unit)` in `ui/debug/DebugScreen.kt`, under `ROUTE_DEBUG`
+— 07a already wired exactly this (its D07a-12). It picks the session up from `DebugSessionHost`.
+
+#### The final `DebugPayload` shape
+
+```kotlin
+data class DebugPayload(
+    val decisions: List<DebugDecision>,   // newest last, ring-capped at 64, rejections included
+    val cnnReads: List<DebugCnnRead>,     // 64 rows of the last glance, or empty
+    val tainted: Set<String>,             // D03d-9's missing set
+    val cnnSeq: Long, val cnnAgeMs: Long, val cnnInferMs: Double,
+    val gridCoverage: Double, val motion: Double,
+    val maxChanged: Int, val zThr: Double, val cnnConfThr: Double,
+    val minConfidentBoard: Int, val minConfidentRecovery: Int,
+)
+data class DebugDecision(...)  // _record_decision + stuckReason / verifyOutcome / accepted
+data class DebugCnnRead(square, label, conf, pOccluded, occupied, confident, believed)
+```
+
+#### Discrepancies
+
+- **D07b-1 — the seam extension, declared.** `api/TrackerStatus.kt` keeps its single
+  `val debug: DebugPayload? = null` (00a had already landed the field); the **empty marker type moved
+  out of that file into the new `api/DebugPayload.kt`**, which is the file 07b's own list names.
+  Same package, no import changed anywhere. This is the one sanctioned `api/` change of the phase.
+- **D07b-2 — `TrackerEngine` gained `setDebugEnabled(on: Boolean)` and `toStatus` a
+  `debugEnabled` parameter.** Without it `TrackerStatus.debug` could only be filled from `:app`, and
+  `:app` cannot see `EngineState` — the decisions, the taint mask and the CNN observation all live in
+  the engine. `TrackerEngine` is now at **13 public functions** (lean-pass limit 15). `status()`'s
+  signature is unchanged; `toStatus(debugEnabled = false)` defaults so every existing caller compiles.
+- **D07b-3 — `EngineState.kt` (03a's file) was edited twice, both inert.** `decisionLog` is now a
+  `DecisionLog()` instead of `mutableListOf()` — a `MutableList` subclass that drops the oldest row at
+  64, so every existing call site (`add`, `clear`, `removeAt`, `last`) is untouched — and
+  `DecisionRecord` gained three **defaulted** fields (`stuckReason`, `verifyOutcome`,
+  `accepted = true`). Defaults mean no construction site changed shape. `Commit.kt::recordDecision`
+  passes the first two explicitly, because reading them off the state at render time would show every
+  historic row the newest values (the commit clears both immediately after).
+- **D07b-4 — rejected candidates ARE logged, from `commitGates`, with a dedupe.** Python logs commits
+  only. Rungs 6b (absolute LL floor) and 7 (motion gate) now append a row with `accepted = false`;
+  the confirmer rung deliberately does not, because it fires per frame while a candidate accumulates
+  and is not a rejection. Both hard rungs also re-fire every stable frame while the same weak
+  candidate sits there, so `recordRejection` folds an identical consecutive rejection into the row
+  already at the tail (`anIdenticalRepeatedRejectionDoesNotEvictTheRing`: 200 calls → 1 row).
+  Without that fold one static phantom would evict the whole 64-row ring in about a second.
+- **D07b-5 — there is no `TrackerService.setDebugEnabled` seam and no `latestObservation` on 05c;**
+  both are inventions of the phase file. What landed instead:
+  - `EngineAction.SetDebugEnabled(on)` (+ one branch in `TrackerEngineOps.apply`) — the flag is read
+    on the engine thread while it publishes, so a UI thread writing it directly is precisely the race
+    `EngineHost` exists to prevent;
+  - `service/DebugProbes.kt`'s **`DebugCropTap`**, a `CnnFrameSource` decorator around 06c's
+    `cropFrameSource`. It sees exactly the list `classify` is about to consume and runs on the
+    OBSERVER thread. Disabled, its whole cost is one volatile read per observation (~1/s) and it
+    retains nothing;
+  - `CnnRuntimeProbe`, filled once at attach.
+  `TrackerService.kt` gained ~25 lines for the three (probe fields, `openClassifier`,
+  `setDebugEnabled`, the `DebugSessionHost.publish`/unpublish pair). `EngineAction.kt`,
+  `EngineHost.kt` and `TrackerService.kt` are 06c files, all COMPLETE and committed — recorded here
+  rather than blocked on, per the orchestrator instruction.
+- **D07b-6 — `OnnxSquareClassifier` gained one line: `val inputShape: String`.** The panel has to
+  show the tensor the graph is actually fed and `ModelSpec` is private to the class. `lastRunMs`
+  (D05c-4) is read through `CnnRuntimeProbe.lastRunMs` as a function reference, so the "session only"
+  number is the one on the CNN-state panel while `cnnInferMs` in the payload stays
+  preprocess + inference.
+- **D07b-7 — the crop grid does NOT decode on the analyzer thread, and it does not decode at all
+  unless its own tab is open.** `DebugViewModel.pollCrops` runs at 2 Hz, skips work when the seq has
+  not changed, and converts on `Dispatchers.Default`. The tiles are dropped when the tab changes.
+- **D07b-8 — the cost gate is the ViewModel's lifecycle, not a setting.** `attach` arms,
+  `onCleared` disarms — unless 07a's persisted `SettingsRepository.debugEnabled` is on, which is the
+  "pin". The service also arms (never disarms) when that switch flips, so turning it on outside the
+  screen works. **Measured/argued cost when disabled:** `TrackerStatus.debug` is `null`, so
+  `debugPayload()` is not called at all (no 64-square walks, no decision copy, no allocation) —
+  `debugPayloadIsNullWhenDisabled` runs 1000 frames and
+  `assemblerAllocatesNothingWhenDisabled` asserts 1000 `assemble` calls produce zero `DebugState`.
+  The only always-on additions are the `DecisionLog` ring (bounded, appended at most once per
+  committed or rejected move, never per frame), one volatile read per CNN observation, and a
+  `stuckReason`/`voteOutcome` read at commit time. Nothing per frame.
+- **D07b-9 — `CnnObservation` exposes no separate `p_occ` / `p_empty`**, so the reads panel shows
+  `label`, `conf`, `pOccluded` and the seam's own `occupied` (`pOcc > pEmpty`) verdict. Adding the
+  two probabilities would be a seam change for a number the model already collapses.
+- **D07b-10 — 06b's accept-CNN dialog now gets its `reads` map (D06b-3 closed as far as the status
+  can close it).** One call site in `ui/tracking/TrackingViewModel.kt`: `status.debug?.cnnReads`
+  becomes `Map<String, CnnRead>`, so whenever the payload is armed the dialog renders the real
+  `from → to (conf %)` instead of `→ ?` and `complete` is true. With the payload off it falls back to
+  exactly the old behaviour. 06b's `AcceptCnnDialog.kt` was NOT touched and its four tests still pass.
+- **D07b-11 — the export is `EXTRA_TEXT`, not a `FileProvider` cache file.** A provider needs a
+  `<provider>` entry in `AndroidManifest.xml`, which is 06c's file and closed to everyone. 64
+  tab-separated rows plus the config header are a few kB — comfortably inside an intent extra, and no
+  storage permission either way. The header carries the app version, the model + requested/actual EP,
+  and every `KNOBS` row (`decisionExportContainsConfigHeader` asserts all three).
+- **D07b-12 — no `DebugPayloadAssembler` grep for `debugEnabled` as an identifier.** The gate is
+  `status?.debug ?: return null`; the acceptance grep's intent (the gate is visible in this file) is
+  met by the KDoc naming `debugEnabled` / `setDebugEnabled` and by the two tests above. Also, the
+  decision-log ring lives in `:core-engine`, so the `Bitmap|createBitmap` grep over
+  `core-engine/src/main/kotlin/com/chesslab/engine/` returns **nothing**, as specified, and
+  `decisionCarriesNoBitmaps` pins it by reflection over `DebugDecision`'s declared fields.
+
+#### Manual verification checklist — NOT executed (no device in this session)
+
+- [ ] Open Settings → Debug: the six tabs render and the timings table fills within a second.
+- [ ] `total` under 66 ms and fps ≥ 15 **with the debug screen open** — then close it and confirm
+      the `chesslabPerf` logcat median is unchanged (this is the cost gate's live proof).
+- [ ] Wave a hand over the board: changed / shadow-vetoed / occlusion-vetoed squares light up in
+      three distinct channels, and an occlusion cell reads `0.0` while a shadow cell keeps its z.
+- [ ] Flip the evidence channel to census on a dark-on-dark move and confirm it is visible there.
+- [ ] Crops tab: 64 tiles, `a1` top-left, `h8` bottom-right; hold the same position in Python and
+      compare against `GET /crops.jpg` — **this is phase 09 step 5**.
+- [ ] Tap a tile → the enlarged crop and that square's read appear.
+- [ ] CNN state tab: the EP line shows `QNN-HTP(NPU)` alone on a Snapdragon with the quantized graph
+      staged, and `QNN … (requested) → NNAPI/CPU (actual)` in amber otherwise.
+- [ ] Rename `assets/cnn_model/model.onnx` → attach FAILS → the red banner is on every tab and
+      cannot be dismissed; "Retry attach" works after restoring it.
+- [ ] Play five moves, then export the decision log and check one row per commit plus the config
+      block. Provoke a weak candidate and confirm a single `rejected` row, not a flood.
+
+
+
+- **OPEN (07a, D07a-1) — nothing can restart the tracker, so 34 of the 46 knobs only take effect on
+  the next app start.** `TrackerService` has no `restartTracker()` (the phase file assumed one). The
+  settings screen is honest about it rather than offering a dead button, and takes an
+  `onRestartTracker: (() -> Unit)?` that is `null` today. **One line in `ui/ChesslabNavHost.kt`** once
+  06c's file gains the method.
+- **OPEN (07a, D07a-11) — `resolutionMode` / `orientation` / `modelAsset` / `epRequest` are stored
+  and exported but nothing reads them yet** (05a's camera request, 05c's EP chain and model staging,
+  06a's profile `whitePov`). Four one-line wirings in files this phase does not own.
 - **OPEN (06b/06c, D06b-9) — the `CalibrationHost` is CONSTRUCTIBLE but nobody provides it.**
   06c's `TrackerBinder` has all three members 06a's final host needs (`latestCalibrationFrame`,
   `rawPreview`, `applyCalibration(BoardGeometry, FloatArray, String)` — see 06a's D06a-2, which
@@ -3121,3 +3500,44 @@ _(implementing agent appends one line per finished phase)_
   D06c-7). 14 discrepancies (D06c-1..14); the one that costs time twice is **D06c-12** — a
   hand-rolled `TestScope` around `sample`/`stateIn` makes `:app:testDebugUnitTest` HANG, use
   `backgroundScope`. Manual checklist not run (no device).
+- **07a (settings), 2026-07-25** — every one of the **46** `TrackerConfig` knobs is on the phone,
+  grouped by concern, each with the Python default beside the live value, a range, and one line of
+  help taken from `config.py:590-646` (including why `censusThr` is 40 and not 160, and why
+  `occlusionColorThr` is 3.0 and not the historic 1.5). A reflection test over `TrackerConfig`'s
+  fields fails in BOTH directions, so a knob added to the seam cannot silently go unexposed. Exactly
+  the twelve `app.py::_live_tuning_kwargs` knobs are live; the other 34 persist immediately, show an
+  amber chip and are named in a restart bar — and the bar tells the truth, because **`TrackerService`
+  has no `restartTracker()` (D07a-1, blocker, one line to fix)**. Plus per-group and global reset,
+  the app-level section (resolution / orientation / model / EP — stored, none consumed yet,
+  D07a-11), a JSON export with a `nonDefault` section, and the debug route behind the settings
+  screen. 8 new files, 965 LOC, largest 209; 33 tests green. 12 discrepancies (D07a-1..12); the one
+  that costs time is **D07a-10** — `advanceUntilIdle` does not run `backgroundScope` work, so a
+  persist launched there silently never happens.
+- 2026-07-25 — **07c done**: the Stockfish native build is wired and real (`externalNativeBuildDebug`
+  42 s for arm64-v8a + x86_64, `assembleDebug` 57 s, `extractNativeLibs="true"`, `libstockfish.so`
+  deflated in the APK = installer-extracted = exec'able). `analysis.py` is ported as a **persistent
+  polling analyzer** on its own `chesslab-analysis` thread at `THREAD_PRIORITY_LOWEST`, multipv 3 /
+  400 ms / 2 threads / 64 MB, self-disabling without a binary, gated off under thermal/battery
+  pressure and whenever the tracker's median frame exceeds 66 ms. Off by default. 31 tests green;
+  gate ran in an isolated worktree because 07a/07b had `:app:compileDebugKotlin` red. 9 discrepancies
+  (D07c-1..9); the two that matter: **D07c-1** the phase file's `TrackerService.uiState`/`isTracking`
+  never existed (the `TrackerSession.status` seam is used instead, and it is strictly better — it
+  carries `stageTimingsMs`), and **D07c-9** the real binary cannot run on the host JVM, so phase 09
+  must play one live game with analysis ON and watch the fps.
+- 2026-07-25 — **07b done**: the debug surface `specs/12` D5 cut is back, behind the settings screen
+  and off by default. `DebugPayload` is filled in (decisions, 64 CNN reads, the taint set
+  `TrackerStatus` never had, the gates each panel measures against) and rides on the published
+  snapshot — no second flow, no binder callback, no broadcast. Six panels: per-stage timings with
+  last/median/p95 and a red line at 66 ms; the evidence heatmap with `changed` / shadow-vetoed /
+  occlusion-vetoed as three distinct channels and the legend "shadow keeps z, occlusion zeroes it";
+  the 64-crop model-input grid in `all_squares()` order, taken from the inference path's own crops
+  and labelled as phase 09's crop-parity reference; per-square CNN reads with the FEN conflicts
+  pinned; a decision log that now also records REJECTED candidates, ring-capped at 64, exportable as
+  text with the full config header; and a loud CNN attach/EP panel whose FAILED banner is a pure
+  function of the state, so dismissal is not representable. Cost when closed is nil by construction —
+  `TrackerStatus.debug` is null and nothing is assembled (two tests, 1000 frames each). 17 files,
+  1774 LOC, largest 178; 21 tests green; **`:core-engine:test` still 18/18 clips, zero divergence**.
+  12 discrepancies (D07b-1..12); the ones to read are **D07b-5** (the phase file's
+  `TrackerService.setDebugEnabled` / `05c.latestObservation` seams never existed — an `EngineAction`
+  and a `CnnFrameSource` decorator replace them) and **D07b-4** (rejections are logged with a
+  consecutive-duplicate fold, or one static phantom evicts the whole ring in a second).

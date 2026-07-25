@@ -216,6 +216,10 @@ internal fun EngineState.recordDecision(
             cnnRun = cnnRun,
             cnnAgreement = roundTo(cnnAgreement, ROUND_3),
             cnnBestMove = cnnBestMove,
+            // Captured HERE, not read off the state when the debug screen renders: by then the
+            // commit has cleared both and every historic row would show the newest values.
+            stuckReason = stuckReason,
+            verifyOutcome = pending?.voteOutcome,
         ),
     )
 }

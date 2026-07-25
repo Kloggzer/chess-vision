@@ -29,4 +29,13 @@ sealed interface EngineAction {
     data class UpdateConfig(
         val config: TrackerConfig,
     ) : EngineAction
+
+    /**
+     * Arms `TrackerStatus.debug` (07b). It is an action, not a setter, for the same reason as
+     * everything else here: the flag is read on the engine thread while it publishes a status, and
+     * a UI thread writing it directly would be the one race this architecture exists to prevent.
+     */
+    data class SetDebugEnabled(
+        val on: Boolean,
+    ) : EngineAction
 }

@@ -73,6 +73,9 @@ class OnnxSquareClassifier internal constructor(
     private val batch = ALL_SQUARES.size
     private val shape = longArrayOf(batch.toLong(), CHANNELS.toLong(), spec.outHeight.toLong(), spec.outWidth.toLong())
 
+    /** The tensor the graph is actually fed, for 07b's debug screen. */
+    val inputShape: String get() = shape.joinToString("x")
+
     // Direct and reused: ORT reads the tensor from native memory, and reallocating 12 MB per
     // observation would churn the heap at observer rate.
     private val input: FloatBuffer =

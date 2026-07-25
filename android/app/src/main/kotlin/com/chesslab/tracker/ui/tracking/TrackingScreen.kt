@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.chesslab.tracker.ui.analysis.EvalBarSlot
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.Danger
@@ -55,11 +56,17 @@ private fun TrackingScreen(viewModel: TrackingViewModel) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         StateHeader(ui)
-        BoardCanvas(
-            fen = ui.fen,
-            lastMoveUci = viewModel.lastMoveUci,
-            alarmed = ui.boardTinted,
-        )
+        // The eval bar is optional, gated and self-contained (07c) — it reads the tracker's status
+        // itself and renders nothing when no engine shipped for this ABI.
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            EvalBarSlot()
+            BoardCanvas(
+                fen = ui.fen,
+                modifier = Modifier.weight(1f),
+                lastMoveUci = viewModel.lastMoveUci,
+                alarmed = ui.boardTinted,
+            )
+        }
         ui.alarm?.let {
             AlarmCard(
                 alarm = it,

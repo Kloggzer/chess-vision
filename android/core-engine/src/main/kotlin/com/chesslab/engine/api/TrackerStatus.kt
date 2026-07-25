@@ -1,14 +1,5 @@
 package com.chesslab.engine.api
 
-/**
- * Empty marker for the on-device debug surface. Phase 07b owns this type and fills in its
- * fields (timings, evidence heatmap, 64-crop grid, CNN reads, decision log); phase 00a only
- * declares it so [TrackerStatus] can carry it from day one.
- */
-data class DebugPayload(
-    val placeholder: Unit = Unit,
-)
-
 // TrackerStatus.kt — an immutable snapshot for the UI. The debug screen is a pure
 // function of this; no phase may add a side channel to the UI.
 data class TrackerStatus(

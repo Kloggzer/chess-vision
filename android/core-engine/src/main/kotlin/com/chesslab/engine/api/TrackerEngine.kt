@@ -20,6 +20,7 @@ import com.chesslab.engine.clearStuck
 import com.chesslab.engine.cnnTick
 import com.chesslab.engine.commitMove
 import com.chesslab.engine.computeEvidence
+import com.chesslab.engine.debugPayload
 import com.chesslab.engine.detectGuards
 import com.chesslab.engine.dispatch
 import com.chesslab.engine.flushSessionCapture
@@ -29,6 +30,7 @@ import com.chesslab.engine.legalMoveFor
 import com.chesslab.engine.markStuck
 import com.chesslab.engine.moveTouchedMask
 import com.chesslab.engine.pyFixed
+import com.chesslab.engine.recordRejection
 import com.chesslab.engine.san
 import com.chesslab.engine.scoreViableMoves
 import com.chesslab.engine.setRef
@@ -157,8 +159,22 @@ class TrackerEngine(
         }
     }
 
+    private var debugEnabled = false
+
+    /**
+     * Arm the extra [TrackerStatus.debug] payload (07b's debug screen).
+     *
+     * Off by default and off again the moment the screen closes: assembling the payload walks 64
+     * squares twice and copies the decision ring on every published frame, and the 15 fps budget
+     * is not negotiable. The decision log itself is recorded either way — it is appended at most
+     * once per move, not per frame.
+     */
+    fun setDebugEnabled(on: Boolean) {
+        debugEnabled = on
+    }
+
     /** Immutable UI snapshot; the debug screen is a pure function of it. */
-    fun status(): TrackerStatus = state.toStatus()
+    fun status(): TrackerStatus = state.toStatus(debugEnabled)
 
     /**
      * `undo` — the undone move was WRONG, so it is a user correction: the alarm latch is released
@@ -437,12 +453,14 @@ private fun EngineState.cnnDesyncConflicts(): Long {
  */
 internal fun EngineState.commitGates(cand: Candidate): Boolean {
     val sans = board.sanSequence(cand.moves).joinToString(" + ")
+    val key = cand.moves.joinToString(" ") { uciOf(it) }
     var pass = true
     if (cand.vote && config.commitLlFloor > 0 && bestScore < config.commitLlFloor) {
         confirmer.reset()
         note =
             "$sans? evidence too weak (${pyFixed(bestScore, 2)} < ${pyFixed(config.commitLlFloor, 1)}) — " +
             "not committing"
+        recordRejection(key, note.orEmpty())
         pass = false
     }
     if (pass && config.requireMotionForMove) {
@@ -451,11 +469,11 @@ internal fun EngineState.commitGates(cand: Candidate): Boolean {
             confirmer.reset()
             val why = if (!motionSinceRef) "no motion since last move" else "last motion ${pyFixed(age, 0)}s ago"
             note = "$sans? ignored — $why (drift/light, not a real move)"
+            recordRejection(key, note.orEmpty())
             pass = false
         }
     }
     if (pass) {
-        val key = cand.moves.joinToString(" ") { uciOf(it) }
         candidateUci = key
         if (cand.vote && !confirmer.feed(key)) {
             note = "detecting $sans… (${confirmer.count}/$confirmFrames)"
@@ -469,7 +487,7 @@ internal fun EngineState.commitGates(cand: Candidate): Boolean {
  * The immutable UI snapshot (`status()`), a pure function of the state. This is the ONE place that
  * turns the engine's bitboards and 64-element arrays into the square-name maps the UI wants.
  */
-internal fun EngineState.toStatus(): TrackerStatus =
+internal fun EngineState.toStatus(debugEnabled: Boolean = false): TrackerStatus =
     TrackerStatus(
         state = state,
         fen = board.fen(),
@@ -492,6 +510,7 @@ internal fun EngineState.toStatus(): TrackerStatus =
         stageTimingsMs = stageTimingsMs.toMap(),
         fps = fps,
         note = note,
+        debug = if (debugEnabled) debugPayload() else null,
     )
 
 /**
