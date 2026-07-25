@@ -35,7 +35,7 @@ class CensusParityTest {
                 val tierA = requireNotNull(frame.tierA)
                 val crop = tierA.censusCodeCrop
                 // The crop origin is square_region("e2")[0:2], clamped into the plane.
-                val region = squareRegion("e2", size, clip.meta.whitePov)
+                val region = squareRegion(Squares.index("e2"), size, clip.meta.whitePov)
                 assertEquals(region[0].coerceIn(0, size - crop.w), crop.x0, "$name: crop x0")
                 assertEquals(region[1].coerceIn(0, size - crop.h), crop.y0, "$name: crop y0")
 
@@ -172,7 +172,7 @@ class CensusParityTest {
         var lo = Int.MAX_VALUE
         var hi = Int.MIN_VALUE
         for (square in squares) {
-            val box = squareRegion(square, ctx.size, ctx.whitePov, extendUp = ctx.overhang)
+            val box = squareRegion(Squares.index(square), ctx.size, ctx.whitePov, extendUp = ctx.overhang)
             lo = minOf(lo, box[1])
             hi = maxOf(hi, box[3])
         }

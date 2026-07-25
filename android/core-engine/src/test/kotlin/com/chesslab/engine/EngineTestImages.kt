@@ -23,7 +23,7 @@ internal fun grayFrame(
 ): GrayImage {
     val data = ByteArray(boardSize * boardSize) { base.toByte() }
     for (square in blobs) {
-        val r = squareRegion(square, boardSize, whitePov)
+        val r = squareRegion(Squares.index(square), boardSize, whitePov)
         for (y in r[1] until r[3]) {
             for (x in r[0] until r[2]) {
                 data[y * boardSize + x] = blobLevel.toByte()
@@ -70,3 +70,23 @@ internal fun testConfig(
 
 /** A fresh state on the start position with the CNN off, exactly like the fixture replays. */
 internal fun testState(config: TrackerConfig = testConfig()): EngineState = EngineState(config, STARTPOS, whitePov = true)
+
+/** `Squares.ALL`-indexed array of a square-keyed Python channel. */
+internal fun Map<String, Double>.toZArray(): DoubleArray = DoubleArray(Squares.COUNT) { getValue(Squares.ALL[it]) }
+
+/** `Squares.ALL`-keyed view of a 64-value channel, for tests that compare against Python maps. */
+internal fun DoubleArray.asSquareMap(): Map<String, Double> {
+    val out = LinkedHashMap<String, Double>(Squares.COUNT)
+    for (i in 0 until Squares.COUNT) out[Squares.ALL[i]] = this[i]
+    return out
+}
+
+/** Latch [squares] as persistently changed since [since] — the state `maybePatchAnomaly` reads. */
+internal fun EngineState.armAnomaly(
+    vararg squares: String,
+    since: Double = 0.0,
+) {
+    changed = ofSquares(*squares)
+    anomalySince = changed
+    changed.forEachSquare { anomalyStart[it] = since }
+}

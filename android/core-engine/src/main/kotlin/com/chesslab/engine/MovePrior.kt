@@ -3,7 +3,7 @@ package com.chesslab.engine
 import com.github.bhlangonijr.chesslib.move.Move
 import kotlin.math.min
 
-/** Capture bonus of `move_prior` (`tracker.py:597`). */
+/** Capture bonus of `move_prior`. */
 internal const val PRIOR_CAPTURE = 0.5
 
 /** Check bonus. */
@@ -17,7 +17,7 @@ internal const val PRIOR_CAP = 1.0
 
 /**
  * Small plausibility prior in LL units (level A, without an engine). Port of
- * `move_prior` (`tracker.py:597`): capture `+0.5`, check `+0.3`, forward `+0.2`, capped at 1.0.
+ * `move_prior`: capture `+0.5`, check `+0.3`, forward `+0.2`, capped at 1.0.
  *
  * "Forward" is relative to the side to move: `fwd = rank(to) - rank(from)` must be non-zero and
  * its sign must match the mover's direction. Never negative.

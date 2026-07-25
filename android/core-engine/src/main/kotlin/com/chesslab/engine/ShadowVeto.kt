@@ -4,16 +4,13 @@ import kotlin.math.abs
 import kotlin.math.min
 
 /**
- * Cucchiara HSV cast-shadow test. Python `hsv_shadow_squares` (`tracker.py:257`).
+ * Cucchiara HSV cast-shadow test. Python `hsv_shadow_squares`.
  *
  * A square is "shadow" if its pixels, against the reference, keep their hue, are not markedly more
  * saturated and are darker. A hand's shadow satisfies this; an arriving piece does not.
  *
- * The live-tuned constants live in [ShadowParams] (`ColorSpace.kt`, with the other parameter
- * bundles) — never change them to make something pass.
- *
  * Invariant 2: a shadow square leaves `changed` but **keeps its z** — that is the caller's job
- * (phase 03b), as is the extra `censusRaw[sq] < censusThr` requirement. This returns the pure
+ * (`Vetoes.kt`), as is the extra `censusRaw[sq] < censusThr` requirement. This returns the pure
  * HSV verdict.
  */
 
@@ -26,26 +23,30 @@ private const val V_RATIO_EPS = 1e-3
 /** Hue is circular over 0..179, so the distance wraps at 180. */
 private const val HUE_WRAP = 180.0
 
+// The live-tuned Cucchiara constants. Never change these to make something pass.
+private const val V_LO = 0.35
+private const val V_HI = 0.97
+private const val H_TOL = 15.0
+private const val S_TOL = 40.0
+private const val SHADOW_FRAC = 0.5
+
 /**
  * Subset of [candidates] that reads as a cast shadow rather than a real change.
  *
- * Both plane arguments are interleaved HSV at [geom]; the boxes are
- * `square_region(sq, boardSize, whitePov, extendUp = geom.extendUp)` — Python passes the tracker's
- * `overhang` here.
+ * Both plane arguments are interleaved HSV at [geom]; the boxes use `geom.extendUp` — Python passes
+ * the tracker's `overhang` here.
  */
 internal fun hsvShadowSquares(
     refHsv: ByteArray,
     curHsv: ByteArray,
     geom: PlaneGeometry,
-    candidates: Collection<String>,
-    params: ShadowParams = ShadowParams(),
-): Set<String> {
-    if (candidates.isEmpty()) return emptySet()
-    val out = LinkedHashSet<String>()
+    candidates: Long,
+): Long {
+    var out = 0L
     val stride = geom.width * CHANNELS
-    for (square in candidates) {
-        val box = geom.region(square, geom.extendUp) ?: continue
-        if (isShadowBox(refHsv, curHsv, box, stride, params)) out.add(square)
+    candidates.forEachSquare { i ->
+        val box = geom.region(i, geom.extendUp)
+        if (box != null && isShadowBox(refHsv, curHsv, box, stride)) out = out.with(i)
     }
     return out
 }
@@ -55,7 +56,6 @@ private fun isShadowBox(
     curHsv: ByteArray,
     box: IntArray,
     stride: Int,
-    params: ShadowParams,
 ): Boolean {
     val x0 = box[0]
     val y0 = box[1]
@@ -74,9 +74,9 @@ private fun isShadowBox(
             val sc = curHsv[idx + 1].toInt() and BYTE_MASK
             val vc = curHsv[idx + 2].toInt() and BYTE_MASK
             val ratio = vc / (vr + V_RATIO_EPS)
-            val darkerButNotBlack = ratio >= params.vLo && ratio <= params.vHi
-            val notMoreSaturated = (sc - sr).toDouble() <= params.sTol
-            if (darkerButNotBlack && notMoreSaturated && hueClose(refHsv, curHsv, idx, params.hTol)) {
+            val darkerButNotBlack = ratio >= V_LO && ratio <= V_HI
+            val notMoreSaturated = (sc - sr).toDouble() <= S_TOL
+            if (darkerButNotBlack && notMoreSaturated && hueClose(refHsv, curHsv, idx)) {
                 shadowPx++
             }
             sumVc += vc
@@ -85,15 +85,14 @@ private fun isShadowBox(
         }
     }
     // Both conditions are required: shadow-like pixels in the majority AND actually darker.
-    return shadowPx.toDouble() / pixels >= params.frac && sumVc < sumVr
+    return shadowPx.toDouble() / pixels >= SHADOW_FRAC && sumVc < sumVr
 }
 
 private fun hueClose(
     refHsv: ByteArray,
     curHsv: ByteArray,
     idx: Int,
-    hTol: Double,
 ): Boolean {
     val raw = abs((curHsv[idx].toInt() and BYTE_MASK) - (refHsv[idx].toInt() and BYTE_MASK)).toDouble()
-    return min(raw, HUE_WRAP - raw) <= hTol
+    return min(raw, HUE_WRAP - raw) <= H_TOL
 }

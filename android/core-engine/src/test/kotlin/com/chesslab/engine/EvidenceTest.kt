@@ -13,8 +13,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-// `_compute_evidence` (`tracker.py:3084-3139`) — the two channels, the RAW census copy and the
-// channel-local guard.
+// `_compute_evidence` — the two channels, the RAW census copy and the channel-local guard.
 //
 // Scenarios mirrored from `tests/test_move_tracker.py`:
 //   test_global_exposure_shift_not_stuck (:801)         -> globalExposureShiftNotStuck
@@ -71,25 +70,25 @@ class EvidenceTest {
             state.refGray = refs.getOrPut(refFrames) { meanGray(clip, refFrames) }
             val cur = meanGray(clip, tierA.curFrames)
 
-            val evidence = state.computeEvidence(cur)
+            state.computeEvidence(cur)
 
-            assertCloseMap(tierA.normalizedDiffs, evidence.diffs, "$where diffs")
-            assertCloseMap(tierA.zFused, evidence.z, "$where zFused")
+            assertCloseMap(tierA.normalizedDiffs, state.lastDiffs.asSquareMap(), "$where diffs")
+            assertCloseMap(tierA.zFused, state.lastZ.asSquareMap(), "$where zFused")
             val censusZ = tierA.censusNoiseZ
             if (censusZ == null) {
-                // The guard dropped the channel THIS frame: no census map, no raw copy.
-                assertNull(evidence.cens, "$where cens must be null when the guard fires")
+                // The guard dropped the channel THIS frame: no census channel, no raw copy.
+                assertNull(state.lastCens, "$where cens must be null when the guard fires")
                 assertNull(state.censRaw, "$where censRaw must be null when the guard fires")
                 assertTrue(state.structVals.isEmpty(), "$where structVals must be empty")
                 guardFrames++
             } else {
-                assertCloseMap(tierA.censusNormalized, requireNotNull(evidence.cens), "$where cens")
-                assertCloseMap(tierA.censusRaw, requireNotNull(state.censRaw), "$where censRaw")
+                assertCloseMap(tierA.censusNormalized, requireNotNull(state.lastCens).asSquareMap(), "$where cens")
+                assertCloseMap(tierA.censusRaw, requireNotNull(state.censRaw).asSquareMap(), "$where censRaw")
             }
 
             // Step 4 (phase 03b): the gray lane always learns; the census lane only when the
             // guard did NOT already learn it inside computeEvidence.
-            val exclude = Squares.setToMask(tierA.noiseExclude)
+            val exclude = ofSquares(tierA.noiseExclude)
             state.noise.update(toArray(tierA.normalizedDiffs), exclude)
             if (censusZ != null) {
                 state.censusNoise.update(
@@ -116,10 +115,9 @@ class EvidenceTest {
         state.refGray = grayFrame()
         val cur = grayFrame(listOf("e2", "e4"))
 
-        val evidence = state.computeEvidence(cur)
+        state.computeEvidence(cur)
 
-        for (square in Squares.ALL) {
-            val value = evidence.diffs.getValue(square)
+        for ((square, value) in state.lastDiffs.asSquareMap()) {
             if (square == "e2" || square == "e4") {
                 assertTrue(value > 80.0, "$square should carry the blob (got $value)")
             } else {
@@ -138,11 +136,11 @@ class EvidenceTest {
         val state = testState(testConfig(censusZWeight = 0.0))
         state.refGray = grayFrame(base = 128)
 
-        val evidence = state.computeEvidence(grayFrame(base = 170))
+        state.computeEvidence(grayFrame(base = 170))
 
-        for (square in Squares.ALL) {
-            assertEquals(0.0, evidence.diffs.getValue(square), 1e-9, "$square after a global shift")
-            assertTrue(evidence.z.getValue(square) < Z_HOT, "$square must not be hot")
+        for (i in 0 until Squares.COUNT) {
+            assertEquals(0.0, state.lastDiffs[i], 1e-9, "${Squares.ALL[i]} after a global shift")
+            assertTrue(state.lastZ[i] < Z_HOT, "${Squares.ALL[i]} must not be hot")
         }
     }
 
@@ -161,12 +159,17 @@ class EvidenceTest {
 
         val grayOnly = testState(testConfig(censusZWeight = 0.0))
         grayOnly.refGray = ref
-        val zGray = grayOnly.computeEvidence(cur).z
-        val fused = state.computeEvidence(cur).z
+        grayOnly.computeEvidence(cur)
+        state.computeEvidence(cur)
+        val e4 = Squares.index("e4")
 
-        assertTrue(zGray.getValue("e4") < Z_HOT, "the gray channel alone must miss it (${zGray["e4"]})")
-        assertTrue(fused.getValue("e4") >= Z_HOT, "the fused channel must see it (${fused["e4"]})")
-        assertExact(setOf("e4"), fused.filterValues { it >= Z_HOT }.keys, "hot squares")
+        assertTrue(grayOnly.lastZ[e4] < Z_HOT, "the gray channel alone must miss it (${grayOnly.lastZ[e4]})")
+        assertTrue(state.lastZ[e4] >= Z_HOT, "the fused channel must see it (${state.lastZ[e4]})")
+        var hot = 0L
+        for (i in 0 until Squares.COUNT) {
+            if (state.lastZ[i] >= Z_HOT) hot = hot.with(i)
+        }
+        assertExact(setOf("e4"), hot.sortedSquareNames().toSet(), "hot squares")
     }
 
     /**
@@ -181,11 +184,11 @@ class EvidenceTest {
         state.refGray = ref
         val cur = rollRight(ref)
 
-        val evidence = state.computeEvidence(cur)
+        state.computeEvidence(cur)
 
-        val hot = evidence.z.values.count { it >= Z_HOT }
+        val hot = state.lastZ.count { it >= Z_HOT }
         assertTrue(
-            evidence.cens == null || hot <= state.config.maxChanged + 2,
+            state.lastCens == null || hot <= state.config.maxChanged + 2,
             "a global wobble must either drop the census channel or stay under the guard (hot=$hot)",
         )
     }
@@ -202,26 +205,24 @@ class EvidenceTest {
         state.refGray = ref
         val cur = rollRight(ref)
 
-        val evidence = state.computeEvidence(cur)
-        val raw = state.censRaw
-        val cens = evidence.cens
-        assertNotNull(raw, "the raw copy must survive a wobble frame")
-        assertNotNull(cens, "this fixture must not trip the channel guard")
-        val rawMap = requireNotNull(raw)
-        val normMap = requireNotNull(cens)
+        state.computeEvidence(cur)
+        assertNotNull(state.censRaw, "the raw copy must survive a wobble frame")
+        assertNotNull(state.lastCens, "this fixture must not trip the channel guard")
+        val raw = requireNotNull(state.censRaw)
+        val norm = requireNotNull(state.lastCens)
 
         val thr = state.config.censusThr
-        val pulledUnder = Squares.ALL.filter { rawMap.getValue(it) >= thr && normMap.getValue(it) < thr }
-        assertTrue(pulledUnder.isNotEmpty(), "the fixture must contain a square normalization pulls under $thr")
-        for (square in pulledUnder) {
-            assertTrue(rawMap.getValue(square) >= thr, "$square raw census must stay above the threshold")
+        var pulledUnder = 0
+        for (i in 0 until Squares.COUNT) {
+            if (raw[i] >= thr && norm[i] < thr) pulledUnder++
         }
+        assertTrue(pulledUnder > 0, "the fixture must contain a square normalization pulls under $thr")
     }
 
     /**
-     * The channel-local guard (`tracker.py:3119-3130`): more structurally hot squares than any
-     * legal move — not even a pair — could explain means a global disturbance. The census channel
-     * is dropped for this frame, its raw copy with it, and `z` collapses to the gray channel.
+     * The channel-local guard: more structurally hot squares than any legal move — not even a
+     * pair — could explain means a global disturbance. The census channel is dropped for this
+     * frame, its raw copy with it, and `z` collapses to the gray channel.
      */
     @Test
     fun censusChannelDroppedWhenTooManyHotSquares() {
@@ -230,14 +231,15 @@ class EvidenceTest {
         state.refGray = ref
         val cur = scrambleSquares(ref, Squares.ALL.take(state.config.maxChanged + 3))
 
-        val evidence = state.computeEvidence(cur)
+        state.computeEvidence(cur)
 
-        assertNull(evidence.cens, "the census channel must be dropped")
+        assertNull(state.lastCens, "the census channel must be dropped")
         assertNull(state.censRaw, "the raw copy must be dropped with it")
         assertTrue(state.structVals.isEmpty())
         val grayOnly = testState(testConfig(maxChanged = 6, censusZWeight = 0.0))
         grayOnly.refGray = ref
-        assertCloseMap(grayOnly.computeEvidence(cur).z, evidence.z, "z must equal the gray channel")
+        grayOnly.computeEvidence(cur)
+        assertCloseMap(grayOnly.lastZ.asSquareMap(), state.lastZ.asSquareMap(), "z must equal the gray channel")
     }
 
     /** Invariant 9: a latched alarm freezes noise learning — including the guard's own update. */
@@ -262,9 +264,9 @@ class EvidenceTest {
     }
 
     /**
-     * `tracker.py:3099-3102` — `censusZWeight` is live-tunable. A leftover `_cens_raw` from an
-     * earlier frame would freeze the shadow veto's threshold input, so the raw map is cleared
-     * unconditionally at the top of every frame.
+     * `censusZWeight` is live-tunable. A leftover `_cens_raw` from an earlier frame would freeze
+     * the shadow veto's threshold input, so it is cleared unconditionally at the top of every
+     * frame.
      */
     @Test
     fun censRawClearedWhenWeightTunedToZero() {
@@ -276,14 +278,14 @@ class EvidenceTest {
 
         state.config = state.config.copy(censusZWeight = 0.0)
         state.rebuildBoxes()
-        val evidence = state.computeEvidence(rollRight(ref))
+        state.computeEvidence(rollRight(ref))
 
-        assertNull(state.censRaw, "a stale raw map must never survive into the next frame")
-        assertNull(evidence.cens)
+        assertNull(state.censRaw, "a stale raw channel must never survive into the next frame")
+        assertNull(state.lastCens)
         assertTrue(state.structVals.isEmpty())
     }
 
-    /** `_ref_census_codes` (`:3178-3186`) caches on IDENTITY — an in-place patch invalidates it. */
+    /** `_ref_census_codes` caches on IDENTITY — an in-place patch invalidates it. */
     @Test
     fun refCensusCodesCacheKeysOnIdentity() {
         val state = testState()
@@ -291,7 +293,7 @@ class EvidenceTest {
         state.refGray = ref
         val first = state.refCensusCodes()
         assertTrue(first === state.refCensusCodes(), "the same reference object must hit the cache")
-        // The code buffer is REUSED across recomputes (01a's buffer contract), so every content
+        // The code buffer is REUSED across recomputes (the buffer contract), so every content
         // comparison below has to be made against a copy.
         val firstCodes = first.copyOf()
 
@@ -340,7 +342,7 @@ class EvidenceTest {
         hi: Int,
     ) {
         val rng = java.util.Random(seed)
-        val r = squareRegion(square, image.width, true)
+        val r = squareRegion(Squares.index(square), image.width, true)
         val cx = (r[0] + r[2]) / 2
         val cy = (r[1] + r[3]) / 2
         val radius = (r[2] - r[0]) / 3
@@ -375,7 +377,7 @@ class EvidenceTest {
         val out = GrayImage(image.width, image.height, image.data.copyOf())
         val rng = java.util.Random(99L)
         for (square in squares) {
-            val r = squareRegion(square, image.width, true)
+            val r = squareRegion(Squares.index(square), image.width, true)
             for (y in r[1] until r[3]) {
                 for (x in r[0] until r[2]) {
                     out.data[y * image.width + x] = rng.nextInt(U8 + 1).toByte()

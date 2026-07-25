@@ -22,9 +22,9 @@ class BaselineOcclusionUnitTest {
     fun identicalFramesYieldEmptySets() {
         val ref = flat(REF_LEVEL)
         val result = run(ref, flat(REF_LEVEL))
-        assertEquals(emptySet<String>(), Squares.maskToSet(result.occluded))
-        assertEquals(emptySet<String>(), Squares.maskToSet(result.shadow))
-        assertEquals(emptySet<String>(), Squares.maskToSet(result.core))
+        assertEquals(0L, result.occluded)
+        assertEquals(0L, result.shadow)
+        assertEquals(0L, result.core)
     }
 
     @Test
@@ -34,15 +34,15 @@ class BaselineOcclusionUnitTest {
         checkerboard(cur, "d4")
         val result = run(ref, cur)
 
-        assertEquals(setOf("d4"), Squares.maskToSet(result.core), "raw core must be the single square")
-        assertEquals(1, Squares.maskToSet(result.core).size)
+        assertEquals(ofSquares("d4"), result.core, "raw core must be the single square")
+        assertEquals(1, result.core.countOneBits())
         assertEquals(
-            setOf("d4", "d3", "d5", "c4", "e4"),
-            Squares.maskToSet(result.occluded),
+            ofSquares("d4", "d3", "d5", "c4", "e4"),
+            result.occluded,
             "dilation adds exactly the four orthogonal neighbours",
         )
         for (sq in listOf("d3", "d5", "c4", "e4")) {
-            assertTrue(sq !in Squares.maskToSet(result.core), "$sq must not be in the raw core")
+            assertTrue(!result.core.has(Squares.index(sq)), "$sq must not be in the raw core")
         }
     }
 
@@ -53,9 +53,9 @@ class BaselineOcclusionUnitTest {
         fill(cur, "d4", 10)
         val result = run(ref, cur)
 
-        assertEquals(emptySet<String>(), Squares.maskToSet(result.core), "a cast shadow is not an occluder")
-        assertEquals(emptySet<String>(), Squares.maskToSet(result.occluded))
-        assertTrue("d4" in Squares.maskToSet(result.shadow))
+        assertEquals(0L, result.core, "a cast shadow is not an occluder")
+        assertEquals(0L, result.occluded)
+        assertTrue(result.shadow.has(Squares.index("d4")))
     }
 
     @Test
@@ -65,8 +65,8 @@ class BaselineOcclusionUnitTest {
         fill(cur, "d4", 200)
         val result = run(ref, cur)
 
-        assertEquals(setOf("d4"), Squares.maskToSet(result.core), "an unknown flat brightener is occlusion")
-        assertTrue("d4" !in Squares.maskToSet(result.shadow))
+        assertEquals(ofSquares("d4"), result.core, "an unknown flat brightener is occlusion")
+        assertTrue(!result.shadow.has(Squares.index("d4")))
     }
 
     @Test
@@ -77,8 +77,8 @@ class BaselineOcclusionUnitTest {
         fill(cur, "d4", REF_LEVEL - 50)
         val result = run(ref, cur)
 
-        assertEquals(emptySet<String>(), Squares.maskToSet(result.core))
-        assertTrue("d4" in Squares.maskToSet(result.shadow))
+        assertEquals(0L, result.core)
+        assertTrue(result.shadow.has(Squares.index("d4")))
     }
 
     @Test
@@ -89,30 +89,28 @@ class BaselineOcclusionUnitTest {
         fill(cur, "d5", REF_LEVEL - 50) // weak darkening right next to the occluder
         val result = run(ref, cur)
 
-        assertTrue("d5" in Squares.maskToSet(result.occluded), "d5 is dilated into the occluded set")
-        for (i in 0 until Squares.COUNT) {
-            assertTrue(!(result.shadow[i] && result.occluded[i]), "${Squares.ALL[i]} is in both sets")
-        }
+        assertTrue(result.occluded.has(Squares.index("d5")), "d5 is dilated into the occluded set")
+        assertEquals(0L, result.shadow and result.occluded, "the two sets must be disjoint")
     }
 
     @Test
     fun neighboursAreOrthogonalOnly() {
-        assertEquals(setOf("a2", "b1"), names(SQ_NEIGHBOURS[Squares.index("a1")]))
-        assertEquals(setOf("a5", "a3", "b4"), names(SQ_NEIGHBOURS[Squares.index("a4")]))
-        assertEquals(setOf("d5", "d3", "c4", "e4"), names(SQ_NEIGHBOURS[Squares.index("d4")]))
-        assertEquals(2, SQ_NEIGHBOURS[Squares.index("a1")].size)
-        assertEquals(3, SQ_NEIGHBOURS[Squares.index("a4")].size)
-        assertEquals(4, SQ_NEIGHBOURS[Squares.index("d4")].size)
-        assertTrue("c5" !in names(SQ_NEIGHBOURS[Squares.index("d4")]), "diagonals must never appear")
+        assertEquals(ofSquares("a2", "b1"), SQ_NEIGHBOURS[Squares.index("a1")])
+        assertEquals(ofSquares("a5", "a3", "b4"), SQ_NEIGHBOURS[Squares.index("a4")])
+        assertEquals(ofSquares("d5", "d3", "c4", "e4"), SQ_NEIGHBOURS[Squares.index("d4")])
+        assertEquals(2, SQ_NEIGHBOURS[Squares.index("a1")].countOneBits())
+        assertEquals(3, SQ_NEIGHBOURS[Squares.index("a4")].countOneBits())
+        assertEquals(4, SQ_NEIGHBOURS[Squares.index("d4")].countOneBits())
+        assertTrue(!SQ_NEIGHBOURS[Squares.index("d4")].has(Squares.index("c5")), "diagonals must never appear")
         for (i in 0 until Squares.COUNT) {
-            assertTrue(i !in SQ_NEIGHBOURS[i].toList(), "${Squares.ALL[i]} is its own neighbour")
+            assertTrue(!SQ_NEIGHBOURS[i].has(i), "${Squares.ALL[i]} is its own neighbour")
         }
     }
 
     // -- SquareNoise -----------------------------------------------------------------------
 
     @Test
-    fun nullExcludeLearnsEverySquare() {
+    fun emptyExcludeLearnsEverySquare() {
         val noise = SquareNoise()
         noise.update(DoubleArray(Squares.COUNT) { 10.0 })
         for (i in 0 until Squares.COUNT) {
@@ -123,7 +121,7 @@ class BaselineOcclusionUnitTest {
     @Test
     fun excludedSquareLearnsNothingAtScaleZero() {
         val noise = SquareNoise()
-        val exclude = Squares.setToMask(listOf("d4"))
+        val exclude = ofSquares("d4")
         val i = Squares.index("d4")
         val meanBefore = noise.mean[i]
         val stdBefore = noise.std[i]
@@ -143,7 +141,7 @@ class BaselineOcclusionUnitTest {
         val i = Squares.index("d4")
 
         open.update(diffs)
-        slow.update(diffs, Squares.setToMask(listOf("d4")), CENSUS_NOISE_EXCLUDE_ALPHA_SCALE)
+        slow.update(diffs, ofSquares("d4"), CENSUS_NOISE_EXCLUDE_ALPHA_SCALE)
 
         assertEquals(open.mean[i] * CENSUS_NOISE_EXCLUDE_ALPHA_SCALE, slow.mean[i], 1e-12)
         assertTrue(slow.mean[i] > 0.0, "the census lane must not deadlock on excluded squares")
@@ -203,7 +201,9 @@ class BaselineOcclusionUnitTest {
             GrayImage(BOARD, BOARD, cur),
             refImage,
             boxes,
-            BaselineParams(BOARD, ABS_THR, WHITE_POV),
+            BOARD,
+            ABS_THR,
+            WHITE_POV,
             BaselineEvidence(
                 refCodes = censusTransform(refImage, out = censusBuffer(BOARD, BOARD)),
                 occlCensusThr = OCCL_CENSUS_THR,
@@ -236,7 +236,7 @@ class BaselineOcclusionUnitTest {
         square: String,
         block: (Int, Int, Int) -> Unit,
     ) {
-        val box = squareRegion(square, BOARD, WHITE_POV)
+        val box = squareRegion(Squares.index(square), BOARD, WHITE_POV)
         require(plane.size == BOARD * BOARD) { "plane size ${plane.size}" }
         require(box[2] > box[0] && box[3] > box[1]) { "degenerate box for $square" }
         for (y in box[1] until box[3]) {
@@ -245,6 +245,4 @@ class BaselineOcclusionUnitTest {
             }
         }
     }
-
-    private fun names(indices: IntArray): Set<String> = indices.map { Squares.ALL[it] }.toSet()
 }

@@ -8,13 +8,13 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 import kotlin.math.abs
 
-/** `tracker.py:3258` — the UI turns this note into the Q/R/B/N dialog. */
+/** The UI turns this note into the Q/R/B/N dialog. */
 internal const val NOTE_PROMOTION_PENDING = "Promotion detected — please choose piece (Q/R/B/N)"
 
-/** `tracker.py:3274` — ambiguous without the prior. */
+/** Ambiguous without the prior. */
 internal const val NOTE_AMBIGUOUS_PLAIN = "ambiguous change — please move cleanly / wait briefly"
 
-/** `near[:3]` — the ambiguity note lists at most three candidates (`tracker.py:3271`). */
+/** `near[:3]` — the ambiguity note lists at most three candidates. */
 private const val NEAR_NOTE_LIMIT = 3
 
 /**
@@ -30,8 +30,7 @@ internal class Resolution(
 )
 
 /**
- * The ambiguity gate, the promotion special case and the prior rerank. Port of
- * `tracker.py:3245-3276`.
+ * The ambiguity gate, the promotion special case and the prior rerank.
  *
  * The margin is in LL units and therefore light-independent. Three mutually exclusive branches:
  *
@@ -49,32 +48,27 @@ internal fun EngineState.resolveAmbiguity(
     cur: GrayImage,
     curBgr: BgrImage?,
 ): Resolution {
-    // Single exit: detekt's ReturnCount caps a function at two returns (STATUS D03a-7).
-    var out = Resolution(moves.obsMove, priorUsed = false)
-    if (moves.best - moves.second < config.ambiguityMarginLl) {
-        val near = moves.viable.filter { moves.best - it.second < config.ambiguityMarginLl }
-        out =
-            when {
-                isPromotionTie(near) -> resolvePromotion(near, cur, curBgr, moves.obsMove)
-                config.usePrior -> rerankWithPrior(near)
-                else -> {
-                    confirmer.reset()
-                    note = NOTE_AMBIGUOUS_PLAIN
-                    Resolution(null, priorUsed = false)
-                }
-            }
+    if (moves.best - moves.second >= config.ambiguityMarginLl) return Resolution(moves.obsMove, priorUsed = false)
+    val near = moves.viable.filter { moves.best - it.second < config.ambiguityMarginLl }
+    return when {
+        isPromotionTie(near) -> resolvePromotion(near, cur, curBgr, moves.obsMove)
+        config.usePrior -> rerankWithPrior(near)
+        else -> {
+            confirmer.reset()
+            note = NOTE_AMBIGUOUS_PLAIN
+            Resolution(null, priorUsed = false)
+        }
     }
-    return out
 }
 
-/** `all(mv.promotion …)` **and** exactly one `(from, to)` pair (`tracker.py:3252-3253`). */
+/** `all(mv.promotion …)` **and** exactly one `(from, to)` pair. */
 private fun isPromotionTie(near: List<Pair<Move, Double>>): Boolean =
     near.all { it.first.promotion != null && it.first.promotion != Piece.NONE } &&
         near.map { it.first.from to it.first.to }.toSet().size == 1
 
 /**
- * `tracker.py:3254-3261`. Without CNN the promotion waits for `choosePromotion` (03d); with CNN
- * the caller falls through with the best variant (queen) and verify corrects it via the label.
+ * Without CNN the promotion waits for `choosePromotion`; with CNN the caller falls through with
+ * the best variant (queen) and verify corrects it via the target square's label.
  */
 private fun EngineState.resolvePromotion(
     near: List<Pair<Move, Double>>,
@@ -82,49 +76,30 @@ private fun EngineState.resolvePromotion(
     curBgr: BgrImage?,
     obsMove: Move?,
 ): Resolution {
-    val out: Resolution
-    if (!cnnOn) {
-        val mv = near[0].first
-        promoPending =
-            PromoPending(
-                from = Squares.ALL[mv.from.ordinal],
-                to = Squares.ALL[mv.to.ordinal],
-                cur = cur,
-                curBgr = curBgr,
-                fen = board.fen(),
-            )
-        note = NOTE_PROMOTION_PENDING
-        out = Resolution(null, priorUsed = false)
-    } else {
-        // With CNN: pass the best variant through; verify corrects it via the target square label.
-        out = Resolution(obsMove, priorUsed = false)
-    }
-    return out
+    if (cnnOn) return Resolution(obsMove, priorUsed = false)
+    val mv = near[0].first
+    promoPending =
+        PromoPending(
+            from = Squares.ALL[mv.from.ordinal],
+            to = Squares.ALL[mv.to.ordinal],
+            cur = cur,
+            curBgr = curBgr,
+            fen = board.fen(),
+        )
+    note = NOTE_PROMOTION_PENDING
+    return Resolution(null, priorUsed = false)
 }
 
-/** `tracker.py:3262-3272` — `movePrior` (02a) breaks the near-tie, or the frame stays ambiguous. */
+/** `movePrior` breaks the near-tie, or the frame stays ambiguous. */
 private fun EngineState.rerankWithPrior(near: List<Pair<Move, Double>>): Resolution {
-    val rescored =
-        near
-            .map { (mv, s) -> mv to s + movePrior(board, mv) }
-            .toMutableList()
-    // Python's `sorted(key=lambda t: -t[1])`: stable, purely numeric, no tie-break (D02a-10).
-    rescored.sortWith { a, b ->
-        when {
-            a.second < b.second -> 1
-            a.second > b.second -> -1
-            else -> 0
-        }
-    }
-    val out: Resolution
+    val rescored = near.mapTo(ArrayList(near.size)) { (mv, s) -> mv to s + movePrior(board, mv) }
+    sortByValueDescending(rescored)
     if (rescored.size > 1 && rescored[0].second - rescored[1].second >= config.ambiguityMarginLl) {
-        out = Resolution(rescored[0].first, priorUsed = true)
-    } else {
-        confirmer.reset()
-        note = ambiguousNote(near)
-        out = Resolution(null, priorUsed = false)
+        return Resolution(rescored[0].first, priorUsed = true)
     }
-    return out
+    confirmer.reset()
+    note = ambiguousNote(near)
+    return Resolution(null, priorUsed = false)
 }
 
 /** `"ambiguous: Nbd2 (+3.1) / Nfd2 (+2.4) — please move cleanly / wait briefly"`. */

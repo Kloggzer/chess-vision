@@ -4,7 +4,7 @@ import kotlin.math.abs
 
 /**
  * Colour "gamut" of the reference board and the opaque-occlusion veto built on it.
- * Python `board_color_gamut` (`tracker.py:284`) and `occlusion_color_squares` (`:322`).
+ * Python `board_color_gamut` and `occlusion_color_squares`.
  *
  * Invariant 2: an occlusion square is removed from `changed` **and its z is ZEROED** (unlike the
  * shadow veto, which preserves z). Invariant 6: the gamut is rebuilt only on a *quiet* re-anchor,
@@ -17,12 +17,12 @@ private const val CHANNELS = 3
 private const val DIM = 3
 private const val DIM_SQ = 9
 
-/** Python needs >= 8 usable squares before the covariance means anything (`tracker.py:308`). */
+/** Python needs >= 8 usable squares before the covariance means anything. */
 private const val MIN_USABLE_SQUARES = 8
 
 /**
  * Regularizer added to the covariance diagonal: keeps a flat chroma axis (a near-neutral board)
- * from exploding the Mahalanobis distance (`tracker.py:314`).
+ * from exploding the Mahalanobis distance.
  */
 private const val COV_REGULARIZER = 4.0
 
@@ -65,8 +65,8 @@ internal fun boardColorGamut(
     val feats = DoubleArray(Squares.COUNT * DIM)
     var n = 0
     val feature = DoubleArray(DIM)
-    for (square in Squares.ALL) {
-        val box = geom.region(square, 0.0) ?: continue
+    for (i in 0 until Squares.COUNT) {
+        val box = geom.region(i, 0.0) ?: continue
         squareFeature(ref, geom, box, feature)
         feature.copyInto(feats, n * DIM)
         n++
@@ -129,20 +129,20 @@ internal fun occlusionColorSquares(
     cur: ColorPlanes,
     geom: PlaneGeometry,
     gamut: ColorGamut?,
-    candidates: Collection<String>,
+    candidates: Long,
     thr: Double = DEFAULT_OCCLUSION_THR,
-): Set<String> {
-    if (gamut == null || candidates.isEmpty() || thr <= 0.0) return emptySet()
+): Long {
+    if (gamut == null || candidates == 0L || thr <= 0.0) return 0L
     val thr2 = thr * thr
-    val out = LinkedHashSet<String>()
-    for (square in candidates) {
-        val base = geom.region(square, 0.0)
+    var out = 0L
+    candidates.forEachSquare { i ->
+        val base = geom.region(i, 0.0)
         var outlier = base != null && nearestMahalanobis(cur, geom, base, gamut) > thr2
         if (!outlier && geom.extendUp > 0.0) {
-            val ext = geom.region(square, geom.extendUp)
+            val ext = geom.region(i, geom.extendUp)
             outlier = ext != null && nearestMahalanobis(cur, geom, ext, gamut) > thr2
         }
-        if (outlier) out.add(square)
+        if (outlier) out = out.with(i)
     }
     return out
 }

@@ -1462,6 +1462,109 @@ blockedN = tainted.size, cur, curBgr), this::maybePatchAnomaly)` (03c) → 6b/7/
   `patchRegionIncludesOverhang` (pixel-exact box equality against
   `squareRegion(inset = 0.0, extendUp = overhang)`) and `statusIsAPureFunctionOfState`.
 
+## Lean pass (representation + leanness refactor of `:core-engine`)
+
+Pure representation refactor after 03d, requested by the user on the line count. **Behaviour is
+unchanged by construction:** `ClipReplayParityTest` still replays **18/18 clips, 969 frames,
+zero diverging frames**, and the whole module gate is green.
+
+### Line counts (`:core-engine`, code / comment / blank, counted separately)
+
+| | code | comment | blank | total |
+|---|---|---|---|---|
+| `src/main/**` before | 3510 | 1419 | 559 | 5488 |
+| `src/main/**` after | 3318 | 1297 | 515 | 5130 |
+| `src/test/**` after | 5698 | 847 | 756 | 7301 |
+
+Signature counts in `src/main/**`: `Map<String, Double>` 45 -> 7, `Set<String>` 42 -> 3 (all seven
+and all three now live in `api/` — `TrackerStatus`, `CnnObservation`, `CnnEvaluator`), and the
+`Squares.ALL[i]` string lookups 21 -> 13 (the remainder are the `CnnObservation` seam, which is
+string-keyed by contract, plus `uciOf` / `PromoPending`, which produce names on purpose).
+
+### What changed
+
+1. **Square sets are `Long` bitboards** (`Bitboard.kt`, 39 code lines: `bit`, `has`, `with`,
+   `without`, `forEachSquare`, `forEachSquareSorted`, `squareNames`, `sortedSquareNames`,
+   `ofSquares`). `changed`, `shadowVetoed`, `occludedVetoed`, `tainted`, `motionOccluded`,
+   `anomalySince`, `occlWhitelist`, `desyncConflicts`, the shadow/occlusion/chroma/`BaselineResult`
+   sets and `moveTouchedMask` / `moveDestinationMask` are all `Long` now. `Squares.maskToSet` /
+   `setToMask` (the `BooleanArray` pair) are gone. `sortedSquareNames` iterates file-major, which
+   IS Python's `sorted(set_of_squares)` order — no string sort anywhere.
+2. **Per-square scalars are `DoubleArray(64)` end to end.** The `Evidence` holder and the
+   `squareMap(...)` / `LinkedHashMap` building loops are deleted; `computeEvidence` now fills
+   `EngineState.lastDiffs` / `lastCens` / `lastZ` / `censRaw` directly, and the five evidence
+   scratch arrays moved from file-level `private var`s onto `EngineState` (per-engine ownership —
+   two engines in one process could previously alias each other's scratch).
+3. **`tainted` is a `Long` mask + a `DoubleArray(64)` of expiry stamps.** The release arithmetic is
+   unchanged (`nowS > exp`, `lastMotionTs >= exp - motionHoldS`). `occlusionExpiry` /
+   `occlCoreExpiry` became bare `DoubleArray(64)` with no mask at all: an unset slot is `0.0`,
+   which is always in the past, so `pruneExpiry` had nothing left to do and was deleted.
+4. **Strings appear once, at the seam.** `toStatus()` is the only place that builds square-name
+   maps/sets; `recordDecision` and `clearAlarm` are the only others that name squares, because
+   `DecisionRecord` is provenance the UI reads. `api/` types are UNCHANGED — `entry.md`'s frozen
+   seam block needed no edit.
+
+### detekt thresholds changed (`android/config/detekt/detekt.yml`)
+
+| rule | was | now | why |
+|---|---|---|---|
+| `LongParameterList` | 6 (default) | 8 | the 6-cap is what created the single-use holder classes below |
+| `TooManyFunctions` | 11 (default) | 15 | D03d-5 recorded "`TrackerEngine` is at exactly 10 functions and cannot take an eleventh" — that is a config shaping the architecture, and phase 04 needs the room |
+| `ReturnCount` | 2 (default) | 3 | a `var out` threaded through four branches reads worse than three honest returns |
+
+No `@Suppress` and no baseline was added; the config change is the whole fix and is recorded here.
+`TooManyFunctions` was raised but NOT excluded for `api/` — 15 is enough for the facade, and a path
+exclusion would silently disarm the rule for every future api file.
+
+### Wrapper types deleted (9)
+
+`PlaneGeometry` and `ColorPlanes` survived; both group a genuinely cohesive concept and are passed
+to more than one function. Deleted:
+
+- `BaselineParams` (boardSize/absThr/whitePov) -> three parameters of `baselineOcclusionAndShadow`
+- `ShadowParams` -> five file-private constants in `ShadowVeto.kt` (never constructed non-default)
+- `VetoResult` -> `applyVetoes` writes `changed` / `shadowVetoed` onto the state and returns `Unit`
+- `DetectContext` -> `generateHypothesis(z, moves, cur, curBgr)`; `changed`, `shadowVetoed` and
+  `blockedN` are read off the state, exactly like Python's `self._changed` / `self._tainted`
+- `QuietContext` -> `quietOutcome(moves, cur, curBgr, events)`; the occluded set is `tainted == 0L`
+- `CommitOptions` -> named `decider` / `priorUsed` / `recovered` parameters of `commitMove`
+- `DispatchContext` -> named `priorUsed` / `candidateNote` / `seq` parameters of `dispatch`
+- `CensusOutcome` (Evidence.kt) -> `censusEvidence` returns the census z-array or `null`
+- `Split` (BaselineOcclusion.kt) and `RegionPlane` (AnomalyPatcher.kt) -> two `Long`s resp. three
+  parameters; `AnomalyPatcher`/`NO_ANOMALY_PATCH` (the 03c->03d function-type seam) went with them,
+  since both phases are the same module and `maybePatchAnomaly` can simply be called.
+
+`PatchResult`, `Outcome`, `Resolution`, `CommitAnchor` and `VerifyVerdict` were KEPT: each returns
+two values that must travel together, or (for `CommitAnchor`) carries invariant 5's rationale.
+
+### Comments
+
+All `tracker.py:NNNN` line-number citations are gone (symbol names kept) — they rot the moment
+that file moves. In `EngineState.kt` the 55 one-line `/** `_python_name` */` KDoc blocks became
+trailing comments on a dense field table (the fact survives verbatim, the ceremony does not); the
+same transform was tried module-wide and **reverted** everywhere else, because there the KDoc
+carried prose and inlining it made lines long and worse to read.
+
+**Honest note: the comment count only fell 1419 -> 1297 (-9%), not the requested ~50%.** What is
+left is almost entirely "why": the invariant-2 split (shadow preserves z, taint zeroes it), why
+`censusThr` reads RAW census, why `getFen(true, true)`, why the census guard must still learn under
+no alarm, why `-0.0` may not overtake `0.0` in the sort, why the pair/single order is CNN-conditional,
+why OpenCV's integer LUT paths are reproduced instead of the float formulas. Cutting to ~700 lines
+would have meant deleting incident knowledge, which the brief forbids. The rot and the ceremony are
+gone; the prose is not.
+
+### Test-side effects
+
+`:core-engine:test` 239 -> **238** tests, 0 skipped. `theMapOverloadsAgreeWithThePrimitiveOnes`
+was deleted with the `Map<String, Double>` scoring overloads it existed to compare;
+`SquareGeometryTest.maskRoundTrip` became `bitboardRoundTrip` (and now also pins the ALL-order vs
+sorted-order distinction); `VetoesTest.occludedSetIsTheLatchedSet` became
+`sessionCaptureWaitsForTheLatchToClear`, which asserts the same latch against the real consumer
+(`queueSessionCapture`) instead of against a deleted return field. No assertion was weakened, no
+tolerance loosened, no clip degraded, and the fixtures/generator were not touched.
+
+`:core-geometry` and `:core-cnn` needed **no** edits — nothing in the seam they consume changed.
+
 ## Blockers
 
 - ~~02c has no CNN fixtures~~ — **withdrawn**, see D00b-2: `parity/_cnn/` now carries 7
@@ -1477,6 +1580,9 @@ blockedN = tainted.size, cur, curBgr), this::maybePatchAnomaly)` (03c) → 6b/7/
   — **resolved by 01d**, see D01d-1: the `boardSize` argument was removed and the call was also
   adapted to 01c's `ColorPlanes` / `PlaneGeometry` signature. `:core-engine:compileTestKotlin`
   and `:core-engine:test` are green.
+- ~~**`TrackerEngine` is at exactly 10 functions and cannot take an eleventh** (D03d-5)~~ —
+  **resolved by the Lean pass**: `TooManyFunctions` is now 15, so phase 04 has room for
+  `acceptCnnPosition`'s real body plus the verify/recovery entry points.
 - **Open orchestrator decision (D00b-17):** whether `TrackerConfig` should gain explicit
   `settleFrames`/`avgFrames`/`confirmFrames` overrides. Until then, phases 03* must read
   those three from `meta.effectiveConfig`.

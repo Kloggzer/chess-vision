@@ -9,7 +9,7 @@ private const val PERCENT: Double = 100.0
 private const val MOTION_U8_MASK: Int = 0xFF
 
 /**
- * Python `motion_score` (`tracker.py:358`). **PERCENT** (0..100) of pixels whose brightness changed
+ * Python `motion_score`. **PERCENT** (0..100) of pixels whose brightness changed
  * by more than [pxThr].
  *
  * A hand entering produces a compact region of STRONG diffs (high score); desk wobble / marker

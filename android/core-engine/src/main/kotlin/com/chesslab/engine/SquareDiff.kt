@@ -9,7 +9,7 @@ import com.chesslab.engine.api.GrayImage
 private var diffScratch: LongArray = LongArray(0)
 
 /**
- * Python per_square_diff (tracker.py:139). Mean |ref - cur| per square.
+ * Python per_square_diff. Mean |ref - cur| per square.
  *
  * `boxes` are precomputed by the caller (the tracker holds one [SquareBoxes] for
  * `extendUp = overhang` and one for `extendUp = 0.0`; Python rebuilds them per call, we must not).

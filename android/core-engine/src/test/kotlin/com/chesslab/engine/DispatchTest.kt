@@ -3,7 +3,6 @@ package com.chesslab.engine
 import com.chesslab.engine.api.CnnObservation
 import com.chesslab.engine.api.CnnSnapshot
 import com.chesslab.engine.api.GrayImage
-import com.chesslab.engine.api.QuietContext
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.commitGates
@@ -289,15 +288,15 @@ class DispatchTest {
         // best = -6.0 is BELOW the -4.0 floor of a two-square move but ABOVE the -8.0 a castling
         // move (4 touched squares) is measured against.
         val state = detectState(fen = "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1")
-        val quiet = QuietContext(grayFrame(), null, emptySet())
         val castleEvents = mutableListOf<TrackerEvent>()
-        val handledCastle = state.quietOutcome(viableOnly(moveOf(state, "e1g1"), -6.0), quiet, castleEvents)
+        val handledCastle =
+            state.quietOutcome(viableOnly(moveOf(state, "e1g1"), -6.0), grayFrame(), null, castleEvents)
         assertTrue(handledCastle)
         assertTrue(castleEvents.none { it is TrackerEvent.ReAnchored }, "castling must clear the scaled floor")
         assertNull(state.stuckReason)
 
         val plainEvents = mutableListOf<TrackerEvent>()
-        state.quietOutcome(viableOnly(moveOf(state, "e1f1"), -6.0), quiet, plainEvents)
+        state.quietOutcome(viableOnly(moveOf(state, "e1f1"), -6.0), grayFrame(), null, plainEvents)
         assertTrue(plainEvents.any { it is TrackerEvent.ReAnchored }, "a normal move at -6.0 is below -4.0")
     }
 

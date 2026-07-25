@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-// `_apply_vetoes` (`tracker.py:3141-3176`) — the CAST-SHADOW veto.
+// `_apply_vetoes` — the CAST-SHADOW veto.
 //
 // entry.md invariant 2, this half: a shadow-vetoed square leaves `changed` and **keeps its z**.
 // A vacated square darkens to board colour and reads as a shadow to the HSV test; zeroing z there
@@ -78,18 +78,16 @@ class VetoesTest {
                 state.refBgr = refBgr
                 val (cur, curBgr) = meanPair(clip, tierA.curFrames)
                 // `censusNoiseZ == null` = the guard dropped the channel; Python then has neither
-                // `cens` nor `_cens_raw` and computes the candidate band locally (`:3155-3161`).
+                // `cens` nor `_cens_raw` and computes the candidate band locally.
                 val guarded = tierA.censusNoiseZ == null
                 if (guarded) bandFrames++
                 if (tierA.hsvShadowSquares.isNotEmpty()) shadowFrames++
-                state.censRaw = if (guarded) null else tierA.censusRaw.toMutableMap()
-                val cens = if (guarded) null else tierA.censusNormalized
+                state.censRaw = if (guarded) null else toArray(tierA.censusRaw)
 
-                val result = state.applyVetoes(cur, curBgr, LinkedHashSet(tierA.vetoCandidates), cens)
+                state.applyVetoes(cur, curBgr, ofSquares(tierA.vetoCandidates))
 
-                assertExact(tierB.shadowVeto.toSet(), result.shadowVeto, "$where shadowVeto")
-                assertExactList(tierB.shadowVeto, state.shadowVetoed, "$where _shadow_vetoed")
-                assertExact(tierB.changed.toSet(), result.changed, "$where post-veto changed")
+                assertExactList(tierB.shadowVeto, state.shadowVetoed.sortedSquareNames(), "$where _shadow_vetoed")
+                assertExact(tierB.changed.toSet(), state.changed.sortedSquareNames().toSet(), "$where changed")
                 checked++
             }
         }
@@ -147,20 +145,17 @@ class VetoesTest {
     @Test
     fun shadowVetoPreservesZ() {
         val state = shadowScenario()
-        val evidence = state.computeEvidence(shadowGray())
-        val before = LinkedHashMap(evidence.z)
-        val changed = hotSquares(evidence.z, state.config.zThr)
-        assertTrue(changed.isNotEmpty(), "the scenario must produce candidates")
+        state.computeEvidence(shadowGray())
+        val before = state.lastZ.copyOf()
+        val changed = hotSquares(state.lastZ, state.config.zThr)
+        assertTrue(changed != 0L, "the scenario must produce candidates")
 
-        val result = state.applyVetoes(shadowGray(), shadowBgr(), changed, evidence.cens)
+        state.applyVetoes(shadowGray(), shadowBgr(), changed)
 
-        assertTrue(result.shadowVeto.isNotEmpty(), "the shadow veto must fire")
-        for (square in result.shadowVeto) {
-            assertFalse(square in result.changed, "$square must leave the changed set")
-            assertEquals(before.getValue(square), evidence.z.getValue(square), 0.0, "$square z was modified")
-        }
-        for (square in Squares.ALL) {
-            assertEquals(before.getValue(square), evidence.z.getValue(square), 0.0, "$square z was modified")
+        assertTrue(state.shadowVetoed != 0L, "the shadow veto must fire")
+        assertEquals(0L, state.shadowVetoed and state.changed, "a vetoed square must leave the changed set")
+        for (i in 0 until Squares.COUNT) {
+            assertEquals(before[i], state.lastZ[i], 0.0, "${Squares.ALL[i]} z was modified")
         }
     }
 
@@ -171,15 +166,13 @@ class VetoesTest {
     @Test
     fun handShadowRemovedFromChanged() {
         val state = shadowScenario()
-        val evidence = state.computeEvidence(shadowGray())
-        val changed = hotSquares(evidence.z, state.config.zThr)
-        val candidates = LinkedHashSet(changed)
+        state.computeEvidence(shadowGray())
+        val candidates = hotSquares(state.lastZ, state.config.zThr)
 
-        val result = state.applyVetoes(shadowGray(), shadowBgr(), changed, evidence.cens)
+        state.applyVetoes(shadowGray(), shadowBgr(), candidates)
 
-        assertExact(candidates, result.shadowVeto, "every shadowed candidate must be vetoed")
-        assertTrue(result.changed.isEmpty(), "nothing may survive as a move candidate")
-        assertExactList(candidates.sorted(), state.shadowVetoed, "_shadow_vetoed")
+        assertEquals(candidates, state.shadowVetoed, "every shadowed candidate must be vetoed")
+        assertEquals(0L, state.changed, "nothing may survive as a move candidate")
     }
 
     /** `test_hsv_shadow_detects_uniform_darkening` — same chroma, uniformly darker. */
@@ -188,9 +181,9 @@ class VetoesTest {
         val ref = flatBgr(LIGHT)
         val cur = flatBgr(SHADOWED)
 
-        val shadows = shadowsOf(ref, cur, listOf("e4", "d5"))
+        val shadows = shadowsOf(ref, cur, ofSquares("e4", "d5"))
 
-        assertExact(setOf("e4", "d5"), shadows, "uniform darkening is a cast shadow")
+        assertEquals(ofSquares("e4", "d5"), shadows, "uniform darkening is a cast shadow")
     }
 
     /** `test_hsv_shadow_ignores_real_piece` — a saturated red block is a piece, not a shadow. */
@@ -200,9 +193,9 @@ class VetoesTest {
         val cur = flatBgr(LIGHT)
         paintBgr(cur, "e4", b = 30, g = 40, r = 200)
 
-        val shadows = shadowsOf(ref, cur, listOf("e4"))
+        val shadows = shadowsOf(ref, cur, ofSquares("e4"))
 
-        assertTrue(shadows.isEmpty(), "an arriving coloured piece must not read as shadow")
+        assertEquals(0L, shadows, "an arriving coloured piece must not read as shadow")
     }
 
     /** `test_census_low_for_uniform_darkening` — a pure brightness change carries no structure. */
@@ -246,15 +239,24 @@ class VetoesTest {
         val cur = darkenSquare(ref, "e4", factor = 0.5)
         val boxes = squareBoxes(BOARD, true)
         val codes = censusTransform(ref, out = ByteArray(BOARD * BOARD))
-        val params = BaselineParams(BOARD, BASELINE_ABS_THR, true)
+        val e4 = Squares.index("e4")
 
         val structural =
-            baselineOcclusionAndShadow(cur, ref, boxes, params, BaselineEvidence(refCodes = codes, occlCensusThr = 24.0))
-        val legacy = baselineOcclusionAndShadow(cur, ref, boxes, params, BaselineEvidence(refCodes = codes))
+            baselineOcclusionAndShadow(
+                cur,
+                ref,
+                boxes,
+                BOARD,
+                BASELINE_ABS_THR,
+                true,
+                BaselineEvidence(refCodes = codes, occlCensusThr = 24.0),
+            )
+        val legacy =
+            baselineOcclusionAndShadow(cur, ref, boxes, BOARD, BASELINE_ABS_THR, true, BaselineEvidence(refCodes = codes))
 
-        assertFalse("e4" in Squares.maskToSet(structural.occluded), "a hard shadow is not an occluder")
-        assertTrue("e4" in Squares.maskToSet(structural.shadow), "a hard shadow must land in the shadow set")
-        assertTrue("e4" in Squares.maskToSet(legacy.occluded), "legacy mode must reproduce the old behaviour")
+        assertFalse(structural.occluded.has(e4), "a hard shadow is not an occluder")
+        assertTrue(structural.shadow.has(e4), "a hard shadow must land in the shadow set")
+        assertTrue(legacy.occluded.has(e4), "legacy mode must reproduce the old behaviour")
     }
 
     /**
@@ -264,74 +266,74 @@ class VetoesTest {
     @Test
     fun censusThrComparesRawNotNormalized() {
         val state = shadowScenario()
-        val evidence = state.computeEvidence(shadowGray())
-        val changed = hotSquares(evidence.z, state.config.zThr)
-        val survivor = changed.first()
+        state.computeEvidence(shadowGray())
+        val changed = hotSquares(state.lastZ, state.config.zThr)
+        val survivor = java.lang.Long.numberOfTrailingZeros(changed)
         val raw = requireNotNull(state.censRaw)
-        for (square in Squares.ALL) raw[square] = 0.0
+        raw.fill(0.0)
         raw[survivor] = RAW_ABOVE_THR
-        val cens = requireNotNull(evidence.cens).toMutableMap()
-        cens[survivor] = NORMALIZED_BELOW_THR
+        requireNotNull(state.lastCens)[survivor] = NORMALIZED_BELOW_THR
 
-        val result = state.applyVetoes(shadowGray(), shadowBgr(), changed, cens)
+        state.applyVetoes(shadowGray(), shadowBgr(), changed)
 
         assertEquals(40.0, state.config.censusThr, 0.0, "the fixture threshold moved")
-        assertTrue(survivor in result.changed, "$survivor must survive: its RAW census is above the threshold")
-        assertFalse(survivor in result.shadowVeto, "$survivor must not be shadow-vetoed")
-        assertTrue(result.shadowVeto.isNotEmpty(), "the other shadowed squares must still be vetoed")
+        assertTrue(state.changed.has(survivor), "the survivor's RAW census is above the threshold")
+        assertFalse(state.shadowVetoed.has(survivor), "the survivor must not be shadow-vetoed")
+        assertTrue(state.shadowVetoed != 0L, "the other shadowed squares must still be vetoed")
     }
 
     /**
-     * `:3173-3176` — the third return value is the CURRENTLY LATCHED set, so 03d's "only photograph
-     * a clean board" guard is a real condition instead of a permanently-true `not set()`.
+     * The "only photograph a clean board" guard reads the CURRENTLY LATCHED set, so it is a real
+     * condition instead of a permanently-true `not set()`.
      */
     @Test
-    fun occludedSetIsTheLatchedSet() {
+    fun sessionCaptureWaitsForTheLatchToClear() {
         val state = shadowScenario()
-        state.tainted["c6"] = state.nowS + 1.0
-        state.tainted["d6"] = state.nowS + 1.0
+        state.tainted = ofSquares("c6", "d6")
 
-        val result = state.applyVetoes(shadowGray(), shadowBgr(), LinkedHashSet(), null)
+        state.queueSessionCapture("e4")
+        assertEquals("e4", state.pendingCapture?.san, "a latched board must defer the photo")
 
-        assertExact(setOf("c6", "d6"), result.occludedSet, "occludedSet must mirror the latch")
+        state.tainted = 0L
+        state.queueSessionCapture("e5")
+        assertEquals(null, state.pendingCapture, "a clean board flushes it immediately")
     }
 
     /**
-     * The `censusZWeight == 0` band fast path (`:3155-3161`): with no evidence-side census channel
-     * the veto computes its own over the candidate rows, and that map is RAW already.
+     * The `censusZWeight == 0` band fast path: with no evidence-side census channel the veto
+     * computes its own over the candidate rows, and that channel is RAW already.
      */
     @Test
     fun bandFastPathVetoesWithoutTheEvidenceChannel() {
         val state = shadowScenario(censusZWeight = 0.0)
-        val evidence = state.computeEvidence(shadowGray())
+        state.computeEvidence(shadowGray())
         assertEquals(null, state.censRaw, "the channel must be off in this scenario")
-        val changed = hotSquares(evidence.z, state.config.zThr)
+        val changed = hotSquares(state.lastZ, state.config.zThr)
 
-        val result = state.applyVetoes(shadowGray(), shadowBgr(), changed, evidence.cens)
+        state.applyVetoes(shadowGray(), shadowBgr(), changed)
 
-        assertTrue(result.shadowVeto.isNotEmpty(), "the band fast path must reach the same verdict")
-        assertTrue(result.changed.isEmpty(), "every shadowed candidate must be vetoed")
+        assertTrue(state.shadowVetoed != 0L, "the band fast path must reach the same verdict")
+        assertEquals(0L, state.changed, "every shadowed candidate must be vetoed")
     }
 
-    /** No colour reference (or no colour frame) means no shadow veto at all (`:3153`). */
+    /** No colour reference (or no colour frame) means no shadow veto at all. */
     @Test
     fun withoutColourFramesNothingIsVetoed() {
         val state = shadowScenario()
-        val evidence = state.computeEvidence(shadowGray())
-        val changed = hotSquares(evidence.z, state.config.zThr)
+        state.computeEvidence(shadowGray())
+        val changed = hotSquares(state.lastZ, state.config.zThr)
         state.refBgr = null
 
-        val result = state.applyVetoes(shadowGray(), null, changed, evidence.cens)
+        state.applyVetoes(shadowGray(), null, changed)
 
-        assertTrue(result.shadowVeto.isEmpty(), "no BGR pair, no HSV verdict")
-        assertTrue(result.changed.isNotEmpty(), "the candidates must pass through untouched")
-        assertTrue(state.shadowVetoed.isEmpty(), "_shadow_vetoed must be reset every frame")
+        assertEquals(0L, state.shadowVetoed, "no BGR pair, no HSV verdict; _shadow_vetoed is reset")
+        assertEquals(changed, state.changed, "the candidates must pass through untouched")
     }
 
     // -- scenario helpers ------------------------------------------------------------------------
 
     /**
-     * The two-rank hand shadow of `test_shadow_squares_not_learned_into_noise` (`:1381`): only the
+     * The two-rank hand shadow of `test_shadow_squares_not_learned_into_noise`: only the
      * top 100 rows darken, so median normalization leaves them hot instead of cancelling a global
      * exposure shift.
      */
@@ -362,8 +364,8 @@ class VetoesTest {
     private fun shadowsOf(
         ref: BgrImage,
         cur: BgrImage,
-        candidates: List<String>,
-    ): Set<String> {
+        candidates: Long,
+    ): Long {
         val hsvRef = ByteArray(ref.data.size)
         val hsvCur = ByteArray(cur.data.size)
         bgrToHsv(ref.data, ref.width, ref.height, hsvRef)
@@ -372,9 +374,17 @@ class VetoesTest {
     }
 
     private fun hotSquares(
-        z: Map<String, Double>,
+        z: DoubleArray,
         zThr: Double,
-    ): LinkedHashSet<String> = z.filterValues { it >= zThr }.keys.toCollection(LinkedHashSet())
+    ): Long {
+        var hot = 0L
+        for (i in 0 until Squares.COUNT) {
+            if (z[i] >= zThr) hot = hot.with(i)
+        }
+        return hot
+    }
+
+    private fun toArray(values: Map<String, Double>): DoubleArray = DoubleArray(Squares.COUNT) { values.getValue(Squares.ALL[it]) }
 
     private fun flatGray(level: Int) = GrayImage(BOARD, BOARD, ByteArray(BOARD * BOARD) { level.toByte() })
 
@@ -387,7 +397,7 @@ class VetoesTest {
         g: Int,
         r: Int,
     ) {
-        val box = squareRegion(square, BOARD, true)
+        val box = squareRegion(Squares.index(square), BOARD, true)
         for (y in box[1] until box[3]) {
             for (x in box[0] until box[2]) {
                 val i = (y * BOARD + x) * BGR
@@ -448,7 +458,7 @@ class VetoesTest {
         factor: Double,
     ): GrayImage {
         val out = GrayImage(BOARD, BOARD, image.data.copyOf())
-        val box = squareRegion(square, BOARD, true)
+        val box = squareRegion(Squares.index(square), BOARD, true)
         for (y in (box[1] - HALO).coerceAtLeast(0) until (box[3] + HALO).coerceAtMost(BOARD)) {
             for (x in (box[0] - HALO).coerceAtLeast(0) until (box[2] + HALO).coerceAtMost(BOARD)) {
                 val i = y * BOARD + x

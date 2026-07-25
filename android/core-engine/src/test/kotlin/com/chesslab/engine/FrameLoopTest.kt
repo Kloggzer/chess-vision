@@ -203,7 +203,7 @@ class FrameLoopTest {
     }
 
     /**
-     * `:1689-1695` and entry.md invariant 3 — the `>2 -> occluded` gate counts the RAW UNDILATED
+     * entry.md invariant 3 — the `>2 -> occluded` gate counts the RAW UNDILATED
      * core. The dilated set of the same event has five squares; counting it would lock the tracker
      * in `occluded`, where `_try_detect` (and the CNN move-vs-hand arbitration) never runs.
      */
@@ -213,26 +213,26 @@ class FrameLoopTest {
         val now = h.state.nowS
         val expiry = now + LONG_EXPIRY_S
         // One strong square, dilated to its four orthogonal neighbours: 5 dilated, 1 raw.
-        for (square in listOf("e4", "e3", "e5", "d4", "f4")) h.state.occlusionExpiry[square] = expiry
-        h.state.occlCoreExpiry["e4"] = expiry
+        for (square in listOf("e4", "e3", "e5", "d4", "f4")) h.state.occlusionExpiry[Squares.index(square)] = expiry
+        h.state.occlCoreExpiry[Squares.index("e4")] = expiry
 
         assertTrue(h.feed() is FrameOutcome.Detect, "one raw core square must still reach detection")
 
-        for (square in listOf("a1", "b1", "c1")) h.state.occlCoreExpiry[square] = expiry
+        for (square in listOf("a1", "b1", "c1")) h.state.occlCoreExpiry[Squares.index(square)] = expiry
         val blocked = h.feed()
         assertEquals(FrameOutcome.Skip(SKIP_OCCLUDED), blocked)
         assertEquals(STATE_OCCLUDED, h.state.state)
     }
 
-    /** `:1625-1627` — the keep-alive is evaluated against `nowS` and expires on its own. */
+    /** The keep-alive is evaluated against `nowS` and expires on its own. */
     @Test
     fun occlusionKeepAliveExpires() {
         val h = armedHarness()
-        h.state.occlusionExpiry["e4"] = h.state.nowS + LONG_EXPIRY_S
-        h.state.occlusionExpiry["a1"] = h.state.nowS - LONG_EXPIRY_S
+        h.state.occlusionExpiry[Squares.index("e4")] = h.state.nowS + LONG_EXPIRY_S
+        h.state.occlusionExpiry[Squares.index("a1")] = h.state.nowS - LONG_EXPIRY_S
         h.feed()
-        assertEquals(listOf("e4"), h.state.occludedVetoed, "an expired stamp must drop out")
-        assertEquals(setOf("e4"), h.state.motionOccludedSquares)
+        assertEquals(listOf("e4"), h.state.occludedVetoed.sortedSquareNames(), "an expired stamp must drop out")
+        assertEquals(ofSquares("e4"), h.state.motionOccluded)
     }
 
     /** `test_detect_scale_half_det_size_and_e2e4` — the detection warp is `boardSize * detectScale`. */

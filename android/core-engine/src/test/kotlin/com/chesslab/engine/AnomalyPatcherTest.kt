@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * `_maybe_patch_anomaly` (`tracker.py:3377-3420`) — the per-cell self-healing of the reference.
+ * `_maybe_patch_anomaly` — the per-cell self-healing of the reference.
  *
  * Python reference: `tests/test_move_tracker.py::TestNudgePatch`.
  */
@@ -27,7 +27,7 @@ class AnomalyPatcherTest {
         assertEquals(emptyList<String>(), state.history)
         // The reference adopted the cell -> the next frame is quiet.
         state.tryDetect(cur, null, seq = 3)
-        assertEquals(emptySet<String>(), state.changed)
+        assertEquals(0L, state.changed)
     }
 
     @Test
@@ -39,7 +39,7 @@ class AnomalyPatcherTest {
         state.tryDetect(cur, null, seq = 1)
         state.tryDetect(cur, null, seq = 2)
         assertEquals(STUCK_NO_LEGAL_MOVE, state.stuckReason)
-        assertEquals(setOf("e4"), state.changed)
+        assertEquals(ofSquares("e4"), state.changed)
     }
 
     @Test
@@ -47,12 +47,12 @@ class AnomalyPatcherTest {
         val state = detectState(ref = grayFrame())
         val ref = requireNotNull(state.refGray)
         // Warm the identity-keyed cache, then patch: `refGray` is mutated IN PLACE, so a stale
-        // cache would keep comparing against the pre-patch codes forever (`tracker.py:3415`).
+        // cache would keep comparing against the pre-patch codes forever.
         state.refCensusCodes(ref)
         assertNotNull(state.refCensusFor)
         state.nowS = 100.0
-        state.anomalySince["e2"] = 0.0
-        state.maybePatchAnomaly(setOf("e2"), bestLl = -1.0, cur = grayFrame(listOf("e2")), curBgr = null)
+        state.armAnomaly("e2")
+        state.maybePatchAnomaly(bestLl = -1.0, cur = grayFrame(listOf("e2")), curBgr = null)
         assertNull(state.refCensusFor, "the census cache must be invalidated")
         val recoded = state.refCensusCodes(ref)
         assertNotNull(state.refCensusFor)
@@ -69,9 +69,9 @@ class AnomalyPatcherTest {
         // A uniformly BRIGHTER frame, so the copied box is visible pixel for pixel.
         val cur = grayFrame(base = 200)
         state.nowS = 10.0
-        state.anomalySince["e2"] = 0.0
-        state.maybePatchAnomaly(setOf("e2"), bestLl = -1.0, cur = cur, curBgr = null)
-        val region = squareRegion("e2", state.detSize, state.whitePov, inset = 0.0, extendUp = 0.25)
+        state.armAnomaly("e2")
+        state.maybePatchAnomaly(bestLl = -1.0, cur = cur, curBgr = null)
+        val region = squareRegion(Squares.index("e2"), state.detSize, state.whitePov, inset = 0.0, extendUp = 0.25)
         var inside = 0
         for (y in 0 until ref.height) {
             for (x in 0 until ref.width) {
@@ -86,7 +86,7 @@ class AnomalyPatcherTest {
             }
         }
         assertTrue(inside > 0, "the patch region is empty")
-        assertTrue(state.anomalySince.isEmpty(), "a patched square loses its timer")
+        assertEquals(0L, state.anomalySince, "a patched square loses its timer")
         assertTrue(state.note.orEmpty().contains("Reference pulled forward (e2)"), "note was '${state.note}'")
     }
 
@@ -95,8 +95,8 @@ class AnomalyPatcherTest {
         val state = detectState(detectConfig().copy(nudgeTimeoutS = 0.0), ref = grayFrame())
         state.markStuck(STUCK_NO_LEGAL_MOVE)
         state.nowS = 10.0
-        state.anomalySince["e2"] = 0.0
-        state.maybePatchAnomaly(setOf("e2"), bestLl = -1.0, cur = grayFrame(listOf("e2")), curBgr = null)
+        state.armAnomaly("e2")
+        state.maybePatchAnomaly(bestLl = -1.0, cur = grayFrame(listOf("e2")), curBgr = null)
         assertNull(state.stuckReason)
         assertEquals(0, state.confirmer.count)
     }
@@ -108,9 +108,9 @@ class AnomalyPatcherTest {
         val state = detectState(detectConfig().copy(nudgeTimeoutS = 0.0), ref = grayFrame())
         val squares = listOf("a1", "b1", "c1", "d1", "e1", "f1", "g1", "h1", "a2")
         state.nowS = 10.0
-        for (square in squares) state.anomalySince[square] = 0.0
+        state.armAnomaly(*squares.toTypedArray())
         val ref = requireNotNull(state.refGray)
-        state.maybePatchAnomaly(squares.toSet(), bestLl = -1.0, cur = grayFrame(squares), curBgr = null)
+        state.maybePatchAnomaly(bestLl = -1.0, cur = grayFrame(squares), curBgr = null)
         assertTrue(ref.data.all { it == TEST_BASE_LEVEL.toByte() }, "the reference was patched with a hand")
     }
 
@@ -120,8 +120,8 @@ class AnomalyPatcherTest {
         val state = detectState(detectConfig().copy(nudgeTimeoutS = 0.0), ref = grayFrame())
         val ref = requireNotNull(state.refGray)
         state.nowS = 10.0
-        state.anomalySince["e2"] = 0.0
-        state.maybePatchAnomaly(setOf("e2"), bestLl = 0.0, cur = grayFrame(listOf("e2")), curBgr = null)
+        state.armAnomaly("e2")
+        state.maybePatchAnomaly(bestLl = 0.0, cur = grayFrame(listOf("e2")), curBgr = null)
         assertTrue(ref.data.all { it == TEST_BASE_LEVEL.toByte() })
     }
 }

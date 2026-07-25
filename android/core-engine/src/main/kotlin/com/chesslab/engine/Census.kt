@@ -3,14 +3,14 @@ package com.chesslab.engine
 import com.chesslab.engine.api.GrayImage
 
 /**
- * Popcount of the 8-bit census codes. Python `_POPCOUNT8` (`tracker.py:189`).
+ * Popcount of the 8-bit census codes. Python `_POPCOUNT8`.
  *
  * `IntArray`, not `ByteArray`: it is used as an addend in the per-square sum.
  */
 internal val POPCOUNT8: IntArray = IntArray(CENSUS_CODES) { Integer.bitCount(it) }
 
 /**
- * Comparison deadband of [censusTransform]. Python's `eps` parameter (`tracker.py:192`).
+ * Comparison deadband of [censusTransform]. Python's `eps` parameter.
  *
  * **It stays 0 and there is no config knob for it** (entry.md invariant 7): any `eps > 0` breaks
  * the monotone-brightness invariance — pixels in the `[eps, eps/ratio)` contrast band flip under
@@ -29,7 +29,7 @@ internal fun censusBuffer(
 }
 
 /**
- * 3x3 census transform. Python `census_transform` (`tracker.py:192`).
+ * 3x3 census transform. Python `census_transform`.
  *
  * Each pixel gets an 8-bit code "centre brighter than neighbour?", bit `b` set iff
  * `centre > neighbour + eps`, compared as signed ints on unsigned byte values (Python widens to
@@ -37,7 +37,7 @@ internal fun censusBuffer(
  * `(-1,-1), (-1,0), (-1,1), (0,-1), (0,1), (1,-1), (1,0), (1,1)`.
  *
  * Padding is **BORDER_REPLICATE**, never a wrap/roll — a roll compares row 0 against the last row
- * and poisons the edge squares' census scores (`census_transform` comment `:204`).
+ * and poisons the edge squares' census scores (see `census_transform`'s own comment).
  *
  * [yLo]/[yHi] transform only that row band, and the replication then happens at the **band** edges
  * — precisely what Python's `census_transform(cur_gray[y_lo:y_hi])` does. Rows outside the band are
@@ -89,7 +89,7 @@ internal fun censusTransform(
 
 /**
  * Mean Hamming distance of the census codes per square, scaled to 0..255.
- * Python `per_square_census_change` (`tracker.py:220`).
+ * Python `per_square_census_change`.
  *
  * [refCodes] are the codes of the *full* reference plane (the caller caches them — the reference
  * changes only on commit / re-anchor). Python's `board_size` argument is [curGray]'s edge: the
@@ -103,7 +103,7 @@ internal fun censusTransform(
  *
  * The `* 255/8` scaling makes the channel comparable to the gray diff and to `censusThr`. The
  * result is RAW: `censusThr` (40.0) compares against it, median normalization is the caller's
- * business (`_cens_raw` `:3115`, entry.md invariant 8).
+ * business (`_cens_raw`, entry.md invariant 8).
  */
 internal fun perSquareCensusChange(
     refCodes: ByteArray,
@@ -170,7 +170,7 @@ private fun bandCensusChange(
     bandIi = integralBuffer(width, bandRows, bandIi)
     val ii = integral(bandHam, width, bandRows, bandIi)
     val stride = width + 1
-    // Transcribed from tracker.py:242 — the +/-1 halo guard. Squares whose box touches a
+    // Transcribed from tracker.py — the +/-1 halo guard. Squares whose box touches a
     // replicated band edge are excluded, because their codes would differ from the full transform.
     val guardLo = yLo + if (yLo > 0) 1 else 0
     val guardHi = yHi - if (yHi < boardSize) 1 else 0
