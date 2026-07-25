@@ -54,6 +54,7 @@ internal fun detectState(
 internal class FakeObs(
     private val occupancy: Map<String, Boolean> = emptyMap(),
     private val sure: Set<String> = emptySet(),
+    private val labels: Map<String, String> = emptyMap(),
 ) : CnnObservation {
     override fun occupied(square: String): Boolean = occupancy[square] ?: false
 
@@ -67,7 +68,7 @@ internal class FakeObs(
         thr: Double,
     ): Boolean = false
 
-    override fun label(square: String): String? = null
+    override fun label(square: String): String? = labels[square]
 
     override fun conf(square: String): Double = 0.0
 
@@ -76,13 +77,22 @@ internal class FakeObs(
     override fun occupancyOnly(): CnnObservation = this
 }
 
+/** The Bxc3 shape: g1 vacated (believed occupied, read empty) and g3 received. */
+internal fun movedPieceObs(): FakeObs =
+    FakeObs(
+        mapOf("g1" to false, "g3" to true),
+        setOf("g1", "g3"),
+        mapOf("g1" to "empty", "g3" to "wN"),
+    )
+
 internal fun snapshotOf(
     state: EngineState,
     obs: CnnObservation,
+    seq: Long = 1,
 ): CnnSnapshot =
     CnnSnapshot(
         obs = obs,
-        seq = 1,
+        seq = seq,
         tsMs = (state.nowS * 1000.0).toLong(),
         inferMs = 0.0,
         warped = null,
@@ -281,6 +291,73 @@ class DispatchTest {
         assertNull(state.stuckReason)
         assertSame(cur, state.refGray)
         assertTrue(events.any { it is TrackerEvent.ReAnchored })
+    }
+
+    /**
+     * S17-SIM-2: when the CNN is simply WRONG no legal move explains the standoff, so the recovery
+     * the veto defers to can never end it. `desyncObsN` stable observations that NAME a move must
+     * raise the illegal-move alarm — and never an auto re-anchor, which would reopen the Bxc3 hole
+     * the veto exists to close.
+     */
+    @Test
+    fun persistentCnnMisreadEscalatesVetoToAlarm() {
+        val ref = grayFrame()
+        val state = detectState(ref = ref)
+        state.cnnRun = true
+        val cnn = RecoveryEvaluator(guess = "g1g3")
+        val obs = movedPieceObs()
+        for (seq in 1L..2L) {
+            state.cnnSnap = snapshotOf(state, obs, seq)
+            state.tryDetect(grayFrame(), null, seq, cnn)
+            assertNull(state.alarm)
+            assertEquals("cnn_desync", state.stuckReason)
+            assertSame(ref, state.refGray, "re-anchored over a CNN-confirmed desync")
+            assertTrue(state.note.orEmpty().contains("holding reference for"), "note was '${state.note}'")
+        }
+        state.cnnSnap = snapshotOf(state, obs, seq = 3)
+        val events = state.tryDetect(grayFrame(), null, seq = 3, cnn = cnn)
+
+        assertEquals(listOf("g1", "g3"), state.alarm?.conflicts)
+        assertTrue(events.any { it is TrackerEvent.Alarm })
+        assertSame(ref, state.refGray, "the alarm must not be an excuse to re-anchor")
+    }
+
+    /** The same snapshot re-evaluated must not advance the streak (seq contract, Spec 11). */
+    @Test
+    fun desyncStreakNeedsDistinctObservations() {
+        val state = detectState(ref = grayFrame())
+        state.cnnRun = true
+        val cnn = RecoveryEvaluator(guess = "g1g3")
+        val obs = movedPieceObs()
+        repeat(5) {
+            state.cnnSnap = snapshotOf(state, obs, seq = 7)
+            state.tryDetect(grayFrame(), null, seq = 7, cnn = cnn)
+        }
+
+        assertNull(state.alarm)
+        assertEquals(1, state.desyncObs)
+    }
+
+    /**
+     * An observation that names no move must never escalate. Measured on the clips: a chronically
+     * missed piece (blender-promocapture) alarmed falsely and cost that clip its real exd8=Q+, and
+     * a moving shadow (blender-shadowsweep) fabricated two occupied squares plus one missed pawn.
+     */
+    @Test
+    fun unnamedDesyncNeverAlarms() {
+        val ref = grayFrame()
+        val state = detectState(ref = ref)
+        state.cnnRun = true
+        val cnn = RecoveryEvaluator(guess = null)
+        val obs = FakeObs(mapOf("g1" to false), setOf("g1"), mapOf("g1" to "empty"))
+        for (seq in 1L..5L) {
+            state.cnnSnap = snapshotOf(state, obs, seq)
+            state.tryDetect(grayFrame(), null, seq, cnn)
+        }
+
+        assertNull(state.alarm)
+        assertEquals("cnn_desync", state.stuckReason)
+        assertSame(ref, state.refGray)
     }
 
     @Test

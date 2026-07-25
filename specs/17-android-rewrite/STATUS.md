@@ -4264,3 +4264,251 @@ CameraX (binding, delivered-vs-requested resolution, reconnect), Compose UI, the
 service and its threading, QNN/NNAPI execution providers, thermal throttling and sustained-load
 behaviour, ArUco marker detection and live corner alignment (`liveAlign = false` on these clips),
 and real-camera photometry — every clip here is a Blender render.
+
+## Python CNN cross-check (2026-07-25)
+
+The open question from the section above — *"whether the same three engine behaviours would also
+fire in Python with this model is not established here"* — measured. **Result: no port defect. All
+four regressions reproduce in the Python tracker, on the same clips, at the same frames, through
+the same code branches.**
+
+**Setup.** `scripts/replay_clip.py::replay` (the API `tests/test_clips.py` uses), driven with
+`cnn_run="tiny-p3"`. The bundled assets are byte-identical to that run
+(`md5 android/app/src/main/assets/cnn_model/{model.onnx,model.qnn.onnx,config.json}` ==
+`data/models/tiny-p3/…`); Python loads `data/models/tiny-p3/best.pt`, i.e. the same weights through
+PyTorch instead of ONNX Runtime. Corners frozen from the clip manifest (identical to
+`labels.json`), `live_align=False`, `realtime=True`, per-clip `tracker:` kwargs from the manifest
+(= `meta.json → trackerKwargs`) plus explicit `settle_frames=4 / avg_frames=3 / confirm_frames=2`
+overrides, mirroring `SimClips.trackerConfigOf`. Everything else is a Python default and matches
+`effectiveConfig` field for field. Nothing under `src/chesslab/**` was modified; the observation
+log came from a monkey-patched `_observe_snapshot` wrapper in a throw-away script.
+
+**One measurement caveat, since the Python replay is wall-clock paced:** the first inference of a
+fresh process costs ~2.1 s (torch/timm warm-up), which starves the free-running observer for ~25
+frames and changes the outcome. All numbers below are from a **warmed** process (model already
+built): 1 observation per frame, 10–13 ms each — a *denser* observation stream than the Kotlin
+sim's ONNX CPU path (34 ms). Cold-start runs are noted where they differ.
+
+| clip | `labels.json` | Python + CNN (warm, 3/3 runs) | Kotlin + CNN | verdict |
+|---|---|---|---|---|
+| `blender-stalemate` | `Qc7` | — (nothing committed) | — | same |
+| `blender-promotion` | `e8=Q+` | — | — | same |
+| `blender-underpromo` | `e8=N` | — | — | same |
+| `blender-queenside` | …`Bf4`… | …**`Bg5`**… (rest correct) | …**`Bg5`**… (then `Qd7`/`O-O-O` lost) | same defect, milder aftermath |
+| `blender-opening` | `d4 e5 Nc3` | ✔ | ✔ | same |
+| `blender-capture` | `e4 d5 exd5` | ✔ | ✔ | same |
+| `blender-castle` | …`O-O` | ✔ | ✔ | same |
+| `blender-scholars` | …`Qxf7#` | ✔ | ✔ | same |
+
+Control: the same four clips with `cnn_run=None` commit their full move lists in Python — the
+regression is caused by the CNN, not by the config used here.
+
+- **S17-SIM-1 — confirmed, frame-exact.** Instrumented `blender-stalemate`: at **seq 27** the model
+  reads c2 as still OCCUPIED (`p_occ 0.90`, label `wN` 0.47) while the queen is in transit and c7
+  still reads empty (0.98). That is the believed position, so `resync_check` matches,
+  `_cnn_tick` takes the `match_ok` + stuck branch (`src/chesslab/move_tracker/tracker.py:1944`,
+  re-anchor at `:1957`, note at `:1963`) and prints *"CNN: board unchanged — reference pulled
+  forward (no move)"* at video 2.2 s. The reference is then anchored on a mid-move frame; the diff
+  afterwards reports 7–8 changed squares / `ambiguous: Qc7 (+24.0) / Qc1 (+24.0)`, and
+  *"CNN recovery checks c2c7… (1/2)"* starts at 4.2 s but the clip ends before the second vote.
+  Identical frame, identical note, identical outcome as the Kotlin run.
+- **S17-SIM-2 — confirmed verbatim.** `blender-promotion` and `blender-underpromo` both end with
+  `stuck_reason = cnn_desync` and the note *"quiet board but CNN disagrees on g1 — holding
+  reference (recovery will resolve)"* (`tracker.py:2988–2991`), followed by *"Much change (13/14
+  squares …)"* — the same square (g1), the same change counts (13–14) and the same non-commit as
+  Kotlin. (In a cold-start process `blender-promotion` happens to commit `e8=Q+`: the warm-up hole
+  suppresses the observations that would latch the veto. That is a Python-harness timing artefact,
+  not a behavioural difference.)
+- **S17-SIM-3 — confirmed verbatim.** `blender-queenside`: *"verify: overrule:c1g5? confirming
+  (1/2)"* → *"Move detected: Bg5 (CNN overruled Bf4)"* — `_verify_tick` rung 4
+  (`tracker.py:2241–2247`). The phantom bishop then poisons rung 5 exactly as described
+  (*"Move not confirmed (board contradicts post-move position: g5) — discarded"*). Python recovers
+  better afterwards (it re-detects `Qd2`+`Qd7` as a fast-play pair and commits `O-O-O`), so its
+  final list is wrong in one ply where Kotlin's is wrong in three. That downstream difference
+  tracks observation pacing (Python: 1 obs/frame at 11 ms; Kotlin: 34 ms per observation), not a
+  different decision rule — the diverging decision itself is bit-for-bit the same.
+
+**Conclusion.** The Kotlin port is faithful on all three findings. S17-SIM-1..3 are a
+model/threshold limitation of `tiny-p3` on these synthetic Blender renders (piece → empty misses,
+plus one occupied-while-in-transit read), reproduced by the reference implementation on the same
+weights. Any fix belongs in the model or in the thresholds — and must be made on BOTH sides.
+
+**Not reproduced identically:** absolute timing. The Python replay paces the video by wall clock
+and the observer by real inference latency, so cooldowns (`cnnCooldownS`, `motionRecencyS`,
+`nudgeTimeoutS`) land on different frames than in the virtual-clock Kotlin sim. Two cold-start
+Python runs of `blender-stalemate` failed through *different* branches (verify-window hold; then
+*"no motion since last move"*) before the warm runs settled on the S17-SIM-1 path. The
+frame-for-frame determinism of the sim is a property Python cannot offer here.
+
+### Follow-up: does the illegal-move alarm fire on the S17-SIM-2 clips? (Python, warm)
+
+**No. It never fires** — `_alarm is None` at every observation and at end of clip, in every run of
+both `blender-promotion` and `blender-underpromo` (`alarm_seen = False`; the Kotlin sim likewise
+recorded no alarm on these clips).
+
+Terminal state, identical for both clips and stable across runs:
+
+```
+stuck_reason=too_many_changed  stuck_count=15  desync_obs=2  desync_conflicts={e7,g1}
+alarm=None  cnn_status=mismatch  cnn_conflicts=['g1','e7']
+note="Much change (13 squares + 0 occluded) — occluded/unstable, no move committed"
+last notes: "quiet board but CNN disagrees on g1 — holding reference (recovery will resolve)"
+            -> "CNN: board unchanged — reference pulled forward (no move)"
+            -> "Much change (13/14 squares …)"  (x15, to the end)
+```
+
+**Which term fails.** Of the gate at `tracker.py:1998-1999` only ONE term is false:
+`self._desync_obs >= self.desync_obs_n` → **2 >= 3 is false**. `has_identity` is true,
+`obs.label` is not None, `_alarm is None` is true, and `has_occupancy_conflict` is **never even
+called** (the `and` short-circuits at the counter). The coordinator's other two candidates are
+ruled out by the trace: the conflict-set streak does NOT reset (`{g1}` → `{g1,e7}` is a superset,
+which `tracker.py:1981-1983` treats as stable), and `derive_moves_deep` returns `[]` at every
+mismatch tick (agreement 0.98) — so the mismatch-with-NO-moves branch is indeed the one taken,
+exactly as predicted: no legal move can put the white king anywhere the model can see.
+
+**Why the counter cannot reach 3.** `_desync_obs` only advances on an EVALUATED `_cnn_tick`, and
+the evaluation gate (`tracker.py:1878-1884`) admits at most one tick per `cnn_cooldown_s` = 2.0 s
+(`stuck` term) or per `cnn_check_interval_s` = 10.0 s (`periodic` term). Over the clip's 58
+observations (one per frame, 4.8 s of video) **exactly three ticks ran**: seq 3 (periodic,
+first-ever), seq 27 (+2.00 s), seq 51 (+2.01 s). All 55 others were dropped by the gate. And the
+seq-27 tick is the S17-SIM-1 misread — it came out `match=True`, contributing nothing to the
+streak. So the streak is seq 3 and seq 51: **2**. The clip ends 0.6 s later.
+
+**The escalation path is intact, just slower than the clip.** Sensitivity probes (deliberate
+deviations from `effectiveConfig`, measurement only — no fix):
+
+| probe | alarm | detail |
+|---|---|---|
+| `desync_obs_n = 2` | **fires** | `conflicts=['g1','e7']`, `guess=None` |
+| `cnn_cooldown_s = 0.4` (n stays 3) | **fires** | `conflicts=['e7']`; run then commits a phantom `Kh2` |
+| both | **fires** | as above |
+
+So the veto is not unbounded in principle: it escalates after `desync_obs_n × cnn_cooldown_s`
+≈ 4–6 s of *continuously mismatching, gate-admitted* observations. These clips are 4.8 s long and
+one of the three admitted ticks was consumed by a wrong `match`, so the alarm never gets there.
+
+**What this does mean.** Within these clips the tracker degrades silently: it holds the reference
+on a stale frame, accumulates 13–14 changed squares, commits nothing, and shows only the ordinary
+`"Much change …"` note — no alarm, no user-visible desync signal. The veto's own comment
+(`tracker.py:2969-2977`) hands the standoff to CNN recovery, and here recovery provably **cannot**
+resolve it (`derive_moves_deep` → `[]` every time, because the observation is not explainable by
+any legal move). The only remaining escape is the alarm, which is throttled by the *same*
+`cnn_cooldown_s` that throttles recovery. Whether ~5 s of silent degradation before escalation is
+acceptable is a design call, not a port question — Kotlin inherits the identical structure and
+the identical outcome. Recorded, not fixed.
+
+## Veto escalation + overrule threshold (2026-07-25)
+
+Two defects from the CNN clip simulation, fixed in **both** implementations (Python first, then
+ported). No new config knob, so `TRACK_DEFAULTS`, `TrackerConfig` and entry.md's seam block are
+untouched — and the parity fixtures (`cnn_run=None`) are unaffected: `ClipReplayParityTest` stays
+**18/18 clips, zero diverging frames**, replayed against their own recorded `effectiveConfig`.
+
+### Defect 1 — the `cnn_desync` veto was unbounded in practice, not in principle
+
+The coordinator's original mechanism (the alarm gated behind piece identity / `min_confident_board`)
+was **disproven** by the measurement in *"Follow-up: does the illegal-move alarm fire on the
+S17-SIM-2 clips?"*: the only false term is `_desync_obs >= desync_obs_n` (2 >= 3), because
+`_desync_obs` advances only on an EVALUATED `_cnn_tick` and the evaluation gate admits at most one
+tick per `cnn_cooldown_s`. Confirmed defect: **escalation is throttled by the same cooldown that
+throttles recovery, and the note claims a resolution that cannot come** — `derive_moves_deep`
+returns `[]` at every mismatch tick, because no legal move puts the white king where the model sees
+it.
+
+**What changed** (`tracker.py::_desync_evidence` / `Alarm.kt::desyncEvidence`):
+
+1. The veto site now counts its own occupancy conflict as desync evidence, through the SAME streak
+   discipline `_cnn_tick` uses — one count per distinct `snap.seq`, conflict set stable as
+   equal-or-subset either way, reset on an inconclusive observation (`_advance_desync_streak` /
+   `advanceDesyncStreak`, now shared by both call sites). This decouples the streak from
+   `cnn_cooldown_s` without touching the cooldown.
+2. At `desync_obs_n` it raises the **existing** alarm — no new terminal state, no new UI, the
+   existing release paths. Never an auto re-anchor (the Bxc3 hole stays closed).
+3. The note is honest and observable:
+   `"quiet board but CNN disagrees on g1 — holding reference for 2s (18 observations)"`.
+
+**The escalation bar is measured, not assumed.** Three variants were run over all 18 clips:
+
+| escalation condition | result |
+|---|---|
+| streak alone (`desync_obs >= 3`) | **13/18** — false alarm on `blender-promocapture` at f20 (one chronically missed king on g1, `guess=null`); the latch then discarded the real `exd8=Q+` on every later frame |
+| streak + conflicts in BOTH directions (one vacated, one received) | **14/18**, but still a false alarm on `blender-shadowsweep` at f25 (`e6`, `g6` phantom-occupied under the moving shadow + `e7` missed) — a clip where nothing happens |
+| streak + the observation NAMES a move (`guess_illegal_move != None`: exactly one vacated and one received square) | **14/18**, alarms only on `blender-promotion` and `blender-underpromo` — shipped |
+
+The shipped condition is the Bxc3 shape itself, and it is what the alarm card renders. Baseline for
+comparison: **zero** alarms across all 18 clips before this change.
+
+**Effect on the S17-SIM-2 clips:** `blender-promotion` and `blender-underpromo` now **raise the
+illegal-move alarm at f51** (`conflicts=[g1, e7]`) instead of degrading silently to the end of the
+clip. The alarm arrives through `_cnn_tick`, which finds the shared streak already past
+`desync_obs_n` — that is the throttle removal doing its work — while the veto site itself declines
+to escalate because the conflicts name no move. Both clips still FAIL the harness (the expected
+move is never committed; an alarm is not a move), but the tracker is no longer silent: from f4 the
+note reports the held reference, its squares and its age, and at f51 the board goes red with a
+user-releasable alarm.
+
+### Defect 2 — the overrule rung decided inside the model's noise floor
+
+`cnn_margin_squares` was NOT touched: it is 1 because a capture differs from its non-capture sibling
+by exactly one square, and it is shared with recovery. The measured problem is that the overrule
+rests on the model's DOMINANT error direction. Over 1366 clip observations (87 424 square reads,
+`ObsAudit`):
+
+- confident-occupancy error 0.78 % overall, 1.11 % on `blender-queenside`;
+- **misses (piece→empty) 8826 vs phantoms (empty→piece) 226** — a phantom-occupied read is 39×
+  rarer than a missed piece;
+- errors are systematic per square, not independent: `f4` was misread in **90 of 186** observations
+  of `blender-queenside`, `g1` in 42 of 42 of `blender-promotion`.
+
+That last point rules out the "more consecutive votes" lever: 2 votes, 3 votes or 10 votes all lose
+to a square that is wrong 90 times in a row. It also rules out a higher agreement threshold — the
+phantom `c1g5` scored 63/64 because the square it needed (`g5`) was simply never read.
+
+**Chosen threshold: the overruling move's own endpoints must be READ at `cnn_conf_thr` (0.85) —
+origin confidently EMPTY and destination confidently OCCUPIED.** No new knob; the threshold is the
+existing confidence threshold, applied to two squares that previously did not have to be observed at
+all. This puts the aggressive rung on the 39×-rarer error direction and demands direct evidence
+where it previously accepted an absence, while a capture still differs by one square as before.
+(`tracker.py::_endpoints_read`, `VerifySingle.Signals.overrules`.)
+
+**Effect:** `blender-queenside` no longer fabricates `Bg5` (`cnn_overrule` does not fire anywhere in
+the 18 clips now). The clip still FAILS: with `f4` read empty in half the observations, `Bf4` cannot
+clear rung 2 either and now dies at rung 5's post-move board check instead, so the run commits
+`[d4, d5, Nc3, Nc6, Qd2]` — five correct moves and no phantom, against the previous
+`[d4, d5, Nc3, Nc6, **Bg5**, Bf5, Qd2]`. Failing by omission rather than by fabrication is the
+better failure (a phantom bishop poisons every later verify), but it is still a failure, and the
+root cause is the model: no threshold recovers a piece the CNN does not see.
+
+### Clip simulation, before → after
+
+| | before | after |
+|---|---|---|
+| diff-only baseline | 18/18 | 18/18 |
+| CNN attached | **14/18** | **14/18** |
+| CNN-caused regressions | 4 | 4 (same clips) |
+| alarms raised across all clips | 0 | 2 (`blender-promotion`, `blender-underpromo`) |
+| phantom overrule commits | 1 (`Bg5`) | 0 |
+
+**The clip count did not improve.** Both fixes change what the tracker DOES when the model is wrong
+— surface it instead of hiding it, refuse instead of fabricating — not whether `tiny-p3` can see
+the pieces in these renders. S17-SIM-1 (`blender-stalemate`'s `onMatchOk` pull-forward) was out of
+scope and is unchanged.
+
+### Tests
+
+Python (`tests/test_move_tracker.py`): `test_persistent_cnn_misread_escalates_veto_to_alarm`
+(alarms within `desync_obs_n`, reference never re-anchored),
+`test_desync_streak_needs_distinct_observations` (seq contract),
+`test_unnamed_desync_never_alarms` (the promocapture/shadowsweep shape),
+`test_overrule_needs_its_own_endpoints_read`, plus the existing
+`test_quiet_reanchor_vetoed_by_confident_cnn_conflict` (Bxc3 regression) unchanged and green.
+Kotlin mirrors all four (`DispatchTest`, `VerifySingleTest`).
+
+### Gate
+
+`uv run pytest -q` → 584 passed, 3 failed — all three in `tests/test_camera.py`, pre-existing on
+this working tree (verified by stashing this change). `uv run ruff check src tests scripts` clean.
+`:core-engine:test` 316/316, `:core-cnn:testDebugUnitTest` 54/54, `:app:testDebugUnitTest` 293/293,
+`detekt` clean. `ktlintCheck` fails ONLY on
+`app/src/test/kotlin/com/chesslab/tracker/sim/SimClips.kt:51` — a concurrent agent's uncommitted
+model-comparison edit, not touched here.

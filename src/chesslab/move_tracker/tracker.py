@@ -96,6 +96,22 @@ def _build_alarm_guess_san(board, guess: str | None) -> str | None:
     return f"{pchar} {from_sq}->{to_sq} ({reason})"
 
 
+def _endpoints_read(uci: str, obs, conf: dict[str, bool]) -> bool:
+    """Both endpoints of a move directly observed: origin confidently EMPTY (the piece
+    demonstrably left) and destination confidently OCCUPIED (it demonstrably arrived).
+    Neither may be inferred from a square the model never read confidently."""
+    frm, to = uci[:2], uci[2:4]
+    return (bool(conf.get(frm)) and not obs.occupied(frm)
+            and bool(conf.get(to)) and obs.occupied(to))
+
+
+def _alarm_note(board, alarm: dict) -> str:
+    """The one wording of the illegal-move alarm — both raise sites show the same note."""
+    gs = _build_alarm_guess_san(board, alarm["guess"])
+    sqs = ", ".join(alarm["conflicts"][:4]) + ("…" if len(alarm["conflicts"]) > 4 else "")
+    return f"ILLEGAL MOVE? {gs or sqs} — take it back, or resync to accept"
+
+
 def _square_boxes(board_size: int, white_pov: bool, extend_up: float = 0.0):
     """Pre-compute all 64 square-region boxes from the canonical source (square_region).
     Returns list of (x0, y0, x1, y1, area) tuples. Area is 0 for degenerate regions."""
@@ -870,6 +886,7 @@ class MoveTracker:
         self._desync_obs = 0                              # consecutive desync count
         self._desync_conflicts: set[str] = set()          # stable conflict set
         self._desync_last_seq: int | None = None          # last obs seq counted (dedup, Spec 11)
+        self._desync_since = 0.0                          # wall time the current streak started
         self._alarm: dict | None = None                   # {"kind","since","conflicts","guess"} | None
 
         # Pre-commit verification: a confirmed diff candidate waits until the CNN
@@ -1865,6 +1882,59 @@ class MoveTracker:
                 self.note = f"CNN recovery disabled: {e}"
             return None
 
+    def _advance_desync_streak(self, seq: int | None, conflicts: set[str]) -> None:
+        """Count one DISTINCT observation towards the illegal-move alarm (call under lock).
+
+        Seq contract (Spec 11): a snapshot re-evaluated for the same frame must not advance
+        the streak — that is what makes desync_obs_n mean "persistent", not "re-checked". The
+        conflict set must stay stable (equal or a subset either way): a wandering set is CNN
+        noise, a growing/shrinking one is the same standoff seen through more/less clear view.
+        """
+        if seq is not None and seq == self._desync_last_seq:
+            return
+        stable = (self._desync_conflicts == conflicts
+                  or conflicts.issubset(self._desync_conflicts)
+                  or self._desync_conflicts.issubset(conflicts))
+        self._desync_obs = self._desync_obs + 1 if stable else 1
+        if self._desync_obs == 1:
+            self._desync_since = time.time()
+        self._desync_conflicts = conflicts
+        self._desync_last_seq = seq
+
+    def _raise_alarm(self, obs, conflicts: list[str]) -> None:
+        """Latch the illegal-move alarm (call under lock). The only terminal state for
+        "board and game state disagree and I cannot reconcile them"; released by the user
+        (undo / resync / baseline / accept-CNN) or by a verified restore, never silently."""
+        from .cnn_recovery import guess_illegal_move
+        self._alarm = {"kind": "illegal_move", "since": time.time(), "conflicts": conflicts,
+                       "guess": guess_illegal_move(self.board, obs, self.cnn_conf_thr)}
+        self.note = _alarm_note(self.board, self._alarm)
+
+    def _desync_evidence(self, snap: CnnSnapshot, conflicts: list[str]) -> None:
+        """The quiet-re-anchor veto fired: bound it (call under lock). Escalates to the alarm
+        after desync_obs_n stable observations; until then the note says what is being held,
+        on which squares and for how long — it must not promise a resolution that, when the
+        CNN is simply wrong, no legal move can deliver.
+
+        Escalation additionally needs the observation to NAME a move — `guess_illegal_move`
+        returning exactly one vacated and one received square, the Bxc3 shape the veto exists
+        to catch. Measured on the 18 clips, nothing weaker holds: escalating on the streak
+        alone raised a false alarm on blender-promocapture (one chronically missed king on g1)
+        and cost it its real exd8=Q+; escalating on any two-directional conflict set still
+        alarmed on blender-shadowsweep (two phantom-occupied squares under a moving shadow
+        plus one missed pawn). A named move is also what the alarm card shows.
+        """
+        from .cnn_recovery import guess_illegal_move
+        self._advance_desync_streak(snap.seq, set(conflicts))
+        if (self._alarm is None and getattr(snap.obs, "label", None) is not None
+                and self._desync_obs >= self.desync_obs_n
+                and guess_illegal_move(self.board, snap.obs, self.cnn_conf_thr)):
+            self._raise_alarm(snap.obs, conflicts)
+            return
+        held = time.time() - self._desync_since
+        self.note = (f"quiet board but CNN disagrees on {', '.join(conflicts[:4])} — holding "
+                     f"reference for {held:.0f}s ({self._desync_obs} observations)")
+
     def _cnn_tick(self, snap: CnnSnapshot) -> None:
         """Evaluate one CNN observation (recovery / periodic check). The observation itself
         happens unconditionally in `_observe_snapshot` (Spec 11); the old demand conditions
@@ -1972,21 +2042,8 @@ class MoveTracker:
             if not cnn_moves:
                 # Track consecutive stable mismatches for illegal-move alarm
                 # (only with identity: occupancy-only would false-positive)
-                conf_set = set(conflicts)
                 if has_identity and not inconclusive:
-                    # Seq contract (Spec 11): count DISTINCT observations, not evaluations —
-                    # a snapshot re-evaluated for the same frame must not advance the alarm
-                    # streak (the "persistent over seconds" intent of desync_obs_n).
-                    if snap.seq != self._desync_last_seq:
-                        stable = (self._desync_conflicts == conf_set
-                                  or conf_set.issubset(self._desync_conflicts)
-                                  or self._desync_conflicts.issubset(conf_set))
-                        if stable:
-                            self._desync_obs += 1
-                        else:
-                            self._desync_obs = 1
-                        self._desync_conflicts = conf_set
-                        self._desync_last_seq = snap.seq
+                    self._advance_desync_streak(snap.seq, set(conflicts))
                 else:
                     self._desync_obs = 0
                     self._desync_conflicts = set()
@@ -1997,17 +2054,12 @@ class MoveTracker:
                 # counting it rang the alarm on perfectly regular boards (user-reported).
                 if (has_identity and obs.label is not None and self._alarm is None
                         and self._desync_obs >= self.desync_obs_n):
-                    from .cnn_recovery import guess_illegal_move, has_occupancy_conflict
+                    from .cnn_recovery import has_occupancy_conflict
                     if has_occupancy_conflict(self.board, obs, self.cnn_conf_thr,
                                               conflicts):
-                        guess = guess_illegal_move(self.board, obs, self.cnn_conf_thr)
-                        self._alarm = {"kind": "illegal_move", "since": time.time(),
-                                       "conflicts": conflicts, "guess": guess}
+                        self._raise_alarm(obs, conflicts)
                 if self._alarm is not None:
-                    gs = _build_alarm_guess_san(self.board, self._alarm["guess"])
-                    sqs = ", ".join(self._alarm["conflicts"][:4]) \
-                        + ("…" if len(self._alarm["conflicts"]) > 4 else "")
-                    self.note = f"ILLEGAL MOVE? {gs or sqs} — take it back, or resync to accept"
+                    self.note = _alarm_note(self.board, self._alarm)
                 else:
                     shown = ", ".join(conflicts[:4]) + ("…" if len(conflicts) > 4 else "")
                     self.note = f"CNN check: board deviates ({shown}) — check pieces or resync"
@@ -2238,7 +2290,21 @@ class MoveTracker:
                 return
 
             # 4) CNN sees a DIFFERENT move whose occupancy is unambiguous → overrule the diff.
-            if cnn_uci and cnn_uci != pending["uci"] and cnn_agreement >= recovery.min_agreement:
+            #    This is the ladder's aggressive rung: it DISCARDS a move the deterministic
+            #    evidence supports, so it must clear a higher bar than a confirmation. The
+            #    whole-board score alone is not that bar — score_moves accepts on a margin of
+            #    cnn_margin_squares = 1, which cannot be raised (a capture differs from its
+            #    non-capture sibling by exactly one square), and ONE missed piece on the true
+            #    destination is exactly one square. Measured over 1366 clip observations the
+            #    model's errors are 8826 misses (piece→empty) vs 226 phantoms (empty→piece),
+            #    and they are systematic per square (S17-SIM-3: f4 misread in 90 of 186
+            #    observations), so neither the margin nor more votes can outrun them.
+            #    Therefore the overruling move must be READ, not inferred from absence: its
+            #    origin confidently EMPTY and its destination confidently OCCUPIED — the
+            #    39×-rarer error direction. blender-queenside's phantom Bg5 had g5 never
+            #    confidently read at all; it won purely because f4 was wrongly empty.
+            if cnn_uci and cnn_uci != pending["uci"] and cnn_agreement >= recovery.min_agreement \
+                    and _endpoints_read(cnn_uci, obs, conf):
                 if not _voted(f"overrule:{cnn_uci}"):
                     return
                 old_san = self.board.san(pend_mv)
@@ -2973,8 +3039,15 @@ class MoveTracker:
                 # move into the reference — a silent, permanent desync with no alarm.
                 # A fresh observation with a confident OCCUPANCY conflict against the
                 # believed position (the reliable axis: b4 confidently EMPTY while a
-                # bishop is believed there) vetoes the re-anchor; marking stuck hands
-                # the standoff to the CNN recovery, which derives the missed move.
+                # bishop is believed there) vetoes the re-anchor.
+                # The veto hands the standoff to the CNN recovery — but recovery can only
+                # end it when a LEGAL move explains the observation. When the CNN is simply
+                # wrong (S17-SIM-2: the white king on g1 read empty in every observation)
+                # no move does, derive_moves_deep returns nothing forever, and _cnn_tick's
+                # escalation is additionally throttled by the same cnn_cooldown_s that
+                # throttles recovery. So the veto counts as desync evidence in its own
+                # right, on the occupancy axis it just fired on, and escalates to the
+                # illegal-move alarm — whose release paths are the user's.
                 snap = self._cnn_snap
                 if (snap is not None and getattr(snap, "obs", None) is not None
                         and snap.fen == self.board.fen()
@@ -2986,9 +3059,7 @@ class MoveTracker:
                            if conf_map.get(sq) and snap.obs.occupied(sq) != believed[sq]]
                     if dis:
                         self._mark_stuck("cnn_desync")
-                        self.note = (f"quiet board but CNN disagrees on "
-                                     f"{', '.join(dis[:4])} — holding reference "
-                                     "(recovery will resolve)")
+                        self._desync_evidence(snap, dis)
                         return
                 # Quiet board → re-anchor. This is also the only verifiably CLEAN moment:
                 # run the deferred jobs (gamut rebuild via _set_ref, session photo) here.

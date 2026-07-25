@@ -26,6 +26,9 @@ private const val MIN_VERIFIED_SQUARES = 2
 /** `", ".join(after["conflicts"][:4])`. */
 private const val CONFLICT_NOTE_LIMIT = 4
 
+/** `uci[:2]` / `uci[2:4]` — the two squares of a uci, promotion suffix excluded. */
+private const val UCI_SQUARES = 4
+
 /**
  * `_verify_tick` — pre-commit verification of a diff candidate through the CNN, autonomously over
  * several frames.
@@ -146,7 +149,7 @@ private fun EngineState.ladder(
         // 4) cnn_overrule — the CNN sees a DIFFERENT move whose occupancy is unambiguous. The
         //    verdict carries the replacement move, so the real move lands in THIS cycle
         //    (invariant 10; the legacy port could only drop the candidate and re-detect).
-        sig.overrules(cnn.minAgreement, pend.uci) ->
+        sig.overrules(cnn, cnn.minAgreement, pend.uci) ->
             if (pendingVoted("overrule:${sig.cnnUci}", votes)) overruleTerminal(pend, sig, move) else emptyList()
 
         pend.frames >= config.verifyWindow -> windowEnd(cnn, pend, sig, boardSnap, move)
@@ -312,9 +315,28 @@ private class Signals(
         return fromLeftOk || toArrivedOk || (occAgree >= minAgreement && occN >= MIN_VERIFIED_SQUARES)
     }
 
-    /** Rung 4. */
+    /**
+     * Rung 4 — the aggressive one: it DISCARDS a move the deterministic evidence supports, so it
+     * must clear a higher bar than a confirmation. The whole-board score is not that bar.
+     * `scoreMoves` accepts on a margin of `cnnMarginSquares = 1`, which cannot be raised (a capture
+     * differs from its non-capture sibling by exactly one square), and ONE missed piece on the true
+     * destination is exactly one square. Measured over 1366 clip observations the model's errors are
+     * 8826 misses (piece→empty) against 226 phantoms (empty→piece), and they are systematic per
+     * square (S17-SIM-3: f4 misread in 90 of 186 observations), so neither the margin nor more
+     * votes outrun them. So the overruling move must be READ, not inferred from an absence: origin
+     * confidently EMPTY, destination confidently OCCUPIED — the 39×-rarer error direction.
+     * blender-queenside's phantom Bg5 never had g5 read confidently at all.
+     */
     fun overrules(
+        cnn: CnnEvaluator,
         minAgreement: Double,
         pendingUci: String,
-    ): Boolean = cnnUci != null && cnnUci != pendingUci && cnnAgreement >= minAgreement
+    ): Boolean {
+        val uci = cnnUci ?: return false
+        if (uci == pendingUci || cnnAgreement < minAgreement) return false
+        val from = uci.substring(0, 2)
+        val to = uci.substring(2, UCI_SQUARES)
+        val left = obs.confident(from, cnn.confThr) && !obs.occupied(from)
+        return left && obs.confident(to, cnn.confThr) && obs.occupied(to)
+    }
 }

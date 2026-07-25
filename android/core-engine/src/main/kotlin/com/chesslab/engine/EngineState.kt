@@ -224,6 +224,9 @@ internal class EngineState(
     /** `_desync_last_seq` — last observation seq counted (dedup, Spec 11). */
     var desyncLastSeq: Long? = null
 
+    /** `_desync_since` — wall time the current streak started; the held-for note reads it. */
+    var desyncSince: Double = 0.0
+
     // -- provenance -----------------------------------------------------------------------------------
 
     // `_decision_log` — ring-capped (see DecisionLog); the list contract is unchanged.
