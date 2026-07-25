@@ -1,0 +1,119 @@
+package com.chesslab.tracker.service
+
+import android.util.Log
+import androidx.camera.core.ImageProxy
+import com.chesslab.engine.api.TrackerConfig
+import com.chesslab.geometry.BoardGeometry
+import com.chesslab.geometry.MarkerTracker
+import com.chesslab.geometry.boardCornersForFrame
+import com.chesslab.geometry.cornersToFlat
+import com.chesslab.tracker.camera.DeliveredSize
+import com.chesslab.tracker.camera.FrameSink
+import com.chesslab.tracker.cnn.CnnObserver
+import com.chesslab.tracker.pipeline.FramePipeline
+import com.chesslab.tracker.pipeline.FrameResult
+import com.chesslab.tracker.pipeline.FrameSizeGuard
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+
+private const val TAG = "chesslabTracker"
+
+/**
+ * The analyzer-thread loop. Everything expensive is somewhere else.
+ *
+ * Per frame, in order: publish pixels, build the `FrameInput`, drain queued actions and CNN
+ * observations, run the engine, publish the result, offer the CNN a frame, maybe re-align.
+ * Nothing here blocks — no `runBlocking`, no `await`, no disk, no ArUco, no inference. The
+ * legacy 970-LOC service did all of that inline and held the loop at 100-150 ms (commit 4a7609e).
+ */
+class TrackerCoordinator(
+    private val pipeline: FramePipeline,
+    private val host: EngineHost,
+    private val publisher: StatusPublisher,
+    private val bus: CameraFrameBus,
+    private val observer: CnnObserver,
+    private val align: LiveAlign,
+    private val sizeGuard: FrameSizeGuard,
+) : FrameSink {
+    override fun onFrame(
+        image: ImageProxy,
+        delivered: DeliveredSize,
+    ) {
+        bus.onFrame(image)
+        val result = pipeline.onFrame(image, System.currentTimeMillis())
+        val events = host.tick((result as? FrameResult.Ready)?.input)
+        publisher.sizeMismatch = sizeGuard.mismatch
+        publisher.publish(host.status(), events, (result as? FrameResult.Skipped)?.note)
+        observer.onFrameAvailable()
+        align.maybeAlign(bus, delivered)
+    }
+
+    /** 06a's calibration result. The corner swap is what the pipeline reads on its next frame. */
+    fun applyCalibration(
+        geometry: BoardGeometry,
+        corners: FloatArray,
+        profileName: String,
+        delivered: DeliveredSize,
+    ) {
+        pipeline.onGeometryChanged(geometry)
+        pipeline.corners = corners
+        sizeGuard.setProfile(profileName, delivered.width, delivered.height)
+        align.reset(delivered)
+    }
+}
+
+/**
+ * ArUco re-detection, off the frame thread.
+ *
+ * Commit 4a7609e measured it at 44-87 ms every 300 ms *on the analyzer thread* — the "recorder
+ * spikes" that were blamed on recording for weeks. Here it runs on a background dispatcher with
+ * at most one detection in flight, and the corners it produces are picked up by the NEXT frame.
+ *
+ * On a delivered-size change the marker tracker is REPLACED, never rescaled (commit a7dab73): its
+ * smoothed points are pixel coordinates, and EMA-blending two coordinate spaces drifted the warp
+ * by ~2.3 ranks. Re-seeding costs a few frames of alignment; rescaling costs a whole game.
+ */
+class LiveAlign(
+    private val scope: CoroutineScope,
+    private val geometry: () -> BoardGeometry,
+    private val config: () -> TrackerConfig,
+    private val onCorners: (FloatArray) -> Unit,
+) {
+    private var tracker = MarkerTracker()
+    private var frames = 0L
+    private var size: DeliveredSize? = null
+
+    @Volatile
+    private var inFlight = false
+
+    fun maybeAlign(
+        source: CalibrationFrames,
+        delivered: DeliveredSize,
+    ) {
+        frames += 1
+        val cfg = config()
+        if (!cfg.liveAlign || cfg.alignEvery <= 0 || inFlight) return
+        if (size != delivered) {
+            size = delivered
+            tracker = MarkerTracker()
+            Log.i(TAG, "frame size is now ${delivered.width}x${delivered.height} — re-seeding the corner smoother")
+        }
+        if (frames % cfg.alignEvery != 0L) return
+        val frame = source.latestCalibrationFrame() ?: return
+        inFlight = true
+        val current = tracker
+        scope.launch {
+            runCatching { boardCornersForFrame(frame, geometry(), current, detectScale = cfg.alignScale) }
+                .onSuccess { corners -> corners?.let { onCorners(cornersToFlat(it)) } }
+                .onFailure { Log.w(TAG, "live align failed", it) }
+            frame.release()
+            inFlight = false
+        }
+    }
+
+    /** A new calibration invalidates the smoothed markers outright. */
+    fun reset(delivered: DeliveredSize) {
+        tracker = MarkerTracker()
+        size = delivered
+    }
+}

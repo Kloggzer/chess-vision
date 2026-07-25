@@ -1,0 +1,107 @@
+package com.chesslab.tracker.settings
+
+import com.chesslab.engine.api.TrackerConfig
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+
+/** DataStore needs a Context and a real file; the repository's decisions do not. */
+private class MemoryStore(
+    var text: String? = null,
+) : ConfigStore {
+    var writes = 0
+
+    override suspend fun read(): String? = text
+
+    override suspend fun write(text: String) {
+        this.text = text
+        writes += 1
+    }
+}
+
+/**
+ * Stands in for the frame pipeline: it records what `onConfigChanged` was handed. The real reset
+ * of `prevRoi` and the CLAHE rebuild are 05b's, and tested there — what this phase owns is that
+ * the changed config REACHES it, on the engine thread, exactly once.
+ */
+private class FakePipeline {
+    val applied = mutableListOf<TrackerConfig>()
+}
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class SettingsRepositoryTest {
+    @Test
+    fun updatePersistsAndSubmitsOneUpdateConfig() =
+        runTest {
+            val store = MemoryStore()
+            val pipeline = FakePipeline()
+            val repo = repository(store, pipeline)
+            val result = repo.update(TrackerConfig(censusThr = 41.0))
+            advanceUntilIdle()
+            assertEquals(1, pipeline.applied.size)
+            assertEquals(41.0, pipeline.applied.single().censusThr)
+            assertEquals(1, store.writes)
+            assertEquals(NOTE_TUNED_LIVE, result.note)
+            assertEquals(41.0, repo.config.value.censusThr)
+            // And it survives a restart: a fresh repository over the same store reads it back.
+            val reloaded = repository(store, FakePipeline())
+            reloaded.load()
+            assertEquals(41.0, reloaded.config.value.censusThr)
+        }
+
+    @Test
+    fun motionMarginChangeTriggersThePipelineRoiReset() =
+        runTest {
+            val pipeline = FakePipeline()
+            val repo = repository(MemoryStore(), pipeline)
+            val result = repo.update(TrackerConfig(motionMargin = 0.2))
+            advanceUntilIdle()
+            assertEquals(0.2, pipeline.applied.single().motionMargin)
+            assertEquals(NOTE_TUNED_LIVE, result.note)
+            assertTrue(result.restartRequired.isEmpty())
+        }
+
+    @Test
+    fun claheClipChangeTriggersTheGrayPipelineRebuild() =
+        runTest {
+            val pipeline = FakePipeline()
+            val repo = repository(MemoryStore(), pipeline)
+            val result = repo.update(TrackerConfig(diffClaheClip = 4.0))
+            advanceUntilIdle()
+            assertEquals(4.0, pipeline.applied.single().diffClaheClip)
+            assertEquals(NOTE_TUNED_LIVE, result.note)
+        }
+
+    @Test
+    fun changingANonLiveKnobReportsRestartRequired() =
+        runTest {
+            val repo = repository(MemoryStore(), FakePipeline())
+            val result = repo.update(TrackerConfig(verifyWindow = 12, boardSize = 800))
+            advanceUntilIdle()
+            assertNull(result.note)
+            assertEquals(listOf("verifyWindow", "boardSize"), result.restartRequired)
+        }
+
+    @Test
+    fun anUnreadableStoreLoadsDefaultsWithANote() =
+        runTest {
+            val repo = repository(MemoryStore("garbage"), FakePipeline())
+            repo.load()
+            assertEquals(TrackerConfig(), repo.config.value)
+            assertTrue(repo.note.value != null)
+        }
+}
+
+/**
+ * The submit sink stands in for `EngineAction.UpdateConfig` -> `EngineHost` -> the engine thread
+ * -> `FramePipeline.onConfigChanged`; that hop is covered by `EngineActionQueueTest`.
+ */
+private fun TestScope.repository(
+    store: ConfigStore,
+    pipeline: FakePipeline,
+): SettingsRepository = SettingsRepository(store, this) { pipeline.applied += it }

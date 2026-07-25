@@ -1,11 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Skeleton manifest (phase 00a). Phase 06c owns the real one and declares every
-  permission, feature and service up front; 05/06 re-add what they need.
+  Owned by phase 06c. ALL permissions are declared here up front, including the three
+  networking ones phase 08b's LAN spectator needs (NSD/multicast discovery) — a later phase
+  editing the manifest is how two agents end up fighting over one file.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <uses-feature android:name="android.hardware.camera" android:required="true" />
+
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Phase 08b (spectator): Ktor on the LAN + service discovery. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
     <application
+        android:name=".ChesslabApp"
         android:allowBackup="false"
         android:label="@string/app_name"
         android:supportsRtl="true"
@@ -20,6 +34,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          The single camera and engine owner. Foreground with type "camera": Android 14 kills a
+          background service that binds a camera, and CameraX hands the device to the LAST
+          binder, so exactly one component may own it.
+        -->
+        <service
+            android:name=".service.TrackerService"
+            android:exported="false"
+            android:foregroundServiceType="camera" />
     </application>
 
 </manifest>
