@@ -1139,9 +1139,11 @@ class TestCnnVerify:
     def test_counter_move_overrules(self, monkeypatch):
         """CNN sieht eindeutig einen ANDEREN Zug (Belegung) → überstimmt den Diff-Kandidaten."""
         # Endpoints of e2e4 unreadable (not confident) → no positive/negative signal for it,
-        # so the CNN's own confident move d2d4 wins.
+        # while d2d4's own endpoints ARE read (d2 empty, d4 occupied) → the CNN move wins.
         mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0, derive_move="d2d4",
-                              derive_agreement=0.99, conf={"e4": False, "e2": False})
+                              derive_agreement=0.99,
+                              occ={"e4": True, "e2": False, "d4": True, "d2": False},
+                              conf={"e4": False, "e2": False, "d4": True, "d2": True})
         for _ in range(2):                       # verify_obs_votes
             mt._verify_tick(_mk_snap(mt))
         assert mt.history == ["d4"]
@@ -1973,11 +1975,27 @@ class TestCnnOverrule:
         the CNN candidate is committed, not the diff candidate (Spec 10, part 5)."""
         # e2e4 endpoints unreadable so it is neither confirmed nor rejected; d2d4 is reliable.
         mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0, derive_move="d2d4",
-                              derive_agreement=0.99, conf={"e4": False, "e2": False})
+                              derive_agreement=0.99,
+                              occ={"e4": True, "e2": False, "d4": True, "d2": False},
+                              conf={"e4": False, "e2": False, "d4": True, "d2": True})
         for _ in range(2):                       # verify_obs_votes
             mt._verify_tick(_mk_snap(mt))
         assert mt.last_move == "d2d4"
         assert mt._verify_state == "overruled"
+
+    def test_overrule_needs_its_own_endpoints_read(self, monkeypatch):
+        """S17-SIM-3: the whole-board score alone let a phantom Bg5 — whose destination the
+        model never read confidently — discard the correct Bf4. An overruling move whose
+        endpoints are inferred rather than observed must NOT overrule; the diff candidate
+        falls through to the verify window instead."""
+        mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0, derive_move="d2d4",
+                              derive_agreement=0.99, verify_window=99,
+                              occ={"e4": True, "e2": False, "d2": False},
+                              conf={"e4": False, "e2": False, "d4": False, "d2": True})
+        for _ in range(3):
+            mt._verify_tick(_mk_snap(mt))
+        assert mt.history == []
+        assert mt._verify_state == "verifying"
 
 
 class TestWeakEvidenceHold:
@@ -2621,6 +2639,68 @@ def test_quiet_reanchor_vetoed_by_confident_cnn_conflict(monkeypatch):
                                infer_ms=0.0, warped=None, gray=None, fen=mt.board.fen())
     mt._try_detect(ref)
     assert mt._stuck_reason is None
+
+
+def test_persistent_cnn_misread_escalates_veto_to_alarm(monkeypatch):
+    """S17-SIM-2: when the CNN is simply WRONG no legal move explains the standoff, so the
+    recovery the veto defers to can never end it. The veto must therefore bound itself:
+    desync_obs_n stable observations that NAME a move (g1 vacated, g3 received)
+    raise the illegal-move alarm — and never an auto re-anchor, which would reopen the Bxc3
+    hole the veto exists to close."""
+    mt = _make_tracker(monkeypatch, cnn_run="stub", confirm_frames=1, desync_obs_n=3)
+    stub = _AlarmStub()
+    stub.set_obs_for_board(mt.board, overrides={"g1": "empty", "g3": "wN"})
+    mt.recovery = stub
+    ref = _gray_frame([])
+    mt.ref_gray, mt.ref_fen = ref, mt.board.fen()
+    old_ref = mt.ref_gray
+    for seq in (1, 2):                                   # below desync_obs_n → hold, no alarm
+        mt._cnn_snap = _mk_snap(mt, seq=seq, obs=stub._obs)
+        mt._try_detect(ref)
+        assert mt._alarm is None
+        assert mt._stuck_reason == "cnn_desync"
+        assert mt.ref_gray is old_ref, "re-anchored over a CNN-confirmed desync"
+        assert "holding reference for" in mt.note and "recovery will resolve" not in mt.note
+    mt._cnn_snap = _mk_snap(mt, seq=3, obs=stub._obs)
+    mt._try_detect(ref)
+    assert mt._alarm is not None and mt._alarm["conflicts"] == ["g1", "g3"]
+    assert "ILLEGAL MOVE?" in mt.note
+    assert mt.ref_gray is old_ref, "alarm must not be an excuse to re-anchor"
+
+
+def test_desync_streak_needs_distinct_observations(monkeypatch):
+    """The same snapshot re-evaluated must not advance the streak (seq contract, Spec 11) —
+    otherwise the alarm fires on frame rate rather than on persistence."""
+    mt = _make_tracker(monkeypatch, cnn_run="stub", confirm_frames=1, desync_obs_n=3)
+    stub = _AlarmStub()
+    stub.set_obs_for_board(mt.board, overrides={"g1": "empty", "g3": "wN"})
+    mt.recovery = stub
+    ref = _gray_frame([])
+    mt.ref_gray, mt.ref_fen = ref, mt.board.fen()
+    for _ in range(5):                                   # five ticks, ONE observation
+        mt._cnn_snap = _mk_snap(mt, seq=7, obs=stub._obs)
+        mt._try_detect(ref)
+    assert mt._alarm is None
+    assert mt._desync_obs == 1
+
+
+def test_unnamed_desync_never_alarms(monkeypatch):
+    """A conflict set that names no move must never escalate. Measured on the clips: a
+    chronically missed piece (blender-promocapture, g1 read empty and nothing received)
+    alarmed falsely and cost that clip its real exd8=Q+, and a moving shadow
+    (blender-shadowsweep) fabricated TWO occupied squares plus one missed pawn."""
+    mt = _make_tracker(monkeypatch, cnn_run="stub", confirm_frames=1, desync_obs_n=3)
+    stub = _AlarmStub()
+    stub.set_obs_for_board(mt.board, overrides={"g1": "empty"})
+    mt.recovery = stub
+    ref = _gray_frame([])
+    mt.ref_gray, mt.ref_fen = ref, mt.board.fen()
+    for seq in range(1, 6):
+        mt._cnn_snap = _mk_snap(mt, seq=seq, obs=stub._obs)
+        mt._try_detect(ref)
+    assert mt._alarm is None
+    assert mt._stuck_reason == "cnn_desync"
+    assert mt.ref_gray is ref
 
 
 def test_alarm_latch_discards_candidates_and_freezes_learning(monkeypatch):

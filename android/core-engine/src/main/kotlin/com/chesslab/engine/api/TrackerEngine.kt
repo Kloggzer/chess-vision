@@ -21,6 +21,7 @@ import com.chesslab.engine.cnnTick
 import com.chesslab.engine.commitMove
 import com.chesslab.engine.computeEvidence
 import com.chesslab.engine.debugPayload
+import com.chesslab.engine.desyncEvidence
 import com.chesslab.engine.detectGuards
 import com.chesslab.engine.dispatch
 import com.chesslab.engine.flushSessionCapture
@@ -61,9 +62,6 @@ private const val TOUCHED_BASE = 2.0
 
 /** `(time.time() - snap.ts) < 5.0` — the cnn_desync veto's freshness window. */
 private const val DESYNC_MAX_AGE_S = 5.0
-
-/** `', '.join(dis[:4])` — the desync note lists at most four squares. */
-private const val DESYNC_NOTE_LIMIT = 4
 
 private const val MS_PER_S = 1000.0
 
@@ -118,7 +116,7 @@ class TrackerEngine(
         val events = mutableListOf<TrackerEvent>()
         val outcome = loop.step(input)
         if (outcome is FrameOutcome.Detect) {
-            events += state.tryDetect(outcome.cur, outcome.curBgr, outcome.seq)
+            events += state.tryDetect(outcome.cur, outcome.curBgr, outcome.seq, cnn)
         }
         val stuck = state.stuckReason
         if (stuck != null && stuck != stuckBefore) events += TrackerEvent.Stuck(stuck)
@@ -324,6 +322,7 @@ internal fun EngineState.tryDetect(
     cur: GrayImage,
     curBgr: BgrImage?,
     seq: Long,
+    cnn: CnnEvaluator? = null,
 ): List<TrackerEvent> {
     if (!detectGuards()) return emptyList()
     // 2. Evidence — every gate and the LL scoring operate on the SAME fused z (`lastZ`).
@@ -342,7 +341,7 @@ internal fun EngineState.tryDetect(
     val moves = scoreViableMoves(lastZ)
     val events = mutableListOf<TrackerEvent>()
     val promoBefore = promoPending
-    if (!(changed == 0L && quietOutcome(moves, cur, curBgr, events))) {
+    if (!(changed == 0L && quietOutcome(moves, cur, curBgr, events, cnn))) {
         // 6. Hypothesis — the ONE place that turns evidence into a candidate.
         val cand = generateHypothesis(lastZ, moves, cur, curBgr)
         if (cand != null && commitGates(cand)) {
@@ -367,20 +366,22 @@ internal fun EngineState.tryDetect(
  * 2. an illegal position must NEVER become base truth (invariant 9);
  * 3. the CNN desync veto (Bxc3, 2026-07-21) — a real move whose commit was rejected leaves the
  *    board physically ahead of the game state, and re-anchoring would make that desync silent and
- *    permanent. Marking stuck hands the standoff to the CNN recovery.
+ *    permanent. `desyncEvidence` bounds that hold: it escalates to the alarm rather than waiting
+ *    on a recovery that, when the CNN is merely wrong, has no legal move to offer.
  */
 internal fun EngineState.quietOutcome(
     moves: ViableMoves,
     cur: GrayImage,
     curBgr: BgrImage?,
     events: MutableList<TrackerEvent>,
+    cnn: CnnEvaluator? = null,
 ): Boolean {
     val obsMove = moves.obsMove
     val nTouched = if (obsMove == null) TOUCHED_FALLBACK else moveTouchedMask(board, obsMove).countOneBits()
     val scaledFloor = config.reanchorLlFloor * (nTouched / TOUCHED_BASE)
     var handled = true
     if (obsMove == null || moves.best < scaledFloor) {
-        val desync = cnnDesyncConflicts()
+        val desync = cnnDesync()
         when {
             tainted != 0L -> {
                 markStuck(STUCK_OCCLUDED)
@@ -390,10 +391,9 @@ internal fun EngineState.quietOutcome(
                 markStuck(STUCK_NO_LEGAL_MOVE)
                 note = NOTE_CANNOT_ANCHOR
             }
-            desync != 0L -> {
+            desync != null -> {
                 markStuck(STUCK_CNN_DESYNC)
-                val listed = desync.squareNames().take(DESYNC_NOTE_LIMIT).joinToString(", ")
-                note = "quiet board but CNN disagrees on $listed — holding reference (recovery will resolve)"
+                events += desyncEvidence(cnn, desync.snap, desync.conflicts)
             }
             else -> {
                 // The only verifiably CLEAN moment: re-anchor AND run the deferred jobs (the gamut
@@ -424,9 +424,9 @@ internal fun EngineState.quietOutcome(
  * `snap.obs is None` is unreachable here — the frozen seam declares `CnnSnapshot.obs` non-null
  * (same finding as STATUS D03b-2).
  */
-private fun EngineState.cnnDesyncConflicts(): Long {
-    val snap = cnnSnap ?: return 0L
-    if (snap.fen != board.fen() || nowS - snap.tsMs / MS_PER_S >= DESYNC_MAX_AGE_S) return 0L
+private fun EngineState.cnnDesync(): Desync? {
+    val snap = cnnSnap ?: return null
+    if (snap.fen != board.fen() || nowS - snap.tsMs / MS_PER_S >= DESYNC_MAX_AGE_S) return null
     val thr = config.cnnConfThr
     var conflicts = 0L
     for (i in 0 until Squares.COUNT) {
@@ -436,8 +436,14 @@ private fun EngineState.cnnDesyncConflicts(): Long {
             conflicts = conflicts.with(i)
         }
     }
-    return conflicts
+    return if (conflicts == 0L) null else Desync(snap, conflicts.squareNames())
 }
+
+/** The observation that vetoed the re-anchor, and the squares it vetoed on. */
+private class Desync(
+    val snap: CnnSnapshot,
+    val conflicts: List<String>,
+)
 
 /**
  * Steps 6b, 7 and 8 — the three gates between a candidate and dispatch. `true` = commit it.

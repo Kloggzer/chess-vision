@@ -46,10 +46,52 @@ internal fun EngineState.onStableMismatch(
         if (latched == null) {
             "CNN check: board deviates (${conflicts.shown()}) — check pieces or resync"
         } else {
-            val what = board.alarmGuessSan(latched.guess) ?: latched.conflicts.shown()
-            "ILLEGAL MOVE? $what — take it back, or resync to accept"
+            alarmNote(latched)
         }
     return events
+}
+
+/**
+ * The quiet-re-anchor veto fired (`quietOutcome`'s Bxc3 guard) — bound it.
+ *
+ * The veto hands the standoff to CNN recovery, but recovery can only end it when a LEGAL move
+ * explains the observation. When the CNN is simply WRONG (S17-SIM-2: the white king on g1 read
+ * empty in every observation) no move does, so `deriveMovesDeep` returns nothing forever — and
+ * [cnnTick]'s escalation is throttled by the very `cnnCooldownS` that also throttles recovery.
+ * The veto therefore counts as desync evidence in its own right, on the occupancy axis it just
+ * fired on, and escalates to the illegal-move alarm. The escape is the USER (undo / reset /
+ * baseline / accept-CNN), never an auto re-anchor — that is the hole the veto exists to close.
+ *
+ * Escalation additionally needs the observation to NAME a move (`guessIllegalMove`: exactly one
+ * vacated and one received square — the Bxc3 shape). Measured on the 18 clips, nothing weaker
+ * holds: the streak alone raised a false alarm on blender-promocapture (one chronically missed king
+ * on g1) and cost it its real exd8=Q+, and any two-directional conflict set still alarmed on
+ * blender-shadowsweep (two phantom-occupied squares under a moving shadow plus one missed pawn).
+ */
+internal fun EngineState.desyncEvidence(
+    cnn: CnnEvaluator?,
+    snap: CnnSnapshot,
+    conflicts: List<String>,
+): List<TrackerEvent> {
+    advanceDesyncStreak(snap.seq, conflicts)
+    val hasIdentity = Squares.ALL.any { snap.obs.label(it) != null }
+    val due = alarm == null && desyncObs >= config.desyncObsN && hasIdentity
+    val guess = if (due) cnn?.guessIllegalMove(board.fen(), snap.obs, config.cnnConfThr) else null
+    if (guess != null) {
+        val raised = latchAlarm(conflicts, guess)
+        note = alarmNote(raised)
+        return listOf(raised)
+    }
+    val listed = conflicts.take(CONFLICTS_SHOWN).joinToString(", ")
+    note =
+        "quiet board but CNN disagrees on $listed — holding reference for " +
+        "${pyFixed(nowS - desyncSince, 0)}s ($desyncObs observations)"
+    return emptyList()
+}
+
+private fun EngineState.alarmNote(latched: TrackerEvent.Alarm): String {
+    val what = board.alarmGuessSan(latched.guess) ?: latched.conflicts.shown()
+    return "ILLEGAL MOVE? $what — take it back, or resync to accept"
 }
 
 /**
@@ -65,6 +107,7 @@ private fun EngineState.advanceDesyncStreak(
     val current = ofSquares(conflicts)
     val stable = current == desyncConflicts || current.without(desyncConflicts) == 0L || desyncConflicts.without(current) == 0L
     desyncObs = if (stable) desyncObs + 1 else 1
+    if (desyncObs == 1) desyncSince = nowS
     desyncConflicts = current
     desyncLastSeq = seq
 }
@@ -80,13 +123,19 @@ private fun EngineState.raiseAlarmIfDue(
     conflicts: List<String>,
 ): List<TrackerEvent> {
     val due = alarm == null && desyncObs >= config.desyncObsN
-    val fen = board.fen()
-    if (!due || !cnn.hasOccupancyConflict(fen, obs, config.cnnConfThr, conflicts)) return emptyList()
-    val guess = cnn.guessIllegalMove(fen, obs, config.cnnConfThr)
+    if (!due || !cnn.hasOccupancyConflict(board.fen(), obs, config.cnnConfThr, conflicts)) return emptyList()
+    return listOf(latchAlarm(conflicts, cnn.guessIllegalMove(board.fen(), obs, config.cnnConfThr)))
+}
+
+/** Latch the alarm. Released only by [clearAlarm] — nothing in the pipeline may heal it silently. */
+private fun EngineState.latchAlarm(
+    conflicts: List<String>,
+    guess: String?,
+): TrackerEvent.Alarm {
     val raised = TrackerEvent.Alarm(ALARM_ILLEGAL_MOVE, conflicts, guess, board.alarmGuessSan(guess))
     alarm = raised
     alarmSince = nowS
-    return listOf(raised)
+    return raised
 }
 
 /**

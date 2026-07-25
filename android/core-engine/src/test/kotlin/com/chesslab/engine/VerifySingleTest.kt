@@ -161,11 +161,16 @@ class VerifySingleTest {
 
     @Test
     fun counterMoveOverrules() {
-        // The endpoints of e2e4 are unreadable, so the CNN's own confident move wins — and it
-        // commits in THIS cycle, carried by the verdict's replacement move (invariant 10).
+        // The endpoints of e2e4 are unreadable while d2d4's own ARE read (d2 empty, d4 occupied),
+        // so the CNN's move wins — and it commits in THIS cycle, carried by the verdict's
+        // replacement move (invariant 10).
         val state = pendingState()
         val cnn = VerifyEvaluator(deriveMove = "d2d4", deriveAgreement = 0.99)
-        val obs = VerifyObs(confidence = mapOf("e4" to false, "e2" to false))
+        val obs =
+            VerifyObs(
+                occupancy = mapOf("e4" to true, "e2" to false, "d4" to true, "d2" to false),
+                confidence = mapOf("e4" to false, "e2" to false, "d4" to true, "d2" to true),
+            )
 
         assertTrue(state.glance(cnn, obs).isEmpty())
         val events = state.glance(cnn, obs)
@@ -177,6 +182,27 @@ class VerifySingleTest {
         assertEquals("d2d4", committed.uci)
         assertEquals(DECIDER_CNN_OVERRULE, committed.decider)
         assertTrue(state.note!!.contains("CNN overruled e4"))
+    }
+
+    /**
+     * S17-SIM-3: the whole-board score alone let a phantom Bg5 — whose destination the model never
+     * read confidently — discard the correct Bf4. An overruling move whose endpoints are inferred
+     * rather than observed must NOT overrule; the diff candidate falls through to the window.
+     */
+    @Test
+    fun overruleNeedsItsOwnEndpointsRead() {
+        val state = pendingState(verifyWindow = 99)
+        val cnn = VerifyEvaluator(deriveMove = "d2d4", deriveAgreement = 0.99)
+        val obs =
+            VerifyObs(
+                occupancy = mapOf("e4" to true, "e2" to false, "d2" to false),
+                confidence = mapOf("e4" to false, "e2" to false, "d4" to false, "d2" to true),
+            )
+
+        repeat(3) { state.glance(cnn, obs) }
+
+        assertEquals(emptyList<String>(), state.history)
+        assertEquals("verifying", state.verifyState)
     }
 
     @Test
