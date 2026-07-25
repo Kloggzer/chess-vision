@@ -20,8 +20,8 @@ Read `entry.md` completely before your phase file.
 | 02b | `02b-geometry.md` | `:core-geometry` — homography, warps, crops, ArUco, MarkerTracker, grid lines | done | 9 main files, 10 test classes / 58 tests green, natives loaded (0 skipped) |
 | 02c | `02c-cnn-observation.md` | `:core-cnn` — observation model, recovery search, resync, preprocessing | done | whole `cnn_recovery.py` ported + preprocessing; 49 tests over all 7 `_cnn` families (34 rows); seam implemented, 8 discrepancies |
 | 03a | `03a-evidence.md` | `EngineState`, guards, evidence, frame loop | done | 4 src + 4 test files, 34 tests green (module 134/134); `EngineState.kt` complete incl. the phase-04 fields (D03a-1..12) |
-| 03b | `03b-vetoes.md` | shadow/occlusion vetoes, taint latch, noise learning | todo | |
-| 03c | `03c-hypothesis.md` | hypothesis, pair, endpoint, ambiguity, promotion | todo | |
+| 03b | `03b-vetoes.md` | shadow/occlusion vetoes, taint latch, noise learning | done | 3 src + 3 test files, 33 tests green; invariant 2 split proven both ways, latch mapped onto the expiry map (D03b-1..10) |
+| 03c | `03c-hypothesis.md` | hypothesis, pair, endpoint, ambiguity, promotion | done | 4 src + 3 test files, 31 tests green; step 5 (`scoreViableMoves`) landed here too — **03d must call it** (D03c-2); 204 tier-A frames replayed (D03c-1..10) |
 | 03d | `03d-dispatch.md` | dispatch, commit, set-ref, anomaly patcher, `TrackerEngine` wiring | todo | |
 | 04a | `04a-verify-single.md` | `_verify_tick` ladder, verdict with replacement move, vote gate | todo | |
 | 04b | `04b-verify-pair.md` | `_verify_pair_tick` fast-accept + parity fallback | todo | |
@@ -1040,6 +1040,287 @@ class, `computeEvidence()` and both `refCensusCodes()` overloads; `FrameLoop.kt`
   weight is tuned to 0, the pre-CLAHE dark gate, the grid-gate release, `ready` needing both
   conditions, `setRef` only on a null reference, and the duplicate-frame rejection).
 
+### 03c (hypothesis / pair / endpoint / ambiguity / promotion), 2026-07-25
+
+Files created (all `internal`, package `com.chesslab.engine`, module `:core-engine`):
+main `Hypothesis.kt`, `PairCandidate.kt`, `EndpointCandidate.kt`, `Ambiguity.kt`; tests
+`HypothesisTest.kt` (17), `PairCandidateTest.kt` (7), `EndpointCandidateTest.kt` (7) —
+**31 tests**. No other file was touched: no build file, no `libs.versions.toml`, no `api/` seam
+file, no file owned by 03a/03b/03d. `EngineState` had every field 03c needs (`board`,
+`confirmer`, `bestScore`, `secondScore`, `candidateUci`, `note`, `promoPending`, `shadowBlocked`,
+`cnnRun`, `cnnFailed`, `cnnOn`) — **no blocker**.
+
+#### The surface 03d wires (read this before writing `Dispatch.kt`)
+
+```kotlin
+// Hypothesis.kt
+internal data class Candidate(val moves: List<Move>, val priorUsed: Boolean,
+                              val vote: Boolean, val note: String? = null)
+internal class ViableMoves(val scored, val viableRaw, val viable, val obsMove, val best, val second)
+internal class DetectContext(val changed: Set<String>, val shadowVeto: Set<String>,
+                             val blockedN: Int, val cur: GrayImage, val curBgr: BgrImage?)
+internal typealias AnomalyPatcher = (Set<String>, Double, GrayImage, BgrImage?) -> Unit
+internal val NO_ANOMALY_PATCH: AnomalyPatcher
+
+internal fun EngineState.scoreViableMoves(z: Map<String, Double>, shadowVeto: Set<String>): ViableMoves
+internal fun EngineState.generateHypothesis(z, moves: ViableMoves, ctx: DetectContext,
+                                            patchAnomaly: AnomalyPatcher = NO_ANOMALY_PATCH): Candidate?
+internal const val STUCK_TOO_MANY_CHANGED = "too_many_changed"
+internal const val STUCK_NO_LEGAL_MOVE = "no_legal_move"
+// PairCandidate.kt
+internal const val NO_SCORE = -1e9
+internal fun EngineState.pairCandidate(z, bestSingle: Double, shadowVeto: Set<String>): Candidate?
+// EndpointCandidate.kt
+internal fun EngineState.singleEndpointCandidate(z, scored, shadowVeto): Move?
+// Ambiguity.kt
+internal class Resolution(val move: Move?, val priorUsed: Boolean)
+internal fun EngineState.resolveAmbiguity(moves: ViableMoves, cur, curBgr): Resolution
+internal const val NOTE_PROMOTION_PENDING; internal const val NOTE_AMBIGUOUS_PLAIN
+```
+
+03d's `_try_detect` calls `scoreViableMoves` (step 5) and then
+`generateHypothesis(z, moves, DetectContext(changed, shadowVeto, tainted.size, cur, curBgr),
+state::maybePatchAnomaly)` (step 6). Everything else in step 5 — the `if not changed` re-anchor
+branch with its `occluded` / `no_legal_move` / `cnn_desync` marks and the `best < 0.0` weak-hold
+note (`tracker.py:3013-3058`) — is **03d's**, deliberately not implemented here.
+
+#### Discrepancies
+
+- **D03c-1 — none of the phase file's signatures is expressible under the detekt gate; the
+  parameters are grouped into holders (additive, no semantic change).** detekt's
+  `LongParameterList` fires at **6** parameters (same finding as D01b-1 / D01c-2 / D01d-2 /
+  D02a-5), so `_generate_hypothesis`'s eleven arguments became `ViableMoves` (scored / viableRaw /
+  viable / obsMove / best / second) + `DetectContext` (changed / shadowVeto / blockedN / cur /
+  curBgr). Every argument of the phase file's signature is present with the same name, type and
+  meaning. `ReturnCount` caps a function at **2** returns, so `pairCandidate`,
+  `resolveAmbiguity`, `tooMuchChangeGate` and `noSingleFitsGate` are single-exit with a result
+  variable, and `generateHypothesis` is a four-stage `?:` chain over a private `Outcome` holder
+  (`Outcome(null)` = "frame handled, return null"). No `@Suppress`, no baseline, no config change.
+- **D03c-2 — step 5's scoring + viability filter (`tracker.py:2995-3011`) landed in
+  `Hypothesis.kt` as `scoreViableMoves`, on the orchestrator's instruction. ACTION FOR 03d: call
+  it, do not reimplement it.** It is the block that produces `generateHypothesis`'s `scored` /
+  `viable` / `obsMove` / `best` / `second`, and it owns the `bestScore` / `secondScore` /
+  `candidateUci` writes, the shadow-blocked uci list and the
+  `"…? destination shadow-vetoed — not a move"` note. **It also CLEARS `state.shadowBlocked`**
+  (Python does that at `tracker.py:2851`, at the top of `_try_detect`); clearing it again in 03d
+  is harmless but redundant. The rest of `_try_detect` step 5 is 03d's (see above).
+- **D03c-3 — `_single_endpoint_candidate`'s ambiguity loop is unreachable dead code, in Python
+  too.** `cands` is filtered to moves whose destination is in `strong`, and the function has
+  already returned unless `len(strong) == 1` — so every candidate shares one destination and
+  `mv.to_square != best_mv.to_square` (`tracker.py:3373`) can never be true. Ported faithfully
+  anyway (`unambiguousTop`) and pinned from both sides by
+  `EndpointCandidateTest.rivalsToTheSameDestinationDoNotBlock`. Nothing was "simplified away".
+- **D03c-4 — two golden ties are NOT order-comparable, and no tie-break was added.**
+  (a) `test_single_endpoint_candidate_unambiguous`: after 1.e4 with only `c6` hot, `b8c6` and
+  `c7c6` score identically (cold origin + hot destination) — chesslib returns `c7c6`, python-chess
+  `b8c6`. Python's own assertion is on the DESTINATION square, and the Kotlin test asserts exactly
+  that. (b) The four promotion variants tie exactly, so *which* one the CNN branch passes through
+  is legal-move-generation order; the test asserts from/to and "is a promotion", not the piece.
+  Same class as D02c-2 / D02a-10.
+- **D03c-5 — the anomaly patcher is a functional seam, because 03d owns
+  `_maybe_patch_anomaly`.** `internal typealias AnomalyPatcher = (Set<String>, Double, GrayImage,
+  BgrImage?) -> Unit` mirrors Python's argument list; `generateHypothesis` defaults it to the
+  no-op `NO_ANOMALY_PATCH` so the module stays compilable and testable before 03d lands. **03d
+  passes `state::maybePatchAnomaly`.** The call order is transcribed literally —
+  `confirmer.reset()` -> `markStuck(...)` -> `patchAnomaly(...)` -> `if (stuckReason != null)` note
+  — because the patcher may CLEAR the stuck state (`tracker.py:3419-3421`), which is exactly what
+  that guard is for.
+- **D03c-6 — `f"{s:+.1f}"` cannot be `String.format("%+.1f", …)`.** Java's `%f` rounds HALF_UP on
+  the exact decimal value while Python rounds HALF_EVEN, and Java would print `+0.0` where Python
+  prints `-0.0` for a small negative score. The ambiguity note therefore formats via
+  `BigDecimal(abs(v)).setScale(1, HALF_EVEN)` with the sign taken from the raw double (including
+  negative zero). Only the note text depends on this; no decision does.
+- **D03c-7 — there is no `parity/steps/` (00b's schema wins).** The phase file's "step-scoped
+  Tier B fixtures in `core-engine/src/test/resources/parity/steps/`" does not exist; per the 00b
+  mapping table the real source is `parity/<clip>/frames/NNNN.json`. `TrackerConfig` is built from
+  `meta.effectiveConfig` via `toTrackerConfig()` throughout. **No fixture was invented.**
+  `tierB.bestUci` / `candidateUci` / `stuckReason` / `promotionPending` / `note` are the emitted
+  key names, and `tierB.shadowVeto` / `changed` / `tainted` supply the `DetectContext`.
+- **D03c-8 — commit frames must be EXCLUDED from a `frame.fen`-driven replay.** On a frame that
+  committed, `frame.fen` is the position AFTER the move (D02a-3) while `tierB.bestLl` belongs to
+  the pre-move board, so the decision board is not recoverable from the fixture. 43 of the 247
+  tier-A frames are in that case; the remaining **204** are replayed. 03d's full-clip Tier-B gate
+  does not have this problem because it carries the board forward itself.
+- **D03c-9 — `_pair_candidate`'s `board.copy(stack=False)` is a `push`/`pop` here.** chesslib
+  restores the complete state in `undoMove` and neither move generation nor the square derivation
+  reads the move stack, so the intermediate-board evaluation is identical without a FEN reparse
+  per pair (same rationale as D02a-8). The `Game` is left untouched on return.
+- **D03c-10 — 03b was in flight in the same module.** Its `Vetoes.kt` / `NoiseLearning.kt` /
+  `Taint.kt` (+ tests) landed while 03c was running; the module compiled throughout, so **no
+  isolated copy was needed** and the gate below is from the real tree with both phases present.
+  `ktlintFormat` runs module-wide and is deterministic/idempotent (same situation as D01c-7);
+  nothing outside 03c's seven files was hand-edited.
+- **Note (not a discrepancy):** the acceptance greps hold literally —
+  `strong.size != 1` (`EndpointCandidate.kt:29`), `vote = false` exactly once
+  (`Hypothesis.kt:211`), `cnnOn` twice in the branch logic (`:183` pair-before-single, `:199`/`:202`
+  no-single-fits), `blockedN` in both the gate and the pair pre-condition, `promoPending` inside
+  the `!cnnOn` arm of `Ambiguity.kt`, `moveDestinationSquares` intersected with `shadowVeto` in
+  `PairCandidate.kt`, and `grep -rn "synchronized\|@Volatile\|Atomic\|Mutex"` over
+  `core-engine/src/main` hits only three comment lines.
+- **Coverage actually asserted:** `hypothesisMatchesPythonOnEveryTierAFrame` replays step 5 + step 6
+  over **204 tier-A frames of all 18 clips** and asserts `tierB.bestLl`, `tierB.secondLl` (1e-4
+  fixture tolerance, and they cover the pair write-back), `tierB.candidateUci` (exact, wherever the
+  fixture value is not a two-uci pair key), plus `tierB.stuckReason` **and `tierB.note`** on the
+  **136 frames** that reach the stuck path — every one of those 136 notes matches Python's string
+  byte for byte. Hand-written on top: both pair-viability tests from `TestPairScores`, the
+  intermediate-board proof (`e5e6 + f7xe6`, which the pre-push board would misclassify as en
+  passant and reject), the pair margin at and just inside `ambiguityMarginLl`, the pair write-back,
+  the pair shadow rule from both sides, a negative pair, the endpoint candidate (one/two/zero
+  strong squares, shadow-vetoed destination, same-destination rivals, `vote = false` with and
+  without CNN), the soft-gate boundary at ±0.01, castling and en-passant signatures, the hot
+  untouched square, `shadowBlocked` + its note vs. a shadowed origin, invariant 4 (`blockedN`
+  blocks the pair), the `maxChanged + 2` ceiling, the CNN-conditional order on identical evidence,
+  the two-knights ambiguity note, the prior rerank at margin ∓0.01, and both promotion branches.
+
+### 03b (shadow veto / occlusion taint latch / noise learning), 2026-07-25
+
+Files created (all `internal`, package `com.chesslab.engine`, module `:core-engine`):
+main `Vetoes.kt`, `Taint.kt`, `NoiseLearning.kt`; tests `VetoesTest.kt` (13), `TaintTest.kt` (14),
+`NoiseLearningTest.kt` (6) — **33 tests**. No other file was touched: no build file, no
+`libs.versions.toml`, no `api/` seam file, and neither `EngineState.kt` nor any 03a/03c file.
+
+#### The surface 03d wires
+
+```kotlin
+// Taint.kt — step 2, call straight after computeEvidence, on the SAME mutable z map,
+// BEFORE deriving `changed = {s : z[s] >= zThr}`.
+internal fun EngineState.applyTaints(z: MutableMap<String, Double>)
+internal fun EngineState.cnnOcclusionFilter(squares: Set<String>, board: Game): Set<String>
+internal const val OBS_MAX_AGE_S: Double = 3.0
+
+// Vetoes.kt — step 3. NOTE: no `z` parameter (D03b-1).
+internal fun EngineState.applyVetoes(
+    cur: GrayImage, curBgr: BgrImage?, changed: MutableSet<String>, cens: Map<String, Double>?,
+): VetoResult
+internal data class VetoResult(changed: MutableSet<String>, shadowVeto: Set<String>, occludedSet: Set<String>)
+
+// NoiseLearning.kt — step 4, AFTER applyVetoes, with its post-veto `changed` and `shadowVeto`.
+internal fun EngineState.learnNoise(
+    diffs: Map<String, Double>, cens: Map<String, Double>?, changed: Set<String>, shadowVeto: Set<String>,
+)
+```
+
+`applyTaints` leaves `EngineState.tainted` holding exactly the latched set, so 03c's
+`blockedN = state.tainted.size` (entry.md invariant 4) is correct, and `occludedVetoed` holds
+`motionOccludedSquares ∪ tainted` (sorted) for the UI. `applyVetoes` returns `tainted.keys` as
+`occludedSet`, so 03d's "only photograph a clean board" guard is a real condition.
+
+#### How the expiry-map latch reproduces Python's release rule (answers D03a-8)
+
+**There is no frame counting to reproduce — Python's type hint is stale, its values are already
+timestamps.** `tracker.py:795` annotates `self._tainted: dict[str, int]` with the comment
+"frames to clear", but every write is `self._tainted[sq] = time.time() + self.motion_hold_s`
+(`:2861`, `:2875`) and the only read compares `_now > exp` with `_now = time.time()` (`:2884-2887`).
+The value has always been an absolute wall-clock expiry. The port stores `nowS + config.motionHoldS`
+and compares against `nowS` — identical arithmetic with `time.time()` replaced by the engine's
+frame clock (03a sets `nowS` once per frame from `FrameInput.timestampMs`), which is the same
+substitution every other timestamp in the port already makes.
+
+The release condition is transcribed literally, including why each half exists:
+
+```kotlin
+val exp = tainted.getValue(square)
+val motionSinceTaint = lastMotionTs >= exp - config.motionHoldS   // exp - hold == the taint instant
+val backToBaseline = (z[square] ?: 0.0) < config.zThr
+if (nowS > exp && (motionSinceTaint || backToBaseline)) tainted.remove(square) else z[square] = 0.0
+```
+
+`exp - motionHoldS` is exactly the moment the taint was last refreshed, so `motionSinceTaint` means
+"motion occurred since the taint" without needing a second stored timestamp — that identity is the
+whole reason Python stores the expiry rather than the taint time. The `else` branch runs on **every
+frame**, not only at taint time (`:2881-2883`): a still hand outlived the 0.4 s hold and surfaced as
+"change" when the zeroing was done once. Asserted from both sides by
+`TaintTest.occlusionVetoZeroesZ` (zeroed on the taint frame AND the next one) and
+`TaintTest.latchReleaseNeedsMotionOrBaselineReturn`.
+
+#### Discrepancies
+
+- **D03b-1 — `applyVetoes` has no `z` parameter.** The phase file's signature carries Python's
+  `z`, but `_apply_vetoes` never reads or writes it (`tracker.py:3141-3176`) and detekt's
+  `style.UnusedParameter` is active and reports public functions (D00a-4), so the parameter is
+  unbuildable. Dropping it is also what makes the phase's own acceptance grep
+  (`grep "z\[" Vetoes.kt` → nothing) structurally true rather than a convention: **the shadow path
+  physically cannot touch z.** 03d calls `applyVetoes(cur, curBgr, changed, cens)`.
+- **D03b-2 — `_cnn_occlusion_filter`'s two null guards are not expressible as written.**
+  `snap.obs is None` is unreachable: the frozen seam declares `CnnSnapshot.obs: CnnObservation`
+  (non-null). `self.recovery is None` has no `EngineState` counterpart — 03a declares no evaluator
+  field — so it is mapped to `!cnnRun || cnnFailed`, which is exactly when `_ensure_cnn` has not
+  produced (or has disabled) a `CnnRecovery` (`tracker.py:833`, `:1849-1865`). Both fall back to the
+  `>2 = hand` heuristic, as Python does.
+- **D03b-3 — the threshold really is `cnnConfThr` (0.85), not the phase file's 0.9.** Implemented
+  per the orchestrator's resolved note ("the 0.9 fallback is dead code"): `CnnRecovery` is always
+  built with `conf_thr=self.cnn_conf_thr` (`:1856`). The phase file's "Do NOT use
+  `config.cnnConfThr`" bullet is superseded by that resolution.
+- **D03b-4 — the resting-hand veto iterates all 64 squares, because the seam has no `p_occluded`
+  map.** Python does `for sq, p in snap.obs.p_occluded.items()`; `CnnObservation` only exposes
+  `pOccluded(square): Double`. Iterating `Squares.ALL` and testing `> 0.5` is equivalent — a square
+  absent from Python's dict cannot exceed 0.5, and an implementation returns 0.0 for it. Python's
+  `if p_occl:` emptiness guard is likewise not expressible and not needed (an empty observation
+  simply taints nothing).
+- **D03b-5 — detekt `MatchingDeclarationName` forced `VetoResult` to the BOTTOM of `Vetoes.kt`.**
+  As the first top-level class-like declaration of a file not named `VetoResult.kt` it is a finding;
+  moving it below the functions clears it. Same class of finding as D01a-2 / D01c-2 (01c moved
+  `ShadowParams` out of `ShadowVeto.kt` for the identical rule). No rename, no `@Suppress`, no
+  baseline. Two test findings came from the same family: `NestedBlockDepth` split the test-local
+  Gaussian blur into `gauss5`/`gaussPixel` and the fixture scan into `countDiscriminating`, and
+  `LoopWithTooManyJumpStatements` merged the two `continue`s of both parity replays (D03a-7's rule).
+- **D03b-6 — the acceptance grep `grep "0.125" NoiseLearning.kt` cannot hit.** `MagicNumber` fires
+  on literals in function bodies (D00a-3 / D02a-4), and 01d already publishes the constant, so the
+  census lane reads `CENSUS_NOISE_EXCLUDE_ALPHA_SCALE` (`SquareNoise.kt`, value **0.125**,
+  unchanged). The criterion is met as "the slow-lane scale appears exactly once, in the census
+  lane"; `NoiseLearningTest.censusLaneUsesExcludeAlphaScale` pins the arithmetic
+  (`alpha * 0.125 * value`) numerically. The `alarm == null` grep is a real hit and it wraps **both**
+  lanes (an early `return` would have satisfied the behaviour but not the grep, so the block form
+  was chosen deliberately).
+- **D03b-7 — `hsvShadowSquares` needs converted planes, so `applyVetoes` converts both BGR frames
+  itself.** Python hands `cv2.cvtColor` the raw planes inside `hsv_shadow_squares` (`:265-266`);
+  01c's port takes HSV buffers (D01c-2). The conversion happens in `Vetoes.kt` into two file-private
+  size-keyed scratch arrays — same reuse contract as 01a's D01a-2, and the engine is single-threaded
+  so nothing can alias them. The reference plane is re-converted every frame exactly like Python;
+  caching it on identity would be a behavioural change and was not done.
+- **D03b-8 — `tainted` is empty on all 969 fixture frames and `shadowVeto` on all 247 tier-A
+  frames, so the clip parity is a NEGATIVE assertion — and it is still load-bearing.** The clips
+  replay with `cnn_run=None` over quiet detection frames, so nothing can latch. What the fixtures do
+  carry is **158 HSV shadow squares over 109 tier-A frames that Python did NOT veto**, i.e. the raw
+  census gate rejecting every one of them, and **one square where the RAW census is ≥ 40 while the
+  NORMALIZED one is below it** — a port reading the normalized channel vetoes that square and fails
+  `applyVetoesMatchesPythonOnEveryTierAFrame`. `censusThresholdReadsTheRawChannelInTheFixtures`
+  isolates that case explicitly (entry.md invariant 8). The band fast path is exercised on the 3
+  channel-guard frames, where Python also has neither `cens` nor `_cens_raw`.
+- **D03b-9 — there is no `parity/steps/` and no `tierB.z`** (confirms D03a-9). The phase file's
+  "step-scoped slice `parity/steps/`" does not exist and no post-veto `z{}` map is emitted; the real
+  sources are `tierA.vetoCandidates` / `tierA.hsvShadowSquares` / `tierA.censusRaw` /
+  `tierA.censusNormalized` / `tierA.noiseExclude` / `tierA.noise*` / `tierB.changed` /
+  `tierB.shadowVeto` / `tierB.tainted` / `tierB.occlusionVetoed`, all of which are consumed.
+  **No fixture was invented.** `TrackerConfig` is built from `meta.effectiveConfig` via
+  `toTrackerConfig()` throughout (`detSize` 320, `overhang` 0.0 on several clips,
+  `occlusionColorThr` 1.5).
+- **D03b-10 — `cnnOcclusionFilter` takes 02a's `Game`, not a chesslib `Board`.** Same reason as
+  D03a-1: `Game` is the only place allowed to know chesslib. The FEN occupancy test is
+  `board.pieceCharAt(sq) != null`.
+- **Note (not a discrepancy):** the two blur helpers in the test sources reproduce
+  `cv2.GaussianBlur(noise, (5,5), 0)` (separable `[1,4,6,4,1]/16`, BORDER_REFLECT_101) rather than a
+  box blur — the `test_hard_shadow_is_shadow_not_occlusion` /
+  `test_multiplicative_shadow_is_census_quiet` scenarios depend on the texture being smooth enough
+  that a multiplicative darkening preserves the census codes, which is a property of Python's blur,
+  not of any smoothing. Nothing in `:core-engine` gained a blur.
+- **Coverage actually asserted:** **247 tier-A frames over all 18 clips** replayed through
+  `applyVetoes` (shadow-veto set, `_shadow_vetoed` list and the post-veto `changed` set, all EXACT
+  against `tierB`) and through `computeEvidence + learnNoise` (`noiseMean`, `noiseStd`,
+  `censusNoiseMean`, `censusNoiseStd` per frame from the constructor state, never reset, at the
+  1e-4 fixture tolerance, with `tierA.noiseExclude == changed ∪ shadowVeto` asserted per frame);
+  **969 frames** for "`tierB.tainted` is empty and `applyTaints` leaves z bit-identical"; plus every
+  named invariant test the phase file lists and the hand-written scenarios
+  `test_shadow_veto_removes_hand_shadow_in_detect`, `test_hsv_shadow_detects_uniform_darkening`,
+  `test_hsv_shadow_ignores_real_piece`, `test_census_low_for_uniform_darkening`,
+  `test_multiplicative_shadow_is_census_quiet`, `test_hard_shadow_is_shadow_not_occlusion`,
+  `test_textured_occluder_is_occluded`, `test_flat_hand_needs_chroma_to_be_occlusion`,
+  `test_resting_hand_taints_and_blocks_reanchor`,
+  `test_taint_persists_without_motion_while_evidence_hot`,
+  `test_taint_releases_on_motion_or_baseline` (both release paths),
+  `test_stale_snapshot_does_not_taint`, `test_occlusion_filter_ignores_old_snapshot`,
+  `test_hand_over_pieces_keeps_base_truth` and `test_shadow_squares_not_learned_into_noise`.
+
 ## Blockers
 
 - ~~02c has no CNN fixtures~~ — **withdrawn**, see D00b-2: `parity/_cnn/` now carries 7
@@ -1234,3 +1515,47 @@ _(implementing agent appends one line per finished phase)_
   `:1696-1697` state reset moves ahead of `_try_detect` with a proof of equivalence. Gate green:
   `:core-engine:test` **134/134** (34 new: `GuardsTest` 8, `EvidenceTest` 10, `FrameLoopTest` 16),
   `ktlintFormat`, `ktlintCheck` + `detekt` — zero findings, no `@Suppress`, no baseline.
+- 2026-07-25 — **03c done**: step 5's LL-scoring + two-stage viability filter (`scoreViableMoves`,
+  with the destination-ONLY shadow rule and the `shadowBlocked` list) and step 6's hypothesis
+  generator — the too-much-change gate with `blockedN = tainted.size` counting toward `maxChanged`
+  (invariant 4) and the `blockedN == 0 && changed <= maxChanged + 2` pair escape, the
+  **CNN-conditional order** (pair before single with CNN, single first without), the no-single-fits
+  ladder (pair without CNN -> `vote = false` endpoint candidate with CNN -> stuck), the ambiguity
+  gate with its promotion special case (`promoPending` without CNN, queen variant through with it)
+  and the `movePrior` rerank that must clear the FULL margin, the strict both-halves pair viability
+  on the **intermediate** board, and the exactly-one-strong-square endpoint rescue
+  (`Hypothesis.kt`, `PairCandidate.kt`, `EndpointCandidate.kt`, `Ambiguity.kt`). Parity: **204 of
+  the 247 tier-A frames** across all 18 clips (the 43 commit frames are not replayable from
+  `frame.fen`, D03c-8) asserting `bestLl` / `secondLl` / `candidateUci`, plus `stuckReason` **and
+  the note string** on the **136 frames** that go stuck — all byte-identical. 10 discrepancies
+  (D03c-1..10); the ones 03d must read: **`scoreViableMoves` is 03c's — call it** (D03c-2), the
+  anomaly patcher is a functional seam defaulting to a no-op (D03c-5), and the detekt-forced
+  `ViableMoves` / `DetectContext` holders replace the 11-parameter Python signature (D03c-1).
+  `_single_endpoint_candidate`'s "different destination" ambiguity loop turned out to be
+  unreachable in Python too (D03c-3), and two golden ties (`b8c6`/`c7c6`, the promotion variants)
+  are asserted by destination/shape rather than by uci — no tie-break was added (D03c-4).
+  Gate green on the real tree (03b's files present): `:core-engine:test` 31/31
+  (`HypothesisTest` 17, `PairCandidateTest` 7, `EndpointCandidateTest` 7, 0 skipped),
+  `ktlintFormat`, `ktlintCheck` + `detekt` — zero findings module-wide, no `@Suppress`, no baseline.
+- 2026-07-25 — **03b done**: the two vetoes with OPPOSITE semantics, kept apart by construction.
+  `Vetoes.kt` (`_apply_vetoes`) removes a shadowed square from `changed` and **cannot touch z** — it
+  no longer takes the parameter (D03b-1) — gating on the **RAW** census (`censRaw`, invariant 8) with
+  the `censusZWeight == 0` band fast path and its ±1 halo transcribed; `Taint.kt` (`_try_detect`
+  step 2) **zeroes z**: CNN-arbitrated baseline occlusion (unconfident or FEN-agreeing → taint, a
+  confident disagreement is a real move and passes through), the resting-hand `pOccluded > 0.5`
+  veto, and the motion-or-baseline latch release that re-zeroes z on **every** frame until it fires;
+  `NoiseLearning.kt` (step 4) learns the gray lane at exclude-scale 0.0 and the census lane at 0.125
+  over `changed ∪ shadowVeto`, **both wrapped in `alarm == null`** (invariant 9). D03a-8 answered:
+  Python's `_tainted` values were already `time.time() + motion_hold_s` timestamps (only the
+  `dict[str, int]` "frames to clear" annotation is stale), so the expiry map is the same arithmetic
+  with `nowS` substituted, and `exp - motionHoldS` IS the taint instant the motion test needs.
+  Parity: **247 tier-A frames of all 18 clips** for the veto sets and for the noise replay from the
+  constructor state, **969 frames** for "nothing latches and z is untouched", including the 3
+  channel-guard frames that take the band path — plus the one fixture square where RAW ≥ 40 and
+  NORMALIZED < 40, which fails the whole clip replay if the normalized channel is used. 10
+  discrepancies (D03b-1..10). Gate: `:core-engine:test` **33/33** (`VetoesTest` 13, `TaintTest` 14,
+  `NoiseLearningTest` 6, 0 skipped) and `ktlintFormat` green on the REAL tree; `ktlintCheck` +
+  `detekt` green in an isolated copy of `android/` (the real tree reports one
+  `LoopWithTooManyJumpStatements` in 03c's in-flight `HypothesisTest.kt:298`, outside my scope — the
+  orchestrator must re-run the module gate). Zero findings in 03b's six files, no `@Suppress`, no
+  baseline; `ktlintFormat` touched nothing outside them.
