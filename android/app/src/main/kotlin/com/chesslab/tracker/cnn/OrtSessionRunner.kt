@@ -15,6 +15,39 @@ private const val QNN_HTP_LIB = "libQnnHtp.so"
 private const val PROFILE_PREFIX = "ep-verify"
 
 /**
+ * What the ORT session is tuned to, named in one place.
+ *
+ * `OrtSession.SessionOptions` is write-only — no getter reads a thread count or an optimisation
+ * level back out — so the values live here, where a test can pin them, and [applyTo] is the only
+ * place they reach ORT. Until this existed the session was created with nothing said at all: no
+ * thread count, no execution mode, no optimisation level.
+ */
+internal object SessionTuning {
+    /**
+     * Intra-op threads = the big cores of the target SoC (SM8650: 1×X4 + 5×A720 + 2×A520). The two
+     * A520s would only stretch a batch of 64 to the slowest lane. Desktop reference on the same
+     * shipped graph: 47.3 ms single-threaded against 19.3 ms unrestricted, so threading is the
+     * single largest lever on this workload.
+     */
+    const val THREADS = 4
+
+    val OPT_LEVEL: OrtSession.SessionOptions.OptLevel = OrtSession.SessionOptions.OptLevel.ALL_OPT
+
+    /**
+     * SEQUENTIAL is deliberate: one batched graph has nothing for inter-op parallelism to overlap,
+     * so a second pool would buy scheduling and no work. Parallelism is [THREADS]' job, inside a
+     * kernel.
+     */
+    val EXECUTION_MODE: OrtSession.SessionOptions.ExecutionMode = OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL
+
+    fun applyTo(opts: OrtSession.SessionOptions) {
+        opts.setOptimizationLevel(OPT_LEVEL)
+        opts.setExecutionMode(EXECUTION_MODE)
+        opts.setIntraOpNumThreads(THREADS)
+    }
+}
+
+/**
  * The real ORT session.
  *
  * Profiling is armed at construction and closed by the first [profiledProvider] call: that is the
@@ -74,6 +107,7 @@ internal class OrtSessionRunner(
         profileDir: File,
     ): OrtSession.SessionOptions {
         val opts = OrtSession.SessionOptions()
+        SessionTuning.applyTo(opts)
         opts.enableProfiling(File(profileDir, PROFILE_PREFIX).absolutePath)
         when (choice) {
             // epChain only offers QNN when model.qnn.onnx was staged, and `modelFor` hands it
