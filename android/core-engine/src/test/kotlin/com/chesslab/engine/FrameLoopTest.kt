@@ -317,6 +317,34 @@ class FrameLoopTest {
         assertEquals(10, requireNotNull(rm.meanUint8()).data[0].toInt() and U8)
     }
 
+    /**
+     * entry.md **invariant 14**, from the frame source's side — the contract `pipeline/PlaneRing.kt`
+     * has to satisfy.
+     *
+     * The running mean keeps the planes it averaged BY REFERENCE, so the pipeline may recycle its
+     * per-frame byte arrays only through a ring deeper than everything the engine holds at once.
+     * The bound is `window + 1`: at the moment the ring hands out the plane for frame `N` the mean
+     * still holds `N-1 .. N-window`, and [PlaneMean.append] reads the evicted plane `N-window`
+     * in the same pass as the new one, so those two must be different arrays as well. The ring runs
+     * at `window + 3`.
+     *
+     * The second half is the mutation proof this test exists for: against the naive fix — ONE shared
+     * buffer — the mean does not throw, it silently converges on the newest frame. Nothing else in
+     * the suite would notice.
+     */
+    @Test
+    fun theBufferRingNeverHandsBackAPlaneTheRunningMeanStillHolds() {
+        val frames = (0 until RING_FRAMES).map { randomGray(RING_SEED + it, RM_SIDE).data }
+        val expected = stackMean(frames.takeLast(RM_WINDOW))
+
+        assertTrue(expected.contentEquals(meanThroughRing(RM_WINDOW + RING_HEADROOM, frames)), "the ring's depth is safe")
+        assertTrue(expected.contentEquals(meanThroughRing(RM_WINDOW + 1, frames)), "and `window + 1` is where it becomes safe")
+        assertFalse(
+            expected.contentEquals(meanThroughRing(depth = 1, frames = frames)),
+            "a single shared buffer must corrupt the mean — if this passes, the test proves nothing",
+        )
+    }
+
     /** `resize` mirrors Python building a fresh `_RunningMean`: a new window and an empty buffer. */
     @Test
     fun runningMeanResizeClears() {
@@ -345,6 +373,25 @@ class FrameLoopTest {
         return GrayImage(side, side, ByteArray(side * side) { rng.nextInt(U8 + 1).toByte() })
     }
 
+    /**
+     * [frames] pushed through a [depth]-slot ring of reusable buffers into a [RM_WINDOW] running
+     * mean, exactly as the analyzer thread does it — the plane the engine is handed IS the ring's
+     * buffer, and the next frame overwrites the slot that comes round.
+     */
+    private fun meanThroughRing(
+        depth: Int,
+        frames: List<ByteArray>,
+    ): ByteArray {
+        val ring = Array(depth) { ByteArray(frames[0].size) }
+        val mean = RunningMeanGray(RM_WINDOW)
+        frames.forEachIndexed { i, frame ->
+            val slot = ring[i % depth]
+            frame.copyInto(slot)
+            mean.append(GrayImage(RM_SIDE, RM_SIDE, slot))
+        }
+        return requireNotNull(mean.meanUint8()).data
+    }
+
     private fun stackMean(planes: List<ByteArray>): ByteArray {
         val acc = LongArray(planes[0].size)
         for (plane in planes) {
@@ -367,5 +414,10 @@ class FrameLoopTest {
         const val RM_DRIFT_FRAMES = 70
         const val RM_DRIFT_SIDE = 8
         const val RM_DRIFT_SEED = 42L
+
+        /** `PlaneRing.RING_HEADROOM` — the slots the app's ring keeps beyond the averaging window. */
+        const val RING_HEADROOM = 3
+        const val RING_FRAMES = 20
+        const val RING_SEED = 7L
     }
 }

@@ -22,6 +22,9 @@ import org.opencv.core.Mat
 //    at 100-150 ms; deriving crops from the detection warp instead would silently halve their
 //    resolution, which is the `synth-crop-resolution-gap` failure mode.
 
+/** Interleaved BGR — three bytes per pixel. */
+private const val BGR_CHANNELS = 3
+
 /**
  * Hand-off of the bordered crop warp from the analyzer thread to the CNN observer (05c).
  *
@@ -107,6 +110,12 @@ class CameraStages(
     private var warped: Mat? = null
     private var grayMat: Mat? = null
 
+    // The two seam planes are recycled, not reallocated (see PlaneRing.kt). One ring each: they have
+    // different sizes and the gray one is written a stage earlier, so a shared ring would have to
+    // reallocate on every single call.
+    private val grayRing = PlaneRing(ringDepth(config))
+    private val bgrRing = PlaneRing(ringDepth(config))
+
     /** `detSize = boardSize * detectScale` — the detection warp's side (`TrackerConfig.detSize`). */
     private val detSize: Int
         get() = if (config.detectScale < 1.0) (geometry.boardSize * config.detectScale).toInt() else geometry.boardSize
@@ -141,12 +150,16 @@ class CameraStages(
         // `gray` owns and reuses the destination; `grayMat` only aliases it for `gridCoverage`.
         val g = gray.toGray(detectionWarp())
         grayMat = g
-        // A FRESH ByteArray per frame on purpose: the engine's running mean keeps references to
-        // the planes it averaged (entry.md invariant 14).
-        return toGrayImage(g)
+        // NOT a fresh ByteArray, and not a single reused one either: the engine's running mean keeps
+        // references to the planes it averaged (entry.md invariant 14), so the buffer comes from a
+        // ring deeper than everything the engine can hold at once.
+        return toGrayImage(g, grayRing.next(g.rows() * g.cols()))
     }
 
-    override fun bgrDet(): BgrImage = toBgrImage(detectionWarp())
+    override fun bgrDet(): BgrImage {
+        val warp = detectionWarp()
+        return toBgrImage(warp, bgrRing.next(warp.rows() * warp.cols() * BGR_CHANNELS))
+    }
 
     override fun gridCoverage(): Double = grid.of(requireNotNull(grayMat) { "grayDet must run first" })
 
@@ -162,13 +175,22 @@ class CameraStages(
     ) {
         val src = frame ?: return
         val warp = warpBoardForCrops(src, geometry, cornersFromFlat(corners))
-        cropStore.update(CropFrameStore.Pending(warp, seq, tsMs, bgr, gray))
+        // COPIES of the two seam planes, and this is the one place that must copy them. `Pending`
+        // crosses to the OBSERVER thread, becomes `CnnSnapshot.gray`/`.warped`, and the engine can
+        // hold that snapshot for seconds — or adopt it as `refGray`/`refBgr` on a recovery commit,
+        // i.e. forever. That lifetime is unbounded, so it can never come out of the ring.
+        // It costs one 2.5 MB copy on the frames the observer asked for, next to the full-resolution
+        // bordered warp on the line above; on every other frame nothing is copied at all.
+        cropStore.update(CropFrameStore.Pending(warp, seq, tsMs, bgr.copyPlane(), gray.copyPlane()))
     }
 
     override fun onConfigChanged(newConfig: TrackerConfig) {
         config = newConfig
         gray.onConfigChanged(newConfig)
         motion.onConfigChanged(newConfig)
+        // `avgFramesOverride` is a live knob, so the ring's depth follows the config.
+        grayRing.resize(ringDepth(newConfig))
+        bgrRing.resize(ringDepth(newConfig))
     }
 
     override fun onGeometryChanged(newGeometry: BoardGeometry) {
@@ -189,3 +211,8 @@ class CameraStages(
 
     private fun detectionWarp(): Mat = requireNotNull(warped) { "warpDetection must run first" }
 }
+
+/** A plane that owns its pixels — for the hand-offs that outlive the ring's cycle. */
+private fun BgrImage.copyPlane(): BgrImage = BgrImage(width, height, data.copyOf())
+
+private fun GrayImage.copyPlane(): GrayImage = GrayImage(width, height, data.copyOf())
