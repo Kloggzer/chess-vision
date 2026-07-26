@@ -23,6 +23,18 @@ private const val H_DIM: Int = 3
 private const val BGR_CHANNELS: Int = 3
 
 /**
+ * Read all nine homography elements, and write them back.
+ *
+ * OpenCV's Java `Mat` offers no non-vararg `put` for doubles, so the spread is unavoidable — and
+ * detekt's objection to it (an array copy per call) is nine doubles against the 24 JNI
+ * round-trips this replaces.
+ */
+private fun Mat.readH(into: DoubleArray) = get(0, 0, into)
+
+@Suppress("SpreadOperator")
+private fun Mat.writeH(from: DoubleArray) = put(0, 0, *from)
+
+/**
  * Borderless rectification from the 4 frame corners `[a8, h8, h1, a1]`.
  * Port of `calibration.py:926 warp_from_corners`.
  *
@@ -43,13 +55,19 @@ fun warpFromCorners(
     val h = computeHomography(corners, geom.boardSize, geom.margin)
     if (sz != geom.boardSize) {
         val s = sz.toDouble() / geom.boardSize
+        // One read and one write of all nine elements. Element-wise `get`/`put` is 24 JNI
+        // round-trips per frame to scale six numbers.
+        val m = DoubleArray(H_DIM * H_DIM)
+        h.readH(m)
         for (c in 0 until H_DIM) {
-            h.put(0, c, h.get(0, c)[0] * s)
-            h.put(1, c, h.get(1, c)[0] * s)
+            m[c] *= s
+            m[H_DIM + c] *= s
         }
+        h.writeH(m)
     }
     val out = dst ?: Mat()
     Imgproc.warpPerspective(frame, out, h, Size(sz.toDouble(), sz.toDouble()))
+    h.release()
     return out
 }
 
@@ -71,15 +89,20 @@ fun warpBoardForCrops(
     val bs = geom.boardSize
     val b = cropBorderPx(geom).toDouble()
     val h = computeHomography(corners, bs, geom.margin)
-    // T(b, b) @ H: row0 += b * row2, row1 += b * row2, row2 unchanged.
+    // T(b, b) @ H: row0 += b * row2, row1 += b * row2, row2 unchanged. Bulk, for the reason in
+    // `warpFromCorners`.
+    val m = DoubleArray(H_DIM * H_DIM)
+    h.readH(m)
     for (c in 0 until H_DIM) {
-        val h2 = h.get(2, c)[0]
-        h.put(0, c, h.get(0, c)[0] + b * h2)
-        h.put(1, c, h.get(1, c)[0] + b * h2)
+        val h2 = m[2 * H_DIM + c]
+        m[c] += b * h2
+        m[H_DIM + c] += b * h2
     }
+    h.writeH(m)
     val side = (bs + 2 * cropBorderPx(geom)).toDouble()
     val out = dst ?: Mat()
     Imgproc.warpPerspective(frame, out, h, Size(side, side))
+    h.release()
     return out
 }
 

@@ -43,7 +43,12 @@ fun computeHomography(
                 doubleArrayOf(-m, bs + m),
             ),
         )
-    return Imgproc.getPerspectiveTransform(src, dst)
+    val h = Imgproc.getPerspectiveTransform(src, dst)
+    // Both operands are native allocations; the caller only ever wanted the result. Leaving them
+    // to a finalizer leaked two `Mat`s per frame on the live path.
+    src.release()
+    dst.release()
+    return h
 }
 
 /**

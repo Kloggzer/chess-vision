@@ -27,24 +27,44 @@ private const val INTERIOR_LINES: Double = 14.0
 /** Below this side length the measurement is meaningless — report a clear board. */
 private const val MIN_SIDE: Int = 16
 
-/** Fraction of the 14 interior grid lines visible in [gray] (a rectified board image). */
-fun gridLineCoverage(gray: Mat): Double {
-    val h = gray.rows()
-    val w = gray.cols()
-    var coverage = 1.0
-    if (h >= MIN_SIDE && w >= MIN_SIDE) {
-        val edges = Mat()
+/**
+ * [gridLineCoverage] with its buffers held across frames.
+ *
+ * The free function allocated a `Mat` per frame and never released it — a native leak the
+ * collector only reached through a finalizer — plus a fresh 640 KB `ByteArray` at 800x800. On
+ * device this stage cost 7-20 ms against 0.87 ms on the desktop, and that gap is what it was.
+ */
+class GridCoverage : AutoCloseable {
+    private val edges = Mat()
+    private var buf = ByteArray(0)
+    private var lit = BooleanArray(0)
+
+    fun of(gray: Mat): Double {
+        val h = gray.rows()
+        val w = gray.cols()
+        if (h < MIN_SIDE || w < MIN_SIDE) return 1.0
         Imgproc.Canny(gray, edges, CANNY_LO, CANNY_HI)
-        val buf = ByteArray(w * h)
+        if (buf.size != w * h) buf = ByteArray(w * h)
+        if (lit.size != w) lit = BooleanArray(w)
         edges.get(0, 0, buf)
         val cellX = w / BOARD_SIDE_D
         val cellY = h / BOARD_SIDE_D
         val band = max(1, (min(cellX, cellY) * BAND_FRACTION).toInt())
-        val hits = verticalHits(buf, w, h, cellX, band) + horizontalHits(buf, w, h, cellY, band)
-        coverage = hits / INTERIOR_LINES
+        val hits = verticalHits(buf, w, h, cellX, band) + horizontalHits(buf, lit, w, h, cellY, band)
+        return hits / INTERIOR_LINES
     }
-    return coverage
+
+    override fun close() {
+        edges.release()
+    }
 }
+
+/**
+ * Fraction of the 14 interior grid lines visible in [gray] (a rectified board image).
+ *
+ * One-shot form, for tests and the offline clip harness. The live path holds a [GridCoverage].
+ */
+fun gridLineCoverage(gray: Mat): Double = GridCoverage().use { it.of(gray) }
 
 /** Interior vertical lines: max-projection over a column band, per row. */
 private fun verticalHits(
@@ -68,6 +88,7 @@ private fun verticalHits(
 /** Interior horizontal lines: max-projection over a row band, per column. */
 private fun horizontalHits(
     edges: ByteArray,
+    lit: BooleanArray,
     w: Int,
     h: Int,
     cellY: Double,
@@ -78,7 +99,7 @@ private fun horizontalHits(
         val y = pyRound(j * cellY)
         val y0 = max(0, y - band)
         val y1 = min(h, y + band + 1)
-        if (y1 > y0 && litColumnFraction(edges, w, y0, y1) >= LINE_HIT_FRACTION) hits++
+        if (y1 > y0 && litColumnFraction(edges, lit, w, y0, y1) >= LINE_HIT_FRACTION) hits++
     }
     return hits
 }
@@ -97,17 +118,33 @@ private fun litRowFraction(
     return lit.toDouble() / h
 }
 
+/**
+ * Row-major, deliberately.
+ *
+ * The obvious transcription walks each column and steps by `w`, so every one of 800 columns
+ * touches a different cache line per read. Sweeping the band's rows instead and OR-ing into a
+ * per-column flag reads the same pixels contiguously; [lit] is the caller's reused buffer so
+ * this stays allocation-free.
+ */
 private fun litColumnFraction(
     edges: ByteArray,
+    lit: BooleanArray,
     w: Int,
     y0: Int,
     y1: Int,
 ): Double {
-    var lit = 0
-    for (x in 0 until w) {
-        if (anyEdge(edges, y0 * w + x, y1 * w + x, w)) lit++
+    lit.fill(false, 0, w)
+    for (y in y0 until y1) {
+        val row = y * w
+        for (x in 0 until w) {
+            if (edges[row + x] != 0.toByte()) lit[x] = true
+        }
     }
-    return lit.toDouble() / w
+    var count = 0
+    for (x in 0 until w) {
+        if (lit[x]) count++
+    }
+    return count.toDouble() / w
 }
 
 /** True when any of `[from, until)` stepped by [step] is a non-zero edge pixel. */
