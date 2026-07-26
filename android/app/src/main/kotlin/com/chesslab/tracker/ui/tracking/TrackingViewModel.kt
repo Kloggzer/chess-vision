@@ -44,6 +44,11 @@ class TrackingViewModel : ViewModel() {
     private val previewState = MutableStateFlow<Bitmap?>(null)
     val preview: StateFlow<Bitmap?> = previewState.asStateFlow()
 
+    private val cameraOnState = MutableStateFlow(true)
+
+    /** The service's answer, never a local guess: the UI asks for a change and waits for the flow. */
+    val cameraOn: StateFlow<Boolean> = cameraOnState.asStateFlow()
+
     private val recalibrate = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
     /** Recalibration is NAVIGATION, not a tracker action — it must never share a handler with Reset game. */
@@ -66,13 +71,23 @@ class TrackingViewModel : ViewModel() {
                 session.status.collect { published ->
                     // Before the service's first sample there is no truth to render — the start
                     // position stands in, and it is still the ONE source the board draws from.
-                    val status = published ?: idleTrackerStatus()
-                    statusState.value = status
-                    uiState.value = trackingUiState(status)
+                    statusState.value = published ?: idleTrackerStatus()
+                    render()
                 }
             }
         jobs += session.events.onEach(::onEvent).launchIn(viewModelScope)
         jobs += session.rawPreview.onEach { previewState.value = it }.launchIn(viewModelScope)
+        jobs +=
+            session.cameraOn
+                .onEach {
+                    cameraOnState.value = it
+                    render()
+                }.launchIn(viewModelScope)
+    }
+
+    /** Two inputs, one header: the engine's status and whether a camera is feeding it at all. */
+    private fun render() {
+        uiState.value = trackingUiState(statusState.value, cameraOnState.value)
     }
 
     private fun onEvent(event: TrackerEvent) {
@@ -89,6 +104,12 @@ class TrackingViewModel : ViewModel() {
     }
 
     fun onNewBaseline() = session.captureBaseline()
+
+    /**
+     * Release the camera, or take it back. Nothing is assumed optimistically — the flag flips when
+     * the service says the device is actually gone.
+     */
+    fun onToggleCamera() = session.setCameraOn(!cameraOnState.value)
 
     fun onRecalibrate() {
         recalibrate.tryEmit(Unit)

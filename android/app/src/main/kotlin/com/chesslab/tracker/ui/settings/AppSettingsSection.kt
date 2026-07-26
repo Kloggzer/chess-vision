@@ -82,12 +82,15 @@ fun DebugRow(
     onOpen: () -> Unit,
 ) {
     Card {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Debug menu", style = MaterialTheme.typography.labelLarge, color = OnSurface)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            // `weight` on the text, never a fixed width: measured first it takes the whole row and
+            // its next line runs under the Switch, which keeps its minimum size regardless.
+            Text(
+                text = "Debug menu",
+                style = MaterialTheme.typography.labelLarge,
+                color = OnSurface,
+                modifier = Modifier.weight(1f).padding(end = 12.dp),
+            )
             Switch(checked = enabled, onCheckedChange = onEnabled)
         }
         Text(

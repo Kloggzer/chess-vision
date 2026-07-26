@@ -1,6 +1,5 @@
 package com.chesslab.tracker.service
 
-import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
@@ -25,6 +24,8 @@ import com.chesslab.tracker.ui.debug.DebugSessionHost
 import com.chesslab.tracker.ui.debug.debugSession
 import com.chesslab.tracker.ui.games.GameSessionHost
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -43,7 +44,9 @@ private const val PREVIEW_MAX_SIDE = 640
  * have exactly one owner. The **stack** — pipeline, engine, CNN observer, coordinator — is rebuilt by
  * [restartTracker] so the 34 construction-time knobs can be applied without killing the process.
  */
-class TrackerService : LifecycleService() {
+class TrackerService :
+    LifecycleService(),
+    TrackerControls {
     private lateinit var settings: SettingsRepository
     private lateinit var publisher: StatusPublisher
     private lateinit var camera: TrackerCamera
@@ -56,10 +59,31 @@ class TrackerService : LifecycleService() {
     private val calibration by lazy { calibrationStore(this) }
     private val timings = StageTimings()
     private val cnnProbe = CnnRuntimeProbe()
-    private val stacks = StackSwitch { buildStack() }
+
+    /** Re-read on every attach, so a changed model or EP lands on the next stack (D07a-3). */
+    private val attachCnn: () -> Attached = { openClassifier(this, settings.appSettings.value, cnnProbe) }
+
+    // The factory is inline because it has exactly one call site and `StackSwitch` already says
+    // what it is for; the lambda is lazy, so the `lateinit` session parts are wired by then.
+    private val stacks =
+        StackSwitch {
+            TrackerStack(
+                TrackerSeed(settings.config.value, ::geometry, corners, publisher.lastFen ?: STARTPOS),
+                settings,
+                publisher,
+                frames,
+                timings,
+                lifecycleScope,
+                attachCnn,
+            )
+        }
 
     /** Mirrors the CURRENT stack's observer, so the binder and 07b survive a restart. */
     private val cnn = MutableStateFlow<CnnState>(CnnState.Off)
+
+    private val cameraRunning = MutableStateFlow(true)
+
+    override val cameraOn: StateFlow<Boolean> = cameraRunning.asStateFlow()
 
     @Volatile
     private var geometry = BoardGeometry()
@@ -90,6 +114,57 @@ class TrackerService : LifecycleService() {
     override fun onBind(intent: Intent): IBinder {
         super.onBind(intent)
         return binder
+    }
+
+    /**
+     * `START_NOT_STICKY`, deliberately: a tracker the system killed must not come back on its own
+     * and re-open the camera with nobody watching. Coming back is the user's call.
+     */
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int,
+    ): Int {
+        super.onStartCommand(intent, flags, startId)
+        if (intent?.action == ACTION_STOP_TRACKING) endService()
+        return START_NOT_STICKY
+    }
+
+    /** Swiping the app out of recents is unambiguous: the camera goes, the service goes. */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        endService()
+        super.onTaskRemoved(rootIntent)
+    }
+
+    /**
+     * The privacy switch (see [CameraSwitch]). The stack, the engine and the game are untouched —
+     * only the device is handed back, so a resume continues the same game rather than starting one.
+     */
+    override fun setCameraOn(on: Boolean) {
+        if (cameraRunning.value == on) return
+        cameraRunning.value = on
+        if (on) {
+            // Re-enter foreground first: the notification's Stop action may have dropped us out of
+            // it, and a background service that binds a camera is denied outright on Android 14.
+            // Resume is only ever a tap in a visible app, so starting the FGS here is allowed.
+            startForeground(NOTIFICATION_ID, notification.build("waiting", moves), ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA)
+            camera.resume()
+        } else {
+            camera.stop()
+        }
+        notification.post(publisher.status.value?.state, moves, on)
+    }
+
+    /**
+     * Release the camera FIRST and unconditionally: a bound UI client keeps the service alive past
+     * `stopSelf`, so leaving the unbind to `onDestroy` would leave the green indicator lit for as
+     * long as the activity happens to live.
+     */
+    private fun endService() {
+        camera.stop()
+        cameraRunning.value = false
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     override fun onDestroy() {
@@ -124,7 +199,7 @@ class TrackerService : LifecycleService() {
             })
         frames = CameraFrameBus(camera.cameraState, lifecycleScope, { bgrToBitmap(it, PREVIEW_MAX_SIDE) })
         binder =
-            TrackerBinder(publisher, frames, settings, cnn, { stacks.current?.host?.submit(it) }, ::calibrate, this::restartTracker)
+            TrackerBinder(publisher, frames, settings, cnn, { stacks.current?.host?.submit(it) }, ::calibrate, this)
         DebugSessionHost.publish(
             debugSession(
                 status = publisher.status,
@@ -133,7 +208,7 @@ class TrackerService : LifecycleService() {
                 onDebugEnabled = ::setDebugEnabled,
                 crops = { stacks.current?.cropTap?.latest },
                 runtime = cnnProbe::info,
-                retry = { stacks.current?.let { it.observer.retryAttach(::attachCnn) } },
+                retry = { stacks.current?.let { it.observer.retryAttach(attachCnn) } },
             ),
         )
         TrackerRestartHost.publish(binder)
@@ -167,7 +242,7 @@ class TrackerService : LifecycleService() {
      * stack. The camera object itself is never replaced: exactly one `ProcessCameraProvider`
      * binding may exist app-wide.
      */
-    private fun restartTracker() {
+    override fun restartTracker() {
         lifecycleScope.launch {
             geometry = calibration.applyOrientation(settings.appSettings.value.orientation.whitePov)
             swapStack()
@@ -195,17 +270,6 @@ class TrackerService : LifecycleService() {
             }
         }
 
-    private fun buildStack(): TrackerStack =
-        TrackerStack(
-            TrackerSeed(settings.config.value, ::geometry, corners, publisher.lastFen ?: STARTPOS),
-            settings,
-            publisher,
-            frames,
-            timings,
-            lifecycleScope,
-            ::attachCnn,
-        )
-
     /**
      * Arms BOTH halves of the debug payload — the engine's assembly and the crop tap. 07a's
      * persisted switch only ever ARMS from here; disarming belongs to the screen that armed it.
@@ -218,8 +282,6 @@ class TrackerService : LifecycleService() {
         }
     }
 
-    private fun attachCnn(): Attached = openClassifier(this, settings.appSettings.value, cnnProbe)
-
     private fun onEvent(event: TrackerEvent) {
         moves +=
             when (event) {
@@ -227,8 +289,7 @@ class TrackerService : LifecycleService() {
                 is TrackerEvent.SequenceCommitted -> event.ucis.size
                 else -> return
             }
-        val state = publisher.status.value?.state ?: "tracking"
-        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification.build(state, moves))
+        notification.post(publisher.status.value?.state, moves, cameraRunning.value)
     }
 
     private fun calibrate(

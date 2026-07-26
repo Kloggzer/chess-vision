@@ -115,6 +115,7 @@ private fun SettingsList(
                 )
             }
         }
+        item(key = "analysis") { AnalysisSettingsSection() }
         item(key = "app") { AppSettingsSection(app) { viewModel.setApp(it) } }
         item(key = "debug") {
             DebugRow(enabled = app.debugEnabled, onEnabled = viewModel::setDebugEnabled, onOpen = onOpenDebug)

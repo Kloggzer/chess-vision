@@ -30,10 +30,12 @@ class TrackerBinder(
     private val cnn: StateFlow<CnnState>,
     private val queue: (EngineAction) -> Unit,
     private val calibrate: (BoardGeometry, FloatArray, String) -> Unit,
-    private val restart: TrackerRestart,
+    // Delegated, not reimplemented: restart and the camera switch are the service's, and a second
+    // copy of "is the camera on" is a second answer to a question about the user's privacy.
+    private val controls: TrackerControls,
 ) : Binder(),
     CalibrationFrames,
-    TrackerRestart {
+    TrackerControls by controls {
     val status: StateFlow<TrackerStatus?> get() = publisher.status
     val events: SharedFlow<TrackerEvent> get() = publisher.events
     val config: StateFlow<TrackerConfig> get() = settings.config
@@ -61,7 +63,7 @@ class TrackerBinder(
      * at construction. The process, the camera binding, the calibration and the current position
      * all survive; the move history does not (see [TrackerSeed]).
      */
-    override fun restartTracker() = restart.restartTracker()
+    override fun restartTracker() = controls.restartTracker()
 
     /** 06a hands the accepted corners over; the pipeline picks them up on its next frame. */
     fun applyCalibration(

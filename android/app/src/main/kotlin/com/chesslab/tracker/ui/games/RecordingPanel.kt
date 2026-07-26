@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -50,8 +51,15 @@ fun RecordingPanel(
 ) {
     var expanded by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("Record training frames", style = MaterialTheme.typography.titleMedium, color = OnSurface)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            // `weight` on the text, not a fixed width: measured first it claims the whole row and
+            // wraps its next line under the Switch, which holds its minimum size regardless.
+            Text(
+                text = "Record training frames",
+                style = MaterialTheme.typography.titleMedium,
+                color = OnSurface,
+                modifier = Modifier.weight(1f).padding(end = 12.dp),
+            )
             Switch(ui.prefs.enabled, { model.setPrefs(ui.prefs.copy(enabled = it)) })
         }
         Text(
@@ -77,8 +85,13 @@ fun RecordingPanel(
                 )
             }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("Skip physically impossible positions", style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Skip physically impossible positions",
+                style = MaterialTheme.typography.bodySmall,
+                color = OnSurfaceMuted,
+                modifier = Modifier.weight(1f).padding(end = 12.dp),
+            )
             Switch(ui.prefs.inventoryFilter, { model.setPrefs(ui.prefs.copy(inventoryFilter = it)) })
         }
         TextButton(onClick = { expanded = !expanded }) {
@@ -100,11 +113,12 @@ private fun SessionRow(
             // SAF: the user picks the destination, so no storage permission is involved.
             context.contentResolver.openOutputStream(uri)?.use { zipSession(model.sessionDir(session.id), it) }
         }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(
             "${session.id} · ${session.frames} frames · ${formatBytes(session.bytes)}",
             style = MaterialTheme.typography.bodySmall,
             color = OnSurfaceMuted,
+            modifier = Modifier.weight(1f).padding(end = 8.dp),
         )
         Row {
             TextButton(onClick = { export.launch("${session.id}.zip") }) { Text("Export", color = Accent) }

@@ -4611,3 +4611,125 @@ not on device, because `PromotionPending` needs a real game in front of the came
 `:app:ktlintCheck`, `:app:detekt`, `:app:testDebugUnitTest`, `:app:assembleDebug` all green.
 `DebugStateTest.cnnStateShowsActualEpNotRequested` was updated rather than deleted: the tone is now
 a palette lookup, so the test asserts the new pure `epFellBack(...)` decision behind it.
+
+## UI follow-up: an off switch, and the Analysis knobs where people look (2026-07-26)
+
+Three defects found while touring the app after the UI repair above.
+
+### 1. The camera could not be turned off
+
+The tracker held the camera for as long as the service ran, and the service ran until the process
+died. The ongoing notification had **no action at all** — the only way to stop being filmed was to
+force-stop the app from system settings, and swiping the app out of recents left the service (and
+the green camera indicator) running. That is not an off switch, it is a workaround.
+
+The distinction that matters here is invisible in code and total to the OS: *pausing the analyzer*
+and *unbinding the CameraX use case* look the same from inside the app, but only the second one
+releases the device and puts the platform's camera indicator out.
+
+- `camera/TrackerCamera.kt` — `stop()` / `resume()`. `stop()` unbinds the analysis use case
+  (`provider.unbindAll()`) and keeps the object: exactly ONE `ProcessCameraProvider` binding may
+  exist app-wide (MEMORY `android-single-camera-owner`), and the analyzer thread must survive so
+  the engine's latched thread ownership still holds when the camera comes back. A `@Volatile
+  stopped` flag guards every path that could rebind — the queued retarget, the error-recovery
+  rebind, a provider future that arrives late — so a timer already in flight cannot undo the user.
+  Verified by grep: `ProcessCameraProvider.getInstance` and `bindToLifecycle` each appear **exactly
+  once** in the whole `:app` source set.
+- `camera/CameraModels.kt` — `CameraHealth.Off`, distinct from `Down`. `Down` promises a retry;
+  this one must never advertise one.
+- `service/CameraSwitch.kt` (new, 31 LOC) — `CameraSwitch` (`cameraOn` + `setCameraOn`) and
+  `TrackerControls : TrackerRestart, CameraSwitch`. The binder delegates both rather than keeping
+  its own copy of "is the camera on".
+- `service/TrackerService.kt` — `setCameraOn` (stop/resume, service and game untouched),
+  `onStartCommand` handling `ACTION_STOP_TRACKING`, `onTaskRemoved`, and `endService()`.
+- `service/TrackerNotification.kt` — a **Stop tracking** action, via
+  `PendingIntent.getForegroundService` (the shade delivers it while the app is backgrounded, where
+  a plain `startService` is not allowed), plus `post(state, moves, cameraOn)` so the shade says
+  `stopped · camera off` instead of a frozen `waiting`.
+- `ui/tracking/` — the session seam carries `cameraOn` / `setCameraOn`; the action bar gained a
+  chip reading `Tracking · camera on` ⇄ `Stopped · tap to resume`.
+
+Three decisions worth recording:
+
+- **`endService()` releases the camera FIRST, unconditionally.** A bound UI client keeps the
+  service alive past `stopSelf()`, so leaving the unbind to `onDestroy` would leave the indicator
+  lit for as long as the activity happens to live. `stopForeground(STOP_FOREGROUND_REMOVE)` +
+  `stopSelf()` then end the service as soon as nothing is bound.
+- **`onStartCommand` returns `START_NOT_STICKY`** (it inherited `START_STICKY`). A tracker the
+  system killed must not restart itself and reopen the camera with nobody watching.
+- **`setCameraOn(true)` re-enters foreground before rebinding.** The notification's Stop action may
+  have dropped the service out of foreground, and a background service that binds a camera is
+  denied on Android 14. Resume is only ever a tap in a visible app, so the FGS start is legal.
+
+`trackingUiState(status, cameraOn)` now takes the camera flag and lets it outrank every engine
+state in the header (`STOPPED` / `camera off` / "No frames are arriving — the camera is
+released. Resume to continue; the game is kept."). Without it the last sample stands forever and
+the screen keeps reporting `WAITING · 14.8 fps` over a dead feed — covered by
+`TrackingViewModelTest.stoppingTheCameraOverridesTheFrozenStatusHeader`.
+
+### 2. The Analysis settings were undiscoverable
+
+Stockfish's knobs were reachable **only** by long-pressing the eval bar — a 40 dp sliver beside the
+board. The user could not find them and had to ask.
+
+- `analysis/AnalysisSettingsHost.kt` (new) — the file-private `storedSettings` flow in
+  `ui/analysis/AnalysisHost.kt` was promoted to a single shared object. Both surfaces read and
+  write it; there is no second copy. `AnalysisHost` now *follows* the flow (a collector in its
+  scope) instead of only reacting to its own `update`, so a value changed under Settings actually
+  relaunches Stockfish with the new engine options.
+- `ui/analysis/AnalysisControls.kt` (new, 99 LOC) — the six controls, extracted so the dialog and
+  the settings screen cannot drift apart. `AnalysisSettingsSheet` is now a 29-line dialog wrapper.
+- `ui/settings/AnalysisSettingsSection.kt` (new, 52 LOC) — an **Analysis** group on the settings
+  screen, using that screen's own `Card`/label style.
+
+The long-press stays: walking to Settings mid-game to stop the engine is the wrong ask.
+
+These are app settings, **not** `TrackerConfig` knobs, so they are deliberately not a `KnobGroup`
+and not in `KNOB_CATALOG` — `KnobCatalogTest` asserts that catalog matches `TrackerConfig`
+one-for-one in both directions, and widening it to cover analysis would break exactly the property
+that makes it useful.
+
+### 3. Text running under a trailing control
+
+"Pause on thermal / battery pressure" ran underneath its `Switch` — the same defect fixed on the
+spectator screen. The cause is measurement order: an unweighted `Text` is measured first, claims
+the full row, wraps, and the `Switch` then keeps its minimum size and overlaps it. The fix is
+`Modifier.weight(1f)` on the text (weighted children are measured *after* the fixed ones), never a
+fixed width. Swept every `Row` in the app that puts text beside a trailing control and fixed eight:
+
+`ui/analysis/AnalysisControls.kt` (toggles + knob labels), `ui/settings/AppSettingsSection.kt`
+(Debug menu), `speech/ui/SpeechSettingsScreen.kt` (Announce moves, Announce alarms),
+`ui/games/RecordingPanel.kt` (Record training frames, Skip physically impossible positions, session
+rows), `ui/games/GameDetailScreen.kt` (game id, Include provenance comments),
+`ui/games/GamesScreen.kt` (game-in-progress row). Text-beside-text rows (`StatRow`, `PvRow`,
+`KnobRow`) were left alone — a `Text` respects its constraints and wraps, so they cannot overlap.
+
+### Gate
+
+`:app:testDebugUnitTest`, `:app:ktlintFormat`, `:app:ktlintCheck`, `:app:detekt`,
+`:app:assembleDebug` — all green.
+
+Detekt shaped two edits, recorded so they are not mistaken for taste: `TrackerBinder` would have
+hit `LongParameterList` at eight constructor parameters, which is why `TrackerRestart` and
+`CameraSwitch` were merged into one `TrackerControls` seam; and `TrackerService` would have hit
+`TooManyFunctions`, which is why `buildStack()` was inlined into the `StackSwitch` lambda and
+`attachCnn` became a property. No threshold was raised. `TrackerService.kt` is now 306 LOC (from
+245) — it is a lifecycle owner, not a composable, but it is the file to watch next.
+
+### ⚠ Device verification NOT done — the phone was disconnected
+
+Everything above is verified by the build gate and by unit tests only. The device that was attached
+earlier in the session dropped off `adb` before this work could be exercised (`adb devices` empty,
+no Android device on USB at all, adb server restarted, mDNS/wireless shows nothing, no AVD
+configured). Nothing was improvised around it.
+
+**The camera claim is therefore unproven on hardware, and it is the one that matters**: that
+`stop()` really releases the device and the platform's green camera indicator goes out. The code
+unbinds the CameraX use case (`provider.unbindAll()`) rather than pausing the analyzer, which is
+the right mechanism, but "right mechanism" is not "observed indicator".
+
+A ready-to-run script is parked at `scratchpad/verify-ui-followup.ps1`. It installs the APK and
+walks the six checks: camera open while tracking → released on Stop (asserted against
+`dumpsys media.camera`'s client list, not a status-bar pixel) → service still alive and the game
+intact → reopened on Resume → released by the notification action → released by swipe-from-recents;
+then the Analysis group and the long-press dialog in both light and dark.
