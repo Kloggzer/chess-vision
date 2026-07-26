@@ -1,7 +1,9 @@
 package com.chesslab.tracker.camera
 
+import androidx.camera.core.AspectRatio
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageProxy
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import com.chesslab.tracker.settings.ResolutionMode
 
 /**
@@ -59,11 +61,22 @@ data class CameraRequest(
     val width: Int,
     val height: Int,
     val lensFacing: Int = CameraSelector.LENS_FACING_BACK,
+    /** Pinned onto `CONTROL_AE_TARGET_FPS_RANGE` — see `TrackerCamera.pinFrameRate`. */
     val targetFps: Int = DEFAULT_TARGET_FPS,
 ) {
     /** The one lower mode a repeatedly failing high-bandwidth binding retries at. */
     fun downshifted(): CameraRequest = copy(width = DOWNSHIFT_WIDTH, height = DOWNSHIFT_HEIGHT)
 }
+
+/**
+ * The aspect ratio the requested size actually is.
+ *
+ * Stating it is what stops CameraX handing back a 4:3 frame for a 16:9 request; every mode here
+ * is 16:9, and [AspectRatioStrategy.RATIO_16_9] is derived rather than hardcoded so a future 4:3
+ * mode does not silently inherit the wrong one.
+ */
+internal fun aspectRatioFor(request: CameraRequest): Int =
+    if (request.width * HEIGHT_4_3 == request.height * WIDTH_4_3) AspectRatio.RATIO_4_3 else AspectRatio.RATIO_16_9
 
 /**
  * 07a's [ResolutionMode] as a request.
@@ -81,6 +94,8 @@ fun cameraRequestFor(mode: ResolutionMode): CameraRequest =
     }
 
 private const val DEFAULT_TARGET_FPS = 30
+private const val WIDTH_4_3 = 4
+private const val HEIGHT_4_3 = 3
 private const val DOWNSHIFT_WIDTH = 1280
 private const val DOWNSHIFT_HEIGHT = 720
 private const val WIDTH_1080 = 1920

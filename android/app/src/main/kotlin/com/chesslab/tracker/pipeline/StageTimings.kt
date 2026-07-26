@@ -47,7 +47,6 @@ enum class Stage { PUBLISH, CONVERT, WARP, GRAY, MOTION, GRID, TOTAL, ENGINE, PO
  */
 class StageTimings(
     private val nowNs: () -> Long = System::nanoTime,
-    private val cameraFps: () -> Double = { 0.0 },
     private val logLine: (String) -> Unit = { Log.d(PERF_TAG, it) },
 ) {
     private val ms = DoubleArray(Stage.entries.size)
@@ -56,7 +55,9 @@ class StageTimings(
     private var previous = 0L
     private var lastLog = 0L
     private var lastBegin = 0L
+    private var lastEnd = 0L
     private var fps = 0.0
+    private var idle = 0.0
 
     /**
      * A new frame starts here — at the top of the analyzer callback, not at the top of the frame
@@ -75,6 +76,16 @@ class StageTimings(
         if (lastBegin != 0L && now > lastBegin) {
             val instant = NANOS_PER_S / (now - lastBegin)
             fps = if (fps != 0.0) FPS_EMA_OLD * fps + FPS_EMA_NEW * instant else instant
+        }
+        // How long this thread sat with nothing to do since the last frame ended. THIS is the
+        // camera-bound / CPU-bound question, and it is the one the old line could not answer:
+        // `fps` and a camera-rate EMA count the same delivered-frame events and are equal by
+        // construction. Idle near zero means we are the bottleneck; idle well above zero means
+        // the sensor is — typically auto-exposure stretching the frame period in low light,
+        // and then no amount of pipeline work buys a single frame.
+        if (lastEnd != 0L && now > lastEnd) {
+            val gap = (now - lastEnd) / NANOS_PER_MS
+            idle = if (idle != 0.0) FPS_EMA_OLD * idle + FPS_EMA_NEW * gap else gap
         }
         lastBegin = now
         frameStart = now
@@ -111,6 +122,7 @@ class StageTimings(
         mark(Stage.POST)
         mark(Stage.FRAME)
         maybeLog()
+        lastEnd = nowNs()
     }
 
     /** One line per second, so the perf log stays readable at 15-30 fps. The first frame logs. */
@@ -119,10 +131,7 @@ class StageTimings(
         if (lastLog == 0L || now - lastLog >= LOG_INTERVAL_NS) {
             lastLog = now
             val stages = Stage.entries.joinToString(" ") { "${it.name.lowercase()}=${stageValue(it)}" }
-            // Two rates, never one: `fps` is what the analyzer gets through and `cam` is what
-            // CameraX delivered. Only their difference says whether we are CPU-bound or capped by
-            // the sensor's auto-exposure, and a single number has been read both ways.
-            logLine("$stages fps=${format(fps)} cam=${format(cameraFps())}")
+            logLine("$stages fps=${format(fps)} idle=${format(idle)}")
         }
     }
 

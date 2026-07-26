@@ -59,10 +59,8 @@ class TrackerService :
 
     private val calibration by lazy { calibrationStore(this) }
 
-    // ONE rate meter, read by both consumers. The perf line needs it next to the analyzer's own
-    // rate: only the two together say whether we are CPU-bound or capped by the sensor.
     private val cameraRate = CameraRate()
-    private val timings = StageTimings(cameraFps = cameraRate::fps)
+    private val timings = StageTimings()
     private val cnnProbe = CnnRuntimeProbe()
 
     /** Re-read on every attach, so a changed model or EP lands on the next stack (D07a-3). */
