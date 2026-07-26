@@ -56,13 +56,15 @@ private const val ROUND_3 = 1000.0
 
 private const val BGR_CHANNELS = 3
 
-// Per-frame scratch for the gamut rebuild. Private to this file, fully consumed inside the call
-// (`ColorGamut` copies what it keeps), and the engine is single-threaded — nothing can alias a
-// caller's array (01a's D01a-2 rule).
-
-private var gamutLab = ByteArray(0)
-
-private var gamutHsv = ByteArray(0)
+/**
+ * Scratch for the gamut rebuild, owned by the [EngineState] that triggers it — see
+ * [ShadowVetoScratch] for why file scope was the wrong owner. Fully consumed inside the call:
+ * `ColorGamut` copies what it keeps.
+ */
+internal class GamutScratch {
+    var lab = ByteArray(0)
+    var hsv = ByteArray(0)
+}
 
 /**
  * `_set_ref` — base truth is the `(image, FEN)` PAIR, never one half.
@@ -92,13 +94,14 @@ internal fun EngineState.setRef(
 
 /** `board_color_gamut(cur_bgr, self._det_size, white_pov)`; driven by [EngineState.refGamut]. */
 internal fun EngineState.buildGamut(curBgr: BgrImage): ColorGamut? {
+    val scratch = gamutScratch
     val need = curBgr.width * curBgr.height * BGR_CHANNELS
-    if (gamutLab.size != need) gamutLab = ByteArray(need)
-    if (gamutHsv.size != need) gamutHsv = ByteArray(need)
-    bgrToLab(curBgr.data, curBgr.width, curBgr.height, gamutLab)
-    bgrToHsv(curBgr.data, curBgr.width, curBgr.height, gamutHsv)
+    if (scratch.lab.size != need) scratch.lab = ByteArray(need)
+    if (scratch.hsv.size != need) scratch.hsv = ByteArray(need)
+    bgrToLab(curBgr.data, curBgr.width, curBgr.height, scratch.lab)
+    bgrToHsv(curBgr.data, curBgr.width, curBgr.height, scratch.hsv)
     val geom = PlaneGeometry(curBgr.width, curBgr.height, detSize, whitePov)
-    return boardColorGamut(ColorPlanes(gamutLab, gamutHsv), geom)
+    return boardColorGamut(ColorPlanes(scratch.lab, scratch.hsv), geom)
 }
 
 /**

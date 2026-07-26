@@ -283,7 +283,7 @@ class TaintTest {
         assertFalse(blind.occluded.has(f6), "that is the blind spot")
 
         val seen =
-            baselineOcclusionAndShadow(
+            BaselineScratch().baselineOcclusionAndShadow(
                 cur,
                 ref,
                 squareBoxes(BOARD, true),
@@ -394,7 +394,7 @@ class TaintTest {
     private fun classify(
         ref: GrayImage,
         cur: GrayImage,
-    ) = baselineOcclusionAndShadow(
+    ) = BaselineScratch().baselineOcclusionAndShadow(
         cur,
         ref,
         squareBoxes(BOARD, true),

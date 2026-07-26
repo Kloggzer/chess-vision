@@ -197,7 +197,7 @@ class BaselineOcclusionUnitTest {
     ): BaselineResult {
         val refImage = GrayImage(BOARD, BOARD, ref)
         val boxes = squareBoxes(BOARD, WHITE_POV)
-        return baselineOcclusionAndShadow(
+        return BaselineScratch().baselineOcclusionAndShadow(
             GrayImage(BOARD, BOARD, cur),
             refImage,
             boxes,

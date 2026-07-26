@@ -219,6 +219,12 @@ internal class EngineState(
     val censNorm = DoubleArray(Squares.COUNT)
     val zCensus = DoubleArray(Squares.COUNT)
 
+    // The same policy, for the three pixel stages whose scratch used to live at FILE scope — roughly
+    // 11.5 MB of it, shared by every engine in the process. See each class for the details.
+    val baselineScratch = BaselineScratch()
+    val shadowVetoScratch = ShadowVetoScratch()
+    val gamutScratch = GamutScratch()
+
     var changed: Long = 0L // `_changed`
     var changedVals: List<Pair<String, Double>> = emptyList() // `_changed_vals` (top 8)
     var structVals: List<Pair<String, Double>> = emptyList() // `_struct_vals` (top 8)

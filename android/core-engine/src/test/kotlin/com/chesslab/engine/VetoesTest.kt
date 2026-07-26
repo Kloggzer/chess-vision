@@ -242,7 +242,7 @@ class VetoesTest {
         val e4 = Squares.index("e4")
 
         val structural =
-            baselineOcclusionAndShadow(
+            BaselineScratch().baselineOcclusionAndShadow(
                 cur,
                 ref,
                 boxes,
@@ -252,7 +252,15 @@ class VetoesTest {
                 BaselineEvidence(refCodes = codes, occlCensusThr = 24.0),
             )
         val legacy =
-            baselineOcclusionAndShadow(cur, ref, boxes, BOARD, BASELINE_ABS_THR, true, BaselineEvidence(refCodes = codes))
+            BaselineScratch().baselineOcclusionAndShadow(
+                cur,
+                ref,
+                boxes,
+                BOARD,
+                BASELINE_ABS_THR,
+                true,
+                BaselineEvidence(refCodes = codes),
+            )
 
         assertFalse(structural.occluded.has(e4), "a hard shadow is not an occluder")
         assertTrue(structural.shadow.has(e4), "a hard shadow must land in the shadow set")

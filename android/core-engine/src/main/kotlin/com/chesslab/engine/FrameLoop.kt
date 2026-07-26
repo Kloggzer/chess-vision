@@ -151,7 +151,7 @@ internal class FrameLoop(
         val cfg = state.config
         if (ref != null && state.state != STATE_WAITING && state.state != STATE_MOVE) {
             val result =
-                baselineOcclusionAndShadow(
+                state.baselineScratch.baselineOcclusionAndShadow(
                     input.grayDet,
                     ref,
                     state.detBoxes,

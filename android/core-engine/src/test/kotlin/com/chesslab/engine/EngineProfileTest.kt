@@ -86,9 +86,10 @@ private class ProfileBench(
         results["occlusionColorSquares"] =
             time { occlusionColorSquares(ColorPlanes(labBuf, hsvBuf), baseGeom, gamut, candidates, OCCL_THR) }
         results["boardColorGamut"] = time { boardColorGamut(ColorPlanes(labBuf, hsvBuf), baseGeom) }
+        val baseline = BaselineScratch()
         results["baselineOcclusionAndShadow"] =
             time {
-                baselineOcclusionAndShadow(
+                baseline.baselineOcclusionAndShadow(
                     curGray,
                     refGray,
                     detBoxes,
