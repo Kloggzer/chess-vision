@@ -2,14 +2,16 @@ package com.chesslab.tracker.pipeline
 
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Test
 import java.nio.ByteBuffer
 
 /**
- * The NV21 packing — the part of the YUV path this module owns. `cvtColor(COLOR_YUV2BGR_NV21)`
- * itself is OpenCV's and cannot run here: `:app`'s unit-test classpath has the OpenCV **AAR**,
- * whose natives are Android-only (STATUS D05b-2).
+ * The NV21 packing and the layout probe that decides whether it is needed at all —
+ * the parts of the YUV path this module owns. `cvtColor(COLOR_YUV2BGR_NV21)` and
+ * `cvtColorTwoPlane` are OpenCV's and cannot run here: `:app`'s unit-test classpath has the
+ * OpenCV **AAR**, whose natives are Android-only (STATUS D05b-2).
  *
  * Fixture: `pipeline/yuv420_64x48.bin` = the three strided plane buffers back to back
  * (Y `rowStride 80`, U/V `rowStride 64` at `pixelStride 2`, i.e. the semi-planar layout CameraX
@@ -17,6 +19,8 @@ import java.nio.ByteBuffer
  * Both were generated with numpy from `(i * 37) % 256` / `(i * 91 + 17) % 256` /
  * `(i * 53 + 201) % 256` — deterministic and independent of this implementation.
  */
+private const val FLAT_CHROMA: Byte = -128
+
 class YuvToBgrTest {
     private val width = 64
     private val height = 48
@@ -70,6 +74,65 @@ class YuvToBgrTest {
         assertEquals(100.toByte(), packed[w * h])
         assertEquals(0.toByte(), packed[w * h + 1])
     }
+
+    @Test
+    fun `a shared chroma buffer is recognised in both interleavings`() {
+        // Both directions are pinned because getting the order backwards swaps U and V and tints
+        // the whole board — the one failure mode this probe exists to prevent.
+        assertEquals(ChromaOrder.NV21, chromaOrder(semiPlanar(vFirst = true)))
+        assertEquals(ChromaOrder.NV12, chromaOrder(semiPlanar(vFirst = false)))
+    }
+
+    @Test
+    fun `anything the two-plane path cannot read as it lies falls back to packing`() {
+        assertNull(chromaOrder(semiPlanar(vFirst = true, pixelStride = 1)), "truly planar chroma")
+        assertNull(chromaOrder(semiPlanar(vFirst = true, direct = false)), "a heap buffer has no address")
+        assertNull(chromaOrder(semiPlanar(vFirst = true, flat = true)), "flat chroma fits both orders")
+        assertNull(chromaOrder(separateChromaBuffers()), "two unrelated buffers")
+        assertNull(chromaOrder(fixturePlanes()), "the wrapped fixture is not a direct buffer")
+    }
+
+    /**
+     * One semi-planar chroma buffer seen as two overlapping plane views, the way Android hands it
+     * out: identical capacities, `pixelStride 2`, one starting a byte after the other.
+     */
+    private fun semiPlanar(
+        vFirst: Boolean,
+        pixelStride: Int = 2,
+        direct: Boolean = true,
+        flat: Boolean = false,
+    ): YuvPlanes {
+        val size = width * height / 2
+        val shared = allocate(size + 1, direct)
+        for (i in 0..size) shared.put(i, if (flat) FLAT_CHROMA else (i * 53 + 7).toByte())
+
+        fun view(offset: Int): ByteBuffer {
+            val duplicate = shared.duplicate()
+            duplicate.position(offset)
+            return duplicate.slice()
+        }
+        val first = YuvPlane(view(0), width, pixelStride)
+        val second = YuvPlane(view(1), width, pixelStride)
+        val luma = YuvPlane(allocate(width * height, direct), width, 1)
+        return if (vFirst) YuvPlanes(luma, second, first) else YuvPlanes(luma, first, second)
+    }
+
+    /** Two chroma planes that are NOT views of one buffer: neither reads as the other shifted. */
+    private fun separateChromaBuffers(): YuvPlanes {
+        val size = width * height / 4
+
+        fun plane(): YuvPlane {
+            val buffer = allocate(size, true)
+            for (i in 0 until size) buffer.put(i, (i * 31).toByte())
+            return YuvPlane(buffer, width, 2)
+        }
+        return YuvPlanes(YuvPlane(allocate(width * height, true), width, 1), plane(), plane())
+    }
+
+    private fun allocate(
+        size: Int,
+        direct: Boolean,
+    ): ByteBuffer = if (direct) ByteBuffer.allocateDirect(size) else ByteBuffer.allocate(size)
 
     private fun fixturePlanes(): YuvPlanes {
         val raw = resource("pipeline/yuv420_64x48.bin")

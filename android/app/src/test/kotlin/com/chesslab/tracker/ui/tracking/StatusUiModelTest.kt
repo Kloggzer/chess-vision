@@ -10,19 +10,26 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
+/** Calibrated by default: `corners` is what tells "not calibrated" from a stalled detection. */
+private val CALIBRATED = floatArrayOf(10f, 20f, 110f, 22f, 108f, 120f, 12f, 118f)
+
 private fun status(
     state: String = STATE_WAITING,
     fps: Double = 0.0,
+    cameraFps: Double = 30.0,
     note: String? = null,
     stuckReason: String? = null,
     alarm: TrackerEvent.Alarm? = null,
+    corners: FloatArray? = CALIBRATED,
 ): TrackerStatus =
     idleTrackerStatus().copy(
         state = state,
         fps = fps,
+        cameraFps = cameraFps,
         note = note,
         stuckReason = stuckReason,
         alarm = alarm,
+        corners = corners,
     )
 
 class StatusUiModelTest {
@@ -67,9 +74,41 @@ class StatusUiModelTest {
 
     @Test
     fun fpsIsRoundedToOneDecimal() {
-        assertEquals("12.4 fps", trackingUiState(status(fps = 12.44)).fpsText)
-        assertEquals("12.5 fps", trackingUiState(status(fps = 12.45123)).fpsText)
-        assertEquals("0.0 fps", trackingUiState(status(fps = 0.0)).fpsText)
+        assertEquals("12.4 fps", trackingUiState(status(fps = 12.44, cameraFps = 12.44)).fpsText)
+        assertEquals("12.5 fps", trackingUiState(status(fps = 12.45123, cameraFps = 12.45)).fpsText)
+    }
+
+    /**
+     * The bug this pair exists for: an uncalibrated board discards every frame, so the engine rate
+     * is 0 while the camera runs at 30 — and a bare "0.0 fps" reads as a dead camera.
+     */
+    @Test
+    fun aStalledDetectionOverALiveCameraSaysSoInsteadOfShowingZero() {
+        val uncalibrated = trackingUiState(status(fps = 0.0, cameraFps = 29.6, corners = null))
+        assertEquals("camera 30 fps", uncalibrated.fpsText)
+        assertEquals("not calibrated", uncalibrated.fpsDetail)
+        // Calibrated and still not ticking is a DIFFERENT problem (dark frame, degenerate warp).
+        val stalled = trackingUiState(status(fps = 0.0, cameraFps = 29.6))
+        assertEquals("camera 30 fps", stalled.fpsText)
+        assertEquals("no detection", stalled.fpsDetail)
+    }
+
+    @Test
+    fun aDeadFeedIsNeverReportedAsARate() {
+        assertEquals("no frames", trackingUiState(status(fps = 0.0, cameraFps = 0.0)).fpsText)
+        assertNull(trackingUiState(status(fps = 0.0, cameraFps = 0.0)).fpsDetail)
+        // The camera being released outranks every engine number (see the class doc).
+        assertEquals("camera off", trackingUiState(status(fps = 14.8), cameraOn = false).fpsText)
+        assertNull(trackingUiState(status(fps = 14.8), cameraOn = false).fpsDetail)
+    }
+
+    @Test
+    fun theCameraRateIsShownOnlyWhenDetectionIsBehindIt() {
+        // Both rates equal: the second number would be the first one again.
+        assertNull(trackingUiState(status(fps = 29.4, cameraFps = 30.0)).fpsDetail)
+        val dropping = trackingUiState(status(fps = 15.0, cameraFps = 30.0))
+        assertEquals("15.0 fps", dropping.fpsText)
+        assertEquals("camera 30", dropping.fpsDetail)
     }
 
     @Test

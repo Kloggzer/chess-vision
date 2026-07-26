@@ -151,6 +151,7 @@ class TrackerService :
             camera.resume()
         } else {
             camera.stop()
+            publisher.onCameraStopped()
         }
         notification.post(publisher.status.value?.state, moves, on)
     }
@@ -193,6 +194,9 @@ class TrackerService :
             TrackerCamera(this, cameraRequestFor(settings.appSettings.value.resolutionMode), { image, delivered ->
                 binder.deliveredSize = delivered
                 publisher.cameraHealth = camera.cameraState.value
+                // Here, not in the coordinator: this is the last point that sees EVERY delivered
+                // frame, including the ones dropped below while a restart swaps the stack.
+                publisher.onCameraFrame()
                 // Dropped, not queued, while a restart swaps the stack: `StackSwitch` detaches
                 // before it closes, so this is the window in which there is nothing to run.
                 stacks.current?.coordinator?.onFrame(image, delivered)

@@ -71,6 +71,8 @@ data class TrackingUiState(
     val stateText: String,
     val tone: StateTone,
     val fpsText: String,
+    /** The second, smaller line under [fpsText]; null when one line says everything. */
+    val fpsDetail: String?,
     val infoLine: String?,
     val alarm: AlarmUi?,
     val overlay: OverlayLayers,
@@ -91,6 +93,17 @@ private const val ALARM_STATE_TEXT = "ILLEGAL MOVE?"
 private const val STOPPED_STATE_TEXT = "STOPPED"
 
 private const val STOPPED_FPS_TEXT = "camera off"
+
+/** The camera is bound and nothing is arriving — a dead feed, which is NOT a discarded one. */
+private const val NO_FRAMES_TEXT = "no frames"
+
+private const val NOT_CALIBRATED_TEXT = "not calibrated"
+
+/** Frames arrive, the board is calibrated, and still nothing ticks — the case worth catching. */
+private const val NO_DETECTION_TEXT = "no detection"
+
+/** Below this the two rates are the same number twice, and the second one is noise. */
+private const val FPS_SAME = 1.0
 
 private const val STOPPED_INFO = "No frames are arriving — the camera is released. Resume to continue; the game is kept."
 
@@ -123,7 +136,8 @@ fun trackingUiState(
                 alarm != null -> StateTone.Alarm
                 else -> stateTone(status.state)
             },
-        fpsText = if (cameraOn) formatFps(status.fps) else STOPPED_FPS_TEXT,
+        fpsText = if (cameraOn) fpsText(status) else STOPPED_FPS_TEXT,
+        fpsDetail = if (cameraOn) fpsDetail(status) else null,
         infoLine = if (cameraOn) infoLine(status) else STOPPED_INFO,
         alarm = alarm,
         overlay =
@@ -161,4 +175,33 @@ private fun infoLine(status: TrackerStatus): String? {
     return if (stuck != null) "stuck: $stuck" else status.note
 }
 
+/**
+ * The headline rate, and it is NOT always the engine's.
+ *
+ * `status.fps` counts frames that reached the engine, so an uncalibrated board shows "0.0 fps"
+ * beside a camera running at 30 — which reads as a defect and sends the user after the wrong thing.
+ * Whenever detection is not running, the camera rate is the number that is actually true, and
+ * [fpsDetail] carries the reason it is the one being shown.
+ */
+private fun fpsText(status: TrackerStatus): String =
+    when {
+        status.cameraFps <= 0.0 -> NO_FRAMES_TEXT
+        status.fps <= 0.0 -> "camera ${formatRate(status.cameraFps)} fps"
+        else -> formatFps(status.fps)
+    }
+
+private fun fpsDetail(status: TrackerStatus): String? =
+    when {
+        status.cameraFps <= 0.0 -> null
+        // Corners are the calibration: `StatusPublisher` fills in the ones the frame was warped
+        // with, and null means the pipeline has never had a board to warp to.
+        status.fps <= 0.0 -> if (status.corners == null) NOT_CALIBRATED_TEXT else NO_DETECTION_TEXT
+        status.cameraFps - status.fps < FPS_SAME -> null
+        // Detection is running but behind the sensor: the gap is the whole message.
+        else -> "camera ${formatRate(status.cameraFps)}"
+    }
+
 private fun formatFps(fps: Double): String = String.format(Locale.ROOT, "%.1f fps", fps)
+
+/** Whole frames: the second rate is context, and a decimal point costs width the header lacks. */
+private fun formatRate(fps: Double): String = String.format(Locale.ROOT, "%.0f", fps)

@@ -99,6 +99,12 @@ class FramePipeline(
         return if (note != null) FrameResult.Skipped(note) else emit(timestampMs)
     }
 
+    /**
+     * The engine has returned. It runs on the analyzer thread AFTER [onFrame], so the frame is
+     * only over here — and a budget that stops at [Stage.TOTAL] measures a third of it (D-perf).
+     */
+    fun onEngineDone() = timings.endOfFrame()
+
     fun onConfigChanged(newConfig: TrackerConfig) {
         config = newConfig
         stages.onConfigChanged(newConfig)
@@ -141,7 +147,6 @@ class FramePipeline(
             cropStore.served()
         }
         timings.mark(Stage.TOTAL)
-        timings.maybeLog()
         return FrameResult.Ready(FrameInput(seq, gray, bgr, pts, motion, coverage, luma, timestampMs))
     }
 

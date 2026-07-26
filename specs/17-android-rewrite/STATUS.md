@@ -4894,3 +4894,71 @@ baseline, no threshold raised. New files 89 + 82 LOC; `OnnxSquareClassifier.kt` 
 Detekt shaped one edit, recorded so it is not mistaken for taste: the chain walk would have hit
 `LoopWithTooManyJumpStatements`, which is why it is an `EpAttempts` object driven by
 `firstNotNullOfOrNull` over the chain rather than a loop with two `continue`s.
+
+## Two fps numbers: camera vs detection (2026-07-26)
+
+`0.0 fps` next to a **Tracking · camera on** chip read as a defect and was not one: with no
+calibration `FramePipeline` returns `Skipped`, the engine never ticks, and `EngineState.fps` stays
+0 — while CameraX happily delivers ~30 fps that all get discarded. One number cannot separate
+*camera dead* from *camera fine, nothing analysed*, and the two need opposite actions from the user.
+
+Both rates are now reported.
+
+- `pipeline/CameraRate.kt` (new, 44 LOC) — an EMA over the gaps between delivered frames, the same
+  0.9/0.1 weights as the engine's `_fps` so the two numbers settle alike. It lives in `:app` for
+  the same reason `StageTimings` does: `:core-engine` is under the wall-clock ban, and it cannot
+  count frames it never received anyway.
+- `service/TrackerService.kt` — `publisher.onCameraFrame()` in the analyzer lambda, i.e. the last
+  point that sees EVERY `ImageProxy`, including the ones dropped while a restart swaps the stack.
+  `setCameraOn(false)` resets the meter: the gap across a released camera is minutes long and would
+  otherwise be measured as a frame time.
+- `api/TrackerStatus.kt` + `entry.md`'s seam block — `cameraFps: Double = 0.0`, filled in by
+  `StatusPublisher` exactly like `corners` and the pipeline half of `stageTimingsMs`. The engine
+  never sets it.
+- `service/StatusPublisher.kt` — publishes `cameraFps`, and **zeroes `fps` on a skipped frame**.
+  That is the subtler half of the same lie: a skipped frame ticks nothing, so the engine's EMA is
+  frozen rather than current, and a stale `14.8 fps` standing over a paused detection (dark gate,
+  lost warp) says the loop is running when it provably is not. `pipelineNote != null` is exactly
+  "this frame produced no `FrameInput`".
+- `ui/tracking/StatusUiModel.kt` — the header line, stacked in two short lines rather than one long
+  one so both stay readable at arm's length:
+  | state | line 1 | line 2 |
+  |---|---|---|
+  | camera released | `camera off` | — |
+  | bound, nothing arriving | `no frames` | — |
+  | delivering, never ticked, `corners == null` | `camera 30 fps` | `not calibrated` |
+  | delivering, never ticked, calibrated | `camera 30 fps` | `no detection` |
+  | detecting, behind the sensor | `15.0 fps` | `camera 30` |
+  | detecting at the sensor rate | `15.0 fps` | — |
+  `corners == null` is what tells "never calibrated" from "stalled for another reason" — the
+  publisher fills in the corners the frame was warped with, so null means there was never a board.
+- `ui/debug/TimingsPanel.kt` + `DebugPayloadAssembler` — `camera fps` and `detection fps` rows,
+  each with its own 5 s median, since that is where a slow pipeline gets diagnosed.
+
+### Verified on device (f86dfdca, debug build)
+
+| state | header |
+|---|---|
+| uncalibrated, camera running | `WAITING` · `camera 49 fps` / `not calibrated` (light: `camera 34 fps`) |
+| camera stopped via the chip | `STOPPED` · `camera off` |
+| tracking, both rates equal | `WAITING` · `10.3 fps`, no second line |
+| tracking, frames being skipped | `5.9 fps` / `camera 7` |
+| debug → Timings | `camera fps (now / 5 s) 8.7 / 8.9`, `detection fps (now / 5 s) 8.8 / 8.9` |
+
+The uncalibrated state had to be *forced*: nothing is persisted in the calibration store, but
+`liveAlign` re-acquires the markers within ~3 frames of launch, so the screenshots were taken with
+`liveAlign` off (restored to `on` afterwards — verified in `tracker_config_json`; `debugEnabled`
+likewise left as found).
+
+### Gate
+
+`:core-engine:test` (ClipReplayParityTest 18/18 clips, zero divergence), `:app:testDebugUnitTest`,
+`assembleDebug` — green. `ktlintCheck` / `detekt` are green on every file this pass owns; both were
+red on `pipeline/YuvToBgr.kt` / `YuvToBgrTest.kt`, which belong to the concurrent perf pass running
+in the same worktree and are not touched here.
+
+Known limit, worth knowing before reading the two numbers: `ImageAnalysis` runs
+`STRATEGY_KEEP_ONLY_LATEST`, so CameraX delivers the next frame only once the analyzer returns. The
+camera rate is therefore bounded by the analyzer's own speed — it shows the DISCARDED-frame gap
+(the case above), not a "sensor is faster than we are" gap, which is why an idle pipeline reads 49
+fps and a working one reads the detection rate.
