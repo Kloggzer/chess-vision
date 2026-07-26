@@ -719,6 +719,7 @@ class MoveTracker:
                  require_motion_for_move: bool = True, detect_scale: float = 0.5,
                  motion_recency_s: float = 20.0, commit_ll_floor: float = 2.0,
                  census_z_weight: float = 1.0, occl_census_thr: float = 24.0,
+                 occlusion_keepalive_s: float | None = None,
                  desync_obs_n: int = 3, observer_interval_s: float = 0.0,
                  verify_obs_votes: int = 2, res: str | None = None) -> None:
         # Requested capture mode (named preset from config.CAMERA_MODES). None/"default"
@@ -778,6 +779,19 @@ class MoveTracker:
         self._cens_raw: dict[str, float] | None = None   # raw census for the shadow veto
         self._struct_vals: list = []                  # debug: top census-z squares
         self.occl_census_thr = occl_census_thr        # baseline occlusion needs structure above this
+        # How long a square stays flagged as hand-occluded after the frame that saw the hand.
+        # `None` = span the motion hold plus a frame's slack, which is what the stamps were always
+        # FOR: baseline occlusion is only computed while the board is moving, detection only runs
+        # once the hold has expired, so a keep-alive shorter than the hold cannot reach the moment
+        # it exists to protect. The historic 0.1 against a 0.4 hold never did — measured on a real
+        # game, the veto held 59 squares over the clip and exactly 0 at every commit.
+        # Default UNCHANGED at the historic 0.1. Coupling it to the hold was the obvious
+        # hypothesis and it is measurably wrong: swept over a real 66 s game at 0.1 / hold+0.1 /
+        # 1.0, the committed move list is byte-identical and the veto still holds 0 squares at
+        # every commit — because by then the board really is clear. The knob exists so the next
+        # person can re-run that experiment in one line instead of editing a literal.
+        self.occlusion_keepalive_s = (
+            0.1 if occlusion_keepalive_s is None else float(occlusion_keepalive_s))
         self.use_prior = use_prior                    # heuristic prior as ambiguity tie-break (part 2)
         self.prior_last = False                       # last move was decided by prior (undo hint)
         # -- Nudge/drift re-anchor without CNN (part 4) --
@@ -1634,10 +1648,11 @@ class MoveTracker:
                             occl_census_thr=self.occl_census_thr,
                             cur_bgr=warped_det, gamut=self._ref_gamut,
                             color_thr=self.occlusion_color_thr)
+                        keep = self.occlusion_keepalive_s
                         for sq in raw_occ:
-                            self._occlusion_expiry[sq] = now + 0.1
+                            self._occlusion_expiry[sq] = now + keep
                         for sq in occ_core:
-                            self._occl_core_expiry[sq] = now + 0.1
+                            self._occl_core_expiry[sq] = now + keep
                         self._shadow_vetoed = sorted(raw_shadow)
                     self._motion_occluded_squares = {
                         sq for sq, exp in self._occlusion_expiry.items() if now < exp}
