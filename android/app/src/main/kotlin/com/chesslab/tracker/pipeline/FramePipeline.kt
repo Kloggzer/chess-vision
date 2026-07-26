@@ -88,22 +88,38 @@ class FramePipeline(
     private var seq = 0L
     private var luma = 0.0
 
+    /**
+     * The size guard is reached THROUGH the pipeline that owns it.
+     *
+     * The coordinator used to hold a second reference to the same instance purely to read the
+     * verdict and stamp the profile; one owner is fewer ways for the two to disagree.
+     */
+    val sizeMismatch: SizeMismatch? get() = sizeGuard.mismatch
+
+    /** A new calibration profile is the baseline the delivered size is checked against. */
+    fun setProfile(
+        name: String,
+        width: Int,
+        height: Int,
+    ) = sizeGuard.setProfile(name, width, height)
+
+    /**
+     * The frame clock is NOT started here — [TrackerCoordinator][com.chesslab.tracker.service.TrackerCoordinator]
+     * owns it, because work runs on this thread both before this call and after it. Marking
+     * [Stage.TOTAL] on the skip path too is what keeps a dark or marker-less frame from reporting
+     * the previous frame's pipeline cost.
+     */
     fun onFrame(
         image: ImageProxy,
         timestampMs: Long,
     ): FrameResult {
-        timings.begin()
         // The delivered size is the only trustworthy one; a change invalidates the profile.
         sizeGuard.note(image.width, image.height)
         val note = readFrame(image)
-        return if (note != null) FrameResult.Skipped(note) else emit(timestampMs)
+        val result = if (note != null) FrameResult.Skipped(note) else emit(timestampMs)
+        timings.mark(Stage.TOTAL)
+        return result
     }
-
-    /**
-     * The engine has returned. It runs on the analyzer thread AFTER [onFrame], so the frame is
-     * only over here — and a budget that stops at [Stage.TOTAL] measures a third of it (D-perf).
-     */
-    fun onEngineDone() = timings.endOfFrame()
 
     fun onConfigChanged(newConfig: TrackerConfig) {
         config = newConfig
@@ -146,7 +162,6 @@ class FramePipeline(
             stages.updateCropFrame(pts, seq, timestampMs, bgr, gray)
             cropStore.served()
         }
-        timings.mark(Stage.TOTAL)
         return FrameResult.Ready(FrameInput(seq, gray, bgr, pts, motion, coverage, luma, timestampMs))
     }
 

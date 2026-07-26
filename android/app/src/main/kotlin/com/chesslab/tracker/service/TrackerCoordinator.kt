@@ -12,7 +12,8 @@ import com.chesslab.tracker.camera.FrameSink
 import com.chesslab.tracker.cnn.CnnObserver
 import com.chesslab.tracker.pipeline.FramePipeline
 import com.chesslab.tracker.pipeline.FrameResult
-import com.chesslab.tracker.pipeline.FrameSizeGuard
+import com.chesslab.tracker.pipeline.Stage
+import com.chesslab.tracker.pipeline.StageTimings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -33,25 +34,34 @@ class TrackerCoordinator(
     private val bus: CameraFrameBus,
     private val observer: CnnObserver,
     private val align: LiveAlign,
-    private val sizeGuard: FrameSizeGuard,
+    private val timings: StageTimings,
 ) : FrameSink {
+    /**
+     * The frame clock spans this WHOLE method.
+     *
+     * It used to start inside [FramePipeline.onFrame] and stop at the engine, which left three
+     * stages measured by nothing: the preview bus before it, and the status publish, observer poke
+     * and live-align clone after it. That is why `total + engine` read ~65 ms against an observed
+     * ~90 ms frame period — the gap was real work, not measurement noise.
+     */
     override fun onFrame(
         image: ImageProxy,
         delivered: DeliveredSize,
     ) {
+        timings.begin()
         bus.onFrame(image)
+        timings.mark(Stage.PUBLISH)
         val result = pipeline.onFrame(image, System.currentTimeMillis())
-        val ready = result as? FrameResult.Ready
-        val events = host.tick(ready?.input)
+        val events = host.tick((result as? FrameResult.Ready)?.input)
         // The engine runs HERE, on the analyzer thread, and it is part of the frame budget.
-        // Only for a frame the pipeline actually emitted — a skipped one has no stages to log.
-        if (ready != null) pipeline.onEngineDone()
-        publisher.sizeMismatch = sizeGuard.mismatch
+        timings.mark(Stage.ENGINE)
+        publisher.sizeMismatch = pipeline.sizeMismatch
         // The corners this frame was warped with — the overlay's board quad (D06b-4).
         publisher.corners = pipeline.corners
         publisher.publish(host.status(), events, (result as? FrameResult.Skipped)?.note)
         observer.onFrameAvailable()
         align.maybeAlign(bus, delivered)
+        timings.endFrame()
     }
 
     /** 06a's calibration result. The corner swap is what the pipeline reads on its next frame. */
@@ -63,7 +73,7 @@ class TrackerCoordinator(
     ) {
         pipeline.onGeometryChanged(geometry)
         pipeline.corners = corners
-        sizeGuard.setProfile(profileName, delivered.width, delivered.height)
+        pipeline.setProfile(profileName, delivered.width, delivered.height)
         align.reset(delivered)
     }
 }
