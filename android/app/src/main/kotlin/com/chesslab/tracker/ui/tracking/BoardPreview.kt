@@ -26,6 +26,9 @@ import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 private const val FILES = "abcdefgh"
 private const val N = 8
 
+/** Enough to read the square through, not so little that it reads as another outline. */
+private const val CONFLICT_FILL = 0.35f
+
 /**
  * Where a `ContentScale.Fit` image really lands inside [box].
  *
@@ -90,6 +93,14 @@ fun BoardPreview(
                 drawSquares(rect, overlay.changed, palette.overlayChanged)
                 drawSquares(rect, overlay.shadowVetoed, palette.overlayShadow)
                 drawSquares(rect, overlay.occlusionVetoed, palette.overlayOcclusion)
+                // Last, so it wins the overdraw, and filled rather than outlined: a conflict is not
+                // one more kind of evidence, it is the tracker telling you its position is wrong.
+                overlay.cnnConflicts.forEach { square ->
+                    cellRect(rect, square)?.let {
+                        drawRect(palette.overlayConflict.copy(alpha = CONFLICT_FILL), it.topLeft, it.size)
+                        drawRect(palette.overlayConflict, it.topLeft, it.size, style = Stroke(width = 3.dp.toPx()))
+                    }
+                }
             }
         }
     }

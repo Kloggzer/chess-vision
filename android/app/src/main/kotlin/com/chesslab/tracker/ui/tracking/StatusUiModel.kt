@@ -21,6 +21,7 @@ data class OverlayLayers(
     val changed: Set<String> = emptySet(),
     val shadowVetoed: Set<String> = emptySet(),
     val occlusionVetoed: Set<String> = emptySet(),
+    val cnnConflicts: Set<String> = emptySet(),
 )
 
 data class AlarmUi(
@@ -145,6 +146,7 @@ fun trackingUiState(
                 changed = status.changed,
                 shadowVetoed = status.shadowVetoed,
                 occlusionVetoed = status.occlusionVetoed,
+                cnnConflicts = status.cnnConflicts,
             ),
         corners = status.corners,
     )

@@ -511,6 +511,8 @@ internal fun EngineState.toStatus(debugEnabled: Boolean = false): TrackerStatus 
         changed = changed.sortedSquareNames().toSet(),
         shadowVetoed = shadowVetoed.sortedSquareNames().toSet(),
         occlusionVetoed = occludedVetoed.sortedSquareNames().toSet(),
+        // The same computation the re-anchor veto uses, surfaced instead of only counted.
+        cnnConflicts = cnnDesync()?.conflicts?.toSet() ?: emptySet(),
         bestLl = bestScore,
         secondLl = secondScore,
         bestUci = candidateUci,
