@@ -17,6 +17,18 @@ from . import config
 CLASSES = config.CLASSES
 
 
+def optional_classes(classes: list[str]) -> set[str]:
+    """Classes that may legitimately be absent from a dataset.
+
+    For the 14-class piece list that is `config.OPTIONAL_CLASSES` (`empty`/`occluded`
+    never come from a FEN). For the 2-class occupancy list it is **empty**: a set missing
+    either `empty` or `occupied` is degenerate, not merely unbalanced.
+    """
+    if list(classes) == config.OCCUPANCY_CLASSES:
+        return set()
+    return config.OPTIONAL_CLASSES
+
+
 # --- Load manifest -------------------------------------------------------------------
 
 def load_manifest(path: Path) -> list[dict]:
@@ -30,7 +42,9 @@ def load_manifest(path: Path) -> list[dict]:
 
 # --- stats ----------------------------------------------------------------------------
 
-def compute_stats(rows: list[dict], min_samples: int = config.MIN_CLASS_SAMPLES) -> dict:
+def compute_stats(rows: list[dict], min_samples: int = config.MIN_CLASS_SAMPLES,
+                  classes: list[str] | None = None) -> dict:
+    CLASSES = classes or config.CLASSES
     counts = dict.fromkeys(CLASSES, 0)
     light = dict.fromkeys(CLASSES, 0)
     dark = dict.fromkeys(CLASSES, 0)
@@ -46,8 +60,9 @@ def compute_stats(rows: list[dict], min_samples: int = config.MIN_CLASS_SAMPLES)
         per_session[r["session_id"]] += 1
 
     warnings: list[str] = []
+    optional = optional_classes(CLASSES)
     for c in CLASSES:
-        if c in config.OPTIONAL_CLASSES:    # empty/occluded may be missing (not from FEN)
+        if c in optional:                   # empty/occluded may be missing (not from FEN)
             continue
         n = counts[c]
         if n == 0:
@@ -72,10 +87,10 @@ def compute_stats(rows: list[dict], min_samples: int = config.MIN_CLASS_SAMPLES)
 def render_stats(stats: dict) -> str:
     lines = [
         f"Crops total: {stats['total']}  |  Sessions: {stats['num_sessions']}",
-        f"{'Class':<7}{'count':>8}{'light':>8}{'dark':>8}",
+        f"{'Class':<9}{'count':>8}{'light':>8}{'dark':>8}",
     ]
-    for c in CLASSES:
-        lines.append(f"{c:<7}{stats['counts'][c]:>8}{stats['light'][c]:>8}{stats['dark'][c]:>8}")
+    for c in stats["counts"]:               # the stats' own class list, not the module default
+        lines.append(f"{c:<9}{stats['counts'][c]:>8}{stats['light'][c]:>8}{stats['dark'][c]:>8}")
     if stats["warnings"]:
         lines.append("Warnings:")
         lines.extend(f"  ! {w}" for w in stats["warnings"])
@@ -143,8 +158,9 @@ def subsample_empty(rows: list[dict], max_empty_ratio: float | None, seed: int) 
     return subsample_classes(rows, max_empty_ratio=max_empty_ratio, max_class_ratio=None, seed=seed)
 
 
-def compute_class_weights(counts: dict) -> dict:
+def compute_class_weights(counts: dict, classes: list[str] | None = None) -> dict:
     """Inverse frequency. Largest class -> smallest weight. Absent classes -> 0.0."""
+    CLASSES = classes or config.CLASSES
     present = {c: n for c, n in counts.items() if n > 0}
     weights = dict.fromkeys(CLASSES, 0.0)
     if not present:
@@ -200,7 +216,9 @@ def make_split(
     force_train=None,
     precomputed_splits=None,
     priority_paths: set[str] | None = None,
+    classes: list[str] | None = None,
 ) -> dict:
+    CLASSES = classes or config.CLASSES
     # Assign sessions. `precomputed_splits` (determined by build_dataset on the RAW, complete data)
     # wins -> this way Train gets duped/augmented, Val/Test stay complete.
     if precomputed_splits is not None:
@@ -230,8 +248,9 @@ def make_split(
         labels_in[split_of[r["session_id"]]].add(r["label"])
 
     warnings: list[str] = []
+    optional = optional_classes(CLASSES)
     for c in CLASSES:
-        if c in config.OPTIONAL_CLASSES or len(class_sessions[c]) == 0:
+        if c in optional or len(class_sessions[c]) == 0:
             continue
         if len(class_sessions[c]) == 1:
             warnings.append(f"Class {c} only in one session -> clean evaluation impossible.")
@@ -250,7 +269,7 @@ def make_split(
         "max_empty_ratio": max_empty_ratio,
         "max_class_ratio": max_class_ratio,
         "classes": list(CLASSES),
-        "class_weights": compute_class_weights(train_counts),
+        "class_weights": compute_class_weights(train_counts, CLASSES),
         "splits": splits,
         "counts": counts_split,
         "train_class_counts": train_counts,
@@ -260,20 +279,33 @@ def make_split(
     }
 
 
-def validate_split(split: dict, rows: list[dict]) -> tuple[list[str], list[str]]:
-    """(errors, warnings). Errors = degenerate, clean evaluation impossible."""
+def validate_split(split: dict, rows: list[dict],
+                   classes: list[str] | None = None) -> tuple[list[str], list[str]]:
+    """(errors, warnings). Errors = degenerate, clean evaluation impossible.
+
+    The class list comes from the split itself (`split["classes"]`) when present — the
+    dataset declares its own class list (14-class pieces or 2-class occupancy) and this
+    check obeys it. For the 2-class list an ABSENT class is an error: a set with no
+    `occupied` rows (or no `empty` rows) cannot train an occupancy model at all.
+    """
+    CLASSES = classes or split.get("classes") or config.CLASSES
     errors: list[str] = []
     warnings: list[str] = []
 
     # Session set per class
     class_sessions: dict[str, set] = {c: set() for c in CLASSES}
     for r in rows:
-        class_sessions[r["label"]].add(r["session_id"])
+        class_sessions.setdefault(r["label"], set()).add(r["session_id"])
 
     # Globally present classes
     global_present = {c for c in CLASSES if class_sessions[c]}
     # only check occluded if present globally
     check_classes = [c for c in CLASSES if c != "occluded" or "occluded" in global_present]
+
+    if list(CLASSES) == config.OCCUPANCY_CLASSES:
+        for c in CLASSES:
+            if not class_sessions[c]:
+                errors.append(f"Occupancy class {c} has 0 rows — degenerate 2-class dataset.")
 
     for c in check_classes:
         n_sessions = len(class_sessions[c])
@@ -303,9 +335,11 @@ def validate_split(split: dict, rows: list[dict]) -> tuple[list[str], list[str]]
 
 # --- verify ---------------------------------------------------------------------------
 
-def verify(rows: list[dict], *, split: dict | None = None, check_files: bool = True) -> list[str]:
+def verify(rows: list[dict], *, split: dict | None = None, check_files: bool = True,
+           classes: list[str] | None = None) -> list[str]:
     import cv2
 
+    CLASSES = classes or (split or {}).get("classes") or config.CLASSES
     problems: list[str] = []
     for r in rows:
         if r["label"] not in CLASSES:

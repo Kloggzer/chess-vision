@@ -423,6 +423,10 @@ def dataset_build_cmd(
                                                help="Crop pool(s) to filter, comma-separated. Default: "
                                                     "manifests/squares.jsonl. Needed after `ingest --tag X "
                                                     "--no-build`, which writes manifests/squares__X.jsonl."),
+    classes: str = typer.Option("pieces", "--classes",
+                                help="pieces (14, default) | occupancy (2: empty/occupied). "
+                                     "`occupancy` COLLAPSES the existing labels at build time — "
+                                     "no crop is re-labelled, no row is lost."),
 ) -> None:
     """Build named dataset from session selection (filter -> dedup -> rotation -> split -> pack)."""
     from . import dataset_build as db
@@ -434,7 +438,8 @@ def dataset_build_cmd(
                                per_cell_cap=per_cell_cap, phash_enabled=not no_phash,
                                phash_hamming=hamming,
                                rotations=(config.DEDUP.rotations_augmented if rotate else config.DEDUP.rotations),
-                               allow_degenerate=allow_degenerate, pack=not no_pack)
+                               allow_degenerate=allow_degenerate, pack=not no_pack,
+                               class_mode=classes)
     except ValueError as e:
         print(f"[FAIL] {e}")
         raise typer.Exit(1)
@@ -470,6 +475,9 @@ def dataset_build_synth_cmd(
                                      "`dataset build`: it contradicts the fixed-camera assumption "
                                      "and diverse renders already carry the variance."),
     workers: int | None = typer.Option(None, "--workers", help="Pixel-pass processes (default: auto)."),
+    classes: str = typer.Option("pieces", "--classes",
+                                help="pieces (14, default) | occupancy (2: empty/occupied). "
+                                     "`occupancy` collapses the FEN labels at build time."),
 ) -> None:
     """Fused synthetic build: renders -> packed memmap directly.
 
@@ -482,7 +490,8 @@ def dataset_build_synth_cmd(
         res = build_synth_dataset(name, renders, board_size=board_size, per_cell_cap=per_cell_cap,
                                   rotations=(config.DEDUP.rotations_augmented if rotate
                                              else config.DEDUP.rotations),
-                                  val_frac=val_frac, test_frac=test_frac, workers=workers)
+                                  val_frac=val_frac, test_frac=test_frac, workers=workers,
+                                  class_mode=classes)
     except (ValueError, RuntimeError) as e:
         print(f"[FAIL] {e}")
         raise typer.Exit(1)
@@ -549,15 +558,30 @@ def train_cmd(
                                       "Auflösungen (size-agnostisch, für günstige Low-Res-Inferenz)."),
     erase_p: float | None = typer.Option(None, "--erase-p", help="Override RandomErasing/Cutout prob (anti-shortcut)."),
     bg_p: float | None = typer.Option(None, "--bg-p", help="Override background-randomization prob on occupied crops."),
+    loss: str = typer.Option("ce", "--loss", help="ce | focal — focal down-weights the easy, "
+                                                  "already-solved crops (needs --head combined)."),
+    focal_gamma: float = typer.Option(2.0, "--focal-gamma", help="Focal loss gamma (0 = weighted CE)."),
+    class_weight: str | None = typer.Option(None, "--class-weight", help="Per-class loss weight "
+                                            "override as comma-separated KEY=VALUE (e.g. "
+                                            "'occupied=2.0' or 'empty=0.9,occupied=2.0'). Applied "
+                                            "on top of split.json's inverse-frequency weights."),
 ) -> None:
     """Train per-square CNN on the ROCm GPU (board accuracy = checkpoint metric)."""
     from .training.train import run_train
 
     scale_list = [int(s) for s in scales.split(",") if s.strip()] if scales else None
+    cw: dict[str, float] = {}
+    for item in (s.strip() for s in (class_weight or "").split(",") if s.strip()):
+        if "=" not in item:
+            print(f"[FAIL] --class-weight expects KEY=VALUE, got {item!r}.")
+            raise typer.Exit(1)
+        k, v = item.split("=", 1)
+        cw[k.strip()] = float(v)
     raise typer.Exit(run_train(backbone=backbone, epochs=epochs, batch_size=batch_size, lr=lr,
                                no_amp=no_amp, seed=seed, out=out, patience=patience,
                                num_workers=num_workers, norm=norm, dataset=dataset, resume=resume,
-                               head=head, scales=scale_list, erase_p=erase_p, bg_p=bg_p))
+                               head=head, scales=scale_list, erase_p=erase_p, bg_p=bg_p,
+                               loss=loss, focal_gamma=focal_gamma, class_weight=cw or None))
 
 
 @app.command("eval")

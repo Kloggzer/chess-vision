@@ -27,7 +27,7 @@ from pathlib import Path
 
 from . import config
 from . import dataset as dataset_mod
-from .dataset_build import _safe_name, dataset_dir, dedup_metadata
+from .dataset_build import _safe_name, class_list_for, collapse_labels, dataset_dir, dedup_metadata
 
 _FILES = "abcdefgh"
 
@@ -134,6 +134,7 @@ def build_synth_dataset(
     workers: int | None = None,
     allow_degenerate: bool = False,
     paths: config.Paths | None = None,
+    class_mode: str = "pieces",
 ) -> dict:
     """Renders -> curated split (metadata only) -> crops packed straight into the memmap.
 
@@ -147,6 +148,7 @@ def build_synth_dataset(
     from .training.pack import _manifest_digest
 
     name = _safe_name(name)
+    classes = class_list_for(class_mode)
     paths = paths or config.DATA
     per_cell_cap = config.DEDUP.per_cell_cap if per_cell_cap is None else per_cell_cap
     from .calibration import CropParams
@@ -187,6 +189,9 @@ def build_synth_dataset(
     train_rows = dedup_metadata(train_raw, per_cell_cap, seed)
     rows = train_rows + holdout
     n_final = len(rows)
+    # Same contract as `dataset build`: collapse LAST, after dedup and the session split, so an
+    # occupancy build keeps exactly the rows a `pieces` build at the same seed would keep.
+    rows = collapse_labels(rows, class_mode)
 
     # Disk preflight without reading any file: the memmap size is exact arithmetic here.
     w, h = int(out_size[0]), int(out_size[1])
@@ -208,19 +213,20 @@ def build_synth_dataset(
         "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + ("\n" if rows else ""),
         encoding="utf-8")
     split = dataset_mod.make_split(rows, val_frac, test_frac, max_empty_ratio, seed,
-                                   max_class_ratio, precomputed_splits=splits)
-    errors, _warnings = dataset_mod.validate_split(split, rows)
+                                   max_class_ratio, precomputed_splits=splits, classes=classes)
+    errors, _warnings = dataset_mod.validate_split(split, rows, classes=classes)
     if errors:
         if not allow_degenerate:
             shutil.rmtree(ds, ignore_errors=True)
             raise ValueError("\n".join(errors))
         split["degenerate_errors"] = errors
     (ds / "split.json").write_text(json.dumps(split, ensure_ascii=False, indent=2), encoding="utf-8")
-    (ds / "stats.json").write_text(json.dumps(dataset_mod.compute_stats(rows), ensure_ascii=False),
-                                   encoding="utf-8")
+    (ds / "stats.json").write_text(
+        json.dumps(dataset_mod.compute_stats(rows, classes=classes), ensure_ascii=False),
+        encoding="utf-8")
     import yaml
     cfg = {
-        "name": name, "created_at": datetime.now(UTC).isoformat(),
+        "name": name, "created_at": datetime.now(UTC).isoformat(), "class_mode": class_mode,
         "session_ids": list(session_ids), "fused_synth": True, "board_size": int(board_size),
         "renders_root": Path(renders_root).resolve().as_posix(),
         "dedup": {"per_cell_cap": per_cell_cap, "phash_enabled": False, "phash_hamming": None},

@@ -33,12 +33,26 @@ val EXPECTED_CLASSES: List<String> =
 val IMAGENET_MEAN: List<Float> = listOf(0.485f, 0.456f, 0.406f)
 val IMAGENET_STD: List<Float> = listOf(0.229f, 0.224f, 0.225f)
 
+/** `config.py OCCUPANCY_CLASSES` — the 2-class occupancy run (specs/18-occupancy-model). */
+val OCCUPANCY_CLASSES: List<String> = listOf("empty", "occupied")
+
+/** The class lists this app knows how to consume, in the order they must appear. */
+private val ACCEPTED_CLASS_LISTS: List<List<String>> = listOf(EXPECTED_CLASSES, OCCUPANCY_CLASSES)
+
 /**
- * Fails loudly when the model asset's class list is not the canonical 14-class order.
- * Returns the asset list so callers keep using THAT, not [EXPECTED_CLASSES].
+ * Fails loudly when the model asset's class list is neither the canonical 14-class order nor
+ * the 2-class occupancy order. Returns the asset list so callers keep using THAT, not
+ * [EXPECTED_CLASSES].
+ *
+ * A reordered list silently relabels every piece, so refusing to load is the only safe answer.
+ * The 2-class list is accepted because the tracker consumes OCCUPANCY, not identity:
+ * `observationFromProbs` detects it via [classesHaveIdentity] and reports no label at all, so
+ * the engine takes its existing occupancy-only path rather than comparing `"occupied"` to `"wP"`.
  */
 fun requireExpectedClasses(classes: List<String>): List<String> {
-    require(classes == EXPECTED_CLASSES) { "model classes $classes != expected $EXPECTED_CLASSES" }
+    require(classes in ACCEPTED_CLASS_LISTS) {
+        "model classes $classes != expected $EXPECTED_CLASSES or $OCCUPANCY_CLASSES"
+    }
     return classes
 }
 

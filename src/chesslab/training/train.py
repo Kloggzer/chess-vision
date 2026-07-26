@@ -81,7 +81,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               num_workers: int | None = None, norm: str | None = None,
               dataset: str | None = None, resume: str | None = None,
               head: str = "combined", scales: list[int] | None = None,
-              erase_p: float | None = None, bg_p: float | None = None) -> int:
+              erase_p: float | None = None, bg_p: float | None = None,
+              loss: str = "ce", focal_gamma: float = 2.0,
+              class_weight: dict[str, float] | None = None) -> int:
     """`scales`: Multi-Scale-Training (YOLO-Stil). Ist eine Liste wie [64,96,128] gesetzt, wird
     JEDER Batch zufällig auf eine dieser Eingabegrößen skaliert → das size-agnostische Modell
     (AdaptiveAvgPool) lernt alle Auflösungen in EINEM Lauf. So deckt das Training die
@@ -253,15 +255,61 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             return 1
         sd = torch.load(ckpt, map_location=device)
         msd = model.state_dict()
-        keep = {k: v for k, v in sd.items() if k in msd and msd[k].shape == v.shape}
+        # `--head factored/twostage` wraps the timm backbone inside `DecoupledModel._mobile`,
+        # `--head combined` IS the timm model. Matching keys verbatim across that boundary
+        # adopts ZERO tensors and silently warm-starts from nothing, which looks like a bad
+        # result rather than a bug. Try the un/prefixed name too — the head keys still miss
+        # (different module names AND a changed class count), which is what we want.
+        def _candidates(k: str) -> list[str]:
+            return [k, k[len("_mobile."):]] if k.startswith("_mobile.") else [k, "_mobile." + k]
+
+        keep: dict[str, torch.Tensor] = {}
+        for k, v in sd.items():
+            for cand in _candidates(k):
+                if cand in msd and msd[cand].shape == v.shape:
+                    keep[cand] = v
+                    break
         model.load_state_dict(keep, strict=False)
         resumed_from = resume
         skipped = len(sd) - len(keep)
         print(f"[OK] Resumed from '{resume}': {len(keep)} tensors adopted"
               + (f", {skipped} skipped (head with changed class count)" if skipped else ""))
+        if not keep:
+            print("[FAIL] warm start adopted 0 tensors — the checkpoint does not fit this model. "
+                  "Train without --resume, or fix the backbone/head combination.")
+            return 1
 
+    # Per-class weight override on top of split.json's inverse-frequency weights. The
+    # occupancy sweep (specs/18) nudges `occupied` by 2-3x — a COST correction on a mild
+    # frequency imbalance, deliberately NOT the observed 39x miss/phantom error ratio,
+    # which would only teach the model to always guess occupied.
+    if class_weight:
+        unknown = [c for c in class_weight if c not in classes]
+        if unknown:
+            print(f"[FAIL] --class-weight names classes not in this dataset: {unknown} "
+                  f"(dataset classes: {classes}).")
+            return 1
+        cw = dict(split.get("class_weights", {}))
+        for c, v in class_weight.items():
+            cw[c] = float(v)
+        split = {**split, "class_weights": cw}
+        print("[loss] class-weight override: "
+              + ", ".join(f"{c}={class_weight[c]}" for c in sorted(class_weight)))
     weights = class_weights_tensor(split, classes).to(device)
-    criterion = nn.CrossEntropyLoss(weight=weights)
+    if loss == "ce":
+        criterion = nn.CrossEntropyLoss(weight=weights)
+    elif loss == "focal":
+        from .losses import FocalLoss
+        if head != "combined":
+            print(f"[FAIL] --loss focal needs --head combined (logits); head={head!r} returns "
+                  "log-probs and would be soft-maxed twice.")
+            return 1
+        criterion = FocalLoss(weight=weights, gamma=focal_gamma).to(device)
+    else:
+        print(f"[FAIL] unknown --loss {loss!r} (ce | focal).")
+        return 1
+    print(f"[loss] {loss}" + (f" gamma={focal_gamma}" if loss == "focal" else "")
+          + f", effective weights: {dict(zip(classes, [round(float(w), 4) for w in weights.tolist()], strict=True))}")
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     amp = not no_amp
@@ -297,6 +345,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "normalize": {"mean": list(config.NORMALIZE_MEAN), "std": list(config.NORMALIZE_STD)},
         "variant": variant, "scales": scales,
         "aug": {"erase_p": policy.erase_p, "bg_p": policy.bg_p},
+        "loss": loss, "focal_gamma": focal_gamma if loss == "focal" else None,
+        "class_weight_override": dict(class_weight or {}),
+        "effective_class_weights": dict(zip(classes, [float(w) for w in weights.tolist()],
+                                            strict=True)),
     }, indent=2), encoding="utf-8")
     metrics_path = run_dir / "metrics.jsonl"
 

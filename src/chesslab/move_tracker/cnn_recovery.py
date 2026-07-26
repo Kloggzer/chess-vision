@@ -60,10 +60,24 @@ class OccupancyObservation:
                 for sq in self.label}
 
 
+def classes_have_identity(classes: list[str]) -> bool:
+    """True when the run's class list can name a PIECE.
+
+    A 2-class occupancy run (`config.OCCUPANCY_CLASSES`) answers only empty-vs-occupied, so its
+    argmax label (`"occupied"`) is not an identity — feeding it into the identity path would make
+    `board_matches_identity` compare `"occupied"` against `"wP"` and disagree on every occupied
+    square. `has_identity` (tracker.py:1961) keys off `obs.label is None`, so a 2-class run must
+    produce `label=None`; the occupancy-only path is already the tested fallback.
+    """
+    return any(c not in ("empty", "occluded", "occupied") for c in classes)
+
+
 def observation_from_probs(per_square_probs: dict[str, list[float]],
                            classes: list[str]) -> OccupancyObservation:
     """Full softmax per square → occupancy + identity. Class indices ALWAYS derived from the
-    `classes` list of the run config (13- and 14-class runs, never guess positions)."""
+    `classes` list of the run config (2-, 13- and 14-class runs, never guess positions).
+
+    A 2-class occupancy run yields `label=None`/`conf=None`: it has occupancy, not identity."""
     i_empty = classes.index("empty")
     i_occl = classes.index("occluded") if "occluded" in classes else None
     p_occ: dict[str, float] = {}
@@ -80,6 +94,8 @@ def observation_from_probs(per_square_probs: dict[str, list[float]],
         top = max(range(len(probs)), key=lambda i: probs[i])   # identity = argmax class
         label[sq] = classes[top]
         conf[sq] = float(probs[top])
+    if not classes_have_identity(classes):
+        return OccupancyObservation(p_occ=p_occ, p_empty=p_empty, p_occluded=p_occluded)
     return OccupancyObservation(p_occ=p_occ, p_empty=p_empty, p_occluded=p_occluded,
                                 label=label, conf=conf)
 

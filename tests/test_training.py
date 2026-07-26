@@ -237,3 +237,60 @@ class TestTrainLock:
         tr._train_lock_path().write_text(_json.dumps({"pid": 424242, "ts": "now"}))
         tr._release_train_lock()                       # not our pid -> must NOT delete
         assert tr._train_lock_path().exists()
+
+
+# --- Focal loss + class-weight override — specs/18-occupancy-model/02-two-class-model.md -
+
+def test_focal_gamma_zero_equals_weighted_ce():
+    torch = pytest.importorskip("torch")
+    from chesslab.training.losses import FocalLoss
+
+    torch.manual_seed(0)
+    logits = torch.randn(64, 2)
+    target = torch.randint(0, 2, (64,))
+    w = torch.tensor([0.86, 1.19])
+    ce = torch.nn.CrossEntropyLoss(weight=w)(logits, target)
+    fl = FocalLoss(weight=w, gamma=0.0)(logits, target)
+    assert torch.allclose(ce, fl, atol=1e-6)
+    # and without a weight vector
+    ce0 = torch.nn.CrossEntropyLoss()(logits, target)
+    fl0 = FocalLoss(gamma=0.0)(logits, target)
+    assert torch.allclose(ce0, fl0, atol=1e-6)
+
+
+def test_focal_downweights_easy_examples():
+    torch = pytest.importorskip("torch")
+    from chesslab.training.losses import FocalLoss
+
+    easy = torch.tensor([[8.0, -8.0]])          # confident AND correct
+    hard = torch.tensor([[0.05, -0.05]])        # barely correct
+    y = torch.tensor([0])
+    f0, f2 = FocalLoss(gamma=0.0), FocalLoss(gamma=2.0)
+    easy_ratio = (f2(easy, y) / f0(easy, y)).item()
+    hard_ratio = (f2(hard, y) / f0(hard, y)).item()
+    assert easy_ratio < 1e-4                    # the solved example is all but removed
+    assert hard_ratio > 0.2                     # the hard one keeps most of its gradient
+    assert easy_ratio < hard_ratio
+
+
+def test_class_weight_override_applies():
+    pytest.importorskip("torch")
+    from chesslab.training.torch_data import class_weights_tensor
+
+    classes = ["empty", "occupied"]
+    split = {"classes": classes, "class_weights": {"empty": 0.86, "occupied": 1.19}}
+    base = class_weights_tensor(split, classes)
+    assert pytest.approx(base.tolist(), abs=1e-6) == [0.86, 1.19]
+    override = {**split, "class_weights": {**split["class_weights"], "occupied": 2.0}}
+    assert pytest.approx(class_weights_tensor(override, classes).tolist(), abs=1e-6) == [0.86, 2.0]
+
+
+def test_occupancy_breakdown_on_two_classes():
+    """`occupancy_piece_breakdown` / `checkpoint_score` must survive a 2-class list."""
+    classes = ["empty", "occupied"]
+    trues = [0, 1, 1, 0]
+    preds = [0, 1, 0, 0]
+    bd = occupancy_piece_breakdown(classes, trues, preds)
+    assert bd["occ_acc"] == 0.75
+    rows = [_crop("s0", "0", sq, "x") for sq in ("a1", "a2", "a3", "a4")]
+    assert checkpoint_score(rows, classes, trues, preds)[0] == 0.0
