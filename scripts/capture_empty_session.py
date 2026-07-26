@@ -43,8 +43,8 @@ def main() -> None:
     ap.add_argument("--profile", default="phone", help="calibration profile (default: phone)")
     ap.add_argument("--fen", default=EMPTY_FEN,
                     help="position on the board for the WHOLE recording (default: empty)")
-    ap.add_argument("--every", type=float, default=1.0,
-                    help="seconds between auto-captures (default 1.0)")
+    ap.add_argument("--every", type=float, default=0.1,
+                    help="seconds between auto-captures (default 0.1)")
     ap.add_argument("--max-frames", type=int, default=300)
     ap.add_argument("--notes", default="lighting-variance capture")
     args = ap.parse_args()
