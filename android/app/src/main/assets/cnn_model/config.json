@@ -1,34 +1,22 @@
 {
   "backbone": "mobilenetv4_conv_small_035",
-  "epochs": 40,
+  "epochs": 20,
   "batch_size": 256,
-  "lr": 0.0001,
+  "lr": 3e-05,
   "seed": 42,
   "amp": true,
   "norm": "groupnorm",
   "classes": [
     "empty",
-    "wP",
-    "wN",
-    "wB",
-    "wR",
-    "wQ",
-    "wK",
-    "bP",
-    "bN",
-    "bB",
-    "bR",
-    "bQ",
-    "bK",
-    "occluded"
+    "occupied"
   ],
   "out_size": [
     128,
     128
   ],
-  "dataset": "real-all",
-  "resumed_from": "tiny-p2",
-  "head": "twostage",
+  "dataset": "occ-real",
+  "resumed_from": "occ-synth-w1",
+  "head": "combined",
   "normalize": {
     "mean": [
       0.485,
@@ -46,13 +34,18 @@
     "photometry": "none",
     "piece_height_cells": 1.6
   },
-  "scales": [
-    64,
-    96,
-    128
-  ],
+  "scales": null,
   "aug": {
     "erase_p": 0.25,
     "bg_p": 0.15
+  },
+  "loss": "ce",
+  "focal_gamma": null,
+  "class_weight_override": {
+    "occupied": 2.0
+  },
+  "effective_class_weights": {
+    "empty": 1.4282000064849854,
+    "occupied": 2.0
   }
 }

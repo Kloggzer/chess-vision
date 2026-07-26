@@ -20,9 +20,10 @@ import com.chesslab.tracker.settings.SettingsRepository
 /**
  * `modelAsset` and `epRequest`, plus the requested-vs-actual record 07b renders.
  *
- * [Attached] carries the classifier's OWN answer, never the request: a quiet fall-through from the
- * NPU to the CPU is the same failure as a silent attach failure, one rung softer — same fps, ten
- * times the latency (MEMORY `android-live-bringup-2607`).
+ * [Attached] carries the classifier's MEASURED answer, never the request: a quiet fall-through from
+ * the NPU to the CPU is the same failure as a silent attach failure, one rung softer — same fps, ten
+ * times the latency (MEMORY `android-live-bringup-2607`). `classifier.backend` is what ORT's own
+ * profile saw execute, so this line cannot repeat a wish back as a result.
  */
 fun openClassifier(
     context: Context,
