@@ -61,7 +61,12 @@ private fun GameDetailScreen(
 
     Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text(game.id, style = MaterialTheme.typography.displayMedium, color = OnSurface)
+            Text(
+                text = game.id,
+                style = MaterialTheme.typography.displayMedium,
+                color = OnSurface,
+                modifier = Modifier.weight(1f).padding(end = 8.dp),
+            )
             TextButton(onClick = onBack) { Text("Back", color = OnSurfaceMuted) }
         }
         Text(
@@ -70,8 +75,13 @@ private fun GameDetailScreen(
             color = OnSurfaceMuted,
         )
         Text("Start FEN: ${game.startFen}", style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("Include provenance comments", style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Include provenance comments",
+                style = MaterialTheme.typography.bodySmall,
+                color = OnSurfaceMuted,
+                modifier = Modifier.weight(1f).padding(end = 12.dp),
+            )
             Switch(provenance, { provenance = it })
         }
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {

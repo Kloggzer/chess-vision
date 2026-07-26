@@ -64,6 +64,16 @@ class TrackerCamera(
     private var observed: CameraInfo? = null
     private var rebindPending = false
 
+    /**
+     * Set by [stop] and cleared only by [resume].
+     *
+     * Every path that could put the device back — the queued rebind, the error-recovery rebind, the
+     * provider future arriving late — checks it, so "the user stopped the camera" cannot be undone
+     * by a timer that was already in flight.
+     */
+    @Volatile
+    private var stopped = false
+
     private val stateObserver =
         Observer<CameraState> { state ->
             val error = state.error ?: return@Observer
@@ -95,6 +105,34 @@ class TrackerCamera(
     }
 
     /**
+     * Release the DEVICE, keep the object.
+     *
+     * The privacy switch: after this the green camera indicator goes out, because the analysis use
+     * case is unbound and nothing holds the camera. What survives is this instance — the app-wide
+     * single owner (MEMORY `android-single-camera-owner`) — and the analyzer thread, so the engine's
+     * latched thread ownership still holds when [resume] rebinds.
+     */
+    fun stop() {
+        if (stopped) return
+        stopped = true
+        rebindPending = false
+        mainHandler.removeCallbacksAndMessages(null)
+        mainHandler.post {
+            stopObserving()
+            provider?.unbindAll()
+        }
+        health.value = CameraHealth.Off
+    }
+
+    /** Rebinds the ONE analysis use case. No second provider, no second owner — see [stop]. */
+    fun resume() {
+        if (!stopped) return
+        stopped = false
+        health.value = CameraHealth.Up
+        mainHandler.post(::bindAnalysis)
+    }
+
+    /**
      * Run [block] on the analyzer thread, serialized against [deliver].
      *
      * The tracker restart uses it: the pipeline, the engine and the ONNX observer may only be torn
@@ -107,6 +145,7 @@ class TrackerCamera(
     }
 
     override fun close() {
+        stopped = true
         mainHandler.removeCallbacksAndMessages(null)
         rebindPending = false
         stopObserving()
@@ -117,7 +156,9 @@ class TrackerCamera(
     }
 
     private fun bindAnalysis() {
-        val cameraProvider = provider ?: return
+        // `takeUnless` rather than a fourth guard clause: a stopped camera and a camera with no
+        // provider yet are the same answer here — do not bind.
+        val cameraProvider = provider.takeUnless { stopped } ?: return
         val lifecycleOwner = owner ?: return
         val analysis =
             ImageAnalysis
@@ -166,7 +207,7 @@ class TrackerCamera(
     }
 
     private fun scheduleRebind(reason: String) {
-        if (rebindPending) return
+        if (rebindPending || stopped) return
         rebindPending = true
         val waitS = policy.backoffS()
         policy.onFailure(System.currentTimeMillis())

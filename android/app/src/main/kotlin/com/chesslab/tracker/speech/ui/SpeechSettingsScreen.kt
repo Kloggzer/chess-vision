@@ -98,8 +98,14 @@ private fun Body(
     onTest: () -> Unit,
 ) {
     Card {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("Announce moves", style = MaterialTheme.typography.labelLarge, color = OnSurface)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            // `weight` on the label so a long or translated one wraps beside the Switch, not under it.
+            Text(
+                text = "Announce moves",
+                style = MaterialTheme.typography.labelLarge,
+                color = OnSurface,
+                modifier = Modifier.weight(1f).padding(end = 12.dp),
+            )
             Switch(checked = app.speechEnabled, onCheckedChange = { onChange(app.copy(speechEnabled = it)) })
         }
         Text(
@@ -110,8 +116,13 @@ private fun Body(
         )
     }
     Card {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("Announce alarms", style = MaterialTheme.typography.labelLarge, color = OnSurface)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Announce alarms",
+                style = MaterialTheme.typography.labelLarge,
+                color = OnSurface,
+                modifier = Modifier.weight(1f).padding(end = 12.dp),
+            )
             Switch(checked = app.speechAnnounceAlarms, onCheckedChange = { onChange(app.copy(speechAnnounceAlarms = it)) })
         }
     }

@@ -42,6 +42,9 @@ internal fun resolveNote(
     return when {
         alarm != null -> "ILLEGAL MOVE? ${alarm.kind}${alarm.guessSan?.let { " — $it?" } ?: ""}"
         status.stuckReason != null -> "stuck: ${status.stuckReason}"
+        // Above `Down` because it is not a fault and must not promise a retry: nothing brings the
+        // camera back but the user.
+        camera is CameraHealth.Off -> "tracking stopped — the camera is released"
         camera is CameraHealth.Down -> "camera down (${camera.reason}) — retrying in ${camera.retryInS}s"
         cnn is CnnState.Failed -> "CNN safeguard OFF: ${cnn.reason} — tracking diff-only"
         mismatch != null -> mismatch.note

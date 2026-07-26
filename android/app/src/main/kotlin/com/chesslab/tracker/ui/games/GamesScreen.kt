@@ -120,11 +120,12 @@ private fun LiveGameRow(
     onEnd: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 if (moves == 0) "No game in progress" else "Game in progress — $moves moves",
                 style = MaterialTheme.typography.titleMedium,
                 color = if (moves == 0) OnSurfaceMuted else OnSurface,
+                modifier = Modifier.weight(1f).padding(end = 8.dp),
             )
             if (moves > 0) TextButton(onClick = onEnd) { Text("End game & save", color = Accent) }
         }

@@ -11,6 +11,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import com.chesslab.engine.api.TrackerStatus
 import com.chesslab.tracker.analysis.AnalysisSettings
+import com.chesslab.tracker.analysis.AnalysisSettingsHost
 import com.chesslab.tracker.analysis.AnalysisState
 import com.chesslab.tracker.analysis.GateBlock
 import com.chesslab.tracker.analysis.GateInputs
@@ -23,6 +24,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import java.io.File
 
 private const val ENGINE_BINARY = "libstockfish.so"
@@ -31,9 +33,6 @@ private const val TOTAL_STAGE = "total"
 
 /** An unreadable battery must not gate analysis off, so the fallback is "full". */
 private const val BATTERY_UNKNOWN = 100
-
-/** Survives navigation away from the tracking screen; the analyzer itself does not. */
-private val storedSettings = MutableStateFlow(AnalysisSettings())
 
 /** The Android half of the gate, behind an interface so [AnalysisHost] is testable on a plain JVM. */
 interface PowerProbe {
@@ -59,7 +58,7 @@ class AnalysisHost(
     private val scope: CoroutineScope,
     private val now: () -> Long = System::currentTimeMillis,
 ) {
-    val settings: StateFlow<AnalysisSettings> = storedSettings.asStateFlow()
+    val settings: StateFlow<AnalysisSettings> = AnalysisSettingsHost.settings
     val state: StateFlow<AnalysisState> = analyzer.state
     val result = analyzer.result
 
@@ -68,6 +67,22 @@ class AnalysisHost(
 
     private val frameTimes = RollingMedian()
     private var trackingSince = 0L
+    private var appliedOptions = AnalysisSettingsHost.settings.value.options
+
+    // The settings screen writes the same flow without ever holding this host, so the host
+    // FOLLOWS the flow instead of only reacting to its own [update] — otherwise a value changed
+    // under Settings would show up in the sheet and do nothing to the running engine.
+    init {
+        scope.launch {
+            AnalysisSettingsHost.settings.collect { new ->
+                if (new.options != appliedOptions) {
+                    appliedOptions = new.options
+                    analyzer.stop()
+                }
+                evaluate()
+            }
+        }
+    }
 
     /** Re-evaluates the gate on every published status. Cheap: four probe reads and a median. */
     fun onStatus(status: TrackerStatus?) {
@@ -80,13 +95,8 @@ class AnalysisHost(
         evaluate()
     }
 
-    /** A changed engine option only reaches Stockfish through a relaunch, so stop first. */
-    fun update(new: AnalysisSettings) {
-        val restart = new.options != storedSettings.value.options
-        storedSettings.value = new
-        if (restart) analyzer.stop()
-        evaluate()
-    }
+    /** Publishes only; the collector above does the relaunch a changed engine option needs. */
+    fun update(new: AnalysisSettings) = AnalysisSettingsHost.update(new)
 
     fun stop() = analyzer.stop()
 
@@ -100,7 +110,7 @@ class AnalysisHost(
                 trackingStableMs = if (trackingSince == 0L) 0L else now() - trackingSince,
                 medianFrameMs = frameTimes.median,
             )
-        val blocked = gateBlock(inputs, storedSettings.value)
+        val blocked = gateBlock(inputs, AnalysisSettingsHost.settings.value)
         blockFlow.value = blocked
         if (blocked == null) analyzer.start(scope) else analyzer.stop()
     }
@@ -148,7 +158,7 @@ fun rememberAnalysisHost(): AnalysisHost {
                             ?.fen
                     },
                     engineFactory = { if (path.canExecute()) UciEngine(path.absolutePath) else null },
-                    options = { storedSettings.value.options },
+                    options = { AnalysisSettingsHost.settings.value.options },
                 ),
             probe = AndroidPowerProbe(context),
             scope = scope,

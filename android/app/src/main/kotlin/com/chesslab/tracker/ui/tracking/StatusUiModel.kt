@@ -88,17 +88,43 @@ internal const val STATE_MOVE = "move"
 
 private const val ALARM_STATE_TEXT = "ILLEGAL MOVE?"
 
-fun trackingUiState(status: TrackerStatus): TrackingUiState {
+private const val STOPPED_STATE_TEXT = "STOPPED"
+
+private const val STOPPED_FPS_TEXT = "camera off"
+
+private const val STOPPED_INFO = "No frames are arriving — the camera is released. Resume to continue; the game is kept."
+
+/**
+ * [cameraOn] outranks every engine state in the header.
+ *
+ * With the camera released the status simply stops arriving, so the last sample stands forever: the
+ * screen would keep showing "WAITING · 14.8 fps" over a dead feed. Whatever the engine last thought
+ * is not what the user needs to know here.
+ */
+fun trackingUiState(
+    status: TrackerStatus,
+    cameraOn: Boolean = true,
+): TrackingUiState {
     val alarm =
         status.alarm?.let { AlarmUi(kind = it.kind, conflicts = it.conflicts, guessSan = it.guessSan) }
     return TrackingUiState(
         fen = status.fen,
         // While alarmed the engine blocks every commit, so showing "moving" would imply the game is
         // progressing when it provably is not: the state line is pinned to the alarm instead.
-        stateText = if (alarm != null) ALARM_STATE_TEXT else stateLabel(status.state),
-        tone = if (alarm != null) StateTone.Alarm else stateTone(status.state),
-        fpsText = formatFps(status.fps),
-        infoLine = infoLine(status),
+        stateText =
+            when {
+                !cameraOn -> STOPPED_STATE_TEXT
+                alarm != null -> ALARM_STATE_TEXT
+                else -> stateLabel(status.state)
+            },
+        tone =
+            when {
+                !cameraOn -> StateTone.Idle
+                alarm != null -> StateTone.Alarm
+                else -> stateTone(status.state)
+            },
+        fpsText = if (cameraOn) formatFps(status.fps) else STOPPED_FPS_TEXT,
+        infoLine = if (cameraOn) infoLine(status) else STOPPED_INFO,
         alarm = alarm,
         overlay =
             OverlayLayers(

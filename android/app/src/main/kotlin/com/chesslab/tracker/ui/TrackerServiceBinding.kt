@@ -37,6 +37,10 @@ private class BinderSession(
     override val status: StateFlow<TrackerStatus?> get() = binder.status
     override val events: Flow<TrackerEvent> get() = binder.events
     override val rawPreview: StateFlow<Bitmap?> get() = binder.rawPreview
+    override val cameraOn: StateFlow<Boolean> get() = binder.cameraOn
+
+    /** The one action that is NOT an `EngineAction`: it is the service's camera, not the engine's. */
+    override fun setCameraOn(on: Boolean) = binder.setCameraOn(on)
 
     override fun undo() {
         binder.submit(EngineAction.Undo)

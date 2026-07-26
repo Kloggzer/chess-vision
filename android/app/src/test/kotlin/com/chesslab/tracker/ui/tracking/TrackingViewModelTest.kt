@@ -24,8 +24,15 @@ class FakeTrackerSession : TrackerSession {
     override val status = MutableStateFlow<TrackerStatus?>(idleTrackerStatus())
     override val events = MutableSharedFlow<TrackerEvent>(extraBufferCapacity = 32)
     override val rawPreview = MutableStateFlow<Bitmap?>(null)
+    override val cameraOn = MutableStateFlow(true)
 
     val calls = mutableListOf<String>()
+
+    /** The real service answers by flipping its own flow, so the fake does too. */
+    override fun setCameraOn(on: Boolean) {
+        calls += "setCameraOn:$on"
+        cameraOn.value = on
+    }
 
     override fun undo() {
         calls += "undo"
@@ -128,6 +135,28 @@ class TrackingViewModelTest {
             advanceUntilIdle()
             // Recalibrate is navigation, not a tracker action: it must reach the session NOT AT ALL.
             assertEquals(listOf("undo", "resetGame"), session.calls)
+        }
+
+    @Test
+    fun stoppingTheCameraOverridesTheFrozenStatusHeader() =
+        runTest(dispatcher) {
+            val session = FakeTrackerSession()
+            val vm = TrackingViewModel()
+            vm.attach(session)
+            session.status.value = idleTrackerStatus().copy(state = "waiting", fps = 14.8)
+            advanceUntilIdle()
+            assertEquals("WAITING", vm.ui.value.stateText)
+
+            vm.onToggleCamera()
+            advanceUntilIdle()
+            assertEquals(listOf("setCameraOn:false"), session.calls)
+            // The last status stands forever once frames stop; the header must not keep reporting it.
+            assertEquals("STOPPED", vm.ui.value.stateText)
+            assertEquals("camera off", vm.ui.value.fpsText)
+
+            vm.onToggleCamera()
+            advanceUntilIdle()
+            assertEquals("WAITING", vm.ui.value.stateText)
         }
 
     @Test

@@ -54,6 +54,7 @@ private fun TrackingScreen(viewModel: TrackingViewModel) {
     val promotion by viewModel.promotion.collectAsStateWithLifecycle()
     val acceptCnn by viewModel.acceptCnn.collectAsStateWithLifecycle()
     val preview by viewModel.preview.collectAsStateWithLifecycle()
+    val cameraOn by viewModel.cameraOn.collectAsStateWithLifecycle()
     var showPreview by remember { mutableStateOf(false) }
 
     Column(
@@ -97,6 +98,8 @@ private fun TrackingScreen(viewModel: TrackingViewModel) {
             onRecalibrate = viewModel::onRecalibrate,
             showPreview = showPreview,
             onTogglePreview = { showPreview = !showPreview },
+            cameraOn = cameraOn,
+            onToggleCamera = viewModel::onToggleCamera,
         )
     }
 
@@ -183,6 +186,8 @@ private fun ActionBar(
     onRecalibrate: () -> Unit,
     showPreview: Boolean,
     onTogglePreview: () -> Unit,
+    cameraOn: Boolean,
+    onToggleCamera: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -190,21 +195,47 @@ private fun ActionBar(
             ActionButton("Reset game", onResetGame, Modifier.weight(1f))
             ActionButton("Recalibrate", onRecalibrate, Modifier.weight(1f))
         }
-        // The camera view is a diagnostic and stays off by default (06b), but it is a control like
-        // the three above it — as a bare text link under three outlined buttons it read as a
-        // leftover. `FilterChip` because it is the one toggle on this screen, not an action.
-        FilterChip(
-            selected = showPreview,
-            onClick = onTogglePreview,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
-            label = {
-                Text(
-                    text = if (showPreview) "Hide camera view" else "Show camera view",
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            },
-        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // The off switch says what the camera IS, not what the tap does: the service holds the
+            // device for as long as it runs, backgrounded or not, and whether it is being watched
+            // is the one thing a person needs off this row.
+            ToggleChip(
+                selected = cameraOn,
+                onClick = onToggleCamera,
+                label = if (cameraOn) "Tracking · camera on" else "Stopped · tap to resume",
+                modifier = Modifier.weight(1f),
+            )
+            // The camera view is a diagnostic, off by default (06b) — but a control, not a link.
+            ToggleChip(
+                selected = showPreview,
+                onClick = onTogglePreview,
+                label = if (showPreview) "Hide camera view" else "Show camera view",
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
+}
+
+@Composable
+private fun ToggleChip(
+    selected: Boolean,
+    onClick: () -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        modifier = modifier.heightIn(min = 44.dp),
+        label = {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+    )
 }
 
 @Composable

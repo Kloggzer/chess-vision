@@ -64,6 +64,14 @@ class NotePrecedenceTest {
     }
 
     @Test
+    fun aStoppedCameraNeverPromisesARetry() {
+        // `Off` is the user's own doing and outranks `Down`: "retrying in 3s" would be a lie, and
+        // it is the one camera state nothing but an explicit resume ever leaves.
+        val note = resolveNote(statusOf(note = "engine note"), CameraHealth.Off, FAILED, MISMATCH, "pipe")
+        assertEquals("tracking stopped — the camera is released", note)
+    }
+
+    @Test
     fun cnnFailedNoteIsVisibleWhenNothingElseIsWrong() {
         // The silent-degrade regression: a failed attach used to leave the tracker running
         // diff-only with a perfectly normal-looking status line.
