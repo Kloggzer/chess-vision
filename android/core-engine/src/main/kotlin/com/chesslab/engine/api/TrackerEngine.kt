@@ -175,6 +175,14 @@ class TrackerEngine(
     fun status(): TrackerStatus = state.toStatus(debugEnabled)
 
     /**
+     * The game FEN alone — [status] without the 64-square maps.
+     *
+     * The CNN observer reads this per frame as its discard-on-change guard; the rest of the
+     * snapshot is sampled at the UI's rate and must not be built at the analyzer's.
+     */
+    fun fen(): String = state.board.fen()
+
+    /**
      * `undo` — the undone move was WRONG, so it is a user correction: the alarm latch is released
      * and the decision rows of the undone plies are dropped.
      */

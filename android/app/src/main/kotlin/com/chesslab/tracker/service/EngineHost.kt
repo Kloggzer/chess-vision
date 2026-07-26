@@ -28,6 +28,9 @@ interface EngineOps {
     fun apply(action: EngineAction): List<TrackerEvent>
 
     fun status(): TrackerStatus
+
+    /** The game FEN without the rest of [status] — see [EngineHost.fen]. */
+    fun fen(): String
 }
 
 /**
@@ -46,6 +49,8 @@ class TrackerEngineOps(
     override fun onCnnSnapshot(snap: CnnSnapshot): List<TrackerEvent> = engine.onCnnSnapshot(snap)
 
     override fun status(): TrackerStatus = engine.status()
+
+    override fun fen(): String = engine.fen()
 
     override fun apply(action: EngineAction): List<TrackerEvent> =
         when (action) {
@@ -109,6 +114,18 @@ class EngineHost(
     fun status(): TrackerStatus {
         claim()
         return ops.status()
+    }
+
+    /**
+     * The game FEN alone.
+     *
+     * The CNN observer needs it on EVERY frame as its discard-on-change guard, which is the one
+     * part of [status] that cannot be sampled — and building the whole `TrackerStatus` for it was
+     * four 64-entry maps and four sorted square-name sets per frame.
+     */
+    fun fen(): String {
+        claim()
+        return ops.fen()
     }
 
     private fun claim() {

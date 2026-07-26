@@ -2,9 +2,7 @@ package com.chesslab.tracker.service
 
 import android.graphics.Bitmap
 import android.util.Log
-import androidx.camera.core.ImageProxy
 import com.chesslab.tracker.camera.CameraHealth
-import com.chesslab.tracker.pipeline.YuvToBgr
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -59,7 +57,6 @@ class CameraFrameBus(
     private val nowMs: () -> Long = System::currentTimeMillis,
 ) : CalibrationFrames,
     AutoCloseable {
-    private val yuv = YuvToBgr()
     private val gate = InFlightGate()
     private val preview = MutableStateFlow<Bitmap?>(null)
     private val lock = Any()
@@ -68,13 +65,19 @@ class CameraFrameBus(
 
     override val rawPreview: StateFlow<Bitmap?> = preview.asStateFlow()
 
-    /** Analyzer thread. The `ImageProxy` dies when this returns, so the copy has to happen here. */
-    fun onFrame(image: ImageProxy) {
+    /**
+     * Analyzer thread, with the frame the pipeline just converted.
+     *
+     * It used to take the raw `ImageProxy` and run its own full-frame YUV->BGR — a second
+     * conversion of the same pixels `CameraStages.convert` had already produced, and one that
+     * ran before `timings.begin()` so nothing measured it. The clone stays: `CameraStages` reuses
+     * its destination `Mat`, so anything kept past this call has to be a copy.
+     */
+    fun offer(bgr: Mat) {
         val now = nowMs()
         if (now - lastMs < PUBLISH_INTERVAL_MS) return
         lastMs = now
-        // `YuvToBgr` reuses its destination Mat, so what is kept must be a clone.
-        val frame = yuv.convert(image).clone()
+        val frame = bgr.clone()
         synchronized(lock) {
             latest?.release()
             latest = frame
@@ -90,7 +93,6 @@ class CameraFrameBus(
             latest?.release()
             latest = null
         }
-        yuv.close()
     }
 
     private fun publishPreview() {

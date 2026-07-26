@@ -24,6 +24,9 @@ const val STATUS_SAMPLE_MS = 100L
 
 private const val EVENT_BUFFER = 64
 
+/** No status has been assembled yet — the first frame always builds one. */
+private const val NEVER_BUILT = Long.MIN_VALUE
+
 /**
  * The one status line, resolved by precedence.
  *
@@ -65,7 +68,14 @@ class StatusPublisher(
     private val timings: StageTimings = StageTimings(),
     private val cameraRate: CameraRate = CameraRate(),
     sampleMs: Long = STATUS_SAMPLE_MS,
+    private val nowMs: () -> Long = System::currentTimeMillis,
 ) {
+    /** The build gate's period — the same one [status] samples at, so the two cannot drift. */
+    private val sampleInterval = sampleMs
+
+    /** [NEVER_BUILT] and not `0L`: a zero would read as "built at time zero" and swallow the first frame. */
+    private var lastBuildMs = NEVER_BUILT
+
     private val raw = MutableStateFlow<TrackerStatus?>(null)
     private val bus =
         MutableSharedFlow<TrackerEvent>(
@@ -117,12 +127,37 @@ class StatusPublisher(
     /** The camera was released; the next binding starts a fresh measurement (see [CameraRate]). */
     fun onCameraStopped() = cameraRate.reset()
 
+    /**
+     * Once per frame. [snapshot] is a PROVIDER, not a value.
+     *
+     * `TrackerStatus` is not cheap — a chesslib FEN, four 64-entry maps and four sorted
+     * square-name sets — and it was built on every frame, including skipped ones, for a flow that
+     * is sampled down to 10 Hz two lines below. Now it is built only when the sampler would
+     * actually take it.
+     *
+     * [fen] is passed separately and stays per-frame: the CNN observer uses [lastFen] as its
+     * discard-on-change guard, and a sampled FEN would let an observation of the position BEFORE
+     * a move be accepted as one of the position after it. Events are likewise never gated — they
+     * are the alarm and move channel, and dropping one is not a rendering delay.
+     */
     fun publish(
-        snapshot: TrackerStatus,
+        snapshot: () -> TrackerStatus,
+        fen: String,
         events: List<TrackerEvent>,
         pipelineNote: String?,
     ) {
-        lastFen = snapshot.fen
+        lastFen = fen
+        events.forEach { bus.tryEmit(it) }
+        val now = nowMs()
+        if (lastBuildMs != NEVER_BUILT && now - lastBuildMs < sampleInterval) return
+        lastBuildMs = now
+        build(snapshot(), pipelineNote)
+    }
+
+    private fun build(
+        snapshot: TrackerStatus,
+        pipelineNote: String?,
+    ) {
         // A skipped frame ticked nothing, so the engine's EMA is FROZEN rather than current: a
         // stale "14.8 fps" standing over a paused detection is the same lie as a bare "0.0 fps"
         // over a healthy camera, one rung subtler. `pipelineNote` is non-null exactly when this
@@ -141,6 +176,5 @@ class StatusPublisher(
                 cameraFps = cameraRate.fps,
                 corners = corners,
             )
-        events.forEach { bus.tryEmit(it) }
     }
 }

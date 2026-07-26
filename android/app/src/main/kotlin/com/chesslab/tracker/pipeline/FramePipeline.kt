@@ -39,6 +39,16 @@ sealed interface FrameResult {
 interface FrameStages {
     fun convert(image: ImageProxy)
 
+    /**
+     * Hand the just-converted BGR frame to the preview/calibration bus, if it is due one.
+     *
+     * A stage rather than a call in the coordinator because the coordinator has no `Mat`: it used
+     * to pass the raw `ImageProxy` to `CameraFrameBus`, which ran a SECOND full-frame YUV->BGR of
+     * the image [convert] had already converted. The seam stays OpenCV-free — this is a push, not
+     * a getter — so the pipeline order test keeps running without natives.
+     */
+    fun publishFrame()
+
     /** False when no usable detection warp could be produced (no frame, degenerate geometry). */
     fun warpDetection(corners: FloatArray): Boolean
 
@@ -135,11 +145,19 @@ class FramePipeline(
         cropStore.close()
     }
 
-    /** Steps 1-5: convert, warp, dark gate. Returns the skip note, or null when usable. */
+    /**
+     * Steps 1-5: convert, publish, warp, dark gate. Returns the skip note, or null when usable.
+     *
+     * The convert runs BEFORE the corners check now. It has to: without corners there is no
+     * detection, but there is still a calibration screen that needs pixels, and it is the corners
+     * that are missing precisely while the user is calibrating.
+     */
     private fun readFrame(image: ImageProxy): String? {
-        val pts = corners ?: return NOTE_WAITING_MARKERS
         stages.convert(image)
         timings.mark(Stage.CONVERT)
+        stages.publishFrame()
+        timings.mark(Stage.PUBLISH)
+        val pts = corners ?: return NOTE_WAITING_MARKERS
         if (!stages.warpDetection(pts)) return NOTE_WAITING_MARKERS
         timings.mark(Stage.WARP)
         luma = stages.lumaPreClahe()

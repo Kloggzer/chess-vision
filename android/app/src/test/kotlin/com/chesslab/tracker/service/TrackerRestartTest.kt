@@ -130,4 +130,6 @@ private class CountingOps : EngineOps {
     }
 
     override fun status(): TrackerStatus = statusOf()
+
+    override fun fen(): String = statusOf().fen
 }
