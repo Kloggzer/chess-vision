@@ -1053,3 +1053,110 @@ device keeps running the old model until you decide.
   `tests/test_training.py` (and `tests/test_serving.py`, which uses `norm="batchnorm"` only and
   needed no change).
 - No blockers.
+
+---
+
+## Session 2026-07-27 — validating against real device data
+
+Everything below was found by measuring what the device and the harness actually produced, not
+by reading code. Four items retract or correct earlier claims in this file.
+
+### The margin retraction (important — it invalidates earlier measurements)
+
+`scripts/emit_parity_fixtures.py:248` built its profile with `compute_homography(corners, target,
+0.0)` and `margin=0.0`. That is **correct for the committed clips** (640x640 Blender renders whose
+manifest `corners:` already are the playing-field corners) and **wrong for anything whose corners
+come from ArUco markers**, because the markers are printed in the label border. The live paths
+have always applied it (`calibration.py:937`, Kotlin `Warp.kt:55`, device profile `"margin":0.06`).
+
+Measured on `VID_20260726_233432.mp4` (100 s), margin the only variable:
+
+| margin | occluded frames | plies |
+|---|---|---|
+| 0.00 | **2232 / 2996** | **0** |
+| 0.03 | 0 | 13 |
+| 0.06 | 0 | 8 |
+
+Mechanism: `_grid_line_coverage` probes each line at exactly `i*w/8` within `0.12*cell` ~ 9.6 px;
+a 6-8 % oversized quad displaces the outer lines ~25 px, so a CLEAR board reads 0.29-0.64 against
+the 0.5 gate. Fixed in `721901a`, with `test_grid_gate_needs_the_marker_margin` pinning it.
+
+**Consequences for this document:** any replay measurement made on real ArUco footage through the
+old harness is invalid. That includes phase 00's live-clip work and the resting-hand veto below.
+
+### The resting-hand veto (df81145) has no measured effect
+
+Re-run at MATCHING geometry, pre-veto and post-veto return the identical move list
+`d4 d5 Nf3 Nf6 Nc3 Nc6 Nxd5 Ne4 Nb6`. The phantom `Kd2` it was built to remove was a margin-0
+artefact. The veto is inert on the 18 parity clips (fixtures byte-identical) AND on both real
+recordings. The mechanism is still sound in principle; the evidence for shipping it is gone.
+**Open decision — keep for defence in depth, or revert as per-frame cost with no proven trigger.**
+
+### The grid gate was deliberately NOT hardened
+
+At the real band the margins 0.03-0.07 all read coverage **1.00**. The gate already tolerates any
+realistic geometry error; it only failed at a 6 % harness error. Widening it would have cost
+partial-occlusion sensitivity (a 40 %-covered board reads 0.36 at band 0.12, 0.64 at 0.22) for no
+measured benefit. Negative result, recorded rather than implemented.
+
+### Optics were never locked (`7c0ee56`)
+
+A verified phantom `a3` committed at t = 2.70 s on a board that had not changed — ground truth
+established by looking at the rectified frames at t = 0, 2.0 and 3.4 s. Evidence was
+`a2 6.1 / a3 4.5 / a1 4.1 / b1 3.8`: a diffuse corner blob, which is where vignetting makes an
+exposure drift strongest, and which `normalize_diffs` cannot remove because it only takes out the
+GLOBAL shift. Score 4.4 against `commit_ll_floor` 2.0, where real moves score 15-27.
+
+`OpticsLock` now pins focus, exposure, white balance and zoom once the device reports convergence,
+and turns BOTH stabilizers off before the first frame (they shift the image against a homography
+computed once from the marker quad). Verified on device:
+`optics locked: focus 1,527 dpt, exposure, white balance`.
+
+### Recorded games were not games (`fc933d7`)
+
+Four of five stored games were not legal sequences from their own `startFen` (broke at plies 1, 2,
+18, 28). The engine cannot commit an illegal move — its board jumps BETWEEN commits (alarm
+resolved, FEN resync, accepted recovery), and `GameSessionController` drops `Alarm`/`AlarmCleared`
+via `else -> Unit`. Such a file is unusable as a game and as labeled data. `LiveGame.continues`
+now ends the record at the seam.
+
+All 77 recorded plies stored `provenance: null` — **including sessions recorded with debug ON**,
+because the decider was read from the debug payload and matched by `accepted && uci`. The engine
+states it directly on the commit event; it is taken from there now.
+
+### Pair moves — diagnosed as far as offline data allows
+
+User report: "white plays, black plays, then quiet" breaks the app. Measured over 69 recorded
+plies: **not one pair commit**, but two multi-ply recovery bursts (3 and 4 plies) — recovery only
+runs after the tracker is already stuck. The documented failure mode fits exactly (`tracker.py`
+around `_generate_hypothesis`): committing white's single while black has also moved re-anchors
+the reference onto an image containing black's move, and the ply is lost silently.
+
+The pair SCORING is not the problem — probed directly:
+
+| case | best single | best pair | margin vs 2.0 |
+|---|---|---|---|
+| clean pair, strong evidence | 24.0 | 48.0 | 24.0 taken |
+| weaker reply (z=6) | 24.0 | 38.0 | 14.0 taken |
+| noisy board | 24.0 | 48.0 | 13.5 taken |
+
+So the suspect is the CNN pair verify (`_verify_pair_tick`, `ghost` rejection). **Blocked on
+data**: distinguishing "never proposed" from "proposed and rejected" needs the provenance that
+`fc933d7` just enabled. Offline replays cannot substitute — they run `cnn_run=None`, which is the
+conservative path the device does not use.
+
+### ROCm (phase 04a) — resolved by measurement, not repair
+
+GroupNorm trains fine on the 7900 XT (`fwd+bwd 0.99 s`); only MIOpen's BatchNorm kernel fails,
+because the ROCm wheel ships **no C++ standard library headers** for HIPRTC to compile it with.
+Every recipe uses `--norm groupnorm`, so the failing kernel is not on our route and 04b is
+unblocked. Use `.venv` (torch 2.9.1+rocm7.2.1, has timm), not the system python.
+
+### 04b — the retrain is running
+
+Confirmed the shipped asset `android/app/src/main/assets/cnn_model/model.onnx` is the crippled
+one: 46 Conv, 46 InstanceNormalization, **0 Relu**. The rebuilt architecture reports
+`{GroupNorm: 46, ReLU: 30}`, 0.63M params. Retraining the occupancy model on `occ-synth`
+(256k crops) — note the piece-model datasets `synth-p1/p2`, `real-all` no longer exist on disk;
+`occ-real` (10,560) and `occ-synth` are what remains, and they are the right ones for the shipped
+2-class model (128 logits = 64 squares x 2).
