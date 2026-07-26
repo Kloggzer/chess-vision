@@ -256,11 +256,39 @@ internal class EngineState(
     var promoPending: PromoPending? = null // `_promo_pending`
     var verifyState: String? = null // `_verify_state`: null | "verifying" | "confirmed" | "ghost"
 
+    /**
+     * The window both confirmers are currently built for — the same defect [avgWindow] had.
+     *
+     * Python resolves `confirm_frames` ONCE at construction, from a CNN state that is also fixed at
+     * construction, and never rebuilds the confirmer. Kotlin attaches its CNN asynchronously and
+     * lets `cnnVerify` be tuned live, so the value can move under it: built for `cnnOn = false` (2)
+     * and never reconciled, while the live gate ([confirmFrames]) reads 1 the moment the CNN
+     * attaches. The status note printed `${'$'}{confirmer.count}/${'$'}confirmFrames` from those two
+     * disagreeing sources.
+     */
+    private var confirmWindow: Int = confirmFrames
+
     /** `_confirmer`. Python builds it with the resolved `confirm_frames` at construction time. */
-    var confirmer: Confirmer = Confirmer(config.confirmFrames(cnnOn = false))
+    var confirmer: Confirmer = Confirmer(confirmWindow)
 
     /** `_recovery_confirmer` — the recovery-commit voting confirmer (phase 04c). */
-    var recoveryConfirmer: Confirmer = Confirmer(config.confirmFrames(cnnOn = false))
+    var recoveryConfirmer: Confirmer = Confirmer(confirmWindow)
+
+    /**
+     * Rebuild both confirmers when [confirmFrames] moved — a config change, a CNN attach, or the
+     * CNN failing mid-game.
+     *
+     * A rebuild DROPS the in-flight streak, which is why this is a no-op when the window did not
+     * move. When it did move, dropping is correct: a streak counted towards two confirmations means
+     * nothing once one is required.
+     */
+    fun syncConfirmWindow() {
+        val want = confirmFrames
+        if (want == confirmWindow) return
+        confirmWindow = want
+        confirmer = Confirmer(want)
+        recoveryConfirmer = Confirmer(want)
+    }
 
     // -- stuck / anomaly -------------------------------------------------------------------------------
 

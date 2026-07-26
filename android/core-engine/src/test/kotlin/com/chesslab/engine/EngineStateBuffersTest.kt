@@ -2,6 +2,7 @@ package com.chesslab.engine
 
 import com.chesslab.engine.api.TrackerEngine
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -83,6 +84,53 @@ class EngineStateBuffersTest {
         // `TrackerConfig`'s companion is private; these are the same verbatim tracker.py counts.
         const val AVG_FRAMES_CNN = 2
         const val AVG_FRAMES_NO_CNN = 3
+        const val CONFIRM_FRAMES_CNN = 1
+        const val CONFIRM_FRAMES_NO_CNN = 2
         const val OTHER_Z_THR = 4.5
+    }
+
+    /**
+     * The confirmers had the identical defect and the identical cancelling comparison. Unlike the
+     * buffers they are the COMMIT path: `commitGates` reads `state.confirmFrames` while the live
+     * `Confirmer` kept demanding the without-CNN count, so the status note printed
+     * `count/confirmFrames` from two disagreeing sources.
+     */
+    @Test
+    fun confirmFramesFollowsTheCnnAttach() {
+        val engine = TrackerEngine(testConfig())
+        val state = engine.state
+        assertEquals(CONFIRM_FRAMES_NO_CNN, state.confirmFrames, "no CNN yet")
+        assertFalse(state.confirmer.feed("e2e4"), "one vote of the two the window demands")
+        assertEquals(1, state.confirmer.count)
+
+        engine.attachCnn(VerifyEvaluator())
+
+        assertEquals(CONFIRM_FRAMES_CNN, state.confirmFrames, "attaching flips the gate")
+        assertEquals(0, state.confirmer.count, "and the confirmer was rebuilt — the old streak counted to a different threshold")
+        assertTrue(state.confirmer.feed("e2e4"), "one vote is now enough")
+        assertTrue(state.recoveryConfirmer.feed("e2e4"), "the recovery confirmer moves with it")
+    }
+
+    /** The same flip through `cnnVerify`, which the old comparison could not see. */
+    @Test
+    fun confirmFramesFollowsCnnVerifyBeingSwitchedOff() {
+        val engine = TrackerEngine(testConfig())
+        engine.attachCnn(VerifyEvaluator())
+        val state = engine.state
+        assertEquals(CONFIRM_FRAMES_CNN, state.confirmFrames)
+
+        engine.updateConfig(testConfig().copy(cnnVerify = false))
+
+        assertEquals(CONFIRM_FRAMES_NO_CNN, state.confirmFrames, "cnnVerify off puts it back")
+        assertFalse(state.confirmer.feed("e2e4"), "and one vote is no longer enough")
+    }
+
+    /** No move, no rebuild — the streak must survive an unrelated config change. */
+    @Test
+    fun anUnchangedConfirmWindowKeepsTheStreak() {
+        val engine = TrackerEngine(testConfig())
+        engine.state.confirmer.feed("e2e4")
+        engine.updateConfig(testConfig().copy(zThr = 4.0))
+        assertEquals(1, engine.state.confirmer.count, "zThr does not move the confirm window")
     }
 }
