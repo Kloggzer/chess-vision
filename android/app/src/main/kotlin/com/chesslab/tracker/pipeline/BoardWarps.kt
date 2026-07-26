@@ -5,8 +5,8 @@ import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
+import com.chesslab.geometry.GridCoverage
 import com.chesslab.geometry.cornersFromFlat
-import com.chesslab.geometry.gridLineCoverage
 import com.chesslab.geometry.toBgrImage
 import com.chesslab.geometry.toGrayImage
 import com.chesslab.geometry.warpBoardForCrops
@@ -97,6 +97,7 @@ class CameraStages(
 ) : FrameStages {
     private val yuv = YuvToBgr()
     private val gray = GrayPipeline(config.diffClaheClip)
+    private val grid = GridCoverage()
     private val motion = RoiMotion(config.motionMargin, config.motionPxThr)
     private var frame: Mat? = null
     private var warped: Mat? = null
@@ -125,6 +126,7 @@ class CameraStages(
     override fun lumaPreClahe(): Double = Core.mean(detectionWarp()).`val`[0]
 
     override fun grayDet(): GrayImage {
+        // `gray` owns and reuses the destination; `grayMat` only aliases it for `gridCoverage`.
         val g = gray.toGray(detectionWarp())
         grayMat = g
         // A FRESH ByteArray per frame on purpose: the engine's running mean keeps references to
@@ -134,7 +136,7 @@ class CameraStages(
 
     override fun bgrDet(): BgrImage = toBgrImage(detectionWarp())
 
-    override fun gridCoverage(): Double = gridLineCoverage(requireNotNull(grayMat) { "grayDet must run first" })
+    override fun gridCoverage(): Double = grid.of(requireNotNull(grayMat) { "grayDet must run first" })
 
     override fun roiMotion(corners: FloatArray): Double = motion.score(requireNotNull(frame), corners)
 
@@ -165,6 +167,7 @@ class CameraStages(
     override fun close() {
         yuv.close()
         gray.close()
+        grid.close()
         motion.close()
         warped?.release()
         warped = null

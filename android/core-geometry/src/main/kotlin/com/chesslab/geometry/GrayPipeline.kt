@@ -27,24 +27,37 @@ private const val BLUR_KSIZE: Double = 5.0
  */
 class GrayPipeline(
     private val claheClip: Double,
-) {
+) : AutoCloseable {
     private var clahe: CLAHE? = null
 
-    /** `dst` lets the caller reuse an output `Mat` across frames. */
+    /** CLAHE's source plane. A member, not a local — see [toGray]. */
+    private val scratch = Mat()
+
+    /**
+     * `dst` lets the caller reuse an output `Mat` across frames.
+     *
+     * CLAHE cannot run in place (it reads its source while writing its destination), which used
+     * to mean a fresh `Mat` plus a full-plane `copyTo` per frame. Converting into a reused
+     * [scratch] and letting CLAHE write straight into [dst] needs neither: the extra plane is
+     * allocated once and the copy is gone entirely.
+     */
     fun toGray(
         warpedBgr: Mat,
         dst: Mat? = null,
     ): Mat {
         val out = dst ?: Mat()
-        Imgproc.cvtColor(warpedBgr, out, Imgproc.COLOR_BGR2GRAY)
         if (claheClip > 0) {
+            Imgproc.cvtColor(warpedBgr, scratch, Imgproc.COLOR_BGR2GRAY)
             val handle = clahe ?: Imgproc.createCLAHE(claheClip, Size(CLAHE_TILE, CLAHE_TILE)).also { clahe = it }
-            // Not in place: CLAHE reads its source while writing the destination.
-            val enhanced = Mat()
-            handle.apply(out, enhanced)
-            enhanced.copyTo(out)
+            handle.apply(scratch, out)
+        } else {
+            Imgproc.cvtColor(warpedBgr, out, Imgproc.COLOR_BGR2GRAY)
         }
         Imgproc.GaussianBlur(out, out, Size(BLUR_KSIZE, BLUR_KSIZE), 0.0)
         return out
+    }
+
+    override fun close() {
+        scratch.release()
     }
 }

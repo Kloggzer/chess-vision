@@ -35,6 +35,18 @@ object ConfigCodec {
             ignoreUnknownKeys = true
         }
 
+    /**
+     * `TRACK_DEFAULTS` verbatim (entry.md invariant 12) — and therefore also the reference the
+     * settings screen calls "the Python default" and that `resetToDefaults` restores.
+     *
+     * NOTE for whoever reaches for this as a place to tune Android: `observerIntervalS = 0.0`
+     * (free-running CNN) is measurably wrong for a phone — every observation drags a 1640x1640
+     * `warpPerspective` onto the analyzer thread, and `07a-settings.md` already says "Raise on
+     * battery/thermal-constrained devices (Android port)". Changing it HERE is not the way: this
+     * value is what "deviation from Python" is measured against, so an override would make every
+     * export read as pristine while it was not. A deliberate Android seed needs its own field and
+     * its own place in the deviation report.
+     */
     val defaults: TrackerConfig = TrackerConfig()
 
     fun encode(config: TrackerConfig): String =

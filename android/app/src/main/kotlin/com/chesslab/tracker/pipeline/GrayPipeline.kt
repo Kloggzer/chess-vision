@@ -26,11 +26,15 @@ class GrayPipeline(
     fun onConfigChanged(config: TrackerConfig) {
         if (config.diffClaheClip != claheClip) {
             claheClip = config.diffClaheClip
+            // The replaced delegate owns a native scratch plane; dropping the reference would
+            // leave it to a finalizer.
+            delegate.close()
             delegate = BoardGray(claheClip)
         }
     }
 
     fun close() {
+        delegate.close()
         dst?.release()
         dst = null
     }
