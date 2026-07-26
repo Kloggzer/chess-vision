@@ -50,6 +50,7 @@ class TrackerCamera(
     private val analyzerExecutor = Executors.newSingleThreadExecutor { r -> Thread(r, "chesslab-analyzer") }
     private val mainHandler = Handler(Looper.getMainLooper())
     private val mismatch = ResolutionMismatchLogger { Log.w(TAG, it) }
+    private val optics = OpticsLock()
     private val health = MutableStateFlow<CameraHealth>(CameraHealth.Up)
 
     /** Camera-down is a status, not a freeze. 06c maps this into `TrackerStatus.note`. */
@@ -160,12 +161,14 @@ class TrackerCamera(
         mainHandler.removeCallbacksAndMessages(null)
         rebindPending = false
         stopObserving()
+        optics.detach()
         provider?.unbindAll()
         provider = null
         owner = null
         analyzerExecutor.shutdownNow()
     }
 
+    @OptIn(ExperimentalCamera2Interop::class)
     private fun bindAnalysis() {
         // `takeUnless` rather than a fourth guard clause: a stopped camera and a camera with no
         // provider yet are the same answer here — do not bind.
@@ -178,11 +181,17 @@ class TrackerCamera(
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                 .setResolutionSelector(resolutionSelector())
-        pinFrameRate(builder, cameraProvider.availableCameraInfos.firstOrNull { selector.filter(listOf(it)).isNotEmpty() })
+        // ONE extender for the whole request: a second `Camera2Interop.Extender` over the same
+        // builder is a second view of one config, and splitting the options across two reads as if
+        // they were independent.
+        val extender = Camera2Interop.Extender(builder)
+        pinFrameRate(extender, cameraProvider.availableCameraInfos.firstOrNull { selector.filter(listOf(it)).isNotEmpty() })
+        optics.prepare(extender)
         val analysis = builder.build()
         analysis.setAnalyzer(analyzerExecutor, ::deliver)
 
         stopObserving()
+        optics.detach()
         cameraProvider.unbindAll()
         val camera =
             runCatching { cameraProvider.bindToLifecycle(lifecycleOwner, selector, analysis) }
@@ -192,7 +201,17 @@ class TrackerCamera(
                 }
         camera.cameraInfo.cameraState.observe(lifecycleOwner, stateObserver)
         observed = camera.cameraInfo
+        optics.attach(camera)
     }
+
+    /**
+     * Let focus, exposure and white balance converge once more, then lock them again.
+     *
+     * The lock is deliberately not self-healing: it cannot tell a light being switched off from a
+     * correctly locked dark scene. Recalibration is the one moment where the user has stated that
+     * the setup changed, so that is where re-converging belongs.
+     */
+    fun relockOptics() = optics.rearm()
 
     /**
      * Ask auto-exposure to keep the frame rate up.
@@ -214,7 +233,7 @@ class TrackerCamera(
      */
     @OptIn(ExperimentalCamera2Interop::class)
     private fun pinFrameRate(
-        builder: ImageAnalysis.Builder,
+        extender: Camera2Interop.Extender<*>,
         info: CameraInfo?,
     ) {
         val available = info?.let { Camera2CameraInfo.from(it).getCameraCharacteristic(CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES) }
@@ -226,7 +245,7 @@ class TrackerCamera(
             Log.w(TAG, "no ${target.targetFps} fps AE range advertised (${available?.joinToString()}) — leaving auto-exposure alone")
             return
         }
-        Camera2Interop.Extender(builder).setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, range)
+        extender.setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, range)
         Log.i(TAG, "AE target fps range pinned to $range")
     }
 

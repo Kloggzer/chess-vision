@@ -315,5 +315,9 @@ class TrackerService :
         val requested = camera.requestedSize
         val delivered = camera.deliveredSize ?: DeliveredSize(requested.width, requested.height, 0)
         stacks.current?.coordinator?.applyCalibration(geom, pts, profileName, delivered)
+        // The optics are locked to whatever the scene looked like when they last converged.
+        // Recalibrating is the user telling us the setup moved, which is the only signal we have
+        // that the frozen exposure/white balance/focus may no longer be the right ones.
+        camera.relockOptics()
     }
 }
