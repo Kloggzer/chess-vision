@@ -86,33 +86,12 @@ android {
             // allows exec only from the app's native library directory).
             useLegacyPackaging = true
 
-            // The onnxruntime-android-qnn AAR ships every QNN backend Qualcomm
-            // supports; this app asks for exactly one. OnnxSquareClassifier passes
-            // `backend_path = libQnnHtp.so`, so the GPU and the legacy DSP backends
-            // are dead weight. Of the HTP variants only the SoC's own Hexagon
-            // version is ever dlopen'd: v75 = Snapdragon 8 Gen 3 (the target
-            // device), v79 = 8 Elite, kept so a newer phone does not silently lose
-            // the NPU. v68/v69/v73 (SD 888 / 8 Gen 1 / 8 Gen 2) are dropped.
-            //
-            // libQnnHtpPrepare.so (52.5 MB raw) is deliberately KEPT: the staged
-            // model.qnn.onnx is a plain QDQ graph, not a pre-compiled EPContext
-            // binary (verified — it contains QuantizeLinear/DequantizeLinear nodes
-            // and no `EPContext` / `ep_cache_context` marker), so QNN compiles the
-            // graph on device at session creation and needs Prepare. Excluding it
-            // would not fail loudly, it would make the QNN EP fall through to NNAPI.
-            excludes +=
-                listOf(
-                    "**/libQnnGpu.so",
-                    "**/libQnnDsp.so",
-                    "**/libQnnDspV66Skel.so",
-                    "**/libQnnDspV66Stub.so",
-                    "**/libQnnHtpV68Skel.so",
-                    "**/libQnnHtpV68Stub.so",
-                    "**/libQnnHtpV69Skel.so",
-                    "**/libQnnHtpV69Stub.so",
-                    "**/libQnnHtpV73Skel.so",
-                    "**/libQnnHtpV73Stub.so",
-                )
+            // There used to be a long exclude list here, pruning the Qualcomm QNN
+            // backends that com.qualcomm.qti:qnn-runtime drags in behind the
+            // onnxruntime-android-qnn AAR. The whole dependency is gone (see the
+            // ONNX Runtime block below), and with it 84.7 MB of arm64 payload —
+            // libQnnHtpPrepare.so alone was 55.1 MB. Re-adding the QNN AAR means
+            // re-adding those excludes; `git log -S libQnnHtpPrepare` has the list.
         }
     }
 }
@@ -120,7 +99,7 @@ android {
 // Unit tests run on the desktop JVM: keep the Android-only ONNX Runtime AAR off
 // their classpath so the JVM artifact (with desktop natives) resolves instead.
 configurations.matching { it.name.contains("UnitTest") }.configureEach {
-    exclude(group = "com.microsoft.onnxruntime", module = "onnxruntime-android-qnn")
+    exclude(group = "com.microsoft.onnxruntime", module = "onnxruntime-android")
 }
 
 dependencies {
@@ -174,11 +153,14 @@ dependencies {
     // ZXing (phase 08b: QR code)
     implementation(libs.zxing.core)
 
-    // ONNX Runtime (phase 05c: CNN safeguard). Device uses the QNN AAR (bundles the
-    // Qualcomm Hexagon/NPU libs; the classifier selects the QNN EP when a quantized
-    // model.qnn.onnx is present, else NNAPI, else CPU). JVM unit tests swap in the
-    // desktop artifact (same ai.onnxruntime API) because the AAR only ships Android ABIs.
-    implementation(libs.onnxruntime.android.qnn)
+    // ONNX Runtime (phase 05c: CNN safeguard). The plain Android AAR, deliberately, not
+    // the QNN one: verified at the ELF level, the QNN build contains zero `xnn_` and zero
+    // `ANeuralNetworks` symbols, so it trades the XNNPACK and NNAPI providers away for a
+    // QNN EP that measured 227 ms against the CPU's 97 ms on this graph. The classifier's
+    // chain is QNN -> NNAPI -> XNNPACK -> CPU and `addQnn` now simply throws here, which
+    // EpAttempts already treats as "this EP is unavailable, fall through".
+    // JVM unit tests swap in the desktop artifact (same ai.onnxruntime API, host natives).
+    implementation(libs.onnxruntime.android)
     testImplementation(libs.onnxruntime.jvm)
 
     // Host-only natives for the opt-in clip simulation (`com.chesslab.tracker.sim`). Same set

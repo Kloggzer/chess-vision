@@ -8,7 +8,12 @@ import java.io.File
 import java.nio.FloatBuffer
 import java.util.EnumSet
 
-/** Qualcomm HTP (NPU) backend library, bundled inside the onnxruntime-android-qnn AAR. */
+/**
+ * Qualcomm HTP (NPU) backend library. It ships with the onnxruntime-android-qnn AAR, which this app
+ * no longer depends on (see `app/build.gradle.kts`), so [OrtSessionRunner] currently never gets
+ * past `addQnn` — that is a clean fall-through, and this branch is what a QNN-capable build would
+ * need back.
+ */
 private const val QNN_HTP_LIB = "libQnnHtp.so"
 
 /** Prefix of the one-shot profile ORT writes for the verification batch; deleted as soon as it is read. */
@@ -124,6 +129,9 @@ internal class OrtSessionRunner(
                 qnnContext?.let(::writeContextTo)?.forEach { (key, value) -> opts.addConfigEntry(key, value) }
             }
             Ep.NNAPI -> opts.addNnapi(EnumSet.of(NNAPIFlags.USE_FP16))
+            // XNNPACK runs its own pool, so it is told the same big-core budget. Whatever it does
+            // not implement (all 46 InstanceNormalization blocks here) stays on the CPU EP.
+            Ep.XNNPACK -> opts.addXnnpack(mapOf("intra_op_num_threads" to SessionTuning.THREADS.toString()))
             Ep.CPU -> Unit
         }
         return opts

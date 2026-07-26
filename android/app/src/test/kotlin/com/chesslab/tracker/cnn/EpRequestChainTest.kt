@@ -26,8 +26,32 @@ internal fun stagedModel(
 class EpRequestChainTest {
     @Test
     fun autoKeepsTheWholeAutomaticChain() {
-        assertEquals(listOf(Ep.QNN, Ep.NNAPI, Ep.CPU), epChain(hasQnnModel = true, request = EpRequest.AUTO))
-        assertEquals(listOf(Ep.NNAPI, Ep.CPU), epChain(hasQnnModel = false, request = EpRequest.AUTO))
+        assertEquals(listOf(Ep.QNN, Ep.NNAPI, Ep.XNNPACK, Ep.CPU), epChain(hasQnnModel = true, request = EpRequest.AUTO))
+        assertEquals(listOf(Ep.NNAPI, Ep.XNNPACK, Ep.CPU), epChain(hasQnnModel = false, request = EpRequest.AUTO))
+    }
+
+    /**
+     * The shipped AAR no longer contains QNN at all, so `addQnn` throws and the head of the chain
+     * is gone on every device. What must survive is a working classifier — the fallbacks are not
+     * decoration.
+     */
+    @Test
+    fun epChainDegradesWhenQnnIsAbsent(
+        @TempDir tmp: File,
+    ) {
+        val log = RecordingLog()
+        val staged =
+            StagedModel(
+                dir = tmp,
+                configJson = File(assetDir(), MODEL_CONFIG_FILE).readText(),
+                fp32 = File(assetDir(), MODEL_FP32_FILE),
+                qnn = null,
+            )
+        assertEquals(listOf(Ep.NNAPI, Ep.XNNPACK, Ep.CPU), epChain(hasQnnModel = false))
+        OnnxSquareClassifier.open(staged, log).use { classifier ->
+            assertEquals(assetClasses().size, classifier.classes.size)
+            assertTrue(classifier.lastRunMs > 0.0, "the fallback session must have really run a batch")
+        }
     }
 
     @Test
@@ -38,7 +62,7 @@ class EpRequestChainTest {
 
     @Test
     fun explicitNnapiSkipsQnnButKeepsCpuAsTheLastResort() {
-        assertEquals(listOf(Ep.NNAPI, Ep.CPU), epChain(hasQnnModel = true, request = EpRequest.NNAPI))
+        assertEquals(listOf(Ep.NNAPI, Ep.XNNPACK, Ep.CPU), epChain(hasQnnModel = true, request = EpRequest.NNAPI))
     }
 
     @Test
@@ -46,7 +70,7 @@ class EpRequestChainTest {
         @TempDir tmp: File,
     ) {
         val chain = epChain(hasQnnModel = true, request = EpRequest.QNN)
-        assertEquals(listOf(Ep.QNN, Ep.NNAPI, Ep.CPU), chain)
+        assertEquals(listOf(Ep.QNN, Ep.NNAPI, Ep.XNNPACK, Ep.CPU), chain)
         // The head is what is REPORTED as requested; that it is not what will be selected is the
         // whole reason 07b renders both ends.
         assertEquals("QNN-HTP(NPU)", requestedBackend(stagedModel(tmp), EpRequest.QNN))
@@ -58,7 +82,7 @@ class EpRequestChainTest {
     ) {
         // The HTP backend rejects float32, so there is nothing to honour here — and the reported
         // request must then be NNAPI, not a QNN the app never even attempted.
-        assertEquals(listOf(Ep.NNAPI, Ep.CPU), epChain(hasQnnModel = false, request = EpRequest.QNN))
+        assertEquals(listOf(Ep.NNAPI, Ep.XNNPACK, Ep.CPU), epChain(hasQnnModel = false, request = EpRequest.QNN))
         assertEquals("NNAPI", requestedBackend(stagedModel(tmp, qnn = null), EpRequest.QNN))
     }
 

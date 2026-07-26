@@ -67,8 +67,15 @@ internal data class EpVerdict(
     /** True only when the profile confirmed the request — an unverified verdict is not a match. */
     val matches: Boolean = ranEp == requested
 
-    /** True when the profile positively contradicted the request (as opposed to saying nothing). */
-    val contradicted: Boolean = ranProvider != null && !matches
+    /**
+     * True when the profile positively contradicted the request (as opposed to saying nothing).
+     *
+     * XNNPACK is the one exception, and it is not a loophole: it is a kernel library on the SAME
+     * cores, and it hands every operator it does not implement — all 46 InstanceNormalization
+     * blocks in this graph — straight back to the CPU EP. A CPU-dominant profile there is that
+     * partition, not a session that ran somewhere other than where it said.
+     */
+    val contradicted: Boolean = ranProvider != null && !matches && !(requested == Ep.XNNPACK && ranEp == Ep.CPU)
 
     val label: String =
         when {
@@ -84,6 +91,7 @@ internal fun epForProvider(provider: String): Ep? =
     when {
         provider.startsWith("QNN") -> Ep.QNN
         provider.startsWith("Nnapi") -> Ep.NNAPI
+        provider.startsWith("Xnnpack") -> Ep.XNNPACK
         provider.startsWith("CPU") -> Ep.CPU
         else -> null
     }
