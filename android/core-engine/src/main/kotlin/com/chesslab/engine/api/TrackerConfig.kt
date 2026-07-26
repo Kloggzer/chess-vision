@@ -30,6 +30,9 @@ data class TrackerConfig(
     val alignEvery: Int = 3,
     val alignScale: Double = 0.5,
     val cornerJumpPx: Double = 6.0,
+    // This constant, not the frame rate, sets the commit latency: the same clip replayed at
+    // 30/15/10 fps commits every move within 0.2 s of the same wall time. Shortening it was tried
+    // and measured — see `config.py`; 0.1/0.2/0.3 all cost `blender-scholars` its mate.
     val motionHoldS: Double = 0.4,
     val occlusionColorThr: Double = 3.0,
     val minGridLineCoverage: Double = 0.5,

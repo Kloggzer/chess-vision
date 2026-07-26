@@ -133,10 +133,17 @@ class FrameLoopTest {
         assertEquals(h.state.nowS + h.state.config.motionHoldS, h.state.holdUntil, 1e-9)
     }
 
-    /** `:1646-1647` — BOTH conditions gate `ready`; a satisfied settle count is not enough. */
+    /**
+     * `:1646-1647` — BOTH conditions gate `ready`; a satisfied settle count is not enough.
+     *
+     * The hold is set HERE rather than taken from the default. The scenario needs a hold that
+     * outlives the settle count, and which of the two binds is exactly what the default decides —
+     * at `motionHoldS = 0.1` the settle count is the later of the two and this test would have
+     * been asserting nothing. A test for "both gates" must construct both gates.
+     */
     @Test
     fun readyRequiresSettleFramesAndHold() {
-        val h = Harness()
+        val h = Harness(testConfig().copy(motionHoldS = 0.4))
         // Motion at t = 0.05 s arms holdUntil = 0.45 s; the quiet frames are 0.05 s apart, so the
         // settle count (4) is reached long before the hold expires.
         h.feed(motionRoi = 5.0, tsMs = 50L)
