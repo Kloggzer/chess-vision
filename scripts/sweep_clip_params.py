@@ -1,10 +1,12 @@
 """Deterministic parameter sweep of tracker knobs over a real recording.
 
-    uv run python scripts/sweep_clip_params.py CLIP.mp4 corners.json configs.json
+    uv run python scripts/sweep_clip_params.py CLIP.mp4 corners.json configs.json [MARGIN]
 
 `corners.json` is the four board corners in the clip's frame (detect once with
 `calibration.detect_board_corners_aruco`); `configs.json` maps a label to a dict of
-`MoveTracker` kwargs. Prints the committed move list, the commit times and the evidence
+`MoveTracker` kwargs. `MARGIN` is the fraction by which those corners lie OUTSIDE the
+playing field — pass the profile's value (0.06 by default) for ArUco-derived corners, 0
+only when the corners already ARE the field corners. Prints the committed move list, the commit times and the evidence
 each commit was made on, per config.
 
 Realtime replay drops frames according to machine load, so two runs of the SAME config
@@ -28,7 +30,8 @@ epf = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(epf)
 
 
-def run(clip: str, corners, board_size: int, fps: float, tracker_kwargs: dict) -> dict:
+def run(clip: str, corners, board_size: int, fps: float, tracker_kwargs: dict,
+        margin: float = 0.0) -> dict:
     from chesslab.move_tracker import tracker as trk
 
     entry = {
@@ -36,6 +39,7 @@ def run(clip: str, corners, board_size: int, fps: float, tracker_kwargs: dict) -
         "frame_size": None,  # filled below
         "board_size": board_size,
         "corners": corners,
+        "margin": margin,
         "tracker": tracker_kwargs,
     }
     cap = cv2.VideoCapture(clip)
@@ -98,8 +102,12 @@ if __name__ == "__main__":
     corners = json.load(open(sys.argv[2]))
     fps = cv2.VideoCapture(clip).get(cv2.CAP_PROP_FPS) or 30.0
     configs = json.load(open(sys.argv[3]))
+    # 4th arg: the fraction by which `corners` lie OUTSIDE the playing field. Pass it whenever
+    # the corners came from `detect_board_corners_aruco` — the markers are printed in the label
+    # border, and replaying at 0.0 oversizes the board enough to jam the grid-line gate.
+    margin = float(sys.argv[4]) if len(sys.argv) > 4 else 0.0
     for name, kw in configs.items():
-        out = run(clip, corners, board_size=640, fps=fps, tracker_kwargs=kw)
+        out = run(clip, corners, board_size=640, fps=fps, tracker_kwargs=kw, margin=margin)
         print(f"\n### {name}   {kw}")
         print("   moves :", " ".join(out["moves"]))
         print("   times :", out["times"])

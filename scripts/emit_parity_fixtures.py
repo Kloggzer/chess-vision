@@ -240,13 +240,22 @@ class ClipDriver:
         size = tuple(int(v) for v in entry["frame_size"])
         target = int(entry["board_size"])
         corners = entry["corners"]
+        # `margin` = the fraction by which `corners` lie OUTSIDE the playing field. The
+        # committed clips are Blender renders whose corners ARE the field corners, so 0.0 is
+        # right for them and every fixture stays byte-identical. It is WRONG for anything whose
+        # corners come from ArUco markers — those sit in the label border, and replaying real
+        # footage at 0.0 oversizes the board by 6-8%: the grid lines then miss
+        # `_grid_line_coverage`'s band and the tracker sits in `occluded` forever (measured:
+        # 2232 of 2996 frames, zero commits). The live paths have always applied it
+        # (`calibration.py:937`, Kotlin `Warp.kt:55`); only this harness dropped it.
+        margin = float(entry.get("margin", 0.0))
         from chesslab import lens as _lens
 
         self._profile_file = profile_path(self.profile_name)
         prof = CalibrationProfile(
             profile=self.profile_name, camera_index=-1, frame_size=size, board_size=target,
-            image_corners=corners, homography=compute_homography(corners, target, 0.0),
-            white_pov=True, crop=CropParams.default(target), margin=0.0,
+            image_corners=corners, homography=compute_homography(corners, target, margin),
+            white_pov=True, crop=CropParams.default(target), margin=margin,
             source=entry["file"])
         # Stamp the lens state exactly as `profile_from_frame` does. Without it the
         # profile reads STALE and `ensure_profile` tries to auto-recalibrate — which
