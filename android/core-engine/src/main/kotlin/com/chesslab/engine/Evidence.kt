@@ -64,7 +64,12 @@ internal fun EngineState.computeEvidence(cur: GrayImage) {
  */
 private fun EngineState.censusEvidence(cur: GrayImage): DoubleArray? {
     val ref = requireNotNull(refGray) { "censusEvidence without a reference image" }
-    perSquareCensusChange(refCensusCodes(ref), cur, evidenceBoxes, censValues)
+    val refCodes = refCensusCodes(ref)
+    // Keep this frame's codes: the quiet re-anchor makes `cur` the NEXT frame's reference, and
+    // re-deriving them there transformed the same plane twice per frame (see `refCensusCodes`).
+    curCensus = censusBuffer(cur.width, cur.height, curCensus)
+    curCensusFor = cur
+    perSquareCensusChange(refCodes, cur, evidenceBoxes, censValues, codesOut = curCensus)
     // The RAW channel, captured BEFORE normalization: `censusThr` (40.0) was live-tuned on raw
     // census and normalization can pull a structurally-changed destination square under it — that
     // is the phantom-shadow-as-destination class (entry.md invariant 8).
@@ -92,11 +97,23 @@ private fun EngineState.censusEvidence(cur: GrayImage): DoubleArray? {
  *
  * The cache key is **identity**, never equality — `_maybe_patch_anomaly` mutates `refGray` in place
  * and invalidates by setting [EngineState.refCensusFor] to `null`.
+ *
+ * The quiet re-anchor fires on every stable frame, so the "cached" reference is a *new* plane on
+ * almost every frame — but it is the plane [computeEvidence] just transformed, so its codes are
+ * adopted by swapping the two buffers rather than transformed a second time.
  */
 internal fun EngineState.refCensusCodes(ref: GrayImage): ByteArray {
     val cached = refCensus
     if (refCensusFor === ref && cached != null) return cached
-    val codes = censusTransform(ref, out = censusBuffer(ref.width, ref.height, cached))
+    val adopted = curCensus
+    if (curCensusFor === ref && adopted != null) {
+        curCensus = cached
+        curCensusFor = null
+        refCensus = adopted
+        refCensusFor = ref
+        return adopted
+    }
+    val codes = censusCodesInBoxes(ref, evidenceBoxes, censusBuffer(ref.width, ref.height, cached))
     refCensus = codes
     refCensusFor = ref
     return codes

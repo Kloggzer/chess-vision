@@ -228,7 +228,12 @@ data class TrackerStatus(
     val confirmerKey: String?, val confirmerCount: Int,
     val verifyState: String?, val pendingUci: String?, val pendingFrames: Int,
     val stageTimingsMs: Map<String, Double>, // warp, gray, motion, evidence, veto, score, total
-    val fps: Double,
+    val fps: Double,                         // DETECTION rate: frames that ticked the engine
+    // Frames CameraX DELIVERED per second. The ENGINE never sets it — it is under the wall-clock
+    // ban, and a frame the app discarded (uncalibrated, too dark) is one it never saw; `:app`'s
+    // StatusPublisher fills it in, same seam as `corners`. One number cannot tell a dead camera
+    // from a live one whose frames are all thrown away, and those need opposite user actions.
+    val cameraFps: Double = 0.0,
     val note: String?,
     // 8 floats [a8, h8, h1, a1] in SOURCE px (invariant 11), or null before the first calibration.
     // The ENGINE never sets it — it owns no geometry; `:app`'s StatusPublisher fills in the corners

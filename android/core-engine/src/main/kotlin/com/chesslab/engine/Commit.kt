@@ -81,7 +81,8 @@ internal fun EngineState.setRef(
     refGray = cur
     if (curBgr != null) {
         refBgr = curBgr
-        if (!fromCommit) refGamut = rebuildGamut(curBgr)
+        // Deferred, not skipped: see EngineState.refGamut for why the rebuild happens on read.
+        if (!fromCommit) markGamutStale(curBgr)
     }
     refFen = board.fen()
     refCorners = lastCorners?.copyOf()
@@ -89,8 +90,8 @@ internal fun EngineState.setRef(
     motionSinceRef = false
 }
 
-/** `board_color_gamut(cur_bgr, self._det_size, white_pov)`. */
-private fun EngineState.rebuildGamut(curBgr: BgrImage): ColorGamut? {
+/** `board_color_gamut(cur_bgr, self._det_size, white_pov)`; driven by [EngineState.refGamut]. */
+internal fun EngineState.buildGamut(curBgr: BgrImage): ColorGamut? {
     val need = curBgr.width * curBgr.height * BGR_CHANNELS
     if (gamutLab.size != need) gamutLab = ByteArray(need)
     if (gamutHsv.size != need) gamutHsv = ByteArray(need)

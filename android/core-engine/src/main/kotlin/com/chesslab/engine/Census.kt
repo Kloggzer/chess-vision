@@ -10,9 +10,10 @@ import com.chesslab.engine.api.GrayImage
 internal val POPCOUNT8: IntArray = IntArray(CENSUS_CODES) { Integer.bitCount(it) }
 
 /**
- * Comparison deadband of [censusTransform]. Python's `eps` parameter.
+ * Comparison deadband of the census comparison. Python's `eps` parameter.
  *
- * **It stays 0 and there is no config knob for it** (entry.md invariant 7): any `eps > 0` breaks
+ * **It stays 0, there is no config knob for it and it is not even a function parameter here**
+ * (entry.md invariant 7): any `eps > 0` breaks
  * the monotone-brightness invariance — pixels in the `[eps, eps/ratio)` contrast band flip under
  * multiplicative darkening, and the whole shadow behaviour collapses.
  */
@@ -47,7 +48,6 @@ internal fun censusTransform(
     gray: GrayImage,
     yLo: Int = 0,
     yHi: Int = gray.height,
-    eps: Int = CENSUS_EPS,
     out: ByteArray,
 ): ByteArray {
     val width = gray.width
@@ -60,29 +60,38 @@ internal fun censusTransform(
     }
     require(out.size >= rows * width) { "census buffer too small: ${out.size} < ${rows * width}" }
     val data = gray.data
-    val last = width - 1
+    val neighbourRows = IntArray(NEIGHBOUR_ROWS)
     var o = 0
     for (j in 0 until rows) {
-        val rowC = (lo + j) * width
-        val rowT = (lo + if (j > 0) j - 1 else 0) * width
-        val rowB = (lo + if (j < rows - 1) j + 1 else rows - 1) * width
-        for (x in 0 until width) {
-            val xm = if (x > 0) x - 1 else 0
-            val xp = if (x < last) x + 1 else last
-            val c = px(data, rowC + x)
-            out[o] =
-                (
-                    bit(c, px(data, rowT + xm), eps, BIT0) or
-                        bit(c, px(data, rowT + x), eps, BIT1) or
-                        bit(c, px(data, rowT + xp), eps, BIT2) or
-                        bit(c, px(data, rowC + xm), eps, BIT3) or
-                        bit(c, px(data, rowC + xp), eps, BIT4) or
-                        bit(c, px(data, rowB + xm), eps, BIT5) or
-                        bit(c, px(data, rowB + x), eps, BIT6) or
-                        bit(c, px(data, rowB + xp), eps, BIT7)
-                ).toByte()
-            o++
-        }
+        neighbourRows[TOP] = (lo + if (j > 0) j - 1 else 0) * width
+        neighbourRows[CENTRE] = (lo + j) * width
+        neighbourRows[BOTTOM] = (lo + if (j < rows - 1) j + 1 else rows - 1) * width
+        rowCodes(data, width, neighbourRows, 0, width) { _, code -> out[o++] = code.toByte() }
+    }
+    return out
+}
+
+/**
+ * Census codes of [gray] inside the [boxes] only, written into [out] at their plane offsets.
+ *
+ * **The only region a reference-code plane is ever read from is a square box** — every consumer
+ * goes through [perSquareCensusChange], which sums per box. Transforming the ~37 % of the 800x800
+ * plane that lies between the boxes was pure waste, and the reference is re-derived on every quiet
+ * frame. Values outside the boxes are left untouched, i.e. undefined.
+ *
+ * Inside a box the codes are bit-identical to [censusTransform]'s: the boxes are inset from the
+ * left and right plane edges, so only the top-row replication can apply and it is the same here.
+ */
+internal fun censusCodesInBoxes(
+    gray: GrayImage,
+    boxes: SquareBoxes,
+    out: ByteArray,
+): ByteArray {
+    require(out.size >= gray.width * gray.height) {
+        "census buffer too small: ${out.size} < ${gray.width * gray.height}"
+    }
+    for (i in 0 until Squares.COUNT) {
+        if (boxes.area[i] > 0) boxCodes(gray, boxes, i, null, out)
     }
     return out
 }
@@ -91,15 +100,18 @@ internal fun censusTransform(
  * Mean Hamming distance of the census codes per square, scaled to 0..255.
  * Python `per_square_census_change`.
  *
- * [refCodes] are the codes of the *full* reference plane (the caller caches them — the reference
- * changes only on commit / re-anchor). Python's `board_size` argument is [curGray]'s edge: the
- * board warp is always square and always the plane this runs on (see `STATUS.md` D01b-2).
+ * [refCodes] are the reference plane's codes (the caller caches them — the reference changes only
+ * on commit / re-anchor). Python's `board_size` argument is [curGray]'s edge: the board warp is
+ * always square and always the plane this runs on (see `STATUS.md` D01b-2).
  *
- * With [rows] `= intArrayOf(yLo, yHi)` only that band of the current frame is transformed (the
- * caller passes the candidate squares' rows with a +/-1 px halo; with the replicate padding the
- * halo makes the interior codes identical to the full transform). **Squares outside the band read
- * 0.0 and callers must only consult squares whose boxes lie inside the band** — that is the
- * caller's contract.
+ * With [rows] `= intArrayOf(yLo, yHi)` only squares whose box lies inside that band are scored;
+ * the caller passes the candidate squares' rows with a +/-1 px halo. **Squares outside the band
+ * read 0.0 and callers must only consult squares inside it** — that is the caller's contract. The
+ * halo guard is Python's: a square touching a replicated band edge would carry codes that differ
+ * from the full transform, so it is excluded rather than approximated.
+ *
+ * [codesOut] optionally receives the current frame's codes at their plane offsets, so a caller
+ * whose `cur` becomes the next reference does not transform the same plane a second time.
  *
  * The `* 255/8` scaling makes the channel comparable to the gray diff and to `censusThr`. The
  * result is RAW: `censusThr` (40.0) compares against it, median normalization is the caller's
@@ -111,134 +123,131 @@ internal fun perSquareCensusChange(
     boxes: SquareBoxes,
     out: DoubleArray,
     rows: IntArray? = null,
-): DoubleArray {
-    val width = curGray.width
-    require(width == curGray.height) { "board warp must be square: ${width}x${curGray.height}" }
-    require(out.size >= Squares.COUNT) { "out too small: ${out.size} < ${Squares.COUNT}" }
-    require(refCodes.size >= width * curGray.height) {
-        "refCodes too small: ${refCodes.size} < ${width * curGray.height}"
-    }
-    if (rows == null) {
-        return fullCensusChange(refCodes, curGray, boxes, out)
-    }
-    return bandCensusChange(refCodes, curGray, boxes, out, rows)
-}
-
-private fun fullCensusChange(
-    refCodes: ByteArray,
-    curGray: GrayImage,
-    boxes: SquareBoxes,
-    out: DoubleArray,
+    codesOut: ByteArray? = null,
 ): DoubleArray {
     val width = curGray.width
     val height = curGray.height
-    fullCodes = censusBuffer(width, height, fullCodes)
-    fullHam = censusBuffer(width, height, fullHam)
-    censusTransform(curGray, out = fullCodes)
-    hamming(refCodes, fullCodes, fullHam, 0, width * height)
-    fullIi = integralBuffer(width, height, fullIi)
-    val ii = integral(fullHam, width, height, fullIi)
-    regionMeans(ii, width, boxes, out)
-    for (i in 0 until Squares.COUNT) {
-        out[i] *= CENSUS_SCALE
+    require(width == height) { "board warp must be square: ${width}x$height" }
+    require(out.size >= Squares.COUNT) { "out too small: ${out.size} < ${Squares.COUNT}" }
+    require(refCodes.size >= width * height) { "refCodes too small: ${refCodes.size} < ${width * height}" }
+    var guardLo = 0
+    var guardHi = height
+    if (rows != null) {
+        val yLo = rows[0].coerceIn(0, height)
+        val yHi = rows[1].coerceIn(yLo, height)
+        // Python slices `cur_gray[y_lo:y_hi]`; an empty slice scores nothing at all.
+        if (yHi == yLo) {
+            out.fill(0.0, 0, Squares.COUNT)
+            return out
+        }
+        guardLo = yLo + if (yLo > 0) 1 else 0
+        guardHi = yHi - if (yHi < height) 1 else 0
     }
-    return out
-}
-
-private fun bandCensusChange(
-    refCodes: ByteArray,
-    curGray: GrayImage,
-    boxes: SquareBoxes,
-    out: DoubleArray,
-    rows: IntArray,
-): DoubleArray {
-    val width = curGray.width
-    val boardSize = curGray.height
-    val yLo = if (rows[0] > 0) rows[0] else 0
-    val yHi = if (rows[1] < boardSize) rows[1] else boardSize
-    val bandRows = yHi - yLo
-    if (bandRows <= 0) {
-        out.fill(0.0, 0, Squares.COUNT)
-        return out
-    }
-    bandCodes = censusBuffer(width, bandRows, bandCodes)
-    bandHam = censusBuffer(width, bandRows, bandHam)
-    censusTransform(curGray, yLo = yLo, yHi = yHi, out = bandCodes)
-    // Python: `ref_codes[y_lo:y_hi] ^ census_transform(cur_gray[y_lo:y_hi])` — the reference is
-    // the FULL-plane transform sliced, the current one is transformed band-locally.
-    hammingOffset(refCodes, yLo * width, bandCodes, bandHam, bandRows * width)
-    bandIi = integralBuffer(width, bandRows, bandIi)
-    val ii = integral(bandHam, width, bandRows, bandIi)
-    val stride = width + 1
-    // Transcribed from tracker.py — the +/-1 halo guard. Squares whose box touches a
-    // replicated band edge are excluded, because their codes would differ from the full transform.
-    val guardLo = yLo + if (yLo > 0) 1 else 0
-    val guardHi = yHi - if (yHi < boardSize) 1 else 0
     for (i in 0 until Squares.COUNT) {
         val area = boxes.area[i]
-        val y0 = boxes.y0[i]
-        val y1 = boxes.y1[i]
-        if (area > 0 && y0 >= guardLo && y1 <= guardHi) {
-            val r0 = (y0 - yLo) * stride
-            val r1 = (y1 - yLo) * stride
-            val x0 = boxes.x0[i]
-            val x1 = boxes.x1[i]
-            val sum = ii[r1 + x1] - ii[r0 + x1] - ii[r1 + x0] + ii[r0 + x0]
-            out[i] = sum.toDouble() / area * CENSUS_SCALE
-        } else {
-            out[i] = 0.0
-        }
+        out[i] =
+            if (area > 0 && boxes.y0[i] >= guardLo && boxes.y1[i] <= guardHi) {
+                boxCodes(curGray, boxes, i, refCodes, codesOut).toDouble() / area * CENSUS_SCALE
+            } else {
+                0.0
+            }
     }
     return out
 }
 
-private fun hamming(
-    a: ByteArray,
-    b: ByteArray,
-    out: ByteArray,
-    from: Int,
-    to: Int,
-) {
-    for (i in from until to) {
-        out[i] = POPCOUNT8[(a[i].toInt() xor b[i].toInt()) and BYTE_MASK].toByte()
+/**
+ * Codes of square [i]'s box: accumulates the Hamming distance against [refCodes] when given one
+ * and writes the codes to [codesOut] when given one. Returns the Hamming sum (0 without
+ * [refCodes]).
+ */
+private fun boxCodes(
+    gray: GrayImage,
+    boxes: SquareBoxes,
+    i: Int,
+    refCodes: ByteArray?,
+    codesOut: ByteArray?,
+): Long {
+    val width = gray.width
+    val data = gray.data
+    val x0 = boxes.x0[i]
+    val x1 = boxes.x1[i]
+    val lastRow = gray.height - 1
+    val neighbourRows = IntArray(NEIGHBOUR_ROWS)
+    var sum = 0L
+    for (y in boxes.y0[i] until boxes.y1[i]) {
+        neighbourRows[TOP] = (if (y > 0) y - 1 else 0) * width
+        neighbourRows[CENTRE] = y * width
+        neighbourRows[BOTTOM] = (if (y < lastRow) y + 1 else lastRow) * width
+        rowCodes(data, width, neighbourRows, x0, x1) { index, code ->
+            if (refCodes != null) sum += POPCOUNT8[(refCodes[index].toInt() xor code) and BYTE_MASK]
+            codesOut?.set(index, code.toByte())
+        }
     }
+    return sum
 }
 
-private fun hammingOffset(
-    a: ByteArray,
-    aOffset: Int,
-    b: ByteArray,
-    out: ByteArray,
-    count: Int,
+/**
+ * Census codes of one row segment, handed to [emit] as `(planeIndex, code)`.
+ *
+ * [rows] holds the plane offsets of the top, centre and bottom neighbour rows — the CALLER owns
+ * the replication rule, because a band transform replicates at the band edge and a box transform
+ * at the plane edge, and conflating those poisons the edge squares' scores.
+ *
+ * The three neighbour columns slide along in registers, so a pixel costs 3 plane reads instead of
+ * 9. This is the engine's single hottest loop.
+ */
+private inline fun rowCodes(
+    data: ByteArray,
+    width: Int,
+    rows: IntArray,
+    x0: Int,
+    x1: Int,
+    emit: (Int, Int) -> Unit,
 ) {
-    for (i in 0 until count) {
-        out[i] = POPCOUNT8[(a[aOffset + i].toInt() xor b[i].toInt()) and BYTE_MASK].toByte()
+    val rowT = rows[TOP]
+    val rowC = rows[CENTRE]
+    val rowB = rows[BOTTOM]
+    val last = width - 1
+    val xm = if (x0 > 0) x0 - 1 else 0
+    var t0 = px(data, rowT + xm)
+    var t1 = px(data, rowT + x0)
+    var c0 = px(data, rowC + xm)
+    var c1 = px(data, rowC + x0)
+    var b0 = px(data, rowB + xm)
+    var b1 = px(data, rowB + x0)
+    for (x in x0 until x1) {
+        val xp = if (x < last) x + 1 else last
+        val t2 = px(data, rowT + xp)
+        val c2 = px(data, rowC + xp)
+        val b2 = px(data, rowB + xp)
+        var code = 0
+        if (c1 > t0 + CENSUS_EPS) code = code or BIT0
+        if (c1 > t1 + CENSUS_EPS) code = code or BIT1
+        if (c1 > t2 + CENSUS_EPS) code = code or BIT2
+        if (c1 > c0 + CENSUS_EPS) code = code or BIT3
+        if (c1 > c2 + CENSUS_EPS) code = code or BIT4
+        if (c1 > b0 + CENSUS_EPS) code = code or BIT5
+        if (c1 > b1 + CENSUS_EPS) code = code or BIT6
+        if (c1 > b2 + CENSUS_EPS) code = code or BIT7
+        emit(rowC + x, code)
+        t0 = t1
+        t1 = t2
+        c0 = c1
+        c1 = c2
+        b0 = b1
+        b1 = b2
     }
 }
-
-private fun bit(
-    center: Int,
-    neighbour: Int,
-    eps: Int,
-    mask: Int,
-): Int = if (center > neighbour + eps) mask else 0
 
 private fun px(
     data: ByteArray,
     index: Int,
 ): Int = data[index].toInt() and BYTE_MASK
 
-// Scratch buffers. The engine is single-threaded (entry.md hard rule 2) and every one of these is
-// fully consumed inside the call that grows it, so they can never alias a live caller buffer.
-// The full and the band path keep separate sets: both run every frame at different heights, and a
-// shared buffer would reallocate on every alternation.
-private var fullCodes: ByteArray = ByteArray(0)
-private var fullHam: ByteArray = ByteArray(0)
-private var fullIi: LongArray = LongArray(0)
-private var bandCodes: ByteArray = ByteArray(0)
-private var bandHam: ByteArray = ByteArray(0)
-private var bandIi: LongArray = LongArray(0)
-
+private const val NEIGHBOUR_ROWS = 3
+private const val TOP = 0
+private const val CENTRE = 1
+private const val BOTTOM = 2
 private const val CENSUS_CODES = 256
 private const val BYTE_MASK = 0xFF
 private const val CENSUS_SCALE = 255.0 / 8.0

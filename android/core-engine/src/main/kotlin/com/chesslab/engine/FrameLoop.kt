@@ -26,12 +26,10 @@ private const val OCCLUSION_KEEPALIVE_S = 0.1
  */
 private const val OCCLUDED_CORE_LIMIT = 2
 
-/** `_RunningMean` recomputes its float64 sum from the full window every 64 appends. */
-private const val DRIFT_RESYNC_EVERY = 64
-
 private const val BYTE_MASK = 0xFF
 
-private const val BGR_CHANNELS = 3
+/** `sum` of `n` bytes lives in `0 until 256 * n` — the size of [PlaneMean]'s division table. */
+private const val U8_LEVELS = 256
 
 internal const val NOTE_WAITING_CLEAR = "waiting for clear view of the board…"
 
@@ -76,9 +74,6 @@ internal class FrameLoop(
     private val state: EngineState,
     private val setRef: (GrayImage, BgrImage?) -> Unit,
 ) {
-    private var labBuf = ByteArray(0)
-    private var hsvBuf = ByteArray(0)
-
     /**
      * One iteration, in Python's exact order.
      *
@@ -145,12 +140,6 @@ internal class FrameLoop(
         val ref = state.refGray
         val cfg = state.config
         if (ref != null && state.state != STATE_WAITING && state.state != STATE_MOVE) {
-            val bgr = input.bgrDet
-            val need = bgr.width * bgr.height * BGR_CHANNELS
-            if (labBuf.size != need) labBuf = ByteArray(need)
-            if (hsvBuf.size != need) hsvBuf = ByteArray(need)
-            bgrToLab(bgr.data, bgr.width, bgr.height, labBuf)
-            bgrToHsv(bgr.data, bgr.width, bgr.height, hsvBuf)
             val result =
                 baselineOcclusionAndShadow(
                     input.grayDet,
@@ -162,8 +151,7 @@ internal class FrameLoop(
                     BaselineEvidence(
                         refCodes = state.refCensusCodes(ref),
                         occlCensusThr = cfg.occlCensusThr,
-                        curLab = labBuf,
-                        curHsv = hsvBuf,
+                        curBgr = input.bgrDet,
                         gamut = state.refGamut,
                         colorThr = cfg.occlusionColorThr,
                     ),
@@ -279,8 +267,7 @@ private fun darkNote(
 ): String = "frame too dark (${Math.rint(luma).toLong()} < $thr) — detection paused"
 
 /**
- * Python `_RunningMean` over gray planes: a fixed-window running mean that recomputes its float64
- * sum from the whole window every 64 appends to kill drift.
+ * Python `_RunningMean` over gray planes: a fixed-window running mean.
  *
  * Appended planes are stored by REFERENCE, exactly like Python — the frame source must hand the
  * engine a fresh buffer per frame (entry.md invariant 14).
@@ -319,14 +306,30 @@ internal class RunningMeanBgr(
     fun meanUint8(): BgrImage? = impl.mean()?.let { BgrImage(impl.width, impl.height, it) }
 }
 
-/** The shared arithmetic of both running means. */
+/**
+ * The shared arithmetic of both running means.
+ *
+ * The accumulator is an `IntArray`, not Python's float64: a window of at most a handful of `uint8`
+ * planes sums to well under 2^31, so the sum is EXACT and the truncating division `sum / n` lands
+ * on the same byte as `(sum.toDouble() / n).toInt()` does. That is also why Python's periodic
+ * re-sum from the whole window has no counterpart here — it exists to kill float drift, and there
+ * is none to kill. Halving the accumulator's width matters: the BGR plane is 1.92 MB at 800x800,
+ * so the float64 version touched 15.4 MB per frame and blew every cache level.
+ *
+ * The buffer also SURVIVES [clear], which the frame loop calls on every motion frame — allocating
+ * a fresh multi-megabyte accumulator on the first stable frame after each hand movement was a
+ * large-object-space churn the collector then had to chase.
+ */
 private class PlaneMean(
     maxlen: Int,
 ) {
     private var window = max(1, maxlen)
     private val buf = ArrayDeque<ByteArray>()
-    private var sum: DoubleArray? = null
-    private var count = 0
+    private var sum = IntArray(0)
+
+    /** `sum -> sum / divisor` for every reachable sum; see [mean]. */
+    private var divisor = 0
+    private var divTable = ByteArray(0)
     var width = 0
         private set
     var height = 0
@@ -344,45 +347,45 @@ private class PlaneMean(
             width = w
             height = h
         }
-        val current = sum
-        if (current == null) {
-            sum = DoubleArray(data.size) { (data[it].toInt() and BYTE_MASK).toDouble() }
+        if (sum.size != data.size) sum = IntArray(data.size)
+        if (buf.isEmpty()) {
+            for (i in sum.indices) sum[i] = data[i].toInt() and BYTE_MASK
+        } else if (buf.size == window) {
+            // Evict and add in ONE pass. Two passes over a 1.92 MB BGR plane's 7.7 MB accumulator
+            // read and wrote it twice for an update that is a single subtraction.
+            val evicted = buf.removeFirst()
+            for (i in sum.indices) sum[i] += (data[i].toInt() and BYTE_MASK) - (evicted[i].toInt() and BYTE_MASK)
         } else {
-            if (buf.size == window) {
-                val evicted = buf.removeFirst()
-                for (i in current.indices) current[i] -= (evicted[i].toInt() and BYTE_MASK).toDouble()
-            }
-            for (i in current.indices) current[i] += (data[i].toInt() and BYTE_MASK).toDouble()
+            for (i in sum.indices) sum[i] += data[i].toInt() and BYTE_MASK
         }
         buf.addLast(data)
-        count += 1
-        if (count % DRIFT_RESYNC_EVERY == 0) resync()
     }
 
-    fun clear() {
-        buf.clear()
-        sum = null
-        count = 0
-    }
+    fun clear() = buf.clear()
 
     fun resize(maxlen: Int) {
         window = max(1, maxlen)
         clear()
     }
 
-    /** `(sum / len(buf)).astype(np.uint8)` — TRUNCATION, not rounding. */
+    /**
+     * `(sum / len(buf)).astype(np.uint8)` — TRUNCATION, not rounding.
+     *
+     * The division goes through a table because the window is tiny (2 to 4 frames) while the plane
+     * is not: every reachable sum is `0..255 * n`, so a ~1 KB lookup that stays in L1 replaces an
+     * integer division on each of 1.92 million BGR bytes. The table is rebuilt only when the
+     * window length changes, which happens on a config change and while the buffer fills.
+     */
     fun mean(): ByteArray? {
-        val current = sum
-        if (current == null || buf.isEmpty()) return null
+        if (buf.isEmpty()) return null
         val n = buf.size
-        return ByteArray(current.size) { (current[it] / n).toInt().toByte() }
-    }
-
-    private fun resync() {
-        val current = sum ?: return
-        current.fill(0.0)
-        for (frame in buf) {
-            for (i in current.indices) current[i] += (frame[i].toInt() and BYTE_MASK).toDouble()
+        if (divisor != n) {
+            divTable = ByteArray(U8_LEVELS * n) { (it / n).toByte() }
+            divisor = n
         }
+        val table = divTable
+        val out = ByteArray(sum.size)
+        for (i in out.indices) out[i] = table[sum[i]]
+        return out
     }
 }

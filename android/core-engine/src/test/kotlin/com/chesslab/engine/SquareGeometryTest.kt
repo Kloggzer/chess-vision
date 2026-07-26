@@ -102,8 +102,7 @@ class SquareGeometryTest {
                 area = IntArray(64),
             )
         val plane = ByteArray(boardSize * boardSize) { 200.toByte() }
-        val ii = integral(plane, boardSize, boardSize)
-        val out = regionMeans(ii, boardSize, boxes, DoubleArray(64))
+        val out = planeMeans(plane, boardSize, boxes, DoubleArray(64))
         for (i in 0 until 64) {
             assertEquals(0.0, out[i], "zero-area box $i must be 0.0, never NaN")
         }
@@ -123,24 +122,23 @@ class SquareGeometryTest {
         }
     }
 
+    /** The box sums read the planes as UNSIGNED bytes — a signed read halves every mean. */
     @Test
-    fun integralIsUnsignedAndMatchesTheBruteForceSum() {
-        val w = 7
-        val h = 5
-        val a = ByteArray(w * h) { ((it * 37) % 256).toByte() }
-        val b = ByteArray(w * h) { ((it * 91 + 13) % 256).toByte() }
-        val ii = integral(a, w, h)
-        assertEquals((w + 1) * (h + 1), ii.size)
+    fun boxSumsAreUnsignedAndMatchTheBruteForceSum() {
+        val w = 8
+        val a = ByteArray(w * w) { ((it * 37) % 256).toByte() }
+        val b = ByteArray(w * w) { ((it * 91 + 13) % 256).toByte() }
+        val whole = SquareBoxes(IntArray(64), IntArray(64), IntArray(64) { w }, IntArray(64) { w }, IntArray(64) { w * w })
+
         var total = 0L
         for (v in a) total += (v.toInt() and 0xFF).toLong()
-        assertEquals(total, ii[(h + 1) * (w + 1) - 1])
+        assertEquals(total.toDouble() / (w * w), planeMeans(a, w, whole, DoubleArray(64))[0])
 
-        val iid = integralAbsDiff(a, b, w, h)
         var absTotal = 0L
         for (i in a.indices) {
             absTotal += kotlin.math.abs((a[i].toInt() and 0xFF) - (b[i].toInt() and 0xFF)).toLong()
         }
-        assertEquals(absTotal, iid[(h + 1) * (w + 1) - 1])
+        assertEquals(absTotal.toDouble() / (w * w), absDiffMeans(a, b, w, whole, DoubleArray(64))[0])
     }
 
     @Test

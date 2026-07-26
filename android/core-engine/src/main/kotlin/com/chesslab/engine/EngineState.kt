@@ -40,14 +40,48 @@ internal class EngineState(
     var refCorners: FloatArray? = null // `_ref_corners`
     var lastCorners: FloatArray? = null // `_last_corners`
 
-    /** `_ref_gamut` (type from 01c: `ColorGamut`, not the spec's `BoardColorGamut`). */
-    var refGamut: ColorGamut? = null
+    private var gamutValue: ColorGamut? = null
+    private var gamutPending: BgrImage? = null
+
+    /**
+     * `_ref_gamut` (type from 01c: `ColorGamut`, not the spec's `BoardColorGamut`).
+     *
+     * **Built on read, not on write.** The quiet re-anchor fires on every stable frame and each one
+     * would rebuild the gamut from a full BGR->Lab plus BGR->HSV pass over the whole detection
+     * plane — 88 ms of a 247 ms frame on the phone — while the only consumer
+     * ([FrameLoop.updateBaselineOcclusion]) reads it exclusively in the `moving`/`occluded` states.
+     * Every rebuild but the last before motion starts was therefore thrown away unread.
+     *
+     * Deferring is value-identical because [markGamutStale] captures the exact plane the eager
+     * rebuild would have used, so a later re-anchor or commit swapping `refBgr` cannot retarget it.
+     */
+    var refGamut: ColorGamut?
+        get() {
+            gamutPending?.let {
+                gamutValue = buildGamut(it)
+                gamutPending = null
+            }
+            return gamutValue
+        }
+        set(value) {
+            gamutValue = value
+            gamutPending = null
+        }
+
+    /** The quiet re-anchor's half of [refGamut]: remember the plane, pay for it only if read. */
+    fun markGamutStale(bgr: BgrImage) {
+        gamutPending = bgr
+    }
 
     /** `_ref_census` — cached census codes of [refGray]. */
     var refCensus: ByteArray? = null
 
     /** `_ref_census_for` — IDENTITY key of [refCensus] (`is not`, never `!=`). */
     var refCensusFor: GrayImage? = null
+
+    /** The codes `computeEvidence` derived for the current frame, and their IDENTITY key. */
+    var curCensus: ByteArray? = null
+    var curCensusFor: GrayImage? = null
 
     // -- frame loop -------------------------------------------------------------------------------
 

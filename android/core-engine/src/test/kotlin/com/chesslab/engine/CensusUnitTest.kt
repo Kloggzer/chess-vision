@@ -112,6 +112,26 @@ class CensusUnitTest {
         assertTrue(out.all { it == 0.0 }, "an inverted band must read 0.0")
     }
 
+    /**
+     * The load-bearing claim of the box-scoped transform: inside a square box the codes are
+     * bit-identical to the full-plane transform's, so nothing that reads a reference-code plane
+     * can tell the two apart.
+     */
+    @Test
+    fun boxCodesEqualTheFullTransformInsideTheBoxes() {
+        val gray = texture()
+        val boxes = squareBoxes(SIZE, true, extendUp = 0.25)
+        val full = censusTransform(gray, out = ByteArray(SIZE * SIZE))
+        val boxed = censusCodesInBoxes(gray, boxes, ByteArray(SIZE * SIZE))
+        for (i in 0 until Squares.COUNT) {
+            for (y in boxes.y0[i] until boxes.y1[i]) {
+                for (x in boxes.x0[i] until boxes.x1[i]) {
+                    assertEquals(full[y * SIZE + x], boxed[y * SIZE + x], "square $i at ($x, $y)")
+                }
+            }
+        }
+    }
+
     @Test
     fun bandTransformReplicatesAtTheBandEdge() {
         val gray = texture()

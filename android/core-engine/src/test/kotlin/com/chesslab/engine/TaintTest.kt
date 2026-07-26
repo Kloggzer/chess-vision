@@ -282,7 +282,6 @@ class TaintTest {
         assertTrue(blind.shadow.has(f6), "without chroma it reads as a shadow")
         assertFalse(blind.occluded.has(f6), "that is the blind spot")
 
-        val planes = planesOf(curBgr)
         val seen =
             baselineOcclusionAndShadow(
                 cur,
@@ -294,8 +293,7 @@ class TaintTest {
                 BaselineEvidence(
                     refCodes = censusTransform(ref, out = ByteArray(BOARD * BOARD)),
                     occlCensusThr = OCCL_CENSUS_THR,
-                    curLab = planes.lab,
-                    curHsv = planes.hsv,
+                    curBgr = curBgr,
                     gamut = gamut,
                     colorThr = OCCLUSION_COLOR_THR,
                 ),

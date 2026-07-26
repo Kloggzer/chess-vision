@@ -4962,3 +4962,175 @@ Known limit, worth knowing before reading the two numbers: `ImageAnalysis` runs
 camera rate is therefore bounded by the analyzer's own speed — it shows the DISCARDED-frame gap
 (the case above), not a "sensor is faster than we are" gap, which is why an idle pipeline reads 49
 fps and a working one reads the detection rate.
+
+## Engine hot path (2026-07-26)
+
+The frame-pipeline pass (`c03cfd3`) took convert/warp/gray/motion/grid from 70–103 ms to 25–58 ms
+and thereby exposed the real bottleneck: `engine` was 20–287 ms per frame, and the user saw ~11 fps
+with heavy battery drain. `:core-engine` is deliberately OpenCV-free (hard rule 1), so every
+per-pixel operation is scalar Kotlin over an 800x800 plane (`boardSize 1600 * detectScale 0.5`).
+
+### Step 1 — profile, do not guess
+
+Two harnesses, both opt-in (`-Pchesslab.profile=true`) and both asserting nothing:
+
+- `core-engine/src/test/.../EngineProfileTest.kt` — per-stage microbenchmark. The fixtures are
+  320x320, the phone is 800x800 and every stage is O(pixels), so the planes are nearest-upscaled
+  to 800 first. Desktop-JVM figures; what transfers to the phone is the RATIO.
+- `core-engine/src/test/.../ClipReplayTimingTest.kt` — end-to-end `onFrame` over the same 969
+  frames `ClipReplayParityTest` asserts on, assertions removed. A microbenchmark can flatter an
+  optimisation that was never on the frame path; this cannot.
+
+**A third, temporary probe inside the engine settled it.** `simpleperf` is unusable on this device
+(`cpu-cycles` and `cpu-clock` both reported "not supported"), so a `System.nanoTime` stage
+accumulator was compiled into `:core-engine`, measured, and **removed again** — it violates the
+wall-clock ban and was never going to be committed. It is what found the two stages nobody would
+have guessed.
+
+Device, steady quiet state, microseconds per detection frame (baseline, `engine` = 247 ms):
+
+| stage | us | note |
+|---|---|---|
+| `ev.census` | 123 000 | **50 % of the frame** |
+| *(unattributed)* | ~88 000 | the quiet re-anchor's gamut rebuild — see below |
+| `means` | 23 000 | `_RunningMean` append + mean, gray + BGR |
+| `ev.diff` | 7 200 | |
+| `motion` | 4 200 | |
+| `scoring` | 1 150 | |
+| `taints`, `vetoes`, `noise` | < 250 | |
+
+### The two findings
+
+1. **The quiet re-anchor fires on EVERY stable frame** (`_try_detect` step 5 →
+   `setRef(fromCommit = false)`), and each one rebuilt the colour gamut from a full BGR→Lab **plus**
+   BGR→HSV pass over the whole plane. The only consumer of `refGamut` is
+   `FrameLoop.updateBaselineOcclusion`, which reads it exclusively in the `moving`/`occluded`
+   states — so every rebuild but the last one before motion starts was thrown away unread. Exactly
+   the `gridLineCoverage` class of bug: computed every frame, consumed sometimes.
+2. **The census channel transformed the plane twice per frame.** The re-anchor makes this frame's
+   `cur` the next frame's `refGray`, a *new object*, so the identity-keyed `_ref_census` cache
+   missed on almost every frame and re-derived codes for a plane the evidence channel had just
+   transformed.
+
+### Changed (all in `:core-engine`, all value-identical)
+
+- `EngineState.refGamut` is now **built on read**. `setRef` calls `markGamutStale(bgr)`, which
+  captures the exact plane the eager rebuild would have used — so a later re-anchor or commit
+  swapping `refBgr` cannot retarget it, and invariant 6 (`fromCommit` must not rebuild) is
+  unchanged. In the quiet state the rebuild simply never happens; it costs one build per motion
+  onset. This is work AVOIDED, not merely made faster — the battery half of the complaint.
+- `Census.kt` rewritten around the boxes. `censusCodesInBoxes` transforms only the 64 square boxes
+  (~63 % of the plane at `overhang = 0.25`), because **the only region any consumer of a
+  reference-code plane ever reads is a square box** — every one goes through
+  `perSquareCensusChange`, which now sums per box instead of building a code plane, a Hamming plane
+  and a `(w+1)*(h+1)` integral image. `perSquareCensusChange` gained a `codesOut` parameter, and
+  `refCensusCodes` **adopts** those codes by swapping buffers when the new reference is the plane
+  `computeEvidence` just transformed. Net: two full-plane transforms plus two full-plane passes per
+  frame become one box-scoped transform. The inner loop also slides its three neighbour columns
+  along in registers, so a pixel costs 3 plane reads instead of 9.
+  `censusTransform`'s `eps` parameter is gone — invariant 7 says it stays 0 and has no knob, and
+  nothing ever passed one. `CENSUS_EPS` and the test pinning it remain.
+- `Integral.kt` **deleted**. `perSquareDiff` and `_baseline_occlusion_and_shadow`'s three means now
+  sum per box (`absDiffMeans` / `planeMeans` in `SquareDiff.kt`). Python builds integrals because
+  NumPy makes them free; here each one cost a full pass plus a 5.1 MB `LongArray` to answer 64
+  queries over boxes covering ~63 % of the plane. Four such buffers left the working set.
+- `bgrToHsvBox` / `bgrToLabBox` (`ColorSpace.kt`) — the shadow veto converted **two** full planes
+  per detection frame to judge a handful of candidate squares, and the baseline occlusion pass
+  converted two more per moving frame to feed a chroma test that reads a few thousand pixels. Both
+  now convert only the boxes they read. The conversion is per-pixel, so a box is bit-identical to
+  the same box of a full conversion. `BaselineEvidence` therefore carries `curBgr` instead of
+  pre-converted `curLab`/`curHsv`: `chromaOutliers` is the only place that knows which squares are
+  strong enough to be worth converting.
+- `PlaneMean` (`FrameLoop.kt`) — `IntArray` accumulator instead of Python's float64. A window of a
+  handful of `uint8` planes sums EXACTLY in an `Int`, so `sum / n` lands on the same byte and
+  Python's periodic re-sum (which exists only to kill float drift) has no counterpart. The float64
+  version touched 15.4 MB per frame for the 1.92 MB BGR plane. The accumulator now also SURVIVES
+  `clear()` — the frame loop clears on every motion frame, so a fresh multi-megabyte array was
+  being allocated after every hand movement. Evict-and-add is one pass, not two, and the truncating
+  division goes through a ~1 KB L1-resident table.
+
+### Before → after
+
+**Device (f86dfdca, debug build), measured.** Steady quiet state, both runs on the same mounted
+camera minutes apart:
+
+| | `engine` ms | `total` (pipeline) ms | fps |
+|---|---|---|---|
+| baseline (`c03cfd3`) | 247–250 | 22–52 | 3.3–5.0 |
+| after | 36–52 | 22–45 | 10.4–11.1 |
+
+Per-stage on device, same probe, steady quiet frame: `ev.census` 123 000 → 5 700–7 500 us, gamut
+~88 000 → 0, `ev.diff` 7 200 → 1 300–1 650 us, `motion` 4 200 → 4 100 us, `means` 23 000 → 27 000 us.
+
+**⚠ The `PlaneMean` change is NOT verified on device.** The phone's battery died immediately after
+the run above, so the last optimisation — aimed at exactly the `means` stage that the device
+profile then showed as the largest remaining one, 27 ms of a 40 ms frame — has desktop evidence
+only. On desktop it is 3.2–3.5x on that stage. The expected device figure is therefore well under
+40 ms, but that is an inference, not a measurement: **re-measure before quoting an fps.**
+
+**Desktop, `EngineProfileTest`, 800x800, ms (median of 41 runs after 30 warmups):**
+
+| stage | before | after |
+|---|---|---|
+| `motionScore` (full plane) | 0.512 | 0.522 |
+| `perSquareDiff` | 0.454 | 0.190 |
+| `perSquareCensusChange` (+ the second, reference transform) | 2.635 + 2.370 | 1.018 |
+| `bgrToHsv` x2 for the veto | 2.644 | 0.165 |
+| `hsvShadowSquares` | 0.155 | 0.149 |
+| gamut rebuild (`bgrToLab` + `bgrToHsv` + `boardColorGamut`) | 3.739 **per quiet frame** | 0 per quiet frame |
+| `baselineOcclusionAndShadow` | 0.943 | 0.261 |
+| `RunningMeanGray` append + mean | 1.365 | 0.329 |
+| `RunningMeanBgr` append + mean | 4.365 | 1.164 |
+| **DETECT-branch pixel work** | **~15.9** | **~3.5** |
+| **MOTION-branch pixel work** | **~4.9** | **~0.8** |
+
+Machine noise between runs is +/-15 %; treat these as ratios, not absolutes.
+
+**Desktop, `ClipReplayTimingTest`, 18 clips / 969 frames at the fixtures' `detSize` 320** (best of
+3 launches, each best-of-5 after 2 warmups): **2.503 → 1.646 ms per frame, 1.52x**. The end-to-end
+ratio is much smaller than the device's because the fixtures are 320x320 — 1/6.25 of the phone's
+pixel count — so the per-frame constant (chesslib legal-move generation, scoring, object churn)
+dominates there, and the desktop JIT vectorises what ART does not.
+
+### Is >=15 fps met?
+
+**Not proven, and on the last measured build, no: ~10.5–11 fps.** Two things stand between that
+and 15:
+
+1. **The pipeline floor.** `total` (convert + warp + gray + ROI motion + grid) is 22–52 ms, usually
+   ~35. At 15 fps the whole frame budget is 66 ms, so the engine must fit in ~30 ms — and the
+   pipeline alone caps the loop at 20–27 fps no matter what the engine does. It is `:app`/OpenCV
+   and outside this pass's scope.
+2. **The engine's remaining floor**: `motionScore` (~4 ms, measured on device), the running means
+   (unverified after the last change; desktop implies ~10 ms), and the box census (~6 ms, measured).
+   That is plausibly ~25 ms, which would put the loop around 15 fps — but it needs a device to say
+   so, and the honest answer today is that the target is not demonstrated.
+
+### Rejected
+
+- **Lowering `detectScale` / `boardSize`.** 800x800 is a choice, not a law, and `detectScale =
+  0.375` would cut every remaining pixel stage by 44 % at a stroke. It is also a parity-relevant
+  knob — every threshold in `TRACK_DEFAULTS` was tuned at this resolution — so it is reported as a
+  **product decision for the user**, not taken here.
+- **Moving a pixel stage to `:app` with OpenCV.** Would break "the engine computes it, the fixtures
+  verify it", which is the whole reason the 969-frame replay runs on a desktop. Not needed either:
+  the measured win came from work avoidance, not from SIMD.
+- **Skipping the gamut rebuild rather than deferring it.** The gamut is derived from a plane that
+  changes every frame, so skipping would change the value the occlusion veto sees. Deferring does
+  not.
+- **Computing the census channel on a band.** The evidence channel needs all 64 squares, so no band
+  applies; and computing `cur` box-locally while leaving the *reference* to a later full transform
+  is strictly more work than transforming `cur` once and handing the codes over.
+- **An integer threshold in `motionScore`** (the `Int > Double` compare runs 640 k times per frame).
+  Correct for every finite threshold but not for `NaN`, and unverifiable without the device. Left
+  as a candidate.
+
+### Gate
+
+`:core-engine:test` — **320 tests, 0 failures, 2 skipped** (the two opt-in profilers);
+**`ClipReplayParityTest` 18/18 clips, 969 frames, ZERO diverging frames.** `:core-engine:detekt`
+and `ktlintCheck` green, no baseline additions, no `@Suppress`. `:app:assembleDebug`,
+`:app:testDebugUnitTest`, `:core-cnn:testDebugUnitTest`, `:core-geometry:testDebugUnitTest` green.
+
+`core-engine/build.gradle.kts` gained the `chesslab.profile` system property (mirroring `:app`'s
+`chesslab.sim`) and a 2 GB test heap.
