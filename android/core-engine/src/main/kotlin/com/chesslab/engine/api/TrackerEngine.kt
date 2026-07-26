@@ -2,7 +2,6 @@ package com.chesslab.engine.api
 
 import com.chesslab.engine.ALARM_BOARD_RESTORED
 import com.chesslab.engine.Candidate
-import com.chesslab.engine.Confirmer
 import com.chesslab.engine.DECIDER_USER
 import com.chesslab.engine.DecisionRecord
 import com.chesslab.engine.EngineState
@@ -119,6 +118,7 @@ class TrackerEngine(
         // not cover: `cnnFailed`, which the verify path raises mid-game. One integer comparison per
         // frame is what keeps the buffers and the gate that reads `state.avgFrames` in agreement.
         state.syncAvgWindow()
+        state.syncConfirmWindow()
         val outcome = loop.step(input)
         if (outcome is FrameOutcome.Detect) {
             events += state.tryDetect(outcome.cur, outcome.curBgr, outcome.seq, cnn)
@@ -146,6 +146,7 @@ class TrackerEngine(
         state.cnnRun = evaluator != null
         // Attaching flips `cnnOn`, and `avgFrames` is CNN-conditional (2 with, 3 without).
         state.syncAvgWindow()
+        state.syncConfirmWindow()
     }
 
     /**
@@ -311,16 +312,16 @@ class TrackerEngine(
     fun updateConfig(config: TrackerConfig) {
         val previous = state.config
         state.config = config
-        val cnnOn = state.cnnOn
         // Against the window the buffers are ACTUALLY sized for, not against `previous.avgFrames`
         // with the new `cnnOn` substituted into both sides: that comparison cancelled out whenever
         // the config change was the one that flipped `cnnOn` (`cnnVerify`), so turning CNN verify
         // off left the buffers on the with-CNN window.
         state.syncAvgWindow()
-        if (config.confirmFrames(cnnOn) != previous.confirmFrames(cnnOn)) {
-            state.confirmer = Confirmer(config.confirmFrames(cnnOn))
-            state.recoveryConfirmer = Confirmer(config.confirmFrames(cnnOn))
-        }
+        // Same correction, same reason: the old guard compared
+        // `config.confirmFrames(cnnOn)` against `previous.confirmFrames(cnnOn)` with the NEW
+        // `cnnOn` on both sides, so it was false exactly when the change was the one that moved
+        // the window.
+        state.syncConfirmWindow()
         if (config.detSize != previous.detSize || config.overhang != previous.overhang) {
             state.rebuildBoxes()
         }
