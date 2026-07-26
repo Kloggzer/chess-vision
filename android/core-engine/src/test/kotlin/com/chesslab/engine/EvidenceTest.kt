@@ -303,11 +303,43 @@ class EvidenceTest {
         assertTrue(state.refCensusFor === twin, "the cache key is the image identity, not equality")
         assertTrue(firstCodes.contentEquals(secondCodes), "equal pixels still give equal codes")
 
-        // `_maybe_patch_anomaly` mutates ref_gray in place and invalidates explicitly.
-        twin.data[0] = (twin.data[0].toInt() xor U8).toByte()
+        // `_maybe_patch_anomaly` mutates ref_gray in place and invalidates explicitly. The probe
+        // pixel has to sit INSIDE a square box: the codes are only defined there (the boxes are
+        // the only region any consumer reads, so nothing between them is transformed).
+        val boxes = state.evidenceBoxes
+        val probe = (boxes.y0[0] + boxes.y1[0]) / 2 * twin.width + (boxes.x0[0] + boxes.x1[0]) / 2
+        twin.data[probe] = (twin.data[probe].toInt() xor U8).toByte()
         state.refCensusFor = null
         val thirdCodes = state.refCensusCodes().copyOf()
         assertTrue(!secondCodes.contentEquals(thirdCodes), "an invalidated cache must recompute")
+    }
+
+    /**
+     * The reference codes may be ADOPTED from `computeEvidence` (the quiet re-anchor makes this
+     * frame's `cur` the next frame's reference) — and adopting must give exactly what a fresh
+     * transform would.
+     */
+    @Test
+    fun adoptedReferenceCodesEqualAFreshTransform() {
+        val state = testState()
+        state.refGray = texturedFrame(seed = 41L)
+        val cur = texturedFrame(seed = 42L)
+        state.computeEvidence(cur)
+        // The re-anchor: `cur` becomes the reference, and its codes are already in hand.
+        state.refGray = cur
+        state.refCensusFor = null
+        val adopted = state.refCensusCodes().copyOf()
+
+        val fresh = censusTransform(cur, out = ByteArray(cur.width * cur.height))
+        val boxes = state.evidenceBoxes
+        for (i in 0 until Squares.COUNT) {
+            for (y in boxes.y0[i] until boxes.y1[i]) {
+                for (x in boxes.x0[i] until boxes.x1[i]) {
+                    val at = y * cur.width + x
+                    assertEquals(fresh[at], adopted[at], "square ${Squares.ALL[i]} code at ($x, $y)")
+                }
+            }
+        }
     }
 
     // -- helpers ------------------------------------------------------------------------------

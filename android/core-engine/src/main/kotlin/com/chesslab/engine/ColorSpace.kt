@@ -104,8 +104,51 @@ internal fun bgrToHsv(
     out: ByteArray,
 ): ByteArray {
     requirePlanes(bgr.size, out.size, width, height)
-    val end = width * height * CHANNELS
-    for (p in 0 until end step CHANNELS) {
+    hsvRange(bgr, out, 0, width * height * CHANNELS)
+    return out
+}
+
+/**
+ * [bgrToHsv] over one `[x0, y0, x1, y1]` box only, written at its plane offsets.
+ *
+ * Every consumer of an HSV plane in this engine — the shadow veto, the gamut, the occlusion
+ * colour test — reads square boxes and nothing between them. Converting the whole 800x800 plane
+ * to answer a six-square question was the dominant cost of the veto and the occlusion pass.
+ * The conversion is per-pixel, so a box is bit-identical to the same box of a full conversion.
+ */
+internal fun bgrToHsvBox(
+    bgr: ByteArray,
+    width: Int,
+    box: IntArray,
+    out: ByteArray,
+) = forEachBoxRow(width, box) { from, to -> hsvRange(bgr, out, from, to) }
+
+/** [bgrToLab] over one box; see [bgrToHsvBox]. */
+internal fun bgrToLabBox(
+    bgr: ByteArray,
+    width: Int,
+    box: IntArray,
+    out: ByteArray,
+) = forEachBoxRow(width, box) { from, to -> labRange(bgr, out, from, to) }
+
+private inline fun forEachBoxRow(
+    width: Int,
+    box: IntArray,
+    row: (Int, Int) -> Unit,
+) {
+    val stride = width * CHANNELS
+    for (y in box[R_Y0] until box[R_Y1]) {
+        row(y * stride + box[R_X0] * CHANNELS, y * stride + box[R_X1] * CHANNELS)
+    }
+}
+
+private fun hsvRange(
+    bgr: ByteArray,
+    out: ByteArray,
+    from: Int,
+    end: Int,
+) {
+    for (p in from until end step CHANNELS) {
         val b = bgr[p].toInt() and BYTE_MASK
         val g = bgr[p + 1].toInt() and BYTE_MASK
         val r = bgr[p + 2].toInt() and BYTE_MASK
@@ -124,7 +167,6 @@ internal fun bgrToHsv(
         out[p + 1] = s.toByte()
         out[p + 2] = v.toByte()
     }
-    return out
 }
 
 // ---------------------------------------------------------------------------------------
@@ -222,8 +264,17 @@ internal fun bgrToLab(
     out: ByteArray,
 ): ByteArray {
     requirePlanes(bgr.size, out.size, width, height)
-    val end = width * height * CHANNELS
-    for (p in 0 until end step CHANNELS) {
+    labRange(bgr, out, 0, width * height * CHANNELS)
+    return out
+}
+
+private fun labRange(
+    bgr: ByteArray,
+    out: ByteArray,
+    from: Int,
+    end: Int,
+) {
+    for (p in from until end step CHANNELS) {
         val b = srgbGammaTab[bgr[p].toInt() and BYTE_MASK]
         val g = srgbGammaTab[bgr[p + 1].toInt() and BYTE_MASK]
         val r = srgbGammaTab[bgr[p + 2].toInt() and BYTE_MASK]
@@ -234,7 +285,6 @@ internal fun bgrToLab(
         out[p + 1] = descale(A_SCALE * (fx - fy) + AB_OFFSET, LAB_SHIFT2).coerceIn(0, U8_MAX).toByte()
         out[p + 2] = descale(B_SCALE * (fy - fz) + AB_OFFSET, LAB_SHIFT2).coerceIn(0, U8_MAX).toByte()
     }
-    return out
 }
 
 private fun cbrtIndex(

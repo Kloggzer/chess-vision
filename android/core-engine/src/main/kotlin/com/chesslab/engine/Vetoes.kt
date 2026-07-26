@@ -55,6 +55,11 @@ internal fun EngineState.applyVetoes(
  *
  * Python hands `cv2.cvtColor` the two BGR planes on every call; this port takes the converted HSV
  * planes, so the conversion happens here, into reusable buffers.
+ *
+ * Only the CANDIDATES' boxes are converted. [hsvShadowSquares] looks at exactly those boxes, and
+ * the conversion is per-pixel, so this is the same answer for a fraction of the pixels — two full
+ * 800x800 conversions per detection frame to judge a handful of squares was the veto's whole cost.
+ * Everything outside the boxes is leftover from an earlier frame and never read.
  */
 private fun EngineState.hsvShadows(
     ref: BgrImage,
@@ -64,9 +69,13 @@ private fun EngineState.hsvShadows(
     val need = cur.width * cur.height * BGR_CHANNELS
     if (refHsvBuf.size != need) refHsvBuf = ByteArray(need)
     if (curHsvBuf.size != need) curHsvBuf = ByteArray(need)
-    bgrToHsv(ref.data, ref.width, ref.height, refHsvBuf)
-    bgrToHsv(cur.data, cur.width, cur.height, curHsvBuf)
     val geom = PlaneGeometry(cur.width, cur.height, detSize, whitePov, config.overhang)
+    candidates.forEachSquare { i ->
+        geom.region(i, geom.extendUp)?.let { box ->
+            bgrToHsvBox(ref.data, ref.width, box, refHsvBuf)
+            bgrToHsvBox(cur.data, cur.width, box, curHsvBuf)
+        }
+    }
     return hsvShadowSquares(refHsvBuf, curHsvBuf, geom, candidates)
 }
 

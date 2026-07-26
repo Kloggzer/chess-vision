@@ -190,8 +190,7 @@ class MotionNoiseParityTest {
             BaselineEvidence(
                 refCodes = censusTransform(inputs.refGray, out = censusBuffer(det, det)),
                 occlCensusThr = block.occlCensusThr,
-                curLab = toLab(curBgr.data, det),
-                curHsv = toHsv(curBgr.data, det),
+                curBgr = curBgr,
                 gamut = gamut,
                 colorThr = block.colorThr,
             )

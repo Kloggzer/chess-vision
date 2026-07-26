@@ -1,8 +1,11 @@
 package com.chesslab.engine
 
+import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.GrayImage
 
 private const val WEAK_DARKENING_DIVISOR = 2.0
+
+private const val BGR_CHANNELS = 3
 
 /**
  * Orthogonal (4-) neighbour MASK per square index, Python `_SQ_NEIGHBOURS`.
@@ -27,14 +30,13 @@ internal val SQ_NEIGHBOURS: LongArray =
  * All absent (the default) is Python's **legacy mode**: a strong square is simply occluded, which
  * conflates hard cast shadows with hands.
  *
- * [curLab] / [curHsv] are the current BGR warp already converted by the caller; Python converts
- * inside `occlusion_color_squares`, which `:core-engine` cannot afford per call.
+ * [curBgr] is the current BGR warp; the Lab/HSV conversion happens inside [chromaOutliers], which
+ * is the only place that knows WHICH squares are strong enough to be worth converting.
  */
 internal class BaselineEvidence(
     val refCodes: ByteArray? = null,
     val occlCensusThr: Double = 0.0,
-    val curLab: ByteArray? = null,
-    val curHsv: ByteArray? = null,
+    val curBgr: BgrImage? = null,
     val gamut: ColorGamut? = null,
     val colorThr: Double = 0.0,
 )
@@ -52,11 +54,9 @@ internal class BaselineResult(
     val core: Long,
 )
 
-// Scratch, private to this file and fully consumed inside the call, so nothing can alias another
-// caller's integral (see 01a's `integralBuffer` contract). The engine is single-threaded.
-private var occIntegral = LongArray(0)
-private var curIntegral = LongArray(0)
-private var refIntegral = LongArray(0)
+// Scratch, private to this file and fully consumed inside the call. The engine is single-threaded.
+private var labBuf = ByteArray(0)
+private var hsvBuf = ByteArray(0)
 private val occMeans = DoubleArray(Squares.COUNT)
 private val curMeans = DoubleArray(Squares.COUNT)
 private val refMeans = DoubleArray(Squares.COUNT)
@@ -120,14 +120,9 @@ private fun computeMeans(
     boxes: SquareBoxes,
 ) {
     val width = curGray.width
-    val height = curGray.height
-    occIntegral = integralBuffer(width, height, occIntegral)
-    curIntegral = integralBuffer(width, height, curIntegral)
-    refIntegral = integralBuffer(width, height, refIntegral)
-    val occ = integralAbsDiff(curGray.data, refGray.data, width, height, occIntegral)
-    regionMeans(occ, width, boxes, occMeans)
-    regionMeans(integral(curGray.data, width, height, curIntegral), width, boxes, curMeans)
-    regionMeans(integral(refGray.data, width, height, refIntegral), width, boxes, refMeans)
+    absDiffMeans(curGray.data, refGray.data, width, boxes, occMeans)
+    planeMeans(curGray.data, width, boxes, curMeans)
+    planeMeans(refGray.data, width, boxes, refMeans)
 }
 
 /**
@@ -153,7 +148,14 @@ private fun censusChannel(
     return perSquareCensusChange(refCodes, curGray, boxes, censValues, intArrayOf(bandLo - 1, bandHi + 1))
 }
 
-/** Skin/fabric chroma outliers among the strong squares. */
+/**
+ * Skin/fabric chroma outliers among the strong squares.
+ *
+ * The Lab and HSV conversions are done here, per strong square, and not by the caller: they are
+ * needed only for squares that already cleared the absdiff gate, which on a real frame is a
+ * handful — converting the whole plane up front cost 50 ms per moving frame on the phone to feed
+ * a test that reads a few thousand pixels.
+ */
 private fun chromaOutliers(
     curGray: GrayImage,
     boardSize: Int,
@@ -162,13 +164,21 @@ private fun chromaOutliers(
     strong: Long,
 ): Long {
     val gamut = evidence.gamut
-    val lab = evidence.curLab
-    val hsv = evidence.curHsv
-    if (gamut == null || lab == null || hsv == null) return 0L
+    val bgr = evidence.curBgr ?: return 0L
+    if (gamut == null) return 0L
     // Python calls `occlusion_color_squares` with the DEFAULT `extend_up = 0.0` here — the base
     // box only, never the overhang box. A non-positive `colorThr` is handled in there.
     val geom = PlaneGeometry(curGray.width, curGray.height, boardSize, whitePov, extendUp = 0.0)
-    return occlusionColorSquares(ColorPlanes(lab, hsv), geom, gamut, strong, evidence.colorThr)
+    val need = bgr.width * bgr.height * BGR_CHANNELS
+    if (labBuf.size != need) labBuf = ByteArray(need)
+    if (hsvBuf.size != need) hsvBuf = ByteArray(need)
+    strong.forEachSquare { i ->
+        geom.region(i, 0.0)?.let { box ->
+            bgrToLabBox(bgr.data, bgr.width, box, labBuf)
+            bgrToHsvBox(bgr.data, bgr.width, box, hsvBuf)
+        }
+    }
+    return occlusionColorSquares(ColorPlanes(labBuf, hsvBuf), geom, gamut, strong, evidence.colorThr)
 }
 
 private fun isOccluder(

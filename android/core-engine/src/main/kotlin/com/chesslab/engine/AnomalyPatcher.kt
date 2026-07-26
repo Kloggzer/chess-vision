@@ -61,8 +61,10 @@ internal fun EngineState.maybePatchAnomaly(
         val result = patchDueSquares(hot, ref, cur, curBgr)
         if (result.patched != 0L) {
             anomalySince = anomalySince.without(result.patched)
-            // `refGray` was mutated IN PLACE, so the identity-keyed census cache must recode.
+            // `refGray` was mutated IN PLACE, so both identity-keyed census caches must recode —
+            // `curCensusFor` can name the very same plane and would hand back stale codes.
             refCensusFor = null
+            curCensusFor = null
             note =
                 "Reference pulled forward (${result.patched.sortedSquareNames().joinToString(", ")}): " +
                 "${result.why} — no move"

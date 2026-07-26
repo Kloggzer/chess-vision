@@ -26,4 +26,11 @@ dependencies {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+    // Opt-in hot-path profiler (`EngineProfileTest`). Off by default: it burns seconds of CPU and
+    // asserts nothing, so it must never be part of the gate. Run with `-Pchesslab.profile=true`.
+    systemProperty("chesslab.profile", providers.gradleProperty("chesslab.profile").getOrElse("false"))
+    // A profiler that prints its results and nothing else needs its stdout to reach the console.
+    if (providers.gradleProperty("chesslab.profile").getOrElse("false") == "true") {
+        testLogging.showStandardStreams = true
+    }
 }
