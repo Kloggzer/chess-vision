@@ -29,6 +29,15 @@ private const val N = 8
 /** Enough to read the square through, not so little that it reads as another outline. */
 private const val CONFLICT_FILL = 0.35f
 
+/** Full tint at twice the engine's `zThr` default, so a square approaching the gate is visible. */
+private const val ZTHR_DISPLAY = 6.0
+
+/** Below this the tint is sensor noise and would haze the whole board. */
+private const val HEAT_FLOOR = 0.08f
+
+/** The heat must never hide the pieces — it is an annotation on the picture, not a replacement. */
+private const val HEAT_MAX_ALPHA = 0.55f
+
 /**
  * Where a `ContentScale.Fit` image really lands inside [box].
  *
@@ -90,6 +99,11 @@ fun BoardPreview(
         if (showEvidence) {
             Canvas(Modifier.fillMaxSize()) {
                 val rect = fittedRect(size, bitmap.width, bitmap.height)
+                // Bottom layer, and always on — Python draws its grid unconditionally. It is what
+                // lets you see whether a square boundary sits where the board's boundary is; an
+                // overlay with no grid cannot be checked against the picture underneath it.
+                drawGrid(rect, palette.overlayGrid)
+                drawHeat(rect, overlay.z, palette.overlayChanged)
                 drawSquares(rect, overlay.changed, palette.overlayChanged)
                 drawSquares(rect, overlay.shadowVetoed, palette.overlayShadow)
                 drawSquares(rect, overlay.occlusionVetoed, palette.overlayOcclusion)
@@ -125,6 +139,42 @@ internal fun cellRect(
         Offset(board.left + file * w, board.top + (N - rank) * h),
         Size(w, h),
     )
+}
+
+/** The 8x8, always. Python's `_encode_overlay` draws its green grid before anything else. */
+private fun DrawScope.drawGrid(
+    board: Rect,
+    color: Color,
+) {
+    for (i in 0..N) {
+        val x = board.left + board.width * i / N
+        val y = board.top + board.height * i / N
+        drawLine(color, Offset(x, board.top), Offset(x, board.bottom), strokeWidth = 1.dp.toPx())
+        drawLine(color, Offset(board.left, y), Offset(board.right, y), strokeWidth = 1.dp.toPx())
+    }
+}
+
+/**
+ * How strongly each square differs from the reference, as a tint.
+ *
+ * Android showed only the discrete `changed` SET, which is the answer after the thresholds have
+ * been applied — so a square at z = 2.9 and a square at z = 0.1 looked identical (both: nothing).
+ * Python has a whole diff view for this reason. This is its per-square equivalent, off the `z`
+ * scores the status already carries; [ZTHR_DISPLAY] is the scale, not a threshold — the engine's
+ * own `zThr` decides what counts, this only decides what you can see approaching it.
+ */
+private fun DrawScope.drawHeat(
+    board: Rect,
+    z: Map<String, Double>,
+    color: Color,
+) {
+    z.forEach { (square, value) ->
+        val strength = (value / ZTHR_DISPLAY).coerceIn(0.0, 1.0).toFloat()
+        if (strength <= HEAT_FLOOR) return@forEach
+        cellRect(board, square)?.let {
+            drawRect(color.copy(alpha = strength * HEAT_MAX_ALPHA), it.topLeft, it.size)
+        }
+    }
 }
 
 private fun DrawScope.drawSquares(

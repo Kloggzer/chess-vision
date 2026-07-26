@@ -22,6 +22,8 @@ data class OverlayLayers(
     val shadowVetoed: Set<String> = emptySet(),
     val occlusionVetoed: Set<String> = emptySet(),
     val cnnConflicts: Set<String> = emptySet(),
+    /** Per-square z score — what the diff algorithm sees BEFORE the thresholds decide. */
+    val z: Map<String, Double> = emptyMap(),
 )
 
 data class AlarmUi(
@@ -147,6 +149,7 @@ fun trackingUiState(
                 shadowVetoed = status.shadowVetoed,
                 occlusionVetoed = status.occlusionVetoed,
                 cnnConflicts = status.cnnConflicts,
+                z = status.z,
             ),
         corners = status.corners,
     )
