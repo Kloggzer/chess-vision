@@ -32,6 +32,7 @@ venv/
 
 # Agent-Workspaces / Scratch
 .deepseek/
+scratch/
 _fix_*.py
 ruff_raw_output.txt
 eslint_output.txt
