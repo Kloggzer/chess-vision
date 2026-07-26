@@ -27,6 +27,11 @@ internal class OrtSessionRunner(
     modelFile: File,
     override val requested: Ep,
     profileDir: File,
+    /**
+     * Where to dump the HTP-compiled graph, or null when there is nothing to compile — either the
+     * EP is not QNN, or [modelFile] already IS the cached context.
+     */
+    private val qnnContext: File? = null,
 ) : SessionRunner {
     /** The file that was really loaded — never the one 07a asked for. */
     override val model: String = modelFile.name
@@ -73,10 +78,27 @@ internal class OrtSessionRunner(
         when (choice) {
             // epChain only offers QNN when model.qnn.onnx was staged, and `modelFor` hands it
             // exactly that file — the HTP backend would reject the float32 graph.
-            Ep.QNN -> opts.addQnn(mapOf("backend_path" to QNN_HTP_LIB, "htp_performance_mode" to "burst"))
+            Ep.QNN -> {
+                opts.addQnn(mapOf("backend_path" to QNN_HTP_LIB, "htp_performance_mode" to "burst"))
+                qnnContext?.let(::writeContextTo)?.forEach { (key, value) -> opts.addConfigEntry(key, value) }
+            }
             Ep.NNAPI -> opts.addNnapi(EnumSet.of(NNAPIFlags.USE_FP16))
             Ep.CPU -> Unit
         }
         return opts
     }
+
+    /**
+     * Ask ORT to serialise the compiled graph next to the model.
+     *
+     * `embed_mode = 1` keeps the device binary inside the ONNX rather than in a sibling `.bin`, so
+     * the cache is one file and cannot half-exist. This session still runs normally; the dump is a
+     * side effect of creating it.
+     */
+    private fun writeContextTo(target: File): Map<String, String> =
+        mapOf(
+            "ep.context_enable" to "1",
+            "ep.context_file_path" to target.absolutePath,
+            "ep.context_embed_mode" to "1",
+        )
 }

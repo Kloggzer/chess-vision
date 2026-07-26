@@ -82,6 +82,9 @@ class CnnObserver(
     @Volatile
     private var enabled = true
 
+    /** Observer thread only — [logObservation] is the sole reader and writer. */
+    private var lastObservationLogMs = 0L
+
     /** `_observer_due`. Also drives 05b's `CropFrameStore.wantsFrame()` — no crop warp while busy. */
     fun wantsFrame(): Boolean = enabled && state.value is CnnState.Ready && !busy && nowMs() - startedMs >= intervalMs
 
@@ -153,18 +156,44 @@ class CnnObserver(
         busy = false
     }
 
+    /**
+     * One line per second, so a real steady-state number exists in logcat.
+     *
+     * Every on-device CNN timing on record was a cold warm-up batch with ORT profiling armed —
+     * including the 97 ms that the CPU-vs-NPU comparison was built on. This is the warm number,
+     * and it INCLUDES preprocessing, which is the half that does not get faster when the graph
+     * moves to the NPU.
+     */
+    private fun logObservation(
+        cnn: SquareClassifier,
+        inferMs: Double,
+        crops: Int,
+    ) {
+        val now = nowMs()
+        if (now - lastObservationLogMs < BACKOFF_MS) return
+        lastObservationLogMs = now
+        // The split is the point. Preprocessing is 64 crops resized and normalised into 3.1 M
+        // floats on THIS thread and does not get faster when the graph moves to the NPU, so a
+        // single total cannot say whether an accelerator helped.
+        val session = (cnn as? OnnxSquareClassifier)?.lastRunMs ?: 0.0
+        val prep = inferMs - session
+        log.info("CNN observation ${inferMs.toLong()} ms for $crops crops = ${prep.toLong()} prep + ${session.toLong()} session")
+    }
+
     private fun runObservation(startFen: String?) {
         val cnn = classifier ?: return
         val frame = source.take() ?: return
         val started = nowMs()
         val probs = cnn.classify(frame.crops)
         val obs = observationFromProbs(probs, cnn.classes)
+        val inferMs = (nowMs() - started).toDouble()
+        logObservation(cnn, inferMs, frame.crops.size)
         onSnapshot(
             CnnSnapshot(
                 obs = obs,
                 seq = frame.seq,
                 tsMs = frame.tsMs,
-                inferMs = (nowMs() - started).toDouble(),
+                inferMs = inferMs,
                 warped = frame.warped,
                 gray = frame.gray,
                 fen = startFen,

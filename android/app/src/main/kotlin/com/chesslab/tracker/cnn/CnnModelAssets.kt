@@ -10,6 +10,15 @@ const val MODEL_FP32_FILE = "model.onnx"
 const val MODEL_QNN_FILE = "model.qnn.onnx"
 const val MODEL_CONFIG_FILE = "config.json"
 
+/**
+ * The QDQ graph AFTER the HTP has compiled it — an `EPContext` ONNX holding the device binary.
+ *
+ * Not shipped: it is produced on first attach and is specific to this SoC and this QNN version.
+ * Compiling `model.qnn.onnx` on device took **4 min 25 s** on an SM8650 (measured), so without
+ * this cache every launch would pay it.
+ */
+const val MODEL_QNN_CTX_FILE = "model.qnn_ctx.onnx"
+
 private const val ASSET_DIR = "cnn_model"
 
 /** A staged model directory: real files on disk, because ORT needs a path for the QNN backend library. */
@@ -36,8 +45,14 @@ class CnnModelAssets(
         dir.mkdirs()
         val config = stageFile(MODEL_CONFIG_FILE) ?: error("missing asset $ASSET_DIR/$MODEL_CONFIG_FILE")
         val fp32 = stageFile(graph) ?: error("missing asset $ASSET_DIR/$graph")
-        return StagedModel(dir = dir, configJson = config.readText(), fp32 = fp32, qnn = stageFile(MODEL_QNN_FILE))
+        val qnn = stageFile(MODEL_QNN_FILE)
+        // A recopied graph invalidates its compiled form — the cached context is a binary of the
+        // OLD nodes and QNN would happily keep running it.
+        if (recopied) File(dir, MODEL_QNN_CTX_FILE).delete()
+        return StagedModel(dir = dir, configJson = config.readText(), fp32 = fp32, qnn = qnn)
     }
+
+    private var recopied = false
 
     /** Size-guarded: an already-staged file of the same length is left alone. */
     private fun stageFile(name: String): File? {
@@ -47,6 +62,7 @@ class CnnModelAssets(
             val expected = input.available().toLong()
             if (!target.isFile || target.length() != expected) {
                 target.outputStream().use { input.copyTo(it) }
+                recopied = true
             }
             target
         }
