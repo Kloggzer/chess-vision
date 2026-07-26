@@ -11,6 +11,11 @@ data class GameSessionState(
     val moveCount: Int = 0,
     val lastSavedId: String? = null,
     val recordingSessionId: String? = null,
+    /**
+     * Frames the RUNNING session has written. A session id alone made a recorder that had written
+     * nothing for ten minutes look exactly like one that was working.
+     */
+    val recordedFrames: Int = 0,
     val recordingReason: String? = null,
 )
 
@@ -51,10 +56,17 @@ class GameSessionController(
         status: TrackerStatus?,
     ) {
         when (event) {
-            is TrackerEvent.MoveCommitted -> onCommitted(event, status)
+            is TrackerEvent.MoveCommitted -> onCommitted(listOf(event.uci), listOf(event.san), event.fenAfter, status)
+            // Fast play (`Commit.kt:165`) and CNN recovery (`CnnTick.kt:252`) commit real plies
+            // through THIS event, and the engine queues a session photo for it exactly as it does
+            // for a single move. Dropping it lost those moves from the game and their frames from
+            // the recording, while the move list and the notification counted them.
+            is TrackerEvent.SequenceCommitted -> onCommitted(event.ucis, event.sans, event.fenAfter, status)
             // The tracker's own proof that nothing is moving — Python flushes the deferred session
-            // photo exactly here (`tracker.py:405`, the quiet re-anchor branch).
-            is TrackerEvent.ReAnchored -> capture.flush()
+            // photo here, but ONLY with an empty occlusion set (`tracker.py:3085`). A re-anchor is
+            // emitted unconditionally (`TrackerEngine.kt:414`), so the check belongs here: without
+            // it the photo is taken with a hand still over the board.
+            is TrackerEvent.ReAnchored -> if (isClean(status)) capture.flush()
             else -> Unit
         }
         publish()
@@ -82,24 +94,31 @@ class GameSessionController(
     }
 
     private fun onCommitted(
-        event: TrackerEvent.MoveCommitted,
+        ucis: List<String>,
+        sans: List<String>,
+        fenAfter: String,
         status: TrackerStatus?,
     ) {
         val game = live ?: LiveGame(startFen, now(), profile).also { live = it }
-        val decision = status?.debug?.decisions?.lastOrNull { it.accepted && it.uci == event.uci }
-        game.onCommitted(event, now(), decision)
-        // Python's "clean board" = no occlusion vetoes and no tainted squares. `tainted` rides on
-        // the debug payload only (D03d-9), so with debug off the occlusion set is what we have.
-        val clean = status?.occlusionVetoed.isNullOrEmpty() && status?.debug?.tainted.isNullOrEmpty()
-        capture.queue(game.moveCount, event.fenAfter, event.san, clean)
-        if (resultFromFen(event.fenAfter) != "*") endAndSave()
+        // The engine records provenance on the LAST ply of a commit, never on both (`Commit.kt:157`).
+        val decision = status?.debug?.decisions?.lastOrNull { it.accepted && it.uci == ucis.last() }
+        game.onCommitted(ucis, sans, fenAfter, now(), decision)
+        capture.queue(game.moveCount, fenAfter, sans.last(), isClean(status))
+        if (resultFromFen(fenAfter) != "*") endAndSave()
     }
+
+    /**
+     * Python's "clean board" — no occlusion vetoes and no tainted squares. `tainted` rides on the
+     * debug payload only (D03d-9), so with debug off the occlusion set is what we have.
+     */
+    private fun isClean(status: TrackerStatus?): Boolean = status?.occlusionVetoed.isNullOrEmpty() && status?.debug?.tainted.isNullOrEmpty()
 
     private fun publish() {
         mutable.value =
             mutable.value.copy(
                 moveCount = live?.moveCount ?: 0,
                 recordingSessionId = capture.recorder?.sessionId,
+                recordedFrames = capture.recorder?.count ?: 0,
                 recordingReason = capture.reason,
             )
     }

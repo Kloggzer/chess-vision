@@ -78,11 +78,20 @@ class RecordingGates(
         return true
     }
 
-    /** Both gates, in Python's order. Re-run at flush time, not only when a capture is queued. */
+    /**
+     * Both gates, in Python's order. Re-run at flush time, not only when a capture is queued.
+     *
+     * [reason] is cleared first: it used to survive the condition that set it, so one transient
+     * geometry blip left "board geometry unresolved" standing on the only diagnostic the user
+     * sees, forever, while recording was in fact running again.
+     */
     fun blocks(
         fen: String,
         geometryNote: String?,
-    ): Boolean = geometrySuspends(geometryNote) || inventorySkips(fen)
+    ): Boolean {
+        reason = null
+        return geometrySuspends(geometryNote) || inventorySkips(fen)
+    }
 }
 
 /**

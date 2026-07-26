@@ -67,7 +67,15 @@ class SessionCaptureController(
     var stoppedReason: String? = null
         private set
 
-    val reason: String? get() = stoppedReason ?: gates.reason
+    /** Frames the writer could not produce in the RUNNING session. Reset by [stop]. */
+    var failedWrites: Int = 0
+        private set
+
+    /**
+     * Why nothing is being written, most severe first: recording halted, then data actually lost,
+     * then a skip that is by design (geometry suspended, inventory violation).
+     */
+    val reason: String? get() = stoppedReason ?: writeFailure() ?: gates.reason
 
     /**
      * A move was committed. [clean] is the board's state as the tracker sees it: no occlusion-
@@ -103,9 +111,16 @@ class SessionCaptureController(
 
     private fun capture(due: Pending): String? {
         val frame = source.grab() ?: return null
-        val active = (recorder ?: startRecorder(frame))?.takeUnless(::capReached) ?: return null
+        // BEFORE the recorder is opened: `SessionRecorder.<init>` writes `frames/`, `log.jsonl`
+        // and `session.yaml`, so a start the cap then refused left an empty session directory on
+        // disk — which then counted against the cap for the next one.
+        val active = if (capReached()) null else (recorder ?: startRecorder(frame))
+        if (active == null) return null
         pending = null
-        return active.capture(frame.writer, due.ply, due.fen, due.san, frame.corners)
+        val written = active.capture(frame.writer, due.ply, due.fen, due.san, frame.corners)
+        // Python logs here (`tracker.py:2878`); this was the one failure that left no trace at all.
+        if (written == null) failedWrites++
+        return written
     }
 
     /** A taken-back move must not survive as labeled data (`tracker.py:2782`). */
@@ -118,6 +133,7 @@ class SessionCaptureController(
         val active = recorder ?: return null
         recorder = null
         pending = null
+        failedWrites = 0
         return active.finish()
     }
 
@@ -126,13 +142,15 @@ class SessionCaptureController(
         return open(frame)?.also { recorder = it }
     }
 
-    private fun capReached(active: SessionRecorder): Boolean {
+    private fun capReached(): Boolean {
         val cap = prefs().capBytes
-        if (cap <= 0L || existingBytes() + active.bytes < cap) return false
+        if (cap <= 0L || existingBytes() + (recorder?.bytes ?: 0L) < cap) return false
         stoppedReason = "recording stopped: ${cap / (KB * KB)} MB limit reached"
+        recorder?.finish()
         recorder = null
         pending = null
-        active.finish()
         return true
     }
+
+    private fun writeFailure(): String? = if (failedWrites == 0) null else "frame could not be written — $failedWrites lost"
 }
