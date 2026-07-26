@@ -83,8 +83,10 @@ private fun StageRow(stat: StageStat) {
 }
 
 /** Phase 09's acceptance line is >= 15 fps; anything slower is red, not "a bit high". */
+@androidx.compose.runtime.Composable
 private fun budgetTone(ms: Double): Color = if (ms > FRAME_BUDGET_MS) Danger else Accent
 
+@androidx.compose.runtime.Composable
 private fun fpsTone(fps: Double): Color =
     when {
         fps >= FPS_TARGET -> Accent
@@ -107,6 +109,7 @@ private val SLICE_COLORS =
         Color(0xFFF06292),
     )
 
+@androidx.compose.runtime.Composable
 private fun sliceColor(stage: String): Color = if (stage == TOTAL) OnSurface else SLICE_COLORS[stage.hashCode().mod(SLICE_COLORS.size)]
 
 internal fun fmt(

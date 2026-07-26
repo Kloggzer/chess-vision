@@ -40,8 +40,15 @@ private const val NO_EVAL = "–"
 
 private val BAR_WIDTH = 18.dp
 
-/** Off, the bar is a hairline: it is the ONLY way into the settings sheet, so it cannot vanish. */
-private val BAR_WIDTH_COLLAPSED = 6.dp
+/**
+ * The slot is wider than the bar so `+0.3` and `-M3` fit on ONE line — at bar width the label
+ * wrapped to `+0.` / `3`, which is not a number anybody can read at arm's length.
+ *
+ * The width does not change when analysis is off: a 6dp hairline beside the board read as a
+ * rendering artifact rather than a control, and this is still the ONLY way into the analysis
+ * settings sheet, so it cannot shrink to nothing either.
+ */
+private val SLOT_WIDTH = 40.dp
 
 /** The centipawn score as pawns, or `M3` for a mate. Pure, so the sign convention is testable. */
 internal fun evalLabel(result: AnalysisResult?): String {
@@ -78,7 +85,7 @@ fun EvalBarSlot(modifier: Modifier = Modifier) {
     var showPanel by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     Column(
-        modifier.fillMaxHeight().width(if (settings.enabled) BAR_WIDTH else BAR_WIDTH_COLLAPSED).pointerInput(settings.enabled) {
+        modifier.fillMaxHeight().width(SLOT_WIDTH).pointerInput(settings.enabled) {
             detectTapGestures(
                 onTap = { if (settings.enabled) showPanel = true else showSettings = true },
                 onLongPress = { showSettings = true },
@@ -87,10 +94,20 @@ fun EvalBarSlot(modifier: Modifier = Modifier) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        if (settings.enabled) {
-            Text(evalLabel(result), style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted)
-        }
-        EvalFill(winWhite = result?.winWhite, paused = block != null)
+        Text(
+            text = if (settings.enabled) evalLabel(result) else "eval",
+            style = MaterialTheme.typography.labelSmall,
+            color = OnSurfaceMuted,
+            maxLines = 1,
+            softWrap = false,
+        )
+        // `weight`, not `fillMaxHeight`: with both children filling, the label and the bar each
+        // claimed the whole column and the bar overflowed past the board it belongs beside.
+        EvalFill(
+            winWhite = if (settings.enabled) result?.winWhite else null,
+            paused = block != null || !settings.enabled,
+            modifier = Modifier.width(BAR_WIDTH).weight(1f),
+        )
     }
 
     if (showPanel) AnalysisPanel(result = result, block = block, onDismiss = { showPanel = false })
@@ -104,12 +121,11 @@ fun EvalBarSlot(modifier: Modifier = Modifier) {
 private fun EvalFill(
     winWhite: Double?,
     paused: Boolean,
+    modifier: Modifier = Modifier,
 ) {
     val white = ((winWhite ?: 50.0) / 100.0).toFloat()
     Column(
-        Modifier
-            .fillMaxWidth()
-            .fillMaxHeight()
+        modifier
             .clip(RoundedCornerShape(3.dp))
             .background(BoardDark),
     ) {

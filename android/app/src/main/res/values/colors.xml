@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The launch window only. Mirrors `PaperPalette.background` in `ui/theme/Color.kt`; the
+         night qualifier mirrors `InkPalette.background`. Without both, every cold start flashes
+         the wrong scheme before Compose draws. -->
+    <color name="chesslab_background">#FFF3EDE3</color>
+</resources>

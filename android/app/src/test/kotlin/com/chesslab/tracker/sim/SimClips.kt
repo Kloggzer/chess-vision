@@ -33,6 +33,36 @@ internal fun repoRoot(): File {
     return dir
 }
 
+/** One model under comparison: a directory holding `model.onnx` + `config.json`. */
+internal class SimModel(
+    val name: String,
+    val dir: File,
+)
+
+/**
+ * The models the run compares, from `-Pchesslab.sim.models=<dir>[,<dir>…]` (repo-relative or
+ * absolute). Empty property = the bundled app assets alone, i.e. exactly what ships.
+ *
+ * Selectable rather than hand-swapped assets: swapping files in `app/src/main/assets` to compare
+ * two runs makes the committed APK content depend on which experiment ran last.
+ */
+internal fun simModels(): List<SimModel> {
+    val spec = System.getProperty("chesslab.sim.models").orEmpty().trim()
+    val dirs =
+        spec
+            .split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .ifEmpty { listOf(ASSET_MODEL_DIR) }
+    return dirs.map { path ->
+        val dir = File(path).let { if (it.isAbsolute) it else File(repoRoot(), path) }
+        require(File(dir, "model.onnx").isFile) { "no model.onnx in $dir" }
+        SimModel(name = if (path == ASSET_MODEL_DIR) "app-assets" else dir.name, dir = dir)
+    }
+}
+
+private const val ASSET_MODEL_DIR = "android/app/src/main/assets/cnn_model"
+
 /** What the Blender scene rendered — the answer every run is scored against. */
 internal class SimTruth(
     val sans: List<String>,
@@ -90,16 +120,21 @@ internal fun simClips(): List<SimClip> {
 }
 
 /**
- * `frame_labels[i].fen` for every rendered frame, `null` where `occluded` is true.
+ * The true FEN of every RENDERED VIDEO FRAME, `null` where the label marks the board occluded.
  *
- * Ground truth for [ObsAudit]. Occluded frames are dropped at the source: a hand over the board
- * makes the model's disagreement with the position CORRECT, and counting it as an error would
- * mask the misreads that matter.
+ * `frame_labels` are KEYFRAMES, not video frames: each entry carries a `hold` count of how many
+ * frames it was rendered for, and `sum(hold)` equals the mp4's frame count exactly for all 20
+ * clips (verified 2026-07-25). Indexing the array by video-frame index — which this did before —
+ * silently scores frame 24 against keyframe 24 and makes every audit number meaningless.
+ *
+ * Occluded frames are dropped at the source: a hand over the board makes the model's disagreement
+ * with the position CORRECT, and counting it as an error would mask the misreads that matter.
  */
 private fun truthFenOf(labels: JsonObject): List<String?> =
-    labels.getValue("frame_labels").jsonArray.map { entry ->
+    labels.getValue("frame_labels").jsonArray.flatMap { entry ->
         val row = entry.jsonObject
-        if (row.getValue("occluded").jsonPrimitive.boolean) null else row.getValue("fen").jsonPrimitive.content
+        val fen = if (row.getValue("occluded").jsonPrimitive.boolean) null else row.getValue("fen").jsonPrimitive.content
+        List(row.getValue("hold").jsonPrimitive.int) { fen }
     }
 
 private const val PROMO_UCI_LENGTH = 5

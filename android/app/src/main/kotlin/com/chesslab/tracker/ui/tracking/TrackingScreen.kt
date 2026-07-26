@@ -1,16 +1,20 @@
 package com.chesslab.tracker.ui.tracking
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -20,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -52,21 +57,11 @@ private fun TrackingScreen(viewModel: TrackingViewModel) {
     var showPreview by remember { mutableStateOf(false) }
 
     Column(
-        Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         StateHeader(ui)
-        // The eval bar is optional, gated and self-contained (07c) — it reads the tracker's status
-        // itself and renders nothing when no engine shipped for this ABI.
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            EvalBarSlot()
-            BoardCanvas(
-                fen = ui.fen,
-                modifier = Modifier.weight(1f),
-                lastMoveUci = viewModel.lastMoveUci,
-                alarmed = ui.boardTinted,
-            )
-        }
+        BoardRow(ui, viewModel.lastMoveUci)
         ui.alarm?.let {
             AlarmCard(
                 alarm = it,
@@ -75,21 +70,33 @@ private fun TrackingScreen(viewModel: TrackingViewModel) {
                 onNewBaseline = viewModel::onNewBaseline,
             )
         }
-        MoveList(
-            rows = remember(moves) { moveRows(moves) },
-            modifier = Modifier.fillMaxWidth().weight(1f),
-        )
-        TextButton(onClick = { showPreview = !showPreview }) {
-            Text(if (showPreview) "Hide camera view" else "Show camera view", color = OnSurfaceMuted)
+        // The camera view REPLACES the move list rather than stacking above it: at its 4:3 aspect
+        // it did not fit in the leftover space and overdrew the board. While you are aiming the
+        // camera the score sheet is not what you are looking at.
+        Box(Modifier.fillMaxWidth().weight(1f)) {
+            if (showPreview) {
+                // No source size: the preview bitmap is a UNIFORMLY downscaled copy of the analyzer
+                // frame the corners were measured in (`bgrToBitmap`), so the bitmap's own size is
+                // the right divisor. Passing a stale delivered size here would offset the quad.
+                PreviewOverlay(
+                    bitmap = preview,
+                    overlay = ui.overlay,
+                    modifier = Modifier.fillMaxSize(),
+                    corners = ui.corners,
+                )
+            } else {
+                MoveList(
+                    rows = remember(moves) { moveRows(moves) },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
-        // No source size: the preview bitmap is a UNIFORMLY downscaled copy of the analyzer frame
-        // the corners were measured in (`bgrToBitmap`), so the bitmap's own size is the right
-        // divisor. Passing a stale delivered size here would offset the quad.
-        if (showPreview) PreviewOverlay(bitmap = preview, overlay = ui.overlay, corners = ui.corners)
         ActionBar(
             onUndo = viewModel::onUndo,
             onResetGame = viewModel::onResetGame,
             onRecalibrate = viewModel::onRecalibrate,
+            showPreview = showPreview,
+            onTogglePreview = { showPreview = !showPreview },
         )
     }
 
@@ -102,6 +109,33 @@ private fun TrackingScreen(viewModel: TrackingViewModel) {
     }
     promotion?.let {
         PromotionDialog(prompt = it, fen = ui.fen, onChoose = viewModel::onPromotionChosen)
+    }
+}
+
+/**
+ * The eval bar is optional, gated and self-contained (07c) — it reads the tracker's status itself
+ * and renders nothing when no engine shipped for this ABI.
+ *
+ * `IntrinsicSize.Min` is load-bearing: the bar fills the row's height, so without an intrinsic the
+ * row claimed the whole column, the move list collapsed to zero and the action bar was pushed
+ * off-screen entirely. The square board decides the height here.
+ */
+@Composable
+private fun BoardRow(
+    ui: TrackingUiState,
+    lastMoveUci: String?,
+) {
+    Row(
+        Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        EvalBarSlot()
+        BoardCanvas(
+            fen = ui.fen,
+            modifier = Modifier.weight(1f),
+            lastMoveUci = lastMoveUci,
+            alarmed = ui.boardTinted,
+        )
     }
 }
 
@@ -120,15 +154,19 @@ private fun StateHeader(ui: TrackingUiState) {
             // no move can commit, and a healthy-looking counter would say otherwise.
             Text(ui.fpsText, style = MaterialTheme.typography.labelMedium, color = tone)
         }
+        // Two lines and an ellipsis: at one hard-clipped line the note ended mid-word, which reads
+        // as a rendering bug rather than as a message that is longer than the screen.
         Text(
             text = ui.infoLine ?: " ",
             style = MaterialTheme.typography.bodyMedium,
             color = if (ui.alarm != null) Danger else OnSurfaceMuted,
-            maxLines = 1,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
 
+@Composable
 private fun toneColor(tone: StateTone): Color =
     when (tone) {
         StateTone.Idle -> OnSurface
@@ -143,16 +181,39 @@ private fun ActionBar(
     onUndo: () -> Unit,
     onResetGame: () -> Unit,
     onRecalibrate: () -> Unit,
+    showPreview: Boolean,
+    onTogglePreview: () -> Unit,
 ) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = onUndo, modifier = Modifier.weight(1f).heightIn(min = 52.dp)) {
-            Text("Undo", style = MaterialTheme.typography.labelLarge)
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ActionButton("Undo", onUndo, Modifier.weight(1f))
+            ActionButton("Reset game", onResetGame, Modifier.weight(1f))
+            ActionButton("Recalibrate", onRecalibrate, Modifier.weight(1f))
         }
-        OutlinedButton(onClick = onResetGame, modifier = Modifier.weight(1f).heightIn(min = 52.dp)) {
-            Text("Reset game", style = MaterialTheme.typography.labelLarge)
-        }
-        OutlinedButton(onClick = onRecalibrate, modifier = Modifier.weight(1f).heightIn(min = 52.dp)) {
-            Text("Recalibrate", style = MaterialTheme.typography.labelLarge)
-        }
+        // The camera view is a diagnostic and stays off by default (06b), but it is a control like
+        // the three above it — as a bare text link under three outlined buttons it read as a
+        // leftover. `FilterChip` because it is the one toggle on this screen, not an action.
+        FilterChip(
+            selected = showPreview,
+            onClick = onTogglePreview,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
+            label = {
+                Text(
+                    text = if (showPreview) "Hide camera view" else "Show camera view",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            },
+        )
+    }
+}
+
+@Composable
+private fun ActionButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedButton(onClick = onClick, modifier = modifier.heightIn(min = 52.dp), contentPadding = PaddingValues(4.dp)) {
+        Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
     }
 }

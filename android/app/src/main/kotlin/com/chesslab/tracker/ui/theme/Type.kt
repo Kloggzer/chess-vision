@@ -54,4 +54,20 @@ val ChesslabTypography =
                 fontSize = 14.sp,
                 lineHeight = 18.sp,
             ),
+        // Material's own labelSmall/bodySmall are 11sp and 12sp. Both are used across the settings,
+        // debug and analysis screens, and both break the "nothing below 14sp" rule by default.
+        labelSmall =
+            TextStyle(
+                fontFamily = FontFamily.Default,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+                lineHeight = 18.sp,
+            ),
+        bodySmall =
+            TextStyle(
+                fontFamily = FontFamily.Default,
+                fontWeight = FontWeight.Normal,
+                fontSize = 14.sp,
+                lineHeight = 18.sp,
+            ),
     )

@@ -9,19 +9,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.chesslab.tracker.ui.theme.ALARM_SCRIM_ALPHA
-import com.chesslab.tracker.ui.theme.BoardDark
-import com.chesslab.tracker.ui.theme.BoardLight
-import com.chesslab.tracker.ui.theme.Danger
-import com.chesslab.tracker.ui.theme.LastMoveTint
-import com.chesslab.tracker.ui.theme.PieceBlack
-import com.chesslab.tracker.ui.theme.PieceWhite
+import com.chesslab.tracker.ui.theme.ChesslabPalette
+import com.chesslab.tracker.ui.theme.LocalChesslabPalette
 
 private const val FILES = "abcdefgh"
 private const val RANKS = 8
@@ -96,6 +94,9 @@ fun BoardCanvas(
 ) {
     val pieces = remember(fen) { parseFenPlacement(fen) }
     val highlight = remember(lastMoveUci) { lastMoveSquares(lastMoveUci) }
+    // Read once, here: the draw lambda below is not a composable scope, so the palette cannot be
+    // looked up inside it.
+    val palette = LocalChesslabPalette.current
     // Solid-filled glyphs: outline pieces vanish against a mid-grey square at a metre.
     val paint =
         remember {
@@ -116,14 +117,38 @@ fun BoardCanvas(
             for (file in 0 until RANKS) {
                 val square = "${FILES[file]}${rank + 1}"
                 val topLeft = squareOrigin(file, rank, cell, whitePov)
-                drawSquare(topLeft, cell, (file + rank) % 2 == 0, square in highlight)
+                drawSquare(palette, topLeft, cell, (file + rank) % 2 == 0, square in highlight)
                 val piece = pieces[square] ?: continue
-                drawGlyph(paint, piece, topLeft, cell)
+                drawGlyph(palette, paint, piece, topLeft, cell)
             }
         }
-        if (alarmed) drawRect(color = Danger.copy(alpha = ALARM_SCRIM_ALPHA), size = Size(cell * RANKS, cell * RANKS))
+        if (alarmed) drawAlarm(palette.danger, cell)
     }
 }
+
+/**
+ * The latched alarm, as a wash AND a hard border.
+ *
+ * The wash alone was enough on the old near-black scheme; over warm boxwood and walnut a warm red
+ * at a third of its opacity just reads as a slightly pinker board. The border does not compete with
+ * the square colours at all, so it survives any palette.
+ */
+private fun DrawScope.drawAlarm(
+    danger: Color,
+    cell: Float,
+) {
+    val side = cell * RANKS
+    drawRect(color = danger.copy(alpha = ALARM_SCRIM_ALPHA), size = Size(side, side))
+    val stroke = cell * ALARM_BORDER_FRACTION
+    drawRect(
+        color = danger,
+        topLeft = Offset(stroke / 2f, stroke / 2f),
+        size = Size(side - stroke, side - stroke),
+        style = Stroke(width = stroke),
+    )
+}
+
+private const val ALARM_BORDER_FRACTION = 0.18f
 
 private fun squareOrigin(
     file: Int,
@@ -137,16 +162,18 @@ private fun squareOrigin(
 }
 
 private fun DrawScope.drawSquare(
+    palette: ChesslabPalette,
     topLeft: Offset,
     cell: Float,
     dark: Boolean,
     highlighted: Boolean,
 ) {
-    drawRect(color = if (dark) BoardDark else BoardLight, topLeft = topLeft, size = Size(cell, cell))
-    if (highlighted) drawRect(color = LastMoveTint, topLeft = topLeft, size = Size(cell, cell))
+    drawRect(color = if (dark) palette.boardDark else palette.boardLight, topLeft = topLeft, size = Size(cell, cell))
+    if (highlighted) drawRect(color = palette.lastMoveTint, topLeft = topLeft, size = Size(cell, cell))
 }
 
 private fun DrawScope.drawGlyph(
+    palette: ChesslabPalette,
     paint: Paint,
     piece: Char,
     topLeft: Offset,
@@ -161,10 +188,10 @@ private fun DrawScope.drawGlyph(
         // hairline on a light square, which is exactly what must be readable across a table.
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = cell * GLYPH_STROKE
-        paint.color = (if (white) PieceBlack else PieceWhite).toArgb()
+        paint.color = (if (white) palette.pieceBlack else palette.pieceWhite).toArgb()
         it.nativeCanvas.drawText(symbol, x, y, paint)
         paint.style = Paint.Style.FILL
-        paint.color = (if (white) PieceWhite else PieceBlack).toArgb()
+        paint.color = (if (white) palette.pieceWhite else palette.pieceBlack).toArgb()
         it.nativeCanvas.drawText(symbol, x, y, paint)
     }
 }

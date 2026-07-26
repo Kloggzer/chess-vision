@@ -4,8 +4,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -39,6 +42,7 @@ private fun capLabel(bytes: Long): String = if (bytes <= 0L) "unlimited" else fo
  * hundreds of megabytes of its own storage, and the payoff (auto-labeled training data for
  * `chesslab slice`) is invisible on the device itself.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RecordingPanel(
     ui: GamesUi,
@@ -62,11 +66,15 @@ fun RecordingPanel(
             style = MaterialTheme.typography.bodySmall,
             color = Accent,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        // Real chips, not coloured text: as plain labels the four caps had no tappable affordance
+        // and the selected one was distinguishable only by hue.
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             CAPS.forEach { cap ->
-                TextButton(onClick = { model.setPrefs(ui.prefs.copy(capBytes = cap)) }) {
-                    Text(capLabel(cap), color = if (cap == ui.prefs.capBytes) Accent else OnSurfaceMuted)
-                }
+                FilterChip(
+                    selected = cap == ui.prefs.capBytes,
+                    onClick = { model.setPrefs(ui.prefs.copy(capBytes = cap)) },
+                    label = { Text(capLabel(cap), style = MaterialTheme.typography.labelMedium) },
+                )
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {

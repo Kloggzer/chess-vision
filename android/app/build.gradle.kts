@@ -58,6 +58,9 @@ android {
             // runs real ONNX inference over every frame — minutes, not seconds. It is gated on
             // this property so `testDebugUnitTest` stays a fast gate; see CnnClipSimulationTest.
             it.systemProperty("chesslab.sim", providers.gradleProperty("chesslab.sim").getOrElse("false"))
+            // Comma-separated model directories to compare (each holding `model.onnx` +
+            // `config.json`), repo-relative or absolute. Empty = the bundled app assets only.
+            it.systemProperty("chesslab.sim.models", providers.gradleProperty("chesslab.sim.models").getOrElse(""))
         }
     }
 

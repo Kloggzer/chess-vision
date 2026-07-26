@@ -1,13 +1,8 @@
 package com.chesslab.tracker.ui
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -53,14 +48,21 @@ fun ChesslabNavHost(navController: NavHostController = rememberNavController()) 
             // The settings entry sits here rather than inside `TrackingScreen`: that file belongs
             // to another agent this phase, and the tracking screen's own layout is a game surface.
             Column(Modifier.fillMaxSize()) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    // 08b's and 08c's screens have no entry point of their own: this file is the
-                    // only one either of them is allowed to reach, and the registry gives it to 08a.
-                    TextButton(onClick = { navController.navigate(ROUTE_GAMES) }) { Text("Games") }
-                    TextButton(onClick = { navController.navigate(ROUTE_SPECTATOR) }) { Text("Spectator") }
-                    TextButton(onClick = { navController.navigate(ROUTE_SPEECH) }) { Text("Speech") }
-                    TextButton(onClick = { navController.navigate(ROUTE_SETTINGS) }) { Text("Settings") }
-                }
+                // 08b's and 08c's screens have no entry point of their own: this file is the
+                // only one either of them is allowed to reach, and the registry gives it to 08a.
+                TopNav(
+                    destinations =
+                        listOf(
+                            NavDestination("Board") {},
+                            NavDestination("Games") { navController.navigate(ROUTE_GAMES) },
+                            NavDestination("Spectator") { navController.navigate(ROUTE_SPECTATOR) },
+                            NavDestination("Speech") { navController.navigate(ROUTE_SPEECH) },
+                            NavDestination("Settings") { navController.navigate(ROUTE_SETTINGS) },
+                        ),
+                    // The row only exists on the board route, so the board tab is the selected one;
+                    // every other destination is a pushed screen that names itself in its title bar.
+                    selected = 0,
+                )
                 Box(Modifier.weight(1f)) {
                     TrackingRoute(onRecalibrate = { navController.navigate(ROUTE_CALIBRATION) })
                 }

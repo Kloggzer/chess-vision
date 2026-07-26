@@ -1,42 +1,172 @@
 package com.chesslab.tracker.ui.theme
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
-// The screen is read at arm's length across a physical board, in room light, at a glance.
-// Everything here is picked for contrast against Surface, not for prettiness: no mid-greys,
-// no hairline separators, no colour that only differs in hue from its neighbour.
+// Paper and ink. The screen is read at arm's length across a physical board, in room light, for
+// hours — so the reference is chess furniture, not a dashboard: aged paper, sepia ink, boxwood and
+// walnut. Nothing here is pure white or pure black; both are harsh under a desk lamp and neither
+// occurs in the material the app is imitating.
+//
+// Every pair that carries text clears WCAG AA (4.5:1) against the surface it is actually drawn on,
+// and the three evidence-overlay colours are separated by HUE (blue / ochre / magenta), not by
+// lightness, so red-green colour vision deficiency cannot collapse them into one another.
 
-val Background = Color(0xFF07090C)
-val Surface = Color(0xFF12161C)
-val SurfaceRaised = Color(0xFF1C222B)
-val OnSurface = Color(0xFFF2F5F8)
-val OnSurfaceMuted = Color(0xFF9AA6B4)
-val Outline = Color(0xFF3A4453)
+/** One scheme's worth of colour. Two implementations: [PaperPalette] and [InkPalette]. */
+interface ChesslabPalette {
+    val background: Color
+    val surface: Color
+    val surfaceRaised: Color
+    val onSurface: Color
+    val onSurfaceMuted: Color
+    val outline: Color
 
-/** The tracker is following the game. */
-val Accent = Color(0xFF4FD08A)
+    /** The tracker is following the game. */
+    val accent: Color
 
-/** A hand is over the board / the frame is moving — expected, not a problem. */
-val Busy = Color(0xFFF0B429)
+    /** A hand is over the board, or an edit is waiting on a restart — expected, not a problem. */
+    val busy: Color
 
-/** The illegal-move latch. Also the board scrim while alarmed. */
-val Danger = Color(0xFFFF5A52)
+    /** The illegal-move latch. Also the board scrim while alarmed. */
+    val danger: Color
+    val onAccent: Color
+    val onDanger: Color
 
-val OnAccent = Color(0xFF06210F)
-val OnDanger = Color(0xFF2A0605)
+    /** Buttons, tabs, switches — the furniture colour. */
+    val primary: Color
+    val onPrimary: Color
 
-// Board. Light squares stay well below white so the white pieces still separate from them.
-val BoardLight = Color(0xFFB9C3CF)
-val BoardDark = Color(0xFF4A5765)
-val PieceWhite = Color(0xFFFFFFFF)
-val PieceBlack = Color(0xFF0B0E13)
-val LastMoveTint = Color(0x66F0B429)
+    /**
+     * The fill of a chosen chip. It has to differ from [surfaceRaised]: chips sit ON cards, and
+     * with the two equal the selected option was the only one with no visible container at all.
+     */
+    val selection: Color
 
-// Evidence overlay — three sets that must never be confused for one another
-// (changed, shadow-vetoed, occlusion-vetoed carry opposite meanings for z, invariant 2).
-val OverlayChanged = Color(0xCC4FD08A)
-val OverlayShadow = Color(0xCC5AA9FF)
-val OverlayOcclusion = Color(0xCCFF5A52)
+    val boardLight: Color
+    val boardDark: Color
+    val pieceWhite: Color
+    val pieceBlack: Color
+    val lastMoveTint: Color
+
+    val overlayChanged: Color
+    val overlayShadow: Color
+    val overlayOcclusion: Color
+}
+
+/** Light: warm paper with sepia ink. */
+internal object PaperPalette : ChesslabPalette {
+    override val background = Color(0xFFF3EDE3)
+    override val surface = Color(0xFFFAF6EF)
+    override val surfaceRaised = Color(0xFFE8DFD1)
+    override val onSurface = Color(0xFF2B2620)
+    override val onSurfaceMuted = Color(0xFF5E5347)
+    override val outline = Color(0xFFC3B49E)
+    override val accent = Color(0xFF43602F)
+    override val busy = Color(0xFF7E5106)
+    override val danger = Color(0xFF93231D)
+    override val onAccent = Color(0xFFFAF6EF)
+    override val onDanger = Color(0xFFFAF6EF)
+    override val primary = Color(0xFF6B4A30)
+    override val onPrimary = Color(0xFFFAF6EF)
+    override val selection = Color(0xFFD7C3A5)
+    override val boardLight = Color(0xFFE9DCC4)
+    override val boardDark = Color(0xFFB08968)
+    override val pieceWhite = Color(0xFFFCF8F0)
+    override val pieceBlack = Color(0xFF241F19)
+    override val lastMoveTint = Color(0x66C79A3B)
+    override val overlayChanged = Color(0xFF1F5FBF)
+    override val overlayShadow = Color(0xFFA05C10)
+    override val overlayOcclusion = Color(0xFF9B2C77)
+}
+
+/** Dark: ink-stained walnut, never a black void. The same material at night. */
+internal object InkPalette : ChesslabPalette {
+    override val background = Color(0xFF1A1714)
+    override val surface = Color(0xFF221E1A)
+    override val surfaceRaised = Color(0xFF2E2822)
+    override val onSurface = Color(0xFFEDE3D2)
+    override val onSurfaceMuted = Color(0xFFB0A28F)
+    override val outline = Color(0xFF574B3F)
+    override val accent = Color(0xFFB3CC84)
+    override val busy = Color(0xFFE5A85C)
+    override val danger = Color(0xFFF0827A)
+    override val onAccent = Color(0xFF1F2415)
+    override val onDanger = Color(0xFF2A100E)
+    override val primary = Color(0xFFDEA76A)
+    override val onPrimary = Color(0xFF2A1D0F)
+    override val selection = Color(0xFF453729)
+    override val boardLight = Color(0xFFC9B392)
+    override val boardDark = Color(0xFF6E5340)
+    override val pieceWhite = Color(0xFFFCF8F0)
+    override val pieceBlack = Color(0xFF241F19)
+    override val lastMoveTint = Color(0x66DEA76A)
+    override val overlayChanged = Color(0xFF7FB2FF)
+    override val overlayShadow = Color(0xFFF0A64A)
+    override val overlayOcclusion = Color(0xFFE484C8)
+}
+
+val LocalChesslabPalette = staticCompositionLocalOf<ChesslabPalette> { InkPalette }
+
+// The tokens the whole app reads. They stayed top-level properties on purpose: every call site
+// already said `color = OnSurfaceMuted`, and a composable getter makes the same expression follow
+// the system light/dark setting without a single call site changing.
+
+val Background: Color
+    @Composable @ReadOnlyComposable
+    get() = LocalChesslabPalette.current.background
+val Surface: Color
+    @Composable @ReadOnlyComposable
+    get() = LocalChesslabPalette.current.surface
+val SurfaceRaised: Color
+    @Composable @ReadOnlyComposable
+    get() = LocalChesslabPalette.current.surfaceRaised
+val OnSurface: Color
+    @Composable @ReadOnlyComposable
+    get() = LocalChesslabPalette.current.onSurface
+val OnSurfaceMuted: Color
+    @Composable @ReadOnlyComposable
+    get() = LocalChesslabPalette.current.onSurfaceMuted
+val Outline: Color
+    @Composable @ReadOnlyComposable
+    get() = LocalChesslabPalette.current.outline
+val Accent: Color
+    @Composable @ReadOnlyComposable
+    get() = LocalChesslabPalette.current.accent
+val Busy: Color
+    @Composable @ReadOnlyComposable
+    get() = LocalChesslabPalette.current.busy
+val Danger: Color
+    @Composable @ReadOnlyComposable
+    get() = LocalChesslabPalette.current.danger
+val OnAccent: Color
+    @Composable @ReadOnlyComposable
+    get() = LocalChesslabPalette.current.onAccent
+val OnDanger: Color
+    @Composable @ReadOnlyComposable
+    get() = LocalChesslabPalette.current.onDanger
+val BoardLight: Color
+    @Composable @ReadOnlyComposable
+    get() = LocalChesslabPalette.current.boardLight
+val BoardDark: Color
+    @Composable @ReadOnlyComposable
+    get() = LocalChesslabPalette.current.boardDark
+val PieceWhite: Color
+    @Composable @ReadOnlyComposable
+    get() = LocalChesslabPalette.current.pieceWhite
+val PieceBlack: Color
+    @Composable @ReadOnlyComposable
+    get() = LocalChesslabPalette.current.pieceBlack
+val OverlayChanged: Color
+    @Composable @ReadOnlyComposable
+    get() = LocalChesslabPalette.current.overlayChanged
+val OverlayShadow: Color
+    @Composable @ReadOnlyComposable
+    get() = LocalChesslabPalette.current.overlayShadow
+val OverlayOcclusion: Color
+    @Composable @ReadOnlyComposable
+    get() = LocalChesslabPalette.current.overlayOcclusion
 
 /** Scrim laid over the whole board while the alarm is latched: the rendered FEN is fiction. */
 const val ALARM_SCRIM_ALPHA = 0.34f
