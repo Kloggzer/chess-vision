@@ -27,9 +27,10 @@ data class ModelSpec(
     companion object {
         /**
          * Unknown keys are ignored. Throws (loudly, with a named reason) when the class list
-         * is not the canonical 14-class order or the crop size is not the one the app crops
-         * for: a reordered list silently relabels every piece, so refusing to load is the only
-         * safe answer.
+         * is neither the canonical 14-class order nor the 2-class occupancy order
+         * (`requireExpectedClasses`), or the crop size is not the one the app crops for: a
+         * reordered list silently relabels every piece, so refusing to load is the only safe
+         * answer.
          */
         fun parse(json: String): ModelSpec {
             val root = Json.parseToJsonElement(json).jsonObject

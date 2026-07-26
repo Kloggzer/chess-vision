@@ -263,3 +263,111 @@ def test_verify_clean_dataset(tmp_path):
     rows = [_row("wK", "s0", "e1", "dark", path=str(f))]
     split = {"splits": {"train": ["s0"], "val": [], "test": []}}
     assert verify(rows, split=split) == []
+
+# --- Occupancy (2-class) collapse — specs/18-occupancy-model/02-two-class-model.md ------
+
+def _build_pool(tmp_path, monkeypatch, n_sessions=4):
+    """A crop pool on disk + a patched config.DATA; returns (session_ids, manifest path)."""
+    import json
+
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    config.DATA.manifests.mkdir(parents=True)
+    rows = []
+    for si in range(n_sessions):
+        sid = f"s{si}"
+        for fi in range(3):
+            for k, lab in enumerate(["wP", "wN", "bB", "bK", "empty", "empty", "empty", "empty"]):
+                sq = f"{'abcdefgh'[k]}{fi + 1}"
+                r = _row(lab, sid, sq, "light" if k % 2 else "dark",
+                         path=f"data/squares/{lab}/{sid}_{fi}_{sq}.png")
+                r["frame"] = str(fi)
+                rows.append(r)
+    mp = config.DATA.manifests / "squares.jsonl"
+    mp.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    return [f"s{i}" for i in range(n_sessions)], mp
+
+
+def test_to_occupancy_class_collapses_pieces():
+    for c in config.CLASSES:
+        if c in ("empty", "occluded"):
+            continue
+        assert config.to_occupancy_class(c) == "occupied"
+    assert config.to_occupancy_class("empty") == "empty"
+
+
+def test_to_occupancy_class_rejects_occluded():
+    import pytest
+    with pytest.raises(ValueError):
+        config.to_occupancy_class("occluded")
+    with pytest.raises(ValueError):
+        config.to_occupancy_class("wZ")
+
+
+def test_occupancy_build_writes_two_class_split(tmp_path, monkeypatch):
+    import json
+
+    from chesslab import dataset_build as db
+
+    sids, _ = _build_pool(tmp_path, monkeypatch)
+    db.build_dataset("occ", sids, phash_enabled=False, pack=False, class_mode="occupancy")
+    split = json.loads((db.dataset_dir("occ") / "split.json").read_text(encoding="utf-8"))
+    assert split["classes"] == ["empty", "occupied"]
+    assert set(split["train_class_counts"]) == {"empty", "occupied"}
+    assert "occluded" not in json.dumps(split)
+
+
+def test_occupancy_build_reuses_all_rows(tmp_path, monkeypatch):
+    import json
+
+    from chesslab import dataset_build as db
+
+    sids, _ = _build_pool(tmp_path, monkeypatch)
+    a = db.build_dataset("pieces", sids, phash_enabled=False, pack=False)
+    b = db.build_dataset("occ", sids, phash_enabled=False, pack=False, class_mode="occupancy")
+    assert a["counts"]["final"] == b["counts"]["final"]
+    ra = [json.loads(x) for x in
+          (db.dataset_dir("pieces") / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
+    rb = [json.loads(x) for x in
+          (db.dataset_dir("occ") / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [r["path"] for r in ra] == [r["path"] for r in rb]
+    assert [config.to_occupancy_class(r["label"]) for r in ra] == [r["label"] for r in rb]
+
+
+def test_occupancy_build_preserves_per_session_split(tmp_path, monkeypatch):
+    import json
+
+    from chesslab import dataset_build as db
+
+    sids, _ = _build_pool(tmp_path, monkeypatch)
+    db.build_dataset("pieces", sids, phash_enabled=False, pack=False)
+    db.build_dataset("occ", sids, phash_enabled=False, pack=False, class_mode="occupancy")
+    sa = json.loads((db.dataset_dir("pieces") / "split.json").read_text(encoding="utf-8"))["splits"]
+    sb = json.loads((db.dataset_dir("occ") / "split.json").read_text(encoding="utf-8"))["splits"]
+    assert sa == sb
+
+
+def test_piece_class_build_is_unchanged(tmp_path, monkeypatch):
+    """`--classes pieces` (the default) is the regression floor: the explicit mode and the
+    default must produce a byte-identical split.json."""
+    from chesslab import dataset_build as db
+
+    sids, _ = _build_pool(tmp_path, monkeypatch)
+    db.build_dataset("a", sids, phash_enabled=False, pack=False)
+    db.build_dataset("b", sids, phash_enabled=False, pack=False, class_mode="pieces")
+    assert ((db.dataset_dir("a") / "split.json").read_bytes()
+            == (db.dataset_dir("b") / "split.json").read_bytes())
+
+
+def test_occupancy_build_rejects_occluded_rows(tmp_path, monkeypatch):
+    import json
+
+    import pytest
+
+    from chesslab import dataset_build as db
+
+    sids, mp = _build_pool(tmp_path, monkeypatch)
+    rows = [json.loads(x) for x in mp.read_text(encoding="utf-8").splitlines()]
+    rows[0]["label"] = "occluded"
+    mp.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="occluded"):
+        db.build_dataset("occ", sids, phash_enabled=False, pack=False, class_mode="occupancy")

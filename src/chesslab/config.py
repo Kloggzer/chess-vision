@@ -26,6 +26,32 @@ CLASSES: list[str] = [
 # from auto-labeling of the FEN): empty square + occluded.
 OPTIONAL_CLASSES: set[str] = {"empty", "occluded"}
 
+# --- Occupancy-only class list (2). The tracker's CNN consumes OCCUPANCY, not identity:
+# the diff + legality path decides which move was played. A 2-class run spends the whole
+# (tiny) model on the one question that is asked. NOT a replacement for CLASSES — the
+# 14-class piece pipeline (collect UI, review, per-class stats) still uses that. Derived
+# by COLLAPSING existing labels at dataset-build time; no crop is ever re-labelled.
+OCCUPANCY_CLASSES: list[str] = ["empty", "occupied"]
+
+
+def to_occupancy_class(label: str) -> str:
+    """`empty` -> `empty`; every piece class -> `occupied`.
+
+    `occluded` is REJECTED: it has zero training rows (specs/18-occupancy-model/entry.md)
+    and must not be collapsed into either bucket — a hand over the board is neither empty
+    nor occupied, and an untrained third output on exactly that input is undefined
+    behaviour where the tracker most needs abstention. Raising is deliberate: a stray
+    `occluded` row appearing later must STOP a build, not get quietly binned.
+    """
+    if label == "occluded":
+        raise ValueError(
+            "cannot collapse 'occluded' to an occupancy class: it has zero training rows "
+            "and is neither empty nor occupied. Filter occluded rows out of the source "
+            "manifest, or do not build an occupancy dataset from them.")
+    if label not in CLASSES:
+        raise ValueError(f"unknown label {label!r} (not in config.CLASSES).")
+    return "empty" if label == "empty" else "occupied"
+
 # Global determinism seed for all random steps (split, sampling, training).
 SEED: int = 42
 

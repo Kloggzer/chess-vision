@@ -45,6 +45,38 @@ def dataset_dir(name: str, paths: config.Paths | None = None) -> Path:
     return (paths or config.DATA).datasets / _safe_name(name)
 
 
+# --- Class mode: 14-class pieces (default) vs 2-class occupancy ------------------------
+
+CLASS_MODES = ("pieces", "occupancy")
+
+
+def class_list_for(class_mode: str) -> list[str]:
+    """`pieces` -> `config.CLASSES` (14, unchanged default); `occupancy` -> `config.OCCUPANCY_CLASSES`."""
+    if class_mode == "pieces":
+        return config.CLASSES
+    if class_mode == "occupancy":
+        return config.OCCUPANCY_CLASSES
+    raise ValueError(f"unknown class mode {class_mode!r} ({' | '.join(CLASS_MODES)}).")
+
+
+def collapse_labels(rows: list[dict], class_mode: str) -> list[dict]:
+    """Map every row's `label` through `config.to_occupancy_class` (occupancy mode only).
+
+    A metadata mapping, nothing else: crop FILES keep their path and their `data/squares/wB/`
+    directory — the path is the identity, the label is metadata. `pieces` mode returns the
+    rows untouched (same objects), so the default build stays bit-identical.
+    """
+    if class_mode != "occupancy":
+        return rows
+    n_occluded = sum(1 for r in rows if r["label"] == "occluded")
+    if n_occluded:
+        raise ValueError(
+            f"{n_occluded} `occluded` rows in the source pool. An occupancy dataset cannot "
+            "contain them: `occluded` is neither empty nor occupied and has zero training "
+            "rows (specs/18-occupancy-model). Re-slice or filter them out first.")
+    return [{**r, "label": config.to_occupancy_class(r["label"])} for r in rows]
+
+
 # --- Perceptual hash (dhash, 64-bit) --------------------------------------------------
 
 def dhash(img, size: int = 8) -> int:
@@ -226,6 +258,7 @@ def build_dataset(
     allow_degenerate: bool = False,
     force_train=None,
     pack: bool = True,
+    class_mode: str = "pieces",
 ) -> dict:
     """Build dataset <name> from `session_ids`: filter -> dedup -> rotation -> manifest+split+stats.
 
@@ -236,6 +269,7 @@ def build_dataset(
     `session_ids`+`seed`, the session-based split is byte-identical across all variants.
     """
     name = _safe_name(name)
+    classes = class_list_for(class_mode)
     # Resolution at runtime (not as default arg): default args bind at import time and
     # ignore a later patched/changed config.DATA (testability).
     paths = paths or config.DATA
@@ -292,6 +326,10 @@ def build_dataset(
     ds.mkdir(parents=True, exist_ok=True)
     rows = train_rows + holdout                 # rotation happens on-the-fly at train time
     n_final = len(rows)
+    # Label collapse is the LAST step before the manifest: filtering, dedup and the
+    # session->split assignment above ran on the original 14-class labels, so an occupancy
+    # build keeps exactly the rows a `pieces` build at the same seed would keep.
+    rows = collapse_labels(rows, class_mode)
 
     (ds / "manifest.jsonl").write_text(
         "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + ("\n" if rows else ""),
@@ -308,20 +346,21 @@ def build_dataset(
         print(f"[i] hard-empty keep list: {len(priority_paths)} crops protected from the empty cap")
     split = dataset_mod.make_split(rows, val_frac, test_frac, max_empty_ratio, seed, max_class_ratio,
                                    force_train=force_train, precomputed_splits=splits,
-                                   priority_paths=priority_paths)
-    errors, _warnings = dataset_mod.validate_split(split, rows)
+                                   priority_paths=priority_paths, classes=classes)
+    errors, _warnings = dataset_mod.validate_split(split, rows, classes=classes)
     if errors:
         if not allow_degenerate:
             shutil.rmtree(ds, ignore_errors=True)   # no half-finished zombie dataset
             raise ValueError("\n".join(errors))
         split["degenerate_errors"] = errors          # intentionally allowed -> document in split
     (ds / "split.json").write_text(json.dumps(split, ensure_ascii=False, indent=2), encoding="utf-8")
-    stats = dataset_mod.compute_stats(rows)
+    stats = dataset_mod.compute_stats(rows, classes=classes)
     (ds / "stats.json").write_text(json.dumps(stats, ensure_ascii=False), encoding="utf-8")
 
     cfg = {
         "name": name,
         "created_at": datetime.now(UTC).isoformat(),
+        "class_mode": class_mode,
         "session_ids": list(session_ids),
         "variant_tag": variant_tag,
         "source_manifest": [p.as_posix() for p in srcs],

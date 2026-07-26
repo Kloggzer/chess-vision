@@ -720,3 +720,30 @@ def test_resync_clears_alarm_and_logs_discontinuity(monkeypatch):
     found = [d for d in t._decision_log if d.get("reason") == "illegal_move_accepted"]
     assert len(found) == 1, f"Expected 1 illegal_move_accepted entry, got {len(found)}"
     assert found[0]["decider"] == "user"
+
+
+# --- 2-class occupancy runs (specs/18-occupancy-model) ---------------------------------
+
+def test_classes_have_identity():
+    from chesslab import config
+    from chesslab.move_tracker.cnn_recovery import classes_have_identity
+
+    assert classes_have_identity(config.CLASSES)
+    assert not classes_have_identity(config.OCCUPANCY_CLASSES)
+
+
+def test_two_class_observation_has_occupancy_but_no_identity():
+    """`has_identity` (tracker.py) keys off `obs.label is None`. A 2-class run's argmax label
+    is `"occupied"`, which is NOT a piece — it must not reach the identity path."""
+    from chesslab import config
+    from chesslab.move_tracker.cnn_recovery import observation_from_probs
+
+    obs = observation_from_probs({"e4": [0.1, 0.9], "d4": [0.95, 0.05]}, config.OCCUPANCY_CLASSES)
+    assert obs.label is None
+    assert obs.conf is None
+    assert obs.p_occ["e4"] == pytest.approx(0.9)
+    assert obs.p_occluded["e4"] == 0.0
+    assert obs.occupied("e4")
+    assert not obs.occupied("d4")
+    assert obs.confident(0.85)["e4"]
+    assert not obs.label_confident(0.85)["e4"]

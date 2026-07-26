@@ -77,6 +77,28 @@ class ObservationTest {
         assertClose(0.5, obs.conf("e4"), "tie conf")
     }
 
+    @Test
+    fun `a 2-class occupancy run reports occupancy but NO identity`() {
+        // specs/18-occupancy-model: the argmax label of a 2-class run is "occupied", which is not
+        // an identity — `hasIdentity` must stay false so the engine takes the occupancy-only path.
+        assertFalse(classesHaveIdentity(OCCUPANCY_CLASSES))
+        assertTrue(classesHaveIdentity(EXPECTED_CLASSES))
+        val obs =
+            observationFromProbs(
+                mapOf("e4" to doubleArrayOf(0.1, 0.9), "d4" to doubleArrayOf(0.95, 0.05)),
+                OCCUPANCY_CLASSES,
+            )
+        assertEquals(null, obs.label)
+        assertEquals(null, obs.conf)
+        assertEquals(null, obs.label("e4"))
+        assertClose(0.9, obs.pOcc.getValue("e4"), "pOcc e4")
+        assertClose(0.0, obs.pOccluded.getValue("e4"), "pOccluded e4")
+        assertTrue(obs.occupied("e4"))
+        assertFalse(obs.occupied("d4"))
+        assertTrue(obs.confident("e4", THR))
+        assertFalse(obs.labelConfident("e4", THR))
+    }
+
     private fun single(
         pOcc: Double = 0.0,
         pEmpty: Double = 0.0,

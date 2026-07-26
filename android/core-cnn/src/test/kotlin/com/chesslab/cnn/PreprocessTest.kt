@@ -116,6 +116,14 @@ class PreprocessTest {
     }
 
     @Test
+    fun `the 2-class occupancy list is accepted, anything else is not`() {
+        assertEquals(listOf("empty", "occupied"), OCCUPANCY_CLASSES)
+        assertEquals(OCCUPANCY_CLASSES, requireExpectedClasses(OCCUPANCY_CLASSES))
+        assertThrows<IllegalArgumentException> { requireExpectedClasses(OCCUPANCY_CLASSES.reversed()) }
+        assertThrows<IllegalArgumentException> { requireExpectedClasses(listOf("empty", "occupied", "occluded")) }
+    }
+
+    @Test
     fun `the ImageNet constants are the config-py values`() {
         assertEquals(listOf(0.485f, 0.456f, 0.406f), IMAGENET_MEAN)
         assertEquals(listOf(0.229f, 0.224f, 0.225f), IMAGENET_STD)
