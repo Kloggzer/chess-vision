@@ -24,6 +24,8 @@ import java.io.File
 private const val AFTER_E4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
 private const val AFTER_E5 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
 private const val AFTER_PAIR = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
+private const val AFTER_JUMP = "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
+private const val AFTER_JUMP_NC6 = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
 private const val FOOLS_MATE = "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3"
 
 private class Source : CaptureSource {
@@ -69,6 +71,9 @@ class GameSessionControllerTest {
 
     /** `Commit.kt:165` — one event, two plies, only the FINAL position. */
     private fun pair() = TrackerEvent.SequenceCommitted(listOf("g1f3", "b8c6"), listOf("Nf3", "Nc6"), AFTER_PAIR, "diff_pair")
+
+    /** A pair whose head is legal after 1.e4 — used where the record must STAY on its line. */
+    private fun replyPair() = TrackerEvent.SequenceCommitted(listOf("e7e5", "g1f3"), listOf("e5", "Nf3"), AFTER_JUMP, "diff_pair")
 
     /** The position BETWEEN the pair's plies, as chesslib renders it — what the engine publishes. */
     private fun afterNf3(): String =
@@ -159,6 +164,59 @@ class GameSessionControllerTest {
         controller.onEvent(pair(), null)
         controller.onStatus(idleTrackerStatus(afterNf3()))
         assertEquals(3, controller.state.value.moveCount)
+    }
+
+    /**
+     * D3. Four of the five games recorded on the device were NOT legal sequences from their own
+     * `startFen` — they broke at plies 1, 2, 18 and 28. The engine cannot commit an illegal move,
+     * so the break is the engine's board JUMPING between two commits (an alarm being resolved, a
+     * FEN resync, an accepted recovery). This controller sees none of those: it handles
+     * `MoveCommitted`, `SequenceCommitted` and `ReAnchored`, and drops `Alarm` / `AlarmCleared`.
+     *
+     * A record that spans two position lines is unusable as a game AND as labeled data, because
+     * every FEN after the seam is wrong. So the seam ends the record, and the next one starts at
+     * the position the engine actually reached.
+     */
+    @Test
+    fun aCommitThatLeftTheRecordsLineStartsANewRecord() {
+        val controller = controller()
+        controller.onIdle(STARTPOS, "board-a")
+        controller.onEvent(move("e2e4", "e4", AFTER_E4), null)
+        // White again, with black to move: only reachable if the engine's board moved on without us.
+        controller.onEvent(move("g1f3", "Nf3", AFTER_JUMP), null)
+
+        val stored = store.list()
+        assertEquals(1, stored.size, "the broken record was closed")
+        assertEquals(listOf("e4"), store.open(stored.single().id)?.moves?.map { it.san })
+        assertEquals(0, controller.state.value.moveCount, "and the new one starts empty, at the seam")
+
+        controller.onEvent(move("b8c6", "Nc6", AFTER_JUMP_NC6), null)
+        val saved = controller.endAndSave()
+        val fresh = store.open(saved!!.id)
+        assertEquals(AFTER_JUMP, fresh?.startFen, "the new record is anchored where the engine is")
+        assertEquals(listOf("Nc6"), fresh?.moves?.map { it.san })
+    }
+
+    /**
+     * Every one of the 77 plies recorded across five device sessions stored `provenance: null` —
+     * including the sessions recorded with debug ON. The decider was being read from the debug
+     * payload and matched by `accepted && uci`, a second source that can fail to line up, while the
+     * engine states it directly on the commit event. Without it a stored game cannot answer the one
+     * question worth asking of it: which path committed this move.
+     */
+    @Test
+    fun theDeciderIsRecordedWithoutADebugPayload() {
+        val controller = controller()
+        controller.onIdle(STARTPOS, "board-a")
+        controller.onEvent(TrackerEvent.MoveCommitted("e2e4", "e4", AFTER_E4, "cnn_overrule", true), null)
+        controller.onEvent(replyPair(), null)
+
+        val saved = controller.endAndSave()
+        val moves = store.open(saved!!.id)!!.moves
+        assertEquals("cnn_overrule", moves[0].provenance?.decider)
+        assertTrue(moves[0].provenance!!.priorUsed)
+        assertNull(moves[1].provenance, "provenance rides on the LAST ply of a commit")
+        assertEquals("diff_pair", moves[2].provenance?.decider, "and a pair states its decider too")
     }
 
     /**
