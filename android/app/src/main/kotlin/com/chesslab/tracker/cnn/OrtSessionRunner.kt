@@ -11,7 +11,7 @@ import java.util.EnumSet
 /** Qualcomm HTP (NPU) backend library, bundled inside the onnxruntime-android-qnn AAR. */
 private const val QNN_HTP_LIB = "libQnnHtp.so"
 
-/** Prefix of the one-shot profile ORT writes for the warm-up batch; deleted as soon as it is read. */
+/** Prefix of the one-shot profile ORT writes for the verification batch; deleted as soon as it is read. */
 private const val PROFILE_PREFIX = "ep-verify"
 
 /**
@@ -50,10 +50,10 @@ internal object SessionTuning {
 /**
  * The real ORT session.
  *
- * Profiling is armed at construction and closed by the first [profiledProvider] call: that is the
- * only way the Java API can answer "which EP ran this?", and one profiled batch at attach costs
- * nothing steady-state. `endProfiling` also switches profiling OFF for the rest of the session, so
- * the per-observation path is untouched.
+ * Profiling is opt-in ([profile]) and closed by the first [profiledProvider] call. It is the only
+ * way the Java API can answer "which EP ran this?", so the attach path arms it — but a session that
+ * is not being verified now pays no per-kernel tracing at all, and the batch
+ * [OnnxSquareClassifier.verify] TIMES is run after profiling has been ended.
  */
 internal class OrtSessionRunner(
     private val env: OrtEnvironment,
@@ -65,6 +65,12 @@ internal class OrtSessionRunner(
      * EP is not QNN, or [modelFile] already IS the cached context.
      */
     private val qnnContext: File? = null,
+    /**
+     * Arms ORT's per-kernel tracing across all 473 nodes. True only where the answer is needed
+     * ([EpVerdict]); tracing every kernel is what made every warm-up figure ever quoted for this
+     * model a measurement of the profiler as much as of the graph.
+     */
+    private val profile: Boolean = false,
 ) : SessionRunner {
     /** The file that was really loaded — never the one 07a asked for. */
     override val model: String = modelFile.name
@@ -89,6 +95,7 @@ internal class OrtSessionRunner(
     /**
      * Ends profiling and reads the provider out of the trace. Failures return null — "unknown",
      * which [EpVerdict] renders as unverified; they never let a requested EP pass as a result.
+     * A session built with `profile = false` has no trace to end, and so is always unknown.
      */
     override fun profiledProvider(): String? =
         runCatching {
@@ -108,7 +115,7 @@ internal class OrtSessionRunner(
     ): OrtSession.SessionOptions {
         val opts = OrtSession.SessionOptions()
         SessionTuning.applyTo(opts)
-        opts.enableProfiling(File(profileDir, PROFILE_PREFIX).absolutePath)
+        if (profile) opts.enableProfiling(File(profileDir, PROFILE_PREFIX).absolutePath)
         when (choice) {
             // epChain only offers QNN when model.qnn.onnx was staged, and `modelFor` hands it
             // exactly that file — the HTP backend would reject the float32 graph.

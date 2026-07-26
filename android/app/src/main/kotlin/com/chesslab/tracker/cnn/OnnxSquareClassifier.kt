@@ -154,18 +154,23 @@ class OnnxSquareClassifier internal constructor(
     }
 
     /**
-     * One profiled warm-up batch over an all-zero tensor, then the profiler's verdict.
+     * Two warm-up batches over an all-zero tensor: the first is profiled and answers "which EP ran
+     * this?", the second is the one that is TIMED.
      *
-     * The batch is the real shape, so this also pays the first-call cost (weight staging, kernel
-     * selection) off the observer's clock, and [lastRunMs] carries a genuine 64-crop timing before
-     * the first observation ever runs.
+     * They cannot be the same batch. The first pays the one-off costs (weight staging, kernel
+     * selection) and carries ORT's per-kernel tracing across 473 nodes, which is why every warm-up
+     * figure ever recorded for this model measured the profiler as much as the graph.
+     * [SessionRunner.profiledProvider] ends profiling, so the second run is instrumented by nothing
+     * and [lastRunMs] is a genuine 64-crop timing before the first observation ever runs.
      */
     internal fun verify(): EpVerdict {
+        input.clear()
+        runner.run(input, shape)
+        verdict = EpVerdict(runner.requested, runner.profiledProvider())
         input.clear()
         val started = System.nanoTime()
         runner.run(input, shape)
         lastRunMs = (System.nanoTime() - started) / NANOS_PER_MS
-        verdict = EpVerdict(runner.requested, runner.profiledProvider())
         return verdict
     }
 
@@ -225,7 +230,10 @@ private class EpAttempts(
         if (compileTo != null) log.info("compiling ${model.name} for the HTP — this takes minutes, once per install")
         val built =
             runCatching {
-                val cnn = OnnxSquareClassifier(spec, OrtSessionRunner(env, model, choice, staged.dir, compileTo))
+                // The ONLY session built with profiling armed: `verify` needs the trace, and
+                // nothing else in the app does.
+                val runner = OrtSessionRunner(env, model, choice, staged.dir, compileTo, profile = true)
+                val cnn = OnnxSquareClassifier(spec, runner)
                 cnn to cnn.verify()
             }.onFailure {
                 last = it
