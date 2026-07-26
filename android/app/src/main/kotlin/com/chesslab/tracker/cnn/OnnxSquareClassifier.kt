@@ -24,11 +24,24 @@ internal enum class Ep(
     CPU("CPU"),
 }
 
-/** QNN runs **quantized graphs only**; NNAPI and CPU take whichever graph 07a selected. */
+/** Where the HTP's compiled form of the QDQ graph is cached. See [MODEL_QNN_CTX_FILE]. */
+internal fun qnnContextFile(staged: StagedModel): File = File(staged.dir, MODEL_QNN_CTX_FILE)
+
+/**
+ * QNN runs **quantized graphs only**; NNAPI and CPU take whichever graph 07a selected.
+ *
+ * For QNN the cached `EPContext` graph wins when it exists: loading it skips the on-device compile
+ * that cost 4 min 25 s the first time.
+ */
 internal fun modelFor(
     staged: StagedModel,
     ep: Ep,
-): File = if (ep == Ep.QNN) requireNotNull(staged.qnn) else staged.fp32
+): File =
+    when {
+        ep != Ep.QNN -> staged.fp32
+        qnnContextFile(staged).isFile -> qnnContextFile(staged)
+        else -> requireNotNull(staged.qnn)
+    }
 
 /**
  * The providers to try, in order.
@@ -205,12 +218,20 @@ private class EpAttempts(
         choice: Ep,
         isLastResort: Boolean,
     ): OnnxSquareClassifier? {
+        val model = modelFor(staged, choice)
+        val context = qnnContextFile(staged)
+        // Compile only when we are not already loading the compiled form.
+        val compileTo = context.takeIf { choice == Ep.QNN && model != it }
+        if (compileTo != null) log.info("compiling ${model.name} for the HTP — this takes minutes, once per install")
         val built =
             runCatching {
-                val cnn = OnnxSquareClassifier(spec, OrtSessionRunner(env, modelFor(staged, choice), choice, staged.dir))
+                val cnn = OnnxSquareClassifier(spec, OrtSessionRunner(env, model, choice, staged.dir, compileTo))
                 cnn to cnn.verify()
             }.onFailure {
                 last = it
+                // A cached context that will not load would fail the same way on every launch.
+                // Drop it, so the next attach recompiles from the QDQ graph instead.
+                if (model == context && context.delete()) log.warn("dropped the unusable QNN context cache", null)
                 log.warn("CNN EP ${choice.backend} unavailable, falling back: ${it.message}", it)
             }
         val (cnn, verdict) = built.getOrNull() ?: return null

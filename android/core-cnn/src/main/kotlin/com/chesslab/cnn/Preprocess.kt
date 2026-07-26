@@ -93,19 +93,34 @@ fun preprocessInto(
     require(out.size == crops.size * CHANNELS * plane) {
         "out holds ${out.size} floats, expected ${crops.size * CHANNELS * plane}"
     }
+    // Unboxed ONCE. `mean`/`std` are `List<Float>`, i.e. boxed `java.lang.Float`, and reading them
+    // inside the pixel loop cost six interface calls plus six unboxings per pixel — 18.9 M of each
+    // per 64-crop batch. Measured on an SM8650 the whole call took 259 ms of a 485 ms observation,
+    // which is why the CNN looked expensive long before the graph was ever the problem. The
+    // arithmetic below is unchanged and bit-identical; only the operand loads moved out.
+    val meanR = mean[0]
+    val meanG = mean[1]
+    val meanB = mean[2]
+    val stdR = std[0]
+    val stdG = std[1]
+    val stdB = std[2]
     for ((index, crop) in crops.withIndex()) {
         require(crop.width == outW && crop.height == outH) {
             "crop $index is ${crop.width}x${crop.height}, expected ${outW}x$outH"
         }
+        val data = crop.data
         val base = index * CHANNELS * plane
+        val greenBase = base + plane
+        val blueBase = base + 2 * plane
+        var src = 0
         for (pixel in 0 until plane) {
-            val src = pixel * CHANNELS
-            val blue = (crop.data[src].toInt() and BYTE_MASK) / MAX_U8
-            val green = (crop.data[src + 1].toInt() and BYTE_MASK) / MAX_U8
-            val red = (crop.data[src + 2].toInt() and BYTE_MASK) / MAX_U8
-            out[base + pixel] = (red - mean[0]) / std[0]
-            out[base + plane + pixel] = (green - mean[1]) / std[1]
-            out[base + 2 * plane + pixel] = (blue - mean[2]) / std[2]
+            val blue = (data[src].toInt() and BYTE_MASK) / MAX_U8
+            val green = (data[src + 1].toInt() and BYTE_MASK) / MAX_U8
+            val red = (data[src + 2].toInt() and BYTE_MASK) / MAX_U8
+            out[base + pixel] = (red - meanR) / stdR
+            out[greenBase + pixel] = (green - meanG) / stdG
+            out[blueBase + pixel] = (blue - meanB) / stdB
+            src += CHANNELS
         }
     }
 }
