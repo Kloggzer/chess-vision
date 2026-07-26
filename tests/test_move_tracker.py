@@ -3039,3 +3039,58 @@ class TestLensDriftHook:
         assert mt._drift is None
         mt._check_lens_drift(_bgr_frame([]), mt.profile.image_corners)
         assert mt._drift is not None and mt._drift.status["samples"] == 1
+
+
+# =======================================================================================
+# grid-line gate vs. board geometry
+# =======================================================================================
+
+def _marker_quad_board(board_size: int = 640, margin: float = 0.06):
+    """A rectified checkerboard drawn inside a border, plus the quad a marker detector returns.
+
+    The four ArUco markers are printed in the label border, so `detect_board_corners_aruco`
+    hands back the BORDER corners, not the playing field's — `margin` is the fraction by
+    which they sit outside. Returns `(canvas, quad)`.
+    """
+    m = int(round(margin * board_size))
+    side = board_size + 2 * m
+    canvas = np.full((side, side, 3), 210, dtype=np.uint8)
+    cell = board_size // 8
+    for r in range(8):
+        for c in range(8):
+            if (r + c) % 2:
+                y, x = m + r * cell, m + c * cell
+                canvas[y:y + cell, x:x + cell] = 60
+    quad = [[0, 0], [side, 0], [side, side], [0, side]]
+    return canvas, quad
+
+
+def _coverage(canvas, quad, board_size: int, margin: float) -> float:
+    from chesslab.calibration import compute_homography
+    from chesslab.move_tracker.tracker import MoveTracker
+
+    h = np.array(compute_homography(quad, board_size, margin), dtype=np.float64)
+    warped = cv2.warpPerspective(canvas, h, (board_size, board_size))
+    return MoveTracker._grid_line_coverage(None, cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY))
+
+
+def test_grid_gate_needs_the_marker_margin():
+    """Dropping `margin` oversizes the board by the border and JAMS the grid-line gate.
+
+    `_grid_line_coverage` probes for each interior line at exactly `i * w/8` within a band of
+    `0.12 * cell`. Warping a marker quad at margin 0 leaves the board ~6% too large, which
+    displaces the outer lines far past that band — so a perfectly clear board reads as covered
+    and the tracker parks in `occluded` forever. That is what made the replay harness report
+    zero commits on real ArUco footage while every live path (which passes `profile.margin`)
+    was fine.
+    """
+    from chesslab import config
+
+    board_size, margin = 640, 0.06
+    canvas, quad = _marker_quad_board(board_size, margin)
+    gate = config.TRACK_DEFAULTS["min_grid_line_coverage"]
+
+    assert _coverage(canvas, quad, board_size, margin) == pytest.approx(1.0), \
+        "with the margin applied every one of the 14 interior lines must be found"
+    assert _coverage(canvas, quad, board_size, 0.0) < gate, \
+        "without it the gate must trip — this is the regression the harness had"
