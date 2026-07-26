@@ -306,6 +306,12 @@ class TrackerService :
     ) {
         geometry = geom
         corners = pts
+        // ONE owner for the board size. The calibration profile measures it; `TrackerConfig` is
+        // where the engine reads it, and nothing used to carry it across — they agreed only because
+        // both defaulted to 1600. `FrameLoop` now refuses a plane that disagrees with its boxes, so
+        // this is what keeps that check satisfied rather than merely loud.
+        val config = settings.config.value
+        if (config.boardSize != geom.boardSize) settings.update(config.copy(boardSize = geom.boardSize))
         val requested = camera.requestedSize
         val delivered = camera.deliveredSize ?: DeliveredSize(requested.width, requested.height, 0)
         stacks.current?.coordinator?.applyCalibration(geom, pts, profileName, delivered)
