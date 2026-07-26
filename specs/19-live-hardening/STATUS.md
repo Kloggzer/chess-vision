@@ -10,7 +10,7 @@ results, and any blocker with file + line + what you tried.
 |---|---|---|---|---|
 | 00 | `00-poisoned-reference.md` | Measure why `f1` stands at z≈15; origin-vs-destination asymmetry | measured | Root cause: an un-vetoed resting hand, not a stale reference. Origin/destination asymmetry does not exist. |
 | 01 | `01-cnn-runtime.md` | ORT session config, XNNPACK, profiling, steady-state number | done, unmeasured | QNN dependency dropped for XNNPACK+NNAPI (option 2). **No device attached — no on-device number.** |
-| 02 | `02-frame-allocations.md` | Per-frame buffers, engine hot path, 3 latent bugs | todo | `ClipReplayParityTest` must stay 18/18. |
+| 02 | `02-frame-allocations.md` | Per-frame buffers, engine hot path, 3 latent bugs | done | Ring + 3 bugs fixed; parity 18/18, zero divergence. **Step 2 (BGR mean): measured, no safe change found** — two rewrites were slower. |
 | 03 | `03-recording.md` | Recording "doesn't work well" — diagnose then fix | done | No device attached; diagnosed from the write path. 6 defects fixed, 6 regression tests proven red first. |
 | 04 | `04-cnn-activations.md` | `_convert_bn_to_gn` deletes timm's ReLUs | todo | No full retrain. |
 
@@ -472,7 +472,205 @@ gate is what will link it.
 
 ### Phase 02 — frame allocations
 
-_todo_
+Commits on `spec-19-live-hardening`: `2a339c3` (ring), `966b7ec` (avgFrames), `cf4d4fa`
+(scratch), `0465296` (detSize test), plus this entry. **Step 2 produced no commit — see below.**
+
+**`ClipReplayParityTest`: 18/18 clips, 969 frames, zero divergence.** Run once, targeted, at the
+end. `ktlintCheck` and `detekt` clean for `:core-engine`, `:core-geometry` and `:app`; no
+`@Suppress` and no baseline entry was added.
+
+#### Step 1 — the per-frame byte arrays
+
+`pipeline/PlaneRing.kt` (new) + `pipeline/BoardWarps.kt` + `geometry/Warp.kt`.
+
+`toGrayImage`/`toBgrImage` now take an optional destination — the same shape the two warps
+already had with `dst: Mat?`. The ring stays in `:app`, as the phase requires. Depth is
+`max(avgFrames(cnnOn = true), avgFrames(cnnOn = false)) + 3`, **derived, not a fixed 5**:
+`avgFramesOverride` is a live knob (`ConfigKnobs.kt`, range 1..10), so a constant would be right
+only for the defaults.
+
+The tight bound is `window + 1`, and it is worth writing down because it is tight for two
+reasons at once. When the ring hands out the plane for frame `N` the engine still holds
+`N-1 .. N-window` (the running mean's deque, whose newest element is also `prevGray`), **and**
+`PlaneMean.append` reads the evicted plane `N-window` in the same pass as the new one, so those
+two must be different arrays as well. The three extra slots are headroom for the window moving
+before the ring is told (a settings change, a CNN attach).
+
+**D02-1 — the spec's bounded set is incomplete, and this is the trap the phase warned about in a
+place the phase did not look.** `02-frame-allocations.md` names `avgFrames` per running mean +
+`prevGray` + `lastCur`/`lastCurBgr`. Two corrections:
+
+- `lastCur`/`lastCurBgr` are **means**, not input planes — they never come from the ring at all,
+  so they do not need slots.
+- The set is missing an **unbounded** holder. `FramePipeline.emit` hands the very same
+  `grayDet`/`bgrDet` seam planes to `CropFrameStore.Pending` whenever the observer asked for a
+  frame. `Pending` crosses to the observer thread (`service/CnnCropAdapter.kt:40`), becomes
+  `CnnSnapshot.gray`/`.warped`, is held by `state.cnnSnap` for seconds, and on a CNN recovery
+  commit `CnnTick.kt:259` → `anchorAtDetSize` adopts it as `refGray`/`refBgr` — i.e. forever.
+  No ring depth covers that.
+
+  Fix: `CameraStages.updateCropFrame` **copies** both planes. It costs one 2.5 MB copy on the
+  frames the observer asked for (a few per second at most), on the same line as the
+  full-resolution bordered warp that frame is already paying for; every other frame copies
+  nothing. The acceptance grep still holds — there is no `ByteArray(` on the per-frame path in
+  `pipeline/` outside the ring.
+
+Nothing else in `:app` holds a seam plane across frames: `record/**` and `games/**` never see
+`GrayImage`/`BgrImage` (grepped), and `EngineHost.tick` passes the `FrameInput` straight into the
+engine without retaining it.
+
+**Red-first proof.** `FrameLoopTest.theBufferRingNeverHandsBackAPlaneTheRunningMeanStillHolds`
+pushes 20 frames through a ring of the real shape into a `RunningMeanGray` and compares against
+an independently stacked mean. It asserts three things: depth `window + 3` is right, depth
+`window + 1` is where it becomes right, and **depth 1 is wrong**. Mutation check: forcing the
+first call to depth 1 turns the test red (`AssertionFailedError at FrameLoopTest.kt:340`) — and
+red is the only signal there is, because a single shared buffer does not throw, it silently
+converges the mean on the newest frame.
+
+`app` side: `PlaneRingTest` (4 tests) pins the derived depth, the cycle, plane-size replacement
+and that a resize never re-hands an old slot.
+
+#### Step 2 — the BGR running mean: MEASURED, NO SAFE CHANGE FOUND
+
+**Lazy evaluation was rejected on evidence, before it was written.** The phase's precondition was
+"if it is only read on a `Detect` outcome". It is not. `curBgr` is read on essentially every
+stable frame:
+
+| consumer | when |
+|---|---|
+| `TrackerEngine.quietOutcome` → `setRef(cur, curBgr)` | the quiet re-anchor — the common case on a still board |
+| `Vetoes.applyVetoes(cur, curBgr, hot)` | every detect frame with a hot square |
+| `generateHypothesis` / `dispatch` / `commitMove` | every candidate |
+| `FrameLoop.stableMeans` → `state.lastCurBgr` | unconditional; `CnnTick.kt:259` reads it later as the fallback commit anchor |
+
+The only frames where the mean is computed and not consumed are the one or two settle frames
+after each motion burst, where `grayBuf` is full but `ready` is still false. Deferring
+`lastCurBgr` would change what a later `CnnTick` anchors on. Parity outranks speed — abandoned.
+
+**Two rewrites of `PlaneMean` were implemented and measured. Both are slower. Both reverted.**
+Measurements are desktop-JVM medians (`EngineProfileTest`, 800×800 = the phone's real detection
+plane, 41 reps after 30 warmups) and end-to-end engine time over the 18 committed clips
+(`ClipReplayTimingTest`, 969 frames at the fixtures' detSize 320 — this is the `ENGINE` stage, in
+the only place it can be measured off-device; `StageTimings` itself lives in `:app` and needs
+`android.util.Log`).
+
+| `PlaneMean` variant | gray append | gray mean | **bgr append** | **bgr mean** | clip replay / frame |
+|---|---|---|---|---|---|
+| **committed (IntArray accumulator)** | 0.220 | 0.166 | **0.562** | **0.519** | **1.302 ms** |
+| no accumulator, sum the window in `mean()` | 0.000 | 0.990 | **0.000** | **3.006** | 1.569 ms |
+| `ShortArray` accumulator (halves it to 3.8 MB) | 0.255 | 0.141 | **0.762** | **0.475** | 1.301 ms |
+
+The memory-traffic argument for dropping the accumulator is correct and irrelevant: summing the
+window moves ~7.7 MB against ~29 MB per stable frame, and is still **2.8× slower** on the BGR
+plane. The incremental loops (`sum[i] += a[i] - b[i]`, two arrays in, one out) vectorise; a
+per-byte gather across n plane pointers does not. `ShortArray` bought 0.044 ms on `mean` and lost
+0.200 ms on `append` — the Short round-trip defeats the same vectorisation — and moved the
+end-to-end number by 0.001 ms, i.e. not at all.
+
+**After the phase's other four steps: 1.277 ms/frame** (vs 1.302 before), same
+`RunningMeanBgr` numbers (append 0.618, mean 0.507). That difference is noise; the honest
+statement is that phase 02 did not move the engine hot path and did not intend to — the ring
+removes 77 MB/s of allocation on the **app** side, which is where the garbage was.
+
+Context for whoever picks this up next: the two running means together are ~1.5 ms of a detect
+frame at 800×800. `censusTransform` (1.85), `bgrToLab` (2.45, gamut rebuild only) and
+`perSquareCensusChange (+codes)` (1.00) are all larger. The running mean is not where the 27–35 ms
+lives.
+
+#### Step 3 — `avgFrames` on the CNN attach
+
+`EngineState.kt`, `api/TrackerEngine.kt`, `EngineStateBuffersTest.kt` (new; named so the phase's
+`--tests "*EngineState*"` picks it up).
+
+The reported bug is real, and there is a **second spelling of it in `updateConfig`** that the
+phase did not name: it compared `config.avgFrames(cnnOn)` against `previous.avgFrames(cnnOn)`
+with the NEW `cnnOn` on both sides. With no override, `avgFrames` depends only on `cnnOn`, so the
+two sides cancel exactly when the config change is the one that moves the window — switching
+`cnnVerify` off left the buffers on the with-CNN window forever.
+
+`EngineState` now tracks `avgWindow` (what the buffers are actually sized for) and
+`syncAvgWindow()` reconciles it against `avgFrames`. Called from all three paths that can flip
+`cnnOn`: `attachCnn`, `updateConfig`, and once per `onFrame` — the third is for `cnnFailed`,
+which the verify path raises mid-game and which neither call site can observe. A window that did
+not move costs one integer comparison and drops nothing.
+
+`cnnRun`/`cnnFailed` were moved up to the frame-loop section of `EngineState`, because they are
+two of the three inputs to `cnnOn` and the buffers below cannot be sized from a field declared
+later (JVM initialisation order). A pointer comment is left at their old home.
+
+Acceptance grep: `avgFrames(cnnOn = false)` no longer appears in the buffer construction. It
+still appears twice for `confirmer`/`recoveryConfirmer`, which are out of this phase's scope and
+have the same latent defect — **left for a later decision, see below.**
+
+Mutation check: removing `syncAvgWindow()` from `attachCnn` and `updateConfig` turns
+`avgFramesFollowsTheCnnAttach` and `avgFramesFollowsCnnVerifyBeingSwitchedOff` red.
+
+#### Step 4 — the file-scope scratch
+
+`BaselineOcclusion.kt`, `Vetoes.kt`, `Commit.kt` — all 11 file-scope buffers found by
+`grep "^private va[lr] .*Array("` over `:core-engine/src/main` are exactly the three sites the
+phase names. All were **moved onto the instance**; none was left with a "why file scope is
+correct" comment, because none of them was.
+
+Three small types (`BaselineScratch`, `ShadowVetoScratch`, `GamutScratch`), one per concern, held
+by `EngineState` next to the evidence arrays whose KDoc already promised this policy ("owned per
+engine so two engines can never alias each other").
+
+**D02-2 — a linter shaped one signature, and it is the good shape anyway.**
+`baselineOcclusionAndShadow` is a top-level function with seven parameters; detekt's
+`LongParameterList` threshold is 8, so a scratch parameter would have tripped it and demanded a
+parameter object that means nothing. It takes `BaselineScratch` as its **receiver** instead —
+which also reads better, since the scratch is the thing that owns the call's working memory. Six
+test call sites updated to `BaselineScratch().baselineOcclusionAndShadow(...)`; `EngineProfileTest`
+hoists one instance out of the timing loop.
+
+No behaviour change: every buffer was already fully consumed inside a single call. Parity
+confirms it.
+
+#### Step 5 — the `detSize` guard
+
+`FrameLoopTest.aDetectionPlaneThatDisagreesWithTheBoxesIsRefused`. Asserts the message names
+**both** sizes — that is the guard's entire purpose, to say which of the two `detSize` producers
+is off — and that `frameSeq` was not advanced before it fired. Mutation check: relaxing the
+`require` to `require(true)` turns it red.
+
+#### Tests run (once each, targeted, as the phase names them)
+
+- `:core-engine:test --tests "*FrameLoop*" --tests "*EngineState*"` → 21 tests, 0 failures
+- `:app:testDebugUnitTest --tests "*pipeline*"` → 36 tests, 0 failures (`PlaneRingTest` 4)
+- `:core-engine:test --tests "*ClipReplayParityTest*"` → **18/18, zero divergence**
+- `EngineProfileTest` / `ClipReplayTimingTest` under `-Pchesslab.profile=true` for the numbers
+  above. They assert nothing.
+
+`assembleDebug` and the full test task were **not** run, per the memory-constraint contract.
+
+#### Discrepancies against the spec
+
+- **D02-1** — the bounded set in `02-frame-allocations.md` §1 is wrong in both directions:
+  `lastCur`/`lastCurBgr` are means and need no slots, and the CNN crop hand-off is an unbounded
+  holder the spec does not mention. See Step 1.
+- **D02-2** — detekt's `LongParameterList` forced `baselineOcclusionAndShadow` into receiver form.
+  Surfaced as the entry file asks; no parameter object was invented.
+- **D02-3** — the spec's line anchors are accurate: `EngineState.kt:94-95`, `Vetoes.kt:10-12`,
+  `Commit.kt:63-65`, `BaselineOcclusion.kt:58-63`, `FrameLoop.kt:206-215` (the load-bearing double
+  clear, untouched) all matched.
+- **D02-4** — the phase asks for `ENGINE`-stage timings from `StageTimings`. `StageTimings` is
+  `:app`-only and imports `android.util.Log`, so it cannot run on the desktop clip replay at all.
+  `ClipReplayTimingTest` times exactly what the `ENGINE` stage times (`TrackerEngine.onFrame` over
+  the same 969 frames) and is what the numbers above come from.
+
+#### Left for a later decision (NOT changed — out of this phase's scope)
+
+- **`confirmer`/`recoveryConfirmer` have the identical defect.** `EngineState.kt` builds both with
+  `config.confirmFrames(cnnOn = false)` = 2, and `updateConfig` rebuilds them with the same
+  cancelling comparison Step 3 fixed for `avgFrames`. So `confirmFrames` stays at the without-CNN
+  value (2) after the CNN attaches, where the live gate (`commitGates` → `state.confirmFrames`)
+  reads 1. Unlike the buffers, rebuilding a `Confirmer` **resets its vote count**, so
+  reconciling it per frame is a behaviour change on the commit path and needs the clip suite —
+  which is a decision for the user, not a drive-by fix.
+- **The mean output still allocates.** `PlaneMean.mean()` allocates a fresh 1.92 MB `ByteArray`
+  per stable frame and cannot be ringed: the result becomes `refGray`/`refBgr` and
+  `PendingVerify.cur/curBgr`, whose lifetime is unbounded. Same invariant 14, other end.
 
 ### Phase 03 — recording
 
