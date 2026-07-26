@@ -27,6 +27,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.tracker.settings.AppSettings
 import com.chesslab.tracker.settings.SettingsHost
+import com.chesslab.tracker.ui.ChesslabScaffold
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.OnSurface
@@ -68,44 +69,14 @@ private fun SettingsScreen(
     val app by viewModel.app.collectAsStateWithLifecycle()
     val pending by viewModel.restartRequired.collectAsStateWithLifecycle()
     val note by viewModel.note.collectAsStateWithLifecycle()
-    val context = LocalContext.current
     var confirmResetAll by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("Settings", style = MaterialTheme.typography.displayMedium, color = OnSurface)
-            SectionButton("Back") { onBack() }
+    ChesslabScaffold("Settings", onBack) { bars ->
+        Column(Modifier.fillMaxSize().padding(bars).padding(horizontal = 12.dp)) {
+            note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Accent) }
+            SettingsList(viewModel, config, app, pending, onOpenDebug, Modifier.weight(1f)) { confirmResetAll = true }
+            if (pending.isNotEmpty()) RestartBar(pending, onRestartTracker, viewModel::onRestarted)
         }
-        note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Accent) }
-        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            KnobGroup.entries.forEach { group ->
-                val rows = knobsIn(group)
-                item(key = group.name) {
-                    GroupHeader(group, modifiedCount(group, config)) { viewModel.resetGroup(group) }
-                }
-                items(rows.size, key = { rows[it].key }) { index ->
-                    val knob = rows[index]
-                    KnobRow(
-                        knob = knob,
-                        config = config,
-                        restartPending = knob.key in pending,
-                        onValue = { viewModel.setKnob(knob, it) },
-                        onReset = { viewModel.resetKnob(knob) },
-                    )
-                }
-            }
-            item(key = "app") { AppSettingsSection(app) { viewModel.setApp(it) } }
-            item(key = "debug") {
-                DebugRow(enabled = app.debugEnabled, onEnabled = viewModel::setDebugEnabled, onOpen = onOpenDebug)
-            }
-            item(key = "footer") {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SectionButton("Export settings as JSON") { share(context, exportText(context, config, app)) }
-                    SectionButton("Reset all to Python defaults") { confirmResetAll = true }
-                }
-            }
-        }
-        if (pending.isNotEmpty()) RestartBar(pending, onRestartTracker, viewModel::onRestarted)
     }
 
     if (confirmResetAll) {
@@ -113,6 +84,47 @@ private fun SettingsScreen(
             confirmResetAll = false
             viewModel.resetAll()
         }, onDismiss = { confirmResetAll = false })
+    }
+}
+
+@Composable
+private fun SettingsList(
+    viewModel: SettingsViewModel,
+    config: TrackerConfig,
+    app: AppSettings,
+    pending: Set<String>,
+    onOpenDebug: () -> Unit,
+    modifier: Modifier = Modifier,
+    onResetAll: () -> Unit,
+) {
+    val context = LocalContext.current
+    LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        KnobGroup.entries.forEach { group ->
+            val rows = knobsIn(group)
+            item(key = group.name) {
+                GroupHeader(group, modifiedCount(group, config)) { viewModel.resetGroup(group) }
+            }
+            items(rows.size, key = { rows[it].key }) { index ->
+                val knob = rows[index]
+                KnobRow(
+                    knob = knob,
+                    config = config,
+                    restartPending = knob.key in pending,
+                    onValue = { viewModel.setKnob(knob, it) },
+                    onReset = { viewModel.resetKnob(knob) },
+                )
+            }
+        }
+        item(key = "app") { AppSettingsSection(app) { viewModel.setApp(it) } }
+        item(key = "debug") {
+            DebugRow(enabled = app.debugEnabled, onEnabled = viewModel::setDebugEnabled, onOpen = onOpenDebug)
+        }
+        item(key = "footer") {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SectionButton("Export settings as JSON") { share(context, exportText(context, config, app)) }
+                SectionButton("Reset all to Python defaults") { onResetAll() }
+            }
+        }
     }
 }
 

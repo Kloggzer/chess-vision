@@ -4,7 +4,6 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
@@ -20,10 +19,9 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import com.chesslab.tracker.ui.theme.LocalChesslabPalette
+import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
-import com.chesslab.tracker.ui.theme.OverlayChanged
-import com.chesslab.tracker.ui.theme.OverlayOcclusion
-import com.chesslab.tracker.ui.theme.OverlayShadow
 
 private const val FILES = "abcdefgh"
 private const val N = 8
@@ -51,7 +49,9 @@ fun PreviewOverlay(
     sourceHeight: Int = 0,
     showEvidence: Boolean = true,
 ) {
-    Box(modifier.fillMaxWidth().aspectRatio(4f / 3f), contentAlignment = Alignment.Center) {
+    // The caller sizes this: on the tracking screen it gets the leftover space, and forcing a 4:3
+    // aspect there made it taller than the space it was given, so it overdrew the board above it.
+    Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         if (bitmap == null) {
             Text("No camera frame yet", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceMuted)
             return@Box
@@ -63,16 +63,19 @@ fun PreviewOverlay(
             modifier = Modifier.fillMaxSize(),
         )
         val quad = cornerOffsets(corners)
+        // Read outside the draw lambda — it is not a composable scope.
+        val palette = LocalChesslabPalette.current
+        val quadColor = OnSurface
         if (quad != null) {
             Canvas(Modifier.fillMaxSize()) {
                 val sw = if (sourceWidth > 0) sourceWidth.toFloat() else bitmap.width.toFloat()
                 val sh = if (sourceHeight > 0) sourceHeight.toFloat() else bitmap.height.toFloat()
                 val scaled = quad.map { Offset(it.x / sw * size.width, it.y / sh * size.height) }
-                drawQuad(scaled)
+                drawQuad(scaled, quadColor)
                 if (showEvidence) {
-                    drawSquares(scaled, overlay.changed, OverlayChanged)
-                    drawSquares(scaled, overlay.shadowVetoed, OverlayShadow)
-                    drawSquares(scaled, overlay.occlusionVetoed, OverlayOcclusion)
+                    drawSquares(scaled, overlay.changed, palette.overlayChanged)
+                    drawSquares(scaled, overlay.shadowVetoed, palette.overlayShadow)
+                    drawSquares(scaled, overlay.occlusionVetoed, palette.overlayOcclusion)
                 }
             }
         }
@@ -100,14 +103,17 @@ internal fun quadPoint(
     return Offset(top.x + (bottom.x - top.x) * v, top.y + (bottom.y - top.y) * v)
 }
 
-private fun DrawScope.drawQuad(quad: List<Offset>) {
+private fun DrawScope.drawQuad(
+    quad: List<Offset>,
+    color: Color,
+) {
     val path =
         Path().apply {
             moveTo(quad[0].x, quad[0].y)
             quad.drop(1).forEach { lineTo(it.x, it.y) }
             close()
         }
-    drawPath(path, color = Color.White, style = Stroke(width = 3.dp.toPx()))
+    drawPath(path, color = color, style = Stroke(width = 3.dp.toPx()))
 }
 
 private fun DrawScope.drawSquares(

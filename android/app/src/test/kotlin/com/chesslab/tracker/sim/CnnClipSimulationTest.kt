@@ -34,6 +34,10 @@ import java.io.File
  * .\gradlew.bat :app:testDebugUnitTest -Pchesslab.sim=true --tests "com.chesslab.tracker.sim.*"
  * ```
  * Without `-Pchesslab.sim=true` the class is skipped, so `:app:testDebugUnitTest` stays fast.
+ *
+ * `-Pchesslab.sim.models=data/models/tiny-p3,data/models/tiny-light` compares several runs in one
+ * pass (default: the bundled assets). The diff-only baseline is model-independent and is replayed
+ * ONCE, so every model is scored against the identical reference.
  */
 @EnabledIfSystemProperty(named = "chesslab.sim", matches = "true")
 class CnnClipSimulationTest {
@@ -44,21 +48,27 @@ class CnnClipSimulationTest {
         Loader.load(opencv_java::class.java)
         val clips = simClips()
         assertTrue(clips.isNotEmpty(), "no clips in parity/index.json")
-        val assets = File(repoRoot(), "android/app/src/main/assets/cnn_model")
-        val staged = CnnModelAssets({ name -> File(assets, name).takeIf { it.isFile }?.inputStream() }, staging).stage()
-        val results = mutableListOf<Pair<SimResult, SimResult>>()
-        OnnxSquareClassifier.open(staged, RecordingLog()).use { classifier ->
-            assertEquals("CPU", classifier.backend, "the desktop JVM has no NPU — the run must be on the CPU provider")
-            for (clip in clips) {
-                val baseline = runClip(clip, null)
-                val withCnn = runClip(clip, SimCnn(classifier, CnnRecovery(cnnConfigOf(clip))))
-                println(line(baseline, withCnn))
-                results += baseline to withCnn
+        val baselines = clips.map { runClip(it, null) }
+        assertBaselineReproducesGroundTruth(baselines)
+        for (model in simModels()) {
+            val staged =
+                CnnModelAssets(
+                    { name -> File(model.dir, name).takeIf { it.isFile }?.inputStream() },
+                    File(staging, model.name),
+                ).stage()
+            val results = mutableListOf<Pair<SimResult, SimResult>>()
+            OnnxSquareClassifier.open(staged, RecordingLog()).use { classifier ->
+                assertEquals("CPU", classifier.backend, "the desktop JVM has no NPU — the run must be on the CPU provider")
+                for ((index, clip) in clips.withIndex()) {
+                    val withCnn = runClip(clip, SimCnn(classifier, CnnRecovery(cnnConfigOf(clip))))
+                    println(line(baselines[index], withCnn))
+                    results += baselines[index] to withCnn
+                }
             }
+            println("\n##### model '${model.name}' (${model.dir})")
+            report(results)
+            assertHarnessRan(results)
         }
-        report(results)
-        assertHarnessRan(results)
-        assertBaselineReproducesGroundTruth(results)
     }
 }
 
@@ -101,6 +111,10 @@ private fun report(results: List<Pair<SimResult, SimResult>>) {
         }
     }
     println(totals(results))
+    val all = ObsAudit()
+    results.forEach { all.absorb(it.second.audit) }
+    println("\noccupancy quality over ALL observations (the statistic the tracker consumes):")
+    println("  ${all.occupancyAccuracy()}")
     println(timing(results.map { it.second }))
     println("================================================================================\n")
 }
@@ -153,8 +167,8 @@ private fun assertHarnessRan(results: List<Pair<SimResult, SimResult>>) {
  * (`meta.sanMatchesManifestAtFullRate`), and this run is full rate with the same config, so a
  * diff-only failure here is a real Kotlin finding — never something to relax.
  */
-private fun assertBaselineReproducesGroundTruth(results: List<Pair<SimResult, SimResult>>) {
-    val failed = results.map { it.first }.filterNot { it.ok }
+private fun assertBaselineReproducesGroundTruth(baselines: List<SimResult>) {
+    val failed = baselines.filterNot { it.ok }
     assertTrue(
         failed.isEmpty(),
         "diff-only baseline diverged from labels.json: " + failed.joinToString { "${it.clip} (${it.firstDivergence()})" },

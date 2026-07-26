@@ -31,6 +31,8 @@ import com.chesslab.tracker.games.GameSessionState
 import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.games.GameSummary
 import com.chesslab.tracker.record.SessionStore
+import com.chesslab.tracker.ui.ChesslabScaffold
+import com.chesslab.tracker.ui.settings.Card
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
@@ -72,21 +74,24 @@ private fun GamesScreen(
     var renaming by remember { mutableStateOf<GameSummary?>(null) }
     var deleting by remember { mutableStateOf<GameSummary?>(null) }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("Games", style = MaterialTheme.typography.displayMedium, color = OnSurface)
-            TextButton(onClick = onBack) { Text("Back", color = OnSurfaceMuted) }
-        }
-        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    ChesslabScaffold("Games", onBack) { bars ->
+        LazyColumn(
+            Modifier.fillMaxSize().padding(bars).padding(horizontal = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             item(key = "live") {
-                LiveGameRow(live.moveCount, live.recordingReason) {
-                    controller?.endAndSave()
-                    model.refresh()
+                Card {
+                    LiveGameRow(live.moveCount, live.recordingReason) {
+                        controller?.endAndSave()
+                        model.refresh()
+                    }
                 }
             }
-            item(key = "recording") { RecordingPanel(ui, model) }
+            item(key = "recording") { Card { RecordingPanel(ui, model) } }
             items(ui.games, key = { it.id }) { row ->
-                GameRow(row, onOpen = { onOpenGame(row.id) }, onRename = { renaming = row }, onDelete = { deleting = row })
+                Card {
+                    GameRow(row, onOpen = { onOpenGame(row.id) }, onRename = { renaming = row }, onDelete = { deleting = row })
+                }
             }
             if (ui.games.isEmpty()) {
                 item(key = "empty") { Text("No games yet.", color = OnSurfaceMuted) }

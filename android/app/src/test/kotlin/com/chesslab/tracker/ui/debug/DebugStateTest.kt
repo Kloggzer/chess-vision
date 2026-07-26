@@ -172,10 +172,12 @@ class DebugStateTest {
     fun cnnStateShowsActualEpNotRequested() {
         val fellBack = CnnRuntimeInfo("QNN-HTP(NPU)", "NNAPI", "model.onnx", "64x3x128x128", 9.0, 3)
         assertEquals("QNN-HTP(NPU) (requested) → NNAPI (actual)", epLine(fellBack))
-        assertEquals(com.chesslab.tracker.ui.theme.Busy, epTone(fellBack))
+        // The tone itself is now a palette lookup (light/dark), so the testable part is the
+        // decision behind it: a fall-back must be flagged, a granted request must not.
+        assertTrue(epFellBack(fellBack))
         val asked = fellBack.copy(actualEp = "QNN-HTP(NPU)")
         assertEquals("QNN-HTP(NPU)", epLine(asked))
-        assertEquals(com.chesslab.tracker.ui.theme.Accent, epTone(asked))
+        assertFalse(epFellBack(asked))
     }
 
     @Test

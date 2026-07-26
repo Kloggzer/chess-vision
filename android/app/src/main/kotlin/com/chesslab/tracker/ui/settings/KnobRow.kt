@@ -88,17 +88,15 @@ private fun KnobSlider(
     onValue: (Double) -> Unit,
 ) {
     val low = if (knob.isOptional) knob.min - knob.step else knob.min
-    val steps = ((knob.max - low) / knob.step).toInt() - 1
+    // No `steps`: the tick marks rendered as a dotted track that read as decoration, and with the
+    // active track drawn as a separate pill the control looked like three unrelated pieces. The
+    // value is snapped by `KnobUi.clamp` anyway, so the ticks bought nothing.
     Slider(
         value = (if (value.isNaN()) low else value).toFloat(),
         onValueChange = { onValue(it.toDouble()) },
         valueRange = low.toFloat()..knob.max.toFloat(),
-        steps = steps.coerceIn(0, MAX_SLIDER_STEPS),
     )
 }
-
-/** More tick marks than a phone has pixels renders as a solid bar; past this the slider is free. */
-private const val MAX_SLIDER_STEPS = 60
 
 @Composable
 fun Chip(

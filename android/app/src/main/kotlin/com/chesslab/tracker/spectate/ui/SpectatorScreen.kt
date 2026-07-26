@@ -31,6 +31,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.spectate.QrCode
 import com.chesslab.tracker.spectate.SpectatorHost
 import com.chesslab.tracker.spectate.SpectatorState
+import com.chesslab.tracker.ui.ChesslabScaffold
+import com.chesslab.tracker.ui.settings.Card
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 
 private const val QR_PX = 512
@@ -46,23 +48,30 @@ fun SpectatorScreen(onBack: () -> Unit = {}) {
     val state by controller.state.collectAsStateWithLifecycle()
     val enabled by controller.enabled.collectAsStateWithLifecycle()
 
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("Back") }
-            Text("LAN spectator", style = MaterialTheme.typography.titleMedium)
-        }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Share the board on Wi-Fi", style = MaterialTheme.typography.bodyLarge)
+    ChesslabScaffold("LAN spectator", onBack) { bars ->
+        Column(
+            Modifier.fillMaxSize().padding(bars).padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Card {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    // The switch is laid out FIRST so the text takes what is left: with the text
+                    // measured first its second line ran straight under the switch.
+                    Text(
+                        "Share the board on Wi-Fi",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f).padding(end = 12.dp),
+                    )
+                    Switch(checked = enabled, onCheckedChange = controller::setEnabled)
+                }
                 Text(
                     "Read-only. Nothing on the network can change the game.",
                     style = MaterialTheme.typography.bodySmall,
                     color = OnSurfaceMuted,
                 )
             }
-            Switch(checked = enabled, onCheckedChange = controller::setEnabled)
+            Card { SpectatorStateBlock(state) }
         }
-        SpectatorStateBlock(state)
     }
 }
 

@@ -4512,3 +4512,102 @@ this working tree (verified by stashing this change). `uv run ruff check src tes
 `detekt` clean. `ktlintCheck` fails ONLY on
 `app/src/test/kotlin/com/chesslab/tracker/sim/SimClips.kt:51` — a concurrent agent's uncommitted
 model-comparison edit, not touched here.
+
+---
+
+## UI repair (post-06/07/08 pass)
+
+The shipped UI was unusable on the device: the top nav sat *inside* the status bar and was
+untappable, the eval bar stole the whole column so the move list and every control were pushed
+off-screen, and the calibration preview drew at its bitmap's intrinsic size in the corner of a
+square box. Verified throughout on a real device (Xiaomi, 1440x3200, Android 16 / SDK 36).
+
+### Root causes
+
+- **Edge-to-edge, not styling.** `targetSdk = 35` means Android 15+ forces the window under the
+  system bars and Android 16 removed the opt-out. Nothing consumed the insets, so *every* screen
+  drew under the status bar. `MainActivity` now calls `enableEdgeToEdge(SystemBarStyle.auto(...))`
+  and consumes `WindowInsets.safeDrawing` once at the root (`Modifier.safeDrawingPadding()`) —
+  per-device, per-rotation, cutout- and gesture-nav-correct, with no hardcoded dp anywhere.
+- **`EvalBarSlot` called `fillMaxHeight()`** inside a `Row` whose height was unconstrained, so the
+  row claimed the entire column. The board row now measures at `IntrinsicSize.Min`, where the
+  square board decides the height; the bar's fill uses `weight`, not `fillMaxHeight`.
+- **`CalibrationRoute` emitted `onBack` as a sibling** of its content, and the nav host stacks
+  children in a `Box` — the button was painted on top of the camera preview.
+- **The malformed status note was a data problem, not layout.** `FrameSizeGuard` reported a
+  stale-profile mismatch (`profile '' was calibrated at 0x0`) on an install that had never been
+  calibrated. It now distinguishes the two cases and says
+  `not calibrated yet — tap Recalibrate and point the camera at the whole board`.
+
+### Changed
+
+- `MainActivity.kt` — edge-to-edge + `safeDrawingPadding` at the root.
+- `res/values{,-night}/themes.xml`, `res/values{,-night}/colors.xml` — DayNight launch window; the
+  Light-only parent flashed white and painted a light navigation bar under a near-black app.
+- `ui/Chrome.kt` (new) — `ChesslabScaffold`: one `TopAppBar` with the standard leading
+  `Icons.AutoMirrored.Filled.ArrowBack`, replacing three different hand-rolled Back controls
+  (outlined pill right / plain text right / plain text left). Applied to Settings, Games,
+  Spectator, Speech, Calibration and Debug. It also fixes the settings list scrolling under its
+  own title, because a real app bar pushes content out from under itself.
+- `ui/TopNav.kt` (new) — the board screen's `TabRow` with a selected-tab indicator, replacing bare
+  `TextButton`s that had no background and no active state.
+- `ui/tracking/TrackingScreen.kt` — intrinsic-height board row, two-line ellipsised status note,
+  camera view as a `FilterChip` that *replaces* the move list (at 4:3 it overflowed and overdrew
+  the board), action bar always on screen.
+- `ui/tracking/PreviewOverlay.kt` — caller-sized instead of a forced 4:3 aspect.
+- `ui/calibration/CalibrationRoute.kt` — preview takes the leftover height and carries the SOURCE
+  aspect ratio (the overlay maps source px onto the whole box, so a mismatched box offset every
+  drawn corner); three squeezed buttons in one row became a full-width primary plus two outlined
+  secondaries — the "stray grey pill" was the third button squeezed to one character per line.
+- `ui/analysis/EvalBar.kt` — labelled 40dp column; `+0.3` no longer wraps to `+0.` / `3`.
+- `ui/settings/KnobRow.kt` — slider tick marks dropped; the dotted track read as decoration.
+- `ui/games/RecordingPanel.kt` — cap options are real `FilterChip`s, not coloured text.
+- `spectate/ui/SpectatorScreen.kt` — switch laid out before the text, so the subtitle stops running
+  under it.
+- `speech/ui/SpeechSettingsScreen.kt` — `speechStateText` replaces `state.toString()` ("Uninitialised").
+- `pipeline/FrameSizeGuard.kt` — the uncalibrated-vs-stale message split (+ test).
+
+### Theme — paper and ink
+
+`ui/theme/Color.kt` is now a `ChesslabPalette` interface with `PaperPalette` (warm paper, sepia
+ink, boxwood/walnut board) and `InkPalette` (ink-stained walnut, warm cream), selected by
+`isSystemInDarkTheme()` and provided through `LocalChesslabPalette`. The existing token names
+(`Accent`, `OnSurfaceMuted`, …) became `@Composable @ReadOnlyComposable` getters, so no call site
+changed. `Theme.kt` fills **every** Material role, not the obvious six — leaving the container and
+`surfaceContainer*` roles at baseline is what produced lavender sliders and purple chips.
+
+Measured contrast (WCAG, against the surface each is actually drawn on):
+
+| | light on bg / surface / raised | dark on bg / surface / raised |
+|---|---|---|
+| ink (body) | 12.87 / 13.92 / 11.36 | 14.04 / 13.02 / 11.45 |
+| muted text | 6.43 / 6.95 / 5.67 | 7.15 / 6.63 / 5.83 |
+| accent | 6.11 / 6.60 / 5.39 | 10.10 / 9.37 / 8.24 |
+| busy | 5.88 / — / 5.19 | 8.57 / 7.95 / 6.99 |
+| danger | 7.22 / 7.80 / 6.37 | 6.95 / 6.45 / 5.67 |
+| primary | 6.81 / 7.36 / 6.01 | 8.36 / 7.76 / 6.82 |
+
+All body/label pairs clear AA 4.5:1; the display-sized state text and fps clear it several times
+over. Evidence overlays are separated by **hue** — blue / ochre / magenta — not lightness, so a
+red-green deficiency cannot collapse them (light 4.61 / 3.94 / 5.27, dark 6.73 / 7.11 / 5.85
+against their backdrop; all above the 3:1 non-text threshold).
+
+**Alarm.** The scrim alone was NOT enough on a warm palette: red at 34 % over boxwood and walnut
+just reads as a pinker board. `BoardCanvas.drawAlarm` now adds a hard `danger` border at 18 % of a
+cell, which does not compete with the square colours at all. Verified in both schemes by
+temporarily forcing `alarmed = true`, screenshotting, and reverting.
+
+### System back
+
+`ChesslabNavHost` already uses a real `NavHost`, and after the scaffold work back behaves
+correctly. Verified per screen with `KEYCODE_BACK` + `dumpsys activity activities`: from Settings,
+Games, Spectator, Speech and Calibration the app stays foreground and lands on the tracking
+screen; from tracking (the root) it leaves the app. The promotion dialog keeps
+`DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)` — verified in code,
+not on device, because `PromotionPending` needs a real game in front of the camera.
+
+### Gate
+
+`:app:ktlintCheck`, `:app:detekt`, `:app:testDebugUnitTest`, `:app:assembleDebug` all green.
+`DebugStateTest.cnnStateShowsActualEpNotRequested` was updated rather than deleted: the tone is now
+a palette lookup, so the test asserts the new pure `epFellBack(...)` decision behind it.

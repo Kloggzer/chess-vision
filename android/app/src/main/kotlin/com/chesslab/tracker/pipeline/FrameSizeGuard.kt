@@ -82,11 +82,21 @@ class FrameSizeGuard(
             mismatch = null
             return
         }
-        val text = "profile '$profileName' was calibrated at ${profileW}x$profileH, camera delivers ${width}x$height"
+        // Before the first calibration there IS no profile, and the stale-profile wording came out
+        // as `profile '' was calibrated at 0x0` — a sentence about a profile that never existed.
+        // The two cases need different words because they need different actions from the user.
+        val calibrated = profileW > 0 && profileH > 0
+        val text =
+            if (calibrated) {
+                "profile '$profileName' was calibrated at ${profileW}x$profileH, camera delivers ${width}x$height"
+            } else {
+                "not calibrated yet — tap Recalibrate and point the camera at the whole board"
+            }
         mismatch = SizeMismatch(text, width, height)
         // Rate limit: the retry path must not spam the log every frame.
         if (firstSeen) {
-            warn("$text — its board corners are pixel coordinates and no longer valid; re-detecting them.")
+            val why = " — its board corners are pixel coordinates and no longer valid; re-detecting them."
+            warn(if (calibrated) "$text$why" else "$text (camera delivers ${width}x$height)")
         }
         requestRegeneration()
     }

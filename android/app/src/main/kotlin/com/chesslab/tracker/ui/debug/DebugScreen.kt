@@ -10,15 +10,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.chesslab.tracker.ui.ChesslabScaffold
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 
@@ -46,44 +45,42 @@ private fun DebugScreen(
     val tab by viewModel.tab.collectAsStateWithLifecycle()
     val cnn by viewModel.cnn.collectAsStateWithLifecycle()
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("‹ Settings", color = OnSurfaceMuted) }
-            Text("Debug", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 8.dp))
-        }
-        // The attach banner rides above the tabs on every tab, not only on the CNN one: a silent
-        // attach failure once survived a whole session (MEMORY android-live-bringup-2607).
-        CnnAttachBanner(cnn)
-        ScrollableTabRow(selectedTabIndex = tab.ordinal, edgePadding = 0.dp) {
-            DebugTab.entries.forEach { entry ->
-                Tab(
-                    selected = entry == tab,
-                    onClick = { viewModel.onTabSelected(entry) },
-                    text = { Text(entry.title, style = MaterialTheme.typography.labelMedium) },
-                )
+    ChesslabScaffold("Debug", onBack) { bars ->
+        Column(Modifier.fillMaxSize().padding(bars).padding(horizontal = 12.dp)) {
+            // The attach banner rides above the tabs on every tab, not only on the CNN one: a
+            // silent attach failure once survived a whole session (MEMORY android-live-bringup-2607).
+            CnnAttachBanner(cnn)
+            ScrollableTabRow(selectedTabIndex = tab.ordinal, edgePadding = 0.dp) {
+                DebugTab.entries.forEach { entry ->
+                    Tab(
+                        selected = entry == tab,
+                        onClick = { viewModel.onTabSelected(entry) },
+                        text = { Text(entry.title, style = MaterialTheme.typography.labelMedium) },
+                    )
+                }
             }
-        }
-        val debug = state
-        if (debug == null) {
-            Text(
-                "waiting for the tracker's first debug frame…",
-                style = MaterialTheme.typography.bodyMedium,
-                color = OnSurfaceMuted,
-                modifier = Modifier.padding(top = 24.dp),
-            )
-            return@Column
-        }
-        Column(
-            Modifier.fillMaxSize().padding(top = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            when (tab) {
-                DebugTab.TIMINGS -> TimingsPanel(debug)
-                DebugTab.EVIDENCE -> EvidencePanel(debug)
-                DebugTab.CROPS -> CropGridPanel(debug, viewModel)
-                DebugTab.READS -> CnnReadsPanel(debug, viewModel)
-                DebugTab.DECISIONS -> DecisionLogPanel(debug, viewModel)
-                DebugTab.CNN -> CnnStatePanel(cnn, viewModel)
+            val debug = state
+            if (debug == null) {
+                Text(
+                    "waiting for the tracker's first debug frame…",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = OnSurfaceMuted,
+                    modifier = Modifier.padding(top = 24.dp),
+                )
+                return@Column
+            }
+            Column(
+                Modifier.fillMaxSize().padding(top = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                when (tab) {
+                    DebugTab.TIMINGS -> TimingsPanel(debug)
+                    DebugTab.EVIDENCE -> EvidencePanel(debug)
+                    DebugTab.CROPS -> CropGridPanel(debug, viewModel)
+                    DebugTab.READS -> CnnReadsPanel(debug, viewModel)
+                    DebugTab.DECISIONS -> DecisionLogPanel(debug, viewModel)
+                    DebugTab.CNN -> CnnStatePanel(cnn, viewModel)
+                }
             }
         }
     }

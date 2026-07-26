@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.ChesslabTracker" parent="android:Theme.Material.Light.NoActionBar" />
+    <!--
+      The launch window, before Compose draws its first frame. It is overridden under
+      `values-night/` so the pre-Compose frame follows the same system setting the palette does —
+      a single fixed parent flashed the wrong scheme on every cold start and painted the 3-button
+      navigation bar in the opposite shade.
+    -->
+    <style name="Theme.ChesslabTracker" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/chesslab_background</item>
+    </style>
 </resources>

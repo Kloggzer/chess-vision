@@ -1,6 +1,7 @@
 package com.chesslab.tracker.pipeline
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -44,6 +45,16 @@ class FrameSizeGuardTest {
         assertEquals(1, warnings.size)
         repeat(5) { guard.note(1920, 1080) }
         assertEquals(2, warnings.size)
+    }
+
+    /** A fresh install has no profile at all, and `profile '' was calibrated at 0x0` is not a sentence. */
+    @Test
+    fun `with no profile yet the note asks for a calibration instead of naming an empty one`() {
+        guard.note(1440, 1080)
+        val note = checkNotNull(guard.mismatch).note
+        assertTrue(note.contains("not calibrated yet"), note)
+        assertFalse(note.contains("0x0"), note)
+        assertEquals(1, regenerations)
     }
 
     @Test

@@ -32,6 +32,7 @@ internal fun attachLabel(state: CnnState): String =
         is CnnState.Failed -> "FAILED(${state.reason})"
     }
 
+@androidx.compose.runtime.Composable
 internal fun attachTone(state: CnnState): Color =
     when (state) {
         is CnnState.Off -> OnSurfaceMuted
@@ -52,8 +53,16 @@ internal fun epLine(runtime: CnnRuntimeInfo): String {
     return if (requested == actual) actual else "$requested (requested) → $actual (actual)"
 }
 
-internal fun epTone(runtime: CnnRuntimeInfo): Color =
-    if (runtime.actualEp != null && runtime.requestedEp != runtime.actualEp) Busy else Accent
+/**
+ * True when the CNN silently landed on a provider other than the one asked for.
+ *
+ * Split out of [epTone] so the decision stays a pure function: the colour now comes from the
+ * theme's palette and can only be read inside a composition, but *this* is what a test cares about.
+ */
+internal fun epFellBack(runtime: CnnRuntimeInfo): Boolean = runtime.actualEp != null && runtime.requestedEp != runtime.actualEp
+
+@androidx.compose.runtime.Composable
+internal fun epTone(runtime: CnnRuntimeInfo): Color = if (epFellBack(runtime)) Busy else Accent
 
 /**
  * The banner text, or null.

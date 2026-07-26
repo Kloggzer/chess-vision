@@ -29,6 +29,7 @@ import com.chesslab.tracker.speech.MovePhrase
 import com.chesslab.tracker.speech.SpeechState
 import com.chesslab.tracker.speech.SpeechVerbosity
 import com.chesslab.tracker.speech.androidSpeechEngine
+import com.chesslab.tracker.ui.ChesslabScaffold
 import com.chesslab.tracker.ui.settings.Card
 import com.chesslab.tracker.ui.settings.SectionButton
 import com.chesslab.tracker.ui.theme.OnSurface
@@ -52,35 +53,42 @@ fun SpeechSettingsScreen(onBack: () -> Unit) {
     DisposableEffect(preview) { onDispose { preview.close() } }
     val state by preview.state.collectAsStateWithLifecycle()
 
-    Column(
-        Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("Spoken moves", style = MaterialTheme.typography.displayMedium, color = OnSurface)
-            SectionButton("Back") { onBack() }
-        }
-        if (bound == null) {
-            Text("The tracker service is not running yet.", color = OnSurfaceMuted)
-            return@Column
-        }
-        val app by bound.appSettings.collectAsStateWithLifecycle()
-        Body(app, state, { bound.updateApp(it) }) {
-            preview.setLanguage(app.speechLanguage)
-            preview.say(MovePhrase.of("Nf3", 1, app.speechVerbosity, app.speechLanguage))
-        }
-        (state as? SpeechState.LanguageMissing)?.let {
-            Card {
-                Text("No voice data for ${it.locale} — speaking US English.", color = OnSurfaceMuted)
-                SectionButton("Install voice data") {
-                    context.startActivity(
-                        Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                    )
+    ChesslabScaffold("Spoken moves", onBack) { bars ->
+        Column(
+            Modifier.fillMaxSize().padding(bars).padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (bound == null) {
+                Text("The tracker service is not running yet.", color = OnSurfaceMuted)
+                return@Column
+            }
+            val app by bound.appSettings.collectAsStateWithLifecycle()
+            Body(app, state, { bound.updateApp(it) }) {
+                preview.setLanguage(app.speechLanguage)
+                preview.say(MovePhrase.of("Nf3", 1, app.speechVerbosity, app.speechLanguage))
+            }
+            (state as? SpeechState.LanguageMissing)?.let {
+                Card {
+                    Text("No voice data for ${it.locale} — speaking US English.", color = OnSurfaceMuted)
+                    SectionButton("Install voice data") {
+                        context.startActivity(
+                            Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                    }
                 }
             }
         }
     }
 }
+
+/** The engine's own state names are jargon; this is what the user can do about each one. */
+private fun speechStateText(state: SpeechState): String =
+    when (state) {
+        is SpeechState.Ready -> "Voice ready."
+        is SpeechState.LanguageMissing -> "No voice data for this language — speaking US English."
+        is SpeechState.Failed -> "Text-to-speech is unavailable on this device."
+        else -> "Starting the voice engine — press the test button once it is ready."
+    }
 
 @Composable
 private fun Body(
@@ -116,7 +124,7 @@ private fun Body(
         Chips(SpeechVerbosity.entries.map { it.label to it }, app.speechVerbosity) { onChange(app.copy(speechVerbosity = it)) }
     }
     Card {
-        Text(state.toString(), style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
+        Text(speechStateText(state), style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
         SectionButton("Say a test move") { onTest() }
     }
 }
