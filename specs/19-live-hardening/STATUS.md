@@ -69,7 +69,127 @@ _todo_
 
 ### Phase 01 — CNN runtime
 
-_todo_
+Commits: `0e7197e` (session config), `3aee855` (profiling), `928a55c` (XNNPACK), this one.
+
+**Steady-state on device: NOT MEASURED. No phone was attached (`adb devices` empty for the
+whole phase).** `CnnObserver.logObservation` still emits `CNN observation N ms for 64 crops =
+P prep + S session` once a second, and `verify()` now logs a warm-up figure that is not a
+profiled batch, so the number is one `adb logcat -s chesslabCnn` away. Deliberately left
+blank: a desktop x86 figure for an ARM phone is not a substitute, and this repo has been
+burned by exactly that.
+
+#### 1. Session configuration (`OrtSessionRunner.kt`)
+
+The session was `OrtSession.SessionOptions()` and nothing else. Now `SessionTuning` holds the
+three values and `applyTo` is the only place they reach ORT: `ALL_OPT`, `SEQUENTIAL`,
+`setIntraOpNumThreads(4)` (the SM8650's big cores). `SessionOptions` is write-only — there is
+no getter for a thread count or an optimisation level — so, as the spec anticipated, the test
+asserts on `SessionTuning` and additionally that the real `SessionOptions` accepts it.
+`Ep.CPU` stays a no-op branch on purpose: with XNNPACK sitting above it, CPU is now genuinely
+"ORT's own kernels, nothing appended", which is what makes an explicit CPU request a usable
+diagnostic.
+
+#### 2. Profiling (`OrtSessionRunner.kt`, `OnnxSquareClassifier.kt`)
+
+`enableProfiling` was unconditional at construction; it is now behind `profile: Boolean =
+false` and the attach path is the only caller that passes `true`. `EpVerdict` and the whole
+verified-backend machinery are untouched.
+
+`verify()` now runs **two** batches. The first is profiled and produces the verdict; the
+second runs after `profiledProvider()` has ended profiling and is the one that is timed. That
+is the actual defect behind "every timing on record is a cold batch": the 97 ms figure was one
+cold batch with per-kernel tracing across 473 nodes. Cost: one extra 64-crop batch per attach,
+once.
+
+**Mutation check (required by the spec): yes, red first.** With the conditional reverted to
+the pre-fix unconditional `enableProfiling`, `:app:testDebugUnitTest --tests
+"*OrtSessionRunnerTest*"` gave `profilingIsOffForAnObservationSession FAILED,
+org.opentest4j.AssertionFailedError at OrtSessionRunnerTest.kt:65` (4 tests, 1 failed) — the
+unprofiled session returned `CPUExecutionProvider`, i.e. it had a trace. With the conditional
+in place it passes.
+
+#### 3. XNNPACK — **option 2 taken: the QNN dependency is gone**
+
+Measured at the ELF level over `jni/arm64-v8a/libonnxruntime.so` of each AAR (byte-scan for
+`xnn_`, `ANeuralNetworks`, `XnnpackExecutionProvider`):
+
+| AAR | `xnn_` | `ANeuralNetworks` | size |
+|---|---|---|---|
+| `onnxruntime-android-qnn` 1.21.1 (was shipped) | **0** | **0** | 17.8 MB |
+| `onnxruntime-android` 1.21.1 (now shipped) | 25 | 90 | 17.9 MB |
+| `onnxruntime` 1.21.1 (desktop JVM, win-x64) | 0 | — | 13.0 MB |
+
+Option 1 is therefore not merely unattractive, it is impossible: the symbols are not in the
+QNN binary, so a QNN-EP session cannot also `addXnnpack`. Same ORT version on both sides, so
+no version bump.
+
+**What it costs.** The app loses the QNN EP entirely. On a device where QNN would work it now
+runs the CPU/XNNPACK path instead — `addQnn` throws `OrtException` inside `EpAttempts.open`'s
+`runCatching`, which warns and falls through, the path that already existed for an EP that
+cannot build. Concretely on this SoC that is not a loss: QNN measured **227 ms** against the
+CPU's 97 ms, because the HTP cannot execute the 46 `InstanceNormalization` blocks and
+partitions around them (phase 04's root cause, not this phase's).
+
+**What it gains besides XNNPACK.** NNAPI comes back into the binary — with the QNN AAR the
+`Ep.NNAPI` rung could never have built either, which nothing had noticed. And the transitive
+`com.qualcomm.qti:qnn-runtime:2.31.0` goes away: 84.7 MB of arm64 payload after the excludes
+that `app/build.gradle.kts` used to carry (`libQnnHtpPrepare.so` 55.1 MB, `libQnnHtpV75Skel.so`
+13.3 MB, `libQnnHtpV79Skel.so` 13.2 MB, `libQnnHtp.so` 2.1 MB, `libQnnSystem.so` 0.3 MB). With
+`useLegacyPackaging = true` those are extracted to disk on install, so it is real device
+storage, not just download size.
+
+Chain is now `QNN -> NNAPI -> XNNPACK -> CPU` (enum declaration order). `EpRequest` is
+unchanged (`settings/` is outside this phase's scope), so `EpRequest.CPU` still means pure CPU
+with nothing appended — the diagnostic still works — and AUTO picks up XNNPACK. Adding an
+explicit `EpRequest.XNNPACK` would need `settings/` plus 07b's UI.
+
+**One deliberate `EpVerdict` change.** XNNPACK implements none of the InstanceNormalization
+blocks and hands them back to the CPU EP, so `dominantProvider` will very likely name
+`CPUExecutionProvider` for a perfectly good XNNPACK session. Left alone, `EpAttempts` would
+have seen `contradicted` and thrown the session away — the exact opposite of the intent. So
+`contradicted` now excludes `requested == XNNPACK && ran == CPU`, and only that pair; an NPU
+that never ran is still a contradiction. The reported label still states what actually
+dominated (so the debug screen may read "CPU" for an XNNPACK session — honest, if terse).
+
+#### Discrepancies against the spec
+
+- **D01-1.** The spec's step 3 lists `libs.versions.toml`, `app/build.gradle.kts` and
+  `OnnxSquareClassifier.kt`. `cnn/EpProfile.kt` also had to change (the `Ep.XNNPACK` provider
+  mapping and the contradiction rule above). It is inside the phase's declared directory scope
+  (`cnn/**`), just not named in the step.
+- **D01-2.** The batch dimension the spec asks to check is **already fixed** — the bundled
+  `config.json`/graph is `[64,3,128,128]` per commit `4df4ade`. No asset was touched.
+- **D01-3.** `ChesslabApp.kt` still sets `ADSP_LIBRARY_PATH` for the Hexagon skeleton, which is
+  now pointing at a library that is no longer packaged. It is wrapped in `runCatching` and only
+  logs, so it is inert, but it is dead code and it is outside this phase's scope
+  (`tracker/cnn/**`). Left in place — it is what a QNN-capable build would need back.
+- **D01-4.** Test count grew beyond the three the spec names: existing tests that pinned the
+  old 3-EP chain had to move (`EpRequestChainTest`, `EpProfileTest`,
+  `OnnxSquareClassifierContractTest`). The contract test's "QNN and NNAPI must warn" assertion
+  is now derived from `epChain(...).size - 1` rather than the literal 2, so it does not need
+  touching again the next time the chain changes.
+
+#### Open question, not answered here
+
+ORT's own XNNPACK guidance suggests pairing the XNNPACK EP with `intra_op_num_threads = 1` on
+the session and `session.intra_op.allow_spinning = 0`, because XNNPACK brings its own pool.
+This graph is mostly operators XNNPACK does NOT take, so the ORT CPU-EP pool still does most
+of the work and starving it looked like the worse trade. Both pools are set to 4. **Untested —
+it needs a device**, and it is a one-line change in `OrtSessionRunner.options()` if the warm
+number disappoints.
+
+#### Gate
+
+Tests: `:app:testDebugUnitTest --tests "*.cnn.*"` — **41 tests, 0 failures** (8 classes).
+`:app:ktlintCheck` and `:app:detekt` — clean, no new findings, no `@Suppress` and no baseline
+entry added.
+
+Run in an **isolated `git worktree` at my own commit**, not in the shared tree: phase 03's
+in-flight `app/src/test/.../record/SessionCaptureTest.kt` had an unresolved reference
+(`failedWrites`) and `:app:compileDebugUnitTestKotlin` could not build. No file outside this
+phase was edited to go green. `assembleDebug` was **not** run (spec forbids it) — the AAR swap
+is therefore verified by dependency resolution and unit tests only; the orchestrator's merged
+gate is what will link it.
 
 ### Phase 02 — frame allocations
 
