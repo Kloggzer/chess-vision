@@ -106,18 +106,48 @@ fun warpBoardForCrops(
     return out
 }
 
-/** `Mat` -> the OpenCV-free seam type. 8-bit single channel, row-major, stride == width. */
-fun toGrayImage(mat: Mat): GrayImage {
+/**
+ * `Mat` -> the OpenCV-free seam type. 8-bit single channel, row-major, stride == width.
+ *
+ * [into] lets the caller supply the destination, exactly like the `dst: Mat?` of the two warps: the
+ * live pipeline hands 640 KB of gray and 1.92 MB of BGR across this seam thirty times a second and
+ * recycles both through a ring (`pipeline/PlaneRing.kt`). Omitting it allocates, which is what the
+ * offline clip harness wants — it keeps every frame it decodes.
+ *
+ * The ring lives in `:app`, NOT here: the recycling is only correct for a caller that knows which
+ * planes the engine still holds by reference (entry.md invariant 14).
+ */
+fun toGrayImage(
+    mat: Mat,
+    into: ByteArray? = null,
+): GrayImage {
     require(mat.type() == CvType.CV_8UC1) { "expected CV_8UC1, got ${CvType.typeToString(mat.type())}" }
-    val data = ByteArray(mat.rows() * mat.cols())
+    val data = planeBuffer(into, mat.rows() * mat.cols())
     mat.get(0, 0, data)
     return GrayImage(mat.cols(), mat.rows(), data)
 }
 
-/** `Mat` -> the OpenCV-free seam type. Interleaved BGR, stride == width * 3. */
-fun toBgrImage(mat: Mat): BgrImage {
+/** `Mat` -> the OpenCV-free seam type. Interleaved BGR, stride == width * 3. See [toGrayImage]. */
+fun toBgrImage(
+    mat: Mat,
+    into: ByteArray? = null,
+): BgrImage {
     require(mat.type() == CvType.CV_8UC3) { "expected CV_8UC3, got ${CvType.typeToString(mat.type())}" }
-    val data = ByteArray(mat.rows() * mat.cols() * BGR_CHANNELS)
+    val data = planeBuffer(into, mat.rows() * mat.cols() * BGR_CHANNELS)
     mat.get(0, 0, data)
     return BgrImage(mat.cols(), mat.rows(), data)
+}
+
+/**
+ * The supplied buffer, checked — a silently short one would leave the tail of the plane holding the
+ * PREVIOUS frame's pixels, and a silently long one would make `data.size` disagree with `w * h`,
+ * which the running mean uses to detect a resolution change.
+ */
+private fun planeBuffer(
+    into: ByteArray?,
+    need: Int,
+): ByteArray {
+    if (into == null) return ByteArray(need)
+    require(into.size == need) { "plane buffer is ${into.size} bytes, but the Mat needs $need" }
+    return into
 }
