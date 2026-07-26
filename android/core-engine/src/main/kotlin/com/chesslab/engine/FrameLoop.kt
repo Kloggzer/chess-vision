@@ -87,6 +87,16 @@ internal class FrameLoop(
         require(input.seq > state.lastInputSeq) {
             "frame seq ${input.seq} was already delivered (last ${state.lastInputSeq})"
         }
+        // `detSize` is computed TWICE in this app — here from `config.boardSize * detectScale`,
+        // and in the frame pipeline from the CALIBRATION PROFILE's board size. They agreed only
+        // because both happened to be 1600. The moment the profile's size is measured rather than
+        // assumed they can diverge, and a divergence is silent: the engine reads square boxes at
+        // one scale out of a plane rendered at another, so every square is the wrong square.
+        require(input.grayDet.width == state.detSize && input.grayDet.height == state.detSize) {
+            "detection plane is ${input.grayDet.width}x${input.grayDet.height}, " +
+                "but the engine indexes squares for ${state.detSize} " +
+                "(config.boardSize=${state.config.boardSize}, detectScale=${state.config.detectScale})"
+        }
         state.lastInputSeq = input.seq
         state.nowS = input.timestampMs / MS_PER_S
         state.frameSeq += 1

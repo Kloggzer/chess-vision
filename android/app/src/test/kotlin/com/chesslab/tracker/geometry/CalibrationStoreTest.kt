@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
@@ -44,13 +45,20 @@ class CalibrationStoreTest {
     private val measured =
         MeasuredGeometry(floatArrayOf(9f, 9f, 90f, 9f, 90f, 90f, 9f, 90f), sourceWidth = 1920, sourceHeight = 1080)
 
+    /**
+     * `boardSize` is deliberately NOT in the carried-over set any more: it is a measurement of the
+     * board in the frame, and a recalibration is exactly the moment that measurement changed.
+     * Carrying it meant the phone rectified a 630 px board to 1600 and did every per-pixel stage on
+     * detail it had invented.
+     */
     @Test
-    fun recalibrationCarriesOverWhitePovBoardSizeMarginAndCrop() =
+    fun recalibrationCarriesOverWhitePovMarginAndCrop_butMeasuresTheBoardSize() =
         runTest {
             val backing = FakeProfileBacking(encodeProfile(hand))
             val next = CalibrationStore(backing).saveRecalibrated(measured)
             assertEquals(false, next.whitePov)
-            assertEquals(1200, next.boardSize)
+            assertNotEquals(1200, next.boardSize, "the hand-set size must not survive a remeasurement")
+            assertEquals(measuredBoardSize(measured.corners), next.boardSize)
             assertEquals(0.09, next.margin)
             assertEquals("DICT_5X5_50", next.markerDict)
             assertEquals(hand.crop, next.crop)
@@ -79,7 +87,7 @@ class CalibrationStoreTest {
         runTest {
             val backing = FakeProfileBacking()
             val next = CalibrationStore(backing).saveRecalibrated(measured, savedAtMs = 7L)
-            assertEquals(1600, next.boardSize)
+            assertEquals(measuredBoardSize(measured.corners), next.boardSize)
             assertEquals(true, next.whitePov)
             assertEquals(7L, next.savedAtMs)
             assertEquals(1, backing.writes)
@@ -90,7 +98,24 @@ class CalibrationStoreTest {
         runTest {
             val backing = FakeProfileBacking("{not json")
             assertNull((CalibrationStore(backing).load() as? ProfileLoad.Ok)?.profile)
-            // No existing profile survives the discard, so the recalibration falls back to defaults.
-            assertEquals(1600, CalibrationStore(backing).saveRecalibrated(measured).boardSize)
+            // No existing profile survives the discard, so the recalibration falls back to defaults
+            // for everything except the size, which is measured either way.
+            assertEquals(measuredBoardSize(measured.corners), CalibrationStore(backing).saveRecalibrated(measured).boardSize)
         }
+
+    /**
+     * A 2K frame with the board filling about a third of it — the real geometry this was built for.
+     * The result must be a multiple of 16 so that halving it for the detection warp, and eighthing
+     * THAT into squares, both stay whole.
+     */
+    @Test
+    fun theMeasuredSizeTracksTheBoardAndStaysDivisible() {
+        val square = { side: Float -> floatArrayOf(0f, 0f, side, 0f, side, side, 0f, side) }
+        assertEquals(848, measuredBoardSize(square(840f)))
+        assertEquals(640, measuredBoardSize(square(636f)))
+        // Clamped at both ends: a smudge and a board that fills the frame are equally suspect.
+        assertEquals(320, measuredBoardSize(square(40f)))
+        assertEquals(1280, measuredBoardSize(square(4000f)))
+        assertEquals(0, measuredBoardSize(square(840f)) % 16)
+    }
 }

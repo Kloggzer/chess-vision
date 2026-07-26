@@ -46,7 +46,14 @@ enum class BoardOrientation(
 
 @Serializable
 data class AppSettings(
-    val resolutionMode: ResolutionMode = ResolutionMode.AUTO,
+    /**
+     * 1440p, not AUTO/1080p. The board fills roughly a third of the frame's width from a normal
+     * seated position — 630 px of 1920, i.e. 79 px per square — and the CNN wants 128. At 2560
+     * wide the same framing gives ~105 px per square, so the crops carry real detail instead of
+     * interpolation. Costs nothing per frame that matters now that the warps are sized from the
+     * measurement (`measuredBoardSize`) rather than fixed at 1600.
+     */
+    val resolutionMode: ResolutionMode = ResolutionMode.R1440,
     val orientation: BoardOrientation = BoardOrientation.WHITE_BOTTOM,
     val modelAsset: String = "model.onnx",
     val epRequest: EpRequest = EpRequest.AUTO,
