@@ -54,13 +54,23 @@ internal class BaselineResult(
     val core: Long,
 )
 
-// Scratch, private to this file and fully consumed inside the call. The engine is single-threaded.
-private var labBuf = ByteArray(0)
-private var hsvBuf = ByteArray(0)
-private val occMeans = DoubleArray(Squares.COUNT)
-private val curMeans = DoubleArray(Squares.COUNT)
-private val refMeans = DoubleArray(Squares.COUNT)
-private val censValues = DoubleArray(Squares.COUNT)
+/**
+ * The baseline-occlusion scratch, owned by the [EngineState] whose reference is being compared —
+ * see [ShadowVetoScratch] for why file scope was the wrong owner.
+ *
+ * It is the RECEIVER of [baselineOcclusionAndShadow] rather than a parameter because the function
+ * already carries seven, and an eighth would trip detekt's `LongParameterList` into demanding a
+ * parameter object that means nothing. Everything here is fully consumed inside one call; the
+ * per-square arrays are read by the classification loop and by [isOccluder], nowhere else.
+ */
+internal class BaselineScratch {
+    var lab = ByteArray(0)
+    var hsv = ByteArray(0)
+    val occMeans = DoubleArray(Squares.COUNT)
+    val curMeans = DoubleArray(Squares.COUNT)
+    val refMeans = DoubleArray(Squares.COUNT)
+    val censValues = DoubleArray(Squares.COUNT)
+}
 
 /**
  * Python `_baseline_occlusion_and_shadow` — classifies strong-absdiff squares as occluder vs. cast
@@ -76,7 +86,7 @@ private val censValues = DoubleArray(Squares.COUNT)
  * (`refMean - curMean > absThr / 2`) is shadow as well. Both sets are dilated by their orthogonal
  * neighbours; the raw core is returned undilated.
  */
-internal fun baselineOcclusionAndShadow(
+internal fun BaselineScratch.baselineOcclusionAndShadow(
     curGray: GrayImage,
     refGray: GrayImage,
     boxes: SquareBoxes,
@@ -114,7 +124,7 @@ internal fun baselineOcclusionAndShadow(
     return BaselineResult(dilatedOcc, dilate(shadow).without(dilatedOcc), occluded)
 }
 
-private fun computeMeans(
+private fun BaselineScratch.computeMeans(
     curGray: GrayImage,
     refGray: GrayImage,
     boxes: SquareBoxes,
@@ -129,7 +139,7 @@ private fun computeMeans(
  * The census channel over the band of strong squares (the same fast path as the veto), or `null`
  * for Python's legacy mode.
  */
-private fun censusChannel(
+private fun BaselineScratch.censusChannel(
     curGray: GrayImage,
     boxes: SquareBoxes,
     evidence: BaselineEvidence,
@@ -156,7 +166,7 @@ private fun censusChannel(
  * handful — converting the whole plane up front cost 50 ms per moving frame on the phone to feed
  * a test that reads a few thousand pixels.
  */
-private fun chromaOutliers(
+private fun BaselineScratch.chromaOutliers(
     curGray: GrayImage,
     boardSize: Int,
     whitePov: Boolean,
@@ -170,18 +180,18 @@ private fun chromaOutliers(
     // box only, never the overhang box. A non-positive `colorThr` is handled in there.
     val geom = PlaneGeometry(curGray.width, curGray.height, boardSize, whitePov, extendUp = 0.0)
     val need = bgr.width * bgr.height * BGR_CHANNELS
-    if (labBuf.size != need) labBuf = ByteArray(need)
-    if (hsvBuf.size != need) hsvBuf = ByteArray(need)
+    if (lab.size != need) lab = ByteArray(need)
+    if (hsv.size != need) hsv = ByteArray(need)
     strong.forEachSquare { i ->
         geom.region(i, 0.0)?.let { box ->
-            bgrToLabBox(bgr.data, bgr.width, box, labBuf)
-            bgrToHsvBox(bgr.data, bgr.width, box, hsvBuf)
+            bgrToLabBox(bgr.data, bgr.width, box, lab)
+            bgrToHsvBox(bgr.data, bgr.width, box, hsv)
         }
     }
-    return occlusionColorSquares(ColorPlanes(labBuf, hsvBuf), geom, gamut, strong, evidence.colorThr)
+    return occlusionColorSquares(ColorPlanes(lab, hsv), geom, gamut, strong, evidence.colorThr)
 }
 
-private fun isOccluder(
+private fun BaselineScratch.isOccluder(
     i: Int,
     cens: DoubleArray?,
     chroma: Long,

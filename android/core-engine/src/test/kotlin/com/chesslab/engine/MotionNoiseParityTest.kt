@@ -195,7 +195,7 @@ class MotionNoiseParityTest {
                 colorThr = block.colorThr,
             )
         val result =
-            baselineOcclusionAndShadow(
+            BaselineScratch().baselineOcclusionAndShadow(
                 clip.gray(frame.frame),
                 inputs.refGray,
                 boxes,

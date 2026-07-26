@@ -5,11 +5,23 @@ import com.chesslab.engine.api.GrayImage
 
 private const val BGR_CHANNELS = 3
 
-// Per-frame scratch. Private to this file, fully consumed inside the call, and the engine is
-// single-threaded (entry.md hard rule 2), so nothing can alias a caller's array (01a's D01a-2).
-private var refHsvBuf = ByteArray(0)
-private var curHsvBuf = ByteArray(0)
-private var censBandBuf = DoubleArray(Squares.COUNT)
+/**
+ * The shadow veto's per-frame scratch, owned by the [EngineState] whose frames it holds.
+ *
+ * It used to sit at FILE scope, which makes it one set of buffers for the whole process. That is
+ * safe only as long as no two engines are alive at once — a property of `StackSwitch.restart()`
+ * closing the old tracker stack before it builds the new one, i.e. of a completely different file's
+ * ordering. Per instance it is a property of this type, which is what `EngineState`'s "owned per
+ * engine so two engines can never alias each other" already promised for the evidence arrays.
+ *
+ * Everything here is fully consumed inside one call; outside the candidate boxes the HSV planes are
+ * leftovers from an earlier frame and are never read (see [hsvShadows]).
+ */
+internal class ShadowVetoScratch {
+    var refHsv = ByteArray(0)
+    var curHsv = ByteArray(0)
+    val censBand = DoubleArray(Squares.COUNT)
+}
 
 /**
  * Step 3 of `_try_detect` — Python `_apply_vetoes`. Takes the hot squares and writes the survivors
@@ -66,17 +78,18 @@ private fun EngineState.hsvShadows(
     cur: BgrImage,
     candidates: Long,
 ): Long {
+    val scratch = shadowVetoScratch
     val need = cur.width * cur.height * BGR_CHANNELS
-    if (refHsvBuf.size != need) refHsvBuf = ByteArray(need)
-    if (curHsvBuf.size != need) curHsvBuf = ByteArray(need)
+    if (scratch.refHsv.size != need) scratch.refHsv = ByteArray(need)
+    if (scratch.curHsv.size != need) scratch.curHsv = ByteArray(need)
     val geom = PlaneGeometry(cur.width, cur.height, detSize, whitePov, config.overhang)
     candidates.forEachSquare { i ->
         geom.region(i, geom.extendUp)?.let { box ->
-            bgrToHsvBox(ref.data, ref.width, box, refHsvBuf)
-            bgrToHsvBox(cur.data, cur.width, box, curHsvBuf)
+            bgrToHsvBox(ref.data, ref.width, box, scratch.refHsv)
+            bgrToHsvBox(cur.data, cur.width, box, scratch.curHsv)
         }
     }
-    return hsvShadowSquares(refHsvBuf, curHsvBuf, geom, candidates)
+    return hsvShadowSquares(scratch.refHsv, scratch.curHsv, geom, candidates)
 }
 
 /**
@@ -101,5 +114,5 @@ private fun EngineState.bandCensusForVeto(
         if (boxes.y0[i] < yLo) yLo = boxes.y0[i]
         if (boxes.y1[i] > yHi) yHi = boxes.y1[i]
     }
-    return perSquareCensusChange(refCensusCodes(), cur, boxes, censBandBuf, rows = intArrayOf(yLo - 1, yHi + 1))
+    return perSquareCensusChange(refCensusCodes(), cur, boxes, shadowVetoScratch.censBand, rows = intArrayOf(yLo - 1, yHi + 1))
 }
