@@ -345,6 +345,29 @@ class FrameLoopTest {
         )
     }
 
+    /**
+     * The `detSize` guard of [FrameLoop.step] (commit `c315908`).
+     *
+     * `detSize` is derived twice in this app — here from `boardSize * detectScale`, and in the frame
+     * pipeline from the CALIBRATION PROFILE's measured board size. They agreed only while both were
+     * 1600. A divergence is otherwise SILENT: the engine reads square boxes at one scale out of a
+     * plane rendered at another, so every square is the wrong square. The message must name both
+     * sizes, because the whole point is to say which of the two producers is off.
+     */
+    @Test
+    fun aDetectionPlaneThatDisagreesWithTheBoxesIsRefused() {
+        val h = Harness(testConfig(boardSize = TEST_BOARD_SIZE))
+        assertEquals(TEST_BOARD_SIZE, h.state.detSize)
+
+        val wrong = grayFrame(boardSize = TEST_BOARD_SIZE / 2)
+        val thrown = assertThrows(IllegalArgumentException::class.java) { h.feed(gray = wrong) }
+
+        val message = requireNotNull(thrown.message)
+        assertTrue(message.contains("${TEST_BOARD_SIZE / 2}x${TEST_BOARD_SIZE / 2}"), message)
+        assertTrue(message.contains("squares for $TEST_BOARD_SIZE"), message)
+        assertEquals(0, h.state.frameSeq, "the guard fires before any state is touched")
+    }
+
     /** `resize` mirrors Python building a fresh `_RunningMean`: a new window and an empty buffer. */
     @Test
     fun runningMeanResizeClears() {
