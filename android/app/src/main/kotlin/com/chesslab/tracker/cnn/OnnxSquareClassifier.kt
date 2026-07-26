@@ -26,6 +26,13 @@ internal enum class Ep(
     val backend: String,
 ) {
     QNN("QNN-HTP(NPU)"),
+
+    /**
+     * NOT in the automatic chain — see [epChain]. Restoring the plain ORT AAR put NNAPI back in the
+     * binary for the first time, and on an SM8650 it verified as the runner and took **470 ms** per
+     * 64 crops against the CPU's 97. Deprecated since Android 15 on top of that. It stays reachable
+     * by explicit request, because "try it and see" is what the request exists for.
+     */
     NNAPI("NNAPI"),
     XNNPACK("XNNPACK"),
     CPU("CPU"),
@@ -65,14 +72,19 @@ internal fun epChain(
     request: EpRequest = EpRequest.AUTO,
 ): List<Ep> {
     val available = Ep.entries.filter { hasQnnModel || it != Ep.QNN }
+    // NNAPI is reachable but never automatic. Measured on an SM8650 it took 470 ms per 64 crops
+    // against the CPU's 97 — and it cannot serve as a floor BELOW the CPU either, because the CPU
+    // provider is always present and so a floor under it is unreachable code. Leaving it in AUTO
+    // shipped a 5x regression for exactly one build.
+    val automatic = available.filter { it != Ep.NNAPI }
     val head =
         when (request) {
-            EpRequest.AUTO -> return available
+            EpRequest.AUTO -> return automatic
             EpRequest.QNN -> Ep.QNN
             EpRequest.NNAPI -> Ep.NNAPI
             EpRequest.CPU -> Ep.CPU
         }
-    return if (head in available) available.dropWhile { it != head } else available
+    return if (head in available) available.dropWhile { it != head } else automatic
 }
 
 /** The head of the chain — what the app ASKED for, next to which 07b renders what it got. */
