@@ -4,6 +4,7 @@ import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
 import com.chesslab.tracker.camera.CameraHealth
 import com.chesslab.tracker.cnn.CnnState
+import com.chesslab.tracker.pipeline.CameraRate
 import com.chesslab.tracker.pipeline.SizeMismatch
 import com.chesslab.tracker.pipeline.StageTimings
 import kotlinx.coroutines.CoroutineScope
@@ -62,6 +63,7 @@ internal fun resolveNote(
 class StatusPublisher(
     scope: CoroutineScope,
     private val timings: StageTimings = StageTimings(),
+    private val cameraRate: CameraRate = CameraRate(),
     sampleMs: Long = STATUS_SAMPLE_MS,
 ) {
     private val raw = MutableStateFlow<TrackerStatus?>(null)
@@ -106,18 +108,37 @@ class StatusPublisher(
     var lastFen: String? = null
         private set
 
+    /**
+     * One delivered `ImageProxy`, counted BEFORE anything may drop it — including the window in
+     * which a restart has detached the stack and [publish] is not being called at all.
+     */
+    fun onCameraFrame() = cameraRate.onFrame()
+
+    /** The camera was released; the next binding starts a fresh measurement (see [CameraRate]). */
+    fun onCameraStopped() = cameraRate.reset()
+
     fun publish(
         snapshot: TrackerStatus,
         events: List<TrackerEvent>,
         pipelineNote: String?,
     ) {
         lastFen = snapshot.fen
+        // A skipped frame ticked nothing, so the engine's EMA is FROZEN rather than current: a
+        // stale "14.8 fps" standing over a paused detection is the same lie as a bare "0.0 fps"
+        // over a healthy camera, one rung subtler. `pipelineNote` is non-null exactly when this
+        // frame produced no `FrameInput`.
+        val detectionFps = if (pipelineNote == null) snapshot.fps else 0.0
         raw.value =
             snapshot.copy(
                 note = resolveNote(snapshot, cameraHealth, cnnState, sizeMismatch, pipelineNote),
+                fps = detectionFps,
                 // The engine cannot time the frame pipeline (it is under a wall-clock ban), so the
                 // app's stage timings are merged in here; engine keys win on a name collision.
                 stageTimingsMs = timings.snapshot() + snapshot.stageTimingsMs,
+                // Same reason as the timings: the engine counts the frames it TICKED on, which is
+                // zero while the pipeline is discarding every frame — and a camera at 30 fps then
+                // reads as a dead one.
+                cameraFps = cameraRate.fps,
                 corners = corners,
             )
         events.forEach { bus.tryEmit(it) }

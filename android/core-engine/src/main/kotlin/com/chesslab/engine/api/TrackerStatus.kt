@@ -28,6 +28,12 @@ data class TrackerStatus(
     // warp, gray, motion, evidence, veto, score, total
     val stageTimingsMs: Map<String, Double>,
     val fps: Double,
+    // Frames CameraX DELIVERED per second, as opposed to [fps], which counts frames that reached
+    // the engine. The engine never sets this — it is under a wall-clock ban, and a frame the app
+    // discarded (uncalibrated, too dark) is one it never saw; `:app`'s StatusPublisher fills it in,
+    // the same seam as [corners]. One number cannot tell a dead camera from a live one whose frames
+    // are all being thrown away, and those two need opposite actions from the user.
+    val cameraFps: Double = 0.0,
     val note: String?,
     // 8 floats [a8, h8, h1, a1] in SOURCE-image px (invariant 11), or null before the first
     // calibration. The engine never sets this — the app fills in the corners it warped with.

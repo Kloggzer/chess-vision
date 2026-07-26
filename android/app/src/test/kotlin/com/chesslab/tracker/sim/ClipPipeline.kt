@@ -52,7 +52,7 @@ internal class ClipPipeline(
     private val corners = clip.corners
     private val geometry = BoardGeometry(boardSize = clip.boardSize)
     private val gray = GrayPipeline(config.diffClaheClip)
-    private val roi = RoiMotion(clip.boardSize, config.motionMargin, config.motionPxThr)
+    private val roi = RoiMotion(config.motionMargin, config.motionPxThr)
     private val warpDet = Mat()
     private val grayDet = Mat()
     private val lumaScratch = Mat()

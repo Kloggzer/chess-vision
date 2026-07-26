@@ -8,7 +8,6 @@ import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
-import kotlin.math.max
 
 // Port of `tracker.py::_roi_motion` (+ `_expand_corners` / `_roi_polygon`).
 //
@@ -20,8 +19,6 @@ import kotlin.math.max
 internal const val ROI_SIDE = 160.0
 
 private const val BLUR_KSIZE = 5.0
-
-private const val MIN_DST = 8
 
 /**
  * `[a8, h8, h1, a1]` expanded outward from their centroid by `1 + 2 * margin`
@@ -64,31 +61,45 @@ internal fun changedPixelPercent(
 
 /** Board-aligned ROI motion. One instance per analyzer thread; every `Mat` is reused. */
 class RoiMotion(
-    private var boardSize: Int,
     private var margin: Double,
     private var pxThr: Double,
 ) {
-    private var gray: Mat? = null
     private var roi: Mat? = null
     private var small: Mat? = null
     private var scratch = ByteArray(0)
     private var prev: ByteArray? = null
 
-    /** ROI motion of [frameBgr] (the FULL frame) against the previous frame's ROI. */
+    /**
+     * ROI motion of [frameBgr] (the FULL frame) against the previous frame's ROI.
+     *
+     * The warp goes STRAIGHT to [ROI_SIDE]. Python renders the quad at `boardSize * (1 + 2m)` —
+     * ~1920 px at the Android defaults — and then throws 99.3 % of it away in a `resize` to 160,
+     * which cost 11-17 ms per frame for nothing: the same homography with a 160 px destination
+     * samples the same source region. Measured over the 20 committed clips (2948 frame pairs) the
+     * score moves by 0.007 pp on average, 0.16 pp worst case, and crosses the 0.25 pp motion gate
+     * on 1 frame in 2948 — see STATUS "Frame pipeline performance".
+     *
+     * Gray comes AFTER the warp for the same reason: `BGR2GRAY` and bilinear interpolation are
+     * both linear per channel, so the order is arithmetically free, and doing it second converts
+     * 160x160 pixels instead of the whole frame.
+     */
     fun score(
         frameBgr: Mat,
         corners: FloatArray,
     ): Double {
-        val g = gray ?: Mat().also { gray = it }
-        Imgproc.cvtColor(frameBgr, g, Imgproc.COLOR_BGR2GRAY)
-        val scale = 1.0 + 2.0 * margin
-        val dstSz = max(MIN_DST, (boardSize * scale).toInt()).toDouble()
         val r = roi ?: Mat().also { roi = it }
-        val transform = perspective(corners, dstSz)
-        Imgproc.warpPerspective(g, r, transform, Size(dstSz, dstSz), Imgproc.INTER_LINEAR, Core.BORDER_REPLICATE)
+        val transform = perspective(corners, ROI_SIDE)
+        Imgproc.warpPerspective(
+            frameBgr,
+            r,
+            transform,
+            Size(ROI_SIDE, ROI_SIDE),
+            Imgproc.INTER_LINEAR,
+            Core.BORDER_REPLICATE,
+        )
         transform.release()
         val s = small ?: Mat().also { small = it }
-        Imgproc.resize(r, s, Size(ROI_SIDE, ROI_SIDE))
+        Imgproc.cvtColor(r, s, Imgproc.COLOR_BGR2GRAY)
         Imgproc.GaussianBlur(s, s, Size(BLUR_KSIZE, BLUR_KSIZE), 0.0)
         val n = (s.total() * s.channels()).toInt()
         if (scratch.size != n) scratch = ByteArray(n)
@@ -105,18 +116,14 @@ class RoiMotion(
         }
     }
 
-    fun onGeometryChanged(newBoardSize: Int) {
-        if (newBoardSize != boardSize) {
-            boardSize = newBoardSize
-            prev = null
-        }
+    /** New geometry is a new region — never diff the ROI of one calibration against another's. */
+    fun onGeometryChanged() {
+        prev = null
     }
 
     fun close() {
-        gray?.release()
         roi?.release()
         small?.release()
-        gray = null
         roi = null
         small = null
         prev = null

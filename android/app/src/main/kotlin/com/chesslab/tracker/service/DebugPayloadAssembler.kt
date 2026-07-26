@@ -34,8 +34,12 @@ data class DebugState(
     val status: TrackerStatus,
     val payload: DebugPayload,
     val stages: List<StageStat>,
+    /** Frames that ticked the ENGINE. Zero while the pipeline discards every delivered frame. */
     val fps: Double,
     val fpsMedian: Double,
+    /** Frames CameraX DELIVERED. The pair is what tells a dead camera from a discarded feed. */
+    val cameraFps: Double,
+    val cameraFpsMedian: Double,
 )
 
 /**
@@ -52,6 +56,7 @@ class DebugPayloadAssembler(
 ) {
     private val timings = ArrayDeque<Map<String, Double>>()
     private val fpsSamples = ArrayDeque<Double>()
+    private val cameraFpsSamples = ArrayDeque<Double>()
 
     fun assemble(status: TrackerStatus?): DebugState? {
         val payload = status?.debug
@@ -61,18 +66,22 @@ class DebugPayloadAssembler(
         }
         push(timings, status.stageTimingsMs, window)
         push(fpsSamples, status.fps, FPS_WINDOW)
+        push(cameraFpsSamples, status.cameraFps, FPS_WINDOW)
         return DebugState(
             status = status,
             payload = payload,
             stages = stageStats(),
             fps = status.fps,
             fpsMedian = median(fpsSamples.toList()),
+            cameraFps = status.cameraFps,
+            cameraFpsMedian = median(cameraFpsSamples.toList()),
         )
     }
 
     fun reset() {
         timings.clear()
         fpsSamples.clear()
+        cameraFpsSamples.clear()
     }
 
     private fun stageStats(): List<StageStat> {

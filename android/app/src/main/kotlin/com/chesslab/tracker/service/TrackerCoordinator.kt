@@ -41,7 +41,11 @@ class TrackerCoordinator(
     ) {
         bus.onFrame(image)
         val result = pipeline.onFrame(image, System.currentTimeMillis())
-        val events = host.tick((result as? FrameResult.Ready)?.input)
+        val ready = result as? FrameResult.Ready
+        val events = host.tick(ready?.input)
+        // The engine runs HERE, on the analyzer thread, and it is part of the frame budget.
+        // Only for a frame the pipeline actually emitted — a skipped one has no stages to log.
+        if (ready != null) pipeline.onEngineDone()
         publisher.sizeMismatch = sizeGuard.mismatch
         // The corners this frame was warped with — the overlay's board quad (D06b-4).
         publisher.corners = pipeline.corners

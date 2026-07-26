@@ -39,7 +39,20 @@ fun TimingsPanel(state: DebugState) {
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        StatRow("fps (now / 5 s median)", fmt(state.fps, 1) + "  /  " + fmt(state.fpsMedian, 1), fpsTone(state.fpsMedian))
+        // Two rates, never one: `camera` is what CameraX delivered, `detection` is what reached the
+        // engine. A camera at 30 with detection at 0 is an uncalibrated board, not a broken feed.
+        // Labels stay short: `StatRow` is a SpaceBetween row, and the spelled-out "5 s median" left
+        // the second line touching its own numbers on a 1080p phone.
+        StatRow(
+            "camera fps (now / 5 s)",
+            fmt(state.cameraFps, 1) + "  /  " + fmt(state.cameraFpsMedian, 1),
+            fpsTone(state.cameraFpsMedian),
+        )
+        StatRow(
+            "detection fps (now / 5 s)",
+            fmt(state.fps, 1) + "  /  " + fmt(state.fpsMedian, 1),
+            fpsTone(state.fpsMedian),
+        )
         total?.let {
             StatRow("total ms (last / med / p95)", "${fmt(it.last, 1)} / ${fmt(it.median, 1)} / ${fmt(it.p95, 1)}", budgetTone(it.last))
         }

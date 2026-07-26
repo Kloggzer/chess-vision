@@ -53,7 +53,6 @@ private fun status(
     occlusion: Set<String> = emptySet(),
     debug: DebugPayload? = null,
     timings: Map<String, Double> = emptyMap(),
-    fps: Double = 20.0,
 ): TrackerStatus =
     idleTrackerStatus().copy(
         z = z,
@@ -61,7 +60,8 @@ private fun status(
         shadowVetoed = shadow,
         occlusionVetoed = occlusion,
         stageTimingsMs = timings,
-        fps = fps,
+        fps = 20.0,
+        cameraFps = 30.0,
         debug = debug,
     )
 
@@ -84,6 +84,23 @@ class DebugStateTest {
         assertEquals(100.0, total.last)
         assertEquals(50.0, total.median)
         assertEquals(95.0, total.p95)
+    }
+
+    /** Diagnosing a slow pipeline needs BOTH rates: delivered, and actually analysed. */
+    @Test
+    fun theTimingsPanelSeesTheCameraRateAsWellAsTheEngineRate() {
+        val assembler = DebugPayloadAssembler()
+        val delivering = status(debug = payload())
+        var state = assembler.assemble(delivering)
+        repeat(9) { state = assembler.assemble(delivering.copy(fps = 10.0)) }
+        assertEquals(10.0, state!!.fps)
+        assertEquals(30.0, state!!.cameraFps)
+        assertEquals(10.0, state!!.fpsMedian)
+        assertEquals(30.0, state!!.cameraFpsMedian, "a steady camera rate must not follow the engine's dip")
+        // The window is dropped with the gate, so a reopened screen shows no stale rate.
+        assembler.reset()
+        state = assembler.assemble(delivering.copy(fps = 1.0, cameraFps = 2.0))
+        assertEquals(2.0, state!!.cameraFpsMedian)
     }
 
     @Test

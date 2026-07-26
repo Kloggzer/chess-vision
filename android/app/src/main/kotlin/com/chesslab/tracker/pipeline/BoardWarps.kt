@@ -97,7 +97,7 @@ class CameraStages(
 ) : FrameStages {
     private val yuv = YuvToBgr()
     private val gray = GrayPipeline(config.diffClaheClip)
-    private val motion = RoiMotion(geometry.boardSize, config.motionMargin, config.motionPxThr)
+    private val motion = RoiMotion(config.motionMargin, config.motionPxThr)
     private var frame: Mat? = null
     private var warped: Mat? = null
     private var grayMat: Mat? = null
@@ -159,7 +159,7 @@ class CameraStages(
 
     override fun onGeometryChanged(newGeometry: BoardGeometry) {
         geometry = newGeometry
-        motion.onGeometryChanged(newGeometry.boardSize)
+        motion.onGeometryChanged()
     }
 
     override fun close() {

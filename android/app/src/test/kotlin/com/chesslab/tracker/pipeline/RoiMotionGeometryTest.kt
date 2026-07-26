@@ -42,7 +42,7 @@ class RoiMotionGeometryTest {
 
     @Test
     fun `the first roi scores zero and the next one scores changed pixels in percent`() {
-        val motion = RoiMotion(boardSize = 640, margin = 0.10, pxThr = 20.0)
+        val motion = RoiMotion(margin = 0.10, pxThr = 20.0)
         val first = ByteArray(100)
         assertEquals(0.0, motion.scoreRoi(first))
         val second = ByteArray(100)
@@ -56,7 +56,7 @@ class RoiMotionGeometryTest {
 
     @Test
     fun `the previous roi is cleared when the motion margin changes`() {
-        val motion = RoiMotion(boardSize = 640, margin = 0.10, pxThr = 20.0)
+        val motion = RoiMotion(margin = 0.10, pxThr = 20.0)
         val plane = ByteArray(100)
         motion.scoreRoi(plane)
         val moved = ByteArray(100) { 200.toByte() }
@@ -66,10 +66,10 @@ class RoiMotionGeometryTest {
     }
 
     @Test
-    fun `a changed board size clears the previous roi too`() {
-        val motion = RoiMotion(boardSize = 640, margin = 0.10, pxThr = 20.0)
+    fun `new geometry clears the previous roi too`() {
+        val motion = RoiMotion(margin = 0.10, pxThr = 20.0)
         motion.scoreRoi(ByteArray(100))
-        motion.onGeometryChanged(1600)
+        motion.onGeometryChanged()
         assertEquals(0.0, motion.scoreRoi(ByteArray(100) { 200.toByte() }))
     }
 }

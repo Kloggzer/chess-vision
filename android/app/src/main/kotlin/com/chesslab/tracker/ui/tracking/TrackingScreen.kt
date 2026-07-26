@@ -153,16 +153,27 @@ private fun StateHeader(ui: TrackingUiState) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(ui.stateText, style = MaterialTheme.typography.displayMedium, color = tone)
-            // The fps colour is frozen to the alarm colour while alarmed: the loop is running but
-            // no move can commit, and a healthy-looking counter would say otherwise.
-            Text(ui.fpsText, style = MaterialTheme.typography.labelMedium, color = tone)
+            // Stacked rather than one long line: the rate and the reason each stay short enough to
+            // read at arm's length, which a single "camera 30 fps · not calibrated" does not.
+            Column(horizontalAlignment = Alignment.End) {
+                // The fps colour is frozen to the alarm colour while alarmed: the loop is running
+                // but no move can commit, and a healthy-looking counter would say otherwise.
+                Text(ui.fpsText, style = MaterialTheme.typography.labelMedium, color = tone)
+                ui.fpsDetail?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted, maxLines = 1)
+                }
+            }
         }
-        // Two lines and an ellipsis: at one hard-clipped line the note ended mid-word, which reads
-        // as a rendering bug rather than as a message that is longer than the screen.
+        // ALWAYS two lines, never one or none. The note is the most volatile string on the screen
+        // ("stuck: cnn_desync" -> the two-line "not calibrated yet — tap Recalibrate …"), and it
+        // sits above everything: reflowing it shifted the board and the whole action bar under the
+        // user's thumb. `minLines` reserves the taller of the two shapes; the ellipsis handles the
+        // rest, because at one hard-clipped line the note ended mid-word and read as a bug.
         Text(
             text = ui.infoLine ?: " ",
             style = MaterialTheme.typography.bodyMedium,
             color = if (ui.alarm != null) Danger else OnSurfaceMuted,
+            minLines = 2,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )

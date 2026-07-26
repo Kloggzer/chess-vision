@@ -27,6 +27,20 @@ class StageTimingsTest {
     }
 
     @Test
+    fun `the logged rate is the gap between frames, not the sum of the stages`() {
+        // 20 ms of pipeline + 30 ms of engine inside a 100 ms frame: the line must say 10 fps.
+        repeat(200) {
+            now += 50_000_000L
+            timings.begin()
+            now += 20_000_000L
+            timings.mark(Stage.TOTAL)
+            now += 30_000_000L
+            timings.endOfFrame()
+        }
+        assertTrue(lines.last().endsWith("total=20.0 engine=30.0 fps=10.0"), lines.last())
+    }
+
+    @Test
     fun `the snapshot carries every stage key`() {
         timings.begin()
         now += 3_000_000L
@@ -36,7 +50,7 @@ class StageTimingsTest {
         now += 5_000_000L
         timings.mark(Stage.TOTAL)
         val snap = timings.snapshot()
-        assertEquals(setOf("convert", "warp", "gray", "motion", "grid", "total"), snap.keys)
+        assertEquals(setOf("convert", "warp", "gray", "motion", "grid", "total", "engine"), snap.keys)
         assertEquals(3.0, snap.getValue("convert"))
         assertEquals(2.0, snap.getValue("warp"))
         // TOTAL is measured from begin(), not from the previous mark.
