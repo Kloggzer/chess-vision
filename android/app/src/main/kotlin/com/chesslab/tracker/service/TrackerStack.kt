@@ -94,7 +94,7 @@ class TrackerStack(
             frames,
             observer,
             LiveAlign(scope, seed.geometry, settings.config::value) { pipeline.corners = it },
-            guard,
+            timings,
         )
 
     init {

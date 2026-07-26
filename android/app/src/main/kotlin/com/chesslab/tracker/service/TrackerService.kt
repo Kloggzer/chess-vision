@@ -15,6 +15,7 @@ import com.chesslab.tracker.cnn.Attached
 import com.chesslab.tracker.cnn.CnnState
 import com.chesslab.tracker.games.GameSessionController
 import com.chesslab.tracker.geometry.calibrationStore
+import com.chesslab.tracker.pipeline.CameraRate
 import com.chesslab.tracker.pipeline.StageTimings
 import com.chesslab.tracker.settings.DataStoreConfigStore
 import com.chesslab.tracker.settings.SettingsRepository
@@ -57,7 +58,11 @@ class TrackerService :
     private lateinit var games: GameSessionController
 
     private val calibration by lazy { calibrationStore(this) }
-    private val timings = StageTimings()
+
+    // ONE rate meter, read by both consumers. The perf line needs it next to the analyzer's own
+    // rate: only the two together say whether we are CPU-bound or capped by the sensor.
+    private val cameraRate = CameraRate()
+    private val timings = StageTimings(cameraFps = cameraRate::fps)
     private val cnnProbe = CnnRuntimeProbe()
 
     /** Re-read on every attach, so a changed model or EP lands on the next stack (D07a-3). */
@@ -185,7 +190,7 @@ class TrackerService :
 
     /** The long-lived half. Nothing here is rebuilt by a restart — see the class doc. */
     private fun wireSession() {
-        publisher = StatusPublisher(lifecycleScope, timings)
+        publisher = StatusPublisher(lifecycleScope, timings, cameraRate)
         settings =
             SettingsRepository(DataStoreConfigStore(this), lifecycleScope) { config ->
                 stacks.current?.host?.submit(EngineAction.UpdateConfig(config))

@@ -6,8 +6,9 @@ import org.junit.jupiter.api.Test
 
 class StageTimingsTest {
     private var now = 0L
+    private var camera = 0.0
     private val lines = mutableListOf<String>()
-    private val timings = StageTimings(nowNs = { now }, logLine = { lines += it })
+    private val timings = StageTimings(nowNs = { now }, cameraFps = { camera }, logLine = { lines += it })
 
     @Test
     fun `it emits at most one log line per second`() {
@@ -28,16 +29,43 @@ class StageTimingsTest {
 
     @Test
     fun `the logged rate is the gap between frames, not the sum of the stages`() {
-        // 20 ms of pipeline + 30 ms of engine inside a 100 ms frame: the line must say 10 fps.
+        camera = 30.0
+        // 20 ms of pipeline + 30 ms of engine + 5 ms of publish inside a 100 ms frame: 10 fps.
         repeat(200) {
-            now += 50_000_000L
+            now += 45_000_000L
             timings.begin()
             now += 20_000_000L
             timings.mark(Stage.TOTAL)
             now += 30_000_000L
-            timings.endOfFrame()
+            timings.mark(Stage.ENGINE)
+            now += 5_000_000L
+            timings.endFrame()
         }
-        assertTrue(lines.last().endsWith("total=20.0 engine=30.0 fps=10.0"), lines.last())
+        // `cam` is reported next to `fps`: the analyzer is at 10 while the sensor delivers 30, so
+        // this frame is CPU-bound. The two collapsing to the same number is the other diagnosis.
+        assertTrue(lines.last().endsWith("frame=55.0 fps=10.0 cam=30.0"), lines.last())
+    }
+
+    /**
+     * A skipped frame runs neither `grayDet` nor the engine. Printing the previous frame's numbers
+     * for them reads as work that happened — the log has to say the stage did not run.
+     */
+    @Test
+    fun `a stage that did not run this frame is not reported as a duration`() {
+        timings.begin()
+        now += 20_000_000L
+        timings.mark(Stage.GRAY)
+        timings.endFrame()
+        assertTrue(lines.last().contains("gray=20.0"), lines.last())
+
+        now += 1_000_000_000L
+        timings.begin()
+        now += 4_000_000L
+        timings.mark(Stage.TOTAL)
+        timings.endFrame()
+        assertTrue(lines.last().contains("gray=-"), lines.last())
+        // The snapshot still carries the last known value — the debug panel wants stable keys.
+        assertEquals(20.0, timings.snapshot().getValue("gray"))
     }
 
     @Test
@@ -50,7 +78,10 @@ class StageTimingsTest {
         now += 5_000_000L
         timings.mark(Stage.TOTAL)
         val snap = timings.snapshot()
-        assertEquals(setOf("convert", "warp", "gray", "motion", "grid", "total", "engine"), snap.keys)
+        assertEquals(
+            setOf("publish", "convert", "warp", "gray", "motion", "grid", "total", "engine", "post", "frame"),
+            snap.keys,
+        )
         assertEquals(3.0, snap.getValue("convert"))
         assertEquals(2.0, snap.getValue("warp"))
         // TOTAL is measured from begin(), not from the previous mark.
