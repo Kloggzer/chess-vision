@@ -1,9 +1,6 @@
 package com.chesslab.tracker.cnn
 
-import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
-import ai.onnxruntime.OrtSession
-import ai.onnxruntime.providers.NNAPIFlags
 import com.chesslab.cnn.ALL_SQUARES
 import com.chesslab.cnn.SquareClassifier
 import com.chesslab.cnn.preprocessInto
@@ -14,13 +11,9 @@ import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
-import java.util.EnumSet
 
 private const val CHANNELS = 3
 private const val FLOAT_BYTES = 4
-
-/** Qualcomm HTP (NPU) backend library, bundled inside the onnxruntime-android-qnn AAR. */
-private const val QNN_HTP_LIB = "libQnnHtp.so"
 
 /** An execution provider. The graph it is allowed to run comes from [StagedModel], not from here. */
 internal enum class Ep(
@@ -70,7 +63,8 @@ fun requestedBackend(
 
 /** The native session, behind a seam so the wrapper is testable without ORT natives. */
 internal interface SessionRunner : AutoCloseable {
-    val backend: String
+    /** The EP this session was BUILT for — appended successfully, which is not the same as used. */
+    val requested: Ep
     val model: String
 
     /** @return `batch * classes` logits, flat and row-major. */
@@ -78,6 +72,9 @@ internal interface SessionRunner : AutoCloseable {
         input: FloatBuffer,
         shape: LongArray,
     ): FloatArray
+
+    /** ORT's provider name for the batch run so far, or null when it could not be established. */
+    fun profiledProvider(): String?
 }
 
 /**
@@ -92,8 +89,18 @@ class OnnxSquareClassifier internal constructor(
 ) : SquareClassifier,
     AutoCloseable {
     override val classes: List<String> get() = spec.classes
-    val backend: String get() = runner.backend
+
+    /**
+     * The provider that was OBSERVED running the graph, or an explicitly unverified request.
+     *
+     * Never `runner.requested`: ORT appends an EP that goes on to claim no node at all, so the
+     * request is a wish and this is the finding. See [EpVerdict].
+     */
+    val backend: String get() = verdict.label
     val model: String get() = runner.model
+
+    @Volatile
+    private var verdict = EpVerdict(runner.requested, null)
 
     /** Pure inference time of the last batch, for the debug screen. */
     @Volatile
@@ -133,6 +140,22 @@ class OnnxSquareClassifier internal constructor(
         return Array(batch) { row -> softmax(logits.copyOfRange(row * width, (row + 1) * width)) }
     }
 
+    /**
+     * One profiled warm-up batch over an all-zero tensor, then the profiler's verdict.
+     *
+     * The batch is the real shape, so this also pays the first-call cost (weight staging, kernel
+     * selection) off the observer's clock, and [lastRunMs] carries a genuine 64-crop timing before
+     * the first observation ever runs.
+     */
+    internal fun verify(): EpVerdict {
+        input.clear()
+        val started = System.nanoTime()
+        runner.run(input, shape)
+        lastRunMs = (System.nanoTime() - started) / NANOS_PER_MS
+        verdict = EpVerdict(runner.requested, runner.profiledProvider())
+        return verdict
+    }
+
     override fun close() {
         runner.close()
     }
@@ -141,71 +164,62 @@ class OnnxSquareClassifier internal constructor(
         private const val NANOS_PER_MS = 1_000_000.0
 
         /**
-         * Walks the EP chain and returns the first classifier that builds. Failures of a
-         * single provider are WARN + fall through; a total failure throws, and the caller
-         * ([CnnObserver.attach]) turns that into a sticky [CnnState.Failed].
+         * Walks the EP chain and returns the first classifier that builds AND is not caught
+         * running somewhere else.
+         *
+         * Two ways an EP drops out. It can fail to build — WARN and fall through, as before. Or it
+         * can build and then quietly claim no node: QNN does this on this device (device creation
+         * fails inside `GetCapability`, long after `addQnn` returned happily), leaving a QDQ graph
+         * running on the CPU. That is not a QNN session, so it is not kept — falling through hands
+         * CPU its own float32 graph instead of an int8 one it has to dequantize node by node.
+         *
+         * A verdict of "unknown" (profiling gave no answer) is NOT treated as a mismatch: the
+         * session works, and [EpVerdict.label] says out loud that it is unverified. A total
+         * failure throws, and the caller ([CnnObserver.attach]) turns that into [CnnState.Failed].
          */
         fun open(
             staged: StagedModel,
             log: CnnLog,
             request: EpRequest = EpRequest.AUTO,
         ): OnnxSquareClassifier {
-            val spec = ModelSpec.parse(staged.configJson)
-            val env = OrtEnvironment.getEnvironment()
-            var last: Throwable? = null
-            for (choice in epChain(staged.qnn != null, request)) {
-                val attempt = runCatching { OrtSessionRunner(env, modelFor(staged, choice), choice) }
-                attempt.onSuccess { return OnnxSquareClassifier(spec, it) }
-                attempt.onFailure {
-                    last = it
-                    log.warn("CNN EP ${choice.backend} unavailable, falling back: ${it.message}", it)
-                }
-            }
-            throw IllegalStateException("no ONNX execution provider could load ${staged.dir}", last)
+            val chain = epChain(staged.qnn != null, request)
+            val attempts = EpAttempts(ModelSpec.parse(staged.configJson), staged, log)
+            val opened = chain.withIndex().firstNotNullOfOrNull { (i, ep) -> attempts.open(ep, isLastResort = i == chain.lastIndex) }
+            return opened ?: throw IllegalStateException("no ONNX execution provider could load ${staged.dir}", attempts.last)
         }
     }
 }
 
-private class OrtSessionRunner(
-    private val env: OrtEnvironment,
-    modelFile: File,
-    choice: Ep,
-) : SessionRunner {
-    override val backend: String = choice.backend
+/** One pass over the EP chain, keeping the last failure so a total loss can name a cause. */
+private class EpAttempts(
+    private val spec: ModelSpec,
+    private val staged: StagedModel,
+    private val log: CnnLog,
+) {
+    private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
+    var last: Throwable? = null
+        private set
 
-    /** The file that was really loaded — never the one 07a asked for. */
-    override val model: String = modelFile.name
-
-    private val session: OrtSession = env.createSession(modelFile.absolutePath, options(choice))
-    private val inputName: String = session.inputNames.first()
-    private var out: FloatArray = FloatArray(0)
-
-    override fun run(
-        input: FloatBuffer,
-        shape: LongArray,
-    ): FloatArray =
-        OnnxTensor.createTensor(env, input, shape).use { tensor ->
-            session.run(mapOf(inputName to tensor)).use { result ->
-                val logits = (result[0] as OnnxTensor).floatBuffer
-                if (out.size != logits.remaining()) out = FloatArray(logits.remaining())
-                logits.get(out)
-                out
+    /** @return the classifier, or null when this EP failed to build or was caught not running. */
+    fun open(
+        choice: Ep,
+        isLastResort: Boolean,
+    ): OnnxSquareClassifier? {
+        val built =
+            runCatching {
+                val cnn = OnnxSquareClassifier(spec, OrtSessionRunner(env, modelFor(staged, choice), choice, staged.dir))
+                cnn to cnn.verify()
+            }.onFailure {
+                last = it
+                log.warn("CNN EP ${choice.backend} unavailable, falling back: ${it.message}", it)
             }
+        val (cnn, verdict) = built.getOrNull() ?: return null
+        if (verdict.contradicted && !isLastResort) {
+            log.warn("CNN EP ${choice.backend} loaded but ${verdict.label} ran the graph, falling back", null)
+            cnn.close()
+            return null
         }
-
-    override fun close() {
-        session.close()
-    }
-
-    private fun options(choice: Ep): OrtSession.SessionOptions {
-        val opts = OrtSession.SessionOptions()
-        when (choice) {
-            // epChain only offers QNN when model.qnn.onnx was staged, and `modelFor` hands it
-            // exactly that file — the HTP backend would reject the float32 graph.
-            Ep.QNN -> opts.addQnn(mapOf("backend_path" to QNN_HTP_LIB, "htp_performance_mode" to "burst"))
-            Ep.NNAPI -> opts.addNnapi(EnumSet.of(NNAPIFlags.USE_FP16))
-            Ep.CPU -> Unit
-        }
-        return opts
+        log.info("CNN EP verified: ${verdict.label}, warm-up ${cnn.lastRunMs.toLong()} ms for ${ALL_SQUARES.size} crops")
+        return cnn
     }
 }

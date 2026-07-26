@@ -25,6 +25,20 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.ChesslabTracker">
 
+        <!--
+          The Hexagon NPU, in one line. `libQnnHtpV75Stub.so` (bundled in the
+          onnxruntime-android-qnn AAR) links against the fastRPC client `libcdsprpc.so`, which is
+          a VENDOR public library — listed in /vendor/etc/public.libraries.txt, not an NDK one.
+          Since Android 12 those are absent from an app's linker namespace unless the manifest
+          asks for them by name, so without this the stub's dlopen fails, QNN never reaches the
+          DSP, and `QnnDevice_create` answers QNN_DEVICE_ERROR_INVALID_CONFIG. The EP is then
+          appended but claims no node, and the whole graph runs on the CPU.
+
+          required="false": on a device without Qualcomm's fastRPC the library is simply missing,
+          and the app must still install and fall back (see `epChain`).
+        -->
+        <uses-native-library android:name="libcdsprpc.so" android:required="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

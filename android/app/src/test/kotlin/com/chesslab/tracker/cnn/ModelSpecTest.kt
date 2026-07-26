@@ -1,6 +1,10 @@
 package com.chesslab.tracker.cnn
 
 import com.chesslab.cnn.EXPECTED_CLASSES
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -15,8 +19,12 @@ import java.io.File
 class ModelSpecTest {
     @Test
     fun parsesClassesOutSizeAndNormalizeFromTheRealAssetConfig() {
-        val spec = ModelSpec.parse(File(assetDir(), MODEL_CONFIG_FILE).readText())
-        assertEquals(EXPECTED_CLASSES, spec.classes)
+        val json = File(assetDir(), MODEL_CONFIG_FILE).readText()
+        val spec = ModelSpec.parse(json)
+        // Against the FILE's own list, not against a constant that happens to match it: the
+        // bundled run is a 14-class model or the 2-class occupancy one (specs/18) depending on
+        // what was staged, and `requireExpectedClasses` is what pins the accepted orders.
+        assertEquals(rawClasses(json), spec.classes)
         assertEquals(128, spec.outWidth)
         assertEquals(128, spec.outHeight)
         assertEquals(listOf(0.485f, 0.456f, 0.406f), spec.mean)
@@ -66,6 +74,17 @@ class ModelSpecTest {
             """ "out_size": ${outSize.joinToString(",", "[", "]")}$normalize}"""
     }
 }
+
+/** The class list the bundled `config.json` literally declares. */
+internal fun assetClasses(): List<String> = rawClasses(File(assetDir(), MODEL_CONFIG_FILE).readText())
+
+private fun rawClasses(json: String): List<String> =
+    Json
+        .parseToJsonElement(json)
+        .jsonObject
+        .getValue("classes")
+        .jsonArray
+        .map { it.jsonPrimitive.content }
 
 /** `app/src/main/assets/cnn_model` — the committed model directory, read from the source tree. */
 internal fun assetDir(): File {

@@ -15,9 +15,14 @@ import kotlin.math.abs
 private const val CROP = 128
 
 /** The ORT session is unavailable on the desktop JVM, so the wrapper is driven against this seam. */
-private class FakeRunner : SessionRunner {
-    override val backend = "CPU"
+private class FakeRunner(
+    private val ran: String? = "CPUExecutionProvider",
+) : SessionRunner {
+    override val requested = Ep.CPU
     override val model = MODEL_FP32_FILE
+
+    override fun profiledProvider(): String? = ran
+
     var calls = 0
     val shapes = mutableListOf<LongArray>()
     val buffers = mutableListOf<FloatBuffer>()
@@ -100,14 +105,27 @@ class OnnxSquareClassifierContractTest {
         val log = RecordingLog()
         val staged = CnnModelAssets({ name -> File(assetDir(), name).takeIf { it.isFile }?.inputStream() }, tmp).stage()
         OnnxSquareClassifier.open(staged, log).use { classifier ->
+            // Not "CPU (unverified)": ORT's own profile named CPUExecutionProvider for the
+            // warm-up batch. A bare provider name is only ever printed after it was observed.
             assertEquals("CPU", classifier.backend)
-            assertEquals(EXPECTED_CLASSES, classifier.classes)
+            assertEquals(assetClasses(), classifier.classes)
             val probs = classifier.classify(crops())
             assertEquals(ALL_SQUARES.size, probs.size)
             probs.forEach { assertTrue(abs(it.sum() - 1.0f) < 1e-4f, "row sums to ${it.sum()}") }
             assertTrue(classifier.lastRunMs > 0.0)
         }
         assertEquals(2, log.warnings.size, "QNN and NNAPI must warn and fall through, not fail silently")
+        assertTrue(
+            log.infos.any { it.startsWith("CNN EP verified: CPU, warm-up") },
+            "the attach must state the provider it MEASURED, with the 64-crop timing: ${log.infos}",
+        )
+        assertTrue(
+            staged.dir
+                .list()
+                .orEmpty()
+                .none { it.startsWith("ep-verify") },
+            "the profile must not be left behind",
+        )
     }
 
     @Test

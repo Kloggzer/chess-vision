@@ -4733,3 +4733,164 @@ walks the six checks: camera open while tracking → released on Stop (asserted 
 `dumpsys media.camera`'s client list, not a status-bar pixel) → service still alive and the game
 intact → reopened on Resume → released by the notification action → released by swipe-from-recents;
 then the Analysis group and the long-press dialog in both light and dark.
+
+## QNN device failure + EP truthfulness (2026-07-26)
+
+Device: Xiaomi `zorn` / 24117RK2CG, SM8650 (Snapdragon 8 Gen 3, HTP v75), SELinux enforcing.
+Everything below is **measured on that phone**, not inferred.
+
+### The bug
+
+```
+I chesslabCnn: CNN attaching
+W onnxruntime: [qnn_backend_manager.cc:879 SetupBackend] Failed to setup so cleaning up
+E onnxruntime: [qnn_execution_provider.cc:691 GetCapability] QNN SetupBackend failed
+              Failed to create device. Error: QNN_DEVICE_ERROR_INVALID_CONFIG
+I chesslabCnn: CNN inference backend: QNN-HTP(NPU) (model=model.qnn.onnx, classes=2)
+```
+
+`addQnn` returned happily, so 05c's chain treated QNN as a win and reported it. The EP then failed
+in `GetCapability` — *after* selection — claimed no node, and the whole graph ran on the CPU. This
+is the silent degradation 05c exists to prevent, one rung softer: the loud-attach machinery was
+reporting what was **requested**, never what **ran**.
+
+### Fix 1 — report the EP that actually ran
+
+The Java ORT API has no "which EP owns this node" accessor, but the profiler does: every
+`*_kernel_time` trace event carries `args.provider`. So:
+
+- `cnn/OrtSessionRunner.kt` (new, 82 LOC) — the ORT session, extracted out of
+  `OnnxSquareClassifier`. `enableProfiling` is armed at construction; `profiledProvider()` calls
+  `session.endProfiling()`, parses the trace and deletes it. `endProfiling` also turns profiling
+  OFF for the rest of the session, so this costs **nothing** steady-state — one profiled batch at
+  attach, then never again.
+- `cnn/EpProfile.kt` (new, 89 LOC) — `dominantProvider(json)` sums kernel time per provider and
+  returns the majority one (a partial assignment is normal, so it is a majority, not unanimity),
+  plus `EpVerdict`, whose invariant is that its `label` can never name a provider that was not
+  observed. Unverifiable renders as `QNN-HTP(NPU) (unverified)`; a provider outside the chain's
+  vocabulary is printed verbatim.
+- `OnnxSquareClassifier.verify()` runs one warm-up batch at the real `[64,3,128,128]` shape and
+  takes the verdict. `backend` is now that verdict's label, never `runner.requested`. The warm-up
+  also pays the first-call cost off the observer thread and leaves a genuine 64-crop timing in
+  `lastRunMs` before the first observation — which is what 07b's "last infer ms" row renders.
+- `EpAttempts` (in `OnnxSquareClassifier.kt`) walks the chain. An EP that builds but is **caught
+  running elsewhere** is now closed and skipped, not kept. That is not cosmetic: the discarded QNN
+  session was running `model.qnn.onnx` (INT8/QDQ) on the CPU, and falling through hands the CPU its
+  own float32 graph instead — **166 ms to 97 ms per 64 crops, measured, a 1.7x win** (A/B'd through
+  07a's own "CNN model" + "Execution provider" settings). A verdict of *unknown* is deliberately
+  NOT a mismatch: the session works, and the label says "unverified" out loud.
+
+Tests: `EpProfileTest` (8 cases) drives the parsing and the verdict off two realistic ORT traces —
+mixed QNN/CPU assignment, all-CPU (the measured bug), truncated/empty/non-array payloads, session
+events that must not count, and every `EpVerdict` label. `OnnxSquareClassifierContractTest`'s
+real-asset test now asserts the *measured* `CPU` (not `CPU (unverified)`), the
+`CNN EP verified: ... warm-up ... ms` line, and that the trace file is cleaned up — that test runs
+the bundled graph through real ORT on the desktop JVM, so the whole profile → parse → label path is
+exercised end to end, not just the parser.
+
+Two pre-existing red tests were fixed on the way: `ModelSpecTest` and the contract test hardcoded
+the 14-class list while the bundled asset is now the 2-class `occ-real-f2`. They now assert against
+the asset's own declared class list (`assetClasses()`), which is what "the asset is the source of
+truth" actually means.
+
+**On device, after the fix:**
+
+```
+I chesslabCnn: CNN attaching
+W chesslabCnn: CNN EP QNN-HTP(NPU) loaded but CPU ran the graph, falling back
+W chesslabCnn: CNN EP NNAPI unavailable, falling back: ... not compiled with NNAPI support.
+I chesslabCnn: CNN EP verified: CPU, warm-up 97 ms for 64 crops
+I chesslabCnn: CNN inference backend: CPU (model=model.onnx, classes=2)
+```
+
+**Measured: 92 / 95 / 97 / 119 ms per 64 crops, fp32 on CPU** (four cold attaches). 07b renders
+`QNN-HTP(NPU) (requested) -> CPU (actual)` in amber next to that number.
+
+Incidental finding, worth knowing: **`onnxruntime-android-qnn` 1.21.1 ships no NNAPI support at
+all** ("This binary was not compiled with NNAPI support"). The NNAPI rung of the chain can never
+fire with this artifact. It is not dead code — the AAR could change — but nobody should expect it
+to do anything today.
+
+### Fix 2 — the manifest line QNN needs (real, necessary, not sufficient here)
+
+Raising the ORT environment to `ORT_LOGGING_LEVEL_VERBOSE` surfaces QNN's own log through ORT's
+callback, which is where the answer was:
+
+```
+QnnDsp <W> Failed in loading stub: dlopen failed: library "libcdsprpc.so" not found:
+           needed by .../lib/arm64/libQnnHtpV75Stub.so in namespace clns-10
+QnnDsp <E> Unable to load Remote symbols 4000
+```
+
+`libQnnHtpV75Stub.so` links against the fastRPC client `libcdsprpc.so`. That is a **vendor** public
+library (listed in `/vendor/etc/public.libraries.txt`), not an NDK one, and since Android 12 those
+are absent from an app's linker namespace unless the manifest names them. Fixed in
+`AndroidManifest.xml`:
+
+```xml
+<uses-native-library android:name="libcdsprpc.so" android:required="false" />
+```
+
+This is a genuine bug and the fix is kept: on any device where the DSP is reachable it is the
+difference between an NPU and no NPU. It moved QNN from "cannot even load the stub" to reaching the
+DSP transport layer, SoC detection and `QnnDevice_create`.
+
+### The actual wall: this ROM does not let an app reach the DSP
+
+With the stub loading, the failure moves one layer deeper and becomes explicit:
+
+```
+QnnDsp <V> Setting default value for unsigned PD usage
+QnnDsp <V> skel file path file:///libQnnHtpV75Skel.so?...&_dom=cdsp
+E com.chesslab.tracker: fastrpc_apps_user.c:3752: Error 0xd: open_shell failed for domain 3
+    search paths used are /dsp/, /vendor/dsp/, /vendor/dsp/xdsp/ (errno Permission denied)
+QnnDsp <E> Failed to retrieve skel build id: err: 10007
+QnnDsp <E> Failed to create transport for device, error: 4000
+QnnDsp <E> Failed to load skel, error: 4000
+QnnDsp <E> Transport layer setup failed: 14001
+QnnDsp <I> QnnDevice_create done. status 0x36b1     <- QNN_DEVICE_ERROR_INVALID_CONFIG
+```
+
+QNN uses an **unsigned PD** (the only option without Qualcomm signing) and must open the fastRPC
+shell for the cDSP out of `/vendor/dsp/`. On this device that path is SELinux-labelled
+`adsprpcd_file` and unreadable — even the `shell` domain is denied:
+
+```
+$ adb shell ls -ld /vendor/dsp
+ls: /vendor/dsp: Permission denied
+avc: denied { search } for name="/" scontext=u:r:shell:s0 tcontext=u:object_r:adsprpcd_file:s0
+```
+
+So `open_shell` gets `EACCES`, the v75 skel never loads on the DSP, and `QnnDevice_create` reports
+`QNN_DEVICE_ERROR_INVALID_CONFIG` — an error code that describes the symptom, not the cause, which
+is why the option map was such a red herring. The vendor camera HAL uses the same HTP happily in
+the same logcat, because it is a vendor process.
+
+**Nothing in the app can lift this.** Signed PD needs Qualcomm signing; unsigned PD needs a ROM
+that lets `untrusted_app` read the fastRPC shell. The NPU is out of reach on this phone, and the
+CNN runs on the CPU — now with an accurate label and a measured number instead of a claim.
+
+Ruled out, so nobody repeats them: `htp_performance_mode` (removed, identical failure); the
+`jniLibs` prune (every excluded QNN lib restored, identical failure — `app/build.gradle.kts` is
+untouched by this pass); a missing v75 Skel/Stub (both verified present in the installed
+`lib/arm64`); an absolute `backend_path` (moot — `libQnnHtp.so` loads fine, reports interface
+2.24.0 / build v2.31.0, and the failure is well past backend creation); a malformed
+`model.qnn.onnx` (the failure precedes graph handling entirely, and the same file runs fine on the
+CPU EP, see the 166 ms measurement above). ORT 1.21.1's option contract was checked against its
+source: unknown keys are silently ignored, and with `soc_model`/`htp_arch` unset `CreateDevice`
+passes an **empty** config list — QNN's own log confirms it (`Config not passed. Loading default
+config`), so no option key was ever implicated.
+
+### Next, if the NPU is ever wanted
+
+Nothing app-side. It needs a different device or ROM — and that is now a one-install experiment,
+because the manifest line is already in place and the attach reports honestly either way. A
+pre-compiled EPContext binary would **not** help: the graph would still need a device on the DSP.
+
+### Gate
+
+`ktlintCheck`, `detekt`, `test` (all modules), `:app:assembleDebug` — green. No `@Suppress`, no
+baseline, no threshold raised. New files 89 + 82 LOC; `OnnxSquareClassifier.kt` is 225 LOC.
+Detekt shaped one edit, recorded so it is not mistaken for taste: the chain walk would have hit
+`LoopWithTooManyJumpStatements`, which is why it is an `EpAttempts` object driven by
+`firstNotNullOfOrNull` over the chain rather than a loop with two `continue`s.
