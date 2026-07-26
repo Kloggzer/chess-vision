@@ -1,7 +1,8 @@
 package com.chesslab.tracker.games
 
 import com.chesslab.engine.api.DebugDecision
-import com.chesslab.engine.api.TrackerEvent
+import com.github.bhlangonijr.chesslib.Board
+import com.github.bhlangonijr.chesslib.move.Move
 
 /** One move as it was committed, plus the position it produced (the undo probe below needs it). */
 private data class LiveMove(
@@ -25,25 +26,51 @@ class LiveGame(
     val moveCount: Int get() = moves.size
 
     /**
-     * [decision] is 07b's provenance row for this move, present only while the debug payload is
-     * armed — a game recorded with debug off keeps its moves and loses only the reasoning.
+     * One commit, one or more plies — a `SequenceCommitted` (fast play, CNN recovery) is a single
+     * event carrying several.
+     *
+     * [decision] is 07b's provenance row, present only while the debug payload is armed — a game
+     * recorded with debug off keeps its moves and loses only the reasoning. It rides on the LAST
+     * ply, because that is where the engine records it (`Commit.kt:157`).
      */
     fun onCommitted(
-        event: TrackerEvent.MoveCommitted,
+        ucis: List<String>,
+        sans: List<String>,
+        fenAfter: String,
         tsEpochMs: Long,
         decision: DebugDecision?,
     ) {
-        moves +=
-            LiveMove(
-                StoredMove(
-                    ply = moves.size + 1,
-                    san = event.san,
-                    uci = event.uci,
-                    tsEpochMs = tsEpochMs,
-                    provenance = decision?.toProvenance(),
-                ),
-                fenAfter = event.fenAfter,
-            )
+        val fens = positionsAfter(ucis, fenAfter)
+        for (i in ucis.indices) {
+            val last = i == ucis.lastIndex
+            moves +=
+                LiveMove(
+                    StoredMove(
+                        ply = moves.size + 1,
+                        san = sans[i],
+                        uci = ucis[i],
+                        tsEpochMs = tsEpochMs,
+                        provenance = if (last) decision?.toProvenance() else null,
+                    ),
+                    fenAfter = fens[i],
+                )
+        }
+    }
+
+    /**
+     * A sequence carries only its FINAL position, so the ones in between are replayed. [onFen]
+     * compares against them, and without them an undo straight after a fast-play pair is missed.
+     */
+    private fun positionsAfter(
+        ucis: List<String>,
+        fenAfter: String,
+    ): List<String> {
+        if (ucis.size == 1) return listOf(fenAfter)
+        val board = Board().apply { loadFromFen(fenBefore(moves.size)) }
+        return ucis.mapIndexed { i, uci ->
+            runCatching { board.doMove(Move(uci, board.sideToMove)) }
+            if (i == ucis.lastIndex) fenAfter else board.fen
+        }
     }
 
     /**

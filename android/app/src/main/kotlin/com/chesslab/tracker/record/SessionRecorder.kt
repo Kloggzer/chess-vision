@@ -87,8 +87,14 @@ class SessionRecorder(
         corners: FloatArray,
     ): String? {
         val rel = "frames/%04d.jpg".format(entries.size)
-        val written = runCatching { writer.write(File(dir, rel)) }.getOrDefault(0L)
-        if (written <= 0L) return null
+        val dest = File(dir, rel)
+        val written = runCatching { writer.write(dest) }.getOrDefault(0L)
+        if (written <= 0L) {
+            // A half-written frame that no log line references is not data, it is a file `slice`
+            // trips over — and the next capture would reuse this index and read as a success.
+            dest.delete()
+            return null
+        }
         bytes += written
         val entry = LogEntry(rel, ply, fen, now(), moveSan, cornerPairs(corners))
         entries += entry
