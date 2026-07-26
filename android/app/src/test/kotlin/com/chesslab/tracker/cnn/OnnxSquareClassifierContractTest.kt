@@ -115,9 +115,11 @@ class OnnxSquareClassifierContractTest {
             assertTrue(classifier.lastRunMs > 0.0)
         }
         // Derived, not a literal: the desktop natives carry the CPU provider and nothing else, so
-        // EVERY EP above the last resort has to warn and fall through rather than fail silently.
+        // every EP ABOVE CPU has to warn and fall through rather than fail silently. Counted to CPU
+        // rather than to the chain's end — CPU is no longer the last entry, NNAPI is, and NNAPI is
+        // never reached here because CPU succeeds first.
         assertEquals(
-            epChain(staged.qnn != null).size - 1,
+            epChain(staged.qnn != null).indexOf(Ep.CPU),
             log.warnings.size,
             "every EP above CPU must warn and fall through: ${log.warnings}",
         )
@@ -138,7 +140,9 @@ class OnnxSquareClassifierContractTest {
     fun prefersQuantizedModelForQnnAndFp32Otherwise() {
         val staged = stagedModel(File("."))
         val withQnn = epChain(hasQnnModel = true)
-        assertEquals(listOf("QNN-HTP(NPU)", "NNAPI", "XNNPACK", "CPU"), withQnn.map { it.backend })
+        // NNAPI is absent on measurement: on an SM8650 it verified as the runner and took 470 ms
+        // per 64 crops against the CPU's 97. Reachable by explicit request, never automatically.
+        assertEquals(listOf("QNN-HTP(NPU)", "XNNPACK", "CPU"), withQnn.map { it.backend })
         assertEquals(MODEL_QNN_FILE, modelFor(staged, withQnn.first()).name)
         assertTrue(
             withQnn.drop(1).all { modelFor(staged, it).name == MODEL_FP32_FILE },
@@ -146,7 +150,7 @@ class OnnxSquareClassifierContractTest {
         )
 
         val withoutQnn = epChain(hasQnnModel = false)
-        assertEquals(listOf("NNAPI", "XNNPACK", "CPU"), withoutQnn.map { it.backend })
+        assertEquals(listOf("XNNPACK", "CPU"), withoutQnn.map { it.backend })
         assertTrue(withoutQnn.none { modelFor(staged, it).name == MODEL_QNN_FILE })
     }
 }

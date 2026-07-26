@@ -26,8 +26,10 @@ internal fun stagedModel(
 class EpRequestChainTest {
     @Test
     fun autoKeepsTheWholeAutomaticChain() {
-        assertEquals(listOf(Ep.QNN, Ep.NNAPI, Ep.XNNPACK, Ep.CPU), epChain(hasQnnModel = true, request = EpRequest.AUTO))
-        assertEquals(listOf(Ep.NNAPI, Ep.XNNPACK, Ep.CPU), epChain(hasQnnModel = false, request = EpRequest.AUTO))
+        // NNAPI is deliberately NOT here: measured 470 ms per 64 crops on an SM8650 against the
+        // CPU's 97, and a floor below the always-present CPU provider is unreachable anyway.
+        assertEquals(listOf(Ep.QNN, Ep.XNNPACK, Ep.CPU), epChain(hasQnnModel = true, request = EpRequest.AUTO))
+        assertEquals(listOf(Ep.XNNPACK, Ep.CPU), epChain(hasQnnModel = false, request = EpRequest.AUTO))
     }
 
     /**
@@ -47,7 +49,7 @@ class EpRequestChainTest {
                 fp32 = File(assetDir(), MODEL_FP32_FILE),
                 qnn = null,
             )
-        assertEquals(listOf(Ep.NNAPI, Ep.XNNPACK, Ep.CPU), epChain(hasQnnModel = false))
+        assertEquals(listOf(Ep.XNNPACK, Ep.CPU), epChain(hasQnnModel = false))
         OnnxSquareClassifier.open(staged, log).use { classifier ->
             assertEquals(assetClasses().size, classifier.classes.size)
             assertTrue(classifier.lastRunMs > 0.0, "the fallback session must have really run a batch")
@@ -60,6 +62,7 @@ class EpRequestChainTest {
         assertEquals(listOf(Ep.CPU), epChain(hasQnnModel = false, request = EpRequest.CPU))
     }
 
+    /** The one way to reach NNAPI at all — it is not in the automatic chain. */
     @Test
     fun explicitNnapiSkipsQnnButKeepsCpuAsTheLastResort() {
         assertEquals(listOf(Ep.NNAPI, Ep.XNNPACK, Ep.CPU), epChain(hasQnnModel = true, request = EpRequest.NNAPI))
@@ -81,9 +84,10 @@ class EpRequestChainTest {
         @TempDir tmp: File,
     ) {
         // The HTP backend rejects float32, so there is nothing to honour here — and the reported
-        // request must then be NNAPI, not a QNN the app never even attempted.
-        assertEquals(listOf(Ep.NNAPI, Ep.XNNPACK, Ep.CPU), epChain(hasQnnModel = false, request = EpRequest.QNN))
-        assertEquals("NNAPI", requestedBackend(stagedModel(tmp, qnn = null), EpRequest.QNN))
+        // request must then be the head of the AUTOMATIC chain, not a QNN the app never even
+        // attempted. That head is XNNPACK now that NNAPI is off the automatic path.
+        assertEquals(listOf(Ep.XNNPACK, Ep.CPU), epChain(hasQnnModel = false, request = EpRequest.QNN))
+        assertEquals("XNNPACK", requestedBackend(stagedModel(tmp, qnn = null), EpRequest.QNN))
     }
 
     /**
