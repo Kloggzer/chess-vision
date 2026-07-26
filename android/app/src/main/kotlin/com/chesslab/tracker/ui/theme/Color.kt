@@ -50,13 +50,32 @@ interface ChesslabPalette {
     val pieceBlack: Color
     val lastMoveTint: Color
 
+    /**
+     * The diagnostic overlay. These four are NOT theme colours and are identical in both
+     * palettes on purpose.
+     *
+     * They are Python's, verbatim from `tracker.py::_encode_overlay` and the web legend
+     * (`static/index.html:133-136`): changed magenta, shadow cyan, occlusion/hand orange, grid
+     * green. The same colour has to mean the same thing in both tools, because the whole point of
+     * looking at this overlay is comparing what the two see. Android had picked its own set, and
+     * ORANGE meant "shadow" here and "hand" there — the one mismatch that reads as a real finding
+     * rather than a palette difference.
+     */
     val overlayChanged: Color
     val overlayShadow: Color
     val overlayOcclusion: Color
+    val overlayGrid: Color
 
-    /** Where the CNN contradicts the believed position. The loudest overlay — it means STOP. */
+    /** No Python counterpart: where the CNN contradicts the believed position. It means STOP. */
     val overlayConflict: Color
 }
+
+// Python's overlay, shared by both themes. See [ChesslabPalette.overlayChanged].
+private val PyChanged = Color(0xFFFF2FFF)
+private val PyShadow = Color(0xFF00FFFF)
+private val PyOcclusion = Color(0xFFFF8C00)
+private val PyGrid = Color(0xFF00B400)
+private val ConflictRed = Color(0xFFFF2B2B)
 
 /** Light: warm paper with sepia ink. */
 internal object PaperPalette : ChesslabPalette {
@@ -79,10 +98,11 @@ internal object PaperPalette : ChesslabPalette {
     override val pieceWhite = Color(0xFFFCF8F0)
     override val pieceBlack = Color(0xFF241F19)
     override val lastMoveTint = Color(0x66C79A3B)
-    override val overlayChanged = Color(0xFF1F5FBF)
-    override val overlayShadow = Color(0xFFA05C10)
-    override val overlayOcclusion = Color(0xFF9B2C77)
-    override val overlayConflict = Color(0xFFC62828)
+    override val overlayChanged = PyChanged
+    override val overlayShadow = PyShadow
+    override val overlayOcclusion = PyOcclusion
+    override val overlayGrid = PyGrid
+    override val overlayConflict = ConflictRed
 }
 
 /** Dark: ink-stained walnut, never a black void. The same material at night. */
@@ -106,10 +126,11 @@ internal object InkPalette : ChesslabPalette {
     override val pieceWhite = Color(0xFFFCF8F0)
     override val pieceBlack = Color(0xFF241F19)
     override val lastMoveTint = Color(0x66DEA76A)
-    override val overlayChanged = Color(0xFF7FB2FF)
-    override val overlayShadow = Color(0xFFF0A64A)
-    override val overlayOcclusion = Color(0xFFE484C8)
-    override val overlayConflict = Color(0xFFFF6B5E)
+    override val overlayChanged = PyChanged
+    override val overlayShadow = PyShadow
+    override val overlayOcclusion = PyOcclusion
+    override val overlayGrid = PyGrid
+    override val overlayConflict = ConflictRed
 }
 
 val LocalChesslabPalette = staticCompositionLocalOf<ChesslabPalette> { InkPalette }
