@@ -15,12 +15,19 @@ import java.nio.FloatBuffer
 private const val CHANNELS = 3
 private const val FLOAT_BYTES = 4
 
-/** An execution provider. The graph it is allowed to run comes from [StagedModel], not from here. */
+/**
+ * An execution provider. The graph it is allowed to run comes from [StagedModel], not from here.
+ *
+ * Declaration order IS the automatic chain order (see [epChain]). XNNPACK sits directly above CPU
+ * because it is not a different device at all — it is a faster set of kernels on the same cores,
+ * and it can only ever win or hand the operator back.
+ */
 internal enum class Ep(
     val backend: String,
 ) {
     QNN("QNN-HTP(NPU)"),
     NNAPI("NNAPI"),
+    XNNPACK("XNNPACK"),
     CPU("CPU"),
 }
 
@@ -57,7 +64,7 @@ internal fun epChain(
     hasQnnModel: Boolean,
     request: EpRequest = EpRequest.AUTO,
 ): List<Ep> {
-    val available = if (hasQnnModel) Ep.entries.toList() else listOf(Ep.NNAPI, Ep.CPU)
+    val available = Ep.entries.filter { hasQnnModel || it != Ep.QNN }
     val head =
         when (request) {
             EpRequest.AUTO -> return available

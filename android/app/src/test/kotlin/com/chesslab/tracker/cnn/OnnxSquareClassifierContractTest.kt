@@ -114,7 +114,13 @@ class OnnxSquareClassifierContractTest {
             probs.forEach { assertTrue(abs(it.sum() - 1.0f) < 1e-4f, "row sums to ${it.sum()}") }
             assertTrue(classifier.lastRunMs > 0.0)
         }
-        assertEquals(2, log.warnings.size, "QNN and NNAPI must warn and fall through, not fail silently")
+        // Derived, not a literal: the desktop natives carry the CPU provider and nothing else, so
+        // EVERY EP above the last resort has to warn and fall through rather than fail silently.
+        assertEquals(
+            epChain(staged.qnn != null).size - 1,
+            log.warnings.size,
+            "every EP above CPU must warn and fall through: ${log.warnings}",
+        )
         assertTrue(
             log.infos.any { it.startsWith("CNN EP verified: CPU, warm-up") },
             "the attach must state the provider it MEASURED, with the 64-crop timing: ${log.infos}",
@@ -132,7 +138,7 @@ class OnnxSquareClassifierContractTest {
     fun prefersQuantizedModelForQnnAndFp32Otherwise() {
         val staged = stagedModel(File("."))
         val withQnn = epChain(hasQnnModel = true)
-        assertEquals(listOf("QNN-HTP(NPU)", "NNAPI", "CPU"), withQnn.map { it.backend })
+        assertEquals(listOf("QNN-HTP(NPU)", "NNAPI", "XNNPACK", "CPU"), withQnn.map { it.backend })
         assertEquals(MODEL_QNN_FILE, modelFor(staged, withQnn.first()).name)
         assertTrue(
             withQnn.drop(1).all { modelFor(staged, it).name == MODEL_FP32_FILE },
@@ -140,7 +146,7 @@ class OnnxSquareClassifierContractTest {
         )
 
         val withoutQnn = epChain(hasQnnModel = false)
-        assertEquals(listOf("NNAPI", "CPU"), withoutQnn.map { it.backend })
+        assertEquals(listOf("NNAPI", "XNNPACK", "CPU"), withoutQnn.map { it.backend })
         assertTrue(withoutQnn.none { modelFor(staged, it).name == MODEL_QNN_FILE })
     }
 }

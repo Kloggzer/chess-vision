@@ -70,8 +70,9 @@ class EpProfileTest {
     fun ortProviderNamesMapOntoTheChain() {
         assertEquals(Ep.QNN, epForProvider("QNNExecutionProvider"))
         assertEquals(Ep.NNAPI, epForProvider("NnapiExecutionProvider"))
+        assertEquals(Ep.XNNPACK, epForProvider("XnnpackExecutionProvider"))
         assertEquals(Ep.CPU, epForProvider("CPUExecutionProvider"))
-        assertNull(epForProvider("XnnpackExecutionProvider"))
+        assertNull(epForProvider("CoreMLExecutionProvider"))
     }
 
     @Test
@@ -103,8 +104,24 @@ class EpProfileTest {
 
     @Test
     fun aStrangeProviderIsReportedVerbatim() {
-        val verdict = EpVerdict(Ep.CPU, "XnnpackExecutionProvider")
+        val verdict = EpVerdict(Ep.CPU, "CoreMLExecutionProvider")
         assertTrue(verdict.contradicted)
-        assertEquals("XnnpackExecutionProvider", verdict.label)
+        assertEquals("CoreMLExecutionProvider", verdict.label)
+    }
+
+    /**
+     * XNNPACK is a kernel library on the same cores, not another device: it implements none of the
+     * 46 InstanceNormalization blocks in this graph and hands them back to the CPU EP. A
+     * CPU-dominant profile is that partition, and dropping the session over it would throw away the
+     * fast kernels for the ones it did take.
+     */
+    @Test
+    fun xnnpackHandingOperatorsBackToTheCpuIsNotAContradiction() {
+        val verdict = EpVerdict(Ep.XNNPACK, dominantProvider(ALL_CPU_TRACE))
+        assertFalse(verdict.matches)
+        assertFalse(verdict.contradicted)
+        assertEquals("CPU", verdict.label, "the label still states what actually dominated")
+        // The escape hatch is XNNPACK's alone — an NPU that never ran is still a contradiction.
+        assertTrue(EpVerdict(Ep.NNAPI, dominantProvider(ALL_CPU_TRACE)).contradicted)
     }
 }
