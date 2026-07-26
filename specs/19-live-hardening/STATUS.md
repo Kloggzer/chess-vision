@@ -23,6 +23,22 @@ Recorded here so no phase re-derives them, and so a later reader can tell what m
 **The recording:** 1080×1920, 30 fps, 1975 frames, ArUco visible, standard start position.
 Board occupies 630×643 px of the source = **79 px per square**.
 
+> **CORRECTION (orchestrator, after phase 00).** The score table and the ten-ply move list
+> below do **not** reproduce and must not be cited. They came from `scripts/replay_clip.py`
+> in **realtime** mode against an auto-regenerated `phone` profile at `board_size = 800`.
+> Realtime replay drops frames by machine load, so it is not deterministic; and 800 is not
+> the 640 every regression clip uses. Phase 00's deterministic run at 640 measures **8 plies**
+> (`d4 d5 Kd2 Nf6 Nf3 Nc6 Nc3 Ne4+`) and scores 20.48 / 19.06 / 8.64 / 24.45 / 24.45 / 37.65 /
+> 37.65 / 22.32. The repeated `24.0` below is `2 x 12.0` — the per-square logit clip, i.e.
+> saturated. `entry.md`'s claim that every genuine move scores >= 22.0 with margin >= 9.3 is
+> therefore **false** (d4 = 20.48, d5 = 19.06 at margin 5.76).
+>
+> What survives unchanged: the phantom `Kd2` is real, it is the weakest commit in the clip by
+> a wide margin in both runs, and its evidence contains no square from a piece that moved.
+> Phase 00's Q3 additionally **refutes** the origin-over-destination asymmetry asserted in
+> `entry.md` — median z[origin] 13.32 vs z[destination] 17.07, and the geometric explanation
+> is excluded directly.
+
 **Python tracker on it** (`d4 d5 Kd2 Nf6 Nc3 Nc6 e4 dxe4 Nxe4 Nxe4+`), score per commit:
 
 | move | cand | best | 2nd | margin |
