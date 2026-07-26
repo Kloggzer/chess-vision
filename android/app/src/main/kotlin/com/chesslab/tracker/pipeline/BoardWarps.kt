@@ -96,6 +96,8 @@ class CameraStages(
     private val cropStore: CropFrameStore,
     /** Where the preview/calibration bus receives the converted frame. Throttles and clones itself. */
     private val frameBus: (Mat) -> Unit = {},
+    /** Where the tracking screen receives the rectified board. Same contract as [frameBus]. */
+    private val boardBus: (Mat) -> Unit = {},
 ) : FrameStages {
     private val yuv = YuvToBgr()
     private val gray = GrayPipeline(config.diffClaheClip)
@@ -115,6 +117,10 @@ class CameraStages(
 
     override fun publishFrame() {
         frame?.let(frameBus)
+    }
+
+    override fun publishBoard() {
+        warped?.let(boardBus)
     }
 
     override fun warpDetection(corners: FloatArray): Boolean {

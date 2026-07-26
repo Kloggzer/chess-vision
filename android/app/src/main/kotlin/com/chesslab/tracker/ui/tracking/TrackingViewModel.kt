@@ -76,7 +76,7 @@ class TrackingViewModel : ViewModel() {
                 }
             }
         jobs += session.events.onEach(::onEvent).launchIn(viewModelScope)
-        jobs += session.rawPreview.onEach { previewState.value = it }.launchIn(viewModelScope)
+        jobs += session.boardPreview.onEach { previewState.value = it }.launchIn(viewModelScope)
         jobs +=
             session.cameraOn
                 .onEach {

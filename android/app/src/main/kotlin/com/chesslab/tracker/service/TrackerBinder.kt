@@ -42,6 +42,8 @@ class TrackerBinder(
     val cnnState: StateFlow<CnnState> get() = cnn
 
     override val rawPreview: StateFlow<Bitmap?> get() = frames.rawPreview
+
+    override val boardPreview: StateFlow<Bitmap?> get() = frames.boardPreview
     override val cameraHealth: StateFlow<CameraHealth> get() = frames.cameraHealth
 
     /** A CLONE; the caller releases it. 06a's only source of pixels — it binds no camera. */

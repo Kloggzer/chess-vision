@@ -27,6 +27,9 @@ interface TrackerSession {
     val events: Flow<TrackerEvent>
     val rawPreview: StateFlow<Bitmap?>
 
+    /** The rectified board — the tracking screen's live view. */
+    val boardPreview: StateFlow<Bitmap?>
+
     /**
      * Whether the camera is bound. Not derived from the status: when the camera is released the
      * status simply stops arriving, and a frozen last frame's "waiting · 14.8 fps" is precisely the
@@ -96,6 +99,7 @@ object NoTrackerSession : TrackerSession {
     override val status: StateFlow<TrackerStatus?> = MutableStateFlow(null)
     override val events: Flow<TrackerEvent> = emptyFlow()
     override val rawPreview: StateFlow<Bitmap?> = MutableStateFlow(null)
+    override val boardPreview: StateFlow<Bitmap?> = MutableStateFlow(null)
 
     /** Unbound: there is no camera to be on, and the screen must not offer to stop one. */
     override val cameraOn: StateFlow<Boolean> = MutableStateFlow(true)
