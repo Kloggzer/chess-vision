@@ -87,7 +87,7 @@ private fun GamesScreen(
                     }
                 }
             }
-            item(key = "recording") { Card { RecordingPanel(ui, model) } }
+            item(key = "recording") { Card { RecordingPanel(ui, model, live) } }
             items(ui.games, key = { it.id }) { row ->
                 Card {
                     GameRow(row, onOpen = { onOpenGame(row.id) }, onRename = { renaming = row }, onDelete = { deleting = row })
