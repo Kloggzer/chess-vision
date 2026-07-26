@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -62,7 +63,11 @@ private fun TrackingScreen(viewModel: TrackingViewModel) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         StateHeader(ui)
-        BoardRow(ui, viewModel.lastMoveUci)
+        // The camera board takes the BOARD's slot, not the leftover space under it. Both show the
+        // same 8x8; when you turn the camera on you are diagnosing, and the picture you need to
+        // read square by square is the one from the lens — the rendered board is what you already
+        // trust. Squeezed under the rendered one it was a third of the height and unreadable.
+        BoardRow(ui, viewModel.lastMoveUci, camera = preview.takeIf { showPreview })
         ui.alarm?.let {
             AlarmCard(
                 alarm = it,
@@ -71,26 +76,13 @@ private fun TrackingScreen(viewModel: TrackingViewModel) {
                 onNewBaseline = viewModel::onNewBaseline,
             )
         }
-        // The camera view REPLACES the move list rather than stacking above it: at its 4:3 aspect
-        // it did not fit in the leftover space and overdrew the board. While you are aiming the
-        // camera the score sheet is not what you are looking at.
         Box(Modifier.fillMaxWidth().weight(1f)) {
-            if (showPreview) {
-                // The RECTIFIED board, not the raw frame. The board fills this image with a8 at the
-                // top-left, so an evidence square is the image divided by eight — the quad
-                // re-projection the raw frame needed is gone, and with it every way for the overlay
-                // and the detection to disagree about which square is which.
-                BoardPreview(
-                    bitmap = preview,
-                    overlay = ui.overlay,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                MoveList(
-                    rows = remember(moves) { moveRows(moves) },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
+            // The move list keeps this slot either way now: with the camera on, the board row above
+            // IS the camera view, so nothing has to be given up for it.
+            MoveList(
+                rows = remember(moves) { moveRows(moves) },
+                modifier = Modifier.fillMaxSize(),
+            )
         }
         ActionBar(
             onUndo = viewModel::onUndo,
@@ -127,18 +119,23 @@ private fun TrackingScreen(viewModel: TrackingViewModel) {
 private fun BoardRow(
     ui: TrackingUiState,
     lastMoveUci: String?,
+    camera: android.graphics.Bitmap? = null,
 ) {
     Row(
         Modifier.fillMaxWidth().height(IntrinsicSize.Min),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         EvalBarSlot()
-        BoardCanvas(
-            fen = ui.fen,
-            modifier = Modifier.weight(1f),
-            lastMoveUci = lastMoveUci,
-            alarmed = ui.boardTinted,
-        )
+        if (camera != null) {
+            BoardPreview(bitmap = camera, overlay = ui.overlay, modifier = Modifier.weight(1f).aspectRatio(1f))
+        } else {
+            BoardCanvas(
+                fen = ui.fen,
+                modifier = Modifier.weight(1f),
+                lastMoveUci = lastMoveUci,
+                alarmed = ui.boardTinted,
+            )
+        }
     }
 }
 

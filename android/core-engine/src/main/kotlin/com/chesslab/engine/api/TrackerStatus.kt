@@ -15,6 +15,14 @@ data class TrackerStatus(
     val changed: Set<String>,
     val shadowVetoed: Set<String>,
     val occlusionVetoed: Set<String>,
+    /**
+     * Squares where a FRESH, CONFIDENT CNN observation contradicts the believed position —
+     * the evidence behind `stuckReason = "cnn_desync"`, which otherwise only says "somewhere".
+     *
+     * Occupancy only: "e4 confidently empty while a bishop is believed there" is a desync, a
+     * misread piece TYPE is not. Empty when the last observation is stale or agrees.
+     */
+    val cnnConflicts: Set<String> = emptySet(),
     val bestLl: Double,
     val secondLl: Double,
     val bestUci: String?,

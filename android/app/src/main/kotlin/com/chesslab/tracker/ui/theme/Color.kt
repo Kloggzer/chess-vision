@@ -53,6 +53,9 @@ interface ChesslabPalette {
     val overlayChanged: Color
     val overlayShadow: Color
     val overlayOcclusion: Color
+
+    /** Where the CNN contradicts the believed position. The loudest overlay — it means STOP. */
+    val overlayConflict: Color
 }
 
 /** Light: warm paper with sepia ink. */
@@ -79,6 +82,7 @@ internal object PaperPalette : ChesslabPalette {
     override val overlayChanged = Color(0xFF1F5FBF)
     override val overlayShadow = Color(0xFFA05C10)
     override val overlayOcclusion = Color(0xFF9B2C77)
+    override val overlayConflict = Color(0xFFC62828)
 }
 
 /** Dark: ink-stained walnut, never a black void. The same material at night. */
@@ -105,6 +109,7 @@ internal object InkPalette : ChesslabPalette {
     override val overlayChanged = Color(0xFF7FB2FF)
     override val overlayShadow = Color(0xFFF0A64A)
     override val overlayOcclusion = Color(0xFFE484C8)
+    override val overlayConflict = Color(0xFFFF6B5E)
 }
 
 val LocalChesslabPalette = staticCompositionLocalOf<ChesslabPalette> { InkPalette }
