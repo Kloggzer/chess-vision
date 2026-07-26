@@ -8,10 +8,10 @@ results, and any blocker with file + line + what you tried.
 
 | Phase | File | Concern | State | Notes |
 |---|---|---|---|---|
-| 00 | `00-poisoned-reference.md` | Measure why `f1` stands at z≈15; origin-vs-destination asymmetry | todo | Measures only. Must not edit `src/` or `android/`. |
-| 01 | `01-cnn-runtime.md` | ORT session config, XNNPACK, profiling, steady-state number | todo | |
+| 00 | `00-poisoned-reference.md` | Measure why `f1` stands at z≈15; origin-vs-destination asymmetry | measured | Root cause: an un-vetoed resting hand, not a stale reference. Origin/destination asymmetry does not exist. |
+| 01 | `01-cnn-runtime.md` | ORT session config, XNNPACK, profiling, steady-state number | done, unmeasured | QNN dependency dropped for XNNPACK+NNAPI (option 2). **No device attached — no on-device number.** |
 | 02 | `02-frame-allocations.md` | Per-frame buffers, engine hot path, 3 latent bugs | todo | `ClipReplayParityTest` must stay 18/18. |
-| 03 | `03-recording.md` | Recording "doesn't work well" — diagnose then fix | diagnosed | No device attached; diagnosis from the write path. 6 defects, D1–D6. |
+| 03 | `03-recording.md` | Recording "doesn't work well" — diagnose then fix | done | No device attached; diagnosed from the write path. 6 defects fixed, 6 regression tests proven red first. |
 | 04 | `04-cnn-activations.md` | `_convert_bn_to_gn` deletes timm's ReLUs | todo | No full retrain. |
 
 All five may run in parallel; file scopes are disjoint.
@@ -213,6 +213,96 @@ indistinguishable from one that is working.
   a profile calibrated at a different resolution than the camera now delivers, or the size cap)
   produced the two specific directories. All three are silent today, which is why D4/D5/D6 are
   fixed rather than guessed between.
+
+#### Step C/D — result
+
+Commits on `spec-19-live-hardening`:
+
+| Commit | What |
+|---|---|
+| `490ff89` | `docs(specs): 19 phase 03 — what the recorder actually does` (diagnosis, before the fix) |
+| `ccce33d` | `fix(android-record): record the plies a SequenceCommitted carries, and stop losing frames silently` (D1–D5) |
+| `a164c05` | `feat(android-record): surface frames written and the last recorder error` (D6) |
+
+What changed, per defect:
+
+- **D1** `GameSessionController.onEvent` now routes `SequenceCommitted` into the same
+  `onCommitted` as `MoveCommitted`. `LiveGame.onCommitted` takes `(ucis, sans, fenAfter, ts,
+  decision)`; a sequence's intermediate positions are replayed with chesslib (already a `games/`
+  dependency) because the event carries only the final FEN and `LiveGame.onFen` compares against
+  the intermediate one to spot an undo. Provenance rides on the LAST ply, matching
+  `Commit.kt:157`. **One photo per commit, not per ply** — that is what `queueSessionCapture(sans.last())`
+  does, so a pair yields two moves and one frame.
+- **D2** the `ReAnchored` flush is gated on `isClean(status)` — the same predicate the commit path
+  already used, extracted so both sites share it.
+- **D3** `capReached()` is evaluated **before** the recorder is opened and no longer takes the
+  recorder as a parameter, so a cap-blocked start opens nothing and writes nothing.
+- **D4** `SessionRecorder.capture` deletes the partial file, and `SessionCaptureController`
+  counts the failure (`failedWrites`) and reports it through `reason`.
+- **D5** `RecordingGates.blocks` clears `reason` before re-evaluating, so a skip stops being
+  reported once it no longer applies.
+- **D6** `GameSessionState.recordedFrames`; `RecordingPanel` gained a live line
+  ("Recording <id> · N frames written", or the reason in `Danger`). Its on-disk-total line moved
+  from `Accent` to `OnSurfaceMuted` so the live line is the one that reads as current.
+
+**Mutation check.** All six new tests were run against the unfixed code first and **all six
+failed on assertions, not on symbols** (the one new API, `failedWrites`, was added as a bare
+declaration for that run so the failure would be behavioural):
+
+```
+GameSessionControllerTest > aFastPlayPairIsRecordedAsTwoMovesAndOnePhoto()        FAILED  :147
+GameSessionControllerTest > anUndoAfterAPairDropsOnlyItsLastPly()                 FAILED  :162
+GameSessionControllerTest > aReAnchorWithSquaresStillOccludedDoesNotTakeThePhoto() FAILED :180
+SessionCaptureTest        > aCapBlockedStartCreatesNoSessionDirectory()           FAILED  :153
+SessionCaptureTest        > aFailedFrameWriteIsReported()                         FAILED  :168
+SessionCaptureTest        > theSkipReasonClearsWhenTheGateOpensAgain()            FAILED  :187
+56 tests completed, 6 failed
+```
+
+After the fix: `GameSessionControllerTest` 7/7, `SessionCaptureTest` 13/13, `SessionRecorderTest`
+5/5, `RecordingGatesTest` 6/6, `GameSessionDriverTest` 3/3, `GameStoreTest` 5/5,
+`SessionExporterTest` 2/2 — 0 failures. `:app:ktlintCheck` and `:app:detekt` clean.
+
+**Negative results, recorded as such:**
+
+- `aFinishedSessionHasOneLogLinePerFrameFile` — the acceptance criterion "as many `frames/*.jpg`
+  as `log.jsonl` entries" was **already true** and passed on the first, unfixed run.
+  `SessionRecorder` writes the frame and its log line together and `undoLast` removes both; that
+  invariant was never the problem. The test is kept as a regression pin, not as a fix.
+- **Threading was not the problem.** The write path is already off the analyzer thread
+  (`GameSessionWiring.kt:86-92`). No test was written for it and nothing was changed.
+- **No `auto_record` leak on Android.** The Python defect in MEMORY `auto-record-session-leak` has
+  no Android equivalent; `GameSessionDriverTest` already pinned it.
+- Whether these six defects are *the* mechanism behind the two directories on the phone is
+  **unproven** — see Step A. D1 and D2 lose data on every affected commit and are certain; D3–D5
+  are the reason nobody could tell which decline fired.
+
+#### Discrepancies against the spec
+
+- **`03-recording.md` Step A assumes a device.** None was attached. Step A was answered from the
+  code instead; the ONE-frame and missing-`log.jsonl` shapes were reasoned about, not measured.
+- **`ui/games/**` is in no phase's row of the ownership registry**, but `03-recording.md` names
+  `ui/games/RecordingPanel.kt` as the surface for Step D. Changing its signature forced one line
+  in `ui/games/GamesScreen.kt:88` (its only call site). Both are in commit `a164c05`.
+- **`03-recording.md` Step C's ranked guesses were all wrong in detail.** "The capture gate never
+  opens" and "frames written but the manifest is not" describe neither D1 nor D2. The evidence
+  pointed at an entire event class the driver ignored — a gap in the *port*, not in the gate.
+- `03-recording.md` line 41 lists `record/RecordingGates.kt` etc. by name; all exist. Line
+  numbers in the original spec were not used.
+- **Detekt shaped one line:** `SessionCaptureController.capture` hit `ReturnCount` (limit 3) with
+  the natural four-guard form, so the cap guard is written as
+  `val active = if (capReached()) null else (recorder ?: startRecorder(frame))`. Slightly less
+  direct than four early returns; no wrapper type was invented.
+
+#### Left for the user to decide (not changed)
+
+- `existingBytes` (`service/GameSessionWiring.kt:105`) is snapshotted once at service start, so
+  deleting sessions does not lift the size cap until the service restarts. Fixing it means walking
+  the sessions tree from the capture path or invalidating the snapshot from the games screen —
+  a design call, not a bug fix.
+- `EngineState.pendingCapture` is dead state in the Kotlin port (`TrackerEngine.kt:413`,
+  `Commit.kt:237` discard `flushSessionCapture()`'s value), and gates on `tainted` where Python
+  gates on the occlusion set. `:core-engine` is frozen for this pack.
 
 ### Phase 04 — CNN activations
 
