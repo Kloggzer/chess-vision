@@ -33,6 +33,35 @@ internal fun repoRoot(): File {
     return dir
 }
 
+private const val DEFAULT_CLIP_DIR = "tests/data/testclips"
+
+/**
+ * Where the `<clip>.mp4` + `<clip>.labels.json` pairs are read from, via `-Pchesslab.sim.clips`.
+ *
+ * The default is the committed fixture set, and it must stay that way: those exact files produced
+ * `core-engine/src/test/resources/parity/`, so `ClipReplayParityTest` is only meaningful against
+ * them. A re-render at a different resolution therefore goes into its OWN directory (e.g.
+ * `tests/data/testclips-hires`, ~112 px/square instead of ~31) and is selected here — never by
+ * overwriting the fixtures. The clip NAMES and the per-clip `effectiveConfig` still come from
+ * `parity/index.json`, so both sets run the identical catalogue with the identical tracker knobs
+ * and only the pixels differ.
+ */
+internal fun simClipDir(root: File): File {
+    val spec = clipDirProperty().ifEmpty { DEFAULT_CLIP_DIR }
+    val dir = File(spec).let { if (it.isAbsolute) it else File(root, spec) }
+    require(dir.isDirectory) { "no clip directory at $dir" }
+    return dir
+}
+
+/** True when the run reads the committed fixture clips — the only set with a proven Python baseline. */
+internal fun usingDefaultClips(): Boolean = clipDirProperty().isEmpty()
+
+private fun clipDirProperty(): String =
+    System
+        .getProperty("chesslab.sim.clips")
+        .orEmpty()
+        .trim()
+
 /** One model under comparison: a directory holding `model.onnx` + `config.json`. */
 internal class SimModel(
     val name: String,
@@ -92,14 +121,15 @@ internal class SimClip(
  */
 internal fun simClips(): List<SimClip> {
     val root = repoRoot()
+    val clipDir = simClipDir(root)
     val parity = File(root, "android/core-engine/src/test/resources/parity")
     val index = Json.parseToJsonElement(File(parity, "index.json").readText()).jsonObject
     return index.getValue("clips").jsonArray.map { it.jsonPrimitive.content }.map { name ->
-        val labels = Json.parseToJsonElement(File(root, "tests/data/testclips/$name.labels.json").readText()).jsonObject
+        val labels = Json.parseToJsonElement(File(clipDir, "$name.labels.json").readText()).jsonObject
         val meta = Json.parseToJsonElement(File(parity, "$name/meta.json").readText()).jsonObject
         SimClip(
             name = name,
-            video = File(root, "tests/data/testclips/$name.mp4"),
+            video = File(clipDir, "$name.mp4"),
             corners =
                 labels.getValue("corners").jsonArray.map { point ->
                     val xy = point.jsonArray

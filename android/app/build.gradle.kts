@@ -61,6 +61,11 @@ android {
             // Comma-separated model directories to compare (each holding `model.onnx` +
             // `config.json`), repo-relative or absolute. Empty = the bundled app assets only.
             it.systemProperty("chesslab.sim.models", providers.gradleProperty("chesslab.sim.models").getOrElse(""))
+            // Clip directory holding `<clip>.mp4` + `<clip>.labels.json`, repo-relative or absolute.
+            // Empty = `tests/data/testclips`, the committed set the parity fixtures were emitted
+            // from. A re-render (e.g. at phone resolution) lives in its own directory and is
+            // selected here, so the fixtures are never overwritten; see SimClips.simClipDir.
+            it.systemProperty("chesslab.sim.clips", providers.gradleProperty("chesslab.sim.clips").getOrElse(""))
         }
     }
 
