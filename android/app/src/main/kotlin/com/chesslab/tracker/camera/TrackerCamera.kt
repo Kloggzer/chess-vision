@@ -1,15 +1,21 @@
 package com.chesslab.tracker.camera
 
 import android.content.Context
+import android.hardware.camera2.CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES
+import android.hardware.camera2.CaptureRequest
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.util.Size
+import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.Camera2Interop
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.CameraInfo
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.CameraState
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -50,6 +56,11 @@ class TrackerCamera(
     val cameraState: StateFlow<CameraHealth> = health.asStateFlow()
 
     private var target: CameraRequest = request
+
+    // Analyzer thread only — see [noteSensorRate].
+    private var lastSensorNs = 0L
+    private var lastSensorLogMs = 0L
+    private var sensorGapMs = 0.0
 
     /** What was ASKED for. Never conflated with [deliveredSize]. */
     val requestedSize: Size get() = Size(target.width, target.height)
@@ -160,18 +171,19 @@ class TrackerCamera(
         // provider yet are the same answer here — do not bind.
         val cameraProvider = provider.takeUnless { stopped } ?: return
         val lifecycleOwner = owner ?: return
-        val analysis =
+        val selector = CameraSelector.Builder().requireLensFacing(target.lensFacing).build()
+        val builder =
             ImageAnalysis
                 .Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                 .setResolutionSelector(resolutionSelector())
-                .build()
+        pinFrameRate(builder, cameraProvider.availableCameraInfos.firstOrNull { selector.filter(listOf(it)).isNotEmpty() })
+        val analysis = builder.build()
         analysis.setAnalyzer(analyzerExecutor, ::deliver)
 
         stopObserving()
         cameraProvider.unbindAll()
-        val selector = CameraSelector.Builder().requireLensFacing(target.lensFacing).build()
         val camera =
             runCatching { cameraProvider.bindToLifecycle(lifecycleOwner, selector, analysis) }
                 .getOrElse { failure ->
@@ -182,18 +194,83 @@ class TrackerCamera(
         observed = camera.cameraInfo
     }
 
-    /** The requested mode is a wish; [ResolutionStrategy] may hand back anything it likes. */
+    /**
+     * Ask auto-exposure to keep the frame rate up.
+     *
+     * `CameraRequest.targetFps` was dead code until now: nothing pinned
+     * `CONTROL_AE_TARGET_FPS_RANGE`, so in room light AE was free to pick a long exposure and
+     * hand us 14 fps. Measured, that is what it did — the analyzer did 52 ms of work inside a
+     * 71 ms frame and then sat idle, so the sensor was the cap and no pipeline work could have
+     * bought a single frame.
+     *
+     * The range is chosen from what the device ADVERTISES, never invented: an unsupported range
+     * is a binding failure, and a dead camera is worse than a slow one. Preference is the
+     * narrowest range whose upper bound is [CameraRequest.targetFps] — a locked `[30,30]` is what
+     * actually stops AE from stretching the period, where `[15,30]` leaves it the same freedom it
+     * already had.
+     *
+     * The trade is real and belongs in the log: a pinned rate caps exposure time, so the frame
+     * gets darker, and `darkLumaThr = 18` is a gate that can then start firing.
+     */
+    @OptIn(ExperimentalCamera2Interop::class)
+    private fun pinFrameRate(
+        builder: ImageAnalysis.Builder,
+        info: CameraInfo?,
+    ) {
+        val available = info?.let { Camera2CameraInfo.from(it).getCameraCharacteristic(CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES) }
+        val range =
+            available
+                ?.filter { it.upper == target.targetFps }
+                ?.maxByOrNull { it.lower }
+        if (range == null) {
+            Log.w(TAG, "no ${target.targetFps} fps AE range advertised (${available?.joinToString()}) — leaving auto-exposure alone")
+            return
+        }
+        Camera2Interop.Extender(builder).setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, range)
+        Log.i(TAG, "AE target fps range pinned to $range")
+    }
+
+    /**
+     * The requested mode is a wish; [ResolutionStrategy] may hand back anything it likes.
+     *
+     * The aspect ratio is stated explicitly because leaving it out cost 33 % of every source
+     * pixel: asking for 1920x1080 under `FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER` got us
+     * 1920x1440, and that 4:3 frame is the source of the convert and of all three warps.
+     */
     private fun resolutionSelector(): ResolutionSelector =
         ResolutionSelector
             .Builder()
+            .setAspectRatioStrategy(AspectRatioStrategy(aspectRatioFor(target), AspectRatioStrategy.FALLBACK_RULE_AUTO))
             .setResolutionStrategy(
-                ResolutionStrategy(requestedSize, ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER),
+                ResolutionStrategy(requestedSize, ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER),
             ).build()
+
+    /**
+     * The gap between the SENSOR timestamps of two delivered frames, smoothed, once a second.
+     *
+     * This is the one number that separates "the sensor is slow" from "we are too slow and
+     * CameraX is dropping frames for us" — `STRATEGY_KEEP_ONLY_LATEST` makes both look identical
+     * from the analyzer's side. A gap near the sensor period means we see every frame; a gap at a
+     * multiple of it means frames are being dropped and the pipeline is the bottleneck.
+     */
+    private fun noteSensorRate(image: ImageProxy) {
+        val now = image.imageInfo.timestamp
+        val previous = lastSensorNs
+        lastSensorNs = now
+        if (previous == 0L || now <= previous) return
+        val gap = (now - previous) / NANOS_PER_MS
+        sensorGapMs = if (sensorGapMs != 0.0) EMA_OLD * sensorGapMs + EMA_NEW * gap else gap
+        val wall = System.currentTimeMillis()
+        if (wall - lastSensorLogMs < SENSOR_LOG_INTERVAL_MS) return
+        lastSensorLogMs = wall
+        Log.d(TAG, "sensor gap ${"%.1f".format(sensorGapMs)} ms between delivered frames")
+    }
 
     private fun deliver(image: ImageProxy) {
         try {
             val delivered = DeliveredSize.of(image)
             deliveredSize = delivered
+            noteSensorRate(image)
             mismatch.report(target.width, target.height, delivered)
             policy.onFrameDelivered(System.currentTimeMillis())
             if (health.value !is CameraHealth.Up) health.value = CameraHealth.Up
@@ -237,6 +314,12 @@ class TrackerCamera(
     private companion object {
         const val TAG = "chesslabCamera"
         const val MS_PER_S = 1000.0
+        const val NANOS_PER_MS = 1_000_000.0
+        const val SENSOR_LOG_INTERVAL_MS = 1000L
+
+        /** `CameraRate`'s weights, so every rate in the app settles the same way. */
+        const val EMA_OLD = 0.9
+        const val EMA_NEW = 0.1
 
         /** Device-level failures a rebind can plausibly recover from. */
         val REBIND_ERROR_CODES =

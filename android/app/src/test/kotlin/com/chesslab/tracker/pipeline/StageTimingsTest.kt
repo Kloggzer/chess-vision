@@ -6,9 +6,8 @@ import org.junit.jupiter.api.Test
 
 class StageTimingsTest {
     private var now = 0L
-    private var camera = 0.0
     private val lines = mutableListOf<String>()
-    private val timings = StageTimings(nowNs = { now }, cameraFps = { camera }, logLine = { lines += it })
+    private val timings = StageTimings(nowNs = { now }, logLine = { lines += it })
 
     @Test
     fun `it emits at most one log line per second`() {
@@ -27,9 +26,13 @@ class StageTimingsTest {
         assertEquals(2, lines.size)
     }
 
+    /**
+     * `idle` is the whole diagnosis: 55 ms of work inside a 100 ms frame means the analyzer spent
+     * 45 ms waiting for the sensor, and no pipeline optimisation can buy a frame. Idle near zero
+     * would be the opposite finding.
+     */
     @Test
-    fun `the logged rate is the gap between frames, not the sum of the stages`() {
-        camera = 30.0
+    fun `the logged rate is the gap between frames, and idle says who is the bottleneck`() {
         // 20 ms of pipeline + 30 ms of engine + 5 ms of publish inside a 100 ms frame: 10 fps.
         repeat(200) {
             now += 45_000_000L
@@ -41,9 +44,7 @@ class StageTimingsTest {
             now += 5_000_000L
             timings.endFrame()
         }
-        // `cam` is reported next to `fps`: the analyzer is at 10 while the sensor delivers 30, so
-        // this frame is CPU-bound. The two collapsing to the same number is the other diagnosis.
-        assertTrue(lines.last().endsWith("frame=55.0 fps=10.0 cam=30.0"), lines.last())
+        assertTrue(lines.last().endsWith("frame=55.0 fps=10.0 idle=45.0"), lines.last())
     }
 
     /**
