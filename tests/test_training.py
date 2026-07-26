@@ -168,6 +168,68 @@ def test_twostage_piece_head_only_learns_on_occupied():
     assert g_empty < g_piece * 1e-3
 
 
+# --- groupnorm conversion (ROCm workaround) must not eat the activations ------------------
+
+# timm's `BatchNormAct2d` IS an nn.BatchNorm2d AND holds the block's ReLU. Replacing the whole
+# module deleted 30 activations from this backbone; the shipped model.onnx had zero `Relu`.
+_TIMM_BACKBONE = "mobilenetv4_conv_small_03"
+
+
+def _relu_count(module) -> int:
+    import torch.nn as nn
+
+    return sum(1 for m in module.modules() if isinstance(m, nn.ReLU))
+
+
+def test_convert_bn_to_gn_keeps_the_activation():
+    torch = pytest.importorskip("torch")
+    timm = pytest.importorskip("timm")
+    import torch.nn as nn
+
+    from chesslab.training.model import _convert_bn_to_gn, _resolve_timm_backbone
+
+    m = timm.create_model(_resolve_timm_backbone(_TIMM_BACKBONE), pretrained=False, num_classes=0)
+    before = _relu_count(m)   # 30 with timm 1.0.x
+    assert before > 0
+    _convert_bn_to_gn(m)
+    assert _relu_count(m) == before
+    assert not any(isinstance(x, nn.BatchNorm2d) for x in m.modules())
+    assert any(isinstance(x, nn.GroupNorm) for x in m.modules())
+    assert m(torch.randn(2, 3, 128, 128)).ndim == 2   # the replacement is wired in correctly
+
+
+def test_convert_bn_to_gn_still_handles_a_plain_batchnorm():
+    torch = pytest.importorskip("torch")
+    import torch.nn as nn
+
+    from chesslab.training.model import _convert_bn_to_gn
+
+    m = nn.Sequential(nn.Conv2d(3, 8, 3, padding=1), nn.BatchNorm2d(8), nn.ReLU())
+    _convert_bn_to_gn(m)
+    assert isinstance(m[1], nn.GroupNorm)   # one-for-one, no Sequential wrapper
+    assert m(torch.randn(2, 3, 8, 8)).shape == (2, 8, 8, 8)
+
+
+def test_the_exported_graph_contains_activations(tmp_path):
+    """The bug was invisible in the module tree and visible in the ONNX — assert on the graph."""
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("timm")
+    onnx = pytest.importorskip("onnx")
+
+    from chesslab.training.model import build_model
+
+    model = build_model(_TIMM_BACKBONE, len(config.CLASSES), pretrained=False,
+                        norm="groupnorm", head="twostage", classes=config.CLASSES).eval()
+    out = tmp_path / "model.onnx"
+    # same export call as training.evaluate.run_export
+    torch.onnx.export(model, torch.randn(2, 3, 128, 128), str(out),
+                      input_names=["input"], output_names=["logits"],
+                      dynamic_axes={"input": {0: "batch"}, "logits": {0: "batch"}},
+                      opset_version=17, dynamo=False)
+    ops = [n.op_type for n in onnx.load(str(out)).graph.node]
+    assert "Relu" in ops
+
+
 # --- checkpoint_score (torch-frei) -------------------------------------------------------
 
 
