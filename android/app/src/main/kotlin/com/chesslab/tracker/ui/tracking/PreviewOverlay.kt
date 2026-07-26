@@ -70,7 +70,15 @@ fun PreviewOverlay(
             Canvas(Modifier.fillMaxSize()) {
                 val sw = if (sourceWidth > 0) sourceWidth.toFloat() else bitmap.width.toFloat()
                 val sh = if (sourceHeight > 0) sourceHeight.toFloat() else bitmap.height.toFloat()
-                val scaled = quad.map { Offset(it.x / sw * size.width, it.y / sh * size.height) }
+                // Onto the LETTERBOXED image, not onto the Canvas. `ContentScale.Fit` centres the
+                // bitmap and leaves bars; mapping to `size` stretched the quad across them and
+                // offset every square, which reads on screen as the tracker looking at the wrong
+                // places. See `fittedRect`.
+                val rect = fittedRect(size, bitmap.width, bitmap.height)
+                val scaled =
+                    quad.map {
+                        Offset(rect.left + it.x / sw * rect.width, rect.top + it.y / sh * rect.height)
+                    }
                 drawQuad(scaled, quadColor)
                 if (showEvidence) {
                     drawSquares(scaled, overlay.changed, palette.overlayChanged)

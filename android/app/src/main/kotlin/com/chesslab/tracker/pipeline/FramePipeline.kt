@@ -49,6 +49,14 @@ interface FrameStages {
      */
     fun publishFrame()
 
+    /**
+     * Hand the rectified detection warp to the board preview, if it is due one.
+     *
+     * Separate from [publishFrame] because it can only run AFTER [warpDetection] — and because the
+     * tracking screen wants the board, while calibration wants the raw frame.
+     */
+    fun publishBoard()
+
     /** False when no usable detection warp could be produced (no frame, degenerate geometry). */
     fun warpDetection(corners: FloatArray): Boolean
 
@@ -159,6 +167,7 @@ class FramePipeline(
         timings.mark(Stage.PUBLISH)
         val pts = corners ?: return NOTE_WAITING_MARKERS
         if (!stages.warpDetection(pts)) return NOTE_WAITING_MARKERS
+        stages.publishBoard()
         timings.mark(Stage.WARP)
         luma = stages.lumaPreClahe()
         return darkNote()

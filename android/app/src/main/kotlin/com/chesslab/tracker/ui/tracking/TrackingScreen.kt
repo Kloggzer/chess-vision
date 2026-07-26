@@ -76,14 +76,14 @@ private fun TrackingScreen(viewModel: TrackingViewModel) {
         // camera the score sheet is not what you are looking at.
         Box(Modifier.fillMaxWidth().weight(1f)) {
             if (showPreview) {
-                // No source size: the preview bitmap is a UNIFORMLY downscaled copy of the analyzer
-                // frame the corners were measured in (`bgrToBitmap`), so the bitmap's own size is
-                // the right divisor. Passing a stale delivered size here would offset the quad.
-                PreviewOverlay(
+                // The RECTIFIED board, not the raw frame. The board fills this image with a8 at the
+                // top-left, so an evidence square is the image divided by eight — the quad
+                // re-projection the raw frame needed is gone, and with it every way for the overlay
+                // and the detection to disagree about which square is which.
+                BoardPreview(
                     bitmap = preview,
                     overlay = ui.overlay,
                     modifier = Modifier.fillMaxSize(),
-                    corners = ui.corners,
                 )
             } else {
                 MoveList(

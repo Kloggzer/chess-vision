@@ -58,12 +58,28 @@ class CameraFrameBus(
 ) : CalibrationFrames,
     AutoCloseable {
     private val gate = InFlightGate()
+    private val boardGate = InFlightGate()
     private val preview = MutableStateFlow<Bitmap?>(null)
+    private val board = MutableStateFlow<Bitmap?>(null)
     private val lock = Any()
     private var latest: Mat? = null
     private var lastMs = 0L
+    private var lastBoardMs = 0L
 
     override val rawPreview: StateFlow<Bitmap?> = preview.asStateFlow()
+
+    /**
+     * The RECTIFIED board — what the tracker actually looks at.
+     *
+     * Separate from [rawPreview] because they answer different questions. Calibration needs the
+     * raw frame, since that is where you point at the corners. Tracking does not: the raw frame
+     * forced the overlay to re-project every square through the board quad, which is both a
+     * perspective approximation and a thing that can be off — and when it is off you cannot tell a
+     * misdrawn overlay from a mis-detected square. Here the board FILLS the image with a8 at the
+     * top-left, so the evidence grid is exactly the image divided by eight and there is nothing
+     * left to get wrong.
+     */
+    override val boardPreview: StateFlow<Bitmap?> = board.asStateFlow()
 
     /**
      * Analyzer thread, with the frame the pipeline just converted.
@@ -83,6 +99,27 @@ class CameraFrameBus(
             latest = frame
         }
         publishPreview()
+    }
+
+    /**
+     * The rectified detection warp, same throttle as [offer].
+     *
+     * Nothing is retained: the bitmap conversion is launched off-thread against a clone that the
+     * conversion itself releases, so unlike [offer] there is no `latest` to hold — the calibration
+     * tap only ever wants the raw frame.
+     */
+    fun offerBoard(warp: Mat) {
+        val now = nowMs()
+        if (now - lastBoardMs < PUBLISH_INTERVAL_MS) return
+        lastBoardMs = now
+        if (!boardGate.tryEnter()) return
+        val frame = warp.clone()
+        scope.launch {
+            runCatching { board.value = toBitmap(frame) }
+                .onFailure { Log.w(TAG, "board preview conversion failed", it) }
+            frame.release()
+            boardGate.leave()
+        }
     }
 
     /** A CLONE — the caller releases it. Null until the first frame arrives. */
@@ -137,6 +174,9 @@ interface CalibrationFrames {
     fun latestCalibrationFrame(): Mat?
 
     val rawPreview: StateFlow<Bitmap?>
+
+    /** The rectified board; null until the first frame is warped. See [CameraFrameBus.boardPreview]. */
+    val boardPreview: StateFlow<Bitmap?>
 
     val cameraHealth: StateFlow<CameraHealth>
 }

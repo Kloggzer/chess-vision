@@ -65,7 +65,7 @@ class TrackerStack(
     private val pipeline =
         FramePipeline(
             seed.config,
-            CameraStages(seed.geometry(), seed.config, cropStore, frames::offer),
+            CameraStages(seed.geometry(), seed.config, cropStore, frames::offer, frames::offerBoard),
             cropStore,
             guard,
             timings,
