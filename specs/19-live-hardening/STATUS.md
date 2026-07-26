@@ -65,7 +65,286 @@ _(empty — implementing agents append here)_
 
 ### Phase 00 — poisoned reference
 
-_todo_
+**Nothing under `src/`, `android/`, `scripts/` or `tests/` was changed.** This phase's commit
+touches `specs/19-live-hardening/STATUS.md` and `.gitignore` only (`scratch/` was not ignored;
+the phase file instructs to add it, so it is added here — see "Discrepancies", D6).
+
+#### How it was measured
+
+Throwaway probe `scratch/probe_f1.py` (gitignored, not a deliverable). It does **not** rewrite
+`scripts/sweep_clip_params.py` — it reuses the same driver design (`ClipDriver` +
+`_VirtualClock` from `scripts/emit_parity_fixtures.py`, every frame, deterministic) and adds
+read-only instrumentation by wrapping bound methods on the tracker instance:
+`_compute_evidence` (both raw channels + the fused z), `_apply_vetoes`, `_set_ref` (call site
+via `traceback`), `_commit_move`, `_commit_sequence`, and the module function
+`_baseline_occlusion_and_shadow`.
+
+```
+clip     C:/Users/.../scratchpad/live1.mp4   1080x1920, 30 fps, 1975 frames
+corners  [[895.15,328.12],[898.86,1095.04],[113.98,1100.99],[118.45,323.58]]
+board    board_size 640, detect_scale 0.5 -> det 320 (40 px/cell), overhang 0.25
+tracker  stock TRACK_DEFAULTS, cnn_run=None, live_align=False
+```
+
+The run reproduces the pack's baseline state occupancy **exactly** — `occluded` 933,
+`waiting` 582, `moving` 238, `move` 222; 907 of 1975 frames with a live occlusion veto — and
+the phantom's z-map to two decimals (`f1=15.69 g1=11.07 e2=8.08 d2=7.36 e1=7.29`, best 8.64,
+second 5.51). It commits **eight plies**, not ten: `d4 d5 Kd2 Nf6 Nf3 Nc6 Nc3 Ne4+`
+(6 commit events; plies 4/5 and 6/7 are pair commits through `_commit_sequence`). See D1.
+
+#### Q1 — What is physically on `f1`?
+
+**A hand.** Not a stale reference, not a shadow, not a nudge, not a board shift.
+
+Images (local only, `scratch/` is gitignored; panels are ref | current | absdiff×3, INFERNO):
+
+| image | what it shows |
+|---|---|
+| `scratch/cellcmp_ply03_Kd2_f1.png` | ref = clean bishop on the light square f1; **current = an opaque dark object filling the cell with a skin specular highlight**; diff is a solid blob, not a crescent |
+| `scratch/cellcmp_ply04_pair_f1.png` | the mirror image one decision later: **ref = the dark object, current = the clean bishop** |
+| `scratch/cur_ply03_Kd2.png` | the whole warp at the commit frame — the player's fingers are visible on the near edge over `e1/f1/g1` |
+| `scratch/absdiff_ply03_Kd2.png` | one hotspot bottom-centre-right; the rest of the board is flat |
+| `scratch/cellcmp_ply01_d4_d2.png`, `..._d4.png` | genuine-move control (`d2d4`): compact piece-shaped diffs |
+
+Against the spec's candidate table:
+
+- **Board/camera shift — excluded.** At the commit frame (f397) only `f1 g1 e1 e2 d1 f2 d2`
+  carry z ≥ 3; `a1 = 0.00`, `h1 = 2.15`, `b1 = 1.20`, `c1 = 2.45`, `g8 = 0.00`, `d4 = 1.19`,
+  `d5 = 1.13`, `a8/h8 ≈ 0`. No rim of diff anywhere else.
+- **Cast shadow — excluded.** `census_transform` is invariant to monotone darkening by
+  construction, and the census channel reads `z_census(f1) = 15.69` at that frame. The HSV
+  shadow test (`hsv_shadow_squares`) vetoed `f2` and did **not** veto `f1`. The pixels are an
+  opaque occluder.
+- **Nudged piece — excluded.** The bishop is in the same place before and after (compare
+  `cellcmp_ply03_Kd2_f1.png` left panel with `cellcmp_ply04_pair_f1.png` right panel).
+- **"Base truth captured while something was on/over f1" — true, but it is the *consequence*,
+  not the cause.** At the phantom's own decision frame the reference was CLEAN and the CURRENT
+  frame was contaminated. The commit then baked the contaminated frame into the reference
+  (`_commit_move` → `_set_ref(cur, cur_bgr, from_commit=True)`, `tracker.py:2695`), which is
+  what makes `f1` the loudest square of the *next* decision as well.
+
+**Why nothing vetoed the hand — three gates missed it, measured:**
+
+1. `_baseline_occlusion_and_shadow` is called only from the motion branch of `_loop`
+   (`tracker.py:1642`, `self.state not in ("waiting","move")`). The hand goes still at f385
+   (motion 0.01–0.15, all below `motion_thr = 0.25`) and stays on the board through f397, so
+   from f385 onward the classifier is **not called at all**.
+2. On the last frames where it *was* called (f380–f384, state `moving`) its candidate gate is
+   `om > abs_thr` with `abs_thr = self.motion_px_thr * 4 = 80.0` (`tracker.py:1645`). Measured
+   raw cell means on those frames: `f1` peaks at **62.0**, `e1` 34.3, `e2` 27.9, `g1` 27.6.
+   `strong` is **empty on every one of them** → nothing occluded, nothing tainted, nothing
+   shadow-classified. The occlusion detector's gate is an absolute 80 grey levels; the move
+   scorer's gate is a per-square z that rates the same pixels 15.7. The two are on
+   incommensurable scales and there is a wide band (mean absdiff ~20–80) that is "certainly a
+   change" to one and "nothing at all" to the other.
+3. The grid-line gate (`_occluded_by_grid`, `min_grid_line_coverage = 0.5`) never fired either:
+   f385–f397 are all state `waiting`. A hand on the near edge hides too few grid lines.
+4. `_apply_vetoes` (step 3, `tracker.py:3227`) runs the HSV shadow test on the detection frame
+   but **never runs the opaque-occlusion test** — its comment says "Opaque occlusion lives in
+   the taint mechanism", i.e. `occlusion_color_squares` only ever runs inside
+   `_baseline_occlusion_and_shadow`, behind gate 1 and gate 2 above.
+
+**And what the phantom was actually built from.** `changed` at f397 was
+`{d1, d2, e1, e2, f1, g1}` — 6 squares, exactly `max_changed`; `f2` had been shadow-vetoed, one
+more and `_generate_hypothesis` would have returned `too_many_changed`. Of those six, five are
+hand contamination. The sixth, `d2` — the square the phantom king "arrived" on — is a
+**census-channel artefact**: `z_gray(d2) = 0.80` on a normalized grey diff of 2.44, but
+`z_census(d2) = 7.36`. `d2`'s census z had been sitting at 5.7–7.4 on every detection frame
+since the ply-1 re-anchor emptied it. So `e1d2` was assembled from a hand (origin) and a stale
+census reading (destination): **not one square of its evidence came from a piece that moved.**
+
+#### Q2 — When did `f1` become poisoned?
+
+| frame | t | state | raw diff f1 | z_gray f1 | z_census f1 | z fused | what the tracker did |
+|---|---|---|---|---|---|---|---|
+| 301 | 10.03 | move | 6.19 | 1.50 | 0.0 | 1.50 | `d5` commits; reference set from a clean board |
+| 380–384 | 12.67–12.80 | moving | (raw cell 56.8→57.8) | — | — | — | baseline occlusion runs, `strong` empty |
+| 385–395 | 12.83–13.17 | waiting | — | — | — | — | hand motionless; classifier not called |
+| **396** | **13.20** | waiting | **54.64** | **15.21** | **17.61** | **17.61** | first detection frame after `motion_hold_s` expires (last motion > thr at f383, t 12.77 + 0.4 = 13.17) |
+| 397 | 13.23 | move | 55.09 | 15.34 | 15.69 | 15.69 | **`Kd2` commits → `_set_ref(cur, …, from_commit=True)` bakes the hand in** |
+| 398–673 | 13.27–22.43 | waiting | 49.7–55.4 | 13.79–15.41 | 17.6 → 1.14 | 13.79–16.38 | poisoned; 96 detection frames, 9.2 s |
+| 674 | 22.47 | move | 53.27 | 14.82 | 1.20 | 14.82 | pair `Nf6+Nf3` commits; reference re-anchored from a clean board |
+| 703 | 23.43 | waiting | 2.45 | 0.32 | — | 0.32 | healed |
+
+`z['f1']` rises **at frame 396** and never drops below **13.79** for the 96 detection frames of
+the span; the capture site is `MoveTracker._commit_move` → `_set_ref(..., from_commit=True)`
+(`src/chesslab/move_tracker/tracker.py:2695`).
+
+**Why it cannot recover on its own — three healing paths, all measured dead:**
+
+- `SquareNoise.update(diffs, exclude=changed|shadow_veto)` uses `alpha = 0` for excluded
+  squares (`tracker.py:548`). `f1` is in `changed` on every one of the 96 frames, so its noise
+  model is **frozen at `mean = 1.32, std = 3.51` for all 96 frames** (verified: the set of
+  distinct `(mean, std)` pairs over the span has size 1). A persistently poisoned square can
+  never be learned away in the grey channel.
+- The census channel *does* heal — `exclude_alpha_scale = 0.125` slow lane takes
+  `z_census(f1)` from 17.61 down to 1.14 over ~6 s — but the fused `z = max(z_gray, w·z_census)`
+  stays pinned by the frozen grey channel.
+- `_maybe_patch_anomaly` (`tracker.py:3463`) never patched anything **anywhere in the clip** (no
+  "Reference pulled forward" note on any frame). Its timer for `f1` starts at the first
+  detection frame after the commit (f481, t = 16.03) and `nudge_timeout_s = 5.0` makes it
+  eligible at t = 21.03 — which falls inside a motion gap (f562–f658, no detection). The next
+  detection frames f659–f672 all have `len(changed)` = 9–10 > `max_changed + 2` = 8, so the
+  patcher returns at its guard every time, and the real move commits at f674.
+
+The same "hot for a whole inter-commit span with a frozen noise model" scan over the whole clip
+finds this signature only once: span f398–f673, squares `f1, g1, e1, e2, f3` (of which `f1` is
+the pure case — nothing ever moved to or from `f1` in the whole game). The other persistently
+hot squares later in the clip (`e4` over f1090–f1537, `c3` at f1538) are **genuine** physical
+evidence of real moves that the desynced game state could not represent — not poisoning.
+
+#### Q3 — Are origins systematically stronger than destinations?
+
+**No. The premise does not reproduce.** Honest negative result.
+
+Baseline run, z at the decision frame, all 8 committed plies (`Kd2` is the phantom):
+
+| ply | san | origin | sq | z | z_gray | z_census | dest | sq | z | z_gray | z_census | best |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | d4 | d2 | dark | 14.45 | 10.30 | 14.45 | d4 | dark | 12.03 | 12.03 | 6.70 | 20.48 |
+| 2 | d5 | d7 | light | 10.06 | 10.06 | 9.83 | d5 | light | **19.04** | 19.04 | 8.00 | 19.06 |
+| 3 | *Kd2* | e1 | dark | 7.29 | 7.29 | 7.26 | d2 | dark | 7.36 | **0.80** | **7.36** | 8.64 |
+| 4 | Nf6 | g8 | light | 14.66 | 14.66 | 5.46 | f6 | dark | 4.85 | 3.50 | 4.85 | 24.45 |
+| 5 | Nf3 | g1 | dark | 9.83 | 9.83 | 1.29 | f3 | light | 7.11 | 7.11 | 1.10 | 24.45 |
+| 6 | Nc6 | b8 | dark | 5.59 | 2.35 | 5.59 | c6 | light | **17.92** | 17.92 | 9.45 | 37.65 |
+| 7 | Nc3 | b1 | light | 14.07 | 14.07 | 2.45 | c3 | dark | **17.41** | 17.41 | 2.40 | 37.65 |
+| 8 | Ne4+ | f6 | dark | 13.32 | 4.23 | 13.32 | e4 | light | **17.07** | 17.07 | 1.23 | 22.32 |
+
+7 genuine plies: **origin > destination in 3, destination > origin in 4**. Median z[origin]
+13.32 vs median z[destination] **17.07**; mean 11.71 vs **13.63**. If anything the destination
+is the stronger square on this clip.
+
+Corroboration on 11 plies: with the hand vetoed (scratch simulation, below) the clip tracks the
+whole real game and gives **6 origin > destination, 5 destination > origin**; median z[origin]
+14.45 vs z[destination] 15.80. A coin flip.
+
+**The datum the claim was built on is contaminated.** `entry.md`'s example — "real `Nf3`:
+`g1 = 9.8, f3 = 7.1`" — is read off the ply-4/5 pair commit at f674, whose reference is the
+hand-poisoned f397 frame. `g1`'s reference cell contains the hand; that number measures the
+poisoning, not the move.
+
+Classification of the (non-)effect:
+
+- **(a) geometric — excluded, directly.** Recomputed `per_square_diff` at every commit with
+  `extend_up = 0.25` (production) and `extend_up = 0.0`. The origin/destination ratio moves by
+  ≤ 0.8 and **no ordering flips**; in 6 of 8 commits removing the overhang moves the ratio in
+  the direction *opposite* to what (a) predicts (i.e. the overhang helps the destination, not
+  the origin). Raw origin/destination ratios, `ov=.25` → `ov=0`: 0.87→0.78, 0.55→0.53,
+  4.64→5.64, 3.07→3.01, 1.29→2.05, 0.20→0.15, 0.83→0.66, 0.31→0.29.
+- **(b) photometric — the only surviving structure, and it is weak.** In the baseline run the
+  two weakest endpoints of the whole clip are `f6` as a *destination* (4.85) and `b8` as an
+  *origin* (5.59) — both **black knight on a dark square**. That says the weakness tracks the
+  piece/square pair, not the role of the square in the move. But across the 22 endpoints of the
+  11-ply corroboration run a naive same-colour/opposite-colour split shows **no difference**
+  (median z 14.59 same vs 15.65 opposite), so the crude albedo rule does not generalise either.
+- **(c) one clip's lighting — cannot be excluded.** One recording, one lighting setup, 14–22
+  endpoint measurements, two of them against a poisoned reference. There is no second clip in
+  this experiment to separate (b) from (c).
+
+**Answer as asked:** (a) is excluded by measurement; the asymmetry the question presupposes is
+not there, so (b) vs (c) is a question about a non-effect and **the data cannot distinguish
+them**.
+
+#### Recommended fix — STATED, NOT IMPLEMENTED
+
+**File:** `src/chesslab/move_tracker/tracker.py`
+**Function:** `MoveTracker._apply_vetoes` (step 3 of `_try_detect`, currently line 3227).
+
+Run the *already existing* opaque-occlusion classifier on the detection frame, over the
+z-derived `changed` set, instead of leaving it behind the two gates it can never pass:
+
+```python
+occl = occlusion_color_squares(cur_bgr, self._ref_gamut, self._det_size,
+                               self.profile.white_pov, changed,
+                               thr=self.occlusion_color_thr, extend_up=self.overhang)
+# dilate by one orthogonal neighbour, exactly as _baseline_occlusion_and_shadow already does
+# (tracker.py:457-462), then z[sq] = 0.0 and self._tainted[sq] = now + motion_hold_s
+```
+
+No new threshold, no new default, no change to `config.py`. It closes the specific hole
+measured above: the classifier is competent here and is simply never handed the squares that
+matter, because its only caller gates on an absolute `motion_px_thr * 4` that a resting hand
+does not reach, and is not called at all once the hand stops moving.
+
+**Measured, not assumed — the classifier's verdict on this clip.** Running
+`occlusion_color_squares(..., changed, thr=1.5)` on every one of the 484 detection frames (a
+read-only wrapper, production behaviour untouched) flags **`f1`, on exactly f396 and f397, and
+nothing else in the entire clip**. Zero hits on any of the seven genuine commits:
+
+```
+f 104 changed=[d1,d2,d4]                    -> []
+f 301 changed=[d2,d5,d6,d7]                 -> []
+f 396 changed=[d1,d2,e1,e2,f1,f2,g1]        -> ['f1']     <-- the hand
+f 397 changed=[d1,d2,e1,e2,f1,f2,g1]        -> ['f1']
+f 674 changed=[e1,e2,f1,f3,f6,g1,g7,g8]     -> []
+f1089 changed=[a1,b1,b7,b8,c3,c6,e2,e4]     -> []
+f1538 changed=[c3,d5,e4,e6,f6]              -> []
+```
+
+**Prediction check (scratch simulation only — nothing under `src/` was modified).** With the
+veto simulated inside the probe (`SIM_VETO=1`, monkeypatch on the tracker instance), it fires on
+**one frame of the clip** (f396, tainting `{e1, f1, f2, g1}` after dilation) and the tracker then
+commits the real game end to end:
+
+```
+before: d4 d5 Kd2 Nf6 Nf3 Nc6 Nc3 Ne4+                       (8 plies, 1 phantom)
+after : d4 d5 Nf3 Nf6 Nc3 Nc6 e4 dxe4 Nxe4 Nxe4 Bb5          (11 plies, no phantom)
+```
+
+This is one clip. It is **not** evidence that the change is safe: the gate for any tracker
+behaviour change is `pytest -m clips` at 20/20 plus `ClipReplayParityTest`, plus the mirrored
+Kotlin `Vetoes.kt`, and neither was run here (phase 00 must not, and must not touch those
+files). Treat the above as "the mechanism is understood and one candidate fix is consistent with
+it", not as a validated patch.
+
+Secondary findings worth a decision by whoever implements it:
+
+- `loglik_scores` (`tracker.py:560`) documents itself as a likelihood "relative to the
+  hypothesis *no move*" in which "hot untouched squares thus automatically penalize all moves
+  that don't explain them". **It does not.** The score is `Σ logit(z)` over
+  `move_touched_squares` only; `f1` at z = 15.69 contributed exactly 0 to the phantom's 8.64,
+  because no legal move touches `f1`. A residual term (subtract the unexplained hot mass) would
+  have rejected `Kd2` at −18. But it would also drop the genuine `Ne4+` from 22.32 to ≈2.3
+  against `commit_ll_floor = 2.0` — too close to recommend without the clip suite. Recorded, not
+  proposed.
+- The docstring's claim should be corrected either way; it is what makes the phantom look
+  impossible on a reading of the code.
+- Commit-time re-anchoring (`_set_ref(..., from_commit=True)`) is the poisoning vector and its
+  own comment already says so. The comment's stated mitigations — `_maybe_patch_anomaly` and CNN
+  recovery — are both inoperative here: the patcher never fired once in 1975 frames (guard
+  `len(changed) > max_changed + 2`), and `cnn_run` is `None` in the replay. If the taint fix
+  lands, this becomes moot for hands; if it does not, the patcher's guard is the next thing to
+  look at.
+
+#### Discrepancies against the spec
+
+- **D1 — the committed move list.** `entry.md` and the STATUS baseline table say ten plies,
+  `d4 d5 Kd2 Nf6 Nc3 Nc6 e4 dxe4 Nxe4 Nxe4+`. The deterministic replay of `live1.mp4` with the
+  corners given in `00-poisoned-reference.md`, `board_size = 640` and stock defaults commits
+  **eight**: `d4 d5 Kd2 Nf6 Nf3 Nc6 Nc3 Ne4+`. The frame-level state occupancy matches the pack
+  exactly (933/582/238/222, 907 veto frames) and the phantom's z-map matches `entry.md` to two
+  decimals, so this is the same run family — but the move list is not reproducible as written.
+- **D2 — the per-commit scores in the STATUS baseline table** (22.0 / 24.0 / 8.8 / 23.6 / 24.0 /
+  24.0 / 24.0 / 24.0) do not reproduce. Measured: 20.48 / 19.06 / **8.64** / 24.45 / 24.45 /
+  37.65 / 37.65 / 22.32. The table's repeated 24.0 is `2 × 12.0`, the per-square logit clip in
+  `loglik_scores` — it looks like a run with much larger z values (different `detect_scale`,
+  `board_size` or `census_z_weight`). Only the phantom's ≈8.6 matches.
+- **D3 — `entry.md`: "Every genuine move scored `best ≥ 22.0` with a second-best margin ≥ 9.3".**
+  Measured: `d4` 20.48 (margin 9.58) and `d5` 19.06 (margin **5.76**) are both below. The
+  phantom is still by far the weakest commit (8.64 / margin 3.13), but the clean separation the
+  sentence claims is not in the data.
+- **D4 — "all eight commits".** There are **six** commit events producing eight plies; plies 4/5
+  and 6/7 come from `_commit_sequence` (fast-play pair commits). `scripts/sweep_clip_params.py`
+  reports these twice with an identical z-map because it iterates the growth of
+  `board.move_stack`, which is what makes them read as eight separate decisions.
+- **D5 — `00-poisoned-reference.md` §Q1 says to dump `mt.ref_gray` "at the frame where `Kd2`
+  commits".** `_commit_move` calls `_set_ref` *inside* the commit, so reading `mt.ref_gray` after
+  the frame step yields the already-poisoned post-commit reference. It has to be snapshotted at
+  the top of `_commit_move` (the probe wraps the bound method). Likewise `mt._last_cur` is
+  identical to the `cur` argument at that point.
+- **D6 — `scratch/` was not gitignored.** Added to `.gitignore` in this phase's commit, as the
+  phase file instructs.
+- No blockers. The clip and its corners were both on disk as described.
 
 ### Phase 01 — CNN runtime
 
