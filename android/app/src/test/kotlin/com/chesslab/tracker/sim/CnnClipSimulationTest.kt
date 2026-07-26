@@ -163,12 +163,22 @@ private fun assertHarnessRan(results: List<Pair<SimResult, SimResult>>) {
 }
 
 /**
- * The one MOVE assertion. Python reproduces every one of these clips' `labels.json` at full rate
- * (`meta.sanMatchesManifestAtFullRate`), and this run is full rate with the same config, so a
- * diff-only failure here is a real Kotlin finding — never something to relax.
+ * The one MOVE assertion. Python reproduces every one of the COMMITTED clips' `labels.json` at full
+ * rate (`meta.sanMatchesManifestAtFullRate`), and this run is full rate with the same config, so a
+ * diff-only failure there is a real Kotlin finding — never something to relax.
+ *
+ * That premise is a property of `tests/data/testclips`, not of the harness: a re-rendered set
+ * (`-Pchesslab.sim.clips=…`) has no Python reference, so its diff-only rate is a MEASUREMENT of the
+ * new pixels and is reported instead of asserted. Failing there would only mean "these clips are
+ * not those clips".
  */
 private fun assertBaselineReproducesGroundTruth(baselines: List<SimResult>) {
     val failed = baselines.filterNot { it.ok }
+    if (!usingDefaultClips()) {
+        println("\ndiff-only baseline on the alternate clip set: ${baselines.size - failed.size}/${baselines.size}")
+        failed.forEach { println("    baseline FAIL ${it.clip}: ${it.firstDivergence()}") }
+        return
+    }
     assertTrue(
         failed.isEmpty(),
         "diff-only baseline diverged from labels.json: " + failed.joinToString { "${it.clip} (${it.firstDivergence()})" },

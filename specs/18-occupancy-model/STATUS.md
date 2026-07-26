@@ -4,6 +4,10 @@
 > px/square on the Blender clips vs ~112 from a phone at 1080p and ~200 px/square on the user's
 > real captures) — never a forecast. Where a real-camera number exists it is reported next to it
 > and labelled as such.
+>
+> **That lower bound has now been measured at phone resolution** — see *Hi-res clip
+> re-evaluation* at the end of this file. Short version: the ranking holds and widens, `tiny-p3`
+> recovers 82 % of its misses but gets *worse* as a tracker, and `occ-real-f2` overtakes `f3`.
 
 ---
 
@@ -373,3 +377,235 @@ New tests: `test_to_occupancy_class_collapses_pieces`, `test_to_occupancy_class_
 5. The real fine-tune has only **2 048 train crops**. Phase 05's harvest is the obvious next lever,
    and `DATA-QUALITY.md`'s capture guidance (dark squares ≥ 85 luma, ≥ 12 sessions over ≥ 4 days)
    is the recipe.
+
+---
+
+# Hi-res clip re-evaluation (2026-07-26, 09:52 → 10:35)
+
+Every number above this section was measured on clips rendered at **640×640 with the board
+spanning 249 px = 31.1 px/square**. A phone at 1080p with the board filling the frame gives
+~112 px/square. This section redoes the comparison at that resolution.
+
+**Nothing in `tests/data/testclips/`, `android/core-engine/src/test/resources/parity/` or
+`scripts/emit_parity_fixtures.py` was touched.** `ClipReplayParityTest` was re-run with
+`--rerun-tasks` afterwards: **18/18 clips, zero diverging frames.** No commit was made.
+
+## What was rendered, and the second set nobody asked for
+
+| set | dir (untracked — **do not commit**) | res | px/square | renders | wall | size |
+|---|---|---|---|---|---|---|
+| **hi-res** | `tests/data/testclips-hires/` | 2304 | **112.05** (measured) | 470 | **8 min 26 s** | 45 MB |
+| control | `tests/data/testclips-640new/` | 640 | 31.1 | 470 | ~4 min | 6 MB |
+| (reference) | `tests/data/testclips/` — committed, untouched | 640 | 31.1 | — | — | — |
+
+`scripts/generate_blender_testclips.py --scenario <s> --out <dir> --res <r> --samples 8 --seed 42`,
+one Blender worker, no `--shards` (it is slower here and it crashed the driver — see above).
+Only the **18 clips in `parity/index.json`** were rendered; `italian` (136 renders) and `opera`
+(298) are skipped by the sim harness anyway, so rendering them would have doubled the cost for
+nothing. Stage-1 probe: `blender-promotion`, 10 renders, 23 s → projected 470 renders ≈ 15 min,
+well inside the 2 h budget, so 2304 was kept rather than falling back to 2048.
+
+px/square is **measured, not assumed**: `blender-promotion.labels.json` corners are
+703.808 / 1600.192 → span 896.384 px → **112.048 px/square** (old set: 248.996 → 31.124).
+
+**Why the control set exists.** The renderer changed between the commit that produced the
+committed clips (`3590dc2`) and HEAD — 17 commits touch `synth/render_board_v2.py`, including
+`f9ab6fa` (light-tile gain) and **`7f59eba` "deepen the blacks via lighting, not the texture"**.
+Re-rendering at 2304 therefore changes *two* things at once. `testclips-640new` is the same
+scenarios and seed at the **old** resolution with **today's** renderer, so resolution and
+renderer can be separated. They had to be: they pull in opposite directions.
+
+## Stage 3 — photometry of the new clips (the sanity gate)
+
+Same instrument as `DATA-QUALITY.md`: production build-synth crop path (`ingestion_profile`,
+`board_size = 1100`), centre disc r < 0.26 median luma, ambiguity = fraction of occupied crops
+inside the empty distribution's 5–95 % (centre, std) box. 18 clips, **77 clear keyframes,
+4 928 crops** per set (occluded keyframes excluded — a hand over the board is not a photometry
+sample). Script: `…/scratchpad/hires/clip_photometry.py`.
+
+| set | empty light | empty dark | w/light Δ | w/light d′ | b/dark Δ | b/dark d′ | b/dark ambig pooled / per-frame |
+|---|---|---|---|---|---|---|---|
+| committed 640 | 201.8 | **51.6** | 81.4 | 5.26 | 0.9 | 0.25 | 0.44 / 0.33 |
+| control 640 (today's renderer) | 199.6 | **38.8** | 44.9 | 2.09 | −0.7 | 0.21 | 0.46 / 0.44 |
+| **hi-res 2304** | **199.4** | **38.5** | 47.3 | 2.18 | 1.8 | **0.03** | 0.56 / 0.40 |
+
+Hi-res, all four combinations:
+
+| combination | empty | occupied | Δ | d′ | ambig pooled | ambig per-frame |
+|---|---|---|---|---|---|---|
+| w/light | 199.4 | 152.1 | 47.3 | 2.18 | 0.09 | 0.01 |
+| w/dark | 38.5 | 131.3 | −92.8 | 5.79 | 0.00 | 0.00 |
+| b/light | 199.4 | 54.4 | 145.0 | 9.74 | 0.00 | 0.00 |
+| **b/dark** | **38.5** | 36.7 | **1.8** | **0.03** | 0.56 | 0.40 |
+
+Per-frame empty-light: min **193** / p10 195 / med 197 / max 250 — **0 of 77 frames below 193**.
+Per-frame empty-dark: min 37 / med 38 / max 59.
+
+**Verdict on the brief's gate: half pass, half fail, and the failing half is informative.**
+
+- *"empty-light ~193–246"* → **199.4, and not one frame below 193. PASS.** The render is not stale.
+- *"black-on-dark preserved"* → **NO.** Dark squares fell **51.6 → 38.5** luma, and the control
+  set proves this is `7f59eba`, **not** resolution (38.8 at 640 with the same renderer). 38.5 is
+  below the worst real session ever measured (45.5) and far below `DATA-QUALITY.md`'s ≥ 85
+  capture guidance. **The new clips are photometrically harder on black-on-dark than the old
+  clips and than any real capture.** b/dark d′ 0.03 vs real pooled 0.90.
+
+So the hi-res set is *not* simply "the old clips, sharper". It is sharper **and** darker, and the
+darkness is what survives in the results below.
+
+## Stage 4 — the three models, three clip sets
+
+Harness unchanged except for clip selection (see *Files touched*). Same `effectiveConfig` per
+clip from the parity fixtures, same `occupancy_thr`, one pass per set.
+
+```
+cd android; .\gradlew.bat ":app:testDebugUnitTest" "-Pchesslab.sim=true" `
+  "-Pchesslab.sim.clips=tests/data/testclips-hires" `
+  "-Pchesslab.sim.models=data/models/tiny-p3,data/models/occ-real-f2,data/models/occ-real-f3" `
+  "--tests" "com.chesslab.tracker.sim.*"
+```
+
+**Diff-only baseline per set — read this before any model number:**
+
+| clip set | diff-only baseline | which clips fail, and why |
+|---|---|---|
+| committed 640 | **18/18** | — |
+| control 640 | **15/18** | `castle`, `opening`, `scholars` — all of them the black e-pawn `e7e5`, i.e. exactly the darker dark squares |
+| **hi-res 2304** | **17/18** | `stalemate` only: `f43 too_many_changed` (8 squares) — the sharper arm + shadow trips `max_changed` on a 3-piece board |
+
+Resolution *repairs* what `7f59eba` broke on the diff path (15/18 → 17/18) but does not restore
+18/18. **The re-rendered sets are not a drop-in acceptance instrument**: three clips' tracker
+knobs (`census_thr = 40`, `max_changed`) were tuned against the committed pixels.
+
+### The comparison table
+
+Miss/phantom **rates** are given alongside the counts because the observation count is not
+constant at hi-res: the harness paces the observer by measured inference time
+(`readyAtS = nowS + inferMs`), and at 2304 a single observation costs ~120 ms, so fewer of them
+fit into the same clip. Counts across sets are therefore not directly comparable; rates are.
+
+| model | clip set | clips | per-square occ | whole-board occ | misses | miss rate | phantoms | phantom rate | conf-occ wrong |
+|---|---|---|---|---|---|---|---|---|---|
+| `tiny-p3` | committed 640 | 14/18 | 0.8965 | 0.0293 (40/1365) | 8 818 | 10.09 % | 226 | 0.259 % | 0.78 % |
+| `tiny-p3` | control 640 | 13/18 | 0.9362 | 0.0300 (41/1366) | 5 106 | 5.84 % | 471 | 0.539 % | 1.98 % |
+| **`tiny-p3`** | **hi-res 2304** | **6/18** | **0.9820** | **0.1670** (168/1006) | **924** | **1.44 %** | 232 | 0.360 % | 1.56 % |
+| `occ-real-f2` | committed 640 | 16/18 | 0.9985 | 0.9172 (1252/1365) | 106 | 0.121 % | 22 | 0.025 % | 0.03 % |
+| `occ-real-f2` | control 640 | 15/18 | 0.9972 | 0.8931 (1220/1366) | 95 | 0.109 % | 147 | 0.168 % | 0.18 % |
+| **`occ-real-f2`** | **hi-res 2304** | **16/18** | **0.9996** | **0.9821** (1098/1118) | **19** | **0.027 %** | **7** | **0.010 %** | **0.01 %** |
+| `occ-real-f3` | committed 640 | 16/18 | 0.9989 | 0.9420 (1283/1362) | 49 | 0.056 % | 44 | 0.050 % | 0.03 % |
+| `occ-real-f3` | control 640 | 15/18 | 0.9971 | 0.8931 (1220/1366) | 95 | 0.109 % | 159 | 0.182 % | 0.17 % |
+| **`occ-real-f3`** | **hi-res 2304** | **16/18** | 0.9991 | 0.9501 (1200/1263) | 23 | 0.028 % | 52 | 0.064 % | 0.01 % |
+
+The committed-640 row is a **re-measurement**, not a copy: this session replayed the committed
+clips through the modified harness and got 0.8965 / 0.0293 / 8 818 / 226 · 0.9985 / 0.9172 /
+106 / 22 · 0.9989 / 0.9420 / 49 / 44, i.e. the table at the top of this file to within one
+observation. **The harness change is a no-op.** (The ±1 observation is the inference-time pacing,
+not a code difference.)
+
+Worst squares, hi-res:
+
+| model | worst squares | confident identity confusions |
+|---|---|---|
+| `tiny-p3` | **f8×822**, a6×58, c6×58, e6×58, g6×58, e7×58, c5×16, a7×13 | **bB→empty ×777**, bP→empty ×12, wP→empty ×8 |
+| `occ-real-f2` | f8×13, g6×7, a2/b2/d2/f2/g2/h2 ×1 | (2-class, no identity) |
+| `occ-real-f3` | **g6×50**, f8×13, e6×2, a2/b2/d2/f2/h2 ×2 | (2-class, no identity) |
+
+Which clips fail at hi-res:
+
+| model | failing clips |
+|---|---|
+| `tiny-p3` | `capture`, `castle`, `enpassant`, `jitter`, `opening`, `phantom`, `promotion`, `queenside`, `scholars`, `stalemate`*, `takeback`, `underpromo` |
+| `occ-real-f2` | `stalemate`*, `underpromo` |
+| `occ-real-f3` | `stalemate`*, `underpromo` |
+
+\* `stalemate` also fails diff-only at this resolution — not a model failure for any of the three.
+
+## What changed, and what did not
+
+1. **The ranking holds, and it widens.** Both 2-class models beat `tiny-p3` on every occupancy
+   column at 112 px/square, and the gap in *clips passing* goes from 16 vs 14 to **16 vs 6**.
+   Nothing here argues against the collapse to `{empty, occupied}`.
+
+2. **`tiny-p3`'s 8 826 misses were largely a resolution artefact — its clip failures were not.**
+   Holding the renderer fixed (control 640 → hi-res), the miss rate falls **5.84 % → 1.44 %,
+   a 75 % reduction**, and per-square occupancy goes 0.9362 → 0.9820. But **822 of the 924
+   surviving misses are one square**: `f8`, `bB→empty ×777` — a black bishop on a dark square,
+   i.e. exactly the b/dark case the render made harder. Because that square is wrong on
+   essentially *every* observation it raises `illegal_move conflicts=[f8]` around f27–f29 in
+   almost every clip and **blocks every commit**: `capture`, `castle`, `enpassant`, `opening`,
+   `phantom`, `queenside`, `scholars`, `takeback` all commit the empty list. Clips passing:
+   13/18 → **6/18**.
+   **So resolution does not rehabilitate `tiny-p3`.** It converts a diffuse, survivable error
+   into a single fatal one. If the question was "does the retrain still earn its keep at phone
+   resolution" — **yes, and by more than before.**
+
+3. **`f2` and `f3` swap places.** At 31 px/square `f3` was the clip-optimal model (board 0.9420
+   vs 0.9172). At 112 px/square **`f2` wins every column**: per-square 0.9996 vs 0.9991,
+   whole-board **0.9821 vs 0.9501**, misses 19 vs 23, phantoms **7 vs 52**. `f3`'s extra occupied
+   weight buys nothing once the pixels are there and costs phantoms (`g6×50`). Combined with the
+   real-session cross-check, where `f2` already led (board 0.9091 vs 0.8727), **`f2` is now the
+   recommendation at both ends of the resolution range** and the earlier "f3 is clip-optimal"
+   caveat is retired.
+
+4. **`blender-jitter` passes at hi-res** — for both 2-class models. Open item 4 above
+   ("fails on a perfect observation stream, do not chase it with more training") is **wrong as
+   stated**: it was resolution-sensitive after all. The engine/timing interaction it describes is
+   real but only bites at 31 px/square.
+
+5. **`g1` is gone.** The systematic offender across every 2-class model on the committed clips
+   (849 → 89 → 32 as the occupied weight rose) does **not appear at all** in the hi-res
+   worst-square lists. Phase 04's attention target changes: it is now `f8` (`tiny-p3`, b/dark)
+   and `g6` (`f3`, phantoms).
+
+6. **`underpromo` did not move, and cannot.** Both 2-class models still commit `e8=Q+` where the
+   truth is `e8=N`, with zero confident-occupancy errors. Pure identity. Phase 03 still owns it.
+
+7. **Timing at hi-res is not a device prediction and must not be quoted as one.** 105.5 ms/frame
+   / 9.5 fps for `tiny-p3` vs 52.9 ms / 18.9 fps at 640. Two harness artefacts inflate it: the
+   clip's `boardSize` is the render resolution (2304), so `warpBoardForCrops` runs on a
+   2304 + 2B canvas (38.7 ms/obs of crop cost) and `RoiMotion` warps at 2765² before resizing to
+   160 (14.2 ms/frame, up from 1.7). A device warps to its profile's 800/1600 regardless of camera
+   resolution, so neither cost transfers. Desktop CPU provider, not a phone NPU, either way.
+
+## Files touched
+
+| File | Change |
+|---|---|
+| `android/app/src/test/kotlin/.../sim/SimClips.kt` | `simClipDir()` / `usingDefaultClips()` — the clip directory comes from `-Pchesslab.sim.clips`, **defaulting to the committed set**. Clip names and `effectiveConfig` still come from `parity/index.json`, so both sets run the identical catalogue with identical knobs. |
+| `android/app/src/test/kotlin/.../sim/CnnClipSimulationTest.kt` | `assertBaselineReproducesGroundTruth` stays a hard assertion for the committed clips and becomes a **reported measurement** for an alternate set. Its justification ("Python reproduces these at full rate") is a property of `tests/data/testclips`, not of the harness; a re-render has no Python reference. |
+| `android/app/build.gradle.kts` | plumbs `chesslab.sim.clips` through, same shape as `chesslab.sim.models`. |
+
+Nothing else. `android/app/src/main/assets/cnn_model/` untouched; no model was swapped.
+
+## Gates
+
+| Gate | Result |
+|---|---|
+| `:core-engine:test --rerun-tasks --tests *ClipReplayParityTest*` | **green — 18/18 clips, zero diverging frames** |
+| `:app:testDebugUnitTest` (no sim flags — the default clip path) | **green** |
+| `:app:ktlintCheck` | clean (one violation found and fixed: chained `.` on `simClipDir`) |
+| `:app:detekt` | **zero findings**, no `@Suppress`, no baseline additions |
+| Sim on the **committed** clips, 3 models | **diff-only 18/18**, all three models reproduce the table at the top of this file |
+
+## What could not be verified
+
+- **The two new clip sets have no Python reference.** `scripts/emit_parity_fixtures.py` was not
+  run against them (out of scope, and it would have to write new fixtures). Their diff-only rates
+  (17/18, 15/18) are Kotlin-only measurements; whether Python reproduces them is unknown.
+- **Whether `stalemate`'s hi-res `too_many_changed` is a threshold artefact or a real finding.**
+  It needs `max_changed` raised for that clip (as `queenside` already does) to tell apart, and
+  no threshold was swept here — phase 00 is still not run.
+- **Why `tiny-p3` reads `f8` as empty specifically** and not the other dark back-rank squares.
+  Photometry says b/dark d′ 0.03 board-wide; it does not say why `f8` is singled out. That is
+  phase 04's attention analysis.
+- **Nothing about a phone.** 112 px/square is what a 1080p phone *delivers to the warp*; the
+  device's own `board_size` (800 in `phone.yaml`) still decimates it, and that path was not
+  exercised. `DATA-QUALITY.md`'s recommendation to raise the profile to 1100 remains unactioned.
+
+## On disk (untracked — **do not commit**)
+
+- `tests/data/testclips-hires/` — 18 clips + `manifest.yaml` + labels, 45 MB
+- `tests/data/testclips-640new/` — the renderer control set, 6 MB
+- `…/scratchpad/hires/` — `clip_photometry.py`, `extract_sim.py`,
+  `photometry_{old640,new640,hires2304}.json`, `sim_{old640,new640,hires}.txt`
+  (the full harness stdout for all three passes)
