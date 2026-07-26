@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.chesslab.tracker.games.GameSessionState
 import com.chesslab.tracker.record.SessionInfo
 import com.chesslab.tracker.record.formatBytes
 import com.chesslab.tracker.record.zipSession
@@ -37,6 +38,31 @@ private val CAPS = listOf(250L * MB, 1024L * MB, 2048L * MB, 0L)
 private fun capLabel(bytes: Long): String = if (bytes <= 0L) "unlimited" else formatBytes(bytes)
 
 /**
+ * What the running recorder is actually doing.
+ *
+ * The panel used to show only the on-disk total, and that is a snapshot taken when the screen
+ * opened. A recorder that had silently stopped writing — cap reached, geometry suspended, a frame
+ * that would not encode — was indistinguishable from one that was working, which is why the only
+ * report this feature ever got was "recording doesn't work well".
+ */
+@Composable
+private fun LiveRecordingLine(live: GameSessionState) {
+    val session = live.recordingSessionId
+    Text(
+        text =
+            when {
+                session != null -> "Recording $session · ${live.recordedFrames} frames written"
+                else -> "Nothing recording yet — the first committed move starts a session"
+            },
+        style = MaterialTheme.typography.bodySmall,
+        color = if (session != null) Accent else OnSurfaceMuted,
+    )
+    live.recordingReason?.let {
+        Text(it, style = MaterialTheme.typography.bodySmall, color = Danger)
+    }
+}
+
+/**
  * Session recording, off by default.
  *
  * The explanation is not decoration: this is the one switch in the app that makes the phone write
@@ -48,6 +74,7 @@ private fun capLabel(bytes: Long): String = if (bytes <= 0L) "unlimited" else fo
 fun RecordingPanel(
     ui: GamesUi,
     model: GamesViewModel,
+    live: GameSessionState,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -69,10 +96,11 @@ fun RecordingPanel(
             style = MaterialTheme.typography.bodySmall,
             color = OnSurfaceMuted,
         )
+        LiveRecordingLine(live)
         Text(
             "On disk: ${formatBytes(ui.sessionBytes)} in ${ui.sessions.size} sessions · limit ${capLabel(ui.prefs.capBytes)}",
             style = MaterialTheme.typography.bodySmall,
-            color = Accent,
+            color = OnSurfaceMuted,
         )
         // Real chips, not coloured text: as plain labels the four caps had no tappable affordance
         // and the selected one was distinguishable only by hue.
