@@ -11,7 +11,7 @@ results, and any blocker with file + line + what you tried.
 | 00 | `00-poisoned-reference.md` | Measure why `f1` stands at z≈15; origin-vs-destination asymmetry | todo | Measures only. Must not edit `src/` or `android/`. |
 | 01 | `01-cnn-runtime.md` | ORT session config, XNNPACK, profiling, steady-state number | todo | |
 | 02 | `02-frame-allocations.md` | Per-frame buffers, engine hot path, 3 latent bugs | todo | `ClipReplayParityTest` must stay 18/18. |
-| 03 | `03-recording.md` | Recording "doesn't work well" — diagnose then fix | todo | Diagnosis commits before the fix. |
+| 03 | `03-recording.md` | Recording "doesn't work well" — diagnose then fix | diagnosed | No device attached; diagnosis from the write path. 6 defects, D1–D6. |
 | 04 | `04-cnn-activations.md` | `_convert_bn_to_gn` deletes timm's ReLUs | todo | No full retrain. |
 
 All five may run in parallel; file scopes are disjoint.
@@ -77,7 +77,142 @@ _todo_
 
 ### Phase 03 — recording
 
-_todo_
+#### Step A — what is on disk: NOT AVAILABLE
+
+`adb devices` (and `adb devices -l` after `adb start-server`) returns an empty list — **no phone
+is attached to this machine**. The two directories named in `03-recording.md` could not be
+pulled, so nothing below rests on them. Everything here is derived from the write path itself
+and is provable by unit test on the desktop JVM.
+
+The one thing the spec's directory listing does constrain: `SessionRecorder.<init>`
+(`SessionRecorder.kt:75-79`) creates `frames/`, an EMPTY `log.jsonl` and a complete
+`session.yaml` before any capture. So a session directory containing `frames/` and a **zero-byte**
+`log.jsonl` is producible (see D3 below); a directory with **no** `log.jsonl` file at all is not
+producible by any code in `record/`. Either `20260726-171119`'s `log.jsonl` is a zero-byte file
+that read as absent in the `ls -R`, or it was not written by this app.
+
+#### Step B — the write path, and what is wrong with it
+
+Six defects, ordered by how much recorded data each one costs.
+
+**D1 — `SequenceCommitted` is dropped by the recorder's driver. `games/GameSessionController.kt:53-59`.**
+
+```kotlin
+when (event) {
+    is TrackerEvent.MoveCommitted -> onCommitted(event, status)
+    is TrackerEvent.ReAnchored -> capture.flush()
+    else -> Unit                     // <- SequenceCommitted lands here
+}
+```
+
+The engine commits plies through **two** events. `TrackerEvent.SequenceCommitted` is emitted by
+`Commit.kt:165` (`commitSequence`, decider `diff_pair` — fast play: half-move + reply) and by
+`CnnTick.kt:252` (decider `cnn_recovery`). The engine queues a session photo for both
+(`Commit.kt:158`, `CnnTick.kt:223`). The app's `GameSessionController` handles only
+`MoveCommitted`, so every pair commit and every CNN recovery produces **no `log.jsonl` entry, no
+JPEG, and no move in the saved game/PGN**.
+
+This is the single defect with independent corroboration in the tree: **five other consumers of
+the same event bus handle `SequenceCommitted`** — `TrackerService.kt:296` (the notification move
+counter), `ui/tracking/MoveList.kt:48`, `spectate/SpectatorController.kt:92`,
+`speech/MoveAnnouncer.kt:47`, `ui/tracking/StatusUiModel.kt:60`. The recorder's driver is the only
+one that does not. The user-visible shape of that is exactly the report: the move list and the
+notification count more moves than the game the app saves and than the session it recorded.
+
+**D2 — the deferred photo is taken while a hand is still over the board.
+`games/GameSessionController.kt:57`.**
+
+`capture.flush()` runs on *every* `ReAnchored`. Python flushes only when the occlusion set is
+empty — `tracker.py:3085-3086`:
+
+```python
+self._set_ref(cur, cur_bgr)
+if not occluded_set:
+    self._flush_session_capture()
+```
+
+Kotlin's engine emits `ReAnchored` unconditionally (`TrackerEngine.kt:414`) and the app applies no
+occlusion check at the flush site, even though `TrackerStatus.occlusionVetoed` is right there and
+is already used for the `clean` decision at `GameSessionController.kt:93`. A frame taken with a
+hand over the board is a frame whose 64 crops are labeled as pieces that cannot be seen — the
+exact poisoning the deferral exists to prevent, and it is invisible until someone runs
+`chesslab slice` weeks later.
+
+**D3 — a cap-blocked start leaves an empty session directory behind. `record/SessionCapture.kt:106`.**
+
+```kotlin
+val active = (recorder ?: startRecorder(frame))?.takeUnless(::capReached) ?: return null
+```
+
+`startRecorder` → `open(frame)` → `openRecorder` (`service/GameSessionWiring.kt:117-125`) runs
+`SessionStore.create(id)` and `SessionRecorder.<init>`, which writes `frames/`, `log.jsonl` and
+`session.yaml` to disk — **before** `capReached` is evaluated. When
+`existingBytes() >= capBytes` (default 1 GB, `RecordingSettings.kt:8`), the directory is created,
+immediately abandoned, and then counts against the next `totalBytes()`. It is the only path in the
+app that produces a session directory with a zero-byte `log.jsonl` and no frames.
+
+**D4 — a failed frame write is swallowed whole. `record/SessionRecorder.kt:90`.**
+
+```kotlin
+val written = runCatching { writer.write(File(dir, rel)) }.getOrDefault(0L)
+if (written <= 0L) return null
+```
+
+No counter, no reason, no log. Python's equivalent logs (`tracker.py:2878-2879`:
+`log.warning("session record capture failed: %s", e)`). `SessionCapture.kt:107` has already
+cleared `pending` by then (this ordering matches Python `tracker.py:2874` and is left alone), so
+the photo is neither written nor retried — and `SessionCaptureController.reason` stays `null`, so
+the UI goes on showing a healthy recording session. This is literally the mechanism by which
+"recording doesn't work well" is all the user could say.
+
+**D5 — `RecordingGates.reason` is never cleared. `record/RecordingGates.kt:64-85`.**
+
+`geometrySuspends` and `inventorySkips` set `reason`; nothing ever resets it. `SessionCapture.kt:70`
+(`reason = stoppedReason ?: gates.reason`) therefore reports a stale skip forever after a single
+transient geometry blip, which makes the one diagnostic the UI does show (`GamesScreen.kt:132`)
+untrustworthy.
+
+**D6 — nothing anywhere reports frames written. `games/GameSessionController.kt:10-15`.**
+
+`GameSessionState` carries `recordingSessionId` and `recordingReason` but no count.
+`ui/games/RecordingPanel.kt` shows only the on-disk total from a snapshot refreshed on screen
+entry (`GamesViewModel.kt:43-46`). A recorder that has written zero frames for ten minutes is
+indistinguishable from one that is working.
+
+#### Step B — the questions the spec asked, answered
+
+- **What triggers a capture?** A committed move → `GameSessionController.onCommitted` →
+  `SessionCaptureController.queue`. Written immediately when the board is clean, otherwise
+  deferred to the next `ReAnchored`. Not a timer. The gate is not "rarely true" — but see D1
+  (a whole event class never reaches it) and D3/D4 (two silent declines).
+- **Which thread writes?** Not the analyzer thread. `attachGameSession`
+  (`GameSessionWiring.kt:86-92`) collects on the service's `lifecycleScope`; the JPEG encode is in
+  `LiveCaptureSource.grab()` on that same collector. Correct as designed — no change needed.
+- **Service death?** `TrackerService.onDestroy:180` calls `games.endAndSave()`. Nothing is lost on
+  a hard kill either: `log.jsonl` is appended per capture (`SessionRecorder.kt:95`) and
+  `session.yaml` is written in `<init>`; `finish()` only rewrites the yaml. A killed session is
+  truncated, never corrupt.
+- **Is `auto_record` leaking sessions (MEMORY `auto-record-session-leak`)?** No. A recorder is
+  opened only from `startRecorder` (`SessionCapture.kt:124-127`), which requires `prefs().enabled`,
+  and only on the first actual capture. `GameSessionDriverTest` already pins that a start/stop
+  cycle with the shipped default (recording off) writes nothing. The Android equivalent of the
+  Python leak does not exist. **Negative result, confirmed.**
+
+#### Observations recorded but NOT acted on (out of phase-03 scope)
+
+- `EngineState.pendingCapture` is dead state in the Kotlin port: `flushSessionCapture()`'s return
+  value is discarded at `TrackerEngine.kt:413` and `Commit.kt:237`, and `:app` keeps its own copy
+  in `SessionCaptureController`. Faithful-port artefact; `:core-engine` is phase 02's / frozen.
+- Related divergence in the same dead code: `Commit.kt:237` and `TrackerEngine.kt:413` gate on
+  `tainted`, where Python gates on `_motion_occluded_squares` / `occluded_set`
+  (`tracker.py:2853`, `3086`). No behaviour today because the value is dropped; a latent trap for
+  whoever revives it.
+- `existingBytes` (`GameSessionWiring.kt:105`) is snapshotted once at service start, so deleting
+  sessions does not lift the size cap until the service is restarted.
+- **Cannot be determined without the device:** which decline path (D3, a geometry suspension from
+  a profile calibrated at a different resolution than the camera now delivers, or the size cap)
+  produced the two specific directories. All three are silent today, which is why D4/D5/D6 are
+  fixed rather than guessed between.
 
 ### Phase 04 — CNN activations
 
