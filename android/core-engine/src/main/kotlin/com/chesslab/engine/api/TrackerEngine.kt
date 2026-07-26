@@ -26,6 +26,7 @@ import com.chesslab.engine.detectGuards
 import com.chesslab.engine.dispatch
 import com.chesslab.engine.flushSessionCapture
 import com.chesslab.engine.generateHypothesis
+import com.chesslab.engine.handOccluders
 import com.chesslab.engine.learnNoise
 import com.chesslab.engine.legalMoveFor
 import com.chesslab.engine.markStuck
@@ -346,6 +347,17 @@ internal fun EngineState.tryDetect(
     var hot = 0L
     for (i in 0 until Squares.COUNT) {
         if (lastZ[i] >= config.zThr) hot = hot.with(i)
+    }
+    // 2b. Opaque-occlusion veto ON THE DETECTION FRAME. Port of the block in `_try_detect`
+    // between `changed = {...}` and `_changed_vals`; see `tracker.py` for the measurement that
+    // motivates it. It runs HERE and not in `applyTaints` because it needs `hot`, and it feeds
+    // the taint set rather than vetoing locally so the latch above owns the z-zeroing, the
+    // release rule and the re-anchor block.
+    if (handOccluders(curBgr, hot)) {
+        hot = 0L
+        for (i in 0 until Squares.COUNT) {
+            if (lastZ[i] >= config.zThr) hot = hot.with(i)
+        }
     }
     changedVals = topChangedVals(lastZ, config.zThr)
     // 3. Vetoes (shadow keeps z as vacate evidence; occlusion zeroed it in step 2).

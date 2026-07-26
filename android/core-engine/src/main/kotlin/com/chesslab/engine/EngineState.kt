@@ -224,6 +224,7 @@ internal class EngineState(
     val baselineScratch = BaselineScratch()
     val shadowVetoScratch = ShadowVetoScratch()
     val gamutScratch = GamutScratch()
+    val handScratch = HandVetoScratch()
 
     var changed: Long = 0L // `_changed`
     var changedVals: List<Pair<String, Double>> = emptyList() // `_changed_vals` (top 8)

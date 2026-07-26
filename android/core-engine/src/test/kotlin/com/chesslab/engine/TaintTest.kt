@@ -349,6 +349,65 @@ class TaintTest {
 
     // -- helpers -----------------------------------------------------------------------------------
 
+    /**
+     * `handOccluders` — the veto that was missing entirely: the same chroma classifier
+     * [flatHandNeedsChroma] proves competent, run on the DETECTION frame.
+     *
+     * Its only caller used to be `baselineOcclusionAndShadow`, which runs solely in the motion
+     * states and gates its candidates on an absolute `motionPxThr * 4` = 80 grey levels. A hand
+     * that stops moving reaches neither: measured on a real game a resting hand peaked at 62.0
+     * while the move scorer rated the same pixels z = 15.7, a phantom king move was fitted to it,
+     * and the commit baked the hand into the reference for 96 frames.
+     */
+    @Test
+    fun aRestingHandIsVetoedOnTheDetectionFrame() {
+        val refBgr = BgrImage(BOARD, BOARD, ByteArray(BOARD * BOARD * BGR) { NEUTRAL_BOARD.toByte() })
+        val curBgr = BgrImage(BOARD, BOARD, refBgr.data.copyOf())
+        paintSquare(curBgr, "f6", b = 80, g = 100, r = 190) // skin-toned, matches no board square
+        val state = handState()
+        state.markGamutStale(refBgr)
+        state.setZ("f6")
+        val hot = ofSquares("f6")
+
+        assertTrue(state.handOccluders(curBgr, hot), "the chroma outlier must be caught")
+
+        val f6 = Squares.index("f6")
+        assertTrue(state.tainted.has(f6), "and latched, so the existing release rule owns it")
+        state.assertZeroed("f6")
+        // Dilated by one orthogonal neighbour, exactly as baselineOcclusionAndShadow does — a hand
+        // never covers a single cell cleanly.
+        assertTrue(state.tainted.has(Squares.index("e6")), "the neighbour is tainted too")
+        assertTrue(state.tainted.has(Squares.index("f5")))
+    }
+
+    /** No gamut, no verdict — and the gamut is only ever built from a verifiably clean board. */
+    @Test
+    fun withoutAGamutNothingIsVetoedOnTheDetectionFrame() {
+        val curBgr = BgrImage(BOARD, BOARD, ByteArray(BOARD * BOARD * BGR) { NEUTRAL_BOARD.toByte() })
+        val state = handState()
+        state.setZ("f6")
+
+        assertFalse(state.handOccluders(curBgr, ofSquares("f6")), "no gamut, no opinion")
+        assertEquals(0L, state.tainted)
+    }
+
+    /** A piece arriving is NOT an outlier: it matches whichever square already carries its like. */
+    @Test
+    fun anArrivingPieceIsNotMistakenForAHand() {
+        val refBgr = BgrImage(BOARD, BOARD, ByteArray(BOARD * BOARD * BGR) { NEUTRAL_BOARD.toByte() })
+        // A dark piece already on the board, so the gamut knows this colour...
+        paintSquare(refBgr, "a1", b = 40, g = 42, r = 45)
+        val curBgr = BgrImage(BOARD, BOARD, refBgr.data.copyOf())
+        // ...and now one just like it arrives on f6.
+        paintSquare(curBgr, "f6", b = 40, g = 42, r = 45)
+        val state = handState()
+        state.markGamutStale(refBgr)
+        state.setZ("f6")
+
+        assertFalse(state.handOccluders(curBgr, ofSquares("f6")), "a piece the gamut recognises is not an occluder")
+        assertEquals(0L, state.tainted)
+    }
+
     private fun handState(maxChanged: Int = 6): EngineState {
         val state = EngineState(testConfig(boardSize = BOARD, maxChanged = maxChanged), STARTPOS, whitePov = true)
         state.nowS = 10.0

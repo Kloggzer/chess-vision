@@ -875,6 +875,41 @@ class TestRestingHandVeto:
         assert "e3" in mt._tainted and "e4" in mt._tainted   # latched as occluded
         assert mt.ref_gray is ref                            # re-anchor blocked (not baked in)
 
+    def test_resting_hand_is_vetoed_on_the_detection_frame(self, monkeypatch):
+        """The chroma classifier, run where the DECISION is made.
+
+        Its only caller was `_baseline_occlusion_and_shadow`, which runs solely in the motion
+        states and gates its candidates on an absolute `motion_px_thr * 4` = 80 grey levels — a
+        hand that stops moving reaches neither. Measured on a real game a resting hand peaked at
+        62.0 while the move scorer rated the same pixels z = 15.7, a legal king move was fitted to
+        it, and the commit baked the hand into the reference for 96 detection frames.
+
+        There is no CNN here: this is exactly the case `_cnn_occlusion_filter` cannot cover.
+        """
+        from chesslab.move_tracker.tracker import board_color_gamut, square_region
+
+        mt = _make_tracker(monkeypatch, confirm_frames=1)
+        bs = mt._det_size
+        ref_bgr = np.full((bs, bs, 3), 170, dtype=np.uint8)
+        mt.ref_gray = cv2.cvtColor(ref_bgr, cv2.COLOR_BGR2GRAY)
+        mt.ref_bgr = ref_bgr
+        mt.ref_fen = mt.board.fen()
+        mt._ref_gamut = board_color_gamut(ref_bgr, bs, True)
+        assert mt._ref_gamut is not None
+        ref = mt.ref_gray
+
+        cur_bgr = ref_bgr.copy()
+        x0, y0, x1, y1 = square_region("f6", bs, True)
+        cur_bgr[y0:y1, x0:x1] = (80, 100, 190)          # flat skin tone, matches no square
+        cur = cv2.cvtColor(cur_bgr, cv2.COLOR_BGR2GRAY)
+        mt._motion_since_ref, mt._last_motion_ts = True, time.time()
+
+        mt._try_detect(cur, cur_bgr)
+
+        assert mt.history == []                          # no phantom move
+        assert "f6" in mt._tainted                       # latched, so the existing rules own it
+        assert mt.ref_gray is ref                        # and the re-anchor is blocked
+
     def test_taint_persists_without_motion_while_evidence_hot(self, monkeypatch):
         """Latch invariant: no motion since the taint + square still differs from the
         reference → the latch does NOT expire on the timer (a still hand cannot vanish)."""
