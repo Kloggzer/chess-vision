@@ -56,12 +56,14 @@ class GameSessionController(
         status: TrackerStatus?,
     ) {
         when (event) {
-            is TrackerEvent.MoveCommitted -> onCommitted(listOf(event.uci), listOf(event.san), event.fenAfter, status)
+            is TrackerEvent.MoveCommitted ->
+                onCommitted(listOf(event.uci), listOf(event.san), event.fenAfter, status, event.decider, event.priorUsed)
             // Fast play (`Commit.kt:165`) and CNN recovery (`CnnTick.kt:252`) commit real plies
             // through THIS event, and the engine queues a session photo for it exactly as it does
             // for a single move. Dropping it lost those moves from the game and their frames from
             // the recording, while the move list and the notification counted them.
-            is TrackerEvent.SequenceCommitted -> onCommitted(event.ucis, event.sans, event.fenAfter, status)
+            is TrackerEvent.SequenceCommitted ->
+                onCommitted(event.ucis, event.sans, event.fenAfter, status, event.decider, priorUsed = false)
             // The tracker's own proof that nothing is moving — Python flushes the deferred session
             // photo here, but ONLY with an empty occlusion set (`tracker.py:3085`). A re-anchor is
             // emitted unconditionally (`TrackerEngine.kt:414`), so the check belongs here: without
@@ -98,10 +100,30 @@ class GameSessionController(
         sans: List<String>,
         fenAfter: String,
         status: TrackerStatus?,
+        decider: String,
+        priorUsed: Boolean,
     ) {
+        // A record whose line the engine already left is not a game — see `LiveGame.continues`.
+        // Closing it here keeps every stored file legal from its own `startFen`, and starts the
+        // next one AT the seam, so the position after the jump is the new record's ground truth.
+        live?.takeUnless { it.continues(ucis) }?.let {
+            endAndSave()
+            live = LiveGame(fenAfter, now(), profile)
+            return
+        }
         val game = live ?: LiveGame(startFen, now(), profile).also { live = it }
-        // The engine records provenance on the LAST ply of a commit, never on both (`Commit.kt:157`).
-        val decision = status?.debug?.decisions?.lastOrNull { it.accepted && it.uci == ucis.last() }
+        // The engine states the decider ON the event, so it is always known. The debug payload adds
+        // the evidence behind it and is off by default — reading the decider from THERE meant every
+        // game stored `provenance: null`, including the ones recorded with debug on, because its
+        // rows are matched by `accepted && uci` and that second source can simply fail to line up.
+        // Measured: null on all 77 recorded plies across five sessions.
+        val decision =
+            status
+                ?.debug
+                ?.decisions
+                ?.lastOrNull { it.accepted && it.uci == ucis.last() }
+                ?.toProvenance()
+                ?: MoveProvenance(decider = decider, reason = decider, priorUsed = priorUsed)
         game.onCommitted(ucis, sans, fenAfter, now(), decision)
         capture.queue(game.moveCount, fenAfter, sans.last(), isClean(status))
         if (resultFromFen(fenAfter) != "*") endAndSave()

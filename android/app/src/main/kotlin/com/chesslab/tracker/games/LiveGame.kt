@@ -3,6 +3,7 @@ package com.chesslab.tracker.games
 import com.chesslab.engine.api.DebugDecision
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.move.Move
+import com.github.bhlangonijr.chesslib.move.MoveGenerator
 
 /** One move as it was committed, plus the position it produced (the undo probe below needs it). */
 private data class LiveMove(
@@ -29,16 +30,16 @@ class LiveGame(
      * One commit, one or more plies — a `SequenceCommitted` (fast play, CNN recovery) is a single
      * event carrying several.
      *
-     * [decision] is 07b's provenance row, present only while the debug payload is armed — a game
-     * recorded with debug off keeps its moves and loses only the reasoning. It rides on the LAST
-     * ply, because that is where the engine records it (`Commit.kt:157`).
+     * [decision] is why the tracker believed this move. It rides on the LAST ply, because that is
+     * where the engine records it (`Commit.kt:157`). The caller decides how rich it is: the decider
+     * always, its full evidence only while the debug payload is armed.
      */
     fun onCommitted(
         ucis: List<String>,
         sans: List<String>,
         fenAfter: String,
         tsEpochMs: Long,
-        decision: DebugDecision?,
+        decision: MoveProvenance?,
     ) {
         val fens = positionsAfter(ucis, fenAfter)
         for (i in ucis.indices) {
@@ -50,11 +51,33 @@ class LiveGame(
                         san = sans[i],
                         uci = ucis[i],
                         tsEpochMs = tsEpochMs,
-                        provenance = if (last) decision?.toProvenance() else null,
+                        provenance = if (last) decision else null,
                     ),
                     fenAfter = fens[i],
                 )
         }
+    }
+
+    /**
+     * Does [ucis] continue THIS record's own position line?
+     *
+     * The engine can never commit an illegal move — its board validates every one. A record can
+     * still go illegal, because the engine's board may JUMP between two commits: a desync alarm
+     * being resolved, a FEN resync, an accepted CNN recovery. The recorder sees none of those (it
+     * handles `MoveCommitted`, `SequenceCommitted` and `ReAnchored`, and drops `Alarm` /
+     * `AlarmCleared`), so it used to append the plies after the jump onto the line from before it.
+     *
+     * Measured on the device: four of five recorded games were not legal sequences from their own
+     * `startFen` — one broke at ply 1, the others at 2, 18 and 28. Such a file is unusable as a
+     * game AND as labeled training data, because every FEN after the seam is wrong.
+     *
+     * Checking the first ply is enough: a sequence commit is generated from one position by the
+     * engine, so if its head fits, the rest of it does.
+     */
+    fun continues(ucis: List<String>): Boolean {
+        val board = Board().apply { loadFromFen(fenBefore(moves.size)) }
+        val wanted = ucis.firstOrNull() ?: return true
+        return MoveGenerator.generateLegalMoves(board).any { it.toString() == wanted }
     }
 
     /**

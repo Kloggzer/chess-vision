@@ -39,20 +39,28 @@ data class StoredMove(
     val provenance: MoveProvenance? = null,
 )
 
-/** 07b's `DebugDecision` minus the pixels — why the tracker believed this move happened. */
+/**
+ * 07b's `DebugDecision` minus the pixels — why the tracker believed this move happened.
+ *
+ * Everything below [priorUsed] defaults to empty because the evidence rides on the debug payload,
+ * which is off by default, while the DECIDER is stated on the commit event itself and is therefore
+ * always known. Recording the decider alone is what separates "the pair path committed this" from
+ * "recovery caught up here" when reading a stored game — the question the evidence fields cannot
+ * answer anyway.
+ */
 @Serializable
 data class MoveProvenance(
     val decider: String,
     val reason: String,
     val priorUsed: Boolean,
-    val best: Double,
-    val second: Double,
-    val margin: Double,
-    val changed: List<String>,
-    val shadowVetoed: List<String>,
-    val occludedVetoed: List<String>,
-    val cnnAgreement: Double,
-    val verifyOutcomes: List<String>,
+    val best: Double = 0.0,
+    val second: Double = 0.0,
+    val margin: Double = 0.0,
+    val changed: List<String> = emptyList(),
+    val shadowVetoed: List<String> = emptyList(),
+    val occludedVetoed: List<String> = emptyList(),
+    val cnnAgreement: Double = 0.0,
+    val verifyOutcomes: List<String> = emptyList(),
 )
 
 /** The index row. `list()` reads only these, so opening the library never parses a whole game. */
