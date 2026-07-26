@@ -91,8 +91,43 @@ internal class EngineState(
     var lastInputSeq: Long = -1
 
     var prevGray: GrayImage? = null // `prev_gray`
-    val grayBuf: RunningMeanGray = RunningMeanGray(config.avgFrames(cnnOn = false)) // `_gray_buf`
-    val bgrBuf: RunningMeanBgr = RunningMeanBgr(config.avgFrames(cnnOn = false)) // `_bgr_buf`
+
+    // `cnn_run` / `_cnn_failed` — declared HERE, before the two averaging buffers, and not with the
+    // rest of the CNN coupling below: they are two of the three inputs to [cnnOn], and [avgFrames]
+    // is CNN-conditional, so the buffers below cannot be sized without them.
+    var cnnRun: Boolean = false
+
+    var cnnFailed: Boolean = false
+
+    /**
+     * The window [grayBuf] and [bgrBuf] are currently sized for.
+     *
+     * It is NOT `config.avgFrames(cnnOn = false)`. That was the bug: the buffers were built for the
+     * without-CNN window (3) and the live gate reads [avgFrames], which becomes 2 the moment the CNN
+     * attaches — `updateConfig` resized them on a CONFIG change and nothing resized them on a CNN
+     * attach, so the frame loop waited for a third frame that the mean was never going to need.
+     * [syncAvgWindow] closes that: every path that can flip [cnnOn] calls it.
+     */
+    private var avgWindow: Int = avgFrames
+    val grayBuf: RunningMeanGray = RunningMeanGray(avgWindow) // `_gray_buf`
+    val bgrBuf: RunningMeanBgr = RunningMeanBgr(avgWindow) // `_bgr_buf`
+
+    /**
+     * Re-size the averaging buffers when [avgFrames] moved — a config change, a CNN attach or the
+     * CNN failing mid-game.
+     *
+     * A resize DROPS what is buffered, which is Python building a fresh `_RunningMean`, so this is a
+     * no-op when the window did not move; that is the whole point of tracking [avgWindow] rather
+     * than resizing unconditionally.
+     */
+    fun syncAvgWindow() {
+        val want = avgFrames
+        if (want == avgWindow) return
+        avgWindow = want
+        grayBuf.resize(want)
+        bgrBuf.resize(want)
+    }
+
     var stableCount: Int = 0 // `stable_count`
     var holdUntil: Double = 0.0 // `_hold_until`
     var lastCur: GrayImage? = null // `_last_cur`
@@ -233,8 +268,10 @@ internal class EngineState(
     // -- CNN coupling (03b reads snap; 04x owns the machines) --------------------------------------------
 
     var cnnSnap: CnnSnapshot? = null // `_cnn_snap`
-    var cnnRun: Boolean = false // `cnn_run`
-    var cnnFailed: Boolean = false // `_cnn_failed`
+
+    // `cnn_run` and `_cnn_failed` belong here by topic; they are declared up with the frame loop
+    // because the averaging buffers are sized from them.
+
     var cnnBusy: Boolean = false // `_cnn_busy` — one observation at a time.
 
     /** `_observer_started_ts` — when the last observation was spawned (`_observer_due`). */
