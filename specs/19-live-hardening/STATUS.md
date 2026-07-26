@@ -12,7 +12,7 @@ results, and any blocker with file + line + what you tried.
 | 01 | `01-cnn-runtime.md` | ORT session config, XNNPACK, profiling, steady-state number | done, unmeasured | QNN dependency dropped for XNNPACK+NNAPI (option 2). **No device attached — no on-device number.** |
 | 02 | `02-frame-allocations.md` | Per-frame buffers, engine hot path, 3 latent bugs | done | Ring + 3 bugs fixed; parity 18/18, zero divergence. **Step 2 (BGR mean): measured, no safe change found** — two rewrites were slower. |
 | 03 | `03-recording.md` | Recording "doesn't work well" — diagnose then fix | done | No device attached; diagnosed from the write path. 6 defects fixed, 6 regression tests proven red first. |
-| 04 | `04-cnn-activations.md` | `_convert_bn_to_gn` deletes timm's ReLUs | todo | No full retrain. |
+| 04 | `04-cnn-activations.md` | `_convert_bn_to_gn` deletes timm's ReLUs | done | 30 activations back, export pinned. **BatchNorm still crashes on ROCm-Windows — workaround stays.** Old groupnorm checkpoints no longer load: implies a retrain (user's call). |
 
 All five may run in parallel; file scopes are disjoint.
 
@@ -903,4 +903,137 @@ After the fix: `GameSessionControllerTest` 7/7, `SessionCaptureTest` 13/13, `Ses
 
 ### Phase 04 — CNN activations
 
-_todo_
+Commits: `e71d0c7` (model fix), `e9a3418` (tests), this one. Scope kept to
+`src/chesslab/training/model.py` + `tests/test_training.py`; nothing under `android/` was
+touched (the shipped `model.onnx` was only *read*).
+
+#### Shape chosen: **(a) `nn.Sequential(GroupNorm, drop, act)`**
+
+`_gn_replacement(bn)` builds the GroupNorm and appends whatever the replaced module did
+*after* normalising. A plain `nn.BatchNorm2d` has neither `.drop` nor `.act`, so it is
+still replaced one-for-one — that path is unchanged and pinned by its own test.
+
+(b) was considered and rejected: timm's `BatchNormAct2d.forward` calls `F.batch_norm`
+directly, so "mutate in place" means either a `__class__` swap or a forward monkey-patch.
+That is clever where (a) is obvious. It has exactly one advantage — see the checkpoint
+consequence below — and it buys it by making a real behaviour change silent.
+
+#### Before / after
+
+`mobilenetv4_conv_small_035` (the shipped backbone), `num_classes=0`, 46 `BatchNormAct2d`
+(30 with a `ReLU`, 16 with an `Identity`):
+
+| | `nn.ReLU` after conversion | ONNX `Relu` nodes |
+|---|---|---|
+| before | **0** (of 30) | **0** |
+| after | **30** (of 30) | **30** |
+
+Cross-check `mobilenetv3_small_100`: 33 activations (19 `Hardswish`, 14 `ReLU`) → 10 before
+the fix, 33 after. The fix is activation-class agnostic; the test asserts on `nn.ReLU`
+because the shipped backbone uses `ReLU`.
+
+Shipped asset, for reference only (read-only, untouched): 473 nodes, zero `Relu`, of which
+276 are the GroupNorm decomposition (`Reshape` 92, `InstanceNormalization` 46, `Shape` 46,
+`Mul` 46, `Add` 46). Its `config.json` is `backbone mobilenetv4_conv_small_035, norm
+groupnorm, head combined, classes [empty, occupied]` — i.e. the occupancy model of
+`specs/18` is exactly the crippled architecture.
+
+#### Mutation check — the tests were red first
+
+With `_gn_replacement` reverted to the old inline `nn.GroupNorm(...)` and nothing else
+changed:
+
+```
+FAILED tests/test_training.py::test_convert_bn_to_gn_keeps_the_activation
+FAILED tests/test_training.py::test_the_exported_graph_contains_activations
+  AssertionError: assert 'Relu' in ['Identity', 'Identity', ...]
+2 failed, 1 passed, 19 deselected
+```
+
+`test_convert_bn_to_gn_still_handles_a_plain_batchnorm` passes either way **by design** — it
+is the guard that the plain-`BatchNorm2d` path did not change, not a bug detector.
+
+Fixed: `22 passed` (`.venv/Scripts/python.exe -m pytest tests/test_training.py -q`, run once).
+`ruff check src/chesslab/training tests` clean. Full `pytest` and `pytest -m clips` not run
+(orchestrator's job).
+
+#### ROCm BatchNorm probe: **NO — it still crashes. The GroupNorm workaround stays.**
+
+`mobilenetv4_conv_small_035`, `norm="batchnorm"`, batch 8, 128×128, on `cuda` (gfx1100,
+RX 7900 XT, torch 2.9.1+rocm7.2.1). It dies in the **first forward**, 1.2 s in, at
+`timm/layers/norm_act.py:136 → F.batch_norm`:
+
+```
+MIOpen(HIP): Error [Compile] 'hiprtcCompileProgram(...)' MIOpenBatchNormFwdTrainSpatialHIP.cpp:
+             HIPRTC_ERROR_COMPILATION (6)
+miopen_type_traits.hpp:151:10: fatal error: 'type_traits' file not found
+1 error generated when compiling for gfx1100.
+MIOpen Error: .../hipoc_program.cpp:299: Code object build failed.
+RuntimeError: miopenStatusUnknownError
+```
+
+Two things worth knowing beyond the yes/no:
+
+- **It is a hipRTC include-path failure, not a GPU/kernel limitation.** MIOpen ships the
+  batch-norm kernel as *source* and compiles it at runtime; the runtime compiler cannot find
+  `<type_traits>`. That smells like a fixable ROCm-Windows install/header packaging problem.
+  If someone fixes the include path, BatchNorm becomes available and with it Conv+BN folding
+  (~276 nodes gone) and a QNN-executable graph. **Not attempted here** — it is an SDK change,
+  not a training change.
+- **A single `nn.BatchNorm2d(32)` on an 8×32×32×32 tensor works** (forward 0.4 s, backward
+  0.6 s). Only configurations that need a *fresh* compile fail; the ones already in
+  `~/.miopen/cache/…/gfx1100_42.ukdb` run. So "BatchNorm works" is not a safe conclusion from
+  a small hand-written probe — it has to be the real backbone's shapes.
+- Cost note: the first, uninstrumented run of this probe sat at 100 % of one core for 19
+  minutes (MIOpen's find phase, which does write `~/.miopen/db/…ufdb.txt`) before I killed it;
+  the instrumented rerun then failed in 1.2 s using that find result. Nothing was left running.
+
+#### Consequence that needs your decision: old groupnorm checkpoints no longer load
+
+The `Sequential` inserts an index, so **92 of 140 state-dict keys are renamed**
+(`blocks.0.0.bn1.weight` → `blocks.0.0.bn1.0.weight`). `training/evaluate.py:28`
+(`load_run`) loads **strictly**, so every run trained on this Windows box — where
+`train.py:234` defaults `norm` to `groupnorm` — now fails to load for eval / export / serve,
+and `train.py:272`'s warm start adopts the convs but re-initialises those 92 norm tensors.
+
+This is not fixable within shape (a), and the alternative is worse: an `nn.GroupNorm`
+subclass carrying `drop`/`act` would keep the key names and let those checkpoints load
+**silently** into an architecture that now has 30 nonlinearities it did not have during
+training — serving a model whose own `eval_test.json` no longer describes it. A hard failure
+is the honest state of the world: those weights were fitted for a network without
+activations.
+
+**The fix therefore implies a retrain.** Not started — heavy-compute contract, and the spec
+puts it out of scope. Nothing in `android/app/src/main/assets/cnn_model/` was touched, so the
+device keeps running the old model until you decide.
+
+#### Negative results
+
+- **Short CPU convergence probe** (150 steps, batch 8, 16 random 128×128 images with random
+  labels, one worker, 4 threads, ~6 s per variant): crippled 9.92 → 0.000, fixed 6.65 → 0.001,
+  **both memorise 16/16**. The probe cannot discriminate — it shows the rewired module trains,
+  nothing more. Any accuracy claim needs the real retrain plus the clip harness.
+- **"The `Identity` `drop`/`act` tails will bloat the exported graph" — wrong, measured.**
+  Skipping them changes the exported node count by exactly **0** (580 either way): `nn.Identity`
+  traces to no ONNX node at all, and the 70 `Identity` nodes in the graph come from elsewhere.
+  The special case was written, measured, disproved and removed again; the committed code has
+  no such branch.
+- `specs/18-occupancy-model/` numbers (incl. the 0.9422 whole-board occupancy) were measured on
+  the crippled network and are **suspect**. Deliberately not rewritten — that is a
+  re-evaluation, not an edit.
+
+#### Discrepancies against the spec
+
+- **D04-1** — `04-cnn-activations.md` cites `model.py:32-41`; the function is now
+  `model.py:32-55` (split into `_gn_replacement` + `_convert_bn_to_gn`). The `model.py:24,32-35`
+  anchor for the ROCm rationale was correct.
+- **D04-2** — "~286 of 337 graph nodes are the GroupNorm decomposition". Measured on the
+  shipped asset: **276 of 473**. 337 ≈ 473 minus the 138 `Constant` initialiser nodes; the
+  argument is unaffected.
+- **D04-3** — the spec's op-set listing for the shipped `model.onnx` reproduces exactly
+  (`Add, Constant, Conv, Flatten, Gemm, GlobalAveragePool, InstanceNormalization, Mul, Reshape,
+  Shape`, zero `Relu`), and "30 activations gone" is exact.
+- **D04-4** — the phase names `tests/test_training*.py`; the grep resolves to
+  `tests/test_training.py` (and `tests/test_serving.py`, which uses `norm="batchnorm"` only and
+  needed no change).
+- No blockers.
