@@ -112,6 +112,7 @@ private class FakeStages : FrameStages {
     var motion = 0.0
     var coverage = 1.0
     var convertCalls = 0
+    var publishCalls = 0
     var grayCalls = 0
     var gridCalls = 0
     var cropWarps = 0
@@ -119,6 +120,10 @@ private class FakeStages : FrameStages {
 
     override fun convert(image: ImageProxy) {
         convertCalls += 1
+    }
+
+    override fun publishFrame() {
+        publishCalls += 1
     }
 
     override fun warpDetection(corners: FloatArray): Boolean = warpOk

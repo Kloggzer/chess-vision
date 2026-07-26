@@ -49,8 +49,8 @@ class TrackerCoordinator(
         delivered: DeliveredSize,
     ) {
         timings.begin()
-        bus.onFrame(image)
-        timings.mark(Stage.PUBLISH)
+        // The preview bus is fed from INSIDE the pipeline now (`FrameStages.publishFrame`), off the
+        // frame the convert already produced — see `CameraFrameBus.offer`.
         val result = pipeline.onFrame(image, System.currentTimeMillis())
         val events = host.tick((result as? FrameResult.Ready)?.input)
         // The engine runs HERE, on the analyzer thread, and it is part of the frame budget.
@@ -58,7 +58,8 @@ class TrackerCoordinator(
         publisher.sizeMismatch = pipeline.sizeMismatch
         // The corners this frame was warped with — the overlay's board quad (D06b-4).
         publisher.corners = pipeline.corners
-        publisher.publish(host.status(), events, (result as? FrameResult.Skipped)?.note)
+        // A PROVIDER: the publisher samples at 10 Hz and only builds the status when it will use it.
+        publisher.publish(host::status, host.fen(), events, (result as? FrameResult.Skipped)?.note)
         observer.onFrameAvailable()
         align.maybeAlign(bus, delivered)
         timings.endFrame()

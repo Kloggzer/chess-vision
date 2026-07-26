@@ -63,7 +63,13 @@ class TrackerStack(
     private val cropStore = CropFrameStore()
     private val guard = FrameSizeGuard()
     private val pipeline =
-        FramePipeline(seed.config, CameraStages(seed.geometry(), seed.config, cropStore), cropStore, guard, timings)
+        FramePipeline(
+            seed.config,
+            CameraStages(seed.geometry(), seed.config, cropStore, frames::offer),
+            cropStore,
+            guard,
+            timings,
+        )
 
     val host =
         engineHost(seed.config, CnnRecovery(cnnConfig(seed.config)), seed.startFen) { pipeline.onConfigChanged(it) }
