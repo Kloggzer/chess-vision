@@ -29,13 +29,27 @@ def _norm_layer(norm: str, channels: int) -> nn.Module:
     return nn.BatchNorm2d(channels)
 
 
+def _gn_replacement(bn: nn.BatchNorm2d) -> nn.Module:
+    """GroupNorm standing in for `bn` — keeping whatever `bn` did AFTER normalising.
+
+    timm's `BatchNormAct2d` IS an `nn.BatchNorm2d` subclass and carries the block's
+    activation (`.act`, preceded by `.drop`). Swapping the whole module for a bare
+    GroupNorm silently deletes that nonlinearity — the shipped export had zero `Relu`
+    nodes because of it. A plain `nn.BatchNorm2d` has neither attribute and is replaced
+    one-for-one as before.
+    """
+    gn = nn.GroupNorm(_gn_groups(bn.num_features), bn.num_features)
+    tail = [m for m in (getattr(bn, "drop", None), getattr(bn, "act", None)) if m is not None]
+    return nn.Sequential(gn, *tail) if tail else gn
+
+
 def _convert_bn_to_gn(module: nn.Module) -> nn.Module:
     """Replace all BatchNorm2d (e.g. in torchvision backbones) with GroupNorm — otherwise MIOpen
     crashes on ROCm-Windows (`miopenStatusUnknownError`). Pretrained weights of the body remain,
     only the norm statistics are new (GN has no running stats)."""
     for name, child in module.named_children():
         if isinstance(child, nn.BatchNorm2d):
-            setattr(module, name, nn.GroupNorm(_gn_groups(child.num_features), child.num_features))
+            setattr(module, name, _gn_replacement(child))
         else:
             _convert_bn_to_gn(child)
     return module
