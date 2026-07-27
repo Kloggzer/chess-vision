@@ -70,7 +70,10 @@ fun preprocess(
     outH: Int,
     mean: List<Float> = IMAGENET_MEAN,
     std: List<Float> = IMAGENET_STD,
-): FloatArray = FloatArray(crops.size * CHANNELS * outW * outH).also { preprocessInto(crops, outW, outH, it, mean, std) }
+    perCrop: Boolean = false,
+): FloatArray =
+    FloatArray(crops.size * CHANNELS * outW * outH)
+        .also { preprocessInto(crops, outW, outH, it, mean, std, perCrop) }
 
 /**
  * [preprocess] into a **caller-owned** buffer — same arithmetic, same layout, no allocation.
@@ -87,6 +90,7 @@ fun preprocessInto(
     out: FloatArray,
     mean: List<Float> = IMAGENET_MEAN,
     std: List<Float> = IMAGENET_STD,
+    perCrop: Boolean = false,
 ) {
     require(mean.size == CHANNELS && std.size == CHANNELS) { "mean/std must have $CHANNELS entries" }
     val plane = outW * outH
@@ -104,6 +108,10 @@ fun preprocessInto(
     val stdR = std[0]
     val stdG = std[1]
     val stdB = std[2]
+    if (perCrop) {
+        standardisePerCrop(crops, outW, outH, out)
+        return
+    }
     for ((index, crop) in crops.withIndex()) {
         require(crop.width == outW && crop.height == outH) {
             "crop $index is ${crop.width}x${crop.height}, expected ${outW}x$outH"
@@ -138,3 +146,59 @@ fun softmax(logProbs: FloatArray): FloatArray {
     val sum = exps.sum()
     return FloatArray(exps.size) { exps[it] / sum }
 }
+
+/**
+ * `(x - mean) / std` computed over EACH crop, channels together — the port of
+ * `torch_data._PerCropStandardize`.
+ *
+ * This is the contrast stretch GroupNorm used to perform inside the network. A black piece on a
+ * DARK square stands 6.0 grey levels off its background against 40.2 on a light square; doing the
+ * normalisation per crop closes that 6.6x gap to 1.5x, and doing it HERE lets the network's
+ * BatchNorms fold into their convolutions (573 graph nodes -> 89).
+ *
+ * `std` is the UNBIASED estimate, because `torch.Tensor.std()` defaults to `correction=1` and the
+ * two sides have to agree to the last bit or the model sees inputs it was never trained on.
+ */
+private fun standardisePerCrop(
+    crops: List<BgrImage>,
+    outW: Int,
+    outH: Int,
+    out: FloatArray,
+) {
+    val plane = outW * outH
+    val n = CHANNELS * plane
+    for ((index, crop) in crops.withIndex()) {
+        require(crop.width == outW && crop.height == outH) {
+            "crop $index is ${crop.width}x${crop.height}, expected ${outW}x$outH"
+        }
+        val data = crop.data
+        val base = index * CHANNELS * plane
+        val greenBase = base + plane
+        val blueBase = base + 2 * plane
+        var sum = 0.0
+        var src = 0
+        for (pixel in 0 until plane) {
+            val blue = (data[src].toInt() and BYTE_MASK) / MAX_U8
+            val green = (data[src + 1].toInt() and BYTE_MASK) / MAX_U8
+            val red = (data[src + 2].toInt() and BYTE_MASK) / MAX_U8
+            out[base + pixel] = red
+            out[greenBase + pixel] = green
+            out[blueBase + pixel] = blue
+            sum += (red + green + blue).toDouble()
+            src += CHANNELS
+        }
+        val mean = sum / n
+        var sq = 0.0
+        for (i in base until base + n) {
+            val d = out[i] - mean
+            sq += d * d
+        }
+        val std = kotlin.math.sqrt(sq / (n - 1)) + PER_CROP_EPS
+        for (i in base until base + n) {
+            out[i] = ((out[i] - mean) / std).toFloat()
+        }
+    }
+}
+
+/** `torch_data._PerCropStandardize`'s epsilon — the two must agree. */
+private const val PER_CROP_EPS: Double = 1e-5

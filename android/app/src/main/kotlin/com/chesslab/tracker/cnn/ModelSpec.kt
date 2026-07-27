@@ -23,6 +23,12 @@ data class ModelSpec(
     val outHeight: Int,
     val mean: List<Float>,
     val std: List<Float>,
+    /**
+     * `normalize.mode` — `"per_crop"` standardises EACH crop by its own statistics and ignores
+     * [mean]/[std] entirely. Serving MUST reproduce what training did; reading it from the run's
+     * own config is what keeps the two from drifting apart silently.
+     */
+    val perCrop: Boolean = false,
 ) {
     companion object {
         /**
@@ -49,6 +55,7 @@ data class ModelSpec(
                 outHeight = outHeight,
                 mean = normalize.floats("mean") ?: IMAGENET_MEAN,
                 std = normalize.floats("std") ?: IMAGENET_STD,
+                perCrop = normalize?.get("mode")?.jsonPrimitive?.content == "per_crop",
             )
         }
 

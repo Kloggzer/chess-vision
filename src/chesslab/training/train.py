@@ -79,6 +79,7 @@ def _release_train_lock() -> None:
 def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               no_amp: bool, seed: int, out: str | None, patience: int,
               num_workers: int | None = None, norm: str | None = None,
+              per_crop: bool = False,
               dataset: str | None = None, resume: str | None = None,
               head: str = "combined", scales: list[int] | None = None,
               erase_p: float | None = None, bg_p: float | None = None,
@@ -218,17 +219,17 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         if rot90:
             print("[aug] on-the-fly 90-degree rotations (dataset built with rotations="
                   f"{list(ds_rot)})")
-    train_tf = build_transform(out_size, train=True, policy=policy, rot90=rot90)
+    train_tf = build_transform(out_size, train=True, policy=policy, rot90=rot90, per_crop=per_crop)
     if packed is not None:
         n, h, w = packed[1]
         print(f"[pack] fast memmap loader: {n} crops, {n * h * w * 3 / 1e9:.1f} GB")
         train_ds = PackedSquareDataset(train_rows, classes, train_tf, packed)
         val_ds = PackedSquareDataset(val_rows, classes,
-                                     build_transform(out_size, train=False, policy=policy), packed)
+                                     build_transform(out_size, train=False, policy=policy, per_crop=per_crop), packed)
     else:
         train_ds = SquareDataset(train_rows, classes, train_tf,
                                  bg_randomize=True, policy=policy)
-        val_ds = SquareDataset(val_rows, classes, build_transform(out_size, train=False, policy=policy))
+        val_ds = SquareDataset(val_rows, classes, build_transform(out_size, train=False, policy=policy, per_crop=per_crop))
 
     # BatchNorm is broken on ROCm-Windows (MIOpen/HIPRTC) -> default GroupNorm there.
     norm_eff = norm or ("groupnorm" if sys.platform.startswith("win") else "batchnorm")
@@ -342,7 +343,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "backbone": backbone, "epochs": epochs, "batch_size": batch_size, "lr": lr,
         "seed": seed, "amp": amp, "norm": norm_eff, "classes": classes, "out_size": list(out_size),
         "dataset": dataset, "resumed_from": resumed_from, "head": head,
-        "normalize": {"mean": list(config.NORMALIZE_MEAN), "std": list(config.NORMALIZE_STD)},
+        # `mode` is what SERVING must reproduce; "per_crop" ignores mean/std entirely.
+        "normalize": {"mean": list(config.NORMALIZE_MEAN), "std": list(config.NORMALIZE_STD),
+                      "mode": "per_crop" if per_crop else "fixed"},
         "variant": variant, "scales": scales,
         "aug": {"erase_p": policy.erase_p, "bg_p": policy.bg_p},
         "loss": loss, "focal_gamma": focal_gamma if loss == "focal" else None,

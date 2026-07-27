@@ -51,7 +51,7 @@ class _RandomRot90:
 
 def build_transform(out_size, train: bool, policy=config.AUGMENT,
                     mean=config.NORMALIZE_MEAN, std=config.NORMALIZE_STD,
-                    rot90: bool = False):
+                    rot90: bool = False, per_crop: bool = False):
     from torchvision import transforms as T
 
     out_w, out_h = out_size
@@ -74,8 +74,28 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
     if train and getattr(policy, "erase_p", 0.0) > 0:
         # Cutout on the [0,1] tensor (before Normalize) so erased pixels = 0, a neutral value.
         ops += [T.RandomErasing(p=policy.erase_p, scale=policy.erase_scale, value=0)]
-    ops += [T.Normalize(mean, std)]
+    # Per-crop standardisation instead of a fixed mean/std, when the run asks for it.
+    #
+    # It is the ONE thing GroupNorm was doing that a foldable BatchNorm cannot: normalising each
+    # crop by its own statistics is a contrast stretch, and the crops that need it are the ones
+    # this dataset is worst at. Measured on a clip: a black piece on a DARK square stands 6.0 grey
+    # levels off its background against 40.2 on a light square — 6.6x less signal. After per-crop
+    # standardisation that gap is 1.5x. Doing it here rather than inside the network costs one
+    # cheap op per crop instead of 484 graph nodes.
+    ops += [_PerCropStandardize()] if per_crop else [T.Normalize(mean, std)]
     return T.Compose(ops)
+
+
+class _PerCropStandardize(torch.nn.Module):
+    """`(x - x.mean()) / x.std()` over the WHOLE crop, channels together.
+
+    Channels together on purpose: standardising each channel separately would flatten the colour
+    relations that separate a black piece from a white one, and the point is to stretch contrast,
+    not to discard chroma.
+    """
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return (x - x.mean()) / (x.std() + 1e-5)
 
 
 def _procedural_bg(h: int, w: int) -> np.ndarray:

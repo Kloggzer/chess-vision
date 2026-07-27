@@ -141,4 +141,42 @@ class PreprocessTest {
     ) {
         assertTrue(abs(expected - actual) <= 1e-6f, "$what: expected $expected, got $actual")
     }
+
+    /**
+     * Per-crop standardisation, against numbers produced by `torch_data._PerCropStandardize`.
+     *
+     * Training and serving must normalise identically or the model sees inputs it never saw; a
+     * golden vector from the Python side is the only way to state that as a fact. Note `std` is the
+     * UNBIASED estimate — `torch.Tensor.std()` defaults to `correction=1`, and using the biased one
+     * shifts every value by ~4% on a 12-element crop.
+     */
+    @Test
+    fun perCropStandardisationMatchesTheTorchTransform() {
+        val crop =
+            BgrImage(
+                width = 2,
+                height = 2,
+                data = byteArrayOf(10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120),
+            )
+        val expected =
+            floatArrayOf(
+                -0.970657f,
+                -0.138665f,
+                0.693326f,
+                1.525318f,
+                -1.247987f,
+                -0.415996f,
+                0.415996f,
+                1.247987f,
+                -1.525318f,
+                -0.693326f,
+                0.138665f,
+                0.970657f,
+            )
+        val out = preprocess(listOf(crop), outW = 2, outH = 2, perCrop = true)
+        assertEquals(expected.size, out.size)
+        for (i in expected.indices) {
+            assertEquals(expected[i], out[i], 1e-5f, "element $i")
+        }
+    }
 }
