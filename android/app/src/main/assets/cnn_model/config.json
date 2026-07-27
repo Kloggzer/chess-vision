@@ -15,7 +15,7 @@
     128
   ],
   "dataset": "occ-real",
-  "resumed_from": "occ-synth-w1",
+  "resumed_from": "occ-act-p1",
   "head": "combined",
   "normalize": {
     "mean": [
@@ -42,10 +42,10 @@
   "loss": "ce",
   "focal_gamma": null,
   "class_weight_override": {
-    "occupied": 2.0
+    "occupied": 3.0
   },
   "effective_class_weights": {
     "empty": 1.4282000064849854,
-    "occupied": 2.0
+    "occupied": 3.0
   }
 }
