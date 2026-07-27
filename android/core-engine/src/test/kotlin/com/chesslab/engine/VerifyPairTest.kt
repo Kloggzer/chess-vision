@@ -18,8 +18,8 @@ class VerifyPairTest {
         val state = pairState()
         val moves = pairMoves(state, listOf("e2e4", "e7e5"))
         val cnn = PairRecovery(matchFen = afterFen(state, moves))
-        val obs = PairObs()
-        repeat(2) { pairTick(state, cnn, moves, obs) }
+        // One glance: the CONFIRM rung concurs with the diff (COMMIT_VOTES).
+        pairTick(state, cnn, moves, PairObs())
         assertEquals(listOf("e4", "e5"), state.history)
         assertNull(state.pending)
         assertEquals(VERIFY_STATE_CONFIRMED, state.verifyState)
@@ -52,7 +52,7 @@ class VerifyPairTest {
                 occupancy = mapOf("e2" to false, "e4" to true, "e7" to false, "e5" to true, "c6" to true),
                 sure = setOf("e2", "e4", "e7", "e5", "c6"),
             )
-        repeat(2) { pairTick(state, cnn, moves, obs) }
+        pairTick(state, cnn, moves, obs)
         assertEquals(listOf("e4", "e5"), state.history)
         assertEquals(VERIFY_STATE_CONFIRMED, state.verifyState)
         assertEquals(DECIDER_CNN_PAIR, state.decisionLog.last().decider)
@@ -88,7 +88,7 @@ class VerifyPairTest {
                 occupancy = mapOf("b1" to false, "c3" to true, "b4" to false, "c4" to false),
                 sure = setOf("b1", "c3", "b4", "c4"),
             )
-        repeat(2) { pairTick(state, cnn, moves, obs) }
+        pairTick(state, cnn, moves, obs)
         assertEquals(DECIDER_CNN_PAIR, state.decisionLog.last().decider)
         assertNull(state.pending)
     }
@@ -131,21 +131,19 @@ class VerifyPairTest {
     }
 
     @Test
-    fun pairTerminalsNeedTwoGlances() {
-        val state = pairState()
+    fun pairTerminalsThatContradictTheDiffNeedTwoGlances() {
+        // The shadow rung DISCARDS the pair, so it still votes on `verifyObsVotes`; only the
+        // confirm rung acts on one glance (COMMIT_VOTES).
+        val state = pairState(cur = grayFrame())
         val moves = pairMoves(state, listOf("e2e4", "e7e5"))
-        val cnn = PairRecovery(conflicts = listOf("c6"))
-        val obs =
-            PairObs(
-                occupancy = mapOf("e2" to false, "e4" to true, "e7" to false, "e5" to true),
-                sure = setOf("e2", "e4", "e7", "e5"),
-            )
-        pairTick(state, cnn, moves, obs)
+        val cnn = PairRecovery(match = true)
+        pairTick(state, cnn, moves, PairObs())
         assertNotNull(state.pending)
         assertEquals(emptyList<String>(), state.history)
         assertTrue(state.note!!.contains("confirming"), state.note!!)
-        pairTick(state, cnn, moves, obs)
-        assertEquals(listOf("e4", "e5"), state.history)
+        pairTick(state, cnn, moves, PairObs())
+        assertNull(state.pending)
+        assertEquals("shadow", state.verifyState)
     }
 
     @Test

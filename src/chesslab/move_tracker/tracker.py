@@ -57,6 +57,16 @@ _ALL = [f"{f}{r}" for r in range(1, 9) for f in _FILES]
 # predates the hand and must not be trusted (fall back to the no-CNN heuristic).
 _OBS_MAX_AGE_S = 3.0
 
+# Observations the CONFIRM rung of the verify ladder needs, where every other rung needs
+# `verify_obs_votes`. That knob is 2 because a single glance must not OVERRULE the diff
+# (g8h6 incident, 2026-07-09). Confirming is the opposite situation: the CNN agrees with a
+# candidate the diff already carried through `confirm_frames`, the ambiguity margin and
+# `commit_ll_floor` — two independent instruments concurring is not the failure mode the
+# vote was built against. And the second glance is expensive: one observation costs a full
+# observer round trip (crop request + inference), ~0.21 s on the SM8650, which is ~40% of a
+# commit's wall-clock latency. Contradiction needs two glances; concurrence needs one.
+_COMMIT_VOTES = 1
+
 
 @dataclass(frozen=True)
 class CnnSnapshot:
@@ -2251,8 +2261,8 @@ class MoveTracker:
                 self.cnn_status, self.cnn_conflicts = status, conflicts or []
                 self.note = note
 
-            def _voted(outcome: str) -> bool:
-                return self._pending_voted(pending, outcome)
+            def _voted(outcome: str, votes: int | None = None) -> bool:
+                return self._pending_voted(pending, outcome, votes)
 
             # 1) Occupancy says the believed board is unchanged → shadow / no real move.
             #    Drop the candidate and pull the reference forward (reliable shadow killer).
@@ -2297,7 +2307,7 @@ class MoveTracker:
             #    unreliable axis) and discards the fiction (origin still occupied conflicts).
             to_arrived_ok = to_arrived_conf and not from_occ_conf
             if from_left_ok or to_arrived_ok or (occ_agree >= recovery.min_agreement and occ_n >= 2):
-                if not _voted("commit"):
+                if not _voted("commit", _COMMIT_VOTES):
                     return
                 _commit("", "confirmed", "ok")
                 return
@@ -2377,20 +2387,21 @@ class MoveTracker:
         """UCIs of a pending candidate — sequence-aware ("ucis") with single-move fallback."""
         return pending.get("ucis") or [pending["uci"]]
 
-    def _pending_voted(self, pending: dict, outcome: str) -> bool:
+    def _pending_voted(self, pending: dict, outcome: str, votes: int | None = None) -> bool:
         """No verify decision on a single CNN glance (g8h6 overrule incident, 2026-07-09:
         one frame's confident-empty misread overruled a real move). The SAME outcome must
-        be seen on `verify_obs_votes` consecutive observations; a different outcome resets
-        the count. With the free-running observer a second glance costs ~one inference.
+        be seen on `votes` consecutive observations (default `verify_obs_votes`); a
+        different outcome resets the count. With the free-running observer a second glance
+        costs ~one inference.
         Must be called under self.lock (mutates `pending`, writes `self.note`)."""
+        need = self.verify_obs_votes if votes is None else votes
         if pending.get("_outcome") == outcome:
             pending["_votes"] = pending.get("_votes", 1) + 1
         else:
             pending["_outcome"], pending["_votes"] = outcome, 1
-        if pending["_votes"] >= self.verify_obs_votes:
+        if pending["_votes"] >= need:
             return True
-        self.note = (f"verify: {outcome}? confirming "
-                     f"({pending['_votes']}/{self.verify_obs_votes})")
+        self.note = f"verify: {outcome}? confirming ({pending['_votes']}/{need})"
         return False
 
     def _verify_pair_tick(self, pending: dict, moves: list[chess.Move], board_snap: chess.Board,
@@ -2469,7 +2480,7 @@ class MoveTracker:
                 self.note = "Shadow/no move (CNN: board unchanged)"
             elif ((after["match"] and n_conf >= recovery.min_confident_board)
                   or pair_agree >= recovery.min_agreement):
-                if not self._pending_voted(pending, "commit"):
+                if not self._pending_voted(pending, "commit", _COMMIT_VOTES):
                     return
                 _commit_pair("cnn_pair")
             elif pending["frames"] >= self.verify_window:

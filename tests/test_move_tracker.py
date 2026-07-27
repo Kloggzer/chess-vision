@@ -1005,6 +1005,26 @@ class TestCnnVerify:
         assert mt._verify_state == "confirmed"
         assert mt.recovered_last is False
 
+    def test_confirm_acts_on_one_glance_contradiction_still_needs_two(self, monkeypatch):
+        """Commit latency: the CONFIRM rung CONCURS with a candidate the diff already carried
+        through `confirm_frames`, the ambiguity margin and `commit_ll_floor`, so it acts on the
+        first observation. Every rung that CONTRADICTS the diff (shadow / ghost / overrule) still
+        needs `verify_obs_votes` — that is the incident the vote was built for. One observation is
+        a full observer round trip (~0.21 s on the SM8650), so this is ~40% of a commit's wait."""
+        mt = _pending_tracker(monkeypatch, match=False, occ_agree=1.0, occ_n=2)
+        mt._verify_tick(_mk_snap(mt))
+        assert mt.history == ["e4"]                       # committed on ONE glance
+        assert mt._pending is None
+
+        ghost = _pending_tracker(monkeypatch, match=False, occ_agree=0.0,
+                                 occ={"e4": False, "e2": True}, conf={"e4": True, "e2": True})
+        ghost._verify_tick(_mk_snap(ghost))
+        assert ghost._pending is not None                 # contradiction: still holding
+        assert ghost.history == []
+        ghost._verify_tick(_mk_snap(ghost))
+        assert ghost._pending is None
+        assert ghost._verify_state == "ghost"
+
     def test_hard_veto_rejects_ghost_to_still_empty(self, monkeypatch):
         """Hand-Wisch-Geist: NICHTS bewegt — Start e2 noch BELEGT und Ziel e4 noch LEER
         → verworfen. (Ziel-leer allein reicht NICHT: bei geräumtem Start committet es, sonst

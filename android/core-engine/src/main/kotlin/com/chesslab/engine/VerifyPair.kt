@@ -69,7 +69,7 @@ internal object VerifyPair {
         return when {
             before.match && nConf >= cnn.minConfidentBoard -> state.acceptShadow(pend)
             (after.match && nConf >= cnn.minConfidentBoard) || pairAgree >= cnn.minAgreement ->
-                if (state.pendingVoted(OUTCOME_COMMIT, state.config.verifyObsVotes)) {
+                if (state.pendingVoted(OUTCOME_COMMIT, COMMIT_VOTES)) {
                     state.commitPair(moves, pend, DECIDER_CNN_PAIR)
                 } else {
                     emptyList()

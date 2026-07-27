@@ -113,7 +113,8 @@ private fun EngineState.singleTick(
 
 /**
  * The five rungs, in order. Rungs 1–4 are gated by [pendingVoted]; the window end is not — the
- * window itself is the temporal damping there.
+ * window itself is the temporal damping there. Rung 2 votes on [COMMIT_VOTES], every other rung on
+ * `verifyObsVotes`: only the rungs that CONTRADICT the diff need a second glance.
  */
 private fun EngineState.ladder(
     cnn: CnnEvaluator,
@@ -134,7 +135,7 @@ private fun EngineState.ladder(
         // 2) Positive confirmation on the reliable axes, checked BEFORE the veto so a genuine move
         //    is not killed by a mis-read destination.
         sig.commits(cnn.minAgreement, pend.uci) ->
-            if (pendingVoted(OUTCOME_COMMIT, votes)) commitTerminal(pend) else emptyList()
+            if (pendingVoted(OUTCOME_COMMIT, COMMIT_VOTES)) commitTerminal(pend) else emptyList()
 
         // 3) Hard veto: destination confidently EMPTY while the origin did NOT clearly empty →
         //    nothing moved at all (the hand-wave ghost). `!fromLeftConf` protects castling, whose
