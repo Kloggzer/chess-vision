@@ -1441,8 +1441,8 @@ across every run in this section, so the latency column needs no separate experi
 
 | # | configuration | diff-path latency (30 fps, measured) | + CNN verify, 1 vote | what it gives up | evidence |
 |---|---|---|---|---|---|
-| 0 | shipped: `hold 0.40`, `max_changed 6`, `cnn_verify` on | 0.47 | **~0.68** | — | clips 20/20 |
-| 1 | `hold 0.34` | 0.41 | ~0.62 | nothing the suite can see | clips 20/20; 0.32 loses `blender-scholars` |
+| 0 | was shipped: `hold 0.40`, `max_changed 6`, `cnn_verify` on | 0.47 | **~0.68** | — | clips 20/20 |
+| 1 | **NOW SHIPPED** (`5f8faaa`): `hold 0.34` | 0.41 | ~0.62 | nothing any instrument sees | clips 21/21; 0.32 loses `blender-scholars` |
 | 2 | `hold 0.30` + `max_changed 7` | 0.37 | ~0.58 | occlusion gate widened 17 % | clips 20/20 |
 | 3 | `hold 0.15` + `max_changed 7` | **0.22** | ~0.43 | same, plus 2 quiet frames of settling | clips 20/20 |
 | 4 | rung 3 with `cnn_verify` **off** | **0.22** | **0.22** | the pre-commit ghost filter, entirely | clips 20/20 (the suite runs CNN-less anyway) |
@@ -1501,7 +1501,7 @@ shipped on the strength of 20/20 on 12 fps renders alone. Two cheap instruments 
 mispredicted the clip harness this week (the linear probe at 0.994, the `occ-real` val split);
 this would be the third.
 
-**Recommendation, stated so the user can take the trade knowingly:** rung 1 (`hold 0.34`) is free
+**Decided — see section 11.** (Original recommendation, kept for the reasoning:) rung 1 (`hold 0.34`) is free
 by every instrument available. Rungs 2-4 are worth taking **only** once there is 30 fps material
 with ground truth to measure them on — which section 8 starts building. Rung 5 (`cnn_verify` off)
 is available today at the shipped thresholds and needs no code change at all.
@@ -1630,3 +1630,125 @@ inference — 146 ms on the device. Against a 3 s threshold that is 5 % and has 
 mattered; against any tighter time-based rule (such as the seq relaxation above) it would be a
 silent 1:1 divergence. **The parity fixtures cannot see it** — they run `cnn_run=None`. Kotlin's
 meaning is the correct one. Not changed: fixing either side moves behaviour with no gate to catch it.
+
+### 11. Decision — "best detection over speed, but speed matters"
+
+The user's ordering resolves the ladder in section 7.1. Recorded here so it is not re-opened as
+an open option.
+
+**Rung 1 SHIPPED: `motion_hold_s` 0.40 -> 0.34** (commit `5f8faaa`). Diff path 0.47 -> 0.41 s.
+It is the only rung that buys speed with nothing: the regenerated parity fixtures differ in
+exactly one key — `effectiveConfig.motionHoldS` — in each of the 18 `meta.json`, and **not one
+byte of frame data moved**. At 12 fps both 0.40 and 0.34 round to the same 5 quiet frames, so
+the clips genuinely cannot see the change. The flip side of that, stated plainly: they also
+cannot vouch for it at 30 fps; the 30 fps evidence is the deterministic sweep of section 7.
+
+**Rungs 2-4 DECLINED**, for two independent reasons, and both matter:
+
+1. **They buy speed with detection quality.** Rungs 2 and 3 widen the occlusion gate by 17 %
+   (`max_changed` 6 -> 7) — the gate whose whole job is to refuse a frame that has changed too
+   much to be one move, and phase 00's phantom `Kd2` was assembled from exactly 6 changed
+   squares, five of them a resting hand. Rung 4 gives up the pre-commit ghost filter outright.
+   The user's ordering forbids that trade regardless of the numbers.
+2. **The cost could not be measured honestly today anyway.** On the only real 30 fps material
+   that exists, the committed move list is a chaotic function of parameters that are not even
+   tracker knobs: 0.5 % of board inset flips whole plies (0.040 right, 0.045 wrong, 0.050
+   right, 0.060 wrong on `vid1244`). `max_changed 7` did change the committed game on
+   `vid2334`, and that observation cannot be attributed to `max_changed` rather than to the
+   same chaos. A 20/20 on 12 fps renders is not enough to widen an occlusion gate.
+
+**Option (b), commit-on-diff with a post-hoc CNN veto, DECLINED.** A wrong move that is
+*spoken aloud* (`speech/MoveAnnouncer.kt`) before it is withdrawn is a detection-quality
+regression by any reading, and detection now ranks first. The full cost list stays in section 9
+— it is the largest single lever left (~0.68 -> 0.47 s) and the decision should be revisited if
+an instrument ever exists that can measure it. Today none does: fixtures and `pytest -m clips`
+both run `cnn_run=None`, and `CnnClipSimulationTest`'s 18 clips are the same 12 fps renders.
+
+**Where that leaves the latency**, all figures derived, none measured on hardware (no device
+was attached at any point in this session):
+
+```
+diff path        0.41 s   (measured deterministically, 30 fps)
++ CNN verify     ~0.21 s  (one observation round trip, derived from the code path)
+= commit         ~0.62 s
+```
+
+Down from ~0.85-1.05 s at the start of the session: ~0.21 s from the confirm-rung vote
+(section 4) and 0.06 s from rung 1.
+
+### 12. The margin — two instruments, and a stale value on the phone
+
+Detection now ranks first, and this outranks every remaining latency item.
+
+**12.1 The shipped default is defensible — two independent instruments agree.**
+`config.DEFAULT_MARKER_MARGIN = 0.045` was set from a grid-line-alignment sweep over four
+recordings (two phone, two rendered), optimum 0.040-0.050. Section 7.2's sweep is a completely
+different instrument — committed plies against a played game, on a recording that was not in
+that four — and it puts the good band in the same place and rejects the same value:
+
+| | grid-line alignment | committed plies (`vid1244`) |
+|---|---|---|
+| 0.030-0.035 | outside the optimum | wrong (3 of 5 plies) |
+| **0.040-0.050** | **optimum** | **0.040 and 0.050 reproduce the played game exactly** |
+| 0.060 | over-indented ("the previous 0.06 over-indented every profile made from it") | wrong (3 of 5 plies) |
+
+They **disagree on one point**: the alignment optimum is 0.045, and the ply count at exactly
+0.045 is wrong while both neighbours are right. Given that the ply count alternates across the
+whole sweep, that is far more likely to be this instrument's chaos than evidence against the
+default. **The default stands, and now has a second, independent justification. Nothing was
+changed.**
+
+**12.2 The phone is running the superseded value, and recalibrating will not heal it.**
+The stored device profile carries `margin 0.06` — the OLD default, from before it was measured
+down to 0.045. Both instruments say 0.06 is wrong for that board. And it cannot fix itself:
+
+```kotlin
+// CalibrationStore.saveRecalibrated, geometry/CalibrationStore.kt:171
+margin = marginOverride ?: existing.margin,
+```
+
+An existing profile carries its own margin forward through every recalibration; `marginOverride`
+is non-null only when the user has TOUCHED the sliders in this session
+(`ui/calibration/CalibrationViewModel.kt:167`, `if (marginTouched)`). So "recalibrate the board"
+does not adopt 0.045 — only moving the per-corner sliders does.
+
+That carry-forward is the RIGHT design (per-corner outset is measured geometry; re-detecting the
+corners is no reason to discard it). The gap is that **nothing ever measures it**, so a stale
+value and a carefully tuned one are indistinguishable. Nothing in `geometry/**` was changed —
+it is outside this session's file scope, and this is a device-side action, not a code fix.
+
+**Action for the user, and it is worth more than any threshold in this document:** open the
+calibration screen, move the per-corner margin sliders (which is what arms `marginTouched`), and
+set them to ~0.045. On `vid1244` that is the difference between 3 committed plies and the whole
+game.
+
+**12.3 Automatic margin fit — SCOPED, NOT BUILT.**
+The per-corner margins have been adjustable since `71cc496` but are set by eye, and section 7.2
+shows a 0.5 % error is worth whole plies. An automatic fit would remove the most sensitive free
+parameter in the system from human guessing.
+
+*Objective, already in the tree:* `MoveTracker._grid_line_coverage` scores how well the 14
+interior grid lines land where the warp says they should, and `test_grid_gate_needs_the_marker_margin`
+already demonstrates it as a margin discriminator (1.00 at the true margin, below the 0.5 gate at
+margin 0). The fit is: on a clear board, sweep the inset, warp, score, take the maximum.
+
+*Shape:* a coarse-to-fine scan (0.00-0.10 in 0.005, then refine) over a single clear frame, four
+corners fitted independently by scoring only the two board edges each corner controls. ~40 warps
+of a 640x640 plane per corner — tens of milliseconds, not a perceptible pause.
+
+*What it costs:*
+- **A new geometry function plus its Kotlin twin**, in `calibration.py` and
+  `:core-geometry`/`geometry/**` — neither is in this session's file scope.
+- **A UI decision.** It must OFFER a value, not silently apply one: a fit run against a board
+  that is not actually clear would write bad geometry with the same confidence as a good fit,
+  and geometry errors are silent by nature (that is what made this whole class of bug expensive).
+  So: a "measure" button, the fitted number shown next to the current one, the user accepts.
+- **A clear-board precondition** with a real check. The grid-line score is exactly the wrong
+  instrument when something is on the board — a hand hides lines and the optimum moves.
+- **A gate.** The honest one is the ply-count sweep on real recordings, which section 7.2 has
+  just shown to be chaotic; so the realistic acceptance is "the fit reproduces the known-good
+  0.040-0.050 band on the four recordings the current default came from", not "it improves the
+  committed move list".
+
+Not started. It is the highest-value item left, and it is a geometry/UI change rather than a
+tracker change, so it belongs to whoever owns `geometry/**` and the calibration screen.
