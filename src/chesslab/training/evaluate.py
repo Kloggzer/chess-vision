@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .. import config
 from .data import filter_rows_by_split, load_manifest, load_split
+from .model import stock_batchnorm
 
 
 def load_run(run_dir: Path):
@@ -135,6 +136,10 @@ def run_export(run: str, fmt: str = "torchscript") -> int:
         return 1
     model, cfg = _load_run(run_dir)
     model.eval()
+    # The primitive BatchNorm exists only so training can avoid MIOpen's broken kernel; the
+    # exporter cannot fold its arithmetic into the preceding convolution, and unfolded it ships as
+    # dozens of loose nodes per norm. The stock module holds the identical weights.
+    stock_batchnorm(model)
     classes = cfg["classes"]
     out_w, out_h = cfg["out_size"]
     # Batch 2, NOT 1: tracing with batch 1 lets the exporter constant-fold the batch

@@ -356,3 +356,101 @@ def test_occupancy_breakdown_on_two_classes():
     assert bd["occ_acc"] == 0.75
     rows = [_crop("s0", "0", sq, "x") for sq in ("a1", "a2", "a3", "a4")]
     assert checkpoint_score(rows, classes, trues, preds)[0] == 0.0
+
+
+# =======================================================================================
+# PrimitiveBatchNorm2d — training around MIOpen, folding at export
+# =======================================================================================
+
+def test_primitive_batchnorm_matches_the_stock_module_in_eval():
+    """The swap at export is only legitimate if the two are the SAME function, not merely similar.
+
+    Training runs through the primitive because ROCm-Windows cannot compile MIOpen's BatchNorm
+    training kernel; the export puts the stock module back so it folds into the convolution. That
+    is a re-wrapping, and this is what makes it one.
+    """
+    import torch
+    import torch.nn as nn
+
+    from chesslab.training.model import PrimitiveBatchNorm2d
+
+    stock, primitive = nn.BatchNorm2d(16), PrimitiveBatchNorm2d(16)
+    with torch.no_grad():
+        stock.weight.uniform_(0.5, 1.5)
+        stock.bias.uniform_(-1.0, 1.0)
+        stock.running_mean.uniform_(-2.0, 2.0)
+        stock.running_var.uniform_(0.5, 3.0)
+    primitive.load_state_dict(stock.state_dict())
+    stock.eval()
+    primitive.eval()
+    x = torch.randn(4, 16, 8, 8)
+    assert torch.allclose(stock(x), primitive(x), atol=1e-6)
+
+
+def test_primitive_batchnorm_tracks_the_same_running_stats():
+    """`running_var` is the UNBIASED estimate — getting that wrong shifts every eval-mode output."""
+    import torch
+    import torch.nn as nn
+
+    from chesslab.training.model import PrimitiveBatchNorm2d
+
+    stock, primitive = nn.BatchNorm2d(8), PrimitiveBatchNorm2d(8)
+    primitive.load_state_dict(stock.state_dict())
+    stock.train()
+    primitive.train()
+    torch.manual_seed(0)
+    for _ in range(3):
+        x = torch.randn(6, 8, 5, 5)
+        stock(x)
+        primitive(x)
+    assert torch.allclose(stock.running_mean, primitive.running_mean, atol=1e-6)
+    assert torch.allclose(stock.running_var, primitive.running_var, atol=1e-5)
+
+
+def test_stock_batchnorm_restores_the_module_without_touching_activations():
+    """The conversion must not eat the ReLU — that is exactly how the shipped model lost all 30."""
+    import torch.nn as nn
+
+    from chesslab.training.model import PrimitiveBatchNorm2d, stock_batchnorm
+
+    net = nn.Sequential(nn.Conv2d(3, 8, 3), nn.Sequential(PrimitiveBatchNorm2d(8), nn.ReLU()))
+    stock_batchnorm(net)
+    kinds = [type(m).__name__ for m in net.modules()]
+    assert "PrimitiveBatchNorm2d" not in kinds
+    assert kinds.count("BatchNorm2d") == 1
+    assert kinds.count("ReLU") == 1, "the activation must survive the swap"
+
+
+def test_a_batchnorm_backbone_keeps_its_activations():
+    """Guards the same trap on the real backbone: the primitive conversion is not a norm deletion."""
+    import torch.nn as nn
+
+    from chesslab.training.model import build_model
+
+    m = build_model(backbone="mobilenetv4_conv_small_035", num_classes=2, norm="batchnorm",
+                    head="combined")
+    relus = sum(1 for mod in m.modules() if isinstance(mod, nn.ReLU))
+    assert relus > 0, "a batchnorm backbone must keep its nonlinearities"
+
+
+@pytest.mark.parametrize("head", ["combined", "twostage"])
+def test_every_backbone_path_converts_batchnorm_when_the_kernel_is_broken(monkeypatch, head):
+    """One construction branch per head — the `combined` one was missed and only the run crashed.
+
+    `build_model` reaches the timm backbone through a different branch per head, and each has to
+    apply the conversion. Missing one is invisible until training dies inside MIOpen, which is a
+    two-hour feedback loop; this is a two-second one.
+    """
+    import torch.nn as nn
+
+    from chesslab import config
+    from chesslab.training import model as M
+
+    monkeypatch.setattr(M, "_BN_KERNEL_OK", False)
+    m = M.build_model(backbone="mobilenetv4_conv_small_035", num_classes=2, norm="batchnorm",
+                      head=head, classes=["empty", "occupied"] if head != "combined" else config.CLASSES)
+    stock = [mod for mod in m.modules()
+             if type(mod) is nn.BatchNorm2d]                      # exact type, not the subclass
+    assert not stock, f"{len(stock)} stock BatchNorm2d survived — that branch will crash on ROCm"
+    assert any(isinstance(mod, M.PrimitiveBatchNorm2d) for mod in m.modules())
+    assert any(isinstance(mod, nn.ReLU) for mod in m.modules()), "and the activations must survive"
