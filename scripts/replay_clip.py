@@ -51,12 +51,20 @@ def replay(clip: str, profile: str = "phone", cnn_run: str | None = None,
            start_fen: str | None = None, max_wall_s: float = 900.0,
            tracker_kwargs: dict | None = None, corners: list | None = None,
            frame_size: list | tuple | None = None, board_size: int | None = None,
-           promotion: str = "q") -> dict:
+           promotion: str = "q", margin: float = 0.0) -> dict:
     """Clip headless durch den MoveTracker spielen. Gibt {history, fen, note, events} zurück.
     Auch vom pytest-Harness (`tests/test_clips.py`, Marker `clips`) genutzt.
     `tracker_kwargs` überschreibt einzelne MoveTracker-Parameter (Schwellen-Tuning).
     `promotion` (q/r/b/n): ohne CNN pausiert der Tracker bei Umwandlungen auf die
-    Figurenwahl; headless wird sie automatisch mit dieser Figur (Default Dame) beantwortet."""
+    Figurenwahl; headless wird sie automatisch mit dieser Figur (Default Dame) beantwortet.
+
+    `margin` is the fraction by which `corners` lie OUTSIDE the playing field — 0.0 when they
+    already ARE the field corners (the committed Blender renders), the profile's value
+    (typically 0.06) for anything detected from ArUco, whose markers are printed in the label
+    border. Replaying real footage at 0.0 oversizes the board by 6-8%, the grid lines miss
+    `_grid_line_coverage`'s band and the tracker parks in `occluded` forever — the same defect
+    `emit_parity_fixtures.py` had until commit 721901a. Every live path has always applied it
+    (`calibration.py`, Kotlin `Warp.kt`)."""
     from chesslab.move_tracker import tracker as trk
 
     cap = VideoCap(clip, realtime=realtime)
@@ -84,8 +92,8 @@ def replay(clip: str, profile: str = "phone", cnn_run: str | None = None,
         temp_profile = profile_path(profile)
         CalibrationProfile(
             profile=profile, camera_index=-1, frame_size=size, board_size=target,
-            image_corners=corners, homography=compute_homography(corners, target, 0.0),
-            white_pov=True, crop=CropParams.default(target), margin=0.0, source=clip,
+            image_corners=corners, homography=compute_homography(corners, target, margin),
+            white_pov=True, crop=CropParams.default(target), margin=margin, source=clip,
         ).save(temp_profile)
         live_align = False
 
