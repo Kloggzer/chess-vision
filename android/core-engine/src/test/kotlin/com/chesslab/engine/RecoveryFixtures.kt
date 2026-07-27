@@ -67,6 +67,10 @@ internal class RecoveryEvaluator(
 ) : CnnEvaluator {
     var inconclusive: Boolean = false
 
+    /** What `resync_check` itself names — the occupancy arm must prefer THIS over the deep search. */
+    var resyncMove: String? = null
+    var resyncAgreement: Double = 0.0
+
     override val confThr: Double = 0.85
 
     override val minAgreement: Double = 0.97
@@ -82,7 +86,7 @@ internal class RecoveryEvaluator(
     override fun resyncCheck(
         boardFen: String,
         obs: CnnObservation,
-    ): ResyncResult = ResyncResult(occupancyMatch, conflicts, 0)
+    ): ResyncResult = ResyncResult(occupancyMatch, conflicts, 0, resyncMove, resyncAgreement)
 
     override fun boardMatchesIdentity(
         boardFen: String,

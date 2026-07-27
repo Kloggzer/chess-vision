@@ -229,4 +229,40 @@ class CnnTickTest {
         assertNull(state.refFen)
         assertEquals(0, state.grayBuf.size)
     }
+
+    /**
+     * D04c-2. In occupancy-only mode Python takes the move `resync_check` NAMES
+     * (`tracker.py:2021-2023`) and reaches for the deep beam search only when resync named none.
+     * The port ran the deep search on every non-match, so where Python commits one ply the phone
+     * committed up to `recoveryMaxPlies`.
+     *
+     * The divergence was accepted as "unreachable with the bundled 14-class model". Shipping a
+     * 2-class model made this the ONLY reachable arm, and 69 recorded plies on the device then
+     * contained two bursts of 3 and 4.
+     */
+    @Test
+    fun theOccupancyArmPrefersTheMoveResyncNamesOverTheDeepSearch() {
+        val state = recoveryState(confirmFrames = 1)
+        val cnn =
+            // `moves` is what the deep search WOULD return if it were consulted — three plies.
+            RecoveryEvaluator(moves = listOf("g1f3", "b8c6", "e2e4"), agreement = 0.98).apply {
+                resyncMove = "e2e4"
+                resyncAgreement = 0.99
+            }
+        val obs = obsForBoard(state.board, emptyMap(), identity = false)
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 1, gray = grayFrame()))
+        assertEquals(listOf("e4"), state.history, "resync named one move; the deep search must not run")
+        assertEquals(0.99, state.cnnAgreement, 1e-9, "and its agreement is the one reported")
+    }
+
+    /** With no move from resync and no match, the deep search is still the fallback Python uses. */
+    @Test
+    fun theOccupancyArmStillFallsBackToTheDeepSearch() {
+        val state = recoveryState(confirmFrames = 1)
+        val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.98)
+        val obs = obsForBoard(state.board, emptyMap(), identity = false)
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 1, gray = grayFrame()))
+        assertEquals(listOf("e4"), state.history)
+        assertEquals(0.98, state.cnnAgreement, 1e-9)
+    }
 }
