@@ -205,6 +205,46 @@ class PreprocessTest {
         assertRepr(InputRepr.SOBEL, SOBEL_GOLDEN)
     }
 
+    /**
+     * The same transform at the size the app actually runs, 128x128.
+     *
+     * The 4x4 goldens above cannot see an index bug that only appears at a real stride — the
+     * border arithmetic is written in terms of `w` and `h`, and a 4-wide crop is small enough that
+     * a wrong row offset can still land inside the crop. A sum over all 32768 floats plus nine
+     * probes (both plane starts, both plane ends, an interior point) pins the layout as well as
+     * the arithmetic without carrying 32768 literals.
+     */
+    @Test
+    fun grayPlusSobelMatchesTheTorchTransformAtTheLiveCropSize() {
+        val data = ByteArray(SIDE * SIDE * 3)
+        for (y in 0 until SIDE) {
+            for (x in 0 until SIDE) {
+                val p = (y * SIDE + x) * 3
+                data[p] = ((x * 7 + y * 13) % 251).toByte()
+                data[p + 1] = ((x * 29 + y * 3) % 241).toByte()
+                data[p + 2] = ((x * 5 + y * 61) % 239).toByte()
+            }
+        }
+        val out = preprocess(listOf(BgrImage(SIDE, SIDE, data)), SIDE, SIDE, repr = InputRepr.GRAY_SOBEL)
+        assertEquals(2 * SIDE * SIDE, out.size)
+        var sum = 0.0
+        for (v in out) sum += v
+        assertEquals(31109.4727, sum, 0.05, "sum over the whole 2-channel stack")
+        val probes =
+            mapOf(
+                0 to -1.986726f,
+                1 to -1.651553f,
+                127 to -0.210515f,
+                128 to -1.613968f,
+                16383 to 0.279438f,
+                16384 to -0.704316f,
+                16385 to 0.447979f,
+                20000 to 1.297973f,
+                32767 to -0.704316f,
+            )
+        for ((i, expected) in probes) assertEquals(expected, out[i], 1e-5f, "element $i")
+    }
+
     @Test
     fun `the representation decides the buffer width`() {
         val crop = BgrImage(4, 4, DISTINCT_CROP)
