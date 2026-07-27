@@ -97,21 +97,21 @@ def _calibration_rows(cfg: dict, limit: int) -> list[dict]:
     return picked
 
 
-def _make_reader(rows: list[dict], input_name: str, out_size, mean, std):
+def _make_reader(rows: list[dict], input_name: str, cfg: dict):
     """A rewindable CalibrationDataReader that yields one preprocessed crop at a time,
-    matching OnnxClassifier's on-device preprocessing exactly (RGB, /255, ImageNet
-    normalize, NCHW)."""
+    matching the on-device preprocessing exactly — `eval_transform_for` IS what serving
+    reproduces, including the run's input representation."""
     from onnxruntime.quantization import CalibrationDataReader
     from PIL import Image
 
-    from .torch_data import build_transform
+    from .torch_data import eval_transform_for
 
-    tf = build_transform(out_size, train=False, mean=mean, std=std)
+    tf = eval_transform_for(cfg)
     samples: list[dict] = []
     for r in rows:
         with Image.open(r["path"]) as im:
             img = im.convert("RGB")
-        x = tf(img).unsqueeze(0).numpy().astype(np.float32)  # (1, 3, H, W)
+        x = tf(img).unsqueeze(0).numpy().astype(np.float32)  # (1, C, H, W)
         samples.append({input_name: x})
 
     class _CropReader(CalibrationDataReader):
@@ -168,10 +168,6 @@ def run_quantize(run: str, limit: int = 128, activation_type: str = "quint16",
         return 1
 
     cfg = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
-    out_size = tuple(cfg["out_size"])
-    norm = cfg.get("normalize", {})
-    mean = tuple(norm.get("mean", config.NORMALIZE_MEAN))
-    std = tuple(norm.get("std", config.NORMALIZE_STD))
 
     import onnxruntime as ort
     from onnxruntime.quantization import quantize
@@ -186,7 +182,7 @@ def run_quantize(run: str, limit: int = 128, activation_type: str = "quint16",
     if not rows:
         print("[FAIL] no calibration crops found (empty train/val split).")
         return 1
-    reader, samples = _make_reader(rows, input_name, out_size, mean, std)
+    reader, samples = _make_reader(rows, input_name, cfg)
 
     prep = run_dir / "model.prep.onnx"
     out = run_dir / "model.qnn.onnx"

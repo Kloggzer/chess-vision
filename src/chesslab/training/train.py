@@ -79,7 +79,7 @@ def _release_train_lock() -> None:
 def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               no_amp: bool, seed: int, out: str | None, patience: int,
               num_workers: int | None = None, norm: str | None = None,
-              per_crop: bool = False,
+              per_crop: bool = False, input_repr: str = "rgb",
               dataset: str | None = None, resume: str | None = None,
               head: str = "combined", scales: list[int] | None = None,
               erase_p: float | None = None, bg_p: float | None = None,
@@ -117,11 +117,21 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     from .engine import evaluate_dataset, get_device
     from .model import build_model
     from .torch_data import (
+        INPUT_REPRS,
         PackedSquareDataset,
         SquareDataset,
         build_transform,
         class_weights_tensor,
     )
+
+    if input_repr not in INPUT_REPRS:
+        print(f"[FAIL] unknown --input-repr {input_repr!r} (one of {sorted(INPUT_REPRS)}).")
+        return 1
+    if per_crop and input_repr != "rgb":
+        print("[FAIL] --crop-norm per-crop and --input-repr are two different answers to the same "
+              "question (how to make a dark square legible) — pick one.")
+        return 1
+    in_chans = INPUT_REPRS[input_repr]
 
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -219,24 +229,26 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         if rot90:
             print("[aug] on-the-fly 90-degree rotations (dataset built with rotations="
                   f"{list(ds_rot)})")
-    train_tf = build_transform(out_size, train=True, policy=policy, rot90=rot90, per_crop=per_crop)
+    tf_kw = {"policy": policy, "per_crop": per_crop, "input_repr": input_repr}
+    train_tf = build_transform(out_size, train=True, rot90=rot90, **tf_kw)
+    val_tf = build_transform(out_size, train=False, **tf_kw)
     if packed is not None:
         n, h, w = packed[1]
         print(f"[pack] fast memmap loader: {n} crops, {n * h * w * 3 / 1e9:.1f} GB")
         train_ds = PackedSquareDataset(train_rows, classes, train_tf, packed)
-        val_ds = PackedSquareDataset(val_rows, classes,
-                                     build_transform(out_size, train=False, policy=policy, per_crop=per_crop), packed)
+        val_ds = PackedSquareDataset(val_rows, classes, val_tf, packed)
     else:
         train_ds = SquareDataset(train_rows, classes, train_tf,
                                  bg_randomize=True, policy=policy)
-        val_ds = SquareDataset(val_rows, classes, build_transform(out_size, train=False, policy=policy, per_crop=per_crop))
+        val_ds = SquareDataset(val_rows, classes, val_tf)
 
     # BatchNorm is broken on ROCm-Windows (MIOpen/HIPRTC) -> default GroupNorm there.
     norm_eff = norm or ("groupnorm" if sys.platform.startswith("win") else "batchnorm")
     device = get_device(require_gpu=True)
     model = build_model(backbone, len(classes), pretrained=(backbone != "smallcnn"), norm=norm_eff,
-                        head=head, classes=classes).to(device)
-    print(f"[OK] Backbone {backbone}, norm={norm_eff}, head={head}")
+                        head=head, classes=classes, in_chans=in_chans).to(device)
+    print(f"[OK] Backbone {backbone}, norm={norm_eff}, head={head}, "
+          f"input_repr={input_repr} ({in_chans}ch)")
 
         # Continue training (warm start): load weights from a previous run. Matching tensors
     # are adopted, non-matching ones (e.g. the classification head with changed class count,
@@ -343,9 +355,12 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "backbone": backbone, "epochs": epochs, "batch_size": batch_size, "lr": lr,
         "seed": seed, "amp": amp, "norm": norm_eff, "classes": classes, "out_size": list(out_size),
         "dataset": dataset, "resumed_from": resumed_from, "head": head,
-        # `mode` is what SERVING must reproduce; "per_crop" ignores mean/std entirely.
+        # What SERVING must reproduce. `normalize.mode` "per_crop" ignores mean/std entirely, and
+        # `input_repr` decides both the channel stack AND the stem's fan-in — a consumer that gets
+        # either wrong feeds the model something it has never seen, silently.
         "normalize": {"mean": list(config.NORMALIZE_MEAN), "std": list(config.NORMALIZE_STD),
                       "mode": "per_crop" if per_crop else "fixed"},
+        "input_repr": input_repr, "in_chans": in_chans,
         "variant": variant, "scales": scales,
         "aug": {"erase_p": policy.erase_p, "bg_p": policy.bg_p},
         "loss": loss, "focal_gamma": focal_gamma if loss == "focal" else None,

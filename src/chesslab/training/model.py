@@ -184,7 +184,7 @@ def _resolve_timm_backbone(backbone: str) -> str:
     return _TIMM_BACKBONE_ALIASES.get(backbone, backbone)
 
 
-def _timm_feature_dim(model: nn.Module) -> int:
+def _timm_feature_dim(model: nn.Module, in_chans: int = 3) -> int:
     """Infer the real flattened feature width returned by a timm model.
 
     Some timm MobileNetV4 variants report ``num_features`` before the conv head
@@ -194,13 +194,14 @@ def _timm_feature_dim(model: nn.Module) -> int:
     was_training = model.training
     model.eval()
     with torch.no_grad():
-        feat = model(torch.zeros(1, 3, 128, 128))
+        feat = model(torch.zeros(1, in_chans, 128, 128))
     if was_training:
         model.train()
     return int(feat.flatten(1).shape[1])
 
 
-def _create_timm_model(backbone: str, pretrained: bool, num_classes: int) -> nn.Module:
+def _create_timm_model(backbone: str, pretrained: bool, num_classes: int,
+                       in_chans: int = 3) -> nn.Module:
     import timm
 
     resolved = _resolve_timm_backbone(backbone)
@@ -212,7 +213,12 @@ def _create_timm_model(backbone: str, pretrained: bool, num_classes: int) -> nn.
         # raising. Random init is fine here: the synth curriculum IS the pretraining.
         print(f"[INFO] '{resolved}' has no pretrained weights — random init.")
         pretrained = False
-    return timm.create_model(resolved, pretrained=pretrained, num_classes=num_classes)
+    # `in_chans` is timm's own knob: it rebuilds the stem for the channel count and, with
+    # pretrained weights, sums/repeats the stem kernel across the new fan-in. A run that feeds a
+    # non-RGB representation (`--input-repr`) records the name in its config.json, and every
+    # consumer derives the count from it — the stem is the ONE place a mismatch is silent.
+    return timm.create_model(resolved, pretrained=pretrained, num_classes=num_classes,
+                             in_chans=in_chans)
 
 
 class SmallCNN(nn.Module):
@@ -321,10 +327,10 @@ class DecoupledModel(nn.Module):
     log-probs), so everything downstream (loss/board-acc/eval/inference) remains unchanged."""
 
     def __init__(self, backbone: str, classes: list[str], pretrained: bool, norm: str,
-                 head: str = "factored") -> None:
+                 head: str = "factored", in_chans: int = 3) -> None:
         super().__init__()
         if backbone == "smallcnn":
-            base = SmallCNN(len(classes), norm=norm)
+            base = SmallCNN(len(classes), in_channels=in_chans, norm=norm)
             self.features, self.pool, self._mobile = base.features, base.pool, None
             feat_dim = 256
         elif backbone == "mobilenet_v3_small":
@@ -332,6 +338,7 @@ class DecoupledModel(nn.Module):
 
             weights = models.MobileNet_V3_Small_Weights.IMAGENET1K_V1 if pretrained else None
             m = models.mobilenet_v3_small(weights=weights)
+            _retune_stem(m, in_chans)
             feat_dim = m.classifier[-1].in_features
             m.classifier[-1] = nn.Identity()           # Modell gibt jetzt Features aus
             if norm == "groupnorm":
@@ -345,10 +352,11 @@ class DecoupledModel(nn.Module):
                 print(f"[INFO] Versuche Backbone '{backbone}' über timm zu laden...")
 
                 # Erstellt das Modell ohne den finalen Klassifikations-Head
-                m = _create_timm_model(backbone, pretrained=pretrained, num_classes=0)
+                m = _create_timm_model(backbone, pretrained=pretrained, num_classes=0,
+                                       in_chans=in_chans)
 
                 # Liest die Feature-Dimension automatisch aus
-                feat_dim = _timm_feature_dim(m)
+                feat_dim = _timm_feature_dim(m, in_chans)
 
                 if norm == "groupnorm":
                     _convert_bn_to_gn(m)
@@ -369,25 +377,51 @@ class DecoupledModel(nn.Module):
         return self.head(feat)
 
 
+def _retune_stem(m: nn.Module, in_chans: int) -> None:
+    """Rebuild a torchvision MobileNetV3's first convolution for `in_chans` inputs, in place.
+
+    timm does this itself (`create_model(in_chans=…)`); torchvision has no such knob. Pretrained
+    stem weights are SUMMED over the RGB fan-in and rescaled, which is what timm does too — the
+    stem's response to a grey image is then unchanged.
+    """
+    if in_chans == 3:
+        return
+    old = m.features[0][0]
+    new = nn.Conv2d(in_chans, old.out_channels, old.kernel_size, old.stride, old.padding,
+                    bias=old.bias is not None)
+    with torch.no_grad():
+        w = old.weight.sum(dim=1, keepdim=True) * (3.0 / in_chans)
+        new.weight.copy_(w.repeat(1, in_chans, 1, 1))
+        if old.bias is not None:
+            new.bias.copy_(old.bias)
+    m.features[0][0] = new
+
+
 def build_model(backbone: str, num_classes: int, pretrained: bool = False,
                 norm: str = "batchnorm", head: str = "combined",
-                classes: list[str] | None = None) -> nn.Module:
+                classes: list[str] | None = None, in_chans: int = 3) -> nn.Module:
     """`head="combined"`: a 14-class linear head. `head="factored"`: decoupled type+color head.
     `head="twostage"`: two-stage occupancy→piece head (`HierarchicalHead`). `factored`/`twostage`
-    need the `classes` list for the index mapping."""
+    need the `classes` list for the index mapping.
+
+    `in_chans` follows the run's input representation (`torch_data.INPUT_REPRS`); it is 3 for the
+    plain RGB crop and e.g. 2 for `gray+sobel`.
+    """
     if head in ("factored", "twostage"):
         from .. import config
 
-        return DecoupledModel(backbone, classes or config.CLASSES, pretrained, norm, head=head)
+        return DecoupledModel(backbone, classes or config.CLASSES, pretrained, norm, head=head,
+                              in_chans=in_chans)
     if head != "combined":
         raise ValueError(f"unknown head {head!r} (combined | factored | twostage).")
     if backbone == "smallcnn":
-        return SmallCNN(num_classes, norm=norm)
+        return SmallCNN(num_classes, in_channels=in_chans, norm=norm)
     if backbone == "mobilenet_v3_small":
         from torchvision import models
 
         weights = models.MobileNet_V3_Small_Weights.IMAGENET1K_V1 if pretrained else None
         m = models.mobilenet_v3_small(weights=weights)
+        _retune_stem(m, in_chans)
         in_f = m.classifier[-1].in_features
         m.classifier[-1] = nn.Linear(in_f, num_classes)
         if norm == "groupnorm":     # ROCm-Windows: MobileNet batch-norm -> groupnorm, otherwise MIOpen crash
@@ -397,7 +431,8 @@ def build_model(backbone: str, num_classes: int, pretrained: bool = False,
         return m
     try:
         print(f"[INFO] Versuche Backbone '{backbone}' über timm zu laden...")
-        m = _create_timm_model(backbone, pretrained=pretrained, num_classes=num_classes)
+        m = _create_timm_model(backbone, pretrained=pretrained, num_classes=num_classes,
+                               in_chans=in_chans)
         if norm == "groupnorm":
             _convert_bn_to_gn(m)
         elif norm != "none":

@@ -315,6 +315,17 @@ def _graph_predictor(key: str, model, out_h: int, out_w: int, device: str):
     return pred
 
 
+def _is_plain_rgb(cfg: dict) -> bool:
+    """Whether the run's preprocessing is the one `_CudaGraphPredictor` bakes in.
+
+    That path folds a FIXED 3-channel mean/std into a single mul+sub. A run trained on another
+    input representation (`--input-repr`) or on per-crop statistics does not fit the fold, and
+    feeding it the wrong preprocessing silently is worse than losing the fast path.
+    """
+    return (cfg.get("input_repr", "rgb") == "rgb"
+            and cfg.get("normalize", {}).get("mode", "fixed") != "per_crop")
+
+
 def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
                    return_probs: bool = False) -> list[dict]:
     """Prediction for in-memory crops (BGR np.ndarray) — for live inference.
@@ -339,7 +350,7 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
     # replays a pre-captured fp16 forward — removes the eager per-kernel launch
     # overhead that dominates tracker inference on the Windows-ROCm wheels.
     logits = None
-    if (all_at_size and len(crops) <= _GRAPH_BATCH
+    if (all_at_size and len(crops) <= _GRAPH_BATCH and _is_plain_rgb(cfg)
             and device.startswith("cuda") and not isinstance(model, _ONNXModel)):
         key = f"{Path(run_dir).resolve()}|{device}"
         pred = _graph_predictor(key, model, out_h, out_w, device)
@@ -355,22 +366,21 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
 
     if logits is None:
         if all_at_size:
-            # BGR uint8 HWC -> RGB NCHW float/255 + Normalize, no PIL/torchvision.
+            # BGR uint8 HWC -> RGB NCHW float/255 + the run's normalisation, no PIL/torchvision.
             # One stack of the raw BGR crops + torch flip: same numerics as the
             # previous per-crop `[..., ::-1].copy()` loop, ~3x cheaper.
+            from .training.torch_data import normalize_batch
+
             stacked = np.stack(crops)  # (N,H,W,3) BGR uint8
             batch = torch.from_numpy(stacked).permute(0, 3, 1, 2).flip(1)  # RGB, copies
             batch = batch.to(dtype=torch.float32).div_(255)
-            mean_t = torch.tensor(config.NORMALIZE_MEAN, dtype=torch.float32).view(1, 3, 1, 1)
-            std_t = torch.tensor(config.NORMALIZE_STD, dtype=torch.float32).view(1, 3, 1, 1)
-            batch = (batch - mean_t) / std_t
-            batch = batch.to(device)
+            batch = normalize_batch(cfg, batch).to(device)
         else:
             from PIL import Image
 
-            from .training.torch_data import build_transform
+            from .training.torch_data import eval_transform_for
 
-            tf = build_transform(out_size, train=False)
+            tf = eval_transform_for(cfg, out_size)
             batch = torch.stack(
                 [tf(Image.fromarray(c[:, :, ::-1].copy())) for c in crops]
             ).to(device)  # BGR->RGB

@@ -19,10 +19,12 @@ def load_run(run_dir: Path):
     import torch
 
     from .model import build_model
+    from .torch_data import input_repr_of
 
     cfg = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
     model = build_model(cfg["backbone"], len(cfg["classes"]), norm=cfg.get("norm", "batchnorm"),
-                        head=cfg.get("head", "combined"), classes=cfg["classes"])
+                        head=cfg.get("head", "combined"), classes=cfg["classes"],
+                        in_chans=input_repr_of(cfg)[1])
     ckpt = run_dir / "best.pt"
     if not ckpt.exists():
         ckpt = run_dir / "last.pt"
@@ -44,7 +46,7 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None) 
         render_confusion_text,
         save_confusion_png,
     )
-    from .torch_data import SquareDataset, build_transform
+    from .torch_data import SquareDataset, eval_transform_for
 
     run_dir = Path(run)
     if not (run_dir / "config.json").exists():
@@ -52,7 +54,6 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None) 
         return 1
     model, cfg = _load_run(run_dir)
     classes = cfg["classes"]
-    out_size = tuple(cfg["out_size"])
 
     ds_name = cfg.get("dataset")          # selber Datensatz wie beim Training (im run-config)
     if ds_name:
@@ -80,15 +81,16 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None) 
     if ds_name:
         from .pack import load_packed
         packed = load_packed(ds_name)
+    tf = eval_transform_for(cfg)
     if packed is not None:
         from .torch_data import PackedSquareDataset
-        ds = PackedSquareDataset(rows, classes, build_transform(out_size, train=False), packed)
+        ds = PackedSquareDataset(rows, classes, tf, packed)
     elif rows and str(rows[0].get("path", "")).startswith("mm://"):
         print(f"[FAIL] dataset '{ds_name}' is a fused synth build but its packed memmap is "
               "missing/stale — re-run `chesslab dataset build-synth`.")
         return 1
     else:
-        ds = SquareDataset(rows, classes, build_transform(out_size, train=False))
+        ds = SquareDataset(rows, classes, tf)
     res = evaluate_dataset(model, ds, device, batch_size=256, input_size=input_size)
 
     # 1. Board-Accuracy (Hauptmetrik)
@@ -146,7 +148,9 @@ def run_export(run: str, fmt: str = "torchscript") -> int:
     # dimension into shape ops, so the graph's declared output stays {1,14} even with
     # dynamic_axes — ONNX Runtime then warns "expected {1,14}, actual {64,14}" on every
     # batched inference. A batch-2 example forces genuinely dynamic shapes.
-    example = torch.randn(2, 3, out_h, out_w)
+    from .torch_data import input_repr_of
+
+    example = torch.randn(2, input_repr_of(cfg)[1], out_h, out_w)
 
     def _export_onnx() -> None:
         torch.onnx.export(model, example, str(run_dir / "model.onnx"),

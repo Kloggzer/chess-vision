@@ -51,7 +51,8 @@ class _RandomRot90:
 
 def build_transform(out_size, train: bool, policy=config.AUGMENT,
                     mean=config.NORMALIZE_MEAN, std=config.NORMALIZE_STD,
-                    rot90: bool = False, per_crop: bool = False):
+                    rot90: bool = False, per_crop: bool = False,
+                    input_repr: str = "rgb"):
     from torchvision import transforms as T
 
     out_w, out_h = out_size
@@ -82,8 +83,143 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
     # levels off its background against 40.2 on a light square — 6.6x less signal. After per-crop
     # standardisation that gap is 1.5x. Doing it here rather than inside the network costs one
     # cheap op per crop instead of 484 graph nodes.
-    ops += [_PerCropStandardize()] if per_crop else [T.Normalize(mean, std)]
+    if input_repr != "rgb":
+        ops += [InputRepresentation(input_repr)]
+    else:
+        ops += [_PerCropStandardize()] if per_crop else [T.Normalize(mean, std)]
     return T.Compose(ops)
+
+
+# --- input representation ----------------------------------------------------------------------
+
+# How many channels each representation feeds the first convolution. The NAME is recorded in the
+# run's own config.json (`input_repr`), so serving reads what training did instead of guessing.
+INPUT_REPRS: dict[str, int] = {"rgb": 3, "gray+sobel": 2, "rgb+sobel": 4, "sobel": 1}
+
+def eval_transform_for(cfg: dict, out_size=None):
+    """The val/test/serving transform a run's `config.json` describes: resize plus EXACTLY the
+    normalisation the run trained with. The one place consumers should get it from — eval,
+    calibration and serving each reconstructing it by hand is how they drift."""
+    norm = cfg.get("normalize", {})
+    return build_transform(tuple(out_size or cfg["out_size"]), train=False,
+                           mean=tuple(norm.get("mean", config.NORMALIZE_MEAN)),
+                           std=tuple(norm.get("std", config.NORMALIZE_STD)),
+                           per_crop=norm.get("mode") == "per_crop",
+                           input_repr=input_repr_of(cfg)[0])
+
+
+def normalize_batch(cfg: dict, batch: torch.Tensor) -> torch.Tensor:
+    """Apply a run's normalisation to an already-resized `[N,3,H,W]` RGB batch in `[0,1]`.
+
+    The live serving path builds its batch with plain tensor ops rather than the PIL transform, so
+    it needs the same arithmetic reachable without `torchvision`. Returns `[N,C,H,W]`, where C is
+    the run's channel count.
+    """
+    norm = cfg.get("normalize", {})
+    kind = input_repr_of(cfg)[0]
+    if kind != "rgb":
+        return InputRepresentation(kind)(batch)
+    if norm.get("mode") == "per_crop":
+        # Per CROP, not per batch: `_PerCropStandardize` sees one image at a time.
+        flat = batch.flatten(1)
+        mean = flat.mean(dim=1).view(-1, 1, 1, 1)
+        std = flat.std(dim=1).view(-1, 1, 1, 1)
+        return (batch - mean) / (std + 1e-5)
+    kw = {"dtype": batch.dtype, "device": batch.device}
+    mean = torch.tensor(tuple(norm.get("mean", config.NORMALIZE_MEAN)), **kw).view(1, 3, 1, 1)
+    std = torch.tensor(tuple(norm.get("std", config.NORMALIZE_STD)), **kw).view(1, 3, 1, 1)
+    return (batch - mean) / std
+
+
+def input_repr_of(cfg: dict) -> tuple[str, int]:
+    """`(name, channels)` a run was trained with, from its `config.json`. Runs predating the flag
+    carry no key and were RGB."""
+    kind = cfg.get("input_repr", "rgb")
+    if kind not in INPUT_REPRS:
+        raise ValueError(f"run was trained with unknown input_repr {kind!r}")
+    return kind, INPUT_REPRS[kind]
+
+
+# ITU-R BT.601 luma, i.e. exactly the coefficients `cv2.COLOR_BGR2GRAY` uses.
+_LUMA = (0.299, 0.587, 0.114)
+
+# ImageNet's mean/std projected through _LUMA — the usual single-channel ImageNet constants.
+_GRAY_MEAN, _GRAY_STD = 0.449, 0.226
+
+# |Gx|+|Gy| statistics of the [0,1] luminance image, measured with THIS transform over 4000
+# random occ-real crops at 128x128 (the same pass measured gray at 0.482/0.294, i.e. the ImageNet
+# constants above are within 15% and are kept because they are standard). Only a scale — the point
+# of the channel is the rectification, not its units.
+_SOBEL_MEAN, _SOBEL_STD = 0.3704, 0.5259
+
+
+class InputRepresentation(torch.nn.Module):
+    """Turn the [0,1] RGB crop into the channel stack the run was trained on.
+
+    The motivating measurement is a linear probe (logistic regression on 16x16 features, real
+    crops, leave-one-session-out over the four largest sessions), mean accuracy all/dark:
+
+        rgb 0.872/0.837   gray 0.843/0.814   sharpen 0.843/0.807   |Gx|+|Gy| 0.994/0.992
+
+    The mechanism is RECTIFICATION, not high-frequency emphasis. A dark piece on a light square
+    makes a negative luminance gradient and a light piece on a dark square a positive one; the
+    magnitude makes the two identical, so "do piece and square differ in brightness" stops
+    mattering and only "is there a silhouette" remains. That is why `sharpen`, which keeps the
+    sign, does not help. Dark squares are where this project has always been worst — a black piece
+    there stands 6.0 grey levels off its background against 40.2 on a light one.
+
+    The gray channel is kept alongside it on purpose: unlike per-crop standardisation (which won
+    the dark squares and lost 1641 empty squares to phantom pieces) this ADDS the rectified view
+    without discarding absolute scale.
+    """
+
+    def __init__(self, kind: str) -> None:
+        super().__init__()
+        if kind not in INPUT_REPRS:
+            raise ValueError(f"unknown input representation {kind!r} (one of {sorted(INPUT_REPRS)})")
+        self.kind = kind
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        parts = []
+        if self.kind.startswith("rgb"):
+            kw = {"dtype": x.dtype, "device": x.device}
+            parts.append((x - torch.tensor(config.NORMALIZE_MEAN, **kw).view(3, 1, 1))
+                         / torch.tensor(config.NORMALIZE_STD, **kw).view(3, 1, 1))
+        gray = luminance(x)
+        if self.kind.startswith("gray"):
+            parts.append((gray - _GRAY_MEAN) / _GRAY_STD)
+        if self.kind.endswith("sobel"):
+            parts.append((sobel_magnitude(gray) - _SOBEL_MEAN) / _SOBEL_STD)
+        return torch.cat(parts, dim=-3)
+
+
+def luminance(x: torch.Tensor) -> torch.Tensor:
+    """BT.601 luma of a `[..., 3, H, W]` RGB tensor -> `[..., 1, H, W]`, same dtype."""
+    w = torch.tensor(_LUMA, dtype=x.dtype, device=x.device).view(3, 1, 1)
+    return (x * w).sum(dim=-3, keepdim=True)
+
+
+def sobel_magnitude(gray: torch.Tensor) -> torch.Tensor:
+    """`|Gx| + |Gy|` of a `[..., 1, H, W]` luminance image, same shape.
+
+    Equivalent to, and pinned by `tests/test_input_repr.py` against:
+
+        cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3, borderType=cv2.BORDER_REFLECT_101)
+
+    **ksize=3** because the silhouette IS the signal — a 5x5 or 7x7 derivative smooths the piece
+    edge over several squares' worth of blur and the probe's separation comes from that edge being
+    sharp. **BORDER_REFLECT_101** because it is `cv2.Sobel`'s default AND `torch.nn.functional.pad`'s
+    `"reflect"`, so the Python transform and the Kotlin port agree on the frame of the crop instead
+    of each inventing an edge. **float32 on the [0,1] image**, not uint8: OpenCV's uint8 rounding is
+    the one step the hand-written Kotlin port could not reproduce bit-for-bit.
+    """
+    k = torch.tensor([[[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]],
+                      [[-1.0, -2.0, -1.0], [0.0, 0.0, 0.0], [1.0, 2.0, 1.0]]],
+                     dtype=gray.dtype, device=gray.device).unsqueeze(1)
+    flat = gray.reshape(-1, 1, *gray.shape[-2:])
+    padded = torch.nn.functional.pad(flat, (1, 1, 1, 1), mode="reflect")
+    g = torch.nn.functional.conv2d(padded, k)          # conv2d correlates, exactly as cv2 filters
+    return g.abs().sum(dim=1, keepdim=True).reshape(gray.shape)
 
 
 class _PerCropStandardize(torch.nn.Module):
