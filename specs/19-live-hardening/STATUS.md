@@ -1430,3 +1430,203 @@ Ordered by what it would take:
    `settle 4 / avg 3 / confirm 2` without a CNN, while the device runs `3 / 2 / 1` with the pair
    checked BEFORE the single (`tracker.py:3323-3327`). Closing that gap is what would turn a
    `motion_hold_s` decision from a judgement call into a measurement.
+
+### 7. Pushing the knobs to their evidenced floor — and where the evidence runs out
+
+Target moved to 0.4 s, then to "as low as possible". Every measurement below is deterministic
+(virtual clock, every frame); latency is `motion_hold_s + 0.05...0.07` at 30 fps, confirmed
+across every run in this section, so the latency column needs no separate experiment.
+
+#### 7.1 The ladder
+
+| # | configuration | diff-path latency (30 fps, measured) | + CNN verify, 1 vote | what it gives up | evidence |
+|---|---|---|---|---|---|
+| 0 | shipped: `hold 0.40`, `max_changed 6`, `cnn_verify` on | 0.47 | **~0.68** | — | clips 20/20 |
+| 1 | `hold 0.34` | 0.41 | ~0.62 | nothing the suite can see | clips 20/20; 0.32 loses `blender-scholars` |
+| 2 | `hold 0.30` + `max_changed 7` | 0.37 | ~0.58 | occlusion gate widened 17 % | clips 20/20 |
+| 3 | `hold 0.15` + `max_changed 7` | **0.22** | ~0.43 | same, plus 2 quiet frames of settling | clips 20/20 |
+| 4 | rung 3 with `cnn_verify` **off** | **0.22** | **0.22** | the pre-commit ghost filter, entirely | clips 20/20 (the suite runs CNN-less anyway) |
+| 5 | shipped thresholds, `cnn_verify` off | 0.47 | 0.47 | the ghost filter | clips 20/20 |
+
+`max_changed 7` is what unlocks everything below `hold 0.34`: at 0.32 the first detection frame
+after `Nf6` in `blender-scholars` carries **7** changed squares against a limit of 6, so the frame
+is refused as `too_many_changed`, the tracker stays stuck for 33 quiet frames while `Qxf7` is
+played, and the eventual single commit swallows the queen (traced frame by frame, section 3). At
+`max_changed 7` the same frame commits and the suite is 20/20 at **every** hold tested down to
+0.10.
+
+**The phantom question, answered as asked.** The `Kd2` phantom does **not** return at
+`max_changed 7`: on `VID_20260726_155132` the mc6 and mc7 runs are identical move for move and
+score for score, at both holds. And the five clips whose expected list is EMPTY —
+`blender-hover`, `blender-shadowsweep`, `blender-resting`, `blender-nudge`, `blender-illegal`,
+i.e. the phantom gate — still commit nothing at mc7. That is the strongest evidence available,
+and it is what the objection in section 3 asked for.
+
+#### 7.2 Why `max_changed 7` is still NOT proposed as a default
+
+On `vid2334`, `max_changed 7` at the shipped hold changes the committed game completely:
+
+```
+mc6  a3 e5 Nf3 Nf6 Nxe5 Ne4 f4 Nxd2 Ng4      (9 plies)
+mc7  a3 e5 f3  d6  f4   Ne7 d4 e4            (8 plies, diverges from ply 3)
+```
+
+There is no ground truth for `vid2334`, so this cannot be called a regression — but it cannot be
+called harmless either, and it is one of only three real recordings that exist.
+
+**And then the instrument failed.** Sweeping the geometry inset alone, tracker untouched, on
+`vid1244` (ground truth `d4 d5 Nf3 Nf6 Nc3`, then a physically illegal knight placement):
+
+| margin | committed |
+|---|---|
+| 0.000 | d4 d5 Nf3 Nf6 |
+| 0.030 | d4 Nf6 Nc3 |
+| 0.035 | d4 Nf6 Nc3 |
+| **0.040** | **d4 d5 Nf3 Nf6 Nc3** (= ground truth) |
+| 0.045 | d4 Nf6 Nc3 |
+| **0.050** | **d4 d5 Nf3 Nf6 Nc3** (= ground truth) |
+| 0.055 | d4 d5 Nf3 Nf6 Nc3 Ne4 Nxd5 |
+| 0.060 (device profile) | d4 Nf6 Nc3 |
+
+0.040 is right, 0.045 is wrong, 0.050 is right. **Alternating, not a plateau.** The same on
+`vid2334`, where a 3 % inset even changes the FIRST ply (`a4 e5 …` at 0.03 vs `a3 e5 …` at 0.06),
+and on `motion_hold_s`, where the committed count goes 0.40 -> 9, 0.35 -> 18, 0.30 -> 6,
+0.25 -> 14, 0.15 -> **0** plies.
+
+So on the real recordings the committed move list is **not a smooth function of any parameter**:
+a 0.5 % change in board geometry flips whole plies. A single-run A/B on this material cannot
+support a threshold decision in either direction — which is why the `vid2334` result above is
+recorded as "unattributable" rather than as a verdict against mc7, and why mc7 is not being
+shipped on the strength of 20/20 on 12 fps renders alone. Two cheap instruments have already
+mispredicted the clip harness this week (the linear probe at 0.994, the `occ-real` val split);
+this would be the third.
+
+**Recommendation, stated so the user can take the trade knowingly:** rung 1 (`hold 0.34`) is free
+by every instrument available. Rungs 2-4 are worth taking **only** once there is 30 fps material
+with ground truth to measure them on — which section 8 starts building. Rung 5 (`cnn_verify` off)
+is available today at the shipped thresholds and needs no code change at all.
+
+**The single most actionable finding of this session is not a latency knob.** On real footage the
+dominant error source is **board geometry**: 0.5 % of inset is worth more committed plies than any
+threshold in `TRACK_DEFAULTS`. The device profile's `margin: 0.06` is measurably not the best value
+for the board in `vid1244` (0.04 and 0.05 both reproduce the played game; 0.06 does not). Getting
+the per-board margin right, or measuring it rather than assuming 0.06, is likely worth more than
+everything in section 7.1.
+
+### 8. 30 fps test material
+
+The 20 committed clips are 640x640 Blender renders at **12 fps**, CNN-less, replayed in REALTIME.
+The device is 1080x1920 at **30 fps** with the CNN attached. Three consequences, all now closed or
+recorded:
+
+**8.1 The realtime harness dropped the board margin.** `scripts/replay_clip.py` hardcoded
+`compute_homography(corners, target, 0.0)` and `margin=0.0` — the identical defect commit `721901a`
+fixed in the fixture emitter, still present in the one harness `pytest -m clips` actually uses. Any
+ArUco-derived clip replayed through it was 6-8 % oversized and jammed the grid-line gate. `replay()`
+now takes `margin` and `tests/test_clips.py` passes `entry["margin"]`; the committed clips have no
+`margin:` key, default 0.0, so all 20 are bit-for-bit unaffected.
+
+**8.2 Real recordings can now be regression material.** `tests/test_clips.py`:
+
+- clip files are resolved against the committed directory **and** the gitignored
+  `data/testclips/`, so a manifest entry can be committed while its 45 MB mp4 is not;
+- `deterministic: true` replays through the fixture emitter's `ClipDriver` on a virtual clock
+  instead of the realtime path, because a pinned move list has to be reproducible and the
+  realtime replay is not;
+- `known_failure:` + `known_committed:` pin what a documented-failing clip commits **today**, so a
+  change in tracker behaviour surfaces here instead of hiding, and the moment the clip reproduces
+  its ground truth the test fails and asks to be promoted into the gate.
+
+First entry: `live-1244-fastplay.mp4` (1080x1920, 30 fps, 931 frames, ArUco, `margin 0.06`).
+Ground truth as played: `d4 d5, Nf3 Nf6, Nc3`, then a black knight physically placed on `c5` —
+not a legal knight move from `b8` or `f6` — after which the board is a position the record cannot
+represent. Pinned at what it commits today: `d4 Nf6 Nc3`, desynced at ply 2.
+
+Three red-first proofs, each with a mutation script that asserts its target string was found:
+
+```
+margin 0.06 -> 0.0        FAILED  found ['d4','d5','Nf3','Nf6'], pinned ['d4','Nf6','Nc3']
+                                  last note: "Board partly covered (grid lines hidden)"
+known_committed -> truth  FAILED  "KNOWN-FAILING clip moved. found [...], pinned [...]"
+erwartete -> the pin      FAILED  "now reproduces the ground truth -- ... promote it"
+```
+
+**8.3 Re-rendering the Blender suite at 30 fps: NOT DONE, deliberately.**
+`data/models/.train.lock` is held (`pid 9140, mobilenetv4_conv_small_035 bs=256 ep=20`), and the
+heavy-compute contract says wait rather than compete — a render fan-out has crashed this machine
+before, and it crashed again today. Not started, not queued, no partial render left behind. It
+remains the right way to get controlled 30 fps ground truth, and `scripts/generate_blender_testclips.py`
+is ready for it; the subset that would actually pay for itself is the timing-sensitive one
+(`blender-scholars` and the pair/fast-play clips), not all 20.
+
+### 9. Option (b) — commit on the diff, verify as a post-hoc veto. SCOPED, NOT BUILT.
+
+Removes terms 7 and 8 entirely: **~0.68 s -> 0.47 s at the shipped thresholds**, or 0.22 s combined
+with rung 3. It is the largest single lever left. It is also the one whose failure mode the user has
+not yet seen, so here it is in full.
+
+**What it would do.** `_dispatch` commits immediately instead of setting `_pending`, and records a
+*retraction candidate* (the committed move(s), the frame they were decided on, the pre-move FEN,
+the seq). Observations then run the same ladder against the PRE-move board; `shadow` and `ghost`
+call `undo()`, `overrule` calls `undo()` and commits the CNN's move instead, `commit` and the window
+end simply discard the record.
+
+**The machinery genuinely exists.** `undo()` (`tracker.py:3928`, Kotlin `TrackerEngine.kt:196`)
+already pops the board and history, clears the reference so it is re-acquired, resets the confirmer,
+buffers, stuck state, taint, pending and promo state, drops the decision-log rows, and — on the app
+side — removes the recorded frame and its `log.jsonl` line (`SessionRecorder.undoLast`). The ladder's
+vocabulary (shadow / ghost / overrule) is already a veto vocabulary. This is not a rewrite.
+
+**What breaks, in the order it would bite:**
+
+1. **A wrong move becomes visible before it is withdrawn.** For ~0.4 s it is in the move list, the
+   notification counter (`TrackerService.kt:296`), the spectator view, the analysis engine — and it
+   is **spoken** (`speech/MoveAnnouncer.kt`). A spoken move cannot be un-spoken. Today none of those
+   consumers has ever been handed anything but a committed truth.
+2. **The reference.** A rejected candidate costs nothing today — base truth is untouched. After a
+   retraction `undo()` clears the reference entirely, so the tracker is blind until it re-acquires
+   a clean view. A ghost every few moves would mean a re-acquisition every few moves.
+3. **Pair commits.** `_commit_sequence` pushes two plies; `undo()` pops one. Retracting a pair is a
+   new code path, and it must be atomic or the game is left one ply wrong.
+4. **The race the current design gets for free.** `_verify_tick` bails when
+   `self.board.fen() != pending["fen"]`. With commit-first the state has moved *by construction*, so
+   that guard has to become "the retraction target is still the last ply and nothing committed after
+   it" — and in fast play a second move can commit inside the 0.4 s window, at which point the
+   retraction must either cascade or be abandoned. Both are new failure modes.
+5. **The desync alarm.** Committing on diff evidence the CNN has not seen means the alarm
+   (`desync_obs_n = 3`) and the retraction path are two mechanisms reacting to the same
+   disagreement. Their ordering has to be defined or they will fight.
+6. **The recorded game.** Phase 03 / `fc933d7` made a stored game an append-only legal sequence.
+   A retraction turns appends into rewrites, and a session already flushed to disk has to be edited
+   rather than extended.
+7. **No gate.** The parity fixtures and `pytest -m clips` both run `cnn_run=None`, so neither sees a
+   single line of this. `CnnClipSimulationTest` is the only instrument, and the clips it runs are
+   12 fps renders whose CNN behaviour already fails 2 of 18.
+
+**Cost estimate:** `_dispatch`, `_verify_tick`, `_verify_pair_tick`, `_commit_move`,
+`_commit_sequence` and `undo` on the Python side; `Dispatch.kt`, `VerifySingle.kt`, `VerifyPair.kt`,
+`Commit.kt`, `TrackerEngine.undo` on the Kotlin side; plus `GameSessionController` / `LiveGame` /
+`SessionRecorder` and every event consumer in `:app` that must learn to un-hear a move. New parity
+fixtures cannot cover it. **Not started. The user decides.**
+
+### 10. Two further findings, recorded not acted on
+
+**The seq contract throws away a usable observation.** `_verify_tick` discards any snapshot with
+`snap.seq < pending["seq"]` (`tracker.py:2203`), so the observation in flight when a candidate is
+raised is always wasted — up to one full 210 ms cycle. It need not be: the candidate is raised
+`motion_hold_s` after the last motion, and the observer cycle is ~6 frames, so an in-flight
+observation at decision time was captured 1-6 frames into a quiet window that is 12 frames old.
+It is a valid reading of the post-move board. Relaxing the gate to "the observed FRAME was captured
+after the last motion spike" would recover ~210 ms — the single cheapest structural win left. Not
+done, because of the next finding.
+
+**Python and Kotlin disagree about what a snapshot's timestamp means.** Python sets
+`CnnSnapshot.ts = time.time()` *after* inference (`tracker.py:1875`); Kotlin sets
+`tsMs = frame.tsMs`, the timestamp of the frame that was OBSERVED
+(`app/.../cnn/CnnObserver.kt:195`). Both then compute "snapshot age" against the same constant
+(`_OBS_MAX_AGE_S = 3.0`, `tracker.py:1386,2970`; `OBS_MAX_AGE_S`, `Taint.kt:128`; and 5.0 s at
+`tracker.py:3089`, `DESYNC_MAX_AGE_S` at `TrackerEngine.kt:445`). The two ages differ by exactly one
+inference — 146 ms on the device. Against a 3 s threshold that is 5 % and has probably never
+mattered; against any tighter time-based rule (such as the seq relaxation above) it would be a
+silent 1:1 divergence. **The parity fixtures cannot see it** — they run `cnn_run=None`. Kotlin's
+meaning is the correct one. Not changed: fixing either side moves behaviour with no gate to catch it.
