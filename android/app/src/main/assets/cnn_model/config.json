@@ -14,7 +14,7 @@
     128,
     128
   ],
-  "dataset": "occ-real",
+  "dataset": "occ-real3",
   "resumed_from": "occ-act-p1",
   "head": "combined",
   "normalize": {
@@ -27,14 +27,22 @@
       0.229,
       0.224,
       0.225
-    ]
+    ],
+    "mode": "fixed"
   },
+  "input_repr": "rgb",
+  "in_chans": 3,
   "variant": {
     "geometry": "warp",
     "photometry": "none",
     "piece_height_cells": 1.6
   },
-  "scales": null,
+  "scales": [
+    32,
+    64,
+    96,
+    128
+  ],
   "aug": {
     "erase_p": 0.25,
     "bg_p": 0.15
@@ -45,7 +53,7 @@
     "occupied": 3.0
   },
   "effective_class_weights": {
-    "empty": 1.4282000064849854,
+    "empty": 0.666700005531311,
     "occupied": 3.0
   }
 }
