@@ -179,4 +179,210 @@ class PreprocessTest {
             assertEquals(expected[i], out[i], 1e-5f, "element $i")
         }
     }
+
+    /**
+     * The `--input-repr` channel stacks, against numbers produced by
+     * `torch_data.build_transform(..., input_repr=…)`.
+     *
+     * Golden numbers, not properties. The gradient channel is one specific kernel
+     * (`cv2.Sobel` ksize 3) with one specific border rule (`BORDER_REFLECT_101`) and one specific
+     * normalisation; a port that gets any of the three wrong still produces a plausible-looking
+     * edge map, and the model would silently see an input it never trained on. The 4x4 crop below
+     * is a bright/dark quadrant split, so every interior pixel has a real edge to disagree about.
+     */
+    @Test
+    fun grayPlusSobelMatchesTheTorchTransform() {
+        assertRepr(InputRepr.GRAY_SOBEL, GRAY_SOBEL_GOLDEN)
+    }
+
+    @Test
+    fun rgbPlusSobelMatchesTheTorchTransform() {
+        assertRepr(InputRepr.RGB_SOBEL, RGB_SOBEL_GOLDEN)
+    }
+
+    @Test
+    fun sobelAloneMatchesTheTorchTransform() {
+        assertRepr(InputRepr.SOBEL, SOBEL_GOLDEN)
+    }
+
+    @Test
+    fun `the representation decides the buffer width`() {
+        val crop = BgrImage(4, 4, DISTINCT_CROP)
+        assertEquals(4 * 4 * 2, preprocess(listOf(crop), 4, 4, repr = InputRepr.GRAY_SOBEL).size)
+        assertThrows<IllegalArgumentException> {
+            preprocessInto(listOf(crop), 4, 4, FloatArray(4 * 4 * 3), repr = InputRepr.GRAY_SOBEL)
+        }
+    }
+
+    @Test
+    fun `an unknown input_repr is refused by name`() {
+        assertEquals(InputRepr.GRAY_SOBEL, InputRepr.of("gray+sobel"))
+        assertEquals(2, InputRepr.of("gray+sobel").channels)
+        assertThrows<IllegalArgumentException> { InputRepr.of("edges") }
+    }
+
+    private fun assertRepr(
+        repr: InputRepr,
+        expected: FloatArray,
+    ) {
+        val out = preprocess(listOf(BgrImage(4, 4, DISTINCT_CROP)), outW = 4, outH = 4, repr = repr)
+        assertEquals(expected.size, out.size, "channel count")
+        for (i in expected.indices) assertEquals(expected[i], out[i], 1e-5f, "element $i")
+    }
 }
+
+/**
+ * 4x4 BGR, sixteen DISTINCT pixels — deliberately not a quadrant pattern.
+ *
+ * A crop with repeated rows/columns cannot tell `BORDER_REFLECT_101` apart from `BORDER_REPLICATE`
+ * (mirroring row 0 onto row 1 and repeating row 0 give the same numbers when the two rows are
+ * equal), and the first version of this fixture did exactly that: the border mutation ran green.
+ */
+private val DISTINCT_CROP =
+    byteArrayOf(
+        5,
+        15,
+        25,
+        60,
+        70,
+        80,
+        -56,
+        -46,
+        -36,
+        120,
+        10,
+        30,
+        -6,
+        -16,
+        -26,
+        10,
+        10,
+        10,
+        90,
+        -116,
+        -66,
+        33,
+        66,
+        99,
+        -16,
+        30,
+        15,
+        15,
+        -16,
+        30,
+        30,
+        15,
+        -16,
+        -128,
+        -128,
+        0,
+        0,
+        -128,
+        -1,
+        -1,
+        0,
+        -128,
+        -128,
+        -1,
+        0,
+        70,
+        70,
+        70,
+    )
+
+/**
+ * The four corners are exactly `(0 - SOBEL_MEAN) / SOBEL_STD`, and that is not a fixture accident:
+ * under reflect-101 the left and right taps of `gx` land on the same mirrored column at x=0, so the
+ * derivative across a mirrored boundary is identically zero.
+ */
+private val SOBEL_GOLDEN =
+    floatArrayOf(
+        -0.704316f,
+        0.878031f,
+        -0.424311f,
+        -0.704316f,
+        0.970721f,
+        0.159860f,
+        0.293860f,
+        0.289789f,
+        -0.265449f,
+        -0.332323f,
+        0.370905f,
+        -0.511601f,
+        -0.704316f,
+        0.002983f,
+        0.178190f,
+        -0.704316f,
+    )
+
+private val GRAY_SOBEL_GOLDEN =
+    floatArrayOf(
+        -1.694343f,
+        -0.739979f,
+        1.689311f,
+        -1.491845f,
+        2.145671f,
+        -1.813205f,
+        0.603071f,
+        -0.735554f,
+        -1.128579f,
+        0.643155f,
+        -0.529412f,
+        -0.429759f,
+        0.640049f,
+        -0.818202f,
+        0.863821f,
+        -0.772080f,
+    ) + SOBEL_GOLDEN
+
+private val RGB_SOBEL_GOLDEN =
+    floatArrayOf(
+        -1.689785f,
+        -0.747924f,
+        1.649542f,
+        -1.604161f,
+        1.820789f,
+        -1.946656f,
+        1.135799f,
+        -0.422553f,
+        -1.861033f,
+        -1.604161f,
+        1.992037f,
+        -2.117904f,
+        2.248908f,
+        0.074065f,
+        -2.117904f,
+        -0.919171f,
+        -1.773109f,
+        -0.810224f,
+        1.640756f,
+        -1.860644f,
+        2.165966f,
+        -1.860644f,
+        0.415266f,
+        -0.880252f,
+        -1.510504f,
+        2.165966f,
+        -1.773109f,
+        0.205182f,
+        0.205182f,
+        -2.035714f,
+        2.428571f,
+        -0.810224f,
+        -1.717299f,
+        -0.758693f,
+        1.681394f,
+        0.287059f,
+        2.552854f,
+        -1.630152f,
+        -0.235817f,
+        -1.229281f,
+        2.378562f,
+        -1.543007f,
+        -1.281569f,
+        0.426493f,
+        -1.804444f,
+        2.640000f,
+        0.426493f,
+        -0.584401f,
+    ) + SOBEL_GOLDEN

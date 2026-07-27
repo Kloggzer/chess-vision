@@ -2,6 +2,7 @@ package com.chesslab.tracker.cnn
 
 import com.chesslab.cnn.IMAGENET_MEAN
 import com.chesslab.cnn.IMAGENET_STD
+import com.chesslab.cnn.InputRepr
 import com.chesslab.cnn.requireExpectedClasses
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -29,7 +30,16 @@ data class ModelSpec(
      * own config is what keeps the two from drifting apart silently.
      */
     val perCrop: Boolean = false,
+    /**
+     * `input_repr` — the channel stack the run's stem was BUILT for. Runs predating the flag have
+     * no key and were plain RGB. Getting this wrong does not misclassify subtly; it feeds the graph
+     * a tensor of the wrong width, which is why it is read rather than assumed.
+     */
+    val repr: InputRepr = InputRepr.RGB,
 ) {
+    /** Channels the ONNX input expects — [repr]'s, never a literal 3. */
+    val channels: Int get() = repr.channels
+
     companion object {
         /**
          * Unknown keys are ignored. Throws (loudly, with a named reason) when the class list
@@ -56,6 +66,7 @@ data class ModelSpec(
                 mean = normalize.floats("mean") ?: IMAGENET_MEAN,
                 std = normalize.floats("std") ?: IMAGENET_STD,
                 perCrop = normalize?.get("mode")?.jsonPrimitive?.content == "per_crop",
+                repr = root["input_repr"]?.jsonPrimitive?.content?.let(InputRepr::of) ?: InputRepr.RGB,
             )
         }
 

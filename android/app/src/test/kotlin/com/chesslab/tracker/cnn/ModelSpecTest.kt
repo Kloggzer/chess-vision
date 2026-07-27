@@ -1,6 +1,7 @@
 package com.chesslab.tracker.cnn
 
 import com.chesslab.cnn.EXPECTED_CLASSES
+import com.chesslab.cnn.InputRepr
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -63,15 +64,36 @@ class ModelSpecTest {
         assertEquals(listOf(0.229f, 0.224f, 0.225f), fallback.std)
     }
 
+    /**
+     * `input_repr` decides the ONNX input's WIDTH, so a spec that quietly defaults it would feed
+     * the graph a 3-channel tensor where the stem wants 2 — reading it from the asset is the whole
+     * point of the field.
+     */
+    @Test
+    fun readsTheInputRepresentationAndItsChannelCount() {
+        val gs = ModelSpec.parse(config(inputRepr = "gray+sobel"))
+        assertEquals(InputRepr.GRAY_SOBEL, gs.repr)
+        assertEquals(2, gs.channels)
+
+        // Runs predating the flag carry no key and were plain RGB.
+        val old = ModelSpec.parse(config())
+        assertEquals(InputRepr.RGB, old.repr)
+        assertEquals(3, old.channels)
+
+        assertThrows<IllegalArgumentException> { ModelSpec.parse(config(inputRepr = "edges")) }
+    }
+
     private fun config(
         classes: List<String> = EXPECTED_CLASSES,
         outSize: List<Int> = listOf(128, 128),
         mean: List<Float>? = listOf(0.485f, 0.456f, 0.406f),
+        inputRepr: String? = null,
     ): String {
         val normalize =
             mean?.let { ", \"normalize\": {\"mean\": ${it.joinToString(",", "[", "]")}, \"std\": [0.229, 0.224, 0.225]}" }.orEmpty()
+        val repr = inputRepr?.let { ", \"input_repr\": \"$it\"" }.orEmpty()
         return """{"backbone": "x", "classes": ${classes.joinToString(",", "[", "]") { "\"$it\"" }},""" +
-            """ "out_size": ${outSize.joinToString(",", "[", "]")}$normalize}"""
+            """ "out_size": ${outSize.joinToString(",", "[", "]")}$normalize$repr}"""
     }
 }
 
