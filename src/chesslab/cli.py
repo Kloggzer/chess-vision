@@ -559,9 +559,10 @@ def train_cmd(
                                    help="rgb | gray+sobel | rgb+sobel | sobel. What the first "
                                         "convolution is fed. The sobel channel is |Gx|+|Gy| of the "
                                         "luminance: taking the MAGNITUDE rectifies away whether the "
-                                        "piece is darker or lighter than its square, which is the "
-                                        "whole dark-square problem. Recorded in the run's config.json; "
-                                        "the stem's in_chans follows it."),
+                                        "piece is darker or lighter than its square. MEASURED AND "
+                                        "LOST on the 18-clip harness (whole-board occupancy: rgb "
+                                        "0.9978, rgb+sobel 0.0308, gray+sobel 0.0307) — keep `rgb` "
+                                        "unless you are re-running the experiment."),
     norm: str | None = typer.Option(None, "--norm", help="batchnorm | groupnorm | none (default: groupnorm on Windows, otherwise batchnorm)."),
     dataset: str | None = typer.Option(None, "--dataset", help="Named dataset (otherwise global manifest/split)."),
     resume: str | None = typer.Option(None, "--resume", help="Run name whose weights are loaded as warm-start (continue training)."),
