@@ -1206,3 +1206,212 @@ shipping bytes and reproduces 0.9978 / 17 / 0.
 
 **Not verified on device.** The phone was unavailable. Install and watch for
 `CNN EP verified: ...` plus a sane observation time before trusting it live.
+
+---
+
+## Session 2026-07-27 (b) — the commit-latency budget
+
+Task: **from the physical move to the committed ply, under 0.5 s.** Everything below is measured
+or read off the code; the two are kept apart on purpose.
+
+### 1. The budget, from the code
+
+Device configuration (stored knobs: `motionThr 0.1`, `motionPxThr 17.0`, `censusThr 40`,
+`occlCensusThr 24`, `cnnConfThr 0.85`, `cnnCooldownS 2.0`, `cnnCheckIntervalS 10.0`,
+`cnnMinAgreement 0.97`, `cnnMarginSquares 1`), 30 fps -> 33 ms per frame, CNN attached
+(`cnnOn` -> `settle 3 / avg 2 / confirm 1`, `tracker.py:776-778`), `cnn_verify` on, warm CNN
+observation 146 ms.
+
+| # | term | what the tracker is waiting for | code anchor | ms |
+|---|---|---|---|---|
+| 1 | `motion_hold_s` = 0.4 | the board must be motion-free this long; `_hold_until` is re-armed on every frame whose motion exceeds `motion_thr` | `config.py:661`, `tracker.py:1683,1692,1697` | **400** |
+| 2 | `settle_frames` = 3 | consecutive quiet frames before `ready` | `tracker.py:776,1697` | 0 extra (100 alone — hidden under 1) |
+| 3 | `avg_frames` = 2 | the running mean must be full before any detection | `tracker.py:777,1700` | 0 extra (67 alone) |
+| 4 | grid-gate re-hold | if the hand hid grid lines, the hold is re-armed from the frame the grid comes back — 1-2 frames after the last motion | `tracker.py:1714-1723` | **+33...67** |
+| 5 | `confirm_frames` = 1 | same candidate on N stable frames | `tracker.py:778,3158` | 0 (33 per extra vote; it is 2 without a CNN) |
+| 6 | frame quantisation | `ready` is only evaluated on a frame | — | ~17 mean |
+| 7 | CNN verify, first **usable** observation | `_dispatch` makes the candidate pending; the ladder only runs on a snapshot with `snap.seq >= pending.seq`, so an observation already in flight is discarded | `tracker.py:3447,2203`; Kotlin `Dispatch.kt:59`, `VerifySingle.kt:110`, `TrackerEngine.kt:158-165` | **210...420** |
+| 8 | CNN verify, second vote | `verify_obs_votes = 2`: the same outcome on two consecutive observations | `config.py:685`, `tracker.py:2390`; Kotlin `PendingVote.kt` | **~210** |
+| 9 | commit -> UI | `MoveCommitted` rides an unthrottled `SharedFlow`; only the status LINE is sampled at 10 Hz | `service/StatusPublisher.kt` (`STATUS_SAMPLE_MS = 100`) | ~0 |
+
+**Total: ~0.85-1.05 s. Two co-dominant terms: `motion_hold_s` (400 ms) and the CNN verify
+(~420 ms).** Neither alone explains the miss; removing either still leaves ~0.6 s.
+
+#### Which knob gates a pending verify: **neither `cnn_check_interval_s` nor `cnn_cooldown_s`**
+
+`_cnn_worker` routes a snapshot to `_verify_tick` whenever `self._pending is not None`, with no
+gate at all (`tracker.py:1838-1841`); the cooldown and the check interval live inside `_cnn_tick`
+(`tracker.py:1984-1988`), which only runs when **nothing** is pending. Kotlin is identical —
+`TrackerEngine.onCnnSnapshot:158-165` forks on `state.pending != null`, and `evaluationDue()`
+(`CnnTick.kt:60-65`) is on the other branch. **The verify wait is gated purely by how often the
+observer produces an observation.**
+
+#### The observation cadence is NOT 1 s — that number is a log throttle
+
+`CnnObserver.logObservation` returns early when the last line is younger than `BACKOFF_MS = 1000`
+(`app/.../cnn/CnnObserver.kt:167-181`). The line `CNN observation 146 ms for 64 crops` therefore
+**cannot** appear more than once a second whatever the real rate, so the observed 1.05-1.20 s
+spacing is evidence of the throttle, not of the cadence.
+
+What the code says the cadence is, at `observerIntervalS = 0.0`:
+
+1. analyzer frame N: `observer.onFrameAvailable()` -> not busy -> `runObservation` -> `store.take()`
+   is empty -> `store.request()` -> returns. **This whole cycle produces nothing**
+   (`service/CnnCropAdapter.kt:26-29`).
+2. frame N+1: `FramePipeline.onFrame` sees `cropStore.wantsFrame()` and produces the bordered warp
+   (`pipeline/FramePipeline.kt:188-189`); `onFrameAvailable` then starts the real observation.
+3. 146 ms of crops + ONNX, during which every frame is skipped (`busy`).
+
+= 2 frames + 146 ms ~ **210 ms**, i.e. ~4.8 observations/s. That predicts a log line every
+`5 x 210 ms = 1.05 s`, which is exactly the low end of what the device printed. Two votes therefore
+cost ~420 ms, and up to ~630 ms when the dispatch lands mid-inference and the seq gate discards
+that observation.
+
+**Not verified on device — no phone was attached for this session** (`adb devices` empty). The
+falsifiable prediction: a log line that also reported observations-since-last-line would show ~5,
+not 1.
+
+### 2. Measured — deterministic replay, virtual clock, every frame
+
+`scripts/sweep_clip_params.py` now records **last motion -> commit** per ply (commit `6b838ae`):
+both commit entry points are wrapped read-only, `_last_motion_ts` (`tracker.py:1683`) is one end
+and the virtual clock at the commit call the other.
+
+All replays run `cnn_run=None` — **the harness cannot exercise terms 7 and 8**, so every number
+below is the DIFF path only.
+
+| recording | fps | margin | config | moves | last motion -> commit (s) |
+|---|---|---|---|---|---|
+| `VID_20260726_155132.mp4` | 30 | 0.06 | stock (no-CNN shape 4/3/2) | d4 d5 Nf3 Nf6 Nc3 Nc6 Nxd5 Ne4 Nb6 | **0.47** median (n=9, max 0.50) |
+| `vid2334.mp4` | 30 | 0.06 | stock | 9 plies | **0.47** median (n=9, mean 0.74, max 1.67) |
+| `vid1244.mp4` | 30 | 0.06 | stock | d4 Nf6 Nc3 | **0.47** (n=3, zero variance) |
+| `vid1244.mp4` | 30 | 0.06 | device shape (3/2/1) | d4 Nf6 Nc3 | **0.43** (n=3) |
+| 20 committed clips | 12 | 0.0 | manifest | 20/20 | **0.50** median (n=92, mean 0.58) |
+
+0.47 s decomposes exactly as the budget predicts: 0.400 (`motion_hold_s`) + 0.067 (two frames of
+grid-gate re-hold). The device shape saves one frame (0.43).
+
+**So the diff path already meets 0.5 s.** What breaks the budget is the CNN verify, which no
+offline instrument in this repo can replay.
+
+A deterministic stand-in for `pytest -m clips` was used for the A/B work (scratchpad, throwaway,
+not a deliverable): the same `ClipDriver` the parity fixtures use, over all 20 manifest clips,
+every frame, ~22 s per config. It reproduces 20/20 at stock defaults. `pytest -m clips` itself
+replays in REALTIME and is therefore not reproducible enough to A/B a threshold on — it stays the
+gate, not the instrument.
+
+### 3. `motion_hold_s`: re-measured deterministically, and it does NOT go below 0.34
+
+The pack's earlier claim (0.1/0.2/0.3 each cost `blender-scholars` its mate) was measured before the
+harness margin fix. Re-measured on the deterministic runner — the margin fix does not touch these
+clips (their corners ARE the field corners, margin 0.0) and the result stands, with a sharper edge:
+
+| `motion_hold_s` | clip suite | note |
+|---|---|---|
+| 0.40 (default) | **20/20** | |
+| 0.38, 0.35, 0.34 | **20/20** | 12 fps quantisation: the clips do not actually move |
+| 0.32, 0.30, 0.20, 0.15, 0.10, 0.00 | 19/20 | `blender-scholars` loses `Qxf7#`, identically at every value |
+
+**The mechanism, traced frame by frame** (probe on `blender-scholars`, 12 fps, 262 frames):
+
+- at 0.4 the first detection frame after `Nf6` is f215, where the changed set is 6 = `max_changed`
+  -> `Nf6` commits, the reference re-anchors, and `Qxf7#` commits cleanly at f249;
+- at 0.3 detection starts two frames earlier, at f213, where the changed set is **7** -> the
+  `too_many_changed` branch (`tracker.py:3304`) marks stuck and commits nothing. It then stays at
+  7-8 for 33 quiet frames while `Qxf7` is physically played, and finally commits `Nf6` alone at
+  f250 — whose re-anchor swallows the queen. The clip ends 12 frames later.
+
+It is a one-square margin at `max_changed`, and it cascades into exactly the pair-swallow failure
+the user hit on `vid1244`. Confirmation that this is the binding constraint and not the hold
+itself: `max_changed = 7` with `motion_hold_s = 0.15` is **20/20** with median latency 0.42 s.
+That is NOT proposed — `max_changed` is the occlusion gate, and phase 00's phantom `Kd2` was built
+from exactly 6 changed squares, so raising it trades phantom resistance for latency. Recorded as a
+measurement, for the user to decide.
+
+`settle_frames` as a frame-rate-independent replacement for the hold was measured and does not
+work: `settle 5 + hold 0.15` loses `blender-scholars` at ply 5, `settle 6 + hold 0.15` fixes
+scholars and loses `blender-opera`. `settle_frames` also gates the stuck detector
+(`tracker.py:1984`), so it is not a pure timing knob.
+
+**On 30 fps real footage the trade runs the other way.** `VID_20260726_155132`: hold 0.3 and 0.2
+commit *ten* plies where 0.4 commits nine, at 0.37 s / 0.27 s. `vid1244` at the device shape:
+hold 0.4 -> `d4 Nf6 Nc3` (desynced at ply 2 against the played `d4 d5 Nf3 Nf6 Nc3 ...`), hold 0.2
+-> `d4 d6 Nf3 Nf6 Nc3`, four of five right. The improvement is **not monotone** (0.15 and 0.1 fall
+back to three commits), so this is not evidence that a shorter hold fixes fast play; it is evidence
+that the 12 fps clip suite and the 30 fps device disagree about this knob, and that only one of the
+two is a gate.
+
+**Default unchanged at 0.4.** 0.34 is the most the suite allows and buys 60 ms of ~900.
+
+### 4. What was changed: the confirm rung stops waiting for a second glance
+
+`_COMMIT_VOTES = 1` (`tracker.py:60-68`) / `COMMIT_VOTES` (`core-engine/PendingVote.kt`).
+
+`verify_obs_votes = 2` exists because one glance must not **overrule** the diff (g8h6 incident,
+2026-07-09). The confirm rung is the opposite case: the CNN agrees with a candidate the diff has
+already carried through `confirm_frames`, the ambiguity margin and `commit_ll_floor`. Two
+independent instruments concurring is not the failure the vote was built for, and the second glance
+is a full observer round trip. **Contradiction (shadow / ghost / overrule / pair-shadow) still needs
+two glances; concurrence needs one.** Single and pair ladders both.
+
+Predicted effect on the device: term 8 disappears, ~0.85-1.05 s -> ~0.64-0.84 s. **Not measured on
+a device.**
+
+Red-first, both sides:
+
+```
+_COMMIT_VOTES = 2  -> tests/test_move_tracker.py::TestCnnVerify::
+                      test_confirm_acts_on_one_glance_contradiction_still_needs_two
+                      AssertionError: assert [] == ['e4']
+COMMIT_VOTES  = 2  -> VerifySingleTest.confirmActsOnOneGlanceContradictionStillNeedsTwo
+                      AssertionFailedError: expected: <[e4]> but was: <[]>   (21 tests, 1 failed)
+```
+
+Four existing Kotlin tests encoded the old rule and were re-pointed, not relaxed:
+`singleGlanceNeverDecides` -> `singleGlanceNeverDecidesAgainstTheDiff` (alternates shadow/ghost, the
+rungs that still vote), `pairTerminalsNeedTwoGlances` ->
+`pairTerminalsThatContradictTheDiffNeedTwoGlances` (shadow rung), and the three pair COMMIT tests
+dropped their `repeat(2)`.
+
+**The parity fixtures are byte-identical after `--all` regeneration — and that is information, not
+a pass.** The emitter runs `cnn_run=None` (`emit_parity_fixtures.py:271`), so no fixture frame ever
+reaches the verify ladder; same for `pytest -m clips`. **This change has no offline gate in this
+repo except the unit tests.** The one instrument that would exercise it is `:app`'s
+`CnnClipSimulationTest` (`-Pchesslab.sim=true`), which drives the 18 clips through the real
+`model.onnx` and the real verify ladder.
+
+### 5. Diagnosed, NOT fixed — the pending verify has no wall-clock bound
+
+`verify_window = 8` counts **observations**, not time: `pending["frames"]` is incremented only
+inside `_verify_tick` / `_verify_pair_tick` (`tracker.py:2244`, `:2453`), and Kotlin only inside
+`VerifySingle.singleTick` (`VerifySingle.kt:110`) and `VerifyPair.tick`. Nothing in the frame loop
+touches it. If the observer stops producing snapshots — attach failure after a successful start,
+thermal stall, a model error — a pending candidate stays pending **forever**, the tracker commits
+nothing, and the note keeps saying "checking ... via CNN...". Seen offline at `frames=0/8` for the
+whole remaining 9 s of a clip.
+
+Not fixed here because the repair is a policy choice, not a bug fix: on timeout the tracker can
+either commit the candidate (what it already does when the CNN is known unavailable,
+`tracker.py:2193-2200`) or discard it, and either needs a new default in `TRACK_DEFAULTS` plus its
+Kotlin twin. **Decision for the user.**
+
+### 6. Honest answer to the target
+
+**0.5 s is not reachable with `cnn_verify` on.** The floor is
+`motion_hold_s + settle + N x observation_period`; with the 210 ms observation period even one vote
+and a zero hold leaves ~0.25 s of CNN wait on top of whatever settling is kept. With the
+suite-allowed `motion_hold_s` (0.34+) and one vote it is ~0.64 s.
+
+Ordered by what it would take:
+
+1. **`cnn_verify` off -> 0.43-0.47 s, measured.** The only configuration that meets 0.5 s today,
+   and it gives up the pre-commit ghost filter.
+2. **The wasted observer cycle** (`CnnCropAdapter.kt:26-29`: `take()` -> null -> `request()` ->
+   return) costs 1-2 frames per observation. Requesting the crop frame the moment a candidate goes
+   pending would cut the verify wait by ~33-66 ms. In `:app`, outside this session's file scope.
+3. `motion_hold_s` below 0.34 needs `max_changed` at 7 (measured 20/20, but it is the occlusion
+   gate — see section 3).
+4. The 12 fps clip suite cannot test the 30 fps device shape at all: it runs
+   `settle 4 / avg 3 / confirm 2` without a CNN, while the device runs `3 / 2 / 1` with the pair
+   checked BEFORE the single (`tracker.py:3323-3327`). Closing that gap is what would turn a
+   `motion_hold_s` decision from a judgement call into a measurement.
