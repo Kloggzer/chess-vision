@@ -19,6 +19,10 @@ live games without a CNN (frame diff + legality, optional CNN safeguard).
 - `README.md` — user-facing overview, all CLI commands per stage.
 - `docs/architecture-review/architecture-overview.md` — component map (Mermaid).
 - `docs/move-tracker-flow.md` — tracker detection flow (Mermaid).
+- `docs/data-pipeline.md` — **the real-camera data path** (sessions → slice → crop pool →
+  dataset → train): what feeds what, what is parked and why, and the behaviours that
+  surprise people (train-only dedup, `unusable` not being retroactive, parking that does
+  not prune the pool). Read this before touching anything under `data/`.
 - `docs/synth-pipeline.md` — synthetic data pipeline (Blender renders → ingest).
 - `docs/setup/` — PyTorch backends (ROCm / CUDA / CPU).
 - One CLI entry point: `chesslab <command>` (`src/chesslab/cli.py`, Typer).
@@ -76,6 +80,17 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
   data leakage. Split is always **per session**.
 - **Orientation:** wrong a8-corner assignment silently transposes all labels.
   `ingest --debug-overlay N` exists to eyeball-check before training.
+- **Dedup runs on the TRAIN split only** (`dataset_build.py:311-317`) so `board_accuracy` sees
+  complete 64-crop boards. A dataset's `counts.final` is therefore a property of the SPLIT,
+  not of the corpus — a bigger train split makes `final` smaller. Never compare `final`
+  across datasets with different splits; compare raw rows or phash-unique counts.
+- **`data/` is gitignored → park, never delete.** Convention: `data/_parked/<date>-<reason>/`
+  with a README. A manual park moves pixels only — the rows stay in `squares.jsonl`;
+  `sessions.archive_session` is the mechanism that also prunes the pool.
+- **Judge a session by unique crops, not size.** Fixed-camera redundancy ranks session size
+  almost inversely to information: the 4,992-row session carries 652 unique crops, a
+  1,024-row one carries 767. Resolution (px/square, from the log's corners) is the other
+  axis — the device sees ~98 px/square.
 
 ## Verification
 

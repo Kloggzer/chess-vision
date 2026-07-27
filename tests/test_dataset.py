@@ -8,6 +8,7 @@ import numpy as np
 
 from chesslab import config
 from chesslab.dataset import (
+    assign_sessions_to_splits,
     compute_class_weights,
     compute_stats,
     make_split,
@@ -112,6 +113,93 @@ def test_split_is_session_disjoint_and_respects_empty_ratio():
     # class_weights (from balanced train): empty smallest among present
     cw = split["class_weights"]
     assert cw["empty"] == min(v for v in cw.values() if v > 0)
+
+
+# --- unequal-session splits (regression, 2026-07-27) ---------------------------------
+#
+# The real corpus is wildly unequal: 4992, 3520, 1600, 1024, 1024, 832, 384 crops per
+# session, where the top two are 64 % of the rows. Greedy largest-first with no overshoot
+# guard put both of them into val/test and left train with the crumbs (train 1611 while
+# 8512 sat in holdout). These pin the three properties that prevent it.
+
+_UNEQUAL = {"big1": 4992, "big2": 3520, "mid": 1600,
+            "old1": 1024, "old2": 1024, "small1": 832, "small2": 384}
+
+
+def test_unequal_sessions_do_not_strand_the_corpus_in_holdout():
+    """A session far larger than the whole val/test target must not be dropped into it."""
+    sp = assign_sessions_to_splits(_UNEQUAL, val_frac=0.15, test_frac=0.15, seed=42)
+    total = sum(_UNEQUAL.values())
+    n = {k: sum(_UNEQUAL[s] for s in v) for k, v in sp.items()}
+    assert n["train"] + n["val"] + n["test"] == total
+    # train must hold the clear majority — the whole point of a 15/15 split
+    assert n["train"] >= 0.5 * total, f"train stranded: {n}"
+    # and neither holdout may run away past its target by more than 2x
+    assert n["val"] <= 2 * 0.15 * total, f"val overshoot: {n}"
+    assert n["test"] <= 2 * 0.15 * total, f"test overshoot: {n}"
+
+
+def test_force_train_targets_use_only_the_available_sessions():
+    """Targets must be computed over what can actually fill val/test.
+
+    Sizing them off the FULL total (force_train included) inflates both targets while only
+    the remainder may fill them, so more of that remainder is pulled into holdout than the
+    caller asked for — forcing the two big sessions into train made train *smaller*.
+    """
+    forced = ["big1", "big2"]
+    sp = assign_sessions_to_splits(_UNEQUAL, val_frac=0.15, test_frac=0.15, seed=42,
+                                   force_train=forced)
+    n = {k: sum(_UNEQUAL[s] for s in v) for k, v in sp.items()}
+    for f in forced:
+        assert f in sp["train"]
+    available = sum(v for k, v in _UNEQUAL.items() if k not in forced)
+    # holdout is sized against the AVAILABLE pool, not the full corpus
+    assert n["val"] <= 2 * 0.15 * available, f"val sized off the wrong total: {n}"
+    assert n["test"] <= 2 * 0.15 * available, f"test sized off the wrong total: {n}"
+    # forcing the big sessions into train must not shrink train
+    unforced = assign_sessions_to_splits(_UNEQUAL, val_frac=0.15, test_frac=0.15, seed=42)
+    n_unforced = sum(_UNEQUAL[s] for s in unforced["train"])
+    assert n["train"] >= n_unforced, f"force_train shrank train: {n['train']} < {n_unforced}"
+
+
+def test_session_larger_than_the_target_goes_to_train():
+    """The mechanism behind the fix: a session that cannot fit a holdout belongs in train.
+
+    This is also why targeting stays on RAW counts — `dataset_build` dedups train only, so an
+    oversized (and in practice redundancy-heavy) session is cheap in train and full price in
+    holdout.
+    """
+    sp = assign_sessions_to_splits(_UNEQUAL, val_frac=0.15, test_frac=0.15, seed=42)
+    target = 0.15 * sum(_UNEQUAL.values())
+    for sid, sz in _UNEQUAL.items():
+        if sz >= 2 * target:                    # cannot reduce any holdout's deviation
+            assert sid in sp["train"], f"{sid} ({sz}) belongs in train, target {target:.0f}"
+
+
+def test_val_and_test_never_end_up_empty():
+    """Equal-sized sessions: the overshoot guard must not starve val/test entirely."""
+    sizes = {"a": 100, "b": 100, "c": 100}
+    sp = assign_sessions_to_splits(sizes, val_frac=0.15, test_frac=0.15, seed=42)
+    assert sp["val"] and sp["test"] and sp["train"], sp
+    assert sorted(sp["train"] + sp["val"] + sp["test"]) == ["a", "b", "c"]
+
+
+def test_shipped_occ_synth_split_is_reproduced_exactly():
+    """Backward compatibility on a BALANCED corpus: the real occ-synth sizes must still
+    produce the split that is on disk (37/2/2, same session ids). The fix may only change
+    what the unequal case does."""
+    sizes = {f"occ-synth__synth-shard-{s}-{i:03d}": 6400
+             for s, n in ((0, 5), (1, 10), (2, 10), (3, 10)) for i in range(n)}
+    sizes.update({f"occ-synth__synth-topup-{i:03d}": 6400 for i in range(6)})
+    sizes["occ-synth__synth-shard-0-004"] = 2944
+    sizes["occ-synth__synth-topup-005"] = 3456
+    assert len(sizes) == 41 and sum(sizes.values()) == 256000
+    sp = assign_sessions_to_splits(sizes, val_frac=0.05, test_frac=0.05, seed=config.SEED)
+    assert sorted(sp["val"]) == ["occ-synth__synth-shard-1-004",
+                                 "occ-synth__synth-shard-1-005"], sp
+    assert sorted(sp["test"]) == ["occ-synth__synth-shard-0-003",
+                                  "occ-synth__synth-topup-001"], sp
+    assert len(sp["train"]) == 37, sp
 
 
 def test_subsample_classes_caps_pieces_and_empty():
