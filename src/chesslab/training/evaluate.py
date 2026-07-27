@@ -127,6 +127,11 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None) 
     return 0
 
 
+#: The one batch the tracker ever infers: 64 squares of a board, read in a single call.
+#: Baked into the exported graph — see `_export_onnx` for why it must not be dynamic.
+ONNX_BATCH = 64
+
+
 def run_export(run: str, fmt: str = "torchscript") -> int:
     import torch
 
@@ -144,18 +149,19 @@ def run_export(run: str, fmt: str = "torchscript") -> int:
     stock_batchnorm(model)
     classes = cfg["classes"]
     out_w, out_h = cfg["out_size"]
-    # Batch 2, NOT 1: tracing with batch 1 lets the exporter constant-fold the batch
-    # dimension into shape ops, so the graph's declared output stays {1,14} even with
-    # dynamic_axes — ONNX Runtime then warns "expected {1,14}, actual {64,14}" on every
-    # batched inference. A batch-2 example forces genuinely dynamic shapes.
     from .torch_data import input_repr_of
 
-    example = torch.randn(2, input_repr_of(cfg)[1], out_h, out_w)
+    example = torch.randn(ONNX_BATCH, input_repr_of(cfg)[1], out_h, out_w)
 
     def _export_onnx() -> None:
+        # NO dynamic_axes. A dynamic batch dim is not a harmless generalisation here: under ORT's
+        # ALL_OPT the Android session answers a [64,3,128,128] input with a [1,2] output and every
+        # observation dies on "model returned 2 logits, expected 128". That was diagnosed once
+        # already (b24f1f3) and fixed by hand-patching the shipped .onnx, leaving this exporter
+        # still emitting the broken shape — so the next two models shipped with it again.
+        # Trace at the batch the app actually runs and the shape is baked in.
         torch.onnx.export(model, example, str(run_dir / "model.onnx"),
                           input_names=["input"], output_names=["logits"],
-                          dynamic_axes={"input": {0: "batch"}, "logits": {0: "batch"}},
                           opset_version=17, dynamo=False)
 
     # "qnn" is the INT8/QDQ ONNX for the on-device Hexagon NPU (needs the FP32 onnx first).
