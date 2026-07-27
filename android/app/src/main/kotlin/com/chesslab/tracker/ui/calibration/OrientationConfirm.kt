@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
@@ -40,7 +42,9 @@ fun OrientationConfirm(
     onMarginChange: (Int, Double) -> Unit = { _, _ -> },
 ) {
     val measurer = rememberTextMeasurer()
-    Column(modifier.fillMaxWidth()) {
+    // The rectified board is the instrument here, so it keeps its full width and the
+    // controls scroll beneath it — four corner rows are otherwise enough to squeeze it.
+    Column(modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
         Text("Does this read like the board in front of you? a8 must be the square marked a8.")
         Box(
             Modifier
@@ -72,33 +76,36 @@ fun OrientationConfirm(
 private const val MARGIN_STEP: Double = 0.005
 
 /**
- * The four marker outsets, one row per corner, with the rectified board above reacting live.
+ * The four marker outsets, two corners per row, with the rectified board above reacting live.
  *
  * The ArUco codes are printed in the label border rather than on the playing-field corners, so the
  * quad they span is larger than the board; the outset is what takes that back out. It is per
  * corner because the codes are glued on by hand — re-sticking one moves only that corner, and a
  * single shared number would have to average an error it cannot express.
  *
- * Nudging beats typing here: the correct value is whatever makes the green grid sit on the squares,
- * and that is judged by eye against the preview, not read off a number.
+ * Nudging beats typing: the right value is whatever makes the grid sit on the squares, and that is
+ * judged by eye against the preview, not read off a number.
  */
 @Composable
 private fun MarkerOutsets(
     margin: List<Double>,
     onChange: (Int, Double) -> Unit,
 ) {
-    Text("Marker outset — how far each code sits outside the board", Modifier.padding(top = 8.dp))
-    CORNER_ORDER.forEachIndexed { i, corner ->
-        Row(
-            Modifier.fillMaxWidth().padding(vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(corner)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = { onChange(i, margin[i] - MARGIN_STEP) }) { Text("−") }
-                Text("%.3f".format(margin[i]), Modifier.padding(horizontal = 12.dp))
-                OutlinedButton(onClick = { onChange(i, margin[i] + MARGIN_STEP) }) { Text("+") }
+    Text("Marker outset — how far each code sits outside the board", Modifier.padding(top = 4.dp))
+    for (row in 0 until CORNER_ORDER.size / 2) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (col in 0..1) {
+                val i = row * 2 + col
+                Row(
+                    Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(CORNER_ORDER[i])
+                    OutlinedButton(onClick = { onChange(i, margin[i] - MARGIN_STEP) }) { Text("−") }
+                    Text("%.3f".format(margin[i]))
+                    OutlinedButton(onClick = { onChange(i, margin[i] + MARGIN_STEP) }) { Text("+") }
+                }
             }
         }
     }
