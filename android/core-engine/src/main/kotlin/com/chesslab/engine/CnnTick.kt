@@ -109,16 +109,36 @@ private fun EngineState.identityRead(
     return CnnRead(derived.moves, derived.agreement, matches.conflicts, matchOk = false, inconclusive = false)
 }
 
-/** Occupancy-only run (`obs.label == null`): the deep search is the only move source (STATUS D04c-2). */
+/**
+ * The occupancy-only arm — `tracker.py:2020-2028`, the `else` of `_cnn_tick`'s identity branch.
+ *
+ * `resync_check` names the ONE legal move whose occupancy explains the observation, and how well.
+ * Python takes THAT move and THAT agreement, and reaches for the deep beam search only as a
+ * fallback: when resync named no move and the board does not match.
+ *
+ * This used to run `deriveMovesDeep` unconditionally on every non-match (D04c-2). The divergence
+ * was accepted as "the agreement number, not the decision", on the reasoning that the path was
+ * unreachable with the bundled 14-class model. That reasoning expired the moment a 2-class model
+ * shipped: `observationFromProbs` returns no identity for it, so this arm became the ONLY reachable
+ * one — and the deep search returns up to `recoveryMaxPlies` moves where resync names one. On the
+ * device that is visible as multi-ply commits: 69 recorded plies contained two bursts of 3 and 4.
+ */
 private fun EngineState.occupancyRead(
     cnn: CnnEvaluator,
     obs: CnnObservation,
 ): CnnRead {
     val fen = board.fen()
     val res = cnn.resyncCheck(fen, obs)
-    if (res.match) return CnnRead(emptyList(), 0.0, res.conflicts, matchOk = true, inconclusive = false)
-    val deep = cnn.deriveMovesDeep(fen, obs, config.recoveryMaxPlies)
-    return CnnRead(deep.moves, deep.agreement, res.conflicts, matchOk = false, inconclusive = false)
+    var moves = res.move?.let { listOf(it) } ?: emptyList()
+    var agreement = res.agreement
+    if (moves.isEmpty() && !res.match) {
+        val deep = cnn.deriveMovesDeep(fen, obs, config.recoveryMaxPlies)
+        if (deep.moves.isNotEmpty()) {
+            moves = deep.moves
+            agreement = deep.agreement
+        }
+    }
+    return CnnRead(moves, agreement, res.conflicts, matchOk = res.match, inconclusive = false)
 }
 
 /**
