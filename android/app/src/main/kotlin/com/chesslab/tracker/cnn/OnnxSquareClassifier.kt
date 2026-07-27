@@ -12,7 +12,6 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
 
-private const val CHANNELS = 3
 private const val FLOAT_BYTES = 4
 
 /**
@@ -111,7 +110,8 @@ internal interface SessionRunner : AutoCloseable {
 
 /**
  * `:core-cnn`'s [SquareClassifier] on ONNX Runtime. All 64 crops go through ONE session call —
- * the graph is exported with a dynamic batch dimension (`[batch, 3, 128, 128]`, opset 17).
+ * the graph is exported with a dynamic batch dimension (`[batch, channels, 128, 128]`, opset 17,
+ * where `channels` follows the run's `input_repr`).
  * Preprocessing is `:core-cnn`'s `preprocess` (the `serving.py predict_arrays` contract); a
  * second copy here would be a parity fork.
  */
@@ -140,7 +140,7 @@ class OnnxSquareClassifier internal constructor(
         private set
 
     private val batch = ALL_SQUARES.size
-    private val shape = longArrayOf(batch.toLong(), CHANNELS.toLong(), spec.outHeight.toLong(), spec.outWidth.toLong())
+    private val shape = longArrayOf(batch.toLong(), spec.channels.toLong(), spec.outHeight.toLong(), spec.outWidth.toLong())
 
     /** The tensor the graph is actually fed, for 07b's debug screen. */
     val inputShape: String get() = shape.joinToString("x")
@@ -149,17 +149,17 @@ class OnnxSquareClassifier internal constructor(
     // observation would churn the heap at observer rate.
     private val input: FloatBuffer =
         ByteBuffer
-            .allocateDirect(batch * CHANNELS * spec.outWidth * spec.outHeight * FLOAT_BYTES)
+            .allocateDirect(batch * spec.channels * spec.outWidth * spec.outHeight * FLOAT_BYTES)
             .order(ByteOrder.nativeOrder())
             .asFloatBuffer()
 
     // Reused for the same reason as [input]: `preprocess` would hand back a fresh 12.6 MB array
     // per observation. Writing it here and bulk-putting is one memcpy and zero allocation.
-    private val staging = FloatArray(batch * CHANNELS * spec.outWidth * spec.outHeight)
+    private val staging = FloatArray(batch * spec.channels * spec.outWidth * spec.outHeight)
 
     override fun classify(crops: List<BgrImage>): Array<FloatArray> {
         require(crops.size == batch) { "expected $batch crops, got ${crops.size}" }
-        preprocessInto(crops, spec.outWidth, spec.outHeight, staging, spec.mean, spec.std, spec.perCrop)
+        preprocessInto(crops, spec.outWidth, spec.outHeight, staging, spec.mean, spec.std, spec.perCrop, spec.repr)
         input.clear()
         input.put(staging)
         input.flip()
