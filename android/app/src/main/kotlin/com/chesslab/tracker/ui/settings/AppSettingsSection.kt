@@ -27,8 +27,15 @@ import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.SurfaceRaised
 
-/** The two graphs the app bundles. QNN takes the quantized one; the FP32 graph runs anywhere. */
-private val MODEL_ASSETS = listOf("model.onnx", "model.qnn.onnx")
+/**
+ * Only the FP32 graph, because only it can execute.
+ *
+ * `model.qnn.onnx` is still bundled — the QNN branch in `OrtSessionRunner` is what a QNN-capable
+ * build would need back — but this build has no QNN AAR, so offering it as a choice only lets a
+ * device pin itself to a graph no provider wants AND silently stop receiving `model.onnx` updates.
+ * Restore this entry in the same change that restores the AAR, never before.
+ */
+private val MODEL_ASSETS = listOf("model.onnx")
 
 /**
  * Everything that is not a `TrackerConfig` knob: what the camera is asked for, which way the board

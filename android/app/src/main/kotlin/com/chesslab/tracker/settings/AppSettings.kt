@@ -76,8 +76,25 @@ private val json =
 
 fun encodeAppSettings(settings: AppSettings): String = json.encodeToString(AppSettings.serializer(), settings)
 
-/** An unreadable or half-understood payload falls back to the defaults — never to a partial one. */
+/**
+ * The quantized graph, selectable only while a QNN-capable build existed.
+ *
+ * Phase 01 dropped the `onnxruntime-android-qnn` AAR, so `addQnn` now falls through to CPU and the
+ * INT8/QDQ graph runs on a provider it was never quantized for. Worse, it is silent: `stage()` only
+ * copies the graph it is asked for, so a device pinned to this value never receives a new
+ * `model.onnx` at all. One was found on 2026-07-27 still running the asset from commit `b24f1f3`,
+ * three model releases behind — every accuracy number quoted for that phone was measured on a graph
+ * it was not executing.
+ */
+private const val QNN_ASSET = "model.qnn.onnx"
+
+/**
+ * An unreadable or half-understood payload falls back to the defaults — never to a partial one.
+ *
+ * Stored values otherwise win over changed defaults forever; see [QNN_ASSET] for what that cost.
+ */
 fun decodeAppSettings(text: String?): AppSettings {
     if (text.isNullOrBlank()) return AppSettings()
-    return runCatching { json.decodeFromString(AppSettings.serializer(), text) }.getOrElse { AppSettings() }
+    val decoded = runCatching { json.decodeFromString(AppSettings.serializer(), text) }.getOrElse { AppSettings() }
+    return if (decoded.modelAsset == QNN_ASSET) decoded.copy(modelAsset = AppSettings().modelAsset) else decoded
 }
