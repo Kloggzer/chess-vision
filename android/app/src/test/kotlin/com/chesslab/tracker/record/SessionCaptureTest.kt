@@ -75,7 +75,7 @@ class SessionCaptureTest {
         // Suspended, not stopped: the recorder and the frame already written are untouched.
         assertEquals(recorder, controller.recorder)
         assertEquals(1, controller.recorder?.count)
-        assertTrue(gates.reason.orEmpty().contains("board geometry unresolved"))
+        assertTrue(gates.reason.orEmpty().contains("Recording paused"))
         source.note = null
         controller.queue(3, FEN, "Nf3", clean = true)
         assertEquals(2, controller.recorder?.count)
@@ -180,7 +180,7 @@ class SessionCaptureTest {
         val controller = controller()
         source.note = "profile 1920x1080, camera delivers 1280x720"
         controller.queue(1, FEN, "e4", clean = true)
-        assertTrue(gates.reason.orEmpty().contains("board geometry unresolved"))
+        assertTrue(gates.reason.orEmpty().contains("Recording paused"))
         source.note = null
         controller.queue(2, FEN, "e5", clean = true)
         assertEquals(1, controller.recorder?.count)

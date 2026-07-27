@@ -49,7 +49,11 @@ class NotePrecedenceTest {
     @Test
     fun alarmBeatsStuckBeatsCameraDownBeatsCnnFailedBeatsSizeMismatch() {
         val alarmed = statusOf(stuckReason = "occluded", alarm = ALARM, note = "pipeline")
-        assertTrue(resolveNote(alarmed, DOWN, FAILED, MISMATCH, "pipe")!!.startsWith("ILLEGAL MOVE?"))
+        val note = resolveNote(alarmed, DOWN, FAILED, MISMATCH, "pipe")!!
+        assertTrue(note.startsWith("Position lost"), note)
+        // The note doubles as the background notification, so it must carry the guess and an action.
+        assertTrue(note.contains("e4"), note)
+        assertTrue(note.contains("Open the app"), note)
 
         val stuck = statusOf(stuckReason = "occluded", note = "pipeline")
         assertEquals("stuck: occluded", resolveNote(stuck, DOWN, FAILED, MISMATCH, "pipe"))

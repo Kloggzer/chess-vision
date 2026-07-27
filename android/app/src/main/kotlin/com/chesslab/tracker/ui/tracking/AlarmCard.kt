@@ -24,6 +24,21 @@ import com.chesslab.tracker.ui.theme.OnDanger
 private const val CONFLICTS_SHOWN = 8
 
 /**
+ * What the user is told the alarm IS.
+ *
+ * The card used to print the raw latch name — `alarm.kind.replace('_',' ').uppercase()`, i.e.
+ * "ILLEGAL MOVE" — which reads as an accusation about the player's move rather than what it means:
+ * the app's board and the physical board have drifted apart and the app knows it. `illegal_move` is
+ * currently the only kind raised (`engine.Alarm.ALARM_ILLEGAL_MOVE`); the `when` keeps the raw
+ * string as a fallback so a new kind degrades to the old behaviour instead of vanishing.
+ */
+private fun headlineFor(kind: String): String =
+    when (kind) {
+        "illegal_move" -> "Position lost — the board and the app disagree"
+        else -> kind.replace('_', ' ').uppercase()
+    }
+
+/**
  * The illegal-move latch, made actionable.
  *
  * Shown iff `status.alarm != null` — the same condition that tints the board. While it is up the
@@ -49,9 +64,16 @@ fun AlarmCard(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text = alarm.kind.replace('_', ' ').uppercase(),
+            text = headlineFor(alarm.kind),
             style = MaterialTheme.typography.titleLarge,
             color = Danger,
+        )
+        Text(
+            text =
+                "Tracking is paused and the board below is the last position the app was sure " +
+                    "of — not what is in front of you. Pick one:",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
         )
         if (alarm.conflicts.isNotEmpty()) {
             val listed = alarm.conflicts.take(CONFLICTS_SHOWN).joinToString(", ")

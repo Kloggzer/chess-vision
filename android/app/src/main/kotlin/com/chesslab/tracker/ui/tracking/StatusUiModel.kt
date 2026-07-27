@@ -91,7 +91,12 @@ internal const val STATE_MOVING = "moving"
 internal const val STATE_OCCLUDED = "occluded"
 internal const val STATE_MOVE = "move"
 
-private const val ALARM_STATE_TEXT = "ILLEGAL MOVE?"
+/**
+ * The one-word state while the latch is up. "ILLEGAL MOVE?" read as a question about the player's
+ * move; what it actually reports is that the app has stopped believing its own board, which is why
+ * every commit is blocked until the card below is answered.
+ */
+private const val ALARM_STATE_TEXT = "POSITION LOST"
 
 private const val STOPPED_STATE_TEXT = "STOPPED"
 

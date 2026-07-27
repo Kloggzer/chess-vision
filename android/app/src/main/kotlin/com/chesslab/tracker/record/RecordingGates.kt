@@ -64,7 +64,11 @@ class RecordingGates(
     fun geometrySuspends(note: String?): Boolean {
         if (note == null) return false
         skipped++
-        reason = "board geometry unresolved ($note)"
+        // Name the remedy, not just the fault. This string is the ONLY diagnostic the user gets,
+        // and "board geometry unresolved (profile 1920x1080, camera delivers 2560x1440)" left a
+        // phone recording nothing for seven hours across nine games because nothing said that
+        // recalibrating is what clears it.
+        reason = "Recording paused — $note. Recalibrate to resume; moves are still tracked."
         return true
     }
 
@@ -74,7 +78,8 @@ class RecordingGates(
         val violations = physicalInventoryViolations(fen)
         if (violations.isEmpty()) return false
         skipped++
-        reason = "physical inventory exceeded (${violations.joinToString(", ")})"
+        reason = "Frame not recorded — more pieces on the board than a real set has " +
+            "(${violations.joinToString(", ")}). The position is wrong, not the camera."
         return true
     }
 
@@ -108,5 +113,6 @@ fun geometryNote(
     if (profileWidth == frameWidth && profileHeight == frameHeight) {
         null
     } else {
-        "profile ${profileWidth}x$profileHeight, camera delivers ${frameWidth}x$frameHeight"
+        "the calibration is for ${profileWidth}x$profileHeight but the camera delivers " +
+            "${frameWidth}x$frameHeight, so the stored corners point at the wrong pixels"
     }

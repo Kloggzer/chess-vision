@@ -51,7 +51,9 @@ class RecordingGatesTest {
     fun geometryMismatchSuspendsWithAReason() {
         val gates = RecordingGates()
         assertTrue(gates.blocks(START, geometryNote(1920, 1080, 1280, 720)))
-        assertTrue(gates.reason.orEmpty().startsWith("board geometry unresolved"), gates.reason)
+        assertTrue(gates.reason.orEmpty().startsWith("Recording paused"), gates.reason)
+        // The remedy has to be in the string: it is the only diagnostic the user is shown.
+        assertTrue(gates.reason.orEmpty().contains("Recalibrate"), gates.reason)
         assertEquals(1, gates.skipped)
     }
 }
