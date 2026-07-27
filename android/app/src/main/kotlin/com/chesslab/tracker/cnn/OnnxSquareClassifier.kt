@@ -159,7 +159,7 @@ class OnnxSquareClassifier internal constructor(
 
     override fun classify(crops: List<BgrImage>): Array<FloatArray> {
         require(crops.size == batch) { "expected $batch crops, got ${crops.size}" }
-        preprocessInto(crops, spec.outWidth, spec.outHeight, staging, spec.mean, spec.std)
+        preprocessInto(crops, spec.outWidth, spec.outHeight, staging, spec.mean, spec.std, spec.perCrop)
         input.clear()
         input.put(staging)
         input.flip()

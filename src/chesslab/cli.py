@@ -549,6 +549,12 @@ def train_cmd(
     out: str = typer.Option(None, "--out", help="Run directory (default: data/models/run-<ts>)."),
     patience: int = typer.Option(config.DEFAULT_PATIENCE, "--patience", help="Early stopping patience."),
     num_workers: int | None = typer.Option(None, "--num-workers", help="DataLoader workers (default: 0 on Windows, 4 otherwise)."),
+    crop_norm: str = typer.Option("fixed", "--crop-norm",
+                                 help="fixed | per-crop. per-crop standardises EACH crop by its own "
+                                      "mean/std instead of the dataset's. It is the contrast stretch "
+                                      "GroupNorm was doing inside the network: a black piece on a dark "
+                                      "square carries 6 grey levels against 40 on a light one, and doing "
+                                      "it here lets BatchNorm fold away (5x fewer graph nodes)."),
     norm: str | None = typer.Option(None, "--norm", help="batchnorm | groupnorm | none (default: groupnorm on Windows, otherwise batchnorm)."),
     dataset: str | None = typer.Option(None, "--dataset", help="Named dataset (otherwise global manifest/split)."),
     resume: str | None = typer.Option(None, "--resume", help="Run name whose weights are loaded as warm-start (continue training)."),
@@ -577,7 +583,7 @@ def train_cmd(
             raise typer.Exit(1)
         k, v = item.split("=", 1)
         cw[k.strip()] = float(v)
-    raise typer.Exit(run_train(backbone=backbone, epochs=epochs, batch_size=batch_size, lr=lr,
+    raise typer.Exit(run_train(backbone=backbone, epochs=epochs, per_crop=(crop_norm == "per-crop"), batch_size=batch_size, lr=lr,
                                no_amp=no_amp, seed=seed, out=out, patience=patience,
                                num_workers=num_workers, norm=norm, dataset=dataset, resume=resume,
                                head=head, scales=scale_list, erase_p=erase_p, bg_p=bg_p,
