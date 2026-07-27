@@ -15,11 +15,16 @@ Headless and testable: all functions accept a `paths` object (default `config.DA
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
+import yaml
+
 from . import config
+
+log = logging.getLogger("chesslab.sessions")
 
 
 def _safe_id(session_id: str) -> str:
@@ -175,20 +180,51 @@ def list_sessions(paths: config.Paths = config.DATA) -> list[dict]:
     return out
 
 
-def archive_session(session_id: str, paths: config.Paths = config.DATA) -> dict:
-    """Remove crops + manifest lines and move the directory to the archive (reversible)."""
+def archive_session(session_id: str, reason: str, paths: config.Paths = config.DATA) -> dict:
+    """Remove crops + manifest lines and move the directory to the archive (reversible).
+
+    `reason` is REQUIRED and is written twice: into the archived session's own `session.yaml`,
+    so it travels with the data, and into `sessions_archive/index.jsonl`, so the archive can be
+    read without opening 19 directories. A session that leaves the corpus without a recorded
+    reason is exactly the state this project spent a day untangling — four parked directories in
+    three conventions, two of them with no explanation of why anything was parked.
+    """
     sid = _safe_id(session_id)
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValueError("archiving needs a reason — it is the only record of WHY data left the corpus")
     src = paths.sessions / sid
     if not src.exists():
         raise FileNotFoundError(f"Session '{sid}' not found.")
-    n_crops = _purge_crops(sid, paths)
-    _filter_jsonl(_manifest_path(paths), sid)
     paths.sessions_archive.mkdir(parents=True, exist_ok=True)
     dst = paths.sessions_archive / sid
     if dst.exists():
-        shutil.rmtree(dst)
+        # Was `shutil.rmtree(dst)`. Archiving is the SAFE half of the API, and silently
+        # destroying an existing archive of the same id is the one thing it must never do.
+        raise FileExistsError(f"'{sid}' is already archived — remove or rename it first.")
+    n_crops = _purge_crops(sid, paths)
+    _filter_jsonl(_manifest_path(paths), sid)
     shutil.move(str(src), str(dst))
-    return {"session_id": sid, "archived": True, "removed_crops": n_crops}
+    _record_archive_reason(dst, sid, reason, n_crops, paths)
+    return {"session_id": sid, "archived": True, "removed_crops": n_crops, "reason": reason}
+
+
+def _record_archive_reason(dst, sid: str, reason: str, n_crops: int, paths: config.Paths) -> None:
+    """Write the reason where a human and a script will each find it."""
+    stamp = datetime.now(UTC).isoformat()
+    meta = dst / "session.yaml"
+    if meta.exists():
+        try:
+            data = yaml.safe_load(meta.read_text(encoding="utf-8")) or {}
+            data["archived_at"] = stamp
+            data["archived_reason"] = reason
+            meta.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+        except (OSError, yaml.YAMLError) as e:                     # noqa: PERF203 - one file
+            log.warning("could not stamp the reason into %s: %r", meta, e)
+    index = paths.sessions_archive / "index.jsonl"
+    row = {"session_id": sid, "archived_at": stamp, "reason": reason, "removed_crops": n_crops}
+    with index.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 def restore_session(session_id: str, paths: config.Paths = config.DATA) -> dict:

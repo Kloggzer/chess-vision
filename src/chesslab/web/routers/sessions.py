@@ -226,11 +226,16 @@ def session_board(sid: str, idx: int):
 
 
 @router.post("/api/sessions/{sid}/archive")
-def session_archive(sid: str):
+def session_archive(sid: str, reason: str = "archived from the web UI"):
+    """`reason` is recorded in the archive index and in the session's own `session.yaml`.
+
+    It has a default so the existing UI button keeps working, but the default is deliberately
+    uninformative: a caller that cares should say why.
+    """
     from ... import sessions as sessions_mod
 
     try:
-        return sessions_mod.archive_session(sid)
+        return sessions_mod.archive_session(sid, reason)
     except ValueError as e:
         raise HTTPException(400, str(e))
     except FileNotFoundError as e:
