@@ -412,7 +412,7 @@ class DispatchTest {
         assertEquals(listOf("d4"), state.history)
         assertEquals("d2d4", state.lastMove)
         assertEquals(DECIDER_CNN_OVERRULE, state.decisionLog.last().decider)
-        assertEquals("CNN overruled the diff move", state.decisionLog.last().reason)
+        assertEquals("frame-diff read a different move — CNN occupancy overruled it", state.decisionLog.last().reason)
         assertNull(state.pending)
         assertEquals(1, events.filterIsInstance<TrackerEvent.MoveCommitted>().size)
     }
