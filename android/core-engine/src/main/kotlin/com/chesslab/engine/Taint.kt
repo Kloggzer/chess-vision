@@ -1,7 +1,5 @@
 package com.chesslab.engine
 
-import com.chesslab.engine.api.BgrImage
-
 /**
  * Maximum age of a CNN snapshot that may still arbitrate an occlusion (`_OBS_MAX_AGE_S`). Older
  * than this and the observation says nothing about THIS frame, so the filter falls back to the pure
@@ -17,18 +15,6 @@ private const val HAND_HEURISTIC_LIMIT: Int = 2
 
 /** `tsMs` is milliseconds at the seam; the engine's clock ([EngineState.nowS]) is seconds. */
 private const val MS_PER_S: Double = 1000.0
-
-/** Interleaved BGR — three bytes per pixel. */
-private const val BGR_CHANNELS = 3
-
-/**
- * [EngineState.handScratch]'s working memory — the Lab and HSV planes [handOccluders] converts
- * the hot boxes into. Per instance, never file scope: two engines must not alias each other.
- */
-internal class HandVetoScratch {
-    var lab = ByteArray(0)
-    var hsv = ByteArray(0)
-}
 
 /**
  * Step 2's occlusion taint machinery.
@@ -59,78 +45,6 @@ internal fun EngineState.applyTaints() {
     // made a latched still hand invisible — or worse, "change" — in the UI.
     occludedVetoed = motionOccluded or tainted
     motionOccluded = 0L
-}
-
-/**
- * The opaque-occlusion veto on the DETECTION frame — a resting hand.
- *
- * `occlusionColorSquares` is a nearest-neighbour Mahalanobis test against the reference board's
- * own colour gamut: a hand matches no square, while a piece arriving on a new square matches
- * whichever square already carries a similar piece. It was competent all along and simply never
- * handed the squares that matter, because its only caller ([chromaOutliers], inside
- * `baselineOcclusionAndShadow`) is gated twice out of reach — that function runs only in the
- * MOTION states, so a hand that stops moving is never examined, and its candidate gate is an
- * absolute `motionPxThr * 4` = 80 grey levels that a resting hand does not reach. Measured on a
- * real game: a hand on f1 peaked at 62.0 while the move scorer rated the same pixels z = 15.7.
- *
- * The consequence was a phantom king move fitted to a motionless hand, whose commit then baked
- * the hand into the reference for 96 detection frames.
- *
- * Unlike [chromaOutliers] this one passes `extendUp = config.overhang`, matching the evidence
- * boxes the `hot` set was derived from, and dilates by one orthogonal neighbour exactly as
- * `baselineOcclusionAndShadow` does.
- *
- * @return true when anything was tainted, i.e. the caller must re-derive `hot` from [lastZ].
- */
-internal fun EngineState.handOccluders(
-    curBgr: BgrImage?,
-    hot: Long,
-): Boolean {
-    val gamut = refGamut
-    if (gamut == null || curBgr == null) return false
-    val outliers =
-        if (hot == 0L || config.occlusionColorThr <= 0.0) 0L else scanForOccluders(curBgr, gamut, hot)
-    if (outliers != 0L) {
-        val expiry = nowS + config.motionHoldS
-        // Dilated by one orthogonal neighbour, exactly as `baselineOcclusionAndShadow` does — a
-        // hand never covers a single cell cleanly.
-        dilate(outliers).forEachSquare { i ->
-            lastZ[i] = 0.0
-            tainted = tainted.with(i)
-            taintExpiry[i] = expiry
-        }
-    }
-    return outliers != 0L
-}
-
-/**
- * The Lab/HSV conversion of the hot boxes plus the nearest-neighbour test.
- *
- * Unlike `baselineOcclusionAndShadow`'s call this one passes `extendUp = config.overhang`,
- * matching the evidence boxes the `hot` set was derived from.
- */
-private fun EngineState.scanForOccluders(
-    bgr: BgrImage,
-    gamut: ColorGamut,
-    hot: Long,
-): Long {
-    val geom = PlaneGeometry(bgr.width, bgr.height, detSize, whitePov, extendUp = config.overhang)
-    val need = bgr.width * bgr.height * BGR_CHANNELS
-    if (handScratch.lab.size != need) handScratch.lab = ByteArray(need)
-    if (handScratch.hsv.size != need) handScratch.hsv = ByteArray(need)
-    hot.forEachSquare { i ->
-        geom.region(i, config.overhang)?.let { box ->
-            bgrToLabBox(bgr.data, bgr.width, box, handScratch.lab)
-            bgrToHsvBox(bgr.data, bgr.width, box, handScratch.hsv)
-        }
-    }
-    return occlusionColorSquares(
-        ColorPlanes(handScratch.lab, handScratch.hsv),
-        geom,
-        gamut,
-        hot,
-        config.occlusionColorThr,
-    )
 }
 
 /**
