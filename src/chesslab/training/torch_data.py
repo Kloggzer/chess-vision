@@ -171,6 +171,20 @@ class InputRepresentation(torch.nn.Module):
     The gray channel is kept alongside it on purpose: unlike per-crop standardisation (which won
     the dark squares and lost 1641 empty squares to phantom pieces) this ADDS the rectified view
     without discarding absolute scale.
+
+    **And it lost.** Trained through the baseline's own recipe (synth pretrain -> real fine-tune,
+    GroupNorm, occupancy head) and scored on the 18-clip harness against `occ-act-f3`:
+
+        rgb (ships)   per-square 0.9998   whole-board 0.9978     17 misses   16/18 clips
+        rgb+sobel     per-square 0.9778   whole-board 0.0308   1937 misses   12/18 clips
+        gray+sobel    per-square 0.9572   whole-board 0.0307   3680 misses   11/18 clips
+
+    `rgb+sobel` is a strict SUPERSET of what the baseline sees — the same three normalised RGB
+    planes plus one more — so it cannot have lost information, and it still fell two orders of
+    magnitude on whole-board accuracy. Nor did it degrade evenly: one square carried 1143 of its
+    1937 misses and 45 of 64 squares were never wrong once, i.e. the model acquired a handful of
+    pieces it reads as empty on every single frame. Whatever the linear probe measured, giving a
+    trained network the rectified channel did not transfer.
     """
 
     def __init__(self, kind: str) -> None:
