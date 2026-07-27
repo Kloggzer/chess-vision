@@ -1160,3 +1160,49 @@ one: 46 Conv, 46 InstanceNormalization, **0 Relu**. The rebuilt architecture rep
 (256k crops) — note the piece-model datasets `synth-p1/p2`, `real-all` no longer exist on disk;
 `occ-real` (10,560) and `occ-synth` are what remains, and they are the right ones for the shipped
 2-class model (128 logits = 64 squares x 2).
+
+### 04b — the retrain, and a failed experiment before it
+
+**Result: the activated model wins decisively on the acceptance instrument.** Same 18 clips,
+same 1366 observations / 87,424 square reads, same diff-only baseline, one pass:
+
+| | `occ-act-f3` (new, 30 Relu) | `occ-real-f3` (previous best, 0 Relu) |
+|---|---|---|
+| whole-board occupancy | **0.9978** (1363/1366) | 0.9422 (1287/1366) |
+| per-square occupancy | **0.9998** | 0.9989 |
+| misses | **17** | 49 |
+| phantoms | **0** | 44 |
+| confident-occ wrong | **0.02 %** | 0.03 % |
+| squares never wrong | **55/64** | 49/64 |
+| clips passing | 16/18 | 16/18 |
+
+Whole-board errors 79 -> 3, and the previous model's chronic `g1` hotspot (32 of its errors on
+one square) is gone — the new errors spread evenly over rank 2.
+
+**The first attempt was a failed experiment and is recorded as one.** `occ-act-p2` scored 0.3192
+whole-board with 1389 misses / 0 phantoms, and that is NOT a verdict on activations: it differed
+from `occ-real-f3` in three ways at once — class weight (`occupied` 1.25 automatic vs the 3.0
+override f3 used), lr/epochs (1e-4/40 vs 3e-5/20), and lineage. The miss/phantom direction is the
+signature of a low occupied weight, which `specs/18` already documents as the dominant knob
+("weight 0.77 -> 876 misses / 10 phantoms; weight 3.0 -> 49 / 44"). Changing three variables and
+attributing the result to one of them was the mistake; `occ-act-f3` repeats f3's recipe exactly.
+
+**One confound remains and cannot be removed.** `occ-real-f3` sits at the end of
+`tiny-p1 -> tiny-p2 -> tiny-p3 -> occ-synth-w1`, where `tiny-p3` saw the full piece curriculum
+including real data. `occ-act-f3` starts from scratch on synth only, because the datasets
+`synth-p1`, `synth-p2` and `real-all` no longer exist on disk. The new model therefore wins
+*despite* a weaker lineage — which strengthens the reading, but this is a comparison of two runs,
+not an isolated activation test.
+
+**Also worth knowing: the val split is anti-correlated with the instrument here.** With f3's
+weights the `occ-real` val whole-board accuracy FALLS from 1.0000 to 0.5385, while the clip number
+rises from 0.3192 to 0.9978. Optimising on that val split optimises the wrong direction.
+
+Both artefacts are exported, **batch dim fixed to 64** (the dynamic-batch trap that killed the CNN
+earlier this session), and verified locally: `[64,3,128,128] -> [64,2]`. The QNN twin quantises at
+**argmax parity 1.000** against the fp32 and MUST ship together with it — otherwise the NPU path
+keeps running the old model and the gain is invisible. The clip harness was re-run on the exact
+shipping bytes and reproduces 0.9978 / 17 / 0.
+
+**Not verified on device.** The phone was unavailable. Install and watch for
+`CNN EP verified: ...` plus a sane observation time before trusting it live.
