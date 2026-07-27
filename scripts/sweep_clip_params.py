@@ -30,6 +30,47 @@ epf = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(epf)
 
 
+def instrument_latency(mt, clock) -> list[dict]:
+    """Record `last motion -> commit` per committed ply. Read-only instrumentation.
+
+    The number a player feels is the wall time between the hand leaving the board and the move
+    appearing. `_last_motion_ts` is the timestamp of the last frame whose motion score exceeded
+    `motion_thr` (`tracker.py:1673`) — the moment the hand stopped being visible — and the
+    virtual clock at the commit call is the other end. Both commit entry points are wrapped:
+    `_commit_move` (single) and `_commit_sequence` (fast-play pair / CNN recovery), which is why
+    a pair reports one measurement per ply.
+
+    Wrapping the BOUND methods leaves production behaviour untouched; nothing here is read back
+    by the tracker.
+    """
+    out: list[dict] = []
+
+    def _record(kind: str, n: int) -> None:
+        now = clock.time()
+        last_motion = mt._last_motion_ts
+        for _ in range(n):
+            out.append({
+                "kind": kind,
+                "t": round(now - epf.VCLOCK_START, 3),
+                # The measurement, and the part of it `motion_hold_s` alone accounts for.
+                "since_motion_s": round(now - last_motion, 3) if last_motion else None,
+                "hold_s": round(mt._hold_until - last_motion, 3) if last_motion else None,
+            })
+
+    orig_move, orig_seq = mt._commit_move, mt._commit_sequence
+
+    def commit_move(move, cur, cur_bgr=None, **kw):
+        _record("single", 1)
+        return orig_move(move, cur, cur_bgr, **kw)
+
+    def commit_sequence(moves, cur, cur_bgr=None, **kw):
+        _record("sequence", len(moves))
+        return orig_seq(moves, cur, cur_bgr, **kw)
+
+    mt._commit_move, mt._commit_sequence = commit_move, commit_sequence
+    return out
+
+
 def run(clip: str, corners, board_size: int, fps: float, tracker_kwargs: dict,
         margin: float = 0.0) -> dict:
     from chesslab.move_tracker import tracker as trk
@@ -56,6 +97,7 @@ def run(clip: str, corners, board_size: int, fps: float, tracker_kwargs: dict,
         with epf.ClipDriver(entry, trk, clock) as driver:
             driver.reset_scratch("q")
             mt = driver.mt
+            latency = instrument_latency(mt, clock)
             seen = 0
             history: list[tuple[float, str]] = []
             occl_seen: set[str] = set()
@@ -94,6 +136,7 @@ def run(clip: str, corners, board_size: int, fps: float, tracker_kwargs: dict,
         "occluded_at_commit": occluded_at_commit,
         "fen": mt.board.fen(),
         "timeline": timeline,
+        "latency": latency,
     }
 
 
@@ -111,6 +154,12 @@ if __name__ == "__main__":
         print(f"\n### {name}   {kw}")
         print("   moves :", " ".join(out["moves"]))
         print("   times :", out["times"])
+        lat = [e["since_motion_s"] for e in out["latency"] if e["since_motion_s"] is not None]
+        if lat:
+            srt = sorted(lat)
+            print("   last motion -> commit (s):", [round(x, 2) for x in lat])
+            print(f"      n={len(lat)} min={srt[0]:.2f} median={srt[len(srt) // 2]:.2f} "
+                  f"max={srt[-1]:.2f} mean={sum(srt) / len(srt):.2f}")
         print("   occluded squares ever:", out["occluded_ever"],
               "  at each commit:", out["occluded_at_commit"])
         tl = out["timeline"]
