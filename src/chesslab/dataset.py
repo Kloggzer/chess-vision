@@ -176,33 +176,69 @@ def compute_class_weights(counts: dict, classes: list[str] | None = None) -> dic
 
 def assign_sessions_to_splits(sizes: dict, val_frac: float, test_frac: float, seed: int,
                               force_train=None) -> dict:
-    """Greedily assign whole sessions (largest first) to train/val/test to hit the
-    crop ratios. Never split a single session. `force_train`: session IDs that must be in
-    train (e.g. the most complete one when there are few sessions, so val has no unseen class)."""
+    """Greedily assign WHOLE sessions to train/val/test to hit the crop ratios.
+
+    Never splits a session — frames within one are near-identical, so splitting one leaks.
+    That constraint is what makes this awkward: with a corpus like (4992, 3520, 1600, 1024,
+    1024, 832, 384) no subset hits 15 % exactly, and the rule for handling the mismatch is
+    what decides whether the split is usable at all.
+
+    `force_train`: session IDs pinned to train (e.g. an all-empty lighting capture, which in
+    val/test would distort board metrics).
+
+    Two rules, each fixing a way the old largest-first greedy went wrong:
+
+    1. Targets are computed over the pool ACTUALLY AVAILABLE to fill val/test (total minus
+       `force_train`). Sizing them off the full total inflated both targets while only the
+       remainder could fill them, so pinning the two big sessions to train made train
+       *smaller* — the opposite of what the caller asked for.
+    2. A session joins val/test only if it moves that split CLOSER to its target
+       (`|need - sz| < need`, i.e. `sz < 2 * need`). Without this a session larger than the
+       entire target lands in holdout regardless: that is how a 15/15 split put 84 % of the
+       corpus into val+test and left train with 1,611 crops.
+
+    Rule 2 can starve val/test when every session is oversized, so a final pass pulls one
+    session back from train — the one closest to that split's target — rather than emitting
+    an empty holdout.
+
+    Targeting deliberately uses RAW crop counts, not post-dedup "effective" sizes, even
+    though `dataset_build` dedups train only. Measured on the real corpus, weighting by
+    unique content is *worse*: it gives train 1,434 unique crops instead of 1,719 and doubles
+    holdout to 10,944 raw rows. The reason is that train-only dedup makes a redundancy-heavy
+    session nearly free in train (4,992 raw collapses to 245) but full price in holdout, so
+    "oversized sessions go to train" is already the right policy — which is what rule 2 does.
+    """
     force_train = set(force_train or ())
-    total = sum(sizes.values())
-    target_val = val_frac * total
-    target_test = test_frac * total
     rng = random.Random(seed)
-    items = list(sizes.items())
+    items = [(k, v) for k, v in sizes.items() if k not in force_train]
     rng.shuffle(items)                       # deterministic tiebreak
     items.sort(key=lambda kv: kv[1], reverse=True)
 
+    available = sum(sz for _, sz in items)                  # rule 1
+    target = {"val": val_frac * available, "test": test_frac * available}
+
     splits = {"train": [s for s in sizes if s in force_train], "val": [], "test": []}
-    val_sum = test_sum = 0
+    got = {"val": 0.0, "test": 0.0}
     for sid, sz in items:
-        if sid in force_train:
-            continue
-        need_val = target_val - val_sum
-        need_test = target_test - test_sum
-        if need_val <= 0 and need_test <= 0:
-            splits["train"].append(sid)
-        elif need_val >= need_test:
-            splits["val"].append(sid)
-            val_sum += sz
+        need_val = target["val"] - got["val"]
+        need_test = target["test"] - got["test"]
+        name = "val" if need_val >= need_test else "test"   # feed the hungrier split
+        need = max(need_val, need_test)
+        if need > 0 and abs(need - sz) < need:              # rule 2
+            splits[name].append(sid)
+            got[name] += sz
         else:
-            splits["test"].append(sid)
-            test_sum += sz
+            splits["train"].append(sid)
+
+    for name in ("val", "test"):                            # never emit an empty holdout
+        if splits[name] or len(splits["train"]) <= 1:
+            continue
+        movable = [s for s in splits["train"] if s not in force_train]
+        if not movable:
+            continue
+        pick = min(movable, key=lambda s: (abs(target[name] - sizes[s]), s))
+        splits["train"].remove(pick)
+        splits[name].append(pick)
     return splits
 
 
