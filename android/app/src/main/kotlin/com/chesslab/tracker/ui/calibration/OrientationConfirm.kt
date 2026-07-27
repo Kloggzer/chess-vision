@@ -51,10 +51,23 @@ fun OrientationConfirm(
                 .fillMaxWidth()
                 .aspectRatio(1f),
         ) {
+            // Both children take the Box's rect BY CONSTRUCTION. The image had no modifier at all,
+            // so it laid out at the bitmap's intrinsic size — `ContentScale.FillBounds` then scales
+            // within that size and changes nothing. The board therefore rendered into the top-left
+            // corner at ~1/3 of the width while the overlay filled the whole square, so a8, h1 and
+            // the file/rank gutters sat far outside the board they are supposed to label. That
+            // overlay is the ONLY place a wrong a8 assignment is catchable, and it was pointing at
+            // empty space. Repeating `fillMaxWidth().aspectRatio(1f)` on one child and not the
+            // other is how they drifted apart; `matchParentSize()` on both makes that impossible.
             state.warped?.let { bmp ->
-                Image(bmp.asImageBitmap(), contentDescription = "rectified board", contentScale = ContentScale.FillBounds)
+                Image(
+                    bmp.asImageBitmap(),
+                    contentDescription = "rectified board",
+                    modifier = Modifier.matchParentSize(),
+                    contentScale = ContentScale.FillBounds,
+                )
             } ?: Text("no rectified preview — check the camera feed")
-            Canvas(Modifier.fillMaxWidth().aspectRatio(1f)) {
+            Canvas(Modifier.matchParentSize()) {
                 drawRectifiedSquare("a8", state.whitePov, Color.Yellow, measurer)
                 drawRectifiedSquare("h1", state.whitePov, Color.Cyan, measurer)
                 drawRectifiedGutters(state.whitePov, measurer)
