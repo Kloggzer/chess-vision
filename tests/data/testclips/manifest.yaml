@@ -814,3 +814,49 @@ clips:
     min_grid_line_coverage: 0.0
     overhang: 0.0
     census_thr: 40.0
+
+# --- real 30 fps phone recordings -------------------------------------------------------
+# The 20 clips above are 640x640 Blender renders at 12 fps. The product runs at 30 fps on
+# 1080x1920 with the CNN attached, so every timing conclusion drawn from those renders
+# describes a shape the device never has (specs/19-live-hardening/STATUS.md, 2026-07-27b).
+# These entries close that gap. The FILES are far too large to commit — drop them into the
+# gitignored `data/testclips/` and the suite picks them up; without them the entry is skipped.
+#
+# `margin: 0.06` because the corners come from ArUco and the markers are printed in the label
+# border; 0.06 is what the device profile carries, so this entry tracks what the phone does.
+# `deterministic: true` replays on a virtual clock, because a `known_committed` pin has to be
+# reproducible and the realtime replay is not.
+#
+# DO NOT re-tune `margin` to make this pass. It is measured, and the committed list is a
+# CHAOTIC function of it -- 0.5 % steps flip whole plies:
+#   0.000 -> d4 d5 Nf3 Nf6      0.035 -> d4 Nf6 Nc3         0.045 -> d4 Nf6 Nc3
+#   0.030 -> d4 Nf6 Nc3         0.040 -> d4 d5 Nf3 Nf6 Nc3  0.050 -> d4 d5 Nf3 Nf6 Nc3
+#   0.055 -> d4 d5 Nf3 Nf6 Nc3 Ne4 Nxd5                     0.060 -> d4 Nf6 Nc3
+# 0.040 and 0.050 reproduce the ground truth and 0.045 does not, so neither is a plateau and
+# neither is evidence of anything. The lead this DOES give is that board geometry, not the
+# tracker thresholds, is the dominant error source on real footage.
+- file: live-1244-fastplay.mp4
+  source: phone
+  occlusion: true
+  deterministic: true
+  margin: 0.06
+  start_fen: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+  # Ground truth, as played by the user: d4 d5, Nf3 Nf6, Nc3, then a black knight was
+  # PHYSICALLY placed on c5 — not a legal move from either b8 or f6 — and the game continued
+  # from a position the record cannot represent. Only the five plies before the mistake are
+  # stated here; what the tracker should do at the mistake is raise the illegal-move alarm.
+  erwartete_zugliste: [d4, d5, Nf3, Nf6, Nc3]
+  known_failure: >-
+    fast play. Committing white's single half-move re-anchors the reference on a frame that
+    already contains black's reply, so d5 and Nf6's partner are swallowed and the game desyncs
+    at ply 2. Diagnosed in specs/19-live-hardening/STATUS.md (2026-07-27b); the pair-before-
+    single ordering that would catch it only runs with the CNN attached (tracker.py
+    _generate_hypothesis), which this replay does not have.
+  known_committed: [d4, Nf6, Nc3]
+  corners:
+  - [923.4005126953125, 259.77203369140625]
+  - [921.55517578125, 1032.508544921875]
+  - [138.97640991210938, 1034.9168701171875]
+  - [142.21981811523438, 257.2196350097656]
+  frame_size: [1080, 1920]
+  board_size: 640

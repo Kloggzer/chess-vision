@@ -72,7 +72,7 @@ def instrument_latency(mt, clock) -> list[dict]:
 
 
 def run(clip: str, corners, board_size: int, fps: float, tracker_kwargs: dict,
-        margin: float = 0.0) -> dict:
+        margin: float = 0.0, start_fen: str | None = None, promotion: str = "q") -> dict:
     from chesslab.move_tracker import tracker as trk
 
     entry = {
@@ -82,6 +82,7 @@ def run(clip: str, corners, board_size: int, fps: float, tracker_kwargs: dict,
         "corners": corners,
         "margin": margin,
         "tracker": tracker_kwargs,
+        "start_fen": start_fen,
     }
     cap = cv2.VideoCapture(clip)
     entry["frame_size"] = (
@@ -95,7 +96,7 @@ def run(clip: str, corners, board_size: int, fps: float, tracker_kwargs: dict,
     occluded_at_commit: list[int] = []
     try:
         with epf.ClipDriver(entry, trk, clock) as driver:
-            driver.reset_scratch("q")
+            driver.reset_scratch(promotion)
             mt = driver.mt
             latency = instrument_latency(mt, clock)
             seen = 0
@@ -137,6 +138,7 @@ def run(clip: str, corners, board_size: int, fps: float, tracker_kwargs: dict,
         "fen": mt.board.fen(),
         "timeline": timeline,
         "latency": latency,
+        "note": mt.note,
     }
 
 

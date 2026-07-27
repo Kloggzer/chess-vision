@@ -23,14 +23,62 @@ _MANIFEST = _CLIPS / "manifest.yaml"
 pytestmark = pytest.mark.clips
 
 
+def _clip_path(entry: dict) -> Path | None:
+    """The clip file, or None when this machine does not have it.
+
+    Two directories, on purpose. The committed 640x640 Blender renders live next to the
+    manifest; the real 30 fps phone recordings are tens to hundreds of megabytes and CANNOT be
+    committed, so their manifest ENTRY is committed (corners, margin, ground truth, why it
+    fails) while the file itself is dropped into the gitignored `data/testclips/`. An entry
+    whose file is on neither path is skipped, so the suite still runs on a fresh clone.
+    """
+    for base in (_CLIPS, _LOCAL_CLIPS):
+        path = base / entry["file"]
+        if path.exists():
+            return path
+    return None
+
+
 def _entries() -> list[dict]:
     if not _MANIFEST.exists():
         return []
     data = yaml.safe_load(_MANIFEST.read_text(encoding="utf-8")) or {}
-    return [e for e in data.get("clips", []) if (_CLIPS / e["file"]).exists()]
+    return [e for e in data.get("clips", []) if _clip_path(e) is not None]
+
+
+def _replay_deterministic(entry: dict) -> dict:
+    """Virtual-clock replay for entries that ask for it (`deterministic: true`).
+
+    The realtime replay below drops frames according to machine load, so two runs of the same
+    clip give different games. That is tolerable for a pass/fail move list on short renders and
+    NOT tolerable for the real recordings, whose value is exactly the list they produce today
+    (`known_committed`) — a pin has to be reproducible. This drives the same `MoveTracker`
+    through the fixture emitter's `ClipDriver` with `time` replaced by a clock the driver
+    advances by VIDEO time, so every frame is seen and the hold / recency / taint parameters
+    behave as they do live.
+    """
+    sys.path.insert(0, str(_ROOT / "scripts"))
+    import importlib.util  # noqa: PLC0415
+
+    spec = importlib.util.spec_from_file_location("sweep_clip_params",
+                                                  _ROOT / "scripts" / "sweep_clip_params.py")
+    sweep = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sweep)
+    import cv2  # noqa: PLC0415
+
+    path = _clip_path(entry)
+    fps = cv2.VideoCapture(str(path)).get(cv2.CAP_PROP_FPS) or 30.0
+    promotion = next((uci[4] for uci in (entry.get("moves_uci") or []) if len(uci) == 5), "q")
+    out = sweep.run(str(path), entry["corners"], board_size=entry.get("board_size") or 640,
+                    fps=fps, tracker_kwargs=entry.get("tracker") or {},
+                    margin=float(entry.get("margin") or 0.0),
+                    start_fen=entry.get("start_fen"), promotion=promotion)
+    return {"history": out["moves"], "fen": out["fen"], "note": out["note"]}
 
 
 def _replay(entry: dict) -> dict:
+    if entry.get("deterministic"):
+        return _replay_deterministic(entry)
     sys.path.insert(0, str(_ROOT / "scripts"))
     from replay_clip import replay  # noqa: PLC0415
 
@@ -40,12 +88,18 @@ def _replay(entry: dict) -> dict:
     # compresses the quiet gaps and behaves nothing like the live tracker.
     # Promotion piece: without a CNN the tracker pauses on the choice; derive it from the
     # manifest's UCI moves (the promotion suffix q/r/b/n) so under-promotions replay too.
+    # margin: the fraction by which the manifest's corners lie OUTSIDE the playing field. 0.0 for
+    # the Blender renders (their corners ARE the field corners), the profile's value for anything
+    # detected from ArUco — those markers sit in the label border, and replaying at 0.0 oversizes
+    # the board enough to jam the grid-line gate (commit 721901a fixed the same defect in the
+    # fixture emitter; this harness still had it).
     promotion = next((uci[4] for uci in (entry.get("moves_uci") or []) if len(uci) == 5), "q")
-    return replay(str(_CLIPS / entry["file"]), cnn_run=None, realtime=True,
+    return replay(str(_clip_path(entry)), cnn_run=None, realtime=True,
                   start_fen=entry.get("start_fen"),
                   tracker_kwargs=entry.get("tracker") or {},
                   corners=entry.get("corners"), frame_size=entry.get("frame_size"),
-                  board_size=entry.get("board_size"), promotion=promotion)
+                  board_size=entry.get("board_size"), promotion=promotion,
+                  margin=float(entry.get("margin") or 0.0))
 
 
 @pytest.mark.parametrize("entry", _entries() or [None],
@@ -63,6 +117,19 @@ def test_clip_erwartete_zugliste(entry):
         pytest.skip(f"{entry['file']}: without ArUco markers — waiting for markerless "
                     f"board detection (specs/rework/11-markerless-board-detection.md)")
     res = _replay(entry)
+    if entry.get("known_failure"):
+        # Documented-failing material — the real 30 fps recordings. The clip is NOT expected to
+        # reproduce `erwartete_zugliste` yet, so the list it DOES produce is pinned instead: a
+        # change in tracker behaviour then shows up here instead of staying invisible. The
+        # moment it matches the ground truth this fails and asks to be promoted.
+        assert res["history"] == list(entry["known_committed"]), (
+            f"{entry['file']}: KNOWN-FAILING clip moved. found {res['history']}, "
+            f"pinned {entry['known_committed']}, ground truth {expected}\n"
+            f"reason on record: {entry['known_failure']}\nlast note: {res['note']}")
+        assert res["history"] != list(expected), (
+            f"{entry['file']}: now reproduces the ground truth — drop `known_failure` / "
+            f"`known_committed` from the manifest and let it into the gate")
+        return
     assert res["history"] == list(expected), \
         f"{entry['file']}: found {res['history']}, expected {expected}\nlast note: {res['note']}"
     # The recovered end position must match the board after the COMMITTED legal moves (for
