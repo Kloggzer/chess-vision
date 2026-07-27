@@ -1373,6 +1373,21 @@ rungs that still vote), `pairTerminalsNeedTwoGlances` ->
 `pairTerminalsThatContradictTheDiffNeedTwoGlances` (shadow rung), and the three pair COMMIT tests
 dropped their `repeat(2)`.
 
+**Gated on the one instrument that DOES run the verify ladder.** `:app`'s
+`CnnClipSimulationTest` (`-Pchesslab.sim=true`) drives all 18 clips through the real
+`model.onnx`, the real `CnnRecovery` and the real engine. Run twice, `COMMIT_VOTES` the only
+variable:
+
+| | diff-only baseline | cnn-on | CNN-caused regressions | failing clips |
+|---|---|---|---|---|
+| `COMMIT_VOTES = 2` (before) | 18/18 | 16/18 | 2 | `blender-jitter` (`[d4]`), `blender-underpromo` (`e8=Q+`) |
+| `COMMIT_VOTES = 1` (after) | 18/18 | 16/18 | 2 | identical, same committed move lists |
+
+**Byte-identical outcome — the change is move-neutral on this instrument and only removes a round
+trip.** It cannot show the time saved: `sim/ClipRun.kt`'s `SimObserver` models the observation as
+"ready one inference later", without the analyzer round trip that makes the real cadence 210 ms.
+The two pre-existing failures reproduce exactly and belong to the model, not to this change.
+
 **The parity fixtures are byte-identical after `--all` regeneration — and that is information, not
 a pass.** The emitter runs `cnn_run=None` (`emit_parity_fixtures.py:271`), so no fixture frame ever
 reaches the verify ladder; same for `pytest -m clips`. **This change has no offline gate in this
