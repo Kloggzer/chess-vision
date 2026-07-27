@@ -44,7 +44,13 @@ internal fun resolveNote(
 ): String? {
     val alarm = status.alarm
     return when {
-        alarm != null -> "ILLEGAL MOVE? ${alarm.kind}${alarm.guessSan?.let { " — $it?" } ?: ""}"
+        // This note is also the notification text, i.e. the only alarm signal that reaches the user
+        // with the app in the background. It said "ILLEGAL MOVE? illegal_move" — the accusation
+        // twice, the latch name once, and nothing about what to do.
+        alarm != null ->
+            "Position lost — tracking paused" +
+                (alarm.guessSan?.let { ", the board looks like $it" } ?: "") +
+                ". Open the app to fix it."
         status.stuckReason != null -> "stuck: ${status.stuckReason}"
         // Above `Down` because it is not a fault and must not promise a retry: nothing brings the
         // camera back but the user.
