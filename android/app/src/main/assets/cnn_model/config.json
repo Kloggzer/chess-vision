@@ -5,7 +5,7 @@
   "lr": 3e-05,
   "seed": 42,
   "amp": true,
-  "norm": "groupnorm",
+  "norm": "batchnorm",
   "classes": [
     "empty",
     "occupied"
@@ -15,7 +15,7 @@
     128
   ],
   "dataset": "occ-real3",
-  "resumed_from": "occ-act-p1",
+  "resumed_from": "occ-bn-p1",
   "head": "combined",
   "normalize": {
     "mean": [
@@ -37,12 +37,7 @@
     "photometry": "none",
     "piece_height_cells": 1.6
   },
-  "scales": [
-    32,
-    64,
-    96,
-    128
-  ],
+  "scales": null,
   "aug": {
     "erase_p": 0.25,
     "bg_p": 0.15
