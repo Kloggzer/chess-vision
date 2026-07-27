@@ -56,25 +56,23 @@ class PrimitiveBatchNorm2d(nn.BatchNorm2d):
 
 
 def _batchnorm_kernel_works() -> bool:
-    """Can this machine run the stock BatchNorm training kernel on the accelerator?
+    """Can this build run the stock BatchNorm TRAINING kernel?
 
-    Probed once, on the device that would run it, instead of keying off a platform name — the
-    failure is a property of the installed ROCm build, not of Windows.
+    Keyed off `torch.version.hip`, not off a runtime probe. A probe is what I tried first and it
+    lies: MIOpen caches compiled kernels per configuration, so a tiny `BatchNorm2d(2)` succeeds
+    from cache while the real training shapes need a fresh compile — which is the thing that
+    fails. The probe reported "healthy" and the run then died inside `F.batch_norm` minutes later.
+
+    A ROCm build is therefore assumed unable, which costs a little training throughput and
+    guarantees the run finishes. Inference is unaffected either way: `stock_batchnorm` puts the
+    real module back for export, and the weights are identical.
     """
     global _BN_KERNEL_OK
     if _BN_KERNEL_OK is None:
-        if not torch.cuda.is_available():
-            _BN_KERNEL_OK = True
-        else:
-            try:
-                bn = nn.BatchNorm2d(2).cuda()
-                bn(torch.randn(2, 2, 4, 4, device="cuda")).sum().backward()
-                torch.cuda.synchronize()
-                _BN_KERNEL_OK = True
-            except RuntimeError:
-                _BN_KERNEL_OK = False
-                print("[INFO] stock BatchNorm is unusable on this accelerator — "
-                      "training through PrimitiveBatchNorm2d (identical weights, folds at export).")
+        _BN_KERNEL_OK = torch.version.hip is None
+        if not _BN_KERNEL_OK:
+            print("[INFO] ROCm build — training through PrimitiveBatchNorm2d "
+                  "(identical weights, folds to stock BatchNorm at export).")
     return _BN_KERNEL_OK
 
 
