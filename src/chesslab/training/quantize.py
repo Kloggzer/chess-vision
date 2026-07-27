@@ -98,21 +98,31 @@ def _calibration_rows(cfg: dict, limit: int) -> list[dict]:
 
 
 def _make_reader(rows: list[dict], input_name: str, cfg: dict):
-    """A rewindable CalibrationDataReader that yields one preprocessed crop at a time,
-    matching the on-device preprocessing exactly — `eval_transform_for` IS what serving
+    """A rewindable CalibrationDataReader yielding preprocessed crops in `ONNX_BATCH`-sized
+    groups, matching the on-device preprocessing exactly — `eval_transform_for` IS what serving
     reproduces, including the run's input representation."""
     from onnxruntime.quantization import CalibrationDataReader
     from PIL import Image
 
+    from .evaluate import ONNX_BATCH
     from .torch_data import eval_transform_for
 
+    # The FP32 graph is traced at a FIXED batch (`evaluate.ONNX_BATCH`) because a dynamic one
+    # breaks the Android session — so calibration has to feed that exact batch, not one crop at a
+    # time. A short final group is padded by repeating its own crops rather than with zeros: black
+    # squares would widen every activation range the calibrator measures.
     tf = eval_transform_for(cfg)
-    samples: list[dict] = []
+    crops = []
     for r in rows:
         with Image.open(r["path"]) as im:
             img = im.convert("RGB")
-        x = tf(img).unsqueeze(0).numpy().astype(np.float32)  # (1, C, H, W)
-        samples.append({input_name: x})
+        crops.append(tf(img).numpy().astype(np.float32))
+    samples: list[dict] = []
+    for start in range(0, len(crops), ONNX_BATCH):
+        group = crops[start:start + ONNX_BATCH]
+        if len(group) < ONNX_BATCH:
+            group = (group * (ONNX_BATCH // len(group) + 1))[:ONNX_BATCH]
+        samples.append({input_name: np.stack(group)})
 
     class _CropReader(CalibrationDataReader):
         def __init__(self) -> None:
@@ -136,13 +146,16 @@ def _parity(fp32_path: Path, quant_path: Path, samples: list[dict]) -> float:
     so.log_severity_level = 3
     ref = ort.InferenceSession(str(fp32_path), so, providers=["CPUExecutionProvider"])
     q = ort.InferenceSession(str(quant_path), so, providers=["CPUExecutionProvider"])
-    agree = 0
-    n = min(len(samples), 32)
-    for feed in samples[:n]:
+    # Counted per CROP, not per batch: a feed now carries `ONNX_BATCH` of them, and scoring a
+    # 64-crop batch as one all-or-nothing vote would report a far harsher number than the docstring
+    # promises and than the threshold below was chosen against.
+    agree = total = 0
+    for feed in samples[:min(len(samples), 32)]:
         a = np.asarray(ref.run(None, feed)[0]).argmax(-1)
         b = np.asarray(q.run(None, feed)[0]).argmax(-1)
-        agree += int((a == b).all())
-    return agree / max(1, n)
+        agree += int((a == b).sum())
+        total += a.size
+    return agree / max(1, total)
 
 
 def run_quantize(run: str, limit: int = 128, activation_type: str = "quint16",
