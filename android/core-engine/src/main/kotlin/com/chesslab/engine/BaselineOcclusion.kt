@@ -205,7 +205,7 @@ private fun BaselineScratch.isOccluder(
 }
 
 /** [mask] grown by the orthogonal neighbours of every set square. */
-internal fun dilate(mask: Long): Long {
+private fun dilate(mask: Long): Long {
     var out = mask
     mask.forEachSquare { out = out or SQ_NEIGHBOURS[it] }
     return out

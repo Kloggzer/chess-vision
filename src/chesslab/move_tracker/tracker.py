@@ -570,14 +570,12 @@ def loglik_scores(board: chess.Board, z: dict[str, float],
     claimed it did ("hot untouched squares thus automatically penalize all moves that
     don't explain them"). They do not: the sum runs over `move_touched_squares` only, so a
     square that is on fire and that no legal move touches contributes exactly zero to every
-    candidate. Measured on a real game: a hand at z = 15.7 on f1 contributed 0 to the
-    phantom `Kd2` that scored 8.6 and committed. Believing the old sentence is what made
-    that bug look impossible from a reading of the code.
+    candidate. Believing that sentence makes a whole class of phantom-move bug look
+    impossible from a reading of the code.
 
-    Adding the residual was evaluated and NOT taken: subtracting the unexplained hot mass
-    rejects that phantom at −18, but also drops a genuine `Ne4+` from 22.3 to ≈2.3 against
-    `commit_ll_floor = 2.0`. The hand is dealt with where it belongs — as an occlusion veto
-    on the detection frame (`_try_detect`, step 2) — not by reshaping the score."""
+    Adding the residual was evaluated and NOT taken: on a real recording it rejected a
+    phantom at −18 but also dropped a genuine `Ne4+` from 22.3 to ≈2.3 against
+    `commit_ll_floor = 2.0`."""
     # logit(sigmoid(x)) == x: a square's contribution is directly k·(z − z_thr), clipped
     # against outliers (a single extremely hot square should not dominate everything).
     logit = {sq: float(np.clip(k * (v - z_thr), -12.0, 12.0)) for sq, v in z.items()}
@@ -2991,36 +2989,6 @@ class MoveTracker:
         self._occl_core_expiry = {sq: exp for sq, exp in self._occl_core_expiry.items()
                                   if time.time() < exp}
         changed = {s for s, v in z.items() if v >= self.z_thr}
-        # Opaque-occlusion veto ON THE DETECTION FRAME (2026-07-26, measured).
-        #
-        # `occlusion_color_squares` is competent here and was simply never handed the squares
-        # that matter. Its only caller was `_baseline_occlusion_and_shadow`, which is gated
-        # twice out of reach: it runs only in the motion states (`_loop`, `state not in
-        # ("waiting","move")`), so a hand that STOPS MOVING is not examined at all; and its
-        # candidate gate is an absolute `motion_px_thr * 4` = 80 grey levels, which a resting
-        # hand does not reach — measured, a hand on f1 peaked at 62.0 while the move scorer
-        # rated the same pixels z = 15.7. The two gates are on incommensurable scales.
-        #
-        # Consequence on a real game: a motionless hand over the white back rank became
-        # `changed`, a legal king move was fitted to it, and the commit then baked the hand
-        # into the reference via `_set_ref(from_commit=True)`, where it stayed hot for 96
-        # detection frames. Not one square of that move's evidence came from a piece.
-        #
-        # Feeding the result into `_tainted` rather than vetoing it locally is deliberate: the
-        # latch above already zeroes z every frame and owns the release rule, and a tainted
-        # square also blocks the commit-time re-anchor — which is the poisoning vector itself.
-        hand = occlusion_color_squares(cur_bgr, self._ref_gamut, self._det_size,
-                                       self.profile.white_pov, changed,
-                                       thr=self.occlusion_color_thr, extend_up=self.overhang)
-        if hand:
-            dilated = set(hand)
-            for sq in hand:                       # one orthogonal neighbour, as _baseline does
-                dilated.update(_SQ_NEIGHBOURS.get(sq, []))
-            _hand_exp = time.time() + self.motion_hold_s
-            for sq in dilated:
-                z[sq] = 0.0
-                self._tainted[sq] = _hand_exp
-            changed = {s for s, v in z.items() if v >= self.z_thr}
         self._changed_vals = sorted(              # debug also shows squares just below z_thr
             ((s, round(v, 1)) for s, v in z.items() if v >= self.z_thr * 0.5),
             key=lambda kv: -kv[1])[:8]
