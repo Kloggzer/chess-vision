@@ -56,7 +56,7 @@ class CommitTest {
         assertEquals(DECIDER_DIFF, record.decider)
         assertEquals("e2e4", record.move)
         assertEquals("e4", record.san)
-        assertEquals("frame-diff (no CNN verify)", record.reason)
+        assertEquals("frame-diff — UNVERIFIED, no CNN was available", record.reason)
         assertEquals(1, record.ply)
         assertEquals(state.board.fen(), record.fenAfter)
     }
@@ -77,14 +77,14 @@ class CommitTest {
             ),
             DECIDER_REASON.keys.toList(),
         )
-        assertEquals("CNN recovery (diff was stuck)", DECIDER_REASON.getValue(DECIDER_CNN_RECOVERY))
+        assertEquals("position was LOST — rebuilt by the CNN, not detected", DECIDER_REASON.getValue(DECIDER_CNN_RECOVERY))
     }
 
     @Test
     fun priorTieBreakIsAppendedToTheReason() {
         val state = detectState()
         state.commitMove(moveOf(state, "e2e4"), grayFrame(), null, priorUsed = true)
-        assertEquals("frame-diff (no CNN verify) + prior tie-break", state.decisionLog.last().reason)
+        assertEquals("frame-diff — UNVERIFIED, no CNN was available + prior tie-break", state.decisionLog.last().reason)
         assertTrue(state.priorLast)
         assertTrue(state.note.orEmpty().contains("decided by prior"))
     }

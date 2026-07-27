@@ -15,14 +15,14 @@ import org.junit.jupiter.api.Test
 /** `_DECIDER_REASON` (`tracker.py`) verbatim — the strings are contract, not prose. */
 private val PYTHON_DECIDER_REASON =
     mapOf(
-        "diff" to "frame-diff (no CNN verify)",
-        "diff_pair" to "frame-diff double move (fast play, no CNN verify)",
-        "cnn_pair" to "CNN occupancy confirmed double move (fast play)",
-        "cnn_occupancy" to "CNN occupancy confirmed",
-        "cnn_overrule" to "CNN overruled the diff move",
-        "diff_after_verify" to "diff accepted (CNN uncertain, clear view)",
-        "cnn_recovery" to "CNN recovery (diff was stuck)",
-        "cnn_resync" to "manual CNN resync",
+        "diff" to "frame-diff — UNVERIFIED, no CNN was available",
+        "diff_pair" to "frame-diff double move (fast play) — UNVERIFIED, no CNN was available",
+        "cnn_pair" to "frame-diff double move (fast play), confirmed by CNN occupancy",
+        "cnn_occupancy" to "frame-diff, confirmed by CNN occupancy",
+        "cnn_overrule" to "frame-diff read a different move — CNN occupancy overruled it",
+        "diff_after_verify" to "frame-diff, accepted unconfirmed after the CNN stayed uncertain with a clear view of both squares",
+        "cnn_recovery" to "position was LOST — rebuilt by the CNN, not detected",
+        "cnn_resync" to "manual resync by the user",
     )
 
 class DecisionLogTest {
@@ -82,7 +82,7 @@ class DecisionLogTest {
         val move = state.legalMoveFor("e2e4")!!
         state.commitMove(move, grayFrame(), null, DECIDER_DIFF, priorUsed = true)
         val row = state.decisionLog.last()
-        assertEquals("frame-diff (no CNN verify) + prior tie-break", row.reason)
+        assertEquals("frame-diff — UNVERIFIED, no CNN was available + prior tie-break", row.reason)
         assertTrue(row.accepted)
     }
 

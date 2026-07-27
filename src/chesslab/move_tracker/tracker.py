@@ -2768,15 +2768,24 @@ class MoveTracker:
             self.note += " — Checkmate!"
 
     # -- Decision provenance & human feedback (good/bad → hard-negative dataset) --
+    #: Who PROPOSED the move, and who CONFIRMED it — in that order, because the two are different
+    #: and the old wording hid it. Every candidate is found by the frame diff; the CNN only ever
+    #: votes on it. "CNN occupancy confirmed" therefore read as though the CNN had found the move,
+    #: and a tally of deciders was misread on 2026-07-27 as "the diff path commits nothing itself"
+    #: when in fact `cnn_occupancy` IS the diff path, confirmed. The one genuine exception is
+    #: `cnn_recovery`, which is not a detection at all but a repair after the position was lost —
+    #: it has to read as the exception it is, or a game full of repairs looks like a game that went
+    #: well.
     _DECIDER_REASON = {
-        "diff": "frame-diff (no CNN verify)",
-        "diff_pair": "frame-diff double move (fast play, no CNN verify)",
-        "cnn_pair": "CNN occupancy confirmed double move (fast play)",
-        "cnn_occupancy": "CNN occupancy confirmed",
-        "cnn_overrule": "CNN overruled the diff move",
-        "diff_after_verify": "diff accepted (CNN uncertain, clear view)",
-        "cnn_recovery": "CNN recovery (diff was stuck)",
-        "cnn_resync": "manual CNN resync",
+        "diff": "frame-diff — UNVERIFIED, no CNN was available",
+        "diff_pair": "frame-diff double move (fast play) — UNVERIFIED, no CNN was available",
+        "cnn_pair": "frame-diff double move (fast play), confirmed by CNN occupancy",
+        "cnn_occupancy": "frame-diff, confirmed by CNN occupancy",
+        "cnn_overrule": "frame-diff read a different move — CNN occupancy overruled it",
+        "diff_after_verify": "frame-diff, accepted unconfirmed after the CNN stayed uncertain "
+                             "with a clear view of both squares",
+        "cnn_recovery": "position was LOST — rebuilt by the CNN, not detected",
+        "cnn_resync": "manual resync by the user",
     }
 
     def _record_decision(self, move, san, fen_before, decider, prior_used,

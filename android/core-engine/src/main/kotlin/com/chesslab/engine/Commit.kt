@@ -31,14 +31,15 @@ internal const val DECIDER_USER = "user"
  */
 internal val DECIDER_REASON: Map<String, String> =
     mapOf(
-        DECIDER_DIFF to "frame-diff (no CNN verify)",
-        DECIDER_DIFF_PAIR to "frame-diff double move (fast play, no CNN verify)",
-        DECIDER_CNN_PAIR to "CNN occupancy confirmed double move (fast play)",
-        DECIDER_CNN_OCCUPANCY to "CNN occupancy confirmed",
-        DECIDER_CNN_OVERRULE to "CNN overruled the diff move",
-        DECIDER_DIFF_AFTER_VERIFY to "diff accepted (CNN uncertain, clear view)",
-        DECIDER_CNN_RECOVERY to "CNN recovery (diff was stuck)",
-        DECIDER_CNN_RESYNC to "manual CNN resync",
+        DECIDER_DIFF to "frame-diff — UNVERIFIED, no CNN was available",
+        DECIDER_DIFF_PAIR to "frame-diff double move (fast play) — UNVERIFIED, no CNN was available",
+        DECIDER_CNN_PAIR to "frame-diff double move (fast play), confirmed by CNN occupancy",
+        DECIDER_CNN_OCCUPANCY to "frame-diff, confirmed by CNN occupancy",
+        DECIDER_CNN_OVERRULE to "frame-diff read a different move — CNN occupancy overruled it",
+        DECIDER_DIFF_AFTER_VERIFY to
+            "frame-diff, accepted unconfirmed after the CNN stayed uncertain with a clear view of both squares",
+        DECIDER_CNN_RECOVERY to "position was LOST — rebuilt by the CNN, not detected",
+        DECIDER_CNN_RESYNC to "manual resync by the user",
     )
 
 /** `" + prior tie-break"`. */
