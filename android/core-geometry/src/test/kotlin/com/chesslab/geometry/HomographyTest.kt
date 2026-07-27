@@ -27,7 +27,7 @@ class HomographyTest {
             val boardSize = GeometryFixtures.num(case["boardSize"]).toInt()
             val margin = GeometryFixtures.num(case["margin"])
             val corners = GeometryFixtures.list(case["corners"]).map { GeometryFixtures.point(it) }
-            val h = computeHomography(corners, boardSize, margin)
+            val h = computeHomography(corners, boardSize, margins4(margin))
             assertEquals(1.0, h.get(2, 2)[0], 1e-12, "getPerspectiveTransform normalizes H[2][2]")
             val expected = GeometryFixtures.list(case["h"]).map { GeometryFixtures.list(it) }
             for (r in 0 until 3) {
@@ -47,7 +47,7 @@ class HomographyTest {
     fun `margin zero maps the four corners onto the playing field corners`() {
         val bs = 800
         val corners = squareish()
-        val mapped = applyH(computeHomography(corners, bs, 0.0), corners)
+        val mapped = applyH(computeHomography(corners, bs, margins4(0.0)), corners)
         val want = listOf(0.0 to 0.0, bs.toDouble() to 0.0, bs.toDouble() to bs.toDouble(), 0.0 to bs.toDouble())
         for (i in want.indices) {
             assertEquals(want[i].first, mapped[i][0], 1e-3, "corner $i x")
@@ -60,7 +60,7 @@ class HomographyTest {
         val bs = 800
         val m = 0.06 * bs
         val corners = squareish()
-        val mapped = applyH(computeHomography(corners, bs, 0.06), corners)
+        val mapped = applyH(computeHomography(corners, bs, margins4(0.06)), corners)
         assertEquals(-m, mapped[0][0], 1e-3)
         assertEquals(-m, mapped[0][1], 1e-3)
         assertEquals(bs + m, mapped[2][0], 1e-3)

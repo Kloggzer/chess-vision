@@ -188,7 +188,7 @@ def test_profile_for_session_reconstructs_legacy_ingest(tmp_path, monkeypatch):
 
     meta = {"profile": "pretrain-x", "mode": "ingested"}
     prof = _profile_for_session(meta, None)
-    assert prof.profile == "pretrain-x" and prof.board_size == 900 and prof.margin == 0.0
+    assert prof.profile == "pretrain-x" and prof.board_size == 900 and prof.margin == [0.0] * 4
 
     # non-ingested sessions still raise on a missing profile
     with pytest.raises(FileNotFoundError):

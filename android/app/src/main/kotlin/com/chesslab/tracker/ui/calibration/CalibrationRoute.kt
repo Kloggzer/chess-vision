@@ -93,6 +93,7 @@ private fun CalibrationSteps(
                         onWhitePovChange = vm::setWhitePov,
                         onSave = { vm.save(onSaved) },
                         onBack = vm::back,
+                        onMarginChange = vm::setMargin,
                     )
                 CalibrationStep.MANUAL -> {
                     PreviewWithOverlay(preview, state, source, labelled = false, modifier = Modifier.weight(1f))

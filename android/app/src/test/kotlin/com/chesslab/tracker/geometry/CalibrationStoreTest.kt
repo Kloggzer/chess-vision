@@ -1,5 +1,6 @@
 package com.chesslab.tracker.geometry
 
+import com.chesslab.geometry.margins4
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
@@ -32,7 +33,7 @@ class CalibrationStoreTest {
         CalibrationProfile(
             name = "default",
             boardSize = 1200,
-            margin = 0.09,
+            margin = margins4(0.09),
             markerDict = "DICT_5X5_50",
             // hand-set by the user: resetting this transposes every label of the next game
             whitePov = false,
@@ -59,7 +60,7 @@ class CalibrationStoreTest {
             assertEquals(false, next.whitePov)
             assertNotEquals(1200, next.boardSize, "the hand-set size must not survive a remeasurement")
             assertEquals(measuredBoardSize(measured.corners), next.boardSize)
-            assertEquals(0.09, next.margin)
+            assertEquals(margins4(0.09), next.margin, "all four corner margins carry over")
             assertEquals("DICT_5X5_50", next.markerDict)
             assertEquals(hand.crop, next.crop)
         }
@@ -118,4 +119,24 @@ class CalibrationStoreTest {
         assertEquals(1280, measuredBoardSize(square(4000f)))
         assertEquals(0, measuredBoardSize(square(840f)) % 16)
     }
+
+    /**
+     * A per-corner outset the user tuned must SURVIVE the recalibration that follows it.
+     *
+     * The codes are re-glued and then re-detected, so "adjust, then recalibrate" is the normal
+     * order — if the override were dropped on save, the setting would be write-only and the user
+     * would re-enter it forever.
+     */
+    @Test
+    fun aTunedPerCornerMarginIsPersistedAndCarriedOver() =
+        runTest {
+            val store = CalibrationStore(FakeProfileBacking())
+            val tuned = listOf(0.030, 0.045, 0.050, 0.045)
+            store.saveRecalibrated(measured, marginOverride = tuned)
+            assertEquals(tuned, store.geometry.margin, "the adjusted corners reach the live geometry")
+
+            // A later recalibration that does NOT touch the margins must keep them.
+            val next = store.saveRecalibrated(measured)
+            assertEquals(tuned, next.margin, "an untouched recalibration carries them over")
+        }
 }

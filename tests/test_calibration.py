@@ -3,7 +3,9 @@
 The interactive new/check flows need a camera + display and are exercised on the rig.
 """
 
+import cv2
 import numpy as np
+import pytest
 
 from chesslab.calibration import (
     CalibrationProfile,
@@ -290,7 +292,6 @@ def test_board_corners_for_frame_and_warp_from_corners():
 
 def test_homography_margin_insets_playing_field():
     import cv2
-    import numpy as np
 
     from chesslab.calibration import compute_homography
 
@@ -336,7 +337,7 @@ def test_profile_from_frame_builds_profile():
 
     prof = profile_from_frame(_marker_frame(), "authoprofile", board_size=800, margin=0.05)
     assert prof is not None
-    assert prof.board_size == 800 and prof.margin == 0.05
+    assert prof.board_size == 800 and prof.margin == [0.05] * 4
     assert len(prof.image_corners) == 4
     # no markers -> None
     blank = np.full((600, 800, 3), 255, dtype=np.uint8)
@@ -401,7 +402,7 @@ def test_ensure_profile_regeneration_keeps_tuned_geometry(tmp_path, monkeypatch)
     prof = ensure_profile("tuned", str(img_path))
     assert prof.undistorted is False              # regenerated, i.e. this path really ran
     assert prof.white_pov is False                # THE label-transposing one
-    assert prof.margin == pytest.approx(0.11)
+    assert prof.margin == pytest.approx([0.11] * 4)
     assert prof.board_size == 800
     assert prof.crop.pad_up == pytest.approx(0.77)
     assert prof.crop.pad_side == pytest.approx(0.33)
@@ -449,3 +450,75 @@ def test_profile_save_is_atomic_and_leaves_no_temp_file(tmp_path):
     prof.save(p, backup=True)
     assert CalibrationProfile.load(p).board_size == 900
     assert CalibrationProfile.load(p.with_suffix(".yaml.bak")).board_size == 800
+
+
+# =======================================================================================
+# per-corner margin
+# =======================================================================================
+
+def test_margins4_broadcasts_a_scalar_and_passes_four_through():
+    from chesslab.calibration import margins4
+
+    assert margins4(0.05) == [0.05] * 4
+    assert margins4([0.04, 0.05, 0.045, 0.06]) == [0.04, 0.05, 0.045, 0.06]
+    assert margins4((0.0, 0.0, 0.0, 0.0)) == [0.0] * 4
+    with pytest.raises(ValueError):
+        margins4([0.04, 0.05])
+
+
+def test_a_scalar_margin_still_produces_the_square_it_always_did():
+    """The four-value form must be a strict generalisation — one number, same homography."""
+    from chesslab.calibration import compute_homography
+
+    quad = [[10.0, 12.0], [210.0, 8.0], [214.0, 208.0], [6.0, 204.0]]
+    scalar = np.array(compute_homography(quad, 160, 0.05))
+    spread = np.array(compute_homography(quad, 160, [0.05] * 4))
+    assert np.allclose(scalar, spread)
+
+
+def test_one_corner_moves_only_its_own_corner():
+    """A re-glued marker must not drag the other three: that is the whole point of per-corner.
+
+    The board corner a8 maps to (0,0). Raising ONLY a8's margin pushes that marker further
+    out, so the playing-field corner it implies moves — while h1, diagonally opposite, stays.
+    """
+    from chesslab.calibration import compute_homography
+
+    bs = 160
+    quad = [[10.0, 12.0], [210.0, 8.0], [214.0, 208.0], [6.0, 204.0]]
+    field = np.array([[0.0, 0.0], [bs, 0.0], [bs, bs], [0.0, bs]], dtype=np.float32).reshape(-1, 1, 2)
+
+    def corners_for(margin):
+        h = np.array(compute_homography(quad, bs, margin), dtype=np.float64)
+        return cv2.perspectiveTransform(field, np.linalg.inv(h)).reshape(-1, 2)
+
+    base = corners_for([0.05] * 4)
+    tilted = corners_for([0.09, 0.05, 0.05, 0.05])
+    moved = np.linalg.norm(tilted - base, axis=1)
+    assert moved[0] > 2.0, "a8 must follow its own margin"
+    assert moved[2] < 0.5, "h1 is diagonally opposite and must not move"
+
+
+def test_a_profile_written_before_per_corner_margins_still_loads():
+    """Old YAML stored ONE number. It must broadcast, not crash and not silently become 0."""
+    from chesslab.calibration import CalibrationProfile, CropParams
+
+    prof = CalibrationProfile(
+        profile="legacy", camera_index=0, frame_size=(640, 480), board_size=160,
+        image_corners=[[0, 0], [1, 0], [1, 1], [0, 1]],
+        homography=[[1, 0, 0], [0, 1, 0], [0, 0, 1]], white_pov=True,
+        crop=CropParams.default(160))
+    d = prof.to_dict()
+    d["margin"] = 0.06                                   # what every profile on disk looks like
+    assert CalibrationProfile.from_dict(d).margin == [0.06] * 4
+
+
+def test_the_margin_default_has_exactly_one_source():
+    """`config.DEFAULT_MARKER_MARGIN` is authoritative — a second literal would drift from it."""
+    import inspect
+
+    from chesslab import config
+    from chesslab.calibration import profile_from_frame
+
+    assert config.DEFAULT_MARKER_MARGIN == pytest.approx(0.045)
+    assert inspect.signature(profile_from_frame).parameters["margin"].default == config.DEFAULT_MARKER_MARGIN

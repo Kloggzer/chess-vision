@@ -48,10 +48,16 @@ data class CalibrationResult(
 interface BoardDetector {
     suspend fun detect(): CalibrationResult?
 
-    /** Rectified board for the orientation confirmation, or null when it cannot be produced. */
+    /**
+     * Rectified board for the orientation confirmation, or null when it cannot be produced.
+     *
+     * [margin] overrides the stored per-corner outsets, so the preview re-rectifies live while the
+     * user adjusts them — geometry you cannot see is geometry you are guessing at.
+     */
     suspend fun warp(
         corners: FloatArray,
         whitePov: Boolean,
+        margin: List<Double>? = null,
     ): Bitmap?
 }
 
@@ -78,10 +84,12 @@ class ArucoCalibrator(
     override suspend fun warp(
         corners: FloatArray,
         whitePov: Boolean,
+        margin: List<Double>?,
     ): Bitmap? =
         withContext(dispatcher) {
             withFrame { frame ->
-                val geom = geometry().copy(whitePov = whitePov)
+                val base = geometry()
+                val geom = base.copy(whitePov = whitePov, margin = margin ?: base.margin)
                 val rect = warpFromCorners(frame, geom, cornersFromFlat(corners), CONFIRM_WARP_PX)
                 try {
                     toBitmap(rect)

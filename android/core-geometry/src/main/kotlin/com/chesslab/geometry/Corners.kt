@@ -32,6 +32,14 @@ val CORNER_ORDER: List<String> = listOf("a8", "h8", "h1", "a1")
 internal const val CORNER_COUNT: Int = 4
 
 /**
+ * A scalar -> the four per-corner margins, `[a8, h8, h1, a1]`.
+ *
+ * Port of `calibration.py margins4`. The uniform case stays a one-liner at every call site,
+ * which is what keeps the four-value form from being a burden.
+ */
+fun margins4(margin: Double): List<Double> = listOf(margin, margin, margin, margin)
+
+/**
  * What the Python `CalibrationProfile` contributes to geometry. This module never reads YAML;
  * the app maps its stored profile onto this value type.
  *
@@ -41,8 +49,15 @@ internal const val CORNER_COUNT: Int = 4
 data class BoardGeometry(
     /** `config.DEFAULT_BOARD_SIZE`. */
     val boardSize: Int = 1600,
-    /** Markers sit this fraction OUTSIDE the playing field. */
-    val margin: Double = 0.0,
+    /**
+     * Markers sit this fraction OUTSIDE the playing field — one value PER CORNER, in
+     * `[a8, h8, h1, a1]` order.
+     *
+     * Four rather than one because the markers are glued on by hand: re-sticking them moves
+     * each independently, and a single number then has to average an error it cannot express.
+     * Write `margins4(0.045)` for the uniform case.
+     */
+    val margin: List<Double> = margins4(0.0),
     val whitePov: Boolean = true,
     /** `config.CROP.pad_up` (config.py:48) — additional upward extension, * cell. */
     val padUp: Double = 0.0,

@@ -1,6 +1,7 @@
 package com.chesslab.tracker.geometry
 
 import com.chesslab.geometry.BoardGeometry
+import com.chesslab.geometry.margins4
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -11,7 +12,17 @@ import kotlinx.serialization.json.Json
 // profile by a resolution ratio produced a silently wrong grid. Re-detect instead.
 
 /** Current on-disk schema. Bump on any incompatible field change; never migrate blindly. */
-const val PROFILE_SCHEMA_VERSION: Int = 1
+const val PROFILE_SCHEMA_VERSION: Int = 2
+
+/**
+ * `config.DEFAULT_MARKER_MARGIN` — the fraction by which a marker's centre sits outside the
+ * playing field, because the codes are printed/glued in the label border.
+ *
+ * 0.045 is measured, not chosen: swept against grid-line alignment it optimises at 0.040-0.050
+ * on four independent recordings, two from the phone and two rendered. The old 0.06 over-indented
+ * every profile made from it. THE default — nothing else may hold a second literal.
+ */
+const val DEFAULT_MARKER_MARGIN: Double = 0.045
 
 private const val CORNER_FLOATS: Int = 8
 
@@ -29,8 +40,17 @@ data class CalibrationProfile(
     val name: String,
     /** `config.DEFAULT_BOARD_SIZE`. */
     val boardSize: Int = 1600,
-    /** Markers sit this fraction outside the playing field. */
-    val margin: Double = 0.06,
+    /**
+     * Markers sit this fraction outside the playing field — one value PER CORNER,
+     * `[a8, h8, h1, a1]`.
+     *
+     * v2. The markers are glued on by hand and a re-stick moves each independently, so a single
+     * number had to average an error it could not express. v1 profiles carry a bare number and
+     * are DISCARDED rather than broadcast: the outset is measured geometry, and guessing that
+     * all four corners kept the old value is exactly the silent-wrong-geometry failure this
+     * schema check exists to prevent.
+     */
+    val margin: List<Double> = margins4(DEFAULT_MARKER_MARGIN),
     val markerDict: String = "DICT_4X4_50",
     val whitePov: Boolean = true,
     /** Size of the frame the corners were MEASURED on — informational for 05b's size guard. */
