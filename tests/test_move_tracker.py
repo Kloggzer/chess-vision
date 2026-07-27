@@ -975,8 +975,12 @@ def _pending_tracker(monkeypatch, **fake_kw):
     mt._last_corners = [[0, 0], [400, 0], [400, 400], [0, 400]]
     mt.ref_gray = _gray_frame(["e2"])
     mt.ref_fen = mt.board.fen()
+    # `t0`/`tick` mirror what `_dispatch` builds: the verify's wall-clock deadline
+    # (`verify_timeout_s`) is measured from them, and a pending without them would read as
+    # expired on its very first tick.
     mt._pending = {"uci": "e2e4", "fen": mt.board.fen(),
-                   "cur": _gray_frame(["e4"]), "cur_bgr": None, "frames": 0}
+                   "cur": _gray_frame(["e4"]), "cur_bgr": None, "frames": 0,
+                   "t0": time.time(), "tick": time.time()}
     mt._verify_state = "verifying"
     return mt
 
@@ -1025,6 +1029,37 @@ class TestCnnVerify:
         assert ghost._pending is None
         assert ghost._verify_state == "ghost"
 
+    def test_verify_resolves_on_the_wall_clock_not_only_the_observation_count(self, monkeypatch):
+        """`verify_window` counts OBSERVATIONS; what one costs is set by the CNN (146 ms on a
+        warm desktop batch, 290 ms measured on an SM8650), so 8 of them is 1.2 s or 2.4 s
+        depending on hardware. While a candidate is pending the tracker is blind on both paths,
+        so the bound that matters is in seconds. Here the candidate is undecidable (both
+        endpoints unreadable) and only TWO observations arrive: on the count alone it would hold
+        for six more, on the clock it resolves."""
+        mt = _pending_tracker(monkeypatch, match=False, occ_agree=0.0,
+                              occ={"e4": False, "e2": False}, conf={"e4": False, "e2": False})
+        mt._verify_tick(_mk_snap(mt))
+        assert mt._pending is not None                     # 1 of 8 observations — still holding
+        mt._pending["t0"] -= mt.verify_timeout_s + 0.01    # the deadline passes
+        mt._verify_tick(_mk_snap(mt))
+        assert mt._pending is None
+        assert mt._verify_state == "ghost"                 # unreadable endpoints -> discarded
+        assert mt.history == []                            # base truth untouched
+
+    def test_a_stalled_observer_cannot_pin_the_tracker_forever(self, monkeypatch):
+        """The other end of the same defect. `pending["frames"]` only advances inside a tick, so
+        a candidate that receives NO observation at all is bounded by nothing: an attach that
+        dies mid-game leaves the tracker refusing every detection and routing nothing to
+        recovery. The frame loop's watchdog drops it."""
+        mt = _pending_tracker(monkeypatch, match=False, occ_agree=1.0, occ_n=2)
+        mt._expire_stalled_verify(time.time())
+        assert mt._pending is not None                     # fresh candidate — not a stall
+        mt._expire_stalled_verify(time.time() + mt.verify_timeout_s + 0.01)
+        assert mt._pending is None
+        assert mt._verify_state == "stalled"
+        assert mt.history == []                            # never commits on a stall
+        assert "did not answer" in mt.note
+
     def test_hard_veto_rejects_ghost_to_still_empty(self, monkeypatch):
         """Hand-Wisch-Geist: NICHTS bewegt — Start e2 noch BELEGT und Ziel e4 noch LEER
         → verworfen. (Ziel-leer allein reicht NICHT: bei geräumtem Start committet es, sonst
@@ -1060,7 +1095,8 @@ class TestCnnVerify:
                               occ={"a3": False, "b1": False},
                               conf={"a3": False, "b1": True})
         mt._pending = {"uci": "b1a3", "fen": mt.board.fen(),
-                       "cur": _gray_frame(["a3"]), "cur_bgr": None, "frames": 0}
+                       "cur": _gray_frame(["a3"]), "cur_bgr": None, "frames": 0,
+                       "t0": time.time(), "tick": time.time()}
         mt._verify_tick(_mk_snap(mt))
         assert mt.history == []
         assert mt._pending is not None            # held, not committed

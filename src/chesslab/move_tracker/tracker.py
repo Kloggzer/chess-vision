@@ -718,6 +718,7 @@ class MoveTracker:
                  cnn_run: str | None = None, cnn_conf_thr: float = 0.85,
                  cnn_cooldown_s: float = 2.0, cnn_check_interval_s: float = 10.0,
                  device: str = "auto", verify_window: int = 8,
+                 verify_timeout_s: float = 1.5,
                  census_thr: float = 40.0, cnn_verify: bool = True,
                  z_thr: float = 3.0, ll_k: float = 1.0, ambiguity_margin_ll: float = 2.0,
                  reanchor_ll_floor: float = -4.0, nudge_timeout_s: float = 5.0,
@@ -925,6 +926,7 @@ class MoveTracker:
         # Pre-commit verification: a confirmed diff candidate waits until the CNN
         # confirms it via (adaptive) multi-frame voting or discards it as a ghost.
         self.verify_window = verify_window                # max frames the CNN is consulted
+        self.verify_timeout_s = verify_timeout_s          # ...and the deadline in SECONDS
         self.cnn_verify = cnn_verify                      # identity verify per move ON? (default on, non-blocking)
         self._pending: dict | None = None                 # {"uci","fen","frames"} or None
 
@@ -1676,6 +1678,7 @@ class MoveTracker:
                     self._motion_occluded_squares = {
                         sq for sq, exp in self._occlusion_expiry.items() if now < exp}
                     self._occluded_vetoed = sorted(self._motion_occluded_squares)
+                    self._expire_stalled_verify(now)
 
                     if motion > self.motion_thr:       # hand/camera moving -> discard buffers
                         self.stable_count = 0
@@ -2242,6 +2245,7 @@ class MoveTracker:
             if self._pending is not pending or self.board.fen() != pending["fen"]:
                 return                                      # state changed → discard
             pending["frames"] += 1
+            pending["tick"] = time.time()
 
             def _commit(note_suffix: str, state: str, status: str, conflicts=None,
                         move: chess.Move | None = None, decider: str = "cnn_occupancy"):
@@ -2347,8 +2351,9 @@ class MoveTracker:
                 log.info("CNN overruled diff candidate: %s → %s", pending["uci"], cnn_uci)
                 return
 
-            # 5) Undecided. Wait up to `verify_window` frames, then resolve:
-            if pending["frames"] >= self.verify_window:
+            # 5) Undecided. Wait up to `verify_window` observations OR `verify_timeout_s`
+            #    seconds — whichever comes first — then resolve on what we have.
+            if pending["frames"] >= self.verify_window or self._verify_expired(pending):
                 if from_occ_conf and not to_arrived_conf:
                     # Origin still (confidently) occupied and destination never arrived → the move
                     # most likely never happened (ghost / residue). Reject, keep base truth.
@@ -2386,6 +2391,39 @@ class MoveTracker:
     def _pending_ucis(pending: dict) -> list[str]:
         """UCIs of a pending candidate — sequence-aware ("ucis") with single-move fallback."""
         return pending.get("ucis") or [pending["uci"]]
+
+    def _expire_stalled_verify(self, now: float) -> None:
+        """Watchdog for an observer that STOPPED, not merely one that is slow. Under self.lock.
+
+        `verify_window` counts observations, so a candidate that receives none is bounded by
+        nothing: an attach that dies mid-game, a thermal stall or a model error leaves the
+        tracker pending forever, refusing every detection and routing nothing to recovery, with
+        the note still reading "checking ... via CNN". The slow case is handled inside the ladder
+        (`_verify_expired`, which resolves on the evidence it has); this is the case where there
+        is no evidence to resolve on, so the only honest action is to drop the candidate and let
+        the diff path try again — base truth is untouched, exactly as a rejected verify leaves it.
+        """
+        pending = self._pending
+        if pending is None or (now - pending.get("tick", now)) < self.verify_timeout_s:
+            return
+        self._pending = None
+        self._confirmer.reset()
+        self._verify_state = "stalled"
+        self.note = (f"CNN did not answer within {self.verify_timeout_s:.1f}s — "
+                     "pending candidate dropped")
+
+    def _verify_expired(self, pending: dict) -> bool:
+        """The pre-commit verify's wall-clock bound — the deadline `verify_window` cannot express.
+
+        Measured over 66 pending candidates on 15 clips + 3 real recordings
+        (`scripts/replay_clip_cnn.py`): every candidate that ever commits is decided on its FIRST
+        usable observation (local agreement 1.000, 6/6 pairs and 55/55 singles), and every
+        candidate that does not is flat below the threshold for the whole window (0.500, 0.500,
+        0.667-0.75, 0.75) and never once rises. The observations after the first therefore carry
+        no information, while each one costs a full round trip during which nothing can be
+        detected and recovery cannot run.
+        """
+        return (time.time() - pending.get("t0", 0.0)) >= self.verify_timeout_s
 
     def _pending_voted(self, pending: dict, outcome: str, votes: int | None = None) -> bool:
         """No verify decision on a single CNN glance (g8h6 overrule incident, 2026-07-09:
@@ -2452,6 +2490,7 @@ class MoveTracker:
             if self._pending is not pending or self.board.fen() != pending["fen"]:
                 return                                      # state changed → discard
             pending["frames"] += 1
+            pending["tick"] = time.time()
 
             def _reject_pair(state: str, note: str, conflicts=None) -> None:
                 self._pending = None
@@ -2483,7 +2522,7 @@ class MoveTracker:
                 if not self._pending_voted(pending, "commit", _COMMIT_VOTES):
                     return
                 _commit_pair("cnn_pair")
-            elif pending["frames"] >= self.verify_window:
+            elif pending["frames"] >= self.verify_window or self._verify_expired(pending):
                 if checked and set(after["conflicts"]) <= set(before["conflicts"]):
                     _commit_pair("diff_after_verify")
                     self.note = (f"Double move {key} accepted "
@@ -3444,9 +3483,17 @@ class MoveTracker:
             return
         sans = self._san_sequence(moves)
         if self.cnn_verify and self.cnn_run and not self._cnn_failed:
+            now = time.time()
             self._pending = {"ucis": [m.uci() for m in moves], "uci": moves[0].uci(),
                              "fen": self.board.fen(), "cur": cur, "cur_bgr": cur_bgr,
-                             "frames": 0, "prior_used": prior_used, "seq": seq}
+                             "frames": 0, "prior_used": prior_used, "seq": seq,
+                             # Wall clock, because `verify_window` counts OBSERVATIONS and their
+                             # price in seconds is set by the CNN: 8 of them is 1.2 s at a 146 ms
+                             # observation and 2.4 s at the 290 ms measured on an SM8650. While a
+                             # candidate is pending the tracker is blind on BOTH paths — detection
+                             # is refused by `_detect_guards` and `_cnn_worker` routes every
+                             # observation to verify, so recovery cannot run either.
+                             "t0": now, "tick": now}
             self._recovery_confirmer.reset()
             self._verify_state = "verifying"
             self.note = note or f"checking {' + '.join(sans)} via CNN…"

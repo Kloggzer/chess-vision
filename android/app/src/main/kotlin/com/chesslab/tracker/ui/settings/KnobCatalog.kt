@@ -162,6 +162,17 @@ val KNOB_CATALOG: List<KnobUi> =
         row("cnnCooldownS", CNN, 0.0, 30.0, 0.5, "Minimum interval between recovery observations."),
         row("cnnCheckIntervalS", CNN, 0.0, 120.0, 1.0, "Periodic CNN check."),
         count("verifyWindow", CNN, 1.0, 30.0, "Max CNN frames per pre-commit verify."),
+        row(
+            "verifyTimeoutS",
+            CNN,
+            0.3,
+            5.0,
+            0.1,
+            "...and the same deadline in SECONDS. verifyWindow counts OBSERVATIONS and what " +
+                "one costs is set by the CNN, so 8 of them is 1.2 s on a fast device and " +
+                "2.4 s on a slow one. A pending verify blinds detection AND recovery, so " +
+                "this is the bound that matters.",
+        ),
         row("cnnMinAgreement", CNN, 0.5, 1.0, 0.01, "Recovery/verify agreement threshold."),
         count("cnnMarginSquares", CNN, 0.0, 8.0, "Recovery margin in SQUARES (capture = 1 square difference)."),
         count("recoveryMaxPlies", CNN, 1.0, 10.0, "CNN deep recovery: max half-moves the conflict-guided search may bridge."),

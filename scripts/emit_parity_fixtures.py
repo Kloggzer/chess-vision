@@ -74,6 +74,7 @@ TRACKER_CONFIG_FIELDS = (
     "motionThr", "motionPxThr", "zThr", "ambiguityMarginLl", "reanchorLlFloor",
     "nudgeTimeoutS", "driftWindowS", "maxChanged", "censusThr", "censusZWeight",
     "occlCensusThr", "cnnConfThr", "cnnCooldownS", "cnnCheckIntervalS", "verifyWindow",
+    "verifyTimeoutS",
     "cnnMinAgreement", "cnnMarginSquares", "recoveryMaxPlies", "minConfidentBoard",
     "minConfidentRecovery", "motionMargin", "overhang", "alignEvery", "alignScale",
     "cornerJumpPx", "motionHoldS", "occlusionColorThr", "minGridLineCoverage",
@@ -347,6 +348,10 @@ class ClipDriver:
         mt._motion_occluded_squares = {sq for sq, exp in mt._occlusion_expiry.items()
                                        if now < exp}
         mt._occluded_vetoed = sorted(mt._motion_occluded_squares)
+        # `_loop` runs the pending-verify watchdog here. No-op with cnn_run=None (nothing is
+        # ever pending), but scripts/replay_clip_cnn.py drives this same step WITH a model,
+        # and there the stall bound is the point.
+        mt._expire_stalled_verify(now)
 
         detected = False
         cur = cur_bgr = None
@@ -646,6 +651,7 @@ def _effective_config(mt) -> dict:
         "cnnConfThr": _r(mt.cnn_conf_thr),
         "cnnCooldownS": _r(mt.cnn_cooldown_s),
         "cnnCheckIntervalS": _r(mt.cnn_check_interval_s),
+        "verifyTimeoutS": _r(mt.verify_timeout_s),
         "verifyWindow": int(mt.verify_window),
         "cnnMinAgreement": _r(mt.cnn_min_agreement),
         "cnnMarginSquares": int(mt.cnn_margin_squares),

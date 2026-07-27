@@ -66,6 +66,7 @@ internal object VerifyPair {
         // calls; single-threaded, only the base-truth FEN can still have moved on.
         if (pend == null || state.board.fen() != pend.fen) return emptyList()
         pend.frames++
+        pend.lastTickS = state.nowS
         return when {
             before.match && nConf >= cnn.minConfidentBoard -> state.acceptShadow(pend)
             (after.match && nConf >= cnn.minConfidentBoard) || pairAgree >= cnn.minAgreement ->
@@ -74,7 +75,8 @@ internal object VerifyPair {
                 } else {
                     emptyList()
                 }
-            pend.frames >= state.config.verifyWindow -> state.pairWindowEnd(moves, pend, checked, before, after)
+            pend.frames >= state.config.verifyWindow || state.verifyExpired(pend) ->
+                state.pairWindowEnd(moves, pend, checked, before, after)
             else -> {
                 state.note = "checking double move ${pairKey(moves)} via CNN… (${pend.frames}/${state.config.verifyWindow})"
                 emptyList()
