@@ -24,6 +24,32 @@ data class StoredGame(
     val event: String = "chesslab",
     // The session recording taken alongside, when there was one.
     val sessionId: String? = null,
+    /**
+     * Set when this record BEGINS at a seam — the engine committed something that did not fit the
+     * previous record's line, so that record was closed and this one opened at the position after
+     * the jump.
+     *
+     * Without it the loss is invisible: on 2026-07-28 one played game was stored as three files
+     * whose `startFen`s were each several plies ahead of the previous file's last move, and nothing
+     * in any of them said so. `Qxd4`, `Qe5+` and `Be7` are in no file at all. Reading the three as
+     * one game silently skips them; reading them separately looks like three games that each began
+     * mid-position for no reason.
+     */
+    val openedBySeam: SeamOrigin? = null,
+)
+
+/** What was committed at a seam, and by which path — see [StoredGame.openedBySeam]. */
+@Serializable
+data class SeamOrigin(
+    /** The record this one continues from, so the fragments can be chained back together. */
+    val previousId: String?,
+    /** The position the previous record ended on. */
+    val fenBefore: String,
+    /** SANs of the plies that caused the jump. They appear in NO record's move list. */
+    val sans: List<String>,
+    val ucis: List<String>,
+    /** Almost always `cnn_recovery`: recovery is what jumps off the line. */
+    val decider: String,
 )
 
 /**

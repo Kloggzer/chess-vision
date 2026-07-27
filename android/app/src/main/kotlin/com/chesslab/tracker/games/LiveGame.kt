@@ -21,10 +21,15 @@ class LiveGame(
     private val startFen: String,
     private val startedAtEpochMs: Long,
     private val profileName: String,
+    /** Non-null when this record was opened at a seam — see [StoredGame.openedBySeam]. */
+    private val openedBySeam: SeamOrigin? = null,
 ) {
     private val moves = mutableListOf<LiveMove>()
 
     val moveCount: Int get() = moves.size
+
+    /** The position this record currently stands on — its last move's, or its own start. */
+    val currentFen: String get() = moves.lastOrNull()?.fenAfter ?: startFen
 
     /**
      * One commit, one or more plies — a `SequenceCommitted` (fast play, CNN recovery) is a single
@@ -123,6 +128,7 @@ class LiveGame(
             result = resultFromFen(moves.lastOrNull()?.fenAfter ?: startFen),
             moves = moves.map { it.move },
             sessionId = sessionId,
+            openedBySeam = openedBySeam,
         )
 
     private fun fenBefore(index: Int): String = if (index == 0) startFen else moves[index - 1].fenAfter

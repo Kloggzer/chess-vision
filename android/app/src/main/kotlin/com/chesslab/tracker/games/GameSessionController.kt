@@ -106,9 +106,33 @@ class GameSessionController(
         // A record whose line the engine already left is not a game — see `LiveGame.continues`.
         // Closing it here keeps every stored file legal from its own `startFen`, and starts the
         // next one AT the seam, so the position after the jump is the new record's ground truth.
-        live?.takeUnless { it.continues(ucis) }?.let {
-            endAndSave()
-            live = LiveGame(fenAfter, now(), profile)
+        //
+        // The jumping plies land in NEITHER file: they are illegal from the old record's last
+        // position (that is what a seam IS) and they precede the new record's `startFen`. That was
+        // silent, and it hid real losses — one game on 2026-07-28 was stored as three files with
+        // Qxd4, Qe5+ and Be7 in none of them. They are recorded on the new file instead, so the
+        // fragments can be chained back into the game that was actually played.
+        //
+        // Still NO `capture.queue` here, and deliberately: a seam is the moment the engine's own
+        // FEN is least trustworthy, so a frame labelled with it is the poisoned-data case the
+        // recording gates exist to prevent. A gap in the training set beats a wrong label in it.
+        live?.takeUnless { it.continues(ucis) }?.let { previous ->
+            val fenBefore = previous.currentFen
+            val closed = endAndSave()
+            live =
+                LiveGame(
+                    fenAfter,
+                    now(),
+                    profile,
+                    openedBySeam =
+                        SeamOrigin(
+                            previousId = closed?.id,
+                            fenBefore = fenBefore,
+                            sans = sans,
+                            ucis = ucis,
+                            decider = decider,
+                        ),
+                )
             return
         }
         val game = live ?: LiveGame(startFen, now(), profile).also { live = it }

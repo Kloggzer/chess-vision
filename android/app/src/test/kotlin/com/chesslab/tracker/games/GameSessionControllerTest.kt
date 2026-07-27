@@ -252,6 +252,7 @@ class GameSessionControllerTest {
      * CONSUMER, so it survives whatever the engine does — it fails against an `isClean` that
      * checks only occlusion and taint.
      */
+
     @Test
     fun nothingIsRecordedWhileTheAlarmIsLatched() {
         val capture = capture(enabled = true)
@@ -268,5 +269,32 @@ class GameSessionControllerTest {
         // Cleared by the user: the deferred photo is still owed and is taken on the next clean tick.
         controller.onEvent(TrackerEvent.ReAnchored, idleTrackerStatus(AFTER_E4))
         assertEquals(1, capture.recorder?.count, "once the alarm is gone the pending photo is taken")
+    }
+
+    /**
+     * A seam must not swallow the plies that caused it.
+     *
+     * They are illegal from the closed record's last position — that is what a seam IS — and they
+     * precede the new record's `startFen`, so they land in neither move list. That was silent: one
+     * played game on 2026-07-28 was stored as three files, and Qxd4, Qe5+ and Be7 appear in none of
+     * them. Chaining the fragments back together is impossible without this.
+     */
+    @Test
+    fun aSeamRecordsThePliesThatCausedItOnTheNewRecord() {
+        val controller = controller()
+        controller.onIdle(STARTPOS, "board-a")
+        controller.onEvent(move("e2e4", "e4", AFTER_E4), idleTrackerStatus(AFTER_E4))
+        // Nf3 is illegal after 1.e4 alone: the engine jumped, so the record is cut here.
+        val jump = TrackerEvent.MoveCommitted("g1f3", "Nf3", AFTER_JUMP, "cnn_recovery", false)
+        controller.onEvent(jump, idleTrackerStatus(AFTER_JUMP))
+        controller.onEvent(move("b8c6", "Nc6", AFTER_JUMP_NC6), idleTrackerStatus(AFTER_JUMP_NC6))
+
+        val saved = controller.endAndSave()!!
+        val opened = store.open(saved.id)!!.openedBySeam
+        assertEquals(listOf("Nf3"), opened?.sans, "the jumping ply is recorded on the new file")
+        assertEquals(listOf("g1f3"), opened?.ucis)
+        assertEquals("cnn_recovery", opened?.decider)
+        assertEquals(AFTER_E4, opened?.fenBefore, "and the position the closed record ended on")
+        assertTrue(opened?.previousId != null, "so the two fragments can be chained")
     }
 }
