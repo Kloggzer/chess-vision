@@ -109,7 +109,7 @@ def calibrate_auto(
     profile: str = typer.Option(config.DEFAULT_PROFILE, "--profile"),
     board_size: int = typer.Option(config.DEFAULT_BOARD_SIZE, "--board-size"),
     dict_name: str = typer.Option("DICT_4X4_50", "--dict"),
-    margin: float = typer.Option(0.06, "--margin", help="Fraction by which markers sit OUTSIDE the board (adjust live in --preview with w/e)."),
+    margin: float = typer.Option(config.DEFAULT_MARKER_MARGIN, "--margin", help="Fraction by which markers sit OUTSIDE the board (adjust live in --preview with w/e)."),
     min_markers: int = typer.Option(4, "--min-markers", help="Required markers (4 = robust; 2/3 only useful with top-down camera)."),
     preview: bool = typer.Option(False, "--preview", help="Show marker box + board box live (adjust with w/e, s=save)."),
 ) -> None:

@@ -1,5 +1,6 @@
 package com.chesslab.tracker.geometry
 
+import com.chesslab.geometry.margins4
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -12,7 +13,7 @@ class CalibrationProfileSerializationTest {
         CalibrationProfile(
             name = "default",
             boardSize = 1600,
-            margin = 0.06,
+            margin = margins4(0.06),
             markerDict = "DICT_4X4_50",
             whitePov = false,
             sourceWidth = 1280,

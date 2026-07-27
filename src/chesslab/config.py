@@ -57,6 +57,14 @@ SEED: int = 42
 
 # --- Calibration / crop defaults (Stage 1) --------------------------------------------
 DEFAULT_PROFILE: str = "default"
+# Fraction by which an ArUco marker's CENTRE sits outside the playing field — the markers are
+# printed/glued in the label border, so the quad they span is larger than the board. THE
+# authoritative default; `calibrate`, `profile_from_frame` and the Kotlin store all read it.
+# 0.045 is measured, not chosen: sweeping it against grid-line alignment puts the optimum at
+# 0.040-0.050 on four independent recordings (two phone, two rendered). The previous 0.06
+# over-indented every profile made from it. Per-corner values live in the profile, because a
+# re-glued marker moves on its own.
+DEFAULT_MARKER_MARGIN: float = 0.045
 DEFAULT_BOARD_SIZE: int = 1600  # Edge length of the rectified board (px) = 200 px/square. Adapted
                                 # to high-resolution sources (phone ~209 px/square): the data warp
                                 # must NOT downsample below the source resolution, otherwise the

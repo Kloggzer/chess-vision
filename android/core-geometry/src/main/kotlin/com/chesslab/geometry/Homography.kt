@@ -21,26 +21,29 @@ private const val MIN_BASELINE: Double = 1e-6
  * square. Port of `calibration.py:393 compute_homography`.
  *
  * `margin > 0`: the image points lie that fraction OUTSIDE the playing field (markers at the
- * outer corners), so the playing field `[0, boardSize]` is indented accordingly.
+ * outer corners), so the playing field `[0, boardSize]` is indented accordingly. One value PER
+ * CORNER in `[a8, h8, h1, a1]` order — each is pushed outward along its own diagonal, so
+ * `margins4(x)` reproduces the old square exactly.
  *
  * Returns a `CV_64F` 3x3 `Mat` (what `Imgproc.getPerspectiveTransform` produces).
  */
 fun computeHomography(
     corners: List<DoubleArray>,
     boardSize: Int,
-    margin: Double = 0.0,
+    margin: List<Double> = margins4(0.0),
 ): Mat {
     require(corners.size >= CORNER_COUNT) { "need 4 corners, got ${corners.size}" }
+    require(margin.size == CORNER_COUNT) { "need 4 margins (a8,h8,h1,a1), got ${margin.size}" }
     val bs = boardSize.toDouble()
-    val m = margin * bs
+    val m = margin.map { it * bs }
     val src = pointsMat(corners.take(CORNER_COUNT))
     val dst =
         pointsMat(
             listOf(
-                doubleArrayOf(-m, -m),
-                doubleArrayOf(bs + m, -m),
-                doubleArrayOf(bs + m, bs + m),
-                doubleArrayOf(-m, bs + m),
+                doubleArrayOf(-m[0], -m[0]),
+                doubleArrayOf(bs + m[1], -m[1]),
+                doubleArrayOf(bs + m[2], bs + m[2]),
+                doubleArrayOf(-m[3], bs + m[3]),
             ),
         )
     val h = Imgproc.getPerspectiveTransform(src, dst)

@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.chesslab.geometry.BoardGeometry
+import com.chesslab.geometry.margins4
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -17,9 +18,6 @@ import kotlin.math.roundToInt
 // transpose every label of the next session").
 
 private val PROFILE_KEY = stringPreferencesKey("calibration_profile")
-
-/** `profile_from_frame`'s default: the markers sit this fraction outside the playing field. */
-private const val MARKER_MARGIN: Double = 0.06
 
 // Its OWN DataStore file: 06c's settings store and the safety-critical geometry must not share a
 // write path.
@@ -73,7 +71,7 @@ class CalibrationStore(
      * background detection thread, hence `@Volatile`.
      */
     @Volatile
-    var geometry: BoardGeometry = BoardGeometry(margin = MARKER_MARGIN)
+    var geometry: BoardGeometry = BoardGeometry(margin = margins4(DEFAULT_MARKER_MARGIN))
         private set
 
     suspend fun load(): ProfileLoad = profile.first().also { if (it is ProfileLoad.Ok) geometry = it.profile.geometry() }
@@ -109,9 +107,10 @@ class CalibrationStore(
         measured: MeasuredGeometry,
         whitePovOverride: Boolean? = null,
         savedAtMs: Long = 0L,
+        marginOverride: List<Double>? = null,
     ): CalibrationProfile {
         val existing = (load() as? ProfileLoad.Ok)?.profile
-        val next = carryOver(existing, measured, whitePovOverride, savedAtMs)
+        val next = carryOver(existing, measured, whitePovOverride, savedAtMs, marginOverride)
         save(next)
         return next
     }
@@ -165,9 +164,11 @@ fun carryOver(
     measured: MeasuredGeometry,
     whitePovOverride: Boolean? = null,
     savedAtMs: Long = 0L,
+    marginOverride: List<Double>? = null,
 ): CalibrationProfile =
     existing?.copy(
         whitePov = whitePovOverride ?: existing.whitePov,
+        margin = marginOverride ?: existing.margin,
         corners = measured.corners.copyOf(),
         // NOT carried over: it is a measurement, and the thing it measures just changed.
         boardSize = measuredBoardSize(measured.corners),
@@ -179,6 +180,7 @@ fun carryOver(
         boardSize = measuredBoardSize(measured.corners),
         name = "default",
         whitePov = whitePovOverride ?: true,
+        margin = marginOverride ?: margins4(DEFAULT_MARKER_MARGIN),
         sourceWidth = measured.sourceWidth,
         sourceHeight = measured.sourceHeight,
         corners = measured.corners.copyOf(),

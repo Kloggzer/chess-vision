@@ -37,6 +37,7 @@ private class FakeDetector(
     override suspend fun warp(
         corners: FloatArray,
         whitePov: Boolean,
+        margin: List<Double>?,
     ): Bitmap? = null
 }
 

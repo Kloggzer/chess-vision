@@ -81,7 +81,9 @@ class CalibrationProfile:
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     # Marker-based (mandatory): calibrate slicing/recording per frame from ArUco markers.
     # image_corners/homography are only the snapshot from calibration (fallback/preview).
-    margin: float = 0.0
+    # Per-corner (a8, h8, h1, a1): the markers are glued on by hand, so a re-stick moves each
+    # one independently. A single number stays valid input everywhere via `margins4`.
+    margin: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0])
     marker_dict: str = "DICT_4X4_50"
     # Multi-cam: optional source (URL/path instead of camera_index) and real intrinsics. If missing,
     # geometry3d uses an approximation from frame_size. This way each camera is a self-contained profile.
@@ -96,6 +98,11 @@ class CalibrationProfile:
     undistorted: bool = False
     lens_calib_id: str | None = None
 
+    def __post_init__(self) -> None:
+        # A scalar is still the natural thing to write at a call site ("all four the same"),
+        # so normalise here rather than making every caller spell out four values.
+        self.margin = margins4(self.margin)
+
     # -- serialization --
     def to_dict(self) -> dict:
         return {
@@ -108,7 +115,10 @@ class CalibrationProfile:
             "homography": [[float(v) for v in row] for row in self.homography],
             "white_pov": bool(self.white_pov),
             "crop": self.crop.to_dict(),
-            "margin": float(self.margin),
+            # Normalised on the way out as well as in: assigning a scalar to a live profile
+            # (`prof.margin = 0.11`) is natural and bypasses `__post_init__`, and every reader
+            # already goes through `margins4` — serialization was the one place that did not.
+            "margin": margins4(self.margin),
             "marker_dict": self.marker_dict,
             "source": self.source,
             "camera_matrix": (None if self.camera_matrix is None
@@ -132,7 +142,8 @@ class CalibrationProfile:
             homography=[[float(v) for v in row] for row in d["homography"]],
             white_pov=bool(d["white_pov"]),
             crop=CropParams.from_dict(d["crop"]),
-            margin=float(d.get("margin", 0.0)),
+            # Old profiles stored one number; broadcast it to the four corners.
+            margin=margins4(d.get("margin", 0.0)),
             marker_dict=d.get("marker_dict", "DICT_4X4_50"),
             source=d.get("source"),
             camera_matrix=(None if cm is None else [[float(v) for v in row] for row in cm]),
@@ -183,7 +194,8 @@ def load_profile(name: str) -> CalibrationProfile:
     return CalibrationProfile.load(p)
 
 
-def profile_from_frame(frame, profile: str, *, board_size: int = 1000, margin: float = 0.06,
+def profile_from_frame(frame, profile: str, *, board_size: int = 1000,
+                       margin=config.DEFAULT_MARKER_MARGIN,
                        dict_name: str = "DICT_4X4_50", white_pov: bool = True,
                        camera_index: int = -1) -> CalibrationProfile | None:
     """Build a profile headlessly from a single frame via ArUco markers.
@@ -205,7 +217,7 @@ def profile_from_frame(frame, profile: str, *, board_size: int = 1000, margin: f
         homography=compute_homography(corners, board_size, margin),
         white_pov=white_pov,
         crop=CropParams.default(board_size),
-        margin=margin,
+        margin=margins4(margin),
         marker_dict=dict_name,
     )
     # Stamp the lens state AND the intrinsics that match it: on undistorted frames the
@@ -390,17 +402,34 @@ def crop_border_px(profile: CalibrationProfile) -> int:
     return int(round(border_cells * cell))
 
 
-def compute_homography(image_corners, board_size: int, margin: float = 0.0) -> list[list[float]]:
+def margins4(margin) -> list[float]:
+    """A scalar or any 4-sequence -> the four per-corner margins (a8, h8, h1, a1).
+
+    One number is the common case (all four markers stuck at the same offset); four is the
+    real one, because the markers are glued by hand and a re-stick moves them independently.
+    """
+    if isinstance(margin, (int, float)):
+        return [float(margin)] * 4
+    vals = [float(v) for v in margin]
+    if len(vals) != 4:
+        raise ValueError(f"margin must be a number or 4 values (a8,h8,h1,a1), got {len(vals)}")
+    return vals
+
+
+def compute_homography(image_corners, board_size: int, margin=0.0) -> list[list[float]]:
     """Four image points (a8, h8, h1, a1) -> 3x3 homography to a board_size square.
 
     `margin` > 0: the image points lie this fraction OUTSIDE the playing field (markers
     at the outer corners). The playing field [0, board_size] is then indented accordingly.
+    It is a scalar OR four per-corner values — see `margins4`. Each corner is pushed
+    outward along its own diagonal, so a single number reproduces the old square exactly.
     """
     src = np.array(image_corners, dtype=np.float32)
     bs = float(board_size)
-    m = margin * bs
+    m0, m1, m2, m3 = (v * bs for v in margins4(margin))
     # Target points according to click order a8, h8, h1, a1 (extended outward if margin > 0):
-    dst = np.array([[-m, -m], [bs + m, -m], [bs + m, bs + m], [-m, bs + m]], dtype=np.float32)
+    dst = np.array([[-m0, -m0], [bs + m1, -m1], [bs + m2, bs + m2], [-m3, bs + m3]],
+                   dtype=np.float32)
     H = cv2.getPerspectiveTransform(src, dst)
     return H.tolist()
 
@@ -984,7 +1013,8 @@ def generate_markers(out_path, dict_name: str = "DICT_4X4_50", ids: tuple[int, .
 
 
 def calibrate_auto(camera: int, profile: str, board_size: int, dict_name: str = "DICT_4X4_50",
-                   white_pov: bool = True, preview: bool = False, margin: float = 0.06,
+                   white_pov: bool = True, preview: bool = False,
+                   margin=config.DEFAULT_MARKER_MARGIN,
                    min_markers: int = 4) -> int:
     """Detect markers → marker box + inset playing field → save profile (no clicking).
 
@@ -1010,7 +1040,7 @@ def calibrate_auto(camera: int, profile: str, board_size: int, dict_name: str = 
                 profile=profile, camera_index=camera, frame_size=(ww, hh), board_size=board_size,
                 image_corners=p, homography=compute_homography(p, board_size, m),
                 white_pov=white_pov, crop=CropParams.default(board_size),
-                margin=m, marker_dict=dict_name,
+                margin=margins4(m), marker_dict=dict_name,
             )
 
         if preview:

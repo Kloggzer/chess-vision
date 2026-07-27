@@ -1,9 +1,11 @@
 package com.chesslab.tracker.ui.calibration
 
 import android.graphics.Bitmap
+import com.chesslab.geometry.margins4
 import com.chesslab.tracker.geometry.BoardDetector
 import com.chesslab.tracker.geometry.CalibrationProfile
 import com.chesslab.tracker.geometry.CalibrationStore
+import com.chesslab.tracker.geometry.DEFAULT_MARKER_MARGIN
 import com.chesslab.tracker.geometry.MeasuredGeometry
 import com.chesslab.tracker.geometry.ProfileLoad
 import kotlinx.coroutines.CoroutineScope
@@ -25,6 +27,10 @@ data class TapPoint(
     val y: Float,
 )
 
+/** Adjustment bounds for a marker outset — 0 is "markers on the field corners", 12 % is absurd. */
+private const val MARGIN_MIN: Double = 0.0
+private const val MARGIN_MAX: Double = 0.12
+
 data class CalibrationState(
     val step: CalibrationStep = CalibrationStep.AIM,
     /** 8 floats `[a8, h8, h1, a1]` in source pixels; never sorted. */
@@ -38,6 +44,12 @@ data class CalibrationState(
     val detecting: Boolean = false,
     val orientationSeen: Boolean = false,
     val warped: Bitmap? = null,
+    /**
+     * Per-corner marker outset, `[a8, h8, h1, a1]`. Adjustable HERE because the codes are glued
+     * on by hand: re-sticking them moves each corner independently, and the rectified preview
+     * above is the only place the effect is visible.
+     */
+    val margin: List<Double> = margins4(DEFAULT_MARKER_MARGIN),
     val saved: Boolean = false,
 ) {
     /** A wrong a8 assignment is invisible at runtime, so the confirmation screen is not skippable. */
@@ -63,6 +75,7 @@ class CalibrationViewModel(
 
     /** Set only by the user on the confirmation screen — an untouched value is carried over. */
     private var whitePovTouched = false
+    private var marginTouched = false
 
     init {
         scope.launch {
@@ -111,15 +124,30 @@ class CalibrationViewModel(
     fun toConfirm() {
         val s = _state.value
         val corners = s.corners ?: return
-        _state.value = s.copy(step = CalibrationStep.CONFIRM, orientationSeen = true, note = null)
-        scope.launch { refreshWarp(corners, s.whitePov) }
+        // Start from what is stored, not from the default: a recalibration should not silently
+        // discard outsets the user measured by hand last time.
+        val margin = store.geometry.margin
+        _state.value = s.copy(step = CalibrationStep.CONFIRM, orientationSeen = true, note = null, margin = margin)
+        scope.launch { refreshWarp(corners, s.whitePov, margin) }
+    }
+
+    /** One corner's outset, in `[a8, h8, h1, a1]` order. Re-rectifies the preview immediately. */
+    fun setMargin(
+        corner: Int,
+        value: Double,
+    ) {
+        marginTouched = true
+        val s = _state.value
+        val next = s.margin.toMutableList().also { it[corner] = value.coerceIn(MARGIN_MIN, MARGIN_MAX) }
+        _state.value = s.copy(margin = next)
+        s.corners?.let { c -> scope.launch { refreshWarp(c, s.whitePov, next) } }
     }
 
     fun setWhitePov(value: Boolean) {
         whitePovTouched = true
         val s = _state.value.copy(whitePov = value)
         _state.value = s
-        s.corners?.let { c -> scope.launch { refreshWarp(c, value) } }
+        s.corners?.let { c -> scope.launch { refreshWarp(c, value, s.margin) } }
     }
 
     fun back() {
@@ -136,6 +164,7 @@ class CalibrationViewModel(
                     MeasuredGeometry(corners.copyOf(), s.frameWidth, s.frameHeight),
                     whitePovOverride = if (whitePovTouched) s.whitePov else null,
                     savedAtMs = nowMs(),
+                    marginOverride = if (marginTouched) s.margin else null,
                 )
             _state.value = _state.value.copy(saved = true)
             onSaved(saved)
@@ -165,8 +194,9 @@ class CalibrationViewModel(
     private suspend fun refreshWarp(
         corners: FloatArray,
         whitePov: Boolean,
+        margin: List<Double>,
     ) {
-        val bitmap = detector.warp(corners, whitePov)
+        val bitmap = detector.warp(corners, whitePov, margin)
         _state.value = _state.value.copy(warped = bitmap)
     }
 }
