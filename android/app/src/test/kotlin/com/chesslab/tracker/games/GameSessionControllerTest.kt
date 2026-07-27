@@ -151,7 +151,15 @@ class GameSessionControllerTest {
         assertEquals(4, controller.state.value.moveCount, "a pair commit is two plies")
         assertEquals(3, capture.recorder?.count, "one photo per commit — the pair gets one, not two")
         val saved = controller.endAndSave()
-        assertEquals(listOf("e4", "e5", "Nf3", "Nc6"), store.open(saved!!.id)?.moves?.map { it.san })
+        val stored = store.open(saved!!.id)!!
+        assertEquals(listOf("e4", "e5", "Nf3", "Nc6"), stored.moves.map { it.san })
+        // BOTH plies of the pair carry the decider — one decision produced them. Writing `null` for
+        // the earlier one lost it: 89 of 113 plies across 16 stored games read as "unknown", which
+        // is exactly the figure needed to see how much of a game recovery is responsible for.
+        assertEquals(
+            listOf("diff", "diff", "diff_pair", "diff_pair"),
+            stored.moves.map { it.provenance?.decider },
+        )
     }
 
     /** The plies of a pair carry their own positions, so an undo right after one is still seen. */
@@ -215,7 +223,12 @@ class GameSessionControllerTest {
         val moves = store.open(saved!!.id)!!.moves
         assertEquals("cnn_overrule", moves[0].provenance?.decider)
         assertTrue(moves[0].provenance!!.priorUsed)
-        assertNull(moves[1].provenance, "provenance rides on the LAST ply of a commit")
+        // Both plies of the pair name the decider; only the LAST carries the evidence, because that
+        // is the only ply the engine recorded evidence against (`Commit.kt:157`). This used to
+        // assert `null` on the earlier ply, which pinned the defect: with the decider dropped too,
+        // 89 of 113 plies across 16 stored games read as "unknown".
+        assertEquals("diff_pair", moves[1].provenance?.decider, "the pair's first ply names it too")
+        assertTrue(moves[1].provenance!!.changed.isEmpty(), "but claims no evidence of its own")
         assertEquals("diff_pair", moves[2].provenance?.decider, "and a pair states its decider too")
     }
 
