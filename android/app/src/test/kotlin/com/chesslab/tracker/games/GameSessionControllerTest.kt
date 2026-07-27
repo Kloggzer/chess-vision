@@ -238,4 +238,35 @@ class GameSessionControllerTest {
         controller.onEvent(TrackerEvent.ReAnchored, idleTrackerStatus(AFTER_E4))
         assertEquals(1, capture.recorder?.count, "the clean re-anchor takes it")
     }
+
+    /**
+     * While the illegal-move latch is up, no frame may be written.
+     *
+     * The app's board and the physical board disagree — that is what the alarm MEANS — so a photo
+     * taken now is stored against a FEN that does not describe it. That is poisoned training data
+     * and it is indistinguishable from good data afterwards.
+     *
+     * Python has no gate of its own: alarmed, it blocks every commit and every re-anchor
+     * (`tracker.py:3105`), and those two are the only things that drive the recorder.
+     * `TrackerEngine.kt:406` blocks re-anchor the same way. This test pins the property at the
+     * CONSUMER, so it survives whatever the engine does — it fails against an `isClean` that
+     * checks only occlusion and taint.
+     */
+    @Test
+    fun nothingIsRecordedWhileTheAlarmIsLatched() {
+        val capture = capture(enabled = true)
+        val controller = controller(capture)
+        controller.onIdle(STARTPOS, "board-a")
+        val alarmed =
+            idleTrackerStatus(AFTER_E4).copy(
+                alarm = TrackerEvent.Alarm("illegal_move", listOf("e4"), "e2e4", "e4"),
+            )
+        controller.onEvent(move("e2e4", "e4", AFTER_E4), alarmed)
+        assertNull(capture.recorder, "a commit seen while alarmed must not photograph the board")
+        controller.onEvent(TrackerEvent.ReAnchored, alarmed)
+        assertNull(capture.recorder, "and neither may a re-anchor while the latch is still up")
+        // Cleared by the user: the deferred photo is still owed and is taken on the next clean tick.
+        controller.onEvent(TrackerEvent.ReAnchored, idleTrackerStatus(AFTER_E4))
+        assertEquals(1, capture.recorder?.count, "once the alarm is gone the pending photo is taken")
+    }
 }

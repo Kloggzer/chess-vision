@@ -132,8 +132,22 @@ class GameSessionController(
     /**
      * Python's "clean board" — no occlusion vetoes and no tainted squares. `tainted` rides on the
      * debug payload only (D03d-9), so with debug off the occlusion set is what we have.
+     *
+     * The alarm is part of it, and deliberately so. While the latch is up the app's board and the
+     * physical board disagree, so a frame taken now would be stored against a FEN that does not
+     * describe it — poisoned training data that is indistinguishable from good data afterwards,
+     * exactly the failure the geometry gate exists to prevent.
+     *
+     * Python reaches the same end without a gate of its own: while alarmed it blocks every commit
+     * AND every re-anchor (`tracker.py:3105`), and those two are the only things that drive the
+     * recorder. `TrackerEngine.kt:406` blocks re-anchor identically. But that leaves this consumer
+     * depending on an engine internal it cannot see; naming the condition here makes the guarantee
+     * local, and it costs nothing while the engine keeps its half of the bargain.
      */
-    private fun isClean(status: TrackerStatus?): Boolean = status?.occlusionVetoed.isNullOrEmpty() && status?.debug?.tainted.isNullOrEmpty()
+    private fun isClean(status: TrackerStatus?): Boolean =
+        status?.alarm == null &&
+            status?.occlusionVetoed.isNullOrEmpty() &&
+            status?.debug?.tainted.isNullOrEmpty()
 
     private fun publish() {
         mutable.value =
