@@ -38,10 +38,17 @@ class PrimitiveBatchNorm2d(nn.BatchNorm2d):
     """
 
     def forward(self, x):
+        # fp32 throughout, whatever autocast handed us. Under AMP `x` is fp16 and a variance
+        # reduction over 256*H*W activations leaves the fp16 range: the first real run came back
+        # with 12 of 5344 `running_var` entries at +inf, and eval collapsed (val_acc 0.91 -> 0.65)
+        # while the training loss fell happily on batch statistics. Stock BatchNorm keeps its
+        # statistics in fp32 for exactly this reason; deriving the arithmetic by hand means
+        # inheriting that obligation too.
+        xf = x.float()
         if self.training:
-            var, mean = torch.var_mean(x, dim=(0, 2, 3), unbiased=False, keepdim=True)
+            var, mean = torch.var_mean(xf, dim=(0, 2, 3), unbiased=False, keepdim=True)
             if self.track_running_stats:
-                n = x.numel() / x.shape[1]
+                n = xf.numel() / xf.shape[1]
                 with torch.no_grad():
                     m = self.momentum if self.momentum is not None else 0.1
                     self.running_mean.mul_(1 - m).add_(m * mean.flatten())
@@ -49,10 +56,11 @@ class PrimitiveBatchNorm2d(nn.BatchNorm2d):
                     self.running_var.mul_(1 - m).add_(m * var.flatten() * n / (n - 1))
                     self.num_batches_tracked += 1
         else:
-            mean = self.running_mean.view(1, -1, 1, 1)
-            var = self.running_var.view(1, -1, 1, 1)
-        y = (x - mean) * torch.rsqrt(var + self.eps)
-        return y * self.weight.view(1, -1, 1, 1) + self.bias.view(1, -1, 1, 1)
+            mean = self.running_mean.view(1, -1, 1, 1).float()
+            var = self.running_var.view(1, -1, 1, 1).float()
+        y = (xf - mean) * torch.rsqrt(var + self.eps)
+        out = y * self.weight.view(1, -1, 1, 1).float() + self.bias.view(1, -1, 1, 1).float()
+        return out.to(x.dtype)
 
 
 def _batchnorm_kernel_works() -> bool:

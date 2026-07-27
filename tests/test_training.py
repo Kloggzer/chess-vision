@@ -454,3 +454,24 @@ def test_every_backbone_path_converts_batchnorm_when_the_kernel_is_broken(monkey
     assert not stock, f"{len(stock)} stock BatchNorm2d survived — that branch will crash on ROCm"
     assert any(isinstance(mod, M.PrimitiveBatchNorm2d) for mod in m.modules())
     assert any(isinstance(mod, nn.ReLU) for mod in m.modules()), "and the activations must survive"
+
+
+def test_primitive_batchnorm_keeps_finite_stats_in_half_precision():
+    """Autocast hands fp16 activations; a variance reduction over them overflows.
+
+    The first real training run produced 12 `running_var` entries at +inf and its eval accuracy
+    collapsed from 0.91 to 0.65 while the training loss kept falling — the loss uses batch
+    statistics, so the damage is invisible until eval. The earlier equivalence test missed it
+    because well-behaved `randn` inputs never reach the fp16 ceiling.
+    """
+    import torch
+
+    from chesslab.training.model import PrimitiveBatchNorm2d
+
+    bn = PrimitiveBatchNorm2d(8)
+    bn.train()
+    x = (torch.randn(64, 8, 32, 32) * 120.0).half()      # ~1.4e4 peak: fine in fp32, not in fp16
+    bn(x)
+    assert torch.isfinite(bn.running_var).all(), "running_var overflowed — statistics must be fp32"
+    assert torch.isfinite(bn.running_mean).all()
+    assert bn(x).dtype == x.dtype, "and the output dtype must follow the input"
