@@ -54,7 +54,7 @@ def test_archive_removes_crops_and_manifest_then_restore(tmp_path):
     _mk_crop(paths, "s1")
     _mk_crop(paths, "s2")
 
-    r = S.archive_session("s1", paths)
+    r = S.archive_session("s1", "test", paths)
     assert r["removed_crops"] == 1
     assert not (paths.sessions / "s1").exists() and (paths.sessions_archive / "s1").exists()
     kept = [json.loads(line)["session_id"] for line in (paths.manifests / "squares.jsonl")
@@ -134,6 +134,53 @@ def test_invalid_id_and_missing(tmp_path):
     with pytest.raises(ValueError):
         S.delete_session("../etc", paths)
     with pytest.raises(FileNotFoundError):
-        S.archive_session("nope", paths)
+        S.archive_session("nope", "test", paths)
     with pytest.raises(FileNotFoundError):
         S.restore_session("nope", paths)
+
+
+def test_archiving_records_why(tmp_path):
+    """A session may not leave the corpus anonymously.
+
+    Four parked directories in three conventions, two of them with no explanation, cost a full
+    day of archaeology this week. The reason is written twice on purpose: into the session's own
+    `session.yaml` so it travels with the pixels, and into the archive index so the whole archive
+    reads without opening every directory.
+    """
+    import json
+
+    import pytest
+    import yaml
+
+    from chesslab import sessions as S
+
+    paths = config.Paths(root=tmp_path)
+    _mk_session(paths, "s1")
+    with pytest.raises(ValueError, match="reason"):
+        S.archive_session("s1", "   ", paths)
+    assert (paths.sessions / "s1").exists(), "a refused archive must not have moved anything"
+
+    res = S.archive_session("s1", "blurrier than the device: 59 px/square", paths)
+    assert res["reason"].startswith("blurrier")
+    meta = yaml.safe_load((paths.sessions_archive / "s1" / "session.yaml").read_text(encoding="utf-8"))
+    assert meta["archived_reason"].startswith("blurrier")
+    assert meta["archived_at"]
+    rows = [json.loads(line) for line in
+            (paths.sessions_archive / "index.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert rows[-1]["session_id"] == "s1"
+    assert rows[-1]["reason"].startswith("blurrier")
+
+
+def test_archiving_never_overwrites_an_existing_archive(tmp_path):
+    """`shutil.rmtree(dst)` used to run here. Archiving is the SAFE half of the API."""
+    import pytest
+
+    from chesslab import sessions as S
+
+    paths = config.Paths(root=tmp_path)
+    _mk_session(paths, "s1")
+    S.archive_session("s1", "first", paths)
+    _mk_session(paths, "s1")
+    with pytest.raises(FileExistsError):
+        S.archive_session("s1", "second", paths)
+    assert (paths.sessions / "s1").exists(), "the live session must survive a refused archive"
