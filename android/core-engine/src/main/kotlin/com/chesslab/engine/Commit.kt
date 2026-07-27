@@ -50,6 +50,9 @@ internal const val VERIFY_STATE_CONFIRMED = "confirmed"
 /** `_verify_state` while a candidate is pending. */
 internal const val VERIFY_STATE_VERIFYING = "verifying"
 
+/** `_expire_stalled_verify` — the observer stopped answering, so the candidate was dropped. */
+internal const val VERIFY_STATE_STALLED = "stalled"
+
 private const val ROUND_2 = 100.0
 
 private const val ROUND_3 = 1000.0

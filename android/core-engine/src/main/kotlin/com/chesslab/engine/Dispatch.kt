@@ -66,6 +66,8 @@ internal fun EngineState.dispatch(
             frames = 0,
             priorUsed = priorUsed,
             seq = seq,
+            startedS = nowS,
+            lastTickS = nowS,
         )
     recoveryConfirmer.reset()
     verifyState = VERIFY_STATE_VERIFYING

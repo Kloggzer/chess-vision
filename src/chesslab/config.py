@@ -647,7 +647,20 @@ TRACK_DEFAULTS: dict = {
     "cnn_conf_thr": 0.85,          # CNN square confidence "reliable"
     "cnn_cooldown_s": 2.0,         # Minimum interval between recovery observations
     "cnn_check_interval_s": 10.0,  # Periodic CNN check
-    "verify_window": 8,            # Max CNN frames per pre-commit verify
+    "verify_window": 8,            # Max CNN observations per pre-commit verify
+    "verify_timeout_s": 1.5,       # ...and the same deadline in SECONDS, which is the unit the
+                                   # player experiences. `verify_window` counts OBSERVATIONS, and
+                                   # what one costs is set by the CNN: 8 of them is 1.2 s at a
+                                   # 146 ms observation and 2.4 s at the 290 ms measured on an
+                                   # SM8650 — and if the observer stalls, unbounded. A pending
+                                   # candidate blinds BOTH paths (`_detect_guards` refuses
+                                   # detection, and `_cnn_worker` routes every observation to
+                                   # verify so recovery cannot run), so that is dead time.
+                                   # 1.5 s is above every terminal decision ever measured:
+                                   # over 66 candidates on 15 clips + 3 recordings a commit
+                                   # needs 1 observation (pair) or 2 (single, one lost to the
+                                   # seq gate) and the slowest verdict was a 3-observation
+                                   # shadow = 0.9 s at the device rate.
     "cnn_min_agreement": 0.97,     # Recovery/verify agreement threshold
     "cnn_margin_squares": 1,
     "recovery_max_plies": 4,       # CNN deep recovery: max half-moves the conflict-guided search may bridge       # Recovery margin in SQUARES (capture = 1 square difference)

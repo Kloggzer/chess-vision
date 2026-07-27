@@ -72,6 +72,43 @@ class VerifySingleTest {
         assertEquals("ghost", ghost.verifyState)
     }
 
+    /**
+     * `test_verify_resolves_on_the_wall_clock_not_only_the_observation_count`. `verifyWindow`
+     * counts OBSERVATIONS and what one costs is set by the CNN, so 8 of them is 1.2 s on a warm
+     * desktop batch and 2.4 s at the 290 ms measured on an SM8650. The candidate here is
+     * undecidable (both endpoints unreadable) and only TWO observations arrive: on the count alone
+     * it would hold for six more, on the clock it resolves.
+     */
+    @Test
+    fun verifyResolvesOnTheWallClockNotOnlyTheObservationCount() {
+        val state = pendingState()
+        val obs = VerifyObs(mapOf("e4" to false, "e2" to false), mapOf("e4" to false, "e2" to false))
+        state.glance(VerifyEvaluator(), obs)
+        assertNotNull(state.pending)
+        state.pending!!.startedS -= state.config.verifyTimeoutS + 0.01
+        state.glance(VerifyEvaluator(), obs)
+        assertNull(state.pending)
+        assertEquals("ghost", state.verifyState)
+        assertEquals(emptyList<String>(), state.history)
+    }
+
+    /**
+     * `test_a_stalled_observer_cannot_pin_the_tracker_forever`. The other end of the same defect:
+     * `frames` only advances inside a tick, so a candidate that receives NO observation is bounded
+     * by nothing and the engine refuses every detection while routing nothing to recovery.
+     */
+    @Test
+    fun aStalledObserverCannotPinTheEngineForever() {
+        val state = pendingState()
+        state.expireStalledVerify()
+        assertNotNull(state.pending)
+        state.pending!!.lastTickS -= state.config.verifyTimeoutS + 0.01
+        state.expireStalledVerify()
+        assertNull(state.pending)
+        assertEquals(VERIFY_STATE_STALLED, state.verifyState)
+        assertEquals(emptyList<String>(), state.history)
+    }
+
     @Test
     fun hardVetoRejectsGhostToStillEmpty() {
         val state = pendingState()

@@ -175,6 +175,7 @@ internal class FrameLoop(
         val live = state.liveExpiry(state.occlusionExpiry)
         state.motionOccluded = live
         state.occludedVetoed = live
+        state.expireStalledVerify()
     }
 
     /** Hand or camera moving: discard the buffers, hold detection off. */

@@ -108,6 +108,7 @@ private fun EngineState.singleTick(
     // identity check, and it still guards against a commit that landed while we computed.
     if (pending !== pend || board.fen() != pend.fen) return emptyList()
     pend.frames += 1
+    pend.lastTickS = nowS
     return ladder(cnn, pend, sig, boardSnap, move)
 }
 
@@ -153,7 +154,7 @@ private fun EngineState.ladder(
         sig.overrules(cnn, cnn.minAgreement, pend.uci) ->
             if (pendingVoted("overrule:${sig.cnnUci}", votes)) overruleTerminal(pend, sig, move) else emptyList()
 
-        pend.frames >= config.verifyWindow -> windowEnd(cnn, pend, sig, boardSnap, move)
+        pend.frames >= config.verifyWindow || verifyExpired(pend) -> windowEnd(cnn, pend, sig, boardSnap, move)
 
         else -> {
             note = "checking ${board.san(move)} via CNN… (${pend.frames}/${config.verifyWindow})"

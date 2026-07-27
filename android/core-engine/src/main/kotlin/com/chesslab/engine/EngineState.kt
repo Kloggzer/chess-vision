@@ -391,6 +391,9 @@ internal data class PendingVerify(
     val seq: Long,
     var voteOutcome: String? = null,
     var voteCount: Int = 0,
+    /** `nowS` at dispatch and at the last tick — the two ends of [TrackerConfig.verifyTimeoutS]. */
+    var startedS: Double = 0.0,
+    var lastTickS: Double = 0.0,
 )
 
 /** Alias for the name phases 04a/04b use for the same object. */

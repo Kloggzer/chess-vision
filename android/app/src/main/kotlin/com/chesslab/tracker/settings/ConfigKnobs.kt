@@ -70,6 +70,7 @@ val KNOBS: List<Knob> =
         Knob("cnnCooldownS", DOUBLE, { it.cnnCooldownS }, { c, v -> c.copy(cnnCooldownS = v) }),
         Knob("cnnCheckIntervalS", DOUBLE, { it.cnnCheckIntervalS }, { c, v -> c.copy(cnnCheckIntervalS = v) }),
         Knob("verifyWindow", INT, { it.verifyWindow.toDouble() }, { c, v -> c.copy(verifyWindow = v.toInt()) }),
+        Knob("verifyTimeoutS", DOUBLE, { it.verifyTimeoutS }, { c, v -> c.copy(verifyTimeoutS = v) }),
         Knob("cnnMinAgreement", DOUBLE, { it.cnnMinAgreement }, { c, v -> c.copy(cnnMinAgreement = v) }),
         Knob("cnnMarginSquares", INT, { it.cnnMarginSquares.toDouble() }, { c, v -> c.copy(cnnMarginSquares = v.toInt()) }),
         Knob("recoveryMaxPlies", INT, { it.recoveryMaxPlies.toDouble() }, { c, v -> c.copy(recoveryMaxPlies = v.toInt()) }),

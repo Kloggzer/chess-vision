@@ -20,6 +20,12 @@ data class TrackerConfig(
     val cnnCooldownS: Double = 2.0,
     val cnnCheckIntervalS: Double = 10.0,
     val verifyWindow: Int = 8,
+    // ...and the same deadline in SECONDS, which is the unit the player experiences.
+    // `verifyWindow` counts OBSERVATIONS and what one costs is set by the CNN: 8 of them is 1.2 s
+    // at a 146 ms observation and 2.4 s at the 290 ms measured on an SM8650 — unbounded if the
+    // observer stalls. A pending candidate blinds BOTH paths, so that is dead time. See
+    // `config.py` and specs/19-live-hardening/STATUS.md §14.
+    val verifyTimeoutS: Double = 1.5,
     val cnnMinAgreement: Double = 0.97,
     val cnnMarginSquares: Int = 1,
     val recoveryMaxPlies: Int = 4,

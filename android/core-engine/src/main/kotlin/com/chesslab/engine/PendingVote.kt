@@ -15,6 +15,38 @@ package com.chesslab.engine
 internal const val COMMIT_VOTES = 1
 
 /**
+ * `_verify_expired` — the pre-commit verify's wall-clock bound, the deadline [TrackerConfig.verifyWindow]
+ * cannot express because it counts observations.
+ *
+ * Measured over 66 pending candidates on 15 clips + 3 real recordings
+ * (`scripts/replay_clip_cnn.py`): every candidate that ever commits is decided on its FIRST usable
+ * observation (local agreement 1.000, 6/6 pairs and 55/55 singles), and every candidate that does
+ * not is flat below the threshold for the whole window (0.500, 0.500, 0.667-0.75, 0.75) and never
+ * once rises. The later observations carry no information, and each costs a full round trip during
+ * which nothing can be detected and recovery cannot run.
+ */
+internal fun EngineState.verifyExpired(pend: PendingVerify): Boolean = nowS - pend.startedS >= config.verifyTimeoutS
+
+/**
+ * `_expire_stalled_verify` — watchdog for an observer that STOPPED, not one that is merely slow.
+ *
+ * [PendingVerify.frames] only advances inside a tick, so a candidate that receives no observation
+ * at all is bounded by nothing: an attach that dies mid-game leaves the engine refusing every
+ * detection and routing nothing to recovery, with the note still reading "checking … via CNN".
+ * The slow case is handled inside the ladder ([verifyExpired], which resolves on the evidence it
+ * has); this is the case where there is none, so the candidate is dropped and the diff path tries
+ * again — base truth untouched, exactly as a rejected verify leaves it.
+ */
+internal fun EngineState.expireStalledVerify() {
+    val pend = pending ?: return
+    if (nowS - pend.lastTickS < config.verifyTimeoutS) return
+    pending = null
+    confirmer.reset()
+    verifyState = VERIFY_STATE_STALLED
+    note = "CNN did not answer within ${config.verifyTimeoutS}s — pending candidate dropped"
+}
+
+/**
  * `_pending_voted` — no verify decision on a single CNN glance.
  *
  * The g8h6 overrule incident (2026-07-09): one frame's confident-empty misread overruled a real

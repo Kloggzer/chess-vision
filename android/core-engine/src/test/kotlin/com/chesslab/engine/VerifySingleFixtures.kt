@@ -118,6 +118,10 @@ internal fun pendingState(
             frames = 0,
             priorUsed = false,
             seq = 0,
+            // Mirrors `Dispatch`: the wall-clock deadline (`verifyTimeoutS`) is measured from
+            // these, and a pending without them would read as expired on its very first tick.
+            startedS = state.nowS,
+            lastTickS = state.nowS,
         )
     return state
 }
