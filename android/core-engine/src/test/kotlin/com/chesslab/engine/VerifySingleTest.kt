@@ -49,6 +49,29 @@ class VerifySingleTest {
         assertEquals(false, state.recoveredLast)
     }
 
+    /**
+     * `test_confirm_acts_on_one_glance_contradiction_still_needs_two`. One observation is a full
+     * observer round trip (~0.21 s on the SM8650); the CONFIRM rung concurs with a candidate the
+     * diff already carried through `confirmFrames`, the ambiguity margin and `commitLlFloor`, so it
+     * acts on the first. Contradicting rungs still need `verifyObsVotes`.
+     */
+    @Test
+    fun confirmActsOnOneGlanceContradictionStillNeedsTwo() {
+        val state = pendingState()
+        state.glance(VerifyEvaluator(occAgree = 1.0, occN = 2), VerifyObs())
+        assertEquals(listOf("e4"), state.history)
+        assertNull(state.pending)
+
+        val ghost = pendingState()
+        val obs = VerifyObs(mapOf("e4" to false, "e2" to true), mapOf("e4" to true, "e2" to true))
+        ghost.glance(VerifyEvaluator(), obs)
+        assertNotNull(ghost.pending)
+        assertEquals(emptyList<String>(), ghost.history)
+        ghost.glance(VerifyEvaluator(), obs)
+        assertNull(ghost.pending)
+        assertEquals("ghost", ghost.verifyState)
+    }
+
     @Test
     fun hardVetoRejectsGhostToStillEmpty() {
         val state = pendingState()
@@ -274,26 +297,29 @@ class VerifySingleTest {
     }
 
     @Test
-    fun singleGlanceNeverDecides() {
-        // g8h6 incident: one frame's confident-empty misread overruled a real move.
+    fun singleGlanceNeverDecidesAgainstTheDiff() {
+        // g8h6 incident: one frame's confident-empty misread overruled a real move. Every rung
+        // that CONTRADICTS the diff still needs `verifyObsVotes`; only the confirm rung is exempt
+        // (see COMMIT_VOTES and confirmActsOnOneGlanceContradictionStillNeedsTwo).
         val state = pendingState()
-        val committing = VerifyEvaluator(occAgree = 1.0, occN = 2)
         val shadowing = VerifyEvaluator(match = true)
+        val ghostObs = VerifyObs(mapOf("e4" to false, "e2" to true), mapOf("e4" to true, "e2" to true))
 
-        state.glance(committing, VerifyObs())
+        state.glance(shadowing, VerifyObs())
         assertEquals(emptyList<String>(), state.history)
         assertEquals(1, state.pending!!.voteCount)
         assertTrue(state.note!!.contains("confirming (1/2)"))
 
         // A DIFFERENT outcome resets the count — two alternating glances decide nothing.
-        state.glance(shadowing, VerifyObs())
+        state.glance(VerifyEvaluator(), ghostObs)
         assertEquals(1, state.pending!!.voteCount)
-        assertEquals("shadow", state.pending!!.voteOutcome)
+        assertEquals("ghost", state.pending!!.voteOutcome)
 
-        state.glance(committing, VerifyObs())
+        state.glance(shadowing, VerifyObs())
         assertEquals(emptyList<String>(), state.history)
         assertNotNull(state.pending)
         assertEquals(1, state.pending!!.voteCount)
+        assertEquals("shadow", state.pending!!.voteOutcome)
     }
 
     @Test
