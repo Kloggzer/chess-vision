@@ -658,16 +658,21 @@ TRACK_DEFAULTS: dict = {
     "align_every": 3,              # ArUco marker detection every N-th frame (most expensive per-frame op; camera fixed)
     "align_scale": 0.5,            # ArUco on downscaled frame (0.5 = half-res, ~3x faster; ±1 px inside tracker dead-zone)
     "corner_jump_px": 6.0,         # Warp corner jump ⇒ base truth geometrically invalid → reacquire
-    "motion_hold_s": 0.4,          # Seconds the board must be motion-free before detection resumes
-                                   # (wall time). It DOES dominate the commit latency — the same
-                                   # clip replayed at 30/15/10 fps commits every move within 0.2 s
-                                   # of the same wall time, so this constant sets it and the frame
-                                   # rate does not. Shortening it was tried and MEASURED: 0.1 costs
-                                   # `blender-scholars` its mate (Qxf7#) and 0.2/0.3 do too, while
-                                   # gaining only ~0.3 s per move on real footage. At 12 fps 0.4 s
-                                   # is ~5 frames and 0.3 s is 3.6 — below `settle_frames` (4), which
-                                   # is where the clip breaks. Do not lower it without re-running
-                                   # `pytest -m clips`.
+    "motion_hold_s": 0.34,         # Seconds the board must be motion-free before detection resumes
+                                   # (wall time). It is HALF the commit latency: measured
+                                   # deterministically at 30 fps, last motion -> commit is
+                                   # `motion_hold_s + 0.05..0.07` (the remainder is the grid-gate
+                                   # re-hold), and the frame rate does not enter — the same clip at
+                                   # 30/15/10 fps commits every move within 0.2 s of the same wall
+                                   # time. 0.34 is the floor the clip suite allows: at 0.32
+                                   # `blender-scholars` loses its mate (Qxf7#) because detection
+                                   # then fires two frames earlier on a frame carrying 7 changed
+                                   # squares against `max_changed` = 6, refuses it as
+                                   # `too_many_changed`, and the eventual single commit swallows
+                                   # the queen. Going lower needs `max_changed` = 7, which widens
+                                   # the occlusion gate — a detection-quality trade the user has
+                                   # ruled out (specs/19-live-hardening/STATUS.md, section 7).
+                                   # Do not lower it without re-running `pytest -m clips`.
     "occlusion_color_thr": 3.0,    # Color-outlier veto: Mahalanobis sigma vs board gamut (lower=more sensitive, 0=off).
                                    # NOTE: the historic 1.5 was "tuned" while the gamut was never built (veto dead);
                                    # now that it is live, 1.5 over-fires — 3.0 is the validated-conservative start.

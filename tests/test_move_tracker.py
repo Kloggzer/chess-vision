@@ -1818,9 +1818,13 @@ class TestAppEndpoints:
         assert data["active"] is False
         assert data.get("default_profile") == "testp"
         assert data.get("default_source") == "99"
-        assert data["track_defaults"]["motion_margin"] == 0.10
-        assert data["track_defaults"]["overhang"] == 0.25
-        assert data["track_defaults"]["motion_hold_s"] == 0.4
+        # Read from config, not re-typed: this asserts the API SURFACES `TRACK_DEFAULTS`, and the
+        # values themselves are guarded by test_tracker_direct_defaults_match_config. Spelling them
+        # out again only means a default change breaks an unrelated web test.
+        from chesslab.config import TRACK_DEFAULTS
+
+        for knob in ("motion_margin", "overhang", "motion_hold_s"):
+            assert data["track_defaults"][knob] == TRACK_DEFAULTS[knob]
 
     def test_double_start_one_thread(self, monkeypatch):
         from fastapi.testclient import TestClient

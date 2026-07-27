@@ -727,7 +727,7 @@ class MoveTracker:
                  min_confident_board: int = 32, min_confident_recovery: int = 8,
                  motion_margin: float = 0.10, overhang: float = 0.25,
                  corner_jump_px: float = 6.0, motion_cooldown: int | None = None,
-                 motion_hold_s: float = 0.4,
+                 motion_hold_s: float = 0.34,
                  occlusion_color_thr: float = 1.5,
                  dark_luma_thr: float = 18.0,      # pre-CLAHE luma below this pauses detection
                                                     # (Android parity: darkLumaThr)

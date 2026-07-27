@@ -30,10 +30,11 @@ data class TrackerConfig(
     val alignEvery: Int = 3,
     val alignScale: Double = 0.5,
     val cornerJumpPx: Double = 6.0,
-    // This constant, not the frame rate, sets the commit latency: the same clip replayed at
-    // 30/15/10 fps commits every move within 0.2 s of the same wall time. Shortening it was tried
-    // and measured — see `config.py`; 0.1/0.2/0.3 all cost `blender-scholars` its mate.
-    val motionHoldS: Double = 0.4,
+    // This constant, not the frame rate, sets HALF the commit latency: last motion -> commit is
+    // `motionHoldS + 0.05..0.07` at 30 fps, and the same clip replayed at 30/15/10 fps commits every
+    // move within 0.2 s of the same wall time. 0.34 is the floor the clip suite allows — at 0.32
+    // `blender-scholars` loses its mate. See `config.py` and specs/19-live-hardening/STATUS.md §7.
+    val motionHoldS: Double = 0.34,
     val occlusionColorThr: Double = 3.0,
     val minGridLineCoverage: Double = 0.5,
     val reconnectGraceS: Double = 2.0,
