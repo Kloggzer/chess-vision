@@ -1673,6 +1673,10 @@ diff path        0.41 s   (measured deterministically, 30 fps)
 = commit         ~0.62 s
 ```
 
+> **SUPERSEDED by section 13.** The 146 ms the verify term came from was a cold post-launch
+> batch. Measured on hardware under active tracking the observation is ~290 ms, so the round trip
+> is ~0.30 s and the commit is **~0.71 s**, not 0.62.
+
 Down from ~0.85-1.05 s at the start of the session: ~0.21 s from the confirm-rung vote
 (section 4) and 0.06 s from rung 1.
 
@@ -1752,3 +1756,126 @@ of a 640x640 plane per corner — tens of milliseconds, not a perceptible pause.
 
 Not started. It is the highest-value item left, and it is a geometry/UI change rather than a
 tracker change, so it belongs to whoever owns `geometry/**` and the calibration screen.
+
+### 13. Why the pair path never commits on the device — ANSWERED
+
+A device was attached for this section. Numbers below are marked **[hw]** when measured on the
+phone and **[replay]** when measured by deterministic replay.
+
+**[hw] The device's stored config**, pulled from
+`files/datastore/chesslab-tracker.preferences_pb` (`adb exec-out run-as`): `motionHoldS 0.15`,
+`maxChanged 6`, `verifyWindow 8`, `verifyObsVotes 2`, `cnnMinAgreement 0.97`, `cnnConfThr 0.85`,
+`observerIntervalS 0.0`, `cnnVerify on`, all three frame-count overrides `NaN` (so the CNN-on
+triple 3/2/1). That is the shape the reported game was played in.
+
+**[hw] The CNN observation, under active tracking:** 169-544 ms, median ~290
+(`chesslabCnn: CNN observation N ms for 64 crops`). The log lines are 1.11-1.26 s apart, which at
+a 1 Hz throttle and a ~0.30 s period is `4 x 0.30`; that also **confirms on hardware** the
+log-throttle correction of section 1 — the cadence is ~0.30 s, never the 1 s the line spacing
+suggests. `chesslabPerf` shows fps 26-33 and engine 1-21 ms; the pipeline is not the problem.
+
+**The 146 ms figure section 1 derived the verify term from was a cold post-launch batch.** At the
+[hw] median of ~290 ms the observer round trip is ~0.30 s, so the corrected numbers are:
+
+```
+diff path        0.41 s   [replay]   (motion_hold_s 0.34 + grid re-hold)
++ CNN verify     ~0.30 s  [hw-based] (one observation round trip)
+= commit         ~0.71 s
+```
+
+Not 0.62 s. And on the phone as it stands the diff path is 0.15 + 0.06 = 0.21 s, because the user
+set `motionHoldS 0.15` in the settings UI — **a stored knob overrides the default, so rung 1 does
+not reach this device until that override is cleared.**
+
+#### The answer: it is (1), and (2) is the reason it is (1)
+
+Measured with `scripts/replay_clip_cnn.py` (new, commit `c30e04a`) on `vid1244.mp4` at the
+device's exact config, real `occ-act-f3`, observation period 0.30 s:
+
+```
+t= 5.50  PAIR-CANDIDATE ['d2d4','d7d5'] -> DISPATCH (PAIR)
+t= 6.03    vote 'commit' -> True (1/1)   agreement 1.000   COMMIT-SEQ decider=cnn_pair
+t=17.37  PAIR-CANDIDATE ['b1c3','b8c6'] -> DISPATCH (PAIR)
+t=17.73    frames 0->1  votes=None outcome=None  agreement=0.952  held
+t=18.03    frames 1->2  votes=None outcome=None  agreement=0.952  held
+t=18.33    frames 2->3  votes=None outcome=None  agreement=0.952  held
+t=18.63    frames 3->4  votes=None outcome=None  agreement=0.952  held
+t=18.93    frames 4->5  votes=None outcome=None  agreement=0.903  held
+t=19.23    frames 5->6  votes=None outcome=None  agreement=0.871  held
+t=19.53    frames 6->7  votes=None outcome=None  agreement=0.825  held
+t=19.83    frames 7->8  votes=None outcome=None  agreement=0.810  CLEARED: ghost
+           "Double move b1c3 b8c6 not confirmed by CNN - discarded"
+```
+
+Read off that trace:
+
+1. **The candidate is generated and dispatched.** The pair path is not dead — `d2d4+d7d5`
+   commits as `cnn_pair` on the **first** observation at agreement 1.000, and later `d1d3+f6e4`
+   at 0.922. It works whenever the CNN can confirm immediately.
+2. **It is rejected as `ghost` — hypothesis (1).** `after["match"]` is false and
+   `pair_agree < 0.97`, so the commit rung's condition is never true.
+3. **`votes=None` on all eight ticks: `_pending_voted` was never called once.** So this is NOT
+   vote starvation. `verify_obs_votes` is irrelevant here; the rung's CONDITION never fires. (I
+   re-ran the whole thing with `_COMMIT_VOTES` mutated back to 2 to be sure: same move list,
+   every commit 0.30 s later, same pair rejected. My section-4 change is not the cause and not
+   the cure.)
+4. **Waiting makes it strictly worse.** Whole-board agreement DECAYS monotonically across the
+   window, 0.952 -> 0.810. In fast play the next move is already being played during those
+   2.4 seconds, so the board drifts further from the post-pair position the longer the verify
+   holds. The first observation is the best reading the candidate will ever get.
+5. **[hw] 8 observations is 2.4 s on this phone** (8 x 0.30). That is hypothesis (2), and it is
+   what causes (1): the window is longer than the interval between moves in the play it exists
+   to catch.
+6. **And for those 2.4 s the tracker is totally blind.** `_detect_guards` (`tracker.py:2947`)
+   refuses every detection while `_pending` is set, AND `_cnn_worker` routes every observation to
+   `_verify_tick`, so **`_cnn_tick` — CNN recovery — cannot run either**. The tracker emerges
+   2.4 s later with nothing committed and stuck. That is exactly the state the device's
+   `cnn_recovery` commits then rescue, and exactly the symptom the user described: recovery needs
+   a motion trigger, so he waved.
+
+**This subsumes the open timeout decision.** The pending IS bounded — but in observations, not
+wall time. `verify_window = 8` is denominated in a currency whose exchange rate into seconds is
+set by the CNN's speed, and nobody ever checked the product. The unbounded-pending hole of
+section 5 and this pair failure are the same defect from two ends: at 146 ms an observation the
+window is 1.2 s, at 290 ms it is 2.4 s, and if the observer stalls it is unbounded.
+
+#### What a fix would cost — NOT implemented
+
+The window is the wrong length, but nothing in this repo can vouch for a new one.
+`pytest -m clips` and the parity fixtures both run `cnn_run=None`, so a `verify_window` change is
+literally invisible to both; `CnnClipSimulationTest` does drive the real ladder, but its 18 clips
+are the 12 fps renders and none of them contains a fast pair. `replay_clip_cnn.py` is now the
+instrument that could gate it, and it currently has exactly ONE recording with ground truth.
+
+Three shapes, with what each costs:
+
+- **Shorter `verify_window`.** One number in `TRACK_DEFAULTS` plus its Kotlin twin. Cheap, and it
+  bounds the blind window directly. But it is shared with the single-move ladder, where the long
+  window is the thing that lets an occluded endpoint clear before the candidate is judged — so it
+  trades pair responsiveness against single-move robustness under occlusion, and I have no
+  instrument that measures the second half.
+- **A wall-clock bound instead of an observation count** — the honest fix, since seconds are what
+  actually matter and the observation count is a proxy whose scale moves with the hardware. Costs
+  a new default in `TRACK_DEFAULTS` + `TrackerConfig` + the fixture field list, and a policy
+  decision on what the timeout does (commit, as the CNN-unavailable path already does at
+  `tracker.py:2193-2200`, or discard).
+- **Do not let a pending verify block recovery.** The 2.4 s of total blindness is the part that
+  actually hurt the user, and it is a routing decision in `_cnn_worker`, not a threshold. But
+  running `_cnn_tick` while a candidate is pending means two mechanisms can commit from the same
+  observation, and the ordering between them is not currently defined anywhere.
+
+My recommendation is the second, and that the first observation's verdict be given more weight
+than the window's — because measurement 4 says the window's later observations are strictly worse
+evidence, which is the opposite of what a "wait and see" window assumes. **None of it is
+implemented: the user's ordering is detection first, and I cannot demonstrate the cost of any of
+these on detection quality with the instruments that exist today.**
+
+#### Correction to section 8's manifest entry
+
+`live-1244-fastplay.mp4` is pinned at `d4 Nf6 Nc3` — what the CNN-less replay commits. **With the
+CNN in the loop and the device's own config it commits `d4 d5 Nf3 Nf6` and then correctly refuses
+everything after the illegal knight placement** ([replay], `replay_clip_cnn.py`). So the ply-2
+desync recorded there is an artefact of replaying without a CNN, not a device failure. The pin is
+still correct for what it pins (the CNN-less path, which is what `pytest -m clips` runs) and the
+`known_failure` text has been left as it was written — but the fast-play desync it describes is
+**not** what the device does, and section 13 is the real story.
