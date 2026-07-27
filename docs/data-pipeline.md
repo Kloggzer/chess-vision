@@ -317,6 +317,40 @@ Two traps that follow from "the session list is not derived":
   `dataset.yaml`'s `session_ids` plus whatever `data/sessions/` has gained since (the web UI's
   session page, `chesslab web`, is the readable view).
 
+### 5.10 `per_cell_cap`, not phash, is what decides how much data you get
+
+`dedup_metadata` runs FIRST and keeps at most `per_cell_cap` crops per **(session, square, label)**
+— default **4**. phash only sees what survives it.
+
+For a game session that is roughly harmless. For a `lighting-capture` it is fatal: the session
+holds one label (`empty`) on all 64 squares across hundreds of frames, so the whole tuple space is
+64 buckets and a **297-frame session collapses to 256 crops**. The thing the capture was recorded
+for — the same square under many lighting conditions — is exactly what the cap discards.
+
+Measured 2026-07-27 over the 20-session pool (49,856 raw), occupancy, both lighting captures in
+`force_train`:
+
+| `per_cell_cap` | train crops | train `empty` |
+|---:|---:|---:|
+| 4 (default) | 3,747 | 1,643 |
+| 16 | 5,413 | 3,248 |
+| 64 | 5,445 | 3,267 |
+| 256 | 8,712 | 6,534 |
+
+Above 16 the binding constraint changes to `max_empty_ratio=1.5` (empty ≤ 1.5 × occupied); with
+that lifted to 3.0 the 256 row is what you see, and with no cap at all train reaches 13,320 /
+11,142 empties. So there are **three** stacked filters and the default of each is tuned for
+game sessions:
+
+1. `per_cell_cap` — crude, per tuple, runs first
+2. `phash_hamming` — the principled one, near-duplicate pixels
+3. `max_empty_ratio` — class balance, applied to the train split
+
+If a build returns far less data than the corpus suggests, check them in that order. `occ-real3`
+uses `per_cell_cap=256, max_empty_ratio=3.0` for this reason.
+
+---
+
 ---
 
 ## 6. Parked data — the inventory
