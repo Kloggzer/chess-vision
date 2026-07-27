@@ -205,10 +205,16 @@ There are two parking mechanisms and only one of them is complete:
 - Moving the directory to `data/_parked/…` by hand moves **pixels only**. The rows stay in
   `squares.jsonl` and keep feeding every subsequent build.
 
-That is live right now: the four 07.07. sessions are parked under
-`data/_parked/20260727-lowres-0707/`, and their **1,408 rows are still in `squares.jsonl`** and
-still in `data/datasets/occ-real`. `occ-real2` excludes them only because its `session_ids` list
-was written without them.
+That was live until 2026-07-27: the four 07.07. sessions had been parked under
+`data/_parked/20260727-lowres-0707/` and their 1,408 rows were still in `squares.jsonl`. They have
+since been put through `archive_session` properly — the pool went **14,720 → 13,312 rows, 11 → 7
+sessions**, and the reason is in `data/sessions_archive/index.jsonl`.
+
+`data/datasets/occ-real` **still carries those 1,408 rows** and still lists the four sessions in
+`session_ids`, because a dataset is a snapshot and archiving does not reach into it (§5.9).
+That is deliberate: `occ-real` is the baseline every `specs/18-occupancy-model/` number was measured
+against and must stay byte-identical. The next occupancy dataset is built under a new name from the
+7 remaining sessions.
 
 If you park by hand, either re-slice afterwards or state in the README that the rows remain.
 
