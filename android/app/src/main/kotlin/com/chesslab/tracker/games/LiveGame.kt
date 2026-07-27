@@ -47,6 +47,12 @@ class LiveGame(
         decision: MoveProvenance?,
     ) {
         val fens = positionsAfter(ucis, fenAfter)
+        // The DECIDER belongs to every ply of the sequence — one decision produced them all — while
+        // the EVIDENCE was recorded against the last one only (`Commit.kt:157`) and would be a
+        // fabrication on the others. Writing `null` for the earlier plies lost the decider too: a
+        // tally over 16 stored games read 89 of 113 plies as "unknown", which is exactly the
+        // information needed to see how many plies recovery is responsible for.
+        val shared = decision?.let { MoveProvenance(it.decider, it.reason, it.priorUsed) }
         for (i in ucis.indices) {
             val last = i == ucis.lastIndex
             moves +=
@@ -55,8 +61,11 @@ class LiveGame(
                         ply = moves.size + 1,
                         san = sans[i],
                         uci = ucis[i],
+                        // One event, one instant: a sequence is observed as a whole and there is no
+                        // per-ply time to report. Spreading invented timestamps would read as
+                        // measurement.
                         tsEpochMs = tsEpochMs,
-                        provenance = if (last) decision else null,
+                        provenance = if (last) decision else shared,
                     ),
                     fenAfter = fens[i],
                 )
