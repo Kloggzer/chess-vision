@@ -555,6 +555,13 @@ def train_cmd(
                                       "GroupNorm was doing inside the network: a black piece on a dark "
                                       "square carries 6 grey levels against 40 on a light one, and doing "
                                       "it here lets BatchNorm fold away (5x fewer graph nodes)."),
+    input_repr: str = typer.Option("rgb", "--input-repr",
+                                   help="rgb | gray+sobel | rgb+sobel | sobel. What the first "
+                                        "convolution is fed. The sobel channel is |Gx|+|Gy| of the "
+                                        "luminance: taking the MAGNITUDE rectifies away whether the "
+                                        "piece is darker or lighter than its square, which is the "
+                                        "whole dark-square problem. Recorded in the run's config.json; "
+                                        "the stem's in_chans follows it."),
     norm: str | None = typer.Option(None, "--norm", help="batchnorm | groupnorm | none (default: groupnorm on Windows, otherwise batchnorm)."),
     dataset: str | None = typer.Option(None, "--dataset", help="Named dataset (otherwise global manifest/split)."),
     resume: str | None = typer.Option(None, "--resume", help="Run name whose weights are loaded as warm-start (continue training)."),
@@ -583,7 +590,8 @@ def train_cmd(
             raise typer.Exit(1)
         k, v = item.split("=", 1)
         cw[k.strip()] = float(v)
-    raise typer.Exit(run_train(backbone=backbone, epochs=epochs, per_crop=(crop_norm == "per-crop"), batch_size=batch_size, lr=lr,
+    raise typer.Exit(run_train(backbone=backbone, epochs=epochs, per_crop=(crop_norm == "per-crop"),
+                               input_repr=input_repr, batch_size=batch_size, lr=lr,
                                no_amp=no_amp, seed=seed, out=out, patience=patience,
                                num_workers=num_workers, norm=norm, dataset=dataset, resume=resume,
                                head=head, scales=scale_list, erase_p=erase_p, bg_p=bg_p,
