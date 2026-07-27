@@ -1819,7 +1819,11 @@ Read off that trace:
    re-ran the whole thing with `_COMMIT_VOTES` mutated back to 2 to be sure: same move list,
    every commit 0.30 s later, same pair rejected. My section-4 change is not the cause and not
    the cure.)
-4. **Waiting makes it strictly worse.** Whole-board agreement DECAYS monotonically across the
+4. **CORRECTED IN SECTION 14 — this is the wrong quantity.** The rung tests `pair_agree`
+   (the pair's own touched squares), which is FLAT at 0.75 across all eight observations;
+   the number below is the whole-board figure. And `b1c3 b8c6` was not a pair the user
+   played, so the rejection was correct. Original text:
+   Whole-board agreement DECAYS monotonically across the
    window, 0.952 -> 0.810. In fast play the next move is already being played during those
    2.4 seconds, so the board drifts further from the post-pair position the longer the verify
    holds. The first observation is the best reading the candidate will ever get.
@@ -1833,7 +1837,7 @@ Read off that trace:
    `cnn_recovery` commits then rescue, and exactly the symptom the user described: recovery needs
    a motion trigger, so he waved.
 
-**This subsumes the open timeout decision.** The pending IS bounded — but in observations, not
+**This subsumes the open timeout decision** (built in section 14). The pending IS bounded — but in observations, not
 wall time. `verify_window = 8` is denominated in a currency whose exchange rate into seconds is
 set by the CNN's speed, and nobody ever checked the product. The unbounded-pending hole of
 section 5 and this pair failure are the same defect from two ends: at 146 ms an observation the
@@ -1879,3 +1883,139 @@ desync recorded there is an artefact of replaying without a CNN, not a device fa
 still correct for what it pins (the CNN-less path, which is what `pytest -m clips` runs) and the
 `known_failure` text has been left as it was written — but the fast-play desync it describes is
 **not** what the device does, and section 13 is the real story.
+
+### 14. The verify's wall-clock bound — built, and a correction to section 13
+
+#### 14.1 CORRECTION: section 13 blamed the wrong number, and the rejected pair was not real
+
+Section 13 reported that the pair `b1c3 b8c6` was "rejected at 0.952 against a 0.97 threshold" and
+that agreement "decays monotonically". **Both statements are about the wrong quantity.** 0.952 is
+`after["agreement"]`, the WHOLE-BOARD figure; the commit rung tests `pair_agree`, the agreement
+over the pair's own touched squares. Measured, that number is **0.75 on all eight observations —
+flat, not decaying**:
+
+```
+b1c3 b8c6   local=[0.75, 0.75, 0.75, 0.75, 0.75, 0.75, 0.75, 0.75]
+            board=[0.9524, 0.9524, 0.9524, 0.9531, 0.9032, 0.8387, 0.7969, 0.8065]
+```
+
+And `b1c3 b8c6` was **not a pair the user played**. On `vid1244` white played `Nc3` and black then
+placed a knight on `c5` — not a legal knight move from `b8` or `f6`. So `b8c6` never happened, and
+`0.75` is exactly 3 of the 4 touched squares agreeing: `b1` empty yes, `c3` occupied yes, `b8`
+empty yes, `c6` occupied **no**. **The CNN was right to reject it.** "Discarding correct pairs" is
+not the failure mode; the failure mode is how long a correct rejection costs.
+
+#### 14.2 The separation, and why "weight the first observation" is a no-op
+
+66 pending candidates over 15 clips + 3 real recordings (`scripts/replay_clip_cnn.py`, real
+`occ-act-f3`, 0.30 s observations, device config):
+
+| population | n | local agreement | observations to verdict |
+|---|---|---|---|
+| pairs that commit | 6 | **1.000** (6/6) | **1** |
+| singles that commit | 55 | **1.000** (55/55) | 2 (one lost to the seq gate) |
+| shadow (correctly, no move) | 1 | 0.000 | 3 |
+| pairs discarded | 3 (+1 at EOF) | 0.500, 0.500, 0.667-0.75, 0.75 | 8 (the whole window) |
+
+**The two populations separate completely**: everything that commits reads 1.000, everything that
+does not reads at most 0.75. `cnn_min_agreement = 0.97` sits inside a 0.25-wide empty gap. The
+threshold is not the problem and does not need tuning.
+
+**Local agreement never rises inside a window — in none of the 66 traces.** It is flat (0.5 x 8,
+0.75 x 8, 1.0) or wobbles by one confident square (0.667 <-> 0.75). So max, first and latest are
+the same number: **"weight the first observation over the later ones" is a NO-OP, and it is a
+no-op for a better reason than decay — the later observations carry no information at all.** No
+weighting curve was built; there is nothing for one to weight. Recorded as a negative result on an
+approved item.
+
+Every observation after the first therefore buys nothing and costs a full round trip during which
+the tracker is blind on both paths.
+
+#### 14.3 What was built
+
+`verify_timeout_s = 1.5` (`TRACK_DEFAULTS`, `MoveTracker.__init__`, Kotlin `TrackerConfig`), used
+in two places because the window fails in two different ways:
+
+- **`_verify_expired`** — the ladder's window end now fires on
+  `frames >= verify_window OR expired`, in both `_verify_tick` and `_verify_pair_tick` (Kotlin
+  `VerifySingle.ladder` / `VerifyPair.tick`). A slow CNN resolves on the evidence it has instead
+  of holding for evidence that provably never comes.
+- **`_expire_stalled_verify`** — a frame-loop watchdog that drops a candidate whose ticks have
+  stopped entirely (Kotlin `FrameLoop` -> `expireStalledVerify`). This is the hole `verify_window`
+  cannot see at all, and it closes section 5's open item: **the unbounded pending and the pair
+  failure were the same defect from two ends**, which is why they are fixed by one constant.
+
+**Why 1.5 s:** the slowest terminal verdict in all 66 traces was a 3-observation shadow = 0.9 s at
+the device rate, and the worst single observation measured on the phone was 544 ms, so two of them
+is 1.1 s. 1.5 s clears every decision ever observed with margin. On a fast device (146 ms) 1.5 s is
+~10 observations, more than `verify_window`, so the window still governs there and behaviour is
+unchanged — which is the point of denominating in seconds.
+
+**Why expiry discards rather than commits:** at expiry a candidate has, in 66/66 traces, a local
+agreement flat at or below 0.75. Discarding cannot manufacture a commit; it can only remove a late
+one, and no late commit exists in the data (`diff_after_verify` and the pair "conflicts pre-existed"
+accept fired **zero** times).
+
+#### 14.4 Acceptance — 14 of 15 runs identical, and the one that changed got better provenance
+
+Same 15 replays, `verify_timeout_s` the only variable:
+
+- **14 identical move lists.**
+- **Ghost windows: 8 observations -> 3, 4, 4, 5, 5, 5** — 2.4 s of blindness down to 0.9-1.5 s.
+- **One changed run**, `VID_20260726_155132`. The false pair `c3e4 d8d5` is discarded after 4
+  observations instead of 8, and the tracker then commits the correct single `c3e4` **itself**, at
+  local agreement 1.000, through the normal verify path:
+
+```
+before   ply 8 PAIR c3e4 d8d5  n=8  -> ghost      then plies 8+9 arrive as a cnn_recovery bridge
+after    ply 8 PAIR c3e4 d8d5  n=4  -> ghost
+         ply 8 sing c3e4       n=2  local=[1.0,1.0] -> confirmed cnn_occupancy
+```
+
+That is exactly the reported symptom being fixed: a ply that used to need recovery (and therefore a
+hand-wave) is now committed by the tracker itself. **The tail of that clip diverges too
+(`Nxe4/Qxd4` at ply 9) and 155132 has no ground truth past ply 8, so the tail is reported, not
+certified.**
+
+Kotlin side: `CnnClipSimulationTest` — the only Kotlin instrument that drives the real ladder —
+is **16/18 with the same two failing clips, byte-identical to before the change.**
+
+#### 14.5 Hardware
+
+**Measured on the phone** (device attached for the first half of this session): the stored config
+(`motionHoldS 0.15`, `verifyWindow 8`, `verifyObsVotes 2`, `cnnMinAgreement 0.97`, no frame-count
+overrides), and `CNN observation 169-544 ms, median ~290` under active tracking with log lines
+1.11-1.26 s apart — which confirms the 1 Hz log throttle of section 1 on hardware.
+
+**NOT verified on hardware: the build itself.** The device disconnected before the APK could be
+installed (`adb devices` empty on retry). `assembleDebug` succeeds; nothing has been run on the
+phone with `verify_timeout_s` in it. When it is reconnected the check is: install, play two quick
+moves, and confirm the move list shows `cnn_pair` / `cnn_occupancy` rather than `cnn_recovery`.
+
+**Caveat the user must know:** the phone's stored `motionHoldS 0.15` overrides the 0.34 default, and
+a stored config keeps every key it already has. `verify_timeout_s` is not in that stored map, so it
+takes the new default 1.5 — but `motionHoldS` will stay at 0.15 until the knob is reset.
+
+#### 14.6 Letting recovery run during a pending verify — costed, not built
+
+The 1.5 s bound reduces the blindness but does not remove it. Removing it means letting `_cnn_tick`
+run while `_pending` is set, and that is architectural, not a threshold:
+
+- Two mechanisms could then commit from the **same observation** — the verify ladder committing the
+  pending candidate, and recovery committing a bridged sequence — and their ordering is not defined
+  anywhere today. Recovery re-anchors base truth and pushes up to `recovery_max_plies` plies; the
+  verify pushes one or two. Getting the order wrong duplicates or loses moves.
+- It is also partly moot: `_cnn_tick`'s own gate needs `stuck_reason != null` and
+  `stuck_count >= settle_frames`, and while a candidate is pending `_try_detect` never runs, so
+  nothing advances the stuck counters. Recovery would fire only for a tracker that was already
+  stuck before it dispatched.
+
+Recommendation: leave it. The blindness it would remove is now 1.5 s at worst, and the cost is an
+undefined interaction between the only two paths that can move the game state.
+
+#### 14.7 One consequence outside this session's file scope
+
+`KnobCatalogTest.catalogCoversEveryTrackerConfigProperty` requires every `TrackerConfig` field to
+have a settings row and a persistence entry, so `verifyTimeoutS` was added to
+`settings/ConfigKnobs.kt` and `ui/settings/KnobCatalog.kt`. Both are `:app` files this session does
+not own; the addition is the mechanical consequence the project's own test demands, nothing more.
