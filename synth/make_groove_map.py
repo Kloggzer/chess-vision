@@ -76,7 +76,7 @@ def _channel_mask(grey: np.ndarray, frac: float, width_frac: float, ring: bool) 
 
 
 def groove_map(colour: np.ndarray, frac: float, width_frac: float, ring: bool,
-               smooth: float = 0.0) -> np.ndarray:
+               smooth: float = 0.0, shoulder: float = 0.0) -> np.ndarray:
     grey = cv2.cvtColor(colour, cv2.COLOR_BGR2GRAY).astype(np.float32)
     mask = _channel_mask(grey, frac, width_frac, ring)
 
@@ -97,9 +97,18 @@ def groove_map(colour: np.ndarray, frac: float, width_frac: float, ring: bool,
     # hard shoulder at its rim; driving a normal with that renders the edge as a comb of teeth
     # ("die kanten sind zu scharf", 2026-07-28). Blurring by a fraction of the channel's own width
     # rounds the profile without moving where the channel is.
+    channel_px = grey.shape[0] * frac / 8.0 * width_frac
     if smooth > 0.0:
-        sigma = max(1.0, smooth * grey.shape[0] * frac / 8.0 * width_frac)
-        out = cv2.GaussianBlur(out, (0, 0), sigma)
+        out = cv2.GaussianBlur(out, (0, 0), max(1.0, smooth * channel_px))
+
+    # One sigma cannot serve both ends of the profile: enough blur to settle the cut's interior
+    # also erases the rim, and a rim sharp enough to read leaves the interior glittering. So the
+    # shoulder gets its OWN, wider blur, applied only where the channel meets the face - the mask
+    # is the weight, 0 in the cut and 1 on the flat, so the crisp profile survives at the centre
+    # and the normal runs out gradually into the square instead of stopping at a wall.
+    if shoulder > 0.0:
+        wide = cv2.GaussianBlur(out, (0, 0), max(1.0, shoulder * channel_px))
+        out = out * (1.0 - mask) + wide * mask
     return out.astype(np.float32)
 
 
@@ -162,13 +171,17 @@ def main() -> None:
                          "0.071-0.094, the outer two wider where the coordinate band adjoins. The "
                          "previous 0.055 was a guess and rendered the channels ~47 % too narrow.")
     ap.add_argument("--no-ring", action="store_true")
-    ap.add_argument("--groove-smooth", type=float, default=0.30,
+    ap.add_argument("--groove-shoulder", type=float, default=1.2,
+                    help="A SECOND, wider Gaussian applied only at the channel's rim, as a "
+                         "fraction of the channel width. Lets the normal run out gradually into "
+                         "the square while --groove-smooth keeps governing the cut itself.")
+    ap.add_argument("--groove-smooth", type=float, default=0.06,
                     help="Gaussian sigma applied to the groove profile, as a fraction of the "
-                         "channel width. Rounds the cut and kills the sensor noise inside it. "
-                         "CHOSEN on rendered close-ups (2026-07-28): at 0 the channel renders as a "
-                         "broken, glittering double edge; at 0.30 it is one continuous soft "
-                         "highlight; by 0.60 the highlight is gone and the cut reads as a flat "
-                         "dark line.")
+                         "channel width. CHOSEN on rendered close-ups (2026-07-28): 0.30 was tried "
+                         "first and rejected as too smooth - the cut dissolved into a diffuse "
+                         "shimmer - and by 0.60 it is gone entirely. 0.06 keeps the cut, and the "
+                         "glitter that made 0 look broken is handled by --groove-shoulder instead, "
+                         "which is the knob that actually belonged there.")
     ap.add_argument("--grain-axis", choices=("x", "y"), default="x",
                     help="Direction the fibre runs in the rectified texture. This board's light "
                          "squares show horizontal lines, hence x.")
@@ -190,7 +203,8 @@ def main() -> None:
     colour = cv2.imread(a.colour)
     if colour is None:
         raise SystemExit(f"cannot read {a.colour}")
-    h = groove_map(colour, a.frac, a.width, ring=not a.no_ring, smooth=a.groove_smooth)
+    h = groove_map(colour, a.frac, a.width, ring=not a.no_ring, smooth=a.groove_smooth,
+                   shoulder=a.groove_shoulder)
     cv2.imwrite(a.out, (h * 255.0).round().astype(np.uint8))
     print(f"wrote {a.out}  {colour.shape[1]}x{colour.shape[0]}  from {a.colour}  "
           f"field {a.frac:.3f}  channel {a.width:.3f} of a square")
