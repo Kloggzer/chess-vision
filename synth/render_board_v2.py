@@ -53,7 +53,11 @@ BOARD_WARM_TINT = (0.45, 0.29, 0.14)  # Holz-Braun (Ziel-Hue)
 BOARD_WARM_FAC = 0.0
 # Dunkle Felder haben niedrige Albedo + Glanz → sie spiegeln das (kühle) Umgebungslicht
 # und wirken grau. Höhere Roughness macht sie matt → die (warme) Grundfarbe dominiert.
-BOARD_ROUGHNESS = 0.85
+# Lowered from 0.85 on 2026-07-28 ("kann gerne die Roughness runter"). The old value was chosen to
+# stop the dark squares reflecting the cool ambient and reading grey — a COLOUR fix applied to a
+# reflectance parameter. The reference photos show a board with visible sheen, so the fix belongs
+# in the light, not here.
+BOARD_ROUGHNESS = 0.62
 # Board-Sättigung: das echte Brettfoto ist warm-gelblich → leicht entsättigen zieht das Gelb raus.
 BOARD_SATURATION = 0.92
 # LIGHT-TILE GAIN. The board texture is a PHOTOGRAPH of the board at its own exposure, used as
@@ -71,8 +75,8 @@ BOARD_LIGHT_GAIN_LO = 0.15   # linear luma of the darkest pixel that stays untou
 BOARD_LIGHT_GAIN_HI = 0.45   # linear luma at which the full gain applies (light tile: 0.523)
 # Figuren leicht glänzend (echtes lackiertes Holz fängt Glanzlichter, die die 3D-Form verraten →
 # hilft, N/B/R von oben zu unterscheiden). Frühere 0.7/Specular 0.2 waren ZU matt (formarm).
-PIECE_ROUGHNESS = 0.45
-PIECE_SPECULAR = 0.4
+PIECE_ROUGHNESS = 0.26
+PIECE_SPECULAR = 0.5
 # --- WOOD MICRO-GRAIN (board and pieces share it, because they ARE the same wood) ---
 # The board is a PHOTOGRAPH used as albedo and the pieces are photogrammetry scans: both carry
 # colour variation and neither carries SURFACE. With a perfectly flat normal the render has no
@@ -95,7 +99,15 @@ PIECE_SPECULAR = 0.4
 GROOVE_DEPTH_MM = 0.5
 # Wood grain is a fraction of that — surface texture, not a cut. Expressed as a share of the
 # groove depth so the two stay in proportion if the board scale ever changes.
-GRAIN_DEPTH_FRAC = 0.06
+GRAIN_DEPTH_FRAC = 0.14
+# How much more relief the pale white scans need to read as wood — see `_scanned_material`.
+PIECE_WHITE_GRAIN_MUL = 11.0
+# Extra roughness for the pale set — bare birch against lacquered dark wood.
+PIECE_WHITE_ROUGHNESS_ADD = 0.12
+# The same two axes for the DARK set, tuned separately: its scans carry more albedo contrast, so
+# the relief multiplier that suits birch is not the one that suits the lacquered wood.
+PIECE_BLACK_GRAIN_MUL = 1.0
+PIECE_BLACK_ROUGHNESS_ADD = 0.0
 # Where the luminance ramp puts the groove floor. The milled channels are the darkest thing in the
 # board photo; everything above this is grain, everything below is cut. EASE interpolation is what
 # makes the profile ROUND instead of a step — a square-edged groove reads as a printed line.
@@ -123,7 +135,7 @@ PIECE_SMOOTH_ITERATIONS = 70
 # +16.5 grey levels too bright overall (wN +46, wB +46, wP +30), and the user reads the queen and
 # king as "zu gelb". Saturation carries the yellow, Value the brightness — both come down, and the
 # earlier note about keeping the wood warmth is what pushed them too far up.
-PIECE_WHITE_SAT = 0.62
+PIECE_WHITE_SAT = 0.92
 PIECE_WHITE_VAL = 1.28
 # Für Schwarz wird die Textur NICHT nachbearbeitet. Zwei Versuche sind daran gescheitert, dass
 # jede globale Farbtransformation die Schwarztiefe gegen die Lichter eintauscht: eine
@@ -504,8 +516,24 @@ def _scanned_material(png, darken=1.0, whiten=False):
     if bsdf is not None:
         psheen = nt.nodes.new("ShaderNodeRGBToBW")
         nt.links.new(tx.outputs["Color"], psheen.inputs["Color"])
-        add_wood_sheen(nt, bsdf, psheen.outputs["Val"], PIECE_ROUGHNESS)
-    # NO relief on pieces, deliberately. The height source here would be a PHOTOGRAMMETRY
+        # White is MATTER than black, and physically so: the pale set is bare birch while the dark
+        # set is lacquered. One global gloss made the white pieces read as piano lacquer even at a
+        # roughness the black set wanted ("aber immer noch zu glossy", 2026-07-28).
+        add_wood_sheen(nt, bsdf, psheen.outputs["Val"],
+                       PIECE_ROUGHNESS + (PIECE_WHITE_ROUGHNESS_ADD if whiten else PIECE_BLACK_ROUGHNESS_ADD))
+    # Relief on pieces, restored. It was removed when the pimply look was (wrongly) blamed on the
+    # scan texture; the cause was the photogrammetry MESH, and that is smoothed at template load
+    # now (`_smooth_scan_mesh`). With the lumps gone, the albedo's fine variation reads as the
+    # "sehr feine Textur" the real pieces carry rather than as warts on top of warts.
+    # Grain only: a turned piece has no milled channels, so no groove term.
+    # The WHITE scans need more of it, and for a reason rather than by taste: their albedo is pale
+    # birch with far less luminance contrast than the dark set, so the SAME bump strength produces
+    # visibly less relief and the pieces read as "zu Klavierlack" (2026-07-28). The multiplier
+    # compensates the texture's own contrast; it is not extra roughness on the material.
+    _grain = GROOVE_DEPTH_MM * GRAIN_DEPTH_FRAC * CELL / SQUARE_MM
+    add_wood_grain(nt, bsdf, psheen.outputs["Val"], groove_units=0.0,
+                   grain_units=_grain * (PIECE_WHITE_GRAIN_MUL if whiten else PIECE_BLACK_GRAIN_MUL))
+    # Historical note, kept because it cost a cycle: The height source here would be a PHOTOGRAMMETRY
     # The height source here would be a PHOTOGRAMMETRY SCAN, and its luminance carries
     # reconstruction noise rather than wood grain: rendered as a bump it reads as pimples over the
     # whole surface ("die schwarzen Figuren sind zu pickelig", 2026-07-28), worst on the dark
