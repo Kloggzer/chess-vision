@@ -105,6 +105,27 @@ blender --background "synth_assets/Chess Scene.blend" \
        --fens data/synth_fens.txt --pieces synth_pieces
 ```
 
+## 5b. Camera-Look Degradation (optional, DESTRUCTIVE)
+
+```bash
+uv run python synth/degrade.py data/synth_raw/shard-0   # rewrites the renders IN PLACE
+```
+
+Mild contrast / warm-shift / defocus / sensor-noise / JPEG pass that closes the "EEVEE is
+razor-sharp" sim-to-real gap. **Not idempotent** — a second pass double-degrades, and
+`data/synth_occ_v1` was *not* run through it. Copy the renders first if unsure.
+
+The sensor-noise σ is injected at board resolution but only ~0.26 of it survives the warp to a
+128×128 crop, so it is calibrated at **crop** level (σ 16–22, 2026-07-28). Check any change with
+
+```bash
+uv run python synth/measure_noise.py data/datasets/occ-synth --label empty --n 400
+```
+
+which prints p10/p50/p90 of the high-frequency energy of `empty` crops. See
+[`docs/synth-pipeline.md`](../docs/synth-pipeline.md#3b-camera-look-degradation-synthdegradepy--optional-destructive)
+for the measured real-vs-synth table and `docs/synth-pipeline-noise.png` for the visual probe.
+
 ## 6. Build the Dataset
 
 **Visual check BEFORE anything else** (classic ingest, materializes overlay PNGs):
