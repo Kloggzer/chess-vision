@@ -10,7 +10,7 @@ never rewrite another phase's entry.
 |---|---|---|---|---|
 | 00 | Measure what recovery accepts and on what evidence | todo | — | Fixes nothing. Blocks 01. |
 | 01 | A recovery move must be READ, not inferred from absence | todo | — | **Blocked by 00.** Parity-critical. |
-| 02 | One played game is one stored record | todo | — | Android only, parallel. |
+| 02 | One played game is one stored record | done | agent-02 | `1711bb0..b278915`. A seam opens a `GameSegment`, not a record. |
 | 03 | The cleanest synthetic crops need a noise floor | todo | — | Synth only, parallel. No retrain. |
 
 States: `todo` → `in progress` → `done` | `blocked`.
@@ -42,3 +42,24 @@ States: `todo` → `in progress` → `done` | `blocked`.
 <!-- Append: date — phase — what was measured/changed — the numbers — what is left. -->
 
 - 2026-07-28 — pack authored. Phases 00, 02, 03 ready to start; 01 gated on 00.
+- 2026-07-28 — **02 done** (`1711bb0`, `28e7bb5`, `d770131`, `b278915`). A seam now opens a
+  `GameSegment` inside the running record instead of closing it: `StoredGame.segments` holds the
+  legal lines, `moves` stays the flattened list every existing reader uses, ply numbers run across
+  segments. `openedBySeam` (12a4422) removed and migrated on read in `decodeStoredGame` — both
+  pre-segment shapes are covered by tests, including the one actually on the device
+  (`data/_device/20260728-runaway/games/`), which has neither `openedBySeam` nor `segments`.
+  PGN emits one `[Event]` block per segment with its own `[FEN]` and a seam comment on the first
+  move; the games row says `rebuilt N×` from a new `GameSummary.seams`; the detail screen renders
+  the seam between the segments. Red-first proven twice: writing the tests against the splitting
+  controller failed 5 of them (`aCommitThatLeftTheRecordsLineOpensASegmentNotANewRecord` at
+  `store.list().isEmpty()`, `anUndoRightAfterASeamRemovesTheSegmentItEmptied` at `moveCount == 2`),
+  and re-mutating `openSegment` back to `endAndSave()` + `LiveGame(...)` reproduced the same 5;
+  deleting only the empty-segment removal in `LiveGame.onFen` reproduced test 4 alone. Gate:
+  `:app:testDebugUnitTest` green on a `--rerun-tasks` run (356 tests, 37 of them in
+  `com.chesslab.tracker.games`),
+  `:app:ktlintCheck` and `:app:detekt` clean, no `@Suppress` and no baseline additions.
+  **Deviation from the phase file, deliberate:** its steps 1 and 2 are one commit, because a commit
+  that adds `segments` while `LiveGame` still writes `openedBySeam` does not compile. Every commit
+  here builds on its own.
+  **Note for whoever reads the fragments:** this changes future records only; the four files already
+  on disk stay four files.
