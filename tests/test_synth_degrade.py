@@ -37,8 +37,8 @@ OUT = (128, 128)
 TILE = 256
 N_SEEDS = 200
 
-#: Noise-only floor and ceiling at crop level - see the module docstring for the derivation.
-FLOOR_MIN = 3.5
+#: Ceiling for noise-only crop energy: above this the injection reads as speckle, not sensor
+#: noise. The former FLOOR_MIN is retired - see the test below.
 MEDIAN_MAX = 6.4
 
 
@@ -64,20 +64,34 @@ def flat_crop_energies(profile, noise_sigma, n_seeds=N_SEEDS):
             for s in range(n_seeds)]
 
 
-def test_noise_floor_reaches_the_crop(profile):
-    """No seed may produce a crop below the floor - that is the whole point of the range."""
+def test_the_noise_stays_mild_and_the_reason_is_recorded(profile):
+    """The floor claim is RETIRED, and this pins what replaced it.
+
+    A range calibrated to make crop-level HF energy match real (16-22) did match the scalar and
+    looked, on sight, like a broken camera: visible coloured speckle where real crops are smooth and
+    carry their energy as DIRECTIONAL WOOD GRAIN. Matching a number with the wrong texture trades one
+    tell for a louder one, so the range went back to the mild 2-6.
+
+    What survives is the measurement, not the lever: `synth/measure_noise.py` still shows the
+    synthetic tail is too clean (p10 3.72 against real 5.62). Closing that is a RENDER-side change -
+    board micro-structure - and it is deliberately not this file's job. This test exists so nobody
+    re-raises sigma without reading why it was lowered.
+    """
+    assert NOISE_SIGMA == (2.0, 6.0), (
+        f"sigma is {NOISE_SIGMA}: raising it was tried on 2026-07-28 and rejected on sight. "
+        "The missing quantity is structure, not amplitude - see the constant's docstring.")
     values = flat_crop_energies(profile, NOISE_SIGMA)
-    assert min(values) >= FLOOR_MIN, (
-        f"cleanest of {N_SEEDS} degraded crops has hf {min(values):.2f} < {FLOOR_MIN}; "
-        f"sigma range {NOISE_SIGMA} does not carry the floor through the warp")
+    assert max(values) <= MEDIAN_MAX, (
+        f"noisiest of {N_SEEDS} crops has hf {max(values):.2f} > {MEDIAN_MAX} - that is speckle "
+        "territory, which is what this range exists to stay out of")
 
 
 def test_median_is_not_inflated(profile):
-    """The median gap is NOT what this exists for - over-noising is a regression too."""
+    """Over-noising is a regression too, and it is the one that was actually committed."""
     med = float(np.median(flat_crop_energies(profile, NOISE_SIGMA)))
-    assert FLOOR_MIN <= med <= MEDIAN_MAX, (
-        f"noise-only median {med:.2f} outside [{FLOOR_MIN}, {MEDIAN_MAX}] - a crop p50 above "
-        f"+10 % of the real 7.44 would push synth PAST real, which the calibration forbids")
+    assert med <= MEDIAN_MAX, (
+        f"noise-only median {med:.2f} above {MEDIAN_MAX} - pushing synth PAST real on a scalar "
+        "while looking worse than real is the trade this range was reverted to avoid")
 
 
 def test_deterministic_per_seed():

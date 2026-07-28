@@ -57,7 +57,23 @@ import numpy as np
 
 #: Sensor-noise sigma range at BOARD resolution, drawn uniformly per image. Calibrated at crop
 #: level — see the module docstring for the measured before/after table.
-NOISE_SIGMA = (16.0, 22.0)
+#: Board-level sigma of the injected sensor noise.
+#:
+#: REVERTED from the crop-level calibration (16.0, 22.0) on 2026-07-28, on sight. That range made
+#: the crop-level HF energy match real (p50 7.41 vs 7.55) and looked, in the user's words, "als
+#: hätte man ne Kartoffelkamera benutzt" — visible coloured speckle, where real crops are smooth
+#: and get their high-frequency energy from DIRECTIONAL WOOD GRAIN. Matching a scalar by adding
+#: the wrong texture is not domain alignment; it trades one tell for a louder one.
+#:
+#: Keep `synth/measure_noise.py`: the measurement was right that the tail is too clean
+#: (synth p10 3.72 vs real 5.62). What was wrong is the lever. Structure, not amplitude, is what
+#: is missing — a finer board texture at render scale, or luminance-only grain, both of which are
+#: render-side changes.
+#:
+#: Measured the same day and NOT addressed here: synth dark squares sit ~45 grey levels brighter
+#: than real (p50 128.8 vs 83.3) with far wider spread. That is a larger domain gap than the noise
+#: and it belongs to the render, not to this file.
+NOISE_SIGMA = (2.0, 6.0)
 
 
 def degrade_image(bgr: np.ndarray, rng: np.random.Generator,
