@@ -68,13 +68,22 @@ def collapse_labels(rows: list[dict], class_mode: str) -> list[dict]:
     """
     if class_mode != "occupancy":
         return rows
-    n_occluded = sum(1 for r in rows if r["label"] == "occluded")
+    kept = [r for r in rows if r["label"] != "occluded"]
+    n_occluded = len(rows) - len(kept)
     if n_occluded:
-        raise ValueError(
-            f"{n_occluded} `occluded` rows in the source pool. An occupancy dataset cannot "
-            "contain them: `occluded` is neither empty nor occupied and has zero training "
-            "rows (specs/18-occupancy-model). Re-slice or filter them out first.")
-    return [{**r, "label": config.to_occupancy_class(r["label"])} for r in rows]
+        # DROPPED, not mapped: `occluded` is neither empty nor occupied — the square may hold a
+        # piece under the hand or nothing at all, so either class would be a guess. Same argument
+        # as the renderer's ambiguous band.
+        #
+        # This used to raise instead. That was right while the only source of `occluded` was a
+        # hand label on a real session, where its appearance means something went wrong. Renders
+        # with `--occlusion-p` produce them deliberately and in bulk, so refusing the build made
+        # occluders unusable for occupancy training. Loud, not silent: the count is printed, which
+        # is what the guard was really protecting.
+        print(f"[occupancy] dropped {n_occluded} `occluded` rows "
+              f"({n_occluded / max(len(rows), 1) * 100:.1f}% of the pool) — neither class fits.",
+              flush=True)
+    return [{**r, "label": config.to_occupancy_class(r["label"])} for r in kept]
 
 
 # --- Perceptual hash (dhash, 64-bit) --------------------------------------------------
