@@ -147,6 +147,15 @@ private fun GameRow(
             style = MaterialTheme.typography.bodySmall,
             color = OnSurfaceMuted,
         )
+        // A game the app lost and rebuilt is not the same evidence as one it tracked cleanly, and
+        // the row is where that has to be visible — the alternative is opening every game to find out.
+        if (row.seams > 0) {
+            Text(
+                "rebuilt ${row.seams}× — the app lost the board and picked it up again",
+                style = MaterialTheme.typography.bodySmall,
+                color = Danger,
+            )
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             TextButton(onClick = onRename) { Text("Rename", color = OnSurfaceMuted) }
             TextButton(onClick = onDelete) { Text("Delete", color = Danger) }
