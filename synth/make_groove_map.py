@@ -75,7 +75,8 @@ def _channel_mask(grey: np.ndarray, frac: float, width_frac: float, ring: bool) 
     return np.minimum(mask_1d(cols)[None, :], mask_1d(rows)[:, None])
 
 
-def groove_map(colour: np.ndarray, frac: float, width_frac: float, ring: bool) -> np.ndarray:
+def groove_map(colour: np.ndarray, frac: float, width_frac: float, ring: bool,
+               smooth: float = 0.0) -> np.ndarray:
     grey = cv2.cvtColor(colour, cv2.COLOR_BGR2GRAY).astype(np.float32)
     mask = _channel_mask(grey, frac, width_frac, ring)
 
@@ -89,11 +90,21 @@ def groove_map(colour: np.ndarray, frac: float, width_frac: float, ring: bool) -
         photo = np.clip((grey - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
     else:
         photo = np.ones_like(grey)
-    return (mask + (1.0 - mask) * photo).astype(np.float32)
+    out = mask + (1.0 - mask) * photo
+
+    # A milled channel is rounded, and its walls are a millimetre of wood, not a step function.
+    # Straight out of the photo the map carries the sensor's own noise inside the cut and the mask's
+    # hard shoulder at its rim; driving a normal with that renders the edge as a comb of teeth
+    # ("die kanten sind zu scharf", 2026-07-28). Blurring by a fraction of the channel's own width
+    # rounds the profile without moving where the channel is.
+    if smooth > 0.0:
+        sigma = max(1.0, smooth * grey.shape[0] * frac / 8.0 * width_frac)
+        out = cv2.GaussianBlur(out, (0, 0), sigma)
+    return out.astype(np.float32)
 
 
 def grain_map(colour: np.ndarray, frac: float, width_frac: float, ring: bool,
-              detail_frac: float) -> np.ndarray:
+              detail_frac: float, axis: str, along: int) -> np.ndarray:
     """The SQUARE FACES' own relief: wood grain only, with the albedo step removed.
 
     Feeding raw luminance to a bump was wrong and this map exists to fix it: a light square and a
@@ -108,12 +119,34 @@ def grain_map(colour: np.ndarray, frac: float, width_frac: float, ring: bool,
     grey = cv2.cvtColor(colour, cv2.COLOR_BGR2GRAY).astype(np.float32)
     cell = size * frac / 8.0
     k = max(3, int(cell * detail_frac) | 1)
-    local = cv2.blur(grey, (k, k))
-    detail = grey - local
-    span = max(float(np.percentile(np.abs(detail), 99)), 1e-6)
-    out = np.clip(0.5 + 0.5 * detail / span, 0.0, 1.0)
-    # Flat inside the channels; reuse the same mask the groove map is built from.
     mask = _channel_mask(grey, frac, width_frac, ring)
+
+    # NORMALISED convolution, not a plain blur: the local mean is taken over face pixels ONLY, so
+    # it never reaches across a square boundary. A plain blur does, and the light/dark albedo step
+    # it straddles there is orders of magnitude stronger than grain — the residue rings along every
+    # edge and the directional pass below draws it out into a comb of teeth, clearly visible in the
+    # render. This works because the kernel's half-width is under the channel's, so a face pixel's
+    # window stops at the channel centre and the neighbouring square never enters it.
+    faces = (mask > 0.999).astype(np.float32)
+    local = cv2.blur(grey * faces, (k, k)) / np.maximum(cv2.blur(faces, (k, k)), 1e-6)
+    detail = (grey - local) * faces
+
+    # Normalise over the SQUARE FACES ONLY, and robustly. A global span is dominated by the
+    # branded coordinate letters and the square boundaries, which are an order of magnitude
+    # stronger than grain — normalising by those crushed the grain to a std of 11/255 and the map
+    # came out flat. The interior is eroded so the box blur's bleed across a boundary (visible as
+    # a halo ring) does not set the scale either.
+    # Grain is DIRECTIONAL, sensor noise is not — that is the only thing separating them at this
+    # scale, and without using it the map "sieht eher aus wie noise" (2026-07-28). Averaging ALONG
+    # the fibre cancels isotropic speckle while leaving a line's cross-section untouched, because
+    # the line is constant in exactly that direction.
+    if along > 1:
+        detail = cv2.blur(detail, (along, 1) if axis == "x" else (1, along))
+
+    interior = cv2.erode(faces.astype(np.uint8), np.ones((k, k), np.uint8)) > 0
+    sample = np.abs(detail[interior]) if interior.any() else np.abs(detail)
+    span = max(float(np.percentile(sample, 96)), 1e-6)
+    out = np.clip(0.5 + 0.5 * detail / span, 0.0, 1.0)
     return (out * mask + 0.5 * (1.0 - mask)).astype(np.float32)
 
 
@@ -129,20 +162,41 @@ def main() -> None:
                          "0.071-0.094, the outer two wider where the coordinate band adjoins. The "
                          "previous 0.055 was a guess and rendered the channels ~47 % too narrow.")
     ap.add_argument("--no-ring", action="store_true")
+    ap.add_argument("--groove-smooth", type=float, default=0.30,
+                    help="Gaussian sigma applied to the groove profile, as a fraction of the "
+                         "channel width. Rounds the cut and kills the sensor noise inside it. "
+                         "CHOSEN on rendered close-ups (2026-07-28): at 0 the channel renders as a "
+                         "broken, glittering double edge; at 0.30 it is one continuous soft "
+                         "highlight; by 0.60 the highlight is gone and the cut reads as a flat "
+                         "dark line.")
+    ap.add_argument("--grain-axis", choices=("x", "y"), default="x",
+                    help="Direction the fibre runs in the rectified texture. This board's light "
+                         "squares show horizontal lines, hence x.")
+    ap.add_argument("--grain-along", type=int, default=15,
+                    help="Averaging length ALONG the fibre, in px. Cancels isotropic sensor noise "
+                         "while leaving the line's cross-section, which is what separates grain "
+                         "from speckle. MEASURED on a light square (2026-07-28): at 1 the map is "
+                         "pure speckle, at 15 the directional streaks stand alone, at 45 they "
+                         "smear into bands and pull artefacts onto the square boundary.")
     ap.add_argument("--grain-out", help="Also write the square-face grain map here.")
-    ap.add_argument("--detail", type=float, default=0.35,
+    ap.add_argument("--detail", type=float, default=0.08,
                     help="Box-blur width for removing the per-square mean, as a fraction of a "
-                         "square. Wider than the grain, narrower than a square.")
+                         "square. MEASURED on a light square (2026-07-28): 0.08 resolves the "
+                         "directional grain the photo actually shows; 0.20 already smooths it "
+                         "away and 0.35 replaces it with a blur halo bleeding across the square "
+                         "boundary. Dark squares carry almost no grain either way - they are "
+                         "stained nearly uniform - so calibrate on a LIGHT one.")
     a = ap.parse_args()
     colour = cv2.imread(a.colour)
     if colour is None:
         raise SystemExit(f"cannot read {a.colour}")
-    h = groove_map(colour, a.frac, a.width, ring=not a.no_ring)
+    h = groove_map(colour, a.frac, a.width, ring=not a.no_ring, smooth=a.groove_smooth)
     cv2.imwrite(a.out, (h * 255.0).round().astype(np.uint8))
     print(f"wrote {a.out}  {colour.shape[1]}x{colour.shape[0]}  from {a.colour}  "
           f"field {a.frac:.3f}  channel {a.width:.3f} of a square")
     if a.grain_out:
-        g = grain_map(colour, a.frac, a.width, ring=not a.no_ring, detail_frac=a.detail)
+        g = grain_map(colour, a.frac, a.width, ring=not a.no_ring, detail_frac=a.detail,
+                      axis=a.grain_axis, along=a.grain_along)
         cv2.imwrite(a.grain_out, (g * 255.0).round().astype(np.uint8))
         print(f"wrote {a.grain_out}  square-face grain, albedo step removed at {a.detail:.2f} of a square")
 
