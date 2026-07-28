@@ -234,3 +234,85 @@ States: `todo` → `in progress` → `done` | `blocked`.
 
   **Left for others:** `uv run ruff check src tests scripts synth` reports one finding, `I001` in
   `tests/test_synth_degrade.py` — phase 03's uncommitted file, not touched here.
+  *(03: fixed and committed in `ca820e3`; `ruff check src tests scripts synth` is clean.)*
+
+- 2026-07-28 — **03 done** (`625a83a`, `ca820e3`, `889111a`). No retrain, no re-render; `occ-synth`
+  and every render under `data/synth_occ_v1/` are byte-identical to before. All work on copies in
+  `scratch/`, one worker.
+
+  ### The headline is negative, and it is the point
+
+  **The median gap this phase was commissioned to close does not exist.** Whether you take the
+  pack's numbers (synth 7.09 vs real 7.29) or this re-measurement (5.90 vs 7.44), "synthetic
+  material needs camera noise" is the wrong summary: in the first reading there is nothing to
+  close, in the second the deficit is 20 % and would be *worsened* by the tool as it stood. The
+  calibrated range is therefore aimed at the **p10 tail** — 3.72 against a real floor of 5.62 — and
+  lands the p50 deliberately 4–6 % **below** real, never above. Nothing here should be read as
+  "we added camera noise."
+
+  ### What was measured (`synth/measure_noise.py`, `empty` crops, std of the residual after a
+  σ=1.2 blur, at CROP level)
+
+  | crop-level HF energy | p10 | p50 | p90 |
+  |---|---:|---:|---:|
+  | real reference (`occ-real3`, sessions 20260630/20260722, n=400) | 5.62 | 7.44 | 9.16 |
+  | synth as shipped (`occ-synth`, n=1500) | 3.72 | 5.90 | 7.88 |
+  | 24-render sample re-cut as-is (908 empty crops) | 4.06 | 5.84 | 7.72 |
+  | the same sample, **old** σ 2–6 | 3.33 | 5.21 | 6.76 |
+  | the same sample, **calibrated** σ 16–22 | 6.06 | 7.12 | 8.24 |
+  | held-out sample (shard-2, 1011 crops), σ 16–22 | 5.74 | 7.00 | 8.50 |
+
+  ### Three corrections to the phase file's premises
+
+  1. **"Do not run `degrade.py` over `data/synth_occ_v1/` — those renders are already degraded."**
+     They are **not**. `occ-synth`'s packed crops measure identical to crops re-cut from those
+     renders (3.72/5.90/7.88 vs 4.06/5.84/7.72), every shard measures the same (no partial pass),
+     and each `.jpg` carries the same mtime as its `.json` sibling — an in-place rewrite would have
+     moved it. The corpus is undegraded material and `degrade.py` is a manual step wired into
+     nothing (it appears nowhere in `src/`, and was documented nowhere at all until this phase).
+     *The instruction was still honoured*: the originals were never opened for writing.
+  2. **"`degrade.py` adds σ 2–6 and enough survives the warp."** It makes crops **cleaner**:
+     4.06 → 3.33 at p10. Steps 1–3 and 5 (contrast ×0.88, defocus, JPEG q70–88) remove more
+     high-frequency energy than σ 2–6 restores, and the EEVEE render's own grain (~7.2 at board
+     level) already dwarfs σ 2–6. Applying the tool as it stood made the very tail this phase
+     exists for *worse*.
+  3. **Board σ ≠ crop σ.** Only ~0.26 of the injected σ reaches the crop: the warp maps 1280 framed
+     render px onto an 1100 px board and `crop_square` letterboxes a 165 px box into 128 px. That
+     is why σ had to go to 16–22 and why the docstring pins the range to the current
+     `--res 1600` / `--frame-frac 0.80` / `warp_board_size 1100` geometry.
+
+  ### The real reference had to be pinned down first
+
+  `data/squares/empty` spans p50 3.60 (the dim 0708/0709 sessions) to 9.45 (the 21.07 ones) — a
+  2.6× spread, so an unfiltered "real" number is meaningless. The pack's 5.87/7.29/9.30 reproduces
+  as the **20260630 (+20260722)** sessions: measured 5.51/7.36/9.29 and 5.62/7.44/9.16. That subset
+  is what `measure_noise.py --sessions` exists for and what the calibration targets.
+
+  ### Red then green
+
+  `tests/test_synth_degrade.py`, 3 tests, measured through a flat-patch equivalent of the warp/crop
+  chain (validated against the real `warp_board_for_crops` + `crop_square` on a flat 1600×1600
+  render: min 3.93 vs 3.97, median 4.79 vs 4.77 over 40 seeds; ~30× faster).
+  **RED** — `NOISE_SIGMA` mutated back to `(2.0, 6.0)` by a script that `assert`s its target
+  string: `2 failed, 1 passed`; test 1 `cleanest of 200 degraded crops has hf 0.26 < 3.5`, test 2
+  `noise-only median 0.95 outside [3.5, 6.4]`.
+  **GREEN** — restored to `(16.0, 22.0)`: `3 passed in 1.99s`.
+  `uv run ruff check synth tests` clean (and `src scripts` with it).
+
+  ### The visual probe says something the numbers do not
+
+  `docs/synth-pipeline-noise.png` (1304×786, 848 KB) — four rows over the same eight squares at
+  native 128×128: real, render as-is, old σ 2–6, calibrated σ 16–22, hf under each crop. Row
+  medians 7.55 / 5.93 / 5.07 / 7.41. **The scalar now matches; the character does not.** Real
+  crops carry directional **wood grain**; the injected energy is per-channel speckle. A finer board
+  texture at render scale, or luminance-only noise instead of independent per-channel noise, is the
+  next lever — both are design changes the phase file forbids ("do not redesign"), so they are
+  recorded here rather than done. Also worth knowing for anyone reading the montage: the corpus
+  randomizes board colour hard (magenta boards on green backgrounds are normal), so the probe picks
+  the render closest in colour to the real board, to compare grain and not palette.
+
+  ### Left for the user's decision
+
+  The new range only takes effect on renders degraded **after** this commit. Whether to spend a
+  re-render of the 256k-crop corpus on a p10 floor — knowing the character caveat above — is
+  explicitly not this phase's call.
