@@ -47,12 +47,15 @@ def _rows_for_entry(name: str, sid: str, entry: dict, out_size: tuple[int, int])
 
     gs = GameState(entry["fen"])
     occ = set(entry.get("occluded_squares") or ())
+    amb = set(entry.get("ambiguous_squares") or ())   # dropped: no true label exists
     # Match the classic slice naming: frame id = the render's stem.
     stem = Path(str(entry["frame"])).stem
     rows = []
     for file in _FILES:
         for rank in range(1, 9):
             sq = f"{file}{rank}"
+            if sq in amb:
+                continue
             rows.append({
                 "path": _virtual_path(name, sid, stem, sq),
                 "label": "occluded" if sq in occ else gs.label_for(sq),
@@ -174,7 +177,8 @@ def build_synth_dataset(
                              f"{frame_src[key][0]}).")
         frame_src[key] = (str(it.image_path), it.corners)
         entry = {"frame": str(it.image_path), "fen": to_full_fen(it.fen), "ply": ply,
-                 "occluded_squares": (it.meta or {}).get("occluded_squares") or []}
+                 "occluded_squares": (it.meta or {}).get("occluded_squares") or [],
+                 "ambiguous_squares": (it.meta or {}).get("ambiguous_squares") or []}
         rows.extend(_rows_for_entry(name, sid, entry, out_size))
     n_raw = len(rows)
     n_sessions = len({r["session_id"] for r in rows})

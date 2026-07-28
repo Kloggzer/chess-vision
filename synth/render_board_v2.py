@@ -1634,7 +1634,8 @@ def occluder_footprint(fist_x, fist_y, angle, reach=ARM_LENGTH):
     return heavy, partial
 
 
-def occluder_footprint_image(scene, cam, fist_x, fist_y, angle, reach=ARM_LENGTH, thr=0.30):
+def occluder_footprint_image(scene, cam, fist_x, fist_y, angle, reach=ARM_LENGTH,
+                             hi=0.70, lo=0.10):
     """Squares the occluder actually hides IN THE RENDERED IMAGE (names a1..h8).
 
     The arm floats ARM_Z above the board, so under an oblique camera it covers squares OFFSET
@@ -1643,7 +1644,20 @@ def occluder_footprint_image(scene, cam, fist_x, fist_y, angle, reach=ARM_LENGTH
     photo keep their piece label, so the crop shows arm/skin pixels tagged as that piece and the
     type head learns garbage. Here we project the arm (at its true height ARM_Z) AND each square's
     cell into image space via the same camera as corners_px, and label a square `occluded` only
-    when the arm covers >= `thr` of the cell's projected area — matching what the square CROP sees.
+    when the arm covers >= `hi` of the cell's projected area — matching what the square CROP sees.
+
+    Returns TWO lists, because one threshold cannot label a square that is half arm and half rook:
+    it is neither `occluded` nor `wR`, and either choice is a lie. MEASURED over 10 frames, of the
+    163 squares the arm touches at all: 35.6 % are 90-100 % covered, 20.2 % are 60-89 %, 19.6 % are
+    30-59 % and 24.5 % are 1-29 %. Under the previous single threshold of 0.30 that middle fifth
+    became `occluded` while most of the square was still visible - the "neighbouring squares are
+    occluded too" complaint - and the bottom quarter kept its piece label while showing arm pixels.
+    Both are label noise, in opposite directions, from the same cut.
+
+    So: >= `hi` is genuinely hidden and labelled `occluded`, <= `lo` is a graze and keeps its real
+    label, and everything between is returned as AMBIGUOUS for the ingest to drop. Dropping ~40 %
+    of the touched squares costs almost nothing (64 squares a frame, an occluder in a fraction of
+    the scenes) and those are exactly the ones that would otherwise train on a false label.
     """
     rx, ry = scene.render.resolution_x, scene.render.resolution_y
 
@@ -1666,7 +1680,7 @@ def occluder_footprint_image(scene, cam, fist_x, fist_y, angle, reach=ARM_LENGTH
 
     grid = (-0.8, -0.4, 0.0, 0.4, 0.8)      # 5x5 sample points across each cell
     half = CELL / 2.0
-    occluded = []
+    occluded, ambiguous = [], []
     for fi in range(8):
         for ri in range(8):
             bx, by = square_center(fi, ri)
@@ -1676,9 +1690,13 @@ def occluder_footprint_image(scene, cam, fist_x, fist_y, angle, reach=ARM_LENGTH
                     sx, sy = _px(bx + gx * half, by + gy * half, 0.0)
                     if any((sx - ax) ** 2 + (sy - ay) ** 2 < r2 for ax, ay, r2 in arm):
                         covered += 1
-            if covered >= thr * len(grid) * len(grid):
-                occluded.append(f"{chr(ord('a') + fi)}{ri + 1}")
-    return occluded
+            frac = covered / float(len(grid) * len(grid))
+            name = f"{chr(ord('a') + fi)}{ri + 1}"
+            if frac >= hi:
+                occluded.append(name)
+            elif frac > lo:
+                ambiguous.append(name)
+    return occluded, ambiguous
 
 
 # --- Schatten-Werfer (nur für den dedizierten Shadow-Sweep-Fixture) ---------------------
@@ -1855,6 +1873,7 @@ def main():
             # Occluder: pro View mit occ_p eine Faust/Unterarm über ein Brett-Innenfeld legen.
             # Verdeckte Felder → occluded_squares (heavy). Der Occluder wirft einen echten Schatten.
             occluded_sq: list[str] = []
+            ambiguous_sq: list[str] = []
             if occ_arm is not None and rng.random() < occ_p:
                 tfi, tri = rng.randint(1, 6), rng.randint(1, 6)   # Innenfeld, wo eine Hand hinreicht
                 fx, fy = square_center(tfi, tri)
@@ -1864,7 +1883,8 @@ def main():
                 place_occluder(occ_arm, fx, fy, angle)
                 # Label the squares the arm actually hides IN THE IMAGE (parallax-correct), not
                 # its board-plane base — otherwise hand-covered squares keep their piece label.
-                occluded_sq = sorted(occluder_footprint_image(scene, cam, fx, fy, angle))
+                occluded_sq, ambiguous_sq = occluder_footprint_image(scene, cam, fx, fy, angle)
+                occluded_sq, ambiguous_sq = sorted(occluded_sq), sorted(ambiguous_sq)
             elif occ_arm is not None:
                 hide_occluder(occ_arm)
 
@@ -1873,6 +1893,7 @@ def main():
             corners = corners_px(scene, cam)
             (out_dir / f"{i:06d}.json").write_text(
                 json.dumps({"fen": fen, "corners": corners, "occluded_squares": occluded_sq,
+                            "ambiguous_squares": ambiguous_sq,
                             "cam": cam_meta}))
             in_frame = all(0 <= c[0] <= scene.render.resolution_x and 0 <= c[1] <= scene.render.resolution_y for c in corners)
             print(f"[v2] {i+1}/{n} scene={scene_idx} pieces={len(pieces)} "

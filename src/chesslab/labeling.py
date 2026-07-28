@@ -341,9 +341,13 @@ def slice_session(
         gs = None if explicit else GameState(entry["fen"])
         # Vom Renderer/Ingest verdeckte Felder → `occluded` (überschreibt das FEN-Figur-Label).
         occluded_set = set(entry.get("occluded_squares") or ())
+        # Neither label is true for these, so no crop is written at all.
+        ambiguous_set = set(entry.get("ambiguous_squares") or ())
         frame_stem = Path(entry["frame"]).stem  # '0007'
         squares = all_squares()
         for i, square in enumerate(squares):
+            if square in ambiguous_set:
+                continue
             label = explicit.get(square, "empty") if explicit else gs.label_for(square)
             if square in occluded_set:
                 label = "occluded"

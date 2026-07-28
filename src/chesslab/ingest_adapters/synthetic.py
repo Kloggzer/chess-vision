@@ -57,7 +57,12 @@ def iter_items(root: Path) -> Iterator[ImportItem]:
         # Vom Renderer als `occluded` gelabelte Felder (Occluder-Footprint) → meta durchreichen,
         # slice_session überschreibt damit das FEN-Label. Fehlt der Key (Alt-Renders) → keine.
         occ = d.get("occluded_squares") or []
-        meta = {"occluded_squares": [str(s) for s in occ]} if occ else {}
+        amb = d.get("ambiguous_squares") or []
+        meta = {}
+        if occ:
+            meta["occluded_squares"] = [str(s) for s in occ]
+        if amb:
+            meta["ambiguous_squares"] = [str(s) for s in amb]
         yield ImportItem(image_path=img,
                          corners=[[float(x), float(y)] for x, y in corners],
                          fen=fen, group=f"synth-{prefix}{block:03d}", meta=meta)
