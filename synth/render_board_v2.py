@@ -123,6 +123,34 @@ PIECE_WHITE_ROUGHNESS_ADD = 0.12
 PIECE_GRAIN_MUL_PAWN = 20.0    # the flattest scans (span 0.020) need the most to show anything
 PIECE_GRAIN_MUL_PIECE = 22.0    # the turned types carry more of their own contrast
 PIECE_BLACK_ROUGHNESS_ADD = 0.0
+# A neutral trim on the dark set's own scans. Neutral is the point: the warm multiply below it
+# exists to turn PALE wood into dark wood when a black scan is missing, and reusing that tint for a
+# mild darkening drags the pieces brown - which is the direction the user has already rejected once.
+# This is a VALUE change and does not contradict the saturation finding recorded further down; that
+# blind test ruled out desaturating, not darkening.
+# NOTE this is a LINEAR multiplier and reads much weaker than it looks: 0.85 arrives as roughly a
+# 5 % drop in the rendered image, because the encoding curve compresses it and the ambient adds a
+# floor the multiply cannot touch. Judge it on renders, never on the number.
+PIECE_BLACK_DARKEN = 0.50
+# The dark pieces and the dark squares are the same wood, so the BOARD is the reference for their
+# hue, not a guess. MEASURED off a render (2026-07-28): the pieces sit at R/G 1.265 against the dark
+# squares' 1.072 - 18 % more red at the same brightness, which is the photogrammetry rig's warm
+# lighting baked into the scan. This is the multiply that lands one on the other, its luminance
+# normalised out so it changes colour and not exposure; PIECE_BLACK_DARKEN owns brightness alone.
+# Applied ONCE it only closed part of the gap (1.265 -> 1.195): the multiply acts in linear light
+# while the ratio is read off the sRGB-encoded render, so the value below is the converged one.
+PIECE_BLACK_TINT = (0.760, 1.0, 1.062)
+# Darkening must SPARE the crowns. A flat multiply hits them as hard as the body, and they were
+# already the pieces' lightest feature - "die kronen sind da zu dunkel". MEASURED over the six dark
+# scans (2026-07-28): bodies sit at luminance 0.13-0.28 (p50), the crowns at 0.42 (bQ) to 0.73 (bK)
+# in the top percentiles, so the two separate cleanly. Below LO the trim applies in full, above HI
+# the original brightness is kept, smooth in between.
+#
+# In LINEAR light, which is the trap this walked into first. The percentiles above are read off an
+# sRGB-encoded PNG, the shader's RGBToBW sees the decoded values, and sRGB 0.32/0.50 decode to
+# 0.084/0.214 - so thresholds taken straight from the measurement sat far above every crown pixel
+# and the ramp spared nothing at all (crown brightness moved by 0.1 of 81).
+PIECE_BLACK_KEEP = (0.084, 0.214)
 # Where the luminance ramp puts the groove floor. The milled channels are the darkest thing in the
 # board photo; everything above this is grain, everything below is cut. EASE interpolation is what
 # makes the profile ROUND instead of a step — a square-edged groove reads as a printed line.
@@ -565,7 +593,7 @@ def _variant_objs(pdir, canonical):
     return []
 
 
-def _scanned_material(png, darken=1.0, whiten=False, piece_type=None):
+def _scanned_material(png, mul=None, whiten=False, piece_type=None):
     img = bpy.data.images.load(str(png))
     mat = bpy.data.materials.new("scan"); mat.use_nodes = True
     nt = mat.node_tree; bsdf = nt.nodes.get("Principled BSDF")
@@ -627,13 +655,28 @@ def _scanned_material(png, darken=1.0, whiten=False, piece_type=None):
             pass
     # Schwarze Figuren: das Gegenstück. Die Scan-Textur ist zu hell und braunstichig; ohne das
     # hier wirken sie neben echten Aufnahmen ausgewaschen (siehe PIECE_BLACK_* oben).
-    if darken < 0.999:
+    if mul is not None:
         try:
             mix = nt.nodes.new("ShaderNodeMixRGB"); mix.blend_type = "MULTIPLY"
             mix.inputs["Fac"].default_value = 1.0
-            mix.inputs["Color2"].default_value = (darken, darken * 0.9, darken * 0.8, 1.0)
+            mix.inputs["Color2"].default_value = (*mul, 1.0)
             nt.links.new(src, mix.inputs["Color1"])
-            src = mix.outputs["Color"]
+            lo, hi = PIECE_BLACK_KEEP
+            if hi > lo:
+                bw = nt.nodes.new("ShaderNodeRGBToBW")
+                nt.links.new(src, bw.inputs["Color"])
+                keep = nt.nodes.new("ShaderNodeMapRange")
+                keep.interpolation_type = "SMOOTHSTEP"
+                keep.inputs["From Min"].default_value = lo
+                keep.inputs["From Max"].default_value = hi
+                nt.links.new(bw.outputs["Val"], keep.inputs["Value"])
+                spare = nt.nodes.new("ShaderNodeMixRGB")
+                nt.links.new(keep.outputs["Result"], spare.inputs["Fac"])
+                nt.links.new(mix.outputs["Color"], spare.inputs["Color1"])
+                nt.links.new(src, spare.inputs["Color2"])
+                src = spare.outputs["Color"]
+            else:
+                src = mix.outputs["Color"]
         except Exception:
             pass
     # NO colour correction on the BLACK set — measured, not assumed. A luminance-masked
@@ -735,7 +778,7 @@ def build_templates(pieces_dir=None):
     pdir = Path(pieces_dir) if pieces_dir else None
     white_mat = make_wood_material("WoodWhite", (0.80, 0.64, 0.42), (0.62, 0.46, 0.27))
     black_mat = make_wood_material("WoodBlack", (0.17, 0.10, 0.055), (0.05, 0.027, 0.013))
-    def _scanned_meshes(objs, t, color, darken):
+    def _scanned_meshes(objs, t, color, mul):
         """One mesh datablock per variant OBJ, each with its own textured material.
         Ohne <variant>.png (Scan ohne Textur-Export): prozedurales Holz in der Zielfarbe
         statt Abbruch — die GEOMETRIE des Scans ist trotzdem wertvoll."""
@@ -745,7 +788,7 @@ def build_templates(pieces_dir=None):
             m.materials.clear()
             png = o.with_suffix(".png")
             if png.exists():
-                m.materials.append(_scanned_material(png, darken, whiten=(color == "w"), piece_type=t))
+                m.materials.append(_scanned_material(png, mul, whiten=(color == "w"), piece_type=t))
             else:
                 print(f"[WARN] {o}: keine Textur ({png.name} fehlt) — prozedurales Holz")
                 m.materials.append(white_mat if color == "w" else black_mat)
@@ -760,10 +803,14 @@ def build_templates(pieces_dir=None):
         if w_objs or b_objs:
             base_z[t] = 0.0
             # White: own scans if present, else the black scans (rare: black-only).
-            templates[("w", t)] = _scanned_meshes(w_objs or b_objs, t, "w", 1.0)
+            templates[("w", t)] = _scanned_meshes(w_objs or b_objs, t, "w", None)
             # Black: own scans if present, else the white scans recolored dark.
-            templates[("b", t)] = (_scanned_meshes(b_objs, t, "b", 1.0) if b_objs
-                                   else _scanned_meshes(w_objs, t, "b", 0.2))
+            _lum = 0.2126 * PIECE_BLACK_TINT[0] + 0.7152 * PIECE_BLACK_TINT[1] + \
+                   0.0722 * PIECE_BLACK_TINT[2]
+            _d = PIECE_BLACK_DARKEN / _lum
+            _mul = tuple(c * _d for c in PIECE_BLACK_TINT)
+            templates[("b", t)] = (_scanned_meshes(b_objs, t, "b", _mul) if b_objs
+                                   else _scanned_meshes(w_objs, t, "b", (0.2, 0.18, 0.16)))
         else:
             procedural_types.add(t)
             src = bpy.data.objects[name]
