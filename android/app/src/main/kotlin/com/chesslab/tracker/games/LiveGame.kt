@@ -11,25 +11,41 @@ private data class LiveMove(
     val fenAfter: String,
 )
 
+/** One legal line being played. See [StoredGame.segments] for why a game is a list of them. */
+private class LiveSegment(
+    val startFen: String,
+    val enteredBy: SeamOrigin?,
+) {
+    val moves = mutableListOf<LiveMove>()
+
+    val currentFen: String get() = moves.lastOrNull()?.fenAfter ?: startFen
+
+    /** The position before the move at [index] — the start when there is no earlier move. */
+    fun fenBefore(index: Int): String = if (index == 0) startFen else moves[index - 1].fenAfter
+}
+
 /**
  * Accumulates the running game from the tracker's committed moves so it can be saved when it ends.
  *
  * Pure state, no Android, no I/O: the engine publishes moves as events and its position as a FEN,
  * and everything the library stores is derivable from those two.
+ *
+ * A game is one record for as long as it is played, seams included ([openSegment]) — the user reads
+ * the library, and "eine Naht in der Game-Historie ist für mich als Nutzer unverständlich".
  */
 class LiveGame(
     private val startFen: String,
     private val startedAtEpochMs: Long,
     private val profileName: String,
-    /** Non-null when this record was opened at a seam — see [StoredGame.openedBySeam]. */
-    private val openedBySeam: SeamOrigin? = null,
 ) {
-    private val moves = mutableListOf<LiveMove>()
+    private val segments = mutableListOf(LiveSegment(startFen, enteredBy = null))
 
-    val moveCount: Int get() = moves.size
+    private val current get() = segments.last()
 
-    /** The position this record currently stands on — its last move's, or its own start. */
-    val currentFen: String get() = moves.lastOrNull()?.fenAfter ?: startFen
+    val moveCount: Int get() = segments.sumOf { it.moves.size }
+
+    /** The position this record currently stands on — its last move's, or its last segment's start. */
+    val currentFen: String get() = current.currentFen
 
     /**
      * One commit, one or more plies — a `SequenceCommitted` (fast play, CNN recovery) is a single
@@ -55,10 +71,13 @@ class LiveGame(
         val shared = decision?.let { MoveProvenance(it.decider, it.reason, it.priorUsed) }
         for (i in ucis.indices) {
             val last = i == ucis.lastIndex
-            moves +=
+            current.moves +=
                 LiveMove(
                     StoredMove(
-                        ply = moves.size + 1,
+                        // Numbered across the WHOLE game, not per segment: the flattened `moves`
+                        // list is what every reader uses, and duplicate plies in it are a broken
+                        // list key on the detail screen.
+                        ply = moveCount + 1,
                         san = sans[i],
                         uci = ucis[i],
                         // One event, one instant: a sequence is observed as a whole and there is no
@@ -73,7 +92,7 @@ class LiveGame(
     }
 
     /**
-     * Does [ucis] continue THIS record's own position line?
+     * Does [ucis] continue the CURRENT SEGMENT's position line?
      *
      * The engine can never commit an illegal move — its board validates every one. A record can
      * still go illegal, because the engine's board may JUMP between two commits: a desync alarm
@@ -82,16 +101,29 @@ class LiveGame(
      * `AlarmCleared`), so it used to append the plies after the jump onto the line from before it.
      *
      * Measured on the device: four of five recorded games were not legal sequences from their own
-     * `startFen` — one broke at ply 1, the others at 2, 18 and 28. Such a file is unusable as a
+     * `startFen` — one broke at ply 1, the others at 2, 18 and 28. Such a line is unusable as a
      * game AND as labeled training data, because every FEN after the seam is wrong.
      *
      * Checking the first ply is enough: a sequence commit is generated from one position by the
      * engine, so if its head fits, the rest of it does.
      */
     fun continues(ucis: List<String>): Boolean {
-        val board = Board().apply { loadFromFen(fenBefore(moves.size)) }
+        val board = Board().apply { loadFromFen(currentFen) }
         val wanted = ucis.firstOrNull() ?: return true
         return MoveGenerator.generateLegalMoves(board).any { it.toString() == wanted }
+    }
+
+    /**
+     * The engine's board jumped to [fenAfter] and [seam] is what it committed to get there. The
+     * plies fit no line this record holds — that is what a seam IS — so they open a new one instead
+     * of ending the record. They stay OUT of every move list and are kept on the segment, because
+     * appending them would make the segment's own FENs wrong from its first ply.
+     */
+    fun openSegment(
+        fenAfter: String,
+        seam: SeamOrigin,
+    ) {
+        segments += LiveSegment(fenAfter, seam)
     }
 
     /**
@@ -103,7 +135,7 @@ class LiveGame(
         fenAfter: String,
     ): List<String> {
         if (ucis.size == 1) return listOf(fenAfter)
-        val board = Board().apply { loadFromFen(fenBefore(moves.size)) }
+        val board = Board().apply { loadFromFen(currentFen) }
         return ucis.mapIndexed { i, uci ->
             runCatching { board.doMove(Move(uci, board.sideToMove)) }
             if (i == ucis.lastIndex) fenAfter else board.fen
@@ -115,11 +147,17 @@ class LiveGame(
      * (`TrackerEngine.undo` only sets a note). A position that equals the one BEFORE the last move
      * can only mean the last move was taken back — and a taken-back move must not survive in the
      * library or as labeled training data.
+     *
+     * Undoing the only move of a segment removes the segment too: a segment with no moves claims
+     * the app rebuilt the board for nothing, and the detail screen would render its seam note above
+     * an empty list. The first segment stays whatever happens — it carries the record's `startFen`.
      */
     fun onFen(fen: String): Boolean {
+        val moves = current.moves
         val last = moves.lastOrNull() ?: return false
-        if (fen == last.fenAfter || fen != fenBefore(moves.size - 1)) return false
+        if (fen == last.fenAfter || fen != current.fenBefore(moves.size - 1)) return false
         moves.removeAt(moves.size - 1)
+        if (moves.isEmpty() && segments.size > 1) segments.removeAt(segments.size - 1)
         return true
     }
 
@@ -134,13 +172,11 @@ class LiveGame(
             startedAtEpochMs = startedAtEpochMs,
             finishedAtEpochMs = finishedAtEpochMs,
             profileName = profileName,
-            result = resultFromFen(moves.lastOrNull()?.fenAfter ?: startFen),
-            moves = moves.map { it.move },
+            result = resultFromFen(currentFen),
+            moves = segments.flatMap { segment -> segment.moves.map { it.move } },
             sessionId = sessionId,
-            openedBySeam = openedBySeam,
+            segments = segments.map { GameSegment(it.startFen, it.moves.map { move -> move.move }, it.enteredBy) },
         )
-
-    private fun fenBefore(index: Int): String = if (index == 0) startFen else moves[index - 1].fenAfter
 }
 
 fun DebugDecision.toProvenance(): MoveProvenance =

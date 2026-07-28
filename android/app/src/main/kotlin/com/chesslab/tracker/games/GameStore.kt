@@ -1,7 +1,6 @@
 package com.chesslab.tracker.games
 
 import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.json.Json
 import java.io.File
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
@@ -9,12 +8,7 @@ import java.nio.file.StandardCopyOption
 
 private const val INDEX = "index.json"
 
-private val JSON =
-    Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-        prettyPrint = false
-    }
+private val JSON = GAMES_JSON
 
 /**
  * The app-private game library: `games/index.json` + one `<id>.json` and one `<id>.pgn` per game.
@@ -37,8 +31,7 @@ class GameStore(
             .getOrDefault(emptyList())
             .sortedByDescending { it.startedAtEpochMs }
 
-    fun open(id: String): StoredGame? =
-        runCatching { JSON.decodeFromString(StoredGame.serializer(), File(root, "$id.json").readText()) }.getOrNull()
+    fun open(id: String): StoredGame? = runCatching { decodeStoredGame(File(root, "$id.json").readText()) }.getOrNull()
 
     /**
      * Persists the game and its PGN. Returns `null` for an empty game: a library row for zero moves

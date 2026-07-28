@@ -103,36 +103,27 @@ class GameSessionController(
         decider: String,
         priorUsed: Boolean,
     ) {
-        // A record whose line the engine already left is not a game — see `LiveGame.continues`.
-        // Closing it here keeps every stored file legal from its own `startFen`, and starts the
-        // next one AT the seam, so the position after the jump is the new record's ground truth.
+        // A line the engine already left is not a game — see `LiveGame.continues`. It opens a new
+        // SEGMENT, anchored at the position the engine actually reached, so every line the record
+        // holds stays legal from its own start.
         //
-        // The jumping plies land in NEITHER file: they are illegal from the old record's last
-        // position (that is what a seam IS) and they precede the new record's `startFen`. That was
-        // silent, and it hid real losses — one game on 2026-07-28 was stored as three files with
-        // Qxd4, Qe5+ and Be7 in none of them. They are recorded on the new file instead, so the
-        // fragments can be chained back into the game that was actually played.
+        // It does NOT close the record. Closing it was the first fix and it cost the user the game:
+        // one played game came off the device as three files three minutes apart, and "eine Naht in
+        // der Game-Historie ist für mich als Nutzer unverständlich". One played game, one record.
+        //
+        // The jumping plies land in no move list: they are illegal from the previous line's last
+        // position (that is what a seam IS) and they precede the new segment's start. That was
+        // silent, and it hid real losses — Qxd4, Qe5+ and Be7 are in none of the three files from
+        // 2026-07-28. They are recorded on the segment they opened instead.
         //
         // Still NO `capture.queue` here, and deliberately: a seam is the moment the engine's own
         // FEN is least trustworthy, so a frame labelled with it is the poisoned-data case the
         // recording gates exist to prevent. A gap in the training set beats a wrong label in it.
-        live?.takeUnless { it.continues(ucis) }?.let { previous ->
-            val fenBefore = previous.currentFen
-            val closed = endAndSave()
-            live =
-                LiveGame(
-                    fenAfter,
-                    now(),
-                    profile,
-                    openedBySeam =
-                        SeamOrigin(
-                            previousId = closed?.id,
-                            fenBefore = fenBefore,
-                            sans = sans,
-                            ucis = ucis,
-                            decider = decider,
-                        ),
-                )
+        live?.takeUnless { it.continues(ucis) }?.let { game ->
+            game.openSegment(
+                fenAfter,
+                SeamOrigin(fenBefore = game.currentFen, sans = sans, ucis = ucis, decider = decider),
+            )
             return
         }
         val game = live ?: LiveGame(startFen, now(), profile).also { live = it }
