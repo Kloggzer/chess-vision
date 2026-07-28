@@ -39,8 +39,14 @@ TEMPLATE_NAMES = {"P": "White Pawn", "N": "Knight", "B": "Bishop", "R": "LPRook"
                   "Q": "Queen", "K": "King"}
 BOARD_KEEP = {"ChessBoard", "Chessboard Surround"}
 
+# Rotated half a turn from the obvious assignment, together with `square_center`, so that the
+# GAME lines up with the board's printed ring: White's back rank has to sit at the A..H edge. The
+# texture orientation is fixed independently (see the UV block); with that one correct, the ring
+# was still on Black's side and only this pair moves it. Both must move together - the JSON corners
+# and the piece placement come from the same geometry, so rotating one alone silently transposes
+# every label.
 BOARD_CORNERS_3D = {
-    "a8": (HALF, -HALF), "h8": (HALF, HALF), "h1": (-HALF, HALF), "a1": (-HALF, -HALF),
+    "a8": (-HALF, HALF), "h8": (-HALF, -HALF), "h1": (HALF, -HALF), "a1": (HALF, HALF),
 }
 
 # Warm-Tint für die Brett-Foto-Textur: der dunkle Brett-Lack fotografiert sich neutral-grau.
@@ -230,8 +236,11 @@ def argv_after_dashes():
 
 
 def square_center(fi, ri):
-    """file-index a..h = 0..7 (Y-Achse), rank-index 1..8 = 0..7 (X-Achse) -> Weltkoordinate."""
-    return (-21.0 + CELL * ri, -21.0 + CELL * fi)
+    """file-index a..h = 0..7 (Y-Achse), rank-index 1..8 = 0..7 (X-Achse) -> Weltkoordinate.
+
+    Half a turn from the obvious sign, in lockstep with BOARD_CORNERS_3D - see the note there.
+    """
+    return (21.0 - CELL * ri, 21.0 - CELL * fi)
 
 
 def parse_fen_placement(fen):
@@ -515,16 +524,29 @@ def make_board_plane(texture_path):
     uvl = mesh.uv_layers.new(name="UVMap")
     for loop in mesh.loops:
         co = mesh.vertices[loop.vertex_index].co
-        # Both axes inverted, and each half of that was verified with a two-rook probe
-        # (`R7/8/8/8/8/8/8/7r`: white on a8, black on h1) rather than reasoned about:
+        # Rotated a quarter turn from the obvious form, because the printed ring has to line up
+        # with the game and not merely with the plane. The texture is an ordinary board photo -
+        # A..H reads left to right along one rank edge and again upside down along the other, the
+        # digits run down the file edges - so the letters belong on WHITE's edge. The previous form
+        # put them on the file edges instead, i.e. digits along rank 1 ("weiss steht nicht an der
+        # buchstaben seite", 2026-07-28).
         #
-        #   swapped U/V (the old form)  -> coordinates landed CORRECTLY but every glyph rendered
-        #                                  mirrored, letters on the left/right edges where the
-        #                                  digits belong: a reflection about the main diagonal.
-        #   un-swapped, not inverted    -> glyphs correct and on the right edges, but the ring was
-        #                                  rotated 180 degrees: the a8 piece sat by the printed H1.
-        #   un-swapped AND inverted     -> both right.
-        uvl.data[loop.index].uv = (1.0 - (co.x + P) / (2.0 * P), 1.0 - (co.y + P) / (2.0 * P))
+        # Settled by rendering all EIGHT orientations (four rotations x two reflections) on an empty
+        # board and reading White's edge off each. That is the cheap, conclusive method; three
+        # cleverer ones were tried first and every one of them failed:
+        #
+        #   glyph shapes by eye     - this board's E is branded BACKWARDS, so a correct render
+        #                             looks partly mirrored no matter what.
+        #   corner ArUco markers    - marker 1 already fails to decode on an empty board under the
+        #                             ORIGINAL mapping, so 3-of-4 proves nothing about mirroring.
+        #   strip cross-correlation - the alternating light/dark rhythm dominates the signal; the
+        #                             per-letter version came out 0.792 vs 0.798, a coin toss.
+        #
+        # The enumeration shows exactly one match for the texture, down to that reversed E.
+        # NOTE the previous comment here rejected this very mapping as "every glyph mirrored". It
+        # is not; that was the un-inverted swap. Both readings cannot be checked by reasoning -
+        # render the eight and look.
+        uvl.data[loop.index].uv = ((co.y + P) / (2.0 * P), (co.x + P) / (2.0 * P))
     obj = bpy.data.objects.new("BoardPlane", mesh)
     obj.location.z = z
     bpy.context.scene.collection.objects.link(obj)
