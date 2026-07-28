@@ -100,6 +100,9 @@ GRAIN_DEPTH_FRAC = 0.06
 # board photo; everything above this is grain, everything below is cut. EASE interpolation is what
 # makes the profile ROUND instead of a step — a square-edged groove reads as a printed line.
 GROOVE_LUMA_FLOOR = 0.10
+# Sheen band, and the extra polish the brightest areas get on top of it — see `add_wood_sheen`.
+WOOD_SHEEN_SPAN = 0.07
+WOOD_PEAK_GLOSS = 0.10
 # NOT varied: roughness. A sheen jitter was tried and rejected on sight — it changes the MATERIAL,
 # and the pieces stopped looking like the lacquered wood they are. Relief only: the surface gets a
 # shape, its reflectance stays exactly what each material was tuned to.
@@ -107,6 +110,10 @@ GROOVE_LUMA_FLOOR = 0.10
 # scheinbare Figurengröße/Höhe im Crop an die echten Kamera-Crops anzugleichen (reale Figuren
 # füllen den Crop stärker). 1.0 = wie gemessen; per --piece-scale überschrieben.
 PIECE_SCALE = 1.0
+# Photogrammetry smoothing for the SCANNED pieces. The reconstruction is lumpy where the real
+# pieces carry only a fine grain; see `_smooth_scan_mesh`. 0 iterations disables it entirely.
+PIECE_SMOOTH_FACTOR = 1.0
+PIECE_SMOOTH_ITERATIONS = 70
 # Weiß-Figuren-Korrektur: Scan-Textur ist zu orange/dunkel vs. reale blass-cremige Figuren.
 # Sättigung runter (orange raus) + Value hoch (heller). Nur auf weiße Figuren angewandt.
 # Weiße Figuren = dasselbe Birkenholz wie die HELLEN Brettfelder → sollen die Tile-Farbe (warmes
@@ -213,6 +220,26 @@ BOARD_PLAY_HALF_FRAC = 0.419
 
 
 
+
+def add_wood_sheen(nt, bsdf, height_source, roughness_base):
+    """Roughness from the texture's own luminance — bright areas glossier, in that DIRECTION.
+
+    Restored after a first version was rejected: that one jittered roughness symmetrically around
+    the base and read as a changed MATERIAL. This one is directional and physical — on a polished
+    piece the raised, handled parts take the light while recesses stay matt, so the peaks catch a
+    highlight ("die Peaks können bissel mehr glänzen", 2026-07-28) and the deep grain does not.
+
+    `WOOD_SHEEN_SPAN` is how far roughness may move either way; the bright end gets
+    `WOOD_PEAK_GLOSS` of extra polish on top, which is what makes a top read as a top.
+    """
+    rough = nt.nodes.new("ShaderNodeMapRange")
+    rough.inputs["From Min"].default_value = 0.0
+    rough.inputs["From Max"].default_value = 1.0
+    rough.inputs["To Min"].default_value = min(1.0, roughness_base + WOOD_SHEEN_SPAN)
+    rough.inputs["To Max"].default_value = max(0.0, roughness_base - WOOD_SHEEN_SPAN - WOOD_PEAK_GLOSS)
+    nt.links.new(height_source, rough.inputs["Value"])
+    nt.links.new(rough.outputs["Result"], bsdf.inputs["Roughness"])
+
 def add_wood_grain(nt, bsdf, height_source, groove_units, grain_units):
     """Micro-relief and sheen variation taken from the material's OWN texture. Board and pieces.
 
@@ -308,6 +335,7 @@ def make_textured_board_material(texture_path):
     # and coordinate numbers, which on this board are MILLED — recessed into the wood, not
     # printed. Dark texture -> low height is exactly the polarity a groove needs, so the same
     # source gives the squares their edge and the labels their depth without a second map.
+    add_wood_sheen(nt, bsdf, bw.outputs["Val"], BOARD_ROUGHNESS)
     add_wood_grain(nt, bsdf, bw.outputs["Val"],
                    groove_units=GROOVE_DEPTH_MM * CELL / SQUARE_MM,
                    grain_units=GROOVE_DEPTH_MM * GRAIN_DEPTH_FRAC * CELL / SQUARE_MM)
@@ -473,6 +501,10 @@ def _scanned_material(png, darken=1.0, whiten=False):
             bsdf.inputs["Specular"].default_value = PIECE_SPECULAR
     tx = nt.nodes.new("ShaderNodeTexImage"); tx.image = img
     src = tx.outputs["Color"]
+    if bsdf is not None:
+        psheen = nt.nodes.new("ShaderNodeRGBToBW")
+        nt.links.new(tx.outputs["Color"], psheen.inputs["Color"])
+        add_wood_sheen(nt, bsdf, psheen.outputs["Val"], PIECE_ROUGHNESS)
     # NO relief on pieces, deliberately. The height source here would be a PHOTOGRAMMETRY
     # The height source here would be a PHOTOGRAMMETRY SCAN, and its luminance carries
     # reconstruction noise rather than wood grain: rendered as a bump it reads as pimples over the
@@ -556,10 +588,42 @@ def _load_scanned_mesh(obj_path, type_letter):
     v[:, 2] -= v[:, 2].min()
     m.vertices.foreach_set("co", v.ravel())
     m.update()
+    _smooth_scan_mesh(imp, m)
     bpy.data.objects.remove(imp, do_unlink=True)
     for p in m.polygons:
         p.use_smooth = True
     return m
+
+
+def _smooth_scan_mesh(obj, mesh) -> None:
+    """Take the photogrammetry noise out of a scanned piece, and nothing else.
+
+    The scans reconstruct as a lumpy surface: the base rims are irregular in SILHOUETTE, not merely
+    in shading, which is how the user identified the cause ("ich glaube das Pickelige kommt eher aus
+    dem Modell als aus der Textur oder dem Normal") and how it was confirmed — a render with ZERO
+    surface relief is just as pimply. Real pieces are not glass-smooth either, but they carry a fine
+    texture rather than warts.
+
+    A plain vertex smooth is the right tool: it averages each vertex toward its neighbours, which
+    removes high-frequency reconstruction noise while leaving the turned profile intact. `use_x/y/z`
+    all on, because the noise is isotropic. Applied at TEMPLATE load, so it costs once per piece
+    type per render process rather than once per placement.
+    """
+    if PIECE_SMOOTH_ITERATIONS <= 0:
+        return
+    mod = obj.modifiers.new("scan-smooth", "SMOOTH")
+    mod.factor = PIECE_SMOOTH_FACTOR
+    mod.iterations = PIECE_SMOOTH_ITERATIONS
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    evaluated = obj.evaluated_get(depsgraph).to_mesh()
+    # Vertex COUNT is unchanged by a smooth, so the coordinates can be copied straight back.
+    import numpy as np
+    co = np.empty(len(evaluated.vertices) * 3, dtype=np.float64)
+    evaluated.vertices.foreach_get("co", co)
+    mesh.vertices.foreach_set("co", co)
+    mesh.update()
+    obj.evaluated_get(depsgraph).to_mesh_clear()
+    obj.modifiers.remove(mod)
 
 
 def build_templates(pieces_dir=None):
