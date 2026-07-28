@@ -133,6 +133,13 @@ def _channel_masks(grey: np.ndarray, frac: float, width_frac: float, ring: bool,
     return mask_1d(cols)[None, :], mask_1d(rows)[:, None]
 
 
+def _channel_mask(grey: np.ndarray, frac: float, width_frac: float, ring: bool,
+                  flat: float = 0.0) -> np.ndarray:
+    """Both axes combined: 1 on a square face, 0 in any channel."""
+    mx, my = _channel_masks(grey, frac, width_frac, ring, flat)
+    return np.minimum(mx, my)
+
+
 def groove_map(colour: np.ndarray, frac: float, width_frac: float, ring: bool,
                smooth: float = 0.0, shoulder: float = 0.0,
                texture: float = 0.0, flat: float = 0.0) -> np.ndarray:
@@ -326,10 +333,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-def _channel_mask(grey: np.ndarray, frac: float, width_frac: float, ring: bool,
-                  flat: float = 0.0) -> np.ndarray:
-    """Both axes combined: 1 on a square face, 0 in any channel."""
-    mx, my = _channel_masks(grey, frac, width_frac, ring, flat)
-    return np.minimum(mx, my)
