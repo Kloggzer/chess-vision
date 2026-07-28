@@ -73,6 +73,31 @@ BOARD_LIGHT_GAIN_HI = 0.45   # linear luma at which the full gain applies (light
 # hilft, N/B/R von oben zu unterscheiden). Frühere 0.7/Specular 0.2 waren ZU matt (formarm).
 PIECE_ROUGHNESS = 0.45
 PIECE_SPECULAR = 0.4
+# --- WOOD MICRO-GRAIN (board and pieces share it, because they ARE the same wood) ---
+# The board is a PHOTOGRAPH used as albedo and the pieces are photogrammetry scans: both carry
+# colour variation and neither carries SURFACE. With a perfectly flat normal the render has no
+# micro-shading, so the crop's high-frequency energy is pure albedo noise — measured p10 3.72
+# against real 5.62 (`synth/measure_noise.py`). Injecting that as post-noise was tried on
+# 2026-07-28 and rejected on sight: it reads as coloured speckle, where real crops carry
+# DIRECTIONAL grain that responds to the light. Structure has to come from the shader.
+#
+# One helper applied to BOTH materials — a board and a piece turned from the same lacquered wood
+# must not disagree about their own surface — and each drives it from ITS OWN texture, so the
+# relief follows the actual grain rather than a pattern laid over the top.
+# The grooves are REAL geometry the user measured: the grid lines and the coordinate letters are
+# MILLED into the board, about 1 mm deep with a ROUNDED profile (ball-nose, not a square channel).
+# 1 mm in board units: SQUARE_MM = 35 mm spans CELL units, so 1 mm = CELL / 35.
+GROOVE_DEPTH_MM = 1.0
+# Wood grain is a fraction of that — surface texture, not a cut. Expressed as a share of the
+# groove depth so the two stay in proportion if the board scale ever changes.
+GRAIN_DEPTH_FRAC = 0.06
+# Where the luminance ramp puts the groove floor. The milled channels are the darkest thing in the
+# board photo; everything above this is grain, everything below is cut. EASE interpolation is what
+# makes the profile ROUND instead of a step — a square-edged groove reads as a printed line.
+GROOVE_LUMA_FLOOR = 0.10
+# Grain also varies the SHEEN, not only the height: latewood takes lacquer differently. Applied
+# as a +/- band around each material's own roughness so the two keep their tuned base values.
+WOOD_ROUGHNESS_JITTER = 0.06
 # Globaler Figuren-Skalierungsfaktor (auf die Basis-mm-Skalierung obendrauf). Hebel, um die
 # scheinbare Figurengröße/Höhe im Crop an die echten Kamera-Crops anzugleichen (reale Figuren
 # füllen den Crop stärker). 1.0 = wie gemessen; per --piece-scale überschrieben.
@@ -178,6 +203,60 @@ def make_board_material(light, dark):
 BOARD_PLAY_HALF_FRAC = 0.419
 
 
+
+def add_wood_grain(nt, bsdf, height_source, roughness_base, groove_units, grain_units):
+    """Micro-relief and sheen variation taken from the material's OWN texture. Board and pieces.
+
+    `height_source` is a scalar socket — the luminance of the very image that already supplies the
+    albedo. That is the point: an albedo photograph of wood IS approximately its height field
+    (latewood is darker AND sits differently), so the relief follows the real grain of this board
+    and this piece, per square, instead of laying a uniform pattern over both. A procedural noise
+    was tried first and rejected for exactly that reason — it was even everywhere, and wood is not.
+
+    Deliberately Bump, not Displacement: at 1100 px board / 128 px crop the feature is a shading
+    cue, and real geometry would cost triangles for something under a pixel.
+    """
+    # TWO height contributions, added — one ramp cannot carry both. The first attempt mapped
+    # luminance through a single EASE ramp with its shoulder at the groove floor, which pinned
+    # everything above it to a constant: the grain (luma 0.2-0.8) came out perfectly flat and the
+    # change rendered identical to no change at all. Seen on the probe, not reasoned about.
+    #
+    #   grain  = luminance across its whole range, at grain amplitude
+    #   groove = a mask of only the darkest pixels, at the measured 1 mm, EASE for a round profile
+    grain = nt.nodes.new("ShaderNodeMapRange")
+    grain.inputs["From Min"].default_value = 0.0
+    grain.inputs["From Max"].default_value = 1.0
+    grain.inputs["To Min"].default_value = 0.0
+    grain.inputs["To Max"].default_value = grain_units
+    nt.links.new(height_source, grain.inputs["Value"])
+    groove = nt.nodes.new("ShaderNodeMapRange")
+    groove.interpolation_type = "SMOOTHSTEP"      # the rounded ball-nose profile, not a step
+    groove.inputs["From Min"].default_value = 0.0
+    groove.inputs["From Max"].default_value = GROOVE_LUMA_FLOOR
+    groove.inputs["To Min"].default_value = -groove_units
+    groove.inputs["To Max"].default_value = 0.0
+    nt.links.new(height_source, groove.inputs["Value"])
+    total = nt.nodes.new("ShaderNodeMath")
+    total.operation = "ADD"
+    nt.links.new(grain.outputs["Result"], total.inputs[0])
+    nt.links.new(groove.outputs["Result"], total.inputs[1])
+    bump = nt.nodes.new("ShaderNodeBump")
+    bump.inputs["Strength"].default_value = 1.0
+    # Height is already in SCENE units, so Distance is 1: the depth is the measured millimetre.
+    bump.inputs["Distance"].default_value = 1.0
+    nt.links.new(total.outputs["Value"], bump.inputs["Height"])
+    nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+    # Sheen varies with the same grain — latewood takes lacquer differently — as a band around the
+    # material's own base, so board (matt) and piece (glossier) keep the values each was tuned to.
+    rough = nt.nodes.new("ShaderNodeMapRange")
+    rough.inputs["From Min"].default_value = 0.0
+    rough.inputs["From Max"].default_value = 1.0
+    rough.inputs["To Min"].default_value = max(0.0, roughness_base - WOOD_ROUGHNESS_JITTER)
+    rough.inputs["To Max"].default_value = min(1.0, roughness_base + WOOD_ROUGHNESS_JITTER)
+    nt.links.new(height_source, rough.inputs["Value"])
+    nt.links.new(rough.outputs["Result"], bsdf.inputs["Roughness"])
+
+
 def make_textured_board_material(texture_path):
     """Principled-BSDF mit Brett-Foto-Textur (Image-Node + Warm-Tint). NUR der Shader —
     die UV-Map setzt das aufrufende Mesh (siehe make_board_plane)."""
@@ -224,6 +303,14 @@ def make_textured_board_material(texture_path):
     desat.inputs["Saturation"].default_value = BOARD_SATURATION
     nt.links.new(warm.outputs["Color"], desat.inputs["Color"])
     nt.links.new(desat.outputs["Color"], bsdf.inputs["Base Color"])
+    # Relief from the board photo's OWN luminance (`bw`, the raw texture before the light-tile
+    # gain). It carries two things at once and both are real: the wood grain, and the grid lines
+    # and coordinate numbers, which on this board are MILLED — recessed into the wood, not
+    # printed. Dark texture -> low height is exactly the polarity a groove needs, so the same
+    # source gives the squares their edge and the labels their depth without a second map.
+    add_wood_grain(nt, bsdf, bw.outputs["Val"], BOARD_ROUGHNESS,
+                   groove_units=GROOVE_DEPTH_MM * CELL / SQUARE_MM,
+                   grain_units=GROOVE_DEPTH_MM * GRAIN_DEPTH_FRAC * CELL / SQUARE_MM)
     nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
     return mat
 
@@ -377,6 +464,14 @@ def _scanned_material(png, darken=1.0, whiten=False):
             bsdf.inputs["Specular"].default_value = PIECE_SPECULAR
     tx = nt.nodes.new("ShaderNodeTexImage"); tx.image = img
     src = tx.outputs["Color"]
+    # Same wood, same rule: the scan's own luminance is its height field. The pieces are turned
+    # from the board's material, so they may not disagree about their surface.
+    if bsdf is not None:
+        pbw = nt.nodes.new("ShaderNodeRGBToBW")
+        nt.links.new(tx.outputs["Color"], pbw.inputs["Color"])
+        # A piece has no milled channels: no groove term, grain only.
+        add_wood_grain(nt, bsdf, pbw.outputs["Val"], PIECE_ROUGHNESS, groove_units=0.0,
+                       grain_units=GROOVE_DEPTH_MM * GRAIN_DEPTH_FRAC * CELL / SQUARE_MM)
     # Weiße Figuren: die Scan-Textur ist zu orange/dunkel (Photogrammetrie unter warmem Licht),
     # die echten Figuren sind aber blass-cremig → entsättigen + aufhellen (nicht-destruktiv im Shader).
     if whiten:
