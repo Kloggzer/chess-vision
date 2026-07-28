@@ -35,6 +35,13 @@ class RenderArgs:
     # Per-Szene Welt/Umgebung variieren (World-Farbe + Grund-Ebene hinter dem Brett) → auch der
     # Rand/Hintergrund jenseits des Bretts trägt keine Figur-Info (Rand-/Oblique-Crops).
     randomize_world: bool = True
+    # PROBE MODE. Everything that varies per scene or per view is frozen, so two renders of the
+    # same seed differ ONLY by the change under test. Without it a before/after comparison is
+    # meaningless: `randomize_board` alone re-rolls hue, value, saturation and gloss, and a probe
+    # of a material change landed on a blue board that carried no wood structure at all.
+    # Freezes: board appearance (the board stays its real photo texture), world, lights, per-view
+    # piece materials, camera jitter, occluders.
+    probe: bool = False
     # Kamera-Distanz pro View über ein Band variieren (0 = fix): H = base * uniform(1-j .. 1+j).
     # Näher = stärkere Perspektive/Lean + größere Figur; ferner = flacher/kleiner (FixRes/Multi-Scale).
     cam_distance_jitter: float = 0.0
@@ -71,6 +78,7 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
     piece_scale = 1.0
     randomize_board = True
     randomize_world = True
+    probe = False
     cam_distance_jitter = 0.0
     occlusion_p = 0.0
     borderless_p = 0.0
@@ -140,6 +148,8 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
             if i >= len(args):
                 raise SystemExit("ERROR: --piece-scale benötigt einen Wert.")
             piece_scale = float(args[i])
+        elif a == "--probe":
+            probe = True
         elif a == "--randomize-board":
             randomize_board = True
         elif a == "--no-randomize-board":
@@ -180,6 +190,16 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
     if out is None:
         raise SystemExit("ERROR: --out ist Pflicht (Zielverzeichnis).")
 
+    if probe:
+        # One place, one list: a probe render must differ from its baseline ONLY by the change
+        # under test. Silencing these at the call sites instead would mean remembering all six
+        # every time, and forgetting one is exactly how a material probe ended up on a blue board.
+        randomize_board = False
+        randomize_world = False
+        cam_distance_jitter = 0.0
+        occlusion_p = 0.0
+        borderless_p = 0.0
+        isolate_p = 0.0
     return RenderArgs(out=out, n=n, seed=seed, fens=fens, pieces=pieces, res=res,
                       board_texture=board_texture, views_per_scene=views_per_scene,
                       samples=samples, max_obliqueness=max_obliqueness,
@@ -187,4 +207,5 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
                       randomize_board=randomize_board, randomize_world=randomize_world,
                       cam_distance_jitter=cam_distance_jitter, occlusion_p=occlusion_p,
                       borderless_p=borderless_p, isolate_p=isolate_p,
-                      frame_frac=frame_frac)
+                      frame_frac=frame_frac,
+                      probe=probe)
