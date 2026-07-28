@@ -116,7 +116,7 @@ PIECE_WHITE_GRAIN_MUL = 11.0
 PIECE_WHITE_ROUGHNESS_ADD = 0.12
 # The same two axes for the DARK set, tuned separately: its scans carry more albedo contrast, so
 # the relief multiplier that suits birch is not the one that suits the lacquered wood.
-PIECE_GRAIN_MUL_PAWN = 120.0    # the flattest scans (span 0.020) need the most to show anything
+PIECE_GRAIN_MUL_PAWN = 20.0    # the flattest scans (span 0.020) need the most to show anything
 PIECE_GRAIN_MUL_PIECE = 22.0    # the turned types carry more of their own contrast
 PIECE_BLACK_ROUGHNESS_ADD = 0.0
 # Where the luminance ramp puts the groove floor. The milled channels are the darkest thing in the
