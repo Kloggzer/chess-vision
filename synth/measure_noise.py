@@ -1,0 +1,133 @@
+"""Measure the crop-level high-frequency (sensor-noise) energy of real vs synthetic crops.
+
+Motivation: a synthetic crop that is *smoother* than any real crop is trivially separable
+from real material, and a network will happily learn that shortcut. The quantity that
+captures it is the energy **above** the optics cutoff — everything the lens could not have
+produced, i.e. sensor noise plus JPEG grain:
+
+    hf(crop) = std( gray - GaussianBlur(gray, sigma=1.2) )
+
+`empty` crops only, so piece texture cannot confound the comparison. The interesting
+statistic is not the mean but the **distribution**: p10 is the cleanest tenth (the tail this
+number exists for), p50 the typical crop, p90 the noisiest.
+
+Sources:
+
+    # a directory of crop images (e.g. the sliced real squares of one class)
+    uv run python synth/measure_noise.py data/squares/empty --n 400
+
+    # a built dataset: packed memmap (mm:// rows) or crop-file rows, filtered by label
+    uv run python synth/measure_noise.py data/datasets/occ-synth --label empty --n 400
+    uv run python synth/measure_noise.py data/datasets/occ-real3 --sessions 20260630,20260722
+
+Sampling is seeded, so two runs over the same source are comparable.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import random
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+#: Optics cutoff. Everything above it is noise, not lens signal — the real webcam's blur
+#: kernel is well below this, so a real crop keeps its grain while a clean render has none.
+HF_SIGMA = 1.2
+
+
+def hf_energy(bgr: np.ndarray, sigma: float = HF_SIGMA) -> float:
+    """Std of the residual after a sigma-blur: the crop's energy above the optics cutoff."""
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    return float((gray - cv2.GaussianBlur(gray, (0, 0), sigma)).std())
+
+
+def percentiles(values) -> tuple[float, float, float]:
+    """(p10, p50, p90) of the sample."""
+    p10, p50, p90 = np.percentile(np.asarray(values, dtype=np.float64), [10, 50, 90])
+    return float(p10), float(p50), float(p90)
+
+
+def _sample(seq: list, n: int, seed: int) -> list:
+    picked = list(seq)
+    random.Random(seed).shuffle(picked)
+    return picked[:n] if n > 0 else picked
+
+
+def crops_from_dir(d: Path, n: int, seed: int) -> list[np.ndarray]:
+    files = sorted(p for p in d.iterdir() if p.suffix.lower() in (".png", ".jpg", ".jpeg"))
+    if not files:
+        raise ValueError(f"no crop images in {d}")
+    out = []
+    for f in _sample(files, n, seed):
+        img = cv2.imread(str(f))
+        if img is not None:
+            out.append(img)
+    return out
+
+
+def crops_from_dataset(ds: Path, label: str, n: int, seed: int,
+                       sessions: tuple[str, ...] = ()) -> list[np.ndarray]:
+    """Rows of `label` from a built dataset — packed memmap if present, else crop files."""
+    rows = [json.loads(x) for x in
+            (ds / "manifest.jsonl").read_text(encoding="utf-8").splitlines() if x]
+    idx = [i for i, r in enumerate(rows)
+           if r["label"] == label
+           and (not sessions or any(r["session_id"].startswith(s) for s in sessions))]
+    if not idx:
+        raise ValueError(f"no '{label}' rows in {ds}"
+                         + (f" for sessions {sessions}" if sessions else ""))
+    picked = _sample(idx, n, seed)
+    meta_path = ds / "packed_meta.json"
+    if meta_path.exists():
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        mm = np.memmap(ds / "packed_images.u8", dtype=np.uint8, mode="r",
+                       shape=(meta["n"], meta["h"], meta["w"], 3))
+        # The memmap stores RGB (see synth_build); hf_energy expects BGR.
+        return [np.ascontiguousarray(mm[i][:, :, ::-1]) for i in picked]
+    root = Path(__file__).resolve().parents[1]
+    out = []
+    for i in picked:
+        img = cv2.imread(str(root / rows[i]["path"]))
+        if img is not None:
+            out.append(img)
+    return out
+
+
+def measure(source: str | Path, *, label: str = "empty", n: int = 400, seed: int = 42,
+            sessions: tuple[str, ...] = (), sigma: float = HF_SIGMA) -> dict:
+    src = Path(source)
+    if (src / "manifest.jsonl").exists():
+        crops = crops_from_dataset(src, label, n, seed, sessions)
+    else:
+        crops = crops_from_dir(src, n, seed)
+    values = [hf_energy(c, sigma) for c in crops]
+    p10, p50, p90 = percentiles(values)
+    return {"source": str(src), "n": len(values), "p10": p10, "p50": p50, "p90": p90,
+            "mean": float(np.mean(values)), "values": values}
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("source", nargs="+", help="crop directory or dataset directory")
+    ap.add_argument("--label", default="empty", help="label to keep (dataset sources only)")
+    ap.add_argument("--sessions", default="", help="comma-separated session_id prefixes to keep")
+    ap.add_argument("--n", type=int, default=400, help="sample size (0 = all)")
+    ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--sigma", type=float, default=HF_SIGMA)
+    a = ap.parse_args()
+    sessions = tuple(s for s in a.sessions.split(",") if s)
+    print(f"high-frequency energy (std of residual after sigma={a.sigma} blur), "
+          f"label={a.label!r}")
+    print(f"{'source':<44} {'n':>5} {'p10':>7} {'p50':>7} {'p90':>7}")
+    for s in a.source:
+        r = measure(s, label=a.label, n=a.n, seed=a.seed, sessions=sessions, sigma=a.sigma)
+        print(f"{r['source']:<44} {r['n']:>5} {r['p10']:>7.2f} {r['p50']:>7.2f} "
+              f"{r['p90']:>7.2f}")
+
+
+if __name__ == "__main__":
+    main()
