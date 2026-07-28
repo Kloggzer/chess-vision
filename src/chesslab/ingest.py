@@ -140,6 +140,12 @@ def synthesize_sessions(items: Iterable[ImportItem], *, tag: str, profile_name: 
             occ = it.meta.get("occluded_squares") if it.meta else None
             if occ:
                 entry["occluded_squares"] = [str(s) for s in occ]
+            # Partly covered squares carry no true label at all — see the renderer's
+            # `occluder_footprint_image`. Passed on so the slice can DROP them rather than pick a
+            # side; a half-arm, half-rook crop is not `occluded` and not `wR`.
+            amb = it.meta.get("ambiguous_squares") if it.meta else None
+            if amb:
+                entry["ambiguous_squares"] = [str(s) for s in amb]
             lines.append(json.dumps(entry, ensure_ascii=False))
         (sdir / "log.jsonl").write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
         session_ids.append(sid)
