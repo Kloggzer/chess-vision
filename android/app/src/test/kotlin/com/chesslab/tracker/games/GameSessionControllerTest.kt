@@ -15,6 +15,7 @@ import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.Side
 import com.github.bhlangonijr.chesslib.move.Move
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -181,28 +182,54 @@ class GameSessionControllerTest {
      * FEN resync, an accepted recovery). This controller sees none of those: it handles
      * `MoveCommitted`, `SequenceCommitted` and `ReAnchored`, and drops `Alarm` / `AlarmCleared`.
      *
-     * A record that spans two position lines is unusable as a game AND as labeled data, because
-     * every FEN after the seam is wrong. So the seam ends the record, and the next one starts at
-     * the position the engine actually reached.
+     * A line that spans two positions is unusable as a game AND as labeled data, because every FEN
+     * after the seam is wrong. The first fix CLOSED the record at the seam, which cost the user the
+     * game: one played game came off the device as three files ("für mich als Nutzer ist so ne Naht
+     * in der Game-Historie unverständlich"). So the seam opens a SEGMENT — a new legal line inside
+     * the same record — and one played game stays one stored record.
      */
     @Test
-    fun aCommitThatLeftTheRecordsLineStartsANewRecord() {
+    fun aCommitThatLeftTheRecordsLineOpensASegmentNotANewRecord() {
         val controller = controller()
         controller.onIdle(STARTPOS, "board-a")
         controller.onEvent(move("e2e4", "e4", AFTER_E4), null)
         // White again, with black to move: only reachable if the engine's board moved on without us.
         controller.onEvent(move("g1f3", "Nf3", AFTER_JUMP), null)
 
-        val stored = store.list()
-        assertEquals(1, stored.size, "the broken record was closed")
-        assertEquals(listOf("e4"), store.open(stored.single().id)?.moves?.map { it.san })
-        assertEquals(0, controller.state.value.moveCount, "and the new one starts empty, at the seam")
+        assertTrue(store.list().isEmpty(), "a seam stores nothing — the game is still being played")
+        assertEquals(1, controller.state.value.moveCount, "and the plies before it are still the game's")
 
         controller.onEvent(move("b8c6", "Nc6", AFTER_JUMP_NC6), null)
-        val saved = controller.endAndSave()
-        val fresh = store.open(saved!!.id)
-        assertEquals(AFTER_JUMP, fresh?.startFen, "the new record is anchored where the engine is")
-        assertEquals(listOf("Nc6"), fresh?.moves?.map { it.san })
+        val saved = controller.endAndSave()!!
+        assertEquals(1, store.list().size, "one played game is ONE stored record")
+        val stored = store.open(saved.id)!!
+        assertEquals(2, stored.segments.size, "the jump is a segment boundary, not a file boundary")
+        assertEquals(STARTPOS, stored.startFen)
+        assertEquals(STARTPOS, stored.segments[0].startFen)
+        assertEquals(listOf("e4"), stored.segments[0].moves.map { it.san })
+        assertEquals(AFTER_JUMP, stored.segments[1].startFen, "the second segment is anchored where the engine is")
+        assertEquals(listOf("Nc6"), stored.segments[1].moves.map { it.san })
+        assertEquals(1, store.list().single().seams, "and the library row can say the app rebuilt the board once")
+    }
+
+    /**
+     * Every existing reader — `GameSummary.moveCount`, the games list, the detail screen — reads
+     * `moves`. Segments are additive: the flattened list still holds every ply that was committed,
+     * in order and numbered once across the whole game.
+     */
+    @Test
+    fun theFlattenedMoveListStillHoldsEveryPlyInOrder() {
+        val controller = controller()
+        controller.onIdle(STARTPOS, "board-a")
+        controller.onEvent(move("e2e4", "e4", AFTER_E4), null)
+        controller.onEvent(move("g1f3", "Nf3", AFTER_JUMP), null)
+        controller.onEvent(move("b8c6", "Nc6", AFTER_JUMP_NC6), null)
+
+        val saved = controller.endAndSave()!!
+        assertEquals(2, saved.moveCount)
+        val stored = store.open(saved.id)!!
+        assertEquals(listOf("e4", "Nc6"), stored.moves.map { it.san }, "the seam's own ply is in enteredBy, not here")
+        assertEquals(listOf(1, 2), stored.moves.map { it.ply }, "ply numbers run across segments, not per segment")
     }
 
     /**
@@ -293,21 +320,118 @@ class GameSessionControllerTest {
      * them. Chaining the fragments back together is impossible without this.
      */
     @Test
-    fun aSeamRecordsThePliesThatCausedItOnTheNewRecord() {
+    fun aSeamRecordsThePliesThatCausedItOnTheNewSegment() {
         val controller = controller()
         controller.onIdle(STARTPOS, "board-a")
         controller.onEvent(move("e2e4", "e4", AFTER_E4), idleTrackerStatus(AFTER_E4))
-        // Nf3 is illegal after 1.e4 alone: the engine jumped, so the record is cut here.
+        // Nf3 is illegal after 1.e4 alone: the engine jumped, so a segment opens here.
         val jump = TrackerEvent.MoveCommitted("g1f3", "Nf3", AFTER_JUMP, "cnn_recovery", false)
         controller.onEvent(jump, idleTrackerStatus(AFTER_JUMP))
         controller.onEvent(move("b8c6", "Nc6", AFTER_JUMP_NC6), idleTrackerStatus(AFTER_JUMP_NC6))
 
         val saved = controller.endAndSave()!!
-        val opened = store.open(saved.id)!!.openedBySeam
-        assertEquals(listOf("Nf3"), opened?.sans, "the jumping ply is recorded on the new file")
-        assertEquals(listOf("g1f3"), opened?.ucis)
-        assertEquals("cnn_recovery", opened?.decider)
-        assertEquals(AFTER_E4, opened?.fenBefore, "and the position the closed record ended on")
-        assertTrue(opened?.previousId != null, "so the two fragments can be chained")
+        val stored = store.open(saved.id)!!
+        assertNull(stored.segments.first().enteredBy, "the game's own start is not a seam")
+        val entered = stored.segments[1].enteredBy
+        assertEquals(listOf("Nf3"), entered?.sans, "the jumping ply is recorded on the segment it opened")
+        assertEquals(listOf("g1f3"), entered?.ucis)
+        assertEquals("cnn_recovery", entered?.decider)
+        assertEquals(AFTER_E4, entered?.fenBefore, "and the position the previous line ended on")
+    }
+
+    /**
+     * An undo one ply after a seam must not leave a segment behind that holds no moves: the record
+     * would claim the app rebuilt the board for nothing, and the detail screen would render a seam
+     * note followed by nothing.
+     */
+    @Test
+    fun anUndoRightAfterASeamRemovesTheSegmentItEmptied() {
+        val controller = controller()
+        controller.onIdle(STARTPOS, "board-a")
+        controller.onEvent(move("e2e4", "e4", AFTER_E4), null)
+        controller.onEvent(TrackerEvent.MoveCommitted("g1f3", "Nf3", AFTER_JUMP, "cnn_recovery", false), null)
+        controller.onEvent(move("b8c6", "Nc6", AFTER_JUMP_NC6), null)
+        assertEquals(2, controller.state.value.moveCount)
+
+        // Back to the position the segment started on: Nc6 was taken back.
+        controller.onStatus(idleTrackerStatus(AFTER_JUMP))
+        assertEquals(1, controller.state.value.moveCount, "the segment's only move is gone")
+
+        val saved = controller.endAndSave()!!
+        val stored = store.open(saved.id)!!
+        assertEquals(1, stored.segments.size, "and so is the segment — no dangling empty one")
+        assertEquals(listOf("e4"), stored.moves.map { it.san }, "the line before the seam is untouched")
+        assertEquals(0, store.list().single().seams)
+    }
+
+    /**
+     * A PGN file may hold several games, and that is the honest shape for a record with a seam: one
+     * game per segment, each replayable from its own `[FEN]`. Fabricating one main line out of two
+     * positions produces a file every reader replays wrongly.
+     */
+    @Test
+    fun thePgnWritesOneGamePerSegmentAndNamesTheSeam() {
+        val controller = controller()
+        controller.onIdle(STARTPOS, "board-a")
+        controller.onEvent(move("e2e4", "e4", AFTER_E4), null)
+        controller.onEvent(TrackerEvent.MoveCommitted("g1f3", "Nf3", AFTER_JUMP, "cnn_recovery", false), null)
+        controller.onEvent(move("b8c6", "Nc6", AFTER_JUMP_NC6), null)
+        val saved = controller.endAndSave()!!
+
+        val blocks = store.pgn(saved.id).orEmpty().split("[Event ")
+        assertEquals(3, blocks.size, "two [Event] blocks, one per segment: $blocks")
+        assertFalse(blocks[1].contains("[FEN"), "the first game starts at the start position")
+        assertTrue(blocks[2].contains("[FEN \"$AFTER_JUMP\"]"), blocks[2])
+        assertTrue(blocks[2].contains("{position rebuilt by cnn_recovery: Nf3"), blocks[2])
+    }
+
+    /**
+     * The four fragments pulled off the device on 2026-07-28 are in the pre-segment format: one
+     * legal line from `startFen`, with `openedBySeam` beside it. `ignoreUnknownKeys` would drop
+     * that field on the first read and the next write would erase it, so it is migrated.
+     */
+    @Test
+    fun aRecordWrittenBeforeSegmentsLoadsAsOneSegment() {
+        File(dir, "games").mkdirs()
+        File(dir, "games/legacy.json").writeText(
+            """
+            {"id":"legacy","startFen":"$AFTER_JUMP","startedAtEpochMs":1,"finishedAtEpochMs":2,
+             "profileName":"default","result":"*",
+             "moves":[{"ply":1,"san":"Nc6","uci":"b8c6","tsEpochMs":3}],
+             "openedBySeam":{"previousId":"2026-07-28_0041","fenBefore":"$AFTER_E4",
+                             "sans":["Nf3"],"ucis":["g1f3"],"decider":"cnn_recovery"}}
+            """.trimIndent(),
+        )
+
+        val game = store.open("legacy")!!
+        val segment = game.segments.single()
+        assertEquals(AFTER_JUMP, segment.startFen)
+        assertEquals(listOf("Nc6"), segment.moves.map { it.san })
+        assertEquals(listOf("Nf3"), segment.enteredBy?.sans, "the plies that are in no move list survive")
+        assertEquals("cnn_recovery", segment.enteredBy?.decider)
+        assertEquals("2026-07-28_0041", segment.enteredBy?.previousId, "and so does the chain to the previous file")
+        assertEquals(1, game.summary().seams, "a migrated fragment still says the app rebuilt the board")
+    }
+
+    /**
+     * The fragments actually on the device predate `openedBySeam` too: a mid-game `startFen`, one
+     * move list, and nothing saying where it came from. They must still open — as one segment that
+     * claims no seam, because none was ever recorded.
+     */
+    @Test
+    fun aRecordWrittenBeforeSeamsWereRecordedLoadsAsOneSegmentWithNoSeam() {
+        File(dir, "games").mkdirs()
+        File(dir, "games/fragment.json").writeText(
+            """
+            {"id":"fragment","startFen":"$AFTER_JUMP","startedAtEpochMs":1,"finishedAtEpochMs":2,
+             "profileName":"default","result":"*","white":"?","black":"?","event":"chesslab",
+             "moves":[{"ply":1,"san":"Nc6","uci":"b8c6","tsEpochMs":3}],"sessionId":"20260728-004202"}
+            """.trimIndent(),
+        )
+
+        val game = store.open("fragment")!!
+        assertEquals(AFTER_JUMP, game.segments.single().startFen)
+        assertNull(game.segments.single().enteredBy)
+        assertEquals(0, game.summary().seams)
     }
 }
