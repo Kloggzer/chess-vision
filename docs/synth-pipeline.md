@@ -121,6 +121,70 @@ uv run chesslab ingest synthetic data/synth_train --tag pretrain-synth \
 
 Inspect the overlay PNGs: do the piece letters on each square match the rendered pieces?
 
+### 3b. Camera-look degradation (`synth/degrade.py`) — optional, destructive
+
+The EEVEE render is sharper, cooler and flatter-grained than a webcam frame. `degrade.py`
+rewrites the board renders **in place** with a mild contrast/warm/defocus/noise/JPEG pass:
+
+```bash
+uv run python synth/degrade.py data/synth_raw/shard-0     # IN PLACE, not idempotent
+```
+
+It is **not** part of `chesslab synth render` and never runs itself — `data/synth_occ_v1`
+(and therefore `occ-synth`) was built from **undegraded** renders. Running it twice
+double-degrades; park a copy first if in doubt.
+
+#### What the noise floor is for (measured 2026-07-28)
+
+`synth/measure_noise.py` reports the high-frequency energy of `empty` crops —
+`std(gray − GaussianBlur(gray, σ=1.2))`, the energy above the optics cutoff, i.e. sensor
+grain rather than lens signal:
+
+```bash
+uv run python synth/measure_noise.py data/datasets/occ-synth \
+    data/datasets/occ-real3 --label empty --n 400
+uv run python synth/measure_noise.py data/datasets/occ-real3 --sessions 20260630,20260722
+```
+
+| crop-level HF energy (128×128, `empty` only)              |  p10 |  p50 |  p90 |
+|---|---:|---:|---:|
+| real reference (`occ-real3`, sessions 20260630 / 20260722)| 5.62 | 7.44 | 9.16 |
+| synth as shipped (`occ-synth`, renders **not** degraded)  | 3.72 | 5.90 | 7.88 |
+| 24-render sample, re-cut as-is                            | 4.06 | 5.84 | 7.72 |
+| the same sample, old range σ 2–6                          | 3.33 | 5.21 | 6.76 |
+| the same sample, calibrated σ 16–22                       | 6.06 | 7.12 | 8.24 |
+| held-out sample (shard-2), calibrated σ 16–22             | 5.74 | 7.00 | 8.50 |
+
+**The median was never the gap.** The pack that commissioned this measured synth and real as
+equal at p50 (7.09 vs 7.29); this re-measurement puts synth ~20 % *below* real (5.90 vs 7.44).
+In neither reading is "raise the median" the goal, and the calibrated range deliberately lands
+p50 **below** real (−4 % / −6 % on two disjoint samples) rather than above it. What both
+readings agree on is the **p10 tail**: the cleanest tenth of synthetic crops (3.72) sits far
+under anything the real camera produces (5.62) — smoothness a classifier can separate on for
+free. σ 16–22 is calibrated to lift exactly that floor.
+
+Two corrections the measurement forced:
+
+1. **The old σ 2–6 made crops cleaner, not noisier** (4.06 → 3.33 at p10). Steps 1–3 and 5
+   (contrast, defocus, JPEG) remove more HF than σ 2–6 adds, and the render's own EEVEE grain
+   (~7.2 at board level) already dwarfs it.
+2. **σ is injected at board resolution and mostly does not survive the crop.** The warp maps
+   1280 framed render px onto an 1100 px board and `crop_square` letterboxes a 165 px box into
+   128 px; only ~0.26 of the injected σ arrives. The range is therefore calibrated **for the
+   current scale** (`--res 1600`, `--frame-frac 0.80`, `warp_board_size` 1100) and must be
+   re-measured with `measure_noise.py` if either changes.
+
+![real vs synth crop noise](synth-pipeline-noise.png)
+
+The probe (`docs/synth-pipeline-noise.png`) shows the same eight squares as real crops, as
+synth renders straight from Blender, degraded with the old range, and degraded with the
+calibrated one. Read it for what it does **not** show as much as for what it does: the numbers
+now match, but the real crops' energy is directional **wood grain**, while the injected energy
+is per-channel speckle. Matching the scalar does not match the character — a finer board
+texture at render scale, or luminance-only noise, would be the next lever, and neither is in
+this pass. Nothing has been re-rendered: `occ-synth` is unchanged, and whether to spend a
+re-render on this is a separate decision.
+
 ### 4. Build the Fused Dataset
 
 ```bash
