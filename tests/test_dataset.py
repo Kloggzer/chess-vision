@@ -446,10 +446,15 @@ def test_piece_class_build_is_unchanged(tmp_path, monkeypatch):
             == (db.dataset_dir("b") / "split.json").read_bytes())
 
 
-def test_occupancy_build_rejects_occluded_rows(tmp_path, monkeypatch):
-    import json
+def test_occupancy_build_drops_occluded_rows(tmp_path, monkeypatch, capsys):
+    """`occluded` is neither empty nor occupied, so it is dropped - and the count is printed.
 
-    import pytest
+    This used to raise. That was right while a hand label on a real session was the only way an
+    `occluded` row could appear, but renders with `--occlusion-p` produce them deliberately and in
+    bulk, and refusing the build made occluders unusable for occupancy training. The guard's real
+    purpose was to keep the drop from being silent, and the printed count serves it.
+    """
+    import json
 
     from chesslab import dataset_build as db
 
@@ -457,5 +462,5 @@ def test_occupancy_build_rejects_occluded_rows(tmp_path, monkeypatch):
     rows = [json.loads(x) for x in mp.read_text(encoding="utf-8").splitlines()]
     rows[0]["label"] = "occluded"
     mp.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="occluded"):
-        db.build_dataset("occ", sids, phash_enabled=False, pack=False, class_mode="occupancy")
+    db.build_dataset("occ", sids, phash_enabled=False, pack=False, class_mode="occupancy")
+    assert "dropped 1" in capsys.readouterr().out
