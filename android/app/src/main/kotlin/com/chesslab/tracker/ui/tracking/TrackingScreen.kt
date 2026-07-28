@@ -12,10 +12,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -29,12 +31,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.chesslab.tracker.games.GameSessionState
 import com.chesslab.tracker.ui.analysis.EvalBarSlot
+import com.chesslab.tracker.ui.games.GameSessionHost
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /** The tracking route: binds the screen to the service's session and to navigation. */
 @Composable
@@ -57,6 +62,11 @@ private fun TrackingScreen(viewModel: TrackingViewModel) {
     val preview by viewModel.preview.collectAsStateWithLifecycle()
     val cameraOn by viewModel.cameraOn.collectAsStateWithLifecycle()
     var showPreview by remember { mutableStateOf(false) }
+    // The live game lives in the service, not in this screen's view model — the same handle the
+    // Games tab uses. Reaching for it here is what lets a game be SAVED where it is played.
+    val games by GameSessionHost.controller.collectAsStateWithLifecycle()
+    val live by (games?.state ?: NO_LIVE_GAME).collectAsStateWithLifecycle()
+    var endingGame by remember { mutableStateOf(false) }
 
     Column(
         Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 8.dp),
@@ -86,7 +96,9 @@ private fun TrackingScreen(viewModel: TrackingViewModel) {
         }
         ActionBar(
             onUndo = viewModel::onUndo,
-            onResetGame = viewModel::onResetGame,
+            // Resetting a game that has moves USED to throw it away without a word. The save action
+            // lived one tab away, on the Games screen, which is not where a game is played.
+            onResetGame = { endingGame = true },
             onRecalibrate = viewModel::onRecalibrate,
             showPreview = showPreview,
             onTogglePreview = { showPreview = !showPreview },
@@ -95,6 +107,40 @@ private fun TrackingScreen(viewModel: TrackingViewModel) {
         )
     }
 
+    TrackingDialogs(
+        viewModel = viewModel,
+        ui = ui,
+        promotion = promotion,
+        acceptCnn = acceptCnn,
+        endingMoves = live.moveCount.takeIf { endingGame },
+        onEndSave = {
+            games?.endAndSave()
+            viewModel.onResetGame()
+            endingGame = false
+        },
+        onEndDiscard = {
+            viewModel.onResetGame()
+            endingGame = false
+        },
+        onEndDismiss = { endingGame = false },
+    )
+}
+
+/** Everything modal on this screen, kept out of the layout so the screen reads as a layout. */
+@Composable
+private fun TrackingDialogs(
+    viewModel: TrackingViewModel,
+    ui: TrackingUiState,
+    promotion: PromotionPrompt?,
+    acceptCnn: AcceptCnnPreview?,
+    endingMoves: Int?,
+    onEndSave: () -> Unit,
+    onEndDiscard: () -> Unit,
+    onEndDismiss: () -> Unit,
+) {
+    endingMoves?.let {
+        EndGameDialog(moves = it, onSave = onEndSave, onDiscard = onEndDiscard, onDismiss = onEndDismiss)
+    }
     acceptCnn?.let {
         AcceptCnnDialog(
             preview = it,
@@ -256,3 +302,49 @@ private fun ActionButton(
         Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
     }
 }
+
+/**
+ * Ending a game where it is PLAYED.
+ *
+ * "Reset game" used to discard a played game without a word, and the only save action lived on the
+ * Games tab — a place you are not looking at while a game is running. Both outcomes are now named,
+ * and the destructive one is not the default.
+ */
+@Composable
+private fun EndGameDialog(
+    moves: Int,
+    onSave: () -> Unit,
+    onDiscard: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (moves > 0) "End this game?" else "Start a new game?") },
+        text = {
+            Text(
+                if (moves > 0) {
+                    "$moves moves are recorded. Saving keeps them in Games together with this " +
+                        "session's frames; discarding throws both away."
+                } else {
+                    "Nothing is recorded yet. This re-seeds the tracker from the starting position."
+                },
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = if (moves > 0) onSave else onDiscard) {
+                Text(if (moves > 0) "Save & new game" else "New game", color = Accent)
+            }
+        },
+        dismissButton = {
+            // Never the default action, and never silent: discarding a played game is the one
+            // outcome here that cannot be undone.
+            if (moves > 0) {
+                TextButton(onClick = onDiscard) { Text("Discard", color = Danger) }
+            } else {
+                TextButton(onClick = onDismiss) { Text("Cancel", color = OnSurfaceMuted) }
+            }
+        },
+    )
+}
+
+private val NO_LIVE_GAME = MutableStateFlow(GameSessionState())
