@@ -48,6 +48,39 @@ def detect_lines(profile: np.ndarray, expected: list[float], search: float) -> l
     return out
 
 
+def ring_line(profile: np.ndarray, lo: int, hi: int, cell: float) -> float | None:
+    """Find a milled channel inside the coordinate band, or report that there is none.
+
+    The band's two boundaries are not the same thing. Toward the field there is a real cut; toward
+    the outside there is only where the dark stain of the rim stops. `detect_lines` cannot tell them
+    apart because it snaps to the darkest point in a window, and the stained rim is darker than the
+    channel over a much wider span - so it would place a groove on a boundary that has none.
+
+    What separates them is WIDTH: a cut is dark relative to its immediate surroundings, a stained
+    rim is not dark relative to itself. Subtracting a baseline half a cell wide leaves a spike for
+    the first and nothing for the second. Returns None when no spike clears the bar, and the caller
+    then simply has no line there - which is the correct description of this board.
+    """
+    if hi - lo < 8:
+        return None
+    seg = profile[lo:hi].astype(np.float32)
+    k = max(3, int(cell * 0.5) | 1)
+    baseline = cv2.blur(seg.reshape(1, -1), (k, 1)).ravel()
+    dip = baseline - seg
+    i = int(np.argmax(dip))
+    span = float(profile.max() - profile.min())
+    if span <= 0 or dip[i] < 0.12 * span:
+        return None
+    # Sub-pixel by the same intensity centroid the field lines use, over the spike only.
+    w = np.clip(dip - dip[i] * 0.35, 0.0, None)
+    a = max(0, i - int(cell * 0.15))
+    b = min(len(seg), i + int(cell * 0.15) + 1)
+    w = w[a:b]
+    if w.sum() <= 0:
+        return float(lo + i)
+    return float(lo + a + (np.arange(len(w)) * w).sum() / w.sum())
+
+
 def _channel_mask(grey: np.ndarray, frac: float, width_frac: float, ring: bool) -> np.ndarray:
     """1 on the square faces, 0 at the centre of a channel. The one definition both maps use."""
     size = grey.shape[0]
@@ -55,12 +88,26 @@ def _channel_mask(grey: np.ndarray, frac: float, width_frac: float, ring: bool) 
     origin = (size - field) / 2.0
     cell = field / 8.0
     expected = [origin + i * cell for i in range(9)]
-    if ring:
-        expected = [origin - cell] + expected + [origin + field + cell]
     # Profiles over the FIELD only, so the surroundings cannot drag the minima.
     a, b = int(origin + cell * 0.5), int(origin + field - cell * 0.5)
-    cols = detect_lines(grey[a:b, :].mean(axis=0), expected, search=cell * 0.18)
-    rows = detect_lines(grey[:, a:b].mean(axis=1), expected, search=cell * 0.18)
+    pcols = grey[a:b, :].mean(axis=0)
+    prows = grey[:, a:b].mean(axis=1)
+    cols = detect_lines(pcols, expected, search=cell * 0.18)
+    rows = detect_lines(prows, expected, search=cell * 0.18)
+
+    # The outer boundary of the coordinate band, MEASURED - previously it was assumed to sit one
+    # cell beyond the field, which on this board lands 128 px outside the texture entirely. The
+    # search window was then empty and detect_lines handed the assumption straight back, so the two
+    # ring lines were the only ones in the whole map that were never measured, and the outer edge
+    # rendered with a channel where the board has none.
+    if ring:
+        for profile, lines in ((pcols, cols), (prows, rows)):
+            outer = ring_line(profile, 0, int(lines[0] - cell * 0.25), cell)
+            inner = ring_line(profile, int(lines[-1] + cell * 0.25), size, cell)
+            if outer is not None:
+                lines.insert(0, outer)
+            if inner is not None:
+                lines.append(inner)
 
     half = max(1.0, cell * width_frac / 2.0)
     coord = np.arange(size, dtype=np.float32)
@@ -83,6 +130,7 @@ def groove_map(colour: np.ndarray, frac: float, width_frac: float, ring: bool,
     # The channel's own depth, from the photograph. Normalised over the masked pixels so the cut
     # uses the full range regardless of how this board was lit, then blended by the mask so the
     # squares stay perfectly flat.
+    channel_px = grey.shape[0] * frac / 8.0 * width_frac
     inside = mask < 0.999
     if inside.any():
         v = grey[inside]
@@ -90,6 +138,17 @@ def groove_map(colour: np.ndarray, frac: float, width_frac: float, ring: bool,
         photo = np.clip((grey - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
     else:
         photo = np.ones_like(grey)
+
+    # The CROSS-SECTION is the shape of the cutter and is the same everywhere; the PHOTOGRAPH only
+    # knows how the cut varies ALONG its length. Letting the photo drive the cross-section too was
+    # the mistake: inside the channel it has a narrow, very dark core, and that core became a point
+    # - the cut rendered as a V gouged with a knife rather than a rounded mill, with the texture
+    # sitting on top of it as a decal. Blurring the photo term by a fraction of the channel width
+    # smears that core away and hands the cross-section back to the mask, whose smoothstep already
+    # IS a rounded bowl (zero slope at the bottom, zero at the rim). Variation along the channel is
+    # far longer than the channel is wide, so it survives.
+    if smooth > 0.0:
+        photo = cv2.GaussianBlur(photo, (0, 0), max(1.0, smooth * channel_px))
     out = mask + (1.0 - mask) * photo
 
     # A milled channel is rounded, and its walls are a millimetre of wood, not a step function.
@@ -97,10 +156,6 @@ def groove_map(colour: np.ndarray, frac: float, width_frac: float, ring: bool,
     # hard shoulder at its rim; driving a normal with that renders the edge as a comb of teeth
     # ("die kanten sind zu scharf", 2026-07-28). Blurring by a fraction of the channel's own width
     # rounds the profile without moving where the channel is.
-    channel_px = grey.shape[0] * frac / 8.0 * width_frac
-    if smooth > 0.0:
-        out = cv2.GaussianBlur(out, (0, 0), max(1.0, smooth * channel_px))
-
     # One sigma cannot serve both ends of the profile: enough blur to settle the cut's interior
     # also erases the rim, and a rim sharp enough to read leaves the interior glittering. So the
     # shoulder gets its OWN, wider blur, applied only where the channel meets the face - the mask
@@ -175,13 +230,11 @@ def main() -> None:
                     help="A SECOND, wider Gaussian applied only at the channel's rim, as a "
                          "fraction of the channel width. Lets the normal run out gradually into "
                          "the square while --groove-smooth keeps governing the cut itself.")
-    ap.add_argument("--groove-smooth", type=float, default=0.06,
-                    help="Gaussian sigma applied to the groove profile, as a fraction of the "
-                         "channel width. CHOSEN on rendered close-ups (2026-07-28): 0.30 was tried "
-                         "first and rejected as too smooth - the cut dissolved into a diffuse "
-                         "shimmer - and by 0.60 it is gone entirely. 0.06 keeps the cut, and the "
-                         "glitter that made 0 look broken is handled by --groove-shoulder instead, "
-                         "which is the knob that actually belonged there.")
+    ap.add_argument("--groove-smooth", type=float, default=0.5,
+                    help="Gaussian sigma applied to the PHOTO term only, as a fraction of the "
+                         "channel width, so the mask keeps owning the cross-section. It used to "
+                         "blur the finished map, which is why raising it dissolved the cut instead "
+                         "of rounding it.")
     ap.add_argument("--grain-axis", choices=("x", "y"), default="x",
                     help="Direction the fibre runs in the rectified texture. This board's light "
                          "squares show horizontal lines, hence x.")
