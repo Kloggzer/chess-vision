@@ -112,8 +112,12 @@ PIECE_SCALE = 1.0
 # Weiße Figuren = dasselbe Birkenholz wie die HELLEN Brettfelder → sollen die Tile-Farbe (warmes
 # Tan) haben, nicht blass-weiß. Nur den ÜBERSCHUSS-Orange der Scan-Textur leicht dämpfen + minimal
 # aufhellen; Sättigung hoch halten, damit die Holzwärme bleibt.
-PIECE_WHITE_SAT = 0.82
-PIECE_WHITE_VAL = 1.62
+# Lowered from 0.82/1.62 on 2026-07-28: measured against real crops the synthetic white set sits
+# +16.5 grey levels too bright overall (wN +46, wB +46, wP +30), and the user reads the queen and
+# king as "zu gelb". Saturation carries the yellow, Value the brightness — both come down, and the
+# earlier note about keeping the wood warmth is what pushed them too far up.
+PIECE_WHITE_SAT = 0.62
+PIECE_WHITE_VAL = 1.28
 # Für Schwarz wird die Textur NICHT nachbearbeitet. Zwei Versuche sind daran gescheitert, dass
 # jede globale Farbtransformation die Schwarztiefe gegen die Lichter eintauscht: eine
 # Helligkeits-Multiplikation vergraute die cremefarbenen Kugeln der Damenkrone, ein Gamma>1
@@ -335,7 +339,16 @@ def make_board_plane(texture_path):
     uvl = mesh.uv_layers.new(name="UVMap")
     for loop in mesh.loops:
         co = mesh.vertices[loop.vertex_index].co
-        uvl.data[loop.index].uv = ((co.y + P) / (2.0 * P), (co.x + P) / (2.0 * P))
+        # Both axes inverted, and each half of that was verified with a two-rook probe
+        # (`R7/8/8/8/8/8/8/7r`: white on a8, black on h1) rather than reasoned about:
+        #
+        #   swapped U/V (the old form)  -> coordinates landed CORRECTLY but every glyph rendered
+        #                                  mirrored, letters on the left/right edges where the
+        #                                  digits belong: a reflection about the main diagonal.
+        #   un-swapped, not inverted    -> glyphs correct and on the right edges, but the ring was
+        #                                  rotated 180 degrees: the a8 piece sat by the printed H1.
+        #   un-swapped AND inverted     -> both right.
+        uvl.data[loop.index].uv = (1.0 - (co.x + P) / (2.0 * P), 1.0 - (co.y + P) / (2.0 * P))
     obj = bpy.data.objects.new("BoardPlane", mesh)
     obj.location.z = z
     bpy.context.scene.collection.objects.link(obj)
@@ -460,14 +473,13 @@ def _scanned_material(png, darken=1.0, whiten=False):
             bsdf.inputs["Specular"].default_value = PIECE_SPECULAR
     tx = nt.nodes.new("ShaderNodeTexImage"); tx.image = img
     src = tx.outputs["Color"]
-    # Same wood, same rule: the scan's own luminance is its height field. The pieces are turned
-    # from the board's material, so they may not disagree about their surface.
-    if bsdf is not None:
-        pbw = nt.nodes.new("ShaderNodeRGBToBW")
-        nt.links.new(tx.outputs["Color"], pbw.inputs["Color"])
-        # A piece has no milled channels: no groove term, grain only.
-        add_wood_grain(nt, bsdf, pbw.outputs["Val"], groove_units=0.0,
-                       grain_units=GROOVE_DEPTH_MM * GRAIN_DEPTH_FRAC * CELL / SQUARE_MM)
+    # NO relief on pieces, deliberately. The height source here would be a PHOTOGRAMMETRY
+    # The height source here would be a PHOTOGRAMMETRY SCAN, and its luminance carries
+    # reconstruction noise rather than wood grain: rendered as a bump it reads as pimples over the
+    # whole surface ("die schwarzen Figuren sind zu pickelig", 2026-07-28), worst on the dark
+    # pieces where the scan is noisiest. The BOARD keeps its relief, because a flat-lit photograph
+    # of wood IS approximately its height field. Restoring this needs a real per-piece height map,
+    # not the albedo.
     # Weiße Figuren: die Scan-Textur ist zu orange/dunkel (Photogrammetrie unter warmem Licht),
     # die echten Figuren sind aber blass-cremig → entsättigen + aufhellen (nicht-destruktiv im Shader).
     if whiten:
@@ -490,6 +502,18 @@ def _scanned_material(png, darken=1.0, whiten=False):
             src = mix.outputs["Color"]
         except Exception:
             pass
+    # NO colour correction on the BLACK set — measured, not assumed. A luminance-masked
+    # saturation ramp was built for it (body 0.70 / crown 0.40) and a BLIND comparison of five
+    # settings from untouched to that one, rendered at one seed in probe mode, picked UNTOUCHED
+    # first and 0.94/0.84 second (2026-07-28). Desaturating is the wrong axis: it takes the life
+    # out of the wood instead of cooling it, "das sieht fast tot aus".
+    #
+    # The observation that prompted it stands — the cream crown balls read too yellow — but the
+    # lever has to be HUE or the lighting, not saturation. Two earlier attempts on the value axis
+    # failed for a related reason (a brightness multiply greyed the balls, a gamma darkened them,
+    # 151 -> 75 against real), so all three of value, saturation and global transforms are now
+    # ruled out by measurement here.
+
     # Per-View-Jitter-Hook (siehe randomize_piece_materials): ein neutral initialisierter
     # HSV-Node am Ende der Kette, den der Render-Loop pro View verstellt. Gegen den
     # bQ→wQ-Flip: die cremefarbenen Kugeln der schwarzen Damenkrone kippen unter warmem
