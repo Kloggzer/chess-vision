@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -27,11 +28,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.chesslab.tracker.games.GameStore
+import com.chesslab.tracker.games.SeamOrigin
 import com.chesslab.tracker.games.StoredGame
 import com.chesslab.tracker.games.StoredMove
 import com.chesslab.tracker.games.buildPgn
+import com.chesslab.tracker.games.segmentsOrOne
 import com.chesslab.tracker.record.SessionStore
 import com.chesslab.tracker.ui.theme.Accent
+import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 
@@ -88,9 +92,35 @@ private fun GameDetailScreen(
             TextButton(onClick = { share(context, buildPgn(game, provenance), game.id) }) { Text("Share PGN", color = Accent) }
             TextButton(onClick = { copy(context, buildPgn(game, provenance)) }) { Text("Copy", color = Accent) }
         }
+        // Segment by segment, with the seam between them: the moves after a seam do NOT follow the
+        // moves before it, and a flat list says they do.
         LazyColumn(Modifier.weight(1f)) {
-            items(game.moves.size, key = { game.moves[it].ply }) { index -> MoveRow(game.moves[index]) }
+            game.segmentsOrOne().forEachIndexed { index, segment ->
+                segment.enteredBy?.let { seam -> item(key = "seam-$index") { SeamRow(seam, segment.startFen) } }
+                items(segment.moves, key = { it.ply }) { move -> MoveRow(move) }
+            }
         }
+    }
+}
+
+/** What the app committed to get here, and the position the moves below actually start from. */
+@Composable
+private fun SeamRow(
+    seam: SeamOrigin,
+    startFen: String,
+) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        Text(
+            "Board rebuilt by ${seam.decider}: ${seam.sans.joinToString(" ")}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Danger,
+        )
+        Text(
+            "The app lost the board here — the moves below do not follow the ones above.",
+            style = MaterialTheme.typography.bodySmall,
+            color = OnSurfaceMuted,
+        )
+        Text("Resumed at: $startFen", style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
     }
 }
 
