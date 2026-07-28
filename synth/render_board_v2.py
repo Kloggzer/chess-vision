@@ -106,10 +106,14 @@ PIECE_SPECULAR = 0.5
 # map fakes relief through the normal without geometry, so it over-reads at grazing angles — half
 # the physical depth is what looks like the real 1 mm cut. The user did NOT pick 0, so the relief
 # itself is wanted; only its amplitude was over-stated.
-GROOVE_DEPTH_MM = 1.0
-# Wood grain is a fraction of that — surface texture, not a cut. Expressed as a share of the
-# groove depth so the two stay in proportion if the board scale ever changes.
-GRAIN_DEPTH_FRAC = 0.14
+GROOVE_DEPTH_MM = 0.65
+# Wood grain is a fraction of that — surface texture, not a cut. It USED to be expressed as a share
+# of GROOVE_DEPTH_MM "so the two stay in proportion", which is wrong for the one thing that actually
+# changes: the groove depth is a measurement of this board and the grain amplitude is a look. Tying
+# them together means retuning the cut silently retunes the grain on the board AND on every piece,
+# undoing work done against renders. The share below is the value that pairing produced, resolved
+# once and now standing on its own.
+GRAIN_DEPTH_MM = 0.14
 # How much more relief the pale white scans need to read as wood — see `_scanned_material`.
 PIECE_WHITE_GRAIN_MUL = 11.0
 # Extra roughness for the pale set — bare birch against lacquered dark wood.
@@ -409,7 +413,7 @@ def make_textured_board_material(texture_path):
     # per-square mean so only the grain is left, and blanks the channels so the groove bump owns
     # them. Falls back to the old luminance path when no map is present.
     add_board_bump(nt, bsdf, texture_path, "_grain", "board_grain.png",
-                   GROOVE_DEPTH_MM * GRAIN_DEPTH_FRAC * CELL / SQUARE_MM,
+                   GRAIN_DEPTH_MM * CELL / SQUARE_MM,
                    fallback=bw.outputs["Val"])
     add_board_bump(nt, bsdf, texture_path, "_grooves", "board_grooves.png",
                    GROOVE_DEPTH_MM * CELL / SQUARE_MM, fallback=None)
@@ -600,7 +604,7 @@ def _scanned_material(png, darken=1.0, whiten=False, piece_type=None):
     _mul = PIECE_GRAIN_MUL_PAWN if piece_type == "P" else PIECE_GRAIN_MUL_PIECE
     if whiten:
         _mul = PIECE_WHITE_GRAIN_MUL
-    _grain = GROOVE_DEPTH_MM * GRAIN_DEPTH_FRAC * CELL / SQUARE_MM
+    _grain = GRAIN_DEPTH_MM * CELL / SQUARE_MM
     add_wood_grain(nt, bsdf, psheen.outputs["Val"], groove_units=0.0,
                    grain_units=_grain * _mul)
     # Historical note, kept because it cost a cycle: The height source here would be a PHOTOGRAMMETRY
