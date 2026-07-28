@@ -57,11 +57,11 @@ BOARD_WARM_FAC = 0.0
 # stop the dark squares reflecting the cool ambient and reading grey — a COLOUR fix applied to a
 # reflectance parameter. The reference photos show a board with visible sheen, so the fix belongs
 # in the light, not here.
-BOARD_ROUGHNESS = 0.25
+BOARD_ROUGHNESS = 0.50
 # Was hardcoded at 0.2. With roughness 0.70 that is a surface so diffuse it reflects almost nothing,
 # so the grain bump perturbs a normal that has no highlight to move — "das Glänzen der kleinen Bumps
 # fehlt" (2026-07-28). Relief without specular is invisible relief.
-BOARD_SPECULAR = 0.85
+BOARD_SPECULAR = 0.45
 # Board-Sättigung: das echte Brettfoto ist warm-gelblich → leicht entsättigen zieht das Gelb raus.
 BOARD_SATURATION = 0.92
 # LIGHT-TILE GAIN. The board texture is a PHOTOGRAPH of the board at its own exposure, used as
@@ -113,7 +113,7 @@ GROOVE_DEPTH_MM = 0.65
 # them together means retuning the cut silently retunes the grain on the board AND on every piece,
 # undoing work done against renders. The share below is the value that pairing produced, resolved
 # once and now standing on its own.
-GRAIN_DEPTH_MM = 0.14
+GRAIN_DEPTH_MM = 0.05
 # How much more relief the pale white scans need to read as wood — see `_scanned_material`.
 PIECE_WHITE_GRAIN_MUL = 11.0
 # Extra roughness for the pale set — bare birch against lacquered dark wood.
@@ -122,7 +122,26 @@ PIECE_WHITE_ROUGHNESS_ADD = 0.12
 # the relief multiplier that suits birch is not the one that suits the lacquered wood.
 PIECE_GRAIN_MUL_PAWN = 20.0    # the flattest scans (span 0.020) need the most to show anything
 PIECE_GRAIN_MUL_PIECE = 22.0    # the turned types carry more of their own contrast
-PIECE_BLACK_ROUGHNESS_ADD = 0.0
+PIECE_BLACK_ROUGHNESS_ADD = -0.09
+# The luminance window each set's sheen is read against - see `add_wood_sheen`. Taken from the
+# scans' own percentiles: the dark bodies live at linear 0.02-0.12, the pale ones at 0.20-0.45.
+SUN_ANGLE_DEG = (6.0, 22.0)
+# A real room lamp, because the two SUNs cannot produce what the clips show. A sun's irradiance is
+# fixed, so its mirror image is no brighter than the diffuse light around it; widening it from 0.5
+# to 45 degrees moved the black pieces' p90 from 43 to 48 against a measured 208-223. A small, very
+# bright AREA source is what puts a blown highlight on a rounded top - that reflection is orders of
+# magnitude brighter than the surface it sits on, which is the entire effect.
+# Board half-width is 4 * CELL = 24 units; the lamp hangs above it and moves within the room.
+ROOM_LAMP_ENERGY = (4000.0, 25000.0)
+ROOM_LAMP_SIZE = (8.0, 34.0)
+ROOM_LAMP_HEIGHT = (70.0, 150.0)
+ROOM_LAMP_OFFSET = 55.0
+# The two SUNs become fill once a key light exists. Raising the lamp alone lifts the board with it -
+# at 60k the light squares went to 244 against a measured 191-203 - so the key comes up and the fill
+# comes down together, which is what raises CONTRAST rather than exposure.
+SUN_FILL_SCALE = 1.0
+PIECE_BLACK_SHEEN_RANGE = (0.02, 0.12)
+PIECE_WHITE_SHEEN_RANGE = (0.20, 0.45)
 # A neutral trim on the dark set's own scans. Neutral is the point: the warm multiply below it
 # exists to turn PALE wood into dark wood when a black scan is missing, and reusing that tint for a
 # mild darkening drags the pieces brown - which is the direction the user has already rejected once.
@@ -151,6 +170,23 @@ PIECE_BLACK_TINT = (0.760, 1.0, 1.062)
 # 0.084/0.214 - so thresholds taken straight from the measurement sat far above every crown pixel
 # and the ramp spared nothing at all (crown brightness moved by 0.1 of 81).
 PIECE_BLACK_KEEP = (0.084, 0.214)
+# Above that window sit the dark set's PALE inlays - the queen's balls, the king's band - and they
+# are the same wood as the white pieces, so they should read like them. MEASURED on a render
+# (2026-07-28): the inlays reach 86 (bQ) and 55 (bK) against the white pawns' 147.
+PIECE_BLACK_ACCENT = 2.2
+# The mirror case on the pale set: wQ and wK carry a DARK crown, which is the black pieces' wood and
+# should read like it. It reaches only 103 (wQ) and 76 (wK) against the black pawns' 21, because the
+# whitening lift below applies to the whole texture. In the scans the two are cleanly separable -
+# wQ and wK have pixels at linear 0.03-0.07 while every other pale scan starts at 0.18.
+PIECE_WHITE_ACCENT = 0.12
+# The pale set's hue, measured against the LIGHT SQUARES for the same reason the dark set is
+# measured against the dark ones - it is the same wood. MEASURED on a render (2026-07-28): the
+# pieces sat at R/G 1.222 and B/G 0.742 against the squares' 1.136 and 0.811, too much red AND too
+# little blue, which together is exactly the yellow cast. Luminance-normalised at the call site so
+# it moves colour and not exposure. Composed over three passes: one application closed only part of
+# the gap, because the multiply acts in linear light while the ratio is read off an sRGB render.
+PIECE_WHITE_TINT = (0.870, 1.0, 1.180)
+PIECE_WHITE_KEEP = (0.045, 0.105)
 # Where the luminance ramp puts the groove floor. The milled channels are the darkest thing in the
 # board photo; everything above this is grain, everything below is cut. EASE interpolation is what
 # makes the profile ROUND instead of a step — a square-edged groove reads as a printed line.
@@ -314,7 +350,7 @@ def add_board_bump(nt, bsdf, texture_path, suffix, default_name, distance, fallb
         nt.links.new(prev[0].from_socket, bump.inputs["Normal"])
     nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
 
-def add_wood_sheen(nt, bsdf, height_source, roughness_base):
+def add_wood_sheen(nt, bsdf, height_source, roughness_base, from_lo=0.0, from_hi=1.0):
     """Roughness from the texture's own luminance — bright areas glossier, in that DIRECTION.
 
     Restored after a first version was rejected: that one jittered roughness symmetrically around
@@ -325,9 +361,15 @@ def add_wood_sheen(nt, bsdf, height_source, roughness_base):
     `WOOD_SHEEN_SPAN` is how far roughness may move either way; the bright end gets
     `WOOD_PEAK_GLOSS` of extra polish on top, which is what makes a top read as a top.
     """
+    # The window is the material's OWN luminance range, not 0..1. Read absolutely, a dark material
+    # sits entirely at the matt end - which is how the lacquered black set ended up the mattest
+    # thing in the scene while in the real footage it is the glossiest: measured over three clips,
+    # the black pieces' p90 is 208-212 against the render's 42.5, with p10 matching at 15-30 vs
+    # 13.8. Same albedo, no highlight. "Brighter is glossier" only means anything within one
+    # material.
     rough = nt.nodes.new("ShaderNodeMapRange")
-    rough.inputs["From Min"].default_value = 0.0
-    rough.inputs["From Max"].default_value = 1.0
+    rough.inputs["From Min"].default_value = from_lo
+    rough.inputs["From Max"].default_value = from_hi
     rough.inputs["To Min"].default_value = min(1.0, roughness_base + WOOD_SHEEN_SPAN)
     rough.inputs["To Max"].default_value = max(0.0, roughness_base - WOOD_SHEEN_SPAN - WOOD_PEAK_GLOSS)
     nt.links.new(height_source, rough.inputs["Value"])
@@ -593,6 +635,29 @@ def _variant_objs(pdir, canonical):
     return []
 
 
+def _white_look(nt, src):
+    """The pale set's colour treatment, in ONE place.
+
+    It is applied twice - to the white pieces and to the pale inlays on the dark ones - and those
+    two have to stay identical, because the whole point of the inlay correction is that it is the
+    same wood as the white pieces.
+    """
+    hsv = nt.nodes.new("ShaderNodeHueSaturation")
+    hsv.inputs["Saturation"].default_value = PIECE_WHITE_SAT
+    hsv.inputs["Value"].default_value = PIECE_WHITE_VAL
+    nt.links.new(src, hsv.inputs["Color"])
+    out = hsv.outputs["Color"]
+    lum = (0.2126 * PIECE_WHITE_TINT[0] + 0.7152 * PIECE_WHITE_TINT[1]
+           + 0.0722 * PIECE_WHITE_TINT[2])
+    if abs(lum) > 1e-6 and PIECE_WHITE_TINT != (1.0, 1.0, 1.0):
+        tint = nt.nodes.new("ShaderNodeMixRGB"); tint.blend_type = "MULTIPLY"
+        tint.inputs["Fac"].default_value = 1.0
+        tint.inputs["Color2"].default_value = tuple(c / lum for c in PIECE_WHITE_TINT) + (1.0,)
+        nt.links.new(out, tint.inputs["Color1"])
+        out = tint.outputs["Color"]
+    return out
+
+
 def _scanned_material(png, mul=None, whiten=False, piece_type=None):
     img = bpy.data.images.load(str(png))
     mat = bpy.data.materials.new("scan"); mat.use_nodes = True
@@ -613,8 +678,10 @@ def _scanned_material(png, mul=None, whiten=False, piece_type=None):
         # White is MATTER than black, and physically so: the pale set is bare birch while the dark
         # set is lacquered. One global gloss made the white pieces read as piano lacquer even at a
         # roughness the black set wanted ("aber immer noch zu glossy", 2026-07-28).
+        _lo, _hi = PIECE_WHITE_SHEEN_RANGE if whiten else PIECE_BLACK_SHEEN_RANGE
         add_wood_sheen(nt, bsdf, psheen.outputs["Val"],
-                       PIECE_ROUGHNESS + (PIECE_WHITE_ROUGHNESS_ADD if whiten else PIECE_BLACK_ROUGHNESS_ADD))
+                       PIECE_ROUGHNESS + (PIECE_WHITE_ROUGHNESS_ADD if whiten else PIECE_BLACK_ROUGHNESS_ADD),
+                       from_lo=_lo, from_hi=_hi)
     # Relief on pieces, restored. It was removed when the pimply look was (wrongly) blamed on the
     # scan texture; the cause was the photogrammetry MESH, and that is smoothed at template load
     # now (`_smooth_scan_mesh`). With the lumps gone, the albedo's fine variation reads as the
@@ -633,7 +700,22 @@ def _scanned_material(png, mul=None, whiten=False, piece_type=None):
     if whiten:
         _mul = PIECE_WHITE_GRAIN_MUL
     _grain = GRAIN_DEPTH_MM * CELL / SQUARE_MM
-    add_wood_grain(nt, bsdf, psheen.outputs["Val"], groove_units=0.0,
+    # The pale inlays are NOT the wood, so they must not carry its grain. The height source here is
+    # the scan's luminance amplified ~22x, because the scans are nearly flat - which means any
+    # small-scale structure on a smooth inserted part becomes visible relief. On the black king's
+    # cross that shows as pimples, and it gets worse, not better, the more the texture is retouched:
+    # clone stamps and compression both leave exactly that kind of structure behind.
+    #
+    # Clamping the height source flattens them without touching the wood: on the dark set everything
+    # brighter than the body's window is the inlay, on the pale set everything darker than its own
+    # window is the crown. The clamp is one-sided in each case, so the wood's own range is untouched.
+    _h = psheen.outputs["Val"]
+    _cut = PIECE_WHITE_KEEP[1] if whiten else PIECE_BLACK_KEEP[1]
+    _flat = nt.nodes.new("ShaderNodeMath")
+    _flat.operation = "MAXIMUM" if whiten else "MINIMUM"
+    _flat.inputs[1].default_value = _cut
+    nt.links.new(_h, _flat.inputs[0])
+    add_wood_grain(nt, bsdf, _flat.outputs["Value"], groove_units=0.0,
                    grain_units=_grain * _mul)
     # Historical note, kept because it cost a cycle: The height source here would be a PHOTOGRAMMETRY
     # The height source here would be a PHOTOGRAMMETRY SCAN, and its luminance carries
@@ -646,11 +728,34 @@ def _scanned_material(png, mul=None, whiten=False, piece_type=None):
     # die echten Figuren sind aber blass-cremig → entsättigen + aufhellen (nicht-destruktiv im Shader).
     if whiten:
         try:
-            hsv = nt.nodes.new("ShaderNodeHueSaturation")
-            hsv.inputs["Saturation"].default_value = PIECE_WHITE_SAT
-            hsv.inputs["Value"].default_value = PIECE_WHITE_VAL
-            nt.links.new(src, hsv.inputs["Color"])
-            src = hsv.outputs["Color"]
+            raw = src
+            src = _white_look(nt, src)
+            wlo, whi = PIECE_WHITE_KEEP
+            if whi > wlo and PIECE_WHITE_ACCENT != 1.0:
+                # Keyed on the RAW texture, not on the whitened result: the lift above is exactly
+                # what pushed the dark crown out of reach, so keying after it would chase its own
+                # correction. Applied after, so the crown lands where the black pieces are.
+                bw = nt.nodes.new("ShaderNodeRGBToBW")
+                nt.links.new(raw, bw.inputs["Color"])
+                ramp = nt.nodes.new("ShaderNodeMapRange")
+                ramp.interpolation_type = "SMOOTHSTEP"
+                ramp.inputs["From Min"].default_value = wlo
+                ramp.inputs["From Max"].default_value = whi
+                ramp.inputs["To Min"].default_value = 1.0
+                ramp.inputs["To Max"].default_value = 0.0
+                nt.links.new(bw.outputs["Val"], ramp.inputs["Value"])
+                # Mirror image: the dark crown gets the BLACK set's tint as well as its level, so
+                # it lands on the same brown the dark pieces sit on rather than on a grey.
+                dk = nt.nodes.new("ShaderNodeMixRGB"); dk.blend_type = "MULTIPLY"
+                dk.inputs["Fac"].default_value = 1.0
+                dk.inputs["Color2"].default_value = tuple(
+                    c * PIECE_WHITE_ACCENT for c in PIECE_BLACK_TINT) + (1.0,)
+                nt.links.new(src, dk.inputs["Color1"])
+                sel = nt.nodes.new("ShaderNodeMixRGB")
+                nt.links.new(ramp.outputs["Result"], sel.inputs["Fac"])
+                nt.links.new(src, sel.inputs["Color1"])
+                nt.links.new(dk.outputs["Color"], sel.inputs["Color2"])
+                src = sel.outputs["Color"]
         except Exception:
             pass
     # Schwarze Figuren: das Gegenstück. Die Scan-Textur ist zu hell und braunstichig; ohne das
@@ -670,10 +775,21 @@ def _scanned_material(png, mul=None, whiten=False, piece_type=None):
                 keep.inputs["From Min"].default_value = lo
                 keep.inputs["From Max"].default_value = hi
                 nt.links.new(bw.outputs["Val"], keep.inputs["Value"])
+                # The pale inlay gets the WHITE set's own treatment, not merely a brightness
+                # multiply. Scaling alone drove it orange, because these scans are warm-lit and
+                # lifting a warm colour just makes it a brighter warm colour - the desaturation is
+                # the whole reason the white pieces do not look like that.
+                bright = src
+                if PIECE_BLACK_ACCENT != 1.0:
+                    acc = nt.nodes.new("ShaderNodeMixRGB"); acc.blend_type = "MULTIPLY"
+                    acc.inputs["Fac"].default_value = 1.0
+                    acc.inputs["Color2"].default_value = (PIECE_BLACK_ACCENT,) * 3 + (1.0,)
+                    nt.links.new(_white_look(nt, src), acc.inputs["Color1"])
+                    bright = acc.outputs["Color"]
                 spare = nt.nodes.new("ShaderNodeMixRGB")
                 nt.links.new(keep.outputs["Result"], spare.inputs["Fac"])
                 nt.links.new(mix.outputs["Color"], spare.inputs["Color1"])
-                nt.links.new(src, spare.inputs["Color2"])
+                nt.links.new(bright, spare.inputs["Color2"])
                 src = spare.outputs["Color"]
             else:
                 src = mix.outputs["Color"]
@@ -786,7 +902,12 @@ def build_templates(pieces_dir=None):
         for o in objs:
             m = _load_scanned_mesh(o, t)
             m.materials.clear()
-            png = o.with_suffix(".png")
+            # A "<variant>-fixed.png" beside the scan wins. Scan textures are ground truth with no
+            # backup, so a blemish is repaired in a COPY and never in place; this is the one line
+            # that makes such a copy take effect.
+            png = o.with_name(o.stem + "-fixed.png")
+            if not png.exists():
+                png = o.with_suffix(".png")
             if png.exists():
                 m.materials.append(_scanned_material(png, mul, whiten=(color == "w"), piece_type=t))
             else:
@@ -889,16 +1010,83 @@ BOARD_FAMILIES = [
 ]
 
 
+def ensure_room_lamp():
+    """The scene's own lamp, created once. Randomised per view by `randomize_lights`."""
+    o = bpy.data.objects.get("RoomLamp")
+    if o is None:
+        d = bpy.data.lights.new("RoomLamp", type="AREA")
+        o = bpy.data.objects.new("RoomLamp", d)
+        bpy.context.scene.collection.objects.link(o)
+    o.data.type = "AREA"
+    o.data.shape = "SQUARE"
+    return o
+
+
+def place_room_lamp(rng=None):
+    """Position, size and power of the room lamp.
+
+    With `rng` it is a domain-randomisation draw; without one it takes the middle of every band, so
+    a probe render is lit like a real one. That distinction is deliberate: `randomize_lights` is
+    skipped wholesale in probe mode at the call site, and a probe lit differently from production
+    is how eight "different lightings" turned out to share one.
+    """
+    o = ensure_room_lamp()
+    def band(lo, hi):
+        return rng.uniform(lo, hi) if rng is not None else (lo + hi) / 2.0
+    h = band(*ROOM_LAMP_HEIGHT)
+    if rng is not None:
+        ang = rng.uniform(0.0, 2.0 * math.pi)
+        r = ROOM_LAMP_OFFSET * math.sqrt(rng.random())
+        x, y = r * math.cos(ang), r * math.sin(ang)
+    else:
+        x, y = ROOM_LAMP_OFFSET * 0.45, ROOM_LAMP_OFFSET * 0.25
+    o.location = (x, y, h)
+    o.rotation_euler = (math.atan2(math.hypot(x, y), h), 0.0, math.atan2(y, x) + math.pi / 2)
+    o.data.size = band(*ROOM_LAMP_SIZE)
+    o.data.energy = band(*ROOM_LAMP_ENERGY)
+    o.data.color = (1.0, band(0.93, 1.0), band(0.84, 0.98)) if rng is not None else (1.0, 0.96, 0.91)
+    return o
+
+
+def shape_lights():
+    """The angular SIZE of the suns - scene setup, not randomisation, so a probe render gets it too.
+
+    It lives here rather than in `randomize_lights` because that function is skipped entirely in
+    probe mode, at the call site (`if not ra.probe`) rather than in `render_args`'s one silencing
+    list. A probe would otherwise render with a light shape no real render ever uses, which is the
+    exact failure mode that list exists to prevent - and it already cost one wrong reading, where
+    eight "different lightings" turned out to share one.
+    """
+    mid = math.radians(sum(SUN_ANGLE_DEG) / 2.0)
+    for o in bpy.data.objects:
+        if o.type == "LIGHT" and o.data.type == "SUN":
+            o.data.angle = mid
+            base = _BASE_LIGHT_ENERGY.setdefault(o.name, o.data.energy)
+            o.data.energy = base * SUN_FILL_SCALE
+    place_room_lamp(None)
+
+
 def randomize_lights(rng):
     for o in bpy.data.objects:
         if o.type == "LIGHT":
+            if o.name == "RoomLamp":
+                continue                      # owned by place_room_lamp
             base = _BASE_LIGHT_ENERGY.setdefault(o.name, o.data.energy)
-            o.data.energy = base * rng.uniform(0.6, 1.5)
+            o.data.energy = base * SUN_FILL_SCALE * rng.uniform(0.6, 1.5)
             # Nur leicht warm-biased (Innenraum), aber deutlich neutraler als früher — die starke
             # Wärme machte die (ohnehin orangen) weißen Figuren zu orange. Bleibt randomisiert.
             o.data.color = (1.0, rng.uniform(0.93, 1.0), rng.uniform(0.86, 0.98))
             if o.data.type == "SUN":
                 o.rotation_euler = (rng.uniform(0, 0.5), rng.uniform(0, 0.5), rng.uniform(0, 2 * math.pi))
+                # A sun's default angular size is half a degree, so its specular reflection on a
+                # turned piece is a pinprick. In a room the light comes off a shade or a window,
+                # and that reflection covers a good part of a rounded top. MEASURED against three
+                # clips (2026-07-28): the real pieces' p90 is 208-223 while the render managed 43
+                # (black) and 161 (white), with p10 matching - the albedo was never the problem,
+                # the highlight was. Widening the source is what makes a broad blown top possible;
+                # narrowing the roughness only made the pinprick sharper and smaller.
+                o.data.angle = math.radians(rng.uniform(*SUN_ANGLE_DEG))
+    place_room_lamp(rng)
     world = bpy.context.scene.world
     if world and world.use_nodes:
         bg = world.node_tree.nodes.get("Background")
@@ -1597,6 +1785,7 @@ def main():
 
     scene = bpy.context.scene
     eng = set_engine_fast(ra.samples)
+    shape_lights()
     scene.render.resolution_x = scene.render.resolution_y = ra.res
     # JPEG q90 statt PNG: ~5x kleinere Roh-Renders UND naeher an der Domaene der echten Kamera
     # (die Webcam liefert JPEG-komprimierte Frames — verlustfreie PNGs sind unrealistisch sauber).
