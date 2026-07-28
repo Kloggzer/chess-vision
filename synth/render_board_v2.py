@@ -57,7 +57,11 @@ BOARD_WARM_FAC = 0.0
 # stop the dark squares reflecting the cool ambient and reading grey — a COLOUR fix applied to a
 # reflectance parameter. The reference photos show a board with visible sheen, so the fix belongs
 # in the light, not here.
-BOARD_ROUGHNESS = 0.70
+BOARD_ROUGHNESS = 0.25
+# Was hardcoded at 0.2. With roughness 0.70 that is a surface so diffuse it reflects almost nothing,
+# so the grain bump perturbs a normal that has no highlight to move — "das Glänzen der kleinen Bumps
+# fehlt" (2026-07-28). Relief without specular is invisible relief.
+BOARD_SPECULAR = 0.85
 # Board-Sättigung: das echte Brettfoto ist warm-gelblich → leicht entsättigen zieht das Gelb raus.
 BOARD_SATURATION = 0.92
 # LIGHT-TILE GAIN. The board texture is a PHOTOGRAPH of the board at its own exposure, used as
@@ -241,36 +245,38 @@ BOARD_PLAY_HALF_FRAC = 0.425
 
 
 
-def add_groove_bump(nt, bsdf, texture_path):
-    """The milled channels, from their own map, layered ON TOP of the grain bump.
+def add_board_bump(nt, bsdf, texture_path, suffix, default_name, distance, fallback):
+    """One height map -> one bump, CHAINED onto whatever already drives the normal.
 
-    Chained rather than added: the grain bump's Normal feeds this one's Normal input, so the fine
-    surface survives inside the channels instead of being averaged away with them. Depth is the
-    measured millimetre (`GROOVE_DEPTH_MM`), the map carries the rounded profile.
+    Chained rather than summed: each map's normal feeds the next one's Normal input, so fine grain
+    survives inside the channels instead of being averaged away with them.
 
-    The map lives beside the colour texture as `<stem>_grooves.png`, falling back to
-    `board_grooves.png` in the same directory. Missing map -> grain only, and a warning, because a
-    board whose lines are painted rather than cut is a real difference and must not pass silently.
+    The map lives beside the colour texture as `<stem><suffix>.png`, or `default_name` in the same
+    directory. Missing map: use `fallback` if one is given, else warn — a board whose lines are
+    painted rather than cut is a real difference and must not pass silently.
     """
     from pathlib import Path
 
     tex = Path(texture_path)
-    for cand in (tex.with_name(f"{tex.stem}_grooves.png"), tex.with_name("board_grooves.png")):
+    src = None
+    for cand in (tex.with_name(f"{tex.stem}{suffix}.png"), tex.with_name(default_name)):
         if cand.exists():
+            img = bpy.data.images.load(str(cand))
+            img.colorspace_settings.name = "Non-Color"      # a height field is not a colour
+            node = nt.nodes.new("ShaderNodeTexImage")
+            node.image = img
+            node.interpolation = "Cubic"
+            src = node.outputs["Color"]
             break
-    else:
-        print(f"[WARN] no groove map beside {tex.name} — board rendered without milled channels")
-        return
-    img = bpy.data.images.load(str(cand))
-    img.colorspace_settings.name = "Non-Color"      # a height field is not a colour
-    tx = nt.nodes.new("ShaderNodeTexImage")
-    tx.image = img
-    tx.interpolation = "Cubic"
+    if src is None:
+        if fallback is None:
+            print(f"[WARN] no {default_name} beside {tex.name} — board rendered without it")
+            return
+        src = fallback
     bump = nt.nodes.new("ShaderNodeBump")
     bump.inputs["Strength"].default_value = 1.0
-    bump.inputs["Distance"].default_value = GROOVE_DEPTH_MM * CELL / SQUARE_MM
-    nt.links.new(tx.outputs["Color"], bump.inputs["Height"])
-    # Whatever is already driving the normal becomes this bump's base.
+    bump.inputs["Distance"].default_value = distance
+    nt.links.new(src, bump.inputs["Height"])
     prev = bsdf.inputs["Normal"].links
     if prev:
         nt.links.new(prev[0].from_socket, bump.inputs["Normal"])
@@ -351,9 +357,9 @@ def make_textured_board_material(texture_path):
     bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
     bsdf.inputs["Roughness"].default_value = BOARD_ROUGHNESS
     if "Specular IOR Level" in bsdf.inputs:
-        bsdf.inputs["Specular IOR Level"].default_value = 0.2
+        bsdf.inputs["Specular IOR Level"].default_value = BOARD_SPECULAR
     elif "Specular" in bsdf.inputs:
-        bsdf.inputs["Specular"].default_value = 0.2
+        bsdf.inputs["Specular"].default_value = BOARD_SPECULAR
     tx = nt.nodes.new("ShaderNodeTexImage")
     tx.image = img
     # Light-tile gain (see BOARD_LIGHT_GAIN): luminance-masked multiplier that lifts ONLY the
@@ -397,9 +403,16 @@ def make_textured_board_material(texture_path):
     # setting was acceptable. The channels are GEOMETRY at known positions, so they get their own
     # computed map (`synth/make_groove_map.py`) and the photo is left to do only what it can —
     # wood grain.
-    add_wood_grain(nt, bsdf, bw.outputs["Val"], groove_units=0.0,
-                   grain_units=GROOVE_DEPTH_MM * GRAIN_DEPTH_FRAC * CELL / SQUARE_MM)
-    add_groove_bump(nt, bsdf, texture_path)
+    # Grain from its OWN map, not from the raw luminance. Raw luminance made every square boundary
+    # a height cliff, because a light and a dark square differ in ALBEDO and not in height — they
+    # are milled from one plank and are coplanar. `make_groove_map.py --grain-out` subtracts the
+    # per-square mean so only the grain is left, and blanks the channels so the groove bump owns
+    # them. Falls back to the old luminance path when no map is present.
+    add_board_bump(nt, bsdf, texture_path, "_grain", "board_grain.png",
+                   GROOVE_DEPTH_MM * GRAIN_DEPTH_FRAC * CELL / SQUARE_MM,
+                   fallback=bw.outputs["Val"])
+    add_board_bump(nt, bsdf, texture_path, "_grooves", "board_grooves.png",
+                   GROOVE_DEPTH_MM * CELL / SQUARE_MM, fallback=None)
     nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
     return mat
 
