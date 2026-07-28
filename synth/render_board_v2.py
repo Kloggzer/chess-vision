@@ -57,7 +57,7 @@ BOARD_WARM_FAC = 0.0
 # stop the dark squares reflecting the cool ambient and reading grey — a COLOUR fix applied to a
 # reflectance parameter. The reference photos show a board with visible sheen, so the fix belongs
 # in the light, not here.
-BOARD_ROUGHNESS = 0.62
+BOARD_ROUGHNESS = 0.70
 # Board-Sättigung: das echte Brettfoto ist warm-gelblich → leicht entsättigen zieht das Gelb raus.
 BOARD_SATURATION = 0.92
 # LIGHT-TILE GAIN. The board texture is a PHOTOGRAPH of the board at its own exposure, used as
@@ -70,9 +70,15 @@ BOARD_SATURATION = 0.92
 # masked by the texture's OWN linear luminance: 1.0 at dark-tile level, full gain at light-tile
 # level, ramped in between. Multiplicative (not a mix toward white) so the wood grain keeps its
 # relative contrast.
-BOARD_LIGHT_GAIN = 1.60
+# The same luminance-masked multiplier now reaches BOTH ends, because the measured fault is the
+# CONTRAST and not the brightness. Four rectified reference photos of the real board (2026-07-28,
+# `data/_reference/20260728-board`) give light 166.2 / dark 47.3 with a spread of only 163-172 and
+# 44-54 across four lightings — a target, not a snapshot. The render sat at 139 / 58, so the light
+# tiles come up and the dark ones come down.
+BOARD_DARK_GAIN = 0.684
+BOARD_LIGHT_GAIN = 2.67
 BOARD_LIGHT_GAIN_LO = 0.15   # linear luma of the darkest pixel that stays untouched (dark tile: 0.024)
-BOARD_LIGHT_GAIN_HI = 0.45   # linear luma at which the full gain applies (light tile: 0.523)
+BOARD_LIGHT_GAIN_HI = 0.41   # linear luma at which the full gain applies (light tile: 0.523)
 # Figuren leicht glänzend (echtes lackiertes Holz fängt Glanzlichter, die die 3D-Form verraten →
 # hilft, N/B/R von oben zu unterscheiden). Frühere 0.7/Specular 0.2 waren ZU matt (formarm).
 PIECE_ROUGHNESS = 0.26
@@ -96,7 +102,7 @@ PIECE_SPECULAR = 0.5
 # map fakes relief through the normal without geometry, so it over-reads at grazing angles — half
 # the physical depth is what looks like the real 1 mm cut. The user did NOT pick 0, so the relief
 # itself is wanted; only its amplitude was over-stated.
-GROOVE_DEPTH_MM = 0.5
+GROOVE_DEPTH_MM = 1.0
 # Wood grain is a fraction of that — surface texture, not a cut. Expressed as a share of the
 # groove depth so the two stay in proportion if the board scale ever changes.
 GRAIN_DEPTH_FRAC = 0.14
@@ -229,10 +235,46 @@ def make_board_material(light, dark):
 # das 8x8-Spielfeld belegt zentriert ±BOARD_PLAY_HALF_FRAC der Textur (0.5 = ganze Textur =
 # Spielfeld). Der Rest sind Koordinaten (A–H, 1–8) + Rahmen. Bestimmt, wie groß die Plane
 # sein muss, damit das 8x8 exakt auf ±HALF (die echten Feld-Weltkoordinaten) fällt.
-BOARD_PLAY_HALF_FRAC = 0.419
+BOARD_PLAY_HALF_FRAC = 0.425
 
 
 
+
+
+def add_groove_bump(nt, bsdf, texture_path):
+    """The milled channels, from their own map, layered ON TOP of the grain bump.
+
+    Chained rather than added: the grain bump's Normal feeds this one's Normal input, so the fine
+    surface survives inside the channels instead of being averaged away with them. Depth is the
+    measured millimetre (`GROOVE_DEPTH_MM`), the map carries the rounded profile.
+
+    The map lives beside the colour texture as `<stem>_grooves.png`, falling back to
+    `board_grooves.png` in the same directory. Missing map -> grain only, and a warning, because a
+    board whose lines are painted rather than cut is a real difference and must not pass silently.
+    """
+    from pathlib import Path
+
+    tex = Path(texture_path)
+    for cand in (tex.with_name(f"{tex.stem}_grooves.png"), tex.with_name("board_grooves.png")):
+        if cand.exists():
+            break
+    else:
+        print(f"[WARN] no groove map beside {tex.name} — board rendered without milled channels")
+        return
+    img = bpy.data.images.load(str(cand))
+    img.colorspace_settings.name = "Non-Color"      # a height field is not a colour
+    tx = nt.nodes.new("ShaderNodeTexImage")
+    tx.image = img
+    tx.interpolation = "Cubic"
+    bump = nt.nodes.new("ShaderNodeBump")
+    bump.inputs["Strength"].default_value = 1.0
+    bump.inputs["Distance"].default_value = GROOVE_DEPTH_MM * CELL / SQUARE_MM
+    nt.links.new(tx.outputs["Color"], bump.inputs["Height"])
+    # Whatever is already driving the normal becomes this bump's base.
+    prev = bsdf.inputs["Normal"].links
+    if prev:
+        nt.links.new(prev[0].from_socket, bump.inputs["Normal"])
+    nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
 
 def add_wood_sheen(nt, bsdf, height_source, roughness_base):
     """Roughness from the texture's own luminance — bright areas glossier, in that DIRECTION.
@@ -322,7 +364,7 @@ def make_textured_board_material(texture_path):
     gain = nt.nodes.new("ShaderNodeMapRange")
     gain.inputs["From Min"].default_value = BOARD_LIGHT_GAIN_LO
     gain.inputs["From Max"].default_value = BOARD_LIGHT_GAIN_HI
-    gain.inputs["To Min"].default_value = 1.0
+    gain.inputs["To Min"].default_value = BOARD_DARK_GAIN
     gain.inputs["To Max"].default_value = BOARD_LIGHT_GAIN
     nt.links.new(bw.outputs["Val"], gain.inputs["Value"])
     lift = nt.nodes.new("ShaderNodeMixRGB")
@@ -349,9 +391,15 @@ def make_textured_board_material(texture_path):
     # printed. Dark texture -> low height is exactly the polarity a groove needs, so the same
     # source gives the squares their edge and the labels their depth without a second map.
     add_wood_sheen(nt, bsdf, bw.outputs["Val"], BOARD_ROUGHNESS)
-    add_wood_grain(nt, bsdf, bw.outputs["Val"],
-                   groove_units=GROOVE_DEPTH_MM * CELL / SQUARE_MM,
+    # TWO bumps, chained, because they are two different things and sharing one height map is what
+    # made the previous round unusable: the milled channels and the dark squares occupy the same
+    # luminance range in the photograph, so deepening the grooves also roughened the squares and no
+    # setting was acceptable. The channels are GEOMETRY at known positions, so they get their own
+    # computed map (`synth/make_groove_map.py`) and the photo is left to do only what it can —
+    # wood grain.
+    add_wood_grain(nt, bsdf, bw.outputs["Val"], groove_units=0.0,
                    grain_units=GROOVE_DEPTH_MM * GRAIN_DEPTH_FRAC * CELL / SQUARE_MM)
+    add_groove_bump(nt, bsdf, texture_path)
     nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
     return mat
 
