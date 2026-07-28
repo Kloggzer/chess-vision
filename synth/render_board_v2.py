@@ -140,6 +140,13 @@ ROOM_LAMP_OFFSET = 55.0
 # at 60k the light squares went to 244 against a measured 191-203 - so the key comes up and the fill
 # comes down together, which is what raises CONTRAST rather than exposure.
 SUN_FILL_SCALE = 1.0
+# The randomisation bands, CENTRED on the camera's measured operating point instead of on nothing
+# in particular. With the real board and its own colour, the old bands put the median at light 231
+# / dark 69 against the clips' 197 / 47, and 1 % of frames landed inside the real range - so the
+# probe render matched reality while nothing that gets trained on did. Ambient was the worst
+# offender at 0.08-0.45 against the 0.051 the blend file itself uses.
+AMBIENT_BAND = (0.02, 0.10)
+SUN_ENERGY_BAND = (0.75, 1.25)
 PIECE_BLACK_SHEEN_RANGE = (0.02, 0.12)
 PIECE_WHITE_SHEEN_RANGE = (0.20, 0.45)
 # A neutral trim on the dark set's own scans. Neutral is the point: the warm multiply below it
@@ -1090,7 +1097,7 @@ def randomize_lights(rng):
             if o.name == "RoomLamp":
                 continue                      # owned by place_room_lamp
             base = _BASE_LIGHT_ENERGY.setdefault(o.name, o.data.energy)
-            o.data.energy = base * SUN_FILL_SCALE * rng.uniform(0.6, 1.5)
+            o.data.energy = base * SUN_FILL_SCALE * rng.uniform(*SUN_ENERGY_BAND)
             # Nur leicht warm-biased (Innenraum), aber deutlich neutraler als früher — die starke
             # Wärme machte die (ohnehin orangen) weißen Figuren zu orange. Bleibt randomisiert.
             o.data.color = (1.0, rng.uniform(0.93, 1.0), rng.uniform(0.86, 0.98))
@@ -1114,7 +1121,7 @@ def randomize_lights(rng):
             # echten Aufnahmen lag ihr Schatten 2.5x zu hell, und an der Basisfarbe liess sich das
             # kaum bewegen (2.5x dunklere Textur = nur 9% weniger Helligkeit). Schlüssellichter
             # modellieren, Schatten dürfen zufallen — so entsteht der Kontrast echter Fotos.
-            bg.inputs[1].default_value = rng.uniform(0.08, 0.45)
+            bg.inputs[1].default_value = rng.uniform(*AMBIENT_BAND)
             # World-Ambient ebenfalls warm-biased statt neutral-kühl.
             bg.inputs[0].default_value = (1.0, rng.uniform(0.82, 0.95), rng.uniform(0.62, 0.82), 1.0)
 
@@ -1188,6 +1195,12 @@ def randomize_board(rng, borderless_p: float = 0.0, isolate_p: float = 0.0):
             board.data.materials.clear()
             board.data.materials.append(photo_mat)
 
+    if rng.random() < BOARD_PHOTO_PLAIN_P:
+        # Leave the material exactly as `make_board_material` built it. Writing "neutral" values
+        # into the HUE_SAT node is NOT the same thing and was measurably brighter - the probe
+        # render, which is the one that matches the clips, touches nothing here.
+        return
+
     family = rng.choice(BOARD_FAMILIES)
     hue = family["hue"] + rng.uniform(-0.02, 0.02)
     sat = BOARD_SATURATION * family["sat_mul"] * rng.uniform(0.85, 1.15)
@@ -1217,6 +1230,16 @@ def randomize_board(rng, borderless_p: float = 0.0, isolate_p: float = 0.0):
 # board (mild recolor), half show a diverse procedural board — the procedural half carries the
 # strong colour variety that keeps the board from predicting piece identity.
 BOARD_PROCEDURAL_P = 0.50
+# Share of PHOTO scenes that keep the photo's own colour, with no hue rotation and no value
+# jitter. Without this the material work is unreachable: every surviving photo scene was recoloured
+# afterwards, so the values measured against the real clips (light squares 198 vs their 191-203,
+# dark 38.6 vs 38.8) described the probe render and nothing that was ever trained on. Measured on
+# the production path, the photo scenes came out at dark 52-87 against the clips' 39-57.
+#
+# It does NOT weaken the anti-shortcut argument, which is real and measured: the recoloured and
+# procedural scenes still carry it, and they stay the majority. This only guarantees that the
+# domain the tracker actually runs in is present at a known rate instead of by accident.
+BOARD_PHOTO_PLAIN_P = 0.45
 
 # Plane scale factor for BORDERLESS scenes: the board plane (normally ±28.6, ~0.8 cells past the
 # 8x8) is enlarged so the edge-to-edge checker/solid overhangs FAR beyond the board (~5+ cells) and
