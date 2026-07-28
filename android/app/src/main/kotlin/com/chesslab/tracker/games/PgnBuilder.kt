@@ -6,21 +6,42 @@ import java.util.Date
 import java.util.Locale
 
 private const val WRAP_COLUMNS = 80
+private const val UNFINISHED = "*"
 
 /**
- * Standard PGN.
+ * Standard PGN — **one PGN game per [GameSegment]**.
+ *
+ * A PGN file may legitimately hold several games, and that is the honest shape for a record the app
+ * lost and rebuilt: the segments do not chain, so writing them as one main line would produce a
+ * file that parses, looks legal, and replays wrongly from the seam onwards. Each segment gets its
+ * own `[FEN]` and the segment's first move carries a comment naming what happened.
  *
  * The one export bug that matters is a mid-game start without `SetUp`/`FEN`: the file parses, the
  * moves are legal-looking, and every reader replays them from the wrong position. So those two tags
- * are emitted whenever [StoredGame.startFen] is not the standard start position.
+ * are emitted whenever a segment does not start at the standard start position.
  *
  * With [provenance] off the output is a plain PGN, byte for byte — the comments are a debugging
- * aid, and a game full of `{cl: diff_after_verify}` is not something anyone sends to anyone.
+ * aid, and a game full of `{cl: diff_after_verify}` is not something anyone sends to anyone. The
+ * seam comment is NOT one of them: it is why the moves after it do not follow the moves before.
  */
 fun buildPgn(
     game: StoredGame,
     provenance: Boolean = false,
 ): String {
+    val segments = game.segmentsOrOne()
+    return segments
+        .mapIndexed { index, segment -> pgnGame(game, segment, provenance, last = index == segments.lastIndex) }
+        .joinToString("\n")
+}
+
+/** One `[Event]` block. Only the last segment can carry the game's result; the earlier ones ran on. */
+private fun pgnGame(
+    game: StoredGame,
+    segment: GameSegment,
+    provenance: Boolean,
+    last: Boolean,
+): String {
+    val result = if (last) game.result else UNFINISHED
     val tags =
         buildString {
             appendLine("[Event \"${escapeTag(game.event)}\"]")
@@ -29,14 +50,23 @@ fun buildPgn(
             appendLine("[Round \"$UNKNOWN\"]")
             appendLine("[White \"${escapeTag(game.white)}\"]")
             appendLine("[Black \"${escapeTag(game.black)}\"]")
-            appendLine("[Result \"${game.result}\"]")
-            if (game.startFen != STARTPOS) {
+            appendLine("[Result \"$result\"]")
+            if (segment.startFen != STARTPOS) {
                 appendLine("[SetUp \"1\"]")
-                appendLine("[FEN \"${game.startFen}\"]")
+                appendLine("[FEN \"${segment.startFen}\"]")
             }
         }
-    return tags + "\n" + wrap(tokens(game, provenance) + game.result) + "\n"
+    return tags + "\n" + wrap(tokens(segment, provenance) + result) + "\n"
 }
+
+/**
+ * `{position rebuilt by cnn_recovery: Qxd4 — the app lost the board here}`.
+ *
+ * The plies it names are in no move list of any segment: they are illegal from the line before the
+ * seam and they precede this segment's start. This comment is the only place they exist in the PGN.
+ */
+private fun seamComment(seam: SeamOrigin): String =
+    "{${sanitize("position rebuilt by ${seam.decider}: ${seam.sans.joinToString(" ")} — the app lost the board here")}}"
 
 /** `yyyy.MM.dd` in local time — the PGN date is the date the game was played, not a UTC instant. */
 private fun pgnDate(epochMs: Long): String = SimpleDateFormat("yyyy.MM.dd", Locale.US).format(Date(epochMs))
@@ -47,19 +77,24 @@ private fun pgnDate(epochMs: Long): String = SimpleDateFormat("yyyy.MM.dd", Loca
  * shifts every later move by half a ply.
  */
 private fun tokens(
-    game: StoredGame,
+    segment: GameSegment,
     provenance: Boolean,
 ): List<String> {
-    val fields = game.startFen.split(" ")
+    val fields = segment.startFen.split(" ")
     var number = fields.getOrNull(5)?.toIntOrNull() ?: 1
     var whiteToMove = fields.getOrNull(1) != "b"
+    val seam = segment.enteredBy?.let(::seamComment)
+    // A segment can be empty — a seam whose first move was taken back again — and then the comment
+    // is the whole movetext. Dropping it would lose the only record of the plies that caused it.
+    if (segment.moves.isEmpty()) return listOfNotNull(seam)
     val out = mutableListOf<String>()
-    game.moves.forEach { move ->
+    segment.moves.forEachIndexed { index, move ->
         when {
             whiteToMove -> out += "$number."
             out.isEmpty() -> out += "$number..."
         }
         out += move.san
+        if (index == 0 && seam != null) out += seam
         if (provenance) move.provenance?.let { out += comment(it) }
         if (!whiteToMove) number++
         whiteToMove = !whiteToMove
