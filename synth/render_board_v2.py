@@ -136,6 +136,8 @@ ROOM_LAMP_ENERGY = (4000.0, 25000.0)
 ROOM_LAMP_SIZE = (8.0, 34.0)
 ROOM_LAMP_HEIGHT = (70.0, 150.0)
 ROOM_LAMP_OFFSET = 55.0
+# How far the source may swing off the camera's azimuth, in radians. A roof window does not move.
+ROOM_LAMP_AZIMUTH_SPREAD = 0.6
 # The two SUNs become fill once a key light exists. Raising the lamp alone lifts the board with it -
 # at 60k the light squares went to 244 against a measured 191-203 - so the key comes up and the fill
 # comes down together, which is what raises CONTRAST rather than exposure.
@@ -1047,7 +1049,7 @@ def ensure_room_lamp():
     return o
 
 
-def place_room_lamp(rng=None):
+def place_room_lamp(rng=None, cam=None):
     """Position, size and power of the room lamp.
 
     With `rng` it is a domain-randomisation draw; without one it takes the middle of every band, so
@@ -1059,8 +1061,17 @@ def place_room_lamp(rng=None):
     def band(lo, hi):
         return rng.uniform(lo, hi) if rng is not None else (lo + hi) / 2.0
     h = band(*ROOM_LAMP_HEIGHT)
+    # The real source is a ROOF WINDOW roughly behind the camera, not a lamp somewhere in the room
+    # (user, 2026-07-28). That is what puts a blown highlight on the pieces: with a top-down camera
+    # and an off-axis source the mirror direction points away from the lens, which is why the
+    # rendered pieces reached p90 43-86 against the clips' 208-223 however bright the lamp was made.
+    # A source near the camera's own azimuth reflects INTO it.
     if rng is not None:
-        ang = rng.uniform(0.0, 2.0 * math.pi)
+        if cam is not None:
+            base = math.atan2(cam.location.y, cam.location.x)
+            ang = base + rng.uniform(-ROOM_LAMP_AZIMUTH_SPREAD, ROOM_LAMP_AZIMUTH_SPREAD)
+        else:
+            ang = rng.uniform(0.0, 2.0 * math.pi)
         r = ROOM_LAMP_OFFSET * math.sqrt(rng.random())
         x, y = r * math.cos(ang), r * math.sin(ang)
     else:
@@ -1111,7 +1122,6 @@ def randomize_lights(rng):
                 # the highlight was. Widening the source is what makes a broad blown top possible;
                 # narrowing the roughness only made the pinprick sharper and smaller.
                 o.data.angle = math.radians(rng.uniform(*SUN_ANGLE_DEG))
-    place_room_lamp(rng)
     world = bpy.context.scene.world
     if world and world.use_nodes:
         bg = world.node_tree.nodes.get("Background")
@@ -1891,6 +1901,7 @@ def main():
             cam_meta["lens_mm"] = round(frame_board(scene, cam, ra.frame_frac), 2)
             if not ra.probe:
                 randomize_lights(rng)
+                place_room_lamp(rng, cam)      # after the camera: the source follows its azimuth
                 randomize_piece_materials(rng)   # Kronen-/Farbvarianz pro View (bQ→wQ-Flip)
 
             # Occluder: pro View mit occ_p eine Faust/Unterarm über ein Brett-Innenfeld legen.
