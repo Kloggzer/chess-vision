@@ -39,14 +39,8 @@ TEMPLATE_NAMES = {"P": "White Pawn", "N": "Knight", "B": "Bishop", "R": "LPRook"
                   "Q": "Queen", "K": "King"}
 BOARD_KEEP = {"ChessBoard", "Chessboard Surround"}
 
-# Rotated half a turn from the obvious assignment, together with `square_center`, so that the
-# GAME lines up with the board's printed ring: White's back rank has to sit at the A..H edge. The
-# texture orientation is fixed independently (see the UV block); with that one correct, the ring
-# was still on Black's side and only this pair moves it. Both must move together - the JSON corners
-# and the piece placement come from the same geometry, so rotating one alone silently transposes
-# every label.
 BOARD_CORNERS_3D = {
-    "a8": (-HALF, HALF), "h8": (-HALF, -HALF), "h1": (HALF, -HALF), "a1": (HALF, HALF),
+    "a8": (HALF, -HALF), "h8": (HALF, HALF), "h1": (-HALF, HALF), "a1": (-HALF, -HALF),
 }
 
 # Warm-Tint für die Brett-Foto-Textur: der dunkle Brett-Lack fotografiert sich neutral-grau.
@@ -238,9 +232,8 @@ def argv_after_dashes():
 def square_center(fi, ri):
     """file-index a..h = 0..7 (Y-Achse), rank-index 1..8 = 0..7 (X-Achse) -> Weltkoordinate.
 
-    Half a turn from the obvious sign, in lockstep with BOARD_CORNERS_3D - see the note there.
     """
-    return (21.0 - CELL * ri, 21.0 - CELL * fi)
+    return (-21.0 + CELL * ri, -21.0 + CELL * fi)
 
 
 def parse_fen_placement(fen):
@@ -531,8 +524,11 @@ def make_board_plane(texture_path):
         # put them on the file edges instead, i.e. digits along rank 1 ("weiss steht nicht an der
         # buchstaben seite", 2026-07-28).
         #
-        # Settled by rendering all EIGHT orientations (four rotations x two reflections) on an empty
-        # board and reading White's edge off each. That is the cheap, conclusive method; three
+        # Settled by rendering all EIGHT orientations (four rotations x two reflections) on a FULL
+        # board with pieces, at a size where the printed digits are legible, and checking which
+        # rank White stands on. That last part is the whole test: several orientations put the
+        # letters on a rank edge and look right, but only one has White on 1 and 2 - its neighbour
+        # puts it on 7 and 8, which is a board nobody sets up. That is the cheap, conclusive method; three
         # cleverer ones were tried first and every one of them failed:
         #
         #   glyph shapes by eye     - this board's E is branded BACKWARDS, so a correct render
@@ -546,7 +542,7 @@ def make_board_plane(texture_path):
         # NOTE the previous comment here rejected this very mapping as "every glyph mirrored". It
         # is not; that was the un-inverted swap. Both readings cannot be checked by reasoning -
         # render the eight and look.
-        uvl.data[loop.index].uv = ((co.y + P) / (2.0 * P), (co.x + P) / (2.0 * P))
+        uvl.data[loop.index].uv = (1.0 - (co.y + P) / (2.0 * P), (co.x + P) / (2.0 * P))
     obj = bpy.data.objects.new("BoardPlane", mesh)
     obj.location.z = z
     bpy.context.scene.collection.objects.link(obj)
