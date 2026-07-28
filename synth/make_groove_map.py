@@ -81,8 +81,14 @@ def ring_line(profile: np.ndarray, lo: int, hi: int, cell: float) -> float | Non
     return float(lo + a + (np.arange(len(w)) * w).sum() / w.sum())
 
 
-def _channel_mask(grey: np.ndarray, frac: float, width_frac: float, ring: bool) -> np.ndarray:
-    """1 on the square faces, 0 at the centre of a channel. The one definition both maps use."""
+def _channel_masks(grey: np.ndarray, frac: float, width_frac: float, ring: bool,
+                   flat: float = 0.0) -> tuple[np.ndarray, np.ndarray]:
+    """1 on the square faces, 0 at the centre of a channel, kept SEPARATE per axis.
+
+    Vertical and horizontal channels have to stay apart: anything averaged along a channel has to
+    know which way that channel runs, and their combination (the min of the two) has thrown that
+    away.
+    """
     size = grey.shape[0]
     field = size * frac
     origin = (size - field) / 2.0
@@ -117,54 +123,93 @@ def _channel_mask(grey: np.ndarray, frac: float, width_frac: float, ring: bool) 
         for ln in lines:
             dist = np.minimum(dist, np.abs(coord - ln))
         t = np.clip(dist / half, 0.0, 1.0)
-        return t * t * (3.0 - 2.0 * t)            # 1 on the face, 0 at the line, rounded between
+        # A FLAT-BOTTOMED cut, not a parabolic one: the bit leaves an even floor with rounded
+        # fillets and steep walls, "eher so |__|". Without the plateau the profile bottoms out at a
+        # single point, which reads as a gouge however smooth the curve through it is.
+        if flat > 0.0:
+            t = np.clip((t - flat) / max(1.0 - flat, 1e-6), 0.0, 1.0)
+        return t * t * (3.0 - 2.0 * t)            # 1 on the face, 0 in the cut, rounded between
 
-    return np.minimum(mask_1d(cols)[None, :], mask_1d(rows)[:, None])
+    return mask_1d(cols)[None, :], mask_1d(rows)[:, None]
 
 
 def groove_map(colour: np.ndarray, frac: float, width_frac: float, ring: bool,
-               smooth: float = 0.0, shoulder: float = 0.0) -> np.ndarray:
+               smooth: float = 0.0, shoulder: float = 0.0,
+               texture: float = 0.0, flat: float = 0.0) -> np.ndarray:
+    """The milled channels: one fixed cross-section, modulated along each channel by the photo.
+
+    The split matters and two attempts got it wrong. Driving the cross-section from the photo's
+    luminance made the cut a V, because inside a channel that luminance has a narrow, very dark
+    core and the core became a point. Blurring the photo isotropically to fix that mixed the bright
+    square faces in ACROSS the channel, which lifted its floor until the cut all but vanished and
+    left only a slow residual undulation - a "Wellenschliff".
+
+    So the photo is averaged strictly ALONG each channel, over face-free pixels only, which is why
+    the two axes are handled separately. What comes out varies over the length of a channel and is
+    constant across it, which is exactly what a photograph of a cut can honestly tell you: the bit
+    is the same everywhere, the wood it went through is not.
+    """
     grey = cv2.cvtColor(colour, cv2.COLOR_BGR2GRAY).astype(np.float32)
-    mask = _channel_mask(grey, frac, width_frac, ring)
+    size = grey.shape[0]
+    cell = size * frac / 8.0
+    channel_px = cell * width_frac
+    mx, my = _channel_masks(grey, frac, width_frac, ring, flat)
 
-    # The channel's own depth, from the photograph. Normalised over the masked pixels so the cut
-    # uses the full range regardless of how this board was lit, then blended by the mask so the
-    # squares stay perfectly flat.
-    channel_px = grey.shape[0] * frac / 8.0 * width_frac
-    inside = mask < 0.999
-    if inside.any():
-        v = grey[inside]
-        lo, hi = np.percentile(v, 2), np.percentile(v, 98)
-        photo = np.clip((grey - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
-    else:
-        photo = np.ones_like(grey)
+    # How far the amplitude may drop where the cut photographs palest. Never to zero: a channel
+    # that fades out entirely reads as a break in the line, and the board has no such breaks.
+    floor = 0.55
+    across = max(3, int(channel_px * 0.8) | 1)
+    along = max(3, int(cell * max(smooth, 0.02)) | 1)
 
-    # The CROSS-SECTION is the shape of the cutter and is the same everywhere; the PHOTOGRAPH only
-    # knows how the cut varies ALONG its length. Letting the photo drive the cross-section too was
-    # the mistake: inside the channel it has a narrow, very dark core, and that core became a point
-    # - the cut rendered as a V gouged with a knife rather than a rounded mill, with the texture
-    # sitting on top of it as a decal. Blurring the photo term by a fraction of the channel width
-    # smears that core away and hands the cross-section back to the mask, whose smoothstep already
-    # IS a rounded bowl (zero slope at the bottom, zero at the rim). Variation along the channel is
-    # far longer than the channel is wide, so it survives.
-    if smooth > 0.0:
-        photo = cv2.GaussianBlur(photo, (0, 0), max(1.0, smooth * channel_px))
-    out = mask + (1.0 - mask) * photo
+    depth = np.zeros_like(grey)
+    tex = np.zeros_like(grey)
+    for mask_1d, ksize in ((mx, (across, along)), (my, (along, across))):
+        w = np.broadcast_to(1.0 - mask_1d, grey.shape).astype(np.float32)
+        if w.max() <= 0.0:
+            continue
+        # Normalised convolution over channel pixels: long along the channel, barely wider than the
+        # channel across it. The weight keeps the square faces out of the average entirely.
+        num = cv2.blur(grey * w, ksize)
+        den = np.maximum(cv2.blur(w, ksize), 1e-6)
+        lit = num / den
+        core = w > 0.5
+        if core.any():
+            lo, hi = np.percentile(lit[core], 4), np.percentile(lit[core], 96)
+            amp = 1.0 - np.clip((lit - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
+        else:
+            amp = np.zeros_like(lit)
+        # The cut's own SURFACE, which the shape above deliberately does not carry: the deviation
+        # of the photograph from that same along-channel average, bright high and dark deep. It is
+        # added to the round profile rather than replacing it - replacing it is what produced a
+        # gouged V, but leaving it out entirely dropped the milled texture the channel really has.
+        det = np.clip((grey - lit) / max(hi - lo, 1e-6), -1.0, 1.0) if core.any() else lit * 0.0
 
-    # A milled channel is rounded, and its walls are a millimetre of wood, not a step function.
-    # Straight out of the photo the map carries the sensor's own noise inside the cut and the mask's
-    # hard shoulder at its rim; driving a normal with that renders the edge as a comb of teeth
-    # ("die kanten sind zu scharf", 2026-07-28). Blurring by a fraction of the channel's own width
-    # rounds the profile without moving where the channel is.
-    # One sigma cannot serve both ends of the profile: enough blur to settle the cut's interior
-    # also erases the rim, and a rim sharp enough to read leaves the interior glittering. So the
-    # shoulder gets its OWN, wider blur, applied only where the channel meets the face - the mask
-    # is the weight, 0 in the cut and 1 on the flat, so the crisp profile survives at the centre
-    # and the normal runs out gradually into the square instead of stopping at a wall.
+        best = w * (floor + (1.0 - floor) * amp)
+        take = best > depth
+        depth = np.where(take, best, depth)
+        tex = np.where(take, w * det, tex)
+
+    # Riding the surface on top of the profile makes the deepest points overshoot the bottom of the
+    # range, and clipping there eats the gain instead of showing it - at 2.2 a sixth of the channel
+    # pixels sat on the floor and the texture had stopped growing. Rescaling the DEPTH keeps the
+    # square faces exactly where they are (they are 1.0 and stay 1.0) and simply gives the cut the
+    # room it needs. Above 1.0 is a different matter and is clipped: that would be the inside of
+    # the cut standing proud of the board.
+    out = np.minimum(1.0 - depth + texture * tex, 1.0)
+    lowest = float(out.min())
+    if lowest < 0.0:
+        out = 1.0 - (1.0 - out) / (1.0 - lowest)
+
+    # One blur cannot serve both ends of the profile: enough to settle the cut's interior also
+    # erases the rim, and a rim sharp enough to read leaves the interior glittering. The shoulder
+    # gets its OWN, wider blur, weighted by the mask - 0 in the cut and 1 on the flat - so the
+    # profile survives at the centre and the normal runs out gradually into the square instead of
+    # stopping at a wall.
     if shoulder > 0.0:
+        face = np.minimum(mx, my)
         wide = cv2.GaussianBlur(out, (0, 0), max(1.0, shoulder * channel_px))
-        out = out * (1.0 - mask) + wide * mask
-    return out.astype(np.float32)
+        out = out * (1.0 - face) + wide * face
+    return np.clip(out, 0.0, 1.0).astype(np.float32)
 
 
 def grain_map(colour: np.ndarray, frac: float, width_frac: float, ring: bool,
@@ -226,15 +271,25 @@ def main() -> None:
                          "0.071-0.094, the outer two wider where the coordinate band adjoins. The "
                          "previous 0.055 was a guess and rendered the channels ~47 % too narrow.")
     ap.add_argument("--no-ring", action="store_true")
-    ap.add_argument("--groove-shoulder", type=float, default=1.2,
-                    help="A SECOND, wider Gaussian applied only at the channel's rim, as a "
-                         "fraction of the channel width. Lets the normal run out gradually into "
-                         "the square while --groove-smooth keeps governing the cut itself.")
-    ap.add_argument("--groove-smooth", type=float, default=0.5,
-                    help="Gaussian sigma applied to the PHOTO term only, as a fraction of the "
-                         "channel width, so the mask keeps owning the cross-section. It used to "
-                         "blur the finished map, which is why raising it dissolved the cut instead "
-                         "of rounding it.")
+    ap.add_argument("--groove-shoulder", type=float, default=0.15,
+                    help="A SECOND, wider Gaussian at the channel's rim, as a fraction of the "
+                         "channel width. MEASURED (2026-07-28): from 0.3 up it stops being a rim "
+                         "treatment and ramps the square FACES - 0.011 of the full depth at 0.3, "
+                         "0.209 at 1.2, a slow undulation across every square. The rim is already "
+                         "rounded by the mask's own smoothstep, so this stays small.")
+    ap.add_argument("--groove-flat", type=float, default=0.4,
+                    help="Share of the channel's half-width that is an even FLOOR, before the "
+                         "fillet rises to the face. CHOSEN on the plotted cross-section "
+                         "(2026-07-28): 0 bottoms out at a point and reads as a gouge, 0.7 is a "
+                         "wide floor with near-vertical walls, 0.4 is the flat bottom with "
+                         "rounded fillets the board actually has.")
+    ap.add_argument("--groove-texture", type=float, default=1.0,
+                    help="How much of the cut's photographed SURFACE rides on the round profile, "
+                         "bright high and dark deep. 0 leaves a bare machined bowl.")
+    ap.add_argument("--groove-smooth", type=float, default=0.25,
+                    help="Averaging length ALONG each channel, as a fraction of a cell. Sets how "
+                         "quickly the cut may vary over its length; it never averages ACROSS the "
+                         "channel, which is what used to lift the floor and erase the cut.")
     ap.add_argument("--grain-axis", choices=("x", "y"), default="x",
                     help="Direction the fibre runs in the rectified texture. This board's light "
                          "squares show horizontal lines, hence x.")
@@ -257,7 +312,8 @@ def main() -> None:
     if colour is None:
         raise SystemExit(f"cannot read {a.colour}")
     h = groove_map(colour, a.frac, a.width, ring=not a.no_ring, smooth=a.groove_smooth,
-                   shoulder=a.groove_shoulder)
+                   shoulder=a.groove_shoulder, texture=a.groove_texture,
+                   flat=a.groove_flat)
     cv2.imwrite(a.out, (h * 255.0).round().astype(np.uint8))
     print(f"wrote {a.out}  {colour.shape[1]}x{colour.shape[0]}  from {a.colour}  "
           f"field {a.frac:.3f}  channel {a.width:.3f} of a square")
@@ -270,3 +326,10 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+def _channel_mask(grey: np.ndarray, frac: float, width_frac: float, ring: bool,
+                  flat: float = 0.0) -> np.ndarray:
+    """Both axes combined: 1 on a square face, 0 in any channel."""
+    mx, my = _channel_masks(grey, frac, width_frac, ring, flat)
+    return np.minimum(mx, my)
