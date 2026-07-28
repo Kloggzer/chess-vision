@@ -87,7 +87,12 @@ PIECE_SPECULAR = 0.4
 # The grooves are REAL geometry the user measured: the grid lines and the coordinate letters are
 # MILLED into the board, about 1 mm deep with a ROUNDED profile (ball-nose, not a square channel).
 # 1 mm in board units: SQUARE_MM = 35 mm spans CELL units, so 1 mm = CELL / 35.
-GROOVE_DEPTH_MM = 1.0
+# 0.5, not the measured 1.0: chosen by BLIND comparison (2026-07-28, five settings 0/0.5/1/2/4 mm
+# rendered at one seed in probe mode, shuffled and unlabelled, the user picking on sight). A bump
+# map fakes relief through the normal without geometry, so it over-reads at grazing angles — half
+# the physical depth is what looks like the real 1 mm cut. The user did NOT pick 0, so the relief
+# itself is wanted; only its amplitude was over-stated.
+GROOVE_DEPTH_MM = 0.5
 # Wood grain is a fraction of that — surface texture, not a cut. Expressed as a share of the
 # groove depth so the two stay in proportion if the board scale ever changes.
 GRAIN_DEPTH_FRAC = 0.06
@@ -95,9 +100,9 @@ GRAIN_DEPTH_FRAC = 0.06
 # board photo; everything above this is grain, everything below is cut. EASE interpolation is what
 # makes the profile ROUND instead of a step — a square-edged groove reads as a printed line.
 GROOVE_LUMA_FLOOR = 0.10
-# Grain also varies the SHEEN, not only the height: latewood takes lacquer differently. Applied
-# as a +/- band around each material's own roughness so the two keep their tuned base values.
-WOOD_ROUGHNESS_JITTER = 0.06
+# NOT varied: roughness. A sheen jitter was tried and rejected on sight — it changes the MATERIAL,
+# and the pieces stopped looking like the lacquered wood they are. Relief only: the surface gets a
+# shape, its reflectance stays exactly what each material was tuned to.
 # Globaler Figuren-Skalierungsfaktor (auf die Basis-mm-Skalierung obendrauf). Hebel, um die
 # scheinbare Figurengröße/Höhe im Crop an die echten Kamera-Crops anzugleichen (reale Figuren
 # füllen den Crop stärker). 1.0 = wie gemessen; per --piece-scale überschrieben.
@@ -204,7 +209,7 @@ BOARD_PLAY_HALF_FRAC = 0.419
 
 
 
-def add_wood_grain(nt, bsdf, height_source, roughness_base, groove_units, grain_units):
+def add_wood_grain(nt, bsdf, height_source, groove_units, grain_units):
     """Micro-relief and sheen variation taken from the material's OWN texture. Board and pieces.
 
     `height_source` is a scalar socket — the luminance of the very image that already supplies the
@@ -246,15 +251,6 @@ def add_wood_grain(nt, bsdf, height_source, roughness_base, groove_units, grain_
     bump.inputs["Distance"].default_value = 1.0
     nt.links.new(total.outputs["Value"], bump.inputs["Height"])
     nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
-    # Sheen varies with the same grain — latewood takes lacquer differently — as a band around the
-    # material's own base, so board (matt) and piece (glossier) keep the values each was tuned to.
-    rough = nt.nodes.new("ShaderNodeMapRange")
-    rough.inputs["From Min"].default_value = 0.0
-    rough.inputs["From Max"].default_value = 1.0
-    rough.inputs["To Min"].default_value = max(0.0, roughness_base - WOOD_ROUGHNESS_JITTER)
-    rough.inputs["To Max"].default_value = min(1.0, roughness_base + WOOD_ROUGHNESS_JITTER)
-    nt.links.new(height_source, rough.inputs["Value"])
-    nt.links.new(rough.outputs["Result"], bsdf.inputs["Roughness"])
 
 
 def make_textured_board_material(texture_path):
@@ -308,7 +304,7 @@ def make_textured_board_material(texture_path):
     # and coordinate numbers, which on this board are MILLED — recessed into the wood, not
     # printed. Dark texture -> low height is exactly the polarity a groove needs, so the same
     # source gives the squares their edge and the labels their depth without a second map.
-    add_wood_grain(nt, bsdf, bw.outputs["Val"], BOARD_ROUGHNESS,
+    add_wood_grain(nt, bsdf, bw.outputs["Val"],
                    groove_units=GROOVE_DEPTH_MM * CELL / SQUARE_MM,
                    grain_units=GROOVE_DEPTH_MM * GRAIN_DEPTH_FRAC * CELL / SQUARE_MM)
     nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
@@ -470,7 +466,7 @@ def _scanned_material(png, darken=1.0, whiten=False):
         pbw = nt.nodes.new("ShaderNodeRGBToBW")
         nt.links.new(tx.outputs["Color"], pbw.inputs["Color"])
         # A piece has no milled channels: no groove term, grain only.
-        add_wood_grain(nt, bsdf, pbw.outputs["Val"], PIECE_ROUGHNESS, groove_units=0.0,
+        add_wood_grain(nt, bsdf, pbw.outputs["Val"], groove_units=0.0,
                        grain_units=GROOVE_DEPTH_MM * GRAIN_DEPTH_FRAC * CELL / SQUARE_MM)
     # Weiße Figuren: die Scan-Textur ist zu orange/dunkel (Photogrammetrie unter warmem Licht),
     # die echten Figuren sind aber blass-cremig → entsättigen + aufhellen (nicht-destruktiv im Shader).
@@ -1408,8 +1404,9 @@ def main():
             # Rahmung NACH der Pose: Distanz/Obliqueness variieren pro View, die Brennweite
             # zieht nach, damit das Brett konstant gross im Bild steht (Auflösung/Feld).
             cam_meta["lens_mm"] = round(frame_board(scene, cam, ra.frame_frac), 2)
-            randomize_lights(rng)
-            randomize_piece_materials(rng)   # Kronen-/Farbvarianz pro View (bQ→wQ-Flip)
+            if not ra.probe:
+                randomize_lights(rng)
+                randomize_piece_materials(rng)   # Kronen-/Farbvarianz pro View (bQ→wQ-Flip)
 
             # Occluder: pro View mit occ_p eine Faust/Unterarm über ein Brett-Innenfeld legen.
             # Verdeckte Felder → occluded_squares (heavy). Der Occluder wirft einen echten Schatten.
