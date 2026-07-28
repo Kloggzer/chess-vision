@@ -9,9 +9,9 @@ never rewrite another phase's entry.
 | Phase | Concern | State | Owner | Notes |
 |---|---|---|---|---|
 | 00 | Measure what recovery accepts and on what evidence | done | agent-00 | No production file touched. **Verdict: the inference-from-absence case as 01 defines it is ABSENT (0 of 9 captures) — and 01's rule is vacuous on the shipped model. 01 must not proceed as drafted.** |
-| 01 | A recovery move must be READ, not inferred from absence | todo | — | **Blocked by 00.** Parity-critical. |
+| 01 | A recovery move must be READ, not inferred from absence | **will not proceed** | — | Killed by 00: the rule is vacuous (0 of 20 acceptances inferred from absence; 4/4 real captures already pass it) and it patches the path that fires least (3 of 20). See the decision below. |
 | 02 | One played game is one stored record | done | agent-02 | `1711bb0..b278915`. A seam opens a `GameSegment`, not a record. |
-| 03 | The cleanest synthetic crops need a noise floor | todo | — | Synth only, parallel. No retrain. |
+| 03 | The cleanest synthetic crops need a noise floor | done | agent-03 | `625a83a..889111a`. σ 2–6 → **16–22**, calibrated at crop level. **The median gap is not the finding** — the p10 tail is. Nothing re-rendered; `occ-synth` untouched. |
 
 States: `todo` → `in progress` → `done` | `blocked`.
 
@@ -40,6 +40,12 @@ States: `todo` → `in progress` → `done` | `blocked`.
   which is phase 02.
 - Synth crops match real at the **median** for high-frequency energy (7.09 vs 7.29). Only the p10
   tail is too clean (3.19 vs 5.87).
+  - **2026-07-28, phase 03 re-measured with a committed tool (`synth/measure_noise.py`).** The real
+    column reproduces (5.62 / 7.44 / 9.16 — and the reference is identified: the 20260630/20260722
+    sessions, *not* all of `data/squares`). The synth p50 does **not**: 5.90, not 7.09, i.e. synth
+    sits ~20 % *under* real rather than level with it. **The p10 finding stands either way** (3.72
+    vs 5.62) and is the one the fix is aimed at; in neither reading is raising the median the goal,
+    and the calibrated range deliberately leaves p50 *below* real.
 - Device evidence is preserved at `data/_device/20260728-runaway/` — 23 sessions, 130 frames, 47 game
   records including the four runaway fragments.
 
@@ -48,6 +54,38 @@ States: `todo` → `in progress` → `done` | `blocked`.
 <!-- Append: date — phase — what was measured/changed — the numbers — what is left. -->
 
 - 2026-07-28 — pack authored. Phases 00, 02, 03 ready to start; 01 gated on 00.
+
+- 2026-07-28 — **DECISION: phase 01 is cancelled as drafted, and the pack's premise is replaced.**
+  Phase 00 measured the drafted rule to be vacuous, and in verifying its reasoning the orchestrator
+  confirmed a larger finding that explains the live behaviour better than the recovery search does:
+
+  **The illegal-move alarm is dead code on the shipped model, and has been since specs/18.**
+  `_desync_evidence` escalates to `_raise_alarm` only when `snap.obs.label is not None` AND
+  `guess_illegal_move(...)` names a move (`tracker.py:1966-1969`), and `guess_illegal_move` itself
+  returns `None` immediately when `obs.label is None` (`cnn_recovery.py:440`). The shipped
+  `occ-r3s-f3` — like all 25 `occ-*` runs — is 2-class `["empty", "occupied"]`, so `obs.label` is
+  always `None`. **The alarm cannot fire.** With it die `board_matches_identity`,
+  `derive_moves_identity` and `guess_illegal_move`.
+
+  That is the whole shape of the live complaint. The system kept the half that INVENTS a legal story
+  (recovery needs occupancy only) and silently lost the half that STOPS and asks (the alarm needs
+  piece identity). The user's report — *"das illegaler zug gemacht klappt immernoch net … das hatte
+  das spiel wesentlich beruhigt auf dem pc"* — is exactly this: on the PC the tracker ran a 14-class
+  model, so the alarm worked.
+
+  Phase 00 reached the same conclusion from its own side ("identity is the one axis on which a
+  capture is readable") and additionally showed 01 would have patched the wrong path: 17 of 20
+  acceptances came from `score_moves` via `resync_check`, only 3 from `derive_moves_deep`.
+
+  **Next step is NOT an acceptance-rule change.** It is restoring piece identity to the observation,
+  and that is a model/architecture decision (a 14-class model, or occupancy plus a best-effort
+  identity head used ONLY to let the alarm name a move, never to commit). It needs its own spec and
+  the user's call — recorded here, not improvised.
+
+  Corrections from 00, kept: `ChessCnnRecovery.recover` does not exist; `derive_moves_deep` is
+  301-377, not 318-375; 01's drafted test 1 was self-contradictory (the captured square IS the
+  destination); the device dump stores `best = second = cnnAgreement = 0.0` for every recovery ply
+  and so cannot answer the evidence question.
 - 2026-07-28 — **02 done** (`1711bb0`, `28e7bb5`, `d770131`, `b278915`). A seam now opens a
   `GameSegment` inside the running record instead of closing it: `StoredGame.segments` holds the
   legal lines, `moves` stays the flattened list every existing reader uses, ply numbers run across
