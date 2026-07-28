@@ -106,7 +106,8 @@ PIECE_WHITE_GRAIN_MUL = 11.0
 PIECE_WHITE_ROUGHNESS_ADD = 0.12
 # The same two axes for the DARK set, tuned separately: its scans carry more albedo contrast, so
 # the relief multiplier that suits birch is not the one that suits the lacquered wood.
-PIECE_BLACK_GRAIN_MUL = 1.0
+PIECE_GRAIN_MUL_PAWN = 120.0    # the flattest scans (span 0.020) need the most to show anything
+PIECE_GRAIN_MUL_PIECE = 22.0    # the turned types carry more of their own contrast
 PIECE_BLACK_ROUGHNESS_ADD = 0.0
 # Where the luminance ramp puts the groove floor. The milled channels are the darkest thing in the
 # board photo; everything above this is grain, everything below is cut. EASE interpolation is what
@@ -499,7 +500,7 @@ def _variant_objs(pdir, canonical):
     return []
 
 
-def _scanned_material(png, darken=1.0, whiten=False):
+def _scanned_material(png, darken=1.0, whiten=False, piece_type=None):
     img = bpy.data.images.load(str(png))
     mat = bpy.data.materials.new("scan"); mat.use_nodes = True
     nt = mat.node_tree; bsdf = nt.nodes.get("Principled BSDF")
@@ -530,9 +531,17 @@ def _scanned_material(png, darken=1.0, whiten=False):
     # birch with far less luminance contrast than the dark set, so the SAME bump strength produces
     # visibly less relief and the pieces read as "zu Klavierlack" (2026-07-28). The multiplier
     # compensates the texture's own contrast; it is not extra roughness on the material.
+    # Per TYPE, not per colour, because the multiplier is really a contrast compensation: the
+    # height source is the scan's own luminance and the scans differ wildly in how much of it they
+    # have. Measured p10..p90 span: bP 0.020, wP 0.024, bQ 0.106, wQ 0.329 — the pawns are nearly
+    # flat, so they need the most amplification to show any surface at all. The user picked these
+    # blind, and the ordering they arrived at is exactly the ordering of the measured spans.
+    _mul = PIECE_GRAIN_MUL_PAWN if piece_type == "P" else PIECE_GRAIN_MUL_PIECE
+    if whiten:
+        _mul = PIECE_WHITE_GRAIN_MUL
     _grain = GROOVE_DEPTH_MM * GRAIN_DEPTH_FRAC * CELL / SQUARE_MM
     add_wood_grain(nt, bsdf, psheen.outputs["Val"], groove_units=0.0,
-                   grain_units=_grain * (PIECE_WHITE_GRAIN_MUL if whiten else PIECE_BLACK_GRAIN_MUL))
+                   grain_units=_grain * _mul)
     # Historical note, kept because it cost a cycle: The height source here would be a PHOTOGRAMMETRY
     # The height source here would be a PHOTOGRAMMETRY SCAN, and its luminance carries
     # reconstruction noise rather than wood grain: rendered as a bump it reads as pimples over the
@@ -671,7 +680,7 @@ def build_templates(pieces_dir=None):
             m.materials.clear()
             png = o.with_suffix(".png")
             if png.exists():
-                m.materials.append(_scanned_material(png, darken, whiten=(color == "w")))
+                m.materials.append(_scanned_material(png, darken, whiten=(color == "w"), piece_type=t))
             else:
                 print(f"[WARN] {o}: keine Textur ({png.name} fehlt) — prozedurales Holz")
                 m.materials.append(white_mat if color == "w" else black_mat)
