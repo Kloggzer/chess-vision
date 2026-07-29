@@ -119,8 +119,9 @@ The build (`dataset_build.build_dataset`) runs strictly in this order:
 
 1. **Filter** the pool to `session_ids`.
 2. **Assign whole sessions to splits** on the RAW rows (`dataset.assign_sessions_to_splits`).
-3. **Dedup — TRAIN ONLY.** `dedup_metadata` (≤ `per_cell_cap` per `(session, square, label)`,
-   default 4) then `dedup_phash` (dhash, Hamming ≤ 6, LSH-banded, within each class).
+3. **Dedup — TRAIN ONLY.** `dedup_phash` first (dhash, Hamming ≤ 6, LSH-banded, within each
+   class), *then* `dedup_metadata` (≤ `per_cell_cap` per `(session, square, label)`, default 4).
+   The order matters and was the other way round until 2026-07-29 — see §5.11.
 4. **Collapse labels** if `class_mode=occupancy` (14 classes → `empty`/`occupied`).
 5. Write manifest + split + stats, then **pack** into a memmap if ≥ 100,000 crops.
 
@@ -133,7 +134,7 @@ materialized — `dataset.yaml`'s `rotations` field only switches it on.
 
 ### 5.1 Dedup applies to the train split only — so `final` measures the split, not the data
 
-`dataset_build.py:311-317`. The holdout passes through untouched, deliberately: `board_accuracy`
+`dataset_build.build_dataset`, the dedup block. The holdout passes through untouched, deliberately: `board_accuracy`
 needs complete 64-crop boards, and deduplicated boards would make it meaningless.
 
 The consequence is unintuitive and it has bitten twice: **a dataset's reported `counts.final`
@@ -517,3 +518,41 @@ they are reproducible outputs, not inputs.
 - `docs/architecture-review/architecture-overview.md` — component map.
 - `README.md` — every CLI command, per stage.
 - `src/chesslab/dataset.py:177` — the split assigner's docstring, which is its specification.
+
+### 5.11 The visual filter runs BEFORE the cap — and that is what lets the cap be raised
+
+Until 2026-07-29 the per-cell cap ran first. It cut a cell's 227 crops down to 4 before anything
+checked whether they differ, so `dedup_phash` only ever saw the survivors. From the cap's side
+"the piece never moved" and "the light moved instead" are the same picture — which is precisely
+what a **lighting capture** consists of, and why the earlier ones contributed almost nothing.
+
+MEASURED on the 49,856-row real pool (2026-07-29):
+
+| | rows kept | vs. the old order |
+|---|---|---|
+| old: cap 4 → phash | 4,172 | — |
+| new: phash → cap 4 | 4,827 | 1.16× |
+| new: phash → cap 16 | 7,422 | **1.78×** |
+
+Only 14,807 of the 49,856 rows (29.7 %) are visually distinct at all, so the filter earns its
+keep either way. The point of the order is what it unlocks: running first, the cap is no longer
+the duplicate defence and only limits genuine variety, so **it can be raised without re-admitting
+near-identical crops**. Under the old order a cap of 16 would simply have let them back in.
+
+Cost: one hash pass over the uncapped train split — 41 s for the whole real pool, once per build.
+
+What is left after the filter bounds the gain, and is worth knowing before planning a capture:
+a cell holds **2** distinct crops at the median, 7 at p90, 145 at most, and only 363 of 2,339
+cells have more than four. The headroom sits in a few well-populated cells.
+
+### 5.12 An occupancy build DROPS `occluded` rows
+
+`collapse_labels` used to refuse the build outright. That was right while a hand label on a real
+session was the only way such a row could appear — there it means something went wrong upstream.
+Renders with `--occlusion-p` produce them deliberately and in bulk (3,128 rows in one isolate
+stage, 15,239 in a boards stage), so refusing protected nothing and made occluders unusable for
+occupancy training.
+
+They are **dropped, not mapped**: a covered square may hold a piece or nothing, so either class
+is a guess. The count and its share of the pool are printed — the guard's real purpose was that
+the drop not be silent.

@@ -80,7 +80,7 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
   data leakage. Split is always **per session**.
 - **Orientation:** wrong a8-corner assignment silently transposes all labels.
   `ingest --debug-overlay N` exists to eyeball-check before training.
-- **Dedup runs on the TRAIN split only** (`dataset_build.py:311-317`) so `board_accuracy` sees
+- **Dedup runs on the TRAIN split only** (`dataset_build.build_dataset`) so `board_accuracy` sees
   complete 64-crop boards. A dataset's `counts.final` is therefore a property of the SPLIT,
   not of the corpus — a bigger train split makes `final` smaller. Never compare `final`
   across datasets with different splits; compare raw rows or phash-unique counts.
