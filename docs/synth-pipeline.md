@@ -260,3 +260,63 @@ randomization needs crop files and is ignored there (with a notice).
 2. **Blender renders run only on this machine** (Blender 5.1 at the standard install path).
 3. **Camera variety is limited** — `--seed` varies pose/lighting marginally. The augment
    pipeline handles the rest.
+
+---
+
+## Matching the real camera (measured 2026-07-29)
+
+The render defaults were set without ever comparing them against the camera they stand in for.
+Rectifying three recorded clips through their ArUco corners (`clip03`, `live-1244-fastplay`,
+`newclip`; `clip01`/`clip02` have no usable markers) and reading the same statistic on both sides:
+
+| | perspective ratio p50 / p95 | px per square p50 / p95 |
+|---|---|---|
+| real | 1.028 / **1.041** | **97** / 102 |
+| render, old defaults (`--res 1024`, obliqueness 0.20) | 1.057 / 1.095 | 76 / 96 |
+| render, `--res 1300 --max-obliqueness 0.10` | 1.031 / **1.048** | **95** / 114 |
+
+Two findings, both actionable:
+
+**The rig barely moves.** The real perspective ratio stays inside 1.008–1.042 — it is a fixed
+mount. The old default of 0.20 rendered poses more than twice as oblique as anything ever
+captured, and only 30 % of frames fell inside the real band. Do **not** narrow it further than
+0.10 though: at 0.05 the synthetic spread becomes *narrower* than the real one (p95 1.025 vs
+1.041), which puts real frames outside the training distribution — worse than too wide.
+
+**The renders were too coarse.** 76 px/square against the camera's 97: the model trained on
+material a fifth blurrier than it is deployed on. `--res 1300` closes it.
+
+A camera flight around the board is therefore the wrong lever for this rig; it would dilute an
+already over-wide pose distribution. `--static-camera` is the right one — the pose is drawn once
+per scene and the views differ only in lighting, which is the structure of a real session
+(across eight of them the dark squares span 46–94 while the perspective ratio stays inside
+1.008–1.042).
+
+## Occluders: three outcomes, not two
+
+`occluder_footprint_image` returns **two** lists. A square covered ≥ 70 % is `occluded`; ≤ 10 %
+is a graze and keeps its real label; everything between is **ambiguous** and is dropped by both
+build paths (`ambiguous_squares` in the render JSON → adapter → ingest → slice / fused build).
+
+One threshold cannot label a square that is half arm and half rook — it is neither `occluded`
+nor `wR`. MEASURED over 10 occluder frames, of the 163 squares the arm touches at all: 35.6 %
+are 90–100 % covered, 20.2 % 60–89 %, 19.6 % 30–59 %, 24.5 % 1–29 %. The single cut at 0.30
+turned that middle fifth into `occluded` while most of the square was still visible, and left
+the bottom quarter carrying a piece label over arm pixels.
+
+Cost at `--occlusion-p 0.35`: 2.56 squares per frame labelled `occluded`, 2.22 dropped — 46 % of
+the touched squares are dropped rather than mislabelled, against 64 squares per frame.
+
+## The one gap this pipeline does not close
+
+Real black pieces read p90 208–212 in the clips; no render configuration got past 90. It is not
+the material: it does not respond to source SIZE at constant power (20 → 3 gave identical
+digits) nor to piece ROUGHNESS (0.15 → 0.02 gave 47 / 44 / 48), which a real specular must.
+Ruled out with numbers: lamp power, source size, sun angular size, key/fill down to 0.04, source
+on the camera axis, specular to 1.0, clearcoat, roughness through the sheen curve and flat past
+it, grain bump 22 → 0, mesh smoothing to 300. The board always blows out first.
+
+Next step is a **Cycles** control render: if the highlight appears there it is an EEVEE setting
+(`ray_tracing_options`, samples 24 in fast mode); if not, scene or material. Until then, treat a
+model's weakness on dark pieces against dark squares as a suspected domain gap, not as an
+architecture problem.
