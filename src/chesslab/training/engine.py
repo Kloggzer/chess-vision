@@ -36,12 +36,14 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     preds: list[int] = []
     loss_sum = 0.0
     n = 0
+    n_out = 0
     for x, y in loader:
         x = x.to(device, non_blocking=True)
         y = y.to(device, non_blocking=True)
         if input_size is not None and input_size != x.shape[-1]:
             x = torch.nn.functional.interpolate(x, size=(input_size, input_size), mode="bilinear", align_corners=False)
         logits = model(x)
+        n_out = int(logits.shape[1])
         if criterion is not None:
             loss_sum += float(criterion(logits, y)) * x.size(0)
         p = logits.argmax(1)
@@ -56,7 +58,19 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     # Macro-recall: mean of per-class hit rate over present classes.
     # Meaningful even when board_acc=0 (small/hard datasets) and ignores the
     # empty dominance -> better checkpoint/early-stop metric than raw square_acc.
-    n_classes = len(getattr(dataset, "c2i", {})) or (int(max(trues_a.max(), preds_a.max())) + 1 if n else 1)
+    # The MODEL's output width decides the matrix size. Deriving it from the data - as this did,
+    # via `max(trues.max(), preds.max()) + 1` whenever the dataset had no `c2i` attribute, which is
+    # every packed dataset - means one out-of-range label allocates an (N x N) array from it. That
+    # is how a training run died at epoch 5 of 20 with `array is too big` instead of naming the bad
+    # value, after four epochs had already passed through the same code.
+    n_classes = n_out if n_out else (len(getattr(dataset, "c2i", {})) or 1)
+    if n:
+        hi = int(max(trues_a.max(), preds_a.max()))
+        if hi >= n_classes:
+            bad = sorted({int(v) for v in trues_a[trues_a >= n_classes]})[:8]
+            raise ValueError(
+                f"label {hi} outside the model's {n_classes} outputs — the dataset and the head "
+                f"disagree, or a loader served a corrupt label. Offending true labels: {bad}")
     cm = confusion_matrix(trues_a, preds_a, n_classes) if n else np.zeros((1, 1))
     present = cm.sum(axis=1) > 0
     macro_recall = float(per_class_recall(cm)[present].mean()) if present.any() else 0.0
