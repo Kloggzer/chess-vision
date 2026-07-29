@@ -320,9 +320,22 @@ def build_dataset(
     train_raw = [r for r in rows if split_of.get(r["session_id"]) == "train"]
     holdout = [r for r in rows if split_of.get(r["session_id"]) in ("val", "test")]  # complete, rot 0
 
-    train_rows = dedup_metadata(train_raw, per_cell_cap, seed)
-    if phash_enabled:
-        train_rows = dedup_phash(train_rows, phash_hamming)
+    # phash FIRST, then the cap. The other order threw away 227 crops of a cell down to 4 before
+    # anything looked at whether they differ, so the visual filter only ever saw the survivors —
+    # and it cannot be told apart from "the piece never moved" that a changing light makes every
+    # one of those 227 genuinely different.
+    #
+    # MEASURED on the 49,856-row real pool (2026-07-29): only 14,807 crops (29.7 %) are visually
+    # distinct at all, so the filter does real work either way. But with it running first the cap
+    # stops being the duplicate defence and only limits genuine variety, which means it can be
+    # raised: cap 4 -> 4,827 rows (1.16x today's 4,172), cap 16 -> 7,422 (1.78x), and not one
+    # near-identical pair among them. Under the old order a high cap would simply have re-admitted
+    # duplicates.
+    #
+    # It costs one full pass of the hash over the uncapped train split — 41 s for the whole real
+    # pool, once per build.
+    train_rows = dedup_phash(train_raw, phash_hamming) if phash_enabled else list(train_raw)
+    train_rows = dedup_metadata(train_rows, per_cell_cap, seed)
     n_dedup = len(train_rows) + len(holdout)
 
     # BEFORE touching the existing dataset: a refusal must not leave the caller with neither the

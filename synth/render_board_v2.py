@@ -1892,10 +1892,17 @@ def main():
         if ra.randomize_world:
             randomize_world(rng)   # varied surroundings beyond the board (edge/oblique crops)
 
+        # A REAL session is one rig that does not move while the light does: measured over eight
+        # of them, the dark squares span 46-94 while the camera's perspective ratio stays inside
+        # 1.008-1.042. `--static-camera` reproduces that structure - the pose is drawn once per
+        # scene and every view of it differs only in lighting - instead of re-rolling the pose for
+        # each frame, which spends variance on the axis that barely varies in reality.
+        scene_cam_meta = place_camera(cam, rng, max_ob, dist_jitter) if ra.static_camera else None
         for _ in range(views):
             if i >= n:
                 break
-            cam_meta = place_camera(cam, rng, max_ob, dist_jitter)
+            cam_meta = (dict(scene_cam_meta) if scene_cam_meta is not None
+                        else place_camera(cam, rng, max_ob, dist_jitter))
             # Rahmung NACH der Pose: Distanz/Obliqueness variieren pro View, die Brennweite
             # zieht nach, damit das Brett konstant gross im Bild steht (Auflösung/Feld).
             cam_meta["lens_mm"] = round(frame_board(scene, cam, ra.frame_frac), 2)
