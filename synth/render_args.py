@@ -21,6 +21,7 @@ class RenderArgs:
     board_texture: Path | None = None
     # Szenen-Reuse: gleiche Figurenaufstellung unter mehreren Kamera-/Licht-Views rendern.
     views_per_scene: int = 1
+    static_camera: bool = False
     # EEVEE TAA-Render-Samples (konservativ = sauberere Texturen, höher = langsamer).
     samples: int = 24
     # Max. Kamera-Obliqueness (horizontaler Offset / Höhe); an echte ~0.06-Kamera gematcht.
@@ -72,6 +73,7 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
     res = 1024
     board_texture = None
     views_per_scene = 1
+    static_camera = False
     samples = 24
     max_obliqueness = 0.20
     fallback_subsurf = 1
@@ -123,6 +125,8 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
             if i >= len(args):
                 raise SystemExit("ERROR: --board-texture benötigt einen Pfad.")
             board_texture = Path(args[i]).resolve()
+        elif a == "--static-camera":
+            static_camera = True
         elif a == "--views-per-scene":
             i += 1
             if i >= len(args):
@@ -202,7 +206,7 @@ def parse_render_args(argv: list[str]) -> RenderArgs:
         isolate_p = 0.0
     return RenderArgs(out=out, n=n, seed=seed, fens=fens, pieces=pieces, res=res,
                       board_texture=board_texture, views_per_scene=views_per_scene,
-                      samples=samples, max_obliqueness=max_obliqueness,
+                      samples=samples, max_obliqueness=max_obliqueness, static_camera=static_camera,
                       fallback_subsurf=fallback_subsurf, piece_scale=piece_scale,
                       randomize_board=randomize_board, randomize_world=randomize_world,
                       cam_distance_jitter=cam_distance_jitter, occlusion_p=occlusion_p,
