@@ -72,6 +72,28 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
 
 ## Known pitfalls (still true)
 
+- **Normalization is settled — do not reopen it.** GroupNorm ships. BatchNorm was excluded on
+  2026-07-30 across five *measured* causes (data, scale band, finished-model statistics, statistics
+  at resume in both weak and strong/DSBN form), and a normalizer-free net reached 99 graph nodes at
+  267 phantoms. The exclusion chain is `specs/25-normalization-endgame/STATUS.md`; read it before
+  proposing anything about norms.
+- **`val_acc` does not predict the veto metric — it has ranked runs in REVERSE.** The DSBN run had
+  the best start (epoch 0 0.8457) and plateau of any batch-norm run and produced 2.3x the phantoms
+  of the worst-starting one. Only `scripts/sweep_infer_size.py --paths a --dataset <ds>` decides
+  accuracy. A conclusion drawn from a training log is not a result.
+- **Path-A numbers move with the calibration profile.** The sweep re-cuts crops from the session
+  frames through the *current* profile, so a recalibration silently invalidates every earlier
+  number without touching a dataset file. Always re-measure the reference in the same run as the
+  candidate; never carry a row over from an older table.
+- **`--patience` is keyed to `occ_board_acc`, which is floored.** It needs all 64 squares right; at
+  `val_acc` 0.93 that is 0.93^64 ≈ 1 %, i.e. structurally 0. A model that has not converged is
+  early-stopped *and* has its checkpoint chosen blindly ("best by occ_board_acc=0.0000"). Pass
+  `--patience 25` for any run that will sit below ~0.98.
+- **The speed cost is graph FRAGMENTATION, not the missing fold.** On the SM8650 the QNN provider is
+  not in the binary at all (dropped in `928a55c`), and GroupNorm's `InstanceNormalization`
+  decomposition between every conv pair splits the graph into **94 fragments over 47 convolutions** —
+  XNNPACK takes 47 nodes (55 % of kernel time), the generic CPU EP takes 364 (45 %), including 92
+  layout transposes XNNPACK itself inserted. 411 nodes execute, not the 503 in the file.
 - **3D pieces extend upward.** With a non-perpendicular camera the piece image
   overflows its base cell — square crops extend upward (`pad_up`).
 - **Class imbalance:** `empty` dominates massively; handled at split/dataset
