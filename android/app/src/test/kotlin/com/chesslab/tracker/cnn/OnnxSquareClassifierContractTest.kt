@@ -54,7 +54,12 @@ class OnnxSquareClassifierContractTest {
             std = listOf(0.229f, 0.224f, 0.225f),
         )
 
-    private fun crops(): List<BgrImage> = List(ALL_SQUARES.size) { BgrImage(CROP, CROP, ByteArray(CROP * CROP * 3) { 8 }) }
+    /**
+     * [side] defaults to this class's own fake [spec]. The one test that drives the REAL asset has
+     * to pass the REAL model's size instead: since specs/23 phase 02 the shipped graph takes 96 px
+     * and `preprocessInto` does not resize, it refuses a crop of any other size.
+     */
+    private fun crops(side: Int = CROP): List<BgrImage> = List(ALL_SQUARES.size) { BgrImage(side, side, ByteArray(side * side * 3) { 8 }) }
 
     @Test
     fun runsAll64CropsInASingleSessionCall() {
@@ -109,7 +114,7 @@ class OnnxSquareClassifierContractTest {
             // warm-up batch. A bare provider name is only ever printed after it was observed.
             assertEquals("CPU", classifier.backend)
             assertEquals(assetClasses(), classifier.classes)
-            val probs = classifier.classify(crops())
+            val probs = classifier.classify(crops(ModelSpec.parse(staged.configJson).outWidth))
             assertEquals(ALL_SQUARES.size, probs.size)
             probs.forEach { assertTrue(abs(it.sum() - 1.0f) < 1e-4f, "row sums to ${it.sum()}") }
             assertTrue(classifier.lastRunMs > 0.0)

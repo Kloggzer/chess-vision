@@ -108,12 +108,22 @@ class EpRequestChainTest {
         assertNotEquals("CPU", requestedBackend(staged, EpRequest.AUTO), "AUTO must not silently mean CPU")
     }
 
-    /** 07a's `modelAsset`: the graph NNAPI and CPU are given, and the one they report loading. */
+    /**
+     * 07a's `modelAsset`: the graph NNAPI and CPU are given, and the one they report loading.
+     *
+     * The alternate name is served from the FP32 bytes. `modelAsset` may name any graph in the asset
+     * directory, but since specs/23 phase 02 there is no quantized one to name — `occ-v4-f3e20` could
+     * not be quantized at its 96 px inference size (see [BundledGraphShapeTest]). What is under test
+     * is the SELECTION, and nothing here opens a session, so the stand-in costs the test nothing.
+     */
     @Test
     fun theSelectedGraphIsWhatIsStagedAndReported(
         @TempDir tmp: File,
     ) {
-        val open = { name: String -> File(assetDir(), name).takeIf { it.isFile }?.inputStream() }
+        val open = { name: String ->
+            val source = if (name == MODEL_QNN_FILE) MODEL_FP32_FILE else name
+            File(assetDir(), source).takeIf { it.isFile }?.inputStream()
+        }
         val staged = CnnModelAssets(open, tmp, graph = MODEL_QNN_FILE).stage()
         assertEquals(MODEL_QNN_FILE, staged.fp32.name)
         assertEquals(MODEL_QNN_FILE, modelFor(staged, Ep.CPU).name)

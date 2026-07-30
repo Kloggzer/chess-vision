@@ -14,15 +14,27 @@ import java.nio.ByteOrder
 import java.nio.FloatBuffer
 
 private const val CROPS = 64
-private const val PLANES = 3
-private const val SIDE = 128
 
-private val INPUT_SHAPE = longArrayOf(CROPS.toLong(), PLANES.toLong(), SIDE.toLong(), SIDE.toLong())
+/**
+ * The bundled model's own tensor shape. Read from its `config.json` rather than written down: the
+ * graph is exported at the run's `infer_size` (96 since specs/23 phase 02, 128 before it) and these
+ * are REAL sessions, so a literal here would feed the wrong shape and ORT would refuse the tensor.
+ */
+private val ASSET_SPEC: ModelSpec by lazy { ModelSpec.parse(File(assetDir(), MODEL_CONFIG_FILE).readText()) }
+
+private val INPUT_SHAPE: LongArray
+    get() =
+        longArrayOf(
+            CROPS.toLong(),
+            ASSET_SPEC.channels.toLong(),
+            ASSET_SPEC.outHeight.toLong(),
+            ASSET_SPEC.outWidth.toLong(),
+        )
 
 /** The real graph's input tensor, zeroed — the runner never looks at the values. */
 private fun zeroInput(): FloatBuffer =
     ByteBuffer
-        .allocateDirect(CROPS * PLANES * SIDE * SIDE * Float.SIZE_BYTES)
+        .allocateDirect(CROPS * ASSET_SPEC.channels * ASSET_SPEC.outWidth * ASSET_SPEC.outHeight * Float.SIZE_BYTES)
         .order(ByteOrder.nativeOrder())
         .asFloatBuffer()
 

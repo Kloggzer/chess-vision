@@ -24,31 +24,41 @@ import kotlin.math.abs
  * Needs no device — the `:app` unit tests link ORT's host natives.
  */
 class ModelSpecGraphSeamTest {
+    /**
+     * Since specs/23 phase 02 this is no longer a tautology on the shipped asset either.
+     * `occ-v4-f3e20` declares `infer_size` **96** next to an `out_size` of 128, so a consumer that
+     * assumed the crop size — as the deleted `out_size == 128` guard did — now disagrees with the
+     * bundled graph and this test says so.
+     */
     @Test
     fun theBundledGraphTakesExactlyWhatItsConfigDeclares(
         @TempDir tmp: File,
     ) {
-        assertSeam(assetDir(), tmp)
+        assertEquals(SHIPPED_INPUT_SIZE, assertSeam(assetDir(), tmp), "the shipped inference size (specs/23 phase 00)")
     }
 
     /**
-     * The same seam on a model exported at a DIFFERENT size, which is the whole point of the key:
-     * the bundled asset stays at 128 (phase 00 measured 96 px making it worse — 74 misses / 243
-     * phantoms against 95 / 152), so on its own it cannot show the size being read rather than
-     * assumed.
+     * The same seam on a model exported at a DIFFERENT size — cheap insurance that nothing in the
+     * chain is pinned to whatever the current asset happens to declare.
      *
      * Point the test at one by exporting into a scratch directory and dropping `config.json` +
      * `model.onnx` under [EXTRA_MODELS_DIR] (gitignored, wiped by `clean`):
      *
      * ```
-     * cp -r data/models/occ-v4-f3e20 <tmp>/infer96   # config.json + best.pt are enough
-     * uv run chesslab export --run <tmp>/infer96 --format onnx --infer-size 96x96
-     * mkdir -p android/app/build/extra-cnn-models/infer96
-     * cp <tmp>/infer96/config.json <tmp>/infer96/model.onnx android/app/build/extra-cnn-models/infer96/
+     * cp -r data/models/occ-v4-f3e20 <tmp>/infer128   # config.json + best.pt are enough
+     * uv run chesslab export --run <tmp>/infer128 --format onnx --infer-size 128x128
+     * mkdir -p android/app/build/extra-cnn-models/infer128
+     * cp <tmp>/infer128/config.json <tmp>/infer128/model.onnx android/app/build/extra-cnn-models/infer128/
      * ```
      *
      * Skipped when there is none: shipping a second multi-megabyte graph to keep a unit test
      * honest is not a trade worth making, and every assertion here also runs against the asset.
+     *
+     * The seam is ASSERTED for every directory found; only "and at least one of them differs from
+     * the shipped size" is an assumption. A leftover directory that happens to match the shipped
+     * size proves nothing, but it is also not a defect in the tree — the whole location is
+     * gitignored build output, and failing on it would make the suite depend on what a previous
+     * session left in `app/build`.
      */
     @Test
     fun anExportedGraphAtAnotherSizeIsReadNotAssumed(
@@ -56,13 +66,15 @@ class ModelSpecGraphSeamTest {
     ) {
         val dirs = extraModelDirs()
         assumeTrue(dirs.isNotEmpty(), "no extra model directory under $EXTRA_MODELS_DIR")
-        dirs.forEachIndexed { index, dir ->
-            val size = assertSeam(dir, File(tmp, "extra$index").also { it.mkdirs() })
-            assertTrue(
-                size != BUNDLED_INPUT_SIZE,
-                "${dir.name} declares ${size}px, the same as the bundled asset — that proves nothing",
-            )
-        }
+        val sizes =
+            dirs.mapIndexed { index, dir ->
+                dir.name to assertSeam(dir, File(tmp, "extra$index").also { it.mkdirs() })
+            }
+        assumeTrue(
+            sizes.any { it.second != SHIPPED_INPUT_SIZE },
+            "every extra model declares the shipped ${SHIPPED_INPUT_SIZE}px, so none can show the size " +
+                "being read rather than assumed: $sizes",
+        )
     }
 
     /**
@@ -111,8 +123,6 @@ class ModelSpecGraphSeamTest {
     }
 
     companion object {
-        /** What the shipped asset declares — a constant here only so the extra model can differ from it. */
-        private const val BUNDLED_INPUT_SIZE = 128
         private const val EXTRA_MODELS_DIR = "app/build/extra-cnn-models"
 
         /** Optional model directories, each holding a `config.json` and a `model.onnx`. */
@@ -124,3 +134,16 @@ class ModelSpecGraphSeamTest {
                 .sortedBy { it.name }
     }
 }
+
+/**
+ * The inference size the shipped model is served at — **96 px**, chosen by specs/23 phase 00 on the
+ * `occ-real3` test split: `occ-v4-f3e20` reads 28 occupied squares as empty and invents none at the
+ * app's warp, against 44 / 0 at 128 px and the previous asset's 99 / 146.
+ *
+ * A literal on purpose, and the only one. `config.json` remains the single source the CODE reads
+ * (`ModelSpec.parse`); this is a tripwire on the DECISION, so that re-exporting the asset at another
+ * size has to be a deliberate act with this line edited rather than a graph that quietly changes
+ * shape. Untrained sizes fail silently — 80 px costs this run 133 misses against 96 px's 19 — so
+ * "the config and the graph agree" is not on its own enough to ship.
+ */
+internal const val SHIPPED_INPUT_SIZE = 96
