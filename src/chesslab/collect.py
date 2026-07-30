@@ -39,6 +39,23 @@ def generate_session_id() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
+def redact_source(source) -> str:
+    """A camera source as a string that is safe to persist: `user:pass@` stripped out.
+
+    An IP-camera URL routinely carries basic-auth credentials, and a session's metadata is
+    long-lived, copied around and read by everyone who looks at the corpus. Only the
+    userinfo part goes — host, port and path stay, because THAT is what identifies the
+    camera a session came from."""
+    s = str(source if source is not None else "").strip()
+    if "://" not in s:
+        return s
+    scheme, rest = s.split("://", 1)
+    host, sep, tail = rest.partition("/")
+    if "@" in host:
+        host = host.rsplit("@", 1)[1]      # drop user:pass@, keep host[:port]
+    return f"{scheme}://{host}{sep}{tail}"
+
+
 class SessionWriter:
     """Manages a session directory: frames, log.jsonl, session.yaml + consistent undo."""
 
@@ -51,6 +68,8 @@ class SessionWriter:
         mode: str,
         camera_index: int,
         frame_size: tuple[int, int],
+        camera_source: int | str | None = None,
+        camera_capture_source: str | None = None,
         source_pgn: str | None = None,
         notes: str = "",
     ) -> None:
@@ -62,6 +81,15 @@ class SessionWriter:
         self.profile = profile
         self.mode = mode
         self.camera_index = camera_index
+        # What was ACTUALLY captured from — an index or an IP-cam URL. `camera_index` alone
+        # cannot tell a USB camera from a phone (an env/UI URL override leaves the index at
+        # 0), which makes a corpus impossible to partition by camera after the fact. None =
+        # the caller did not state it; then the field is omitted rather than invented.
+        self.camera_source = camera_source
+        # Set when the SAVED frames come from a separate high-resolution snapshot URL while
+        # the preview ran over a smaller stream — then this, not `camera_source`, is where the
+        # pixels on disk are from (that is the path behind the 3072x4096 phone sweeps).
+        self.camera_capture_source = camera_capture_source
         self.frame_size = (int(frame_size[0]), int(frame_size[1]))
         self.source_pgn = source_pgn
         self.notes = notes
@@ -80,18 +108,30 @@ class SessionWriter:
         # Record the LENS state these frames were captured under, so a dataset that mixes
         # pre- and post-undistortion sessions stays queryable (absent on old sessions =
         # raw frames). The frames on disk are never remapped again on replay.
-        undistorted, lens_calib_id = lens.profile_lens_state(self.camera_index)
+        # Ask the lens about the REAL source: with a URL override the index is a meaningless
+        # 0, and `should_undistort` answers "yes, local camera" for it — stamping phone
+        # frames as undistorted when nothing corrected them.
+        src = self.camera_source if self.camera_source is not None else self.camera_index
+        undistorted, lens_calib_id = lens.profile_lens_state(src)
         meta = {
             "session_id": self.session_id,
             "profile": self.profile,
             "mode": self.mode,
             "created_at": self.created_at,
             "camera_index": int(self.camera_index),
+            "camera_source": (None if self.camera_source is None
+                              else redact_source(self.camera_source)),
+            "camera_capture_source": (None if not self.camera_capture_source
+                                      else redact_source(self.camera_capture_source)),
+            # `frame_size` is the DELIVERED size (measured on a frame), not a requested mode.
             "frame_size": [self.frame_size[0], self.frame_size[1]],
             "undistorted": bool(undistorted),
             "lens_calib_id": lens_calib_id,
             "notes": self.notes,
         }
+        for k in ("camera_source", "camera_capture_source"):
+            if meta[k] is None:
+                del meta[k]                 # unknown is unknown — do not invent a source
         if self.mode == "pgn" and self.source_pgn:
             meta["source_pgn"] = self.source_pgn
         with (self.dir / "session.yaml").open("w", encoding="utf-8") as fh:
@@ -104,6 +144,16 @@ class SessionWriter:
 
         rel = f"frames/{self._frame_idx:04d}.png"
         cv2.imwrite(str(self.dir / rel), frame)
+        size = (int(frame.shape[1]), int(frame.shape[0]))
+        if self._frame_idx == 0 and size != self.frame_size:
+            # The FILES decide what `frame_size` means. A high-resolution snapshot source
+            # saves bigger pixels than the preview the size was measured on, and a profile's
+            # `frame_size` can simply be from another mode — either way the metadata would
+            # describe frames that are not on disk.
+            print(f"[INFO] session {self.session_id}: frames are {size[0]}x{size[1]}, "
+                  f"not {self.frame_size[0]}x{self.frame_size[1]} — recording the real size.")
+            self.frame_size = size
+            self._write_session_yaml()
         entry = {"frame": rel, "ply": ply, "fen": fen, "ts": _now_iso(), "move_san": move_san}
         if corners is not None:
             # Board corners (a8,h8,h1,a1) in frame pixels, verified live at capture time.
@@ -257,7 +307,8 @@ def _replay_capture(positions: list[dict], prof, profile: str, camera: int, *,
 
     sid, sdir = _resolve_session_dir(session)
     writer = SessionWriter(sdir, session_id=sid, profile=profile, mode=mode, camera_index=camera,
-                           frame_size=prof.frame_size, source_pgn=source_pgn, notes=notes)
+                           camera_source=camera, frame_size=prof.frame_size,
+                           source_pgn=source_pgn, notes=notes)
 
     dash = None
     copy_fn = None
@@ -385,7 +436,7 @@ def collect_live(start_fen: str | None, profile: str, camera: int,
     gs = GameState(start_fen) if start_fen else GameState()
     sid, sdir = _resolve_session_dir(session)
     writer = SessionWriter(sdir, session_id=sid, profile=profile, mode="live", camera_index=camera,
-                           frame_size=prof.frame_size, notes=notes)
+                           camera_source=camera, frame_size=prof.frame_size, notes=notes)
 
     dash = None
     copy_fn = None
