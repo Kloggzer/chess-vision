@@ -102,16 +102,57 @@ def _review_profile(sdir: Path):
     )
 
 
-def _review_overlay_jpeg(sdir: Path, entry: dict) -> bytes | None:
+def _draw_orientation_labels(img, prof) -> None:
+    """Name the four corner squares, the files and the ranks ON the rectified board.
+
+    The corner order `[a8, h8, h1, a1]` is the one thing that silently transposes every label
+    in the whole project, so the image the user confirms must say which corner it thinks is
+    which. Positions come from `square_center`, so they follow the profile's `white_pov`
+    instead of a second, hand-written assumption about where a1 sits.
+    """
+    import cv2
+
+    from ...move_tracker.tracker import square_center
+
+    bs = prof.board_size
+    for name, col in (("a8", (80, 200, 255)), ("h8", (80, 200, 255)),
+                      ("h1", (80, 200, 255)), ("a1", (60, 255, 60))):
+        cx, cy = square_center(name, bs, prof.white_pov)
+        if name == "a1":                      # the anchor gets a dot, not just a word
+            cv2.circle(img, (cx, cy), max(6, bs // 90), col, -1, cv2.LINE_AA)
+        cv2.putText(img, name, (cx - 18, cy - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+                    (0, 0, 0), 4, cv2.LINE_AA)
+        cv2.putText(img, name, (cx - 18, cy - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+                    col, 1, cv2.LINE_AA)
+    for f in "abcdefgh":                      # file letters on rank 1, rank digits on file a
+        cx, cy = square_center(f + "1", bs, prof.white_pov)
+        cv2.putText(img, f, (cx - 5, cy + 26), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 3,
+                    cv2.LINE_AA)
+        cv2.putText(img, f, (cx - 5, cy + 26), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1,
+                    cv2.LINE_AA)
+    for r in range(1, 9):
+        cx, cy = square_center("a" + str(r), bs, prof.white_pov)
+        cv2.putText(img, str(r), (cx - 28, cy + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 3,
+                    cv2.LINE_AA)
+        cv2.putText(img, str(r), (cx - 28, cy + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                    (200, 200, 200), 1, cv2.LINE_AA)
+
+
+def _review_overlay_jpeg(sdir: Path, entry: dict, corners=None,
+                         labels: bool = False) -> bytes | None:
+    """Rectified frame + grid + the logged position drawn on it.
+
+    `corners` overrides the row's own corners — that is how the hand-set candidate quad is
+    previewed before anything is written. `labels` adds the orientation legend."""
     import chess
     import cv2
 
     from ...calibration import warp_from_corners
     from ...move_tracker.tracker import square_center
 
-    corners = entry.get("corners")
+    corners = corners if corners is not None else entry.get("corners")
     fen = entry.get("fen")
-    if not corners or not fen:
+    if not corners:
         return None
     frame = cv2.imread(str(_frame_path(sdir, entry)))
     if frame is None:
@@ -124,6 +165,11 @@ def _review_overlay_jpeg(sdir: Path, entry: dict) -> bytes | None:
         p = int(i * cell)
         cv2.line(img, (p, 0), (p, bs), (0, 180, 0), 1)
         cv2.line(img, (0, p), (bs, p), (0, 180, 0), 1)
+    if labels:
+        _draw_orientation_labels(img, prof)
+    if not fen:
+        ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 86])
+        return buf.tobytes() if ok else None
     try:
         board = chess.Board(fen)
     except ValueError as e:
@@ -141,6 +187,378 @@ def _review_overlay_jpeg(sdir: Path, entry: dict) -> bytes | None:
         cv2.putText(img, ch, (cx - 8, cy + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.8, col, 2, cv2.LINE_AA)
     ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 86])
     return buf.tobytes() if ok else None
+
+
+# --- Hand-set board geometry (review UI) ----------------------------------------------
+#
+# Why this exists: a session whose ArUco markers were not all detected has rows without
+# `corners` and cannot be sliced at all. Reconstructing the missing corner from the other
+# three is NOT an option for recorded data — measured on this corpus, dropping one marker
+# moves the resolved quad by 78 px on a ~234 px square (a third of a cell), which would
+# shift every crop. `config.TRACKER.default_min_markers = 2` allows that for the LIVE
+# tracker, where a wrong frame is cheap; training data must not inherit it.
+#
+# So the geometry comes from the session itself (`adopt`: copy a quad that WAS detected in
+# another row) or from the user (`hand`: four clicks, rotated until the overlay reads right).
+
+CORNER_NAMES = ("a8", "h8", "h1", "a1")     # project storage order — see CLAUDE.md
+
+
+def _shoelace(quad) -> float:
+    """Signed doubled area. In IMAGE coordinates (x right, y DOWN) a positive value means the
+    vertex order runs clockwise on screen — which `[a8, h8, h1, a1]` always does for a board
+    photographed from above (verified against a real detected quad: +6.6e6)."""
+    return sum(quad[i][0] * quad[(i + 1) % 4][1] - quad[(i + 1) % 4][0] * quad[i][1]
+               for i in range(4))
+
+
+def _quad_cyclic_clockwise(points) -> list[list[float]]:
+    """Four points in ANY click order -> a proper, non-self-intersecting quad in clockwise
+    (image) order. Which vertex is `a8` is left open on purpose: that is one rotation step in
+    the UI, decided by looking at the overlay instead of by remembering the convention.
+
+    A mirrored click order (counter-clockwise) is fixed here rather than offered as a flip
+    button — no camera above a board produces a counter-clockwise a8→h8→h1→a1, so a
+    counter-clockwise quad is always just the same cycle traversed backwards.
+    """
+    cx = sum(p[0] for p in points) / 4.0
+    cy = sum(p[1] for p in points) / 4.0
+    import math
+    ordered = sorted(points, key=lambda p: math.atan2(p[1] - cy, p[0] - cx))
+    if _shoelace(ordered) < 0:
+        ordered = list(reversed(ordered))
+    return [[float(p[0]), float(p[1])] for p in ordered]
+
+
+def _quad_from_points(points, rotate: int = 0, normalize: bool = True) -> list[list[float]]:
+    """The quad that will be STORED, from what the UI collected.
+
+    `normalize`: click order is unknown -> cycle + winding are fixed first (blind placement).
+    False keeps the given order, which is what the marker-seeded path needs: there the
+    assignment is measured from the ArUco ids, not guessed.
+    `rotate`: 0-3 cyclic shifts — the "Rotate 90°" button."""
+    pts = []
+    for p in points or []:
+        try:
+            pts.append([float(p[0]), float(p[1])])
+        except (TypeError, ValueError, IndexError):
+            raise HTTPException(400, f"Corner point {p!r} is not an [x, y] pair.")
+    if len(pts) != 4:
+        raise HTTPException(400, f"Need exactly 4 corner points, got {len(pts)}.")
+    quad = _quad_cyclic_clockwise(pts) if normalize else pts
+    r = int(rotate) % 4
+    return quad[r:] + quad[:r]
+
+
+def _frame_size(path: Path) -> tuple[int, int]:
+    """(w, h) of a frame from the file header — no full decode of a 3072x4096 PNG."""
+    from PIL import Image
+
+    with Image.open(path) as im:
+        return int(im.width), int(im.height)
+
+
+def _validate_quad(quad, size: tuple[int, int], claimed_size=None) -> None:
+    """Refuse geometry that cannot be a board.
+
+    The failure mode worth engineering against is scale: the UI collects clicks on a
+    scaled-down `<img>` and must convert them to frame pixels, and a 3072x4096 frame shown at
+    ~700 px means a forgotten conversion is a factor of four. Two guards, one exact and one
+    plausibility-based:
+
+    * `claimed_size` — the frame size the client measured (`naturalWidth/Height`). If that
+      disagrees with the real file, the client scaled against the wrong basis. Deterministic.
+    * area — a board that covers less than 4% of the frame cannot carry usable crops anyway
+      (4% of 3072x4096 is a ~707 px side, i.e. 88 px per square, right at what this device
+      actually delivers), so anything smaller is a mistake, not a bad camera position.
+    """
+    w, h = size
+    if claimed_size:
+        try:
+            cw, ch = int(claimed_size[0]), int(claimed_size[1])
+        except (TypeError, ValueError, IndexError):
+            raise HTTPException(400, f"frame_size must be [w, h], got {claimed_size!r}.")
+        if (cw, ch) != (w, h):
+            raise HTTPException(400, f"The coordinates were measured against a {cw}x{ch} image, "
+                                     f"but the frame is {w}x{h} — send full-resolution frame "
+                                     "pixels (scale the click by naturalWidth/clientWidth).")
+    slack = 0.1 * max(w, h)          # a marker clipped at the frame edge may sit just outside
+    for name, (x, y) in zip(CORNER_NAMES, quad, strict=True):
+        if not (-slack <= x <= w + slack and -slack <= y <= h + slack):
+            raise HTTPException(400, f"Corner {name} at ({x:.0f}, {y:.0f}) is outside the "
+                                     f"{w}x{h} frame — are the coordinates full-resolution?")
+    area = abs(_shoelace(quad)) / 2.0
+    if area < 0.04 * w * h:
+        raise HTTPException(400, f"The quad covers {100 * area / (w * h):.1f}% of the frame — "
+                                 "too small to be a board that yields usable crops (needs "
+                                 "> 4%). A quarter-size quad usually means display pixels "
+                                 "instead of frame pixels.")
+    for i in range(4):
+        a, b = quad[i], quad[(i + 1) % 4]
+        if (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 < (0.02 * min(w, h)) ** 2:
+            raise HTTPException(400, "Two corners are (almost) identical — place four "
+                                     "separate points.")
+    cross = []
+    for i in range(4):
+        p, q, r = quad[i], quad[(i + 1) % 4], quad[(i + 2) % 4]
+        cross.append((q[0] - p[0]) * (r[1] - q[1]) - (q[1] - p[1]) * (r[0] - q[0]))
+    if not (all(c > 0 for c in cross) or all(c < 0 for c in cross)):
+        raise HTTPException(400, "The four points do not form a convex quad in this order.")
+
+
+def _backup_log(log_path: Path) -> str:
+    """Copy `log.jsonl` aside before rewriting it. `data/` is gitignored and unrecoverable;
+    the project rule is park, never delete — so a backup is never overwritten either."""
+    import shutil
+    from datetime import datetime
+
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    dest = log_path.with_name(f"{log_path.name}.bak.{stamp}")
+    n = 1
+    while dest.exists():
+        dest = log_path.with_name(f"{log_path.name}.bak.{stamp}-{n}")
+        n += 1
+    shutil.copy2(log_path, dest)
+    return dest.name
+
+
+def _write_corner_rows(sdir: Path, rows: list[dict], indices: list[int], quad, *,
+                       source: str, from_index: int | None) -> dict:
+    """Write `quad` into the given rows and record HOW it got there.
+
+    Provenance is the point: `corners_source` says `hand` or `adopted` (absent = detected by
+    the capture pipeline, which is what every existing row is), `corners_from` names the row
+    the quad came from, `corners_set_at` when. Analysis later has to be able to exclude
+    hand-set geometry, and this session corpus already had one unanswerable question of
+    exactly this kind (which camera took it) because nobody wrote it down.
+    """
+    from datetime import UTC, datetime
+
+    log_path = sdir / "log.jsonl"
+    backup = _backup_log(log_path)
+    stamp = datetime.now(UTC).isoformat()
+    for i in indices:
+        rows[i]["corners"] = [[float(x), float(y)] for x, y in quad]
+        rows[i]["corners_source"] = source
+        rows[i]["corners_set_at"] = stamp
+        if from_index is not None:
+            rows[i]["corners_from"] = int(from_index)
+        else:
+            rows[i].pop("corners_from", None)
+    tmp = log_path.with_suffix(".jsonl.tmp")
+    tmp.write_text("".join(json.dumps(r, ensure_ascii=False, default=str) + "\n" for r in rows),
+                   encoding="utf-8")
+    os.replace(tmp, log_path)
+    return {"ok": True, "changed": len(indices), "indices": indices, "backup": backup,
+            "corners_source": source, "from_index": from_index,
+            "corners": [[float(x), float(y)] for x, y in quad]}
+
+
+def _corner_targets(rows: list[dict], scope: str, index: int, overwrite: bool) -> list[int]:
+    """Which rows a write applies to — always an explicit, countable set.
+
+    `frame` = this row only, `missing` = every row without corners, `all` = every row. A row
+    that ALREADY has detected corners is only touched with `overwrite`, because a session like
+    20260730-131607 has 7 good rows and 1 bad one and the 7 must stay measured."""
+    if scope == "frame":
+        candidates = [index]
+    elif scope == "missing":
+        candidates = [i for i, r in enumerate(rows) if not r.get("corners")]
+    elif scope == "all":
+        candidates = list(range(len(rows)))
+    else:
+        raise HTTPException(400, f"Unknown scope {scope!r} (frame | missing | all).")
+    if not candidates:
+        raise HTTPException(409, "Every row in this session already has corners — nothing to "
+                                 "repair. Use scope=all with overwrite=true to replace them.")
+    targets = [i for i in candidates if overwrite or not rows[i].get("corners")]
+    if not targets:
+        blocked = [i for i in candidates if rows[i].get("corners")]
+        raise HTTPException(409, f"Rows {blocked} already have corners — nothing to write. "
+                                 "Send overwrite=true to replace measured geometry.")
+    return targets
+
+
+_ADOPT_TOL_PX = 2.0     # ArUco centres of a tripod-static board scatter well under a pixel
+
+
+def _adopt_candidate(rows: list[dict]) -> dict | None:
+    """The quad to adopt: the one the MOST other rows agree with (within `_ADOPT_TOL_PX`),
+    earliest row wins a tie.
+
+    Most-agreed rather than nearest, so a single outlier row — a board that got bumped in one
+    frame — cannot become the template for a whole session. `n_same` is what the UI shows, so
+    it has to mean something: exact equality would split rows that differ by 0.05 px."""
+    have = [(i, r["corners"]) for i, r in enumerate(rows)
+            if r.get("corners") and len(r["corners"]) == 4]
+    if not have:
+        return None
+
+    def close(a, b) -> bool:
+        return all(abs(float(pa[k]) - float(pb[k])) <= _ADOPT_TOL_PX
+                   for pa, pb in zip(a, b, strict=True) for k in (0, 1))
+
+    counts = [(sum(1 for _j, q in have if close(c, q)), -i, i, c) for i, c in have]
+    n_same, _neg, idx, quad = max(counts)
+    return {"from_index": idx, "corners": quad, "n_same": n_same,
+            "source_row_source": rows[idx].get("corners_source", "detected")}
+
+
+@router.get("/api/sessions/{sid}/corners")
+def session_corners(sid: str):
+    """Geometry state of a session: which rows have corners, where they came from, and what
+    can be adopted. The review UI labels both of its actions with the counts from here."""
+    sdir, archived = _review_session_dir(sid)
+    rows = _review_log(sdir)
+    prof = _review_profile(sdir)
+    without = [i for i, r in enumerate(rows) if not r.get("corners")]
+    cand = _adopt_candidate(rows)
+    size = None
+    try:
+        size = list(_frame_size(_frame_path(sdir, rows[0])))
+    except HTTPException:
+        pass
+    return {
+        "session_id": sid,
+        "archived": archived,
+        "count": len(rows),
+        "n_with": len(rows) - len(without),
+        "n_without": len(without),
+        "indices_without": without,
+        "corner_names": list(CORNER_NAMES),
+        "frame_size": size,
+        "profile": {"name": prof.profile, "board_size": prof.board_size,
+                    "margin": list(prof.margin), "marker_dict": prof.marker_dict,
+                    "white_pov": bool(prof.white_pov)},
+        "rows": [{"index": i, "has_corners": bool(r.get("corners")),
+                  "source": r.get("corners_source", "detected") if r.get("corners") else None,
+                  "from": r.get("corners_from")} for i, r in enumerate(rows)],
+        "adopt": ({"available": True, "n_target": len(without), **cand}
+                  if cand else {"available": False, "n_target": len(without)}),
+    }
+
+
+@router.get("/api/sessions/{sid}/corners/seed/{idx}")
+def session_corners_seed(sid: str, idx: int, scan: bool = Query(True)):
+    """Marker positions to seed the hand-set quad with — measured, not reconstructed.
+
+    With 4 markers the live pipeline's corners ARE the marker centres (verified on a real
+    row), so every marker that IS found gives one corner exactly. Only the missing ones need
+    a click, which is far more accurate than clicking all four. `scan` also looks at the other
+    frames of the session for markers this frame is missing (same board, same tripod — that is
+    the identical argument the adopt action rests on) and says which frame each came from.
+    """
+    import cv2
+
+    from ...calibration import detect_board_markers
+
+    sdir, _archived, rows, clamped, entry = _review_entry(sid, idx)
+    prof = _review_profile(sdir)
+    path = _frame_path(sdir, entry)
+    frame = cv2.imread(str(path))
+    if frame is None:
+        raise HTTPException(404, "Frame could not be read.")
+    here = detect_board_markers(frame, prof.marker_dict, corner="center")
+    found = {int(k): {"point": [float(v[0]), float(v[1])], "from_index": clamped} for k, v in here.items()}
+    scanned = [clamped]
+    if scan and len(found) < 4:
+        # nearest frames first — a moved board is more likely the further away in time
+        order = sorted(range(len(rows)), key=lambda i: (abs(i - clamped), i))
+        for i in order:
+            if i == clamped or len(found) >= 4:
+                continue
+            other = cv2.imread(str(_frame_path(sdir, rows[i])))
+            if other is None:
+                continue
+            scanned.append(i)
+            for k, v in detect_board_markers(other, prof.marker_dict, corner="center").items():
+                if int(k) not in found:
+                    found[int(k)] = {"point": [float(v[0]), float(v[1])], "from_index": i}
+    slots = [{"name": name, "marker_id": mid,
+              "point": found.get(mid, {}).get("point"),
+              "measured": mid in found,
+              "from_index": found.get(mid, {}).get("from_index"),
+              "here": mid in here}
+             for mid, name in enumerate(CORNER_NAMES)]
+    return {"session_id": sid, "index": clamped, "frame_size": list(_frame_size(path)),
+            "corner_names": list(CORNER_NAMES), "slots": slots,
+            "found_here": sorted(int(k) for k in here),
+            "missing": [s["marker_id"] for s in slots if not s["measured"]],
+            "scanned": scanned}
+
+
+@router.get("/api/sessions/{sid}/corners/preview/{idx}")
+def session_corners_preview(sid: str, idx: int, pts: str = Query(...), rotate: int = Query(0),
+                            normalize: bool = Query(True), fs: str = Query("")):
+    """Render the candidate quad WITHOUT writing it: the confirmation step.
+
+    `pts`: 8 comma-separated full-resolution numbers (x0,y0,…,x3,y3). `fs`: "w,h" the client
+    measured the clicks against (scale guard). Same helpers as the write path, so what the user
+    confirms is exactly what gets stored."""
+    sdir, _archived, _rows, _clamped, entry = _review_entry(sid, idx)
+    try:
+        nums = [float(v) for v in pts.split(",") if v.strip() != ""]
+        claimed = [int(float(v)) for v in fs.split(",") if v.strip() != ""] or None
+    except ValueError:
+        raise HTTPException(400, f"pts/fs must be comma-separated numbers, got {pts!r} / {fs!r}.")
+    if len(nums) != 8:
+        raise HTTPException(400, f"pts needs 8 numbers (4 points), got {len(nums)}.")
+    quad = _quad_from_points([nums[i:i + 2] for i in range(0, 8, 2)], rotate, normalize)
+    _validate_quad(quad, _frame_size(_frame_path(sdir, entry)), claimed)
+    jpg = _review_overlay_jpeg(sdir, entry, corners=quad, labels=True)
+    if jpg is None:
+        raise HTTPException(400, "Preview could not be rendered.")
+    return Response(jpg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+@router.post("/api/sessions/{sid}/corners")
+def session_set_corners(sid: str, points: list = Body(...), index: int = Body(0),
+                        rotate: int = Body(0), normalize: bool = Body(True),
+                        scope: str = Body("frame"), overwrite: bool = Body(False),
+                        frame_size: list | None = Body(None)):
+    """Write a hand-placed quad (stored order `[a8, h8, h1, a1]`, full-resolution pixels).
+
+    `scope`: `frame` (this row), `missing` (every row without corners — a static sweep shares
+    one quad legitimately, a moved board does not, so this is a separate explicit action) or
+    `all`. Rows that already have corners need `overwrite`. `frame_size` is the size the client
+    measured the clicks against (scale guard). `log.jsonl` is backed up first."""
+    sdir, _archived, rows, clamped, entry = _review_entry(sid, index)
+    quad = _quad_from_points(points, rotate, normalize)
+    _validate_quad(quad, _frame_size(_frame_path(sdir, entry)), frame_size)
+    targets = _corner_targets(rows, scope, clamped, overwrite)
+    res = _write_corner_rows(sdir, rows, targets, quad, source="hand", from_index=clamped)
+    res.update(session_id=sid, scope=scope, placed_on=clamped, rotate=int(rotate) % 4)
+    return res
+
+
+@router.post("/api/sessions/{sid}/corners/adopt")
+def session_adopt_corners(sid: str, from_index: int | None = Body(None),
+                          scope: str = Body("missing"), overwrite: bool = Body(False)):
+    """Copy a quad that WAS detected in this session into the rows that have none.
+
+    The common repair: one frame in a static sweep lost a marker while the other seven kept
+    it. No clicking, and the geometry stays measured — but the rows say `adopted`, not
+    `detected`, and name the row it came from."""
+    sdir, _archived = _review_session_dir(sid)
+    rows = _review_log(sdir)
+    if from_index is None:
+        cand = _adopt_candidate(rows)
+        if cand is None:
+            raise HTTPException(400, "No row in this session has corners — there is nothing to "
+                                     "adopt. Place the box by hand instead.")
+        src_idx, quad = cand["from_index"], cand["corners"]
+    else:
+        src_idx = max(0, min(int(from_index), len(rows) - 1))
+        quad = rows[src_idx].get("corners")
+        if not quad:
+            raise HTTPException(400, f"Row {src_idx} has no corners to adopt.")
+    targets = _corner_targets(rows, scope, src_idx, overwrite)
+    targets = [i for i in targets if i != src_idx]
+    if not targets:
+        raise HTTPException(409, "Only the source row itself would change — nothing to do.")
+    res = _write_corner_rows(sdir, rows, targets, quad, source="adopted", from_index=src_idx)
+    res.update(session_id=sid, scope=scope)
+    return res
 
 
 @router.get("/api/sessions")
@@ -178,6 +596,12 @@ def session_review(sid: str, idx: int = Query(0)):
             "move_san": entry.get("move_san"),
             "ts": entry.get("ts"),
             "unusable": bool(entry.get("unusable")),
+            # Geometry state of THIS row: without corners the row cannot be sliced at all,
+            # and `corners_source` says whether they were measured or set by hand.
+            "has_corners": bool(entry.get("corners")),
+            "corners_source": (entry.get("corners_source", "detected")
+                               if entry.get("corners") else None),
+            "corners_from": entry.get("corners_from"),
         },
         "frame_url": f"/api/sessions/{safe_sid}/frame/{clamped}",
         "overlay_url": f"/api/sessions/{safe_sid}/overlay/{clamped}",
@@ -200,9 +624,12 @@ def session_frame(sid: str, idx: int):
 
 
 @router.get("/api/sessions/{sid}/overlay/{idx}")
-def session_overlay(sid: str, idx: int):
+def session_overlay(sid: str, idx: int, labels: bool = Query(False)):
+    """`labels`: draw the corner/file/rank legend. The review panel asks for it — judging
+    "is White at the bottom" from a bare grid means guessing, and a transposed quad is the
+    worst failure mode in this project."""
     sdir, _archived, _rows, _clamped, entry = _review_entry(sid, idx)
-    jpg = _review_overlay_jpeg(sdir, entry)
+    jpg = _review_overlay_jpeg(sdir, entry, labels=labels)
     if jpg is None:
         return FileResponse(_frame_path(sdir, entry), headers=_REVIEW_CACHE)
     return Response(jpg, media_type="image/jpeg", headers=_REVIEW_CACHE)
