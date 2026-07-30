@@ -86,9 +86,11 @@ This makes the phase a **pure mechanism change with no behavioural delta**: the 
 per-square outputs must be unchanged against the current asset. A phase that changes the mechanism
 and the numbers at once cannot be reviewed.
 
-Android's own framing is a 220 px crop box (`TrackerConfig.boardSize = 1600`, `pad_side` 0.05), so
-unlike the fixed rig it **downsamples** to 128 and has no upsampling to avoid. What it should use is
-an open question in `STATUS.md`, not this phase's to answer.
+Android's own framing is a **240 px** crop box — `TrackerConfig.boardSize = 1600` with `padSide` at
+its default **0.10** (`BoardGeometry.padSide`, matching `config.CROP.pad_side`, `config.py:88`), not
+the 0.05 the rig profile overrides to. So unlike the fixed rig the phone **downsamples** to 128 and
+has no upsampling to avoid. What it should use is an open question in `STATUS.md`, not this phase's
+to answer.
 
 ### 4. What must NOT change
 

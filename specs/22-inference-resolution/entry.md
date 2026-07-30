@@ -19,9 +19,10 @@ phantoms at both — while computing 1.8× fewer pixels.
 > **110 px box** (`800/8 × 1.10`) before it is resized to the network's input. 128 px therefore
 > **upsamples** on this rig, whatever the camera did.
 > The quantity that matters is `board_size / 8 × (1 + 2·pad_side)`, **not** px/square at the
-> sensor. Android's `TrackerConfig.boardSize` and `config.DEFAULT_BOARD_SIZE` are both 1600 → a
-> 220 px box → the phone **downsamples** to 128. That is the argument for a per-model key, and it
-> is a stronger one than the sensor story this pack was written on.
+> sensor. Android's `TrackerConfig.boardSize` and `config.DEFAULT_BOARD_SIZE` are both 1600, and
+> there `pad_side` is its default **0.10** (`config.py:88`, `BoardGeometry.padSide`) rather than the
+> rig profile's 0.05 → a **240 px** box → the phone **downsamples** to 128. That is the argument for
+> a per-model key, and it is a stronger one than the sensor story this pack was written on.
 
 Measured 2026-07-29 (tensor-resize curve, `occ-real3` test split, 4 736 crops / 1 715 occupied):
 
