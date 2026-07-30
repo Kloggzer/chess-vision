@@ -89,11 +89,22 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
   `val_acc` 0.93 that is 0.93^64 ≈ 1 %, i.e. structurally 0. A model that has not converged is
   early-stopped *and* has its checkpoint chosen blindly ("best by occ_board_acc=0.0000"). Pass
   `--patience 25` for any run that will sit below ~0.98.
-- **The speed cost is graph FRAGMENTATION, not the missing fold.** On the SM8650 the QNN provider is
-  not in the binary at all (dropped in `928a55c`), and GroupNorm's `InstanceNormalization`
-  decomposition between every conv pair splits the graph into **94 fragments over 47 convolutions** —
-  XNNPACK takes 47 nodes (55 % of kernel time), the generic CPU EP takes 364 (45 %), including 92
-  layout transposes XNNPACK itself inserted. 411 nodes execute, not the 503 in the file.
+- **The speed cost is LOAD AND HEAT, not the graph.** Measured on the SM8650, same graph, same
+  input: **32 ms cool and idle · 66 ms inside the running tracker · 125 ms live at 39–41 °C**
+  (max 654). That is the factor of 4, and no graph work reaches it.
+- **Do not "fix" the graph fragmentation — it is not a defect.** GroupNorm's
+  `InstanceNormalization` decomposition splits the graph into 94 fragments over 47 convolutions, and
+  a coalesced graph is **slower**: CPU-only, 1 fragment, 54 ms against XNNPACK's 94 fragments at
+  32 ms. XNNPACK's partition boundaries are cheap and its conv kernels more than pay for them.
+  NNAPI breaks at the same 46 `InstanceNormalization` nodes and costs 158 ms. The QNN provider is
+  not in the binary at all (dropped deliberately in `928a55c`: that AAR carries neither XNNPACK nor
+  NNAPI symbols and measured 227 ms against the CPU's 97). AUTO is correct; leave it alone.
+- **GroupNorm's per-sample normalisation is load-bearing on this data.** Folding it into a static
+  per-channel affine collapses the model — 2 350 phantoms of 4 687 empty crops — because inside a
+  single GroupNorm group the per-channel sigmas differ by 9.7x on average and 76x at worst. The fold
+  itself works (503 → 89 nodes, all 30 ReLUs intact); the weights simply do not survive it. Combined
+  with specs/25 this closes the normalisation question from both sides: a foldable net cannot be
+  trained to this quality, and this net cannot be folded.
 - **3D pieces extend upward.** With a non-perpendicular camera the piece image
   overflows its base cell — square crops extend upward (`pad_up`).
 - **Class imbalance:** `empty` dominates massively; handled at split/dataset
