@@ -176,13 +176,19 @@ def load_torch_run(run_dir: Path):
 def install_at_size(run_dir: Path, model, cfg: dict, size: int) -> dict:
     """Make `serving.predict_arrays` treat `size` as this run's input size, and return the cfg.
 
-    `predict_arrays` reads its target size from `cfg["out_size"]` and would resize freshly sliced
-    s x s crops straight back to 128, erasing the very thing this phase measures. Phase 01 turns
-    that into a real `infer_size` key; until it exists, seeding the module cache is the only seam.
+    `predict_arrays` reads its target size from `infer_size_of(cfg)` and would resize freshly sliced
+    s x s crops straight back, erasing the very thing this sweep measures. Seeding the module cache
+    is the only seam.
+
+    **Both keys, not just `out_size`.** When this was written `infer_size` did not exist and
+    `out_size` was the whole story; specs/22 then added the key and `infer_size_of` PREFERS it. From
+    that moment a run carrying an `infer_size` — every model shipped since — silently ignored the
+    swept size and served everything at its own. It went unnoticed because the sweeps that mattered
+    ran at the size the model already declared, where the two agree. Found by specs/26 phase 02.
     """
     from chesslab import serving
 
-    cfg_at_size = {**cfg, "out_size": [size, size]}
+    cfg_at_size = {**cfg, "out_size": [size, size], "infer_size": [size, size]}
     serving._CACHE[str(Path(run_dir).resolve())] = (model, cfg_at_size)
     return cfg_at_size
 
