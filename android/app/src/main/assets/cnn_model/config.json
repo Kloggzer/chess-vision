@@ -55,5 +55,9 @@
   "effective_class_weights": {
     "empty": 0.666700005531311,
     "occupied": 3.0
-  }
+  },
+  "infer_size": [
+    128,
+    128
+  ]
 }
