@@ -19,7 +19,31 @@ const val MODEL_CONFIG_FILE = "config.json"
  */
 const val MODEL_QNN_CTX_FILE = "model.qnn_ctx.onnx"
 
-private const val ASSET_DIR = "cnn_model"
+private const val ASSET_ROOT = "cnn_model"
+
+/**
+ * The model directories bundled under `assets/cnn_model/`. **The string IS the directory name**,
+ * in the APK and in `filesDir`, so there is no table mapping a label to a path that could rot.
+ *
+ * Three, because the two candidates disagree in ways only a live board settles and the incumbent is
+ * the baseline they are judged against. Each carries its own `config.json`, so each declares its own
+ * `infer_size` (specs/22) and the crops follow it — 80, 128 and 96 px respectively. Measured on
+ * `occ-real3`'s two test sessions: `v6-80` 11 misses / 0 phantoms, `v4-128` 17 / 2 with a wider
+ * margin on the anchor session, `shipped` the model the user has been running.
+ */
+val BUNDLED_MODELS = listOf("shipped", "v6-80", "v4-128")
+
+/** What an install runs until someone picks otherwise: the model that was already shipping. */
+val DEFAULT_MODEL: String = BUNDLED_MODELS.first()
+
+/**
+ * [name] when the APK really bundles it, else [DEFAULT_MODEL].
+ *
+ * A persisted setting outlives the build that wrote it. A device pinned to a directory a later APK
+ * no longer carries would otherwise fail its attach on every launch — the `modelAsset` version of
+ * exactly that was found on a phone three model releases behind (see `AppSettings`).
+ */
+fun bundledModelOrDefault(name: String?): String = if (name in BUNDLED_MODELS) name!! else DEFAULT_MODEL
 
 /** A staged model directory: real files on disk, because ORT needs a path for the QNN backend library. */
 class StagedModel(
@@ -43,8 +67,8 @@ class CnnModelAssets(
 ) {
     fun stage(): StagedModel {
         dir.mkdirs()
-        val config = stageFile(MODEL_CONFIG_FILE) ?: error("missing asset $ASSET_DIR/$MODEL_CONFIG_FILE")
-        val fp32 = stageFile(graph) ?: error("missing asset $ASSET_DIR/$graph")
+        val config = stageFile(MODEL_CONFIG_FILE) ?: error("missing asset ${dir.name}/$MODEL_CONFIG_FILE")
+        val fp32 = stageFile(graph) ?: error("missing asset ${dir.name}/$graph")
         val qnn = stageFile(MODEL_QNN_FILE)
         // A recopied graph invalidates its compiled form — the cached context is a binary of the
         // OLD nodes and QNN would happily keep running it.
@@ -69,14 +93,26 @@ class CnnModelAssets(
     }
 
     companion object {
+        /**
+         * One staged directory PER model, mirroring the asset layout.
+         *
+         * They cannot share a directory: [stageFile] recognises an already-staged file by its
+         * LENGTH, and two models of the same architecture produce graphs within bytes of each
+         * other — a shared directory would occasionally decide the wrong graph was already there.
+         * Separate directories also keep each model's compiled QNN context ([MODEL_QNN_CTX_FILE])
+         * with the graph it was compiled from, and make switching back a no-copy operation.
+         */
         fun fromAssets(
             context: Context,
+            model: String = DEFAULT_MODEL,
             graph: String = MODEL_FP32_FILE,
         ): CnnModelAssets =
-            CnnModelAssets(
-                open = { name -> runCatching { context.assets.open("$ASSET_DIR/$name") }.getOrNull() },
-                dir = File(context.filesDir, ASSET_DIR),
-                graph = graph,
-            )
+            bundledModelOrDefault(model).let { dir ->
+                CnnModelAssets(
+                    open = { name -> runCatching { context.assets.open("$ASSET_ROOT/$dir/$name") }.getOrNull() },
+                    dir = File(File(context.filesDir, ASSET_ROOT), dir),
+                    graph = graph,
+                )
+            }
     }
 }

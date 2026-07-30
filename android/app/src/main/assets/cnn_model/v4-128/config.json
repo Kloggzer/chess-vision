@@ -1,0 +1,61 @@
+{
+  "backbone": "mobilenetv4_conv_small_035",
+  "epochs": 20,
+  "batch_size": 256,
+  "lr": 3e-05,
+  "seed": 42,
+  "amp": true,
+  "norm": "groupnorm",
+  "classes": [
+    "empty",
+    "occupied"
+  ],
+  "out_size": [
+    128,
+    128
+  ],
+  "dataset": "occ-real5nd",
+  "resumed_from": "occ-v4-p2e20",
+  "head": "combined",
+  "normalize": {
+    "mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "std": [
+      0.229,
+      0.224,
+      0.225
+    ],
+    "mode": "fixed"
+  },
+  "input_repr": "rgb",
+  "in_chans": 3,
+  "variant": {
+    "geometry": "warp",
+    "photometry": "none",
+    "piece_height_cells": 1.6
+  },
+  "scales": [
+    32,
+    64,
+    96,
+    128
+  ],
+  "aug": {
+    "erase_p": 0.25,
+    "bg_p": 0.6
+  },
+  "loss": "ce",
+  "focal_gamma": null,
+  "class_weight_override": {},
+  "effective_class_weights": {
+    "empty": 0.666700005531311,
+    "occupied": 2.0
+  },
+  "infer_size": [
+    128,
+    128
+  ]
+}

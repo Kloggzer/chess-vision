@@ -21,32 +21,30 @@ import java.io.File
  * [OnnxSquareClassifierContractTest] drives a fake runner, and `CnnClipSimulationTest` runs on the
  * desktop provider, which tolerates the dynamic shape. Only the phone objects.
  *
- * So this test reads the REAL asset — the file that goes into the APK — and asserts its declared
- * shape. It needs no device: the `:app` unit tests link ORT's host natives.
+ * So this test reads the REAL assets — the files that go into the APK — and asserts their declared
+ * shape. **All bundled models**, because the user picks one at runtime and a dynamic batch in the
+ * one they pick is the same lost game as a dynamic batch in the default. It needs no device: the
+ * `:app` unit tests link ORT's host natives.
  */
 class BundledGraphShapeTest {
-    private fun asset(name: String) = File("src/main/assets/cnn_model/$name")
-
     @Test
-    fun theFp32GraphDeclaresTheBatchTheTrackerRuns() {
-        assertShape(asset(MODEL_FP32_FILE))
+    fun everyFp32GraphDeclaresTheBatchTheTrackerRuns() {
+        bundledAssetDirs().forEach { assertShape(File(it, MODEL_FP32_FILE), it) }
     }
 
     /**
-     * There is currently NO quantized graph to check.
-     *
-     * `occ-v4-f3e20` (specs/23 phase 02) could not be quantized at its 96 px inference size —
-     * `training/quantize.py` builds its calibration batch with `eval_transform_for(cfg)`, which
-     * resizes to `cfg["out_size"]` (128) and never consults `infer_size_of`, so the calibrator feeds
-     * a 128 px tensor to a 96 px graph and ORT refuses it. Shipping the previous model's quantized
-     * graph instead would leave a graph in the asset directory that contradicts the `config.json`
-     * beside it, so it was dropped; `StagedModel.qnn` is nullable and `epChain` skips the QNN EP when
-     * it is absent. The check stays because a QNN-capable build would run whatever is here unchanged.
+     * Bundled but not selectable while no QNN EP is compiled in (`app/build.gradle.kts` carries no
+     * QNN AAR), so nothing runs these today. A QNN-capable build would run them unchanged, which is
+     * why they may not rot into a different contract — and why the check tolerates a model that
+     * ships without one: `StagedModel.qnn` is nullable and `epChain` skips the QNN EP when it is
+     * absent.
      */
     @Test
-    fun theQuantizedGraphDeclaresItToo() {
-        val file = asset(MODEL_QNN_FILE)
-        if (file.isFile) assertShape(file)
+    fun everyQuantizedGraphDeclaresItToo() {
+        bundledAssetDirs().forEach { dir ->
+            val file = File(dir, MODEL_QNN_FILE)
+            if (file.isFile) assertShape(file, dir)
+        }
     }
 
     /**
@@ -55,12 +53,17 @@ class BundledGraphShapeTest {
      * against what the app will really do with it and not against constants that happen to match.
      *
      * NOT [ALL_SQUARES]-plus-literals: `channels` follows the run's `input_repr` and the input size
-     * follows its `infer_size` (specs/22), which is 96 on the shipped model and 128 on the crops its
-     * training set was built at. The batch IS a literal, because that one is the bug being guarded.
+     * follows its `infer_size` (specs/22) — 96, 80 and 128 px across the three bundled models, none
+     * of which is the 128 their training crops were built at. Each graph is compared against the
+     * `config.json` **beside it**, never against another model's. The batch IS a literal, because
+     * that one is the bug being guarded.
      */
-    private fun assertShape(file: File) {
+    private fun assertShape(
+        file: File,
+        dir: File,
+    ) {
         assertTrue(file.isFile, "missing bundled asset: ${file.absolutePath}")
-        val spec = ModelSpec.parse(asset(MODEL_CONFIG_FILE).readText())
+        val spec = ModelSpec.parse(File(dir, MODEL_CONFIG_FILE).readText())
         val env = OrtEnvironment.getEnvironment()
         env.createSession(file.absolutePath).use { session ->
             val input =
@@ -84,13 +87,13 @@ class BundledGraphShapeTest {
                     spec.outWidth.toLong(),
                 ),
                 input,
-                "${file.name}: input must be a fixed 64-crop batch at the config's ${spec.outWidth}x${spec.outHeight}, " +
-                    "got ${input.toList()}",
+                "${dir.name}/${file.name}: input must be a fixed 64-crop batch at the config's " +
+                    "${spec.outWidth}x${spec.outHeight}, got ${input.toList()}",
             )
             assertArrayEquals(
                 longArrayOf(ALL_SQUARES.size.toLong(), spec.classes.size.toLong()),
                 output,
-                "${file.name}: output must be 64 rows of the bundled config's classes, " +
+                "${dir.name}/${file.name}: output must be 64 rows of the bundled config's classes, " +
                     "got ${output.toList()}",
             )
         }
