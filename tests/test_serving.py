@@ -74,7 +74,7 @@ def test_crops_for_model_count_and_order(tmp_path):
     corners = [[0, 0], [bs, 0], [bs, bs], [0, bs]]
 
     spec = serving.RunSpec(
-        run_dir=tmp_path, classes=config.CLASSES, out_size=(96, 128),
+        run_dir=tmp_path, classes=config.CLASSES, out_size=(96, 128), infer_size=(96, 128),
         geometry="warp", photometry="none", piece_height_cells=1.6,
     )
     crops = serving.crops_for_model(frame, corners, prof, spec)
@@ -104,7 +104,7 @@ def test_photometry_none_is_identical(tmp_path):
     corners = [[0, 0], [bs, 0], [bs, bs], [0, bs]]
 
     spec = serving.RunSpec(
-        run_dir=tmp_path, classes=config.CLASSES, out_size=(96, 128),
+        run_dir=tmp_path, classes=config.CLASSES, out_size=(96, 128), infer_size=(96, 128),
         geometry="warp", photometry="none", piece_height_cells=1.6,
     )
     via_model = serving.crops_for_model(frame, corners, prof, spec)
@@ -129,11 +129,11 @@ def test_photometry_clahe_differs_from_raw(tmp_path):
     corners = [[0, 0], [bs, 0], [bs, bs], [0, bs]]
 
     spec_none = serving.RunSpec(
-        run_dir=tmp_path, classes=config.CLASSES, out_size=(96, 128),
+        run_dir=tmp_path, classes=config.CLASSES, out_size=(96, 128), infer_size=(96, 128),
         geometry="warp", photometry="none", piece_height_cells=1.6,
     )
     spec_clahe = serving.RunSpec(
-        run_dir=tmp_path, classes=config.CLASSES, out_size=(96, 128),
+        run_dir=tmp_path, classes=config.CLASSES, out_size=(96, 128), infer_size=(96, 128),
         geometry="warp", photometry="clahe", piece_height_cells=1.6,
     )
     raw_crops = serving.crops_for_model(frame, corners, prof, spec_none)
@@ -531,3 +531,129 @@ def test_mixed_size_falls_back_to_pil(tmp_path):
     for i, (pm, ps) in enumerate(zip(preds_mixed, preds_sized, strict=False)):
         assert pm["pred_label"] == ps["pred_label"], \
             f"Crop {i}: mixed={pm['pred_label']} sized={ps['pred_label']}"
+
+
+# ---------------------------------------------------------------------------
+# Test 9: infer_size — the size the GRAPH takes, vs out_size = the size the crops were built at
+# (specs/22-inference-resolution)
+# ---------------------------------------------------------------------------
+
+
+def _export_run(tmp_path, *, out_size=(128, 128), scales=None, name="run_x"):
+    """Minimal exportable run: smallcnn weights + the config keys `run_export` reads."""
+    import torch
+
+    from chesslab.training.model import build_model
+
+    run_dir = tmp_path / name
+    run_dir.mkdir()
+    classes = config.CLASSES
+    model = build_model("smallcnn", len(classes), norm="batchnorm", head="combined",
+                        classes=classes)
+    torch.save(model.state_dict(), str(run_dir / "best.pt"))
+    cfg = {"backbone": "smallcnn", "classes": classes, "out_size": list(out_size),
+           "norm": "batchnorm", "head": "combined",
+           "variant": {"geometry": "warp", "photometry": "none", "piece_height_cells": 1.6}}
+    if scales is not None:
+        cfg["scales"] = list(scales)
+    (run_dir / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
+    return run_dir
+
+
+def test_infer_size_falls_back_to_out_size(tmp_path):
+    """No `infer_size` key -> the crop size. The compatibility guarantee for every shipped model."""
+    from chesslab.training.torch_data import infer_size_of
+
+    assert infer_size_of({"out_size": [128, 128]}) == (128, 128)
+
+    run_dir = tmp_path / "legacy"
+    run_dir.mkdir()
+    (run_dir / "config.json").write_text(json.dumps({
+        "classes": config.CLASSES, "out_size": [96, 128],
+        "variant": {"geometry": "warp", "photometry": "none", "piece_height_cells": 1.6},
+    }), encoding="utf-8")
+    spec = serving.run_spec(run_dir)
+    assert spec.infer_size == spec.out_size == (96, 128)
+
+
+def test_run_spec_reads_infer_size(tmp_path):
+    """The two sizes are different facts and RunSpec carries both."""
+    run_dir = tmp_path / "run_is"
+    run_dir.mkdir()
+    (run_dir / "config.json").write_text(json.dumps({
+        "classes": config.CLASSES, "out_size": [128, 128], "infer_size": [96, 96],
+        "scales": [32, 64, 96, 128],
+        "variant": {"geometry": "warp", "photometry": "none", "piece_height_cells": 1.6},
+    }), encoding="utf-8")
+
+    spec = serving.run_spec(run_dir)
+    assert spec.infer_size == (96, 96)
+    assert spec.out_size == (128, 128)
+
+
+def test_crops_for_model_uses_infer_size(tmp_path):
+    """The frame is cropped straight to the inference size — no intermediate 128 px step."""
+    bs = 640
+    prof = _identity_profile(bs)
+    frame = _synthetic_frame(bs)
+    corners = [[0, 0], [bs, 0], [bs, bs], [0, bs]]
+
+    spec = serving.RunSpec(
+        run_dir=tmp_path, classes=config.CLASSES, out_size=(128, 128), infer_size=(96, 96),
+        geometry="warp", photometry="none", piece_height_cells=1.6,
+    )
+    crops = serving.crops_for_model(frame, corners, prof, spec)
+    assert len(crops) == 64
+    for c in crops:
+        assert c.shape[:2] == (96, 96), f"crop is {c.shape[:2]}, not the inference size"
+
+
+@pytest.mark.skipif(pytest.importorskip("torch", reason="torch nicht installiert") is None,
+                    reason="torch nicht installiert")
+def test_export_rejects_an_untrained_size(tmp_path, capsys):
+    """80 px sits between two trained scales and costs the champion 133 misses against 96's 19.
+    The failure is silent at inference, so it has to be loud here (specs/22 phase 00)."""
+    from chesslab.training.evaluate import run_export
+
+    run_dir = _export_run(tmp_path, out_size=(128, 128), scales=[32, 64, 96, 128])
+    rc = run_export(str(run_dir), fmt="onnx", infer_size=(80, 80))
+    assert rc != 0
+    out = capsys.readouterr().out
+    assert "80x80" in out and "[32, 64, 96, 128]" in out
+    # Rejected values do not reach the config, and nothing was exported.
+    cfg = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
+    assert "infer_size" not in cfg
+    assert not (run_dir / "model.onnx").exists()
+
+    # A run without `scales` was trained at one size: only its out_size is allowed.
+    single = _export_run(tmp_path, out_size=(128, 128), name="run_single")
+    assert run_export(str(single), fmt="onnx", infer_size=(96, 96)) != 0
+    assert "128x128" in capsys.readouterr().out
+
+
+@pytest.mark.skipif(pytest.importorskip("torch", reason="torch nicht installiert") is None,
+                    reason="torch nicht installiert")
+def test_export_bakes_infer_size_into_the_graph(tmp_path):
+    """Artifact authority: the graph is the schema and config.json describes it."""
+    onnx = pytest.importorskip("onnx")
+
+    from chesslab.training.evaluate import ONNX_BATCH, run_export
+
+    run_dir = _export_run(tmp_path, out_size=(128, 128), scales=[32, 64, 96, 128])
+    assert run_export(str(run_dir), fmt="onnx", infer_size=(96, 96)) == 0
+
+    cfg = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
+    assert cfg["infer_size"] == [96, 96]
+    assert cfg["out_size"] == [128, 128]     # untouched: the crops on disk are still 128 px
+
+    m = onnx.load(str(run_dir / "model.onnx"))
+    dims = [d.dim_value for d in m.graph.input[0].type.tensor_type.shape.dim]
+    assert dims == [ONNX_BATCH, 3, 96, 96], f"graph declares {dims}"
+
+    card = json.loads((run_dir / "model_card.json").read_text(encoding="utf-8"))
+    assert card["infer_size"] == [96, 96] and card["out_size"] == [128, 128]
+
+    # A second export with no --infer-size keeps what the model declares.
+    assert run_export(str(run_dir), fmt="onnx") == 0
+    m2 = onnx.load(str(run_dir / "model.onnx"))
+    assert [d.dim_value for d in m2.graph.input[0].type.tensor_type.shape.dim] == dims
