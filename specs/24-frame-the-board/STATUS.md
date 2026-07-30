@@ -11,10 +11,12 @@ log; never rewrite another phase's entry.
 | 00 | What does framing actually buy on the device? | todo | — | Measurement only. **Gates the pack, including closing it.** |
 | 01 | Zoom set once, then calibrate | todo | — | Blocked by 00, and only if 00 says BUILD. |
 | 02 | `AUTO` picks the capture mode from the measurement | todo | — | Blocked by 01. |
+| 03 | Remove the levers that can silently break things | todo | — | **Independent of 00-02**, may run in parallel. |
 
 States: `todo` → `in progress` → `done` | `blocked`.
 
-**Strictly sequential. `STOP` after phase 00 is an expected, valid end state.**
+**00 → 01 → 02 is sequential; `STOP` after 00 is an expected, valid end state. 03 is a separate
+concern in separate files and does not wait for any of them.**
 
 ## What is already established (do not re-establish)
 
@@ -58,6 +60,22 @@ Measured 2026-07-30.
 
 - **Phantoms are the veto, misses are tolerable** (user, 2026-07-30). Rank on phantoms; report the
   sharpest phantom-free threshold, never below 0.5.
+
+## For phase 03 — what is already known
+
+- **The marker IDs fix the corners.** `resolveBoardCorners` addresses neighbours as `(m ± 1).mod(4)`
+  and the opposite corner as `(m + 2).mod(4)`, so marker `N` IS corner `N` in `[a8, h8, h1, a1]`
+  (`core-geometry/Aruco.kt`). Which physical corner is a8 follows from where the stickers sit.
+- **`whitePov` is a second, separate thing**: a 180° rotation of the square mapping on top of that
+  (`Corners.kt:80-92`). Phase 03 must establish which of the two the `orientation` setting
+  actually controls before removing anything.
+- **`orientation`'s own help text names the hazard**: "A wrong a8 assignment silently transposes
+  every label." Silent, total, and offered as a free choice.
+- **`KnobCatalog.kt:204` exposes `boardSize` at 640-2560**, overriding `measuredBoardSize`, which
+  derives the warp from the quad and clamps to 320...1280.
+- **The rotate-until-it-looks-right shape is already validated** by the user for the session review
+  panel (specs/23): four clicks, then rotate, with the overlay as the arbiter. The same shape fits
+  a one-time orientation confirmation.
 
 ## Deliberately out of scope
 

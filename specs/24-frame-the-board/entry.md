@@ -6,13 +6,22 @@
 > limit, repo rules, git hygiene, linters, definition of done. Only the deltas are below.
 > Branch: `spec-24-frame-the-board`, cut from `main`.
 
-## The idea, and the honest state of its evidence
+## What this is for
 
-A camera pointed at a chessboard spends most of its pixels on the table. Zooming so the board
-fills the frame multiplies the resolution per square at no capture cost, and the app already
-knows exactly how much of the frame the board occupies — the ArUco quad says so every frame.
-`OpticsLock` already holds `cameraControl` and already calls `setZoomRatio(1.0f)`; what is
-missing is the decision of what value to set.
+**The point is to stop the user aligning the camera by hand.** Today the board fills 61–69% of
+the frame in every recorded session — and that is not luck, it is the user placing the phone
+precisely before every recording, and again whenever anything moves. Automating the framing turns
+a careful manual step into a measurement the app already has: the ArUco quad says how much of the
+frame the board occupies, `OpticsLock` already holds `cameraControl` and already calls
+`setZoomRatio(1.0f)`. What is missing is the decision of what value to set.
+
+So the success criterion is **reliability from a casually placed camera**, not pixels per square.
+A phone put down roughly and a phone aligned by hand must end up with the same usable frame.
+
+The resolution gain is real but secondary, and capped — the section below says by how much, so
+that nobody later mistakes it for the justification.
+
+## The secondary benefit, and its ceiling
 
 **But the gain is smaller than the idea suggests, and it may be zero for the task we ship
 today.** Measured on the real sessions in this corpus (first frame, corner quad against frame
@@ -38,22 +47,27 @@ And downstream the gain is capped twice:
 - At `infer_size = 80` (the candidate this pack was proposed alongside) the crop box at that
   clamp is `1280/8 × 1.2 = 192 px` — **2.4× more than the network can represent**.
 
-**Conclusion to hold on to: for 2-class occupancy at 80 px, resolution is not the bottleneck, and
-this pack may correctly end at phase 00 with "do not build it".** That is a valid and expected
-outcome. Where it would pay is piece identity, a larger `infer_size`, or a user who sits much
-further away than these sessions — and phase 00 exists to find out whether that user is the one
-holding the phone.
+**Hold on to this: for 2-class occupancy at 80 px, resolution is NOT the bottleneck.** Do not
+justify a single line of this pack with pixels per square. If the framing automation makes the
+picture sharper, that is a bonus; what it has to do is make a roughly placed camera work as well
+as a carefully placed one.
+
+The corollary is a real risk: a casually placed camera starts from a *worse* fill than the 61–69%
+measured here, so the zoom factor is larger, and the two things that break at large factors —
+marker detection and the sensor crop limit — are exactly what phase 00 must measure.
 
 ## Phases
 
 | Spec | Phase | Depends on | Runs |
 |---|---|---|---|
-| `00-what-does-framing-buy.md` | Measure the app's own framing and the zoom curve on the device | — | **alone, first. Gates the pack.** |
+| `00-what-does-framing-buy.md` | Does a casually placed camera survive the zoom the automation would apply? | — | **alone, first. Gates the pack.** |
 | `01-zoom-at-calibration.md` | Set the zoom once, then calibrate — never the other way round | 00 | after 00 |
 | `02-resolution-from-measurement.md` | `AUTO` picks the capture mode from measured px/square and the model's `infer_size` | 01 | last |
 
-If phase 00 finds the app's real framing already above ~60% and the crop box comfortably above
-`infer_size`, **stop after 00**. Write the numbers into `STATUS.md` and close the pack.
+Phase 00 gates on **feasibility, not on payoff**: the largest zoom at which all four markers stay
+detected, and where the sensor crop stops delivering real pixels. If that ceiling is below what a
+casually placed camera needs, the automation cannot do its job and the pack stops — with the
+numbers that say so.
 
 ## The invariant every phase must respect
 
