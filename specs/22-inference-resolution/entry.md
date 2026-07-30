@@ -7,10 +7,21 @@
 
 ## What this is
 
-The CNN is fed 128×128 crops. The camera delivers **~97 px per square**. Everything above that is
+The CNN is fed 128×128 crops that carry **110 px of real detail**. Everything above that is
 interpolation, and it is not free: on the real holdout the multi-scale GroupNorm champion
-`occ-v4-f3e20` reads 43 occupied squares as empty at 128 px and **18 at 96 px** — with zero
+`occ-v4-f3e20` reads 43 occupied squares as empty at 128 px and **19 at 96 px** — with zero
 phantoms at both — while computing 1.8× fewer pixels.
+
+> ⚠ **Phase 00 corrected the mechanism. Read this before quoting any px/square number.**
+> The sensor's resolution never reaches the model. `crops_for_frame` warps to
+> `profile.board_size` **first**, and `data/calibration/phone.yaml` — the profile BOTH sessions use
+> — has `board_size: 800` with `pad_side: 0.05`. So every crop, from either session, arrives as a
+> **110 px box** (`800/8 × 1.10`) before it is resized to the network's input. 128 px therefore
+> **upsamples** on this rig, whatever the camera did.
+> The quantity that matters is `board_size / 8 × (1 + 2·pad_side)`, **not** px/square at the
+> sensor. Android's `TrackerConfig.boardSize` and `config.DEFAULT_BOARD_SIZE` are both 1600 → a
+> 220 px box → the phone **downsamples** to 128. That is the argument for a per-model key, and it
+> is a stronger one than the sensor story this pack was written on.
 
 Measured 2026-07-29 (tensor-resize curve, `occ-real3` test split, 4 736 crops / 1 715 occupied):
 
@@ -29,17 +40,24 @@ And the native resolution of every session, computed from the corner quads in
 | `20260630-080531` / `-014453` | 213.8 / 214.0 | training |
 | `20260708-195420`, `20260709-141209` | 103.3 / 102.3 | training |
 
-The test split is one session at 96.9 px/square, and 96 px is its optimum. That is either a
-general property of the model or an artefact of that one session — **phase 00 decides which, and
-gates the pack.** The two candidate rules differ only off this rig:
+**Phase 00 is done. Verdict: R-NATIVE** — `infer_size` is a per-model, per-deployment value, 96 for
+the fixed rig. The numbers, the caveats and seven spec discrepancies are in `STATUS.md`; the three
+that bind the remaining phases:
 
-- **R-FIXED** — 96 is simply this model's best operating size. Then 96 everywhere, including the
-  phone at ~209 px/square.
-- **R-NATIVE** — feed the largest trained scale that does not upscale the crop. Then 96 for the
-  fixed rig and 128 for the phone, and the value must be a per-deployment setting.
+1. **The mechanism is the crop box, not the sensor** (see the warning above). Phases 01 and 03 say
+   that; the sensor framing is stale.
+2. **`infer_size` must be one of the run's own `scales`.** The curve is violently non-monotone at
+   untrained sizes: `occ-v4-f3e20` at 80 px reads **133** occupied squares as empty on test, worse
+   than both neighbours (64 px → 38, 96 px → 19); at 48 px it collapses to 916. A plausibility band
+   like `32..512` would accept 80 and silently lose a hundred squares per split.
+3. **96 px is not an improvement for the model currently bundled.** `occ-r3s-f3` goes from 95/152
+   at 128 px to 74/243 at 96 px — fewer misses, 91 more phantoms, and worse at the matched
+   operating point. Phase 02 therefore lands the *mechanism* and leaves that asset at 128. Serving
+   at 96 arrives with the model that wants it.
 
-Both rules give **96 for the fixed rig**, which is why the code change below is the same either
-way; only the default for other framings differs.
+The val leg of the verdict is confounded and known to be: `best.pt` is selected on val **at
+128 px** (`training/train.py:402-403`), so val preferring 128 is what checkpoint selection alone
+produces. The test leg is clean and is what "96 for the fixed rig" rests on.
 
 ## Why this is worth a pack rather than a one-line edit
 

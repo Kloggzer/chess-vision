@@ -57,24 +57,38 @@ read the input's declared shape from ORT (`session.inputInfo.values.first().info
 failing with both numbers in the message. **This is the assertion the old one was standing in
 for**: the app now compares against the artifact instead of against itself.
 
-### 3. Re-export and swap the bundled asset
+The band is deliberately not the whole safety story. Phase 00 measured that an **untrained** size
+fails silently — 80 px costs `occ-v4-f3e20` 133 misses against 96 px's 19, with no error anywhere —
+and 80 is inside `32..512`. That guard belongs where the trained `scales` are known, which is the
+exporter (phase 01), not the app. Do not try to re-derive it here from the asset's `config.json`.
 
-The bundled run is the one described by
-`android/app/src/main/assets/cnn_model/config.json` (`"resumed_from": "occ-act-p1"`, groupnorm,
-2-class, `scales: [32, 64, 96, 128]` — a multi-scale run, so 96 is a size it was trained on).
-Locate its run directory under `data/models/`, then:
+### 3. Re-export the bundled asset — at **128**, not 96
+
+**Phase 00 measured this and 96 px would make the shipped app worse.** The bundled run is
+`data/models/occ-r3s-f3` (identified by sha256-identical `config.json` / `model.onnx` /
+`model.qnn.onnx` — use that check, not the `resumed_from` grep, which matches eight runs). Its
+numbers on the test session: **95 misses / 152 phantoms at 128 px**, **74 / 243 at 96 px** — 91 more
+phantoms and worse at the matched operating point. Serving at 96 arrives with the model that wants
+it, which is a model decision this pack does not take.
+
+So re-export it with the key made explicit at its current size:
 
 ```bash
-uv run chesslab export --run data/models/<run> --format all --infer-size 96x96
+uv run chesslab export --run data/models/occ-r3s-f3 --format all --infer-size 128x128
 ```
 
 Copy `model.onnx`, `model.qnn.onnx` and the updated `config.json` into
 `android/app/src/main/assets/cnn_model/`. **Do not hand-edit the asset's `config.json`** — that is
 how the shipped graph and its description drifted apart the last time (`b24f1f3`).
 
-If phase 00 recorded **R-NATIVE**, this is still 96: the fixed rig delivers ~97 px/square. The
-phone's own framing (~209 px/square) is a separate measurement and is **not** part of this pack —
-record it in `STATUS.md` as the open question it is.
+This makes the phase a **pure mechanism change with no behavioural delta**: the app stops asserting
+128 and starts reading it, and reads 128. Confirm that explicitly — the graph's input shape and the
+per-square outputs must be unchanged against the current asset. A phase that changes the mechanism
+and the numbers at once cannot be reviewed.
+
+Android's own framing is a 220 px crop box (`TrackerConfig.boardSize = 1600`, `pad_side` 0.05), so
+unlike the fixed rig it **downsamples** to 128 and has no upsampling to avoid. What it should use is
+an open question in `STATUS.md`, not this phase's to answer.
 
 ### 4. What must NOT change
 
@@ -114,9 +128,12 @@ orchestrator's gate does that on the merged tree.
 
 - `grep -rn "CROP_SIZE" android/` returns **nothing**.
 - `grep -n "infer_size" android/app/src/main/assets/cnn_model/config.json` hits, and the value is
-  `[96, 96]`.
+  `[128, 128]` — explicit, no longer implied.
 - `.venv/Scripts/python.exe -c "import onnx; m=onnx.load('android/app/src/main/assets/cnn_model/model.onnx'); print([d.dim_value for d in m.graph.input[0].type.tensor_type.shape.dim])"`
-  prints `[64, 3, 96, 96]` — batch still 64, spatial now 96.
+  prints `[64, 3, 128, 128]` — **unchanged**. This phase changes the mechanism, not the numbers.
+- A 96 px asset loads and runs when handed one: build one into a temp dir with
+  `--infer-size 96x96` from `data/models/occ-v4-f3e20` and point the seam test at it. That proves
+  the mechanism works without shipping the regression.
 - `grep -n "require(crops.size == batch)" android/app/src/main/kotlin/com/chesslab/tracker/cnn/OnnxSquareClassifier.kt`
   still hits.
 - `gradlew.bat :app:ktlintCheck :app:detekt` — zero new findings; style fixed with
