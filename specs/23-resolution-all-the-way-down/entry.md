@@ -41,8 +41,14 @@ against 152. That is the accuracy win and it is the point of the pack. But:
   `crop.width == outW`, and the crop size comes from `BoardGeometry.outW`, hard-defaulted to 128
   (`android/core-geometry/src/main/kotlin/com/chesslab/geometry/Corners.kt:67`).
 - Shipping it **at the wrong size** is what phase 00 exists to prevent. The 96 px optimum was
-  measured on 110 px boxes; the phone warps at `boardSize = 1600` with `padSide = 0.10` → a **240 px**
-  box, which downsamples to 128 instead of upsampling. Its optimum has never been measured.
+  measured on 110 px boxes; the `BoardGeometry` default warps at `boardSize = 1600` with
+  `padSide = 0.10` → a **240 px** box, which downsamples to 128 instead of upsampling.
+
+  > ⚠ Corrected by phase 01: **240 px is the default-geometry figure, not what a calibrated phone
+  > produces.** `measuredBoardSize` (`tracker/geometry/CalibrationStore.kt:133`) derives `boardSize`
+  > from the corner quad, rounds to a multiple of 16 and clamps to `320…1280` → a **48…192 px** box.
+  > Android already warps at the board's real pixel size; the rig's fixed 800 is the outlier. Do not
+  > quote 240 as the phone's box.
 
 ## Facts established by specs/22 — do not re-establish
 

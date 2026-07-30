@@ -605,7 +605,16 @@ and it depends only on the profile, never on the camera. The two values that are
 | where | `board_size` | `pad_side` | cell | crop box | vs. a 128 px input |
 |---|---:|---:|---:|---:|---|
 | rig profile `data/calibration/phone.yaml` | 800 | 0.05 | 100 | **110 px** | **upsamples** 1.16× |
-| `config.DEFAULT_BOARD_SIZE` = Android `BoardGeometry.boardSize` / `TrackerConfig.boardSize` | 1600 | 0.10 | 200 | **240 px** | **downsamples** 1.9× |
+| `config.DEFAULT_BOARD_SIZE` = the `BoardGeometry` / `TrackerConfig` default | 1600 | 0.10 | 200 | **240 px** | **downsamples** 1.9× |
+| Android, **calibrated** — `measuredBoardSize` | 320…1280 | 0.10 | 40…160 | **48…192 px** | either way |
+
+⚠ **The 1600 row is the default, not what the running app uses.** `measuredBoardSize`
+(`android/app/src/main/kotlin/com/chesslab/tracker/geometry/CalibrationStore.kt:133`) derives
+`boardSize` from the longest edge of the detected corner quad, rounds it to a multiple of 16 and
+clamps it to `320…1280` — so a calibrated Android profile warps at *the board's actual pixel size*,
+by design: "the warp neither throws real pixels away nor fabricates any". **Android already does what
+the rig profile does not.** The fixed 800 in `phone.yaml` is the outlier, and it is why the 4K session
+below loses resolution that the phone would have kept.
 
 Check it against the code rather than trusting the table:
 
