@@ -145,7 +145,80 @@ def test_a_url_source_takes_no_resolution(opened, monkeypatch):
     s = web_cam.CAMERA.status()
     assert s["modes_apply"] is False and s["mode"] == ""
     assert s["requested"] is None                    # nothing was requested, so claim nothing
-    assert s["url_source"] == "https://phone:4444/video/snapshot"
+    assert s["env_source"] == "https://phone:4444/video/snapshot"
+    assert s["source"] == "https://phone:4444/video/snapshot"
+
+
+def test_a_ui_url_source_is_opened_and_takes_no_resolution(opened):
+    """The source field, not only the env var: a URL typed in the UI reaches open_capture."""
+    web_cam.CAMERA.ensure("https://phone:4444/video/snapshot", "4k")
+    spec = opened["specs"][-1]
+    assert spec.source == "https://phone:4444/video/snapshot"
+    assert (spec.width, spec.height) == (None, None)
+    s = web_cam.CAMERA.status()
+    assert s["modes_apply"] is False and s["mode"] == "" and s["requested"] is None
+    assert s["env_source"] is None                   # nothing overridden — the UI is in charge
+    assert s["selected"] == "https://phone:4444/video/snapshot"
+
+
+def test_the_env_override_still_beats_the_ui_field(opened, monkeypatch):
+    """The env var is documented as overriding ALL web camera paths — and the UI must SAY so
+    instead of quietly disagreeing with what is being captured."""
+    monkeypatch.setenv(web_cam.CAMERA_SOURCE_ENV, "https://phone:4444/video/m.jpeg")
+    web_cam.CAMERA.ensure("2", "1080p")
+    assert opened["specs"][-1].source == "https://phone:4444/video/m.jpeg"
+    s = web_cam.CAMERA.status()
+    assert s["selected"] == "2"                      # what the field shows…
+    assert s["source"] == "https://phone:4444/video/m.jpeg"   # …vs what is in charge
+    assert s["env_source"] == "https://phone:4444/video/m.jpeg"
+
+
+def test_a_ui_index_reopens_when_the_source_changes(opened):
+    web_cam.CAMERA.ensure("0")
+    web_cam.CAMERA.ensure("1")
+    web_cam.CAMERA.ensure("1")
+    assert [s.source for s in opened["specs"]] == [0, 1]      # digit strings become indices
+
+
+def test_credentials_never_leave_the_process(opened):
+    web_cam.CAMERA.ensure("https://bob:hunter2@phone:4444/video/m.jpeg", "",
+                          "https://bob:hunter2@phone:4444/video/snapshot")
+    s = web_cam.CAMERA.status()
+    assert "hunter2" not in repr(s)
+    assert s["source"] == "https://phone:4444/video/m.jpeg"
+    assert s["capture_source"] == "https://phone:4444/video/snapshot"
+
+
+# --- the snapshot (Photo) source ------------------------------------------------------
+
+def test_the_ui_photo_field_feeds_the_save_path(opened, monkeypatch):
+    """Saved frames come from the snapshot URL; the preview keeps running over the stream."""
+    grabbed: list[str] = []
+
+    class Snap:
+        def __init__(self, url, timeout=4.0):
+            grabbed.append(url)
+
+        def read(self):
+            return True, np.zeros((4096, 3072, 3), np.uint8)
+
+    monkeypatch.setattr(web_cam, "UrlSnapshotCapture", Snap)
+    web_cam.CAMERA.ensure("0", "1080p", "https://phone:4444/video/snapshot")
+    frame, hires = web_cam.CAMERA.grab_capture()
+    assert hires is True and frame.shape[:2] == (4096, 3072)
+    assert grabbed == ["https://phone:4444/video/snapshot"]
+
+
+def test_the_env_capture_wins_over_the_photo_field(monkeypatch):
+    monkeypatch.setenv(web_cam.CAMERA_CAPTURE_ENV, "https://env:4444/video/snapshot")
+    assert web_cam.capture_url("https://ui:4444/video/snapshot") == \
+        "https://env:4444/video/snapshot"
+
+
+def test_no_photo_source_saves_the_live_frame(opened):
+    web_cam.CAMERA.ensure("0", "1080p")
+    frame, hires = web_cam.CAMERA.grab_capture()
+    assert hires is False and frame is not None
 
 
 # --- lens undistortion ----------------------------------------------------------------
@@ -223,5 +296,62 @@ def test_collect_start_opens_the_selected_mode_and_logs_the_delivered_size(
     meta = yaml.safe_load((config.DATA.sessions / st["session_id"] / "session.yaml")
                           .read_text(encoding="utf-8"))
     assert meta["frame_size"] == [1280, 720]         # delivered, not the profile's 96x96
+    assert meta["camera_source"] == "0"              # which camera took it, always recorded
+    assert meta["camera_index"] == 0
     assert "res=1440p" in meta["notes"]
     client.post("/api/collect/finish")
+
+
+def test_collect_start_records_the_url_source_it_actually_captured_from(
+        opened, tmp_path, monkeypatch):
+    """The point of `camera_source`: a phone session must not look like USB index 0, and the
+    lens stamp must not claim undistorted for frames nothing corrected."""
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    import yaml
+    from fastapi.testclient import TestClient
+
+    from chesslab import calibration
+    from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
+    from chesslab.web.app import create_app
+
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    _write_calib(config.DATA.lens / "calib.npz")     # a calibration EXISTS…
+    monkeypatch.setattr(config, "LENS", replace(config.LENS,
+                                                path=str(config.DATA.lens / "calib.npz")))
+    bs = 96
+    corners = [[0, 0], [bs, 0], [bs, bs], [0, bs]]
+    prof = CalibrationProfile(profile="t", camera_index=-1, frame_size=(bs, bs), board_size=bs,
+                              image_corners=corners, homography=compute_homography(corners, bs),
+                              white_pov=True, crop=CropParams.default(bs))
+    monkeypatch.setattr(calibration, "ensure_profile", lambda *a, **k: prof)
+    opened["size"].update(w=1080, h=1920)
+
+    client = TestClient(create_app())
+    st = client.post("/api/collect/start", json={
+        "strategy": "random", "max_plies": 2,
+        "source": "https://bob:hunter2@phone:4444/video/m.jpeg",
+        "capture": "https://bob:hunter2@phone:4444/video/snapshot"}).json()
+
+    meta = yaml.safe_load((config.DATA.sessions / st["session_id"] / "session.yaml")
+                          .read_text(encoding="utf-8"))
+    assert meta["camera_source"] == "https://phone:4444/video/m.jpeg"      # no credentials
+    assert meta["camera_capture_source"] == "https://phone:4444/video/snapshot"
+    assert meta["camera_index"] == -1                # a URL has no index — do not claim 0
+    assert meta["undistorted"] is False              # …but a URL is not the calibrated lens
+    assert "hunter2" not in (config.DATA.sessions / st["session_id"] / "session.yaml") \
+        .read_text(encoding="utf-8")
+    client.post("/api/collect/finish")
+
+
+def test_a_photo_index_is_refused_with_the_reason(opened, tmp_path, monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+
+    from chesslab.web.app import create_app
+
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    client = TestClient(create_app())
+    r = client.post("/api/collect/start", json={"strategy": "random", "capture": "1"})
+    assert r.status_code == 400 and "second time" in r.json()["detail"]

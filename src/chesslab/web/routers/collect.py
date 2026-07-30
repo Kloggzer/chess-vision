@@ -28,7 +28,8 @@ def collect_start(strategy: str = Body("random"), max_plies: int = Body(40), see
                   sets: int = Body(1), count: int = Body(20), passes: int = Body(1),
                   pieces: str = Body("special"), together: bool = Body(False),
                   offset: int = Body(0), auto_offset: bool = Body(False),
-                  target: int = Body(200), res: str = Body("")):
+                  target: int = Body(200), res: str = Body(""), source: str = Body(""),
+                  capture: str = Body("")):
     from ... import config
     from ...calibration import ensure_profile
     from ...collect import SessionWriter, generate_session_id
@@ -37,12 +38,26 @@ def collect_start(strategy: str = Body("random"), max_plies: int = Body(40), see
         random_game_positions,
         stockfish_game_positions,
     )
+    from ..camera import effective_source
 
     res = str(res or "").strip().lower()
+    # `source`: device index OR IP-cam URL from the UI; `camera` (int) stays as the legacy
+    # field. The env override still wins inside `effective_source` — the UI only gets to say
+    # what it WANTS, and the page shows when something else is in charge.
+    selected = str(source or "").strip() or str(camera)
+    capture = str(capture or "").strip()
+    if capture and "://" not in capture:
+        raise HTTPException(400, f"Photo source {capture!r} must be a snapshot URL "
+                                 "(http…/video/snapshot). A device index would open the same "
+                                 "camera a second time and silently degrade the live "
+                                 "resolution — leave it empty to save from the live stream.")
+    eff = effective_source(selected)
     try:
         # `camera_mode`: if the profile has to be auto-calibrated, do it at the resolution we
         # are about to capture at — otherwise its pixel corners describe a different frame.
-        prof = ensure_profile(profile, camera, camera_mode=res or None)
+        # `eff`, not `camera`: with a URL source, calibrating from USB index 0 would describe
+        # a camera that is not the one recording.
+        prof = ensure_profile(profile, eff, camera_mode=res or None)
     except FileNotFoundError as e:
         raise HTTPException(400, str(e))
 
@@ -96,7 +111,7 @@ def collect_start(strategy: str = Body("random"), max_plies: int = Body(40), see
         positions = [{"ply": start.ply(), "san": None, "fen": start.fen()}] + steps
 
     sid = generate_session_id()
-    CAMERA.ensure(camera, res)
+    CAMERA.ensure(selected, res, capture)
     cam = CAMERA.status()
     notes = (f"web:sweep offset={sweep_offset!s} pieces={pieces} together={together}"
              if strategy == "sweep" else f"web:{strategy}")
@@ -107,7 +122,11 @@ def collect_start(strategy: str = Body("random"), max_plies: int = Body(40), see
     # pixels somebody will measure later. Falls back to the profile if no frame arrived yet.
     frame_size = tuple(cam["delivered"]) if cam["delivered"] else prof.frame_size
     writer = SessionWriter(config.DATA.sessions / sid, session_id=sid, profile=profile, mode="play",
-                           camera_index=camera, frame_size=frame_size, notes=notes)
+                           # index for the local case, -1 for a URL (there is no index), plus the
+                           # effective source itself so the corpus can be partitioned by camera.
+                           camera_index=eff if isinstance(eff, int) else -1,
+                           camera_source=eff, camera_capture_source=cam["capture_source"],
+                           frame_size=frame_size, notes=notes)
     COLLECT.update(writer=writer, positions=positions, i=0, profile=prof,
                    camera=camera, board=BoardTracker(prof), show_target=show_target)
     return _collect_state()

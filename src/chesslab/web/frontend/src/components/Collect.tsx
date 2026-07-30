@@ -6,9 +6,12 @@ import { Card, Button, Select, noteCls } from "./ui";
 const input = "rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-100 outline-none focus:border-sky-500";
 
 type CamMode = { name: string; width: number | null; height: number | null; label: string };
-/** What the backend measured about the shared capture — `delivered` comes from real frames. */
+/** What the backend knows about the shared capture. `delivered` is measured on real frames;
+ *  `source` is what is actually in charge, which is NOT `selected` when an env var overrides. */
 type CamInfo = {
-  open: boolean; source: string | null; url_source: string | null; modes_apply: boolean;
+  open: boolean; selected: string; source: string; opened_source: string | null;
+  env_source: string | null; capture_selected: string; capture_source: string | null;
+  env_capture: string | null; modes_apply: boolean;
   mode: string; requested: number[] | null; delivered: number[] | null;
   matches: boolean | null; undistort: boolean;
 };
@@ -16,7 +19,7 @@ type CamInfo = {
 const size = (s: number[] | null) => (s ? `${s[0]}×${s[1]}` : "?");
 
 /** Camera facts under the live image: the DELIVERED resolution (never the requested one),
- *  a loud note when the driver ignored the request, and the lens-correction state. */
+ *  where the pixels come from, and the lens-correction state. */
 function CameraFacts({ cam }: { cam: CamInfo | null }) {
   if (!cam) return null;
   return (
@@ -26,6 +29,7 @@ function CameraFacts({ cam }: { cam: CamInfo | null }) {
           ? <>Delivered <b className="text-zinc-200">{size(cam.delivered)}</b></>
           : <>waiting for the first frame…</>}
         <span className="text-zinc-500"> · mode {cam.mode || "default"}</span>
+        <span className="text-zinc-500"> · source <b className="text-zinc-400">{cam.source}</b></span>
         <span className={cam.undistort ? " text-emerald-400" : " text-zinc-500"}>
           {" "}· lens correction {cam.undistort ? "on" : "off (no data/lens/calib.npz)"}
         </span>
@@ -36,12 +40,33 @@ function CameraFacts({ cam }: { cam: CamInfo | null }) {
           <b>{size(cam.delivered)}</b>. Everything downstream uses the delivered size.
         </div>
       )}
-      {cam.url_source && (
+      {cam.capture_source && (
         <div className="text-zinc-500">
-          Source <b className="text-zinc-400">{cam.url_source}</b> (CHESSLAB_CAMERA_SOURCE)
-          — a URL takes no resolution request, the selector does not apply.
+          Photos are pulled from <b className="text-zinc-400">{cam.capture_source}</b> at full
+          sensor resolution{cam.env_capture ? " (CHESSLAB_CAMERA_CAPTURE)" : ""} — the preview
+          above stays on the stream, so saved frames can be larger than what you see.
         </div>
       )}
+    </div>
+  );
+}
+
+/** The env override is documented as beating every camera path in the web UI. If it is set,
+ *  the field must say it is not in charge instead of quietly disagreeing with the capture. */
+function SourceOverrideNote({ cam }: { cam: CamInfo | null }) {
+  if (!cam?.env_source && !cam?.env_capture) return null;
+  return (
+    <div className="mt-2 rounded-lg bg-amber-950/60 px-3 py-1.5 text-xs text-amber-300">
+      {cam.env_source && (
+        <div>Source field ignored: <b>CHESSLAB_CAMERA_SOURCE</b> is set to{" "}
+          <b>{cam.env_source}</b> and overrides every camera path in the web UI.</div>
+      )}
+      {cam.env_capture && (
+        <div>Photo field ignored: <b>CHESSLAB_CAMERA_CAPTURE</b> is set to{" "}
+          <b>{cam.env_capture}</b>.</div>
+      )}
+      <div className="text-amber-400/70">Unset the variable and restart the server to use the
+        fields above.</div>
     </div>
   );
 }
@@ -110,7 +135,8 @@ export default function Collect() {
   const [offset, setOffset] = useState(0);
   const [autoOffset, setAutoOffset] = useState(true);
   const [profile, setProfile] = useState("default");
-  const [cam, setCam] = useState(0);
+  const [src, setSrc] = useState("0");             // device index OR IP-cam URL
+  const [photo, setPhoto] = useState("");          // optional full-res snapshot URL
   const [res, setRes] = useState("");              // "" = whatever config.CAMERA says
   const [modes, setModes] = useState<CamMode[]>([]);
   const [camInfo, setCamInfo] = useState<CamInfo | null>(null);
@@ -123,8 +149,15 @@ export default function Collect() {
 
   useEffect(() => {
     api("/api/collect/state").then(setSt).catch(() => {});
+    // Seed the fields from the server (that is where this page's settings live — there is no
+    // client-side store), so a reload shows what the camera is really set to.
     api<{ modes: CamMode[]; camera: CamInfo }>("/api/camera/modes")
-      .then((m) => { setModes(m.modes); setCamInfo(m.camera); })
+      .then((m) => {
+        setModes(m.modes); setCamInfo(m.camera);
+        if (m.camera.selected) setSrc(m.camera.selected);
+        if (m.camera.capture_selected) setPhoto(m.camera.capture_selected);
+        if (m.camera.mode) setRes(m.camera.mode);
+      })
       .catch(() => {});
     return () => clearInterval(timer.current);
   }, []);
@@ -133,17 +166,23 @@ export default function Collect() {
   // The polled state carries the live camera facts; before Start we only have the ones
   // from /api/camera/modes.
   const camFacts: CamInfo | null = st.camera ?? camInfo;
-  const modesApply = camFacts ? camFacts.modes_apply : true;
+  const envSource = camFacts?.env_source ?? null;
+  // A resolution only means something for a local index: the env override and a typed URL
+  // both take whatever the phone sends. Decided from the FIELD so the UI reacts at once —
+  // the backend enforces the same rule.
+  const modesApply = !envSource && /^\d+$/.test(src.trim());
   let resHint = "Capture mode requested from the USB camera. What it really delivers is shown under the live image.";
-  if (!modesApply) resHint = "An IP-camera URL (CHESSLAB_CAMERA_SOURCE) is in charge — it takes no resolution request.";
+  if (envSource) resHint = `CHESSLAB_CAMERA_SOURCE (${envSource}) is in charge — a URL takes no resolution request.`;
+  else if (!modesApply) resHint = "A URL source takes no resolution request — it delivers whatever the phone sends.";
   else if (st.active) resHint = "Fixed while a session records (the session log states one frame size) — press Done first.";
 
   async function start() {
     setMsg(""); setMsgKind("");
     try {
       const s = await post("/api/collect/start", {
-        strategy, max_plies: maxPlies, profile, camera: cam, sets, count, passes, pieces, together,
+        strategy, max_plies: maxPlies, profile, sets, count, passes, pieces, together,
         offset, auto_offset: autoOffset, res: modesApply ? res : "",
+        source: src.trim(), capture: photo.trim(),
       });
       setSt(s);
       clearInterval(timer.current);
@@ -196,8 +235,15 @@ export default function Collect() {
             maxPlies={maxPlies} setMaxPlies={setMaxPlies} />
           <label className="flex items-center gap-2 text-sm text-zinc-400">Profile
             <input value={profile} onChange={(e) => setProfile(e.target.value)} className={`${input} w-28`} /></label>
-          <label className="flex items-center gap-2 text-sm text-zinc-400">Camera
-            <input type="number" value={cam} onChange={(e) => setCam(+e.target.value)} className={`${input} w-16`} /></label>
+          <label className="flex items-center gap-2 text-sm text-zinc-400"
+            title="Device index (0, 1, …) or an IP-camera URL, e.g. https://PHONE-IP:4444/video/m.jpeg — the phone is the deployment sensor.">Camera
+            <input value={src} onChange={(e) => setSrc(e.target.value)} disabled={!!envSource || st.active}
+              className={`${input} w-48 disabled:opacity-40`} placeholder="0 or https://…" /></label>
+          <label className="flex items-center gap-2 text-sm text-zinc-400"
+            title="Optional: snapshot URL (…/video/snapshot) that SAVED photos are pulled from at full sensor resolution, while the preview keeps running over the stream. Empty = save the live frame.">Photo
+            <input value={photo} onChange={(e) => setPhoto(e.target.value)}
+              disabled={!!camFacts?.env_capture || st.active}
+              className={`${input} w-48 disabled:opacity-40`} placeholder="empty = live frame" /></label>
           <Select label="Resolution" value={res} onChange={(e) => setRes(e.target.value)}
             disabled={!modesApply || st.active} title={resHint}>
             <option value="">default (config)</option>
@@ -208,6 +254,7 @@ export default function Collect() {
             ? <Button variant="primary" onClick={start}><Play className="h-4 w-4" /> Start game</Button>
             : <Button onClick={finish}><CheckCircle2 className="h-4 w-4" /> Done</Button>}
         </div>
+        <SourceOverrideNote cam={camFacts} />
         {msg && <div className={`mt-2 rounded-lg px-3 py-1.5 text-sm ${noteClasses}`}>{msg}</div>}
       </Card>
 

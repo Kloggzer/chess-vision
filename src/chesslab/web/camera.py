@@ -36,13 +36,28 @@ _BOUNDARY = b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
 CAMERA_SOURCE_ENV = "CHESSLAB_CAMERA_SOURCE"
 
 
-def effective_source(index):
-    """Effective source for a UI-selected index: env override (URL) wins, otherwise the index.
-    Returns a hashable key (URL string or int)."""
+def normalize_source(source) -> int | str:
+    """A UI/API source value → what `open_capture` expects: a digit string becomes an int
+    index, anything else (URL, file path) stays a string, empty means index 0."""
+    if isinstance(source, int):
+        return source
+    s = str(source or "").strip()
+    if not s:
+        return 0
+    return int(s) if s.isdigit() else s
+
+
+def effective_source(source):
+    """Effective source for the UI selection: env override (URL) wins, otherwise the UI value.
+    Returns a hashable key (URL string or int index).
+
+    The env override deliberately stays authoritative — it is documented as overriding ALL
+    camera paths in the web UI. The UI's job is then to SAY it is overridden (see
+    `Camera.status`), not to disagree quietly with what is being captured."""
     env = os.environ.get(CAMERA_SOURCE_ENV, "").strip()
     if env:
         return env
-    return index
+    return normalize_source(source)
 
 
 # Optional HIGH-RESOLUTION capture source: the live preview runs smoothly over the (possibly
@@ -53,9 +68,10 @@ def effective_source(index):
 CAMERA_CAPTURE_ENV = "CHESSLAB_CAMERA_CAPTURE"
 
 
-def capture_url() -> str | None:
-    """High-resolution snapshot URL for saving, if set; otherwise None (-> use live frame)."""
-    return os.environ.get(CAMERA_CAPTURE_ENV, "").strip() or None
+def capture_url(selected: str = "") -> str | None:
+    """High-resolution snapshot URL for saving: env override wins, then the UI's Photo field;
+    None -> save the live frame. Same precedence as `effective_source`."""
+    return os.environ.get(CAMERA_CAPTURE_ENV, "").strip() or str(selected or "").strip() or None
 
 
 def is_local_index(source) -> bool:
@@ -79,8 +95,8 @@ def requested_size(mode: str) -> tuple[int, int] | None:
 
 
 class Camera:
-    """Thread-safe, shared camera. `ensure(index, mode)` opens (or switches) the source;
-    `read()` returns the latest frame (or None). `markers_*` reflect the calibration status.
+    """Thread-safe, shared camera. `ensure(source, mode, capture)` opens (or switches) the
+    source; `read()` returns the latest frame (or None). `markers_*` reflect calibration.
 
     Opened through `camera.open_capture` (NOT `open_source`), because `open_capture` is the
     one place lens undistortion is installed — routing through `open_source` is why the
@@ -91,6 +107,10 @@ class Camera:
     `requested` vs `delivered`: a capture mode is a REQUEST. Drivers answer with something
     else (this rig has seen a 60 fps ask collapse a 4K stream to 640x480), so the delivered
     size is measured from real frames and is the only size the UI is allowed to show.
+
+    `selected` / `capture_selected` hold the UI's choice (index or URL, and the optional
+    high-resolution snapshot URL for saved frames). They survive `release()`, so a page
+    reload shows what the server is actually set to instead of a fresh default.
     """
 
     def __init__(self) -> None:
@@ -100,26 +120,32 @@ class Camera:
         self.requested = None          # (w, h) asked for — None for URL sources
         self.delivered = None          # (w, h) measured on frames; None until one arrives
         self.undistort = False         # lens correction actually active on this source
+        self.selected = "0"            # UI source field (index or URL) — survives release()
+        self.capture_selected = ""     # UI Photo field (snapshot URL) — survives release()
         self.lock = threading.Lock()
         self.markers_found = False
         self.markers_count = 0
         self.markers_live = 0
         self.markers_held = 0
 
-    def ensure(self, index, mode: str = "") -> None:
-        """Open (or switch) the shared capture for UI index `index` at capture mode `mode`
-        (a name from `camera.camera_modes()`; "" = whatever `config.CAMERA` says).
+    def ensure(self, source, mode: str = "", capture: str = "") -> None:
+        """Open (or switch) the shared capture for the UI's `source` (a device index or a
+        URL) at capture mode `mode` (a name from `camera.camera_modes()`; "" = whatever
+        `config.CAMERA` says). `capture`: optional snapshot URL that saved frames come from.
 
         Reopens whenever the effective SOURCE **or** the requested MODE changes — comparing
         the source alone would keep the old resolution after a mode switch, silently.
+        `capture` never reopens anything: it is only read when a frame is SAVED.
         """
-        src = effective_source(index)   # Env override (IP cam URL) wins over the UI index
+        src = effective_source(source)  # Env override (IP cam URL) wins over the UI choice
         mode = str(mode or "").strip().lower()
         if mode == config.DEFAULT_CAMERA_MODE:
             mode = ""                   # same request as "" — do not reopen for a rename
         if not is_local_index(src):
             mode = ""                   # a URL negotiates nothing (see `is_local_index`)
         with self.lock:
+            self.selected = str(source or "").strip() or "0"
+            self.capture_selected = str(capture or "").strip()
             if self.cap is not None and self.index == src and self.mode == mode:
                 return
             if self.cap is not None:
@@ -164,19 +190,34 @@ class Camera:
             return f
 
     def status(self) -> dict:
-        """Camera facts for the UI: which mode was requested, what the camera really
-        delivers, whether a resolution mode applies at all, and whether the lens correction
-        is active. `matches` is None while no frame has been seen yet."""
+        """Camera facts for the UI: the selected source vs the one actually in charge, which
+        mode was requested, what the camera really delivers, whether a resolution mode
+        applies at all, and whether lens correction is active.
+
+        `matches` is None while no frame has been seen. `env_source`/`env_capture` are the
+        env overrides — set means the UI field is NOT in charge, and the page says so.
+        Every URL is credential-stripped before it leaves the process."""
+        from ..collect import redact_source
+
         env = os.environ.get(CAMERA_SOURCE_ENV, "").strip()
+        env_capture = os.environ.get(CAMERA_CAPTURE_ENV, "").strip()
         with self.lock:
-            src, mode = self.index, self.mode
+            open_src, mode = self.index, self.mode
             req, dlv, und = self.requested, self.delivered, self.undistort
+            sel, sel_cap = self.selected, self.capture_selected
             is_open = self.cap is not None
+        eff = effective_source(sel)
+        eff_capture = capture_url(sel_cap)
         return {
             "open": is_open,
-            "source": None if src is None else str(src),
-            "url_source": env or None,      # env override in charge -> no resolution modes
-            "modes_apply": not env,
+            "selected": redact_source(sel),             # what the UI source field shows
+            "source": redact_source(eff),               # the source actually in charge
+            "opened_source": None if open_src is None else redact_source(open_src),
+            "env_source": redact_source(env) if env else None,
+            "capture_selected": redact_source(sel_cap),  # UI Photo field
+            "capture_source": redact_source(eff_capture) if eff_capture else None,
+            "env_capture": redact_source(env_capture) if env_capture else None,
+            "modes_apply": is_local_index(eff),         # only a local index takes a width
             "mode": mode,
             "requested": list(req) if req else None,
             "delivered": list(dlv) if dlv else None,
@@ -185,12 +226,14 @@ class Camera:
         }
 
     def grab_capture(self):
-        """Get frame FOR SAVING -> (frame, is_hires). If a capture URL is set
-        (`CHESSLAB_CAMERA_CAPTURE`), a single high-resolution snapshot is fetched from there
+        """Get frame FOR SAVING -> (frame, is_hires). If a capture URL is set (UI Photo field
+        or `CHESSLAB_CAMERA_CAPTURE`), a single high-resolution snapshot is fetched from there
         (is_hires=True); otherwise the current live frame (is_hires=False). When is_hires, the
         caller MUST re-detect markers/corners on THIS frame (different resolution/orientation
         than the preview)."""
-        url = capture_url()
+        with self.lock:
+            selected = self.capture_selected
+        url = capture_url(selected)
         if url:
             ok, f = UrlSnapshotCapture(url, timeout=6.0).read()
             if ok and f is not None:
