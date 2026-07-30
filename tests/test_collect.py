@@ -139,9 +139,48 @@ def test_session_yaml_has_metadata(tmp_path):
     import yaml
 
     w = _writer(tmp_path)
+    w.capture(_frame(), ply=1, fen="fen-a")   # a session with nothing in it is discarded on close
     w.close(notes="Tageslicht")
     meta = yaml.safe_load((w.dir / "session.yaml").read_text(encoding="utf-8"))
     assert meta["mode"] == "live"
     assert meta["profile"] == "default"
     assert meta["frame_size"] == [64, 48]
     assert meta["notes"] == "Tageslicht"
+
+# --- empty sessions are not kept -------------------------------------------------------
+
+def test_close_discards_a_session_that_captured_nothing(tmp_path):
+    """`__init__` writes the directory and session.yaml before anything is captured, so merely
+    opening the collect page left a session behind. Nothing captured = nothing to park."""
+    w = _writer(tmp_path)
+    assert w.dir.is_dir() and (w.dir / "session.yaml").exists()
+    assert w.close() is True
+    assert not w.dir.exists()
+
+
+def test_close_keeps_a_session_with_frames(tmp_path):
+    w = _writer(tmp_path)
+    w.capture(_frame(), ply=1, fen="fen-a")
+    assert w.close() is False
+    assert (w.dir / "session.yaml").exists()
+
+
+def test_close_never_removes_a_directory_holding_anything_unexpected(tmp_path):
+    """The one delete under `data/`, where the rule is park-never-delete: an unknown file means
+    something is there, so the whole directory stays."""
+    w = _writer(tmp_path)
+    (w.dir / "notes.txt").write_text("keep me", encoding="utf-8")
+    assert w.close() is False
+    assert w.dir.is_dir() and (w.dir / "notes.txt").exists()
+
+
+def test_close_survives_a_session_directory_that_vanished(tmp_path):
+    """Deleting the session in the UI while a writer is open must not make Finish throw — that
+    left `COLLECT['writer']` set forever and wedged the Collect page until a server restart."""
+    import shutil
+
+    w = _writer(tmp_path)
+    w.capture(_frame(), ply=1, fen="fen-a")
+    shutil.rmtree(w.dir)
+    w.close()          # must not raise
+    assert not w.dir.exists()

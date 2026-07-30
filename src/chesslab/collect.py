@@ -105,6 +105,16 @@ class SessionWriter:
 
         from . import lens
 
+        # The session can disappear underneath an open writer: deleting or discarding it in the
+        # UI removes the directory while `COLLECT["writer"]` still points here, and `close()`
+        # then died with FileNotFoundError. Recreating the directory would be worse than
+        # skipping — it resurrects a session that is nothing but a `session.yaml`, with no
+        # frames and no log. There is nothing left to describe, so say so and return.
+        if not self.dir.is_dir():
+            print(f"[WARN] session {self.session_id}: directory is gone (deleted or discarded) "
+                  "— not writing session.yaml.")
+            return
+
         # Record the LENS state these frames were captured under, so a dataset that mixes
         # pre- and post-undistortion sessions stays queryable (absent on old sessions =
         # raw frames). The frames on disk are never remapped again on replay.
@@ -187,10 +197,42 @@ class SessionWriter:
     def count(self) -> int:
         return len(self.entries)
 
-    def close(self, notes: str | None = None) -> None:
+    def close(self, notes: str | None = None) -> bool:
+        """Finish the session. Returns True when it was DISCARDED for being empty.
+
+        `__init__` creates the directory and writes `session.yaml` before anything is captured,
+        so merely opening the collect page used to leave a session behind. One that captured
+        nothing has nothing to park: no frames, no log rows, no pixels. It is removed.
+        """
         if notes is not None:
             self.notes = notes
+        if self._discard_if_empty():
+            return True
         self._write_session_yaml()
+        return False
+
+    def _discard_if_empty(self) -> bool:
+        """Remove the session directory iff it holds nothing we would ever want back.
+
+        Deliberately paranoid: this is the one place that deletes under `data/`, where the rule
+        is park-never-delete. It refuses unless the entry list, the log file AND the frames
+        directory are all empty, and it removes the known files by name instead of a blind
+        recursive delete — an unexpected file means something is there, so keep everything.
+        """
+        import shutil
+
+        if self.entries or not self.dir.is_dir():
+            return False
+        if self.log_path.exists() and self.log_path.read_text(encoding="utf-8").strip():
+            return False
+        if self.frames_dir.is_dir() and any(self.frames_dir.iterdir()):
+            return False
+        known = {"session.yaml", "log.jsonl", "frames"}
+        if {p.name for p in self.dir.iterdir()} - known:
+            return False
+        shutil.rmtree(self.dir, ignore_errors=True)
+        print(f"[OK] session {self.session_id}: nothing captured — discarded.")
+        return True
 
 
 # --- Interactive Loops (camera + display, run on the rig) --------------------------
