@@ -81,6 +81,23 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
   the best start (epoch 0 0.8457) and plateau of any batch-norm run and produced 2.3x the phantoms
   of the worst-starting one. Only `scripts/sweep_infer_size.py --paths a --dataset <ds>` decides
   accuracy. A conclusion drawn from a training log is not a result.
+- **A dataset's split is NOT reproducible from its recorded parameters — reuse `split.json`.**
+  Verified 2026-07-31 on `occ-real5nd`: same seed, same fractions, same session pool, and
+  `assign_sessions_to_splits` returns train 12 / val 1 / test 2 where the file records
+  11 / 3 / 1 — no split matches. A plain rebuild therefore trains on different sessions than the
+  model you are comparing against, silently. When building a twin of an existing dataset, copy its
+  recorded split verbatim; never regenerate it.
+- **Class weights and `max_empty_ratio` are functions of the CLASS LIST, not of the corpus.**
+  `max_empty_ratio` is relative to the largest *piece* class, so the same ratio drops a very
+  different number of `empty` crops for a 2-class and a 13-class build — up to 76 % of the phantom
+  defence, as a side effect of nothing but the class list. Inverse-frequency weighting compounds it:
+  `empty` goes 0.667 → 0.1026 while pieces get 1.28–9.63.
+- **Occupancy from an identity model is structurally biased toward "occupied".** The reader is
+  `1 − P(empty) − P(occluded)`, so an undecided 2-class model sits at 0.5 while an undecided
+  13-class model spreads 1/13 per class and lands at **0.923** — uncertainty itself reads as a
+  piece. Measured on a 13-class run: 1 162 phantoms over 4 687 empty crops, **549 of them with
+  `empty` still the argmax**. No recipe or amount of data reaches that half. See
+  `specs/29-widen-the-output-band/`.
 - **Path-A numbers move with the calibration profile.** The sweep re-cuts crops from the session
   frames through the *current* profile, so a recalibration silently invalidates every earlier
   number without touching a dataset file. Always re-measure the reference in the same run as the
