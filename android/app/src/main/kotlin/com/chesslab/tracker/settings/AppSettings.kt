@@ -58,7 +58,7 @@ data class AppSettings(
     val resolutionMode: ResolutionMode = ResolutionMode.R1440,
     val orientation: BoardOrientation = BoardOrientation.WHITE_BOTTOM,
     /**
-     * WHICH bundled model — a directory under `assets/cnn_model/`, one of [BUNDLED_MODELS].
+     * WHICH bundled model — a directory under `assets/cnn_model/`, one of `BUNDLED_MODELS`.
      *
      * Orthogonal to [modelAsset], which picks a graph FILE inside it (fp32 vs the INT8/QDQ graph the
      * NPU needs). The three bundled models declare different inference sizes, so this knob also
