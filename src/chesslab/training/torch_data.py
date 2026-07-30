@@ -140,6 +140,26 @@ def input_repr_of(cfg: dict) -> tuple[str, int]:
     return kind, INPUT_REPRS[kind]
 
 
+def infer_size_of(cfg: dict) -> tuple[int, int]:
+    """`(W, H)` the network is FED — a property of the model, read from its own `config.json`.
+
+    The one place the inference size comes from (specs/22). Deliberately not the same key as
+    `out_size`, which means "the size the crops on disk were built at": the two were the same
+    number until phase 00 measured the deployment path, where `occ-v4-f3e20` reads 43 occupied
+    squares as empty at 128 px and 19 at 96 px. What a crop actually carries is
+    `board_size / 8 * (1 + 2 * pad_side)` px — 110 on the fixed rig, 220 on the phone — so the
+    right input size is per model and per deployment, and lives with the model.
+
+    Runs exported before specs/22 carry no key and were served at their crop size, so the fallback
+    to `out_size` keeps every shipped model working unchanged.
+
+    Reading a config is not the place to REJECT one: whether this is a size the run was actually
+    trained at is validated once by the writer, `training.evaluate.run_export`.
+    """
+    raw = cfg.get("infer_size") or cfg["out_size"]
+    return int(raw[0]), int(raw[1])
+
+
 # ITU-R BT.601 luma, i.e. exactly the coefficients `cv2.COLOR_BGR2GRAY` uses.
 _LUMA = (0.299, 0.587, 0.114)
 
