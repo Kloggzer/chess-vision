@@ -52,11 +52,15 @@ def compute_stats(rows: list[dict], min_samples: int = config.MIN_CLASS_SAMPLES,
 
     for r in rows:
         lab = r["label"]
+        # `.get` on all three, not just `counts`: an occupancy dataset's rows say `occupied`,
+        # which is not in the 14-class `config.CLASSES` a caller gets by default. `counts` was
+        # already tolerant and the other two were not, so `/datasets/<occ-set>/stats` died with
+        # `KeyError: 'occupied'` while the same call for a piece dataset worked.
         counts[lab] = counts.get(lab, 0) + 1
         if r.get("square_color") == "light":
-            light[lab] += 1
+            light[lab] = light.get(lab, 0) + 1
         else:
-            dark[lab] += 1
+            dark[lab] = dark.get(lab, 0) + 1
         per_session[r["session_id"]] += 1
 
     warnings: list[str] = []
