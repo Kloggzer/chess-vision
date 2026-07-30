@@ -15,23 +15,38 @@ quality is welcome even if it costs time; worse quality is not purchasable at an
 
 ## Phases
 
-| Phase | Concern | State | Owner | Notes |
-|---|---|---|---|---|
-| 00 | Which EP actually executes the graph? | todo | — | **Lands alone, first** — owns `OrtSessionRunner.kt`, may reframe 01 and 03. Measure only, do not fix. |
-| 01 | Verify with 4 crops instead of 64 | todo | — | Step 2 is a decision point: if batch 4 is not cheaper on the NPU, STOP. |
-| 02 | Is the shipped INT8 model still honest? | todo | — | **Quality audit.** Independent of everything. If it fails, it outranks the whole pack. |
-| 03 | The 2.3x latency variance | todo | — | Diagnose only. Needs 00's placement answer to interpret. |
+| Phase | Concern | State | Notes |
+|---|---|---|---|
+| 00 | Which EP actually executes the graph? | **done** | QNN not in the build; 94 fragments over 47 convs; 45 % of kernel time on the CPU EP |
+| 02 | Is the shipped INT8 model still honest? | **done** | Honest (1 phantom, = its float parent). Per-channel A16W8 is better: **0 phantoms** |
+| 01 | Verify with 4 crops instead of 64 | todo | Premise strengthened by 00: it is XNNPACK/CPU, not a fixed-shape NPU graph, so scaling is near-linear |
+| 04 | Fold GroupNorm into a static affine | todo | From the champion's own weights; no training. Attacks the 30 ms directly |
+| 05 | Does NNAPI take whole what XNNPACK fragments? | todo | Config + measurement. If yes, 04's approximation is unnecessary |
+| 03 | The latency variance | **mostly answered by 00** | 61 → 64.5 → 75 ms while battery went 34.0 → 37.1 °C. Throttling, not contention |
 
 States: `todo` → `in progress` → `done` | `blocked`.
 
+## The budget, measured
+
+Session median **66 ms** over 72 samples (p10 53, p90 81, min 44, max 93) on the SM8650 at 80 px:
+
+- **~36 ms (55 %)** — XNNPACK, the 47 convolutions. Real work.
+- **~30 ms (45 %)** — CPU EP: 92 `Transpose`, 92 `Reshape`, 46 `InstanceNormalization`, 46 `Mul`,
+  56 `Add`, 30 `Relu`. **Fragmentation overhead**, caused by GroupNorm's decomposition sitting
+  between every pair of convolutions.
+
+411 nodes execute, not the 503 in the file — ORT folds away 138 `Constant` + 46 `Shape`, XNNPACK
+inserts the 92 `Transpose`.
+
 ## Results
 
-| Phase | What changed | Latency before → after (median, p90) | Accuracy (phantoms / margin max) | Verdict |
+| Phase | What changed | Latency | Accuracy (phantoms / margin max) | Verdict |
 |---|---|---|---|---|
-| 00 | — | — | floor untouched by construction | — |
+| 00 | logging only | median 66 ms, p90 81, spread 2.11x | untouched by construction | QNN absent; 94 fragments; **the norm is the speed problem, via fragmentation** |
+| 02 | quantization defaults | n/a (desktop) | shipped 1 / 0.549 → per-channel **0 / 0.431** | shipped artefact honest; per-channel A16W8 is a free quality gain |
 | 01 | — | — | — | — |
-| 02 | — | — | — | — |
-| 03 | — | — | floor untouched by construction | — |
+| 04 | — | — | — | — |
+| 05 | — | — | — | — |
 
 ## Established — do not re-derive
 
