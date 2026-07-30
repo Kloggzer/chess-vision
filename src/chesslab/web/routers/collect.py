@@ -28,7 +28,7 @@ def collect_start(strategy: str = Body("random"), max_plies: int = Body(40), see
                   sets: int = Body(1), count: int = Body(20), passes: int = Body(1),
                   pieces: str = Body("special"), together: bool = Body(False),
                   offset: int = Body(0), auto_offset: bool = Body(False),
-                  target: int = Body(200)):
+                  target: int = Body(200), res: str = Body("")):
     from ... import config
     from ...calibration import ensure_profile
     from ...collect import SessionWriter, generate_session_id
@@ -38,8 +38,11 @@ def collect_start(strategy: str = Body("random"), max_plies: int = Body(40), see
         stockfish_game_positions,
     )
 
+    res = str(res or "").strip().lower()
     try:
-        prof = ensure_profile(profile, camera)
+        # `camera_mode`: if the profile has to be auto-calibrated, do it at the resolution we
+        # are about to capture at — otherwise its pixel corners describe a different frame.
+        prof = ensure_profile(profile, camera, camera_mode=res or None)
     except FileNotFoundError as e:
         raise HTTPException(400, str(e))
 
@@ -93,11 +96,18 @@ def collect_start(strategy: str = Body("random"), max_plies: int = Body(40), see
         positions = [{"ply": start.ply(), "san": None, "fen": start.fen()}] + steps
 
     sid = generate_session_id()
-    CAMERA.ensure(camera)
+    CAMERA.ensure(camera, res)
+    cam = CAMERA.status()
     notes = (f"web:sweep offset={sweep_offset!s} pieces={pieces} together={together}"
              if strategy == "sweep" else f"web:{strategy}")
+    if res:
+        notes += f" res={res}"
+    # The DELIVERED size, not the profile's: with a resolution selector the profile can easily
+    # describe another mode, and a session log that claims the wrong frame size is a lie about
+    # pixels somebody will measure later. Falls back to the profile if no frame arrived yet.
+    frame_size = tuple(cam["delivered"]) if cam["delivered"] else prof.frame_size
     writer = SessionWriter(config.DATA.sessions / sid, session_id=sid, profile=profile, mode="play",
-                           camera_index=camera, frame_size=prof.frame_size, notes=notes)
+                           camera_index=camera, frame_size=frame_size, notes=notes)
     COLLECT.update(writer=writer, positions=positions, i=0, profile=prof,
                    camera=camera, board=BoardTracker(prof), show_target=show_target)
     return _collect_state()
@@ -106,6 +116,19 @@ def collect_start(strategy: str = Body("random"), max_plies: int = Body(40), see
 @router.get("/api/collect/state")
 def collect_state():
     return _collect_state()
+
+
+@router.get("/api/camera/modes")
+def camera_modes_available():
+    """Selectable capture modes for the Collect resolution dropdown (`config.CAMERA_MODES`),
+    plus what the shared camera currently DELIVERS — the UI must show the measured size, not
+    the requested one. `camera.modes_apply` is False while an IP-camera URL from
+    `CHESSLAB_CAMERA_SOURCE` is in charge: that source takes no resolution request."""
+    from ... import config
+    from ...camera import camera_modes
+
+    return {"modes": camera_modes(), "default": config.DEFAULT_CAMERA_MODE,
+            "camera": CAMERA.status()}
 
 
 @router.post("/api/collect/shoot")
