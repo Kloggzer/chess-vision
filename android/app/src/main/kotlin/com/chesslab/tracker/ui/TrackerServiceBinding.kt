@@ -114,7 +114,11 @@ fun BindTrackerService(content: @Composable () -> Unit) {
             CalibrationHost(
                 latestCalibrationFrame = bound::latestCalibrationFrame,
                 rawPreview = bound.rawPreview,
-                onCalibrated = bound::applyCalibration,
+                onCalibrated = { geometry, corners, name -> bound.applyCalibration(geometry, corners, name, relockOptics = true) },
+                remeasureOptics = bound.remeasureOptics,
+                // The re-measure sequence converged the optics BEFORE it measured this quad, so
+                // re-arming them here would release exactly the lock the quad describes.
+                onRemeasured = { geometry, corners, name -> bound.applyCalibration(geometry, corners, name, relockOptics = false) },
             ),
             content,
         )
