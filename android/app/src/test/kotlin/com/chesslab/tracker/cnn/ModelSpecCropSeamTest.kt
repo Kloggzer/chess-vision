@@ -45,36 +45,71 @@ class ModelSpecCropSeamTest {
     fun theShippedAssetsOwnCropsRunThroughItsOwnGraph(
         @TempDir tmp: File,
     ) {
-        val spec = shippedSpec()
         // The deployment decision, asserted before anything is measured against it: this is the
         // size specs/23 phase 00 chose, and it is only safe because the run was TRAINED at it.
-        assertEquals(SHIPPED_INPUT_SIZE, spec.outWidth, "the shipped asset's inference size")
-        assertEquals(spec.outWidth, spec.outHeight, "this test only covers square inputs")
+        assertEquals(SHIPPED_INPUT_SIZE, assertCropSeam(assetDir(), tmp), "the shipped asset's inference size")
+    }
+
+    /**
+     * And the same for the models the user can SWITCH to, which is the point of bundling three.
+     *
+     * The switch is only real if the crop size follows it: the selected model's `config.json` is
+     * what `TrackerService` re-reads into `withCropSizeOf` on every geometry write, so picking the
+     * 80 px model and keeping 96 px crops would kill the first observation after the restart. Three
+     * models at three sizes cannot all pass against a constant anywhere in the chain.
+     */
+    @Test
+    @EnabledIf(OPENCV_GATE)
+    fun everyBundledModelCropsAtItsOwnSize(
+        @TempDir tmp: File,
+    ) {
+        val sizes =
+            bundledAssetDirs().mapIndexed { index, dir ->
+                dir.name to assertCropSeam(dir, File(tmp, "model$index").also { it.mkdirs() })
+            }
+        assertEquals(BUNDLED_MODELS, sizes.map { it.first }, "every bundled model must be covered")
+        assertTrue(
+            sizes.map { it.second }.distinct().size > 1,
+            "all bundled models crop at the same size, so this cannot show the size following the model: $sizes",
+        )
+    }
+
+    /**
+     * One model, whole chain, no fake: its `config.json` -> [ModelSpec] -> [withCropSizeOf] -> the
+     * real bordered warp -> `cropFrameSource` -> its own staged graph -> 64 rows of probabilities.
+     *
+     * @return the square input size the model declares and the crops came out at.
+     */
+    private fun assertCropSeam(
+        dir: File,
+        tmp: File,
+    ): Int {
+        val spec = ModelSpec.parse(File(dir, MODEL_CONFIG_FILE).readText())
+        assertEquals(spec.outWidth, spec.outHeight, "${dir.name}: this test only covers square inputs")
 
         val crops = cropsAsHandedToTheClassifier(liveGeometry().withCropSizeOf(spec))
         assertEquals(ALL_SQUARES.size, crops.size)
         for ((index, crop) in crops.withIndex()) {
-            assertEquals(spec.outWidth, crop.width, "crop $index (${allSquares()[index]}) width")
-            assertEquals(spec.outHeight, crop.height, "crop $index (${allSquares()[index]}) height")
+            assertEquals(spec.outWidth, crop.width, "${dir.name}: crop $index (${allSquares()[index]}) width")
+            assertEquals(spec.outHeight, crop.height, "${dir.name}: crop $index (${allSquares()[index]}) height")
         }
         // Not vacuous: the crops carry real, varying pixels, so what follows classifies content.
-        assertTrue(crops[0].data.any { it != crops[0].data[0] }, "the crops must carry real pixels")
+        assertTrue(crops[0].data.any { it != crops[0].data[0] }, "${dir.name}: the crops must carry real pixels")
 
-        stagedAsset(tmp).let { staged ->
-            OnnxSquareClassifier.open(staged, RecordingLog()).use { cnn ->
-                assertEquals(
-                    "${ALL_SQUARES.size}x${spec.channels}x${spec.outHeight}x${spec.outWidth}",
-                    cnn.inputShape,
-                    "the tensor the graph is fed",
-                )
-                val probs = cnn.classify(crops)
-                assertEquals(ALL_SQUARES.size, probs.size)
-                probs.forEach { row ->
-                    assertEquals(spec.classes.size, row.size, "one probability per class of ${spec.classes}")
-                    assertTrue(abs(row.sum() - 1.0f) < TOLERANCE, "row sums to ${row.sum()}")
-                }
+        OnnxSquareClassifier.open(stagedModelIn(dir, tmp), RecordingLog()).use { cnn ->
+            assertEquals(
+                "${ALL_SQUARES.size}x${spec.channels}x${spec.outHeight}x${spec.outWidth}",
+                cnn.inputShape,
+                "${dir.name}: the tensor the graph is fed",
+            )
+            val probs = cnn.classify(crops)
+            assertEquals(ALL_SQUARES.size, probs.size)
+            probs.forEach { row ->
+                assertEquals(spec.classes.size, row.size, "one probability per class of ${spec.classes}")
+                assertTrue(abs(row.sum() - 1.0f) < TOLERANCE, "${dir.name}: row sums to ${row.sum()}")
             }
         }
+        return spec.outWidth
     }
 
     /**
@@ -92,7 +127,7 @@ class ModelSpecCropSeamTest {
     ) {
         val unwired = cropsAsHandedToTheClassifier(liveGeometry())
         assertEquals(BoardGeometry().outW, unwired[0].width, "the unwired path must still be the old default")
-        OnnxSquareClassifier.open(stagedAsset(tmp), RecordingLog()).use { cnn ->
+        OnnxSquareClassifier.open(stagedModelIn(assetDir(), tmp), RecordingLog()).use { cnn ->
             val error = assertThrows<IllegalArgumentException> { cnn.classify(unwired) }
             assertTrue(
                 error.message!!.contains("expected ${SHIPPED_INPUT_SIZE}x$SHIPPED_INPUT_SIZE"),
@@ -129,12 +164,11 @@ private val CORNERS: List<DoubleArray> =
         doubleArrayOf(BOARD_INSET, FRAME_SIDE - BOARD_INSET),
     )
 
-/** The committed asset's `config.json`, through the one Kotlin reader. */
-private fun shippedSpec(): ModelSpec = ModelSpec.parse(File(assetDir(), MODEL_CONFIG_FILE).readText())
-
-/** The committed asset staged into a real directory, exactly as `CnnObserver.attach` gets it. */
-private fun stagedAsset(dir: File): StagedModel =
-    CnnModelAssets({ name -> File(assetDir(), name).takeIf { it.isFile }?.inputStream() }, dir).stage()
+/** A committed model directory staged into a real directory, exactly as `CnnObserver.attach` gets it. */
+private fun stagedModelIn(
+    model: File,
+    dir: File,
+): StagedModel = CnnModelAssets({ name -> File(model, name).takeIf { it.isFile }?.inputStream() }, dir).stage()
 
 /**
  * A calibrated board geometry. `boardSize` is the board's OWN pixel size, measured from the corner

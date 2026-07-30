@@ -47,6 +47,7 @@ object SettingsExport {
             put("device", deviceModel)
             put("resolutionMode", app.resolutionMode.name)
             put("orientation", app.orientation.name)
+            put("modelDir", app.modelDir)
             put("modelAsset", app.modelAsset)
             put("epRequest", app.epRequest.name)
             put("debugEnabled", app.debugEnabled)

@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.chesslab.tracker.cnn.BUNDLED_MODELS
 import com.chesslab.tracker.settings.AppSettings
 import com.chesslab.tracker.settings.BoardOrientation
 import com.chesslab.tracker.settings.EpRequest
@@ -28,7 +29,8 @@ import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.SurfaceRaised
 
 /**
- * Only the FP32 graph, because only it can execute.
+ * Only the FP32 graph, because only it can execute. This is the graph FILE inside the selected
+ * model directory — orthogonal to which model is selected (`BUNDLED_MODELS`).
  *
  * `model.qnn.onnx` is still bundled — the QNN branch in `OrtSessionRunner` is what a QNN-capable
  * build would need back — but this build has no QNN AAR, so offering it as a choice only lets a
@@ -66,6 +68,16 @@ fun AppSettingsSection(
         )
         Choice(
             title = "CNN model",
+            help =
+                "Which bundled model reads the squares. Each declares its own input size and the crops " +
+                    "follow it, so switching changes what the camera feed is scaled to. The debug " +
+                    "screen's CNN panel names the model that actually attached, and at what size.",
+            options = BUNDLED_MODELS.map { it to it },
+            selected = app.modelDir,
+            onSelect = { onChange(app.copy(modelDir = it)) },
+        )
+        Choice(
+            title = "CNN graph",
             help = "model.qnn.onnx is the INT8/QDQ graph the Hexagon NPU needs; the HTP backend rejects float32.",
             options = MODEL_ASSETS.map { it to it },
             selected = app.modelAsset,

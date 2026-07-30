@@ -33,7 +33,9 @@ class SettingsExportTest {
     fun theAppSectionCarriesWhatABugReportNeeds() {
         val app = json(AppSettings(debugEnabled = true))
         assertEquals(
-            setOf("version", "device", "resolutionMode", "orientation", "modelAsset", "epRequest", "debugEnabled"),
+            // `modelDir` before `modelAsset`: with three bundled models a report that names only the
+            // graph FILE cannot say which model produced the reads it is reporting.
+            setOf("version", "device", "resolutionMode", "orientation", "modelDir", "modelAsset", "epRequest", "debugEnabled"),
             app.keys,
         )
     }
