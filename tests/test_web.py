@@ -140,6 +140,50 @@ def test_api_stats_endpoint(tmp_path, monkeypatch):
     assert r["counts"]["empty"] == 0
 
 
+def test_api_stats_scores_a_dataset_against_its_own_classes(tmp_path, monkeypatch):
+    """`/api/stats?dataset=…` uses the set's `class_mode`, not always the 14 piece classes.
+
+    An occupancy set's rows say `occupied`, so the piece list produced twelve phantom
+    "Class wP: 0 samples." warnings. A pieces set must KEEP its genuine ones."""
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+
+    from chesslab import config
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    config.DATA.manifests.mkdir(parents=True)
+    (config.DATA.manifests / "squares.jsonl").write_text("", encoding="utf-8")
+
+    def _make(name: str, class_mode: str, classes: list[str]) -> None:
+        """One dataset with `class_mode` and enough rows per class (both square colors)
+        that a clean set produces NO warning at all."""
+        d = config.DATA.datasets / name
+        d.mkdir(parents=True)
+        (d / "dataset.yaml").write_text(yaml.safe_dump({"name": name, "class_mode": class_mode}),
+                                        encoding="utf-8")
+        rows = [{"path": f"data/squares/{lab}/{i}.png", "label": lab, "session_id": "s1",
+                 "frame": "0000", "ply": 0, "square": "e1",
+                 "square_color": "light" if i % 2 else "dark",
+                 "fen": "x", "out_size": [96, 128], "ts": "t"}
+                for lab in classes for i in range(config.MIN_CLASS_SAMPLES + 2)]
+        (d / "manifest.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows),
+                                          encoding="utf-8")
+
+    _make("occ", "occupancy", ["empty", "occupied"])
+    _make("pcs", "pieces", ["empty", "wK"])
+
+    from chesslab.web.app import create_app
+    client = TestClient(create_app())
+
+    occ = client.get("/api/stats", params={"dataset": "occ"}).json()
+    assert occ["classes"] == config.OCCUPANCY_CLASSES
+    assert occ["warnings"] == []                      # nothing missing in a 2-class set
+
+    pcs = client.get("/api/stats", params={"dataset": "pcs"}).json()
+    assert pcs["classes"] == list(config.CLASSES)
+    assert "Class wP: 0 samples." in pcs["warnings"]   # genuine gap, must stay visible
+
+
 def test_session_review_endpoints_show_frame_and_board(tmp_path, monkeypatch):
     pytest.importorskip("fastapi")
     pytest.importorskip("httpx")
