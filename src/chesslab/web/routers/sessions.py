@@ -579,10 +579,27 @@ def sessions_manage():
     return sessions_mod.list_sessions()
 
 
+def _geometry_version(sdir: Path) -> int:
+    """A token that changes whenever the session's geometry could have changed.
+
+    The overlay is served with `Cache-Control: max-age=300` because a frame's pixels never
+    change — but the overlay is a RENDER of pixels plus corners, and writing corners changes it
+    while the URL stays identical. The browser then keeps showing the pre-write image: after
+    "adopt to all", the row that happened to be on screen (and its preloaded neighbours) still
+    looked uncorrected, which reads as "the write skipped this row". Session-level on purpose —
+    every corner write rewrites `log.jsonl`, so one token invalidates exactly the rows a write
+    could have touched, and leaves everything else cacheable.
+    """
+    try:
+        return (sdir / "log.jsonl").stat().st_mtime_ns
+    except OSError:
+        return 0
+
+
 @router.get("/api/sessions/{sid}/review")
 def session_review(sid: str, idx: int = Query(0)):
     """Return one review step: real frame URL + chess.svg board URL for the logged FEN."""
-    _sdir, archived, rows, clamped, entry = _review_entry(sid, idx)
+    sdir, archived, rows, clamped, entry = _review_entry(sid, idx)
     safe_sid = quote(sid, safe="")
     return {
         "session_id": sid,
@@ -607,6 +624,9 @@ def session_review(sid: str, idx: int = Query(0)):
         "overlay_url": f"/api/sessions/{safe_sid}/overlay/{clamped}",
         "overlay_available": bool(entry.get("corners") and entry.get("fen")),
         "board_url": f"/api/sessions/{safe_sid}/board/{clamped}",
+        # Cache buster for `overlay_url` — see `_geometry_version`. The client MUST put this in
+        # the overlay request, or a corner write stays invisible for `max-age`.
+        "geometry_version": _geometry_version(sdir),
     }
 
 

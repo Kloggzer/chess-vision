@@ -97,6 +97,9 @@ export function SessionsPanel() {
   // deterministic per index, so warming an Image() populates the browser cache
   // the <img> tags then hit instantly (server sends Cache-Control for these).
   const qc = useQueryClient();
+  // Session-level: writing corners rewrites log.jsonl, which bumps this, which changes every
+  // overlay URL of the session. Without it a write stays invisible behind Cache-Control.
+  const geomVer = (reviewQ.data as any)?.geometry_version ?? 0;
   useEffect(() => {
     const count = (reviewQ.data as any)?.count ?? 0;
     if (!reviewSid || !count) return;
@@ -109,9 +112,9 @@ export function SessionsPanel() {
         queryFn: () => api(`/api/sessions/${sid}/review?idx=${i}`),
         staleTime: 60_000,
       });
-      // must match the URL the <img> below uses (labels included), or the warmed cache
-      // entry is the wrong one and every step re-renders the overlay server-side.
-      new Image().src = `/api/sessions/${sid}/overlay/${i}?labels=1`;
+      // must match the URL the <img> below uses (labels AND geometry version), or the warmed
+      // cache entry is the wrong one and every step re-renders the overlay server-side.
+      new Image().src = `/api/sessions/${sid}/overlay/${i}?labels=1&v=${geomVer}`;
       new Image().src = `/api/sessions/${sid}/board/${i}`;
     }
   }, [reviewSid, reviewIdx, reviewQ.data, qc]);
@@ -279,7 +282,7 @@ export function SessionsPanel() {
                 </div>
                 {/* labels=1: the corner/file/rank legend, so "is White at the bottom" is
                     answerable from the picture instead of by assumption. */}
-                <img src={`${review.overlay_url}?labels=1`} alt={`${reviewSid} overlay ${review.index + 1}`} className="max-h-[70vh] w-full rounded border border-zinc-800 object-contain" />
+                <img src={`${review.overlay_url}?labels=1&v=${review.geometry_version ?? 0}`} alt={`${reviewSid} overlay ${review.index + 1}`} className="max-h-[70vh] w-full rounded border border-zinc-800 object-contain" />
               </div>
               <div>
                 <div className="mb-1 text-xs font-medium text-zinc-500">Logged board</div>
