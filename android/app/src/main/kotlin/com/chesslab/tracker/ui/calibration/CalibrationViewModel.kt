@@ -2,8 +2,10 @@ package com.chesslab.tracker.ui.calibration
 
 import android.graphics.Bitmap
 import com.chesslab.geometry.margins4
+import com.chesslab.tracker.camera.OpticsSettling
 import com.chesslab.tracker.geometry.BoardDetector
 import com.chesslab.tracker.geometry.CalibrationProfile
+import com.chesslab.tracker.geometry.CalibrationResult
 import com.chesslab.tracker.geometry.CalibrationStore
 import com.chesslab.tracker.geometry.DEFAULT_MARKER_MARGIN
 import com.chesslab.tracker.geometry.MeasuredGeometry
@@ -15,6 +17,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.hypot
+import kotlin.math.roundToInt
 
 /** Interval between auto-detection attempts while aiming. */
 private const val AUTO_DETECT_MS: Long = 500
@@ -30,6 +34,79 @@ data class TapPoint(
 /** Adjustment bounds for a marker outset — 0 is "markers on the field corners", 12 % is absurd. */
 private const val MARGIN_MIN: Double = 0.0
 private const val MARGIN_MAX: Double = 0.12
+
+/**
+ * What the "Re-measure camera" button is doing, or what it ended up doing.
+ *
+ * All three outcomes are distinct values rather than one string, because the difference between
+ * them is what the user has to act on: a re-calibration needs nothing, a missing board needs the
+ * camera aimed, and a timeout means the picture is unchanged and the button is worth pressing
+ * again. Silence after a button that changes the optics is the one outcome that must not happen.
+ */
+sealed interface Remeasure {
+    /** Focus, exposure and white balance are re-converging; the picture may visibly hunt. */
+    data object Measuring : Remeasure
+
+    /** They settled. Now the markers — because the image just moved under them. */
+    data object Detecting : Remeasure
+
+    /** Converged and re-calibrated: the profile now describes the picture as it is now. */
+    data class Recalibrated(
+        val focusDistance: Float?,
+        val boardSize: Int,
+        val pxPerSquare: Int,
+    ) : Remeasure
+
+    /** Converged and re-frozen, but no board was found. The optics moved, the profile did not. */
+    data class NoMarkers(
+        val focusDistance: Float?,
+        val reason: String?,
+    ) : Remeasure
+
+    /** Nothing settled in time. The previous lock is back in force and nothing else changed. */
+    data object TimedOut : Remeasure
+}
+
+/** One line for the screen. Kept beside [Remeasure] so every outcome is worded in one place. */
+fun remeasureMessage(state: Remeasure): String =
+    when (state) {
+        Remeasure.Measuring -> "Re-measuring focus, exposure and white balance…"
+        Remeasure.Detecting -> "Optics settled. Looking for the board…"
+        is Remeasure.Recalibrated ->
+            "Re-measured${state.focusDistance.asDiopters()} — board ${state.pxPerSquare} px/square, " +
+                "rectified to ${state.boardSize} px."
+        is Remeasure.NoMarkers ->
+            "Optics re-measured${state.focusDistance.asDiopters()}, but the board was not found — " +
+                "the saved geometry is unchanged. ${state.reason.orEmpty()}".trim()
+        Remeasure.TimedOut ->
+            "The camera never reported that it had settled. Nothing changed: the previous focus, " +
+                "exposure and white balance are still in force."
+    }
+
+private fun Float?.asDiopters(): String = if (this == null) "" else " (focus %.2f dpt)".format(this)
+
+private const val NO_FRAME = "waiting for a camera frame"
+
+private const val CORNER_COUNT = 4
+private const val SQUARES_PER_SIDE = 8
+
+/**
+ * Pixels per square as the CAMERA delivers them: the quad's longest edge in SOURCE pixels, over 8.
+ *
+ * Not `measuredBoardSize / 8`, which is what the profile stores: that one is clamped to 1280 px
+ * (160 px/square) and would read the same number back at the user whatever the re-measure found.
+ */
+private fun sourcePxPerSquare(corners: FloatArray): Int {
+    if (corners.size != CORNER_COUNT * 2) return 0
+    var longest = 0.0
+    for (i in 0 until CORNER_COUNT) {
+        val j = (i + 1) % CORNER_COUNT
+        val dx = (corners[j * 2] - corners[i * 2]).toDouble()
+        val dy = (corners[j * 2 + 1] - corners[i * 2 + 1]).toDouble()
+        longest = maxOf(longest, hypot(dx, dy))
+    }
+    return (longest / SQUARES_PER_SIDE).roundToInt()
+}
 
 data class CalibrationState(
     val step: CalibrationStep = CalibrationStep.AIM,
@@ -51,9 +128,14 @@ data class CalibrationState(
      */
     val margin: List<Double> = margins4(DEFAULT_MARKER_MARGIN),
     val saved: Boolean = false,
+    /** Progress and outcome of the last "Re-measure camera"; null until it is pressed once. */
+    val remeasure: Remeasure? = null,
 ) {
     /** A wrong a8 assignment is invisible at runtime, so the confirmation screen is not skippable. */
     val canSave: Boolean get() = step == CalibrationStep.CONFIRM && orientationSeen && corners != null
+
+    /** A sequence is in flight: the button is disabled and the aiming poll stands down. */
+    val remeasuring: Boolean get() = remeasure == Remeasure.Measuring || remeasure == Remeasure.Detecting
 
     override fun equals(other: Any?): Boolean = this === other
 
@@ -69,6 +151,8 @@ class CalibrationViewModel(
     private val store: CalibrationStore,
     private val scope: CoroutineScope,
     private val nowMs: () -> Long = System::currentTimeMillis,
+    /** `CalibrationHost.remeasureOptics`. Null when no service is attached: the button is hidden. */
+    private val remeasureOptics: (suspend () -> OpticsSettling)? = null,
 ) {
     private val _state = MutableStateFlow(CalibrationState())
     val state: StateFlow<CalibrationState> = _state.asStateFlow()
@@ -88,12 +172,65 @@ class CalibrationViewModel(
         }
     }
 
+    /** True while a service is attached — the "Re-measure camera" button has something to call. */
+    val canRemeasure: Boolean = remeasureOptics != null
+
     /** Poll ArUco while the user is aiming. Cancelled with the caller's scope. */
     suspend fun autoDetect() {
         while (scope.isActive) {
-            if (_state.value.step == CalibrationStep.AIM) detectNow()
+            // Stood down during a re-measure: the poll would otherwise detect against a lens that
+            // is still hunting, which is the picture the sequence is in the middle of replacing.
+            if (_state.value.step == CalibrationStep.AIM && !_state.value.remeasuring) detectNow()
             delay(AUTO_DETECT_MS)
         }
+    }
+
+    /**
+     * One press, one sequence: **optics first, geometry second**.
+     *
+     * The order is the whole point. `OpticsLock` freezes focus, exposure and white balance once the
+     * device says they settled, which is right for a fixed camera over a static board — but a bad
+     * moment at start-up (a hand in the frame, the board not yet placed) is then held for the whole
+     * session. Re-measuring means letting them converge again; and because focus breathing moves
+     * the image, a marker quad measured before that describes a picture that is already gone. So
+     * the detection below runs strictly after the optics report converged, never beside it.
+     *
+     * Not automatic and not a loop: the automatic path is what settled wrong in the first place.
+     * Suspending like [autoDetect], so the screen owns the scope this runs in.
+     */
+    suspend fun remeasure(onRecalibrated: (CalibrationProfile) -> Unit = {}) {
+        val optics = remeasureOptics
+        if (optics == null || _state.value.remeasuring) return
+        _state.value = _state.value.copy(remeasure = Remeasure.Measuring, note = null)
+        val settling = optics()
+        if (settling !is OpticsSettling.Converged) {
+            // Nothing settled in time. `OpticsLock` put the previous lock back, so the picture is
+            // exactly what it was — and the geometry must not be touched on the strength of it.
+            _state.value = _state.value.copy(remeasure = Remeasure.TimedOut)
+            return
+        }
+        val focus = settling.focusDistance
+        _state.value = _state.value.copy(remeasure = Remeasure.Detecting)
+        val result = detectNow()
+        val corners = result?.takeIf { it.ok }?.corners
+        if (corners == null) {
+            _state.value = _state.value.copy(remeasure = Remeasure.NoMarkers(focus, result?.reason ?: NO_FRAME))
+            return
+        }
+        // The orientation confirmation is skipped here, and only here. It guards the a8 ASSIGNMENT,
+        // and this path changes neither the markers' meaning (marker N is corner N) nor `whitePov` —
+        // it replaces the quad, and nothing else, with one measured moments ago through optics that
+        // have just settled.
+        val saved =
+            store.saveRecalibrated(
+                MeasuredGeometry(corners.copyOf(), result.frameWidth, result.frameHeight),
+                whitePovOverride = if (whitePovTouched) _state.value.whitePov else null,
+                savedAtMs = nowMs(),
+                marginOverride = if (marginTouched) _state.value.margin else null,
+            )
+        _state.value =
+            _state.value.copy(remeasure = Remeasure.Recalibrated(focus, saved.boardSize, sourcePxPerSquare(corners)))
+        onRecalibrated(saved)
     }
 
     fun detectOnce() {
@@ -171,14 +308,14 @@ class CalibrationViewModel(
         }
     }
 
-    private suspend fun detectNow() {
-        if (_state.value.detecting) return
+    private suspend fun detectNow(): CalibrationResult? {
+        if (_state.value.detecting) return null
         _state.value = _state.value.copy(detecting = true)
         val result = detector.detect()
         val s = _state.value.copy(detecting = false)
         if (result == null) {
-            _state.value = s.copy(note = "waiting for a camera frame")
-            return
+            _state.value = s.copy(note = NO_FRAME)
+            return null
         }
         // The frame size is stamped even on a FAILED detection: it is the source size the manual
         // 4-tap fallback maps its taps into, and it must come from the detected Mat (a7dab73).
@@ -189,6 +326,7 @@ class CalibrationViewModel(
             } else {
                 sized.copy(note = result.reason)
             }
+        return result
     }
 
     private suspend fun refreshWarp(

@@ -1,5 +1,6 @@
 package com.chesslab.tracker.service
 
+import com.chesslab.tracker.camera.OpticsSettling
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -23,9 +24,29 @@ interface CameraSwitch {
 }
 
 /**
+ * Re-measuring the optics, behind an interface for the same reason [CameraSwitch] is one: the
+ * screen can see that the focus settled wrong, but only the single camera owner may act on it.
+ *
+ * Deliberately a request the user makes, never a rule the app applies. The automatic convergence is
+ * exactly what sometimes settles on the wrong moment, and a second automatic run would only settle
+ * wrong twice.
+ */
+interface OpticsControl {
+    /**
+     * Release focus, exposure and white balance, wait for a fresh convergence, freeze again — see
+     * `OpticsLock.remeasure` for the deadline and for what a timeout leaves behind.
+     *
+     * The ACTION as a value, in the shape `CalibrationHost` takes it: the calibration screen holds
+     * it across a sequence of its own and must not hold the service to do so.
+     */
+    val remeasureOptics: suspend () -> OpticsSettling
+}
+
+/**
  * What the UI may ask the SERVICE — as opposed to the engine, which is only ever reached through an
- * `EngineAction`. Both members are the same shape of request: the caller asks, the single owner acts.
+ * `EngineAction`. Every member is the same shape of request: the caller asks, the single owner acts.
  */
 interface TrackerControls :
     TrackerRestart,
-    CameraSwitch
+    CameraSwitch,
+    OpticsControl

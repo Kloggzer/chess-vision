@@ -10,6 +10,7 @@ import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.camera.DeliveredSize
+import com.chesslab.tracker.camera.OpticsSettling
 import com.chesslab.tracker.camera.TrackerCamera
 import com.chesslab.tracker.camera.cameraRequestFor
 import com.chesslab.tracker.cnn.Attached
@@ -94,6 +95,14 @@ class TrackerService :
     private val cameraRunning = MutableStateFlow(true)
 
     override val cameraOn: StateFlow<Boolean> = cameraRunning.asStateFlow()
+
+    /**
+     * The calibration screen's "Re-measure camera", handed straight to the single camera owner.
+     *
+     * One press, one sequence, no loop: the screen owns the ORDER (optics, then geometry) and this
+     * is only the half that needs the device. A getter, because `camera` is built in [wireSession].
+     */
+    override val remeasureOptics: suspend () -> OpticsSettling get() = camera::remeasureOptics
 
     /**
      * The tracker's live geometry: the calibration profile contributes the board, the loaded model
@@ -334,10 +343,16 @@ class TrackerService :
         notification.post(publisher.status.value?.state, moves, cameraRunning.value)
     }
 
+    /**
+     * @param relockOptics whether to let focus/exposure/white balance re-converge afterwards. False
+     * only for the re-measure sequence, which converged them BEFORE it measured this quad —
+     * re-arming there would release the very lock the quad was measured under.
+     */
     private fun calibrate(
         geom: BoardGeometry,
         pts: FloatArray,
         profileName: String,
+        relockOptics: Boolean,
     ) {
         geometry = geom.withCropSizeOf(modelSpec)
         corners = pts
@@ -353,8 +368,10 @@ class TrackerService :
         stacks.current?.coordinator?.applyCalibration(geometry, pts, profileName, delivered)
         // The optics are locked to whatever the scene looked like when they last converged.
         // Recalibrating is the user telling us the setup moved, which is the only signal we have
-        // that the frozen exposure/white balance/focus may no longer be the right ones.
-        camera.relockOptics()
+        // that the frozen exposure/white balance/focus may no longer be the right ones. Launched
+        // and not awaited: nobody is waiting for an answer here, but the wait still has a deadline
+        // and still restores the old lock if the device never settles.
+        if (relockOptics) lifecycleScope.launch { remeasureOptics() }
     }
 }
 

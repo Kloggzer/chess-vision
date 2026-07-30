@@ -29,7 +29,7 @@ class TrackerBinder(
     private val settings: SettingsRepository,
     private val cnn: StateFlow<CnnState>,
     private val queue: (EngineAction) -> Unit,
-    private val calibrate: (BoardGeometry, FloatArray, String) -> Unit,
+    private val calibrate: (BoardGeometry, FloatArray, String, Boolean) -> Unit,
     // Delegated, not reimplemented: restart and the camera switch are the service's, and a second
     // copy of "is the camera on" is a second answer to a question about the user's privacy.
     private val controls: TrackerControls,
@@ -67,12 +67,19 @@ class TrackerBinder(
      */
     override fun restartTracker() = controls.restartTracker()
 
-    /** 06a hands the accepted corners over; the pipeline picks them up on its next frame. */
+    /**
+     * 06a hands the accepted corners over; the pipeline picks them up on its next frame.
+     *
+     * [relockOptics] is stated at every call site rather than defaulted: "did this quad get
+     * measured before or after the optics settled" is the one thing the two callers disagree on,
+     * and a default would hide it.
+     */
     fun applyCalibration(
         geometry: BoardGeometry,
         corners: FloatArray,
         profileName: String,
-    ) = calibrate(geometry, corners, profileName)
+        relockOptics: Boolean,
+    ) = calibrate(geometry, corners, profileName, relockOptics)
 
     /** What the camera really delivers — 06a needs it to map a tap back to source pixels. */
     var deliveredSize: DeliveredSize? = null

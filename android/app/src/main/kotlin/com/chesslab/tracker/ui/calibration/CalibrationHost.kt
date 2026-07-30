@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.chesslab.geometry.BoardGeometry
+import com.chesslab.tracker.camera.OpticsSettling
 import kotlinx.coroutines.flow.StateFlow
 import org.opencv.core.Mat
 
@@ -24,8 +25,19 @@ class CalibrationHost(
     val latestCalibrationFrame: () -> Mat?,
     /** `TrackerBinder.rawPreview` — downscaled analyzer frames, the live picture. */
     val rawPreview: StateFlow<Bitmap?>,
-    /** `TrackerBinder.applyCalibration(geometry, corners, profileName)`. GEOMETRY ONLY. */
+    /** `TrackerBinder.applyCalibration(…, relockOptics = true)`. GEOMETRY ONLY. */
     val onCalibrated: (BoardGeometry, FloatArray, String) -> Unit,
+    /**
+     * `TrackerBinder.remeasureOptics` — releases focus, exposure and white balance and waits for a
+     * fresh convergence. The screen may only re-measure the geometry after it returns
+     * [OpticsSettling.Converged].
+     */
+    val remeasureOptics: suspend () -> OpticsSettling,
+    /**
+     * As [onCalibrated], but it does NOT re-arm the optics: this quad was measured *after* they
+     * converged, and re-arming would release the lock it was measured under.
+     */
+    val onRemeasured: (BoardGeometry, FloatArray, String) -> Unit,
 )
 
 val LocalCalibrationHost = staticCompositionLocalOf<CalibrationHost?> { null }

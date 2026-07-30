@@ -34,6 +34,7 @@ import com.chesslab.tracker.geometry.CalibrationProfile
 import com.chesslab.tracker.geometry.calibrationStore
 import com.chesslab.tracker.ui.ChesslabScaffold
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import kotlinx.coroutines.launch
 
 @Composable
 fun CalibrationRoute(
@@ -57,6 +58,7 @@ fun CalibrationRoute(
                 detector = ArucoCalibrator(host.latestCalibrationFrame, store::geometry),
                 store = store,
                 scope = scope,
+                remeasureOptics = host.remeasureOptics,
             )
         }
     LaunchedEffect(vm) { vm.autoDetect() }
@@ -64,7 +66,19 @@ fun CalibrationRoute(
     val preview by host.rawPreview.collectAsState()
     // `onBack` used to be emitted as a SIBLING of the steps: the nav host stacks its children in a
     // Box, so the button was drawn on top of the camera preview instead of below the content.
-    CalibrationSteps(state, preview, vm, onBack) { profile ->
+    CalibrationSteps(
+        state = state,
+        preview = preview,
+        vm = vm,
+        onBack = onBack,
+        // Stays on this screen, deliberately: the sequence just changed the optics and its outcome
+        // is the thing the user pressed the button to find out.
+        onRemeasure = {
+            scope.launch {
+                vm.remeasure { profile -> host.onRemeasured(profile.geometry(), profile.corners, profile.name) }
+            }
+        },
+    ) { profile ->
         // Geometry only — the game keeps running (`Reset game` is a different action, 06b).
         host.onCalibrated(profile.geometry(), profile.corners, profile.name)
         onCalibrated()
@@ -77,6 +91,7 @@ private fun CalibrationSteps(
     preview: Bitmap?,
     vm: CalibrationViewModel,
     onBack: () -> Unit,
+    onRemeasure: () -> Unit,
     onSaved: (CalibrationProfile) -> Unit,
 ) {
     val source = IntSize(state.frameWidth, state.frameHeight)
@@ -104,7 +119,7 @@ private fun CalibrationSteps(
                     // The preview takes the leftover height: aiming the camera IS this screen, and
                     // it used to sit in a fixed square box drawn at the bitmap's intrinsic size.
                     PreviewWithOverlay(preview, state, source, state.step == CalibrationStep.DETECTED, Modifier.weight(1f))
-                    AimActions(state, vm)
+                    AimActions(state, vm, onRemeasure)
                 }
             }
             // Recalibrate is GEOMETRY. Starting a new game is "Reset game" on the tracking screen —
@@ -133,6 +148,7 @@ private fun WideButton(
 private fun AimActions(
     state: CalibrationState,
     vm: CalibrationViewModel,
+    onRemeasure: () -> Unit,
 ) {
     Text(
         text =
@@ -157,6 +173,29 @@ private fun AimActions(
         ) {
             Text("Detect again", style = MaterialTheme.typography.labelSmall, maxLines = 1)
         }
+    }
+    // Its own row: it is neither of the two above. Those re-read the geometry from the picture as
+    // it is; this one changes the picture first and then re-reads it.
+    if (vm.canRemeasure) {
+        OutlinedButton(
+            onClick = onRemeasure,
+            enabled = !state.remeasuring,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        ) {
+            Text("Re-measure camera", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        }
+        // Same shape of promise as the Recalibrate help below it, because it is the same contract.
+        Text(
+            "Re-measure camera re-runs focus, exposure and white balance, then the board geometry. " +
+                "Use it when the picture looks wrong. Your game keeps running.",
+            style = MaterialTheme.typography.bodySmall,
+            color = OnSurfaceMuted,
+        )
+    }
+    // The button takes a visible moment and changes what the camera sees; every one of the three
+    // outcomes says so in words, because silence here is indistinguishable from a dead button.
+    state.remeasure?.let {
+        Text(remeasureMessage(it), style = MaterialTheme.typography.bodyMedium)
     }
 }
 
