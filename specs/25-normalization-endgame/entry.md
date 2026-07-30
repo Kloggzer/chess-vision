@@ -122,8 +122,12 @@ crashed a live game once already.
 
 ## Git hygiene
 
-- **One branch per phase, cut from `main`**: `spec-25-00-warm-start`, `spec-25-01-dsbn`,
-  `spec-25-02-normalizer-free`. Each agent works in its own `git worktree`. Never commit to `main`.
+- **One branch per phase**: `spec-25-00-warm-start`, `spec-25-01-dsbn`, `spec-25-02-normalizer-free`.
+  Each agent works in its own `git worktree`. Never commit to `main`.
+- **Cut from the commit that carries this pack** (`2120406` on `spec-24-frame-the-board`), NOT from
+  `main`. `main` has neither `specs/25-normalization-endgame/` nor the two tools this pack depends
+  on — `scripts/adabn_recalibrate.py` does not exist there at all, and `sweep_infer_size.py` has no
+  `--dataset` override. Corrected 2026-07-30 after phase 00 hit it.
 - Atomic conventional commits exactly as named in each phase's Steps. Stage explicitly; never
   `git add -A` across scopes. `data/` is gitignored — no model artefacts in a commit.
 - Never `--no-verify`, never force-push, never touch another phase's branch. If a gate fails, fix
