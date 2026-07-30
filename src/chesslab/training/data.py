@@ -195,10 +195,16 @@ def build_model_card(
     torch_version: str,
     hip_version: str | None,
     exported_formats: list[str],
+    infer_size: tuple[int, int] | None = None,
 ) -> dict:
+    """`out_size` = the size the crops were built at; `infer_size` = the size the exported graph
+    takes (specs/22). They are the same number for every run predating that pack, which is what
+    `infer_size=None` records."""
+    size = infer_size or out_size
     return {
         "classes": list(classes),
         "out_size": [int(out_size[0]), int(out_size[1])],
+        "infer_size": [int(size[0]), int(size[1])],
         "normalize": {"mean": list(config.NORMALIZE_MEAN), "std": list(config.NORMALIZE_STD)},
         "backbone": backbone,
         "metrics": metrics,

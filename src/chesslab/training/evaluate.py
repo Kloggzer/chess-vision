@@ -132,10 +132,44 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None) 
 ONNX_BATCH = 64
 
 
-def run_export(run: str, fmt: str = "torchscript") -> int:
+def untrained_size_error(cfg: dict, w: int, h: int) -> str | None:
+    """Why `(w, h)` is not a size this run may be served at — or None when it is.
+
+    Validated HERE, where the value enters the model's `config.json`, and nowhere else. An
+    untrained inference size does not raise, it just loses squares: `occ-v4-f3e20`
+    (`scales: [32, 64, 96, 128]`) reads **133** occupied squares as empty at 80 px against 19 at
+    96 px and 38 at 64 px, and 916 at 48 px (specs/22, phase 00). A miss licenses a fabricated
+    capture, so silence is the expensive failure mode here.
+    """
+    out_w, out_h = (int(v) for v in cfg["out_size"])
+    if (w, h) == (out_w, out_h):
+        return None      # the size the crops were built at — nothing new is being asked of anyone
+    scales = [int(s) for s in cfg.get("scales") or []]
+    if not scales:
+        return (f"--infer-size {w}x{h} but this run has no `scales`: it was trained at one size, "
+                f"so its infer_size must stay its out_size {out_w}x{out_h}.")
+    if w != h:
+        return (f"--infer-size {w}x{h} is not square, and this run's trained scales {scales} are "
+                "single numbers — only WxW sizes can be checked against them.")
+    if w not in scales:
+        return (f"--infer-size {w}x{h} is not one of this run's trained scales {scales}. "
+                "Untrained sizes fail silently: 80px costs this backbone 133 misses against "
+                "96px's 19.")
+    return None
+
+
+def run_export(run: str, fmt: str = "torchscript",
+               infer_size: tuple[int, int] | None = None) -> int:
+    """Export a run at the inference size ITS OWN config declares (specs/22).
+
+    `infer_size` is the convenience writer for that key: it is stored in the run's `config.json`
+    and then read straight back through `infer_size_of`, so the exported graph is always what the
+    config says and never a value that existed only in this argument.
+    """
     import torch
 
     from .data import build_model_card
+    from .torch_data import infer_size_of, input_repr_of
 
     run_dir = Path(run)
     if not (run_dir / "config.json").exists():
@@ -148,10 +182,23 @@ def run_export(run: str, fmt: str = "torchscript") -> int:
     # dozens of loose nodes per norm. The stock module holds the identical weights.
     stock_batchnorm(model)
     classes = cfg["classes"]
-    out_w, out_h = cfg["out_size"]
-    from .torch_data import input_repr_of
+    out_w, out_h = (int(v) for v in cfg["out_size"])
+    if infer_size is not None:
+        cfg["infer_size"] = [int(infer_size[0]), int(infer_size[1])]
+    in_w, in_h = infer_size_of(cfg)
+    err = untrained_size_error(cfg, in_w, in_h)
+    if err:
+        print(f"[FAIL] {err}")
+        return 1
+    if infer_size is not None:
+        # Write it before tracing: the graph must be what the config declares, and the config is
+        # what every consumer resizes its crops to.
+        (run_dir / "config.json").write_text(json.dumps(cfg, indent=2, ensure_ascii=False),
+                                             encoding="utf-8")
 
-    example = torch.randn(ONNX_BATCH, input_repr_of(cfg)[1], out_h, out_w)
+    # ONE size per export — TorchScript and ONNX are traced from the same example, so the two
+    # artifacts of a run can never disagree about what the network takes.
+    example = torch.randn(ONNX_BATCH, input_repr_of(cfg)[1], in_h, in_w)
 
     def _export_onnx() -> None:
         # NO dynamic_axes. A dynamic batch dim is not a harmless generalisation here: under ORT's
@@ -195,10 +242,11 @@ def run_export(run: str, fmt: str = "torchscript") -> int:
     if eval_test.exists():
         metrics = json.loads(eval_test.read_text(encoding="utf-8"))
     card = build_model_card(
-        classes=classes, out_size=(out_w, out_h), backbone=cfg["backbone"], metrics=metrics,
+        classes=classes, out_size=(out_w, out_h), infer_size=(in_w, in_h),
+        backbone=cfg["backbone"], metrics=metrics,
         torch_version=torch.__version__, hip_version=getattr(torch.version, "hip", None),
         exported_formats=written,
     )
     (run_dir / "model_card.json").write_text(json.dumps(card, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"[OK] exportiert: {', '.join(written)} + model_card.json -> {run_dir}")
+    print(f"[OK] exportiert: {', '.join(written)} @ {in_w}x{in_h} + model_card.json -> {run_dir}")
     return 0
