@@ -117,4 +117,4 @@ class CropTile(
     val image: ImageBitmap,
 )
 
-private val NO_RUNTIME = CnnRuntimeInfo(null, null, null, null, 0.0, 0)
+private val NO_RUNTIME = CnnRuntimeInfo(null, null, null, null, null, 0.0, 0)
