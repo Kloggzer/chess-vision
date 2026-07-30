@@ -9,7 +9,7 @@ log; never rewrite another phase's entry.
 | Phase | Concern | State | Owner | Notes |
 |---|---|---|---|---|
 | 00 | Is 96 px the model's optimum or the test session's? | done | phase-00 agent | **Verdict: R-NATIVE** (`best(test)`=96, `best(val)`=128). Premise confirmed on the serving path. `scripts/sweep_infer_size.py`. Phase 01 may proceed. |
-| 01 | `infer_size` as a per-model config key; export + serving read it | todo | — | Blocked by 00. **Lands alone** (contract provider). |
+| 01 | `infer_size` as a per-model config key; export + serving read it | done | phase-01 agent | Contract shipped, 5 commits. Reader `torch_data.infer_size_of` (:143), writer/validator `evaluate.untrained_size_error` + `run_export(infer_size=)`, `export --infer-size WxH`, `RunSpec.infer_size`. `occ-v4-f3e20` re-exported: graph `[64,3,96,96]`, `config.json` carries `[96,96]`. **`train.py` NOT touched** (see discrepancy 12) — new runs still rely on the `out_size` fallback. |
 | 02 | Android reads it; the 128 guard becomes a graph assertion | todo | — | Blocked by 01. Owns the bundled asset. |
 | 03 | Document the discovery | done | phase-03 agent | Docs only, 2 commits. `docs/data-pipeline.md` §11 (+ §2 correction, §10 pointer), `CLAUDE.md` pitfall, `README.md` Stage 5. Step 3 **skipped**: `architecture-overview.md` names neither `128` nor `out_size`. Android crop box is **240 px, not 220** (see discrepancy 8). |
 
