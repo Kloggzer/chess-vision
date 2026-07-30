@@ -13,6 +13,8 @@ import com.chesslab.geometry.toBgrImage
 import com.chesslab.geometry.toGrayImage
 import com.chesslab.geometry.warpBoardForCrops
 import com.chesslab.geometry.warpFromCorners
+import com.chesslab.tracker.cnn.ModelSpec
+import com.chesslab.tracker.geometry.withCropSizeOf
 import com.chesslab.tracker.pipeline.RoiMotion
 import org.opencv.core.Core
 import org.opencv.core.Mat
@@ -47,10 +49,18 @@ internal class SimTimings {
 internal class ClipPipeline(
     clip: SimClip,
     private val timings: SimTimings,
+    /**
+     * The model whose crops this run feeds, or null for the diff-only baseline.
+     *
+     * The harness has to size its crops the way `TrackerService` does (specs/23 phase 01), or it
+     * stops being a parity harness: `preprocessInto` REQUIRES `crop.width == outW`, so a 96 px
+     * model against this class's former hard-coded 128 threw on the first observation.
+     */
+    spec: ModelSpec? = null,
 ) {
     private val config = clip.config
     private val corners = clip.corners
-    private val geometry = BoardGeometry(boardSize = clip.boardSize)
+    private val geometry = BoardGeometry(boardSize = clip.boardSize).withCropSizeOf(spec)
     private val gray = GrayPipeline(config.diffClaheClip)
     private val roi = RoiMotion(config.motionMargin, config.motionPxThr)
     private val warpDet = Mat()

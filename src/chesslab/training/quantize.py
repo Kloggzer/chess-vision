@@ -105,13 +105,18 @@ def _make_reader(rows: list[dict], input_name: str, cfg: dict):
     from PIL import Image
 
     from .evaluate import ONNX_BATCH
-    from .torch_data import eval_transform_for
+    from .torch_data import eval_transform_for, infer_size_of
 
     # The FP32 graph is traced at a FIXED batch (`evaluate.ONNX_BATCH`) because a dynamic one
     # breaks the Android session — so calibration has to feed that exact batch, not one crop at a
     # time. A short final group is padded by repeating its own crops rather than with zeros: black
     # squares would widen every activation range the calibrator measures.
-    tf = eval_transform_for(cfg)
+    #
+    # And at the size the GRAPH takes, not the size the crops were built at: `eval_transform_for`
+    # defaults to `out_size`, so a run serving at 96 fed the calibrator 128 px tensors and ORT
+    # refused them outright ("index: 2 Got: 128 Expected: 96"). That dropped `model.qnn.onnx` from
+    # a ship once (specs/23 phase 02) — the calibration set must live in the graph's own geometry.
+    tf = eval_transform_for(cfg, out_size=infer_size_of(cfg))
     crops = []
     for r in rows:
         with Image.open(r["path"]) as im:

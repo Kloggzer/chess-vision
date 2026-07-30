@@ -7,6 +7,8 @@ import com.chesslab.engine.api.CnnSnapshot
 import com.chesslab.engine.api.TrackerEngine
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
+import com.chesslab.geometry.BoardGeometry
+import com.chesslab.tracker.cnn.ModelSpec
 import org.opencv.core.Mat
 
 // One clip, end to end: mp4 -> warp -> (crops -> real ONNX -> CnnRecovery) -> TrackerEngine.
@@ -23,6 +25,12 @@ private const val MS_PER_S = 1000.0
 internal class SimCnn(
     val classifier: SquareClassifier,
     val evaluator: CnnEvaluator,
+    /**
+     * The model's own `config.json`, parsed — the harness crops at the size it declares, exactly as
+     * `TrackerService` does. Null keeps [BoardGeometry]'s 128 px default for callers that predate
+     * specs/23; the CNN clip simulation passes the staged asset's spec.
+     */
+    val spec: ModelSpec? = null,
 )
 
 /** Everything a diverging run needs explained: what latched, what the engine said, and when. */
@@ -79,7 +87,7 @@ internal fun runClip(
     engine.attachCnn(cnn?.evaluator)
     val timings = SimTimings()
     val audit = ObsAudit()
-    val pipeline = ClipPipeline(clip, timings)
+    val pipeline = ClipPipeline(clip, timings, cnn?.spec)
     val observer = cnn?.let { SimObserver(it, pipeline, timings, clip, audit) }
     val log = SimEventLog(engine, clip.truth.promotionPiece)
     try {
