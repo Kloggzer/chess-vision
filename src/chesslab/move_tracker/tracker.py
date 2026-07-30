@@ -2864,8 +2864,15 @@ class MoveTracker:
             return None
         sid = generate_session_id()
         h, w = self._last_frame.shape[:2]
+        # `camera_source=self._src`, not a hardcoded index: the tracker's source is an int OR a
+        # URL (`__init__` keeps whichever it was given), and a recorded session that says
+        # `camera_index: 0` for both a USB camera and a phone cannot be partitioned by camera
+        # afterwards. That cost real time — the corpus had to be sorted by frame geometry instead.
+        # -1 matches the web collect path's convention for "not an index".
         self._recorder = SessionWriter(config.DATA.sessions / sid, session_id=sid,
-                                       profile=self.profile_name, mode="track", camera_index=0,
+                                       profile=self.profile_name, mode="track",
+                                       camera_index=self._src if isinstance(self._src, int) else -1,
+                                       camera_source=self._src,
                                        frame_size=(w, h), notes=notes or "move-tracker recording")
         return self._recorder
 
