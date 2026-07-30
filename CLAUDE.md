@@ -84,6 +84,11 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
   complete 64-crop boards. A dataset's `counts.final` is therefore a property of the SPLIT,
   not of the corpus — a bigger train split makes `final` smaller. Never compare `final`
   across datasets with different splits; compare raw rows or phash-unique counts.
+- **Perceptual dedup is OFF by default** since 2026-07-30 (`config.DedupDefaults.phash_enabled`).
+  At hamming 6 it discarded **54.8%** of the corpus and cost 42 misses against 17 — and none of it
+  was a duplicate: of 3,432 collisions, **zero were pixel-identical**. `dhash` compares only the
+  sign pattern of a 9×8 thumbnail, so noise, exposure and sub-pixel shift collide. `per_cell_cap`
+  still bounds "the piece never moved". See `docs/data-pipeline.md` §5.13.
 - **`data/` is gitignored → park, never delete.** Convention: `data/_parked/<date>-<reason>/`
   with a README. A manual park moves pixels only — the rows stay in `squares.jsonl`;
   `sessions.archive_session` is the mechanism that also prunes the pool.

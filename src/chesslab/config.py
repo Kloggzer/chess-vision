@@ -224,7 +224,23 @@ class DedupDefaults:
     control how aggressively to deduplicate and whether to rotation-augment."""
 
     per_cell_cap: int = 4          # max crops per (session, square, piece) — catches "never moved"
-    phash_enabled: bool = True     # additionally remove visually near-identical ones (dhash)
+    # OFF since 2026-07-30, measured. `dhash` reduces a crop to 64 yes/no comparisons between
+    # neighbouring pixels of a 9x8 grey thumbnail — absolute brightness, contrast, noise and
+    # colour are gone. Two crops collide as soon as that SIGN PATTERN matches, which for a
+    # smooth empty square or a piece body it reliably does.
+    #
+    # So "duplicate" was never true here: of 3 432 collisions in five sessions, **0 were pixel
+    # identical** and no frame was ever delivered twice. What the filter removed at hamming 6
+    # was 54.8% of the corpus — crops differing in noise, exposure and sub-pixel shift, i.e.
+    # exactly the variation the model has to become robust against. Turning it off, one
+    # variable changed: 42 misses -> 17, 4 phantoms -> 2 (`occ-v4-f5` vs `occ-v4-f5nd`,
+    # occ-real6 test split). `per_cell_cap` still bounds the "never moved" case, which is what
+    # this policy is actually for.
+    #
+    # NOT measured: hamming 2 (22.2% discarded) and 0 (6.0%) against a trained model. Only
+    # 6-vs-off was, so a middle ground may exist — but even at 0 the discarded crops are merely
+    # dhash-identical, not identical.
+    phash_enabled: bool = False    # visually near-identical (dhash) — see above
     phash_hamming: int = 6         # Hamming distance <= -> discard as duplicate (0..64)
     # Rotation augmentation AFTER dedup — OFF by default. It contradicts the fixed-camera
     # assumption (CLAUDE.md: rotate90 distorts square colour/light/angle) and was only ever a

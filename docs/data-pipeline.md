@@ -124,9 +124,10 @@ The build (`dataset_build.build_dataset`) runs strictly in this order:
 
 1. **Filter** the pool to `session_ids`.
 2. **Assign whole sessions to splits** on the RAW rows (`dataset.assign_sessions_to_splits`).
-3. **Dedup — TRAIN ONLY.** `dedup_phash` first (dhash, Hamming ≤ 6, LSH-banded, within each
-   class), *then* `dedup_metadata` (≤ `per_cell_cap` per `(session, square, label)`, default 4).
-   The order matters and was the other way round until 2026-07-29 — see §5.11.
+3. **Dedup — TRAIN ONLY.** `dedup_metadata` (≤ `per_cell_cap` per `(session, square, label)`,
+   default 4). `dedup_phash` runs first *when enabled*, but it is **OFF by default since
+   2026-07-30** — see §5.12. The order matters and was the other way round until 2026-07-29 —
+   see §5.11.
 4. **Collapse labels** if `class_mode=occupancy` (14 classes → `empty`/`occupied`).
 5. Write manifest + split + stats, then **pack** into a memmap if ≥ 100,000 crops.
 
@@ -564,6 +565,44 @@ occupancy training.
 They are **dropped, not mapped**: a covered square may hold a piece or nothing, so either class
 is a guess. The count and its share of the pool are printed — the guard's real purpose was that
 the drop not be silent.
+
+### 5.13 The perceptual dedup threw away half the corpus, and none of it was a duplicate
+
+**`phash_enabled` is `False` by default since 2026-07-30** (`config.DedupDefaults`). It was `True`
+with `phash_hamming = 6`, and the CLI made it unreachable: `--no-phash` defaulted to `False` and
+the command passed `phash_enabled = not no_phash`, so the config's own setting was never read.
+
+What it cost, one variable changed, both finetunes otherwise identical (`occ-v4-f5` vs
+`occ-v4-f5nd`, measured on the occ-real6 test split):
+
+| | rows kept | misses | phantoms |
+|---|---:|---:|---:|
+| `phash` hamming 6 | 19,365 of 42,816 | 42 | 4 |
+| `phash` off | 42,816 | **17** | **2** |
+
+**And the discarded crops were not duplicates.** `dhash` reduces a crop to a 9×8 grey thumbnail
+and stores 64 yes/no comparisons between neighbouring pixels — absolute brightness, contrast,
+noise and colour are gone. Two images collide as soon as that *sign pattern* matches, which a
+smooth empty square or a piece body reliably does. Measured over five sessions: of 3,432 crops in
+exact-hash collision groups, **0 were pixel-identical**, and **no frame was ever delivered twice**
+by the camera. What hamming 6 removed was 54.8% of the corpus differing in noise, exposure and
+sub-pixel shift — the variation the model has to become robust against.
+
+What the threshold costs, measured on the same 15 sessions:
+
+| setting | after dedup | discarded |
+|---|---:|---:|
+| hamming 6 (the old default) | 19,365 | 54.8% |
+| hamming 2 | 33,292 | 22.2% |
+| hamming 0 (dhash-identical only) | 40,260 | 6.0% |
+| off | 42,816 | 0% |
+
+⚠ **Only 6-vs-off was tested against a trained model.** Hamming 2 and 0 may well be a sensible
+middle ground and nobody has measured them. Note that even at 0 the discarded crops are only
+*dhash*-identical, never identical.
+
+`per_cell_cap` (default 4) still bounds the case this policy exists for — a piece that never
+moved across a long session. That cap is metadata-based and exact; it needs no visual guess.
 
 ---
 
