@@ -37,6 +37,24 @@ def infer_size_of(cfg: dict) -> tuple[int, int]:
     return int(raw[0]), int(raw[1])
 ```
 
+**And it must be a size the run was trained on.** Phase 00 measured what an untrained size does:
+`occ-v4-f3e20` (`scales: [32, 64, 96, 128]`) reads **133** occupied squares as empty at 80 px
+against 38 at 64 and 19 at 96, and 916 at 48. The failure is silent — no exception, just a hundred
+squares gone. So the **writer** validates, once, where the value enters:
+
+```python
+scales = cfg.get("scales")
+if scales and (w not in scales or h not in scales):
+    print(f"[FAIL] --infer-size {w}x{h} is not one of this run's trained scales {scales}. "
+          "Untrained sizes fail silently: 80px costs this backbone 133 misses against 96px's 19.")
+    return 1
+```
+
+Square sizes only (`w == h`); the trained `scales` are scalars. A run with no `scales` key was
+trained at one size — then `infer_size` must equal `out_size`. Do **not** put this check in
+`infer_size_of`: reading a config is not the place to reject one, and every consumer would pay for
+it on every call.
+
 Every consumer calls this. `grep -rn "cfg\[.out_size.\]" src/chesslab/serving.py` must come back
 empty when the phase is done — that grep is the acceptance criterion for "one reader".
 
@@ -124,11 +142,14 @@ parallel file.
 2. `test_run_spec_reads_infer_size` — with `"infer_size": [96, 96]` and `"out_size": [128, 128]`,
    `RunSpec.infer_size == (96, 96)` and `RunSpec.out_size == (128, 128)`. Both, in one assertion
    block — the point is that they differ.
-3. `test_export_bakes_infer_size_into_the_graph` — export a tiny run with `infer_size=(96, 96)`,
+3. `test_export_rejects_an_untrained_size` — a run with `scales: [32, 64, 96, 128]` and
+   `--infer-size 80x80` exits non-zero and the message names the trained scales. This is the
+   silent-failure guard; it is the most valuable test in this phase.
+4. `test_export_bakes_infer_size_into_the_graph` — export a tiny run with `infer_size=(96, 96)`,
    load the `.onnx` with `onnx.load`, assert the input shape is `[64, 3, 96, 96]` and that the
    run's `config.json` now carries the key. **This is the artifact-authority test**: the graph and
    the JSON must agree.
-4. `test_crops_for_model_uses_infer_size` — a stub frame through `crops_for_model` returns crops of
+5. `test_crops_for_model_uses_infer_size` — a stub frame through `crops_for_model` returns crops of
    the inference size, not 128.
 
 ```
