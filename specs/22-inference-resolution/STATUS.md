@@ -332,6 +332,13 @@ implemented here.
     `BundledGraphShapeTest` still hard-codes `[64, 3, 128, 128]`: left alone on purpose, its
     concern is that the batch dim is not dynamic (three shipped regressions), and the new seam test
     is what checks the size against the config rather than against a literal.
+24. **The acceptance criterion `grep -rn "CROP_SIZE" android/` still prints hits** — every one of
+    them a **stale binary under `android/app/build/`**: the release variant's `classes.jar` and
+    `ModelSpecKt.class` (never recompiled, this phase only built debug), `app-debug.apk` and the
+    dex from an earlier `assembleDebug`, and Kotlin's incremental-compilation lookup tables, which
+    record a symbol's *deletion*. Not one source file matches: `git grep -n "CROP_SIZE" -- android/`
+    exits 1, and so does the same grep with `/build/` filtered out. Use `git grep` (or `--include`)
+    when re-checking; `build/` is gitignored and its contents are not this branch's state.
 
 ## Session log
 
