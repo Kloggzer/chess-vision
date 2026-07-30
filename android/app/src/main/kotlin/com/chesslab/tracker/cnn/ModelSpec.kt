@@ -10,8 +10,16 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/** The one crop size this app ships a model for; asserted, never assumed. */
-private const val CROP_SIZE = 128
+/**
+ * Plausibility band for a parsed input size — a typo or a truncated config must not reach the
+ * network. It is deliberately NOT the safety story: an *untrained* size inside the band fails
+ * silently (measured, specs/22 phase 00: `occ-v4-f3e20` reads 133 occupied squares as empty at
+ * 80 px against 19 at 96 px), and only the exporter knows a run's trained `scales`, so that guard
+ * lives there. What the app can check is that the graph it is about to run agrees with the config
+ * beside it — see [OnnxSquareClassifier].
+ */
+private const val MIN_INPUT_SIZE = 32
+private const val MAX_INPUT_SIZE = 512
 
 /**
  * The subset of a run's `config.json` the tracker needs. Everything here is READ from the
@@ -20,6 +28,12 @@ private const val CROP_SIZE = 128
  */
 data class ModelSpec(
     val classes: List<String>,
+    /**
+     * The size crops are resized to and the size the graph takes — `infer_size` when the run
+     * declares one, else `out_size` (specs/22). NOT necessarily the size the training crops on
+     * disk were built at: what a crop actually carries is `board_size / 8 * (1 + 2 * padSide)` px,
+     * 240 on this app's default geometry, so the right input size is a property of the model.
+     */
     val outWidth: Int,
     val outHeight: Int,
     val mean: List<Float>,
@@ -44,17 +58,21 @@ data class ModelSpec(
         /**
          * Unknown keys are ignored. Throws (loudly, with a named reason) when the class list
          * is neither the canonical 14-class order nor the 2-class occupancy order
-         * (`requireExpectedClasses`), or the crop size is not the one the app crops for: a
-         * reordered list silently relabels every piece, so refusing to load is the only safe
-         * answer.
+         * (`requireExpectedClasses`), or the declared input size is implausible: a reordered list
+         * silently relabels every piece, so refusing to load is the only safe answer.
          */
         fun parse(json: String): ModelSpec {
             val root = Json.parseToJsonElement(json).jsonObject
-            val outSize = root.getValue("out_size").jsonArray
-            val outWidth = outSize[0].jsonPrimitive.content.toInt()
-            val outHeight = outSize[1].jsonPrimitive.content.toInt()
-            require(outWidth == CROP_SIZE && outHeight == CROP_SIZE) {
-                "model out_size is ${outWidth}x$outHeight, this app crops ${CROP_SIZE}x$CROP_SIZE"
+            // `infer_size` is the size the exported graph TAKES; `out_size` is the size the crops
+            // on disk were built at (specs/22). Absent means the two are the same, which is what
+            // every model shipped before specs/22 — and every freshly trained run — declares, so
+            // the fallback is a live path and not a legacy one.
+            val size = root["infer_size"]?.jsonArray ?: root.getValue("out_size").jsonArray
+            val outWidth = size[0].jsonPrimitive.content.toInt()
+            val outHeight = size[1].jsonPrimitive.content.toInt()
+            require(outWidth in MIN_INPUT_SIZE..MAX_INPUT_SIZE && outHeight in MIN_INPUT_SIZE..MAX_INPUT_SIZE) {
+                "model input size ${outWidth}x$outHeight is outside the plausible range " +
+                    "$MIN_INPUT_SIZE..$MAX_INPUT_SIZE"
             }
             // Old configs predate the `normalize` key and were trained on the ImageNet stats
             // (`quantize.py:172-174`). Nothing else may fall back.

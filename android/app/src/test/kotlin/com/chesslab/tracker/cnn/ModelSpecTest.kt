@@ -13,13 +13,13 @@ import org.junit.jupiter.api.assertThrows
 import java.io.File
 
 /**
- * The asset is the source of truth for classes / out_size / normalization (`ee7c83c`), and the
+ * The asset is the source of truth for classes / input size / normalization (`ee7c83c`), and the
  * 14-class ORDER is the one thing that must fail loudly — a reordered list silently relabels
  * every piece.
  */
 class ModelSpecTest {
     @Test
-    fun parsesClassesOutSizeAndNormalizeFromTheRealAssetConfig() {
+    fun parsesClassesInputSizeAndNormalizeFromTheRealAssetConfig() {
         val json = File(assetDir(), MODEL_CONFIG_FILE).readText()
         val spec = ModelSpec.parse(json)
         // Against the FILE's own list, not against a constant that happens to match it: the
@@ -48,10 +48,38 @@ class ModelSpecTest {
         assertThrows<IllegalArgumentException> { ModelSpec.parse(config(classes = EXPECTED_CLASSES.dropLast(1))) }
     }
 
+    /**
+     * `infer_size` is the size the exported graph takes, and it is NOT `out_size`: what a crop
+     * carries is `board_size / 8 * (1 + 2 * padSide)` px — 110 on the fixed rig, 240 on this app's
+     * default geometry — so the input size is a per-model, per-deployment value (specs/22).
+     */
     @Test
-    fun rejectsOutSizeOtherThan128() {
-        val error = assertThrows<IllegalArgumentException> { ModelSpec.parse(config(outSize = listOf(96, 96))) }
-        assertTrue(error.message!!.contains("out_size"), error.message)
+    fun parsesInferSizeWhenPresent() {
+        val spec = ModelSpec.parse(config(inferSize = listOf(96, 96)))
+        assertEquals(96, spec.outWidth)
+        assertEquals(96, spec.outHeight)
+    }
+
+    /**
+     * The compatibility case, and a LIVE one: every model shipped before specs/22 carries no key,
+     * and so does every freshly trained run — the exporter is the only writer.
+     */
+    @Test
+    fun fallsBackToOutSizeWhenInferSizeIsAbsent() {
+        val spec = ModelSpec.parse(config(outSize = listOf(128, 128)))
+        assertEquals(128, spec.outWidth)
+        assertEquals(128, spec.outHeight)
+    }
+
+    /**
+     * A parse error must not reach the network. The band is all the app can judge on its own —
+     * whether a size was TRAINED is checked by the exporter, which knows the run's `scales`.
+     */
+    @Test
+    fun rejectsAnImplausibleSize() {
+        val error = assertThrows<IllegalArgumentException> { ModelSpec.parse(config(inferSize = listOf(8, 8))) }
+        assertTrue(error.message!!.contains("plausible"), error.message)
+        assertThrows<IllegalArgumentException> { ModelSpec.parse(config(outSize = listOf(1024, 1024))) }
     }
 
     @Test
@@ -88,12 +116,14 @@ class ModelSpecTest {
         outSize: List<Int> = listOf(128, 128),
         mean: List<Float>? = listOf(0.485f, 0.456f, 0.406f),
         inputRepr: String? = null,
+        inferSize: List<Int>? = null,
     ): String {
         val normalize =
             mean?.let { ", \"normalize\": {\"mean\": ${it.joinToString(",", "[", "]")}, \"std\": [0.229, 0.224, 0.225]}" }.orEmpty()
         val repr = inputRepr?.let { ", \"input_repr\": \"$it\"" }.orEmpty()
+        val infer = inferSize?.let { ", \"infer_size\": ${it.joinToString(",", "[", "]")}" }.orEmpty()
         return """{"backbone": "x", "classes": ${classes.joinToString(",", "[", "]") { "\"$it\"" }},""" +
-            """ "out_size": ${outSize.joinToString(",", "[", "]")}$normalize$repr}"""
+            """ "out_size": ${outSize.joinToString(",", "[", "]")}$infer$normalize$repr}"""
     }
 }
 
@@ -108,11 +138,14 @@ private fun rawClasses(json: String): List<String> =
         .jsonArray
         .map { it.jsonPrimitive.content }
 
-/** `app/src/main/assets/cnn_model` — the committed model directory, read from the source tree. */
-internal fun assetDir(): File {
+/** The `android/` gradle root, found from wherever the test JVM was started. */
+internal fun androidRoot(): File {
     var dir = File(System.getProperty("user.dir")!!).absoluteFile
     while (!File(dir, "app/src/main/assets/cnn_model").isDirectory) {
         dir = dir.parentFile ?: error("cnn_model assets not found above ${System.getProperty("user.dir")}")
     }
-    return File(dir, "app/src/main/assets/cnn_model")
+    return dir
 }
+
+/** `app/src/main/assets/cnn_model` — the committed model directory, read from the source tree. */
+internal fun assetDir(): File = File(androidRoot(), "app/src/main/assets/cnn_model")
