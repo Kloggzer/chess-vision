@@ -193,8 +193,18 @@ def collect_finish():
     w = COLLECT.get("writer")
     if w is None:
         return {"ok": True, "captures": 0}
-    w.close()
     n, sid = w.count, w.session_id
+    # Finish the session even if closing it fails. `close()` used to run BEFORE the writer was
+    # cleared, so one exception (e.g. the session directory deleted underneath an open writer)
+    # left `writer` set forever: every further Finish retried the same dead writer and the
+    # Collect page stayed wedged until the server restarted. A recoverable situation must not
+    # become a permanent one — the writer is released either way, and the error is reported.
+    close_error, discarded = None, False
+    try:
+        discarded = bool(w.close())
+    except Exception as e:  # noqa: BLE001 — finishing must release the writer regardless
+        close_error = f"{type(e).__name__}: {e}"
+        print(f"[WARN] session {sid}: close failed ({close_error}) — releasing the writer anyway.")
     COLLECT.update(writer=None, positions=[], i=0, profile=None)
     # Release the camera: nothing needs it after finishing — a lingering capture
     # (esp. network sources with FFmpeg reader threads) blocks Ctrl+C shutdown.
@@ -214,6 +224,13 @@ def collect_finish():
     resp = {"ok": True, "captures": n, "session": sid, "sliced": sliced}
     if sliced_error:
         resp["sliced_error"] = sliced_error
+    if close_error:
+        resp["close_error"] = close_error
+    if discarded:
+        # Nothing was captured, so the session no longer exists — the UI must not offer it for
+        # review or name it as a result.
+        resp["discarded"] = True
+        resp["session"] = None
     return resp
 
 
