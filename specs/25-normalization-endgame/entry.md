@@ -63,9 +63,18 @@ Three causes have been **excluded by measurement**, not by argument:
   the corrected ones made it **worse** (660 → 1140 phantoms, margin 1.000/1.000).
 
 What remains unexplained is the **weights**: the BN real-finetune plateaus at `val_acc` 0.93 where
-GroupNorm reaches 0.987, and it *starts* at 0.74 where GroupNorm starts at 0.972. On resume **BN
+GroupNorm reaches 0.987, and it *starts* at 0.7409 where GroupNorm starts at 0.972. On resume **BN
 adopts 278 tensors, GN 140** — the difference is the running statistics, carried over from the
 synthetic `p2v4`. Phase 00 tests whether that bad start is the whole story.
+
+> **Phase 00's answer (2026-07-30): partly.** Handing the finetune statistics measured on real crops
+> moved neither the start (0.7018, *below* the control) nor the plateau (0.9453) — so the "budget
+> spent on EMA" reading is refuted. But the veto metric moved **660 → 154 phantoms**, a 4.3x
+> improvement on an unchanged `val_acc`. Statistics at resume are therefore a real lever on
+> phantoms, acting through the trajectory of the first epochs rather than through the final
+> statistics — and far too small: 154 against the champion's 0, with the margin barely touched
+> (0.994 → 0.973 against 0.343). **Do not read `val_acc` as a proxy for the veto metric in either
+> direction.**
 
 ### Traps that already cost a run
 
@@ -74,8 +83,11 @@ synthetic `p2v4`. Phase 00 tests whether that bad start is the whole story.
   A model that has not converged is therefore early-stopped *and* gets its checkpoint chosen
   blindly ("best by occ_board_acc=0.0000"). **Every training run in this pack passes
   `--patience 25`.** `occ-v6bn-f5nd` was killed at epoch 9/20 by exactly this.
-- **`resume` is not recorded in any `config.json`.** Provenance lives only in the `.sh` and the log.
-  Every phase writes its resume parent into `STATUS.md`.
+- ~~`resume` is not recorded in any `config.json`.~~ **Wrong — corrected 2026-07-30 by phase 00.**
+  The key is `resumed_from` and it is present in every run (`occ-v6-f5nd` → `occ-v6-p2`,
+  `occ-v6bn2-f5nd` → `occ-v4bn-p2`). The original claim came from querying `cfg["resume"]`, getting
+  `None`, and not checking the actual key name. Provenance is recoverable from the run directory
+  alone; still record it in `STATUS.md` so the table is readable without opening configs.
 - **Training-val numbers do not predict the veto.** `occ-v4bn-f3` reached `occ_acc` 0.982 in
   training and produced 154 phantoms on test. Never conclude from the training log.
 - **An untrained `infer_size` fails silently** — 80 px once cost a model 133 misses against 96 px's
