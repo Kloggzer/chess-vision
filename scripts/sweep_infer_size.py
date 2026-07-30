@@ -131,6 +131,20 @@ def phantoms_at_miss_target(trues: np.ndarray, probs: np.ndarray, target: int) -
     return phantoms, misses, t
 
 
+def margin(trues: np.ndarray, probs: np.ndarray) -> tuple[float, float]:
+    """`(p99.9, max)` of P(occupied) over the truly EMPTY crops — how close the model comes to
+    inventing a piece.
+
+    The phantom count says whether the model crossed the line at ITS threshold; this says how much
+    room was left. Two models can both be phantom-free while one sits at 0.34 and the other at 0.63,
+    and the second is the one that will produce phantoms on material neither has seen.
+    """
+    emp = probs[~trues]
+    if emp.size == 0:
+        return 0.0, 0.0
+    return float(np.quantile(emp, 0.999)), float(emp.max())
+
+
 def misses_phantom_free(trues: np.ndarray, probs: np.ndarray) -> tuple[int, float]:
     """Fewest misses reachable at ZERO phantoms = the most permissive phantom-free threshold.
 
@@ -193,6 +207,16 @@ def frames_for_split(rows: list[dict]) -> list[tuple[str, str, dict[str, str]]]:
             order.append(key)
         groups[key][r["square"]] = r["label"]
     return [(sid, fr, groups[(sid, fr)]) for sid, fr in order]
+
+
+def session_index(groups: list[tuple[str, str, dict[str, str]]]) -> np.ndarray:
+    """The session id of every crop in `sweep_path_a`'s accumulated arrays, aligned element-wise.
+
+    Derived rather than threaded through the sweep: `sweep_path_a` extends its arrays group by
+    group, `len(labels)` entries at a time, in exactly this order. Recomputing that here keeps the
+    sweep's return shape untouched — and the alignment is checked by length at the call site.
+    """
+    return np.array([sid for sid, _, labels in groups for _ in labels], dtype=object)
 
 
 def sweep_path_a(runs: dict[str, tuple], rows: list[dict], sizes: tuple[int, ...],
@@ -332,6 +356,32 @@ def report(log: Log, name: str, split: str, sizes: tuple[int, ...], a, b, target
     return best
 
 
+def report_by_session(log: Log, name: str, sizes: tuple[int, ...], a, sids: np.ndarray) -> None:
+    """Per-session misses/phantoms plus the empty-crop margin — the scoreboard's decisive columns.
+
+    Split by session because the two test sessions are not interchangeable: one is the USB rig, one
+    is a phone game, and the phone column is the deployment-near one. A model can be phantom-free on
+    the anchor and not on the phone, and only the anchor number would be reported by a total.
+    """
+    for s in sizes:
+        res = a.get(s)
+        if res is None:
+            continue
+        trues, preds, probs = res
+        if len(sids) != len(trues):
+            log(f"  [WARN] session index misaligned ({len(sids)} vs {len(trues)}) — skipping "
+                "the per-session breakdown rather than reporting made-up attribution.")
+            return
+        p999, mx = margin(trues, probs)
+        parts = []
+        for sid in sorted(set(sids.tolist())):
+            m = sids == sid
+            miss, phan = _counts(trues[m], preds[m])
+            parts.append(f"{sid}: {miss} miss / {phan} phantom")
+        log(f"  {name} @ {s}px — " + " · ".join(parts)
+            + f" | margin(empty p99.9/max) {p999:.3f} / {mx:.3f}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--runs", default=",".join(RUNS))
@@ -344,6 +394,10 @@ def main() -> None:
                     help="path B DataLoader workers. Keep at 0 or 2 — 4 has deadlocked this box.")
     ap.add_argument("--miss-target", type=int, default=MISS_TARGET,
                     help="matched operating point: phantoms while misses stay <= this")
+    ap.add_argument("--dataset", default=None,
+                    help="evaluate on THIS dataset's split instead of the one the runs were "
+                         "trained on (e.g. occ-real6, which extends occ-real5nd by a held-out "
+                         "phone session and keeps train/val identical)")
     ap.add_argument("--log", default="data/_perf/sweep_infer_size.log")
     args = ap.parse_args()
 
@@ -368,10 +422,20 @@ def main() -> None:
         log(f"loaded {name}: backbone={cfg['backbone']} norm={cfg.get('norm')} "
             f"out_size={cfg['out_size']} scales={cfg.get('scales')} dataset={cfg['dataset']}")
 
-    ds_names = {cfg["dataset"] for _, _, cfg in runs.values()}
-    if len(ds_names) != 1:
-        raise SystemExit(f"runs disagree about the dataset ({ds_names}) — splits would differ")
-    dd = dataset_dir(ds_names.pop())
+    if args.dataset:
+        # A dataset whose TRAIN split differs from the run's would leak; the caller is trusted to
+        # know that, so the override is logged loudly rather than guessed at. The real use is a
+        # corpus extended by a held-out session — occ-real6 is occ-real5nd plus one phone session,
+        # with byte-identical train and val lists.
+        log(f"[OVERRIDE] evaluating on dataset '{args.dataset}' instead of the runs' own "
+            f"{sorted({cfg['dataset'] for _, _, cfg in runs.values()})} — verify the train split "
+            "matches, or the numbers are leaked.")
+        dd = dataset_dir(args.dataset)
+    else:
+        ds_names = {cfg["dataset"] for _, _, cfg in runs.values()}
+        if len(ds_names) != 1:
+            raise SystemExit(f"runs disagree about the dataset ({ds_names}) — splits would differ")
+        dd = dataset_dir(ds_names.pop())
     manifest = load_manifest(dd / "manifest.jsonl")
     split = load_split(dd / "split.json")
 
@@ -401,6 +465,8 @@ def main() -> None:
                               args.num_workers, log) if "b" in args.paths else {})
             verdict[(name, split_name)] = report(log, name, split_name, sizes, a, b,
                                                  args.miss_target)
+            if a:
+                report_by_session(log, name, sizes, a, session_index(frames_for_split(rows)))
 
     log("")
     log("best(split) summary — path A is authoritative:")
