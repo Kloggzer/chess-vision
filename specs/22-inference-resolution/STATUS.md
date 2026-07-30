@@ -11,7 +11,7 @@ log; never rewrite another phase's entry.
 | 00 | Is 96 px the model's optimum or the test session's? | done | phase-00 agent | **Verdict: R-NATIVE** (`best(test)`=96, `best(val)`=128). Premise confirmed on the serving path. `scripts/sweep_infer_size.py`. Phase 01 may proceed. |
 | 01 | `infer_size` as a per-model config key; export + serving read it | todo | — | Blocked by 00. **Lands alone** (contract provider). |
 | 02 | Android reads it; the 128 guard becomes a graph assertion | todo | — | Blocked by 01. Owns the bundled asset. |
-| 03 | Document the discovery | todo | — | Blocked by 00. Parallel with 02. Docs only. |
+| 03 | Document the discovery | done | phase-03 agent | Docs only, 2 commits. `docs/data-pipeline.md` §11 (+ §2 correction, §10 pointer), `CLAUDE.md` pitfall, `README.md` Stage 5. Step 3 **skipped**: `architecture-overview.md` names neither `128` nor `out_size`. Android crop box is **240 px, not 220** (see discrepancy 8). |
 
 States: `todo` → `in progress` → `done` | `blocked`.
 
@@ -223,6 +223,31 @@ implemented here.
 7. The entry file's **18** misses @ 96 px comes out as **19** on path A and 21 on path B; 43 @ 128 px
    reproduces exactly. The difference is resampling (`F.interpolate` vs a direct crop / PIL resize),
    not a different conclusion.
+8. **Android's crop box is 240 px, not the 220 the pack says** (found by phase 03). `entry.md` and
+   `03-document-the-discovery.md` compute `1600/8 × 1.10` — but 1.10 is the *rig profile's*
+   `pad_side = 0.05`, and Android does not use it. `BoardGeometry.padSide` and
+   `CalibrationProfile.padSide` both default to **0.10** (matching `config.CROP.pad_side = 0.10`,
+   `config.py:88`), so the phone's box is `1600/8 × 1.20 = 240 px`. The direction of the claim is
+   unaffected — the phone downsamples to 128 where the rig upsamples, by 1.9× rather than 1.7×. The
+   rig's 110 px is confirmed exactly, by `square_to_crop_box('e4', load_profile('phone'),
+   clamp=False)` → `(395, 395, 505, 505)`. **Phase 02 should write 240, not 220.**
+9. **`docs/data-pipeline.md` §9 lists different px/square figures for the same sessions** (127.1 and
+   119.3 for `20260721-194538` / `-193821`, against this file's 114.7 / 116.0) because it measured
+   over *all* frames on 2026-07-27 while `px_per_square` reads the **first** logged quad. Re-measured
+   2026-07-30: the quad drifts within the two lighting captures (first frame 114.7 / 116.0, mean over
+   all frames 125.4 / 122.9) and is stable to under 1 % in every game session, including both split
+   sessions (test 96.9 / 96.9, val 173.2 / 174.9). Neither table is wrong; the frame has to be named.
+   Recorded in §11.2.
+10. **The repo carries two numbers for "what the phone sees"** and phase 03 did not reconcile them:
+    `docs/data-pipeline.md` §2/§9 and `CLAUDE.md` say ~98 px/square (that is the phone as a **1080p
+    feed into the Python pipeline** — the sessions measure 96.9–103.3), while `config.py:68-71` and
+    this file's open questions say ~209 px/square (the **Android app's own capture**). §2 was
+    narrowed to "sessions captured with the phone as a 1080p feed" rather than "the deployed device";
+    the 209 has still never been measured against the resolution curve.
+11. `training/train.py:402-403` holds: `:402` is the `evaluate_dataset(model, val_ds, …)` call with
+    **no** `input_size` (so val is scored at the crops' 128 px — `engine.evaluate_dataset`,
+    `training/engine.py:20-21`), `:403` the `checkpoint_score(val_rows, …)`, and `best.pt` is written
+    at `:423-426` when that score improves. The docs cite the symbols, not the line numbers.
 
 ## Session log
 
@@ -250,3 +275,25 @@ implemented here.
   win: on test it goes from 95 misses / 152 phantoms at 128 px to **74 misses / 243 phantoms** at
   96 px — fewer of the dangerous direction, 91 more of the cheap one, and worse at the matched
   operating point (275 vs 201 phantoms at ≤ 43 misses). Flagged, not acted on.
+
+- **2026-07-30 — phase 03 — docs only, no code touched.** Two commits: `docs(data): what the camera
+  delivers vs what the net is fed` (`docs/data-pipeline.md` — new **§11** in six parts: the warp
+  chain and the two live crop boxes, how to measure a session's native resolution and why it is
+  still worth it, the split table, `out_size` vs `infer_size`, the untrained-size trap, the
+  one-sentence trap; plus a correction to §2's "resized to 128×128" claim and a §10 pointer) and
+  `docs: infer_size is a per-model key; the splits are single sessions` (`CLAUDE.md` pitfall bullet
+  next to "Judge a session by unique crops"; `README.md` Stage 5, under the `export` command). Step
+  3 **skipped as the spec allows**: `grep -n "128\|out_size" docs/architecture-review/architecture-overview.md`
+  returns nothing, so no box was invented for it. Every number in the new text was taken from this
+  file, not from the phase spec, and independently re-checked against the code: the 110 px rig box
+  from `square_to_crop_box`, the 42.3 % warp loss from 173.2 → 100.0, the split membership from
+  `data/datasets/occ-real3/split.json` (`val: ['20260721-212830']`, `test: ['20260708-021722']`,
+  train 18 sessions, counts 8712/4992/4736), the checkpoint-selection seam at `train.py:402-403`
+  and `:423-426`, `infer_size_of` at `training/torch_data.py:143` with its `out_size` fallback.
+  **Four discrepancies found and recorded (8–11 above).** The one that changes another phase's text:
+  **Android's crop box is 240 px, not 220** — `padSide` is 0.10 there, not the rig's 0.05, so the
+  docs say 240 and **phase 02 should too**. The others are measurement-frame mismatches in older
+  docs (§9's px/square, the 98-vs-209 "what the phone sees") and are flagged, not silently
+  rewritten. Nothing was run: no tests, no linters, no builds — there is no code in this phase.
+  **Left open:** the ~209 px/square Android framing is still unmeasured against the curve, and
+  phase 02's asset text will need the 240.
