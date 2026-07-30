@@ -90,7 +90,12 @@ internal fun simModels(): List<SimModel> {
     }
 }
 
-private const val ASSET_MODEL_DIR = "android/app/src/main/assets/cnn_model"
+/**
+ * The DEFAULT bundled model, not the asset root: since the app bundles three of them side by side
+ * (`assets/cnn_model/<model>/`), the root holds no `model.onnx` at all. The other two are ordinary
+ * directories and can be compared by naming them in `-Pchesslab.sim.models`.
+ */
+private const val ASSET_MODEL_DIR = "android/app/src/main/assets/cnn_model/shipped"
 
 /** What the Blender scene rendered — the answer every run is scored against. */
 internal class SimTruth(

@@ -374,5 +374,5 @@ private suspend fun declaredModelSpec(
     asset: String,
 ): ModelSpec? =
     withContext(Dispatchers.IO) {
-        runCatching { ModelSpec.parse(CnnModelAssets.fromAssets(context, asset).stage().configJson) }.getOrNull()
+        runCatching { ModelSpec.parse(CnnModelAssets.fromAssets(context, graph = asset).stage().configJson) }.getOrNull()
     }

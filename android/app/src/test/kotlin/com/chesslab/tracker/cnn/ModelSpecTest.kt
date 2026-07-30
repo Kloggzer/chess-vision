@@ -169,5 +169,21 @@ internal fun androidRoot(): File {
     return dir
 }
 
-/** `app/src/main/assets/cnn_model` — the committed model directory, read from the source tree. */
-internal fun assetDir(): File = File(androidRoot(), "app/src/main/assets/cnn_model")
+/** `app/src/main/assets/cnn_model/<model>` — a committed model directory, read from the source tree. */
+internal fun assetDirOf(model: String): File = File(androidRoot(), "app/src/main/assets/cnn_model/$model")
+
+/**
+ * The model an install runs until the user picks another one, and what every test that only needs
+ * *a* real model uses. The set is [bundledAssetDirs].
+ */
+internal fun assetDir(): File = assetDirOf(DEFAULT_MODEL)
+
+/**
+ * Every bundled model directory, in [BUNDLED_MODELS] order — asserted to exist rather than
+ * discovered, so a model that is listed in the code but missing from `assets/` fails here instead
+ * of on the device.
+ */
+internal fun bundledAssetDirs(): List<File> =
+    BUNDLED_MODELS.map { model ->
+        assetDirOf(model).also { check(File(it, MODEL_CONFIG_FILE).isFile) { "bundled model $model has no ${it.path}" } }
+    }

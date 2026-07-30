@@ -30,7 +30,7 @@ fun openClassifier(
     app: AppSettings,
     probe: CnnRuntimeProbe,
 ): Attached {
-    val staged = CnnModelAssets.fromAssets(context, app.modelAsset).stage()
+    val staged = CnnModelAssets.fromAssets(context, graph = app.modelAsset).stage()
     val classifier = OnnxSquareClassifier.open(staged, AndroidCnnLog, app.epRequest)
     probe.requestedEp = requestedBackend(staged, app.epRequest)
     probe.actualEp = classifier.backend
