@@ -26,11 +26,21 @@ const val DEFAULT_MARKER_MARGIN: Double = 0.045
 
 private const val CORNER_FLOATS: Int = 8
 
+/** Where the crop defaults come from — the number 128 exists in exactly one place, its declaration. */
+private val DEFAULT_GEOMETRY = BoardGeometry()
+
 /** `config.CROP` (config.py:40-65). `padUp` is 0.0, not 0.25. */
 @Serializable
 data class CropParams(
-    val outW: Int = 128,
-    val outH: Int = 128,
+    /**
+     * The crop OUTPUT size, defaulted from [BoardGeometry] rather than restated here.
+     *
+     * A stored profile still carries it, but the LIVE tracker crops at the size the loaded model
+     * declares ([withCropSizeOf]): the size that has to be right is the one the ONNX graph takes,
+     * and that is a property of the model, not of the board.
+     */
+    val outW: Int = DEFAULT_GEOMETRY.outW,
+    val outH: Int = DEFAULT_GEOMETRY.outH,
     val padUp: Double = 0.0,
     val padSide: Double = 0.10,
 )

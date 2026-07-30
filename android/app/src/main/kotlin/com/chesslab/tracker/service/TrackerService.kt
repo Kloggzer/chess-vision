@@ -1,5 +1,6 @@
 package com.chesslab.tracker.service
 
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
@@ -12,9 +13,12 @@ import com.chesslab.tracker.camera.DeliveredSize
 import com.chesslab.tracker.camera.TrackerCamera
 import com.chesslab.tracker.camera.cameraRequestFor
 import com.chesslab.tracker.cnn.Attached
+import com.chesslab.tracker.cnn.CnnModelAssets
 import com.chesslab.tracker.cnn.CnnState
+import com.chesslab.tracker.cnn.ModelSpec
 import com.chesslab.tracker.games.GameSessionController
 import com.chesslab.tracker.geometry.calibrationStore
+import com.chesslab.tracker.geometry.withCropSizeOf
 import com.chesslab.tracker.pipeline.CameraRate
 import com.chesslab.tracker.pipeline.StageTimings
 import com.chesslab.tracker.settings.DataStoreConfigStore
@@ -24,12 +28,14 @@ import com.chesslab.tracker.speech.androidSpeechEngine
 import com.chesslab.tracker.ui.debug.DebugSessionHost
 import com.chesslab.tracker.ui.debug.debugSession
 import com.chesslab.tracker.ui.games.GameSessionHost
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val PREVIEW_MAX_SIDE = 640
 
@@ -88,8 +94,26 @@ class TrackerService :
 
     override val cameraOn: StateFlow<Boolean> = cameraRunning.asStateFlow()
 
+    /**
+     * The tracker's live geometry: the calibration profile contributes the board, the loaded model
+     * contributes the crop size.
+     *
+     * **Every write goes through `withCropSizeOf(modelSpec)`** — there are exactly three, and
+     * `git grep withCropSizeOf` finds all of them. The stored profile carries a crop size of its own
+     * (`CropParams`) and the live path must not use it: the size that has to be right is the one the
+     * ONNX graph takes, and `preprocessInto` requires the crops to already BE that size.
+     */
     @Volatile
     private var geometry = BoardGeometry()
+
+    /**
+     * What the model declares it takes (`infer_size`, specs/22), or null while nothing could be read.
+     *
+     * Null keeps [BoardGeometry]'s 128 defaults — calibration runs long before a classifier attaches
+     * and must never depend on one.
+     */
+    @Volatile
+    private var modelSpec: ModelSpec? = null
 
     @Volatile
     private var corners: FloatArray? = null
@@ -230,7 +254,9 @@ class TrackerService :
     /** Persisted truth first, then the stack, then the camera — a frame with no stack is wasted. */
     private suspend fun start() {
         settings.load()
-        geometry = adoptStoredOrientation(calibration, settings)
+        // Before the geometry, because the geometry follows it.
+        modelSpec = declaredModelSpec(this, settings.appSettings.value.modelAsset)
+        geometry = adoptStoredOrientation(calibration, settings).withCropSizeOf(modelSpec)
         swapStack()
         // Before the bind, so the FIRST binding already asks for the persisted mode instead of
         // binding at the default and immediately rebinding.
@@ -251,7 +277,13 @@ class TrackerService :
      */
     override fun restartTracker() {
         lifecycleScope.launch {
-            geometry = calibration.applyOrientation(settings.appSettings.value.orientation.whitePov)
+            // `modelAsset` is a restart-required knob, so the size it declares is re-read here for
+            // the same reason the camera request is: the next stack must crop for the next model.
+            modelSpec = declaredModelSpec(this@TrackerService, settings.appSettings.value.modelAsset)
+            geometry =
+                calibration
+                    .applyOrientation(settings.appSettings.value.orientation.whitePov)
+                    .withCropSizeOf(modelSpec)
             swapStack()
             camera.retarget(cameraRequestFor(settings.appSettings.value.resolutionMode))
         }
@@ -304,7 +336,7 @@ class TrackerService :
         pts: FloatArray,
         profileName: String,
     ) {
-        geometry = geom
+        geometry = geom.withCropSizeOf(modelSpec)
         corners = pts
         // ONE owner for the board size. The calibration profile measures it; `TrackerConfig` is
         // where the engine reads it, and nothing used to carry it across — they agreed only because
@@ -314,10 +346,33 @@ class TrackerService :
         if (config.boardSize != geom.boardSize) settings.update(config.copy(boardSize = geom.boardSize))
         val requested = camera.requestedSize
         val delivered = camera.deliveredSize ?: DeliveredSize(requested.width, requested.height, 0)
-        stacks.current?.coordinator?.applyCalibration(geom, pts, profileName, delivered)
+        // `geometry`, not `geom`: the pipeline gets the geometry the crops are actually cut with.
+        stacks.current?.coordinator?.applyCalibration(geometry, pts, profileName, delivered)
         // The optics are locked to whatever the scene looked like when they last converged.
         // Recalibrating is the user telling us the setup moved, which is the only signal we have
         // that the frozen exposure/white balance/focus may no longer be the right ones.
         camera.relockOptics()
     }
 }
+
+/**
+ * The model's own declaration of the crop size it takes, through the one Kotlin reader
+ * (`ModelSpec.parse`, specs/22): `infer_size` when the run has one, else `out_size`.
+ *
+ * Read from the ASSET rather than taken from the attached classifier, because the crops have to be
+ * the right size before the first observation runs and because an attach that fails must still leave
+ * a calibratable tracker. Staging is idempotent and length-guarded, so the copy the classifier does
+ * moments later costs two file-length checks; it happens off the main thread because on a fresh
+ * install it is the one that really copies the graph.
+ *
+ * An unreadable config yields null and the geometry keeps its defaults. That is not silent:
+ * `openClassifier` fails on the very same file, and the observer publishes a `CnnState.Failed` the
+ * status line and the debug screen render verbatim.
+ */
+private suspend fun declaredModelSpec(
+    context: Context,
+    asset: String,
+): ModelSpec? =
+    withContext(Dispatchers.IO) {
+        runCatching { ModelSpec.parse(CnnModelAssets.fromAssets(context, asset).stage().configJson) }.getOrNull()
+    }
