@@ -91,6 +91,13 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
   almost inversely to information: the 4,992-row session carries 652 unique crops, a
   1,024-row one carries 767. Resolution (px/square, from the log's corners) is the other
   axis — the device sees ~98 px/square.
+- **What the model sees is `board_size`, not the camera.** The warp goes through
+  `profile.board_size` first (800 on the rig → a 110 px crop box, 1600 on Android → 240), so 128 px
+  upsamples here and a 4K session loses 42% of its resolution at that warp. The champion goes
+  43 → 19 misses served at 96 instead of 128. The size is a per-model key (`infer_size`, distinct
+  from `out_size` = the size the crops were built at) and must be one of the run's `scales` — an
+  untrained 80 px costs 133 misses, silently. And note what the splits are: test is one session,
+  val is one session *and* the checkpoint-selection set. Details: `docs/data-pipeline.md` §11.
 
 ## Verification
 
