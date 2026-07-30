@@ -109,7 +109,9 @@ export function SessionsPanel() {
         queryFn: () => api(`/api/sessions/${sid}/review?idx=${i}`),
         staleTime: 60_000,
       });
-      new Image().src = `/api/sessions/${sid}/overlay/${i}`;
+      // must match the URL the <img> below uses (labels included), or the warmed cache
+      // entry is the wrong one and every step re-renders the overlay server-side.
+      new Image().src = `/api/sessions/${sid}/overlay/${i}?labels=1`;
       new Image().src = `/api/sessions/${sid}/board/${i}`;
     }
   }, [reviewSid, reviewIdx, reviewQ.data, qc]);
