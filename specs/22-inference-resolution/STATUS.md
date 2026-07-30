@@ -248,6 +248,45 @@ implemented here.
     **no** `input_size` (so val is scored at the crops' 128 px — `engine.evaluate_dataset`,
     `training/engine.py:20-21`), `:403` the `checkpoint_score(val_rows, …)`, and `best.pt` is written
     at `:423-426` when that score improves. The docs cite the symbols, not the line numbers.
+12. **Phase 01's own file contradicts itself about `train.py`** (found by phase 01, and it changes
+    the contract phase 02 reads). "Exactly two writers" names `training/train.py` as the one that
+    writes `infer_size` at run creation, while the same file's *What must NOT change* says "If you
+    find yourself editing `train.py`, stop — you are outside this phase" and *Do NOT* repeats it;
+    the ownership registry in `entry.md` does not list `train.py` for phase 01 either. The
+    prohibition was followed. **Consequence:** the writers are the **exporter** and **a human
+    editing `config.json`**; a freshly trained run carries no `infer_size` key and is served at its
+    `out_size` through the documented fallback. Adding the key at run creation is a one-line change
+    in `train.py:364` (`"scales": scales` sits there) and belongs to whoever owns `train.py` next.
+13. **`infer_size_of` lives in `training/torch_data.py` as specified, and that module imports
+    `torch` at module level.** `serving.run_spec` previously touched no torch-bound module, and
+    `serving`'s docstring promises "torch/PIL only lazy-imported in function bodies". The import is
+    therefore inside `run_spec`'s body — importing `serving` is still torch-free, but *calling*
+    `run_spec` now pulls the torch stack in on first use. Checked: no web route calls `run_spec` or
+    `model_classes` (`grep -rn "run_spec\|model_classes" src/chesslab/web` → only
+    `serving.clear_cache()`), the callers are `move_tracker/cnn_recovery.py:171`,
+    `move_tracker/tracker.py:3949` and `scripts/sweep_infer_size.py`, all of which already hold
+    torch. Left as the spec wrote it rather than relocating the one reader.
+14. **The validator cannot be the literal snippet in the phase file.** `if scales and (w not in
+    scales or h not in scales)` rejects every legacy non-square run: `out_size` is `[96, 128]` in
+    several configs (and in the tests), so an ordinary re-export with no `--infer-size` would fail
+    on `96 x 128` against `scales`. `evaluate.untrained_size_error` therefore returns None when the
+    requested size **is** `out_size` (nothing new is being asked of the model) and only then checks
+    squareness, `scales` presence (no `scales` ⇒ single-size run ⇒ must equal `out_size`) and
+    membership. The 80 px message is verbatim from the spec. Verified against the real run:
+    `--infer-size 80x80` on `occ-v4-f3e20` prints
+    `not one of this run's trained scales [32, 64, 96, 128]` and exits 1 **without** writing the
+    key or the graph.
+15. **`data/models/occ-v4-f3e20/model.onnx` did not exist** before this phase — the run had only
+    ever been evaluated from `best.pt`, so the acceptance criterion's `onnx.load` had nothing to
+    load until the export ran. It exists now, at `[64, 3, 96, 96]`, and the run's `config.json`
+    carries `"infer_size": [96, 96]`. `out_size` stayed `[128, 128]`. Nothing under
+    `android/app/src/main/assets/` was touched — the bundled `occ-r3s-f3` is phase 02's.
+16. **`build_model_card`'s new `infer_size` is an optional keyword** (default `None` ⇒ `out_size`),
+    not a required one, because `tests/test_training.py:61` calls it positionally-by-keyword without
+    it and that file is outside this phase. The card always writes the key.
+17. Line drift, recorded once: `run_export` is at `evaluate.py:161` (spec says `:135`), the export
+    CLI command at `cli.py:651` (`:650`), `predict_arrays` at `serving.py:340` (`:329`),
+    `predict_rows` at `:431` (`:413`). Symbol names all matched.
 
 ## Session log
 
@@ -297,3 +336,48 @@ implemented here.
   rewritten. Nothing was run: no tests, no linters, no builds — there is no code in this phase.
   **Left open:** the ~209 px/square Android framing is still unmeasured against the curve, and
   phase 02's asset text will need the 240.
+
+- **2026-07-30 — phase 01 — the contract, implemented; nothing retrained, nothing measured.** Five
+  commits on `spec-22-inference-resolution`: `c565f36` `feat(training): infer_size_of, the one place
+  the inference size comes from`, `67bc58c` `feat(export): export the graph at an explicit inference
+  size`, `e05ffbd` `feat(cli): export --infer-size`, `7fa58d7` `feat(serving): crop and predict at
+  the model's inference size`, `4f1bba2` the tests.
+  **The contract phase 02 codes against, in full:**
+  a model's `config.json` may carry `"infer_size": [W, H]` — two JSON integers, **(W, H) order**,
+  the same order `out_size` uses. **Absent ⇒ fall back to `out_size`**, which is what every already
+  shipped model does, including the bundled `occ-r3s-f3` (`out_size [128,128]`, `scales
+  [32,64,96,128]`, **no** `infer_size` key → 128, unchanged). The exported graph's input is
+  `[64, C, infer_size[1], infer_size[0]]`; `ONNX_BATCH = 64` and the static batch dim are untouched
+  (`grep -n "ONNX_BATCH = 64" src/chesslab/training/evaluate.py` → `:132`), and `model_card.json`
+  now carries `infer_size` next to `out_size` as well. One reader
+  (`training/torch_data.infer_size_of`, `:143`), one code writer (`training/evaluate.run_export`,
+  which validates), one human writer (the key itself). `out_size` was not repurposed anywhere:
+  training, dataset building and `chesslab eval` still use it, and it still means "the size the
+  crops on disk were built at".
+  **Validation lives with the writer**, per phase 00's finding: `evaluate.untrained_size_error`
+  rejects a size that is not one of the run's own `scales` (and rejects any non-`out_size` size on a
+  run with no `scales`) before the key is stored or the graph traced — see discrepancy 14 for why it
+  could not be the spec's literal two-liner.
+  **The behavioural change:** `serving.crops_for_model` now cuts the square out of the warped board
+  straight at `spec.infer_size`, so there is no intermediate 128 px step and nothing is resampled
+  twice; `predict_arrays`' "all crops already at size" fast path and `predict_rows`' transform
+  compare against the inference size, so a 96 px model no longer falls off the vectorised path.
+  `grep -rn "cfg\[.out_size.\]" src/chesslab/serving.py` is **empty**.
+  **Commands run and their results.** `.venv/Scripts/python.exe -m pytest tests/test_serving.py -q`
+  → **19 passed** (once, targeted; the four new tests plus the four existing `RunSpec(...)`
+  constructions updated for the new field). `.venv/Scripts/python.exe -m ruff check` over the five
+  touched files + the test → **All checks passed**. `uv run chesslab export --run
+  data/models/occ-v4-f3e20 --format onnx --infer-size 96x96` → `[OK] exportiert: onnx @ 96x96`, and
+  `onnx.load(...).graph.input[0]` shows `64, 3, 96, 96`. The same command with `--infer-size 80x80`
+  → `[FAIL] ... not one of this run's trained scales [32, 64, 96, 128]`, exit 1, `config.json`
+  untouched. End-to-end seam check on the real asset: `serving.run_spec` reports
+  `infer_size (96, 96) / out_size (128, 128)` and `predict_arrays` runs 64 real 96 px crops through
+  the ORT session of that graph. NOT run: full `pytest`, `pytest -m clips`, any Android build.
+  **Honest negatives.** Nothing got more accurate today — this phase only moves the number out of
+  three hard-codings into one key. The 96 px win is `occ-v4-f3e20`'s alone; the bundled
+  `occ-r3s-f3` still gets *worse* at 96 (74/243 against 95/152), which is why it keeps its 128 by
+  simply not carrying the key.
+  **Left for 02:** Kotlin reads `infer_size` with the same `out_size` fallback, asserts the ORT
+  graph's declared shape agrees with it, and keeps the bundled asset at 128 (its config has no key,
+  so the fallback is the mechanism, not an exception). Also note discrepancy 12: a freshly trained
+  run carries no key, so the fallback is a load-bearing path, not a legacy one.
