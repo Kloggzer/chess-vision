@@ -653,11 +653,17 @@ def export_cmd(
     fmt: str = typer.Option("torchscript", "--format",
                             help="torchscript | onnx | qnn | onnx-qnn | all "
                                  "(qnn = INT8/QDQ ONNX for the on-device Hexagon NPU)"),
+    infer_size: str | None = typer.Option(
+        None, "--infer-size",
+        help="Set the model's inference size WxH (e.g. 96x96) in its config.json, then export at "
+             "it. Omit to use what the model already declares. What a crop carries is "
+             "board_size/8 * (1 + 2*pad_side) px — 110 on the fixed rig — see specs/22."),
 ) -> None:
     """Export best.pt to TorchScript/ONNX + model_card.json (handoff to inference app)."""
     from .training.evaluate import run_export
 
-    raise typer.Exit(run_export(run=run, fmt=fmt))
+    size = labeling_mod.parse_out_size(infer_size) if infer_size else None
+    raise typer.Exit(run_export(run=run, fmt=fmt, infer_size=size))
 
 
 @app.command("quantize")
