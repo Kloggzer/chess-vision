@@ -8,7 +8,7 @@ never rewrite another phase's entry.
 
 | Phase | Concern | State | Owner | Notes |
 |---|---|---|---|---|
-| 00 | What does `board_size` cost, and which `infer_size` ships? | todo | — | Measurement only. **Gates 02.** Parallel with 01. |
+| 00 | What does `board_size` cost, and which `infer_size` ships? | **done** | 00 | **`infer_size` = 96 px, chosen on the test leg. Phase 02 is GO.** `board_size` 1600 buys nothing at inference — negative result, see below. Profile untouched. |
 | 01 | Wire `ModelSpec`'s size into `BoardGeometry` so the app can make the crops | todo | — | Kotlin only. Parallel with 00. No behavioural delta. |
 | 02 | Ship `occ-v4-f3e20` at that size | todo | — | Blocked by 00 **and** 01. Does not run if 00 says STOP. |
 
@@ -58,6 +58,110 @@ From `specs/22-inference-resolution/STATUS.md`, measured 2026-07-29/30. `occ-rea
   the ReLU-less model since fixed. Irrelevant while a 4-crop verify would cost ~10 ms on the CPU.
 - **Retraining at a higher warp resolution**, however good phase 00's numbers look.
 
+## Phase 00 — the measurement
+
+`scripts/sweep_warp_resolution.py`, run 2026-07-30 on `occ-real3`, device `cuda` (ROCm), 54 s of
+forward passes. Crops re-sliced from the session frames at each (warp, size) pair through
+`labeling.crops_for_frame` → `serving.predict_arrays`; the 128 px crops on disk were never touched.
+Full log: `data/_perf/sweep_warp.log` (gitignored). `data/calibration/phone.yaml` was **not**
+modified — every warp is an in-memory `dataclasses.replace`.
+
+**Sanity anchor:** the 800-warp cells reproduce specs/22 phase 00 to the square — `occ-v4-f3e20`
+19 / 0 at 96 px and 43 / 0 at 128 px on test, 14 / 23 and 29 / 0 on val; `occ-r3s-f3` 74 / 243 and
+95 / 152 on test. The two sweeps agree, so the warp axis is the only thing that moved.
+
+**The box, not the warp, is the number to read.** `pad_side` stays the profile's 0.05, so the crop
+box is `board_size/8 × 1.10` = **110 / 165 / 220 px**. Android's box is **240 px** because its
+`padSide` is 0.10 at `boardSize = 1600`, so **the 1600 row is the closest available proxy for the
+phone, not the phone** — it is 8 % short in linear box size and its pads cover less of the piece.
+
+### `occ-v4-f3e20` (the candidate) — misses / phantoms at argmax
+
+| input | warp 800 (110 px box) | warp 1200 (165 px) | warp 1600 (220 px) |
+|---|---|---|---|
+| 64 px | 38 / 0 | 48 / 0 | 35 / 0 |
+| **96 px** | **19 / 0** | **34 / 0** | **28 / 0** |
+| 128 px | 43 / 0 | 38 / 0 | 44 / 0 |
+
+Val, same run: 6/55, 14/23, 29/0 at 800; 5/52, 12/15, 36/0 at 1200; 2/40, 11/27, 22/1 at 1600
+(64 / 96 / 128 px). Zero phantoms in all nine **test** cells.
+
+### `occ-r3s-f3` (the incumbent) — phantoms at a matched 43 misses / test
+
+| input | warp 800 | warp 1200 | warp 1600 |
+|---|---|---|---|
+| 64 px | 350 | 281 | 373 |
+| 96 px | 275 | 253 | 265 |
+| **128 px** | **201** | **167** | **198** |
+
+Argmax on test: 98/254, 74/243, 95/152 at 800; 113/212, 87/206, 101/111 at 1200; 101/255, 74/228,
+99/146 at 1600 (64 / 96 / 128 px).
+
+### Answer 1 — which `infer_size` phase 02 ships: **96 px**
+
+Chosen on the **test** leg (val is the checkpoint-selection set). 96 px is the best trained size for
+`occ-v4-f3e20` at **every** warp, including the 1600 row the app actually uses — so **the answer does
+not depend on the warp** and phase 02 needs no warp caveat. At the phone-proxy warp: 96 px gives
+28 / 0 against 128 px's 44 / 0 and 64 px's 35 / 0. `occ-v4-f3e20`'s `config.json` already carries
+`infer_size: [96, 96]`; nothing about it needs editing.
+
+Val disagrees and is discounted as expected: it prefers **64 px** by argmax misses at every warp
+(2–6 misses) but pays 40–55 phantoms for it, and `best.pt` was selected on val at 128 px.
+
+**Phase 02 is GO, not STOP.** The swap is a win at the warp the app uses and at the size it will
+ship: `occ-v4-f3e20` @ 96 px, warp 1600 = **28 misses / 0 phantoms**, against the shipped
+`occ-r3s-f3` @ 128 px, warp 1600 = **99 / 146**. Misses cut by 72 %, phantoms to zero. The incumbent
+is confirmed to want 128 (128 px wins its matched column at every warp), which is why phase 02 is a
+model swap and not a re-export.
+
+### Answer 2 — what `board_size` 1600 is worth: **nothing. It costs misses.**
+
+Negative result, reported as one. On the clean test leg, raising the warp from the profile's 800:
+
+- `occ-v4-f3e20` at 96 px: **19 → 34 misses at 1200 → 28 at 1600**, phantoms 0 throughout. The
+  1600 warp costs **+9 misses** (+0.5 pp of 1 715 occupied). Summed over the three sizes: 100 misses
+  at 800, 120 at 1200, 107 at 1600 — 800 is the best warp on aggregate and holds the single best
+  cell in the whole grid (800 / 96 px, 19 / 0).
+- `occ-r3s-f3` at its matched operating point, 128 px: 201 → **167** at 1200 → 198 at 1600.
+
+So the movement is **±10 misses out of 1 715 (≤0.6 pp) with no consistent direction** — 1200 helps
+the incumbent and hurts the candidate, 1600 lands back near 800 for both. That is jitter, not signal.
+The extra warp resolution does nothing at inference.
+
+**Recommendation: do NOT change `data/calibration/phone.yaml`.** There is no accuracy to buy, and the
+cost would be re-slicing the entire corpus (every session through `chesslab slice`), rebuilding every
+dataset from it, and retraining — the crops on disk would otherwise stop matching the crops served.
+The one reading consistent with the numbers is the boring one: the models trained on 110 px boxes and
+prefer 110 px boxes, so the sharper crop is a mild domain shift, not free detail. Whether a model
+*trained* at a higher warp would do better is untested and out of scope (entry.md).
+
+### Discrepancies found against the spec
+
+1. **The phase file's design block did not account for specs/22 phase 01 landing.** Its recipe seeds
+   `serving._CACHE` with `out_size` (that is what `scripts/sweep_infer_size.py` does), but
+   `predict_arrays` now reads `infer_size_of(cfg)`, which prefers the `infer_size` key — and both
+   runs' `config.json` carry one (96 and 128). Seeding only `out_size` would have silently measured
+   each run at its own fixed size, nine identical rows per warp. `install_at_size` sets **both** keys.
+2. **`crop.cell` in the profile is dead.** `phone.yaml` stores `cell: 100.0`, but no crop path reads
+   it — `square_to_crop_box` and `crop_border_px` both derive the cell from `board_size`. The
+   in-memory override re-derives it anyway so it cannot hand a stale number to a future reader, but
+   it is a duplicated derived value in a safety-critical config and a cleanup candidate.
+3. **Nothing else.** `dataclasses.replace` on `CalibrationProfile` is sufficient for the override:
+   the warp recomputes its homography per frame from the log's corners, so the stored `homography`
+   is not on the crop path either.
+
 ## Session log
 
 <!-- Append: date — phase — what was measured/changed — the numbers — what is left. -->
+
+- **2026-07-30 — phase 00 — warp × input-size sweep, 2 runs × 2 splits × 3 warps × 3 trained sizes.**
+  New `scripts/sweep_warp_resolution.py` (measurement only; nothing else touched, profile untouched,
+  `git diff --stat -- data/calibration` empty). **Answer 1: `infer_size` = 96 px**, chosen on test,
+  best at all three warps for `occ-v4-f3e20` — 19/0 at warp 800, 28/0 at warp 1600 (the phone proxy),
+  against 128 px's 43/0 and 44/0. **Phase 02 is GO**: v4 @ 96 / warp 1600 = 28 misses / 0 phantoms vs
+  the shipped `occ-r3s-f3` @ 128 / warp 1600 = 99 / 146. **Answer 2: `board_size` 1600 buys nothing**
+  — ±10 misses of 1 715 in either direction with no consistent trend, and 800 / 96 px is still the
+  best cell in the grid; recommendation is to leave `phone.yaml` alone. Val prefers 64 px at every
+  warp but at 40–55 phantoms and is discounted (checkpoint-selection set). Ruff clean; no tests (a
+  measurement script, per the phase file). Left for 02: the swap itself, gated on 01 making the app
+  able to cut 96 px crops.
