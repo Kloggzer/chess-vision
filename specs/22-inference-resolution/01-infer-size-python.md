@@ -58,9 +58,15 @@ it on every call.
 Every consumer calls this. `grep -rn "cfg\[.out_size.\]" src/chesslab/serving.py` must come back
 empty when the phase is done — that grep is the acceptance criterion for "one reader".
 
-**Exactly two writers.** `training/train.py` writes it once at run creation (default: `out_size`,
-so every new run is explicit rather than relying on a fallback), and a human edits it when a model
-should be served at a different size. The exporter **reads** it like everyone else.
+**Exactly two writers: the exporter, and a human** editing the key when a model should be served at
+a different size.
+
+> ⚠ Corrected during implementation. An earlier draft of this paragraph also named
+> `training/train.py`, which contradicted this file's own *What must NOT change* and *Do NOT*
+> sections and the ownership registry. The prohibition won. **Consequence, and phase 02 depends on
+> it: a freshly trained run carries no `infer_size` key at all, so the fallback to `out_size` is a
+> load-bearing path, not a legacy one.** The bundled model keeps its 128 precisely by not carrying
+> the key.
 
 ### The CLI
 
