@@ -15,7 +15,7 @@
     128
   ],
   "dataset": "occ-real3",
-  "resumed_from": "occ-act-p1",
+  "resumed_from": "occ-v4-p2e20",
   "head": "combined",
   "normalize": {
     "mean": [
@@ -45,19 +45,17 @@
   ],
   "aug": {
     "erase_p": 0.25,
-    "bg_p": 0.15
+    "bg_p": 0.6
   },
   "loss": "ce",
   "focal_gamma": null,
-  "class_weight_override": {
-    "occupied": 3.0
-  },
+  "class_weight_override": {},
   "effective_class_weights": {
     "empty": 0.666700005531311,
-    "occupied": 3.0
+    "occupied": 2.0
   },
   "infer_size": [
-    128,
-    128
+    96,
+    96
   ]
 }
