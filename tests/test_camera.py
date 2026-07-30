@@ -8,12 +8,32 @@ BEFORE manual focus, config defaults when the caller specifies nothing).
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import cv2
 import numpy as np
 import pytest
 
 from chesslab import camera as cam
-from chesslab import config
+from chesslab import config, lens
+
+
+@pytest.fixture(autouse=True)
+def _no_lens_calibration(monkeypatch, tmp_path):
+    """Point the lens calibration at an empty tmp dir, exactly as `test_lens.py` does.
+
+    Without this the suite's result depends on the DEVELOPER'S MACHINE: `open_capture` wraps
+    every capture in `_UndistortCapture` when `data/lens/calib.npz` happens to exist, so the
+    three identity assertions here (`cap is fake_vc[0]`, `isinstance(cap, LatestFrame)`) failed
+    on a calibrated machine and passed everywhere else. Those three reds were recorded as a
+    regression from a commit for over a week; they were this fixture missing.
+    """
+    lens._MAP_CACHE.clear()
+    monkeypatch.setattr(lens, "_warned", False)
+    # config.LENS is a FROZEN dataclass — swap the whole instance, not a field.
+    monkeypatch.setattr(config, "LENS", replace(config.LENS, path=str(tmp_path / "calib.npz")))
+    yield
+    lens._MAP_CACHE.clear()
 
 
 class FakeCap:
