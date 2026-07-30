@@ -10,7 +10,7 @@ log; never rewrite another phase's entry.
 |---|---|---|---|---|
 | 00 | Is 96 px the model's optimum or the test session's? | done | phase-00 agent | **Verdict: R-NATIVE** (`best(test)`=96, `best(val)`=128). Premise confirmed on the serving path. `scripts/sweep_infer_size.py`. Phase 01 may proceed. |
 | 01 | `infer_size` as a per-model config key; export + serving read it | done | phase-01 agent | Contract shipped, 5 commits. Reader `torch_data.infer_size_of` (:143), writer/validator `evaluate.untrained_size_error` + `run_export(infer_size=)`, `export --infer-size WxH`, `RunSpec.infer_size`. `occ-v4-f3e20` re-exported: graph `[64,3,96,96]`, `config.json` carries `[96,96]`. **`train.py` NOT touched** (see discrepancy 12) — new runs still rely on the `out_size` fallback. |
-| 02 | Android reads it; the 128 guard becomes a graph assertion | todo | — | Blocked by 01. Owns the bundled asset. |
+| 02 | Android reads it; the 128 guard becomes a graph assertion | done | phase-02 agent | 3 commits. `ModelSpec.parse` reads `infer_size` (fallback `out_size`), `CROP_SIZE` deleted, band `32..512`; `SessionRunner.declaredInputShape` + assertion in `OnnxSquareClassifier`'s `init`. Asset re-exported at **128** — `model.onnx`/`model.qnn.onnx` came back **byte-identical**, only `config.json` gained the key. Crop PRODUCER still sizes from `CalibrationProfile` (discrepancy 18). |
 | 03 | Document the discovery | done | phase-03 agent | Docs only, 2 commits. `docs/data-pipeline.md` §11 (+ §2 correction, §10 pointer), `CLAUDE.md` pitfall, `README.md` Stage 5. Step 3 **skipped**: `architecture-overview.md` names neither `128` nor `out_size`. Android crop box is **240 px, not 220** (see discrepancy 8). |
 
 States: `todo` → `in progress` → `done` | `blocked`.
@@ -287,6 +287,51 @@ implemented here.
 17. Line drift, recorded once: `run_export` is at `evaluate.py:161` (spec says `:135`), the export
     CLI command at `cli.py:651` (`:650`), `predict_arrays` at `serving.py:340` (`:329`),
     `predict_rows` at `:431` (`:413`). Symbol names all matched.
+18. **Android is size-agnostic downstream of the crop, not upstream of it — the app holds a SECOND
+    input size and phase 02 could not remove it.** `preprocessInto` takes `outW`/`outH` as the
+    phase file says, but it does **not** resize: it requires `crop.width == outW`
+    (`core-cnn/.../Preprocess.kt:161`). The crops arrive already scaled, and their size comes from
+    `CalibrationProfile.CropParams.outW/outH`, **hard-defaulted to 128**
+    (`app/.../tracker/geometry/CalibrationProfile.kt:32-33`) → `BoardGeometry.outW`
+    (`core-geometry/.../Corners.kt:67`) → `cropSquare`'s `resizeKeepAspect(region, geom.outW,
+    geom.outH)` (`core-geometry/.../Crops.kt:88`). Nothing wires `ModelSpec` into that path. So
+    staging a 96 px model into `assets/cnn_model/` today would attach fine (the graph and the spec
+    agree) and then die on the first observation with `crop 0 is 128x128, expected 96x96` — **loud,
+    not silent**, and never wrong pixels. Serving the phone at another size therefore needs the
+    profile's crop size to follow the spec as well; that is a `CalibrationProfile` / persisted-
+    schema change, outside this phase's files, and it is the concrete work item behind the open
+    question "what should the phone use".
+19. **The graph's shape can only be read where the session is, so the assertion needed three lines
+    in `OrtSessionRunner.kt`** — a file the ownership registry does not list for phase 02 (it lists
+    `OnnxSquareClassifier.kt` "graph-shape assertion only"). The `SessionRunner` interface itself
+    lives in `OnnxSquareClassifier.kt`, so the seam and the assertion are in the owned file; only
+    `override val declaredInputShape = (session.inputInfo[inputName]?.info as? TensorInfo)?.shape`
+    is in the runner. No other phase owns that file.
+20. **A Gradle `-D` does not reach the test JVM**, so "point the seam test at a temp dir" cannot be
+    done with a flag: `app/build.gradle.kts:54-68` exists precisely because the three
+    `chesslab.sim*` properties have to be forwarded explicitly. Rather than add a fourth forwarding
+    line to a build file this phase does not own, the seam test discovers optional model
+    directories under `app/build/extra-cnn-models/*/` (gitignored, wiped by `clean`). The 96 px
+    `occ-v4-f3e20` export was dropped there and the test **ran, did not skip** (`skipped="0"` in
+    `TEST-…ModelSpecGraphSeamTest.xml`). A tree without that directory reports the test as
+    **skipped**, so the orchestrator's full-suite run will show one skip unless the directory is
+    rebuilt — the recipe is in the test's KDoc.
+21. **The stale 220 px survives in code phase 02 may not edit.** Per discrepancy 8 the phone's crop
+    box is 240 px, and `docs/` says so, but `training/torch_data.infer_size_of`'s docstring still
+    reads "110 on the fixed rig, **220** on the phone" (phase 01's file, `src/chesslab/` is out of
+    scope here). `cli.py`'s `--infer-size` help only names the rig's 110 and is fine. Left for
+    whoever next owns `src/chesslab/`. The Kotlin side written in this phase says 240.
+22. **The re-export is byte-identical, which is stronger than the acceptance criterion asked for.**
+    The criterion only requires the graph's input shape to be unchanged; in fact
+    `sha256(model.onnx)` = `220eb219…` and `sha256(model.qnn.onnx)` = `0b8a3220…` **before and
+    after** `export --format all --infer-size 128x128` (torch's trace is deterministic and
+    `_calibration_rows` picks the same 128 crops), so "no behavioural delta" is exact, not
+    approximate. Only `config.json` changed, by the five lines of the new key.
+23. `ModelSpecTest.rejectsOutSizeOtherThan128` was a test **of the deleted guard** — it asserted
+    that a 96 px model is refused. Replaced by the three the phase file asks for. Also
+    `BundledGraphShapeTest` still hard-codes `[64, 3, 128, 128]`: left alone on purpose, its
+    concern is that the batch dim is not dynamic (three shipped regressions), and the new seam test
+    is what checks the size against the config rather than against a literal.
 
 ## Session log
 
@@ -381,3 +426,51 @@ implemented here.
   graph's declared shape agrees with it, and keeps the bundled asset at 128 (its config has no key,
   so the fallback is the mechanism, not an exception). Also note discrepancy 12: a freshly trained
   run carries no key, so the fallback is a load-bearing path, not a legacy one.
+
+- **2026-07-30 — phase 02 — the app reads the size; nothing about the shipped behaviour changed.**
+  Three commits on `spec-22-inference-resolution`: `50eed16` `feat(android): read the model's
+  inference size instead of asserting 128`, `0299f29` `feat(android): assert the ONNX input shape
+  against the model spec`, `e489ac1` `chore(android): re-export the bundled model with an explicit
+  128px infer_size`.
+  **What changed.** `ModelSpec.parse` reads `root["infer_size"] ?: root.getValue("out_size")`;
+  `CROP_SIZE` and its `require(outWidth == 128 …)` are gone (`grep -rn "CROP_SIZE" android/` →
+  nothing outside `build/`, and nothing there either), replaced by the plausibility band
+  `32..512`. The real check moved to where the graph is known: `SessionRunner` gained
+  `declaredInputShape` (null for the test fakes, ORT's `TensorInfo.shape` for
+  `OrtSessionRunner`) and `OnnxSquareClassifier`'s `init` requires its last two dims to be
+  `spec.outHeight`/`outWidth`, naming both sizes on failure. Batch untouched:
+  `private val batch = ALL_SQUARES.size` and `require(crops.size == batch)` both still there.
+  **The asset was re-exported at 128, not 96, and the diff proves the phase is mechanism-only.**
+  Bundled run identified by sha256 (all three files identical to `data/models/occ-r3s-f3`, the
+  `resumed_from` grep was not used — discrepancy 1). `chesslab export --run data/models/occ-r3s-f3
+  --format all --infer-size 128x128` → `[OK] quantized (quint16/quint8) … argmax parity 1.000`,
+  `[OK] exportiert: torchscript, onnx, qnn @ 128x128`. **`model.onnx` and `model.qnn.onnx` came
+  back byte-identical** (`220eb219…`, `0b8a3220…`), so the only committed bytes are `config.json`'s
+  five new lines; `onnx.load(asset).graph.input[0]` prints `[64, 3, 128, 128]`, unchanged.
+  **Commands run and their results.** `gradlew.bat :app:testDebugUnitTest --tests '*ModelSpec*'`
+  **once** → BUILD SUCCESSFUL, **10 tests, 0 skipped, 0 failures** (`ModelSpecTest` 8 incl. the
+  three new size tests, `ModelSpecGraphSeamTest` 2). `gradlew.bat :app:ktlintFormat` (it
+  reformatted the new test's `as TensorInfo` chain — no style was hand-edited), then
+  `gradlew.bat :app:ktlintCheck :app:detekt` → BUILD SUCCESSFUL, zero findings, no `@Suppress` and
+  no baseline entry added. NOT run: `assembleDebug`, the full unit-test task, instrumentation, any
+  Python test — the orchestrator's gate.
+  **The seam test is real on both sides.** `ModelSpecGraphSeamTest` parses the asset's own
+  `config.json`, opens the asset's `model.onnx` in a real `OrtEnvironment` session, asserts the
+  declared shape's last two dims equal the parsed size, then stages the directory through
+  `CnnModelAssets` and runs 64 crops cut at that size through `OnnxSquareClassifier.open` (CPU
+  provider, desktop natives). The second test does the same for a **96 px** graph — exported from
+  a scratch copy of `data/models/occ-v4-f3e20` with `--infer-size 96x96`, graph `[64, 3, 96, 96]`,
+  dropped under `app/build/extra-cnn-models/infer96/` — and asserts it is NOT 128, i.e. that the
+  size was read and not assumed. It ran, it did not skip. See discrepancy 20 for why the directory
+  and not a `-D` flag.
+  **Honest negatives.** Nothing got faster or more accurate: the shipped model still infers at
+  128 px and its bits are unchanged, deliberately, because 96 px costs it 91 extra phantoms.
+  Preprocessing's 3.1 M → 1.7 M float saving is available but not taken. And the app is **not**
+  end-to-end size-agnostic yet: the crop producer still takes its 128 from
+  `CalibrationProfile.CropParams`, not from the model (**discrepancy 18**) — a 96 px asset would
+  attach and then fail loudly on the first observation. Six discrepancies recorded (18–23),
+  including a stale "220 px" left in `training/torch_data.py`'s docstring that this phase may not
+  edit (21).
+  **Left open:** wiring `ModelSpec` → `CalibrationProfile.crop.outW/outH` so the phone can actually
+  be served at another size, and the still-unmeasured question of whether the phone's 240 px crop
+  box wants 96, 128 or something else.
