@@ -19,14 +19,34 @@ def _manifest_file(name: str | None):
     return dataset_build_mod.dataset_dir(name) / "manifest.jsonl"
 
 
+def _dataset_classes(name: str | None) -> list[str]:
+    """Class list a dataset was BUILT with: `dataset.yaml`'s `class_mode` resolved through
+    `dataset_build.class_list_for` (the single source for that mapping).
+
+    Without it every set is scored against the 14 piece classes, so a 2-class occupancy
+    dataset reports twelve "Class wP: 0 samples." warnings that mean nothing. The global
+    pool (no dataset) and pre-`class_mode` builds are pieces."""
+    from ... import config
+    from ... import dataset_build as dataset_build_mod
+
+    if not name:
+        return list(config.CLASSES)
+    try:
+        cfg = dataset_build_mod.get_dataset(name)["config"]
+        return list(dataset_build_mod.class_list_for(cfg.get("class_mode") or "pieces"))
+    except (FileNotFoundError, ValueError, OSError):
+        return list(config.CLASSES)
+
+
 @router.get("/api/stats")
 def stats(dataset: str | None = Query(None)):
     from ... import config
     from ... import dataset as dataset_mod
     from ...manifest_cache import stats_rows
 
-    s = dataset_mod.compute_stats(stats_rows(_manifest_file(dataset)))
-    s["classes"] = list(config.CLASSES)
+    classes = _dataset_classes(dataset)
+    s = dataset_mod.compute_stats(stats_rows(_manifest_file(dataset)), classes=classes)
+    s["classes"] = classes
     s["min_samples"] = config.MIN_CLASS_SAMPLES
     return s
 
