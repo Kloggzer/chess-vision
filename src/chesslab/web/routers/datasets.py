@@ -53,10 +53,14 @@ def stats(dataset: str | None = Query(None)):
 
 @router.get("/api/class/{cls}")
 def class_crops(cls: str, offset: int = 0, limit: int = 60, dataset: str | None = Query(None)):
-    from ... import config
-
-    if cls not in config.CLASSES:
-        raise HTTPException(404, f"unknown class {cls}")
+    # Against the DATASET's classes, not the 14 piece ones: browsing an occupancy set's
+    # `occupied` crops answered "unknown class occupied" — the class the same view had just
+    # listed in its own distribution table. `_dataset_classes(None)` is the piece list, which
+    # is what the global pool holds.
+    classes = _dataset_classes(dataset)
+    if cls not in classes:
+        raise HTTPException(404, f"unknown class {cls!r} in {dataset or 'the crop pool'} "
+                                 f"(has {', '.join(classes)})")
     # `dataset` set -> the crops of THAT dataset; otherwise the global pool.
     from ...manifest_cache import rows_for_label
 
@@ -84,8 +88,9 @@ def class_montage(name: str, cls: str, n: int = Query(64, le=256), tile: int = Q
     from ...manifest_cache import rows_for_label
     from ...training.pack import load_packed, open_packed_memmap
 
-    if cls not in config.CLASSES:
-        raise HTTPException(404, f"unknown class {cls}")
+    classes = _dataset_classes(name)
+    if cls not in classes:
+        raise HTTPException(404, f"unknown class {cls!r} in {name!r} (has {', '.join(classes)})")
     rows = rows_for_label(_manifest_file(name), cls)
     if not rows:
         raise HTTPException(404, f"no '{cls}' crops in dataset '{name}'")

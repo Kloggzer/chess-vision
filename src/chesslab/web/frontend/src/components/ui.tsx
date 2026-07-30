@@ -9,6 +9,9 @@ const SOLID: Record<string, string> = {
 export function Glyph({ label, className = "" }: { label: string; className?: string }) {
   if (label === "empty") return <span className={`text-zinc-500 ${className}`}>·</span>;
   if (label === "occluded") return <span className={`text-amber-300 ${className}`}>▦</span>;
+  // An occupancy dataset's second class is not a piece: `SOLID[label[1]]` misses and the
+  // fallback printed the raw label, so every row read "occupied occupied" next to its own name.
+  if (label === "occupied") return <span className={`text-zinc-300 ${className}`}>●</span>;
   const ch = SOLID[label?.[1]] ?? label;
   const white = label?.[0] === "w";
   return (
