@@ -12,6 +12,7 @@ log; never rewrite another phase's entry.
 | 01 | Zoom set once, then calibrate | todo | — | Blocked by 00, and only if 00 says BUILD. |
 | 02 | `AUTO` picks the capture mode from the measurement | todo | — | Blocked by 01. |
 | 03 | Remove the levers that can silently break things | todo | — | **Independent of 00-02**, may run in parallel. |
+| 04 | One button that re-measures optics and geometry | todo | — | **Independent of everything.** Solves a problem that exists today. |
 
 States: `todo` → `in progress` → `done` | `blocked`.
 
@@ -60,6 +61,21 @@ Measured 2026-07-30.
 
 - **Phantoms are the veto, misses are tolerable** (user, 2026-07-30). Rank on phantoms; report the
   sharpest phantom-free threshold, never below 0.5.
+
+## For phase 04 — what is already known
+
+- **`OpticsLock.rearm()` exists** (`camera/OpticsLock.kt:83`) and nothing in the UI calls it. The
+  ability to re-measure focus/exposure/white balance is present; only the way to trigger it is
+  missing.
+- **Freezing is correct, the sample can be wrong.** `engage()` (`:116`) locks once `converged()`
+  (`:109`) reports settled — right for a fixed camera, but a bad moment at start-up (hand in
+  frame, board not placed, low light) is then held for the whole session. The user's words:
+  *"manchmal mache ich die App an und der Fokus stimmt nicht."*
+- **The calibration view already has the shape**: `WideButton("Check orientation", …)` and a
+  Recalibrate whose help says *"Recalibrate changes the board geometry only. Your game keeps
+  running."* — the new button is a sibling with the same contract.
+- **Optics before geometry.** Focus breathing moves the image; a profile measured before the lens
+  settled describes a picture that is gone.
 
 ## For phase 03 — what is already known
 
