@@ -33,6 +33,16 @@ OPTIONAL_CLASSES: set[str] = {"empty", "occluded"}
 # by COLLAPSING existing labels at dataset-build time; no crop is ever re-labelled.
 OCCUPANCY_CLASSES: list[str] = ["empty", "occupied"]
 
+# --- Identity class list (13) = CLASSES minus `occluded`. ------------------------------
+# DERIVED, never a second literal: the canonical list stays the one above.
+#
+# Why 13 and not 14: the crop pool holds zero `occluded` rows in 53,000 — capture only runs
+# while the board is clear, and `occluded` is documented above as never coming from a FEN.
+# Training the 14th output would leave it shaped by nothing but the initialisation, and an
+# untrained logit can still win an argmax on unusual input. Unusual input under a hand is
+# precisely the case where the tracker relies on the answer.
+IDENTITY_CLASSES: list[str] = [c for c in CLASSES if c != "occluded"]
+
 
 def to_occupancy_class(label: str) -> str:
     """`empty` -> `empty`; every piece class -> `occupied`.
