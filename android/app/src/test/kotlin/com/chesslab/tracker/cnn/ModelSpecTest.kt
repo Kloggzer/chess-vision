@@ -7,6 +7,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -26,8 +27,17 @@ class ModelSpecTest {
         // bundled run is a 14-class model or the 2-class occupancy one (specs/18) depending on
         // what was staged, and `requireExpectedClasses` is what pins the accepted orders.
         assertEquals(rawClasses(json), spec.classes)
-        assertEquals(128, spec.outWidth)
-        assertEquals(128, spec.outHeight)
+        // The same rule for the input size, and on the shipped asset it is no longer the trivial
+        // case: `occ-v4-f3e20` (specs/23 phase 02) declares `infer_size` 96 while its crops on disk
+        // were built at 128, so this asserts the reader picked the right KEY on the file that
+        // actually ships — which the old `assertEquals(128, …)` could not have noticed.
+        val declared = rawInts(json, "infer_size")
+        assertEquals(declared, listOf(spec.outWidth, spec.outHeight))
+        assertNotEquals(
+            rawInts(json, "out_size"),
+            declared,
+            "the bundled asset no longer exercises the `infer_size` path — this test has gone vacuous",
+        )
         assertEquals(listOf(0.485f, 0.456f, 0.406f), spec.mean)
         assertEquals(listOf(0.229f, 0.224f, 0.225f), spec.std)
     }
@@ -137,6 +147,18 @@ private fun rawClasses(json: String): List<String> =
         .getValue("classes")
         .jsonArray
         .map { it.jsonPrimitive.content }
+
+/** An int array a `config.json` literally declares — no fallback, so a missing key fails. */
+private fun rawInts(
+    json: String,
+    key: String,
+): List<Int> =
+    Json
+        .parseToJsonElement(json)
+        .jsonObject
+        .getValue(key)
+        .jsonArray
+        .map { it.jsonPrimitive.content.toInt() }
 
 /** The `android/` gradle root, found from wherever the test JVM was started. */
 internal fun androidRoot(): File {
