@@ -143,17 +143,22 @@ def _draw_move_arrow(view, prof, fen, san):
 
 
 def _collect_state() -> dict:
+    from .camera import CAMERA
     from .state import COLLECT
 
+    # `camera` rides along on the polled state so the UI can keep showing the DELIVERED
+    # resolution (and a mismatch against the request) without a second poll loop.
+    cam = CAMERA.status()
     c = COLLECT.snapshot()
     w = c["writer"]
     if w is None:
-        return {"active": False}
+        return {"active": False, "camera": cam}
     pos, i = c["positions"], c["i"]
     n = len(pos)
     cur = pos[min(i, n - 1)]
     return {
-        "active": True, "session_id": w.session_id, "index": i, "n_positions": n,
+        "active": True, "camera": cam,
+        "session_id": w.session_id, "index": i, "n_positions": n,
         "done": i >= n, "fen": cur["fen"], "ply": cur["ply"],
         # Move to reach the currently-to-be-photographed position (None = starting position).
         "move_san": (pos[i]["san"] if 0 <= i < n else None),

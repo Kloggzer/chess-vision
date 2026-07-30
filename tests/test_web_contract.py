@@ -17,6 +17,7 @@ EXPECTED_API_ROUTES = {
     ("DELETE", "/api/runs/{run}"),
     ("DELETE", "/api/sessions/{sid}"),
     ("GET", "/api/camera/collect.mjpg"),
+    ("GET", "/api/camera/modes"),
     ("GET", "/api/class/{cls}"),
     ("GET", "/api/collect/state"),
     ("GET", "/api/datasets"),
