@@ -67,10 +67,15 @@ A `log.jsonl` row:
 
 **Resolution is the property that decides a session's worth.** It is not recorded anywhere —
 you compute it from the corners: mean quad edge length ÷ 8 = **px per square**. That is how many
-real sensor pixels back each crop before it is resized to 128×128. The deployed Android device
-sees roughly **98 px/square**; anything materially below that is an upscale, and a session at
-49 px/square is being blown up 2.6×. This single number is why the 07.07. sessions were parked
-(§6.2) and it should be checked on every new session.
+real sensor pixels back each crop *at the sensor*. The sessions captured with the phone as a
+1080p feed carry roughly **98 px/square**; anything materially below that is an upscale, and a
+session at 49 px/square is being blown up 2.6×. This single number is why the 07.07. sessions were
+parked (§6.2) and it should be checked on every new session.
+
+⚠ **It is not the resolution the model is fed.** The warp goes through `profile.board_size`
+first, so the crop is cut at `board_size / 8` px/square whatever the camera delivered — on the rig
+profile that is 100, and a 173 px/square session loses 42 % of its linear resolution there. See
+**§11**, which is the section to read before quoting any px/square number at a model.
 
 ---
 
@@ -518,6 +523,9 @@ they are reproducible outputs, not inputs.
 - `docs/architecture-review/architecture-overview.md` — component map.
 - `README.md` — every CLI command, per stage.
 - `src/chesslab/dataset.py:177` — the split assigner's docstring, which is its specification.
+- **§11** — what the camera delivers vs. what the network is fed (`board_size`, `out_size`,
+  `infer_size`), and what the splits actually are. `specs/22-inference-resolution/STATUS.md` holds
+  the raw measurement.
 
 ### 5.11 The visual filter runs BEFORE the cap — and that is what lets the cap be raised
 
@@ -556,3 +564,163 @@ occupancy training.
 They are **dropped, not mapped**: a covered square may hold a piece or nothing, so either class
 is a guess. The count and its share of the pool are printed — the guard's real purpose was that
 the drop not be silent.
+
+---
+
+## 11. Resolution: what the camera delivers, and what the net is fed
+
+> Measured **2026-07-29 / 30**, `specs/22-inference-resolution/STATUS.md` (phase 00; tool
+> `scripts/sweep_infer_size.py`). Three numbers are involved and they are three *different*
+> numbers: what the sensor delivers, what the warp keeps of it, and what the network is fed.
+> Only the last one decides accuracy.
+
+### 11.1 The chain — the warp decides, not the camera
+
+```
+corner quad in log.jsonl        mean edge / 8  = px/square AT THE SENSOR
+   │
+   │  labeling.warp_board_for_crops  →  profile.board_size      ← resolution is decided HERE
+   ▼
+rectified board                  board_size / 8 = px/square in the warp
+   │
+   │  calibration.square_to_crop_box →  cell * (1 + 2*pad_side) = THE CROP BOX, in px
+   ▼
+crop box
+   │  imgops.resize_keep_aspect      →  out_size    = 128x128, what lands in data/squares/
+   │  serving / eval resize          →  infer_size  = what the exported graph takes
+   ▼
+network input
+```
+
+`labeling.crops_for_frame` computes `cell = profile.board_size / 8.0` and warps to it **before**
+any square is cut, so **the sensor's resolution never reaches the model**. The quantity that
+decides how much real detail a crop carries is
+
+```
+board_size / 8 * (1 + 2 * pad_side)
+```
+
+and it depends only on the profile, never on the camera. The two values that are live today:
+
+| where | `board_size` | `pad_side` | cell | crop box | vs. a 128 px input |
+|---|---:|---:|---:|---:|---|
+| rig profile `data/calibration/phone.yaml` | 800 | 0.05 | 100 | **110 px** | **upsamples** 1.16× |
+| `config.DEFAULT_BOARD_SIZE` = Android `BoardGeometry.boardSize` / `TrackerConfig.boardSize` | 1600 | 0.10 | 200 | **240 px** | **downsamples** 1.9× |
+
+Check it against the code rather than trusting the table:
+
+```bash
+.venv/Scripts/python.exe -c "from chesslab.calibration import load_profile, square_to_crop_box as box; \
+p = load_profile('phone'); x0, y0, x1, y1 = box('e4', p, clamp=False); \
+print(p.board_size, p.crop.pad_side, x1 - x0)"       # -> 800 0.05 110
+```
+
+So on the fixed rig **every** crop is a 110 px box, from every session, and 128 px input
+interpolates it upwards. The 4K session (`20260721-212830`, 173.2 px/square at the sensor) and the
+1080p session (`20260708-021722`, 96.9) both arrive at the crop stage at **100.0 px/square** — the
+4K one loses **42 %** of its linear resolution at the warp and nothing downstream gets it back.
+The phone runs the same code with `board_size = 1600` and therefore *downsamples* where the rig
+upsamples. That, and not the sensor, is why the inference size has to be a per-model,
+per-deployment value (§11.4).
+
+This is also why re-cutting a crop at the target size recovers nothing: cut straight from the frame
+at 96 px it scores 19 misses / 0 phantoms, resized from the 128 px crop on disk 21 / 0 — the same
+110 px box either way.
+
+### 11.2 Measuring a session's native resolution — still worth it, for a different reason
+
+Not recorded anywhere; compute it from the first logged quad (this is exactly what
+`scripts/sweep_infer_size.py`'s `px_per_square` does):
+
+```bash
+.venv/Scripts/python.exe -c "import json, math, sys; \
+c = json.loads(open(f'data/sessions/{sys.argv[1]}/log.jsonl').readline())['corners']; \
+print(sum(math.dist(c[i], c[(i + 1) % 4]) for i in range(4)) / 4 / 8)" 20260708-021722
+```
+
+The number still matters — it **bounds** what `board_size` can deliver, since warping above the
+sensor's resolution invents detail rather than adding it (`config.py:68-71`). It is simply the wrong
+number to reason about a model's input size with.
+
+The quad can drift within a session. The game sessions are stable to under 1 % between the first
+frame and the mean over all frames; the two 21.07 lighting captures are not (`-194538` 114.7 first
+frame vs 125.4 mean, `-193821` 116.0 vs 122.9), which is why §9's table — measured over all frames
+on 2026-07-27 — lists 127.1 and 119.3 for the same two sessions. Say which frame you measured.
+
+### 11.3 Each split is exactly one session — and val is not a clean holdout
+
+`data/datasets/occ-real3/split.json` (the current occupancy dataset):
+
+| session | px/square at the sensor | role | crops | boards |
+|---|---:|---|---:|---:|
+| `20260708-021722` | **96.9** | **the entire test split** | 4,736 | 74 |
+| `20260721-212830` | **173.2** | **the entire val split** | 4,992 | 78 |
+| `20260721-193821` | 116.0 | train (lighting-capture) | — | — |
+| `20260721-194538` | 114.7 | train (lighting-capture) | — | — |
+| `20260630-080531` | 213.8 | train | — | — |
+| `20260630-014453` | 214.0 | train | — | — |
+| `20260708-195420` | 103.3 | train | — | — |
+| `20260709-141209` | 102.3 | train | — | — |
+
+Two consequences, both invisible in `split.json`:
+
+- **Every "real holdout" number this project has quoted is a number about one camera framing**,
+  through one profile's `board_size`. Test is 74 boards of a single 1080p recording; val is 78
+  boards of a single 4K one (its log has 79 rows, one flagged `unusable`, which `slice_session`
+  skips — §5.3).
+- **Val doubles as the checkpoint-selection set.** `best.pt` is the epoch that maximised
+  `checkpoint_score` on val (`training/train.py`, the `evaluate_dataset` call in the epoch loop
+  followed by `if score > best_score`), and that call passes no `input_size`, i.e. it scores at the
+  crops' own 128 px. So "val prefers 128 px" is partly what checkpoint selection alone produces;
+  val@128 *is* the selection objective. Do not read a val-only resolution result as evidence.
+
+### 11.4 `out_size` is where the crops were built, `infer_size` is what the net is fed
+
+Two keys in a run's `config.json`, deliberately not one (`specs/22-inference-resolution/`):
+
+- **`out_size`** — the size the crops on disk were built at, 128×128. It stays in every manifest
+  row and every dataset; dataset building, training and `chesslab eval` all use it. Do not
+  repurpose it.
+- **`infer_size`** — the size the exported graph takes and the size a consumer must resize crops
+  to. Read in exactly one place, `training.torch_data.infer_size_of`, which falls back to
+  `out_size` when the key is absent, so every model exported before this key existed keeps working.
+  The exported `model.onnx` input shape is the ground truth; `config.json` describes it, and a
+  consumer that finds a disagreement must fail loudly rather than resize to what it prefers.
+
+Changing a model's serving resolution is therefore: edit that model's `infer_size`, re-export,
+ship. Not a flag at a call site, and not a constant in the app.
+
+### 11.5 An untrained input size fails silently — pick one of the run's `scales`
+
+The resolution curve is violently non-monotone, and the damage sits exactly at sizes the run never
+trained. `occ-v4-f3e20` (the multi-scale GroupNorm champion, `scales: [32, 64, 96, 128]`) on the
+test split, misses (occupied read as `empty`) / phantoms (`empty` read as occupied), crops cut from
+the frames at each size:
+
+| input | 48 | 64 | **80** | 96 | 112 | 128 | 160 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| test | 916 / 0 | 38 / 0 | **133 / 1** | **19 / 0** | 17 / 1 | 43 / 0 | 53 / 0 |
+| val | 501 / 100 | 6 / 55 | 101 / 45 | 14 / 23 | 2 / 59 | **29 / 0** | 67 / 1 |
+
+80 px and 112 px are not trained scales, and 80 px is worse than *both* its neighbours: **133**
+misses against 64 px's 38 and 96 px's 19. There is no exception, no warning and no log line — the
+model simply reads a hundred occupied squares as empty. A plausibility band like "between 32 and
+512" accepts it. So **`infer_size` must be one of the run's own `scales`**, and misses are the
+dangerous direction: a square read as empty licenses a fabricated capture, and the tracker's
+recovery cascades a whole fantasy game out of it.
+
+Two further things this measurement settled:
+
+- `--scales` has to stay in the training recipe. Serving at 96 px is only possible *because* 96 px
+  was trained; single-scale GroupNorm at a 64 px input goes to 347 misses / 599 phantoms.
+- **96 px is not universally better.** It is `occ-v4-f3e20`'s preference on the 1080p session. The
+  currently bundled run `occ-r3s-f3` runs the other way on the *same* session — 95 misses / 152
+  phantoms at 128 px against 74 / 243 at 96 px, and worse at the matched operating point (275
+  phantoms at ≤ 43 misses, against 201 at 128 px and 145 at 160 px). Per model, per deployment.
+
+### 11.6 The trap, in one sentence
+
+A test split that is one session measures **one camera framing, through one profile's
+`board_size`, at one input size** — so before comparing two accuracy numbers, check that all three
+are the same, and before deploying one, check that the size it was measured at is a size the run
+was trained at.
