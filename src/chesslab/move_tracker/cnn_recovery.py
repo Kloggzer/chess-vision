@@ -182,20 +182,33 @@ class CnnRecovery:
         n = len(conf_squares)
         if n < self.min_confident_recovery:
             return None, 0.0, 0.0
+
+        def _hits(b: chess.Board) -> int:
+            return sum(1 for sq in conf_squares
+                       if obs.occupied(sq) == (b.piece_at(chess.parse_square(sq)) is not None))
+
         best_mv, best_hits, second_hits = None, -1, -1
         for mv in board.legal_moves:
             b2 = board.copy(stack=False)
             b2.push(mv)
-            hits = sum(1 for sq in conf_squares
-                       if obs.occupied(sq) == (b2.piece_at(chess.parse_square(sq)) is not None))
+            hits = _hits(b2)
             if hits > best_hits:
                 best_hits, second_hits, best_mv = hits, best_hits, mv
             elif hits > second_hits:
                 second_hits = hits
+        # The position AS IT STANDS is a rival hypothesis, not the baseline the moves are
+        # measured against. Without it a SINGLE square the model reads as wrongly empty
+        # fabricates a move whenever exactly one legal move vacates that square: "no move" and
+        # that move then explain the observation equally well, and only the move gets ranked.
+        # Observed live (30.07.2026) as a phantom g6 — the g7 pawn stood on the square's upper
+        # edge, read p(occupied)=0.13, and g7g6 won 58/59 against a field whose best rival was
+        # 57/59. `derive_moves_deep` has always seeded its beam with the empty sequence for
+        # exactly this reason; this is the same rule one search shallower.
+        rival_hits = max(second_hits, _hits(board))
         best = best_hits / n if best_hits >= 0 else 0.0
-        second = second_hits / n if second_hits >= 0 else 0.0
+        second = rival_hits / n if rival_hits >= 0 else 0.0
         if best_mv is None or best < self.min_agreement \
-           or (best_hits - second_hits) < self.margin_squares:
+           or (best_hits - rival_hits) < self.margin_squares:
             # margin in squares: promotion variants (e7e8q vs. e7e8r) are occupancy-identical
             # (0 squares difference) → intentionally None (user hint instead of guessing).
             return None, best, second

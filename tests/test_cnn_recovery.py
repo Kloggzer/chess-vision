@@ -246,6 +246,30 @@ def test_score_moves_below_min_agreement_returns_none(tmp_path):
     assert best < 0.97
 
 
+def test_score_moves_single_missed_piece_does_not_fabricate_a_move(tmp_path):
+    """One square read as wrongly EMPTY must not become a move (live phantom g6, 30.07.2026).
+
+    The board is unchanged, but g7 reads empty. g7g6 is then the only legal move that vacates
+    g7 — it explains the observation exactly as well as "no move at all" (58 of 59 confident
+    squares), which is not evidence of anything.
+    """
+    board = chess.Board("r1bqkb2/pppp1pp1/2n2n2/1B2p1Nr/4P3/2NP4/PPP2P1P/R1BQK1R1 b Qq - 4 10")
+    obs = _obs_for_board(board, flip={"g7"})
+    mv, best, second = _recovery(tmp_path).score_moves(board, obs)
+    assert mv is None
+    assert best == pytest.approx(second)     # g7g6 ties with the position as it stands
+
+
+def test_score_moves_missed_piece_still_finds_a_move_that_explains_more(tmp_path):
+    """The rival is a rival, not a veto: a move that explains MORE than standing still wins."""
+    board = chess.Board()
+    after = chess.Board(); after.push_san("e4")
+    obs = _obs_for_board(after, flip={"g7"})   # e2/e4 right, one unrelated square missed
+    mv, best, _ = _recovery(tmp_path).score_moves(board, obs)
+    assert mv is not None and mv.uci() == "e2e4"
+    assert best == pytest.approx(63 / 64)
+
+
 # ---------------------------------------------------------------------------
 # Softmax collapse + confident()
 # ---------------------------------------------------------------------------
