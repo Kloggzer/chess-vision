@@ -29,7 +29,12 @@ fun exportDecisionLog(
         buildString {
             appendLine("# chesslab decision log")
             appendLine("# app: $appVersion")
-            appendLine("# model: ${cnn.model ?: "none"}  ep: ${cnn.actualEp ?: "none"} (requested ${cnn.requestedEp ?: "none"})")
+            // The model DIRECTORY, not just the graph file: three models ship side by side and
+            // "model.onnx" names all three of them.
+            appendLine(
+                "# model: ${cnn.modelDir ?: "none"}/${cnn.model ?: "none"} @ ${cnn.inputShape ?: "none"}  " +
+                    "ep: ${cnn.actualEp ?: "none"} (requested ${cnn.requestedEp ?: "none"})",
+            )
             appendLine("# config:")
             KNOBS.forEach { appendLine("#   ${it.key} = ${it.get(config)}") }
             appendLine(COLUMNS)

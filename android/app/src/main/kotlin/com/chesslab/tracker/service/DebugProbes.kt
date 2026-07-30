@@ -56,6 +56,9 @@ class DebugCropTap(
 data class CnnRuntimeInfo(
     val requestedEp: String?,
     val actualEp: String?,
+    /** Which bundled model is attached — the directory that was really staged, not the request. */
+    val modelDir: String?,
+    /** Which graph file inside it. */
     val model: String?,
     val inputShape: String?,
     val lastRunMs: Double,
@@ -69,6 +72,16 @@ class CnnRuntimeProbe {
 
     @Volatile
     var actualEp: String? = null
+
+    /**
+     * The bundled model behind the numbers on this screen.
+     *
+     * Three models ship side by side so they can be compared on a real board (`BUNDLED_MODELS`), and
+     * a comparison nobody can attribute is not one — this is the field that says which of them the
+     * reads, the timings and the phantoms just came from.
+     */
+    @Volatile
+    var modelDir: String? = null
 
     @Volatile
     var model: String? = null
@@ -84,5 +97,5 @@ class CnnRuntimeProbe {
     @Volatile
     var observations: () -> Long = { 0L }
 
-    fun info(): CnnRuntimeInfo = CnnRuntimeInfo(requestedEp, actualEp, model, inputShape, lastRunMs(), observations())
+    fun info(): CnnRuntimeInfo = CnnRuntimeInfo(requestedEp, actualEp, modelDir, model, inputShape, lastRunMs(), observations())
 }

@@ -36,6 +36,7 @@ fun openClassifier(
     val classifier = OnnxSquareClassifier.open(staged, AndroidCnnLog, app.epRequest)
     probe.requestedEp = requestedBackend(staged, app.epRequest)
     probe.actualEp = classifier.backend
+    probe.modelDir = staged.dir.name
     probe.model = classifier.model
     probe.inputShape = classifier.inputShape
     probe.lastRunMs = classifier::lastRunMs

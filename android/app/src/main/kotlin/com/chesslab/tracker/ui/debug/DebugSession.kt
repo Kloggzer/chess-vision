@@ -66,7 +66,7 @@ object NoDebugSession : DebugSession {
 
     override fun latestCrops(): DebugCrops? = null
 
-    override fun cnnRuntime() = CnnRuntimeInfo(null, null, null, null, 0.0, 0)
+    override fun cnnRuntime() = CnnRuntimeInfo(null, null, null, null, null, 0.0, 0)
 
     override fun retryCnnAttach() = Unit
 }

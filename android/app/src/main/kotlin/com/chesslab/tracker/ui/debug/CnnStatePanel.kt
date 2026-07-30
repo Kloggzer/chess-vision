@@ -61,6 +61,24 @@ internal fun epLine(runtime: CnnRuntimeInfo): String {
  */
 internal fun epFellBack(runtime: CnnRuntimeInfo): Boolean = runtime.actualEp != null && runtime.requestedEp != runtime.actualEp
 
+/**
+ * `v6-80 @ 80x80` — which bundled model attached, and the size it is being fed.
+ *
+ * Both halves are what the app MEASURED, never what the settings asked for: the name is the
+ * directory that was really staged and the size is the tensor built from that model's own
+ * `config.json`. An A/B on a real board is worth nothing if the panel cannot attribute what was
+ * just seen to a model, and the input size is the difference the three of them are here to test.
+ */
+internal fun modelLine(runtime: CnnRuntimeInfo): String {
+    val name = runtime.modelDir ?: "-"
+    val size =
+        runtime.inputShape
+            ?.split("x")
+            ?.takeLast(2)
+            ?.joinToString("x")
+    return if (size == null) name else "$name @ $size"
+}
+
 @androidx.compose.runtime.Composable
 internal fun epTone(runtime: CnnRuntimeInfo): Color = if (epFellBack(runtime)) Busy else Accent
 
@@ -94,7 +112,10 @@ fun CnnStatePanel(
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(attachLabel(state), style = MaterialTheme.typography.titleLarge, color = attachTone(state))
         StatRow("execution provider", epLine(runtime), epTone(runtime))
-        StatRow("model", runtime.model ?: "-", OnSurface)
+        // The model FIRST, and in its own row: three are bundled and switchable, so every other
+        // number on this screen is meaningless until this one is read.
+        StatRow("model", modelLine(runtime), Accent)
+        StatRow("graph", runtime.model ?: "-", OnSurface)
         StatRow("input shape", runtime.inputShape ?: "-", OnSurface)
         StatRow("last infer ms (session only)", fmt(runtime.lastRunMs, 1), OnSurface)
         StatRow("observations", runtime.observations.toString(), OnSurface)
