@@ -74,8 +74,17 @@ class CnnRecovery(
     override val minAgreement: Double get() = config.minAgreement
 
     /**
-     * `cnn_recovery.py:159 score_moves` — the legal move whose resulting OCCUPANCY best
+     * `cnn_recovery.py:175 score_moves` — the legal move whose resulting OCCUPANCY best
      * explains the observation over the confident squares.
+     *
+     * The position AS IT STANDS is one of the rivals, not the baseline the moves are measured
+     * against. Without it a SINGLE square the model reads as wrongly empty fabricates a move
+     * whenever exactly one legal move vacates that square: "no move" and that move then explain
+     * the observation equally well, and only the move gets ranked. Observed live (30.07.2026) as
+     * a phantom g6 — the g7 pawn stood on the square's upper edge, read `p(occupied) = 0.13`, and
+     * g7g6 won 58/59 against a field whose best rival was 57/59. [deriveMovesDeepFull] has always
+     * seeded its beam with the empty sequence for exactly this reason; this is the same rule one
+     * search shallower.
      */
     fun scoreMoves(
         board: Board,
@@ -85,19 +94,19 @@ class CnnRecovery(
         val n = confSquares.size
         var result = ScoredMove(null, NO_AGREEMENT, NO_AGREEMENT)
         if (n >= config.minConfidentRecovery) {
-            val picked =
-                pick(board.legalMoves().map { listOf(it) to board.clone().also { b -> b.doMove(it) } }) { b ->
-                    confSquares.count { obs.occupied(it) == (b.getPiece(squareOf(it)) != Piece.NONE) }
-                }
+            val hitsOf = { b: Board ->
+                confSquares.count { obs.occupied(it) == (b.getPiece(squareOf(it)) != Piece.NONE) }
+            }
+            val picked = pick(board.legalMoves().map { listOf(it) to board.clone().also { b -> b.doMove(it) } }, hitsOf)
+            val rival = maxOf(picked.second, hitsOf(board))
             val best = frac(picked.hits, n)
-            val second = frac(picked.second, n)
             // Margin in SQUARES: promotion variants (e7e8q vs e7e8r) are occupancy-identical
             // (0 squares apart) -> intentionally no answer.
             val accepted =
                 picked.seq.isNotEmpty() &&
                     best >= config.minAgreement &&
-                    (picked.hits - picked.second) >= config.marginSquares
-            result = ScoredMove(if (accepted) picked.seq.first() else null, best, second)
+                    (picked.hits - rival) >= config.marginSquares
+            result = ScoredMove(if (accepted) picked.seq.first() else null, best, frac(rival, n))
         }
         return result
     }

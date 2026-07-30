@@ -70,6 +70,29 @@ class RecoveryTest {
         assertClose(1.0, scored.best, "best is still reported")
     }
 
+    /**
+     * The live phantom of 30.07.2026: the board never changed, but the g7 pawn stood on the
+     * square's upper edge and read `p(occupied) = 0.13`. g7g6 is the only legal move that vacates
+     * g7 (g7g5 is blocked by the knight), so it explained the observation exactly as well as
+     * standing still — 58 of 59 confident squares — and won a field whose best rival was 57.
+     */
+    @Test
+    fun `one square read as wrongly empty does not fabricate a move`() {
+        val board = Board().also { it.loadFromFen(PHANTOM_FEN) }
+        val obs = FakeSquareClassifier(PHANTOM_FEN, overrides = mapOf("g7" to ("empty" to 0.99))).observe()
+        val scored = RECOVERY.scoreMoves(board, obs)
+        assertNull(scored.move, "a move that only explains an absence is not evidence")
+        assertEquals(scored.best, scored.second, "g7g6 ties with the position as it stands")
+    }
+
+    @Test
+    fun `the standing position is a rival, not a veto - a move explaining more still wins`() {
+        val obs = FakeSquareClassifier(fenAfter("e2e4"), overrides = mapOf("g7" to ("empty" to 0.99))).observe()
+        val scored = RECOVERY.scoreMoves(startBoard(), obs)
+        assertEquals("e2e4", scored.move?.let { uciOf(it) })
+        assertClose(63.0 / 64.0, scored.best, "one unrelated square is missed")
+    }
+
     @Test
     fun `verify_move is local - a far misread does not lower a correct e2e4`() {
         val obs = FakeSquareClassifier(fenAfter("e2e4"), overrides = mapOf("c6" to ("bN" to 0.99))).observe()
@@ -99,6 +122,9 @@ class RecoveryTest {
     private companion object {
         const val THR = 0.85
         const val START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+        /** The position the phantom g6 was committed from (session 20260730-160914, ply 15). */
+        const val PHANTOM_FEN = "r1bqkb2/pppp1pp1/2n2n2/1B2p1Nr/4P3/2NP4/PPP2P1P/R1BQK1R1 b Qq - 4 10"
         val RECOVERY = CnnRecovery()
 
         fun startBoard(): Board = Board().also { it.loadFromFen(START_FEN) }
