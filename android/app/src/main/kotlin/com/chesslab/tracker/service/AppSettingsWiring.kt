@@ -18,19 +18,21 @@ import com.chesslab.tracker.settings.SettingsRepository
 // `cameraRequestFor`, and the other three here.
 
 /**
- * `modelAsset` and `epRequest`, plus the requested-vs-actual record 07b renders.
+ * `modelDir`, `modelAsset` and `epRequest`, plus the requested-vs-actual record 07b renders.
  *
  * [Attached] carries the classifier's MEASURED answer, never the request: a quiet fall-through from
  * the NPU to the CPU is the same failure as a silent attach failure, one rung softer — same fps, ten
  * times the latency (MEMORY `android-live-bringup-2607`). `classifier.backend` is what ORT's own
- * profile saw execute, so this line cannot repeat a wish back as a result.
+ * profile saw execute, so this line cannot repeat a wish back as a result. `staged.dir.name` is the
+ * model that was really staged for the same reason — with three bundled models an A/B is worthless
+ * if the panel echoes the request back instead of naming what ran.
  */
 fun openClassifier(
     context: Context,
     app: AppSettings,
     probe: CnnRuntimeProbe,
 ): Attached {
-    val staged = CnnModelAssets.fromAssets(context, graph = app.modelAsset).stage()
+    val staged = CnnModelAssets.fromAssets(context, app.modelDir, app.modelAsset).stage()
     val classifier = OnnxSquareClassifier.open(staged, AndroidCnnLog, app.epRequest)
     probe.requestedEp = requestedBackend(staged, app.epRequest)
     probe.actualEp = classifier.backend

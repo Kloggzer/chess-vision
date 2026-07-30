@@ -21,6 +21,7 @@ import com.chesslab.tracker.geometry.calibrationStore
 import com.chesslab.tracker.geometry.withCropSizeOf
 import com.chesslab.tracker.pipeline.CameraRate
 import com.chesslab.tracker.pipeline.StageTimings
+import com.chesslab.tracker.settings.AppSettings
 import com.chesslab.tracker.settings.DataStoreConfigStore
 import com.chesslab.tracker.settings.SettingsRepository
 import com.chesslab.tracker.speech.MoveAnnouncer
@@ -255,7 +256,7 @@ class TrackerService :
     private suspend fun start() {
         settings.load()
         // Before the geometry, because the geometry follows it.
-        modelSpec = declaredModelSpec(this, settings.appSettings.value.modelAsset)
+        modelSpec = declaredModelSpec(this, settings.appSettings.value)
         geometry = adoptStoredOrientation(calibration, settings).withCropSizeOf(modelSpec)
         swapStack()
         // Before the bind, so the FIRST binding already asks for the persisted mode instead of
@@ -277,9 +278,11 @@ class TrackerService :
      */
     override fun restartTracker() {
         lifecycleScope.launch {
-            // `modelAsset` is a restart-required knob, so the size it declares is re-read here for
-            // the same reason the camera request is: the next stack must crop for the next model.
-            modelSpec = declaredModelSpec(this@TrackerService, settings.appSettings.value.modelAsset)
+            // `modelDir`/`modelAsset` are restart-required knobs, so the size the model declares is
+            // re-read here for the same reason the camera request is: the next stack must crop for
+            // the next model. Switching from the 96 px model to the 80 px one and keeping 96 px
+            // crops would kill the first observation of the new stack.
+            modelSpec = declaredModelSpec(this@TrackerService, settings.appSettings.value)
             geometry =
                 calibration
                     .applyOrientation(settings.appSettings.value.orientation.whitePov)
@@ -371,8 +374,10 @@ class TrackerService :
  */
 private suspend fun declaredModelSpec(
     context: Context,
-    asset: String,
+    app: AppSettings,
 ): ModelSpec? =
     withContext(Dispatchers.IO) {
-        runCatching { ModelSpec.parse(CnnModelAssets.fromAssets(context, graph = asset).stage().configJson) }.getOrNull()
+        runCatching {
+            ModelSpec.parse(CnnModelAssets.fromAssets(context, app.modelDir, app.modelAsset).stage().configJson)
+        }.getOrNull()
     }
