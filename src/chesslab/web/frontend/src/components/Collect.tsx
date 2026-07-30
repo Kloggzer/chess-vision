@@ -5,6 +5,47 @@ import { Card, Button, Select, noteCls } from "./ui";
 
 const input = "rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-100 outline-none focus:border-sky-500";
 
+type CamMode = { name: string; width: number | null; height: number | null; label: string };
+/** What the backend measured about the shared capture — `delivered` comes from real frames. */
+type CamInfo = {
+  open: boolean; source: string | null; url_source: string | null; modes_apply: boolean;
+  mode: string; requested: number[] | null; delivered: number[] | null;
+  matches: boolean | null; undistort: boolean;
+};
+
+const size = (s: number[] | null) => (s ? `${s[0]}×${s[1]}` : "?");
+
+/** Camera facts under the live image: the DELIVERED resolution (never the requested one),
+ *  a loud note when the driver ignored the request, and the lens-correction state. */
+function CameraFacts({ cam }: { cam: CamInfo | null }) {
+  if (!cam) return null;
+  return (
+    <div className="mt-2 space-y-1 text-xs">
+      <div className="text-zinc-400">
+        {cam.delivered
+          ? <>Delivered <b className="text-zinc-200">{size(cam.delivered)}</b></>
+          : <>waiting for the first frame…</>}
+        <span className="text-zinc-500"> · mode {cam.mode || "default"}</span>
+        <span className={cam.undistort ? " text-emerald-400" : " text-zinc-500"}>
+          {" "}· lens correction {cam.undistort ? "on" : "off (no data/lens/calib.npz)"}
+        </span>
+      </div>
+      {cam.matches === false && (
+        <div className="rounded-lg bg-amber-950/60 px-2 py-1 text-amber-300">
+          Camera ignored the request: asked for <b>{size(cam.requested)}</b>, delivers{" "}
+          <b>{size(cam.delivered)}</b>. Everything downstream uses the delivered size.
+        </div>
+      )}
+      {cam.url_source && (
+        <div className="text-zinc-500">
+          Source <b className="text-zinc-400">{cam.url_source}</b> (CHESSLAB_CAMERA_SOURCE)
+          — a URL takes no resolution request, the selector does not apply.
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Strategy-specific controls (coverage / sweep / default). */
 function StrategyControls({ coverage, sweep, sets, setSets, count, setCount, passes, setPasses, pieces, setPieces, together, setTogether, offset, setOffset, autoOffset, setAutoOffset, maxPlies, setMaxPlies, input: inputCls }: {
   coverage: boolean; sweep: boolean;
@@ -70,6 +111,9 @@ export default function Collect() {
   const [autoOffset, setAutoOffset] = useState(true);
   const [profile, setProfile] = useState("default");
   const [cam, setCam] = useState(0);
+  const [res, setRes] = useState("");              // "" = whatever config.CAMERA says
+  const [modes, setModes] = useState<CamMode[]>([]);
+  const [camInfo, setCamInfo] = useState<CamInfo | null>(null);
   const coverage = strategy === "coverage";
   const sweep = strategy === "sweep";
   const [st, setSt] = useState<any>({ active: false });
@@ -79,17 +123,27 @@ export default function Collect() {
 
   useEffect(() => {
     api("/api/collect/state").then(setSt).catch(() => {});
+    api<{ modes: CamMode[]; camera: CamInfo }>("/api/camera/modes")
+      .then((m) => { setModes(m.modes); setCamInfo(m.camera); })
+      .catch(() => {});
     return () => clearInterval(timer.current);
   }, []);
 
   const poll = () => api("/api/collect/state").then(setSt).catch(() => {});
+  // The polled state carries the live camera facts; before Start we only have the ones
+  // from /api/camera/modes.
+  const camFacts: CamInfo | null = st.camera ?? camInfo;
+  const modesApply = camFacts ? camFacts.modes_apply : true;
+  let resHint = "Capture mode requested from the USB camera. What it really delivers is shown under the live image.";
+  if (!modesApply) resHint = "An IP-camera URL (CHESSLAB_CAMERA_SOURCE) is in charge — it takes no resolution request.";
+  else if (st.active) resHint = "Fixed while a session records (the session log states one frame size) — press Done first.";
 
   async function start() {
     setMsg(""); setMsgKind("");
     try {
       const s = await post("/api/collect/start", {
         strategy, max_plies: maxPlies, profile, camera: cam, sets, count, passes, pieces, together,
-        offset, auto_offset: autoOffset,
+        offset, auto_offset: autoOffset, res: modesApply ? res : "",
       });
       setSt(s);
       clearInterval(timer.current);
@@ -144,6 +198,12 @@ export default function Collect() {
             <input value={profile} onChange={(e) => setProfile(e.target.value)} className={`${input} w-28`} /></label>
           <label className="flex items-center gap-2 text-sm text-zinc-400">Camera
             <input type="number" value={cam} onChange={(e) => setCam(+e.target.value)} className={`${input} w-16`} /></label>
+          <Select label="Resolution" value={res} onChange={(e) => setRes(e.target.value)}
+            disabled={!modesApply || st.active} title={resHint}>
+            <option value="">default (config)</option>
+            {modes.filter((m) => m.width != null)
+              .map((m) => <option key={m.name} value={m.name}>{m.label}</option>)}
+          </Select>
           {!st.active
             ? <Button variant="primary" onClick={start}><Play className="h-4 w-4" /> Start game</Button>
             : <Button onClick={finish}><CheckCircle2 className="h-4 w-4" /> Done</Button>}
@@ -155,6 +215,7 @@ export default function Collect() {
         <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
           <Card title="Live camera">
             <img src="/api/camera/collect.mjpg" alt="Live capture" className="w-full rounded-lg border border-zinc-800" />
+            <CameraFacts cam={camFacts} />
           </Card>
           <Card title="Capture">
             <div className="space-y-3">
