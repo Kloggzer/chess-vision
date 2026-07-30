@@ -412,7 +412,14 @@ def dataset_build_cmd(
     name: str = typer.Argument(..., help="Name of the dataset."),
     sessions: str = typer.Option(..., "--sessions", help="Comma-separated session IDs."),
     per_cell_cap: int = typer.Option(config.DEDUP.per_cell_cap, "--cap", help="Max. crops per (session,square,piece)."),
-    no_phash: bool = typer.Option(False, "--no-phash", help="Disable perceptual hash dedup."),
+    # Reads the config default instead of hardcoding one: `--no-phash` used to default to False,
+    # so the CLI forced `phash_enabled=True` whatever `config.DEDUP` said — the setting was
+    # unreachable from the one place the project keeps its policy.
+    phash: bool = typer.Option(config.DEDUP.phash_enabled, "--phash/--no-phash",
+                               help="Perceptual-hash dedup (dhash). OFF by default since "
+                                    "2026-07-30: it discarded 54.8% of the corpus, none of it "
+                                    "pixel-identical, and cost 42 misses against 17. See "
+                                    "config.DedupDefaults."),
     hamming: int = typer.Option(config.DEDUP.phash_hamming, "--hamming"),
     rotate: bool = typer.Option(False, "--rotate/--no-rotate",
                                 help="90/180/270° augmentation (off by default: quadruples the train split "
@@ -435,7 +442,7 @@ def dataset_build_cmd(
     srcs = [s.strip() for s in source_manifest.split(",") if s.strip()] if source_manifest else None
     try:
         res = db.build_dataset(name, sids, source_manifest=srcs,
-                               per_cell_cap=per_cell_cap, phash_enabled=not no_phash,
+                               per_cell_cap=per_cell_cap, phash_enabled=phash,
                                phash_hamming=hamming,
                                rotations=(config.DEDUP.rotations_augmented if rotate else config.DEDUP.rotations),
                                allow_degenerate=allow_degenerate, pack=not no_pack,
