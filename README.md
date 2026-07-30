@@ -289,6 +289,13 @@ The **checkpoint metric is board-accuracy** (all 64 squares correct), not square
 (ImageNet-pretrained). `model_card.json` carries the class list, `out_size`,
 normalization, metrics and torch version — the clean handoff to an inference app.
 
+**`export` bakes the input resolution into the graph**, at the run's own `infer_size`
+(`config.json`) — *not* at `out_size`, which is the size the crops on disk were built at. That key
+is how a model's serving resolution is changed: `--infer-size 96x96` writes it and exports at it,
+and everything that serves the model reads it back from the config. It must be one of the run's
+trained `scales`; an untrained size fails silently (80 px costs the occupancy champion 133 misses
+against 96 px's 19). See `docs/data-pipeline.md` §11 and `specs/22-inference-resolution/`.
+
 **Model heads (`--head`).** Three interchangeable heads, all emitting 14-class outputs so
 eval/inference are identical: `combined` (one flat 14-class head, default), `factored`
 (decoupled type×color), and `twostage` (hierarchical **occupancy→piece**: a binary
