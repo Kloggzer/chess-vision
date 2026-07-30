@@ -52,7 +52,8 @@ class RunSpec:
     Tells all consumers how to crop a frame for this model."""
     run_dir: Path
     classes: list[str]
-    out_size: tuple[int, int]   # (W, H)
+    out_size: tuple[int, int]   # (W, H) the crops on disk were built at — a DATASET property
+    infer_size: tuple[int, int]  # (W, H) the exported graph takes — a MODEL property (specs/22)
     geometry: str               # "warp" | "box3d"
     photometry: str             # "none" | "clahe" | "grayworld" | "gamma"
     piece_height_cells: float
@@ -75,6 +76,11 @@ def run_spec(run_dir: Path) -> RunSpec:
     classes = cfg.get("classes", config.CLASSES)
     out_size_raw = cfg.get("out_size", [96, 128])
     out_size = (int(out_size_raw[0]), int(out_size_raw[1]))
+    # The one reader of the inference size. Imported here, not at module level: `torch_data` pulls
+    # in the torch stack and this module must stay importable without it.
+    from .training.torch_data import infer_size_of
+
+    infer_size = infer_size_of({**cfg, "out_size": out_size})
 
     variant = cfg.get("variant")
     if variant and isinstance(variant, dict):
@@ -82,6 +88,7 @@ def run_spec(run_dir: Path) -> RunSpec:
             run_dir=run_dir,
             classes=classes,
             out_size=out_size,
+            infer_size=infer_size,
             geometry=variant.get("geometry", "warp"),
             photometry=variant.get("photometry", "none"),
             piece_height_cells=float(variant.get("piece_height_cells", config.EXP_PIECE_HEIGHT_CELLS)),
@@ -102,6 +109,7 @@ def run_spec(run_dir: Path) -> RunSpec:
         run_dir=run_dir,
         classes=classes,
         out_size=out_size,
+        infer_size=infer_size,
         geometry=geometry,
         photometry=photometry,
         piece_height_cells=float(piece_height_cells),
@@ -209,16 +217,19 @@ def crops_for_model(frame: np.ndarray, corners, profile, spec: RunSpec) -> list[
     """64 BGR crops (order `labeling.all_squares()`) for one frame,
     exactly with the geometry/photometry of the given `RunSpec`.
 
+    Crops come out at `spec.infer_size` — the size the network takes, NOT the size the training
+    crops on disk were built at. The square is cut out of the warped board straight at that size,
+    so there is no intermediate 128 px step and nothing is resampled twice (specs/22).
+
     Thin wrapper around `labeling.crops_for_frame` — the geometry implementation
     stays there (single source of truth).
     """
-    out_size = spec.out_size
     return labeling.crops_for_frame(
         frame, corners, profile,
         geometry=spec.geometry,
         photometry=spec.photometry,
         piece_height_cells=spec.piece_height_cells,
-        out_size=out_size,
+        out_size=spec.infer_size,
     )
 
 
@@ -281,7 +292,7 @@ class _CudaGraphPredictor:
             self._static_out = self._model(self._static_in)
 
     def __call__(self, crops: list[np.ndarray]):
-        """``crops``: up to ``_GRAPH_BATCH`` BGR uint8 HWC arrays at model out_size.
+        """``crops``: up to ``_GRAPH_BATCH`` BGR uint8 HWC arrays at the model's inference size.
         Returns float32 logits ``(len(crops), n_classes)`` on the GPU."""
         import torch
 
@@ -338,12 +349,16 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
         return []
     import torch
 
+    from .training.torch_data import infer_size_of
+
     model, cfg = load_run(run_dir, device)
     classes = cfg["classes"]
-    out_size = tuple(cfg["out_size"])
-    out_h, out_w = out_size[1], out_size[0]
+    # The size the graph takes (specs/22) — comparing against the crops' build size would send
+    # every already-correctly-sized crop down the slow PIL path forever.
+    infer_size = infer_size_of(cfg)
+    out_h, out_w = infer_size[1], infer_size[0]
 
-    # Fast path: when all crops are already at out_size, vectorize preprocessing
+    # Fast path: when all crops are already at the inference size, vectorize preprocessing
     all_at_size = all(c.shape[0] == out_h and c.shape[1] == out_w for c in crops)
 
     # CUDA-graph fast path (torch model on GPU, uniform crops, <= capture size):
@@ -380,7 +395,7 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
 
             from .training.torch_data import eval_transform_for
 
-            tf = eval_transform_for(cfg, out_size)
+            tf = eval_transform_for(cfg, infer_size)
             batch = torch.stack(
                 [tf(Image.fromarray(c[:, :, ::-1].copy())) for c in crops]
             ).to(device)  # BGR->RGB
@@ -418,11 +433,13 @@ def predict_rows(run_dir: Path, rows: list[dict], device: str = "cpu",
     import torch
     from torch.utils.data import DataLoader
 
-    from .training.torch_data import SquareDataset, build_transform
+    from .training.torch_data import SquareDataset, build_transform, infer_size_of
 
     model, cfg = load_run(run_dir, device)
     classes = cfg["classes"]
-    out_size = tuple(cfg["out_size"])
+    # Inference, not evaluation: the crops on disk are at `out_size`, the model wants `infer_size`
+    # (specs/22). `chesslab eval` is the path that deliberately stays at the built size.
+    infer_size = infer_size_of(cfg)
     # Fused datasets (mm:// rows) have no crop files — route through the packed memmap.
     if rows and str(rows[0].get("path", "")).startswith("mm://"):
         from .training.pack import load_packed
@@ -431,9 +448,9 @@ def predict_rows(run_dir: Path, rows: list[dict], device: str = "cpu",
             raise ValueError("fused dataset without a valid packed memmap — re-run "
                              "`chesslab dataset build-synth`.")
         from .training.torch_data import PackedSquareDataset
-        ds = PackedSquareDataset(rows, classes, build_transform(out_size, train=False), packed)
+        ds = PackedSquareDataset(rows, classes, build_transform(infer_size, train=False), packed)
     else:
-        ds = SquareDataset(rows, classes, build_transform(out_size, train=False))
+        ds = SquareDataset(rows, classes, build_transform(infer_size, train=False))
     loader = DataLoader(ds, batch_size=batch_size, shuffle=False)
 
     results: list[dict] = []
