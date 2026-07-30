@@ -128,11 +128,11 @@ crashed a live game once already.
 - **Exactly one training run may be in flight across the whole pack.** Before any `chesslab train`,
   create `data/_perf/.gpu-lock` containing your phase number; remove it when the run exits. If the
   file exists and is not yours, **wait or stop and record it in `STATUS.md`** — never run anyway.
-- One chain per phase, **`--num-workers 8`** (raised from 4 on 2026-07-30 — the box has 20 cores and
-  the user cleared it), minimum epochs that answer the question. No throughput benchmarking, no
-  hyper-parameter sweeps, no "let me try one more seed". If a run hangs at startup, drop back to 4:
-  `sweep_infer_size.py` documents a DataLoader deadlock on this machine at 4 workers in the path-B
-  context, so the ceiling is not purely a core count.
+- One chain per phase, **`--num-workers 4`**, minimum epochs that answer the question. No throughput
+  benchmarking, no hyper-parameter sweeps, no "let me try one more seed". 4 is the user's setting
+  and the one every run on the scoreboard used — it is not a guess to be re-optimised, and
+  `sweep_infer_size.py` documents a DataLoader deadlock on this box at 4 in its path-B context, so
+  the ceiling is not a core count.
 - Evaluation (`sweep_infer_size.py`) is cheap (~16 s for 110 boards) and needs no lock.
 
 ## Git hygiene
