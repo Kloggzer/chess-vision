@@ -239,7 +239,8 @@ def fake_videocapture(monkeypatch):
     return None
 
 
-def test_collect_capture_is_undistorted_when_a_calibration_exists(fake_videocapture, tmp_path):
+@pytest.mark.usefixtures("fake_videocapture")
+def test_collect_capture_is_undistorted_when_a_calibration_exists(tmp_path):
     _write_calib(tmp_path / "calib.npz")
     web_cam.CAMERA.ensure(0, "1080p")
     assert isinstance(web_cam.CAMERA.cap, cam._UndistortCapture)
@@ -247,7 +248,8 @@ def test_collect_capture_is_undistorted_when_a_calibration_exists(fake_videocapt
     assert web_cam.CAMERA.read().shape == (480, 640, 3)      # size preserved by the remap
 
 
-def test_no_calibration_means_no_wrapper_and_no_claim(fake_videocapture):
+@pytest.mark.usefixtures("fake_videocapture")
+def test_no_calibration_means_no_wrapper_and_no_claim():
     """The zero-calibration case is a plain capture — undistortion is a no-op, not a branch."""
     web_cam.CAMERA.ensure(0, "1080p")
     assert not isinstance(web_cam.CAMERA.cap, cam._UndistortCapture)

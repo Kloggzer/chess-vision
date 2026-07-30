@@ -103,6 +103,13 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
 
 - `uv run pytest -q` (or `.venv/Scripts/python.exe -m pytest -q`) must be green.
 - `uv run ruff check src tests synth` — lint gate.
+- `uv run vulture` — **dead code**. ruff's `F` rules only see one file at a time (unused
+  imports, unused locals); an exported function nobody calls is invisible to them. Configured
+  in `pyproject.toml`, currently silent — keep it that way rather than adding a whitelist.
 - Frontend changes: `cd src/chesslab/web/frontend && npm run build` (output is
-  committed under `web/static/`); `npm run lint` must not add new errors.
+  committed under `web/static/`); `npm run lint` must not add new errors; `npm run knip` —
+  dead files, exports and dependencies — must stay silent.
+- Android: `gradlew.bat :app:ktlintCheck :app:detekt`. Note detekt's unused rules
+  (`UnusedPrivateMember`, `UnusedParameter`, `UnusedImports`) only see **private** scope — an
+  `internal`/`public` function nobody calls is not detected by anything in this repo.
 - Do not commit `data/`, `scans/`, `synth_pieces/`, `wheels/` (gitignored).

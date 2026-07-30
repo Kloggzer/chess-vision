@@ -95,7 +95,8 @@ def test_pack_removes_progress_sidecar_when_complete(tmp_path, paths):
     assert not (dd / "packed_progress.json").exists()
 
 
-def test_many_small_chunks_not_one_big(tmp_path, paths, monkeypatch, serial_pool):
+@pytest.mark.usefixtures("serial_pool")
+def test_many_small_chunks_not_one_big(tmp_path, paths, monkeypatch):
     """Chunk size follows _PACK_CHUNK_BYTES — that is what bounds a worker's mapping."""
     dd, _ = _make_dataset(tmp_path, 20)
     monkeypatch.setattr(pack_mod, "_PACK_CHUNK_BYTES", 4 * CROP * CROP * 3)  # 4 crops per chunk
@@ -114,7 +115,8 @@ def test_many_small_chunks_not_one_big(tmp_path, paths, monkeypatch, serial_pool
     assert max(seen) == 4
 
 
-def test_resume_skips_already_packed_chunks(tmp_path, paths, monkeypatch, serial_pool):
+@pytest.mark.usefixtures("serial_pool")
+def test_resume_skips_already_packed_chunks(tmp_path, paths, monkeypatch):
     dd, _ = _make_dataset(tmp_path, 20)
     crop_bytes = CROP * CROP * 3
     monkeypatch.setattr(pack_mod, "_PACK_CHUNK_BYTES", 4 * crop_bytes)
@@ -143,7 +145,8 @@ def test_resume_skips_already_packed_chunks(tmp_path, paths, monkeypatch, serial
     assert sorted(starts) == [12, 16], f"resume re-ran the wrong chunks: {starts}"
 
 
-def test_resume_ignores_progress_with_stale_signature(tmp_path, paths, monkeypatch, serial_pool):
+@pytest.mark.usefixtures("serial_pool")
+def test_resume_ignores_progress_with_stale_signature(tmp_path, paths, monkeypatch):
     dd, _ = _make_dataset(tmp_path, 8)
     crop_bytes = CROP * CROP * 3
     monkeypatch.setattr(pack_mod, "_PACK_CHUNK_BYTES", 4 * crop_bytes)
@@ -168,8 +171,8 @@ def test_resume_ignores_progress_with_stale_signature(tmp_path, paths, monkeypat
     assert sorted(starts) == [0, 4], "stale signature must invalidate the resume state"
 
 
-def test_resume_refuses_when_manifest_changed_under_same_shape(tmp_path, paths, monkeypatch,
-                                                              serial_pool):
+@pytest.mark.usefixtures("serial_pool")
+def test_resume_refuses_when_manifest_changed_under_same_shape(tmp_path, paths, monkeypatch):
     """The silent-corruption case: same n/h/w, DIFFERENT crops.
 
     Without a content digest the already-allocated file is not re-truncated, the recorded chunks
@@ -217,8 +220,8 @@ def test_resume_refuses_when_manifest_changed_under_same_shape(tmp_path, paths, 
             f"change (got {arr[i].flat[0]}, expected {100 + i})")
 
 
-def test_interrupted_repack_does_not_leave_old_meta_published(tmp_path, paths, monkeypatch,
-                                                             serial_pool):
+@pytest.mark.usefixtures("serial_pool")
+def test_interrupted_repack_does_not_leave_old_meta_published(tmp_path, paths, monkeypatch):
     """A re-pack rewrites the file in place — the OLD meta must not survive the interruption.
 
     Otherwise load_packed serves a file that is half old pixels, half new, and its digest still
@@ -251,7 +254,8 @@ def test_interrupted_repack_does_not_leave_old_meta_published(tmp_path, paths, m
         "load_packed accepted a half-rewritten pack — the stale meta was left published")
 
 
-def test_incomplete_pack_does_not_publish_meta(tmp_path, paths, monkeypatch, serial_pool):
+@pytest.mark.usefixtures("serial_pool")
+def test_incomplete_pack_does_not_publish_meta(tmp_path, paths, monkeypatch):
     """A short/failed pack must not leave a meta file that load_packed would happily serve."""
     dd, _ = _make_dataset(tmp_path, 8)
     crop_bytes = CROP * CROP * 3
@@ -288,7 +292,8 @@ def test_load_packed_rejects_pack_from_a_different_manifest(tmp_path, paths, mon
         "load_packed served a pack that does not match the current manifest")
 
 
-def test_partial_last_chunk_is_packed_correctly(tmp_path, paths, monkeypatch, serial_pool):
+@pytest.mark.usefixtures("serial_pool")
+def test_partial_last_chunk_is_packed_correctly(tmp_path, paths, monkeypatch):
     """n not divisible by csize — the last chunk is short and must still land at the right rows."""
     dd, _ = _make_dataset(tmp_path, 10)
     crop_bytes = CROP * CROP * 3

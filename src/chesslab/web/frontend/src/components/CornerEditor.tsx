@@ -36,7 +36,7 @@ function Dots({ dots }: { dots: { p: Pt; label: string; measured: boolean; fs: n
 }
 
 /** Rows a session cannot slice at all: no corners, no crops. */
-export function CornerBadge({ st }: { st: CornerState | undefined }) {
+function CornerBadge({ st }: { st: CornerState | undefined }) {
   if (!st) return null;
   if (!st.n_without) {
     const hand = st.rows.filter((r) => r.source === "hand" || r.source === "adopted").length;
