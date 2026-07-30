@@ -10,7 +10,7 @@ never rewrite another phase's entry.
 |---|---|---|---|---|
 | 00 | What does `board_size` cost, and which `infer_size` ships? | **done** | 00 | **`infer_size` = 96 px, chosen on the test leg. Phase 02 is GO.** `board_size` 1600 buys nothing at inference — negative result, see below. Profile untouched. |
 | 01 | Wire `ModelSpec`'s size into `BoardGeometry` so the app can make the crops | **done** | 01 | `TrackerService` is the site. `withCropSizeOf(spec)`; null ⇒ 128. Byte-identical at 128, proven. |
-| 02 | Ship `occ-v4-f3e20` at that size | todo | — | Blocked by 00 **and** 01. Does not run if 00 says STOP. |
+| 02 | Ship `occ-v4-f3e20` at that size | **done** | 02 | Shipped at 96 px, no Kotlin change needed. **The QUANTIZED graph could not follow** and was dropped, not replaced — an out-of-scope bug in `training/quantize.py`, see below. |
 
 States: `todo` → `in progress` → `done` | `blocked`.
 
@@ -203,6 +203,85 @@ task was not run.
    change this phase — the box is untouched either way — but phase 02 should not quote 240 px as the
    phone's real box.
 
+## Phase 02 — the swap
+
+`android/app/src/main/assets/cnn_model/` now holds `occ-v4-f3e20` at **96 px**. Exported, never
+hand-edited; both files are sha256-identical to `data/models/occ-v4-f3e20/`
+(`model.onnx` `10ed5764…`, `config.json` `3cae395a…` — LF-normalised, see discrepancy 3).
+
+**No Kotlin change was needed, and that was checked rather than assumed.** Every key `ModelSpec`
+reads is identical between the outgoing and incoming runs:
+
+| key | `occ-r3s-f3` (out) | `occ-v4-f3e20` (in) | |
+|---|---|---|---|
+| `classes` | `["empty","occupied"]` | `["empty","occupied"]` | same — `requireExpectedClasses` accepts the 2-class occupancy order |
+| `out_size` | `[128, 128]` | `[128, 128]` | same — the crops on disk, untouched by this pack |
+| `normalize.mean/std/mode` | ImageNet / `"fixed"` | ImageNet / `"fixed"` | same ⇒ `perCrop = false` both |
+| `input_repr` / `in_chans` | `rgb` / 3 | `rgb` / 3 | same ⇒ `channels = 3` both |
+| **`infer_size`** | **`[128, 128]`** | **`[96, 96]`** | **the only difference** |
+
+The rest of the diff (`resumed_from`, `aug.bg_p` 0.15→0.6, `class_weight_override` `{occupied: 3.0}`→`{}`,
+`effective_class_weights.occupied` 3.0→2.0) is training provenance that no consumer reads. The
+dropped `occupied: 3.0` weight is the one MEMORY blames for the live phantoms
+(`per-cell-cap-is-the-real-filter`), which is consistent with the new model measuring 0 of them.
+
+### BLOCKER carried out of this phase — no quantized graph, and it is not phase 02's to fix
+
+`model.qnn.onnx` was **dropped from the asset directory**, not replaced.
+
+- **Cause**, out of scope for this phase (`src/chesslab/**` is off limits to it):
+  `training/quantize.py:114` builds the calibration batch with `eval_transform_for(cfg)`, which
+  resizes to `cfg["out_size"]` and never consults `infer_size_of`. Against a 96 px graph the
+  calibrator therefore feeds a 128 px tensor and ORT refuses it:
+  `InvalidArgument … index: 2 Got: 128 Expected: 96`. Reproduces with the phase file's own command
+  (`chesslab export --format all`) and with `chesslab quantize --run data/models/occ-v4-f3e20`
+  standalone. **The one-line fix is `eval_transform_for(cfg, infer_size_of(cfg))`** plus a decision
+  about whether calibrating a 96 px graph on 128 px source crops downscaled to 96 is the same
+  preprocessing serving does (it is — serving scales its crop box to `infer_size` too).
+- **Why dropping beats keeping the old one.** The graph in the tree was the *incumbent's* weights at
+  128×128. Keeping it would leave a graph in the asset directory that contradicts the `config.json`
+  beside it and belongs to a different model — exactly the drift `b24f1f3` produced. Nothing can run
+  it today either: the QNN AAR is not a dependency of this build (`app/build.gradle.kts:89-95`,
+  84.7 MB removed), `StagedModel.qnn` is nullable by design, and `epChain` skips the QNN EP when the
+  graph is absent. A QNN-capable build with no quantized graph runs on XNNPACK/CPU; a QNN-capable
+  build with the WRONG quantized graph throws in `OnnxSquareClassifier`'s init on every attach.
+- **Consequence for the NPU direction**: re-adding QNN now needs the quantize fix first. Old model
+  reachable in git at `fc3abfb`.
+
+### Follow-up, also out of this phase's scope — the sim harness cuts 128 px crops
+
+`app/src/test/.../tracker/sim/ClipPipeline.kt:53` builds `BoardGeometry(boardSize = clip.boardSize)`
+with no `withCropSizeOf`, so `CnnClipSimulationTest` will now die on
+`crop 0 is 128x128, expected 96x96` at the first observation. **Not a gate** — the class is
+`@EnabledIfSystemProperty("chesslab.sim")` and opt-in — and not in this phase's file scope, but the
+18-clip CNN harness is unusable until it takes its crop size from the model the same way
+`TrackerService` now does. It fails loudly, never silently.
+
+### Discrepancies found against the spec
+
+1. **`--format all` cannot export this run.** The phase file's step 2 command fails on the `qnn`
+   leg (above) after writing `model.onnx` and `model.torchscript.pt`, and returns non-zero without
+   writing `model_card.json`. `--format onnx` was used instead. Re-exporting was idempotent to the
+   byte: the resulting `model.onnx` is sha256-identical to the one already in the run directory.
+2. **`--infer-size 96x96` was passed but was a no-op** — `occ-v4-f3e20`'s `config.json` already
+   carried `infer_size: [96, 96]`, exactly as phase 00 recorded. Verified, not assumed.
+3. **"sha256-identical to the run directory" cannot survive a checkout for `config.json`.**
+   `.gitattributes` pins `*.json text eol=lf` while `chesslab export` writes it through Python's
+   default newline translation, i.e. CRLF on this machine. So the two files match byte-for-byte on
+   disk *now*, and both match the committed blob and the run directory once LF-normalised
+   (`629c713a…`), but a fresh checkout gives the asset LF against the run directory's CRLF. The
+   durable check is the graph's sha256 (`*.onnx binary`, exact: `10ed5764…`) plus the config's
+   parsed content.
+4. **Five existing tests had 128 written into them and read the real asset.** Three of them build
+   real ORT sessions, so those were shape mismatches rather than stale comments:
+   `BundledGraphShapeTest`, `OrtSessionRunnerTest`, `OnnxSquareClassifierContractTest`'s real-asset
+   test; plus `ModelSpecTest` (asserted `outWidth == 128`) and `EpRequestChainTest` (staged
+   `MODEL_QNN_FILE`, now absent). All now take the shape from `ModelSpec`, the one runtime reader.
+   The spec's "no Kotlin change should be needed" holds for `main/` — it did not hold for `test/`.
+5. **The stale `240 px` sightings are all correctly qualified.** `ModelSpec.kt:35` and
+   `ModelSpecTest.kt:53` say "on this app's *default* geometry", which is true; nothing in
+   `cnn/**` claims 240 is a calibrated phone's box. Left as they are, per phase 01's correction.
+
 ## Session log
 
 <!-- Append: date — phase — what was measured/changed — the numbers — what is left. -->
@@ -233,3 +312,27 @@ task was not run.
   clean after the `TooManyFunctions` fix above. Not run (orchestrator's gate): `assembleDebug`, the
   full unit-test task, instrumentation. **Phase 02 is unblocked** — 00 picked 96 px and the app can
   now produce it; nothing further is needed from 01 to ship it.
+
+- **2026-07-30 — phase 02 — the app now ships `occ-v4-f3e20` at 96 px.** Two commits on
+  `spec-23-resolution-all-the-way-down`: `2afb8e0` (asset) and `dc5e4d0` (tests). What it measured, on
+  `occ-real3`'s test split at the warp the app uses (phase 00's grid, not re-measured here):
+  **28 misses / 0 phantoms**, against the outgoing `occ-r3s-f3` @ 128 px's **99 / 146** — misses down
+  72 %, phantoms to zero, and the miss is the direction that cascades a fabricated game. No Kotlin
+  change in `main/`: verified key by key that `classes`, `out_size`, `normalize.mode`, `input_repr`
+  and `in_chans` are identical between the two runs and only `infer_size` moves (table above).
+  **Negative result, carried out as a blocker:** the quantized graph could NOT follow — `quantize.py`
+  calibrates at `out_size`, so `chesslab quantize` feeds a 128 px tensor to the 96 px graph and ORT
+  refuses it; `model.qnn.onnx` was dropped rather than left behind as the previous model's 128 px
+  graph. Nothing runs it today (no QNN AAR in this build), but re-adding the NPU path now needs that
+  one-line fix in `src/chesslab/` first. Second follow-up: the opt-in 18-clip
+  `CnnClipSimulationTest` will now throw, because `ClipPipeline` still cuts 128 px crops.
+  New `ModelSpecCropSeamTest` runs config.json → `ModelSpec` → `withCropSizeOf` → real warp →
+  `cropFrameSource` → real ORT session with no fake in the chain, and asserts the negative too: an
+  unwired 128 px geometry is refused by name, so phase 01's wiring is proven load-bearing.
+  Ran ONCE each: `:app:testDebugUnitTest --tests 'com.chesslab.tracker.cnn.*'` → **50 tests,
+  0 failures, 1 skipped** (the optional extra-model leg, which now correctly skips instead of
+  failing), and `:app:ktlintCheck :app:detekt` → clean, no `@Suppress`, no baseline entry. The first
+  test run found 3 failures in existing asset-reading tests (discrepancy 4) and was re-run after
+  fixing them. Not run (orchestrator's gate): `assembleDebug`, the full unit-test task,
+  instrumentation, `pytest`. Batch stays 64, norm stays GroupNorm, threshold stays argmax,
+  `phone.yaml` untouched. **The pack's phases are all done.**
