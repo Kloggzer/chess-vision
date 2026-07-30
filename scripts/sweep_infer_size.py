@@ -16,7 +16,8 @@ So the sweep runs twice and reports both:
 If A and B disagree about the optimum, A wins and B's disagreement is the finding: it would mean
 the crop pipeline, not the network, is where the resolution is lost.
 
-Reported per model x split x size x path, for the two-class occupancy models:
+Reported per model x split x size x path, on the occupancy question — for a two-class run
+directly, for an identity run through the summed piece mass (`occupancy_reader`):
 
 - argmax misses (true occupied read as empty) / phantoms (true empty read as occupied),
 - phantoms at the threshold that holds misses at `--miss-target` (the MATCHED operating point —
@@ -41,6 +42,7 @@ import math
 import os
 import sys
 import time
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import cv2
@@ -54,6 +56,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from chesslab import config, labeling  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
+from chesslab.move_tracker.cnn_recovery import classes_have_identity  # noqa: E402
 from chesslab.training.data import (  # noqa: E402
     filter_rows_by_split,
     load_manifest,
@@ -193,11 +196,38 @@ def install_at_size(run_dir: Path, model, cfg: dict, size: int) -> dict:
     return cfg_at_size
 
 
-def occupied_index(cfg: dict) -> int:
+def occupancy_reader(cfg: dict) -> Callable[[Sequence[float]], tuple[float, bool]]:
+    """`probs -> (P(occupied), read as occupied)` for this run's class list.
+
+    A **two-class** run answers the question directly: the `occupied` column *is* P(occupied) and
+    the argmax between the two columns is the verdict. That is the path every number in
+    `data/_perf/*.log` was measured on, so it is left alone.
+
+    An **identity** run (13 or 14 classes) has no `occupied` column. P(occupied) is then the summed
+    mass of the piece classes — `1 - P(empty) - P(occluded)`, clamped at 0 against float drift —
+    and the square reads as occupied when that mass beats P(empty). This is not a new metric: it is
+    `cnn_recovery.observation_from_probs` plus `OccupancyObservation.occupied`, i.e. exactly what
+    the tracker concludes from the same softmax (`Observations.kt:17` is the port of it and agrees).
+    Deriving a second definition here would measure a model nobody runs.
+    """
     classes = list(cfg["classes"])
-    if classes != ["empty", "occupied"]:
-        raise SystemExit(f"this sweep measures occupancy models; run has classes {classes}")
-    return classes.index("occupied")
+    if "empty" not in classes:
+        raise SystemExit(f"run has no `empty` class — nothing to measure occupancy against: {classes}")
+    i_empty = classes.index("empty")
+    if not classes_have_identity(classes):
+        if classes != config.OCCUPANCY_CLASSES:
+            raise SystemExit(f"this sweep measures occupancy; run has classes {classes}")
+        i_occ = classes.index("occupied")
+        return lambda p: (float(p[i_occ]), float(p[i_occ]) > float(p[i_empty]))
+    i_occl = classes.index("occluded") if "occluded" in classes else None
+
+    def read(p: Sequence[float]) -> tuple[float, bool]:
+        p_empty = float(p[i_empty])
+        p_occl = float(p[i_occl]) if i_occl is not None else 0.0
+        p_occ = max(0.0, 1.0 - p_empty - p_occl)
+        return p_occ, p_occ > p_empty
+
+    return read
 
 
 # --- path A: re-sliced from the session frames --------------------------------------------
@@ -270,13 +300,14 @@ def sweep_path_a(runs: dict[str, tuple], rows: list[dict], sizes: tuple[int, ...
                         out_size=(s, s))
                 crops = crops_by_variant[vkey]
                 cfg_at_size = install_at_size(run_dir, model, cfg, s)
-                occ = occupied_index(cfg_at_size)
+                read_occ = occupancy_reader(cfg_at_size)
                 preds = serving.predict_arrays(run_dir, [crops[j] for j in keep], device=device,
                                                return_probs=True)
+                seen = [read_occ(p["probs"]) for p in preds]
                 t_acc, p_acc, q_acc = acc[(name, s)]
                 t_acc.extend(truth)
-                p_acc.extend(p["pred_label"] == "occupied" for p in preds)
-                q_acc.extend(float(p["probs"][occ]) for p in preds)
+                p_acc.extend(o for _, o in seen)
+                q_acc.extend(q for q, _ in seen)
         if (i + 1) % 10 == 0 or i + 1 == len(groups):
             log(f"    path A {i + 1}/{len(groups)} frames ({time.time() - t0:.0f}s)")
 
@@ -300,7 +331,7 @@ def sweep_path_b(run_dir: Path, model, cfg: dict, rows: list[dict], sizes: tuple
     )
 
     classes = list(cfg["classes"])
-    occ = occupied_index(cfg)
+    read_occ = occupancy_reader(cfg)
     packed = load_packed(cfg["dataset"]) if cfg.get("dataset") else None
     model.to(device)
     out: dict[int, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
@@ -310,17 +341,20 @@ def sweep_path_b(run_dir: Path, model, cfg: dict, rows: list[dict], sizes: tuple
               else SquareDataset(rows, classes, tf))
         loader = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=num_workers,
                             pin_memory=True)
-        trues: list[int] = []
-        preds: list[int] = []
+        trues: list[bool] = []
+        preds: list[bool] = []
         probs: list[float] = []
         t0 = time.time()
         with torch.no_grad():
             for x, y in loader:
                 logits = model(x.to(device))
                 p = torch.softmax(logits.float(), dim=1).cpu()
-                trues.extend(y.tolist())
-                preds.extend(p.argmax(dim=1).tolist())
-                probs.extend(p[:, occ].tolist())
+                # Truth is "not empty", the same rule path A applies to its labels — for the
+                # 2-class list that is the class index itself, which is what this used to store.
+                trues.extend(classes[t] != "empty" for t in y.tolist())
+                seen = [read_occ(row) for row in p.tolist()]
+                preds.extend(o for _, o in seen)
+                probs.extend(q for q, _ in seen)
         out[s] = (np.array(trues, bool), np.array(preds, bool), np.array(probs, np.float64))
         log(f"    path B {s:>3} px: {len(trues)} crops ({time.time() - t0:.0f}s)")
     return out
@@ -422,11 +456,13 @@ def main() -> None:
     for name in run_names:
         run_dir = config.DATA.models / name
         model, cfg = load_torch_run(run_dir)
-        occupied_index(cfg)
+        occupancy_reader(cfg)                 # refuse a run we cannot score, before any GPU work
         model.to(device)
         runs[name] = (run_dir, model, cfg)
         log(f"loaded {name}: backbone={cfg['backbone']} norm={cfg.get('norm')} "
-            f"out_size={cfg['out_size']} scales={cfg.get('scales')} dataset={cfg['dataset']}")
+            f"out_size={cfg['out_size']} scales={cfg.get('scales')} dataset={cfg['dataset']} "
+            f"classes={len(cfg['classes'])} "
+            f"identity={classes_have_identity(list(cfg['classes']))}")
 
     if args.dataset:
         # A dataset whose TRAIN split differs from the run's would leak; the caller is trusted to
