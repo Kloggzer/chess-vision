@@ -147,7 +147,7 @@ def infer_size_of(cfg: dict) -> tuple[int, int]:
     `out_size`, which means "the size the crops on disk were built at": the two were the same
     number until phase 00 measured the deployment path, where `occ-v4-f3e20` reads 43 occupied
     squares as empty at 128 px and 19 at 96 px. What a crop actually carries is
-    `board_size / 8 * (1 + 2 * pad_side)` px — 110 on the fixed rig, 220 on the phone — so the
+    `board_size / 8 * (1 + 2 * pad_side)` px — 110 on the fixed rig, 240 on the phone — so the
     right input size is per model and per deployment, and lives with the model.
 
     Runs exported before specs/22 carry no key and were served at their crop size, so the fallback
