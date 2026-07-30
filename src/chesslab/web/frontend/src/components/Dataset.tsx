@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { api, post, del } from "../api";
 import { Card, Button, Glyph, noteCls } from "./ui";
+import CornerEditor from "./CornerEditor";
 
 const input = "rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-100 outline-none focus:border-sky-500";
 
@@ -272,9 +273,11 @@ export function SessionsPanel() {
             <div className="grid gap-3 lg:grid-cols-2">
               <div>
                 <div className="mb-1 text-xs font-medium text-zinc-500">
-                  ArUco-aligned frame{review.overlay_available ? "" : " (raw fallback)"}
+                  ArUco-aligned frame{review.overlay_available ? "" : " (raw fallback — this frame has no corners and cannot be sliced)"}
                 </div>
-                <img src={review.overlay_url} alt={`${reviewSid} overlay ${review.index + 1}`} className="max-h-[70vh] w-full rounded border border-zinc-800 object-contain" />
+                {/* labels=1: the corner/file/rank legend, so "is White at the bottom" is
+                    answerable from the picture instead of by assumption. */}
+                <img src={`${review.overlay_url}?labels=1`} alt={`${reviewSid} overlay ${review.index + 1}`} className="max-h-[70vh] w-full rounded border border-zinc-800 object-contain" />
               </div>
               <div>
                 <div className="mb-1 text-xs font-medium text-zinc-500">Logged board</div>
@@ -282,6 +285,12 @@ export function SessionsPanel() {
                 <div className="mt-2 break-all rounded bg-zinc-900 px-2 py-1 text-[11px] text-zinc-500">{review.entry?.fen}</div>
               </div>
             </div>
+          )}
+          {review && (
+            // Keyed on session+frame: stepping to another frame REMOUNTS the editor, so
+            // placed points can never leak from one frame's geometry into another's.
+            <CornerEditor key={`${reviewSid}:${review.index}`} sid={reviewSid} idx={review.index}
+                          onWritten={() => invalidate("session-review", "sessions-manage")} />
           )}
         </div>
       )}
