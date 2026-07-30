@@ -16,15 +16,28 @@ specs/25 spent a day chasing speed and its one "success" was a 99-node graph att
 with 267 phantoms. A decision made in 3 ms that could have been made with `random()` is worth
 nothing. So:
 
-**The floor — `occ-v6-f5nd` at 80 px on `occ-real6` test, path A:**
+**The floor is measured, never quoted.** Corrected 2026-07-30 after phase 02: the reference row this
+pack originally carried (0 phantoms / 11 misses / margin 0.238 / 0.343) **does not reproduce**. The
+same frozen command on the same checkpoint returns 1 phantom / 12 misses / 0.316 / 0.512 today,
+`git diff` over `src/` and `scripts/` is empty, and `data/calibration/phone.yaml` was recalibrated at
+15:17 against `occ-real6` being built at 15:11. Path A re-cuts every crop from the session frames
+**through the current profile**, so a recalibration silently invalidates every earlier number.
 
-| phantoms | misses | anchor · phone | margin empty p99.9 / max |
-|---:|---:|---|---|
-| **0** | 11 | 9/0 · 2/0 | **0.238 / 0.343** |
+Therefore: **every phase measures its own baseline in the same run as its candidate**, with the same
+command, on the same day. Never carry a row over from another phase's table, this file, or an older
+log. Report both rows side by side.
 
-Every phase re-measures and must hold **0 phantoms** and **margin max ≤ 0.343**. A phase that is
-faster and loses the floor is **rejected**, however large the speedup. Better quality is welcome
-even if it costs time; worse quality is not purchasable at any price.
+Today's reference, for orientation only — re-measure it, do not cite it:
+
+| graph | phantoms | misses | margin p99.9 / max |
+|---|---:|---:|---|
+| `occ-v6-f5nd` torch FP32 | 1 | 12 | 0.316 / 0.512 |
+| shipped INT8 (per-tensor A16W8) | 1 | 10 | 0.314 / 0.549 |
+| **per-channel A16W8 candidate** | **0** | 14 | **0.284 / 0.431** |
+
+The bar is **no worse than the baseline you measured yourself**, on phantoms first, then margin.
+A phase that is faster and adds a phantom is **rejected**, however large the speedup. Better quality
+is welcome even if it costs time; worse quality is not purchasable at any price.
 
 Phantoms are the veto; among phantom-free candidates, rank by margin, then misses. At 2 353 occupied
 crops, **miss differences below ~8 are noise**.
@@ -38,10 +51,34 @@ claim by measuring anyway.
 
 | Spec | Phase | Depends on | Runs |
 |---|---|---|---|
-| `00-where-does-it-run.md` | Which EP actually executes the graph? Log the QNN partition. | — | **alone, first** — may reframe 01 and 03 |
-| `01-verify-with-four-crops.md` | A move hypothesis touches 4 squares, not 64. Export and serve a small batch. | 00 (informational) | parallel with 02, 03 |
-| `02-is-the-shipped-int8-model-still-honest.md` | `model.qnn.onnx` ships quantized and has **never** been measured on the veto metric. | — | parallel — this is a quality audit, not a speed phase |
-| `03-the-2x-variance.md` | 70–165 ms for identical work. Throttling, or contention with the camera path? | 00 | parallel with 01, 02 |
+| `00-where-does-it-run.md` | Which EP actually executes the graph? | — | **DONE 2026-07-30** |
+| `02-is-the-shipped-int8-model-still-honest.md` | Has the shipped INT8 graph ever been measured? | — | **DONE 2026-07-30** — honest; per-channel is better |
+| `01-verify-with-four-crops.md` | A move hypothesis touches 4 squares, not 64. | — | ready; needs the device |
+| `04-groupnorm-to-static-affine.md` | Fold the norm away, from the **champion's own weights**. | — | ready; the desktop decides it |
+| `05-nnapi-or-not.md` | Does NNAPI take whole what XNNPACK fragments? | — | ready; needs the device |
+| `03-the-2x-variance.md` | The latency spread. | 00 | **mostly answered by 00** |
+
+**What phase 00 established, and why the rest changed shape.** The QNN provider is not in the binary
+at all — dropped in `928a55c` (2026-07-26): that AAR carries neither XNNPACK nor NNAPI symbols, and
+QNN measured 227 ms against the CPU's 97. What actually runs the graph on the SM8650:
+
+| | nodes | kernel time | operators |
+|---|---:|---:|---|
+| XNNPACK | 47 | 128.3 ms (55 %) | `Conv`×46, `Gemm`×1 |
+| CPU EP | 364 | 103.6 ms (45 %) | `Transpose`×92, `Reshape`×92, `Add`×56, `InstanceNormalization`×46, `Mul`×46, `Relu`×30 |
+
+**94 fragments over 47 convolutions.** Every conv is its own XNNPACK island, entered through an
+NCHW→NHWC transpose and left through the inverse, because GroupNorm's decomposition
+(`InstanceNormalization` + 2×`Reshape` + `Mul` + `Add`) sits between every pair. **411 nodes execute**,
+not the 503 in the file: ORT folds away 138 `Constant` + 46 `Shape`, and XNNPACK *inserts* the 92
+`Transpose`. Session median **66 ms** over 72 samples (p10 53, p90 81, min 44, max 93).
+
+So about **36 ms is real convolution work and 30 ms is fragmentation overhead.** Phases 04 and 05
+attack the 30 ms from opposite ends; phase 01 attacks both by doing 16x less of it.
+
+Phase 03 is largely answered: session median by third of run 61 → 64.5 → **75 ms** while battery
+temperature rose 34.0 → 37.1 °C on a run doing nothing else. Throttling, not contention. Reopen it
+only if another phase's numbers cannot be explained without it.
 
 ## Established — do not re-derive
 
