@@ -68,6 +68,18 @@ dev = [
     "vulture>=2.16",
 ]
 
+[tool.vulture]
+# Dead-code detection: ruff's F-rules only see a single file (unused imports, unused locals);
+# an exported function nobody calls is invisible to them. 80 is the threshold at which vulture
+# stops guessing — below it, dynamic access (getattr, fixtures, plugin hooks) produces noise
+# that trains people to ignore the tool.
+#
+# No whitelist on purpose. The only findings this repo had were pytest fixtures requested for
+# their side effect and then unused as a parameter; those are now `@pytest.mark.usefixtures`,
+# which says what they do instead of silencing what they look like.
+min_confidence = 80
+paths = ["src", "tests", "synth"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
