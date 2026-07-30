@@ -3,6 +3,7 @@ package com.chesslab.tracker.cnn
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
+import ai.onnxruntime.TensorInfo
 import ai.onnxruntime.providers.NNAPIFlags
 import java.io.File
 import java.nio.FloatBuffer
@@ -83,6 +84,13 @@ internal class OrtSessionRunner(
     private val session: OrtSession = env.createSession(modelFile.absolutePath, options(requested, profileDir))
     private val inputName: String = session.inputNames.first()
     private var out: FloatArray = FloatArray(0)
+
+    /**
+     * What THIS graph says it takes, straight out of ORT. Null only if the input is not a tensor at
+     * all, which no graph this app loads has ever been — [OnnxSquareClassifier] then simply has
+     * nothing to compare against rather than refusing to load on a cast.
+     */
+    override val declaredInputShape: LongArray? = (session.inputInfo[inputName]?.info as? TensorInfo)?.shape
 
     override fun run(
         input: FloatBuffer,

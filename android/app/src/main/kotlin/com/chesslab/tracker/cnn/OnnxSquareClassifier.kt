@@ -98,6 +98,15 @@ internal interface SessionRunner : AutoCloseable {
     val requested: Ep
     val model: String
 
+    /**
+     * The input shape the LOADED GRAPH declares, or null when there is no graph to ask.
+     *
+     * The graph is the schema and `config.json` only describes it (specs/22), so the one consumer
+     * that holds both — [OnnxSquareClassifier] — compares them. Null is for the pure-Kotlin fakes
+     * that stand in for a session in the unit tests; a real session always answers.
+     */
+    val declaredInputShape: LongArray? get() = null
+
     /** @return `batch * classes` logits, flat and row-major. */
     fun run(
         input: FloatBuffer,
@@ -110,8 +119,9 @@ internal interface SessionRunner : AutoCloseable {
 
 /**
  * `:core-cnn`'s [SquareClassifier] on ONNX Runtime. All 64 crops go through ONE session call —
- * the graph is exported with a dynamic batch dimension (`[batch, channels, 128, 128]`, opset 17,
- * where `channels` follows the run's `input_repr`).
+ * the graph is exported at a static `[64, channels, height, width]` (opset 17), where `channels`
+ * follows the run's `input_repr` and height/width follow its `infer_size` (specs/22). Both come
+ * from [spec], and the graph is asserted to agree.
  * Preprocessing is `:core-cnn`'s `preprocess` (the `serving.py predict_arrays` contract); a
  * second copy here would be a parity fork.
  */
@@ -144,6 +154,27 @@ class OnnxSquareClassifier internal constructor(
 
     /** The tensor the graph is actually fed, for 07b's debug screen. */
     val inputShape: String get() = shape.joinToString("x")
+
+    /**
+     * The app's own input size against the one the graph declares — the assertion the deleted
+     * `out_size == 128` guard was standing in for.
+     *
+     * That guard compared the config to a literal in the app, so it could not express "this model
+     * wants 96" and never checked the thing that actually breaks: preprocessing and the graph
+     * disagreeing about the crop size. Compared here because this is the only place that holds
+     * both the spec and the session. Only the last two dims: the batch is [ALL_SQUARES] by
+     * construction and the logit count is checked per call in [classify].
+     */
+    init {
+        runner.declaredInputShape?.takeIf { it.size >= 2 }?.let { declared ->
+            val h = declared[declared.size - 2]
+            val w = declared[declared.size - 1]
+            require(h == spec.outHeight.toLong() && w == spec.outWidth.toLong()) {
+                "graph ${runner.model} takes ${w}x$h crops but the model config declares " +
+                    "${spec.outWidth}x${spec.outHeight} (declared shape ${declared.toList()})"
+            }
+        }
+    }
 
     // Direct and reused: ORT reads the tensor from native memory, and reallocating 12 MB per
     // observation would churn the heap at observer rate.
