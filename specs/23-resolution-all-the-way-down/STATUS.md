@@ -9,7 +9,7 @@ never rewrite another phase's entry.
 | Phase | Concern | State | Owner | Notes |
 |---|---|---|---|---|
 | 00 | What does `board_size` cost, and which `infer_size` ships? | **done** | 00 | **`infer_size` = 96 px, chosen on the test leg. Phase 02 is GO.** `board_size` 1600 buys nothing at inference — negative result, see below. Profile untouched. |
-| 01 | Wire `ModelSpec`'s size into `BoardGeometry` so the app can make the crops | todo | — | Kotlin only. Parallel with 00. No behavioural delta. |
+| 01 | Wire `ModelSpec`'s size into `BoardGeometry` so the app can make the crops | **done** | 01 | `TrackerService` is the site. `withCropSizeOf(spec)`; null ⇒ 128. Byte-identical at 128, proven. |
 | 02 | Ship `occ-v4-f3e20` at that size | todo | — | Blocked by 00 **and** 01. Does not run if 00 says STOP. |
 
 States: `todo` → `in progress` → `done` | `blocked`.
@@ -150,6 +150,59 @@ prefer 110 px boxes, so the sharper crop is a mild domain shift, not free detail
    the warp recomputes its homography per frame from the log's corners, so the stored `homography`
    is not on the crop path either.
 
+## Phase 01 — the wiring
+
+`ModelSpec` → `BoardGeometry`, one function: `BoardGeometry.withCropSizeOf(spec: ModelSpec?)`
+(`app/.../tracker/geometry/ModelCropSize.kt`) copies the crop OUTPUT size out of the spec and changes
+nothing else. `null` returns the geometry untouched, so **no model ⇒ 128** and calibration never comes
+to depend on a classifier.
+
+**The construction site chosen is `TrackerService`**, and the other two do not need the size:
+
+- `TrackerService.geometry` is the field the crop path actually reads — `TrackerSeed.geometry` →
+  `cropFrameSource` → `cropSquare(…, geom)` — and it is the only place **all three** live-geometry
+  writes pass through: `start()` (stored profile), `restartTracker()` (orientation) and `calibrate()`.
+  There are now exactly three writes and each applies `withCropSizeOf(modelSpec)`; `git grep
+  withCropSizeOf` finds all of them.
+- `CalibrationProfile.geometry()` (`:71`) **cannot** own it. It is a pure mapping of a persisted
+  profile and its second consumer is `ui/calibration/CalibrationRoute.kt:69`, i.e. the calibration
+  screen, which must work with no model loaded.
+- `CalibrationStore.geometry` (`:74`) is the pre-load default and would not cover `calibrate()`
+  anyway: that path comes from `CalibrationRoute` with a `profile.geometry()` of its own and never
+  reads the store's field.
+
+The size is read from the asset's `config.json` through the one Kotlin reader (`ModelSpec.parse`),
+**not** taken from the attached classifier — the crops must already be the right size when the first
+observation runs, and an attach that fails must still leave a calibratable tracker. Re-read in
+`restartTracker()` because `modelAsset` is a restart-required knob. Staging is idempotent and
+length-guarded, and the read runs on `Dispatchers.IO` because on a fresh install it is the copy that
+really moves the graph.
+
+`boardSize`, `margin`, `padSide`, `padUp` and both warps are untouched: the box cut out of the warp
+stays 240 px on Android, only the size it is scaled to now comes from the model.
+
+**Step 1 of the phase file was skipped**: `BoardGeometry` needed no change at all — `copy(outW =, outH =)`
+on the existing parameters is the whole mechanism, so `:core-geometry` is byte-identical and its test
+task was not run.
+
+### Discrepancies found against the spec
+
+1. **`android/app/.../geometry/CalibrationProfile.kt:32` was a second place that knew 128.** The phase
+   file names three `BoardGeometry(` sites but the acceptance grep also catches `CropParams.outW: Int =
+   128`, a *persisted* crop size that `geometry()` feeds straight into `BoardGeometry`. Its default now
+   derives from `BoardGeometry()`. The field itself stays (removing it is a schema bump, which discards
+   every stored profile and forces a recalibration — a behavioural delta this phase is not allowed).
+2. **detekt caps a class at 15 functions and `TrackerService` was at 14.** The single-funnel
+   `adoptGeometry()` helper the design implies is the 15th and fails `:app:detekt` (`TooManyFunctions`,
+   `thresholdInClasses: 15`, reported at `>=`). The invariant is therefore documented on the `geometry`
+   field and applied at the three write sites, with the asset reader as a private **top-level**
+   function (`thresholdInFiles` counts top-level functions only). No `@Suppress`, no baseline entry.
+3. **`BoardGeometry.boardSize` is not 1600 on the phone.** `CalibrationStore.measuredBoardSize`
+   measures it from the corner quad and clamps it to `320..1280` (step 16), so the entry file's
+   "240 px box" is the *default-geometry* figure, not what a calibrated phone produces. It does not
+   change this phase — the box is untouched either way — but phase 02 should not quote 240 px as the
+   phone's real box.
+
 ## Session log
 
 <!-- Append: date — phase — what was measured/changed — the numbers — what is left. -->
@@ -165,3 +218,18 @@ prefer 110 px boxes, so the sharper crop is a mild domain shift, not free detail
   warp but at 40–55 phantoms and is discounted (checkpoint-selection set). Ruff clean; no tests (a
   measurement script, per the phase file). Left for 02: the swap itself, gated on 01 making the app
   able to cut 96 px crops.
+
+- **2026-07-30 — phase 01 — the app can now cut crops at the size the model declares.** Two commits
+  (`5cc247f` wiring, `a0bf217` tests) on `spec-23-resolution-all-the-way-down`; step 1 skipped,
+  `:core-geometry` untouched. `ModelSpec` → `BoardGeometry` via `withCropSizeOf`, applied at the three
+  `TrackerService` writes; the size is read from the asset's `config.json` (`ModelSpec.parse`), null ⇒
+  the 128 defaults. **No behavioural delta proven, not asserted**: with a `[128, 128]` spec — what the
+  bundled `occ-r3s-f3` carries — all 64 crops are byte-for-byte identical to the hard-coded path
+  through the real observer adapter (`cropFrameSource` → `cropSquare`), and the reference crops are
+  asserted non-uniform so the comparison is not vacuous. A `[96, 96]` spec yields 96×96 crops that
+  `preprocessInto` accepts — the call that used to throw `crop 0 is 128x128, expected 96x96`.
+  Ran: `:app:testDebugUnitTest --tests 'com.chesslab.tracker.geometry.*'` → **21 tests, 0 skipped,
+  0 failures** (6 new + 15 existing profile/store/orientation), and `:app:ktlintCheck :app:detekt`
+  clean after the `TooManyFunctions` fix above. Not run (orchestrator's gate): `assembleDebug`, the
+  full unit-test task, instrumentation. **Phase 02 is unblocked** — 00 picked 96 px and the app can
+  now produce it; nothing further is needed from 01 to ship it.
