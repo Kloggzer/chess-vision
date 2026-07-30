@@ -3,6 +3,7 @@ package com.chesslab.tracker.sim
 import com.chesslab.cnn.CnnConfig
 import com.chesslab.cnn.CnnRecovery
 import com.chesslab.tracker.cnn.CnnModelAssets
+import com.chesslab.tracker.cnn.ModelSpec
 import com.chesslab.tracker.cnn.OnnxSquareClassifier
 import com.chesslab.tracker.cnn.RecordingLog
 import org.bytedeco.javacpp.Loader
@@ -60,7 +61,11 @@ class CnnClipSimulationTest {
             OnnxSquareClassifier.open(staged, RecordingLog()).use { classifier ->
                 assertEquals("CPU", classifier.backend, "the desktop JVM has no NPU — the run must be on the CPU provider")
                 for ((index, clip) in clips.withIndex()) {
-                    val withCnn = runClip(clip, SimCnn(classifier, CnnRecovery(cnnConfigOf(clip))))
+                    val withCnn =
+                        runClip(
+                            clip,
+                            SimCnn(classifier, CnnRecovery(cnnConfigOf(clip)), ModelSpec.parse(staged.configJson)),
+                        )
                     println(line(baselines[index], withCnn))
                     results += baselines[index] to withCnn
                 }
