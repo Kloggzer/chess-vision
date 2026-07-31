@@ -442,6 +442,14 @@ def dataset_build_cmd(
                                          "be compared with a model trained on that dataset — "
                                          "neither the split nor the old defaults are recoverable "
                                          "otherwise, and a near-twin is worse than no twin."),
+    add_test: str | None = typer.Option(None, "--add-test",
+                                        help="With --like: extra session IDs (comma-separated) "
+                                             "appended to the TEST split. Train and val stay "
+                                             "byte-identical, so every model trained against the "
+                                             "donor stays comparable. Note it changes the margin "
+                                             "metric, which is a max over empty crops - more crops "
+                                             "can only raise it, so numbers from the donor's test "
+                                             "set are NOT comparable to numbers from this one."),
 ) -> None:
     """Build named dataset from session selection (filter -> dedup -> rotation -> split -> pack)."""
     from . import dataset_build as db
@@ -454,7 +462,8 @@ def dataset_build_cmd(
                                phash_hamming=hamming,
                                rotations=(config.DEDUP.rotations_augmented if rotate else config.DEDUP.rotations),
                                allow_degenerate=allow_degenerate, pack=not no_pack,
-                               class_mode=classes, like=like)
+                               class_mode=classes, like=like,
+                               add_test=[s.strip() for s in (add_test or '').split(',') if s.strip()])
     except ValueError as e:
         print(f"[FAIL] {e}")
         raise typer.Exit(1)

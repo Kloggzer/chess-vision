@@ -515,3 +515,34 @@ def test_like_takes_the_donors_assignment_verbatim(tmp_path, monkeypatch):
     # A session the donor never placed is refused, not defaulted into train.
     with pytest.raises(ValueError, match="s9"):
         db._split_from("donor", {"s1", "s9"}, _P)
+
+
+def test_add_test_extends_the_donor_split_without_touching_train(tmp_path):
+    """A session recorded only to evaluate against belongs in test, and nowhere else.
+
+    Train and val must come out byte-identical to the donor's, or every model trained against the
+    donor stops being comparable — which is the one thing `--like` exists to prevent.
+    """
+    import json
+
+    from chesslab import dataset_build as db
+
+    donor = tmp_path / "datasets" / "donor"
+    donor.mkdir(parents=True)
+    (donor / "split.json").write_text(json.dumps(
+        {"splits": {"train": ["s1", "s2"], "val": ["s3"], "test": ["s4"]}}), encoding="utf-8")
+
+    class _P:
+        datasets = tmp_path / "datasets"
+
+    got = db._split_from("donor", {"s1", "s2", "s3", "s4", "new"}, _P, add_test=["new"])
+    assert got["train"] == ["s1", "s2"] and got["val"] == ["s3"]
+    assert got["test"] == ["s4", "new"]
+
+    # Naming a session that is already in train would silently change what the donor's models saw.
+    with pytest.raises(ValueError, match="already in donor's train or val"):
+        db._split_from("donor", {"s1", "s2", "s3", "s4"}, _P, add_test=["s1"])
+
+    # An extra session NOT named in --add-test is still refused rather than defaulted.
+    with pytest.raises(ValueError, match="new"):
+        db._split_from("donor", {"s1", "new"}, _P)
