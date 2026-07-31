@@ -144,7 +144,15 @@ def _make_reader(rows: list[dict], input_name: str, cfg: dict):
 
 def _parity(fp32_path: Path, quant_path: Path, samples: list[dict]) -> float:
     """Fraction of calibration crops where the quantized argmax matches FP32. A rough
-    on-parity sanity gate (INT8 rounding shifts logits but should rarely flip argmax)."""
+    on-parity sanity gate (INT8 rounding shifts logits but should rarely flip argmax).
+
+    **It does not detect the failure that matters.** specs/26 phase 02 measured a pure-INT8
+    (A8W8, per-tensor) export of `occ-v6-f5nd` at parity **1.000** here and 5 phantoms on the
+    veto metric, against the float model's 1. The calibration set is TRAIN crops the model
+    already fits; phantoms live on empty squares in a held-out session. Parity below 0.9 is a
+    reason to stop, but parity 1.0 is not a reason to ship — score the graph with
+    `scripts/score_onnx.py`.
+    """
     import onnxruntime as ort
 
     so = ort.SessionOptions()
@@ -164,7 +172,7 @@ def _parity(fp32_path: Path, quant_path: Path, samples: list[dict]) -> float:
 
 
 def run_quantize(run: str, limit: int = 128, activation_type: str = "quint16",
-                 weight_type: str = "quint8") -> int:
+                 weight_type: str = "quint8", per_channel: bool = True) -> int:
     """FP32 ``model.onnx`` → INT8-weight QDQ ``model.qnn.onnx`` for the QNN/Hexagon NPU EP.
 
     Default is A16W8 (16-bit activations, INT8 weights) — the Hexagon HTP's recommended
@@ -172,6 +180,23 @@ def run_quantize(run: str, limit: int = 128, activation_type: str = "quint16",
     *activation* rounding: pure quint8/quint8 collapsed argmax parity to ~0.34 on the dev
     model, while quint16 activations held it at 1.0 with the same INT8 weights. Pass
     ``activation_type='quint8'`` for pure INT8 if a given model tolerates it.
+
+    ``per_channel`` gives every output channel of a weight its own scale instead of one scale
+    per tensor. It is the literature's largest single lever for MobileNet-class models and it
+    measures that way here (specs/26 phase 02, `occ-v6-f5nd` on `occ-real6` test at 80 px,
+    path A — phantoms / margin p99.9 / max):
+
+        per-tensor A8W8      5 · 0.406 / 0.802      per-channel A8W8   2 · 0.382 / 0.622
+        per-tensor A16W8     1 · 0.314 / 0.549      per-channel A16W8  0 · 0.284 / 0.431
+
+    The bottom right is the only phantom-free graph in that set — better than the FP32 weights
+    it was quantized from (1 · 0.312 / 0.508). Hence the default.
+
+    **Not verified on the device.** Per-tensor scales were historically an HTP constraint; ORT's
+    QNN config builder accepts ``per_channel`` but whether the HTP assigns the resulting graph or
+    silently leaves it on CPU is an on-device question (`disable_cpu_ep_fallback`). Confirm
+    placement before swapping a bundled asset — a graph that fell off the NPU is far slower for a
+    margin gain nobody can spend.
     """
     run_dir = Path(run)
     if not (run_dir / "config.json").exists():
@@ -210,6 +235,7 @@ def run_quantize(run: str, limit: int = 128, activation_type: str = "quint16",
             str(prep), reader,
             activation_type=_quant_type(activation_type),
             weight_type=_quant_type(weight_type),
+            per_channel=per_channel,
         )
         quantize(str(prep), str(out), qnn_config)
     finally:
@@ -217,7 +243,8 @@ def run_quantize(run: str, limit: int = 128, activation_type: str = "quint16",
 
     agreement = _parity(fp32, out, samples)
     size_mb = out.stat().st_size / 1e6
-    print(f"[OK] quantized ({activation_type}/{weight_type}) -> {out} "
+    print(f"[OK] quantized ({activation_type}/{weight_type}, "
+          f"{'per-channel' if per_channel else 'per-tensor'} weights) -> {out} "
           f"({size_mb:.1f} MB, {len(rows)} calib crops, argmax parity {agreement:.3f})")
     if agreement < 0.9:
         print("[WARN] low FP32↔INT8 argmax parity — consider quint16 activations or more calib crops.")
