@@ -45,28 +45,35 @@ def dataset_dir(name: str, paths: config.Paths | None = None) -> Path:
     return (paths or config.DATA).datasets / _safe_name(name)
 
 
-# --- Class mode: 14-class pieces (default) vs 2-class occupancy ------------------------
+# --- Class mode: 14-class pieces (default), 13-class identity, 2-class occupancy -------
 
-CLASS_MODES = ("pieces", "occupancy")
+CLASS_MODES = ("pieces", "pieces13", "occupancy")
 
 
 def class_list_for(class_mode: str) -> list[str]:
-    """`pieces` -> `config.CLASSES` (14, unchanged default); `occupancy` -> `config.OCCUPANCY_CLASSES`."""
+    """`pieces` -> `config.CLASSES` (14, unchanged default); `pieces13` -> `config.IDENTITY_CLASSES`
+    (the same list minus `occluded`); `occupancy` -> `config.OCCUPANCY_CLASSES`."""
     if class_mode == "pieces":
         return config.CLASSES
+    if class_mode == "pieces13":
+        return config.IDENTITY_CLASSES
     if class_mode == "occupancy":
         return config.OCCUPANCY_CLASSES
     raise ValueError(f"unknown class mode {class_mode!r} ({' | '.join(CLASS_MODES)}).")
 
 
 def collapse_labels(rows: list[dict], class_mode: str) -> list[dict]:
-    """Map every row's `label` through `config.to_occupancy_class` (occupancy mode only).
+    """Narrow every row's `label` to the target class list. `pieces` returns the rows untouched
+    (same objects), so the default build stays bit-identical.
 
     A metadata mapping, nothing else: crop FILES keep their path and their `data/squares/wB/`
-    directory — the path is the identity, the label is metadata. `pieces` mode returns the
-    rows untouched (same objects), so the default build stays bit-identical.
+    directory — the path is the identity, the label is metadata.
+
+    Both narrower modes DROP `occluded` rather than bin it: `pieces13` has no such output at all
+    and `occupancy` has no bucket it honestly belongs in. The corpus contains none, so this is a
+    guard, not a filter — but it must stay loud if that ever changes.
     """
-    if class_mode != "occupancy":
+    if class_mode == "pieces":
         return rows
     kept = [r for r in rows if r["label"] != "occluded"]
     n_occluded = len(rows) - len(kept)
@@ -80,9 +87,11 @@ def collapse_labels(rows: list[dict], class_mode: str) -> list[dict]:
         # with `--occlusion-p` produce them deliberately and in bulk, so refusing the build made
         # occluders unusable for occupancy training. Loud, not silent: the count is printed, which
         # is what the guard was really protecting.
-        print(f"[occupancy] dropped {n_occluded} `occluded` rows "
-              f"({n_occluded / max(len(rows), 1) * 100:.1f}% of the pool) — neither class fits.",
+        print(f"[{class_mode}] dropped {n_occluded} `occluded` rows "
+              f"({n_occluded / max(len(rows), 1) * 100:.1f}% of the pool) — no class fits.",
               flush=True)
+    if class_mode == "pieces13":
+        return kept                             # labels already are the 13-class list
     return [{**r, "label": config.to_occupancy_class(r["label"])} for r in kept]
 
 
@@ -359,12 +368,8 @@ def build_dataset(
     # Mined hard-negative empties (scripts/mine_hard_empty.py) survive the empty cap:
     # a random cap throws away exactly the rare hard cases (dark corner squares, pad_up
     # neighbour bleed) that the deployed model confidently misreads.
-    hard_empty = paths.manifests / "hard_empty.jsonl"
-    priority_paths: set[str] | None = None
-    if hard_empty.exists():
-        priority_paths = {json.loads(ln)["path"]
-                          for ln in hard_empty.read_text(encoding="utf-8").splitlines()
-                          if ln.strip()}
+    priority_paths = dataset_mod.load_priority_paths(paths)
+    if priority_paths:
         print(f"[i] hard-empty keep list: {len(priority_paths)} crops protected from the empty cap")
     split = dataset_mod.make_split(rows, val_frac, test_frac, max_empty_ratio, seed, max_class_ratio,
                                    force_train=force_train, precomputed_splits=splits,

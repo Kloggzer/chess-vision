@@ -431,8 +431,9 @@ def dataset_build_cmd(
                                                     "manifests/squares.jsonl. Needed after `ingest --tag X "
                                                     "--no-build`, which writes manifests/squares__X.jsonl."),
     classes: str = typer.Option("pieces", "--classes",
-                                help="pieces (14, default) | occupancy (2: empty/occupied). "
-                                     "`occupancy` COLLAPSES the existing labels at build time — "
+                                help="pieces (14, default) | pieces13 (14 minus `occluded`, which "
+                                     "has zero rows in the corpus) | occupancy (2: empty/occupied). "
+                                     "The narrower modes NARROW the existing labels at build time — "
                                      "no crop is re-labelled, no row is lost."),
 ) -> None:
     """Build named dataset from session selection (filter -> dedup -> rotation -> split -> pack)."""
@@ -483,8 +484,9 @@ def dataset_build_synth_cmd(
                                      "and diverse renders already carry the variance."),
     workers: int | None = typer.Option(None, "--workers", help="Pixel-pass processes (default: auto)."),
     classes: str = typer.Option("pieces", "--classes",
-                                help="pieces (14, default) | occupancy (2: empty/occupied). "
-                                     "`occupancy` collapses the FEN labels at build time."),
+                                help="pieces (14, default) | pieces13 (14 minus `occluded`) | "
+                                     "occupancy (2: empty/occupied). The narrower modes narrow the "
+                                     "FEN labels at build time."),
 ) -> None:
     """Fused synthetic build: renders -> packed memmap directly.
 

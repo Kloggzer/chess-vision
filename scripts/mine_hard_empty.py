@@ -7,9 +7,24 @@ throws away exactly the rare HARD empties (dark corner squares, neighbour pieces
 into the crop via pad_up, shadows). This script finds those hard cases so the build can
 keep them (see `priority_paths` in `dataset.subsample_classes`).
 
+Two selection criteria, because "misread" means different things to a 2-class and an identity run:
+
+- `--criterion argmax` (default, legacy): the argmax names a piece, with confidence >= --conf-thr.
+- `--criterion occupancy`: the crop READS AS OCCUPIED by the tracker's own definition —
+  `p_occ = 1 - P(empty) - P(occluded)` beats `P(empty)` (`cnn_recovery.observation_from_probs`
+  plus `OccupancyObservation.occupied`). This is the phantom condition itself, and on a 13-class
+  run it is the only criterion that finds the whole failure: an undecided identity softmax spreads
+  its mass over 12 piece classes, so a crop can read as occupied while `empty` is still the argmax
+  at a confidence far below any `--conf-thr`. `argmax` mode cannot see those at all.
+
+`--infer-size` matters as much as the criterion: a model is mined at the size it is SERVED at
+(`infer_size`, seeded into `serving._CACHE` the way `sweep_infer_size.install_at_size` does it),
+not at the 128 px the crops happen to sit on disk at.
+
 Usage:
     python scripts/mine_hard_empty.py --run data/models/p3-finetune [--device cpu]
         [--source data/manifests/squares.jsonl] [--conf-thr 0.5] [--batch 256]
+        [--criterion argmax|occupancy] [--infer-size 80] [--exclude-sessions A,B]
         [--out data/manifests/hard_empty.jsonl] [--montage data/_perf/hard_empty.png]
 
 Output: JSONL of misread empty crops (path, pred, conf, session, square, square_color),
@@ -33,6 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from chesslab import config  # noqa: E402
 from chesslab.dataset import load_manifest  # noqa: E402
+from chesslab.move_tracker.cnn_recovery import observation_from_probs  # noqa: E402
 
 # Real capture sessions are timestamped `YYYYMMDD-HHMMSS`. Everything else in the crop
 # manifest (e.g. `pretrain-synth__synth-004`) is a classic-ingested SYNTHETIC pool whose
@@ -65,6 +81,16 @@ def main() -> None:
                          "pretrain-synth__*). Default OFF: they drown the real failures.")
     ap.add_argument("--montage", default=None,
                     help="montage PNG of the worst offenders (default: data/_perf/hard_empty.png)")
+    ap.add_argument("--criterion", choices=("argmax", "occupancy"), default="argmax",
+                    help="argmax: pred names a piece at >= --conf-thr (legacy). occupancy: the "
+                         "crop reads as occupied (p_occ > p_empty) — the phantom condition itself, "
+                         "and the only one that sees an undecided identity softmax.")
+    ap.add_argument("--infer-size", type=int, default=0,
+                    help="serve the model at this input size while mining (0 = the run's own). "
+                         "Mine at the size you DEPLOY at; the disk crops are 128 px.")
+    ap.add_argument("--exclude-sessions", default="",
+                    help="comma-separated session ids to leave untouched — use it to keep a "
+                         "held-out session clean of the keep-list it would otherwise train on.")
     args = ap.parse_args()
 
     from chesslab import serving  # lazy: torch import is slow
@@ -83,10 +109,30 @@ def main() -> None:
         if n_before != len(rows):
             print(f"skipping {n_before - len(rows)} empty crops from non-camera sessions "
                   f"(classic-ingested synth pools; --include-synthetic to scan them)")
+    excluded = {s.strip() for s in args.exclude_sessions.split(",") if s.strip()}
+    if excluded:
+        n_before = len(rows)
+        rows = [r for r in rows if str(r.get("session_id")) not in excluded]
+        print(f"excluding {n_before - len(rows)} crops from {len(excluded)} held-out session(s): "
+              f"{', '.join(sorted(excluded))}")
     if args.limit:
         rows = rows[: args.limit]
+
+    # Serve at the deployment size, not at whatever the crops sit on disk at. Seeding the module
+    # cache is the only seam `predict_arrays` offers (same trick as sweep_infer_size.install_at_size).
+    classes: list[str] = []
+    if args.infer_size:
+        from chesslab.training.evaluate import load_run as _load_run
+        model, cfg = _load_run(run_dir)
+        own = cfg.get("infer_size") or cfg.get("out_size")
+        cfg = {**cfg, "out_size": [args.infer_size] * 2, "infer_size": [args.infer_size] * 2}
+        serving._CACHE[str(run_dir.resolve())] = (model.eval(), cfg)
+        classes = list(cfg["classes"])
+        print(f"serving {run_dir.name} at {args.infer_size} px (the run's own size is {own})")
+    elif args.criterion == "occupancy":
+        classes = list(json.loads((run_dir / "config.json").read_text(encoding="utf-8"))["classes"])
     print(f"scanning {len(rows)} real empty crops from {src.name} "
-          f"with {run_dir.name} on {args.device} …")
+          f"with {run_dir.name} on {args.device} …  criterion={args.criterion}")
 
     hard: list[dict] = []
     n_seen = 0
@@ -101,23 +147,49 @@ def main() -> None:
             kept_rows.append(r)
         if not crops:
             continue
-        preds = serving.predict_arrays(run_dir, crops, device=args.device)
+        want_probs = args.criterion == "occupancy"
+        preds = serving.predict_arrays(run_dir, crops, device=args.device, return_probs=want_probs)
         n_seen += len(crops)
         for r, p in zip(kept_rows, preds, strict=True):
-            if p["pred_label"] != "empty" and float(p["confidence"]) >= args.conf_thr:
-                hard.append({"path": r["path"], "label": "empty",
-                             "pred": p["pred_label"], "conf": round(float(p["confidence"]), 3),
-                             "session_id": r.get("session_id"), "square": r.get("square"),
-                             "square_color": r.get("square_color"),
-                             "run": run_dir.name})
+            rec = {"path": r["path"], "label": "empty",
+                   "pred": p["pred_label"], "conf": round(float(p["confidence"]), 3),
+                   "session_id": r.get("session_id"), "square": r.get("square"),
+                   "square_color": r.get("square_color"), "run": run_dir.name}
+            if want_probs:
+                obs = observation_from_probs({"x": p["probs"]}, classes)
+                if not obs.occupied("x"):
+                    continue
+                rec["p_occ"] = round(obs.p_occ["x"], 4)
+                rec["p_empty"] = round(obs.p_empty["x"], 4)
+                # The scientific split: does the summed piece mass alone cross the line, or does
+                # a piece class actually win the argmax? Only the second is a classic hard example.
+                rec["kind"] = "piece_argmax" if p["pred_label"] != "empty" else "summed_mass"
+                hard.append(rec)
+            elif p["pred_label"] != "empty" and float(p["confidence"]) >= args.conf_thr:
+                hard.append(rec)
         if (i // args.batch) % 20 == 0:
             print(f"  {n_seen}/{len(rows)} scanned, {len(hard)} hard so far", flush=True)
 
-    hard.sort(key=lambda h: -h["conf"])
-    print(f"\n{len(hard)} hard empties (conf >= {args.conf_thr}) out of {n_seen} scanned "
+    hard.sort(key=lambda h: -h.get("p_occ", h["conf"]))
+    crit = ("p_occ > p_empty" if args.criterion == "occupancy"
+            else f"conf >= {args.conf_thr}")
+    print(f"\n{len(hard)} hard empties ({crit}) out of {n_seen} scanned "
           f"({100.0 * len(hard) / max(1, n_seen):.1f}%)")
     print("by predicted class:", dict(Counter(h["pred"] for h in hard).most_common()))
     print("by square color:  ", dict(Counter(str(h["square_color"]) for h in hard).most_common()))
+    print("by session:       ", dict(Counter(str(h["session_id"]) for h in hard).most_common()))
+    if args.criterion == "occupancy":
+        kinds = Counter(h["kind"] for h in hard)
+        print("by kind:          ", dict(kinds.most_common()),
+              "  (summed_mass = `empty` still wins the argmax, the crop reads occupied only "
+              "because the 12 piece columns sum past it)")
+        for k in ("piece_argmax", "summed_mass"):
+            sub = [h for h in hard if h["kind"] == k]
+            if sub:
+                confs = [h["conf"] for h in sub]
+                print(f"  {k:12s} n={len(sub):5d}  winning conf mean {sum(confs) / len(sub):.3f} "
+                      f"max {max(confs):.3f}  |  p_empty mean "
+                      f"{sum(h['p_empty'] for h in sub) / len(sub):.3f}")
     conf85 = sum(1 for h in hard if h["conf"] >= 0.85)
     print(f"confidently wrong (>= 0.85, the tracker's conf_thr): {conf85}")
 
