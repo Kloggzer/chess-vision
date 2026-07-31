@@ -243,3 +243,32 @@ the rate change, on the same recipe, took it to zero phantoms and zero misses.
 So of specs/25's five measured causes, the two this pack could re-test both fail to reproduce: the
 data was mis-aligned, and the rate was the wrong one. The remaining three were measured under both
 of those conditions.
+
+## Warm-light training data: the fear was reasonable and wrong
+
+`occ-warm` adds three of the four warm sessions to `occ-real6a`'s train split and holds the extreme
+one out — 20260731-222906, colour slider pushed to warm, R:B **51** against the corpus's 1.1–1.2.
+Training becomes 72 % warm start-position material, which is what made this look risky.
+
+Path A, 80 px, `occ-warm` test, both models in one run:
+
+| run | anchor | phone | **222906** (held out) | margin p99.9 / max |
+|---|---|---|---|---|
+| `occ-v7gn-s-lr1e3` (no warm data) | 0 / 0 | 0 / 0 | **657** / 0 | 0.126 / 0.320 |
+| `occ-v8gn-warm` | **0 / 0** | **0 / 0** | **126** / 0 | **0.002** / 0.262 |
+
+misses / phantoms.
+
+**Nothing was paid.** The two normal sessions stay at zero misses and zero phantoms despite 72 % of
+the training set being warm material.
+
+**The held-out extreme improves 5.2x.** Trained on R:B 4.8, 2.3 and 1.35, measured on R:B 51 — four
+times further out than anything it saw. Colour robustness generalises rather than being memorised,
+which is the result that decides whether more warm sessions are worth recording (they are, and they
+do not have to cover the target condition exactly).
+
+**The margin is 0.002.** Sixty-three times better than the same recipe without warm data and by far
+the best number this project has measured — the previous best was 0.035. Across 4 687 empty crops
+essentially nothing reads as occupied at all.
+
+Worth naming plainly: the session that produced this was the one that looked too extreme to use.
