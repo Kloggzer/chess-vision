@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { api, post, del } from "../api";
 import { Card, Button, Glyph, noteCls } from "./ui";
-import CornerEditor from "./CornerEditor";
+import CornerEditor, { QuickTune } from "./CornerEditor";
 
 const input = "rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-100 outline-none focus:border-sky-500";
 
@@ -84,6 +84,13 @@ export function SessionsPanel() {
   const [noteKind, setNoteKind] = useState<"ok" | "err" | "busy" | "">("");
   const [reviewSid, setReviewSid] = useState("");
   const [reviewIdx, setReviewIdx] = useState(0);
+  // While a corner edit is pending, the aligned frame shows the tuned warp instead of the
+  // stored one — one picture, not two.
+  const [tunedUrl, setTunedUrl] = useState<string | null>(null);
+  // Reviewer preferences, held here because QuickTune is keyed per frame and remounts on every
+  // step — inside it these would reset on each "next flagged".
+  const [alignMaxOff, setAlignMaxOff] = useState(9);
+  const [alignZoom, setAlignZoom] = useState(false);
   const [showReviewed, setShowReviewed] = useState(false);
   const sessionsQ = useQuery({ queryKey: ["sessions-manage"], queryFn: () => api("/api/sessions/manage") });
   const reviewQ = useQuery({
@@ -282,7 +289,17 @@ export function SessionsPanel() {
                 </div>
                 {/* labels=1: the corner/file/rank legend, so "is White at the bottom" is
                     answerable from the picture instead of by assumption. */}
-                <img src={`${review.overlay_url}?labels=1&v=${review.geometry_version ?? 0}`} alt={`${reviewSid} overlay ${review.index + 1}`} className="max-h-[70vh] w-full rounded border border-zinc-800 object-contain" />
+                <img src={tunedUrl ?? `${review.overlay_url}?labels=1&v=${review.geometry_version ?? 0}`}
+                     alt={`${reviewSid} overlay ${review.index + 1}`}
+                     className="max-h-[70vh] w-full rounded border border-zinc-800 object-contain" />
+                {/* Directly under the picture it corrects: nudging a detection that is a few
+                    pixels off is the routine action, and it must not need a scroll. */}
+                <QuickTune key={`${reviewSid}:${review.index}`} sid={reviewSid} idx={review.index}
+                           corners={review.entry?.corners} onPreview={setTunedUrl}
+                           onJump={setReviewIdx}
+                           maxOff={alignMaxOff} onMaxOff={setAlignMaxOff}
+                           zoom={alignZoom} onZoom={() => setAlignZoom((z) => !z)}
+                           onWritten={() => invalidate("session-review", "sessions-manage")} />
               </div>
               <div>
                 <div className="mb-1 text-xs font-medium text-zinc-500">Logged board</div>
