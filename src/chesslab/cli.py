@@ -450,6 +450,12 @@ def dataset_build_cmd(
                                              "metric, which is a max over empty crops - more crops "
                                              "can only raise it, so numbers from the donor's test "
                                              "set are NOT comparable to numbers from this one."),
+    add_train: str | None = typer.Option(None, "--add-train",
+                                         help="With --like: extra session IDs appended to the TRAIN "
+                                              "split. Unlike --add-test this CHANGES what the model "
+                                              "sees, so the result is a new corpus, not a twin - "
+                                              "only the test split stays comparable with the "
+                                              "donor's."),
 ) -> None:
     """Build named dataset from session selection (filter -> dedup -> rotation -> split -> pack)."""
     from . import dataset_build as db
@@ -463,7 +469,8 @@ def dataset_build_cmd(
                                rotations=(config.DEDUP.rotations_augmented if rotate else config.DEDUP.rotations),
                                allow_degenerate=allow_degenerate, pack=not no_pack,
                                class_mode=classes, like=like,
-                               add_test=[s.strip() for s in (add_test or '').split(',') if s.strip()])
+                               add_test=[s.strip() for s in (add_test or '').split(',') if s.strip()],
+                               add_train=[s.strip() for s in (add_train or '').split(',') if s.strip()])
     except ValueError as e:
         print(f"[FAIL] {e}")
         raise typer.Exit(1)
