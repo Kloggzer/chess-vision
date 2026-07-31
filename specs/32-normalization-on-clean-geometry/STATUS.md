@@ -35,7 +35,7 @@ patience 25, dataset `occ-real6a`. "Scratch" means random init; the warm ones re
 | `occ-v7bn-s-lr1e3` | BN | scratch | 1e-03 | 60 | 48,64,80,96 | **0** | **16** | **0.055** / 0.381 |
 | `occ-v7gn-s-lr1e3` | GN | scratch | 1e-03 | 60 | 48,64,80,96 | **0** | **0** | 0.213 / 0.320 |
 | `occ-v7bn-s-lr3e3` | BN | scratch | 3e-03 | 60 | 48,64,80,96 | **0** | **0** | **0.035** / 0.299 |
-| `occ-v7gn-s-lr3e3` | GN | scratch | 3e-03 | 60 | 48,64,80,96 | — | — | — |
+| `occ-v7gn-s-lr3e3` | GN | scratch | 3e-03 | 60 | 48,64,80,96 | **11** | — | 0.990 / 0.994 |
 | `occ-v7bn-s1scale` | BN | scratch | 3e-04 | 60 | **80 only** | — | — | — |
 
 ## What each row is for
@@ -194,3 +194,29 @@ and the BatchNorm exclusion should be retired rather than amended.
 the GroupNorm control at 3e-03 (running), whether 3e-03 is past the peak or still climbing (the
 range test), and a single GPU pass over the whole table — every scratch row here was scored on the
 CPU EP while the GPU trained, and the champion's 0.050 was not.
+
+## The control that makes it a finding: GroupNorm breaks where BatchNorm is still improving
+
+| lr | BatchNorm | GroupNorm |
+|---|---|---|
+| 3e-04 | 0 ph, 82 miss, margin 0.298 | 0 ph, 16 miss, margin 0.313 |
+| 1e-03 | 0 ph, 16 miss, margin 0.055 | 0 ph, **0** miss, margin 0.213 |
+| 3e-03 | 0 ph, **0** miss, margin **0.035** | **11 phantoms**, margin 0.990 |
+
+GroupNorm's usable band ends between 1e-03 and 3e-03. BatchNorm's does not — it is still improving
+at 3e-03, on both axes, and has not been tested higher.
+
+This is Bjorck et al.'s claim reproduced on this project's own data and own metric: BatchNorm
+tolerates a learning rate that breaks the alternative. It is no longer an argument from a paper
+about why BN *should* have been tested differently; it is a measured band, and the two bands do not
+coincide. Any protocol that picks one rate and applies it to both normalizers will therefore
+mis-rank them, whichever rate it picks.
+
+**And GroupNorm at 3e-03 has the best training curve in the entire grid** — `val_acc` 0.9993,
+`occ_board_acc` 0.9583, both by a clear margin — while being the only run here disqualified by
+phantoms. `CLAUDE.md`'s warning that `val_acc` has ranked runs in REVERSE did not need re-proving,
+but it just got its cleanest example: the checkpoint selector chose that model *because* of the
+score that is uncorrelated with the thing we care about.
+
+**Open:** whether 3e-03 is BatchNorm's peak or merely the last point on the grid. `occ-v7bn-s-lr1e2`
+has been queued to find the far edge, and the range test will show the shape between the points.
