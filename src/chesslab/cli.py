@@ -611,6 +611,12 @@ def train_cmd(
                                             "override as comma-separated KEY=VALUE (e.g. "
                                             "'occupied=2.0' or 'empty=0.9,occupied=2.0'). Applied "
                                             "on top of split.json's inverse-frequency weights."),
+    sched: str = typer.Option("cosine", "--sched",
+                              help="cosine (default) | none. The cosine period is tied to --epochs, "
+                                   "so a longer run is a different trajectory, not a longer one: "
+                                   "more steps AND more time at a high rate move together. Use "
+                                   "'none' to pin the rate when the question is whether LONGER "
+                                   "training helps, so the epoch count is the only variable."),
 ) -> None:
     """Train per-square CNN on the ROCm GPU (board accuracy = checkpoint metric)."""
     from .training.train import run_train
@@ -628,7 +634,8 @@ def train_cmd(
                                no_amp=no_amp, seed=seed, out=out, patience=patience,
                                num_workers=num_workers, norm=norm, dataset=dataset, resume=resume,
                                head=head, scales=scale_list, erase_p=erase_p, bg_p=bg_p,
-                               loss=loss, focal_gamma=focal_gamma, class_weight=cw or None))
+                               loss=loss, focal_gamma=focal_gamma, class_weight=cw or None,
+                               sched=sched))
 
 
 @app.command("eval")
