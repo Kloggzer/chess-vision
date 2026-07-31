@@ -72,7 +72,15 @@ class SessionWriter:
         camera_capture_source: str | None = None,
         source_pgn: str | None = None,
         notes: str = "",
+        jpeg_quality: int | None = None,
     ) -> None:
+        # Frames are PNG by default because live capture is the ground truth every later stage
+        # re-slices from, and a lossy re-encode there would be baked into the corpus forever.
+        # A VIDEO import is the exception: the source is already H.264, so PNG spends ~5x the disk
+        # losslessly preserving someone else's compression artefacts. `ingest_video_session.py`
+        # therefore passes a quality and gets .jpg — the path lands in log.jsonl either way, and
+        # every consumer reads `entry["frame"]` rather than assuming an extension.
+        self.jpeg_quality = jpeg_quality
         self.dir = Path(session_dir)
         self.frames_dir = self.dir / "frames"
         self.log_path = self.dir / "log.jsonl"
@@ -152,8 +160,13 @@ class SessionWriter:
                 labels: dict[str, str] | None = None) -> str:
         import cv2
 
-        rel = f"frames/{self._frame_idx:04d}.png"
-        cv2.imwrite(str(self.dir / rel), frame)
+        if self.jpeg_quality is None:
+            rel = f"frames/{self._frame_idx:04d}.png"
+            cv2.imwrite(str(self.dir / rel), frame)
+        else:
+            rel = f"frames/{self._frame_idx:04d}.jpg"
+            cv2.imwrite(str(self.dir / rel), frame,
+                        [int(cv2.IMWRITE_JPEG_QUALITY), int(self.jpeg_quality)])
         size = (int(frame.shape[1]), int(frame.shape[0]))
         if self._frame_idx == 0 and size != self.frame_size:
             # The FILES decide what `frame_size` means. A high-resolution snapshot source
