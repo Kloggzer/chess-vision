@@ -139,6 +139,14 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
   was a duplicate: of 3,432 collisions, **zero were pixel-identical**. `dhash` compares only the
   sign pattern of a 9×8 thumbnail, so noise, exposure and sub-pixel shift collide. `per_cell_cap`
   still bounds "the piece never moved". See `docs/data-pipeline.md` §5.13.
+- **`data/manifests/hard_empty.jsonl` is a GLOBAL training input — park it when not in use.**
+  Since 2026-07-31 `run_train` honours the mined keep-list too, not just `dataset_build` (before
+  that it honoured neither in practice: the built manifest holds the UNCAPPED rows, so the
+  train-time re-subsample re-drew every mined hard negative away — the protection reached
+  `split.json`'s counts and never a batch). The fix means the file's mere presence now changes
+  which `empty` crops **every** run sees, with no flag and no record in the run config. Park it
+  under `data/_parked/` between experiments; a keep-list mined from one model is a hidden variable
+  in the next. Current one: `data/_parked/2026-07-31-spec29-01-hard-empty/`.
 - **`data/` is gitignored → park, never delete.** Convention: `data/_parked/<date>-<reason>/`
   with a README. A manual park moves pixels only — the rows stay in `squares.jsonl`;
   `sessions.archive_session` is the mechanism that also prunes the pool.
