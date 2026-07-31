@@ -177,3 +177,51 @@ Every one of these was measured on this session, against the same referees.
 - The four names the web UI calls — `worst_offset`, `frame_offsets`, `square_offsets`,
   `improve_quad` — are unchanged in signature and semantics. `board_lattice` and `line_geometry`
   are new; `line_positions` still returns exactly what it did.
+
+## Is the METRIC accurate? (added after the merge, on the user's challenge)
+
+The visual said the new quads were better. That is worth nothing unless the number agrees with the
+eye, so the metric was calibrated against analytic truth: a board rendered rectified — truth exactly
+zero before any perturbation, so every number below is absolute, not a difference — then displaced
+by a known homography. The truth column mirrors `square_offsets`' own definition (largest
+displacement of any square edge, evaluated where that edge passes the square), so this is a
+calibration and not a restatement.
+
+Bare board, and the same board cluttered with dark discs sitting on the grooves the way pieces do:
+
+| displacement | truth | old reports | err | new reports | err | | old (pieces) | err | new (pieces) | err |
+|---|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|
+| none | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | | 0.50 | +0.50 | 0.06 | +0.06 |
+| shift 2 px | 2.00 | 2.00 | 0.00 | 2.00 | 0.00 | | 2.40 | +0.40 | 2.03 | +0.03 |
+| shift 10 px | 10.00 | 10.00 | 0.00 | 10.00 | −0.00 | | 10.64 | +0.64 | 10.10 | +0.10 |
+| rotation 0.10° | 0.61 | **0.00** | −0.61 | 0.61 | 0.00 | | 0.52 | −0.09 | 0.66 | +0.05 |
+| rotation 0.50° | 3.07 | **0.01** | −3.06 | 3.06 | −0.01 | | 0.58 | −2.49 | 3.23 | +0.16 |
+| rotation 1.00° | 6.17 | 0.52 | −5.65 | 6.16 | −0.01 | | **21.18** | +15.01 | 7.08 | +0.91 |
+| shear 0.25° | 1.53 | **0.00** | −1.52 | 1.51 | −0.01 | | 0.49 | −1.03 | 1.55 | +0.02 |
+| shear 0.50° | 3.05 | **0.01** | −3.05 | 3.04 | −0.02 | | 0.50 | −2.56 | 3.14 | +0.09 |
+| **mean \|error\|** | | | **1.45** | | **0.05** | | | **2.24** | | **0.18** |
+
+**The old metric was exact on a translation and silent on everything else.** Not imprecise —
+silent: 0.01 px for a 3.05 px shear. That is why it certified frames the eye can see are wrong, and
+it is the reason the old auto-fix looked like it worked. On a cluttered board at 1° it does not
+merely under-report, it goes wild in the other direction (21 px for a 6 px truth), so its number was
+not usable in either direction.
+
+Locked in `tests/test_alignment.py::test_the_reported_number_is_the_true_number`. Bar: 0.5 px on the
+bare board, 1.0 px with pieces (a piece on a groove genuinely drags its centroid).
+
+### The one blind spot, in both metrics
+
+A uniform SCALE error is under-reported by 25 %: truth 2.00, reported 1.50. `line_positions` pins
+index 0 and 8 at 0 and `board_size` because the warp puts them there by construction, and a scale
+error is largest at exactly those outer edges. The metric sees only what is left at the innermost
+measurable lines. Structural, not a bug, and recorded as
+`test_a_uniform_scale_is_under_reported_and_that_is_structural` so it is not rediscovered as one.
+
+### What that means for the session's history
+
+Scored on the quads the old system left behind — 302 of them its own corrections, the rest declared
+inside tolerance — the two metrics agree only loosely (r = +0.71), and the old one's **maximum over
+178 frames is 5.59 px**, i.e. it could not report a failure on this session at all. Ten of those
+frames are over tolerance under the new metric and every one of them is a frame the old fix had
+already "corrected".
