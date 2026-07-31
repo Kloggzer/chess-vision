@@ -32,7 +32,7 @@ patience 25, dataset `occ-real6a`. "Scratch" means random init; the warm ones re
 | `occ-v7bn` | BN | warm | 3e-04 | 20 | 48,64,80,96 | 1988 | — | 1.000 / 1.000 |
 | `occ-v7bn-s` | BN | scratch | 3e-04 | 60 | 48,64,80,96 | **0** | 82 | 0.298 / 0.491 |
 | `occ-v7gn-s` | GN | scratch | 3e-04 | 60 | 48,64,80,96 | **0** | 16 | 0.313 / 0.422 |
-| `occ-v7bn-s-lr1e3` | BN | scratch | 1e-03 | 60 | 48,64,80,96 | — | — | — |
+| `occ-v7bn-s-lr1e3` | BN | scratch | 1e-03 | 60 | 48,64,80,96 | **0** | **16** | **0.055** / 0.381 |
 | `occ-v7gn-s-lr1e3` | GN | scratch | 1e-03 | 60 | 48,64,80,96 | — | — | — |
 | `occ-v7bn-s-lr3e3` | BN | scratch | 3e-03 | 60 | 48,64,80,96 | — | — | — |
 | `occ-v7gn-s-lr3e3` | GN | scratch | 3e-03 | 60 | 48,64,80,96 | — | — | — |
@@ -103,3 +103,31 @@ the champion was — the one that now matters most.
 Every other row is a GPU measurement. All rows will be re-measured in one GPU pass before any
 conclusion is drawn from the table, per the project's own rule that a reference has to be measured
 in the same run as its candidate.
+
+## The second surprise, and it is the bigger one: the rate was the whole story
+
+`occ-v7bn-s-lr1e3` is `occ-v7bn-s` with one character changed — peak rate 1e-03 instead of 3e-04.
+
+| run | norm | lr | phantoms | miss @ 0 ph | margin p99.9 / max |
+|---|---|---:|---:|---:|---|
+| `occ-v7bn-s` | BN | 3e-04 | 0 | 82 | 0.298 / 0.491 |
+| `occ-v7gn-s` | GN | 3e-04 | 0 | 16 | 0.313 / 0.422 |
+| `occ-v7bn-s-lr1e3` | BN | **1e-03** | 0 | **16** | **0.055** / 0.381 |
+
+BatchNorm at the higher rate matches GroupNorm's miss count exactly and carries a **5.7x better
+p99.9 margin** — 0.055 against 0.313, with a better max as well (0.381 against 0.422). For scale:
+the champion, which came through two stages of synthetic pretraining, sits at 0.050. This run is a
+cold start on 17 776 real crops and nothing else.
+
+The training log said the same thing in advance and we would have thrown it away: at 3e-04 BN's
+`occ_board_acc` was 0.0000 for all 60 epochs; at 1e-03 it reaches 0.6667. `val_acc` went 0.920 to
+0.982.
+
+This is precisely what Bjorck et al. ([arXiv:1806.02375](https://arxiv.org/abs/1806.02375)) predict:
+BN's benefit *is* tolerating a larger learning rate, so measuring BN at a rate chosen for another
+normalizer measures nothing about BN. Every BN-vs-GN comparison in this repo, including the whole
+exclusion chain in specs/25, was run at 3e-04.
+
+**Not yet a conclusion.** The GroupNorm control at 1e-03 is still running. If GN improves by the same
+margin, the finding is "the inherited default was bad for both norms" — still worth having, but a
+different sentence. That control is the reason the grid was symmetric.
