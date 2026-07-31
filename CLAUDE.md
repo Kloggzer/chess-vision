@@ -133,6 +133,15 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
   itself works (503 → 89 nodes, all 30 ReLUs intact); the weights simply do not survive it. Combined
   with specs/25 this closes the normalisation question from both sides: a foldable net cannot be
   trained to this quality, and this net cannot be folded.
+- **An alignment metric must be calibrated against truth, not against a direction.** Until
+  2026-07-31 `alignment.square_offsets` collapsed the whole board along each axis, which is exact on
+  a translation and **silent on rotation and shear** — 0.01 px reported for a 3.05 px shear. It
+  passed every directional test ("the shear is visible") and certified 302 frames whose grid the eye
+  can see is wrong. The band-wise version is calibrated to analytic truth in
+  `tests/test_alignment.py` (0.05 px mean error bare, 0.18 with pieces). Its one remaining blind
+  spot: a uniform SCALE error reads 25 % short, because `line_positions` pins index 0 and 8 at 0 and
+  `board_size` — the warp puts them there by construction, so the outer edges, where a scale error
+  is largest, are not measurable. Numbers recorded before that date are not comparable to later ones.
 - **3D pieces extend upward.** With a non-perpendicular camera the piece image
   overflows its base cell — square crops extend upward (`pad_up`).
 - **Class imbalance:** `empty` dominates massively; handled at split/dataset
