@@ -98,7 +98,14 @@ def collapse_labels(rows: list[dict], class_mode: str) -> list[dict]:
 # --- Perceptual hash (dhash, 64-bit) --------------------------------------------------
 
 def dhash(img, size: int = 8) -> int:
-    """Difference hash: image to (size+1 x size) gray, horizontal neighbor differences -> 64-bit."""
+    """Difference hash: image to (size+1 x size) gray, horizontal neighbor differences -> 64-bit.
+
+    Neal Krawetz's dHash (docs/references.md#krawetz-2013 — note that the primary source did not
+    fetch in the session that added this reference; the attribution rests on two secondary
+    sources). The 9x8 resize, the horizontal-neighbour comparison and the 64 bits match the
+    original form; common variants also hash the columns for 128 bits, which doubles the evidence
+    per crop and would collide less readily than this one does.
+    """
     import cv2
 
     g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
@@ -144,6 +151,13 @@ def _band_ranges(n_bands: int) -> list[tuple[int, int]]:
 
 def dedup_phash(rows: list[dict], hamming: int) -> list[dict]:
     """Discard visually nearly identical crops within each class (dhash, Hamming <= threshold).
+
+    Note what this is NOT for: leakage between splits. Near-duplicates spanning a train/test
+    boundary are the expensive kind of duplicate (docs/references.md#barz-2019), and this project
+    removes them structurally by splitting per session, not by hashing. What runs here is curation
+    within one split — and it is off by default, because at hamming 6 it discarded 54.8% of the
+    corpus without a single pixel-identical pair among 3,432 collisions (docs/data-pipeline.md
+    §5.13).
 
     Candidates are found via LSH banding rather than by scanning every previously kept hash:
     if two 64-bit hashes differ in at most `hamming` bits, then across `hamming + 1` disjoint

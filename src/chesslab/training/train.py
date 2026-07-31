@@ -106,7 +106,13 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     """`scales`: Multi-Scale-Training (YOLO-Stil). Ist eine Liste wie [64,96,128] gesetzt, wird
     JEDER Batch zufällig auf eine dieser Eingabegrößen skaliert → das size-agnostische Modell
     (AdaptiveAvgPool) lernt alle Auflösungen in EINEM Lauf. So deckt das Training die
-    Deployment-Auflösung ab (FixRes) und man kann danach bei beliebiger Größe inferieren."""
+    Deployment-Auflösung ab (FixRes) und man kann danach bei beliebiger Größe inferieren.
+
+    Both halves are published: drawing a fresh input size per batch is YOLOv2's multi-scale
+    training (docs/references.md#redmon-2016), and the rule that the deployment resolution must
+    occur during training is FixRes (docs/references.md#touvron-2019). `lr` is not: see
+    docs/references.md §11.
+    """
     # GPU precondition (Stage 0 validation path) — mandatory, otherwise abort. This check
     # is torch-free safe and runs BEFORE any torch import, so a missing/broken
     # build is reported clearly here instead of as an ImportError stacktrace.
@@ -348,9 +354,22 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         return 1
     print(f"[loss] {loss}" + (f" gamma={focal_gamma}" if loss == "focal" else "")
           + f", effective weights: {dict(zip(classes, [round(float(w), 4) for w in weights.tolist()], strict=True))}")
+    # AdamW = Adam with decoupled weight decay (docs/references.md#loshchilov-2017). Note that no
+    # `weight_decay` is passed, so the run uses PyTorch's default — the one parameter that paper is
+    # about is a parameter this project has never chosen.
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+    # Cosine annealing without restarts; the schedule comes from SGDR
+    # (docs/references.md#loshchilov-2016), where the cosine runs over the period T_i.
+    #
+    # `T_max=epochs` COUPLES THE SCHEDULE TO THE RUN LENGTH. "The same run but longer" is not the
+    # same run: a 60-epoch and a 200-epoch run follow different learning-rate trajectories from
+    # their first batch, and a plateau in the last epochs may be the cosine floor rather than
+    # convergence. Two consequences worth stating: runs of different lengths are not directly
+    # comparable, and `--patience` interacts with this, because early stopping cuts a schedule
+    # that was planned for `epochs`.
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     amp = not no_amp
+    # Loss scaling for half-precision gradients (docs/references.md#micikevicius-2017).
     scaler = torch.amp.GradScaler("cuda", enabled=amp)
 
     # DataLoader-Tuning: der Crop-Datensatz ist I/O-gebunden (Mio. kleine PNGs). Parallele Worker

@@ -136,6 +136,14 @@ def subsample_classes(rows: list[dict], max_empty_ratio: float | None = None,
     away exactly these rare hard cases; here they are kept first and only the REST of
     the cap budget is filled by random sampling. If there are more hard empties than
     the cap allows, all of them are kept (deliberate overshoot — they are the point).
+
+    Two notes on where this sits relative to the literature (docs/references.md §4). This
+    UNDERSAMPLES the majority class, while the systematic study of class imbalance in CNNs finds
+    oversampling dominant in almost every scenario and reports it does not make CNNs overfit
+    (docs/references.md#buda-2017) — the reason here is disk and I/O on a corpus of millions of
+    near-identical crops, not accuracy. And `priority_paths` is hard-example mining
+    (docs/references.md#shrivastava-2016) done OFFLINE from a finished model, not online per
+    mini-batch; that is what makes a stale keep-list a hidden variable in the next run.
     """
     rng = random.Random(seed)
     by_label: dict[str, list] = {}
@@ -178,7 +186,15 @@ def subsample_empty(rows: list[dict], max_empty_ratio: float | None, seed: int) 
 
 
 def compute_class_weights(counts: dict, classes: list[str] | None = None) -> dict:
-    """Inverse frequency. Largest class -> smallest weight. Absent classes -> 0.0."""
+    """Inverse frequency. Largest class -> smallest weight. Absent classes -> 0.0.
+
+    Weighting by raw frequency is the scheme the class-balanced-loss paper argues AGAINST — its
+    case is that each further sample of a class adds less than the last, so inverse frequency
+    over-corrects, and it proposes an effective-number weighting instead
+    (docs/references.md#cui-2019). The two have never been compared on this corpus. Note also that
+    these weights compound with `max_empty_ratio`: both act on the same imbalance, one by dropping
+    crops and one by reweighting what survives.
+    """
     CLASSES = classes or config.CLASSES
     present = {c: n for c, n in counts.items() if n > 0}
     weights = dict.fromkeys(CLASSES, 0.0)

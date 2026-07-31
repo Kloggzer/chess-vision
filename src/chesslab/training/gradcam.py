@@ -3,6 +3,11 @@
 Backbone-agnostic: hooks the deepest ``Conv2d`` in the network (works for both
 ``smallcnn`` and ``mobilenet_v3_small``, any head). Used by ``scripts/gradcam.py``
 (CLI) and the web Training page (``/api/runs/{run}/gradcam``).
+
+The method is Selvaraju et al. (docs/references.md#selvaraju-2016), which names identifying
+dataset bias among its uses — that is exactly what it was used for here, producing the measurement
+that a knight's prediction relied 8% on the piece and 43% on the board around it. The "reliance"
+number derived from the map is this project's own construction, not the paper's.
 """
 
 from __future__ import annotations

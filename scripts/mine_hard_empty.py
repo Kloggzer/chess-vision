@@ -1,5 +1,10 @@
 """Mine hard-negative `empty` crops: real empty squares the deployed model reads as pieces.
 
+Hard-example mining, offline: the published online form selects hard examples per mini-batch
+inside the training loop (docs/references.md#shrivastava-2016), while this writes a keep-list
+once, from a finished model. The difference matters — a list mined from one model is a hidden
+input to the next, which is why `data/manifests/hard_empty.jsonl` is parked between experiments.
+
 Motivation (2026-07-21, live incident): the deployed CNN read the empty dark square h6 as
 bB and a black queen on b6 as wQ with high confidence — the known dark-square domain gap.
 The `empty` class is capped at dataset-build time (`subsample_classes`), and the random cap
