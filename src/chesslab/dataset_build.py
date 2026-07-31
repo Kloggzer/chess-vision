@@ -304,7 +304,8 @@ def _donor_policy(donor: str, paths: config.Paths) -> dict:
 
 
 def _split_from(donor: str, have: set[str], paths: config.Paths,
-                add_test: Sequence[str] = ()) -> dict[str, list[str]]:
+                add_test: Sequence[str] = (),
+                add_train: Sequence[str] = ()) -> dict[str, list[str]]:
     """The donor dataset's split, restricted to the sessions this build actually has.
 
     Refuses on a session the donor never placed, rather than quietly dropping it into train: an
@@ -316,13 +317,23 @@ def _split_from(donor: str, have: set[str], paths: config.Paths,
     donor's assignment. Train and val stay byte-identical, so every model trained against the donor
     stays comparable — a bigger test set does not change what anything was trained on. This is how a
     session recorded purely to evaluate against gets in.
+
+    `add_train` is the other half, and it is not symmetric in consequence: it CHANGES what a model
+    sees, so the result is a new corpus rather than a twin, and numbers from it are not comparable
+    with the donor's on the training side. Only the test split stays comparable. Use it when the
+    point is to teach the model something new and then check, against the donor's own test
+    sessions, that the new material did not cost anything on the old ones.
     """
     p = paths.datasets / _safe_name(donor) / "split.json"
     if not p.exists():
         raise ValueError(f"--like: dataset '{donor}' has no split.json at {p}")
     donor_splits = json.loads(p.read_text(encoding="utf-8")).get("splits") or {}
     extra = [s for s in add_test if s in have]
-    placed = {s for sids in donor_splits.values() for s in sids} | set(extra)
+    extra_train = [s for s in add_train if s in have]
+    both = sorted(set(extra) & set(extra_train))
+    if both:
+        raise ValueError(f"--add-train and --add-test name the same session(s): {', '.join(both)}")
+    placed = {s for sids in donor_splits.values() for s in sids} | set(extra) | set(extra_train)
     missing = sorted(have - placed)
     if missing:
         raise ValueError(
@@ -337,6 +348,7 @@ def _split_from(donor: str, have: set[str], paths: config.Paths,
             f"thing --like exists to prevent.")
     out = {k: [s for s in sids if s in have] for k, sids in donor_splits.items()}
     out["test"] = out.get("test", []) + [s for s in extra if s not in out.get("test", [])]
+    out["train"] = out.get("train", []) + [s for s in extra_train if s not in out.get("train", [])]
     return out
 
 
@@ -360,6 +372,7 @@ def build_dataset(
     force_train=None,
     like: str | None = None,
     add_test: Sequence[str] = (),
+    add_train: Sequence[str] = (),
     pack: bool = True,
     class_mode: str = "pieces",
 ) -> dict:
@@ -427,7 +440,7 @@ def build_dataset(
     # board_accuracy would compute on incomplete/duplicated boards (bug).
     sizes = Counter(r["session_id"] for r in rows)
     if like:
-        splits = _split_from(like, set(sizes), paths, add_test)
+        splits = _split_from(like, set(sizes), paths, add_test, add_train)
     else:
         splits = dataset_mod.assign_sessions_to_splits(dict(sizes), val_frac, test_frac, seed,
                                                        force_train=force_train)
