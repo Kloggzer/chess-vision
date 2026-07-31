@@ -101,8 +101,9 @@ function FlagChip({ row, current, onJump }: {
             title={broken ? "No corners — this frame cannot be sliced." : "Jump to this frame."}
             className={`rounded px-1.5 py-0.5 text-[11px] tabular-nums transition ${tone} ${
               current ? "ring-1 ring-sky-400" : ""}`}>
-      <span className="text-zinc-400">#</span>{row.index + 1}
-      <span className="ml-1 opacity-80">
+      <span className="opacity-60">#</span>{row.index + 1}
+      <span className="mx-1 opacity-40">·</span>
+      <span className="opacity-90">
         {broken ? "no corners" : `${(row.align_worst_px as number).toFixed(1)} px`}
       </span>
     </button>
