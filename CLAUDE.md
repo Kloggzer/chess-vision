@@ -199,6 +199,10 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
 - `uv run vulture` — **dead code**. ruff's `F` rules only see one file at a time (unused
   imports, unused locals); an exported function nobody calls is invisible to them. Configured
   in `pyproject.toml`, currently silent — keep it that way rather than adding a whitelist.
+- **Gating inside a git worktree tests the WRONG TREE unless you set `PYTHONPATH`.** The shared
+  `.venv` holds an editable install pointing at the main checkout, so `pytest` run from
+  `.claude/worktrees/<agent>/` imports `chesslab` from the main tree and reports green on code it
+  never executed. Use `PYTHONPATH=<worktree>/src .venv/Scripts/python.exe -m pytest -q` there.
 - Frontend changes: `cd src/chesslab/web/frontend && npm run build` (output is
   committed under `web/static/`); `npm run lint` must not add new errors; `npm run knip` —
   dead files, exports and dependencies — must stay silent.
