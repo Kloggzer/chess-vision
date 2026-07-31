@@ -252,9 +252,14 @@ def _preflight_disk_check(train_rows: list[dict], holdout: list[dict],
 
 # --- Build ----------------------------------------------------------------------------
 
-# Auto-pack (build_dataset) only kicks in above this crop count — below it the per-PNG loader is
-# fine and a 53 GB memmap / a multiprocessing pack pool would be wasteful (also keeps tests light).
-_PACK_MIN_CROPS = 100_000
+# Auto-pack (build_dataset) kicks in above this crop count. It used to be 100 000, on the claim
+# that "below it the per-PNG loader is fine" — measured false on 2026-07-31: `occ-real6a`, 44 864
+# crops and therefore unpacked, had read 8.7 GB from disk against 57 s of CPU time before the first
+# epoch line appeared, with both CPU and GPU idle. 45 000 separate `Image.open` calls per epoch are
+# not fine; they are the whole wall clock. At 128x128x3 the memmap costs ~50 KB per crop, so this
+# threshold is ~0.1 GB of disk — cheap enough that the only sets worth excluding are the toy ones
+# in the test suite, and those pass `pack=False` explicitly anyway.
+_PACK_MIN_CROPS = 2_000
 
 
 def _donor_policy(donor: str, paths: config.Paths) -> dict:

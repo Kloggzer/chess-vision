@@ -29,11 +29,29 @@ def _pid_alive(pid: int) -> bool:
         return False
     if os.name == "nt":
         import ctypes
-        h = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
-        if h:
-            ctypes.windll.kernel32.CloseHandle(h)
-            return True
-        return False
+
+        # OpenProcess alone answers the WRONG question. Windows keeps a process OBJECT alive as
+        # long as anyone holds a handle to it, so a terminated process whose parent shell has not
+        # let go still opens fine — and the training lock then reports a run that has been dead for
+        # minutes as live, refusing every new run until someone deletes the file by hand. Ask for
+        # the exit code instead: STILL_ACTIVE means running, anything else means it has exited.
+        #
+        # `restype` is not optional here either: a HANDLE is 64-bit on x64 and ctypes defaults to
+        # c_int, which truncates it.
+        k = ctypes.windll.kernel32
+        k.OpenProcess.restype = ctypes.c_void_p
+        k.OpenProcess.argtypes = (ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32)
+        k.GetExitCodeProcess.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32))
+        k.CloseHandle.argtypes = (ctypes.c_void_p,)
+        h = k.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        code = ctypes.c_uint32()
+        ok = k.GetExitCodeProcess(h, ctypes.byref(code))
+        k.CloseHandle(h)
+        # 259 = STILL_ACTIVE. A process that deliberately exits WITH 259 reads as alive; that is
+        # the documented ambiguity of this API and it is the safe direction for a lock.
+        return bool(ok) and code.value == 259
     try:
         os.kill(pid, 0)
     except OSError:
