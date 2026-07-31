@@ -487,7 +487,7 @@ def test_occupancy_build_drops_occluded_rows(tmp_path, monkeypatch, capsys):
     assert "dropped 1" in capsys.readouterr().out
 
 
-def test_split_like_takes_the_donors_assignment_verbatim(tmp_path, monkeypatch):
+def test_like_takes_the_donors_assignment_verbatim(tmp_path, monkeypatch):
     """The twin must train on the same sessions as the model it is compared against.
 
     `assign_sessions_to_splits` does not return a dataset's own recorded split when fed that

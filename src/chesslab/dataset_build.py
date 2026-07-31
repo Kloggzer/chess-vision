@@ -257,6 +257,33 @@ def _preflight_disk_check(train_rows: list[dict], holdout: list[dict],
 _PACK_MIN_CROPS = 100_000
 
 
+def _donor_policy(donor: str, paths: config.Paths) -> dict:
+    """Everything about `donor` that decides which crops end up where.
+
+    The split assignment is only half of what makes two datasets comparable. `occ-real6` was built
+    with `per_cell_cap 256` and `max_empty_ratio 3.0`; today's defaults are 4 and 1.5, so a rebuild
+    with the same sessions and the same split still produced a third of the training rows and
+    almost inverted class weights. Both halves have to come from the donor or neither does.
+    """
+    p = paths.datasets / _safe_name(donor) / "dataset.yaml"
+    if not p.exists():
+        raise ValueError(f"--like: dataset '{donor}' has no dataset.yaml at {p}")
+    cfg = _read_yaml(p)
+    d, s = cfg.get("dedup") or {}, cfg.get("split") or {}
+    return {
+        "per_cell_cap": d.get("per_cell_cap"),
+        "phash_enabled": d.get("phash_enabled"),
+        "phash_hamming": d.get("phash_hamming"),
+        "rotations": tuple(cfg.get("rotations") or (0,)),
+        "val_frac": s.get("val_frac"),
+        "test_frac": s.get("test_frac"),
+        "max_empty_ratio": s.get("max_empty_ratio"),
+        "max_class_ratio": s.get("max_class_ratio"),
+        "seed": s.get("seed"),
+        "class_mode": cfg.get("class_mode"),
+    }
+
+
 def _split_from(donor: str, have: set[str], paths: config.Paths) -> dict[str, list[str]]:
     """The donor dataset's split, restricted to the sessions this build actually has.
 
@@ -297,7 +324,7 @@ def build_dataset(
     variant_tag: str | None = None,
     allow_degenerate: bool = False,
     force_train=None,
-    split_like: str | None = None,
+    like: str | None = None,
     pack: bool = True,
     class_mode: str = "pieces",
 ) -> dict:
@@ -309,18 +336,29 @@ def build_dataset(
     For the bake-off, each variant points to its own `squares__<tag>.jsonl`; with identical
     `session_ids`+`seed`, the session-based split is byte-identical across all variants.
 
-    `split_like`: take the train/val/test session assignment VERBATIM from an existing dataset
-    instead of deriving it. Use it whenever the point of the build is to compare against a model
-    trained on that dataset — a split is **not** reproducible from its own recorded parameters
-    (same seed, fractions and session pool return a different assignment; verified 2026-07-31 on
-    `occ-real5nd`, which records 11/3/1 where the assigner now returns 12/1/2), so a plain rebuild
-    silently trains on different sessions than the model it is being compared with.
+    `like`: build the TWIN of an existing dataset — its session split, its dedup policy and its
+    class-balancing policy, all taken verbatim and **overriding** the corresponding arguments. Use
+    it whenever the point of the build is to compare against a model trained on that dataset.
+    Neither half is recoverable otherwise: a split is not reproducible from its own recorded
+    parameters (same seed, fractions and pool return a different assignment; verified 2026-07-31 on
+    `occ-real5nd`, recorded 11/3/1 against the assigner's 12/1/2), and the defaults move over time
+    (`occ-real6` was built at `per_cell_cap 256` / `max_empty_ratio 3.0`, today's defaults are 4 and
+    1.5 — same sessions, same split, a third of the training rows).
     """
     name = _safe_name(name)
-    classes = class_list_for(class_mode)
     # Resolution at runtime (not as default arg): default args bind at import time and
     # ignore a later patched/changed config.DATA (testability).
     paths = paths or config.DATA
+    if like:
+        pol = _donor_policy(like, paths)
+        class_mode = pol["class_mode"] or class_mode
+        per_cell_cap, phash_enabled = pol["per_cell_cap"], pol["phash_enabled"]
+        phash_hamming, rotations = pol["phash_hamming"], pol["rotations"]
+        val_frac, test_frac, seed = pol["val_frac"], pol["test_frac"], pol["seed"]
+        max_empty_ratio, max_class_ratio = pol["max_empty_ratio"], pol["max_class_ratio"]
+        print(f"[like] adopting {like}: classes={class_mode} cap={per_cell_cap} "
+              f"phash={phash_enabled} max_empty_ratio={max_empty_ratio} seed={seed}")
+    classes = class_list_for(class_mode)
     d = config.DEDUP
     per_cell_cap = d.per_cell_cap if per_cell_cap is None else per_cell_cap
     phash_enabled = d.phash_enabled if phash_enabled is None else phash_enabled
@@ -353,8 +391,8 @@ def build_dataset(
     # board_accuracy would compute on incomplete/duplicated boards (bug).
     # board_accuracy would compute on incomplete/duplicated boards (bug).
     sizes = Counter(r["session_id"] for r in rows)
-    if split_like:
-        splits = _split_from(split_like, set(sizes), paths)
+    if like:
+        splits = _split_from(like, set(sizes), paths)
     else:
         splits = dataset_mod.assign_sessions_to_splits(dict(sizes), val_frac, test_frac, seed,
                                                        force_train=force_train)
