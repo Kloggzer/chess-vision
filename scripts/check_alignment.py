@@ -7,10 +7,10 @@ zone and EMA lag differently per marker while the board rotates, so the quad cam
 only the calibration-pose frame rectified correctly. Nothing in the pipeline noticed.
 
 **How it works.** On the RECTIFIED board the 7 interior grooves per axis must sit at multiples of
-`board_size / 8`. Each groove is located from the gradient profile with sub-pixel interpolation,
-which gives the board's REAL line positions. Those lines are then reassembled into the 64 actual
-cell rectangles and each is compared against its nominal one — so the output is not an abstract
-score but "d4 is 11 px off", in the units the crops are cut in.
+`board_size / 8`. Each groove is located as the sub-pixel centre of its notch, band by band, which
+gives the board's REAL line positions AND their tilt. Those lines are then reassembled into the 64
+actual cell rectangles and each is compared against its nominal one — so the output is not an
+abstract score but "d4 is 11 px off", in the units the crops are cut in.
 
 Measuring inside the warp is deliberate. An earlier version measured corner residuals on the raw
 frame and drowned in barrel distortion (6 px of baseline noise) while saturating at the corner
@@ -187,6 +187,47 @@ def levels_montage(d: Path, log: list, prof, res: list, out: str, n_levels: int 
     print(f"\n  wrote {out} — green is the nominal grid, the grooves are the board")
 
 
+def before_after_montage(d: Path, log: list, prof, flagged: list, out: str, n: int = 4) -> None:
+    """Per frame, the SAME 3x3 square region before and after the fix, at native resolution.
+
+    Holding the region fixed across the pair is the whole point. A tile that picks its own worst
+    square on each side compares two different squares and shows a win that is not there — that
+    mistake has been made here once already. The region is chosen from the BEFORE quad and reused.
+    """
+    cell = prof.board_size / 8.0
+    rows = []
+    for i, _off, bad, worst, _u in sorted(flagged, key=lambda t: -t[3])[:n]:
+        e = log[i]
+        frame = cv2.imread(str(d / e["frame"]))
+        fixed = correct_quad(frame, e["corners"], prof)
+        if frame is None or fixed is None:
+            continue
+        sq = bad[0][0] if bad else "d4"
+        cx = min(max(ord(sq[0]) - 97, 1), 6)
+        cy = min(max(8 - int(sq[1]), 1), 6)
+        x0, y0, side = int((cx - 1) * cell), int((cy - 1) * cell), int(3 * cell)
+        tiles = []
+        for label, quad in (("BEFORE", e["corners"]), ("AFTER", fixed)):
+            w = warp_from_corners(frame, prof, quad)
+            off2, _ = frame_offsets(frame, quad, prof)
+            tile = w[y0:y0 + side, x0:x0 + side].copy()
+            for k in range(4):
+                p = int(k * cell)
+                cv2.line(tile, (p, 0), (p, tile.shape[0]), (0, 255, 0), 1)
+                cv2.line(tile, (0, p), (tile.shape[1], p), (0, 255, 0), 1)
+            tile = cv2.copyMakeBorder(tile, 34, 6, 6, 6, cv2.BORDER_CONSTANT, value=(20, 20, 20))
+            head = (f"frame {i} {label} {sq} {off2.get(sq, float('nan')):.1f}px" if not tiles
+                    else f"{label} {sq} {off2.get(sq, float('nan')):.1f}px  (was {worst:.1f})")
+            cv2.putText(tile, head, (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+            tiles.append(tile)
+        rows.append(np.hstack(tiles))
+    if not rows:
+        return
+    w = min(r.shape[1] for r in rows)
+    cv2.imwrite(out, np.vstack([r[:, :w] for r in rows]))
+    print(f"\n  wrote {out} — same square on both sides, green is where the crop will be cut")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--session", required=True)
@@ -204,6 +245,9 @@ def main() -> None:
     ap.add_argument("--calibrate", action="store_true",
                     help="also report what a deliberate corner shift does to the offsets")
     ap.add_argument("--montage", default="", help="write the worst frames' warps here")
+    ap.add_argument("--before-after", default="",
+                    help="write a before/after montage of the worst flagged frames here — the "
+                         "same square on both sides, at native rectified resolution")
     ap.add_argument("--levels", default="",
                     help="write a zoomed montage across the offset range here — the "
                          "picture that answers what a given number actually looks like")
@@ -249,6 +293,8 @@ def main() -> None:
         calibrate(d, log, ok[len(ok) // 2][0], prof, args.max_off)
     if args.montage and flagged:
         write_montage(d, log, prof, flagged, args.montage)
+    if args.before_after and flagged:
+        before_after_montage(d, log, prof, flagged, args.before_after)
     if args.levels:
         levels_montage(d, log, prof, res, args.levels)
 

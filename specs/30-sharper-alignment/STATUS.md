@@ -1,0 +1,179 @@
+# specs/30 — sharper alignment: what shipped, and what lost
+
+> **Status:** done. Branch `spec-30-sharper-alignment`, cut from `spec-24-frame-the-board`, not merged.
+> Every number below is from session `20260731-102458`, board_size 800 (1 cell = 100 px),
+> flag threshold 7.7 px, measured on **2026-07-31 in the same runs as the reference row**.
+
+## What the gap turned out to be
+
+The brief's suspect was right and its remedy was wrong.
+
+Right: the 1-D collapse averages a line's TILT away, and the tilt is what the human was fixing.
+Decomposing what the human's hand did to the 14 quads they corrected shows the same signature on
+every one of them — a rotation between −0.09° and −0.36°, an anisotropy of +0.08° to +0.49° (the
+same sign on all 14), and a scale of 0.989 to 1.006 — and a measurement built from two collapsed
+profiles cannot see the first two at all.
+
+Wrong: the fix is **not** to detect the 81 intersections in 2-D. A saddle-point detector loses to
+the collapsed profile on precision by more than 2x, because collapsing 800 rows is an enormous
+amount of averaging and a 45 px window is not. What works is to keep the collapse and just do it
+**band by band**: 4 samples per line instead of 1, at sqrt(4) worse noise each, which the fit
+averages straight back out — and the tilt survives.
+
+Three other things mattered as much as the measurement:
+
+- **`correct_quad` used to feed 32 assumed points into its own fit.** The 9x9 lattice includes the
+  playing-field edges, which the warp pins at 0 and `board_size` by construction. Handing 32 of
+  those to `findHomography` as if they had been measured anchors the fit to the quad it is supposed
+  to be correcting. Dropping them and changing nothing else takes the distance to the human from
+  8.68 px to 7.26 px.
+- **One pass is not enough.** A badly placed grid puts every groove near the edge of its search
+  window, where the measurement is worst. Iterating three times removes the dependence on how bad
+  the input was: the new fit lands in the same place from a 9 px error as from none (3.76 vs 3.29),
+  where the old one was start-dependent (7.54 vs 2.37).
+- **Affine, not homography.** The quad is already nearly right, so the leftover error has no real
+  perspective component — but a homography fit spends its two perspective parameters on noise
+  anyway, and it cost 1.5 px.
+
+## The table
+
+### 1. Against the human — the bar the brief set
+
+The 14 frames with `corners_source: "hand"`, started from their recorded `corners_prev`. Distance
+from the produced quad to the human's quad, in rectified px over the 800x800 board.
+
+| | max, median | max, p90 | rms, median |
+| --- | --- | --- | --- |
+| the quad as recorded (no correction) | 12.83 | 16.95 | 5.30 |
+| `correct_quad` as it was | 8.68 | 14.64 | 3.20 |
+| **`correct_quad` now** | **5.14** | **7.32** | **2.87** |
+
+Not all of the remaining 5.1 px is method error: what the measurement reads on quads a human placed
+scatters by 1.0–1.7 px sd from frame to frame, which is the human's own hand on a corner drag.
+
+### 2. Perturb and recover — exact ground truth
+
+Truth is the hand quad; a known rectified-space transform is applied and the fit must undo it.
+14 / 56 / 56 trials.
+
+| start error | as recorded | old | new |
+| --- | --- | --- | --- |
+| none (0.00 px) | 0.00 | 2.37 | 3.29 |
+| small (2.28 px) | 2.28 | 2.85 | 3.27 |
+| large (9.37 px) | 9.37 | 7.54 | **3.76** |
+
+Read the last two rows together: the old fit is better when there is nothing to fix and much worse
+when there is. The new one is flat, which is what a fit is supposed to be.
+
+### 3. The whole session, from the pre-fix marker quads
+
+267 frames (every 2nd), quads from `log.jsonl.bak.20260731-110326`.
+
+| | old | new |
+| --- | --- | --- |
+| noise floor (already-fine frames): median / p90 / max | 4.48 / 5.39 / 6.72 | 5.27 / 5.96 / **6.14** |
+| frames flagged over 7.7 px | 39 | 42 |
+| after correction: median / p90 | 4.72 / 5.83 | **3.59 / 3.99** |
+| still over 7.7 px after the fix | 3 | **0** |
+| refused (no fit) | 0 | 0 |
+
+**The noise floor went UP, and that is the honest direction.** Split into its two causes over 73
+already-fine frames: old estimator 4.45, new notch estimator without the tilt term 4.49 (i.e. the
+estimator change is worth nothing, see the losers), new estimator **with** the tilt term 5.27. The
+tilt measured on exactly those frames is 2.04 / 2.08 mrad, which is 0.82 px at the board edge — the
+entire increase. The old number was not lower because the board was straighter; it was lower
+because the metric could not see the tilt.
+
+That the tilt is real and not slope noise: estimating it twice per frame from two disjoint halves
+of the bands gives a correlation of **+0.912**, a real-tilt sd of 3.88 mrad (1.55 px at the edge)
+and an estimator noise sd of 0.86 mrad (0.34 px).
+
+### 4. What each metric can actually see
+
+One known error at a time, on 6 hand frames, median reading. `true worst` is the worst square-edge
+displacement the transform really produces.
+
+| perturbation | true worst | OLD reads | NEW reads |
+| --- | --- | --- | --- |
+| none | 0.00 | 3.95 | 4.67 |
+| translate 6 px | 6.00 | 6.41 | 7.87 |
+| scale 1 % | 4.00 | 6.63 | 7.11 |
+| rotate 0.6° | 3.69 | 5.03 | 7.45 |
+| **shear 0.6°** | **3.67** | **4.46** | **8.89** |
+
+The old metric moved 0.51 px for a 3.67 px shear — less than its own noise. That is the hole the
+module was written to close, and it was open in the module's own metric.
+
+### 5. Cost
+
+`square_offsets` 2.0 → 4.3 ms per warped board; `improve_quad` 9.5 → 28.2 ms per frame. Both sit
+under the 35 ms it takes to JPEG-decode one 4K frame, which is what a UI scan actually spends its
+time on.
+
+## The visual probe
+
+`scripts/check_alignment.py --before-after out.png` — the worst flagged frames, before and after,
+at native rectified resolution with the nominal grid drawn on, **holding the same square on both
+sides**. Rendered from the pre-fix quads:
+
+    C:\Users\mariu\AppData\Local\Temp\claude\C--Users-mariu-project-chess-vision\45d7f663-51d5-4134-b598-f33c3c47d202\scratchpad\a30\spec30-probe.png
+
+Frames 258, 186, 183, 189, 192: g8 goes 20.4 → 3.0, 19.7 → 2.8, 19.6 → 3.3, 18.6 → 2.3,
+17.7 → 1.8 px.
+
+## What lost
+
+Every one of these was measured on this session, against the same referees.
+
+- **Detecting the 81 intersections in 2-D (the brief's most likely single win).** A quadratic
+  saddle fit finds 27–38 of 49 interior crossings and its lattice residual rms is 2.32 px against
+  the collapsed profile's 1.10. Against the human it reaches 7.89 px where the band lattice reaches
+  5.14, and *adding* it to the band lattice makes things worse (5.73). `cv2.cornerSubPix` seeded at
+  the nominal positions lands between the two (1.80 px residual at a 15 px window, 2.38 at 11).
+  The reason is not subtle: a whole-board collapse averages 800 rows, a corner window averages 45x45
+  pixels, and this board's grooves are narrow, low-contrast and often under a piece.
+- **RANSAC.** 7.28 px against Huber's 5.35 on perturb-and-recover. The bad samples here are not
+  sparse outliers, they are a systematic minority (grooves under pieces), and a hard inlier/outlier
+  cut throws away good data with them.
+- **Weighting by the notch depth.** 5.37 against 5.35 — nothing. `_groove_centre` was throwing away
+  a confidence signal that turns out not to carry any.
+- **Symmetrising the notch estimator** (averaging it with itself on the reversed window, which
+  cancels any left/right asymmetry exactly). Bit-identical results — the half-depth segment
+  centroid that ships is already symmetric, so there was no asymmetry to cancel.
+- **Every other notch estimator.** The shipped one (linear baseline, centroid of the connected run
+  above half depth) against the old p90-baseline centroid, a plain linear-baseline centroid, a
+  3-point parabola and a half-depth parabola: 5.13 / 5.28 / 5.28 / 5.13 / 5.23 against the human,
+  and 4.49 vs 4.45 on the noise floor. All inside the noise. **The estimator was never the problem.**
+- **The number of bands.** 2 / 4 / 8 give 5.26 / 5.13 / 5.23. Flat, as the noise algebra predicts —
+  splitting into B bands costs sqrt(B) per sample and buys B samples.
+- **A similarity fit instead of affine.** Best of all in the small-error regime (2.66) and worst
+  from the real recorded quads (7.37): the error it refuses to model is really there.
+- **Modelling the board's own line irregularity.** It exists and it is stable — estimated from two
+  disjoint halves of the session, the per-line offsets agree to 0.17 px — but after removing what a
+  homography can absorb anyway it is only ±0.75 px peak to peak, and putting it into the fit changed
+  nothing. Worth knowing: the board's grooves really are not at exact eighths, and the effect is
+  far too small to matter.
+- **Removing the leftover bias as a constant.** The residual after correction is 97 % systematic
+  per frame (4.07 px systematic against 0.28 px random over 5 draws), which looked like a constant
+  worth subtracting. It is not constant across frames: subtracting the leave-one-out mean over the
+  14 hand frames made it worse (5.47 against 5.13).
+- **Undistorting first.** `session.yaml` says `undistorted: true` while
+  `scripts/ingest_video_session.py` says it stores frames raw, so it was worth testing rather than
+  reading. Undistorting the frame and its quad with `data/lens/calib.npz` takes the lattice residual
+  from 1.48 px to 4.24 px — these frames are already corrected, and the flag is right.
+- **Blur before measuring.** 5.25 against 5.13. The notch is 3–5 px wide; blurring it is throwing
+  away the signal.
+
+## Notes for whoever comes next
+
+- The remaining 5.1 px to the human is **bias, not noise** — the fit converges to the same answer
+  to within 0.28 px, it just is not quite the human's answer. Chasing it with a better estimator is
+  proven not to work (see the losers). What has not been tried: giving the fit the FEN, so grooves
+  under a piece can be excluded instead of down-weighted. `improve_quad` does not get the position
+  today.
+- `square_offsets` now reports a tilt-aware number, so **offsets recorded before this branch are
+  not comparable to offsets recorded after it**. Frames flagged went 39 → 42 on the same 267 frames
+  for that reason alone.
+- The four names the web UI calls — `worst_offset`, `frame_offsets`, `square_offsets`,
+  `improve_quad` — are unchanged in signature and semantics. `board_lattice` and `line_geometry`
+  are new; `line_positions` still returns exactly what it did.
