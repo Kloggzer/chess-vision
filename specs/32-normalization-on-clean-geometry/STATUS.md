@@ -313,3 +313,34 @@ still cannot be folded after the fact.
 
 **Not yet measured on the device.** The models are bundled as app assets, so a real SM8650 number
 needs an app build. The node counts and the mechanism are certain; the 1.8x is a projection.
+
+## Width, once BatchNorm has paid for it
+
+`occ-v9bn-wide` is `mobilenetv4_conv_small` at full width — 2.50 M parameters against 0.63 M,
+27.0 MMAC/crop against 6.7 — with BatchNorm, on `occ-warm`, otherwise identical to the 0.35 runs.
+
+| run | width | norm | anchor | phone | 222906 (held out) | margin p99.9 / max | device ms |
+|---|---|---|---|---|---|---|---:|
+| `occ-v8bn-warm` | 0.35 | BN | 0/0 | 0/0 | 254 | 0.013 / 0.170 | 7.9 |
+| `occ-v8gn-warm` | 0.35 | GN | 0/0 | 0/0 | 126 | 0.002 / 0.262 | 30.0 |
+| **`occ-v9bn-wide`** | **1.0** | **BN** | **0/0** | **0/0** | **3** | **0.003 / 0.008** | **24.0** |
+
+misses / phantoms.
+
+**Three misses** on a session at R:B 51 that was never trained on, against 254 for the same
+normalizer at 0.35 width and 126 for GroupNorm. And a **maximum** margin of 0.008 — the previous
+best anywhere in this project was 0.093, and this session's own corpus start of day was 0.512.
+
+It is also **faster than what ships**: 24.0 ms against the shipped GroupNorm graph's 30.0 ms, at
+four times the model. specs/28 closed with a STOP on exactly this idea because latency is affine in
+MACs; the arithmetic was right and the line was GroupNorm's.
+
+So the width question and the normalization question turn out to be one question. GroupNorm costs
+per convolution, so it taxes precisely the thing that buys accuracy, and at 0.35 width the tax looks
+survivable. It is not: at the same latency budget BatchNorm can afford four times the network, and
+four times the network is worth 84 misses per one of GroupNorm's.
+
+**Caveats.** Scored on the CPU EP while the GPU trained; the whole table still owes one GPU pass.
+Early-stopped at epoch 55 by `--patience 25` keyed on `occ_board_acc`, so it may not be finished.
+And the 24.0 ms was measured on an untrained graph of the same architecture — latency is a property
+of the graph, but the trained export has not itself been timed.
