@@ -368,12 +368,8 @@ def build_dataset(
     # Mined hard-negative empties (scripts/mine_hard_empty.py) survive the empty cap:
     # a random cap throws away exactly the rare hard cases (dark corner squares, pad_up
     # neighbour bleed) that the deployed model confidently misreads.
-    hard_empty = paths.manifests / "hard_empty.jsonl"
-    priority_paths: set[str] | None = None
-    if hard_empty.exists():
-        priority_paths = {json.loads(ln)["path"]
-                          for ln in hard_empty.read_text(encoding="utf-8").splitlines()
-                          if ln.strip()}
+    priority_paths = dataset_mod.load_priority_paths(paths)
+    if priority_paths:
         print(f"[i] hard-empty keep list: {len(priority_paths)} crops protected from the empty cap")
     split = dataset_mod.make_split(rows, val_frac, test_frac, max_empty_ratio, seed, max_class_ratio,
                                    force_train=force_train, precomputed_splits=splits,

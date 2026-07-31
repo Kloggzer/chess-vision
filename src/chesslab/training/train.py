@@ -169,14 +169,21 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         return 1
 
     # Balancing ONLY applied to train (policy is in split.json); val/test stay full.
-    from ..dataset import subsample_classes
+    from ..dataset import load_priority_paths, subsample_classes
 
     ts = split.get("train_subsample") or {}
+    # The mined hard negatives have to be protected HERE too, not only in the build: the
+    # dataset's manifest holds the uncapped rows, so this re-draw is what actually decides
+    # which `empty` crops a batch ever sees.
+    priority_paths = load_priority_paths()
+    if priority_paths:
+        print(f"[i] hard-empty keep list: {len(priority_paths)} crops protected from the empty cap")
     train_rows = subsample_classes(
         filter_rows_by_split(manifest, split, "train"),
         max_empty_ratio=ts.get("max_empty_ratio"),
         max_class_ratio=ts.get("max_class_ratio"),
         seed=ts.get("seed", seed),
+        priority_paths=priority_paths,
     )
     val_rows = filter_rows_by_split(manifest, split, "val")
     if not train_rows:
