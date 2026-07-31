@@ -338,6 +338,10 @@ def _write_corner_rows(sdir: Path, rows: list[dict], indices: list[int], quad, *
     backup = _backup_log(log_path)
     stamp = datetime.now(UTC).isoformat()
     for i in indices:
+        # Keep what is being replaced: it is what a before/after view compares against, and
+        # without it the previous geometry only survives in a backup file nobody reads.
+        if rows[i].get("corners"):
+            rows[i]["corners_prev"] = rows[i]["corners"]
         rows[i]["corners"] = [[float(x), float(y)] for x, y in quad]
         rows[i]["corners_source"] = source
         rows[i]["corners_set_at"] = stamp
@@ -430,7 +434,12 @@ def session_corners(sid: str):
         "profile": {"name": prof.profile, "board_size": prof.board_size,
                     "margin": list(prof.margin), "marker_dict": prof.marker_dict,
                     "white_pov": bool(prof.white_pov)},
+        # `corners` travels with the row so the editor can fine-tune an EXISTING quad without
+        # first re-detecting it: the common case is a detection that is a few pixels off, not a
+        # frame with no geometry at all.
         "rows": [{"index": i, "has_corners": bool(r.get("corners")),
+                  "corners": r.get("corners"),
+                  "align_worst_px": r.get("align_worst_px"),
                   "source": r.get("corners_source", "detected") if r.get("corners") else None,
                   "from": r.get("corners_from")} for i, r in enumerate(rows)],
         "adopt": ({"available": True, "n_target": len(without), **cand}
@@ -531,6 +540,262 @@ def session_set_corners(sid: str, points: list = Body(...), index: int = Body(0)
     return res
 
 
+def _autofix_one(sdir: Path, entry: dict):
+    """(corrected quad or None, offset before, offset after) for one row."""
+    import cv2
+
+    from ...alignment import improve_quad
+
+    if not entry.get("corners"):
+        return None, float("nan"), float("nan")
+    frame = cv2.imread(str(_frame_path(sdir, entry)))
+    if frame is None:
+        return None, float("nan"), float("nan")
+    return improve_quad(frame, entry["corners"], _review_profile(sdir))
+
+
+@router.get("/api/sessions/{sid}/corners/autofix/{idx}")
+def session_autofix_preview(sid: str, idx: int):
+    """The corrected quad for ONE frame — computed, not written.
+
+    Returned rather than applied so the reviewer sees it in the preview first, exactly like a
+    hand adjustment. `improve_quad` refuses a correction that does not improve the frame, so an
+    empty `corners` here means "nothing to gain", not "failed".
+    """
+    sdir, _archived, _rows, clamped, entry = _review_entry(sid, idx)
+    quad, before, after = _autofix_one(sdir, entry)
+    return {"index": clamped, "corners": quad,
+            "before": None if before != before else round(before, 2),
+            "after": None if after != after else round(after, 2)}
+
+
+@router.post("/api/sessions/{sid}/corners/autofix")
+def session_autofix_session(sid: str, max_off: float = Body(9.0, embed=True)):
+    """Re-fit every frame whose worst square sits further than `max_off` px off the grid.
+
+    Two rules keep this from doing harm, both in `alignment.improve_quad` and here: frames already
+    within tolerance are NOT touched, because inside the noise band the fit chases measurement
+    noise and makes them worse; and a correction that does not improve its own frame is discarded.
+    `log.jsonl` is backed up before anything is written, and the rows are marked
+    `corners_source: "auto-corrected"` so the review UI keeps showing what was measured and what
+    was computed.
+    """
+    import cv2
+
+    from ...alignment import worst_offset
+
+    sdir, _archived, rows, _clamped, _entry = _review_entry(sid, 0)
+    prof = _review_profile(sdir)
+    targets = []
+    for i, r in enumerate(rows):
+        if not r.get("corners"):
+            continue
+        frame = cv2.imread(str(_frame_path(sdir, r)))
+        if frame is None:
+            continue
+        w = worst_offset(frame, r["corners"], prof)
+        if w == w and w > max_off:
+            targets.append(i)
+    changed, refused, gains = [], 0, []
+    for i in targets:
+        quad, before, after = _autofix_one(sdir, rows[i])
+        if quad is None:
+            refused += 1
+            continue
+        rows[i]["corners_prev"] = rows[i]["corners"]
+        rows[i]["corners"] = quad
+        rows[i]["corners_source"] = "auto-corrected"
+        changed.append(i)
+        gains.append((round(before, 1), round(after, 1)))
+    if not changed:
+        return {"session_id": sid, "checked": len(rows), "over_threshold": len(targets),
+                "changed": 0, "refused": refused, "backup": None}
+    from datetime import UTC, datetime
+
+    log_path = sdir / "log.jsonl"
+    backup = _backup_log(log_path)
+    stamp = datetime.now(UTC).isoformat()
+    for i in changed:
+        rows[i]["corners_set_at"] = stamp
+    tmp = log_path.with_suffix(".jsonl.tmp")
+    tmp.write_text("".join(json.dumps(r, ensure_ascii=False, default=str) + "\n" for r in rows),
+                   encoding="utf-8")
+    os.replace(tmp, log_path)
+    return {"session_id": sid, "checked": len(rows), "over_threshold": len(targets),
+            "changed": len(changed), "refused": refused, "indices": changed,
+            "gains": gains, "backup": Path(backup).name, "max_off": max_off}
+
+
+@router.post("/api/sessions/{sid}/corners/scan")
+def session_scan_alignment(sid: str):
+    """Measure every frame's worst square offset once and store it as `align_worst_px`.
+
+    Stored rather than computed on demand because measuring one frame costs a warp plus two Sobel
+    passes — fine for a single review step, 40 s for a 534-frame session, which no UI can do on a
+    click. Written into `log.jsonl` (backed up first) so the badge, the flagged count and any later
+    analysis all read the same number, and so a session carries its own geometry verdict.
+    """
+    import cv2
+
+    from ...alignment import worst_offset
+
+    sdir, _archived, rows, _clamped, _entry = _review_entry(sid, 0)
+    prof = _review_profile(sdir)
+    measured = 0
+    for r in rows:
+        if not r.get("corners"):
+            r.pop("align_worst_px", None)
+            continue
+        frame = cv2.imread(str(_frame_path(sdir, r)))
+        if frame is None:
+            continue
+        w = worst_offset(frame, r["corners"], prof)
+        if w == w:
+            r["align_worst_px"] = round(float(w), 2)
+            measured += 1
+    log_path = sdir / "log.jsonl"
+    backup = _backup_log(log_path)
+    tmp = log_path.with_suffix(".jsonl.tmp")
+    tmp.write_text("".join(json.dumps(r, ensure_ascii=False, default=str) + "\n" for r in rows),
+                   encoding="utf-8")
+    os.replace(tmp, log_path)
+    vals = sorted(r["align_worst_px"] for r in rows if r.get("align_worst_px") is not None)
+    med = vals[len(vals) // 2] if vals else None
+    return {"session_id": sid, "measured": measured, "of": len(rows),
+            "median": med, "max": (vals[-1] if vals else None),
+            "backup": Path(backup).name}
+
+
+@router.get("/api/sessions/{sid}/corners/zoom/{idx}")
+def session_corners_zoom(sid: str, idx: int, pts: str = Query(""), around: str = Query("")):
+    """A 3x3-square region at NATIVE rectified resolution, with the nominal grid drawn on.
+
+    The board overlay is displayed a few hundred pixels wide, where an 8 px error on an 800 px
+    board is invisible — which is exactly how a sheared warp survived a whole session unnoticed.
+    This is the same picture at 1:1, so the gap between the green grid (where the crops get cut)
+    and the wood grooves (where the board is) can actually be judged.
+
+    `pts` overrides the row's corners, so a pending fine adjustment can be inspected before it is
+    written. `around` names the square to centre on; the default is the middle of the board.
+    """
+    import cv2
+
+    from ...alignment import square_offsets
+    from ...calibration import warp_from_corners
+
+    sdir, _archived, _rows, _clamped, entry = _review_entry(sid, idx)
+    quad = entry.get("corners")
+    if pts.strip():
+        nums = [float(v) for v in pts.split(",") if v.strip() != ""]
+        if len(nums) != 8:
+            raise HTTPException(400, f"pts needs 8 numbers, got {len(nums)}.")
+        quad = [nums[i:i + 2] for i in range(0, 8, 2)]
+    if not quad:
+        raise HTTPException(400, "This frame has no corners to zoom into.")
+    frame = cv2.imread(str(_frame_path(sdir, entry)))
+    if frame is None:
+        raise HTTPException(404, "Frame could not be read.")
+    prof = _review_profile(sdir)
+    warped = warp_from_corners(frame, prof, quad)
+    cell = prof.board_size / 8.0
+    # Centre on the WORST square by default: showing a clean corner of a broken board would be
+    # reassuring and wrong.
+    sq = around.strip().lower()
+    if not sq:
+        off, _ = square_offsets(warped, prof.board_size)
+        sq = max(off, key=off.get) if off else "d4"
+    f = min(max(ord(sq[0]) - 97, 1), 6)
+    r = min(max(7 - (int(sq[1]) - 1), 1), 6)
+    x0, y0 = int((f - 1) * cell), int((r - 1) * cell)
+    tile = warped[y0:y0 + int(3 * cell), x0:x0 + int(3 * cell)].copy()
+    for k in range(4):
+        q = int(k * cell)
+        cv2.line(tile, (q, 0), (q, tile.shape[0]), (0, 255, 0), 1)
+        cv2.line(tile, (0, q), (tile.shape[1], q), (0, 255, 0), 1)
+    cv2.putText(tile, sq, (6, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 3, cv2.LINE_AA)
+    cv2.putText(tile, sq, (6, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 1, cv2.LINE_AA)
+    ok, buf = cv2.imencode(".jpg", tile, [cv2.IMWRITE_JPEG_QUALITY, 92])
+    if not ok:
+        raise HTTPException(400, "Zoom could not be rendered.")
+    return Response(buf.tobytes(), media_type="image/jpeg",
+                    headers={"Cache-Control": "no-store"})
+
+
+@router.get("/api/sessions/{sid}/corners/fixed")
+def session_fixed_montage(sid: str, limit: int = Query(6), around: str = Query("")):
+    """Before/after pairs for the frames whose corners were replaced, biggest gain first.
+
+    Each tile is a 3x3-square region at NATIVE rectified resolution with the nominal grid on top,
+    because that is the only scale at which a few pixels are visible — the whole reason a sheared
+    warp can survive a session unnoticed. Left is the quad that was replaced (`corners_prev`),
+    right the one in force now.
+    """
+    import cv2
+    import numpy as np
+
+    from ...alignment import square_offsets, worst_offset
+    from ...calibration import warp_from_corners
+
+    sdir, _archived, rows, _clamped, _entry = _review_entry(sid, 0)
+    prof = _review_profile(sdir)
+    cell = prof.board_size / 8.0
+    cand = [(i, r) for i, r in enumerate(rows) if r.get("corners_prev") and r.get("corners")]
+    if not cand:
+        raise HTTPException(404, "No frame in this session has had its corners replaced yet.")
+
+    scored = []
+    for i, r in cand:
+        frame = cv2.imread(str(_frame_path(sdir, r)))
+        if frame is None:
+            continue
+        before = worst_offset(frame, r["corners_prev"], prof)
+        after = worst_offset(frame, r["corners"], prof)
+        if before == before and after == after:
+            scored.append((before - after, i, before, after))
+    if not scored:
+        raise HTTPException(404, "Nothing measurable among the replaced frames.")
+    scored.sort(reverse=True)
+
+    def worst_square(frame, quad) -> str:
+        off, _ = square_offsets(warp_from_corners(frame, prof, quad), prof.board_size)
+        return max(off, key=off.get) if off else "d4"
+
+    def tile(frame, quad, sq, label, colour):
+        # `sq` is passed IN, never recomputed per quad. Letting each side pick its own worst square
+        # made before and after show different places, so a real correction looked like no change —
+        # the comparison has to hold the location fixed and vary only the geometry.
+        w = warp_from_corners(frame, prof, quad)
+        f = min(max(ord(sq[0]) - 97, 1), 6)
+        rr = min(max(7 - (int(sq[1]) - 1), 1), 6)
+        x0, y0 = int((f - 1) * cell), int((rr - 1) * cell)
+        t = w[y0:y0 + int(3 * cell), x0:x0 + int(3 * cell)].copy()
+        for k in range(4):
+            q = int(k * cell)
+            cv2.line(t, (q, 0), (q, t.shape[0]), (0, 255, 0), 1)
+            cv2.line(t, (0, q), (t.shape[1], q), (0, 255, 0), 1)
+        t = cv2.copyMakeBorder(t, 28, 4, 4, 4, cv2.BORDER_CONSTANT, value=(18, 18, 18))
+        cv2.putText(t, label, (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.52, colour, 2, cv2.LINE_AA)
+        return t
+
+    pairs = []
+    for _gain, i, before, after in scored[:max(1, min(limit, 12))]:
+        frame = cv2.imread(str(_frame_path(sdir, rows[i])))
+        # Anchored on what was WRONG: the worst square of the old quad. That is the place the
+        # correction had to repair, so it is the place worth looking at afterwards.
+        sq = around.strip().lower() or worst_square(frame, rows[i]["corners_prev"])
+        pairs.append(np.hstack([
+            tile(frame, rows[i]["corners_prev"], sq, f"frame {i + 1}  {sq} before {before:.1f}px",
+                 (120, 120, 255)),
+            tile(frame, rows[i]["corners"], sq, f"after {after:.1f}px", (120, 255, 120))]))
+    w = min(p.shape[1] for p in pairs)
+    ok, buf = cv2.imencode(".jpg", np.vstack([p[:, :w] for p in pairs]),
+                           [cv2.IMWRITE_JPEG_QUALITY, 90])
+    if not ok:
+        raise HTTPException(400, "Montage could not be rendered.")
+    return Response(buf.tobytes(), media_type="image/jpeg",
+                    headers={"Cache-Control": "no-store"})
+
+
 @router.post("/api/sessions/{sid}/corners/adopt")
 def session_adopt_corners(sid: str, from_index: int | None = Body(None),
                           scope: str = Body("missing"), overwrite: bool = Body(False)):
@@ -616,6 +881,12 @@ def session_review(sid: str, idx: int = Query(0)):
             # Geometry state of THIS row: without corners the row cannot be sliced at all,
             # and `corners_source` says whether they were measured or set by hand.
             "has_corners": bool(entry.get("corners")),
+            # The quad itself, so the reviewer can fine-tune it right under the aligned frame
+            # instead of re-detecting or re-clicking it — a detection that is a few pixels off is
+            # the routine case.
+            "corners": entry.get("corners"),
+            # Measured once by the alignment scan and stored, so the badge costs nothing per step.
+            "align_worst_px": entry.get("align_worst_px"),
             "corners_source": (entry.get("corners_source", "detected")
                                if entry.get("corners") else None),
             "corners_from": entry.get("corners_from"),
