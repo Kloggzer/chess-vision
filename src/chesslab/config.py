@@ -284,7 +284,9 @@ TRACKER = TrackerDefaults()
 # --- Dataset / split defaults (Stage 4) -----------------------------------------------
 DEFAULT_VAL_FRAC: float = 0.15
 DEFAULT_TEST_FRAC: float = 0.15
-DEFAULT_MAX_EMPTY_RATIO: float = 1.5   # empty capped at ratio * largest piece class
+DEFAULT_MAX_EMPTY_RATIO: float = 1.5   # empty capped at ratio * largest piece class. The value is
+                                       # this project's own; see dataset.subsample_classes for
+                                       # where it stands relative to the imbalance literature.
 MIN_CLASS_SAMPLES: int = 200           # warn below this for a non-empty class
 
 
@@ -292,7 +294,13 @@ MIN_CLASS_SAMPLES: int = 200           # warn below this for a non-empty class
 class AugmentPolicy:
     """Allowed train-time augmentation. The camera is FIXED, so flips and 90/180°
     rotation are forbidden (they would falsify field colour and geometry). Applied in
-    Stage 5 (train only); val/test get deterministic resize/normalize only."""
+    Stage 5 (train only); val/test get deterministic resize/normalize only.
+
+    The techniques are published (docs/references.md §5): erasing a random rectangle is
+    Cutout/Random Erasing, and replacing the border is a defence against the background shortcut
+    this project measured with Grad-CAM. **Every magnitude below is hand-set and unswept** — none
+    of the numbers comes from a source, and none has been ablated except `erase_p`/`bg_p`, which
+    have CLI overrides for that purpose."""
 
     brightness: float = 0.35      # ± fraction (lighting variance — the biggest real lever)
     contrast: float = 0.35
@@ -342,13 +350,22 @@ AUGMENT = AugmentPolicy()
 
 # --- Training defaults (Stage 5) ------------------------------------------------------
 # Normalization MUST be identical for train/eval/export (and the inference app mirrors it).
-# ImageNet stats — required by the pretrained mobilenet backbone, harmless for smallcnn.
+# ImageNet stats — required by the pretrained mobilenet backbone, harmless for smallcnn. No paper
+# defines these six numbers; they are the ImageNet training-set channel statistics that
+# torchvision's pretrained weights were trained under, and they are used here for that reason
+# alone. `--crop-norm per-crop` replaces them entirely (see torch_data._PerCropStandardize).
 NORMALIZE_MEAN: tuple[float, float, float] = (0.485, 0.456, 0.406)
 NORMALIZE_STD: tuple[float, float, float] = (0.229, 0.224, 0.225)
 
 DEFAULT_BACKBONE: str = "smallcnn"
-DEFAULT_EPOCHS: int = 30
+DEFAULT_EPOCHS: int = 30      # also the cosine schedule's T_max — see training/train.py
 DEFAULT_BATCH_SIZE: int = 256
+# INHERITED, NOT MEASURED. No sweep and no learning-rate range test has ever been run on this
+# project (the range test is docs/references.md#smith-2015, and costs a few epochs). It is also
+# the rate at which every BatchNorm-vs-GroupNorm comparison on record ran, while the claim about
+# BatchNorm is that tolerating a LARGER rate is its main benefit (docs/references.md#bjorck-2018),
+# so this constant is a confound in the normalization result as well as an unknown of its own.
+# Listed in docs/references.md §11 with the other decisions that rest on nothing published.
 DEFAULT_LR: float = 3e-4
 DEFAULT_PATIENCE: int = 7
 

@@ -74,6 +74,7 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
         ops += [T.RandomApply([_GaussianNoise(policy.noise_std)], p=0.5)]
     if train and getattr(policy, "erase_p", 0.0) > 0:
         # Cutout on the [0,1] tensor (before Normalize) so erased pixels = 0, a neutral value.
+        # Cutout / Random Erasing: docs/references.md#devries-2017, #zhong-2017.
         ops += [T.RandomErasing(p=policy.erase_p, scale=policy.erase_scale, value=0)]
     # Per-crop standardisation instead of a fixed mean/std, when the run asks for it.
     #
@@ -185,7 +186,8 @@ class InputRepresentation(torch.nn.Module):
     makes a negative luminance gradient and a light piece on a dark square a positive one; the
     magnitude makes the two identical, so "do piece and square differ in brightness" stops
     mattering and only "is there a silhouette" remains. That is why `sharpen`, which keeps the
-    sign, does not help. Dark squares are where this project has always been worst — a black piece
+    sign, does not help. A silhouette is shape rather than texture, which is the published reason
+    to expect this to help at all (docs/references.md#geirhos-2018). Dark squares are where this project has always been worst — a black piece
     there stands 6.0 grey levels off its background against 40.2 on a light one.
 
     The gray channel is kept alongside it on purpose: unlike per-crop standardisation (which won
@@ -331,6 +333,12 @@ def randomize_border_bg(img: Image.Image, keep_w: float, keep_h: float,
     soft (blurred) edge so the model can't latch onto a hard rectangle. A textured, realistic-but-
     uninformative border is far harder to shortcut than a flat colour — it forces the type head onto
     the figure. Falls back to procedural when the donor pool is empty/unreadable.
+
+    The failure being defended against is a shortcut in the published sense
+    (docs/references.md#geirhos-2020), and background/context is its classic instance
+    (docs/references.md#beery-2018, whose camera-trap locations are the same structure as this
+    project's per-session split). The defence itself — class-conditional, mask-free, feathered —
+    is this project's own; no source proposes it.
     """
     from PIL import ImageFilter
 
