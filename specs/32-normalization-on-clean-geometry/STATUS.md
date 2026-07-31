@@ -33,7 +33,7 @@ patience 25, dataset `occ-real6a`. "Scratch" means random init; the warm ones re
 | `occ-v7bn-s` | BN | scratch | 3e-04 | 60 | 48,64,80,96 | **0** | 82 | 0.298 / 0.491 |
 | `occ-v7gn-s` | GN | scratch | 3e-04 | 60 | 48,64,80,96 | **0** | 16 | 0.313 / 0.422 |
 | `occ-v7bn-s-lr1e3` | BN | scratch | 1e-03 | 60 | 48,64,80,96 | **0** | **16** | **0.055** / 0.381 |
-| `occ-v7gn-s-lr1e3` | GN | scratch | 1e-03 | 60 | 48,64,80,96 | — | — | — |
+| `occ-v7gn-s-lr1e3` | GN | scratch | 1e-03 | 60 | 48,64,80,96 | **0** | **0** | 0.213 / 0.320 |
 | `occ-v7bn-s-lr3e3` | BN | scratch | 3e-03 | 60 | 48,64,80,96 | — | — | — |
 | `occ-v7gn-s-lr3e3` | GN | scratch | 3e-03 | 60 | 48,64,80,96 | — | — | — |
 | `occ-v7bn-s1scale` | BN | scratch | 3e-04 | 60 | **80 only** | — | — | — |
@@ -131,3 +131,36 @@ exclusion chain in specs/25, was run at 3e-04.
 **Not yet a conclusion.** The GroupNorm control at 1e-03 is still running. If GN improves by the same
 margin, the finding is "the inherited default was bad for both norms" — still worth having, but a
 different sentence. That control is the reason the grid was symmetric.
+
+## The control lands, and it is bigger than the BN finding
+
+| run | norm | init | lr | phantoms | miss @ 0 ph | margin p99.9 / max |
+|---|---|---|---:|---:|---:|---|
+| `occ-v6-f5nd` | GN | 3-stage chain | (3e-05 final) | 0 | 3 | **0.050** / 0.093 |
+| `occ-v7bn-s` | BN | scratch | 3e-04 | 0 | 82 | 0.298 / 0.491 |
+| `occ-v7gn-s` | GN | scratch | 3e-04 | 0 | 16 | 0.313 / 0.422 |
+| `occ-v7bn-s-lr1e3` | BN | scratch | 1e-03 | 0 | 16 | 0.055 / 0.381 |
+| `occ-v7gn-s-lr1e3` | GN | scratch | **1e-03** | 0 | **0** | 0.213 / 0.320 |
+
+**The inherited `3e-04` was wrong for both normalizers, not just for BatchNorm.** GroupNorm at
+1e-03 goes from 16 misses to **zero** — the only run on record that gets every occupied square on
+both test sessions with no phantom anywhere. From a 60-epoch cold start on 17 776 real crops, with
+no synthetic pretraining at all, against a champion that came through two pretrain stages and still
+misses three.
+
+So the BN story has to be restated more carefully than the previous section did. Both norms gain
+from the higher rate; BN gains more (82 → 16 misses against GN's 16 → 0). What separates them at
+1e-03 is which axis they win on: BN takes the margin (0.055 against 0.213), GN takes the misses
+(0 against 16). Neither is the crippled loser that specs/25 recorded, and neither is measured at a
+rate anyone chose — 1e-03 is the next point on a guessed grid, not an optimum. The range test is
+what would find the optimum.
+
+**What this does to specs/25.** That exclusion chain ran on mis-aligned crops *and* at a rate now
+shown to cost the better normalizer 16 misses and the worse one 66. Two of its five causes may still
+stand on their own — the multi-scale statistic argument is not a rate artefact — but the chain as a
+whole cannot be cited as settled any more. `occ-v7bn-s1scale` is still queued and speaks to exactly
+that.
+
+**Still to re-measure.** The scratch rows were scored on the CPU EP while the GPU trained; the
+champion and the warm rows were scored on the GPU. The effect sizes here are far larger than any
+CPU/GPU numerical difference, but the whole table gets one GPU pass before it is quoted anywhere.
