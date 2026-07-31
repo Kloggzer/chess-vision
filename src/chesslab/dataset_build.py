@@ -257,6 +257,28 @@ def _preflight_disk_check(train_rows: list[dict], holdout: list[dict],
 _PACK_MIN_CROPS = 100_000
 
 
+def _split_from(donor: str, have: set[str], paths: config.Paths) -> dict[str, list[str]]:
+    """The donor dataset's split, restricted to the sessions this build actually has.
+
+    Refuses on a session the donor never placed, rather than quietly dropping it into train: an
+    unplaced session is either a typo or a genuinely new session, and both deserve a decision
+    instead of a default. Sessions the donor has and this build does not are simply absent — that
+    is the normal case when the twin is built from a narrower selection.
+    """
+    p = paths.datasets / _safe_name(donor) / "split.json"
+    if not p.exists():
+        raise ValueError(f"--split-like: dataset '{donor}' has no split.json at {p}")
+    donor_splits = json.loads(p.read_text(encoding="utf-8")).get("splits") or {}
+    placed = {s for sids in donor_splits.values() for s in sids}
+    missing = sorted(have - placed)
+    if missing:
+        raise ValueError(
+            f"--split-like {donor}: {len(missing)} session(s) are not in that split and would be "
+            f"placed silently: {', '.join(missing)}. Drop them from --sessions, or build without "
+            f"--split-like and accept a different assignment.")
+    return {k: [s for s in sids if s in have] for k, sids in donor_splits.items()}
+
+
 def build_dataset(
     name: str,
     session_ids: list[str],
@@ -275,6 +297,7 @@ def build_dataset(
     variant_tag: str | None = None,
     allow_degenerate: bool = False,
     force_train=None,
+    split_like: str | None = None,
     pack: bool = True,
     class_mode: str = "pieces",
 ) -> dict:
@@ -285,6 +308,13 @@ def build_dataset(
     Default: `data/manifests/squares.jsonl`.
     For the bake-off, each variant points to its own `squares__<tag>.jsonl`; with identical
     `session_ids`+`seed`, the session-based split is byte-identical across all variants.
+
+    `split_like`: take the train/val/test session assignment VERBATIM from an existing dataset
+    instead of deriving it. Use it whenever the point of the build is to compare against a model
+    trained on that dataset — a split is **not** reproducible from its own recorded parameters
+    (same seed, fractions and session pool return a different assignment; verified 2026-07-31 on
+    `occ-real5nd`, which records 11/3/1 where the assigner now returns 12/1/2), so a plain rebuild
+    silently trains on different sessions than the model it is being compared with.
     """
     name = _safe_name(name)
     classes = class_list_for(class_mode)
@@ -323,8 +353,11 @@ def build_dataset(
     # board_accuracy would compute on incomplete/duplicated boards (bug).
     # board_accuracy would compute on incomplete/duplicated boards (bug).
     sizes = Counter(r["session_id"] for r in rows)
-    splits = dataset_mod.assign_sessions_to_splits(dict(sizes), val_frac, test_frac, seed,
-                                                   force_train=force_train)
+    if split_like:
+        splits = _split_from(split_like, set(sizes), paths)
+    else:
+        splits = dataset_mod.assign_sessions_to_splits(dict(sizes), val_frac, test_frac, seed,
+                                                       force_train=force_train)
     split_of = {s: name for name, sids in splits.items() for s in sids}
     train_raw = [r for r in rows if split_of.get(r["session_id"]) == "train"]
     holdout = [r for r in rows if split_of.get(r["session_id"]) in ("val", "test")]  # complete, rot 0

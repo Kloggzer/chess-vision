@@ -5,6 +5,7 @@ from collections import Counter
 
 import cv2
 import numpy as np
+import pytest
 
 from chesslab import config
 from chesslab.dataset import (
@@ -484,3 +485,33 @@ def test_occupancy_build_drops_occluded_rows(tmp_path, monkeypatch, capsys):
     mp.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
     db.build_dataset("occ", sids, phash_enabled=False, pack=False, class_mode="occupancy")
     assert "dropped 1" in capsys.readouterr().out
+
+
+def test_split_like_takes_the_donors_assignment_verbatim(tmp_path, monkeypatch):
+    """The twin must train on the same sessions as the model it is compared against.
+
+    `assign_sessions_to_splits` does not return a dataset's own recorded split when fed that
+    dataset's own recorded parameters, so a plain rebuild silently moves sessions between train and
+    test. `--split-like` is the only safe way to build a comparable dataset.
+    """
+    import json
+
+    from chesslab import dataset_build as db
+
+    donor = tmp_path / "datasets" / "donor"
+    donor.mkdir(parents=True)
+    (donor / "split.json").write_text(json.dumps(
+        {"splits": {"train": ["s1", "s2"], "val": ["s3"], "test": ["s4"]}}), encoding="utf-8")
+
+    class _P:
+        datasets = tmp_path / "datasets"
+
+    got = db._split_from("donor", {"s1", "s2", "s3", "s4"}, _P)
+    assert got == {"train": ["s1", "s2"], "val": ["s3"], "test": ["s4"]}
+
+    # A narrower selection keeps the donor's placement for what is present.
+    assert db._split_from("donor", {"s1", "s4"}, _P) == {"train": ["s1"], "val": [], "test": ["s4"]}
+
+    # A session the donor never placed is refused, not defaulted into train.
+    with pytest.raises(ValueError, match="s9"):
+        db._split_from("donor", {"s1", "s9"}, _P)
