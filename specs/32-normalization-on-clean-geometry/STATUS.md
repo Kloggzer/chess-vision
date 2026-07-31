@@ -36,7 +36,7 @@ patience 25, dataset `occ-real6a`. "Scratch" means random init; the warm ones re
 | `occ-v7gn-s-lr1e3` | GN | scratch | 1e-03 | 60 | 48,64,80,96 | **0** | **0** | 0.213 / 0.320 |
 | `occ-v7bn-s-lr3e3` | BN | scratch | 3e-03 | 60 | 48,64,80,96 | **0** | **0** | **0.035** / 0.299 |
 | `occ-v7gn-s-lr3e3` | GN | scratch | 3e-03 | 60 | 48,64,80,96 | **11** | — | 0.990 / 0.994 |
-| `occ-v7bn-s1scale` | BN | scratch | 3e-04 | 60 | **80 only** | — | — | — |
+| `occ-v7bn-s1scale` | BN | scratch | 3e-04 | 60 | **80 only** | 2 | 105 | 0.415 / 0.519 |
 
 ## What each row is for
 
@@ -220,3 +220,26 @@ score that is uncorrelated with the thing we care about.
 
 **Open:** whether 3e-03 is BatchNorm's peak or merely the last point on the grid. `occ-v7bn-s-lr1e2`
 has been queued to find the far edge, and the range test will show the shape between the points.
+
+## The multi-scale explanation does not survive either
+
+specs/25 named multi-scale as BatchNorm's failure cause: one running statistic cannot serve four
+input sizes. `occ-v7bn-s1scale` removes that entirely — trained at 80 px only, evaluated at 80 px,
+so the statistic serves exactly one size and it is the serving size.
+
+| BN, scratch, lr 3e-04 | phantoms | miss @ 0 ph | margin p99.9 / max |
+|---|---:|---:|---|
+| scales 48,64,80,96 | 0 | 82 | 0.298 / 0.491 |
+| scale 80 only | **2** | 105 | 0.415 / 0.519 |
+
+Narrowing to one scale made it **worse on every axis**, including the phantom count it was supposed
+to fix. Whatever was wrong with BatchNorm at 3e-04, one statistic for four resolutions was not it.
+
+One confound worth naming rather than hiding: scale jitter is also augmentation, so the single-scale
+run trains with strictly less variety. The two effects cannot be separated by this run alone. But
+the direction is unambiguous — the change that was supposed to rescue BN cost it two phantoms — and
+the rate change, on the same recipe, took it to zero phantoms and zero misses.
+
+So of specs/25's five measured causes, the two this pack could re-test both fail to reproduce: the
+data was mis-aligned, and the rate was the wrong one. The remaining three were measured under both
+of those conditions.
