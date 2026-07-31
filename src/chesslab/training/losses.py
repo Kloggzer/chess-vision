@@ -3,6 +3,10 @@
 `FocalLoss` exists for the occupancy task (specs/18-occupancy-model/02-two-class-model.md):
 after the 14 -> 2 class collapse, most `empty` crops are trivially easy (a flat board
 square) and cross-entropy keeps spending gradient on examples already solved at p > 0.99.
+
+That is the situation focal loss was introduced for — extreme imbalance where the majority
+class is also the easy one (docs/references.md#lin-2017). The `gamma=2.0` default is inherited
+from common practice and has not been swept here.
 """
 
 from __future__ import annotations

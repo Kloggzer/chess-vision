@@ -1,5 +1,12 @@
 """Re-estimate a run's BatchNorm statistics at ONE deployment resolution (AdaBN).
 
+AdaBN is Li et al. (docs/references.md#li-2016): adapt by re-estimating the statistics in every
+BatchNorm layer, changing no learned parameter. The published setting is a change of DOMAIN; here
+the change is one of input RESOLUTION within a single domain, which the paper does not measure.
+The per-scale variant is domain-specific BN (docs/references.md#chang-2019), with the same
+substitution of "scale" for "domain".
+
+
 Why this exists
 ---------------
 Multi-scale training (`train.py`, `scales: [32, 64, 96, 128]`) pushes four resolutions through a

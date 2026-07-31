@@ -395,6 +395,11 @@ uv run vulture src --min-confidence 80        # dead-code analysis (heuristic)
 
 Utility scripts are documented in [`scripts/README.md`](scripts/README.md).
 
+Where a training or deployment decision rests on published work, the source is in
+[`docs/references.md`](docs/references.md) — one verified entry per work, and §11 lists the
+decisions that rest on nothing published at all. Code comments point at anchors there instead of
+repeating a citation.
+
 ## License
 
 This project is licensed under the **GNU General Public License v3.0 or later**
