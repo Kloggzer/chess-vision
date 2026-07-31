@@ -30,8 +30,15 @@ private const val ASSET_ROOT = "cnn_model"
  * `infer_size` (specs/22) and the crops follow it — 80, 128 and 96 px respectively. Measured on
  * `occ-real3`'s two test sessions: `v6-80` 11 misses / 0 phantoms, `v4-128` 17 / 2 with a wider
  * margin on the anchor session, `shipped` the model the user has been running.
+ *
+ * `bn-80` is the first BatchNorm model this app has carried. It exports to 89 nodes where the
+ * GroupNorm graphs export to 503 — a BatchNorm layer is a fixed per-channel affine at inference and
+ * folds into the preceding convolution, while GroupNorm's `InstanceNormalization` blocks are not
+ * implemented by XNNPACK and fall back to the CPU EP between every pair of convolutions. Trained
+ * 2026-07-31 on `occ-real6a` at lr 3e-03: 0 phantoms, 0 misses at the phantom-free point, margin
+ * 0.035. See `NormLatencyBenchmark` for what it costs on the die.
  */
-val BUNDLED_MODELS = listOf("shipped", "v6-80", "v4-128")
+val BUNDLED_MODELS = listOf("shipped", "v6-80", "v4-128", "bn-80")
 
 /** What an install runs until someone picks otherwise: the model that was already shipping. */
 val DEFAULT_MODEL: String = BUNDLED_MODELS.first()
