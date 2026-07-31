@@ -34,7 +34,7 @@ patience 25, dataset `occ-real6a`. "Scratch" means random init; the warm ones re
 | `occ-v7gn-s` | GN | scratch | 3e-04 | 60 | 48,64,80,96 | **0** | 16 | 0.313 / 0.422 |
 | `occ-v7bn-s-lr1e3` | BN | scratch | 1e-03 | 60 | 48,64,80,96 | **0** | **16** | **0.055** / 0.381 |
 | `occ-v7gn-s-lr1e3` | GN | scratch | 1e-03 | 60 | 48,64,80,96 | **0** | **0** | 0.213 / 0.320 |
-| `occ-v7bn-s-lr3e3` | BN | scratch | 3e-03 | 60 | 48,64,80,96 | — | — | — |
+| `occ-v7bn-s-lr3e3` | BN | scratch | 3e-03 | 60 | 48,64,80,96 | **0** | **0** | **0.035** / 0.299 |
 | `occ-v7gn-s-lr3e3` | GN | scratch | 3e-03 | 60 | 48,64,80,96 | — | — | — |
 | `occ-v7bn-s1scale` | BN | scratch | 3e-04 | 60 | **80 only** | — | — | — |
 
@@ -164,3 +164,33 @@ that.
 **Still to re-measure.** The scratch rows were scored on the CPU EP while the GPU trained; the
 champion and the warm rows were scored on the GPU. The effect sizes here are far larger than any
 CPU/GPU numerical difference, but the whole table gets one GPU pass before it is quoted anywhere.
+
+## BatchNorm at 3e-03 is the best model this project has produced
+
+| run | norm | init | lr | phantoms | miss @ 0 ph | margin p99.9 / max |
+|---|---|---|---:|---:|---:|---|
+| `occ-v6-f5nd` (champion) | GN | 3-stage chain | 3e-05 final | 0 | 3 | 0.050 / 0.093 |
+| `occ-v7gn-s-lr1e3` | GN | scratch | 1e-03 | 0 | **0** | 0.213 / 0.320 |
+| `occ-v7bn-s-lr1e3` | BN | scratch | 1e-03 | 0 | 16 | 0.055 / 0.381 |
+| **`occ-v7bn-s-lr3e3`** | **BN** | **scratch** | **3e-03** | **0** | **0** | **0.035** / 0.299 |
+
+It wins on both axes at once: every occupied square on both test sessions, nothing invented
+anywhere, and the tightest empty-crop margin measured here — 0.035 against the champion's 0.050.
+Sixty epochs from random init on 17 776 real crops. The champion needed two synthetic pretrain
+stages and still misses three squares.
+
+And it is monotone in the rate, which is the part that makes it a result rather than a lucky seed:
+82 misses at 3e-04, 16 at 1e-03, 0 at 3e-03, with the margin falling 0.298 → 0.055 → 0.035 in step.
+That is the shape Bjorck et al. describe — BatchNorm's usable rate band simply lies higher than the
+one this project has been testing it in.
+
+**The normalization conclusion in `CLAUDE.md` is now wrong as written.** It says BatchNorm was
+excluded across five measured causes. Those measurements were taken on mis-aligned crops at 3e-04.
+On aligned crops at a rate that suits it, BatchNorm is not merely viable — it is the best occupancy
+model on record. That pitfall entry needs rewriting once the GPU re-measurement confirms the table,
+and the BatchNorm exclusion should be retired rather than amended.
+
+**Do not act on this yet.** Three things are still outstanding and each could move it:
+the GroupNorm control at 3e-03 (running), whether 3e-03 is past the peak or still climbing (the
+range test), and a single GPU pass over the whole table — every scratch row here was scored on the
+CPU EP while the GPU trained, and the champion's 0.050 was not.
