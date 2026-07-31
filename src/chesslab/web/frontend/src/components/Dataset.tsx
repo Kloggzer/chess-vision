@@ -7,7 +7,8 @@ import {
 } from "lucide-react";
 import { api, post, del } from "../api";
 import { Card, Button, Glyph, noteCls } from "./ui";
-import CornerEditor, { QuickTune } from "./CornerEditor";
+import { QuickTune, SessionAlign } from "./Alignment";
+import CornerEditor from "./CornerEditor";
 
 const input = "rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-100 outline-none focus:border-sky-500";
 
@@ -87,10 +88,13 @@ export function SessionsPanel() {
   // While a corner edit is pending, the aligned frame shows the tuned warp instead of the
   // stored one — one picture, not two.
   const [tunedUrl, setTunedUrl] = useState<string | null>(null);
-  // Reviewer preferences, held here because QuickTune is keyed per frame and remounts on every
-  // step — inside it these would reset on each "next flagged".
+  // Reviewer preferences, held here because QuickTune and CornerEditor are keyed per frame and
+  // remount on every step — inside them these would reset on each jump to a flagged frame.
   const [alignMaxOff, setAlignMaxOff] = useState(9);
   const [alignZoom, setAlignZoom] = useState(false);
+  const [alignAdjust, setAlignAdjust] = useState(false);
+  const [flaggedOpen, setFlaggedOpen] = useState(false);
+  const [geomOpen, setGeomOpen] = useState(false);
   const [showReviewed, setShowReviewed] = useState(false);
   const sessionsQ = useQuery({ queryKey: ["sessions-manage"], queryFn: () => api("/api/sessions/manage") });
   const reviewQ = useQuery({
@@ -158,6 +162,11 @@ export function SessionsPanel() {
     if (reviewQ.isError) return "Could not load session details.";
     return "Loading session details...";
   })();
+  // Was a permanent two-line paragraph under the session name, explaining one rare destructive
+  // button. It is the button's tooltip now — same words, no standing cost.
+  const trimTitle = "Keeps the current frame; moves only later frames to the reject bucket and "
+    + "removes their crops from training data."
+    + (review && review.index >= review.count - 1 ? " This is already the last frame." : "");
   const archiveM = useMutation({ mutationFn: (sid: string) => post(`/api/sessions/${sid}/archive`), onSuccess: () => onOk("archived."), onError: onErr });
   const restoreM = useMutation({ mutationFn: (sid: string) => post(`/api/sessions/${sid}/restore`), onSuccess: () => onOk("restored — re-slice."), onError: onErr });
   const deleteM = useMutation({ mutationFn: (sid: string) => del(`/api/sessions/${sid}`), onSuccess: () => onOk("deleted."), onError: onErr });
@@ -231,16 +240,10 @@ export function SessionsPanel() {
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="text-sm font-medium text-zinc-200">{reviewSid}</div>
-              <div className="text-xs text-zinc-500">
-                {reviewSummary}
-              </div>
-              {review && (
-                <div className="text-[11px] text-zinc-600">
-                  Trim keeps this frame included; only frames after it move to the reject bucket and leave training data.
-                  {review.index >= review.count - 1 ? " This is already the last frame." : ""}
-                </div>
-              )}
+              <div className="text-xs text-zinc-500">{reviewSummary}</div>
             </div>
+            {/* Three groups, separated: step through frames · judge this frame · leave.
+                They used to sit in one undifferentiated row of five. */}
             <div className="flex items-center gap-1.5">
               <Button onClick={() => setReviewIdx((i) => Math.max(0, i - 1))}
                       disabled={!review || review.index <= 0}
@@ -254,9 +257,7 @@ export function SessionsPanel() {
                       title="Next frame">
                 Next <ChevronRight className="h-3.5 w-3.5" />
               </Button>
-              <Button onClick={closeReview} className="px-2 py-1 text-xs">
-                <X className="h-3.5 w-3.5" /> Close
-              </Button>
+              <span className="mx-1 h-5 w-px bg-zinc-800" />
               <Button onClick={() => flagM.mutate({ sid: reviewSid, idx: review.index, unusable: !review?.entry?.unusable })}
                       disabled={!review || flagM.isPending}
                       className={`px-2 py-1 text-xs disabled:opacity-50 ${review?.entry?.unusable ? "bg-red-900/60 text-red-300 hover:text-red-200" : ""}`}
@@ -272,12 +273,26 @@ export function SessionsPanel() {
                       }}
                       disabled={!review || review.index >= review.count - 1 || trimM.isPending}
                       className="px-2 py-1 text-xs text-red-300 hover:text-red-200 disabled:opacity-50"
-                      title="Keeps the current frame; moves only later frames to the reject bucket and removes their crops from training data">
+                      title={trimTitle}>
                 {trimM.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Scissors className="h-3.5 w-3.5" />}
                 Keep through this frame
               </Button>
+              <span className="mx-1 h-5 w-px bg-zinc-800" />
+              <Button onClick={closeReview} className="px-2 py-1 text-xs">
+                <X className="h-3.5 w-3.5" /> Close
+              </Button>
             </div>
           </div>
+          {/* Session-level, above the pictures: the alignment verdict over ALL frames and the list
+              of the ones that fail it. Keyed on the session alone, so walking the list neither
+              remounts it nor closes it. */}
+          {review && (
+            <SessionAlign key={reviewSid} sid={reviewSid} idx={review.index}
+                          maxOff={alignMaxOff} onMaxOff={setAlignMaxOff}
+                          onJump={setReviewIdx}
+                          open={flaggedOpen} onOpen={() => setFlaggedOpen((o) => !o)}
+                          onWritten={() => invalidate("session-review", "sessions-manage")} />
+          )}
           {reviewQ.isError && (
             <div className="rounded-lg bg-red-950/60 px-3 py-1.5 text-sm text-red-300">{(reviewQ.error as Error).message}</div>
           )}
@@ -293,11 +308,12 @@ export function SessionsPanel() {
                      alt={`${reviewSid} overlay ${review.index + 1}`}
                      className="max-h-[70vh] w-full rounded border border-zinc-800 object-contain" />
                 {/* Directly under the picture it corrects: nudging a detection that is a few
-                    pixels off is the routine action, and it must not need a scroll. */}
+                    pixels off is the routine action, and it must not need a scroll. Keyed on
+                    session:frame — stepping away must drop a pending, unsaved edit. */}
                 <QuickTune key={`${reviewSid}:${review.index}`} sid={reviewSid} idx={review.index}
                            corners={review.entry?.corners} onPreview={setTunedUrl}
-                           onJump={setReviewIdx}
-                           maxOff={alignMaxOff} onMaxOff={setAlignMaxOff}
+                           maxOff={alignMaxOff}
+                           adjust={alignAdjust} onAdjust={() => setAlignAdjust((a) => !a)}
                            zoom={alignZoom} onZoom={() => setAlignZoom((z) => !z)}
                            onWritten={() => invalidate("session-review", "sessions-manage")} />
               </div>
@@ -309,9 +325,11 @@ export function SessionsPanel() {
             </div>
           )}
           {review && (
-            // Keyed on session+frame: stepping to another frame REMOUNTS the editor, so
+            // The rare path — adopt a quad, or set four corners by hand — collapsed to its status
+            // badge. Keyed on session+frame: stepping to another frame REMOUNTS the editor, so
             // placed points can never leak from one frame's geometry into another's.
             <CornerEditor key={`${reviewSid}:${review.index}`} sid={reviewSid} idx={review.index}
+                          open={geomOpen} onOpen={() => setGeomOpen((o) => !o)}
                           onWritten={() => invalidate("session-review", "sessions-manage")} />
           )}
         </div>
