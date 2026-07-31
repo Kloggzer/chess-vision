@@ -682,11 +682,17 @@ def quantize_cmd(
     activation: str = typer.Option("quint16", "--activation",
                                    help="quint16 (A16W8, recommended for HTP) | quint8 (pure INT8)."),
     weight: str = typer.Option("quint8", "--weight", help="quint8 | qint8 (weight dtype)."),
+    per_channel: bool = typer.Option(
+        True, "--per-channel/--per-tensor",
+        help="One weight scale per output channel (default) or one per tensor. Per-channel was "
+             "the only phantom-free graph measured in specs/26 phase 02; per-tensor is the "
+             "historical HTP constraint — use it if the NPU refuses the per-channel graph."),
 ) -> None:
     """Static-quantize model.onnx -> model.qnn.onnx (INT8 QDQ) for the Hexagon NPU QNN EP."""
     from .training.quantize import run_quantize
 
-    raise typer.Exit(run_quantize(run=run, limit=limit, activation_type=activation, weight_type=weight))
+    raise typer.Exit(run_quantize(run=run, limit=limit, activation_type=activation,
+                                  weight_type=weight, per_channel=per_channel))
 
 
 @app.command("web")
