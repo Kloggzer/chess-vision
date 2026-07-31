@@ -772,3 +772,89 @@ A test split that is one session measures **one camera framing, through one prof
 `board_size`, at one input size** — so before comparing two accuracy numbers, check that all three
 are the same, and before deploying one, check that the size it was measured at is a size the run
 was trained at.
+
+---
+
+## 12. Geometry: the crop box was in the wrong place, corpus-wide (2026-07-31)
+
+This section is the most consequential thing in this document. Every number measured before
+2026-07-31 18:00 was measured on crops cut a few pixels off the squares they claim to contain.
+
+### 12.1 What was wrong
+
+`slice` cuts a crop per square from the warp that `log.jsonl`'s corner quad defines. If that quad is
+a little off, every crop is a little off — the pipeline reports nothing, because there is nothing to
+report: 64 crops come out, the counts are healthy, and the labels are still right. Only the pixels
+are wrong.
+
+Surveyed with `scripts/survey_alignment.py`, all 19 sessions, worst square-edge offset per frame in
+rectified pixels (one cell = 100 px):
+
+| | median | p90 | max | over 7.7 px |
+|---|---:|---:|---:|---:|
+| before | 3.2 – 6.5 per session | up to 8.9 | **14.8** | 14 of 447 sampled |
+| after | 2.0 – 3.3 | up to 3.3 | **4.3** | 0 of 447 |
+
+Note what the "before" column is not: it is not a few broken frames. **No session sat near zero.**
+The two largest sessions of 2026-07-21, which dominate the training corpus, were the worst
+(median 5.4 and 6.5, max 12.2 and 14.8).
+
+### 12.2 Why it went unnoticed for so long
+
+Because the instrument was blind. Until 2026-07-31 `alignment.square_offsets` collapsed the whole
+board along each axis, which measures a line's position exactly and averages its **tilt** away
+completely: 0.01 px reported for a 3.05 px shear, 0.00 for a 3.07 px rotation. It passed its tests,
+because its tests were directional (`assert loud > quiet`) and a metric reporting a third of the
+error passes those. See `specs/30-sharper-alignment/STATUS.md` for the calibration against analytic
+truth, and `tests/test_alignment.py` for the version that now pins it.
+
+### 12.3 What it cost — measured on the veto metric, same run, same code
+
+`sweep_infer_size.py --runs occ-v6-f5nd --splits test --sizes 80 --paths a --dataset occ-real6`.
+The only variable changed between the two rows is the corner quads in `log.jsonl`; restoring the
+backups reproduced the "before" row exactly, so this is not drift.
+
+| geometry | phantoms | misses @ 0 phantoms | margin empty p99.9 / max |
+|---|---:|---:|---|
+| as recorded | 1 | 13 | 0.316 / 0.512 |
+| **re-aligned** | **0** | **3** | **0.050 / 0.093** |
+
+Per session: the anchor `20260721-212830` goes 0 → 0 phantoms, the phone session
+`20260730-145846` 1 → 0 phantoms and 3 → 0 misses.
+
+**The margin moved 5.5x.** That is the number that had not moved through the whole normalization
+programme (specs/25), the architecture sweep (specs/26), the width experiments (specs/28) or the
+hard-negative fine-tune (specs/29) — nine measured negative results, and the thing holding it was
+where the crop box sat.
+
+The argmax miss count rises 12 → 19, which is not a regression: at the operating point that decides
+(the tightest phantom-free threshold), misses fall 13 → 3. A sharper model has a steeper curve.
+
+### 12.4 What this invalidates
+
+- **Every dataset under `data/datasets/` holds crops cut on the old geometry.** They are not
+  incrementally fixable; a dataset is a snapshot (§5.9). Re-slice the sessions, then rebuild under a
+  new name, reusing the old `split.json` verbatim (§5.2 — a split is not reproducible from its own
+  parameters).
+- **Every path-A number on record.** Path A re-cuts from the session frames through the current
+  profile *and the logged corners*, so all of them shifted the moment the corners did. Re-measure
+  the reference in the same run as any candidate; never carry a row over.
+- **The hard-negative mining of 2026-07-21 and 2026-07-31.** 9 260 of 9 290 mined errors sat on
+  **dark** squares, diagnosed since July as "neighbour-crown bleed" — which is what a crop box
+  displaced across a groove produces. Those keep-lists mine a geometry artefact and should be
+  re-mined, not reused.
+
+### 12.5 How to redo it
+
+```bash
+# survey first — the numbers below are the corpus as of 2026-07-31, not a constant
+uv run python scripts/survey_alignment.py --sample 40
+
+# per session: measure every frame, re-fit every frame, keep only what improves.
+# --max-off 0.5 means "consider all of them"; the fit still refuses to make a frame worse.
+uv run python scripts/check_alignment.py --session <sid> --sample 0 --max-off 0.5 --fix
+```
+
+`log.jsonl` is backed up as `log.jsonl.bak-<stamp>` before anything is written and the corrected
+rows are marked `corners_source: "auto-corrected"`, so the review UI keeps showing what was measured
+and what was computed. Re-slice afterwards — the crops do not follow the log on their own.
