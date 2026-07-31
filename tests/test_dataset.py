@@ -11,6 +11,7 @@ from chesslab.dataset import (
     assign_sessions_to_splits,
     compute_class_weights,
     compute_stats,
+    load_priority_paths,
     make_split,
     subsample_classes,
     subsample_empty,
@@ -86,6 +87,25 @@ def test_subsample_priority_paths_survive_empty_cap():
     kept2 = {r["path"] for r in sub2 if r["label"] == "empty"}
     assert many <= kept2
     assert sum(r["label"] == "empty" for r in sub2) == 70
+
+
+def test_load_priority_paths_reads_the_mined_keep_list(tmp_path):
+    """The keep list is read from `<manifests>/hard_empty.jsonl`, or None when nothing is mined.
+
+    Both `dataset_build.build_dataset` and `training.train.run_train` go through this one loader.
+    They have to: the built dataset's manifest holds the UNCAPPED rows, so `run_train` re-runs
+    `subsample_classes` and a keep list honoured only at build time would be re-drawn away before
+    a single batch ever saw a hard negative.
+    """
+    from dataclasses import replace
+
+    paths = replace(config.DATA, root=tmp_path)
+    paths.manifests.mkdir(parents=True, exist_ok=True)
+    assert load_priority_paths(paths) is None      # nothing mined -> no protection, no crash
+
+    (paths.manifests / "hard_empty.jsonl").write_text(
+        '{"path": "a.png", "pred": "wN"}\n\n{"path": "b.png", "pred": "empty"}\n', encoding="utf-8")
+    assert load_priority_paths(paths) == {"a.png", "b.png"}   # blank lines ignored
 
 
 def test_class_weights_largest_class_has_smallest_weight():

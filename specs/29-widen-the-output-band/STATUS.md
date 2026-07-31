@@ -7,7 +7,8 @@ Branch: `spec-29-00-thirteen-classes`, cut from the pack commit on `spec-24-fram
 
 | Phase | Concern | State | Notes |
 |---|---|---|---|
-| 00 | 13 classes instead of 2, one variable | todo | PC only — no device needed. Step 1 (scoring) gates the training. |
+| 00 | 13 classes instead of 2, one variable | done | Rejected: 1 165 phantoms against a bar of 1. |
+| 01 | mine the phantoms, train against them | done | Rejected: 602. See `01-mine-and-finetune.md`. |
 
 ## Why this pack exists
 
@@ -39,10 +40,16 @@ adds a phantom is rejected.
 
 ## Results
 
+`occ-real6` test, 80 px, path A.
+
 | Run | Classes | Phantoms | Misses | Anchor · Phone | Margin p99.9 / max | `classesHaveIdentity` |
 |---|---|---|---|---|---|---|
-| `occ-v6-f5nd` | 2 | — | — | — | — | false |
-| `occ-v8p-f5nd` | 13 | — | — | — | — | — |
+| `occ-v6-f5nd` | 2 | **1** | 12 | — | 0.316 / 0.512 | false |
+| `occ-v8p-f5nd` | 13 | 1 165 | 44 | 950 · 215 | 0.995 / 0.997 | true |
+| `occ-v8p-f5nd-hn` | 13 | 602 | 1 | 505 · 97 | 0.997 / 0.998 | true |
+
+Both 13-class runs are vetoed. Hard negatives halve the count and do not touch the margin; the
+most permissive phantom-free threshold still costs 1 719 of 2 353 occupied squares.
 
 ## Established — do not re-derive
 
@@ -63,3 +70,4 @@ adds a phantom is rejected.
 | Date | Phase | What happened |
 |---|---|---|
 | 2026-07-31 | — | Pack written. specs/28 closed with STOP: latency is affine in MACs, so the backbone cannot grow — but the output band can. |
+| 2026-07-31 | 01 | Mined 9 290 hard empties (99.7 % dark squares), fine-tuned, re-measured. 1 165 → 602 phantoms; margin unmoved. **The summed-mass half was fixed at 81 %, the piece-argmax half at 21 %** — the "structural" half is the easy one, so the reader arithmetic is real but not a floor. Found that `run_train` had never honoured the keep list at all (fixed). |
