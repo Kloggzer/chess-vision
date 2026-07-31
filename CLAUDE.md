@@ -96,8 +96,19 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
   `1 − P(empty) − P(occluded)`, so an undecided 2-class model sits at 0.5 while an undecided
   13-class model spreads 1/13 per class and lands at **0.923** — uncertainty itself reads as a
   piece. Measured on a 13-class run: 1 162 phantoms over 4 687 empty crops, **549 of them with
-  `empty` still the argmax**. No recipe or amount of data reaches that half. See
+  `empty` still the argmax**. ~~No recipe or amount of data reaches that half.~~ **Corrected
+  2026-07-31: that half is the EASY half.** A hard-negative fine-tune fixed 81 % of the summed-mass
+  phantoms against only 21 % of the piece-argmax ones — a summed-mass phantom sits just under
+  `P(empty) = 0.5` and needs a nudge, while a piece-argmax one needs an argmax overturned. The
+  reader arithmetic is real but it is not a floor. The 13-class model still loses (602 phantoms
+  against the 2-class champion's 1, and the margin does not move at all: 0.995 → 0.997). See
   `specs/29-widen-the-output-band/`.
+- **A mined keep-list never reached training until 2026-07-31.** `dataset_build` honoured
+  `manifests/hard_empty.jsonl`, but `run_train` then re-ran `subsample_classes` over the *uncapped*
+  manifest without `priority_paths` and drew the mined crops straight back out. Every hard-negative
+  mining round before that date — including the 786 hard empties of 2026-07-21 — looked wired up and
+  changed no batch. Conversely, since the fix a stray `hard_empty.jsonl` silently alters every
+  training run; park it when it is not the experiment.
 - **Path-A numbers move with the calibration profile.** The sweep re-cuts crops from the session
   frames through the *current* profile, so a recalibration silently invalidates every earlier
   number without touching a dataset file. Always re-measure the reference in the same run as the
