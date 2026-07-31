@@ -118,6 +118,97 @@ def test_a_shear_is_visible_at_all():
     assert loud - quiet > 2.5
 
 
+def _rot(deg):
+    t = np.radians(deg)
+    m = np.eye(3)
+    m[:2, :2] = [[np.cos(t), -np.sin(t)], [np.sin(t), np.cos(t)]]
+    m[:2, 2] = np.array([BS / 2, BS / 2]) - m[:2, :2] @ np.array([BS / 2, BS / 2])
+    return m
+
+
+def _line_at(h, k, axis, coord):
+    """Where the image of nominal line `k` of `axis` under `h` crosses `coord` on the other axis."""
+    a = [k * CELL, 0.0] if axis == 0 else [0.0, k * CELL]
+    b = [k * CELL, float(BS)] if axis == 0 else [float(BS), k * CELL]
+    p = h @ np.array([[a[0], b[0]], [a[1], b[1]], [1.0, 1.0]])
+    (x0, y0), (x1, y1) = (p[:2] / p[2]).T
+    if axis == 0:
+        return x0 + (x1 - x0) * (coord - y0) / (y1 - y0) if abs(y1 - y0) > 1e-9 else x0
+    return y0 + (y1 - y0) * (coord - x0) / (x1 - x0) if abs(x1 - x0) > 1e-9 else y0
+
+
+def _true_worst(h):
+    """What `square_offsets` owes for a board displaced by `h`, from geometry alone.
+
+    Mirrors the metric's own definition — the largest displacement of any square edge, evaluated
+    where that edge passes the square — so this is a calibration, not a restatement.
+    """
+    worst = 0.0
+    for f in range(8):
+        for r in range(8):
+            cy, cx = (7.5 - r) * CELL, (f + 0.5) * CELL
+            edges = (_line_at(h, f, 0, cy), _line_at(h, f + 1, 0, cy),
+                     _line_at(h, 7 - r, 1, cx), _line_at(h, 8 - r, 1, cx))
+            want = (f * CELL, (f + 1) * CELL, (7 - r) * CELL, (8 - r) * CELL)
+            worst = max(worst, max(abs(e - w) for e, w in zip(edges, want, strict=True)))
+    return worst
+
+
+def _pieces(img):
+    """Dark discs centred on cells. They overlap the grooves, which is the whole difficulty."""
+    out = img.copy()
+    for f, r in [(0, 0), (1, 0), (3, 1), (5, 0), (7, 1), (2, 6), (4, 7), (6, 6), (3, 3), (4, 4)]:
+        cv2.circle(out, (int((f + 0.5) * CELL), int((r + 0.5) * CELL)), int(CELL * 0.46),
+                   (35, 35, 35), -1)
+    rng = np.random.default_rng(42)
+    out = cv2.GaussianBlur(out, (0, 0), 1.2).astype(np.float32) + rng.normal(0, 4.0, out.shape)
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
+@pytest.mark.parametrize(("name", "m"), [
+    ("shift", _shift(2.0, 0.0)),
+    ("shift", _shift(10.0, 0.0)),
+    ("rotation", _rot(0.10)),
+    ("rotation", _rot(0.50)),
+    ("rotation", _rot(1.00)),
+    ("shear", _shear(0.25)),
+    ("shear", _shear(0.50)),
+])
+def test_the_reported_number_is_the_true_number(name, m):
+    """Calibration against analytic truth, on a board and on one cluttered with pieces.
+
+    Directional tests ("the shear is visible") pass for a metric that reports a third of the error,
+    and that is exactly what the old whole-board collapse did: 0.01 px for a 3.05 px shear, 0.00 for
+    a 3.07 px rotation, while being exact on a translation. A number that is right for one family of
+    errors and silent for another is worse than no number, because it reads as a verdict.
+
+    Half a pixel is the bar on the bare board. Anything looser would pass a metric that
+    under-reports a real shear by enough to certify a frame the crops are being cut wrong on.
+    A piece sitting on a groove genuinely drags its centroid, so the cluttered board gets one pixel
+    — the worst case there is the 1 deg rotation at 0.9 px, against the old collapse's 15 px.
+    """
+    board = cv2.warpPerspective(_board(), m, (BS, BS), borderMode=cv2.BORDER_REPLICATE)
+    truth = _true_worst(m)
+    assert abs(max(square_offsets(board, BS)[0].values()) - truth) < 0.5, name
+    assert abs(max(square_offsets(_pieces(board), BS)[0].values()) - truth) < 1.0, name
+
+
+def test_a_uniform_scale_is_under_reported_and_that_is_structural():
+    """The one known blind spot, recorded so it is not rediscovered as a bug.
+
+    `line_positions` pins index 0 and 8 at 0 and `board_size` because the warp puts them there by
+    construction — they are not measurable. A scale error is largest at exactly those outer edges,
+    so the metric sees only what is left at the innermost measurable lines and reports 3/4 of it.
+    Under-reporting, not silence, and it applies to the old collapse identically.
+    """
+    m = np.eye(3)
+    m[0, 0] = m[1, 1] = 1.005
+    m[:2, 2] = np.array([BS / 2, BS / 2]) * (1 - 1.005)
+    board = cv2.warpPerspective(_board(), m, (BS, BS), borderMode=cv2.BORDER_REPLICATE)
+    reported = max(square_offsets(board, BS)[0].values())
+    assert abs(reported - 0.75 * _true_worst(m)) < 0.3
+
+
 def test_line_geometry_reports_the_tilt():
     prof = _profile()
     bent = _bend(TRUTH, _shear(0.7))
