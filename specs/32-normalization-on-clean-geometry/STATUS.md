@@ -272,3 +272,44 @@ the best number this project has measured — the previous best was 0.035. Acros
 essentially nothing reads as occupied at all.
 
 Worth naming plainly: the session that produced this was the one that looked too extreme to use.
+
+## What BatchNorm costs at inference — the reason it was wanted in the first place
+
+Both models exported at 80x80, same backbone, same batch:
+
+| | ONNX nodes | composition |
+|---|---:|---|
+| **BatchNorm** | **89** | 46 Conv, 30 Relu, 10 Add, 3 head |
+| GroupNorm | 503 | 138 Constant, 92 Reshape, 56 Add, 46 Conv, **46 InstanceNormalization**, 46 Shape, 46 Mul, 30 Relu |
+
+BatchNorm disappears at export: a BN layer is a fixed per-channel affine at inference and folds into
+the preceding convolution. GroupNorm adds 414 nodes, and on device those are exactly what runs on
+the CPU EP — 30 ms of the shipped model's 66 ms session (specs/26 phase 00).
+
+Desktop CPU EP, 64 crops, 4 threads, 30 runs: **BatchNorm 3.9 ms median against GroupNorm 20.2 ms**.
+
+**That 5.2x does NOT transfer to the phone, and saying so matters.** The desktop CPU EP has no
+XNNPACK, so it runs the convolutions far worse than the device does and the norm overhead is
+therefore a much larger share of the total here. On the SM8650 the split was measured as ~36 ms of
+convolutions under XNNPACK plus ~30 ms of norm decomposition on the CPU EP. Removing the second
+term projects to roughly **66 → 36 ms, a factor near 1.8**, not 5.
+
+What that buys, at the measured price of capacity (`session ms = 26.9 + 2.731 x MMAC/crop`,
+specs/28): ~30 ms of freed budget is ~11 MMAC/crop on top of the current 6.7 — about 2.6x the MACs,
+and since MACs scale with the square of the width multiplier, roughly **width 0.35 → 0.55 at
+today's latency**. specs/28 closed with a STOP because latency is affine in MACs and the backbone
+could not grow. It could not grow *while paying for GroupNorm*.
+
+### And it settles a pitfall from the other side
+
+89 nodes is exactly what specs/26 phase 04 reached by folding the champion's GroupNorm into a static
+affine — same node count, all 30 ReLUs intact — where the weights did not survive the fold and the
+model collapsed to 2 350 phantoms. `CLAUDE.md` concludes from that: "a foldable net cannot be
+trained to this quality, and this net cannot be folded."
+
+The first half is now false. `occ-v7bn-s-lr3e3` **is** that folded graph, trained as one from the
+start, at 0 phantoms and margin 0.035. The second half still stands — this particular GroupNorm net
+still cannot be folded after the fact.
+
+**Not yet measured on the device.** The models are bundled as app assets, so a real SM8650 number
+needs an app build. The node counts and the mechanism are certain; the 1.8x is a projection.
