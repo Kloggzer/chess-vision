@@ -225,3 +225,29 @@ inside tolerance — the two metrics agree only loosely (r = +0.71), and the old
 178 frames is 5.59 px**, i.e. it could not report a failure on this session at all. Ten of those
 frames are over tolerance under the new metric and every one of them is a frame the old fix had
 already "corrected".
+
+## The corpus, re-aligned (2026-07-31, after the merge)
+
+`scripts/survey_alignment.py` measures every session through its own profile. Before the re-fit no
+session sat near zero — the floor was 3.2 px and the two largest sessions of 2026-07-21, which
+dominate the training corpus, were the worst at 5.4 and 6.5 px median, 12.2 and 14.8 px max. After
+re-fitting all 19 sessions (`check_alignment.py --sample 0 --max-off 0.5 --fix`, 1 336 frames,
+1 refused): every session 2.0–3.3 px median, corpus max 4.3 px, nothing over tolerance.
+
+The signed per-line residuals say why a per-frame fit was the right instrument and a single global
+constant would not have done: two sessions of the same setup agree to 0.1 px (so the error is
+systematic, not noise) but different setups disagree in sign, and the between-session spread
+(1.1–2.5 % of a cell) is as large as the corpus mean. There is one corpus-wide component — the y
+residual runs +1.2 +3.1 +1.8 −1.6 −0.7 −1.1 0.0 % of a cell on every rig, phone included — which is
+a candidate for a profile-level fix and is NOT what the per-frame fit removes.
+
+**What it bought, on the metric that decides.** Champion `occ-v6-f5nd`, path A, 80 px, `occ-real6`
+test, corner quads the only changed variable:
+
+| geometry | phantoms | misses @ 0 phantoms | margin empty p99.9 / max |
+|---|---:|---:|---|
+| as recorded | 1 | 13 | 0.316 / 0.512 |
+| re-aligned | **0** | **3** | **0.050 / 0.093** |
+
+Restoring the backups reproduced `0.316 / 0.512` exactly, so this is the geometry and not drift.
+The margin had not moved through specs/25, 26, 28 or 29.

@@ -133,6 +133,16 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
   itself works (503 → 89 nodes, all 30 ReLUs intact); the weights simply do not survive it. Combined
   with specs/25 this closes the normalisation question from both sides: a foldable net cannot be
   trained to this quality, and this net cannot be folded.
+- **The whole corpus was mis-aligned until 2026-07-31, and it was the thing holding the margin.**
+  Every session sat at a 3.2–6.5 px median square-edge offset (one cell = 100 px), the two largest
+  worst at 12.2 and 14.8 px max — so every crop ever cut straddled its groove a little. Re-fitting
+  all 19 sessions took the champion `occ-v6-f5nd` from 1 phantom / margin **0.316 / 0.512** to
+  **0 / 0.050 / 0.093**, misses at zero phantoms 13 → 3, with the corner quads as the only changed
+  variable (restoring the backups reproduced the old row exactly). That margin had not moved through
+  specs/25, 26, 28 or 29. **Consequence: every dataset holds old-geometry crops and every path-A
+  number on record is void** — re-slice, rebuild under a new name reusing `split.json` verbatim, and
+  re-mine hard negatives rather than reusing keep-lists that mined this artefact. See
+  `docs/data-pipeline.md` §12.
 - **An alignment metric must be calibrated against truth, not against a direction.** Until
   2026-07-31 `alignment.square_offsets` collapsed the whole board along each axis, which is exact on
   a translation and **silent on rotation and shear** — 0.01 px reported for a 3.05 px shear. It
