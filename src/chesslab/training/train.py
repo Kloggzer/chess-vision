@@ -102,7 +102,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               head: str = "combined", scales: list[int] | None = None,
               erase_p: float | None = None, bg_p: float | None = None,
               loss: str = "ce", focal_gamma: float = 2.0,
-              class_weight: dict[str, float] | None = None) -> int:
+              class_weight: dict[str, float] | None = None,
+              sched: str = "cosine") -> int:
     """`scales`: Multi-Scale-Training (YOLO-Stil). Ist eine Liste wie [64,96,128] gesetzt, wird
     JEDER Batch zufällig auf eine dieser Eingabegrößen skaliert → das size-agnostische Modell
     (AdaptiveAvgPool) lernt alle Auflösungen in EINEM Lauf. So deckt das Training die
@@ -367,7 +368,15 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # convergence. Two consequences worth stating: runs of different lengths are not directly
     # comparable, and `--patience` interacts with this, because early stopping cuts a schedule
     # that was planned for `epochs`.
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    # `--sched none` pins the rate instead, which is the only way to ask "does LONGER training
+    # help?" with one variable. Under a cosine tied to `epochs`, a 200-epoch run is not a
+    # 60-epoch run continued: the period stretches with it, so more steps and more time at a high
+    # rate move together and neither can be attributed. Default is unchanged.
+    if sched == "none":
+        scheduler = torch.optim.lr_scheduler.ConstantLR(optimizer, factor=1.0, total_iters=0)
+        print(f"[sched] constant lr {lr:g} — no annealing, so epoch count is the only variable")
+    else:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     amp = not no_amp
     # Loss scaling for half-precision gradients (docs/references.md#micikevicius-2017).
     scaler = torch.amp.GradScaler("cuda", enabled=amp)
@@ -397,6 +406,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "config.json").write_text(json.dumps({
         "backbone": backbone, "epochs": epochs, "batch_size": batch_size, "lr": lr,
+        # The schedule, not just its peak. Without it a run's trajectory cannot be reconstructed
+        # from its config: `lr` is where the cosine STARTS and `epochs` is its period, so two runs
+        # with identical `lr` and different `epochs` never saw the same rate at the same step.
+        "sched": sched, "sched_t_max": epochs if sched != "none" else None,
         "seed": seed, "amp": amp, "norm": norm_eff, "classes": classes, "out_size": list(out_size),
         "dataset": dataset, "resumed_from": resumed_from, "head": head,
         # What SERVING must reproduce. `normalize.mode` "per_crop" ignores mean/std entirely, and
