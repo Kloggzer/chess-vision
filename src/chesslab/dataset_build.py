@@ -303,26 +303,41 @@ def _donor_policy(donor: str, paths: config.Paths) -> dict:
     }
 
 
-def _split_from(donor: str, have: set[str], paths: config.Paths) -> dict[str, list[str]]:
+def _split_from(donor: str, have: set[str], paths: config.Paths,
+                add_test: Sequence[str] = ()) -> dict[str, list[str]]:
     """The donor dataset's split, restricted to the sessions this build actually has.
 
     Refuses on a session the donor never placed, rather than quietly dropping it into train: an
     unplaced session is either a typo or a genuinely new session, and both deserve a decision
     instead of a default. Sessions the donor has and this build does not are simply absent — that
     is the normal case when the twin is built from a narrower selection.
+
+    `add_test` is that decision, made explicitly: sessions appended to the TEST split on top of the
+    donor's assignment. Train and val stay byte-identical, so every model trained against the donor
+    stays comparable — a bigger test set does not change what anything was trained on. This is how a
+    session recorded purely to evaluate against gets in.
     """
     p = paths.datasets / _safe_name(donor) / "split.json"
     if not p.exists():
-        raise ValueError(f"--split-like: dataset '{donor}' has no split.json at {p}")
+        raise ValueError(f"--like: dataset '{donor}' has no split.json at {p}")
     donor_splits = json.loads(p.read_text(encoding="utf-8")).get("splits") or {}
-    placed = {s for sids in donor_splits.values() for s in sids}
+    extra = [s for s in add_test if s in have]
+    placed = {s for sids in donor_splits.values() for s in sids} | set(extra)
     missing = sorted(have - placed)
     if missing:
         raise ValueError(
-            f"--split-like {donor}: {len(missing)} session(s) are not in that split and would be "
-            f"placed silently: {', '.join(missing)}. Drop them from --sessions, or build without "
-            f"--split-like and accept a different assignment.")
-    return {k: [s for s in sids if s in have] for k, sids in donor_splits.items()}
+            f"--like {donor}: {len(missing)} session(s) are not in that split and would be "
+            f"placed silently: {', '.join(missing)}. Drop them from --sessions, name them in "
+            f"--add-test, or build without --like and accept a different assignment.")
+    clash = sorted(set(extra) & {s for k, sids in donor_splits.items() if k != "test" for s in sids})
+    if clash:
+        raise ValueError(
+            f"--add-test: {', '.join(clash)} is already in {donor}'s train or val. Moving a session "
+            f"into test would change what the donor's models were trained on, which is the one "
+            f"thing --like exists to prevent.")
+    out = {k: [s for s in sids if s in have] for k, sids in donor_splits.items()}
+    out["test"] = out.get("test", []) + [s for s in extra if s not in out.get("test", [])]
+    return out
 
 
 def build_dataset(
@@ -344,6 +359,7 @@ def build_dataset(
     allow_degenerate: bool = False,
     force_train=None,
     like: str | None = None,
+    add_test: Sequence[str] = (),
     pack: bool = True,
     class_mode: str = "pieces",
 ) -> dict:
@@ -411,7 +427,7 @@ def build_dataset(
     # board_accuracy would compute on incomplete/duplicated boards (bug).
     sizes = Counter(r["session_id"] for r in rows)
     if like:
-        splits = _split_from(like, set(sizes), paths)
+        splits = _split_from(like, set(sizes), paths, add_test)
     else:
         splits = dataset_mod.assign_sessions_to_splits(dict(sizes), val_frac, test_frac, seed,
                                                        force_train=force_train)
