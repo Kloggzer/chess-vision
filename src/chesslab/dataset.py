@@ -105,6 +105,21 @@ def render_stats(stats: dict) -> str:
 
 # --- Class balance -------------------------------------------------------------------
 
+def load_priority_paths(paths=None) -> set[str] | None:
+    """Mined hard-negative empty crops (`scripts/mine_hard_empty.py`) that must survive the cap.
+
+    Read by BOTH `dataset_build.build_dataset` and `training.train.run_train`, and it has to be
+    both: a built dataset's `manifest.jsonl` holds the UNCAPPED rows, and `run_train` re-runs
+    `subsample_classes` from `split["train_subsample"]`. A keep-list honoured only at build time
+    is therefore re-drawn away at train time — the protection would land in `split.json`'s counts
+    and never in a single batch. Returns None when no keep-list has been mined.
+    """
+    p = (paths or config.DATA).manifests / "hard_empty.jsonl"
+    if not p.exists():
+        return None
+    return {json.loads(ln)["path"] for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()}
+
+
 def subsample_classes(rows: list[dict], max_empty_ratio: float | None = None,
                       max_class_ratio: float | None = None, seed: int = config.SEED,
                       priority_paths: set[str] | None = None) -> list[dict]:
