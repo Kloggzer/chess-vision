@@ -18,6 +18,10 @@ the recorded activation ranges match what the phone actually feeds the model.
 
 The device stays model-agnostic: whatever backbone `train` produced, export → quantize
 just walks its graph. No weights need to be final.
+
+The scheme being produced is integer-arithmetic-only inference (docs/references.md#jacob-2017);
+note that this is POST-TRAINING static quantization with a calibration set, not that paper's
+quantization-aware training. Per-channel weights are docs/references.md#krishnamoorthi-2018.
 """
 
 from __future__ import annotations
@@ -182,8 +186,13 @@ def run_quantize(run: str, limit: int = 128, activation_type: str = "quint16",
     ``activation_type='quint8'`` for pure INT8 if a given model tolerates it.
 
     ``per_channel`` gives every output channel of a weight its own scale instead of one scale
-    per tensor. It is the literature's largest single lever for MobileNet-class models and it
-    measures that way here (specs/26 phase 02, `occ-v6-f5nd` on `occ-real6` test at 80 px,
+    per tensor. It is the literature's largest single lever for MobileNet-class models — the
+    quantization whitepaper measures MobileNet v1/v2 collapsing to 0.001 top-1 under per-layer
+    weight quantization and recovering to ~0.70 per-channel, because batch norm leaves the kernels
+    of one layer with wildly different dynamic ranges (docs/references.md#krishnamoorthi-2018).
+    That stated mechanism does NOT apply to this model, which is GroupNorm, so the far milder
+    effect measured below is not a contradiction of the paper. It measures the same direction here
+    (specs/26 phase 02, `occ-v6-f5nd` on `occ-real6` test at 80 px,
     path A — phantoms / margin p99.9 / max):
 
         per-tensor A8W8      5 · 0.406 / 0.802      per-channel A8W8   2 · 0.382 / 0.622

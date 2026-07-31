@@ -13,7 +13,11 @@ _TIMM_BACKBONE_ALIASES = {
 
 
 def _gn_groups(channels: int) -> int:
-    """Größte Gruppenzahl <= 8, die `channels` teilt (GroupNorm braucht einen Teiler)."""
+    """Größte Gruppenzahl <= 8, die `channels` teilt (GroupNorm braucht einen Teiler).
+
+    The cap of 8 is this project's own and was never varied; GroupNorm's paper uses G=32 by default
+    and reports the method insensitive to G across 64…2 (docs/references.md#wu-2018).
+    """
     g = min(8, channels)
     while g > 1 and channels % g:
         g -= 1
@@ -27,7 +31,8 @@ class PrimitiveBatchNorm2d(nn.BatchNorm2d):
     library headers for HIPRTC, so any fresh compile of it dies with `miopenStatusUnknownError`.
     The project's answer used to be GroupNorm, which works but costs dearly at inference: GroupNorm
     normalises per SAMPLE, so it cannot be folded into the preceding convolution and exports as a
-    46-node `InstanceNormalization` decomposition. Measured on the real graph: 573 nodes and
+    46-node `InstanceNormalization` decomposition (ONNX has no GroupNorm op; instance
+    normalisation is docs/references.md#ulyanov-2016). Measured on the real graph: 573 nodes and
     30.6 ms per 64 crops against 124 nodes and 6.5 ms once the norms fold — **4.7x**.
 
     Deriving the same arithmetic from `var_mean` and friends sidesteps that one kernel and nothing
@@ -116,7 +121,19 @@ def stock_batchnorm(module: nn.Module) -> nn.Module:
 
 
 def _norm_layer(norm: str, channels: int) -> nn.Module:
-    """Normalization layer. groupnorm works around the MIOpen/HIPRTC batch-norm bug on ROCm-Windows."""
+    """Normalization layer. groupnorm works around the MIOpen/HIPRTC batch-norm bug on ROCm-Windows.
+
+    The three options are three published positions: BatchNorm (docs/references.md#ioffe-2015),
+    GroupNorm, whose statistic does not depend on the batch (docs/references.md#wu-2018), and no
+    normalizer at all (docs/references.md#brock-2021 — though that paper's method is adaptive
+    gradient clipping, which `norm="none"` does NOT do; it is a bare ablation, not that method).
+
+    Which one ships is settled by measurement here, not by the literature:
+    specs/25-normalization-endgame/STATUS.md. Read it before reopening the question. One caveat the
+    exclusion chain does not cover: every comparison ran at the GroupNorm recipe's learning rate,
+    and tolerating larger learning rates is exactly what BatchNorm is claimed to buy
+    (docs/references.md#bjorck-2018).
+    """
     if norm == "groupnorm":
         return nn.GroupNorm(num_groups=_gn_groups(channels), num_channels=channels)
     if norm == "none":
@@ -222,7 +239,12 @@ def _create_timm_model(backbone: str, pretrained: bool, num_classes: int,
 
 
 class SmallCNN(nn.Module):
-    """Compact conv net: 4 conv blocks (norm+ReLU+MaxPool), global avg pool, linear -> classes."""
+    """Compact conv net: 4 conv blocks (norm+ReLU+MaxPool), global avg pool, linear -> classes.
+
+    The global average pool is what makes the net size-agnostic, so one set of weights can be
+    served at 80, 96 or 128 px — the one-level degenerate case of spatial pyramid pooling
+    (docs/references.md#he-2014). Without it, `--scales` would not be possible.
+    """
 
     def __init__(self, num_classes: int, in_channels: int = 3, norm: str = "batchnorm") -> None:
         super().__init__()
@@ -297,6 +319,11 @@ class HierarchicalHead(nn.Module):
     only depends on the occupancy head, for occupied targets on both — the piece head therefore
     receives gradient **only on occupied squares** (the chesscog principle), without any special
     case in the training loop.
+
+    "chesscog" is Wölflein & Arandjelović, which splits the task into an occupancy CNN and a piece
+    CNN (docs/references.md#wolflein-2021). This head is the same decomposition inside one network
+    rather than two. The opposing published position — predict the whole board end-to-end — is
+    docs/references.md#masouris-2023.
     """
 
     def __init__(self, feat_dim: int, classes: list[str]) -> None:
