@@ -435,6 +435,13 @@ def dataset_build_cmd(
                                      "has zero rows in the corpus) | occupancy (2: empty/occupied). "
                                      "The narrower modes NARROW the existing labels at build time — "
                                      "no crop is re-labelled, no row is lost."),
+    split_like: str | None = typer.Option(None, "--split-like",
+                                          help="Take the train/val/test session assignment VERBATIM "
+                                               "from this dataset. Use it for any twin of an "
+                                               "existing dataset: a split is NOT reproducible from "
+                                               "its own recorded parameters, so a plain rebuild "
+                                               "trains on different sessions than the model you are "
+                                               "comparing against, silently."),
 ) -> None:
     """Build named dataset from session selection (filter -> dedup -> rotation -> split -> pack)."""
     from . import dataset_build as db
@@ -447,7 +454,7 @@ def dataset_build_cmd(
                                phash_hamming=hamming,
                                rotations=(config.DEDUP.rotations_augmented if rotate else config.DEDUP.rotations),
                                allow_degenerate=allow_degenerate, pack=not no_pack,
-                               class_mode=classes)
+                               class_mode=classes, split_like=split_like)
     except ValueError as e:
         print(f"[FAIL] {e}")
         raise typer.Exit(1)
