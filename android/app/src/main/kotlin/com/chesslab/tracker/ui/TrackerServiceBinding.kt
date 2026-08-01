@@ -20,6 +20,7 @@ import com.chesslab.tracker.service.TrackerBinder
 import com.chesslab.tracker.service.TrackerService
 import com.chesslab.tracker.ui.calibration.CalibrationHost
 import com.chesslab.tracker.ui.calibration.ProvideCalibrationHost
+import com.chesslab.tracker.ui.camera.CameraLookHost
 import com.chesslab.tracker.ui.tracking.TrackerSession
 import com.chesslab.tracker.ui.tracking.TrackerSessionHost
 import kotlinx.coroutines.flow.Flow
@@ -97,6 +98,7 @@ fun BindTrackerService(content: @Composable () -> Unit) {
                     val bound = service as? TrackerBinder
                     binder = bound
                     TrackerSessionHost.publish(bound?.let(::BinderSession))
+                    CameraLookHost.publish(bound?.cameraLook)
                 }
 
                 override fun onServiceDisconnected(name: ComponentName?) {
@@ -123,7 +125,6 @@ fun BindTrackerService(content: @Composable () -> Unit) {
                 rawPreview = bound.rawPreview,
                 onCalibrated = { geometry, corners, name -> bound.applyCalibration(geometry, corners, name, relockOptics = true) },
                 remeasureOptics = bound.remeasureOptics,
-                cameraLook = bound.cameraLook,
                 // The re-measure sequence converged the optics BEFORE it measured this quad, so
                 // re-arming them here would release exactly the lock the quad describes.
                 onRemeasured = { geometry, corners, name -> bound.applyCalibration(geometry, corners, name, relockOptics = false) },

@@ -1,5 +1,7 @@
 package com.chesslab.tracker.settings
 
+import com.chesslab.tracker.camera.CameraLook
+import com.chesslab.tracker.camera.WhiteBalance
 import com.chesslab.tracker.cnn.DEFAULT_MODEL
 import com.chesslab.tracker.cnn.bundledModelOrDefault
 import com.chesslab.tracker.speech.SpeechVerbosity
@@ -77,7 +79,37 @@ data class AppSettings(
     val speechAnnounceAlarms: Boolean = true,
     /** 08b's LAN spectator. Persisted so the flag stays inspectable; never read back to auto-start. */
     val spectatorEnabled: Boolean = false,
+    /**
+     * The camera screen's saved picture — see [cameraLook].
+     *
+     * Flat fields rather than a nested `CameraLook`, so `camera/` carries no serialization concern
+     * and the JSON stays one level deep like every other knob here. Unlike the rest of this class
+     * these ARE live: they reach the camera when they change and need no restart.
+     */
+    val cameraEvIndex: Int = 0,
+    val cameraWhiteBalance: WhiteBalance = WhiteBalance.AUTO,
+    val cameraZoomRatio: Float = 1f,
+    /** Null is automatic focus; 0..1 is infinity..the lens's nearest. */
+    val cameraFocus: Float? = null,
 )
+
+/** The saved picture as the camera's own type. */
+fun AppSettings.cameraLook(): CameraLook =
+    CameraLook(
+        evIndex = cameraEvIndex,
+        whiteBalance = cameraWhiteBalance,
+        zoomRatio = cameraZoomRatio,
+        focus = cameraFocus,
+    )
+
+/** [cameraLook], the other way round — what "Save" writes. Every axis, or the save is a half-truth. */
+fun AppSettings.withCameraLook(look: CameraLook): AppSettings =
+    copy(
+        cameraEvIndex = look.evIndex,
+        cameraWhiteBalance = look.whiteBalance,
+        cameraZoomRatio = look.zoomRatio,
+        cameraFocus = look.focus,
+    )
 
 private val json =
     Json {

@@ -15,6 +15,7 @@ import com.chesslab.tracker.service.TrackerRestartHost
 import com.chesslab.tracker.spectate.ui.SpectatorScreen
 import com.chesslab.tracker.speech.ui.SpeechSettingsScreen
 import com.chesslab.tracker.ui.calibration.CalibrationRoute
+import com.chesslab.tracker.ui.camera.CameraRoute
 import com.chesslab.tracker.ui.debug.DebugRoute
 import com.chesslab.tracker.ui.games.GameDetailRoute
 import com.chesslab.tracker.ui.games.GamesRoute
@@ -31,6 +32,7 @@ import com.chesslab.tracker.ui.tracking.TrackingRoute
  */
 const val ROUTE_TRACKING = "tracking"
 const val ROUTE_CALIBRATION = "calibration"
+const val ROUTE_CAMERA = "camera"
 const val ROUTE_SETTINGS = "settings"
 const val ROUTE_DEBUG = "debug"
 const val ROUTE_ANALYSIS = "analysis"
@@ -54,6 +56,7 @@ fun ChesslabNavHost(navController: NavHostController = rememberNavController()) 
                     destinations =
                         listOf(
                             NavDestination("Board") {},
+                            NavDestination("Camera") { navController.navigate(ROUTE_CAMERA) },
                             NavDestination("Games") { navController.navigate(ROUTE_GAMES) },
                             NavDestination("Spectator") { navController.navigate(ROUTE_SPECTATOR) },
                             NavDestination("Speech") { navController.navigate(ROUTE_SPEECH) },
@@ -74,6 +77,11 @@ fun ChesslabNavHost(navController: NavHostController = rememberNavController()) 
                 onCalibrated = { navController.popBackStack() },
                 onBack = { navController.popBackStack() },
             )
+        }
+        // The PICTURE. Its sibling `ROUTE_CALIBRATION` is the board's GEOMETRY: two screens because
+        // they are two lifetimes — a camera setting belongs to the room, a marker quad to the board.
+        composable(ROUTE_CAMERA) {
+            CameraRoute(onBack = { navController.popBackStack() })
         }
         composable(ROUTE_SETTINGS) {
             // Null until the service has published its restart action, and the settings screen
