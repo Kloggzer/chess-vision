@@ -604,6 +604,13 @@ def train_cmd(
                                       "Auflösungen (size-agnostisch, für günstige Low-Res-Inferenz)."),
     erase_p: float | None = typer.Option(None, "--erase-p", help="Override RandomErasing/Cutout prob (anti-shortcut)."),
     bg_p: float | None = typer.Option(None, "--bg-p", help="Override background-randomization prob on occupied crops."),
+    jitter_translate: float | None = typer.Option(None, "--jitter-translate",
+                                                  help="Override the affine translation jitter, as a "
+                                                       "fraction of the crop. The default 0.03 is ~3.3 % "
+                                                       "of a cell, and real footage arrives at ~9 % "
+                                                       "(measured on the test clips) - the corpus used "
+                                                       "to supply that variation by being mis-cut, and "
+                                                       "since it was aligned it no longer does."),
     loss: str = typer.Option("ce", "--loss", help="ce | focal — focal down-weights the easy, "
                                                   "already-solved crops (needs --head combined)."),
     focal_gamma: float = typer.Option(2.0, "--focal-gamma", help="Focal loss gamma (0 = weighted CE)."),
@@ -635,7 +642,7 @@ def train_cmd(
                                num_workers=num_workers, norm=norm, dataset=dataset, resume=resume,
                                head=head, scales=scale_list, erase_p=erase_p, bg_p=bg_p,
                                loss=loss, focal_gamma=focal_gamma, class_weight=cw or None,
-                               sched=sched))
+                               sched=sched, jitter_translate=jitter_translate))
 
 
 @app.command("eval")
