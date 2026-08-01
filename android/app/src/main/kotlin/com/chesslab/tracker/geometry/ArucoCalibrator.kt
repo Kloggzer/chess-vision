@@ -5,8 +5,10 @@ import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.cornersFromFlat
 import com.chesslab.geometry.cornersToFlat
 import com.chesslab.geometry.detectBoardMarkers
+import com.chesslab.geometry.improveQuad
 import com.chesslab.geometry.resolveBoardCorners
 import com.chesslab.geometry.warpFromCorners
+import com.chesslab.geometry.worstOffset
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -28,6 +30,14 @@ private const val ALL_MARKERS: Int = 4
 /** Preview size for the orientation-confirmation warp — big enough to read, cheap to warp. */
 private const val CONFIRM_WARP_PX: Int = 512
 
+/**
+ * Leave the quad alone below this offset, as a fraction of one square.
+ *
+ * The measurement's noise floor on a bare board is ~1.3 % of a square and the re-aligned Python
+ * corpus sits at 2-3 %; the 18 recorded clips sit at 8.8-8.9 %, which is the band this exists for.
+ */
+private const val REFINE_TOLERANCE_CELLS: Double = 0.02
+
 data class CalibrationResult(
     /** 8 floats `[a8, h8, h1, a1]` in the DETECTED frame's pixels. Empty when `!ok`. */
     val corners: FloatArray,
@@ -44,9 +54,38 @@ data class CalibrationResult(
     override fun hashCode(): Int = System.identityHashCode(this)
 }
 
+/**
+ * What a refinement pass measured, and whether it moved the quad.
+ *
+ * The offsets are in rectified pixels; [cellPx] is there so a caller can express them as a fraction
+ * of a square, which is the only scale-free way to talk about this — 4 px means something different
+ * at `boardSize` 800 than at 1600.
+ */
+class QuadRefinement(
+    /** The corrected quad, or the input verbatim when nothing was applied. */
+    val corners: FloatArray,
+    val beforePx: Double,
+    val afterPx: Double,
+    val cellPx: Double,
+    val applied: Boolean,
+) {
+    override fun equals(other: Any?): Boolean = this === other
+
+    override fun hashCode(): Int = System.identityHashCode(this)
+}
+
 /** The seam the calibration screen talks to. Keeps OpenCV out of the UI and out of the tests. */
 interface BoardDetector {
     suspend fun detect(): CalibrationResult?
+
+    /**
+     * Measure where the board's grooves really sit under [corners], and pull the quad onto them.
+     *
+     * Returns null when nothing was measurable (no frame, or a board whose grid cannot be found).
+     * Never called from the aim poll: at `boardSize` 1600 a full pass is ~80 ms on a desktop and it
+     * belongs to the moment the quad is accepted, not to a preview that runs on a timer.
+     */
+    suspend fun refine(corners: FloatArray): QuadRefinement?
 
     /**
      * Rectified board for the orientation confirmation, or null when it cannot be produced.
@@ -98,6 +137,47 @@ class ArucoCalibrator(
                 }
             }
         }
+
+    /**
+     * Runs at the moment the quad is accepted, so the orientation preview the user then eyeballs is
+     * the corrected geometry — they confirm what they will actually get.
+     *
+     * Below [REFINE_TOLERANCE_CELLS] the quad is left alone. The measurement's own noise floor on a
+     * bare board is ~1.3 % of a square, and the re-aligned Python corpus sits at 2-3 %; inside that
+     * band the fit would be chasing its own noise. `improveQuad` additionally refuses to hand back a
+     * quad it did not improve, so this gate is about not doing pointless work, not about safety.
+     */
+    override suspend fun refine(corners: FloatArray): QuadRefinement? =
+        withContext(dispatcher) {
+            withFrame { frame ->
+                val geom = geometry()
+                val quad = cornersFromFlat(corners)
+                val before = worstOffset(frame, quad, geom)
+                when {
+                    !before.isFinite() -> null
+                    before <= REFINE_TOLERANCE_CELLS * geom.cell ->
+                        QuadRefinement(corners, before, before, geom.cell, applied = false)
+                    else -> applyRefinement(frame, quad, corners, geom)
+                }
+            }
+        }
+
+    private fun applyRefinement(
+        frame: Mat,
+        quad: List<DoubleArray>,
+        original: FloatArray,
+        geom: BoardGeometry,
+    ): QuadRefinement {
+        val result = improveQuad(frame, quad, geom)
+        val fixed = result.quad
+        return QuadRefinement(
+            corners = if (fixed == null) original else cornersToFlat(fixed),
+            beforePx = result.before,
+            afterPx = if (fixed == null) result.before else result.after,
+            cellPx = geom.cell,
+            applied = fixed != null,
+        )
+    }
 
     private inline fun <T : Any> withFrame(body: (Mat) -> T?): T? {
         val frame = frames() ?: return null

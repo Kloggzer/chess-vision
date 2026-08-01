@@ -1,5 +1,6 @@
 package com.chesslab.tracker.service
 
+import android.util.Log
 import com.chesslab.engine.api.CnnEvaluator
 import com.chesslab.engine.api.CnnSnapshot
 import com.chesslab.engine.api.FrameInput
@@ -9,6 +10,12 @@ import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.BlockingQueue
+
+/**
+ * Its own tag, not `chesslabTracker`: `adb logcat -s chesslabDecision` then gives the move-by-move
+ * provenance with nothing else in it, which is the form these lines get read in.
+ */
+private const val DECISION_TAG = "chesslabDecision"
 
 /** Deep enough to survive a burst of taps; shallow enough that a stalled drain is visible. */
 private const val ACTION_CAPACITY = 32
@@ -158,7 +165,10 @@ fun engineHost(
     startFen: String,
     onConfigApplied: (TrackerConfig) -> Unit,
 ): EngineHost {
-    val engine = TrackerEngine(config, startFen)
+    // Not gated on the debug switch. A decision row is written at most once per committed or
+    // rejected move — not per frame — and the one session where it is needed is always the one
+    // nobody armed a debug flag for beforehand.
+    val engine = TrackerEngine(config, startFen) { Log.i(DECISION_TAG, it) }
     engine.attachCnn(cnn)
     return EngineHost(TrackerEngineOps(engine, onConfigApplied))
 }

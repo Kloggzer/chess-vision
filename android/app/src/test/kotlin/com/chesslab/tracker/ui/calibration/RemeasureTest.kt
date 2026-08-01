@@ -7,6 +7,7 @@ import com.chesslab.tracker.geometry.CalibrationProfile
 import com.chesslab.tracker.geometry.CalibrationResult
 import com.chesslab.tracker.geometry.CalibrationStore
 import com.chesslab.tracker.geometry.FakeProfileBacking
+import com.chesslab.tracker.geometry.QuadRefinement
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -32,6 +33,12 @@ private class RecordingDetector(
     override suspend fun detect(): CalibrationResult? {
         calls += "detect"
         return result
+    }
+
+    /** Recorded like the others: the re-measure sequence must not trigger a grid refinement. */
+    override suspend fun refine(corners: FloatArray): QuadRefinement? {
+        calls += "refine"
+        return null
     }
 
     override suspend fun warp(

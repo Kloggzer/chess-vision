@@ -26,6 +26,8 @@ internal class EngineState(
     startFen: String = STARTPOS,
     // profile.white_pov
     val whitePov: Boolean = true,
+    /** Every decision row as one line, the moment it is recorded. See [DecisionLog]. */
+    private val decisionSink: (String) -> Unit = {},
 ) {
     // -- clock: the engine is deterministic; nowS comes from FrameInput.timestampMs / 1000.0. ----
 
@@ -335,7 +337,7 @@ internal class EngineState(
     // -- provenance -----------------------------------------------------------------------------------
 
     // `_decision_log` — ring-capped (see DecisionLog); the list contract is unchanged.
-    val decisionLog: MutableList<DecisionRecord> = DecisionLog()
+    val decisionLog: MutableList<DecisionRecord> = DecisionLog(sink = { decisionSink(it.toLogLine()) })
     var pendingCapture: PendingCapture? = null // `_pending_capture`
 
     // -- derived geometry (Python rebuilds `_square_boxes` per call; the port caches) ------------------

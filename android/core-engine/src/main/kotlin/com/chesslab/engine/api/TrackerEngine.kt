@@ -98,8 +98,21 @@ private const val FEN_FULLMOVE = 5
 class TrackerEngine(
     config: TrackerConfig,
     startFen: String = STARTPOS,
+    /**
+     * Every decision — committed OR rejected — as one line, the moment it is made.
+     *
+     * Default no-op, so tests and the clip harness stay silent. `:app` points it at logcat. The
+     * engine cannot import Android and cannot read a clock, so this is the only way a decision
+     * leaves the module; the sink is called on the engine's own thread and must not block.
+     *
+     * It exists because on 2026-08-01 a live board sat in a mismatch cycle on a legitimate `Qxd4`
+     * and the question "did the deterministic path see d4 change at all?" could not be answered:
+     * the app emitted three log tags, none of them the engine's, and the decision rows lived only
+     * in a 64-entry in-memory ring behind an off-by-default debug switch.
+     */
+    private val decisionSink: (String) -> Unit = {},
 ) {
-    internal val state = EngineState(config, startFen)
+    internal val state = EngineState(config, startFen, decisionSink = decisionSink)
 
     private val loop = FrameLoop(state) { cur, curBgr -> state.setRef(cur, curBgr) }
 

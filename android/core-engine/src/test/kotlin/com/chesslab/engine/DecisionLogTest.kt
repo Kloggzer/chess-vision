@@ -107,6 +107,61 @@ class DecisionLogTest {
         assertEquals(1, state.decisionLog.size)
     }
 
+    /**
+     * The rejected rows are the ones worth logging, and they are the ones nobody was reading.
+     *
+     * On 2026-08-01 a live board sat in a mismatch cycle on a legitimate `Qxd4` and the question
+     * "did the deterministic path see d4 change at all?" was unanswerable — the app emitted three
+     * log tags, none of them the engine's, and these rows lived only in an in-memory ring behind a
+     * debug switch that was off. A commit-only log is the half that is never in doubt.
+     */
+    @Test
+    fun everyDecisionReachesTheSinkIncludingTheRejections() {
+        val lines = mutableListOf<String>()
+        val log = DecisionLog(sink = { lines += it.toLogLine() })
+        log.add(record(1))
+        assertEquals(1, lines.size)
+        assertTrue(lines.single().startsWith("ply=1 COMMIT e2e4 (e4)"), lines.single())
+
+        val state = detectState(detectConfig(requireMotion = true))
+        val seen = mutableListOf<String>()
+        state.decisionLog.clear()
+        val mirrored = DecisionLog(sink = { seen += it.toLogLine() })
+        val cand = Candidate(listOf(state.legalMoveFor("e2e4")!!), priorUsed = false, vote = true)
+        state.commitGates(cand)
+        state.decisionLog.forEach(mirrored::add)
+        assertTrue(seen.single().startsWith("ply=0 REJECT e2e4"), seen.single())
+        assertTrue(seen.single().contains("evidence too weak"), seen.single())
+    }
+
+    /** The line has to carry the evidence, not just the verdict — that is the whole point of it. */
+    @Test
+    fun theLogLineCarriesTheChangedSquaresTheirZValuesAndTheVetoes() {
+        val row =
+            record(3).copy(
+                accepted = false,
+                decider = DECIDER_REJECTED,
+                move = "f4d4",
+                san = null,
+                reason = "no legal move",
+                changed = listOf("f4", "d4"),
+                changedVals = listOf("f4" to 9.25, "d4" to 4.5),
+                shadowVetoed = listOf("e5"),
+                occludedVetoed = listOf("h2"),
+                cnnRun = true,
+                cnnAgreement = 1.0,
+                cnnBestMove = null,
+                stuckReason = "no_legal_move",
+            )
+        val line = row.toLogLine()
+        assertTrue(line.contains("changed=[f4=9.2 d4=4.5]"), line)
+        assertTrue(line.contains("shadowVeto=e5"), line)
+        assertTrue(line.contains("occlVeto=h2"), line)
+        assertTrue(line.contains("cnn=run"), line)
+        assertTrue(line.contains("cnnAgree=1.000"), line)
+        assertTrue(line.contains("stuck=no_legal_move"), line)
+    }
+
     @Test
     fun decisionCarriesNoBitmaps() {
         // Python's `_recent_decisions` keeps warped BGR copies; the phone cannot afford them.

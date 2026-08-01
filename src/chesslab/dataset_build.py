@@ -374,7 +374,8 @@ def build_dataset(
     add_test: Sequence[str] = (),
     add_train: Sequence[str] = (),
     pack: bool = True,
-    class_mode: str = "pieces",
+    #: None means "unspecified": `--like` then supplies the donor's, otherwise it is `pieces`.
+    class_mode: str | None = None,
 ) -> dict:
     """Build dataset <name> from `session_ids`: filter -> dedup -> rotation -> manifest+split+stats.
 
@@ -399,13 +400,18 @@ def build_dataset(
     paths = paths or config.DATA
     if like:
         pol = _donor_policy(like, paths)
-        class_mode = pol["class_mode"] or class_mode
+        # The donor's class list is a DEFAULT here, not an override — every other policy below is
+        # an override. Building `occ-warm`'s 13-class twin is the whole reason to say `--like` and
+        # `--classes` in one breath, and this line used to silently produce a second 2-class copy
+        # under a name that said otherwise.
+        class_mode = class_mode or pol["class_mode"]
         per_cell_cap, phash_enabled = pol["per_cell_cap"], pol["phash_enabled"]
         phash_hamming, rotations = pol["phash_hamming"], pol["rotations"]
         val_frac, test_frac, seed = pol["val_frac"], pol["test_frac"], pol["seed"]
         max_empty_ratio, max_class_ratio = pol["max_empty_ratio"], pol["max_class_ratio"]
         print(f"[like] adopting {like}: classes={class_mode} cap={per_cell_cap} "
               f"phash={phash_enabled} max_empty_ratio={max_empty_ratio} seed={seed}")
+    class_mode = class_mode or "pieces"
     classes = class_list_for(class_mode)
     d = config.DEDUP
     per_cell_cap = d.per_cell_cap if per_cell_cap is None else per_cell_cap
