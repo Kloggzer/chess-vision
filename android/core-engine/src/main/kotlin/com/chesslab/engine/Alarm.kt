@@ -28,19 +28,14 @@ internal fun EngineState.onStableMismatch(
     cnn: CnnEvaluator,
     obs: CnnObservation,
     snap: CnnSnapshot,
-    hasIdentity: Boolean,
     conflicts: List<String>,
 ): List<TrackerEvent> {
-    val events =
-        if (hasIdentity) {
-            advanceDesyncStreak(snap.seq, conflicts)
-            raiseAlarmIfDue(cnn, obs, conflicts)
-        } else {
-            // Occupancy-only mode has no identity axis to be stable about and never alarms.
-            desyncObs = 0
-            desyncConflicts = 0L
-            emptyList()
-        }
+    // One path for every run. The discipline lives in the two predicates below — a stable conflict
+    // set of exactly one vacated and one received square — and both now read whichever axis the
+    // observation carries. An occupancy-only run used to zero the streak here and never alarm,
+    // which silently disarmed the whole desync response on every model this app ships.
+    advanceDesyncStreak(snap.seq, conflicts)
+    val events = raiseAlarmIfDue(cnn, obs, conflicts)
     val latched = alarm
     note =
         if (latched == null) {
@@ -62,8 +57,10 @@ internal fun EngineState.onStableMismatch(
  * fired on, and escalates to the illegal-move alarm. The escape is the USER (undo / reset /
  * baseline / accept-CNN), never an auto re-anchor — that is the hole the veto exists to close.
  *
- * Escalation additionally needs the observation to NAME a move (`guessIllegalMove`: exactly one
- * vacated and one received square — the Bxc3 shape). Measured on the 18 clips, nothing weaker
+ * Escalation additionally needs the observation to show a MOVE-SHAPED contradiction
+ * (`guessIllegalMove`: exactly one vacated and one received square — the Bxc3 shape). That test is
+ * occupancy, so it holds for a 2-class run as well; what a label-less run cannot do is NAME
+ * the piece, and the alarm card already falls back to the conflict list. Measured on the 18 clips, nothing weaker
  * holds: the streak alone raised a false alarm on blender-promocapture (one chronically missed king
  * on g1) and cost it its real exd8=Q+, and any two-directional conflict set still alarmed on
  * blender-shadowsweep (two phantom-occupied squares under a moving shadow plus one missed pawn).
@@ -74,8 +71,7 @@ internal fun EngineState.desyncEvidence(
     conflicts: List<String>,
 ): List<TrackerEvent> {
     advanceDesyncStreak(snap.seq, conflicts)
-    val hasIdentity = Squares.ALL.any { snap.obs.label(it) != null }
-    val due = alarm == null && desyncObs >= config.desyncObsN && hasIdentity
+    val due = alarm == null && desyncObs >= config.desyncObsN
     val guess = if (due) cnn?.guessIllegalMove(board.fen(), snap.obs, config.cnnConfThr) else null
     if (guess != null) {
         val raised = latchAlarm(conflicts, guess)

@@ -50,8 +50,17 @@ class ResyncTest {
     }
 
     @Test
-    fun `without identity there is no occupancy conflict`() {
+    fun `an occupancy-only run sees the same occupancy conflict`() {
+        // The test compares "expected empty" against "observed empty" and nothing else — the name
+        // says so. Only the CONFIDENCE was read off the identity axis, and the null-label guard
+        // then discarded every 2-class observation, so no shipped model could ever conflict.
         val obs = FakeSquareClassifier(START_FEN, overrides = mapOf("b1" to ("empty" to 0.99))).observe()
+        assertTrue(hasOccupancyConflict(startBoard(), obs.occupancyOnly(), THR, listOf("b1")))
+    }
+
+    @Test
+    fun `an occupancy-only run reports no conflict on a board that agrees`() {
+        val obs = FakeSquareClassifier(START_FEN).observe()
         assertFalse(hasOccupancyConflict(startBoard(), obs.occupancyOnly(), THR, listOf("b1")))
     }
 
