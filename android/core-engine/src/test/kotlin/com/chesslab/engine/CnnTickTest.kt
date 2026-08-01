@@ -3,6 +3,7 @@ package com.chesslab.engine
 import com.chesslab.engine.api.TrackerEvent
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
@@ -264,5 +265,25 @@ class CnnTickTest {
         state.cnnTick(cnn, recoverySnap(state, obs, seq = 1, gray = grayFrame()))
         assertEquals(listOf("e4"), state.history)
         assertEquals(0.98, state.cnnAgreement, 1e-9)
+    }
+
+    @Test
+    fun aBlindGlanceCannotReportTheBoardUnchanged() {
+        // `resyncCheckFull` builds its conflict set from CONFIDENT squares only, so zero confident
+        // squares yields an empty set, `match = true` and agreement 1.0 — vacuously. Without the
+        // guard a hand over the board clears the alarm and pulls the reference onto the covered
+        // frame. The verify ladder has guarded exactly this since it was written; the periodic
+        // check never did, and neither does Python.
+        val state = recoveryState(NF3_NO_CASTLING)
+        state.markStuck(STUCK_NO_LEGAL_MOVE)
+        state.alarm = TrackerEvent.Alarm("illegal_move", listOf("e1"), null, null)
+        val cnn = RecoveryEvaluator(match = true).apply { minConfidentBoard = 32 }
+        // Confidence below the threshold on every square: the glance saw nothing.
+        val blind = RecoveryObs(Squares.ALL.associateWith { state.board.labelAt(it) }, confidence = 0.10)
+
+        state.cnnTick(cnn, recoverySnap(state, blind, seq = 1))
+
+        assertNotNull(state.alarm, "a blind glance must not clear the alarm")
+        assertEquals(STUCK_NO_LEGAL_MOVE, state.stuckReason, "and must not re-anchor")
     }
 }

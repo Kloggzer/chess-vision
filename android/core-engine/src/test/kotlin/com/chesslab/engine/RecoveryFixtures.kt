@@ -65,6 +65,9 @@ internal class RecoveryEvaluator(
     var occupancyConflict: Boolean = true,
     var guess: String? = null,
 ) : CnnEvaluator {
+    /** 0 keeps every existing test permissive; the blind-glance guard needs a real bar. */
+    override var minConfidentBoard: Int = 0
+
     var inconclusive: Boolean = false
 
     /** What `resync_check` itself names — the occupancy arm must prefer THIS over the deep search. */
@@ -74,8 +77,6 @@ internal class RecoveryEvaluator(
     override val confThr: Double = 0.85
 
     override val minAgreement: Double = 0.97
-
-    override val minConfidentBoard: Int = 0
 
     override fun verifyMove(
         boardFen: String,

@@ -56,7 +56,13 @@ class NotePrecedenceTest {
         assertTrue(note.contains("Open the app"), note)
 
         val stuck = statusOf(stuckReason = "occluded", note = "pipeline")
-        assertEquals("stuck: occluded", resolveNote(stuck, DOWN, FAILED, MISMATCH, "pipe"))
+        assertEquals("stuck: occluded", resolveNote(stuck, DOWN, FAILED, MISMATCH, null))
+        // ...but only while the frame REACHED the engine. `EngineHost.tick` runs it on a delivered
+        // frame only, so with a pipeline note in hand the stuck reason describes the previous frame
+        // and the live conditions outrank it. Changed 2026-08-01: "frame too dark" used to hide
+        // behind a `too_many_changed` left over from the last hand that crossed the board.
+        assertTrue(resolveNote(stuck, DOWN, FAILED, MISMATCH, "pipe")!!.startsWith("camera down"))
+        assertEquals("pipe", resolveNote(stuck, CameraHealth.Up, CnnState.Off, null, "pipe"))
 
         val plain = statusOf(note = "engine note")
         assertTrue(resolveNote(plain, DOWN, FAILED, MISMATCH, "pipe")!!.startsWith("camera down"))

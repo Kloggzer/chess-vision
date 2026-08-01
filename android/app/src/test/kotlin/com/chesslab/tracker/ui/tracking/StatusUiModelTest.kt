@@ -63,11 +63,16 @@ class StatusUiModelTest {
     }
 
     @Test
-    fun noteAndStuckReasonCollapseToOneLineWithStuckWinning() {
+    fun theInfoLineShowsWhatTheResolverAlreadyDecided() {
+        // Changed 2026-08-01. This used to re-rank `stuckReason` above `status.note` — a SECOND
+        // resolver for one slot, and it discarded the first one's top rung: a latched alarm always
+        // sets `stuck: no_legal_move`, so the board went red while the line beside it explained
+        // something else. `StatusPublisher.resolveNote` owns the precedence; the UI renders it.
         assertEquals("note text", trackingUiState(status(note = "note text")).infoLine)
         assertEquals(
-            "stuck: too_many_changed",
+            "note text",
             trackingUiState(status(note = "note text", stuckReason = "too_many_changed")).infoLine,
+            "the resolver already folded the stuck reason into the note; the UI must not re-rank",
         )
         assertNull(trackingUiState(status()).infoLine)
     }

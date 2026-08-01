@@ -334,10 +334,16 @@ class TrackerService :
     }
 
     private fun onEvent(event: TrackerEvent) {
+        // An alarmed engine blocks every commit, so a notification re-posted only on a committed
+        // move freezes at the moment things went wrong and never mentions it — while the app is in
+        // the background, which is precisely when it is the only channel left. `StatusPublisher`
+        // documents the note as "the only alarm signal that reaches the user with the app in the
+        // background"; that was true of the resolver and never of this call.
         moves +=
             when (event) {
                 is TrackerEvent.MoveCommitted -> 1
                 is TrackerEvent.SequenceCommitted -> event.ucis.size
+                is TrackerEvent.Alarm, is TrackerEvent.AlarmCleared -> 0
                 else -> return
             }
         notification.post(publisher.status.value?.state, moves, cameraRunning.value)
