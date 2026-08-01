@@ -3,6 +3,7 @@ package com.chesslab.tracker.ui.settings
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,8 +11,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -70,11 +73,37 @@ private fun SettingsScreen(
     val pending by viewModel.restartRequired.collectAsStateWithLifecycle()
     val note by viewModel.note.collectAsStateWithLifecycle()
     var confirmResetAll by remember { mutableStateOf(false) }
+    var place by remember { mutableStateOf<SettingsPlace>(SettingsPlace.Groups) }
+    var query by remember { mutableStateOf("") }
 
-    ChesslabScaffold("Settings", onBack) { bars ->
+    // One back affordance, two meanings: inside a group it returns to the list, at the top it
+    // leaves. A screen that drops you out of Settings from three levels down is the reason nobody
+    // opens the third level twice.
+    val title =
+        when {
+            query.isNotBlank() -> "Search"
+            place is SettingsPlace.Group -> (place as SettingsPlace.Group).group.title
+            place is SettingsPlace.Modified -> "Modified"
+            else -> "Settings"
+        }
+    val up: () -> Unit = { if (place is SettingsPlace.Groups) onBack() else place = SettingsPlace.Groups }
+
+    ChesslabScaffold(title, up) { bars ->
         Column(Modifier.fillMaxSize().padding(bars).padding(horizontal = 12.dp)) {
             note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Accent) }
-            SettingsList(viewModel, config, app, pending, onOpenDebug, Modifier.weight(1f)) { confirmResetAll = true }
+            SearchField(query) { query = it }
+            SettingsList(
+                viewModel,
+                config,
+                app,
+                pending,
+                place,
+                query,
+                onOpenDebug,
+                Modifier.weight(1f),
+                onOpenGroup = { place = it },
+                onResetAll = { confirmResetAll = true },
+            )
             if (pending.isNotEmpty()) RestartBar(pending, onRestartTracker, viewModel::onRestarted)
         }
     }
@@ -87,67 +116,137 @@ private fun SettingsScreen(
     }
 }
 
+/** Filters as you type, across key, group and the help line — see [searchKnobs]. */
+@Composable
+private fun SearchField(
+    query: String,
+    onQuery: (String) -> Unit,
+) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQuery,
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        placeholder = { Text("Search settings — try \"shadow\", \"cnn\", \"timeout\"", color = OnSurfaceMuted) },
+        trailingIcon = {
+            if (query.isNotEmpty()) {
+                TextButton(onClick = { onQuery("") }) {
+                    Text("clear", style = MaterialTheme.typography.labelMedium, color = OnSurfaceMuted)
+                }
+            }
+        },
+    )
+}
+
 @Composable
 private fun SettingsList(
     viewModel: SettingsViewModel,
     config: TrackerConfig,
     app: AppSettings,
     pending: Set<String>,
+    place: SettingsPlace,
+    query: String,
     onOpenDebug: () -> Unit,
     modifier: Modifier = Modifier,
+    onOpenGroup: (SettingsPlace) -> Unit,
     onResetAll: () -> Unit,
 ) {
     val context = LocalContext.current
+    val rows =
+        when {
+            query.isNotBlank() -> searchKnobs(query)
+            place is SettingsPlace.Group -> knobsIn(place.group)
+            place is SettingsPlace.Modified -> modifiedKnobs(config)
+            else -> emptyList()
+        }
+    val listing = query.isBlank() && place is SettingsPlace.Groups
+
     LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        KnobGroup.entries.forEach { group ->
-            val rows = knobsIn(group)
-            item(key = group.name) {
-                GroupHeader(group, modifiedCount(group, config)) { viewModel.resetGroup(group) }
-            }
-            items(rows.size, key = { rows[it].key }) { index ->
-                val knob = rows[index]
-                KnobRow(
-                    knob = knob,
-                    config = config,
-                    restartPending = knob.key in pending,
-                    onValue = { viewModel.setKnob(knob, it) },
-                    onReset = { viewModel.resetKnob(knob) },
-                )
+        if (query.isNotBlank() && rows.isEmpty()) {
+            item(key = "empty") {
+                Text("Nothing matches “$query”.", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceMuted)
             }
         }
-        item(key = "analysis") { AnalysisSettingsSection() }
-        item(key = "app") { AppSettingsSection(app) { viewModel.setApp(it) } }
-        item(key = "debug") {
-            DebugRow(enabled = app.debugEnabled, onEnabled = viewModel::setDebugEnabled, onOpen = onOpenDebug)
-        }
-        item(key = "footer") {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SectionButton("Export settings as JSON") { share(context, exportText(context, config, app)) }
-                SectionButton("Reset all to Python defaults") { onResetAll() }
+        if (place is SettingsPlace.Group && query.isBlank()) {
+            item(key = "resetGroup") {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SectionButton("Reset ${place.group.title} to defaults") { viewModel.resetGroup(place.group) }
+                }
             }
+        }
+        items(rows.size, key = { rows[it].key }) { index ->
+            val knob = rows[index]
+            KnobRow(
+                knob = knob,
+                config = config,
+                restartPending = knob.key in pending,
+                onValue = { viewModel.setKnob(knob, it) },
+                onReset = { viewModel.resetKnob(knob) },
+            )
+        }
+
+        if (listing) landing(viewModel, config, app, context, onOpenGroup, onOpenDebug, onResetAll)
+    }
+}
+
+/** The landing page: what was changed, the seven groups, then the app-level sections. */
+private fun LazyListScope.landing(
+    viewModel: SettingsViewModel,
+    config: TrackerConfig,
+    app: AppSettings,
+    context: Context,
+    onOpenGroup: (SettingsPlace) -> Unit,
+    onOpenDebug: () -> Unit,
+    onResetAll: () -> Unit,
+) {
+    val changed = modifiedKnobs(config)
+    if (changed.isNotEmpty()) {
+        // First, and only when it exists: on a tuned board this is the whole answer to "what did I
+        // do to this thing", and on a fresh one it is noise.
+        item(key = "modified") {
+            GroupCard("Modified", "${changed.size} away from the Python default") {
+                onOpenGroup(SettingsPlace.Modified)
+            }
+        }
+    }
+    items(KnobGroup.entries.size, key = { KnobGroup.entries[it].name }) { index ->
+        val group = KnobGroup.entries[index]
+        val n = modifiedCount(group, config)
+        GroupCard(
+            title = group.title,
+            subtitle = "${knobsIn(group).size} settings" + if (n > 0) "  •$n modified" else "",
+        ) { onOpenGroup(SettingsPlace.Group(group)) }
+    }
+    item(key = "analysis") { AnalysisSettingsSection() }
+    item(key = "app") { AppSettingsSection(app) { viewModel.setApp(it) } }
+    item(key = "debug") {
+        DebugRow(enabled = app.debugEnabled, onEnabled = viewModel::setDebugEnabled, onOpen = onOpenDebug)
+    }
+    item(key = "footer") {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SectionButton("Export settings as JSON") { share(context, exportText(context, config, app)) }
+            SectionButton("Reset all to Python defaults") { onResetAll() }
         }
     }
 }
 
+/** One tappable group on the landing page. The count is the point: it says how much is behind it. */
 @Composable
-private fun GroupHeader(
-    group: KnobGroup,
-    modified: Int,
-    onResetGroup: () -> Unit,
+private fun GroupCard(
+    title: String,
+    subtitle: String,
+    onOpen: () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().padding(top = 6.dp),
+        Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = if (modified == 0) group.title else "${group.title}  •$modified modified",
-            style = MaterialTheme.typography.titleMedium,
-            color = OnSurface,
-        )
-        TextButton(onClick = onResetGroup) {
-            Text("Reset group", style = MaterialTheme.typography.labelMedium, color = OnSurfaceMuted)
+        Column {
+            Text(title, style = MaterialTheme.typography.titleMedium, color = OnSurface)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
         }
+        Text("›", style = MaterialTheme.typography.titleMedium, color = OnSurfaceMuted)
     }
 }
 
