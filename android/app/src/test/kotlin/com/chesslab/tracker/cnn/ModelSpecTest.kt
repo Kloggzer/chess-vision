@@ -2,6 +2,8 @@ package com.chesslab.tracker.cnn
 
 import com.chesslab.cnn.EXPECTED_CLASSES
 import com.chesslab.cnn.InputRepr
+import com.chesslab.cnn.PIECES13_CLASSES
+import com.chesslab.cnn.classesHaveIdentity
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -53,9 +55,27 @@ class ModelSpecTest {
         assertTrue(error.message!!.contains("expected"), error.message)
     }
 
+    /**
+     * A shortened list must still be refused — but NOT by dropping the last entry, which is
+     * `occluded` and therefore the canonical `pieces13` list the identity models ship with. Drop a
+     * middle class instead, so this tests "wrong count" rather than "any 13 classes".
+     */
     @Test
     fun rejectsWrongClassCount() {
-        assertThrows<IllegalArgumentException> { ModelSpec.parse(config(classes = EXPECTED_CLASSES.dropLast(1))) }
+        val missingMiddle = EXPECTED_CLASSES.filterNot { it == "wB" }
+        assertThrows<IllegalArgumentException> { ModelSpec.parse(config(classes = missingMiddle)) }
+    }
+
+    /**
+     * `pieces13` — the 14-class list minus `occluded`, which never comes from a FEN and has zero
+     * rows in the real corpus, so an identity run trained on camera data has no column for it.
+     * Accepted because the prefix is identical: every index read by name lands in the same place.
+     */
+    @Test
+    fun acceptsThePieces13IdentityList() {
+        val spec = ModelSpec.parse(config(classes = PIECES13_CLASSES))
+        assertEquals(PIECES13_CLASSES, spec.classes)
+        assertTrue(classesHaveIdentity(spec.classes), "13 classes must read as an IDENTITY model")
     }
 
     /**

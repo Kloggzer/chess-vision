@@ -43,8 +43,15 @@ private const val ASSET_ROOT = "cnn_model"
  * 114 at 0.50, **3** at 1.00, against `v6-80`'s recipe at 126. Capacity has a threshold here rather
  * than a slope, and 0.50 is off the line: it halves the misses of 0.35 but carries a worse margin
  * (0.095 against 0.013) and is the only one that misses on a normal session.
+ *
+ * `id35-80` is the first IDENTITY model here: 13 classes, so `Observations` carries a label map and
+ * everything gated on `hasIdentity` becomes reachable — the alarm card's "accept CNN position", CNN
+ * recovery under an alarm, the alarm's "looks like Qxd4" guess, and telling a queen capture from the
+ * three occupancy-identical alternatives. Phantom-free at 0 phantoms / 3 misses, matching the
+ * 2-class full-width champion at a third of its width, with piece identity at 0.882 (specs/29,
+ * 2026-08-01).
  */
-val BUNDLED_MODELS = listOf("shipped", "v6-80", "v4-128", "bn35-80", "bn50-80", "bn100-80")
+val BUNDLED_MODELS = listOf("shipped", "v6-80", "v4-128", "bn35-80", "bn50-80", "bn100-80", "id35-80")
 
 /** What an install runs until someone picks otherwise: the model that was already shipping. */
 val DEFAULT_MODEL: String = BUNDLED_MODELS.first()
