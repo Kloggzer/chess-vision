@@ -106,6 +106,9 @@ class FramePipeline(
     private var seq = 0L
     private var luma = 0.0
 
+    /** The dark gate's own input, for the perf line — the one number that decides a skip. */
+    fun lastLuma(): Double = luma
+
     /**
      * The size guard is reached THROUGH the pipeline that owns it.
      *

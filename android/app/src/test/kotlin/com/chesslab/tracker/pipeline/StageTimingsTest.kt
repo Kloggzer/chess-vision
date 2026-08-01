@@ -44,7 +44,7 @@ class StageTimingsTest {
             now += 5_000_000L
             timings.endFrame()
         }
-        assertTrue(lines.last().endsWith("frame=55.0 fps=10.0 idle=45.0"), lines.last())
+        assertTrue(lines.last().contains("frame=55.0 fps=10.0 idle=45.0"), lines.last())
     }
 
     /**
@@ -88,5 +88,35 @@ class StageTimingsTest {
         // TOTAL is measured from begin(), not from the previous mark.
         assertEquals(10.0, snap.getValue("total"))
         assertTrue(lines.isEmpty())
+    }
+}
+
+/*
+ * The verdict fields were added 2026-08-01. A dash for gray/motion/grid says a frame was skipped
+ * and nothing about WHICH of `readFrame`'s three exits took it, so a device that had paused itself
+ * for two minutes could not say why — that diagnosis needed a log capture and two agents. `skip=`
+ * carries the note and `luma=` the number the dark gate judged on.
+ */
+class StageTimingsVerdictTest {
+    private var now = 0L
+    private val lines = mutableListOf<String>()
+    private val timings = StageTimings(nowNs = { now }, logLine = { lines += it })
+
+    @Test
+    fun `an emitted frame reports no skip reason and no luma`() {
+        timings.begin()
+        now += 1_000_000
+        timings.endFrame()
+        assertTrue(lines.last().endsWith("skip=-"), lines.last())
+    }
+
+    @Test
+    fun `a skipped frame carries its reason and the luma it was judged on`() {
+        timings.begin()
+        now += 1_000_000
+        timings.endFrame("frame too dark (6 < 18.0) — detection paused", luma = 6.4)
+        val line = lines.last()
+        assertTrue(line.contains("skip=frame too dark (6 < 18.0)"), line)
+        assertTrue(line.endsWith("luma=6.4"), line)
     }
 }
