@@ -120,6 +120,39 @@ def test_build_with_occluded_class(tmp_path):
     assert not any("occluded" in w for w in stats["warnings"])
 
 
+def test_like_supplies_the_class_list_but_an_explicit_one_wins(tmp_path):
+    """`--like` overrides every policy EXCEPT the class list — that one is the reason to build a twin.
+
+    `class_mode = pol["class_mode"] or class_mode` made the donor win unconditionally, so
+    `--like occ-warm --classes pieces13` produced a second 2-class copy under a name that said
+    otherwise, printed `[like] adopting occ-warm: classes=occupancy`, and would have been trained
+    and compared as if it were the identity model.
+    """
+    import yaml
+
+    paths = config.Paths(root=tmp_path)
+    rows = [_row(paths, "wP", "s1", "0000", "e2", (180, 180, 180)),
+            _row(paths, "wK", "s1", "0001", "e1", (90, 90, 90)),
+            _row(paths, "empty", "s1", "0002", "c4", (70, 70, 70))]
+    _global_manifest(paths, rows)
+    DB.build_dataset("donor", ["s1"], rotations=(0,), val_frac=0.0, test_frac=0.0, paths=paths,
+                     allow_degenerate=True, class_mode="occupancy")
+
+    def mode_of(name: str) -> str:
+        return yaml.safe_load((paths.datasets / name / "dataset.yaml").read_text(encoding="utf-8"))["class_mode"]
+
+    assert mode_of("donor") == "occupancy"
+
+    # No --classes: the donor supplies it, which is what makes a plain twin a twin.
+    DB.build_dataset("twin", ["s1"], rotations=(0,), paths=paths, allow_degenerate=True, like="donor")
+    assert mode_of("twin") == "occupancy"
+
+    # --classes given: it wins, and the rest of the donor's policy still comes along.
+    DB.build_dataset("twin-13c", ["s1"], rotations=(0,), paths=paths, allow_degenerate=True,
+                     like="donor", class_mode="pieces13")
+    assert mode_of("twin-13c") == "pieces13", "--like swallowed an explicit --classes"
+
+
 def test_build_dataset_raises_on_degenerate(tmp_path):
     """Degenerate data -> ValueError; allow_degenerate=True -> ok."""
     paths = config.Paths(root=tmp_path)

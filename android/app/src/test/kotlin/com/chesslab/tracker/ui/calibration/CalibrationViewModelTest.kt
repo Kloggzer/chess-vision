@@ -7,12 +7,14 @@ import com.chesslab.tracker.geometry.CalibrationResult
 import com.chesslab.tracker.geometry.CalibrationStore
 import com.chesslab.tracker.geometry.FakeProfileBacking
 import com.chesslab.tracker.geometry.ProfileLoad
+import com.chesslab.tracker.geometry.QuadRefinement
 import com.chesslab.tracker.geometry.decodeProfile
 import com.chesslab.tracker.geometry.encodeProfile
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
@@ -24,8 +26,13 @@ private val OK_CORNERS = floatArrayOf(0f, 0f, 100f, 0f, 100f, 100f, 0f, 100f)
 private class FakeDetector(
     private val result: CalibrationResult?,
     private val gate: CompletableDeferred<Unit>? = null,
+    /** What [refine] hands back. Null means "nothing measurable", the no-frame / blank-board case. */
+    private val refinement: QuadRefinement? = null,
 ) : BoardDetector {
     var calls: Int = 0
+        private set
+
+    var refineCalls: Int = 0
         private set
 
     override suspend fun detect(): CalibrationResult? {
@@ -34,12 +41,26 @@ private class FakeDetector(
         return result
     }
 
+    override suspend fun refine(corners: FloatArray): QuadRefinement? {
+        refineCalls++
+        return refinement
+    }
+
     override suspend fun warp(
         corners: FloatArray,
         whitePov: Boolean,
         margin: List<Double>?,
     ): Bitmap? = null
 }
+
+private val FIXED_CORNERS = floatArrayOf(1f, 1f, 101f, 1f, 101f, 101f, 1f, 101f)
+
+private fun refined(
+    corners: FloatArray = FIXED_CORNERS,
+    beforePx: Double = 8.0,
+    afterPx: Double = 1.0,
+    applied: Boolean = true,
+) = QuadRefinement(corners, beforePx, afterPx, cellPx = 200.0, applied = applied)
 
 private fun ok(
     width: Int = 1920,
@@ -68,6 +89,73 @@ class CalibrationViewModelTest {
             vm.save()
             advanceUntilIdle()
             assertEquals(1, backing.writes)
+        }
+
+    /**
+     * The refined quad is what gets CONFIRMED and what gets SAVED — not the detected one.
+     *
+     * ArUco resolves the quad from four markers glued on by hand; the board's own grooves are the
+     * only thing that knows where the squares are. The whole Python corpus was cut 3-6 px off-grid
+     * until 2026-07-31 with every count looking healthy, and re-cutting it moved the model's
+     * empty-crop margin 5.5x. If the refinement did not reach `save`, this would be decoration.
+     */
+    @Test
+    fun theConfirmedQuadIsTheRefinedOne() =
+        runTest {
+            val backing = FakeProfileBacking()
+            val detector = FakeDetector(ok(), refinement = refined())
+            val vm = CalibrationViewModel(detector, CalibrationStore(backing), this)
+            vm.detectOnce()
+            advanceUntilIdle()
+            assertArrayEquals(OK_CORNERS, vm.state.value.corners)
+
+            vm.toConfirm()
+            advanceUntilIdle()
+            assertEquals(1, detector.refineCalls, "the quad must be refined exactly once, on accept")
+            assertArrayEquals(FIXED_CORNERS, vm.state.value.corners, "the raw ArUco quad survived")
+
+            var saved: CalibrationProfile? = null
+            vm.save { saved = it }
+            advanceUntilIdle()
+            assertEquals(1, backing.writes)
+            assertArrayEquals(FIXED_CORNERS, saved!!.corners, "the profile kept the unrefined quad")
+        }
+
+    /** The aim poll runs twice a second; a ~80 ms refinement there would be felt on every frame. */
+    @Test
+    fun aimingNeverRefines() =
+        runTest {
+            val detector = FakeDetector(ok(), refinement = refined())
+            val vm = CalibrationViewModel(detector, CalibrationStore(FakeProfileBacking()), this)
+            vm.detectOnce()
+            advanceUntilIdle()
+            assertEquals(0, detector.refineCalls)
+        }
+
+    @Test
+    fun anUnmeasurableBoardLeavesTheQuadExactlyAsDetected() =
+        runTest {
+            val detector = FakeDetector(ok(), refinement = null)
+            val vm = CalibrationViewModel(detector, CalibrationStore(FakeProfileBacking()), this)
+            vm.detectOnce()
+            advanceUntilIdle()
+            vm.toConfirm()
+            advanceUntilIdle()
+            assertArrayEquals(OK_CORNERS, vm.state.value.corners)
+            assertTrue(vm.state.value.canSave, "a board with no readable grid must still be savable")
+        }
+
+    @Test
+    fun theNoteReportsTheOffsetAsAFractionOfASquare() =
+        runTest {
+            // 8 px and 1 px of a 200 px square: the percentage is the only scale-free statement.
+            val detector = FakeDetector(ok(), refinement = refined(beforePx = 8.0, afterPx = 1.0))
+            val vm = CalibrationViewModel(detector, CalibrationStore(FakeProfileBacking()), this)
+            vm.detectOnce()
+            advanceUntilIdle()
+            vm.toConfirm()
+            advanceUntilIdle()
+            assertEquals("grid corrected: 4% → 1% of a square", vm.state.value.note)
         }
 
     @Test

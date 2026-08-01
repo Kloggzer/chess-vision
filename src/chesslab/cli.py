@@ -430,11 +430,14 @@ def dataset_build_cmd(
                                                help="Crop pool(s) to filter, comma-separated. Default: "
                                                     "manifests/squares.jsonl. Needed after `ingest --tag X "
                                                     "--no-build`, which writes manifests/squares__X.jsonl."),
-    classes: str = typer.Option("pieces", "--classes",
-                                help="pieces (14, default) | pieces13 (14 minus `occluded`, which "
-                                     "has zero rows in the corpus) | occupancy (2: empty/occupied). "
-                                     "The narrower modes NARROW the existing labels at build time — "
-                                     "no crop is re-labelled, no row is lost."),
+    classes: str | None = typer.Option(None, "--classes",
+                                       help="pieces (14, default) | pieces13 (14 minus `occluded`, "
+                                            "which has zero rows in the corpus) | occupancy (2: "
+                                            "empty/occupied). The narrower modes NARROW the existing "
+                                            "labels at build time — no crop is re-labelled, no row "
+                                            "is lost. With --like this is the ONE flag that still "
+                                            "wins over the donor: a twin that differs in its class "
+                                            "list is the whole point of building one."),
     like: str | None = typer.Option(None, "--like",
                                     help="Build the TWIN of this dataset: its session split, its "
                                          "dedup policy and its class balancing, all verbatim and "

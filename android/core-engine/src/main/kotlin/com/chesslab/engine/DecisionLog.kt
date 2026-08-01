@@ -24,6 +24,15 @@ internal const val DECIDER_REJECTED = "rejected"
  */
 internal class DecisionLog(
     private val cap: Int = DECISION_LOG_CAP,
+    /**
+     * Where a row goes the moment it is recorded. Default is a no-op so tests and the clip harness
+     * stay silent; `:app` wires it to logcat.
+     *
+     * It sits on `add` rather than at the three call sites because a fourth one will be written one
+     * day, and a decision that never reaches the log is exactly the situation this exists to end.
+     * The engine has no Android dependency and no wall clock, so the sink is injected, not imported.
+     */
+    private val sink: (DecisionRecord) -> Unit = {},
 ) : AbstractMutableList<DecisionRecord>() {
     private val items = ArrayList<DecisionRecord>(cap)
 
@@ -42,9 +51,43 @@ internal class DecisionLog(
     ) {
         items.add(index, element)
         while (items.size > cap) items.removeAt(0)
+        sink(element)
     }
 
     override fun removeAt(index: Int): DecisionRecord = items.removeAt(index)
+}
+
+/**
+ * One decision as a single greppable line.
+ *
+ * Written for the question that costs the most time on a live board: *why did the deterministic
+ * path not commit this move?* Every field here is one that has actually been guessed at during a
+ * debugging session — the changed set and its z-values say whether the evidence existed at all, the
+ * two veto sets say whether it was thrown away, `best`/`2nd` say whether the scorer could separate
+ * the candidates, and `cnn` says what the other channel thought at the same instant.
+ *
+ * The Qxd4 case of 2026-08-01 is the worked example: four legal moves produced a bit-identical
+ * occupancy board, and the question "did the diff channel see d4 change?" was unanswerable because
+ * nothing was written down. This line answers it.
+ */
+internal fun DecisionRecord.toLogLine(): String {
+    val z = changedVals.joinToString(" ") { (square, value) -> "$square=${pyFixed(value, 1)}" }
+    val head = if (accepted) "COMMIT" else "REJECT"
+    return buildString {
+        append("ply=$ply $head ${move ?: "-"}")
+        san?.let { append(" ($it)") }
+        append(" by=$decider why=$reason")
+        append(" best=${pyFixed(bestScore, 2)} 2nd=${pyFixed(secondScore, 2)} margin=${pyFixed(margin, 2)}")
+        append(" zThr=${pyFixed(zThr, 1)} changed=[$z]")
+        if (shadowVetoed.isNotEmpty()) append(" shadowVeto=${shadowVetoed.joinToString(",")}")
+        if (occludedVetoed.isNotEmpty()) append(" occlVeto=${occludedVetoed.joinToString(",")}")
+        append(" motion=${pyFixed(motion, 4)} grid=${pyFixed(gridCoverage, 2)}")
+        append(" cnn=${if (cnnRun) "run" else "off"} cnnAgree=${pyFixed(cnnAgreement, 3)}")
+        cnnBestMove?.let { append(" cnnMove=$it") }
+        stuckReason?.let { append(" stuck=$it") }
+        verifyOutcome?.let { append(" verify=$it") }
+        append(" fen=$fenAfter")
+    }
 }
 
 /**

@@ -10,6 +10,7 @@ import com.chesslab.tracker.geometry.CalibrationStore
 import com.chesslab.tracker.geometry.DEFAULT_MARKER_MARGIN
 import com.chesslab.tracker.geometry.MeasuredGeometry
 import com.chesslab.tracker.geometry.ProfileLoad
+import com.chesslab.tracker.geometry.QuadRefinement
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -86,6 +87,11 @@ fun remeasureMessage(state: Remeasure): String =
 private fun Float?.asDiopters(): String = if (this == null) "" else " (focus %.2f dpt)".format(this)
 
 private const val NO_FRAME = "waiting for a camera frame"
+
+private const val CHECKING_GRID = "checking the grid…"
+
+/** Percent, for reporting an offset as a fraction of one square. */
+private const val PERCENT = 100.0
 
 private const val CORNER_COUNT = 4
 private const val SQUARES_PER_SIDE = 8
@@ -258,14 +264,37 @@ class CalibrationViewModel(
         _state.value = _state.value.copy(taps = emptyList(), corners = null)
     }
 
+    /**
+     * Accept the quad, refine it against the board's own grooves, then show the result.
+     *
+     * The refinement runs HERE and not in the aim poll: it is ~80 ms at `boardSize` 1600 and the
+     * poll fires twice a second. Running it before the preview is what makes the preview honest —
+     * the user confirms the geometry the crops will actually be cut with, and if the grid was off
+     * they see by how much.
+     *
+     * Why it matters: the whole Python corpus was cut 3-6 px off-grid until 2026-07-31 with nothing
+     * failing, and re-cutting it moved the model's empty-crop margin 5.5x. The 18 recorded clips
+     * still sit at 8.8 % of a square. Training that tolerance back in does not work —
+     * `--jitter-translate 0.09` cost 548 misses against 3.
+     */
     fun toConfirm() {
         val s = _state.value
         val corners = s.corners ?: return
         // Start from what is stored, not from the default: a recalibration should not silently
         // discard outsets the user measured by hand last time.
         val margin = store.geometry.margin
-        _state.value = s.copy(step = CalibrationStep.CONFIRM, orientationSeen = true, note = null, margin = margin)
-        scope.launch { refreshWarp(corners, s.whitePov, margin) }
+        _state.value =
+            s.copy(step = CalibrationStep.CONFIRM, orientationSeen = true, note = CHECKING_GRID, margin = margin)
+        scope.launch {
+            val refined = detector.refine(corners)
+            val use = refined?.corners ?: corners
+            // The user may have gone back while this ran; writing a quad into the AIM step would
+            // resurrect a candidate they rejected.
+            if (_state.value.step == CalibrationStep.CONFIRM) {
+                _state.value = _state.value.copy(corners = use, note = refined?.let(::gridNote))
+            }
+            refreshWarp(use, s.whitePov, margin)
+        }
     }
 
     /** One corner's outset, in `[a8, h8, h1, a1]` order. Re-rectifies the preview immediately. */
@@ -336,5 +365,21 @@ class CalibrationViewModel(
     ) {
         val bitmap = detector.warp(corners, whitePov, margin)
         _state.value = _state.value.copy(warped = bitmap)
+    }
+}
+
+/**
+ * The offset as a fraction of ONE SQUARE, never in raw pixels.
+ *
+ * "4 px" means nothing without the board size — it is 4 % of a square at `boardSize` 800 and 2 % at
+ * 1600. The percentage is the number that transfers between the phone, the rig and the recorded
+ * clips, which is the whole reason this measurement exists.
+ */
+private fun gridNote(r: QuadRefinement): String {
+    fun pct(px: Double) = "${(px / r.cellPx * PERCENT).roundToInt()}%"
+    return if (r.applied) {
+        "grid corrected: ${pct(r.beforePx)} → ${pct(r.afterPx)} of a square"
+    } else {
+        "grid sits on the squares (${pct(r.beforePx)} of a square)"
     }
 }
