@@ -19,11 +19,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,12 +41,18 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.camera.CameraAbilities
 import com.chesslab.tracker.camera.CameraLook
 import com.chesslab.tracker.geometry.CalibrationProfile
+import com.chesslab.tracker.geometry.CalibrationStore
 import com.chesslab.tracker.geometry.ProfileLoad
 import com.chesslab.tracker.geometry.calibrationStore
 import com.chesslab.tracker.settings.SettingsHost
 import com.chesslab.tracker.ui.ChesslabScaffold
+import com.chesslab.tracker.ui.calibration.CalibrationHost
+import com.chesslab.tracker.ui.calibration.LocalCalibrationHost
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.tracking.TrackerSessionHost
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * The camera screen: a viewfinder with the camera's own controls ON it.
@@ -69,10 +77,9 @@ import com.chesslab.tracker.ui.tracking.TrackerSessionHost
  * this feature's clothes.
  */
 @Composable
-fun CameraRoute(
-    onBack: () -> Unit,
-    onCalibrate: () -> Unit,
-) {
+fun CameraRoute(onBack: () -> Unit) {
+    // The aiming screen calibrates from the same host the wizard uses, so the two cannot drift.
+    val host = LocalCalibrationHost.current
     val port by CameraLookHost.port.collectAsStateWithLifecycle()
     val repository by SettingsHost.repository.collectAsStateWithLifecycle()
     val session by TrackerSessionHost.session.collectAsStateWithLifecycle()
@@ -100,7 +107,7 @@ fun CameraRoute(
         onTorch = bound::setTorchOn,
         viewModel = viewModel,
         onBack = onBack,
-        onCalibrate = onCalibrate,
+        host = host ?: return,
     )
 }
 
@@ -140,11 +147,14 @@ private fun CameraScreen(
     onTorch: (Boolean) -> Unit,
     viewModel: CameraViewModel,
     onBack: () -> Unit,
-    onCalibrate: () -> Unit,
+    host: CalibrationHost,
 ) {
     var open by remember { mutableStateOf<CameraAxis?>(null) }
     var chrome by remember { mutableStateOf(true) }
     var fill by remember { mutableStateOf(false) }
+    val calibrate = rememberAutoCalibrate(host)
+    val calibrating = calibrate.running
+    val calibrateNote = calibrate.note
     Box(
         Modifier
             .fillMaxSize()
@@ -157,13 +167,15 @@ private fun CameraScreen(
             },
     ) {
         Viewfinder(preview, profile, guides = chrome, fill = fill)
+        calibrateNote?.let { CalibrateNote(it, Modifier.align(Alignment.Center)) }
         AnimatedVisibility(chrome, Modifier.align(Alignment.TopCenter), enter = fadeIn(), exit = fadeOut()) {
             CameraTopBar(
                 unsaved = look != saved,
                 canReset = !look.isAuto || !saved.isAuto,
                 fill = fill,
                 onBack = onBack,
-                onCalibrate = onCalibrate,
+                calibrating = calibrating,
+                onCalibrate = calibrate::press,
                 onSave = viewModel::save,
                 onUndo = viewModel::revert,
                 onAuto = viewModel::backToAuto,
@@ -423,3 +435,59 @@ private const val PANEL_CORNER = 14
 
 /** Manual focus opens at the far end: a board is metres away, not centimetres. */
 private const val DEFAULT_FOCUS = 0f
+
+/** How long the one-line outcome stays over the picture before it clears itself. */
+private const val NOTE_MS = 4000L
+
+private const val NOTE_CORNER = 10
+
+/**
+ * The one-press calibration as a tiny state holder.
+ *
+ * Out of the composable because the screen is a LAYOUT: a coroutine, three pieces of state and a
+ * store lookup in the middle of its argument list is what makes one unreadable.
+ */
+private class AutoCalibrateState(
+    private val host: CalibrationHost,
+    private val store: CalibrationStore,
+    private val scope: CoroutineScope,
+) {
+    var running by mutableStateOf(false)
+        private set
+    var note by mutableStateOf<String?>(null)
+        private set
+
+    fun press() {
+        running = true
+        scope.launch {
+            note = autoCalibrate(host, store).note()
+            running = false
+            delay(NOTE_MS)
+            note = null
+        }
+    }
+}
+
+@Composable
+private fun rememberAutoCalibrate(host: CalibrationHost): AutoCalibrateState {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    return remember(host) { AutoCalibrateState(host, calibrationStore(context), scope) }
+}
+
+/** The outcome of one calibrate press, over the picture, gone again after [NOTE_MS]. */
+@Composable
+private fun CalibrateNote(
+    note: String,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        text = note,
+        style = MaterialTheme.typography.labelLarge,
+        color = Chrome.onSurface,
+        modifier =
+            modifier
+                .background(ChromeScrim, RoundedCornerShape(NOTE_CORNER.dp))
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+    )
+}

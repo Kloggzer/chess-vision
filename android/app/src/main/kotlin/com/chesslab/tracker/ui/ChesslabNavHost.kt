@@ -81,7 +81,7 @@ fun ChesslabNavHost(navController: NavHostController = rememberNavController()) 
         // The PICTURE. Its sibling `ROUTE_CALIBRATION` is the board's GEOMETRY: two screens because
         // they are two lifetimes — a camera setting belongs to the room, a marker quad to the board.
         composable(ROUTE_CAMERA) {
-            CameraRoute({ navController.popBackStack() }) { navController.navigate(ROUTE_CALIBRATION) }
+            CameraRoute { navController.popBackStack() }
         }
         composable(ROUTE_SETTINGS) {
             // Null until the service has published its restart action, and the settings screen
