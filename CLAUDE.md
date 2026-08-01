@@ -100,9 +100,24 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
   2026-07-31: that half is the EASY half.** A hard-negative fine-tune fixed 81 % of the summed-mass
   phantoms against only 21 % of the piece-argmax ones — a summed-mass phantom sits just under
   `P(empty) = 0.5` and needs a nudge, while a piece-argmax one needs an argmax overturned. The
-  reader arithmetic is real but it is not a floor. The 13-class model still loses (602 phantoms
-  against the 2-class champion's 1, and the margin does not move at all: 0.995 → 0.997). See
-  `specs/29-widen-the-output-band/`.
+  reader arithmetic is real but it is not a floor. ~~The 13-class model still loses (602 phantoms
+  against the 2-class champion's 1, and the margin does not move at all: 0.995 → 0.997).~~
+  **Overturned 2026-08-01 on the re-aligned corpus.** `occ-v10bn35-13c-hn` (13 classes, BatchNorm,
+  width 0.35, hard-negative fine-tune) reads **0 phantoms / 3 misses**, matching the 2-class
+  full-width champion `occ-v9bn-wide` exactly, at a third of its width. Two things had to change
+  together: the geometry (every earlier 13-class number is on mis-aligned crops) and the mining
+  threshold — the failure is a TAIL, not a floor. 99.1 % of empty crops sit under P(occupied) 0.02;
+  the whole error was 150 crops of 73 602, of which 100 sat on DARK squares. Mining only the crops
+  that already fail finds 27 of them, a keep-list too small to reach a batch;
+  `mine_hard_empty --occ-thr 0.10` takes the tail. Do NOT quote the old numbers.
+  See `specs/29-widen-the-output-band/`.
+- **Piece identity is ~88 %, not ~40 % — code that assumes the low number is stale.** Measured on
+  `occ-v10bn35-13c-hn`, `occ-warm-13c-hn` test, 7 217 occupied crops: 0.882 overall, queens among
+  the best classes (wQ 0.890, bQ 0.935), and 0.818 over the Q/R/N/B set a capture tie is between.
+  The confusions are B↔R, B↔P, R↔P — never a queen. `VerifySingle`'s KDoc still states "only ~40 %
+  on piece type. That asymmetry is the whole design", and several verify rungs are built on it.
+  It is why a 2-class model cannot tell `Qxd4` from `Qxe5` (both leave the destination occupied)
+  and an identity model can.
 - **A mined keep-list never reached training until 2026-07-31.** `dataset_build` honoured
   `manifests/hard_empty.jsonl`, but `run_train` then re-ran `subsample_classes` over the *uncapped*
   manifest without `priority_paths` and drew the mined crops straight back out. Every hard-negative

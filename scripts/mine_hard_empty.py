@@ -86,6 +86,10 @@ def main() -> None:
                          "pretrain-synth__*). Default OFF: they drown the real failures.")
     ap.add_argument("--montage", default=None,
                     help="montage PNG of the worst offenders (default: data/_perf/hard_empty.png)")
+    ap.add_argument("--occ-thr", type=float, default=1.01,
+                    help="With --criterion occupancy: also keep crops whose P(occupied) reaches "
+                         "this, even though `empty` still wins. Default 1.01 = off, i.e. only crops "
+                         "that already read as occupied. 0.10 takes the whole tail.")
     ap.add_argument("--criterion", choices=("argmax", "occupancy"), default="argmax",
                     help="argmax: pred names a piece at >= --conf-thr (legacy). occupancy: the "
                          "crop reads as occupied (p_occ > p_empty) — the phantom condition itself, "
@@ -162,7 +166,12 @@ def main() -> None:
                    "square_color": r.get("square_color"), "run": run_dir.name}
             if want_probs:
                 obs = observation_from_probs({"x": p["probs"]}, classes)
-                if not obs.occupied("x"):
+                # `--occ-thr` widens this past the crops that ALREADY fail. Mining only those is
+                # mining the symptom: on `occ-v10bn35-13c` they are 27 of 73 602 crops, a keep-list
+                # too small to reach a batch. The crops one nudge below the line are the same
+                # failure caught earlier — 99.1 % of empties sit under 0.02, so the band from 0.10
+                # up is not "nearly wrong", it is the whole tail, 150 crops of it.
+                if obs.p_occ["x"] < args.occ_thr and not obs.occupied("x"):
                     continue
                 rec["p_occ"] = round(obs.p_occ["x"], 4)
                 rec["p_empty"] = round(obs.p_empty["x"], 4)
@@ -176,8 +185,8 @@ def main() -> None:
             print(f"  {n_seen}/{len(rows)} scanned, {len(hard)} hard so far", flush=True)
 
     hard.sort(key=lambda h: -h.get("p_occ", h["conf"]))
-    crit = ("p_occ > p_empty" if args.criterion == "occupancy"
-            else f"conf >= {args.conf_thr}")
+    crit = (("p_occ > p_empty" + (f" or p_occ >= {args.occ_thr}" if args.occ_thr <= 1.0 else ""))
+            if args.criterion == "occupancy" else f"conf >= {args.conf_thr}")
     print(f"\n{len(hard)} hard empties ({crit}) out of {n_seen} scanned "
           f"({100.0 * len(hard) / max(1, n_seen):.1f}%)")
     print("by predicted class:", dict(Counter(h["pred"] for h in hard).most_common()))
