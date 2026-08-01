@@ -25,20 +25,26 @@ private const val ASSET_ROOT = "cnn_model"
  * The model directories bundled under `assets/cnn_model/`. **The string IS the directory name**,
  * in the APK and in `filesDir`, so there is no table mapping a label to a path that could rot.
  *
- * Three, because the two candidates disagree in ways only a live board settles and the incumbent is
- * the baseline they are judged against. Each carries its own `config.json`, so each declares its own
- * `infer_size` (specs/22) and the crops follow it — 80, 128 and 96 px respectively. Measured on
- * `occ-real3`'s two test sessions: `v6-80` 11 misses / 0 phantoms, `v4-128` 17 / 2 with a wider
- * margin on the anchor session, `shipped` the model the user has been running.
+ * Each carries its own `config.json`, so each declares its own `infer_size` (specs/22) and the crops
+ * follow it. The GroupNorm three: measured on `occ-real3`'s two test sessions, `v6-80` 11 misses /
+ * 0 phantoms, `v4-128` 17 / 2 with a wider margin on the anchor session, `shipped` the model the
+ * user has been running.
  *
- * `bn-80` is the first BatchNorm model this app has carried. It exports to 89 nodes where the
- * GroupNorm graphs export to 503 — a BatchNorm layer is a fixed per-channel affine at inference and
- * folds into the preceding convolution, while GroupNorm's `InstanceNormalization` blocks are not
- * implemented by XNNPACK and fall back to the CPU EP between every pair of convolutions. Trained
- * 2026-07-31 on `occ-real6a` at lr 3e-03: 0 phantoms, 0 misses at the phantom-free point, margin
- * 0.035. See `NormLatencyBenchmark` for what it costs on the die.
+ * The three `bnNN-80` entries are the first BatchNorm models this app has carried, at width 0.35,
+ * 0.50 and 1.00 of `mobilenetv4_conv_small`. All three export to **89 nodes** where the GroupNorm
+ * graphs export to 503: a BatchNorm layer is a fixed per-channel affine at inference and folds into
+ * the preceding convolution, while GroupNorm's `InstanceNormalization` blocks are not implemented by
+ * XNNPACK and fall back to the CPU EP between every pair of convolutions. Measured on this SoC at
+ * batch 64: 7.9 ms, ~10 ms and 24.0 ms against `v6-80`'s 30.0.
+ *
+ * Trained 2026-08-01 on `occ-warm` at lr 3e-03. On its test split — the anchor session, the phone
+ * session and a held-out session shot under warm light at R:B 51 against the corpus's 1.1 — all
+ * three are phantom-free everywhere, and the held-out session separates them: 254 misses at 0.35,
+ * 114 at 0.50, **3** at 1.00, against `v6-80`'s recipe at 126. Capacity has a threshold here rather
+ * than a slope, and 0.50 is off the line: it halves the misses of 0.35 but carries a worse margin
+ * (0.095 against 0.013) and is the only one that misses on a normal session.
  */
-val BUNDLED_MODELS = listOf("shipped", "v6-80", "v4-128", "bn-80")
+val BUNDLED_MODELS = listOf("shipped", "v6-80", "v4-128", "bn35-80", "bn50-80", "bn100-80")
 
 /** What an install runs until someone picks otherwise: the model that was already shipping. */
 val DEFAULT_MODEL: String = BUNDLED_MODELS.first()
