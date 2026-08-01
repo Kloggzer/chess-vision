@@ -8,6 +8,7 @@ pack. These tests pin the round-trip, the small-chunk behaviour and the resume s
 from __future__ import annotations
 
 import json
+import os
 
 import numpy as np
 import pytest
@@ -290,6 +291,43 @@ def test_load_packed_rejects_pack_from_a_different_manifest(tmp_path, paths, mon
 
     assert pack_mod.load_packed("ds", paths=paths) is None, (
         "load_packed served a pack that does not match the current manifest")
+
+
+def test_load_packed_rejects_crops_rewritten_after_the_pack(tmp_path, paths):
+    """The blind spot the digest cannot see: same paths, same labels, DIFFERENT pixels.
+
+    This is what a re-slice does — it overwrites the whole crop pool in place. Path + label +
+    out_size are unchanged, so the digest still matches and the pack keeps being served, feeding
+    training the pixels of the previous geometry. It happened: `occ-real5nd-13c` was packed on
+    2026-07-31 00:45 and every one of its crops was rewritten by the corpus re-alignment later
+    that day, with `load_packed` still returning the old pack.
+    """
+    dd, _ = _make_dataset(tmp_path, 6)
+    pack_mod.pack_dataset("ds", paths=paths, workers=1)
+    assert pack_mod.load_packed("ds", paths=paths) is not None
+
+    img, _meta = pack_mod._packed_paths(dd)
+    packed_at = img.stat().st_mtime
+    for i in range(6):
+        p = dd / "squares" / f"{i:04d}.png"
+        Image.fromarray(np.full((CROP, CROP, 3), 100 + i, dtype=np.uint8)).save(p)
+        os.utime(p, (packed_at + 60, packed_at + 60))   # explicit: mtime resolution is not ours
+
+    assert pack_mod.load_packed("ds", paths=paths) is None, (
+        "load_packed served a pack whose crops were rewritten under it")
+
+
+def test_load_packed_accepts_a_pack_newer_than_its_crops(tmp_path, paths):
+    """The other side: an untouched pool must not be pushed onto the per-PNG loader."""
+    dd, _ = _make_dataset(tmp_path, 6)
+    pack_mod.pack_dataset("ds", paths=paths, workers=1)
+
+    img, _meta = pack_mod._packed_paths(dd)
+    packed_at = img.stat().st_mtime
+    for i in range(6):
+        os.utime(dd / "squares" / f"{i:04d}.png", (packed_at - 60, packed_at - 60))
+
+    assert pack_mod.load_packed("ds", paths=paths) is not None
 
 
 @pytest.mark.usefixtures("serial_pool")

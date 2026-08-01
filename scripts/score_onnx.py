@@ -47,7 +47,7 @@ from sweep_infer_size import (  # noqa: E402
     load_torch_run,
     margin,
     misses_phantom_free,
-    occupied_index,
+    occupancy_reader,
     phantoms_at_miss_target,
     report_by_session,
     session_index,
@@ -156,7 +156,9 @@ def main() -> None:
 
     torch_model, cfg = load_torch_run(run_dir)
     torch_model.to(args.device)
-    occ = occupied_index(cfg)
+    # Not used for scoring — `sweep_path_a` derives its own reader per run. Called here only so an
+    # incompatible class list fails on the first line instead of after the whole sweep.
+    occupancy_reader(cfg)
     log(f"run={args.run} dataset={args.dataset} split={args.split} size={size} "
         f"variants={list(variants)} torch_device={args.device} (ONNX rows: CPU EP)")
 
@@ -212,7 +214,7 @@ def main() -> None:
         log(f"  {label} vs {ref_label}: argmax agreement {agree:.4f}, "
             f"max |dP(occupied)| {float(np.abs(base - q).max()):.4f}, "
             f"mean {float(np.abs(base - q).mean()):.5f}")
-    log(f"  occupied class index = {occ}")
+    log(f"  classes = {list(cfg['classes'])}")
     log.close()
 
 

@@ -183,6 +183,36 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
     return {"n": n, "h": h, "w": w, "path": str(img_path), "gb": round(gb, 1)}
 
 
+#: How many manifest rows `_rewritten_since_pack` stats. The digest covers path/label/size, so the
+#: one thing left is a crop file whose PIXELS were rewritten under an unchanged path — which is what
+#: a re-slice does to the whole pool at once. Spread evenly, 256 stats cost ~1 ms and miss a re-slice
+#: touching 5 % of the rows with probability 0.95^256 ≈ 2e-6. Full coverage would need a stat per
+#: row, and at a million rows that is tens of seconds on every single load.
+_STALE_SAMPLE = 256
+
+
+def _rewritten_since_pack(crop_paths: list[str], img_path: Path) -> bool:
+    """True if any sampled crop is NEWER than the packed pixels — i.e. the pack is stale.
+
+    Reference is the memmap's own mtime, not the sidecar's: the sidecar is written after the last
+    chunk, so it would grant a pack that resumed across a re-slice a few extra minutes of credit.
+    A false positive costs only the (correct, slower) per-PNG loader; a false negative trains a
+    model on the pixels of a previous geometry with no warning at all.
+    """
+    try:
+        packed_at = img_path.stat().st_mtime
+    except OSError:
+        return False
+    step = max(1, len(crop_paths) // _STALE_SAMPLE)
+    for p in crop_paths[::step]:
+        try:
+            if Path(p).stat().st_mtime > packed_at:
+                return True
+        except OSError:
+            continue                        # a missing crop is the per-PNG loader's problem, not ours
+    return False
+
+
 def load_packed(name: str, paths: config.Paths = config.DATA):
     """Return (packed_file_path, (N,H,W), {crop_path: index}) or None if not packed.
 
@@ -214,6 +244,11 @@ def load_packed(name: str, paths: config.Paths = config.DATA):
     if img_path.stat().st_size != expected_bytes:
         log.warning("packed file for '%s' is %d bytes, expected %d — ignoring the pack.",
                     name, img_path.stat().st_size, expected_bytes)
+        return None
+
+    if _rewritten_since_pack(meta["paths"], img_path):
+        log.warning("crops of '%s' were rewritten after it was packed — ignoring the pack. "
+                    "Re-run `chesslab dataset pack %s`.", name, name)
         return None
 
     path2idx = {p: i for i, p in enumerate(meta["paths"])}

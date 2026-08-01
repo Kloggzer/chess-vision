@@ -60,8 +60,47 @@ def entries() -> list[dict]:
     return [e for e in data.get("clips", []) if clip_path(e) is not None]
 
 
-def main() -> int:
+def replay_entry(e: dict, cnn: str | None, obs_s: float | None) -> dict:
+    """One clip, through the harness its manifest asks for.
+
+    `deterministic: true` exists because the realtime replay drops frames according to machine
+    load, so two runs of the same clip give different games — measured here on
+    `live-1244-fastplay`, which produced ten committed moves on one pass and seven on the next.
+    A benchmark that reports either number as a result is reporting machine load. Those entries go
+    through the virtual-clock harness instead, and `replay_clip_cnn` is the only one of the two that
+    can drive a model, which is exactly the combination this script needs.
+    """
     from replay_clip import replay
+    from replay_clip_cnn import DEFAULT_OBS_S
+    from replay_clip_cnn import run as replay_det
+
+    promotion = next((u[4] for u in (e.get("moves_uci") or []) if len(u) == 5), "q")
+    if e.get("deterministic"):
+        if cnn is None:
+            # Without a model the suite's own deterministic path is the parameter sweeper; going
+            # through replay_clip_cnn with cnn_run=None would drive a different code path than the
+            # baseline it is being compared against.
+            import cv2
+            from sweep_clip_params import run as sweep_run
+            fps = cv2.VideoCapture(str(clip_path(e))).get(cv2.CAP_PROP_FPS) or 30.0
+            out = sweep_run(str(clip_path(e)), e["corners"], board_size=e.get("board_size") or 640,
+                            fps=fps, tracker_kwargs=e.get("tracker") or {},
+                            margin=float(e.get("margin") or 0.0),
+                            start_fen=e.get("start_fen"), promotion=promotion)
+            return {"history": out["moves"], "note": out["note"]}
+        out = replay_det(clip=str(clip_path(e)), corners=e["corners"],
+                         margin=float(e.get("margin") or 0.0),
+                         obs_s=obs_s or DEFAULT_OBS_S, cnn_run=cnn,
+                         tracker_kwargs=e.get("tracker") or None)
+        return {"history": out["history"], "note": out["note"]}
+    return replay(str(clip_path(e)), cnn_run=cnn, realtime=True,
+                  start_fen=e.get("start_fen"), tracker_kwargs=e.get("tracker") or {},
+                  corners=e.get("corners"), frame_size=e.get("frame_size"),
+                  board_size=e.get("board_size"), promotion=promotion,
+                  margin=float(e.get("margin") or 0.0))
+
+
+def main() -> int:
 
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -78,14 +117,9 @@ def main() -> int:
         expected = e.get("erwartete_zugliste")
         if expected is None or e.get("marker") is False:
             continue
-        promotion = next((u[4] for u in (e.get("moves_uci") or []) if len(u) == 5), "q")
         t0 = time.time()
         try:
-            res = replay(str(clip_path(e)), cnn_run=cnn, realtime=True,
-                         start_fen=e.get("start_fen"), tracker_kwargs=e.get("tracker") or {},
-                         corners=e.get("corners"), frame_size=e.get("frame_size"),
-                         board_size=e.get("board_size"), promotion=promotion,
-                         margin=float(e.get("margin") or 0.0))
+            res = replay_entry(e, cnn, args.obs_s)
         except Exception as exc:  # noqa: BLE001 — a crashed clip is a result, not a stop
             rows.append((e["file"], list(expected), ["CRASH: " + str(exc)[:60]],
                          bool(e.get("known_failure")), time.time() - t0))
