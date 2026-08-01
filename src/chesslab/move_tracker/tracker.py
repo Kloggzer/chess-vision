@@ -900,8 +900,10 @@ class MoveTracker:
         self.device = device                             # "auto" | "cpu" | "cuda" (lazy resolved)
         self._device_resolved: str | None = None         # actual torch device after first use
         self._cnn_failed = False                          # model missing/broken -> feature stays off
-        self._perf_frame = 0                              # frame counter for perf log (first 100 only)
-        self._perf_log: list[str] = []                    # per-frame timing lines
+        self._perf_frame = 0                              # frame counter, for the line numbering only
+        # Bounded: only the last 100 lines are ever written, but the list was appended to on every
+        # frame forever — ~2 MB/h at 20 fps, held for the lifetime of the tracker.
+        self._perf_log: deque[str] = deque(maxlen=100)     # per-frame timing lines
         self._recovery_confirmer = Confirmer(confirm_frames)  # no single-shot commit (voting)
         self._stuck_reason: str | None = None             # "no_legal_move" | "too_many_changed"
         self._stuck_count = 0                             # how many stable frames stuck in a row
@@ -1794,7 +1796,7 @@ class MoveTracker:
                         log_dir = config.DATA.root / "_perf"
                         log_dir.mkdir(parents=True, exist_ok=True)
                         (log_dir / "perf_loop.log").write_text(
-                            "\n".join(self._perf_log[-100:]), encoding="utf-8")
+                            "\n".join(self._perf_log), encoding="utf-8")
                     except Exception:
                         pass
         except Exception:
@@ -1865,14 +1867,15 @@ class MoveTracker:
             self._observer_started_ts = time.time() + 1.0
             return None
         try:
-            warped = warp_from_corners(frame, self.profile, corners)
+            # The invariant is PHOTOMETRIC, not just dimensional: these images become base truth
+            # (`CNN: board unchanged`, recovery commit), and every later frame is diffed against
+            # them by the detection path. Warping at board_size, running CLAHE + blur there and
+            # box-downsampling afterwards is a different pipeline than warping at _det_size and
+            # running them there — measured on real frames it lands 5-11 squares above z_thr on a
+            # physically unchanged board. So cut it exactly the way `_loop` does.
+            target_size = self._det_size if self.detect_scale < 1.0 else None
+            warped = warp_from_corners(frame, self.profile, corners, target_size)
             gray = None if warped is None else self._gray(warped)
-            # CNN reference must match the detection resolution (invariant: ref_gray size == _det_size).
-            if warped is not None and self.detect_scale < 1.0:
-                warped = cv2.resize(warped, (self._det_size, self._det_size),
-                                    interpolation=cv2.INTER_AREA)
-                gray = cv2.resize(gray, (self._det_size, self._det_size),
-                                  interpolation=cv2.INTER_AREA)
         except Exception:  # noqa: BLE001 — snapshot still usable, consumers fall back
             warped = gray = None
         snap = CnnSnapshot(obs=obs, seq=seq, ts=time.time(), infer_ms=infer_ms,

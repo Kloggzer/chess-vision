@@ -168,3 +168,93 @@ independent elements. Android collapses all of them into **one two-line `Text`**
 
 Checked on the device and **ruled out**: the sticky `CnnState.Failed` masking hypothesis. The log
 reads `CNN EP verified: XNNPACK, warm-up 22 ms for 64 crops` and `classes=2` — the attach succeeded.
+
+## 7. The Python tracker, second round (four more agents, told only "there are bugs")
+
+### 7.1 `state == "occluded"` is held across frames, and that turns the occlusion classifier loose
+
+`self.state` is re-derived from current evidence on every stable frame — the grid gate at
+`tracker.py:1708`, the raw occluded core at `:1745`. The trailing reset then contradicts that:
+
+```python
+1750:  if self.state not in ("move", "occluded"):
+1751:      self.state = "waiting"
+```
+
+so `"occluded"` survives frames on which nothing occludes anything. Its only exits are hand motion,
+a commit, and `reset_to_start`/`capture_baseline`. `"move"` is held on purpose (no second detection
+until the next motion); `"occluded"` is held by accident, and it is read one place that matters:
+
+```python
+1663:  if self.ref_gray is not None and self.state not in ("waiting", "move"):
+```
+
+The baseline-occlusion classifier now runs on **quiet** frames, comparing the board *after* an
+uncommitted move against the reference from *before* it. Measured on `20260709-132058`, the raw core
+gate holds (`core=[]`..`['e2']`, all ≤ 2 — that fix works) but the **dilated** set does not: 4–5
+squares per move reach `_motion_occluded_squares`. In `_try_detect` they are zeroed and stamped
+(`:3017`), and the release test at `:3043` runs *after* the stamp — so while the classifier keeps
+firing, `_now > exp` is never true and the taint is permanent rather than `motion_hold_s`.
+
+With no CNN, `_cnn_occlusion_filter` falls back to `return squares if len(squares) > 2 else set()`
+(`:1389`), so the vacated from-square is zeroed too, the both-endpoints gate at `:3088` fails, and
+30 s later `_maybe_patch_anomaly` pulls the reference forward onto the moved position: the move is
+absorbed with the note *"light drift — no move"*. With a CNN the endpoints survive but `blocked_n`
+sits at 4 against `max_changed = 6`, one square from `too_many_changed` on every move.
+
+Entry needs one trip of the grid gate (`min_grid_line_coverage = 0.5`) or one `core_now > 2`, and a
+whole-arm sweep does trip it. **The 18-clip parity suite runs at `min_grid_line_coverage = 0.0`, so
+this path is untested in both languages** — `tests/test_move_tracker.py:3102` already documents
+"the tracker parks in `occluded` forever" but attributes it to the coverage measurement.
+`FrameLoop.kt:152`/`:231` is the same structure on Android.
+
+**Not fixed yet**: dropping `"occluded"` from the tuple at `:1750` is a one-word change, but it also
+governs the keep-alive during buffer refill (`:1703`), and this loop is hand-tuned against live
+material. It needs the clip suite re-run at a non-zero coverage, which needs `emit_parity_fixtures`'
+`margin = 0.0` fixed first (item 4 above).
+
+### 7.2 The CNN anchor was cut through a different photometric pipeline — **fixed**
+
+`_observe_snapshot` warped at full `board_size`, ran CLAHE + blur *there*, and box-downsampled to
+`_det_size`; the detection path warps at `_det_size` and runs them there. The comment named the
+size invariant and missed the photometric one. Same frame through both pipelines, zero physical
+change: census raw max 43.7, **z = 5.4** against `z_thr = 3.0`, 5–11 squares hot. Those images
+become base truth at `:2064` and `:2145`, so every CNN re-anchor at the default `detect_scale = 0.5`
+installed a reference that read 5–11 structurally changed squares on the next frame. Below
+`max_changed + 2` it does not even trip the channel guard at `:3281`. Android was never affected
+(`CnnCropAdapter.kt:40` hands over the detection-plane images). Now cut exactly as `_loop` cuts it.
+
+### 7.3 `_perf_log` grew forever — **fixed**
+
+Appended every frame (~2 MB/h at 20 fps) for a file that only ever shows the last 100 lines. Now a
+`deque(maxlen=100)`, which is what the comment already claimed.
+
+### 7.4 The packed memmap served pre-re-alignment pixels — **fixed**
+
+`_manifest_digest` covers path + label + `out_size` and says in its own docstring that it cannot see
+a crop whose pixels changed under an unchanged path. A corpus re-slice is exactly that. Audited all
+12 packed datasets by mtime: `occ-real6a`, `occ-real7a`, `occ-warm`, `occ-orange` are clean, and
+**`occ-real5nd-13c` was poisoned** — packed 2026-07-31 00:45, all 400 sampled crops rewritten after,
+digest still matching, `load_packed` still serving it. No conclusion of record rests on it (its
+specs/29 numbers are void under the re-alignment rule anyway), but it was live. `load_packed` now
+stats 256 evenly-spread rows against the memmap's own mtime; a false positive costs the slower
+per-PNG loader, a false negative costs a model trained on the previous geometry.
+
+### 7.5 `scripts/score_onnx.py` could not start — **fixed**
+
+`ImportError: cannot import name 'occupied_index'` since the sweep replaced it with
+`occupancy_reader`. It is the only tool that scores the shipped INT8 graph on the veto metric, so
+the numbers behind per-channel quantization were unreproducible. The value was only ever logged;
+the call is kept as an early class-list check.
+
+### Weighed and left alone
+
+- **`report_by_session` pools the margin** across sessions while splitting misses and phantoms.
+  Real, but `max` is immune to pooling and the p99.9 gap is one increment on the champion
+  (0.041 pooled vs 0.052 worst session) and zero on `occ-v9bn-wide`. No ranking moves.
+- **"The split non-determinism comes from dict ordering."** Refuted: the mechanism is real but needs
+  equally-sized sessions; over 400 random manifest orders our corpus yields **one** split. The
+  recorded splits of `occ-real5nd` / `occ-real6` still do not reproduce from their own parameters
+  (verified against the raw pre-dedup pool, not the stored manifest), and the last change to
+  `assign_sessions_to_splits` predates both builds. **Cause still unknown**; the CLAUDE.md rule
+  (reuse `split.json`, build twins with `--like`) is what stands.
