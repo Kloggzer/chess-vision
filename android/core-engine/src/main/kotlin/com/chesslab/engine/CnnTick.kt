@@ -9,7 +9,8 @@ import com.github.bhlangonijr.chesslib.move.Move
 
 private const val CNN_STATUS_OK = "ok"
 
-private const val CNN_STATUS_MISMATCH = "mismatch"
+/** Not private: [maybePatchAnomaly] refuses to heal anything into the reference while it stands. */
+internal const val CNN_STATUS_MISMATCH = "mismatch"
 
 /** `_verify_state` after a match-ok reference pull-forward. */
 internal const val VERIFY_STATE_RESYNCED = "resynced"

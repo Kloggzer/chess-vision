@@ -4,6 +4,7 @@ import com.chesslab.engine.api.STUCK_CNN_DESYNC
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.tryDetect
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -50,20 +51,47 @@ class AnomalyPatcherTest {
         // board moved on looks identical to it. Healing that into the reference makes the diff
         // channel agree with the wrong position permanently — the silent desync the quiet-re-anchor
         // veto exists to prevent, on a path the veto never covered.
-        for (desync in listOf("alarm", "stuck")) {
+        //
+        // Each of these three must hold ALONE. The first version of this guard also tested
+        // `stuckReason == STUCK_CNN_DESYNC`, which is unreachable here — see the next test.
+        for (desync in listOf("alarm", "streak", "status")) {
             val state = detectState(ref = grayFrame())
             val ref = requireNotNull(state.refGray)
             val before = ref.data.copyOf()
             state.nowS = 100.0
             state.armAnomaly("e2")
-            if (desync == "alarm") {
-                state.alarm = TrackerEvent.Alarm("illegal_move", listOf("e2", "e4"), null, null)
-            } else {
-                state.stuckReason = STUCK_CNN_DESYNC
+            when (desync) {
+                "alarm" -> state.alarm = TrackerEvent.Alarm("illegal_move", listOf("e2", "e4"), null, null)
+                "streak" -> state.desyncObs = 1
+                else -> state.cnnStatus = CNN_STATUS_MISMATCH
             }
             state.maybePatchAnomaly(bestLl = -1.0, cur = grayFrame(listOf("e2")), curBgr = null)
             assertTrue(before.contentEquals(ref.data), "the reference must not be patched while $desync")
         }
+    }
+
+    /**
+     * The guard has to be keyed to something that can be TRUE where the patcher runs.
+     *
+     * Its first version tested `stuckReason == STUCK_CNN_DESYNC`. Both callers
+     * (`Hypothesis.kt:147`, `:198`) call `markStuck` on the line above, so the reason at the guard
+     * is always `too_many_changed` or `no_legal_move`; `STUCK_CNN_DESYNC` is written in exactly one
+     * place (`TrackerEngine.kt:424`) on a frame where `changed == 0`, which the patcher's own
+     * `n > 0` excludes. Half the guard was dead and the test set the field by hand, so it passed.
+     *
+     * This drives the engine there instead of asserting it.
+     */
+    @Test
+    fun theStuckReasonAtThePatcherIsNeverTheDesyncOne() {
+        val state = detectState(ref = grayFrame())
+        var seenAtPatcher: String? = "unset"
+        state.nowS = 100.0
+        // A single hot square with no legal move behind it — the state the patcher fires from.
+        state.tryDetect(grayFrame(listOf("e4")), null, seq = 1)
+        state.tryDetect(grayFrame(listOf("e4")), null, seq = 2)
+        seenAtPatcher = state.stuckReason
+        assertEquals(STUCK_NO_LEGAL_MOVE, seenAtPatcher)
+        assertNotEquals(STUCK_CNN_DESYNC, seenAtPatcher, "the dead half of the old guard")
     }
 
     @Test
