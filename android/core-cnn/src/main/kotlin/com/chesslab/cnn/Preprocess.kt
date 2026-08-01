@@ -66,8 +66,19 @@ val IMAGENET_STD: List<Float> = listOf(0.229f, 0.224f, 0.225f)
 /** `config.py OCCUPANCY_CLASSES` — the 2-class occupancy run (specs/18-occupancy-model). */
 val OCCUPANCY_CLASSES: List<String> = listOf("empty", "occupied")
 
+/**
+ * `dataset_build.py class_list_for("pieces13")` — the 14-class list minus `occluded`.
+ *
+ * `occluded` never comes from a FEN, only from a hand label, and the real corpus holds zero of
+ * them, so an identity run trained on camera data has no column for it. Dropping the column rather
+ * than carrying a permanently-empty one is what `pieces13` is; the prefix is identical to
+ * [EXPECTED_CLASSES], so every index a caller reads by name lands in the same place.
+ */
+val PIECES13_CLASSES: List<String> = EXPECTED_CLASSES.filterNot { it == "occluded" }
+
 /** The class lists this app knows how to consume, in the order they must appear. */
-private val ACCEPTED_CLASS_LISTS: List<List<String>> = listOf(EXPECTED_CLASSES, OCCUPANCY_CLASSES)
+private val ACCEPTED_CLASS_LISTS: List<List<String>> =
+    listOf(EXPECTED_CLASSES, PIECES13_CLASSES, OCCUPANCY_CLASSES)
 
 /**
  * Fails loudly when the model asset's class list is neither the canonical 14-class order nor
