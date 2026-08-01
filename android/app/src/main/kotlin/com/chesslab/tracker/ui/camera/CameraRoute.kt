@@ -1,45 +1,61 @@
 package com.chesslab.tracker.ui.camera
 
 import android.graphics.Bitmap
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.camera.CameraAbilities
 import com.chesslab.tracker.camera.CameraLook
+import com.chesslab.tracker.geometry.CalibrationProfile
+import com.chesslab.tracker.geometry.ProfileLoad
+import com.chesslab.tracker.geometry.calibrationStore
 import com.chesslab.tracker.settings.SettingsHost
 import com.chesslab.tracker.ui.ChesslabScaffold
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.tracking.TrackerSessionHost
 
 /**
- * The camera screen: a viewfinder with the camera's own controls under it.
+ * The camera screen: a viewfinder with the camera's own controls ON it.
  *
- * A camera app, not a settings page — every control here is judged by looking at the picture above
- * it, so the picture gets the space and the deck stays one scrollable column of thin controls. The
- * board's GEOMETRY is a different screen with a different lifetime (`CalibrationRoute`); nothing
+ * A camera app, not a settings page — the PICTURE is the screen. Everything else floats over it in
+ * the letterbox the frame leaves, one control opens at a time, and a tap on the image clears the
+ * lot. The version this replaces stacked five sliders and three full-width buttons under a 288 dp
+ * preview: three quarters of the screen was the form, and the thing every one of those controls is
+ * judged by was the quarter left over.
+ *
+ * The board's GEOMETRY is a different screen with a different lifetime (`CalibrationRoute`); nothing
  * here changes where the squares are, except zoom, which says so.
  *
  * **No camera is bound here.** The viewfinder is the analyzer's own frames, the same ones the
@@ -61,11 +77,7 @@ fun CameraRoute(onBack: () -> Unit) {
     val settings = repository
     val bound = session
     if (optics == null || settings == null || bound == null) {
-        ChesslabScaffold("Camera", onBack) { bars ->
-            Column(Modifier.fillMaxSize().padding(bars).padding(12.dp)) {
-                Text("The tracker service is not running yet.", color = OnSurfaceMuted)
-            }
-        }
+        CameraUnbound(onBack)
         return
     }
     val viewModel = remember(optics, settings) { CameraViewModel(optics, settings) }
@@ -76,6 +88,7 @@ fun CameraRoute(onBack: () -> Unit) {
     val torchOn by bound.torchOn.collectAsStateWithLifecycle()
     CameraScreen(
         preview = preview,
+        profile = savedProfile(),
         look = look,
         abilities = abilities,
         saved = saved,
@@ -87,9 +100,34 @@ fun CameraRoute(onBack: () -> Unit) {
     )
 }
 
+/**
+ * The board quad the tracker is currently working to, for the aiming overlay.
+ *
+ * Read-only, and read here rather than taken off the session: the profile is geometry the
+ * calibration screen owns, and this screen only ever draws it. Nothing on this screen can write it.
+ */
+@Composable
+private fun savedProfile(): CalibrationProfile? {
+    val context = LocalContext.current
+    val store = remember(context) { calibrationStore(context) }
+    val load by store.profile.collectAsStateWithLifecycle(initialValue = ProfileLoad.Absent)
+    return (load as? ProfileLoad.Ok)?.profile
+}
+
+/** No service, so no picture and no controls — the one state that keeps the ordinary app frame. */
+@Composable
+private fun CameraUnbound(onBack: () -> Unit) {
+    ChesslabScaffold("Camera", onBack) { bars ->
+        Column(Modifier.fillMaxSize().padding(bars).padding(12.dp)) {
+            Text("The tracker service is not running yet.", color = OnSurfaceMuted)
+        }
+    }
+}
+
 @Composable
 private fun CameraScreen(
     preview: Bitmap?,
+    profile: CalibrationProfile?,
     look: CameraLook,
     abilities: CameraAbilities?,
     saved: CameraLook,
@@ -99,64 +137,196 @@ private fun CameraScreen(
     viewModel: CameraViewModel,
     onBack: () -> Unit,
 ) {
-    ChesslabScaffold("Camera", onBack) { bars ->
-        Column(Modifier.fillMaxSize().padding(bars)) {
-            Viewfinder(preview)
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                if (hasTorch) {
-                    // The lamp is not just a lamp: the service re-measures the frozen optics and
-                    // re-baselines the tracker around it. See `TorchControl`.
-                    FilterChip(
-                        selected = torchOn,
-                        onClick = { onTorch(!torchOn) },
-                        label = { Text(if (torchOn) "Light on" else "Light off", style = MaterialTheme.typography.labelMedium) },
-                    )
-                }
-                if (abilities == null) {
-                    // Not "this camera has nothing": nothing has answered yet. The controls appear
-                    // as the device reports them, and none of them is rendered dead in the meantime.
-                    Text("Waiting for the camera…", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceMuted)
-                } else {
-                    FocusControl(look, abilities, viewModel::set)
-                    ZoomControl(look, abilities, viewModel::set)
-                    BrightnessControl(look, abilities, viewModel::set)
-                    WhiteBalanceControl(look, abilities, viewModel::set)
-                }
-                SaveBar(look, saved, viewModel)
-            }
+    var open by remember { mutableStateOf<CameraAxis?>(null) }
+    var chrome by remember { mutableStateOf(true) }
+    var fill by remember { mutableStateOf(false) }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .clipToBounds()
+            // The camera-app gesture, and the only way back from an empty screen. An open panel is
+            // closed first: one tap should never both put a control away AND blank the screen.
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                if (open != null) open = null else chrome = !chrome
+            },
+    ) {
+        Viewfinder(preview, profile, guides = chrome, fill = fill)
+        AnimatedVisibility(chrome, Modifier.align(Alignment.TopCenter), enter = fadeIn(), exit = fadeOut()) {
+            CameraTopBar(
+                unsaved = look != saved,
+                canReset = !look.isAuto || !saved.isAuto,
+                fill = fill,
+                onBack = onBack,
+                onSave = viewModel::save,
+                onUndo = viewModel::revert,
+                onAuto = viewModel::backToAuto,
+                onFill = { fill = !fill },
+                onHide = { chrome = false },
+            )
+        }
+        AnimatedVisibility(chrome, Modifier.align(Alignment.BottomCenter), enter = fadeIn(), exit = fadeOut()) {
+            CameraDeck(
+                look = look,
+                abilities = abilities,
+                unsaved = look != saved,
+                cropped = fill,
+                open = open,
+                onOpen = { open = it },
+                torchOn = torchOn,
+                hasTorch = hasTorch,
+                onTorch = onTorch,
+                onLook = viewModel::set,
+            )
         }
     }
 }
 
 /**
- * The analyzer's frames at their own aspect ratio, given as much height as the deck can spare.
+ * The analyzer's frames, as large as the frame's own shape allows, centred in the black.
  *
- * `heightIn` and not `weight`: the deck is the thing that must never be squeezed to nothing, and
- * the first version of this feature put its controls under a `weight(1f)` preview, which shrank the
- * picture every time a control was added.
+ * `FillBounds` inside a box carrying the source's exact aspect ratio, the same contract the
+ * calibration screen's preview keeps: the overlay maps source pixels onto the whole box, so any
+ * letterboxing INSIDE the box would put every drawn line off the board.
+ *
+ * The letterboxing therefore happens outside, and it is not waste — it is where the chrome lives.
+ * A 16:9 frame on a 20:9 phone leaves a band at each end deep enough for the whole deck, so the
+ * controls cost the picture nothing at all.
+ *
+ * [fill] trades the bands for magnification: the same box, sized by HEIGHT instead of width, so it
+ * runs off both sides and the parent clips it. Deliberately the same box — the image and the
+ * overlay scale together, and the quad stays on the board in both modes. It is not the default,
+ * because the judgement this screen exists for is whether the board fits the FRAME, and a picture
+ * whose edges are off-screen cannot answer that.
  */
 @Composable
-private fun Viewfinder(preview: Bitmap?) {
-    val ratio = preview?.let { it.width.toFloat() / it.height } ?: DEFAULT_RATIO
-    Box(
-        Modifier.fillMaxWidth().heightIn(max = VIEWFINDER_MAX.dp).aspectRatio(ratio),
-        contentAlignment = Alignment.Center,
+private fun BoxScope.Viewfinder(
+    preview: Bitmap?,
+    profile: CalibrationProfile?,
+    guides: Boolean,
+    fill: Boolean,
+) {
+    val width = preview?.width ?: 0
+    val height = preview?.height ?: 0
+    val ratio = if (width > 0 && height > 0) width.toFloat() / height else DEFAULT_RATIO
+    BoxWithConstraints(Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
+        // `requiredSize` off measured constraints, NOT `aspectRatio`: that modifier resolves the
+        // width constraint first, so a `fillMaxHeight` box under it silently came back at the
+        // fitted size and the fill toggle did nothing at all on the phone.
+        val fitted = DpSize(maxWidth, maxWidth / ratio)
+        val covered = DpSize(maxHeight * ratio, maxHeight)
+        val box = if (fill && covered.width > fitted.width) covered else fitted
+        Box(Modifier.requiredSize(box)) {
+            preview?.let {
+                Image(
+                    bitmap = it.asImageBitmap(),
+                    contentDescription = "camera viewfinder",
+                    contentScale = ContentScale.FillBounds,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } ?: Text("no camera frame yet", color = Chrome.onSurfaceMuted, modifier = Modifier.align(Alignment.Center))
+            if (guides) FramingOverlay(profile, width, height, Modifier.fillMaxSize())
+        }
+    }
+}
+
+/**
+ * The strip along the bottom: one row of tiles, and above it the ONE control that is open.
+ *
+ * Bottom, because that is where a thumb is and because the hand that adjusts a phone on an overhead
+ * mount comes in at the sides and the top. Nothing here is taller than it has to be — a closed deck
+ * is a single row of tiles.
+ */
+@Composable
+private fun CameraDeck(
+    look: CameraLook,
+    abilities: CameraAbilities?,
+    unsaved: Boolean,
+    cropped: Boolean,
+    open: CameraAxis?,
+    onOpen: (CameraAxis?) -> Unit,
+    torchOn: Boolean,
+    hasTorch: Boolean,
+    onTorch: (Boolean) -> Unit,
+    onLook: (CameraLook) -> Unit,
+) {
+    Column(
+        Modifier.fillMaxWidth().background(BottomFade).padding(horizontal = 8.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        preview?.let {
-            Image(
-                bitmap = it.asImageBitmap(),
-                contentDescription = "camera viewfinder",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize(),
+        if (unsaved) UnsavedHint()
+        // A magnified picture cannot be aimed by, and there is nothing on screen to notice that
+        // from — both edges simply run off. So it says so, for exactly as long as it is true.
+        if (cropped) ChromeBanner("Magnified — the frame reaches past both edges. Tap Fit to aim.")
+        if (abilities == null) {
+            // Not "this camera has nothing": nothing has answered yet. The tiles appear as the
+            // device reports them, and none of them is rendered dead in the meantime.
+            CameraNote("Waiting for the camera…")
+        } else {
+            open?.let { AxisPanel(it, look, abilities, onLook) }
+            TileRow(look, abilities, open, onOpen, torchOn, hasTorch, onTorch)
+        }
+    }
+}
+
+@Composable
+private fun TileRow(
+    look: CameraLook,
+    abilities: CameraAbilities,
+    open: CameraAxis?,
+    onOpen: (CameraAxis?) -> Unit,
+    torchOn: Boolean,
+    hasTorch: Boolean,
+    onTorch: (Boolean) -> Unit,
+) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        CameraAxis.entries.filter { it.availableOn(abilities) }.forEach { axis ->
+            CameraTile(
+                label = axis.label,
+                value = axis.reading(look, abilities),
+                active = axis.isSet(look),
+                open = open == axis,
+                onClick = { onOpen(axis.takeIf { open != axis }) },
+                modifier = Modifier.weight(1f),
             )
-        } ?: Text("no camera frame yet", color = OnSurfaceMuted)
+        }
+        if (hasTorch) {
+            // The lamp is not just a lamp: the service re-measures the frozen optics and re-baselines
+            // the tracker around it. See `TorchControl`. It has no panel because it has no value.
+            CameraTile(
+                label = "Light",
+                value = if (torchOn) "On" else "Off",
+                active = torchOn,
+                open = false,
+                onClick = { onTorch(!torchOn) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+/** The open control, on its own scrim so it reads wherever the picture happens to reach. */
+@Composable
+private fun AxisPanel(
+    axis: CameraAxis,
+    look: CameraLook,
+    abilities: CameraAbilities,
+    onLook: (CameraLook) -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(PANEL_CORNER.dp))
+            .background(ChromeScrim)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        when (axis) {
+            CameraAxis.FOCUS -> FocusPanel(look, abilities, onLook)
+            CameraAxis.ZOOM -> ZoomPanel(look, abilities, onLook)
+            CameraAxis.EXPOSURE -> ExposurePanel(look, abilities, onLook)
+            CameraAxis.WHITE_BALANCE -> WhiteBalancePanel(look, abilities, onLook)
+        }
     }
 }
 
@@ -165,30 +335,27 @@ private fun Viewfinder(preview: Bitmap?) {
  *
  * "Auto" does not mean the lens keeps hunting: `OpticsLock` pins whatever the automatic converged
  * to, because a refocus between the reference frame and the current one changes every edge on the
- * board at once. Manual is for the board the automatic keeps focusing past — the far end reads
- * "Far" rather than a diopter figure, because a number in diopters is not something anyone aims by.
+ * board at once. Manual is for the board the automatic keeps focusing past — the far end reads as a
+ * percentage rather than a diopter figure, because a number in diopters is not something anyone
+ * aims by.
  */
 @Composable
-private fun FocusControl(
+private fun FocusPanel(
     look: CameraLook,
     abilities: CameraAbilities,
     onLook: (CameraLook) -> Unit,
 ) {
-    if (!abilities.canFocus) return
-    CameraDeckTitle("Focus")
     CameraChoice(
-        label = "Mode",
         options = listOf("Auto" to false, "Manual" to true),
         selected = look.focus != null,
         onSelect = { manual -> onLook(look.copy(focus = if (manual) DEFAULT_FOCUS else null)) },
     )
     look.focus?.let { focus ->
         CameraDial(
-            label = "Near ← → Far",
-            reading = "%.0f %%".format((1f - focus) * PERCENT),
+            caption = "Near ← → Far",
+            reading = CameraAxis.FOCUS.reading(look, abilities),
             value = 1f - focus,
             range = 0f..1f,
-            active = true,
             onValue = { onLook(look.copy(focus = 1f - it)) },
         )
     }
@@ -196,109 +363,57 @@ private fun FocusControl(
 
 /** Zoom, from the device's own advertised range. It moves the board, so it says so. */
 @Composable
-private fun ZoomControl(
+private fun ZoomPanel(
     look: CameraLook,
     abilities: CameraAbilities,
     onLook: (CameraLook) -> Unit,
 ) {
     val range = abilities.zoom ?: return
-    CameraDeckTitle("Zoom")
     CameraDial(
-        label = "Field of view",
-        reading = "%.1f×".format(look.zoomRatio),
+        caption = "Field of view",
+        reading = CameraAxis.ZOOM.reading(look, abilities),
         value = look.zoomRatio,
         range = range,
-        active = look.zoomRatio != 1f,
         onValue = { onLook(look.copy(zoomRatio = it)) },
     )
     if (look.zoomRatio != 1f) {
-        Text(
-            "Zoom moves the board in the frame — recalibrate the board after changing it.",
-            style = MaterialTheme.typography.bodySmall,
-            color = OnSurfaceMuted,
-        )
+        CameraNote("Zoom moves the board in the frame — recalibrate the board after changing it.")
     }
 }
 
 /** Exposure compensation, in the device's own EV steps. */
 @Composable
-private fun BrightnessControl(
+private fun ExposurePanel(
     look: CameraLook,
     abilities: CameraAbilities,
     onLook: (CameraLook) -> Unit,
 ) {
     val exposure = abilities.exposure ?: return
-    CameraDeckTitle("Brightness")
     CameraDial(
-        label = "Exposure",
-        reading = if (look.evIndex == 0) "auto (0.0 EV)" else "%+.1f EV".format(exposure.ev(look.evIndex)),
+        caption = "Darker ← → Brighter",
+        reading = CameraAxis.EXPOSURE.reading(look, abilities),
         value = look.evIndex.toFloat(),
         range = exposure.indices.first.toFloat()..exposure.indices.last.toFloat(),
-        active = look.evIndex != 0,
         onValue = { onLook(look.copy(evIndex = it.toInt())) },
     )
 }
 
 /** The illuminant, as the presets this device advertises — see `CameraLook` for why not kelvin. */
 @Composable
-private fun WhiteBalanceControl(
+private fun WhiteBalancePanel(
     look: CameraLook,
     abilities: CameraAbilities,
     onLook: (CameraLook) -> Unit,
 ) {
-    if (!abilities.canWhiteBalance) return
-    CameraDeckTitle("White balance")
     CameraChoice(
-        label = "Light on the board",
-        options = abilities.whiteBalance.map { (it.kelvin?.let { k -> "${it.label} · $k K" } ?: it.label) to it },
+        options = abilities.whiteBalance.map { preset -> preset.kelvinLabel() to preset },
         selected = look.whiteBalance,
         onSelect = { onLook(look.copy(whiteBalance = it)) },
     )
 }
 
-/**
- * What is applied, what is stored, and the two ways between them.
- *
- * Applying and saving are separate acts because a camera setting has to be applied to be judged.
- * The line says which state the screen is in, in words, so "did that take" is never a guess.
- */
-@Composable
-private fun SaveBar(
-    look: CameraLook,
-    saved: CameraLook,
-    viewModel: CameraViewModel,
-) {
-    val unsaved = look != saved
-    Text(
-        text =
-            when {
-                unsaved -> "Not saved yet — the camera is set to this, but a restart would undo it."
-                saved.isAuto -> "Saved: everything on automatic."
-                else -> "Saved — this is what the camera starts with."
-            },
-        style = MaterialTheme.typography.bodySmall,
-        color = OnSurfaceMuted,
-    )
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(onClick = viewModel::save, enabled = unsaved, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-            Text("Save", style = MaterialTheme.typography.labelLarge, maxLines = 1)
-        }
-        OutlinedButton(onClick = viewModel::revert, enabled = unsaved, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-            Text("Undo changes", style = MaterialTheme.typography.labelSmall, maxLines = 1)
-        }
-    }
-    OutlinedButton(
-        onClick = viewModel::backToAuto,
-        enabled = !look.isAuto || !saved.isAuto,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-    ) {
-        Text("Everything back to automatic", style = MaterialTheme.typography.labelSmall, maxLines = 1)
-    }
-}
-
 private const val DEFAULT_RATIO = 4f / 3f
-private const val VIEWFINDER_MAX = 320
-private const val PERCENT = 100f
+private const val PANEL_CORNER = 14
 
 /** Manual focus opens at the far end: a board is metres away, not centimetres. */
 private const val DEFAULT_FOCUS = 0f
