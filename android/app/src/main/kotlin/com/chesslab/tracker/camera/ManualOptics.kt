@@ -68,3 +68,19 @@ fun kelvinToGains(kelvin: Int): FloatArray {
     val floor = minOf(r, g, b)
     return floatArrayOf((r / floor).toFloat(), (g / floor).toFloat(), (g / floor).toFloat(), (b / floor).toFloat())
 }
+
+/**
+ * What the calibration screen needs from the optics — so the sliders can be driven by a fake.
+ *
+ * Kept here beside [ManualOptics] rather than in `service/`: the values ARE the camera's, and a
+ * screen that could reach `OpticsLock` itself could touch it from the main thread.
+ */
+interface ManualOpticsPort {
+    /** The device's own sensitivity range, or null before anything is bound. */
+    val isoRange: IntRange?
+
+    /** What the automatic settled on, so a slider opens where the picture already is. */
+    val settledIso: Int?
+
+    fun setManual(next: ManualOptics)
+}

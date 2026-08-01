@@ -6,6 +6,7 @@ import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.TotalCaptureResult
+import android.hardware.camera2.params.RggbChannelVector
 import android.util.Log
 import androidx.camera.camera2.interop.Camera2CameraControl
 import androidx.camera.camera2.interop.Camera2CameraInfo
@@ -98,7 +99,7 @@ internal class ConvergenceWait(
 @OptIn(ExperimentalCamera2Interop::class)
 class OpticsLock(
     private val log: (String) -> Unit = { Log.i(TAG, it) },
-) {
+) : ManualOpticsPort {
     private var camera: Camera? = null
 
     /** Written on the camera thread, read by [remeasure] on the caller's. */
@@ -108,6 +109,37 @@ class OpticsLock(
     /** Diopters, as the device reported them at convergence; null when the lens has no focuser. */
     @Volatile
     private var focusDistance: Float? = null
+
+    /** What the automatic settled on — the starting point every manual override departs from. */
+    @Volatile
+    private var autoExposureNs: Long? = null
+
+    @Volatile
+    private var autoIso: Int? = null
+
+    /** The user's overrides. Empty means "leave every axis to the device". */
+    @Volatile
+    private var manual = ManualOptics()
+
+    /** What the automatic last chose, for a slider that should open where the picture is now. */
+    override val settledIso: Int? get() = autoIso
+
+    /** The device's own sensitivity range, or null before anything is bound. */
+    override val isoRange: IntRange?
+        get() {
+            val info = camera?.cameraInfo ?: return null
+            val range = Camera2CameraInfo.from(info).getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)
+            return range?.let { it.lower..it.upper }
+        }
+
+    /**
+     * Take or release manual control. Applies immediately when the optics are already frozen; when
+     * they are not, [engage] picks it up at the next convergence.
+     */
+    override fun setManual(next: ManualOptics) {
+        manual = next
+        if (engaged) engage()
+    }
 
     private val wait = ConvergenceWait(REMEASURE_TIMEOUT_MS)
 
@@ -196,6 +228,11 @@ class OpticsLock(
                 if (!engaged && converged(result)) {
                     engaged = true
                     focusDistance = result.get(CaptureResult.LENS_FOCUS_DISTANCE)
+                    // Remembered so a manual ISO can keep the device's OWN exposure time. With
+                    // CONTROL_AE_MODE_OFF the sensitivity alone is not enough — the exposure time
+                    // must be supplied too, and a long one silently costs frame rate.
+                    autoExposureNs = result.get(CaptureResult.SENSOR_EXPOSURE_TIME)
+                    autoIso = result.get(CaptureResult.SENSOR_SENSITIVITY)
                     engage()
                     // AFTER the freeze: a caller waiting on a re-measure is waiting for the lock to
                     // be back ON, not merely for the three algorithms to have stopped moving.
@@ -229,7 +266,43 @@ class OpticsLock(
             } else {
                 "exposure, white balance (fixed-focus lens)"
             }
-        apply(builder.build(), "locked: $what")
+        val extra = applyManual(builder)
+        apply(builder.build(), "locked: $what$extra")
+    }
+
+    /** `[red, greenEven, greenOdd, blue]` as the framework's vector — see `kelvinToGains`. */
+    private fun gains(g: FloatArray) = RggbChannelVector(g[RED], g[GREEN_EVEN], g[GREEN_ODD], g[BLUE])
+
+    /**
+     * The user's overrides, layered ON TOP of the freeze.
+     *
+     * Per axis, deliberately: a manual ISO under an automatic-then-locked white balance is the
+     * common case — a dark board needs gain, not a colour opinion. Each axis that stays null keeps
+     * the lock the device converged to.
+     */
+    private fun applyManual(builder: CaptureRequestOptions.Builder): String {
+        val said = StringBuilder()
+        manual.iso?.let { iso ->
+            val clamped = isoRange?.let { iso.coerceIn(it.first, it.last) } ?: iso
+            // AE OFF needs BOTH. Reusing the exposure time the automatic converged to is what keeps
+            // the frame rate: a device left to pick one under manual gain can choose 1/8 s.
+            builder
+                .setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF)
+                .setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, clamped)
+            autoExposureNs?.let { builder.setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, it) }
+            said.append(", ISO $clamped manual")
+        }
+        manual.kelvin?.let { kelvin ->
+            val g = kelvinToGains(kelvin)
+            builder
+                .setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, CameraMetadata.CONTROL_AWB_MODE_OFF)
+                .setCaptureRequestOption(
+                    CaptureRequest.COLOR_CORRECTION_MODE,
+                    CameraMetadata.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX,
+                ).setCaptureRequestOption(CaptureRequest.COLOR_CORRECTION_GAINS, gains(g))
+            said.append(", ${kelvin}K manual")
+        }
+        return said.toString()
     }
 
     private fun hasFocuser(): Boolean {
@@ -249,6 +322,11 @@ class OpticsLock(
     }
 
     internal companion object {
+        private const val RED = 0
+        private const val GREEN_EVEN = 1
+        private const val GREEN_ODD = 2
+        private const val BLUE = 3
+
         const val TAG = "OpticsLock"
 
         /**
