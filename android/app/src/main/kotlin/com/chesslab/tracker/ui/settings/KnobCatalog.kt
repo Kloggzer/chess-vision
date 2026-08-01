@@ -66,7 +66,16 @@ val KNOB_CATALOG: List<KnobUi> =
         row("motionMargin", MOTION, 0.0, 0.5, 0.01, "Motion ROI beyond the board edge (fraction of board edge)."),
         row("motionHoldS", MOTION, 0.0, 3.0, 0.05, "Seconds the board must be motion-free before detection resumes (wall time)."),
         flag("requireMotionForMove", MOTION, "Only commit a move if a hand entered since the last reference (drift guard)."),
-        row("motionRecencyS", MOTION, 0.0, 120.0, 1.0, "How long a hand entry stays 'recent' for the motion gate."),
+        row(
+            "motionRecencyS",
+            MOTION,
+            0.0,
+            120.0,
+            1.0,
+            "How long a hand entry stays 'recent' for the motion gate. 0 = OFF (no time limit) — it " +
+                "used to mean 'reject everything', because by the time a candidate exists the hand " +
+                "is already gone and the age is never zero.",
+        ),
         row(
             "darkLumaThr",
             MOTION,
