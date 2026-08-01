@@ -69,7 +69,10 @@ import com.chesslab.tracker.ui.tracking.TrackerSessionHost
  * this feature's clothes.
  */
 @Composable
-fun CameraRoute(onBack: () -> Unit) {
+fun CameraRoute(
+    onBack: () -> Unit,
+    onCalibrate: () -> Unit,
+) {
     val port by CameraLookHost.port.collectAsStateWithLifecycle()
     val repository by SettingsHost.repository.collectAsStateWithLifecycle()
     val session by TrackerSessionHost.session.collectAsStateWithLifecycle()
@@ -97,6 +100,7 @@ fun CameraRoute(onBack: () -> Unit) {
         onTorch = bound::setTorchOn,
         viewModel = viewModel,
         onBack = onBack,
+        onCalibrate = onCalibrate,
     )
 }
 
@@ -136,6 +140,7 @@ private fun CameraScreen(
     onTorch: (Boolean) -> Unit,
     viewModel: CameraViewModel,
     onBack: () -> Unit,
+    onCalibrate: () -> Unit,
 ) {
     var open by remember { mutableStateOf<CameraAxis?>(null) }
     var chrome by remember { mutableStateOf(true) }
@@ -158,6 +163,7 @@ private fun CameraScreen(
                 canReset = !look.isAuto || !saved.isAuto,
                 fill = fill,
                 onBack = onBack,
+                onCalibrate = onCalibrate,
                 onSave = viewModel::save,
                 onUndo = viewModel::revert,
                 onAuto = viewModel::backToAuto,

@@ -66,6 +66,7 @@ fun CameraTopBar(
     canReset: Boolean,
     fill: Boolean,
     onBack: () -> Unit,
+    onCalibrate: () -> Unit,
     onSave: () -> Unit,
     onUndo: () -> Unit,
     onAuto: () -> Unit,
@@ -78,6 +79,12 @@ fun CameraTopBar(
     ) {
         IconButton(onClick = onBack) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Chrome.onSurface)
+        }
+        // The other half of setting this rig up. Aiming and calibrating are one sitting — you move
+        // the phone, then you re-measure the quad — so the board screen is one tap from the picture
+        // rather than a trip back through the navigation.
+        TextButton(onClick = onCalibrate) {
+            Text("Calibrate board", style = MaterialTheme.typography.labelLarge, color = Chrome.onSurface)
         }
         Box(Modifier.weight(1f))
         if (unsaved) {
