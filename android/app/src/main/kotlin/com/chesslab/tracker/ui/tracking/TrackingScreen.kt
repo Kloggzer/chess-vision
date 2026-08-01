@@ -61,51 +61,13 @@ private fun TrackingScreen(viewModel: TrackingViewModel) {
     val acceptCnn by viewModel.acceptCnn.collectAsStateWithLifecycle()
     val preview by viewModel.preview.collectAsStateWithLifecycle()
     val cameraOn by viewModel.cameraOn.collectAsStateWithLifecycle()
-    var showPreview by remember { mutableStateOf(false) }
     // The live game lives in the service, not in this screen's view model — the same handle the
     // Games tab uses. Reaching for it here is what lets a game be SAVED where it is played.
     val games by GameSessionHost.controller.collectAsStateWithLifecycle()
     val live by (games?.state ?: NO_LIVE_GAME).collectAsStateWithLifecycle()
     var endingGame by remember { mutableStateOf(false) }
 
-    Column(
-        Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        StateHeader(ui)
-        // The camera board takes the BOARD's slot, not the leftover space under it. Both show the
-        // same 8x8; when you turn the camera on you are diagnosing, and the picture you need to
-        // read square by square is the one from the lens — the rendered board is what you already
-        // trust. Squeezed under the rendered one it was a third of the height and unreadable.
-        BoardRow(ui, viewModel.lastMoveUci, camera = preview.takeIf { showPreview })
-        ui.alarm?.let {
-            AlarmCard(
-                alarm = it,
-                onAcceptCnn = viewModel::onAcceptCnnRequested,
-                onUndo = viewModel::onUndo,
-                onNewBaseline = viewModel::onNewBaseline,
-            )
-        }
-        Box(Modifier.fillMaxWidth().weight(1f)) {
-            // The move list keeps this slot either way now: with the camera on, the board row above
-            // IS the camera view, so nothing has to be given up for it.
-            MoveList(
-                rows = remember(moves) { moveRows(moves) },
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
-        ActionBar(
-            onUndo = viewModel::onUndo,
-            // Resetting a game that has moves USED to throw it away without a word. The save action
-            // lived one tab away, on the Games screen, which is not where a game is played.
-            onResetGame = { endingGame = true },
-            onRecalibrate = viewModel::onRecalibrate,
-            showPreview = showPreview,
-            onTogglePreview = { showPreview = !showPreview },
-            cameraOn = cameraOn,
-            onToggleCamera = viewModel::onToggleCamera,
-        )
-    }
+    TrackingBody(viewModel, ui, moves, preview, cameraOn) { endingGame = true }
 
     TrackingDialogs(
         viewModel = viewModel,
@@ -124,6 +86,53 @@ private fun TrackingScreen(viewModel: TrackingViewModel) {
         },
         onEndDismiss = { endingGame = false },
     )
+}
+
+/** The layout, lifted out so [TrackingScreen] reads as wiring rather than as a wall. */
+@Composable
+private fun TrackingBody(
+    viewModel: TrackingViewModel,
+    ui: TrackingUiState,
+    moves: List<MoveEntry>,
+    preview: android.graphics.Bitmap?,
+    cameraOn: Boolean,
+    onEndGame: () -> Unit,
+) {
+    var showPreview by remember { mutableStateOf(false) }
+    Column(
+        Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        StateHeader(ui)
+        // The camera board takes the BOARD's slot, not the leftover space under it. Both show the
+        // same 8x8; when you turn the camera on you are diagnosing, and the picture you need to
+        // read square by square is the one from the lens.
+        BoardRow(ui, viewModel.lastMoveUci, camera = preview.takeIf { showPreview })
+        ui.alarm?.let {
+            AlarmCard(
+                alarm = it,
+                onAcceptCnn = viewModel::onAcceptCnnRequested,
+                onUndo = viewModel::onUndo,
+                onNewBaseline = viewModel::onNewBaseline,
+            )
+        }
+        Box(Modifier.fillMaxWidth().weight(1f)) {
+            MoveList(rows = remember(moves) { moveRows(moves) }, modifier = Modifier.fillMaxSize())
+        }
+        ActionBar(
+            onUndo = viewModel::onUndo,
+            // Resetting a game that has moves USED to throw it away without a word.
+            onResetGame = onEndGame,
+            onRecalibrate = viewModel::onRecalibrate,
+            showPreview = showPreview,
+            onTogglePreview = { showPreview = !showPreview },
+            cameraOn = cameraOn,
+            onToggleCamera = viewModel::onToggleCamera,
+            torchOn = viewModel.torchOn.collectAsStateWithLifecycle().value,
+            hasTorch = viewModel.hasTorch,
+            onToggleTorch = viewModel::onToggleTorch,
+        )
+    }
 }
 
 /** Everything modal on this screen, kept out of the layout so the screen reads as a layout. */
@@ -242,12 +251,25 @@ private fun ActionBar(
     onTogglePreview: () -> Unit,
     cameraOn: Boolean,
     onToggleCamera: () -> Unit,
+    torchOn: Boolean,
+    hasTorch: Boolean,
+    onToggleTorch: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ActionButton("Undo", onUndo, Modifier.weight(1f))
             ActionButton("Reset game", onResetGame, Modifier.weight(1f))
             ActionButton("Recalibrate", onRecalibrate, Modifier.weight(1f))
+        }
+        if (hasTorch) {
+            // Its own row and its own sentence: this one re-measures the optics and re-takes the
+            // baseline, so it is not the same weight of act as showing the camera view.
+            ToggleChip(
+                selected = torchOn,
+                onClick = onToggleTorch,
+                label = if (torchOn) "Light on · tap to switch off" else "Light off · tap to light the board",
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             // The off switch says what the camera IS, not what the tap does: the service holds the

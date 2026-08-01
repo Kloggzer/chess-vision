@@ -111,6 +111,14 @@ class TrackingViewModel : ViewModel() {
      */
     fun onToggleCamera() = session.setCameraOn(!cameraOnState.value)
 
+    /** The service's answer, like [cameraOn] — the lamp may fail to engage and must not be faked. */
+    val torchOn: StateFlow<Boolean> get() = session.torchOn
+
+    val hasTorch: Boolean get() = session.hasTorch
+
+    /** Switches the lamp AND re-baselines; see `TorchControl` for why those are one act. */
+    fun onToggleTorch() = session.setTorchOn(!session.torchOn.value)
+
     fun onRecalibrate() {
         recalibrate.tryEmit(Unit)
     }

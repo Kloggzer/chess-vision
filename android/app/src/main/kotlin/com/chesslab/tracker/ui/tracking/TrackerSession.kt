@@ -40,6 +40,19 @@ interface TrackerSession {
     /** Releases the camera device (or takes it back); the game and the engine survive either way. */
     fun setCameraOn(on: Boolean)
 
+    /** The camera's lamp, for a board that is too dark. */
+    val torchOn: StateFlow<Boolean>
+
+    /** False on a device with no flash unit — the control is hidden rather than dead. */
+    val hasTorch: Boolean
+
+    /**
+     * Switch the lamp. NOT just a lamp: the service re-measures the frozen optics and takes a fresh
+     * baseline, because the reference was taken under the old light and every square would otherwise
+     * read as changed. See `TorchControl`.
+     */
+    fun setTorchOn(on: Boolean)
+
     fun undo()
 
     fun resetGame()
@@ -105,6 +118,13 @@ object NoTrackerSession : TrackerSession {
     override val cameraOn: StateFlow<Boolean> = MutableStateFlow(true)
 
     override fun setCameraOn(on: Boolean) = Unit
+
+    /** Unbound: no device, so no lamp — and `hasTorch = false` hides the control rather than fake it. */
+    override val torchOn: StateFlow<Boolean> = MutableStateFlow(false)
+
+    override val hasTorch: Boolean = false
+
+    override fun setTorchOn(on: Boolean) = Unit
 
     override fun undo() = Unit
 

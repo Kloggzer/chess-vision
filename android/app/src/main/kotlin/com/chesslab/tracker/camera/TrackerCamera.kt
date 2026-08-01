@@ -52,9 +52,13 @@ class TrackerCamera(
     private val mismatch = ResolutionMismatchLogger { Log.w(TAG, it) }
     private val optics = OpticsLock()
     private val health = MutableStateFlow<CameraHealth>(CameraHealth.Up)
+    private val lamp = TorchLamp()
 
     /** Camera-down is a status, not a freeze. 06c maps this into `TrackerStatus.note`. */
     val cameraState: StateFlow<CameraHealth> = health.asStateFlow()
+
+    /** The camera's lamp. Its own owner, like [OpticsLock] — see `TorchLamp`. */
+    val torch: TorchLamp get() = lamp
 
     private var target: CameraRequest = request
 
@@ -202,6 +206,7 @@ class TrackerCamera(
         camera.cameraInfo.cameraState.observe(lifecycleOwner, stateObserver)
         observed = camera.cameraInfo
         optics.attach(camera)
+        lamp.attach(camera)
     }
 
     /**
@@ -334,6 +339,7 @@ class TrackerCamera(
     private fun stopObserving() {
         observed?.cameraState?.removeObserver(stateObserver)
         observed = null
+        lamp.detach()
     }
 
     private companion object {

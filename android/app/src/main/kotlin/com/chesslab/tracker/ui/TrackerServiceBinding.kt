@@ -43,6 +43,13 @@ private class BinderSession(
     /** The one action that is NOT an `EngineAction`: it is the service's camera, not the engine's. */
     override fun setCameraOn(on: Boolean) = binder.setCameraOn(on)
 
+    override val torchOn: StateFlow<Boolean> get() = binder.torchOn
+
+    override val hasTorch: Boolean get() = binder.hasTorch
+
+    /** Also not an `EngineAction`: the lamp, the optics and the baseline are one act in the service. */
+    override fun setTorchOn(on: Boolean) = binder.setTorchOn(on)
+
     override fun undo() {
         binder.submit(EngineAction.Undo)
     }

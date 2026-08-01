@@ -35,6 +35,16 @@ class FakeTrackerSession : TrackerSession {
         cameraOn.value = on
     }
 
+    override val torchOn = MutableStateFlow(false)
+
+    override val hasTorch = true
+
+    /** Same contract as the camera switch: the flow is the service's answer, not the tap. */
+    override fun setTorchOn(on: Boolean) {
+        calls += "setTorchOn:$on"
+        torchOn.value = on
+    }
+
     override fun undo() {
         calls += "undo"
     }

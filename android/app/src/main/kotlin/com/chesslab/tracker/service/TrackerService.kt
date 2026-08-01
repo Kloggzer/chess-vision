@@ -104,6 +104,16 @@ class TrackerService :
      */
     override val remeasureOptics: suspend () -> OpticsSettling get() = camera::remeasureOptics
 
+    /** The lamp, the optics and the baseline as one act — see [TorchSwitch]. */
+    private val torch by lazy {
+        TorchSwitch(
+            lamp = camera.torch,
+            scope = lifecycleScope,
+            remeasure = camera::remeasureOptics,
+            baseline = { stacks.current?.host?.submit(EngineAction.CaptureBaseline) },
+        )
+    }
+
     /**
      * The tracker's live geometry: the calibration profile contributes the board, the loaded model
      * contributes the crop size.
@@ -240,7 +250,7 @@ class TrackerService :
             })
         frames = CameraFrameBus(camera.cameraState, lifecycleScope, { bgrToBitmap(it, PREVIEW_MAX_SIDE) })
         binder =
-            TrackerBinder(publisher, frames, settings, cnn, { stacks.current?.host?.submit(it) }, ::calibrate, this)
+            TrackerBinder(publisher, frames, settings, cnn, { stacks.current?.host?.submit(it) }, this, torch)
         DebugSessionHost.publish(
             debugSession(
                 status = publisher.status,
@@ -354,7 +364,7 @@ class TrackerService :
      * only for the re-measure sequence, which converged them BEFORE it measured this quad —
      * re-arming there would release the very lock the quad was measured under.
      */
-    private fun calibrate(
+    override fun applyCalibration(
         geom: BoardGeometry,
         pts: FloatArray,
         profileName: String,
