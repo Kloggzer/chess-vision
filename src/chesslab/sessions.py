@@ -54,12 +54,31 @@ def _manifest_path(paths: config.Paths) -> Path:
     return paths.manifests / "squares.jsonl"
 
 
+def _manifest_files(paths: config.Paths) -> list[Path]:
+    """The default crop manifest plus every ingest-variant one (`squares__<tag>.jsonl`).
+
+    `list_sessions` reads an ingested session's crop count from its variant manifest, so archiving
+    it while filtering only the default manifest left the rows behind and the count unchanged.
+    """
+    out = [_manifest_path(paths)]
+    if paths.manifests.exists():
+        out += sorted(p for p in paths.manifests.glob("squares__*.jsonl") if p.is_file())
+    return out
+
+
+def _crop_pools(paths: config.Paths) -> list[Path]:
+    """Every crop pool: the default one plus the ingest variants (`squares__<tag>`, `squares_aug`).
+
+    `_purge_crops_for_frames` has always swept all of them; `_crop_files` looked only at
+    `paths.squares`, so archiving an INGESTED session moved its directory and left every one of its
+    crops in the pool — the opposite of what `archive_session` documents itself as doing.
+    """
+    return [p for p in sorted(paths.root.glob("squares*")) if p.is_dir()]
+
+
 def _crop_files(session_id: str, paths: config.Paths) -> list[Path]:
-    root = paths.squares
-    if not root.exists():
-        return []
-    # Crop filename = "{session_id}_{frame}_{square}.png" in data/squares/<label>/
-    return list(root.glob(f"*/{session_id}_*.png"))
+    # Crop filename = "{session_id}_{frame}_{square}.png" in <pool>/<label>/
+    return [f for root in _crop_pools(paths) for f in root.glob(f"*/{session_id}_*.png")]
 
 
 def _crop_count_from_manifest(session_id: str, paths: config.Paths, manifest=None) -> int:
@@ -120,9 +139,7 @@ def _purge_crops_for_frames(session_id: str, frame_stems: set[str], paths: confi
     if not frame_stems:
         return 0
     removed = 0
-    for root in paths.root.glob("squares*"):
-        if not root.is_dir():
-            continue
+    for root in _crop_pools(paths):
         for stem in frame_stems:
             for f in root.glob(f"*/{session_id}_{stem}_*.png"):
                 f.unlink()
@@ -203,7 +220,8 @@ def archive_session(session_id: str, reason: str, paths: config.Paths = config.D
         # destroying an existing archive of the same id is the one thing it must never do.
         raise FileExistsError(f"'{sid}' is already archived — remove or rename it first.")
     n_crops = _purge_crops(sid, paths)
-    _filter_jsonl(_manifest_path(paths), sid)
+    for manifest in _manifest_files(paths):     # default + `squares__<tag>.jsonl` (ingested)
+        _filter_jsonl(manifest, sid)
     shutil.move(str(src), str(dst))
     _record_archive_reason(dst, sid, reason, n_crops, paths)
     return {"session_id": sid, "archived": True, "removed_crops": n_crops, "reason": reason}
@@ -270,7 +288,8 @@ def delete_session(session_id: str, paths: config.Paths = config.DATA) -> dict:
     if not target.exists():
         raise FileNotFoundError(f"Session '{sid}' not found.")
     n_crops = _purge_crops(sid, paths)
-    _filter_jsonl(_manifest_path(paths), sid)
+    for manifest in _manifest_files(paths):     # default + `squares__<tag>.jsonl` (ingested)
+        _filter_jsonl(manifest, sid)
     _filter_jsonl(paths.corrections, sid)
     shutil.rmtree(target)
     return {"session_id": sid, "deleted": True, "removed_crops": n_crops}

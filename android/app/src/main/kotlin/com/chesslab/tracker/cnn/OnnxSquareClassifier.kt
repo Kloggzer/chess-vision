@@ -166,13 +166,24 @@ class OnnxSquareClassifier internal constructor(
      * construction and the logit count is checked per call in [classify].
      */
     init {
-        runner.declaredInputShape?.takeIf { it.size >= 2 }?.let { declared ->
-            val h = declared[declared.size - 2]
-            val w = declared[declared.size - 1]
-            require(h == spec.outHeight.toLong() && w == spec.outWidth.toLong()) {
-                "graph ${runner.model} takes ${w}x$h crops but the model config declares " +
-                    "${spec.outWidth}x${spec.outHeight} (declared shape ${declared.toList()})"
+        // The runner opened a native ORT session in ITS constructor, before this one ran. Throwing
+        // out of here abandons that session: nobody holds the half-built classifier, so nothing
+        // ever calls `close`, and the arena stays mapped for the life of the process. The attach
+        // path retries down the EP chain, so a mismatched graph leaked one session per attempt.
+        val mismatch =
+            runner.declaredInputShape?.takeIf { it.size >= 2 }?.let { declared ->
+                val h = declared[declared.size - 2]
+                val w = declared[declared.size - 1]
+                if (h == spec.outHeight.toLong() && w == spec.outWidth.toLong()) {
+                    null
+                } else {
+                    "graph ${runner.model} takes ${w}x$h crops but the model config declares " +
+                        "${spec.outWidth}x${spec.outHeight} (declared shape ${declared.toList()})"
+                }
             }
+        if (mismatch != null) {
+            runCatching { runner.close() }
+            error(mismatch)
         }
     }
 

@@ -30,6 +30,24 @@ def _make_profile(board_size: int = 800, white_pov: bool = True) -> CalibrationP
     )
 
 
+def test_crop_border_covers_both_pads_stacked_at_the_top_edge():
+    """The border must reach as far above the board as rank 8's crop box does.
+
+    `square_region` puts y0 at `row*cell - pad_side*cell - pad_up*cell`, so the two pads STACK at
+    the top. Taking `max(pad_side, pad_up)` for the warp border left the difference uncovered and
+    rank 8 came back with replicated border where there is image. Invisible at the shipped
+    `pad_up = 0` — which is exactly why it was worth pinning.
+    """
+    from chesslab.calibration import crop_border_px
+
+    prof = _make_profile(board_size=800)
+    prof.crop = CropParams(cell=100.0, pad_up=0.30, pad_side=0.05, out_size=(128, 128))
+
+    _x0, y0, _x1, _y1 = square_to_crop_box("a8", prof, clamp=False)
+    assert crop_border_px(prof) >= -y0, (
+        f"rank 8 reaches {-y0} px above the board but only {crop_border_px(prof)} px are warped")
+
+
 def test_profile_roundtrip_without_camera(tmp_path):
     prof = _make_profile()
     path = tmp_path / "default.yaml"

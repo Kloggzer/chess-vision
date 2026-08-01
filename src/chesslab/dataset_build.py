@@ -475,11 +475,14 @@ def build_dataset(
         shutil.rmtree(ds)                       # clean rebuild
     ds.mkdir(parents=True, exist_ok=True)
     rows = train_rows + holdout                 # rotation happens on-the-fly at train time
-    n_final = len(rows)
     # Label collapse is the LAST step before the manifest: filtering, dedup and the
     # session->split assignment above ran on the original 14-class labels, so an occupancy
     # build keeps exactly the rows a `pieces` build at the same seed would keep.
     rows = collapse_labels(rows, class_mode)
+    # AFTER the collapse: it drops `occluded`, so counting before it puts a `counts.final` in
+    # dataset.yaml that does not match the manifest. Zero on the real corpus, but renders with
+    # `--occlusion-p` produce occluders in bulk.
+    n_final = len(rows)
 
     (ds / "manifest.jsonl").write_text(
         "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + ("\n" if rows else ""),

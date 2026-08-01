@@ -44,7 +44,16 @@ class SpectatorController(
 ) {
     private val app = context.applicationContext
 
-    // Touched only from [scope], which is single-dispatcher; the server reads the published value.
+    /**
+     * The score sheet, under a lock.
+     *
+     * The note here used to say "touched only from [scope], which is single-dispatcher". [scope] is
+     * `Dispatchers.IO` — a thread POOL — and [followTracker] collects events and status in two
+     * separate coroutines, so `moves += …` genuinely runs concurrently with `moves.toList()` and
+     * `moves.clear()`. On an `ArrayList` that is a lost move on the spectator's score sheet at best
+     * and a `ConcurrentModificationException` inside the status collector at worst.
+     */
+    private val movesLock = Any()
     private val moves = mutableListOf<PlayedMove>()
     private val snapshot = MutableStateFlow(GameSnapshot())
 
@@ -87,11 +96,13 @@ class SpectatorController(
     }
 
     private fun onEvent(event: TrackerEvent) {
-        when (event) {
-            is TrackerEvent.MoveCommitted -> moves += PlayedMove(event.san, event.uci)
-            is TrackerEvent.SequenceCommitted ->
-                event.sans.forEachIndexed { i, san -> moves += PlayedMove(san, event.ucis.getOrElse(i) { "" }) }
-            else -> Unit
+        synchronized(movesLock) {
+            when (event) {
+                is TrackerEvent.MoveCommitted -> moves += PlayedMove(event.san, event.uci)
+                is TrackerEvent.SequenceCommitted ->
+                    event.sans.forEachIndexed { i, san -> moves += PlayedMove(san, event.ucis.getOrElse(i) { "" }) }
+                else -> Unit
+            }
         }
     }
 
@@ -100,8 +111,12 @@ class SpectatorController(
      * start position there is provably no history to show — that covers both reset and undo-to-start.
      */
     private fun onStatus(status: TrackerStatus?) {
-        if (status?.fen == STARTPOS) moves.clear()
-        snapshot.value = gameSnapshot(status, moves.toList(), System.currentTimeMillis())
+        val played =
+            synchronized(movesLock) {
+                if (status?.fen == STARTPOS) moves.clear()
+                moves.toList()
+            }
+        snapshot.value = gameSnapshot(status, played, System.currentTimeMillis())
     }
 
     /** Wi-Fi came or went: reconcile against the toggle rather than guess. */

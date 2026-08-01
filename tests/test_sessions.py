@@ -46,6 +46,36 @@ def test_list_sessions_reports_frames_and_crops(tmp_path):
     assert lst["s0"]["archived"] is True and lst["s0"]["n_crops"] == 0
 
 
+def test_archive_prunes_an_ingested_session_from_its_variant_pool(tmp_path):
+    """An ingested session is sliced into `squares__<tag>` — archiving must reach that too.
+
+    `list_sessions` reads its crop count from `manifests/squares__<tag>.jsonl`, but archiving
+    purged only `data/squares` and filtered only `squares.jsonl`. The directory moved, the crops
+    and the rows stayed, and the session kept contributing to every dataset built afterwards —
+    while the archive index recorded `removed_crops: 0` as if there had been nothing to remove.
+    """
+    paths = config.Paths(root=tmp_path)
+    d = _mk_session(paths, "chesscog__s1")
+    (d / "session.yaml").write_text(
+        yaml.safe_dump({"session_id": "chesscog__s1", "mode": "ingested", "profile": "chesscog"}),
+        encoding="utf-8")
+
+    pool = paths.root / "squares__chesscog" / "wK"
+    pool.mkdir(parents=True)
+    (pool / "chesscog__s1_0000_e1.png").write_bytes(b"x")
+    variant = paths.manifests / "squares__chesscog.jsonl"
+    variant.parent.mkdir(parents=True, exist_ok=True)
+    variant.write_text(json.dumps({"session_id": "chesscog__s1"}) + "\n"
+                       + json.dumps({"session_id": "chesscog__s2"}) + "\n", encoding="utf-8")
+
+    res = S.archive_session("chesscog__s1", "duplicate of the rig corpus", paths)
+
+    assert res["removed_crops"] == 1, "the variant pool was not purged"
+    assert not (pool / "chesscog__s1_0000_e1.png").exists()
+    kept = [json.loads(x)["session_id"] for x in variant.read_text(encoding="utf-8").splitlines() if x.strip()]
+    assert kept == ["chesscog__s2"], f"variant manifest still holds the archived session: {kept}"
+
+
 def test_archive_removes_crops_and_manifest_then_restore(tmp_path):
     paths = config.Paths(root=tmp_path)
     _mk_session(paths, "s1")

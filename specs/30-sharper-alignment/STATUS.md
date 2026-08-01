@@ -251,3 +251,54 @@ test, corner quads the only changed variable:
 
 Restoring the backups reproduced `0.316 / 0.512` exactly, so this is the geometry and not drift.
 The margin had not moved through specs/25, 26, 28 or 29.
+
+## Can it run on the phone? (2026-08-01)
+
+**Why it comes up.** The 18 clips sit 8.8–8.9 % of a cell off-grid; the re-aligned corpus sits at
+2–3 %. We removed the misalignment from the training data and with it the model's tolerance for it,
+so a device whose warp is 9 % out is now outside the band the model was trained on. Two ways to
+close that: teach the model to tolerate it, or align the device the same way we aligned the corpus.
+
+**Tolerance does not come free.** `occ-v9bn-wide-jit` is `occ-v9bn-wide` with
+`--jitter-translate 0.09` and nothing else changed. Path A, 80 px, `occ-warm` test:
+
+| run | misses | phantoms | margin p99.9 / max |
+|---|---:|---:|---|
+| `occ-v9bn-wide` | **3** | 0 | 0.003 / 0.008 |
+| `occ-v9bn-wide-jit` | **548** | 0 | 0.002 / 0.021 |
+
+Jitter of the same magnitude as the error we removed destroys the square reading. Both stay
+phantom-free, so the veto metric does not disqualify it — the miss column does, 180-fold. A gentler
+jitter is untested; this says the strong version is not the answer.
+
+**What it costs.** Median over 20 runs, one real 3840x2160 frame, desktop CPU (single-threaded
+numpy), split by the part that would have to be ported:
+
+| step | @ board_size 800 | @ 1600 (the phone's) | ports as |
+|---|---:|---:|---|
+| `warp_from_corners` | 1.5 ms | — | OpenCV, already in the app |
+| `board_lattice` (56 samples) | 3.7 ms | 9.5 ms | column means + centroid |
+| `_fit_affine` (5 Huber iterations) | 0.2 ms | 0.2 ms | `cv::solve`, 6 unknowns |
+| `worst_offset` (measure once) | 7.1 ms | — | the above |
+| **`improve_quad`** (measure, 3x correct, re-measure) | **31 ms** | **82 ms** | — |
+| measure only, caller already holds the warp | 3.8 ms | **10 ms** | — |
+
+Sanity: the same frame reads 2.05 px at board_size 800 and 4.01 px at 1600 — 2.0 % of a cell both
+times, so the measurement is scale-consistent.
+
+**Assessment.** This is not per-frame work and must not become it. The board is fixed relative to
+the camera; the quad only changes when the setup moves, which is what `calibrate` already means. At
+one call per calibration, 82 ms on the desktop — call it a few hundred on the SM8650, unmeasured —
+is free. The measure-only pass at 10 ms is cheap enough to ride on the existing live-align cadence
+(every `alignEvery` frames, already off the analyzer thread) as a "the grid has drifted" check that
+raises a note rather than correcting silently.
+
+Nothing in the algorithm blocks the port: `cvtColor`, `warpPerspective`, a per-axis mean, a
+degree-1 `polyfit` over the window shoulders, a 6-unknown weighted least squares and a 3x3 inverse.
+Every one has an OpenCV or trivial closed form on Android. The risk is not the port, it is the
+duplication — this would be the second implementation of a measurement whose whole history is that
+a plausible-looking version was silently wrong for months (see the tilt-blind collapse above). It
+needs the same calibration-against-analytic-truth test `tests/test_alignment.py` carries, on the
+Kotlin side, before any of its numbers are believed.
+
+**Not started.** Recorded here so the decision has numbers under it.
