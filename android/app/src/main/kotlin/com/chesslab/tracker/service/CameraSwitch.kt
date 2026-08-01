@@ -1,7 +1,7 @@
 package com.chesslab.tracker.service
 
 import com.chesslab.geometry.BoardGeometry
-import com.chesslab.tracker.camera.ManualOpticsPort
+import com.chesslab.tracker.camera.CameraLookPort
 import com.chesslab.tracker.camera.OpticsSettling
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
@@ -46,12 +46,12 @@ interface OpticsControl {
     val remeasureOptics: suspend () -> OpticsSettling
 
     /**
-     * Manual ISO / white balance, for a room the automatic keeps getting wrong.
+     * Brightness and illuminant, for a room the automatic keeps getting wrong.
      *
-     * The same shape as [remeasureOptics] — a handle the calibration screen holds across a sequence
-     * of its own, so it never holds the service to do so.
+     * The same shape as [remeasureOptics] — a handle a screen holds across a sequence of its own, so
+     * it never holds the service to do so.
      */
-    val manualOptics: ManualOpticsPort
+    val cameraLook: CameraLookPort
 }
 
 /**

@@ -9,8 +9,8 @@ import androidx.lifecycle.lifecycleScope
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.geometry.BoardGeometry
+import com.chesslab.tracker.camera.CameraLookPort
 import com.chesslab.tracker.camera.DeliveredSize
-import com.chesslab.tracker.camera.ManualOpticsPort
 import com.chesslab.tracker.camera.OpticsSettling
 import com.chesslab.tracker.camera.TrackerCamera
 import com.chesslab.tracker.camera.cameraRequestFor
@@ -105,7 +105,7 @@ class TrackerService :
      */
     override val remeasureOptics: suspend () -> OpticsSettling get() = camera::remeasureOptics
 
-    override val manualOptics: ManualOpticsPort get() = camera.manualOptics
+    override val cameraLook: CameraLookPort get() = camera.look
 
     /** The lamp, the optics and the baseline as one act — see [TorchSwitch]. */
     private val torch by lazy {

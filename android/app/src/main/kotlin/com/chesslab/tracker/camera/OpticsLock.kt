@@ -6,7 +6,6 @@ import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.TotalCaptureResult
-import android.hardware.camera2.params.RggbChannelVector
 import android.util.Log
 import androidx.camera.camera2.interop.Camera2CameraControl
 import androidx.camera.camera2.interop.Camera2CameraInfo
@@ -99,7 +98,7 @@ internal class ConvergenceWait(
 @OptIn(ExperimentalCamera2Interop::class)
 class OpticsLock(
     private val log: (String) -> Unit = { Log.i(TAG, it) },
-) : ManualOpticsPort {
+) {
     private var camera: Camera? = null
 
     /** Written on the camera thread, read by [remeasure] on the caller's. */
@@ -110,36 +109,11 @@ class OpticsLock(
     @Volatile
     private var focusDistance: Float? = null
 
-    /** What the automatic settled on — the starting point every manual override departs from. */
-    @Volatile
-    private var autoExposureNs: Long? = null
-
-    @Volatile
-    private var autoIso: Int? = null
-
-    /** The user's overrides. Empty means "leave every axis to the device". */
-    @Volatile
-    private var manual = ManualOptics()
-
-    /** What the automatic last chose, for a slider that should open where the picture is now. */
-    override val settledIso: Int? get() = autoIso
-
-    /** The device's own sensitivity range, or null before anything is bound. */
-    override val isoRange: IntRange?
-        get() {
-            val info = camera?.cameraInfo ?: return null
-            val range = Camera2CameraInfo.from(info).getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)
-            return range?.let { it.lower..it.upper }
-        }
-
     /**
-     * Take or release manual control. Applies immediately when the optics are already frozen; when
-     * they are not, [engage] picks it up at the next convergence.
+     * Brightness and illuminant. Its own owner ([CameraLookControl]) — the freeze and the steering
+     * are different acts; this class only carries the white-balance half into the request it owns.
      */
-    override fun setManual(next: ManualOptics) {
-        manual = next
-        if (engaged) engage()
-    }
+    val looks = CameraLookControl(::applyOptions)
 
     private val wait = ConvergenceWait(REMEASURE_TIMEOUT_MS)
 
@@ -173,13 +147,19 @@ class OpticsLock(
     fun attach(camera: Camera) {
         this.camera = camera
         camera.cameraControl.setZoomRatio(1.0f)
+        looks.attach(camera)
     }
 
-    /** Release the lock and wait for a fresh convergence. For a recalibration or a light change. */
+    /**
+     * Release the lock and wait for a fresh convergence. For a recalibration or a light change.
+     *
+     * The user's [CameraLook] is NOT released with it: an illuminant preset and an exposure offset
+     * are what the fresh convergence should happen UNDER, not something the re-measure undoes.
+     */
     fun rearm() {
         engaged = false
         focusDistance = null
-        apply(CaptureRequestOptions.Builder().build(), "released — waiting for a fresh converge")
+        applyOptions()
     }
 
     /**
@@ -216,6 +196,7 @@ class OpticsLock(
     fun detach() {
         camera = null
         engaged = false
+        looks.detach()
     }
 
     private val callback =
@@ -228,11 +209,6 @@ class OpticsLock(
                 if (!engaged && converged(result)) {
                     engaged = true
                     focusDistance = result.get(CaptureResult.LENS_FOCUS_DISTANCE)
-                    // Remembered so a manual ISO can keep the device's OWN exposure time. With
-                    // CONTROL_AE_MODE_OFF the sensitivity alone is not enough — the exposure time
-                    // must be supplied too, and a long one silently costs frame rate.
-                    autoExposureNs = result.get(CaptureResult.SENSOR_EXPOSURE_TIME)
-                    autoIso = result.get(CaptureResult.SENSOR_SENSITIVITY)
                     engage()
                     // AFTER the freeze: a caller waiting on a re-measure is waiting for the lock to
                     // be back ON, not merely for the three algorithms to have stopped moving.
@@ -241,68 +217,65 @@ class OpticsLock(
             }
         }
 
+    /**
+     * A PINNED illuminant has nothing left to converge.
+     *
+     * Without this a chosen preset would deadlock every re-measure: with `CONTROL_AWB_MODE` set to
+     * an illuminant the device reports `CONTROL_AWB_STATE` as `INACTIVE` — measured — which is not
+     * a settled state, so [remeasure] would run to its 5 s deadline and put the previous lock back,
+     * every time, for as long as the preset was chosen.
+     */
     private fun converged(result: TotalCaptureResult): Boolean =
         settled(
             result.get(CaptureResult.CONTROL_AE_STATE),
-            result.get(CaptureResult.CONTROL_AWB_STATE),
+            if (looks.illuminantPinned) null else result.get(CaptureResult.CONTROL_AWB_STATE),
             result.get(CaptureResult.CONTROL_AF_STATE),
         )
 
-    private fun engage() {
-        val builder =
-            CaptureRequestOptions
-                .Builder()
-                .setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, true)
-                .setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, true)
+    private fun engage() = applyOptions()
+
+    /**
+     * Build and issue the whole repeating request: the freeze, and the user's look on top of it.
+     *
+     * One builder for both because they are ONE request. The earlier split had [rearm] clear the
+     * user's choice as a side effect of releasing the lock, and had every look change rebuild the
+     * freeze from scratch.
+     */
+    private fun applyOptions() {
+        val builder = CaptureRequestOptions.Builder()
         val distance = focusDistance
-        val what =
+        var what = "not locked yet"
+        if (engaged) {
+            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, true)
+            // AWB_LOCK freezes the white-balance ALGORITHM at its last values, which on this device
+            // also suppresses a later change of `CONTROL_AWB_MODE`: measured, Bulb (2 700 K) and
+            // Shade (7 500 K) rendered identically under the lock (mean R/B 1.841 against 1.851)
+            // while both differed from automatic. A pinned illuminant does not drift, so the lock
+            // buys nothing there and costs the whole control.
+            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, !looks.illuminantPinned)
+            what = "locked: exposure, white balance"
             if (distance != null && hasFocuser()) {
                 // AF_MODE_OFF alone would leave the lens wherever it happens to be; the distance
                 // the device just converged on is the value that keeps the CURRENT picture sharp.
                 builder
                     .setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
                     .setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, distance)
-                "focus %.3f dpt, exposure, white balance".format(distance)
-            } else {
-                "exposure, white balance (fixed-focus lens)"
+                what = "locked: focus %.3f dpt, exposure, white balance".format(distance)
             }
-        val extra = applyManual(builder)
-        apply(builder.build(), "locked: $what$extra")
+        }
+        // The one axis CameraX has no API for. A PRESET, not per-channel gains: the device applies
+        // the gains AND the colour matrix its own tuning holds for that illuminant — see CameraLook.
+        looks.awbMode()?.let { builder.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, it) }
+        apply(builder.build(), "$what${lookSaid()}")
     }
 
-    /** `[red, greenEven, greenOdd, blue]` as the framework's vector — see `kelvinToGains`. */
-    private fun gains(g: FloatArray) = RggbChannelVector(g[RED], g[GREEN_EVEN], g[GREEN_ODD], g[BLUE])
-
-    /**
-     * The user's overrides, layered ON TOP of the freeze.
-     *
-     * Per axis, deliberately: a manual ISO under an automatic-then-locked white balance is the
-     * common case — a dark board needs gain, not a colour opinion. Each axis that stays null keeps
-     * the lock the device converged to.
-     */
-    private fun applyManual(builder: CaptureRequestOptions.Builder): String {
-        val said = StringBuilder()
-        manual.iso?.let { iso ->
-            val clamped = isoRange?.let { iso.coerceIn(it.first, it.last) } ?: iso
-            // AE OFF needs BOTH. Reusing the exposure time the automatic converged to is what keeps
-            // the frame rate: a device left to pick one under manual gain can choose 1/8 s.
-            builder
-                .setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF)
-                .setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, clamped)
-            autoExposureNs?.let { builder.setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, it) }
-            said.append(", ISO $clamped manual")
-        }
-        manual.kelvin?.let { kelvin ->
-            val g = kelvinToGains(kelvin)
-            builder
-                .setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, CameraMetadata.CONTROL_AWB_MODE_OFF)
-                .setCaptureRequestOption(
-                    CaptureRequest.COLOR_CORRECTION_MODE,
-                    CameraMetadata.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX,
-                ).setCaptureRequestOption(CaptureRequest.COLOR_CORRECTION_GAINS, gains(g))
-            said.append(", ${kelvin}K manual")
-        }
-        return said.toString()
+    private fun lookSaid(): String {
+        val look = looks.look.value
+        if (look.isAuto) return ""
+        val ev = looks.exposure.value?.let { "%+.1f EV".format(it.ev(look.evIndex)) } ?: "index ${look.evIndex}"
+        val brightness = if (look.evIndex == 0) "" else ", $ev"
+        val colour = if (look.whiteBalance == WhiteBalance.AUTO) "" else ", ${look.whiteBalance.label}"
+        return "$brightness$colour"
     }
 
     private fun hasFocuser(): Boolean {
@@ -322,11 +295,6 @@ class OpticsLock(
     }
 
     internal companion object {
-        private const val RED = 0
-        private const val GREEN_EVEN = 1
-        private const val GREEN_ODD = 2
-        private const val BLUE = 3
-
         const val TAG = "OpticsLock"
 
         /**

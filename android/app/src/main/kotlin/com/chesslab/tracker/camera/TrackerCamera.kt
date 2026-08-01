@@ -60,8 +60,8 @@ class TrackerCamera(
     /** The camera's lamp. Its own owner, like [OpticsLock] — see `TorchLamp`. */
     val torch: TorchLamp get() = lamp
 
-    /** Manual ISO / white balance, layered on top of the freeze. See [OpticsLock.setManual]. */
-    val manualOptics: ManualOpticsPort get() = optics
+    /** Brightness and illuminant, steering the automatic. See [CameraLookControl]. */
+    val look: CameraLookPort get() = optics.looks
 
     private var target: CameraRequest = request
 

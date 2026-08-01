@@ -29,11 +29,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import com.chesslab.tracker.camera.ManualOpticsPort
+import com.chesslab.tracker.camera.CameraLookPort
 import com.chesslab.tracker.geometry.ArucoCalibrator
 import com.chesslab.tracker.geometry.CalibrationProfile
 import com.chesslab.tracker.geometry.calibrationStore
 import com.chesslab.tracker.ui.ChesslabScaffold
+import com.chesslab.tracker.ui.camera.CameraLookSection
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import kotlinx.coroutines.launch
 
@@ -79,7 +80,7 @@ fun CalibrationRoute(
                 vm.remeasure { profile -> host.onRemeasured(profile.geometry(), profile.corners, profile.name) }
             }
         },
-        manualOptics = host.manualOptics,
+        cameraLook = host.cameraLook,
     ) { profile ->
         // Geometry only — the game keeps running (`Reset game` is a different action, 06b).
         host.onCalibrated(profile.geometry(), profile.corners, profile.name)
@@ -94,7 +95,7 @@ private fun CalibrationSteps(
     vm: CalibrationViewModel,
     onBack: () -> Unit,
     onRemeasure: () -> Unit,
-    manualOptics: ManualOpticsPort?,
+    cameraLook: CameraLookPort?,
     onSaved: (CalibrationProfile) -> Unit,
 ) {
     val source = IntSize(state.frameWidth, state.frameHeight)
@@ -124,7 +125,11 @@ private fun CalibrationSteps(
                     PreviewWithOverlay(preview, state, source, state.step == CalibrationStep.DETECTED, Modifier.weight(1f))
                     AimActions(state, vm, onRemeasure)
                     // Under the aim preview, because both are set by LOOKING at that picture.
-                    ManualOpticsSection(manualOptics)
+                    cameraLook?.let { port ->
+                        val look by port.look.collectAsState()
+                        val exposure by port.exposure.collectAsState()
+                        CameraLookSection(look, exposure, port::setLook)
+                    }
                 }
             }
             // Recalibrate is GEOMETRY. Starting a new game is "Reset game" on the tracking screen —

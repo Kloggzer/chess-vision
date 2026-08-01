@@ -5,7 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.chesslab.geometry.BoardGeometry
-import com.chesslab.tracker.camera.ManualOpticsPort
+import com.chesslab.tracker.camera.CameraLookPort
 import com.chesslab.tracker.camera.OpticsSettling
 import kotlinx.coroutines.flow.StateFlow
 import org.opencv.core.Mat
@@ -34,8 +34,8 @@ class CalibrationHost(
      * [OpticsSettling.Converged].
      */
     val remeasureOptics: suspend () -> OpticsSettling,
-    /** Manual ISO / white balance. Null when no service is attached — the sliders stay hidden. */
-    val manualOptics: ManualOpticsPort? = null,
+    /** Brightness and illuminant. Null when no service is attached — the controls stay hidden. */
+    val cameraLook: CameraLookPort? = null,
     /**
      * As [onCalibrated], but it does NOT re-arm the optics: this quad was measured *after* they
      * converged, and re-arming would release the lock it was measured under.
