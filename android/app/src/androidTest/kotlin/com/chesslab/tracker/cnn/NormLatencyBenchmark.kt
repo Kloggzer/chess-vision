@@ -43,10 +43,10 @@ class NormLatencyBenchmark {
         const val ROUNDS = 40
         val MODELS =
             listOf(
-                "v6-80" to "GroupNorm  small_035",
-                "bn-80" to "BatchNorm  small_035",
-                "w10-80" to "BatchNorm  small width 1.0",
-                "med-80" to "BatchNorm  medium",
+                "v6-80" to "GroupNorm  0.35",
+                "bn35-80" to "BatchNorm  0.35",
+                "bn50-80" to "BatchNorm  0.50",
+                "bn100-80" to "BatchNorm  1.00",
             )
     }
 
@@ -55,9 +55,8 @@ class NormLatencyBenchmark {
      *
      * `CnnModelAssets.fromAssets` runs the name through `bundledModelOrDefault`, which silently
      * substitutes the default for anything not in that list — so an unlisted directory would be
-     * timed as `shipped` and the benchmark would compare a model with itself. The width candidates
-     * here are UNTRAINED and must never appear in that list, because it is also what the model
-     * picker offers the user.
+     * timed as `shipped` and the benchmark would compare a model with itself. Staging by hand keeps
+     * the benchmark able to time any directory in the APK, listed or not.
      */
     private fun stageRaw(
         ctx: android.content.Context,
