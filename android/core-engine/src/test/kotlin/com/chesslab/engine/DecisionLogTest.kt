@@ -134,6 +134,30 @@ class DecisionLogTest {
         assertTrue(seen.single().contains("evidence too weak"), seen.single())
     }
 
+    /**
+     * The verify ladder's rejections must leave a row.
+     *
+     * This is where a legitimate move most plausibly dies: `windowEnd`'s whole-board contradiction
+     * test rejects on ANY conflicting square, anywhere, touched or not, while the recovery path
+     * that then takes the move over tolerates 1-2 wrong squares (`minAgreement 0.97`). One
+     * chronically misread square therefore blocks the diff channel and does not block recovery —
+     * and until this row existed, the rejection wrote only a `note` that the next frame overwrote.
+     */
+    @Test
+    fun theVerifyLadderRecordsWhyItDiscardedACandidate() {
+        // Window of 1, then one glance in which nothing is confident: the ladder's occlusion
+        // timeout, which is the cheapest of its rejection paths to drive.
+        val state = pairState(ucis = listOf("e2e4"), verifyWindow = 1)
+        val events = VerifySingle.tick(state, PairRecovery(), snapshotOf(state, FakeObs(emptyMap(), emptySet())))
+
+        assertTrue(events.isEmpty(), "a rejected candidate emits no move")
+        assertNull(state.pending, "the candidate was discarded")
+        val row = state.decisionLog.last()
+        assertFalse(row.accepted, "the verify ladder wrote no rejection row")
+        assertEquals("e2e4", row.move)
+        assertTrue(row.toLogLine().startsWith("ply=0 REJECT e2e4"), row.toLogLine())
+    }
+
     /** The line has to carry the evidence, not just the verdict — that is the whole point of it. */
     @Test
     fun theLogLineCarriesTheChangedSquaresTheirZValuesAndTheVetoes() {

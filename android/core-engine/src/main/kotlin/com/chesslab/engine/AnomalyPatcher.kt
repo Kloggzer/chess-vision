@@ -2,7 +2,6 @@ package com.chesslab.engine
 
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.GrayImage
-import com.chesslab.engine.api.STUCK_CNN_DESYNC
 
 /** The occupied-square reason. */
 private const val WHY_RESIDUE = "piece moved/hand residue"
@@ -61,7 +60,13 @@ internal fun EngineState.maybePatchAnomaly(
     // exactly the same to it, and healing that into the reference makes the diff channel agree
     // with the wrong position permanently — the silent desync the quiet-re-anchor veto exists to
     // prevent, on a path the veto does not cover.
-    val desynced = alarm != null || stuckReason == STUCK_CNN_DESYNC
+    //
+    // `stuckReason == STUCK_CNN_DESYNC` was the first attempt and was DEAD: the only two callers
+    // (`Hypothesis.kt:147`, `:198`) call `markStuck` on the line above, so the reason here is
+    // always `too_many_changed` or `no_legal_move`, and `STUCK_CNN_DESYNC` is written in exactly
+    // one place (`TrackerEngine.kt:424`) on a frame where `changed == 0` — which `n > 0` excludes.
+    // The condition could not be true. What the CNN actually knows lives in these three fields.
+    val desynced = alarm != null || desyncObs > 0 || cnnStatus == CNN_STATUS_MISMATCH
     val eligible = n > 0 && bestLl < 0.0 && n <= config.maxChanged + CHANGED_CEILING_SLACK && !desynced
     val ref = refGray
     if (ref != null && eligible) {

@@ -131,6 +131,9 @@ private fun EngineState.latchAlarm(
     val raised = TrackerEvent.Alarm(ALARM_ILLEGAL_MOVE, conflicts, guess, board.alarmGuessSan(guess))
     alarm = raised
     alarmSince = nowS
+    // Only `clearAlarm` used to write a row, so the moment the board was declared lost — the single
+    // most consequential thing this engine does — left no provenance at all.
+    recordRejection(guess ?: "", "ALARM latched on ${conflicts.joinToString(",")}")
     return raised
 }
 

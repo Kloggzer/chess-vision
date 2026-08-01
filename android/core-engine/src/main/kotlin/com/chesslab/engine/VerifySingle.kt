@@ -235,12 +235,21 @@ private fun EngineState.overruleTerminal(
     return events
 }
 
-/** `_reject` — discard the candidate; base truth stays where it was. */
+/**
+ * `_reject` — discard the candidate; base truth stays where it was.
+ *
+ * Recorded, not just noted. This ladder is where a legitimate move most plausibly dies — the
+ * whole-board contradiction test below has ZERO tolerance for a wrongly-read square while the
+ * recovery path tolerates 1-2 of them — and until 2026-08-01 it wrote nothing but a `note` that the
+ * next frame overwrote. A rejection that leaves no trace is indistinguishable from a move the
+ * tracker never saw, which is exactly the ambiguity that cost two rounds of debugging.
+ */
 private fun EngineState.reject(
     verify: String,
     reason: String,
     conflicts: List<String> = emptyList(),
 ): List<TrackerEvent> {
+    recordRejection(pending?.ucis?.firstOrNull() ?: "", "$verify — $reason")
     pending = null
     confirmer.reset()
     recoveryConfirmer.reset()
