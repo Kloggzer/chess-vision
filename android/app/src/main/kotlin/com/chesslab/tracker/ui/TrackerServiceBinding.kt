@@ -123,6 +123,7 @@ fun BindTrackerService(content: @Composable () -> Unit) {
                 rawPreview = bound.rawPreview,
                 onCalibrated = { geometry, corners, name -> bound.applyCalibration(geometry, corners, name, relockOptics = true) },
                 remeasureOptics = bound.remeasureOptics,
+                manualOptics = bound.manualOptics,
                 // The re-measure sequence converged the optics BEFORE it measured this quad, so
                 // re-arming them here would release exactly the lock the quad describes.
                 onRemeasured = { geometry, corners, name -> bound.applyCalibration(geometry, corners, name, relockOptics = false) },
