@@ -344,3 +344,49 @@ four times the network is worth 84 misses per one of GroupNorm's.
 Early-stopped at epoch 55 by `--patience 25` keyed on `occ_board_acc`, so it may not be finished.
 And the 24.0 ms was measured on an untrained graph of the same architecture — latency is a property
 of the graph, but the trained export has not itself been timed.
+
+## Aligning the corpus narrowed the models, and the clips found it
+
+Both real test clips are read WORSE by every model trained on the re-aligned corpus than by the old
+champion, which was trained before the re-alignment. Six models — two normalizers, three widths, with
+and without the synthetic pretrain chain — produce byte-identical move lists, and all six differ from
+the champion. That rules out norm, width and pretraining as the cause and leaves the corpus.
+
+| clip | truth | champion `occ-v6-f5nd` | all six new models |
+|---|---|---|---|
+| `live-1244-fastplay` | d4 d5 Nf3 Nf6 Nc3 | **exact** | d4 d5 Nf3 Nf6 **Qd3 Ne4** |
+| `clip01-illegale-rochade` | 13 plies then an illegal placement | first 8, then **parks** | first 8, then invents Qxd4 Nxe4 Bd3 Bc5 O-O |
+
+On the second clip the invented `Bc5` and `O-O` are the very moves the clip contains as deliberate
+rule violations — committed as legal, because by then the tracker's own position had diverged. The
+alarm the clip exists to test never fires.
+
+**Measured cause.** `alignment.square_offsets` on the clips' own pinned corners:
+
+| material | offset | as % of a cell |
+|---|---:|---:|
+| `live-1244-fastplay` | 7.0 px of an 80 px cell | **8.8 %** |
+| `clip01-illegale-rochade` | 7.1 px of an 80 px cell | **8.9 %** |
+| our corpus, re-aligned | 2.0–3.3 px of 100 px | 2–3 % |
+| our corpus, BEFORE re-aligning | 3.2–6.5 px, worst 12–15 | 3–15 % |
+
+The clips sit three times further out than anything the new models were trained on — and inside the
+band the champion was trained on, because back then the corpus itself was that badly cut.
+
+**So the alignment work is a gain AND a narrowing.** It bought the margin (0.512 → 0.008 across the
+day) and it removed a robustness the corpus had been supplying by accident. That is not an argument
+for un-aligning anything; it is an argument for putting the variation back where it belongs, in the
+augmentation:
+
+    jitter_translate: float = 0.03  # ± fraction of crop size
+
+The crop spans 110 px of board (a 100 px cell plus 2 x 5 px of pad), so 3 % of the crop is ~3.3 % of
+a cell — about a third of what the clips demand. Raising it to ~0.09 and retraining is a
+one-parameter experiment, and there is no CLI flag for it yet (only `--erase-p` and `--bg-p` are
+plumbed).
+
+**Two of my own claims were wrong on the way here and are corrected in place:** the synthetic
+pretrain chain is NOT what separates the champion (`occ-v9bn-chain` has it and behaves like the
+others), and reading `live-1244`'s final board occupancy as proof that it contains ten moves was too
+weak a test — occupancy cannot tell a knight from a queen, and the manifest's own note says the
+game ends in an illegal placement the tracker should alarm on rather than explain away.
