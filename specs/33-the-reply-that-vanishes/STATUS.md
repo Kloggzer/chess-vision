@@ -130,3 +130,41 @@ detection pauses while `publishBoard` keeps running and the preview looks fine. 
 4. Re-emit the parity fixtures with a model attached, and fix `emit_parity_fixtures.py`'s
    `margin = 0.0` first — on real ArUco material it oversizes the contour by 6-8 % and stalls the
    tracker.
+
+## 6. What the screen can and cannot say (fourth agent, unprimed)
+
+The engine emits 8 event kinds and 4 status channels; the app adds 5 more. Python shows them in six
+independent elements. Android collapses all of them into **one two-line `Text`**
+(`TrackingScreen.kt:215`) fed by a single ranked resolver. Confirmed consequences:
+
+- **A dead tracker is indistinguishable from an idle one.** `publish()` is called only from
+  `TrackerCoordinator.kt:62`, i.e. only on a delivered frame, and the status is a conflated
+  `StateFlow` — so when frames stop, the last sample stands forever and the screen keeps reading
+  `WAITING · 14.8 fps`. The `"no frames"` / `"no detection"` branches
+  (`StatusUiModel.kt:196-212`) are evaluated inside `build()`, which only runs from `publish()`:
+  the condition they exist to catch is the one that stops them running. Same symptom from
+  `TrackerCamera.kt:304`, which wraps the analyzer chain in `runCatching` and logs only — Python
+  surfaces `"tracker loop crashed — see log; restart the tracker."`
+- **The alarm never leaves the tracking screen.** `TrackerService.onEvent:336-344` re-posts the
+  notification only for committed moves, and while alarmed the engine blocks every commit — so the
+  notification freezes and never updates. It carries `status.state`, never the note. Yet
+  `StatusPublisher.kt:47-49` documents the note as *"the only alarm signal that reaches the user
+  with the app in the background"* and `NotePrecedenceTest` asserts on that premise.
+  `TrackerNotification.kt` has never rendered the note. The premise was false when written.
+- **`CameraHealth.Down` is unreachable.** `TrackerCamera.kt:301` forces `Up` immediately before
+  invoking the sink at `:304`, and `:233` is the only writer — so both camera rungs of the resolver
+  can never fire. `NotePrecedenceTest` passes because it calls the resolver with a value production
+  cannot produce.
+- **Three refusals are computed and dropped**: promotion rejection (`TrackerEngine.kt:265-271`,
+  returns a `Note` that has no consumer, and the dialog stays open), accept-CNN-position rejection
+  (`:291-298`, the note is then overwritten by the still-latched alarm), and CNN recovery progress
+  during an alarm (`CnnTick.kt:194,202`, masked by the same rung).
+- **`stuckReason` outranks the pipeline note, which is backwards.** `EngineHost.kt:110` runs the
+  engine only when a frame arrives, so on a skipped frame `stuckReason` is by construction stale
+  while the pipeline note is about the current frame. A hand over the board followed by the lights
+  going out shows `stuck: too_many_changed`, never `frame too dark`.
+- **The board preview is published BEFORE the dark gate** (`FramePipeline.kt:173` against `:176`),
+  so the strongest liveness cue on the screen is fed upstream of the thing that paused detection.
+
+Checked on the device and **ruled out**: the sticky `CnnState.Failed` masking hypothesis. The log
+reads `CNN EP verified: XNNPACK, warm-up 22 ms for 64 crops` and `classes=2` — the attach succeeded.
