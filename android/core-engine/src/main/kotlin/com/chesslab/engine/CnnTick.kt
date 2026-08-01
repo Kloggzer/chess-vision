@@ -177,7 +177,7 @@ private fun EngineState.onMismatch(
     cnnStatus = CNN_STATUS_MISMATCH
     cnnConflicts = read.conflicts
     if (read.moves.isNotEmpty()) return onRecovery(snap, read, hasIdentity)
-    val events = onStableMismatch(cnn, snap.obs, snap, hasIdentity, read.conflicts)
+    val events = onStableMismatch(cnn, snap.obs, snap, read.conflicts)
     recoveryConfirmer.reset()
     return events
 }

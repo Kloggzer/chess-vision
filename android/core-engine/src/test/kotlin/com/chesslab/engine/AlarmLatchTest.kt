@@ -57,14 +57,34 @@ class AlarmLatchTest {
     }
 
     @Test
-    fun occupancyOnlyObservationNeverAlarms() {
-        // No identity axis to be stable about — the streak is held at zero, not merely ungated.
+    fun occupancyOnlyObservationAlarmsOnAMoveShapedConflict() {
+        // Changed 2026-08-01. This used to assert that an occupancy-only run holds the streak at
+        // zero and never alarms — and since every model this app ships is 2-class, that disarmed
+        // the entire desync response: the commit block, the pending discard, the noise freeze and
+        // the re-anchor refusal are all gated on the alarm being latched.
+        //
+        // The discipline is unchanged and lives one layer down: `guessIllegalMove` still demands
+        // exactly one vacated and one received square, and that test never compared piece names —
+        // only "empty vs not" on both sides. It is an occupancy test wearing label clothing.
         val state = recoveryState(NF3_NO_CASTLING)
         val cnn = RecoveryEvaluator(conflicts = listOf("e1", "g1"), guess = "e1g1")
         val obs = obsForBoard(state.board, mapOf("e1" to LABEL_EMPTY), identity = false)
-        for (seq in 1L..5L) state.cnnTick(cnn, recoverySnap(state, obs, seq))
+        for (seq in 1L..3L) state.cnnTick(cnn, recoverySnap(state, obs, seq))
+        assertNotNull(state.alarm, "an occupancy-only run must be able to raise the alarm")
+        assertEquals(3, state.desyncObs, "desyncObsN distinct observations, no more")
+    }
+
+    @Test
+    fun occupancyOnlyStillNeedsAnOccupancyConflict() {
+        // The axis changed, the bar did not: no occupancy disagreement, no alarm, however long the
+        // streak runs. Without this the change would be "alarm on any contradiction", which was
+        // measured on the 18 clips and rejected for false alarms.
+        val state = recoveryState(NF3_NO_CASTLING)
+        val cnn = RecoveryEvaluator(conflicts = listOf("b1", "g1"), occupancyConflict = false, guess = "b1c3")
+        val obs = obsForBoard(state.board, mapOf("b1" to LABEL_EMPTY), identity = false)
+        for (seq in 1L..8L) state.cnnTick(cnn, recoverySnap(state, obs, seq))
         assertNull(state.alarm)
-        assertEquals(0, state.desyncObs)
+        assertEquals(8, state.desyncObs, "the streak runs — only the raise is gated")
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.chesslab.cnn
 
 import com.github.bhlangonijr.chesslib.Board
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
@@ -26,8 +27,33 @@ class AlarmGuessTest {
     }
 
     @Test
-    fun `without identity there is no guess`() {
+    fun `an occupancy-only run guesses the same move as its identity twin`() {
+        // The shape test — exactly one vacated, exactly one received — never compared piece names,
+        // only "empty vs not" on both sides. Stripping identity must therefore change nothing here.
+        // It used to return null, which disarmed the alarm on every model this app ships.
         val row = CnnFixtures.rows(CnnFixtures.GUESS).first { it.str("name") == "one_source_one_destination" }
+        val withIdentity = guessIllegalMove(row.board(), row.observation(), row.num("confThr"))
+        assertEquals(withIdentity, guessIllegalMove(row.board(), row.observation().occupancyOnly(), row.num("confThr")))
+        assertNotNull(withIdentity)
+    }
+
+    @Test
+    fun `an occupancy-only run still refuses a shape that is not one move`() {
+        // The discipline is the SHAPE, not the axis. Two vacated squares are not one move, and
+        // dropping identity must not turn that into an alarm — otherwise this change would be the
+        // "any contradiction alarms" variant that was measured on the clips and rejected.
+        for (name in listOf("two_sources", "no_conflict")) {
+            val row = CnnFixtures.rows(CnnFixtures.GUESS).first { it.str("name") == name }
+            assertNull(guessIllegalMove(row.board(), row.observation().occupancyOnly(), row.num("confThr")), name)
+        }
+    }
+
+    @Test
+    fun `a conflict only in piece type is invisible to both axes`() {
+        // Believed pawn, observed knight: occupancy agrees, so it is neither a source nor a
+        // destination. The identity axis already ignored it; the occupancy axis cannot even see it.
+        val row = CnnFixtures.rows(CnnFixtures.GUESS).first { it.str("name") == "identity_only_conflict" }
+        assertNull(guessIllegalMove(row.board(), row.observation(), row.num("confThr")))
         assertNull(guessIllegalMove(row.board(), row.observation().occupancyOnly(), row.num("confThr")))
     }
 
