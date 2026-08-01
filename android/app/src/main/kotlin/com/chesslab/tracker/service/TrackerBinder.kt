@@ -5,7 +5,6 @@ import android.os.Binder
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
-import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.camera.CameraHealth
 import com.chesslab.tracker.camera.DeliveredSize
 import com.chesslab.tracker.cnn.CnnState
@@ -29,13 +28,17 @@ class TrackerBinder(
     private val settings: SettingsRepository,
     private val cnn: StateFlow<CnnState>,
     private val queue: (EngineAction) -> Unit,
-    private val calibrate: (BoardGeometry, FloatArray, String, Boolean) -> Unit,
     // Delegated, not reimplemented: restart and the camera switch are the service's, and a second
     // copy of "is the camera on" is a second answer to a question about the user's privacy.
     private val controls: TrackerControls,
+    // Its own parameter and not part of `TrackerControls`: the lamp is a SEQUENCE the service owns
+    // (torch, re-measure, baseline), and folding it into that bundle would have put three more
+    // members on the service for no gain.
+    torch: TorchControl,
 ) : Binder(),
     CalibrationFrames,
-    TrackerControls by controls {
+    TrackerControls by controls,
+    TorchControl by torch {
     val status: StateFlow<TrackerStatus?> get() = publisher.status
     val events: SharedFlow<TrackerEvent> get() = publisher.events
     val config: StateFlow<TrackerConfig> get() = settings.config
@@ -67,19 +70,10 @@ class TrackerBinder(
      */
     override fun restartTracker() = controls.restartTracker()
 
-    /**
-     * 06a hands the accepted corners over; the pipeline picks them up on its next frame.
-     *
-     * [relockOptics] is stated at every call site rather than defaulted: "did this quad get
-     * measured before or after the optics settled" is the one thing the two callers disagree on,
-     * and a default would hide it.
-     */
-    fun applyCalibration(
-        geometry: BoardGeometry,
-        corners: FloatArray,
-        profileName: String,
-        relockOptics: Boolean,
-    ) = calibrate(geometry, corners, profileName, relockOptics)
+    // `applyCalibration` arrives through `TrackerControls by controls` — 06a hands the accepted
+    // corners over and the pipeline picks them up on its next frame. It moved into the controls
+    // bundle because it is a service capability exactly like restart, the camera switch and the
+    // optics, and it was the only one still travelling as a raw lambda beside them.
 
     /** What the camera really delivers — 06a needs it to map a tap back to source pixels. */
     var deliveredSize: DeliveredSize? = null
