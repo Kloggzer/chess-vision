@@ -44,6 +44,42 @@ class StatusPublisherTest {
         }
 
     /**
+     * The one condition the screen most needs to show was the one condition that stopped the code
+     * that would show it: everything here ran from [StatusPublisher.publish], and publish runs only
+     * on a delivered frame. A conflated `StateFlow` then holds the last sample forever, so a dead
+     * feed kept reading `WAITING · 14.8 fps`.
+     */
+    @Test
+    fun aStalledFeedIsPublishedWithoutAnyFrameArriving() =
+        runTest {
+            val publisher = publisherOn(backgroundScope)
+            publisher.publish({ statusOf(fen = "fen") }, "fen", emptyList(), null)
+            advanceTimeBy(STATUS_SAMPLE_MS * 2)
+            assertEquals(null, publisher.status.value?.note, "a healthy frame carries no note")
+
+            // No further publish() — only time passing, which is exactly the failure case.
+            clockMs += 5_000
+            advanceTimeBy(5_000)
+
+            val note = publisher.status.value?.note
+            assertTrue(note?.startsWith("no frames from the camera") == true, "stall not reported: $note")
+            assertEquals(0.0, publisher.status.value?.cameraFps, "a stalled feed must not keep a rate")
+        }
+
+    @Test
+    fun aSlowFeedIsNotAStalledOne() =
+        runTest {
+            val publisher = publisherOn(backgroundScope)
+            // 2 Hz: far below the camera's real rate and still nowhere near the stall threshold.
+            repeat(20) {
+                publisher.publish({ statusOf(fen = "fen") }, "fen", emptyList(), null)
+                clockMs += 500
+                advanceTimeBy(500)
+            }
+            assertEquals(null, publisher.status.value?.note, "2 Hz is slow, not stalled")
+        }
+
+    /**
      * The gate is on the BUILD, not just the emission: `TrackerStatus` costs a chesslib FEN and
      * four 64-entry maps, and it used to be assembled on every analyzer frame for a 10 Hz flow.
      */

@@ -10,6 +10,7 @@ import com.chesslab.tracker.pipeline.StageTimings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -18,6 +19,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 /** The UI's refresh rate. It must not add a second throttle on top. */
 const val STATUS_SAMPLE_MS = 100L
@@ -26,6 +29,21 @@ private const val EVENT_BUFFER = 64
 
 /** No status has been assembled yet — the first frame always builds one. */
 private const val NEVER_BUILT = Long.MIN_VALUE
+
+/**
+ * How long the feed may go quiet before the status says so.
+ *
+ * The camera runs at 15-20 fps, so three seconds is two orders of magnitude past normal and cannot
+ * be a scheduling hiccup. It is deliberately NOT tied to the camera's own retry backoff: this fires
+ * for a feed that stopped delivering WITHOUT reporting an error, which is the case
+ * [CameraHealth.Down] never sees.
+ */
+private const val FRAME_STALL_MS = 3_000L
+
+/** How often the stall watchdog looks. Cheap — it only compares two longs unless it fires. */
+private const val HEARTBEAT_MS = 1_000L
+
+private const val MS_PER_S = 1_000L
 
 /**
  * The one status line, resolved by precedence.
@@ -87,6 +105,10 @@ class StatusPublisher(
     /** [NEVER_BUILT] and not `0L`: a zero would read as "built at time zero" and swallow the first frame. */
     private var lastBuildMs = NEVER_BUILT
 
+    /** Wall clock of the last [publish], i.e. of the last frame that reached the analyzer. */
+    @Volatile
+    private var lastPublishMs = NEVER_BUILT
+
     private val raw = MutableStateFlow<TrackerStatus?>(null)
     private val bus =
         MutableSharedFlow<TrackerEvent>(
@@ -100,6 +122,16 @@ class StatusPublisher(
     val status: StateFlow<TrackerStatus?> = raw.sample(sampleMs).stateIn(scope, SharingStarted.Eagerly, null)
 
     val events: SharedFlow<TrackerEvent> = bus.asSharedFlow()
+
+    init {
+        // The only clock in the app that does not depend on a frame arriving.
+        scope.launch {
+            while (isActive) {
+                delay(HEARTBEAT_MS)
+                checkFrameStall()
+            }
+        }
+    }
 
     @Volatile
     var cameraHealth: CameraHealth = CameraHealth.Up
@@ -160,9 +192,32 @@ class StatusPublisher(
         lastFen = fen
         events.forEach { bus.tryEmit(it) }
         val now = nowMs()
+        lastPublishMs = now
         if (lastBuildMs != NEVER_BUILT && now - lastBuildMs < sampleInterval) return
         lastBuildMs = now
         build(snapshot(), pipelineNote)
+    }
+
+    /**
+     * Re-emit the last status with a stall note when no frame has arrived for [FRAME_STALL_MS].
+     *
+     * Everything else here runs from [publish], which runs only on a delivered frame — so the one
+     * condition the screen most needs to show, "frames stopped", was the one condition that stopped
+     * the code that would show it. `StatusUiModel`'s own "no frames" branches were unreachable for
+     * the same reason. A conflated `StateFlow` then holds the last sample forever and the screen
+     * keeps reading `WAITING · 14.8 fps` over a dead feed.
+     *
+     * Deliberately does NOT call the engine snapshot provider: this runs off the analyzer thread,
+     * and `TrackerStatus` is assembled from engine state that is only safe to read there. Rewriting
+     * the note and zeroing the rates on the value already published needs nothing but the flow.
+     */
+    internal fun checkFrameStall() {
+        val last = raw.value ?: return
+        val since = nowMs() - lastPublishMs
+        if (lastPublishMs == NEVER_BUILT || since < FRAME_STALL_MS) return
+        val note = "no frames from the camera for ${since / MS_PER_S}s — the feed stopped"
+        if (last.note == note && last.fps == 0.0 && last.cameraFps == 0.0) return
+        raw.value = last.copy(note = note, fps = 0.0, cameraFps = 0.0)
     }
 
     private fun build(

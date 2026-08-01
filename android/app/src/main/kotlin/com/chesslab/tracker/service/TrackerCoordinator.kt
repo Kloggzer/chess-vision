@@ -16,6 +16,7 @@ import com.chesslab.tracker.pipeline.Stage
 import com.chesslab.tracker.pipeline.StageTimings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicReference
 
 private const val TAG = "chesslabTracker"
 
@@ -49,6 +50,7 @@ class TrackerCoordinator(
         delivered: DeliveredSize,
     ) {
         timings.begin()
+        drainCalibration()
         // The preview bus is fed from INSIDE the pipeline now (`FrameStages.publishFrame`), off the
         // frame the convert already produced — see `CameraFrameBus.offer`.
         val result = pipeline.onFrame(image, System.currentTimeMillis())
@@ -65,18 +67,43 @@ class TrackerCoordinator(
         timings.endFrame((result as? FrameResult.Skipped)?.note, pipeline.lastLuma())
     }
 
-    /** 06a's calibration result. The corner swap is what the pipeline reads on its next frame. */
+    /**
+     * 06a's calibration result. Queued, not applied — [TrackerService.calibrate] runs on the main
+     * thread while this loop is mid-frame on the analyzer thread.
+     *
+     * Only `pipeline.corners` is `@Volatile`; the geometry, the profile baseline and the marker
+     * smoother behind it are plain fields. Writing them inline let a frame warp with the NEW
+     * corners under the OLD board size — the two halves of a calibration reaching the loop one
+     * frame apart, which is precisely the state `FrameLoop` refuses a plane for. Handing over one
+     * reference and reading it at a frame boundary makes the swap atomic from the loop's side.
+     */
     fun applyCalibration(
         geometry: BoardGeometry,
         corners: FloatArray,
         profileName: String,
         delivered: DeliveredSize,
     ) {
-        pipeline.onGeometryChanged(geometry)
-        pipeline.corners = corners
-        pipeline.setProfile(profileName, delivered.width, delivered.height)
-        align.reset(delivered)
+        pending.set(PendingCalibration(geometry, corners, profileName, delivered))
     }
+
+    /** Newest wins: a second calibration before the next frame supersedes the first outright. */
+    private fun drainCalibration() {
+        val next = pending.getAndSet(null) ?: return
+        pipeline.onGeometryChanged(next.geometry)
+        pipeline.corners = next.corners
+        pipeline.setProfile(next.profileName, next.delivered.width, next.delivered.height)
+        align.reset(next.delivered)
+    }
+
+    private val pending = AtomicReference<PendingCalibration?>(null)
+
+    /** Not a data class: it carries a [FloatArray], whose generated `equals` compares identity. */
+    private class PendingCalibration(
+        val geometry: BoardGeometry,
+        val corners: FloatArray,
+        val profileName: String,
+        val delivered: DeliveredSize,
+    )
 }
 
 /**

@@ -398,7 +398,12 @@ def crop_border_px(profile: CalibrationProfile) -> int:
     have content for their pad_side/pad_up extension. Grows automatically with the pads (at least
     `config.CROP_WARP_BORDER_CELLS`). 0 -> no border (display behavior)."""
     cell = profile.board_size / 8.0
-    border_cells = max(config.CROP_WARP_BORDER_CELLS, profile.crop.pad_side, profile.crop.pad_up)
+    # The two pads STACK at the top edge — `square_region` puts y0 at
+    # `row*cell - pad_side*cell - pad_up*cell`, so rank 8 reaches `pad_side + pad_up` cells above
+    # the board. Taking the max of the two instead left the sum minus the larger one uncovered,
+    # i.e. rank 8 crops carried replicated border where they should carry image. No effect at the
+    # shipped `pad_up = 0`; it bites any oblique profile that reintroduces upward padding.
+    border_cells = max(config.CROP_WARP_BORDER_CELLS, profile.crop.pad_side + profile.crop.pad_up)
     return int(round(border_cells * cell))
 
 
