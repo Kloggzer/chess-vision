@@ -158,6 +158,35 @@ class DecisionLogTest {
         assertTrue(row.toLogLine().startsWith("ply=0 REJECT e2e4"), row.toLogLine())
     }
 
+    /**
+     * An observation about an OLDER frame is an observer that answered, not one that died.
+     *
+     * `expireStalledVerify`'s own KDoc calls itself "a watchdog for an observer that STOPPED, not
+     * one that is merely slow", and delegates the slow case to `verifyExpired` inside the ladder.
+     * The ladder is only reached past the seq gate, so the two were swapped: on a warm phone, where
+     * an observation cycle can exceed the 1.5 s budget, every diff candidate was dropped as stalled
+     * and only CNN recovery — which has no deadline — could still move the game on.
+     */
+    @Test
+    fun aStaleObservationKeepsThePendingAliveWithoutVoting() {
+        val state = pairState(ucis = listOf("e2e4"), verifyWindow = 8)
+        val pend = requireNotNull(state.pending).copy(seq = 5, lastTickS = 0.0)
+        state.pending = pend
+        state.nowS = 1.0
+
+        val snap = snapshotOf(state, FakeObs(emptyMap(), emptySet())).copy(seq = 4)
+        VerifySingle.tick(state, PairRecovery(), snap)
+
+        val after = requireNotNull(state.pending)
+        assertEquals(pend.frames, after.frames, "a stale observation must not count as a vote")
+        assertEquals(1.0, after.lastTickS, "…but it proves the observer is alive")
+
+        // And the watchdog would have killed it at the old value.
+        state.nowS = 1.4
+        state.expireStalledVerify()
+        assertNotNull(state.pending, "dropped a candidate whose observer had answered 0.4 s ago")
+    }
+
     /** The line has to carry the evidence, not just the verdict — that is the whole point of it. */
     @Test
     fun theLogLineCarriesTheChangedSquaresTheirZValuesAndTheVetoes() {

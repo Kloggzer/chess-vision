@@ -5,6 +5,7 @@ import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.cornersFromFlat
 import com.chesslab.geometry.cornersToFlat
 import com.chesslab.geometry.detectBoardMarkers
+import com.chesslab.geometry.gridCorrection
 import com.chesslab.geometry.improveQuad
 import com.chesslab.geometry.resolveBoardCorners
 import com.chesslab.geometry.warpFromCorners
@@ -68,6 +69,14 @@ class QuadRefinement(
     val afterPx: Double,
     val cellPx: Double,
     val applied: Boolean,
+    /**
+     * The same correction as a RECTIFIED-space 3x3, or null when nothing was applied.
+     *
+     * The corrected corners alone do not survive: live alignment re-derives the quad from the
+     * markers every few frames and would overwrite them within ~0.2 s. This is the form that can be
+     * carried and re-applied to each freshly detected quad for free.
+     */
+    val correction: DoubleArray? = null,
 ) {
     override fun equals(other: Any?): Boolean = this === other
 
@@ -176,6 +185,7 @@ class ArucoCalibrator(
             afterPx = if (fixed == null) result.before else result.after,
             cellPx = geom.cell,
             applied = fixed != null,
+            correction = fixed?.let { gridCorrection(quad, it, geom) },
         )
     }
 

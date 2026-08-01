@@ -54,8 +54,19 @@ internal object VerifySingle {
             snap == null -> emptyList()
             // Spec-11 seq contract: an observation of a frame OLDER than the frame the candidate
             // was decided on may neither confirm nor reject it. Not a rejection, not a vote — an
-            // ignore, and the frame counter stays put.
-            snap.seq < pend.seq -> emptyList()
+            // ignore, and the VOTE counter stays put.
+            //
+            // The liveness clock is a different thing and must advance. `expireStalledVerify` calls
+            // itself "a watchdog for an observer that STOPPED, not one that is merely slow", and
+            // says the slow case belongs to `verifyExpired` inside the ladder — but the ladder is
+            // only reached PAST this gate, so the two were swapped: an observer that answered about
+            // an older frame looked identical to one that had died, and its candidate was dropped
+            // as stalled. Bounded by construction: the next crop frame is cut after dispatch, so at
+            // most ONE observation per pending can be too old, and this can buy at most one period.
+            snap.seq < pend.seq -> {
+                state.pending = pend.copy(lastTickS = state.nowS)
+                emptyList()
+            }
             else -> state.evaluate(cnn, snap, pend)
         }
     }
