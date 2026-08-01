@@ -201,6 +201,40 @@ class DispatchTest {
         assertEquals(DECIDER_DIFF_PAIR, state.decisionLog.last().decider)
     }
 
+    /**
+     * `motionRecencyS = 0` means OFF, not "reject everything".
+     *
+     * Read literally the gate was `age > 0`, and by the time a candidate exists the hand is long
+     * gone — settle frames plus `motionHoldS` — so the age is never zero and EVERY commit was
+     * refused. Found live on 2026-08-01: the device sat at 0.0 and the deterministic channel had
+     * not committed one move all session; every move waited out the 10 s CNN recovery poll instead,
+     * which is exactly the "why does it take so long" the user reported. Zero means off for every
+     * other knob in the catalog, so it means off here too.
+     */
+    @Test
+    fun aZeroRecencyWindowMeansOffNotAlwaysStale() {
+        val config = detectConfig(requireMotion = true).copy(motionRecencyS = 0.0)
+        val state = detectState(config, ref = grayFrame(listOf("e2")))
+        state.motionSinceRef = true
+        state.lastMotionTs = 0.0
+        state.nowS = 30.0 // half a minute since the hand left — with a 0 window, still fine
+        state.tryDetect(grayFrame(listOf("e4")), null, seq = 1)
+        assertEquals(listOf("e4"), state.history, "note was '${state.note}'")
+    }
+
+    /** A positive window still expires, which is the whole point of the drift guard. */
+    @Test
+    fun aPositiveRecencyWindowStillGoesStale() {
+        val config = detectConfig(requireMotion = true).copy(motionRecencyS = 5.0)
+        val state = detectState(config, ref = grayFrame(listOf("e2")))
+        state.motionSinceRef = true
+        state.lastMotionTs = 0.0
+        state.nowS = 30.0
+        state.tryDetect(grayFrame(listOf("e4")), null, seq = 1)
+        assertEquals(emptyList<String>(), state.history)
+        assertTrue(state.note.orEmpty().contains("last motion"), "note was '${state.note}'")
+    }
+
     @Test
     fun motionGateBlocksWithoutMotion() {
         val state = detectState(detectConfig(requireMotion = true), ref = grayFrame(listOf("e2")))

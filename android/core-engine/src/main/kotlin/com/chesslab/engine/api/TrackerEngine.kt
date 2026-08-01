@@ -500,7 +500,15 @@ internal fun EngineState.commitGates(cand: Candidate): Boolean {
     }
     if (pass && config.requireMotionForMove) {
         val age = nowS - lastMotionTs
-        if (!motionSinceRef || age > config.motionRecencyS) {
+        // `motionRecencyS <= 0` is OFF — no recency limit — the way 0 means off for every other
+        // knob in the catalog (`censusZWeight`, `minGridLineCoverage`, `occlusionColorThr`,
+        // `commitLlFloor`, `observerIntervalS`). Read literally it meant `age > 0`, i.e. reject
+        // EVERY candidate: by the time one exists the hand is long gone (settle frames plus
+        // `motionHoldS`), so the age is never zero. Found live on 2026-08-01 — the device had it at
+        // 0.0 and the deterministic channel had not committed a single move in the whole session,
+        // every one of them waiting out the 10 s CNN recovery poll instead.
+        val stale = config.motionRecencyS > 0.0 && age > config.motionRecencyS
+        if (!motionSinceRef || stale) {
             confirmer.reset()
             val why = if (!motionSinceRef) "no motion since last move" else "last motion ${pyFixed(age, 0)}s ago"
             note = "$sans? ignored — $why (drift/light, not a real move)"
