@@ -103,7 +103,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               erase_p: float | None = None, bg_p: float | None = None,
               loss: str = "ce", focal_gamma: float = 2.0,
               class_weight: dict[str, float] | None = None,
-              sched: str = "cosine") -> int:
+              sched: str = "cosine",
+              jitter_translate: float | None = None) -> int:
     """`scales`: Multi-Scale-Training (YOLO-Stil). Ist eine Liste wie [64,96,128] gesetzt, wird
     JEDER Batch zufällig auf eine dieser Eingabegrößen skaliert → das size-agnostische Modell
     (AdaptiveAvgPool) lernt alle Auflösungen in EINEM Lauf. So deckt das Training die
@@ -224,11 +225,14 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
 
     # Augmentation policy — optionally override the anti-shortcut knobs per run (ablation/tuning).
     policy = config.AUGMENT
-    if erase_p is not None or bg_p is not None:
+    if erase_p is not None or bg_p is not None or jitter_translate is not None:
         from dataclasses import replace
         policy = replace(policy, **({"erase_p": erase_p} if erase_p is not None else {}),
-                         **({"bg_p": bg_p} if bg_p is not None else {}))
-        print(f"[aug] override erase_p={policy.erase_p} bg_p={policy.bg_p}")
+                         **({"bg_p": bg_p} if bg_p is not None else {}),
+                         **({"jitter_translate": jitter_translate}
+                            if jitter_translate is not None else {}))
+        print(f"[aug] override erase_p={policy.erase_p} bg_p={policy.bg_p} "
+              f"jitter_translate={policy.jitter_translate}")
     # Packed memmap loader (training.pack): if the dataset was `chesslab dataset pack`ed, read
     # crops from ONE memmap instead of 1M per-item Image.open (the I/O bottleneck). Not used for
     # bg-randomization (packed is for the big synth pretrain, bg_p=0); the finetune stays per-PNG.
@@ -410,6 +414,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         # from its config: `lr` is where the cosine STARTS and `epochs` is its period, so two runs
         # with identical `lr` and different `epochs` never saw the same rate at the same step.
         "sched": sched, "sched_t_max": epochs if sched != "none" else None,
+        # The augmentation the run actually used, not the config default it started from.
+        "aug_jitter_translate": policy.jitter_translate,
         "seed": seed, "amp": amp, "norm": norm_eff, "classes": classes, "out_size": list(out_size),
         "dataset": dataset, "resumed_from": resumed_from, "head": head,
         # What SERVING must reproduce. `normalize.mode` "per_crop" ignores mean/std entirely, and
