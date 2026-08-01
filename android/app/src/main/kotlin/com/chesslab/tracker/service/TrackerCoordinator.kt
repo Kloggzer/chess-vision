@@ -62,7 +62,7 @@ class TrackerCoordinator(
         publisher.publish(host::status, host.fen(), events, (result as? FrameResult.Skipped)?.note)
         observer.onFrameAvailable()
         align.maybeAlign(bus, delivered)
-        timings.endFrame()
+        timings.endFrame((result as? FrameResult.Skipped)?.note, pipeline.lastLuma())
     }
 
     /** 06a's calibration result. The corner swap is what the pipeline reads on its next frame. */

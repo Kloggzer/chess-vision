@@ -13,6 +13,7 @@ import com.chesslab.geometry.warpBoardForCrops
 import com.chesslab.geometry.warpFromCorners
 import org.opencv.core.Core
 import org.opencv.core.Mat
+import org.opencv.imgproc.Imgproc
 
 // The two warps of entry.md invariant 1, and the OpenCV half of the frame pipeline.
 //
@@ -108,6 +109,9 @@ class CameraStages(
     private val motion = RoiMotion(config.motionMargin, config.motionPxThr)
     private var frame: Mat? = null
     private var warped: Mat? = null
+
+    /** Owned and reused, like every other Mat here — released with the rest. */
+    private var lumaScratch: Mat? = null
     private var grayMat: Mat? = null
 
     // The two seam planes are recycled, not reallocated (see PlaneRing.kt). One ring each: they have
@@ -143,8 +147,26 @@ class CameraStages(
         return ok
     }
 
-    /** Mean luma of the detection warp, measured BEFORE CLAHE — the dark-frame gate's whole point. */
-    override fun lumaPreClahe(): Double = Core.mean(detectionWarp()).`val`[0]
+    /**
+     * Mean luma of the detection warp, measured BEFORE CLAHE — the dark-frame gate's whole point.
+     *
+     * The conversion is not optional. `detectionWarp()` is CV_8UC3 BGR, so `Core.mean` returns one
+     * mean per channel and `.val[0]` is the mean of **blue** — which this did for as long as the
+     * gate has existed, while the KDoc claimed luma and the clip harness
+     * (`sim/ClipPipeline.meanLuma`) and the Python original both convert first.
+     *
+     * Blue is not a stand-in for brightness under warm light, and warm light is a target condition:
+     * a session recorded 2026-07-31 measures R:B 51 against the corpus's 1.1, mean blue 4 of 255 on
+     * a board whose true luma is 56. Against `darkLumaThr = 18` that reads "frame too dark" over a
+     * well-lit board, and detection pauses while the preview keeps updating — which is exactly what
+     * it looked like on the device.
+     */
+    override fun lumaPreClahe(): Double {
+        val warp = detectionWarp()
+        val dst = lumaScratch ?: Mat().also { lumaScratch = it }
+        Imgproc.cvtColor(warp, dst, Imgproc.COLOR_BGR2GRAY)
+        return Core.mean(dst).`val`[0]
+    }
 
     override fun grayDet(): GrayImage {
         // `gray` owns and reuses the destination; `grayMat` only aliases it for `gridCoverage`.
@@ -205,6 +227,8 @@ class CameraStages(
         motion.close()
         warped?.release()
         warped = null
+        lumaScratch?.release()
+        lumaScratch = null
         frame = null
         grayMat = null
     }

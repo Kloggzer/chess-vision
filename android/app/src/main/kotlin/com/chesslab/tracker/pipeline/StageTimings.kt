@@ -118,20 +118,33 @@ class StageTimings(
      * still costs a convert, a warp and a status publish, and logging only the emitted ones hid
      * that cost entirely whenever the board was dark or the markers were lost.
      */
-    fun endFrame() {
+    fun endFrame(
+        skipNote: String? = null,
+        luma: Double = -1.0,
+    ) {
         mark(Stage.POST)
         mark(Stage.FRAME)
-        maybeLog()
+        maybeLog(skipNote, luma)
         lastEnd = nowNs()
     }
 
     /** One line per second, so the perf log stays readable at 15-30 fps. The first frame logs. */
-    fun maybeLog() {
+    fun maybeLog(
+        skipNote: String? = null,
+        luma: Double = -1.0,
+    ) {
         val now = nowNs()
         if (lastLog == 0L || now - lastLog >= LOG_INTERVAL_NS) {
             lastLog = now
             val stages = Stage.entries.joinToString(" ") { "${it.name.lowercase()}=${stageValue(it)}" }
-            logLine("$stages fps=${format(fps)} idle=${format(idle)}")
+            // WHY the frame ended as it did, and the number that decided it. A dash for gray/motion
+            // /grid says a frame was skipped and says nothing about which of the three exits took
+            // it; `skip=` distinguishes all of them and `luma=` carries the dark gate's own input,
+            // so a bright board reading luma=6 is visible without opening the app. One nullable
+            // string and one double per second.
+            val why = if (skipNote != null) " skip=$skipNote" else " skip=-"
+            val lum = if (luma >= 0) " luma=${format(luma)}" else ""
+            logLine("$stages fps=${format(fps)} idle=${format(idle)}$why$lum")
         }
     }
 
