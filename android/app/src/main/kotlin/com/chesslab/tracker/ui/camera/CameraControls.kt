@@ -173,7 +173,12 @@ fun CameraDial(
         // the slider is over the bottom of the screen: a number under the thumb is a number you
         // lift your hand to read, on the one screen where the picture must not be let go of.
         DialReading(caption, reading)
+        // Inset from the screen edge. A slider whose track runs to the bezel puts its end stops
+        // where the palm rests and where an edge-swipe gesture lives, so the last part of the
+        // travel is the part you cannot reach comfortably — on a phone that is being held over a
+        // board with one hand, that is most of the time.
         Slider(
+            modifier = Modifier.padding(horizontal = SLIDER_INSET),
             value = shown.coerceIn(range.start, range.endInclusive),
             onValueChange = { dragged = it },
             onValueChangeFinished = {
@@ -247,5 +252,9 @@ fun CameraNote(text: String) {
 
 private const val PERCENT = 100f
 private const val AUTO = "Auto"
+
+/** Distance from the screen edge to a slider's end stop — see the comment at its use site. */
+private val SLIDER_INSET = 20.dp
+
 private const val TILE_MIN = 56
 private const val TILE_CORNER = 12
