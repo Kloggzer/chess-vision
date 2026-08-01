@@ -51,7 +51,12 @@ internal fun resolveNote(
             "Position lost — tracking paused" +
                 (alarm.guessSan?.let { ", the board looks like $it" } ?: "") +
                 ". Open the app to fix it."
-        status.stuckReason != null -> "stuck: ${status.stuckReason}"
+        // `EngineHost.tick` runs the engine only on a delivered frame, so `stuckReason` is stale BY
+        // CONSTRUCTION exactly when a pipeline note exists — it describes the last frame that got
+        // through, not this one. Ranked ahead of it, "frame too dark — detection paused" hid behind
+        // a `too_many_changed` left over from the last hand that crossed the board: the stale one
+        // is unactionable and the live one names what to do.
+        status.stuckReason != null && pipelineNote == null -> "stuck: ${status.stuckReason}"
         // Above `Down` because it is not a fault and must not promise a retry: nothing brings the
         // camera back but the user.
         camera is CameraHealth.Off -> "tracking stopped — the camera is released"

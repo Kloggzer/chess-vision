@@ -70,7 +70,7 @@ private fun EngineState.discardOnAlarm(): List<TrackerEvent> {
 
 /** The CNN-unavailable path commits with the plain diff deciders — no verdict was ever reached. */
 private fun EngineState.fallbackCommit(pend: PendingVerify): List<TrackerEvent> {
-    val moves = pend.ucis.mapNotNull { legalMoveFor(it) }
+    val moves = pendingMoves(pend.ucis)
     return when {
         moves.isEmpty() -> emptyList()
         moves.size == 1 -> listOf(commitMove(moves[0], pend.cur, pend.curBgr))
@@ -83,7 +83,7 @@ private fun EngineState.evaluate(
     snap: CnnSnapshot,
     pend: PendingVerify,
 ): List<TrackerEvent> {
-    val moves = pend.ucis.mapNotNull { legalMoveFor(it) }
+    val moves = pendingMoves(pend.ucis)
     return when {
         moves.isEmpty() -> emptyList()
         moves.size > 1 -> VerifyPair.tick(this, cnn, moves, board.copy(), snap)

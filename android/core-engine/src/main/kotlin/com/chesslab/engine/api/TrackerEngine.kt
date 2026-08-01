@@ -47,7 +47,7 @@ const val STARTPOS = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 private const val STUCK_OCCLUDED = "occluded"
 
 /** `_mark_stuck("cnn_desync")` — the Bxc3 guard. */
-private const val STUCK_CNN_DESYNC = "cnn_desync"
+internal const val STUCK_CNN_DESYNC = "cnn_desync"
 
 private const val NOTE_WAITING_OCCLUDED = "waiting for occluded squares to clear…"
 

@@ -117,7 +117,7 @@ internal fun EngineState.applyVerdict(
     anchor: CommitAnchor? = null,
 ): List<TrackerEvent> {
     val at = anchor ?: CommitAnchor(pend.cur, pend.curBgr)
-    val moves = verdict.replacement ?: pend.ucis.mapNotNull { legalMoveFor(it) }
+    val moves = verdict.replacement ?: pendingMoves(pend.ucis)
     pending = null
     return when {
         moves.isEmpty() -> emptyList()
@@ -138,6 +138,33 @@ internal fun EngineState.applyVerdict(
 
 /** The legal move with this uci in the CURRENT position, or `null`. */
 internal fun EngineState.legalMoveFor(uci: String): Move? = board.legalMoves().firstOrNull { uciOf(it) == uci }
+
+/**
+ * A pending candidate's ucis as moves — resolved IN SEQUENCE, not all against the current position.
+ *
+ * `_pending_ucis` is a list of one or two: for a pair (fast play) the second entry is the
+ * OPPONENT's reply, generated on the board after the first was pushed. In the pre-move position its
+ * from-square still holds an enemy piece, so `legalMoveFor` — legal in the CURRENT position —
+ * always returned null for it. `mapNotNull` then silently dropped the reply, every pair collapsed
+ * to `size == 1`, `VerifyPair.tick` became unreachable, and the commit anchored the reference on a
+ * frame that already showed BOTH half-moves: the reply was baked into the reference and could never
+ * be detected again. A silent, permanent one-ply desync, on the path built to prevent exactly that,
+ * and only with the CNN attached (`pairBeforeSingle` runs `if (cnnOn)`).
+ *
+ * Python does not filter at all — `[chess.Move.from_uci(u) for u in ...]` (`tracker.py:2194`).
+ * Resolving against a detached copy, pushing as we go, is the same thing without hand-building a
+ * `Move` and guessing its promotion piece: each uci is matched where it was generated.
+ */
+internal fun EngineState.pendingMoves(ucis: List<String>): List<Move> {
+    val probe = board.copy()
+    val out = mutableListOf<Move>()
+    for (uci in ucis) {
+        val move = probe.legalMoves().firstOrNull { uciOf(it) == uci } ?: break
+        out += move
+        probe.push(move)
+    }
+    return out
+}
 
 /** `_changed_vals`: the debug list of squares at or just below `z_thr`. */
 internal fun topChangedVals(

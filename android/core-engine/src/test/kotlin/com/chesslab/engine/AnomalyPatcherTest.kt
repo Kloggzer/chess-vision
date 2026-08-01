@@ -1,5 +1,7 @@
 package com.chesslab.engine
 
+import com.chesslab.engine.api.STUCK_CNN_DESYNC
+import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.tryDetect
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -40,6 +42,28 @@ class AnomalyPatcherTest {
         state.tryDetect(cur, null, seq = 2)
         assertEquals(STUCK_NO_LEGAL_MOVE, state.stuckReason)
         assertEquals(ofSquares("e4"), state.changed)
+    }
+
+    @Test
+    fun aDesyncedBoardIsNeverPatched() {
+        // The patcher absorbs shadow and drift, and a square that differs because the PHYSICAL
+        // board moved on looks identical to it. Healing that into the reference makes the diff
+        // channel agree with the wrong position permanently — the silent desync the quiet-re-anchor
+        // veto exists to prevent, on a path the veto never covered.
+        for (desync in listOf("alarm", "stuck")) {
+            val state = detectState(ref = grayFrame())
+            val ref = requireNotNull(state.refGray)
+            val before = ref.data.copyOf()
+            state.nowS = 100.0
+            state.armAnomaly("e2")
+            if (desync == "alarm") {
+                state.alarm = TrackerEvent.Alarm("illegal_move", listOf("e2", "e4"), null, null)
+            } else {
+                state.stuckReason = STUCK_CNN_DESYNC
+            }
+            state.maybePatchAnomaly(bestLl = -1.0, cur = grayFrame(listOf("e2")), curBgr = null)
+            assertTrue(before.contentEquals(ref.data), "the reference must not be patched while $desync")
+        }
     }
 
     @Test

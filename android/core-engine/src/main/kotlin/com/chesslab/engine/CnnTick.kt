@@ -71,7 +71,7 @@ private fun EngineState.applyRead(
     hasIdentity: Boolean,
 ): List<TrackerEvent> =
     when {
-        read.matchOk -> onMatchOk(snap)
+        read.matchOk -> onMatchOk(cnn, snap)
         read.inconclusive -> {
             // Too occluded to make a statement — and occlusion breaks the desync streak.
             recoveryConfirmer.reset()
@@ -146,7 +146,21 @@ private fun EngineState.occupancyRead(
  * shadow or drift. Pull the reference forward, commit NO move — and release the latch, because a
  * matching board is the take-back the alarm was waiting for.
  */
-private fun EngineState.onMatchOk(snap: CnnSnapshot): List<TrackerEvent> {
+private fun EngineState.onMatchOk(
+    cnn: CnnEvaluator,
+    snap: CnnSnapshot,
+): List<TrackerEvent> {
+    // A glance that saw nothing cannot report "unchanged". `resyncCheckFull` builds its conflict
+    // set from CONFIDENT squares only, so zero confident squares yields an empty set, `match =
+    // true` and agreement 1.0 — a hand over the board then clears the alarm and pulls the
+    // reference onto the covered frame. The verify ladder has guarded exactly this with
+    // `minConfidentBoard` since it was written (`VerifySingle` rung 1); the periodic check never
+    // did, and Python does not either.
+    if (Squares.ALL.count { snap.obs.confident(it, cnn.confThr) } < cnn.minConfidentBoard) {
+        cnnStatus = CNN_STATUS_OK
+        note = "CNN: too little of the board is legible to confirm it — holding"
+        return emptyList()
+    }
     cnnStatus = CNN_STATUS_OK
     cnnConflicts = emptyList()
     val events = mutableListOf<TrackerEvent>()

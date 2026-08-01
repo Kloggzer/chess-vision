@@ -2,6 +2,7 @@ package com.chesslab.engine
 
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.GrayImage
+import com.chesslab.engine.api.STUCK_CNN_DESYNC
 
 /** The occupied-square reason. */
 private const val WHY_RESIDUE = "piece moved/hand residue"
@@ -55,7 +56,13 @@ internal fun EngineState.maybePatchAnomaly(
     anomalySince = hot
 
     val n = hot.countOneBits()
-    val eligible = n > 0 && bestLl < 0.0 && n <= config.maxChanged + CHANGED_CEILING_SLACK
+    // Never patch while the CNN says the board disagrees with the game state. The patcher exists
+    // to absorb shadow and drift; a square that differs because the PHYSICAL board moved on looks
+    // exactly the same to it, and healing that into the reference makes the diff channel agree
+    // with the wrong position permanently — the silent desync the quiet-re-anchor veto exists to
+    // prevent, on a path the veto does not cover.
+    val desynced = alarm != null || stuckReason == STUCK_CNN_DESYNC
+    val eligible = n > 0 && bestLl < 0.0 && n <= config.maxChanged + CHANGED_CEILING_SLACK && !desynced
     val ref = refGray
     if (ref != null && eligible) {
         val result = patchDueSquares(hot, ref, cur, curBgr)

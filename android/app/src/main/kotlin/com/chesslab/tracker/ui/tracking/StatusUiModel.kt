@@ -177,13 +177,15 @@ private fun stateTone(state: String): StateTone =
     }
 
 /**
- * One line, two candidates. The stuck reason wins because it is the engine refusing to proceed;
- * the note is commentary on a loop that is still running.
+ * The one line, already resolved.
+ *
+ * `StatusPublisher.resolveNote` is the single ranked resolver — alarm, then stuck, then the camera,
+ * the CNN, the size mismatch and the pipeline. This used to rank `stuckReason` above `status.note`
+ * a second time, which discarded the top rung: a latched alarm always sets `stuck: no_legal_move`,
+ * so the board went red while the prose beside it explained something else. Two resolvers for one
+ * slot is one too many.
  */
-private fun infoLine(status: TrackerStatus): String? {
-    val stuck = status.stuckReason
-    return if (stuck != null) "stuck: $stuck" else status.note
-}
+private fun infoLine(status: TrackerStatus): String? = status.note
 
 /**
  * The headline rate, and it is NOT always the engine's.
