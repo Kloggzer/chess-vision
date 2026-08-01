@@ -5,8 +5,11 @@ import androidx.camera.core.ImageProxy
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.MarkerTracker
+import com.chesslab.geometry.applyGridCorrection
 import com.chesslab.geometry.boardCornersForFrame
 import com.chesslab.geometry.cornersToFlat
+import com.chesslab.geometry.gridCorrection
+import com.chesslab.geometry.improveQuad
 import com.chesslab.tracker.camera.DeliveredSize
 import com.chesslab.tracker.camera.FrameSink
 import com.chesslab.tracker.cnn.CnnObserver
@@ -16,6 +19,7 @@ import com.chesslab.tracker.pipeline.Stage
 import com.chesslab.tracker.pipeline.StageTimings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import org.opencv.core.Mat
 import java.util.concurrent.atomic.AtomicReference
 
 private const val TAG = "chesslabTracker"
@@ -127,6 +131,14 @@ class LiveAlign(
     private var frames = 0L
     private var size: DeliveredSize? = null
 
+    /** Rectified-space grid correction; null until measured, and null forever if unmeasurable. */
+    @Volatile
+    private var correction: DoubleArray? = null
+
+    /** Measured at most ONCE per calibration — a failed measurement must not retry every align. */
+    @Volatile
+    private var correctionTried = false
+
     @Volatile
     private var inFlight = false
 
@@ -148,16 +160,62 @@ class LiveAlign(
         val current = tracker
         scope.launch {
             runCatching { boardCornersForFrame(frame, geometry(), current, detectScale = cfg.alignScale) }
-                .onSuccess { corners -> corners?.let { onCorners(cornersToFlat(it)) } }
+                .onSuccess { corners -> corners?.let { onCorners(cornersToFlat(onGrid(frame, it))) } }
                 .onFailure { Log.w(TAG, "live align failed", it) }
             frame.release()
             inFlight = false
         }
     }
 
-    /** A new calibration invalidates the smoothed markers outright. */
+    /**
+     * The ArUco quad pulled back onto the board's own grooves.
+     *
+     * Without this the calibration-time refinement is decoration: [maybeAlign] re-derives the quad
+     * from the markers every `alignEvery` frames — ~0.2 s at 15 fps — and knows nothing about
+     * grooves, so it overwrote the refined corners almost immediately and every crop was cut with
+     * the geometry the refinement exists to remove.
+     *
+     * MEASURED once per calibration (~80 ms at boardSize 1600, here on the align dispatcher with
+     * one detection in flight, so it costs at most one skipped align), then RE-APPLIED for free:
+     * four points through a 3x3. Measuring here rather than carrying the value from the calibration
+     * screen also means it is re-established after an app restart, where the screen never runs.
+     *
+     * The correction lives in rectified space, which is what lets it transfer to a quad it was not
+     * measured on — the whole live case, since the markers move a little between detections.
+     * `specs/30` measured that residual as systematic per setup and differing in sign between
+     * setups, i.e. exactly a per-calibration constant.
+     */
+    private fun onGrid(
+        frame: Mat,
+        corners: List<DoubleArray>,
+    ): List<DoubleArray> {
+        val geom = geometry()
+        if (correction == null && !correctionTried) {
+            correctionTried = true
+            val fixed = improveQuad(frame, corners, geom).quad
+            correction = fixed?.let { gridCorrection(corners, it, geom) }
+            Log.i(
+                TAG,
+                if (correction == null) {
+                    "grid correction: none — the board's grid is already on the squares, or unreadable"
+                } else {
+                    "grid correction measured and carried onto every alignment"
+                },
+            )
+        }
+        val fix = correction ?: return corners
+        return applyGridCorrection(fix, corners, geom) ?: corners
+    }
+
+    /**
+     * A new calibration invalidates the smoothed markers outright, and the grid correction with
+     * them — it is a property of THIS board under THIS lens, and a recalibration is the user
+     * saying that changed.
+     */
     fun reset(delivered: DeliveredSize) {
         tracker = MarkerTracker()
         size = delivered
+        correction = null
+        correctionTried = false
     }
 }

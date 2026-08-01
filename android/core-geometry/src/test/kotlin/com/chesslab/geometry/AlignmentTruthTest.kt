@@ -361,6 +361,57 @@ class AlignmentTruthTest {
         assertTrue(drift < 1.0, "an already-correct quad was moved $drift px")
     }
 
+    /**
+     * The correction has to SURVIVE live alignment, which is what makes the refinement more than
+     * decoration.
+     *
+     * `boardCornersForFrame` re-derives the quad from the ArUco markers every three frames and
+     * knows nothing about grooves, so a refined quad written into the pipeline is overwritten
+     * within ~0.2 s. Re-measuring at that cadence is not affordable; re-applying is four points
+     * through a 3x3. This asserts the cheap path reproduces the expensive one.
+     */
+    @Test
+    fun theCorrectionReappliedReproducesTheRefinement() {
+        val geom = geometry()
+        val f = frame()
+        val bent = bend(TRUTH, shear(0.6))
+        val refinedQuad = correctQuad(f, bent, geom)!!
+        val correction = gridCorrection(bent, refinedQuad, geom)
+        assertNotNull(correction, "the two quads must define a usable correction")
+
+        val reapplied = applyGridCorrection(correction!!, bent, geom)
+        assertNotNull(reapplied)
+        val drift =
+            reapplied!!.indices.maxOf { i ->
+                max(abs(reapplied[i][0] - refinedQuad[i][0]), abs(reapplied[i][1] - refinedQuad[i][1]))
+            }
+        assertTrue(drift < 0.01, "re-applying the correction landed $drift px away from the refinement")
+        f.release()
+    }
+
+    /**
+     * And it has to hold on a quad the correction was NOT measured on — that is the live case: the
+     * markers move a little between aligns, and the grid residual is a property of the board and
+     * the lens, not of where the quad currently sits.
+     */
+    @Test
+    fun theCorrectionTransfersToAQuadItWasNotMeasuredOn() {
+        val geom = geometry()
+        val f = frame()
+        val bent = bend(TRUTH, shear(0.6))
+        val correction = gridCorrection(bent, correctQuad(f, bent, geom)!!, geom)!!
+
+        // The same board seen through a quad nudged the way a marker re-detection nudges it.
+        val nudged = bent.map { doubleArrayOf(it[0] + 1.5, it[1] - 1.0) }
+        val corrected = applyGridCorrection(correction, nudged, geom)
+        assertNotNull(corrected)
+        assertTrue(
+            worstOffset(f, corrected!!, geom) < worstOffset(f, nudged, geom),
+            "the carried correction made a fresh quad worse, not better",
+        )
+        f.release()
+    }
+
     @Test
     fun correctQuadGivesUpOnABlankFrame() {
         val geom = geometry()

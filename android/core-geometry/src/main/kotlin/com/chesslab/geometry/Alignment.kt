@@ -40,6 +40,9 @@ private const val LATTICE_LINES: Int = BOARD_SIDE - 1
 
 private const val BYTE_MASK: Int = 0xFF
 
+/** Elements of a row-major 3x3. */
+internal const val H_ELEMENTS: Int = 9
+
 /** The board's real line positions per axis, plus the tilt of each axis. */
 class LineGeometry(
     /** 9 vertical-line x positions; index 0 and 8 are pinned, interior ones may be `NaN`. */
@@ -384,12 +387,12 @@ fun improveQuad(
     return QuadImprovement(if (better) fixed else null, before, after)
 }
 
-private fun homographyOf(
+internal fun homographyOf(
     quad: List<DoubleArray>,
     geom: BoardGeometry,
 ): DoubleArray {
     val h = computeHomography(quad, geom.boardSize, geom.margin)
-    val out = DoubleArray(9)
+    val out = DoubleArray(H_ELEMENTS)
     h.get(0, 0, out)
     h.release()
     return out
