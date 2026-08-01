@@ -79,6 +79,16 @@ internal fun EngineState.clearStuck() {
 
 /** Python `_mark_stuck` — the streak counts REPEATS of the same reason. */
 internal fun EngineState.markStuck(reason: String) {
-    stuckCount = if (stuckReason == reason) stuckCount + 1 else 1
+    val entered = stuckReason != reason
+    stuckCount = if (entered) 1 else stuckCount + 1
     stuckReason = reason
+    // Only on the TRANSITION: this fires on every stable frame, and `recordRejection`'s fold would
+    // collapse the repeats anyway, but writing the row once keeps the log at one line per event.
+    //
+    // Without it the log is ambiguous in the worst place. On 2026-08-01 a move took 16.5 s and the
+    // window between the two commits held nothing at all — no rejection, no candidate, only CNN
+    // observations ticking past. "Blocked before a candidate could form" and "nothing happened"
+    // looked identical, and the reason (8 changed squares against `maxChanged`, until the shadow
+    // veto knocked three out) could only be inferred from the PREVIOUS commit's `stuck=` field.
+    if (entered) recordRejection("", "STUCK $reason")
 }

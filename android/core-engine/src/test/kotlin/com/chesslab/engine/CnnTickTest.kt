@@ -204,7 +204,9 @@ class CnnTickTest {
         val events = state.cnnTick(cnn, recoverySnap(state, obsForBoard(state.board), 1, grayFrame()))
         assertEquals(listOf("e4", "e5"), state.history)
         assertEquals("e7e5", state.lastMove)
-        assertEquals(1, state.decisionLog.size, "provenance is recorded ONCE, on the last move")
+        // COMMIT rows, not every row: `markStuck` now writes its own provenance line on the
+        // transition, and the state this test starts from is a stuck one.
+        assertEquals(1, state.decisionLog.count { it.accepted }, "provenance is recorded ONCE, on the last move")
         assertTrue(events.any { it is TrackerEvent.SequenceCommitted })
     }
 
