@@ -1,14 +1,12 @@
 package com.chesslab.tracker.camera
 
 import android.hardware.camera2.CameraCaptureSession
-import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.TotalCaptureResult
 import android.util.Log
 import androidx.camera.camera2.interop.Camera2CameraControl
-import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.CaptureRequestOptions
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
@@ -138,15 +136,16 @@ class OpticsLock(
     }
 
     /**
-     * Adopt the bound camera and pin the zoom.
+     * Adopt the bound camera and re-assert the zoom.
      *
-     * Zoom is the one member of this set that needs no convergence — 1.0 is the calibrated state by
-     * definition, since the profile's marker quad was measured at whatever zoom was in force. It is
-     * also the only one a stray UI gesture could change later.
+     * Zoom is the one member of this set that needs no convergence — it is a stated value, not a
+     * measured one. It used to be pinned to 1.0 here, which is the calibrated state by default
+     * since the profile's marker quad was measured at whatever zoom was in force; the camera screen
+     * can now set it, so the WANT is re-asserted instead (default 1.0, so nothing changes for
+     * anyone who never touched it). Changing it invalidates the board geometry — see [CameraLook].
      */
     fun attach(camera: Camera) {
         this.camera = camera
-        camera.cameraControl.setZoomRatio(1.0f)
         looks.attach(camera)
     }
 
@@ -243,8 +242,6 @@ class OpticsLock(
      */
     private fun applyOptions() {
         val builder = CaptureRequestOptions.Builder()
-        val distance = focusDistance
-        var what = "not locked yet"
         if (engaged) {
             builder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, true)
             // AWB_LOCK freezes the white-balance ALGORITHM at its last values, which on this device
@@ -253,35 +250,37 @@ class OpticsLock(
             // while both differed from automatic. A pinned illuminant does not drift, so the lock
             // buys nothing there and costs the whole control.
             builder.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, !looks.illuminantPinned)
-            what = "locked: exposure, white balance"
-            if (distance != null && hasFocuser()) {
-                // AF_MODE_OFF alone would leave the lens wherever it happens to be; the distance
-                // the device just converged on is the value that keeps the CURRENT picture sharp.
-                builder
-                    .setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
-                    .setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, distance)
-                what = "locked: focus %.3f dpt, exposure, white balance".format(distance)
-            }
         }
-        // The one axis CameraX has no API for. A PRESET, not per-channel gains: the device applies
-        // the gains AND the colour matrix its own tuning holds for that illuminant — see CameraLook.
+        // Focus, from whichever of the two sources has one. A MANUAL distance wins over the
+        // converged one and needs no freeze — it is a stated value, so it holds from the moment it
+        // is set. Automatic focus is pinned only once the lock is earned, at the distance the
+        // device itself converged on: `AF_MODE_OFF` alone would leave the lens wherever it happens
+        // to be, and a refocus between the reference frame and the current one changes every edge
+        // on the board at once.
+        val distance = looks.focusDiopters() ?: focusDistance.takeIf { engaged && looks.canFocus }
+        distance?.let {
+            builder
+                .setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
+                .setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, it)
+        }
+        // The one colour axis CameraX has no API for. A PRESET, not per-channel gains: the device
+        // applies the gains AND the colour matrix its own tuning holds for it — see CameraLook.
         looks.awbMode()?.let { builder.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, it) }
-        apply(builder.build(), "$what${lookSaid()}")
+        apply(builder.build(), said(distance))
     }
 
-    private fun lookSaid(): String {
+    private fun said(distance: Float?): String {
+        val head = if (engaged) "locked: exposure, white balance" else "not locked yet"
+        val focus = distance?.let { ", focus %.3f dpt%s".format(it, if (looks.look.value.focus != null) " manual" else "") } ?: ""
         val look = looks.look.value
-        if (look.isAuto) return ""
-        val ev = looks.exposure.value?.let { "%+.1f EV".format(it.ev(look.evIndex)) } ?: "index ${look.evIndex}"
+        val ev =
+            looks.abilities.value
+                ?.exposure
+                ?.let { "%+.1f EV".format(it.ev(look.evIndex)) } ?: "index ${look.evIndex}"
         val brightness = if (look.evIndex == 0) "" else ", $ev"
         val colour = if (look.whiteBalance == WhiteBalance.AUTO) "" else ", ${look.whiteBalance.label}"
-        return "$brightness$colour"
-    }
-
-    private fun hasFocuser(): Boolean {
-        val info = camera?.cameraInfo ?: return false
-        val min = Camera2CameraInfo.from(info).getCameraCharacteristic(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE)
-        return min != null && min > 0f
+        val zoom = if (look.zoomRatio == 1f) "" else ", %.1fx zoom".format(look.zoomRatio)
+        return "$head$focus$brightness$colour$zoom"
     }
 
     private fun apply(

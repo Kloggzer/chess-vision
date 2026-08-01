@@ -26,6 +26,7 @@ import com.chesslab.tracker.pipeline.StageTimings
 import com.chesslab.tracker.settings.AppSettings
 import com.chesslab.tracker.settings.DataStoreConfigStore
 import com.chesslab.tracker.settings.SettingsRepository
+import com.chesslab.tracker.settings.cameraLook
 import com.chesslab.tracker.speech.MoveAnnouncer
 import com.chesslab.tracker.speech.androidSpeechEngine
 import com.chesslab.tracker.ui.debug.DebugSessionHost
@@ -277,6 +278,10 @@ class TrackerService :
     /** Persisted truth first, then the stack, then the camera — a frame with no stack is wasted. */
     private suspend fun start() {
         settings.load()
+        // The saved picture, straight onto the camera. The port holds it as a WANT even before a
+        // device is bound and re-asserts it on every rebind, so this is the only place the stored
+        // value has to be handed over.
+        camera.look.setLook(settings.appSettings.value.cameraLook())
         // Before the geometry, because the geometry follows it.
         modelSpec = declaredModelSpec(this, settings.appSettings.value)
         geometry = adoptStoredOrientation(calibration, settings).withCropSizeOf(modelSpec)

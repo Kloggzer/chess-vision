@@ -15,37 +15,62 @@ import org.junit.jupiter.api.Test
  * here is the part a JVM can actually decide.
  */
 class CameraLookTest {
+    private val phone =
+        CameraAbilities(
+            exposure = ExposureRange(-24..24, 1f / 6f),
+            zoom = 1f..8f,
+            minFocusDiopters = 10f,
+            whiteBalance = WhiteBalance.entries,
+            hasTorch = true,
+        )
+
     @Test
-    fun untouchedIsAutomaticOnBothAxes() {
+    fun untouchedIsAutomaticOnEveryAxis() {
         assertTrue(CameraLook().isAuto)
         assertTrue(!CameraLook(evIndex = 4).isAuto, "one axis set is not automatic")
         assertTrue(!CameraLook(whiteBalance = WhiteBalance.DAYLIGHT).isAuto)
+        assertTrue(!CameraLook(zoomRatio = 2f).isAuto)
+        assertTrue(!CameraLook(focus = 0f).isAuto, "a manual focus AT infinity is still manual")
     }
 
     /** The step is a device property; ±24 indices at 1/6 EV is the ±4 EV this phone advertises. */
     @Test
     fun exposureIsReportedInEvNotInIndices() {
-        val range = ExposureRange(-24..24, 1f / 6f)
-        assertEquals(4.0f, range.ev(24), 1e-4f)
-        assertEquals(-4.0f, range.ev(-24), 1e-4f)
-        assertEquals(0.0f, range.ev(0), 1e-4f)
+        assertEquals(4.0f, phone.exposure!!.ev(24), 1e-4f)
+        assertEquals(-4.0f, phone.exposure!!.ev(-24), 1e-4f)
+        assertEquals(0.0f, phone.exposure!!.ev(0), 1e-4f)
     }
 
     /**
-     * A stored index can outlive the camera it was chosen on — a different lens, a different device,
-     * a settings file restored from a backup. Clamping is what keeps it from being sent as-is.
+     * A stored value can outlive the camera it was chosen on — a different lens, a settings file
+     * restored from a backup, a phone whose zoom stops at 4x. Clamping is what keeps it from being
+     * sent as-is.
      */
     @Test
-    fun aStoredIndexIsClampedToWhateverThisCameraOffers() {
-        val range = ExposureRange(-12..12, 1f / 3f)
-        assertEquals(12, CameraLook(evIndex = 400).clampedTo(range).evIndex)
-        assertEquals(-12, CameraLook(evIndex = -400).clampedTo(range).evIndex)
-        assertEquals(5, CameraLook(evIndex = 5).clampedTo(range).evIndex)
+    fun aStoredValueIsClampedToWhateverThisCameraOffers() {
+        val wild = CameraLook(evIndex = 400, zoomRatio = 99f, focus = 5f, whiteBalance = WhiteBalance.SHADE)
+        val fitted = wild.clampedTo(phone)
+        assertEquals(24, fitted.evIndex)
+        assertEquals(8f, fitted.zoomRatio)
+        assertEquals(1f, fitted.focus)
+        assertEquals(WhiteBalance.SHADE, fitted.whiteBalance)
     }
 
-    /** Before a camera is bound there is no range to clamp against, and a guess would be worse. */
+    /**
+     * An axis the device does not have is not clamped, it is DROPPED — a fixed-focus lens has no
+     * distance to hold, and a camera with no exposure compensation would silently ignore an index.
+     */
     @Test
-    fun withNoRangeTheValueIsLeftAlone() {
+    fun anUnsupportedAxisFallsBackToAutomatic() {
+        val bare = CameraAbilities()
+        val fitted = CameraLook(evIndex = 6, zoomRatio = 3f, focus = 0.5f, whiteBalance = WhiteBalance.CLOUDY).clampedTo(bare)
+        assertEquals(CameraLook(), fitted)
+        assertTrue(fitted.isAuto)
+    }
+
+    /** Before a camera is bound there is nothing to clamp against, and a guess would be worse. */
+    @Test
+    fun withNoAbilitiesTheValueIsLeftAlone() {
         assertEquals(400, CameraLook(evIndex = 400).clampedTo(null).evIndex)
     }
 
@@ -62,12 +87,20 @@ class CameraLookTest {
 
     @Test
     fun eachPresetMapsToItsOwnIlluminant() {
+        assertEquals(CameraMetadata.CONTROL_AWB_MODE_DAYLIGHT, CameraLookControl.awbModeFor(WhiteBalance.DAYLIGHT))
+        assertEquals(CameraMetadata.CONTROL_AWB_MODE_SHADE, CameraLookControl.awbModeFor(WhiteBalance.SHADE))
+        assertEquals(CameraMetadata.CONTROL_AWB_MODE_INCANDESCENT, CameraLookControl.awbModeFor(WhiteBalance.INCANDESCENT))
+        assertNull(CameraLookControl.awbModeFor(WhiteBalance.AUTO))
+    }
+
+    /** A pinned illuminant is what lets a re-measure converge — see `OpticsLock.converged`. */
+    @Test
+    fun aPresetPinsTheIlluminant() {
         val control = CameraLookControl(reissue = {})
         control.setLook(CameraLook(whiteBalance = WhiteBalance.DAYLIGHT))
-        assertEquals(CameraMetadata.CONTROL_AWB_MODE_DAYLIGHT, control.awbMode())
-        assertTrue(control.illuminantPinned, "a pinned illuminant is what lets a re-measure converge")
-        control.setLook(CameraLook(whiteBalance = WhiteBalance.SHADE))
-        assertEquals(CameraMetadata.CONTROL_AWB_MODE_SHADE, control.awbMode())
+        assertTrue(control.illuminantPinned)
+        control.setLook(CameraLook())
+        assertTrue(!control.illuminantPinned)
     }
 
     /**
@@ -82,5 +115,32 @@ class CameraLookTest {
         control.setLook(CameraLook(evIndex = 6, whiteBalance = WhiteBalance.CLOUDY))
         assertEquals(2, reissues)
         assertEquals(CameraLook(evIndex = 6, whiteBalance = WhiteBalance.CLOUDY), control.look.value)
+    }
+
+    /** 0..1 is infinity..nearest, scaled by the lens's own minimum — a diopter figure is not a UI. */
+    @Test
+    fun automaticFocusSuppliesNoDistanceAtAll() {
+        val control = CameraLookControl(reissue = {})
+        assertNull(control.focusDiopters())
+        control.setLook(CameraLook(focus = 0.5f))
+        // Nothing is bound, so the lens minimum is unknown and the fraction scales onto 0 diopters
+        // — infinity, which is the safe end for a board across a table.
+        assertEquals(0f, control.focusDiopters())
+    }
+
+    /**
+     * Before a camera answers there is no range to clamp against, so the value is kept VERBATIM.
+     *
+     * This is the bug the nullable abilities exist for: `TrackerService` pushes the saved look
+     * before the first bind, and clamping it against an EMPTY ability set reset every axis to
+     * automatic — persistence that looked wired up and restored nothing. The unit test found it;
+     * the device would have shown it as "Save does nothing".
+     */
+    @Test
+    fun aLookSetBeforeTheCameraBindsSurvivesIntact() {
+        val control = CameraLookControl(reissue = {})
+        val stored = CameraLook(evIndex = 6, whiteBalance = WhiteBalance.CLOUDY, zoomRatio = 2f, focus = 0.25f)
+        control.setLook(stored)
+        assertEquals(stored, control.look.value)
     }
 }
