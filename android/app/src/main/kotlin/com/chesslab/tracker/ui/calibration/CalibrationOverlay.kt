@@ -105,10 +105,11 @@ private fun DrawScope.drawQuad(
     corners: FloatArray,
     sx: Float,
     sy: Float,
+    color: Color = Color.Green,
 ) {
     val pts = (0 until QUAD).map { Offset(corners[it * 2] * sx, corners[it * 2 + 1] * sy) }
     for (i in pts.indices) {
-        drawLine(Color.Green, pts[i], pts[(i + 1) % pts.size], strokeWidth = QUAD_STROKE)
+        drawLine(color, pts[i], pts[(i + 1) % pts.size], strokeWidth = QUAD_STROKE)
     }
 }
 
@@ -163,10 +164,11 @@ fun QuadOutline(
     corners: FloatArray?,
     sourceSize: IntSize,
     modifier: Modifier = Modifier,
+    color: Color = Color.Green,
 ) {
     Canvas(modifier) {
         if (corners == null || corners.size != CORNER_FLOATS || sourceSize.width <= 0) return@Canvas
-        drawQuad(corners, size.width / sourceSize.width, size.height / sourceSize.height)
+        drawQuad(corners, size.width / sourceSize.width, size.height / sourceSize.height, color)
     }
 }
 

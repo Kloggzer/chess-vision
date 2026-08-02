@@ -38,8 +38,12 @@ fun FramingOverlay(
         // The same drawing the calibration screen uses, deliberately: the two screens must not
         // disagree about where the board is, and one of them owning the renderer is how that is
         // guaranteed rather than hoped for.
+        // AMBER, against the live outline's green. Two quads on one picture that look alike are
+        // worse than one: this is where the SAVED calibration believes the board is, and the green
+        // is where the camera sees it right now. Their disagreement is the whole signal — if amber
+        // has drifted off the board, the phone or the board moved since the geometry was written.
         profile?.takeIf { canDrawQuad(it, previewWidth, previewHeight) }?.let {
-            QuadOutline(it.corners, IntSize(it.sourceWidth, it.sourceHeight), Modifier.fillMaxSize())
+            QuadOutline(it.corners, IntSize(it.sourceWidth, it.sourceHeight), Modifier.fillMaxSize(), SAVED_QUAD)
         }
     }
 }
@@ -90,6 +94,9 @@ private fun ThirdsGrid(modifier: Modifier) {
         }
     }
 }
+
+/** The saved profile's quad. Amber for "this is the record", against green for "this is now". */
+private val SAVED_QUAD = Color(0xFFFFB300)
 
 private const val THIRDS = 3
 private const val GRID_ALPHA = 0.16f
