@@ -35,6 +35,17 @@ class TrackingViewModel : ViewModel() {
     private val movesState = MutableStateFlow<List<MoveEntry>>(emptyList())
     val moves: StateFlow<List<MoveEntry>> = movesState.asStateFlow()
 
+    private val lastCommitState = MutableStateFlow<List<String>>(emptyList())
+
+    /**
+     * The SANs of the last COMMIT — what one press of Undo takes back, which is not always one ply:
+     * a CNN recovery bridges several at once and the engine unwinds the bridge whole.
+     *
+     * Cleared on undo and on reset, mirroring the engine's own record: it is of the last commit
+     * only, so a second press is an ordinary single-move undo.
+     */
+    val lastCommit: StateFlow<List<String>> = lastCommitState.asStateFlow()
+
     private val promotionState = MutableStateFlow<PromotionPrompt?>(null)
     val promotion: StateFlow<PromotionPrompt?> = promotionState.asStateFlow()
 
@@ -92,14 +103,21 @@ class TrackingViewModel : ViewModel() {
 
     private fun onEvent(event: TrackerEvent) {
         val committed = movesOf(event)
-        if (committed.isNotEmpty()) movesState.value = movesState.value + committed
+        if (committed.isNotEmpty()) {
+            movesState.value = movesState.value + committed
+            lastCommitState.value = committed.map { it.san }
+        }
         promotionState.value = promotionAfter(promotionState.value, event)
     }
 
-    fun onUndo() = session.undo()
+    fun onUndo() {
+        lastCommitState.value = emptyList()
+        session.undo()
+    }
 
     fun onResetGame() {
         movesState.value = emptyList()
+        lastCommitState.value = emptyList()
         session.resetGame()
     }
 
