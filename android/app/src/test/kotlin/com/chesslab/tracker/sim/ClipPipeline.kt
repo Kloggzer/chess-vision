@@ -3,7 +3,6 @@ package com.chesslab.tracker.sim
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.FrameInput
 import com.chesslab.engine.api.GrayImage
-import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.GrayPipeline
 import com.chesslab.geometry.allSquares
 import com.chesslab.geometry.cornersToFlat
@@ -60,7 +59,12 @@ internal class ClipPipeline(
 ) {
     private val config = clip.config
     private val corners = clip.corners
-    private val geometry = BoardGeometry(boardSize = clip.boardSize).withCropSizeOf(spec)
+
+    // The clip's OWN geometry, margin included. This used to be
+    // `BoardGeometry(boardSize = clip.boardSize)`, which left `margin` at `margins4(0.0)` —
+    // right for the Blender renders and 6-8 % too large for any quad detected from ArUco, whose
+    // markers sit in the label border. `warpFromCorners` computes the homography from it.
+    private val geometry = clip.geometry.withCropSizeOf(spec)
     private val gray = GrayPipeline(config.diffClaheClip)
     private val roi = RoiMotion(config.motionMargin, config.motionPxThr)
     private val warpDet = Mat()
