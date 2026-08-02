@@ -233,6 +233,7 @@ private fun DecisionRecord.toDebugDecision(): DebugDecision =
         gridCoverage = gridCoverage,
         zThr = zThr,
         motion = motion,
+        cnnRun = cnnRun,
         cnnAgreement = cnnAgreement,
         cnnBestMove = cnnBestMove,
         stuckReason = stuckReason,

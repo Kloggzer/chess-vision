@@ -266,6 +266,7 @@ private fun decision(
     gridCoverage = 1.0,
     zThr = 3.0,
     motion = 0.0,
+    cnnRun = false,
     cnnAgreement = 0.0,
     cnnBestMove = null,
     stuckReason = null,
