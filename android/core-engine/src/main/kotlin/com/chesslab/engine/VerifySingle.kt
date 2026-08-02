@@ -33,9 +33,17 @@ private const val UCI_SQUARES = 4
  * `_verify_tick` — pre-commit verification of a diff candidate through the CNN, autonomously over
  * several frames.
  *
- * Verification is by OCCUPANCY, never by piece identity: the model is ~99.99% on `empty`, ~88%
- * per square and only ~40% on piece type. That asymmetry is the whole design — a *confidently
- * empty* reading is evidence, a *confidently occupied* one only withholds confirmation.
+ * Verification is by OCCUPANCY, never by piece identity: the model is ~99.99% on `empty` and ~88%
+ * per square. A *confidently empty* reading is therefore evidence, a *confidently occupied* one
+ * only withholds confirmation.
+ *
+ * This KDoc used to justify that asymmetry with "only ~40% on piece type", and that number is
+ * stale by a factor of two. Measured on `occ-v10bn35-13c-hn` over the 7 217 occupied crops of
+ * `occ-warm-13c-hn`'s test split: **0.882 overall**, 0.818 across the Q/R/N/B set a capture tie is
+ * between, and the confusions are B<->R, B<->P, R<->P — never a queen. Whether the ladder below
+ * should now USE identity is an open measurement question, not a settled one: nothing here has been
+ * re-measured against the identity axis, and the rungs are tuned on incidents (g8h6, b1c4, d4b3)
+ * whose evidence is occupancy. Do not read the corrected number as a licence to change the rungs.
  */
 internal object VerifySingle {
     /** [snap] is `null` when the CNN is unavailable or the observation failed. */

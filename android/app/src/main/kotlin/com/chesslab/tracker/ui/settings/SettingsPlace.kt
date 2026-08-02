@@ -21,7 +21,12 @@ sealed interface SettingsPlace {
     data object Modified : SettingsPlace
 }
 
-/** Knobs whose key, title, group or help text matches every whitespace-separated term in [query]. */
+/**
+ * Knobs whose key, GROUP TITLE or help text matches every whitespace-separated term in [query].
+ *
+ * Not the knob's own title — [KnobUi] has none. The screen renders the key itself as the heading,
+ * so `knob.key` already is the title as far as a reader is concerned.
+ */
 fun searchKnobs(query: String): List<KnobUi> {
     val terms =
         query
