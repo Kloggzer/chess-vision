@@ -20,7 +20,10 @@ well a single static quad can stand for this footage.
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
+from collections import deque
 from pathlib import Path
 
 import cv2
@@ -29,7 +32,10 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # sibling scripts
 
+from emit_parity_fixtures import _effective_config  # noqa: E402
 from ingest_video_session import raw_corners  # noqa: E402
+from replay_clip_cnn import DEFAULT_OBS_S  # noqa: E402
+from replay_clip_cnn import run as replay_with_cnn  # noqa: E402
 
 from chesslab import config  # noqa: E402
 from chesslab.calibration import compute_homography, load_profile, margins4  # noqa: E402
@@ -197,15 +203,206 @@ def ffmpeg_cfr_hint(video: Path, fps: float) -> str:
             f'-preset slow -an "{video.with_name(video.stem + "-cfr.mp4")}"')
 
 
+# --- the replay, and the pictures taken while it runs ----------------------------------------
+
+#: The frame counters `MoveTracker.__init__` picks when a CNN IS attached. `ClipDriver` builds the
+#: tracker with `cnn_run=None` and `replay_clip_cnn` attaches the model afterwards, so without
+#: these the replay would settle over 4/3/2 frames where the device settles over 3/2/1. Not an
+#: override of a tuned threshold — the restoration of the default the device actually ran.
+CNN_FRAME_COUNTERS = {"settle_frames": 3, "avg_frames": 2, "confirm_frames": 1}
+
+
+class _ReviewFrames:
+    """JPEGs for every commit frame and a symmetric neighbourhood, written DURING the decode.
+
+    Two reasons not to seek for them later. A single frame at the commit instant usually still
+    shows the hand that caused it, so a reviewer needs the neighbours to see the board; and h.264
+    seeking by frame index is approximate, so a review page that sought would show a NEARBY frame
+    while claiming it is the one. The decode is happening anyway, so this costs nothing and takes
+    video decoding out of the request path entirely.
+
+    Keyed by frame INDEX, not by ply: a recovery bridge commits several plies on one frame, and
+    those plies share the picture rather than each getting a copy of it.
+    """
+
+    def __init__(self, out_dir: Path, context: int, quality: int = 88) -> None:
+        self.dir, self.context, self.quality = out_dir, context, quality
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self._ring: deque[tuple[int, object]] = deque(maxlen=context + 1)
+        self._wanted: set[int] = set()          # indices still ahead of the decode
+        self._written: set[int] = set()
+        self._plies = 0
+
+    def on_frame(self, _now, mt, frame, index: int) -> None:
+        self._ring.append((index, frame))
+        if index in self._wanted:
+            self._wanted.discard(index)
+            self._write(index, frame)
+        n = len(mt.board.move_stack)
+        if n <= self._plies:
+            return
+        self._plies = n
+        for i, f in self._ring:                                     # the context BEFORE, buffered
+            self._write(i, f)
+        self._wanted |= {index + k for k in range(1, self.context + 1)}   # ... and after
+
+    def _write(self, index: int, frame) -> None:
+        if index in self._written:
+            return
+        self._written.add(index)
+        cv2.imwrite(str(self.dir / f"{index:06d}.jpg"), frame,
+                    [cv2.IMWRITE_JPEG_QUALITY, self.quality])
+
+    @property
+    def written(self) -> int:
+        return len(self._written)
+
+
+def relative_video(video: Path) -> str:
+    """The video's path relative to `data/`, refusing anything outside it.
+
+    Stored relative so nothing downstream ever holds an absolute path to a file the web layer
+    will later read. The app has no authentication anywhere and `app.py` already mounts the whole
+    `data/` tree at `/img`, so a candidate that could name a file outside it would be the one new
+    way into the filesystem this pack added.
+    """
+    root = config.DATA.root.resolve()
+    try:
+        rel = video.resolve().relative_to(root)
+    except ValueError:
+        raise SystemExit(
+            f"{video} is not under {root}. A candidate stores its video relative to data/; "
+            f"move or hard-link the file under data/ (e.g. data/testclip-raw/) and re-run."
+        ) from None
+    return rel.as_posix()
+
+
+def build_candidate(video: Path, profile, *, name: str, cnn_run: str, obs_s: float,
+                    context: int, start_fen: str | None) -> dict:
+    """Measure, replay, and write down what came out **as a proposal**.
+
+    The order matters: the geometry is measured first because `corners` and `margin` are inputs to
+    the replay, and a replay through a wrong quad produces a move list that says nothing about the
+    tracker. `margin` comes from the PROFILE and never from a constant — ArUco markers sit in the
+    label border, so the detected quad lies outside the playing field, and replaying at 0.0
+    oversizes the board by 6-8 %: the grid lines then miss `_grid_line_coverage`'s band and the
+    tracker sits in `occluded` forever (measured: 2232 of 2996 frames, zero commits).
+    """
+    from datetime import UTC, datetime
+
+    out_dir = realgames_root() / name
+    print(f"scanning {video.name} through profile {profile.profile!r} "
+          f"(board_size {profile.board_size}, margin {profile.margin})")
+    scan = scan_geometry(video, profile)
+    quad = median_quad(scan["quads"])
+    if quad is None:
+        raise SystemExit("no frame resolved four ArUco markers — is the board's border visible?")
+    spread = quad_spread(scan["quads"], quad, profile.board_size, profile.margin)
+    geometry = report_geometry(scan, spread, profile.board_size)
+    print(f"  if the clock above is not flat, re-encode first:\n    "
+          f"{ffmpeg_cfr_hint(video, scan['fps'])}")
+
+    pictures = _ReviewFrames(out_dir / "frames", context)
+    print(f"replaying with CNN run {cnn_run!r}, one observation every {obs_s:g} s of video time")
+    # Read off the LIVE tracker, because this pass is the only moment it is in hand — and
+    # because a fixture must carry it: `trackerConfigOf` reads EVERY field from the fixture and
+    # no Kotlin default, proven with `motionHoldS = 5.00` (a value that would freeze the tracker)
+    # changing nothing. Whatever a fixture records is what the simulation runs it at forever.
+    effective: dict = {}
+
+    def on_event(now, mt, frame, index) -> None:
+        if not effective:
+            effective.update(_effective_config(mt))
+        pictures.on_frame(now, mt, frame, index)
+
+    out = replay_with_cnn(
+        clip=str(video), corners=quad, margin=profile.margin, cnn_run=cnn_run, obs_s=obs_s,
+        tracker_kwargs=dict(CNN_FRAME_COUNTERS), board_size=profile.board_size,
+        start_fen=start_fen, on_event=on_event,
+    )
+    moves = [{"ply": i + 1, "san": c.san, "frame": c.frame, "t": c.t,
+              "decider": c.decider, "alarm": c.alarm, "fen_after": c.fen_after}
+             for i, c in enumerate(out["commits"])]
+    return {
+        "name": name,
+        "video": relative_video(video),
+        # The one field the whole pack turns on. A tracker whose own output could become a
+        # fixture would freeze its mistakes and then assert forever that it keeps making them.
+        # Only the review page flips this, and only phase 02's `--adopt` reads it.
+        "confirmed": False,
+        "created_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "source": {"cnn_run": cnn_run, "obs_s": obs_s, "profile": profile.profile,
+                   "tracker": dict(CNN_FRAME_COUNTERS), "context": context},
+        "effective_config": effective,
+        "geometry": {"corners": quad, "margin": list(profile.margin),
+                     "board_size": int(profile.board_size),
+                     "frame_size": list(scan["frame_size"]), **geometry},
+        "clock": {"fps": scan["fps"], "error_ms": geometry["clock_error_ms"]},
+        "start_fen": start_fen,
+        "moves": moves,
+        "note": out["note"],
+        "observations": out["observations"],
+        "frames": out["frames"],
+        "frames_written": pictures.written,
+    }
+
+
+def write_candidate(candidate: dict) -> Path:
+    """Write `candidate.json`. **This function cannot write a confirmed one.**
+
+    Not a formality: `confirmed` is the only thing standing between the tracker's own output and
+    a regression fixture, and 60 % of the motivating game's commits were recoveries. Forcing it
+    here means no future edit to `build_candidate` can leak a `true` through by accident — the
+    review page is the one writer allowed to set it.
+    """
+    candidate = {**candidate, "confirmed": False}
+    path = realgames_root() / candidate["name"] / "candidate.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(candidate, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+    return path
+
+
+def report_deciders(moves: list[dict]) -> None:
+    """The tally, next to the live figure the pack exists because of.
+
+    They need not match — the live game ran a different model at a different pace on a live
+    camera — and a large divergence is a measurement of the REPLAY's fidelity, which is exactly
+    what has to be known before a fixture is built on it.
+    """
+    tally: dict[str, int] = {}
+    for m in moves:
+        tally[m["decider"]] = tally.get(m["decider"], 0) + 1
+    total = len(moves)
+    print(f"  committed {total} plies; live reference: 55 of 91 through cnn_recovery")
+    for key, n in sorted(tally.items(), key=lambda kv: -kv[1]):
+        print(f"    {key:22s} {n:4} ({100 * n / total:5.1f} %)" if total else f"    {key}: {n}")
+    print(f"    alarm latched at commit: {sum(m['alarm'] is not None for m in moves)}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("video", nargs="?", help="the filmed game (anything OpenCV reads)")
+    ap.add_argument("video", nargs="?", help="the filmed game, somewhere under data/")
     ap.add_argument("--profile", default="phone",
                     help="calibration profile — supplies board_size and, critically, MARGIN "
                          "(default: phone)")
     ap.add_argument("--name", default=None,
                     help="candidate directory name (default: the video's stem)")
+    ap.add_argument("--cnn-run", default=None,
+                    help="model run to attach (default: config.default_tracker_run())")
+    ap.add_argument("--obs-s", type=float, default=DEFAULT_OBS_S,
+                    help=f"seconds of VIDEO time between CNN observations (default "
+                         f"{DEFAULT_OBS_S:g}). That default was measured on the wide GroupNorm "
+                         f"model; the shipped id35-80 reads 64 crops in ~16 ms median, so a "
+                         f"smaller number models today's device more honestly")
+    ap.add_argument("--context", type=int, default=2,
+                    help="frames written either side of each commit frame (default 2)")
+    ap.add_argument("--start-fen", default=None,
+                    help="position at the first frame (default: the standard start position)")
+    ap.add_argument("--geometry-only", action="store_true",
+                    help="measure and report; write no candidate and run no CNN")
     return ap
 
 
@@ -215,16 +412,29 @@ def main(argv: list[str] | None = None) -> int:
         build_parser().error("a video is required")
     video = Path(args.video)
     profile = load_profile(args.profile)
-    print(f"scanning {video.name} through profile {args.profile!r} "
-          f"(board_size {profile.board_size}, margin {profile.margin})")
-    scan = scan_geometry(video, profile)
-    quad = median_quad(scan["quads"])
-    if quad is None:
-        raise SystemExit("no frame resolved four ArUco markers — is the board's border visible?")
-    spread = quad_spread(scan["quads"], quad, profile.board_size, profile.margin)
-    report_geometry(scan, spread, profile.board_size)
-    print("  if the clock above is not flat, re-encode first:\n    "
-          + ffmpeg_cfr_hint(video, scan["fps"]))
+    if args.geometry_only:
+        print(f"scanning {video.name} through profile {args.profile!r} "
+              f"(board_size {profile.board_size}, margin {profile.margin})")
+        scan = scan_geometry(video, profile)
+        quad = median_quad(scan["quads"])
+        if quad is None:
+            raise SystemExit("no frame resolved four ArUco markers — is the border visible?")
+        report_geometry(scan, quad_spread(scan["quads"], quad, profile.board_size,
+                                          profile.margin), profile.board_size)
+        print(f"  re-encode command, if the clock is not flat:\n    "
+              f"{ffmpeg_cfr_hint(video, scan['fps'])}")
+        return 0
+    cnn_run = args.cnn_run or config.default_tracker_run()
+    if not cnn_run:
+        raise SystemExit("no model run on disk — a replay without a CNN cannot reach recovery, "
+                         "which is the path this candidate exists to expose")
+    candidate = build_candidate(video, profile, name=args.name or video.stem, cnn_run=cnn_run,
+                                obs_s=args.obs_s, context=args.context, start_fen=args.start_fen)
+    path = write_candidate(candidate)
+    report_deciders(candidate["moves"])
+    print(f"  wrote {path} ({candidate['frames_written']} review frames) — confirmed: false")
+    print("  -> review it in the web UI (Dataset -> Sessions -> Real games) before anything "
+          "downstream may use it")
     return 0
 
 
