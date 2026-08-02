@@ -2,8 +2,35 @@
 
 | Phase | State | Note |
 |---|---|---|
-| 00 — decisions as structure | `todo` | ~15 lines |
-| 01 — the file you can send | `todo` | after 00 |
+| 00 — decisions as structure | `done` | 39 lines of `:core-engine` main sources |
+| 01 — the file you can send | `done` | `docs/diagnostics.md` |
+
+## What landed, and where the pack was wrong
+
+Both phases are implemented on `feat-diagnostics-log` (branched from `4a14b58`, not merged).
+
+Three corrections against the tree, all in the implementer's favour but worth recording:
+
+- **Phase 00 steps 02 and 03 are one commit, because they are one change.** Re-typing the sink
+  breaks its only call site, so a commit doing only step 02 would not compile — which is the exact
+  defect that got the predecessor pack rejected.
+- **`ui/debug/` has no session export to sit beside.** The session export is
+  `ui/games/RecordingPanel.kt`; what `ui/debug/` has is the decision-log share (`ACTION_SEND`,
+  `DecisionLogExport.kt`). The new button went beside that one, on the Decisions tab, using
+  `ACTION_CREATE_DOCUMENT` as specified.
+- **`DebugDecision` has 25 fields, not 24** — after phase 00's step 01 added `cnnRun`. The count in
+  01's Design section was correct for the type as it stood when the pack was written.
+- `entry.md`'s ownership table says `docs/telemetry.md`; 01's own header and step 05 both say
+  `docs/diagnostics.md`, which is what was written.
+
+Two decisions the pack did not make:
+
+- **`run_start` is written when the CNN attach RESOLVES**, not when the stack is built, because the
+  execution provider it names does not exist until then — that is the whole point of the field. A
+  30 s timeout writes the header anyway, since a file with rows and no config is the worse failure.
+- **Every rotated file repeats the header**, with its original `seq`. Rotation deletes the OLDEST
+  file, i.e. exactly the one a write-once header lives in, so without the repeat an export becomes
+  anonymous numbers as soon as a session runs long enough to matter.
 
 ## Why this is not `34-telemetry-uplink` any more
 
