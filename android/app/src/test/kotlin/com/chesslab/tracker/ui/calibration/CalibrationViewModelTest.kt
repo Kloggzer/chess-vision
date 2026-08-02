@@ -9,7 +9,9 @@ import com.chesslab.tracker.geometry.FakeProfileBacking
 import com.chesslab.tracker.geometry.QuadRefinement
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -115,29 +117,57 @@ class CalibrationViewModelTest {
             advanceUntilIdle()
         }
 
+    /** A full four-code read is adopted with nobody pressing anything. */
     @Test
-    fun savingWritesTheMeasuredGeometry() =
+    fun aFullReadIsAdoptedOnItsOwn() =
         runTest {
             val backing = FakeProfileBacking()
             val vm = CalibrationViewModel(FakeDetector(ok()), CalibrationStore(backing), this) { 7L }
-            vm.detectOnce()
-            var saved: CalibrationProfile? = null
-            vm.save { saved = it }
-            advanceUntilIdle()
+            var adopted: CalibrationProfile? = null
+            vm.onAdopted = { adopted = it }
+            launch { vm.autoDetect() }
+            runCurrent()
+            advanceTimeBy(1)
+            runCurrent()
             assertTrue(vm.state.value.saved)
             assertEquals(1, backing.writes)
-            assertEquals(1920, saved?.sourceWidth)
+            assertEquals(1920, adopted?.sourceWidth)
+            coroutineContext.cancelChildren()
         }
 
+    /**
+     * Below four codes the quad is RECONSTRUCTED, and at two it is a similarity fit — a square-board
+     * assumption with no perspective. Writing a board size derived from that is the silent geometry
+     * invalidation this screen was rebuilt to stop. The outline still shows; the record does not move.
+     */
     @Test
-    fun savingWithoutABoardDoesNothing() =
+    fun aPartialReadIsDrawnButNeverWritten() =
         runTest {
             val backing = FakeProfileBacking()
-            val vm = CalibrationViewModel(FakeDetector(failed()), CalibrationStore(backing), this) { 7L }
-            vm.detectOnce()
-            vm.save()
-            advanceUntilIdle()
+            val vm =
+                CalibrationViewModel(FakeDetector(ok(markers = listOf(0, 1))), CalibrationStore(backing), this) { 7L }
+            launch { vm.autoDetect() }
+            runCurrent()
+            advanceTimeBy(1)
+            runCurrent()
+            assertTrue(vm.state.value.found, "the outline is still drawn")
             assertFalse(vm.state.value.saved)
+            assertEquals(0, backing.writes)
+            coroutineContext.cancelChildren()
+        }
+
+    /** A steady camera must not rewrite the profile twice a second. */
+    @Test
+    fun aSteadyBoardIsWrittenOnce() =
+        runTest {
+            val backing = FakeProfileBacking()
+            val vm = CalibrationViewModel(FakeDetector(ok()), CalibrationStore(backing), this) { 7L }
+            launch { vm.autoDetect() }
+            runCurrent()
+            advanceTimeBy(2_000)
+            runCurrent()
+            assertEquals(1, backing.writes)
+            coroutineContext.cancelChildren()
         }
 }
 

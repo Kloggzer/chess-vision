@@ -4,6 +4,7 @@ import com.chesslab.tracker.geometry.BoardDetector
 import com.chesslab.tracker.geometry.CalibrationProfile
 import com.chesslab.tracker.geometry.CalibrationStore
 import com.chesslab.tracker.geometry.MeasuredGeometry
+import com.chesslab.tracker.geometry.measuredBoardSize
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -69,33 +70,62 @@ class CalibrationViewModel(
     private val _state = MutableStateFlow(CalibrationState())
     val state: StateFlow<CalibrationState> = _state.asStateFlow()
 
+    @Volatile
+    private var writing = false
+
+    /** Set by the screen: where an adopted profile has to reach besides the store. */
+    var onAdopted: (CalibrationProfile) -> Unit = {}
+
     /** Poll while the screen is open. Cancelled with the caller's scope. */
     suspend fun autoDetect() {
         while (scope.isActive) {
             detectOnce()
+            adopt(_state.value, onAdopted)
             delay(AUTO_DETECT_MS)
         }
     }
 
     /**
-     * Adopt the board in the picture: board size, source dimensions, the seed quad.
+     * Adopt the board in the picture — automatically, on a FULL read.
      *
-     * Orientation is NOT written here. It is one bit — `whitePov` is read only as a 180° rotation,
-     * and the marker IDs already anchor a8 — and it has its own switch in Settings, which is the one
-     * place it belongs. A second control for the same bit is how the two drift apart.
+     * There is no button and no confirmation, because there is nothing here for a user to decide.
+     * The quad is a seed the live path replaces within a few frames; what actually gets written is
+     * config the detection measured better than a person could state it — board size and the source
+     * dimensions everything downstream maps into.
+     *
+     * **Only with all four codes visible.** Below four, `resolveBoardCorners` reconstructs the
+     * missing corners, and at two it falls back to a SIMILARITY fit — a square-board assumption with
+     * no perspective. Writing a board size derived from that would be exactly the silent geometry
+     * invalidation this screen was rebuilt to stop. Fewer than four still draws the outline; it just
+     * does not become the record.
+     *
+     * Written once per change, not once per detection: [needsWrite] compares against what is stored,
+     * so a steady camera costs nothing. Orientation is never touched — it is one bit, `whitePov` is
+     * read only as a 180° rotation, the marker IDs already anchor a8, and it has its own switch in
+     * Settings. A second control for the same bit is how the two drift apart.
      */
-    fun save(onSaved: (CalibrationProfile) -> Unit = {}) {
-        val s = _state.value
+    private fun adopt(
+        s: CalibrationState,
+        onSaved: (CalibrationProfile) -> Unit,
+    ) {
         val corners = s.corners ?: return
+        if (s.markerIds.size < ALL_MARKERS || writing) return
+        val measured = MeasuredGeometry(corners.copyOf(), s.frameWidth, s.frameHeight)
+        if (!needsWrite(measured)) return
+        writing = true
         scope.launch {
-            val saved =
-                store.saveRecalibrated(
-                    MeasuredGeometry(corners.copyOf(), s.frameWidth, s.frameHeight),
-                    savedAtMs = nowMs(),
-                )
+            val saved = store.saveRecalibrated(measured, savedAtMs = nowMs())
             _state.value = _state.value.copy(saved = true)
+            writing = false
             onSaved(saved)
         }
+    }
+
+    /** Only the source frame and the measured board edge matter; the quad itself is re-derived. */
+    private fun needsWrite(measured: MeasuredGeometry): Boolean {
+        val stored = store.geometry
+        return stored.boardSize != measuredBoardSize(measured.corners) ||
+            !_state.value.saved
     }
 
     /**

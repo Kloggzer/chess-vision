@@ -69,3 +69,31 @@ private fun quadToQuad(
     h.release()
     return if (out.all { it.isFinite() }) out else null
 }
+
+/**
+ * How far two quads are apart, as a fraction of ONE CELL — never in raw pixels.
+ *
+ * A pixel means nothing without the board size: four pixels is 4 % of a square at `boardSize` 800
+ * and 2 % at 1600. Cells is the unit that transfers between the phone, the rig and the recorded
+ * clips, which is why every offset in this project is reported that way.
+ *
+ * Mean over the four corners rather than the worst, deliberately: what this answers is "has the
+ * setup moved", and one corner's detection jitter should not be able to say yes on its own.
+ *
+ * Returns 0.0 for malformed input — a caller cannot act on "I don't know" and a spurious large
+ * number would throw away a correction that is probably still good.
+ */
+fun quadDriftCells(
+    a: FloatArray,
+    b: FloatArray,
+    geom: BoardGeometry,
+): Double {
+    if (a.size != CORNER_COUNT * 2 || b.size != CORNER_COUNT * 2 || geom.cell <= 0.0) return 0.0
+    var sum = 0.0
+    for (i in 0 until CORNER_COUNT) {
+        val dx = (a[i * 2] - b[i * 2]).toDouble()
+        val dy = (a[i * 2 + 1] - b[i * 2 + 1]).toDouble()
+        sum += kotlin.math.hypot(dx, dy)
+    }
+    return sum / CORNER_COUNT / geom.cell
+}

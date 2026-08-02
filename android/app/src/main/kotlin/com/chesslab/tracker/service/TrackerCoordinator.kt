@@ -10,6 +10,7 @@ import com.chesslab.geometry.boardCornersForFrame
 import com.chesslab.geometry.cornersToFlat
 import com.chesslab.geometry.gridCorrection
 import com.chesslab.geometry.improveQuad
+import com.chesslab.geometry.quadDriftCells
 import com.chesslab.tracker.camera.DeliveredSize
 import com.chesslab.tracker.camera.FrameSink
 import com.chesslab.tracker.cnn.CnnObserver
@@ -137,9 +138,23 @@ class LiveAlign(
     @Volatile
     private var correction: DoubleArray? = null
 
-    /** Measured at most ONCE per calibration — a failed measurement must not retry every align. */
+    /** Measured at most once per POSE — a failed measurement must not retry every align. */
     @Volatile
     private var correctionTried = false
+
+    /**
+     * The quad [correction] was fitted against, so it can be noticed when that pose is gone.
+     *
+     * Without this the correction outlived its own premise. Its KDoc calls the groove residual "a
+     * per-calibration constant", quoting `specs/30` — which is true, and carries an unstated
+     * condition: it is a constant OF THAT SETUP. `maybeAlign` re-derives the quad from the markers
+     * every `alignEvery` frames, so a nudged phone is followed correctly by the quad and then has a
+     * correction measured at the old pose added on top of it, silently, for the rest of the session.
+     * That is the shape of the failure that cost this project 5.5x its empty-crop margin: a few
+     * pixels of consistent offset with nothing failing loudly.
+     */
+    @Volatile
+    private var fittedAt: FloatArray? = null
 
     @Volatile
     private var inFlight = false
@@ -192,10 +207,12 @@ class LiveAlign(
         corners: List<DoubleArray>,
     ): List<DoubleArray> {
         val geom = geometry()
+        expireCorrection(cornersToFlat(corners), geom)
         if (correction == null && !correctionTried) {
             correctionTried = true
             val fixed = improveQuad(frame, corners, geom).quad
             correction = fixed?.let { gridCorrection(corners, it, geom) }
+            fittedAt = cornersToFlat(corners)
             Log.i(
                 TAG,
                 if (correction == null) {
@@ -210,6 +227,25 @@ class LiveAlign(
     }
 
     /**
+     * Drop the correction when the board is no longer where it was fitted.
+     *
+     * Logged both ways round: a correction that silently vanishes is as hard to debug as one that
+     * silently persists, and this one only ever fires on a real change of setup.
+     */
+    private fun expireCorrection(
+        current: FloatArray,
+        geom: BoardGeometry,
+    ) {
+        val fitted = fittedAt ?: return
+        val drift = quadDriftCells(current, fitted, geom)
+        if (drift <= DRIFT_REFIT_CELLS) return
+        Log.i(TAG, "board moved ${"%.2f".format(drift)} cells since the grid fit — re-measuring the correction")
+        correction = null
+        correctionTried = false
+        fittedAt = null
+    }
+
+    /**
      * A new calibration invalidates the smoothed markers outright, and the grid correction with
      * them — it is a property of THIS board under THIS lens, and a recalibration is the user
      * saying that changed.
@@ -219,5 +255,17 @@ class LiveAlign(
         size = delivered
         correction = null
         correctionTried = false
+        fittedAt = null
     }
 }
+
+/**
+ * How far the board may move before the grid correction is thrown away, in cells.
+ *
+ * **A starting value, not a measurement.** No on-device distribution of `quadDriftCells` exists;
+ * a quarter of a square is chosen to sit far above the marker smoother's jitter and far below a
+ * shift anyone would call the board moving. Measure it before quoting it as if it were derived —
+ * inventing a threshold and presenting it as measured is exactly what sank the first draft of
+ * `specs/36`.
+ */
+private const val DRIFT_REFIT_CELLS = 0.25

@@ -145,6 +145,7 @@ private fun CameraScreen(
     var fill by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val board = rememberBoardModel(host, scope)
+    board.onAdopted = { p -> host.onCalibrated(p.geometry(), p.corners, p.name) }
     val boardState by board.state.collectAsStateWithLifecycle()
     // Off the host rather than through the parameter list: it is a property of the frames, and the
     // host is already this screen's handle on them.
@@ -181,7 +182,7 @@ private fun CameraScreen(
         }
         AnimatedVisibility(chrome, Modifier.align(Alignment.BottomCenter), enter = fadeIn(), exit = fadeOut()) {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                BoardDeck(boardState) { board.save { p -> host.onCalibrated(p.geometry(), p.corners, p.name) } }
+                BoardDeck(boardState)
                 LookDeck(look, abilities, saved, fill, open, { open = it }, torchOn, hasTorch, onTorch, viewModel)
             }
         }
