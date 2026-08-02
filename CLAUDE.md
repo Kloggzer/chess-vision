@@ -141,9 +141,16 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
   `val_acc` 0.93 that is 0.93^64 ≈ 1 %, i.e. structurally 0. A model that has not converged is
   early-stopped *and* has its checkpoint chosen blindly ("best by occ_board_acc=0.0000"). Pass
   `--patience 25` for any run that will sit below ~0.98.
-- **The speed cost is LOAD AND HEAT, not the graph.** Measured on the SM8650, same graph, same
-  input: **32 ms cool and idle · 66 ms inside the running tracker · 125 ms live at 39–41 °C**
-  (max 654). That is the factor of 4, and no graph work reaches it.
+- **CNN inference is ~16 ms, not ~100 — the old numbers were a different model.** Measured live on
+  the SM8650 on 2026-08-02 over **534 observations** of a real game, with the shipped `id35-80`
+  (13 classes, BatchNorm, width 0.35): **10 min / 16 median / 23 p90 / 49 max ms for 64 crops**, and
+  a whole frame at 23.1 median / 32.4 p90 / 89.1 max. This bullet used to read *"32 ms cool and idle
+  · 66 ms inside the running tracker · 125 ms live at 39–41 °C (max 654)"* — that was the WIDE
+  GroupNorm model, whose graph also carried the `InstanceNormalization` decomposition. A third of
+  the width and no decomposition is roughly a quarter of the cost. **The load-and-heat lesson still
+  holds** — the spread from 10 to 49 ms on one unchanged graph is exactly it, and no graph work
+  reaches that factor — but do not quote the absolute figures for anything but the model they were
+  measured on.
 - **Do not "fix" the graph fragmentation — it is not a defect.** GroupNorm's
   `InstanceNormalization` decomposition splits the graph into 94 fragments over 47 convolutions, and
   a coalesced graph is **slower**: CPU-only, 1 fragment, 54 ms against XNNPACK's 94 fragments at
