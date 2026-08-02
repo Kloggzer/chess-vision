@@ -3,7 +3,6 @@ package com.chesslab.tracker.service
 import com.chesslab.tracker.camera.OpticsSettling
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -97,9 +96,19 @@ class TorchSwitchTest {
             assertEquals(false, torch.torchOn.value, "a lamp that never engaged must not read as on")
         }
 
+    /**
+     * The switch must not answer this from a copy — the UI hides the whole control on `false`.
+     *
+     * What is under test is [TorchSwitch.hasTorch]'s delegation, not the fake: this used to read
+     * `FakeLamp(engages = false).torchOn` and assert `false`, which is that flow's initial value
+     * and never touched `hasTorch` at all. Asserting on `FakeLamp.hasTorch` directly would be no
+     * better — the fake assigns it from its own constructor flag — so the assertion has to go
+     * through the production `get()`.
+     */
     @Test
-    fun hasTorchIsReportedFromTheDevice() {
-        val flow: StateFlow<Boolean> = FakeLamp(engages = false).torchOn
-        assertEquals(false, flow.value)
-    }
+    fun hasTorchIsReportedFromTheDevice() =
+        runTest {
+            assertEquals(false, switch(FakeLamp(engages = false), mutableListOf(), this).hasTorch)
+            assertTrue(switch(FakeLamp(), mutableListOf(), this).hasTorch)
+        }
 }

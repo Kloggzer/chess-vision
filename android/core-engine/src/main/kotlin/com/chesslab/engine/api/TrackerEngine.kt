@@ -46,8 +46,13 @@ const val STARTPOS = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 /** `_mark_stuck("occluded")` — the occlusion latch blocks the quiet re-anchor. */
 private const val STUCK_OCCLUDED = "occluded"
 
-/** `_mark_stuck("cnn_desync")` — the Bxc3 guard. */
-internal const val STUCK_CNN_DESYNC = "cnn_desync"
+/**
+ * `_mark_stuck("cnn_desync")` — the Bxc3 guard.
+ *
+ * `private` again: it was widened to `internal` for one `assertNotEquals` in `AnomalyPatcherTest`
+ * that could not fail, and the single production reference is [tryDetect] in this file.
+ */
+private const val STUCK_CNN_DESYNC = "cnn_desync"
 
 private const val NOTE_WAITING_OCCLUDED = "waiting for occluded squares to clear…"
 

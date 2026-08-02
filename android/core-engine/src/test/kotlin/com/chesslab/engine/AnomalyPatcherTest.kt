@@ -1,10 +1,8 @@
 package com.chesslab.engine
 
-import com.chesslab.engine.api.STUCK_CNN_DESYNC
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.tryDetect
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -84,14 +82,15 @@ class AnomalyPatcherTest {
     @Test
     fun theStuckReasonAtThePatcherIsNeverTheDesyncOne() {
         val state = detectState(ref = grayFrame())
-        var seenAtPatcher: String? = "unset"
         state.nowS = 100.0
         // A single hot square with no legal move behind it — the state the patcher fires from.
         state.tryDetect(grayFrame(listOf("e4")), null, seq = 1)
         state.tryDetect(grayFrame(listOf("e4")), null, seq = 2)
-        seenAtPatcher = state.stuckReason
-        assertEquals(STUCK_NO_LEGAL_MOVE, seenAtPatcher)
-        assertNotEquals(STUCK_CNN_DESYNC, seenAtPatcher, "the dead half of the old guard")
+        // This one assertion IS the finding: the reason the engine arrives at is `no_legal_move`,
+        // so a guard keyed on `cnn_desync` can never fire here. An `assertNotEquals` against
+        // `STUCK_CNN_DESYNC` used to follow it and could not fail — two unequal constants compared
+        // after the first assertion has already pinned the value to one of them.
+        assertEquals(STUCK_NO_LEGAL_MOVE, state.stuckReason)
     }
 
     @Test

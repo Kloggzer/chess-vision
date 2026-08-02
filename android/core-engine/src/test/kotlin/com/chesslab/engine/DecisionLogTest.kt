@@ -181,10 +181,13 @@ class DecisionLogTest {
         assertEquals(pend.frames, after.frames, "a stale observation must not count as a vote")
         assertEquals(1.0, after.lastTickS, "…but it proves the observer is alive")
 
-        // And the watchdog would have killed it at the old value.
-        state.nowS = 1.4
+        // And the watchdog would have killed it at the old value. 1.6, not 1.4: the watchdog is
+        // `nowS - lastTickS < verifyTimeoutS` with `verifyTimeoutS = 1.5`, so at 1.4 the pending
+        // survives on the OLD `lastTickS = 0.0` as well and the assertion below could not fail.
+        // Past 1.5 the two values separate and only the refreshed one keeps the candidate.
+        state.nowS = 1.6
         state.expireStalledVerify()
-        assertNotNull(state.pending, "dropped a candidate whose observer had answered 0.4 s ago")
+        assertNotNull(state.pending, "dropped a candidate whose observer had answered 0.6 s ago")
     }
 
     /** The line has to carry the evidence, not just the verdict — that is the whole point of it. */
