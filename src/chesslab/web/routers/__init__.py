@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from .collect import router as collect_router
 from .datasets import router as datasets_router
+from .realgames import router as realgames_router
 from .scan import router as scan_router
 from .sessions import router as sessions_router
 from .training import router as training_router
@@ -16,6 +17,7 @@ from .training import router as training_router
 ALL_ROUTERS = [
     collect_router,
     datasets_router,
+    realgames_router,
     scan_router,
     sessions_router,
     training_router,
