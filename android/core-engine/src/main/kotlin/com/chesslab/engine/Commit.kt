@@ -126,6 +126,7 @@ internal fun EngineState.commitMove(
     board.push(move)
     history.add(san)
     lastMove = uci
+    lastCommitSize = 1
     recordDecision(move, san, fenBefore, decider, priorUsed)
     queueSessionCapture(san)
     // The reference comes from the DETECTION frame and may contain hand residue; re-capturing
@@ -161,6 +162,7 @@ internal fun EngineState.commitSequence(
     }
     history.addAll(sans)
     lastMove = uciOf(moves.last())
+    lastCommitSize = moves.size
     recordDecision(moves.last(), sans.last(), fenBefore, decider, priorUsed = false)
     queueSessionCapture(sans.last())
     finishCommit(cur, curBgr)

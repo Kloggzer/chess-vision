@@ -255,6 +255,7 @@ private fun EngineState.commitRecovery(
     val ucis = moves.map { uciOf(it) }
     val sans = pushRecovery(moves)
     lastMove = ucis.last()
+    lastCommitSize = moves.size
     queueSessionCapture(sans.last())
     val anchor = recoveryAnchor(snap)
     if (anchor == null) {
