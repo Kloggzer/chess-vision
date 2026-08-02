@@ -14,7 +14,6 @@ import androidx.navigation.compose.rememberNavController
 import com.chesslab.tracker.service.TrackerRestartHost
 import com.chesslab.tracker.spectate.ui.SpectatorScreen
 import com.chesslab.tracker.speech.ui.SpeechSettingsScreen
-import com.chesslab.tracker.ui.camera.CameraMode
 import com.chesslab.tracker.ui.camera.CameraRoute
 import com.chesslab.tracker.ui.debug.DebugRoute
 import com.chesslab.tracker.ui.games.GameDetailRoute
@@ -75,7 +74,7 @@ fun ChesslabNavHost(navController: NavHostController = rememberNavController()) 
         // viewfinder, same binding, different overlay and deck. The route survives because the
         // tracking screen's "Recalibrate" is a different entry point with a different intent.
         composable(ROUTE_CALIBRATION) {
-            CameraRoute(onBack = { navController.popBackStack() }, startMode = CameraMode.BOARD)
+            CameraRoute(onBack = { navController.popBackStack() })
         }
         composable(ROUTE_CAMERA) {
             CameraRoute(onBack = { navController.popBackStack() })

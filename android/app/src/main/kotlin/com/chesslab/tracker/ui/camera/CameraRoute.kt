@@ -1,7 +1,6 @@
 package com.chesslab.tracker.ui.camera
 
 import android.graphics.Bitmap
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -30,7 +29,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.camera.CameraAbilities
@@ -42,11 +40,7 @@ import com.chesslab.tracker.settings.SettingsHost
 import com.chesslab.tracker.ui.ChesslabScaffold
 import com.chesslab.tracker.ui.SourceFramedPreview
 import com.chesslab.tracker.ui.calibration.CalibrationHost
-import com.chesslab.tracker.ui.calibration.CalibrationState
-import com.chesslab.tracker.ui.calibration.CalibrationStep
-import com.chesslab.tracker.ui.calibration.CalibrationViewModel
 import com.chesslab.tracker.ui.calibration.LocalCalibrationHost
-import com.chesslab.tracker.ui.calibration.OrientationConfirm
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.tracking.TrackerSessionHost
 
@@ -74,10 +68,7 @@ import com.chesslab.tracker.ui.tracking.TrackerSessionHost
  * this feature's clothes.
  */
 @Composable
-fun CameraRoute(
-    onBack: () -> Unit,
-    startMode: CameraMode = CameraMode.LOOK,
-) {
+fun CameraRoute(onBack: () -> Unit) {
     // The aiming screen calibrates from the same host the wizard uses, so the two cannot drift.
     val host = LocalCalibrationHost.current
     val port by CameraLookHost.port.collectAsStateWithLifecycle()
@@ -108,7 +99,6 @@ fun CameraRoute(
         viewModel = viewModel,
         onBack = onBack,
         host = host ?: return,
-        startMode = startMode,
     )
 }
 
@@ -149,25 +139,16 @@ private fun CameraScreen(
     viewModel: CameraViewModel,
     onBack: () -> Unit,
     host: CalibrationHost,
-    startMode: CameraMode,
 ) {
     var open by remember { mutableStateOf<CameraAxis?>(null) }
     var chrome by remember { mutableStateOf(true) }
     var fill by remember { mutableStateOf(false) }
-    var mode by remember { mutableStateOf(startMode) }
     val scope = rememberCoroutineScope()
     val board = rememberBoardModel(host, scope)
     val boardState by board.state.collectAsStateWithLifecycle()
     // Off the host rather than through the parameter list: it is a property of the frames, and the
     // host is already this screen's handle on them.
     val rotation by host.previewRotation.collectAsStateWithLifecycle()
-    // The rectified board is a DIFFERENT picture, so it takes the whole surface rather than sitting
-    // on the viewfinder. It is also the one step that must not be skippable: a wrong a8 assignment
-    // has no runtime symptom, the board simply reads mirrored.
-    if (mode == CameraMode.BOARD && boardState.step == CalibrationStep.CONFIRM) {
-        ConfirmSurface(boardState, board, host, onBack = board::back)
-        return
-    }
     Box(
         Modifier
             .fillMaxSize()
@@ -180,17 +161,14 @@ private fun CameraScreen(
             },
     ) {
         Viewfinder(preview, rotation, fill = fill) {
-            when (mode) {
-                CameraMode.LOOK -> if (chrome) FramingOverlay(profile, preview?.width ?: 0, preview?.height ?: 0, Modifier.fillMaxSize())
-                CameraMode.BOARD ->
-                    BoardOverlay(boardState, IntSize(boardState.frameWidth, boardState.frameHeight)) { x, y, rendered ->
-                        board.tapAt(x, y, rendered, boardState)
-                    }
-            }
+            // The live outline is the aiming instrument; the saved quad answers a different question
+            // ("has it drifted since last time") and only shows with the rest of the chrome.
+            BoardOutline(boardState)
+            if (chrome) FramingOverlay(profile, preview?.width ?: 0, preview?.height ?: 0, Modifier.fillMaxSize())
         }
         AnimatedVisibility(chrome, Modifier.align(Alignment.TopCenter), enter = fadeIn(), exit = fadeOut()) {
             CameraTopBar(
-                unsaved = mode == CameraMode.LOOK && look != saved,
+                unsaved = look != saved,
                 canReset = !look.isAuto || !saved.isAuto,
                 fill = fill,
                 onBack = onBack,
@@ -202,13 +180,9 @@ private fun CameraScreen(
             )
         }
         AnimatedVisibility(chrome, Modifier.align(Alignment.BottomCenter), enter = fadeIn(), exit = fadeOut()) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                ModeStrip(mode, { mode = it }, Modifier.padding(bottom = 8.dp))
-                if (mode == CameraMode.BOARD) {
-                    BoardDeck(boardState, board)
-                } else {
-                    LookDeck(look, abilities, saved, fill, open, { open = it }, torchOn, hasTorch, onTorch, viewModel)
-                }
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                BoardDeck(boardState) { board.save { p -> host.onCalibrated(p.geometry(), p.corners, p.name) } }
+                LookDeck(look, abilities, saved, fill, open, { open = it }, torchOn, hasTorch, onTorch, viewModel)
             }
         }
     }
@@ -240,42 +214,6 @@ private fun LookDeck(
         onTorch = onTorch,
         onLook = viewModel::set,
     )
-}
-
-/**
- * The orientation check, on the whole surface.
- *
- * Not a panel over the viewfinder: what is being judged here is the RECTIFIED board, which is a
- * different picture from the one behind it, and two boards on one screen is the fastest way to
- * confirm the wrong one.
- *
- * It therefore has to carry its OWN way back, and both of them have to lead to the same place. The
- * first version had neither: no bar, so the only exit without saving was a text button reading
- * "Corners look wrong", and no [BackHandler], so the system gesture popped the whole camera
- * destination and dropped the user on the game board. A step that replaced the screen and did not
- * handle back is a step that answers the phone's most-used control with the wrong view.
- */
-@Composable
-private fun ConfirmSurface(
-    state: CalibrationState,
-    model: CalibrationViewModel,
-    host: CalibrationHost,
-    onBack: () -> Unit,
-) {
-    BackHandler(onBack = onBack)
-    ChesslabScaffold("Check orientation", onBack) { bars ->
-        Column(Modifier.fillMaxSize().padding(bars).padding(12.dp)) {
-            OrientationConfirm(
-                state = state,
-                onWhitePovChange = model::setWhitePov,
-                onSave = { model.saveAnd(host) {} },
-                onBack = onBack,
-                onMarginChange = model::setMargin,
-                onNudge = model::applyNudge,
-                onAutoTune = model::autoFineTune,
-            )
-        }
-    }
 }
 
 /**
