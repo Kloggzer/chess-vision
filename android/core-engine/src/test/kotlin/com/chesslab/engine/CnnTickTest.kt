@@ -206,8 +206,45 @@ class CnnTickTest {
         assertEquals("e7e5", state.lastMove)
         // COMMIT rows, not every row: `markStuck` now writes its own provenance line on the
         // transition, and the state this test starts from is a stuck one.
-        assertEquals(1, state.decisionLog.count { it.accepted }, "provenance is recorded ONCE, on the last move")
+        assertEquals(2, state.decisionLog.count { it.accepted }, "one row per move — a bridge is not one decision")
         assertTrue(events.any { it is TrackerEvent.SequenceCommitted })
+    }
+
+    /**
+     * The incident of 2026-08-02: a four-move bridge left ONE line in the log and a four-ply gap in
+     * the ply numbers, so three of its four moves existed nowhere. Reading it took a full log dump
+     * and a read of `commitRecovery`; the log alone could only show that something had happened.
+     */
+    @Test
+    fun everyMoveOfARecoveryGetsItsOwnRow() {
+        val state = recoveryState()
+        val cnn = RecoveryEvaluator(moves = listOf("e2e4", "e7e5", "g1f3"), agreement = 0.95)
+        state.cnnTick(cnn, recoverySnap(state, obsForBoard(state.board), 1, grayFrame()))
+
+        val rows = state.decisionLog.filter { it.accepted }
+        assertEquals(listOf("e4", "e5", "Nf3"), rows.map { it.san })
+        assertEquals(listOf("e2e4", "e7e5", "g1f3"), rows.map { it.move })
+        assertEquals(listOf(1, 2, 3), rows.map { it.ply }, "the plies are contiguous, not a gap")
+        // Each row's "before" is the position that move was actually played from — the single row
+        // used to carry a `fenBefore` as many plies stale as the bridge was long.
+        assertEquals(STARTPOS, rows.first().fenBefore)
+        assertEquals(rows[0].fenAfter, rows[1].fenBefore)
+        assertEquals(rows[1].fenAfter, rows[2].fenBefore)
+        assertEquals(state.board.fen(), rows.last().fenAfter)
+    }
+
+    /** The common case must not get noisier: one recovery, one row, the same text as before. */
+    @Test
+    fun aOneMoveRecoveryStillWritesExactlyOneUnchangedRow() {
+        val state = recoveryState()
+        val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.99)
+        state.cnnTick(cnn, recoverySnap(state, obsForBoard(state.board), 1, grayFrame()))
+
+        val row = state.decisionLog.single { it.accepted }
+        assertEquals(1, row.ply)
+        assertEquals("e2e4", row.move)
+        assertEquals(STARTPOS, row.fenBefore)
+        assertEquals(DECIDER_REASON.getValue(DECIDER_CNN_RECOVERY), row.reason)
     }
 
     @Test
