@@ -140,10 +140,16 @@ data class CameraAbilities(
  */
 interface CameraLookPort {
     /**
-     * What the CAMERA is set to, after clamping — never what was tapped.
+     * The WANT, clamped to what the device advertises in [abilities] — not proof that the device
+     * did it.
      *
-     * The same rule as `TorchLamp.torchOn`: a control that renders its own last gesture can drift
-     * out of step with the device and there is no way to notice.
+     * The same rule as `TorchLamp.torchOn`, and it used to be written here as the opposite ("what
+     * the CAMERA is set to, never what was tapped"), which the implementation has never done.
+     * `CameraLookControl` publishes `want.clampedTo(abilities)` and then fires the CameraX calls
+     * without awaiting their futures: a rejected zoom ratio or an out-of-range exposure index is
+     * logged and nothing else, and an interop axis (focus, white balance) is a capture-request key
+     * the HAL may ignore silently. So an axis the device advertises but declines still renders as
+     * set. The clamp is what stops the UI offering an axis this camera does not have at all.
      */
     val look: StateFlow<CameraLook>
 

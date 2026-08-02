@@ -83,10 +83,17 @@ private fun EngineState.applyRead(
     }
 
 /**
- * The identity axis is the model's WEAK one (~40% on piece types): one confident type misread
- * anywhere holds agreement below `minAgreement` forever, so corrections and take-backs would never
- * update (the b8b6->c6 correction incident). Occupancy is the reliable axis, so an identity
- * mismatch is re-checked with identity stripped before it is believed.
+ * The identity axis is the WEAKER one: one confident type misread anywhere holds agreement below
+ * `minAgreement` forever, so corrections and take-backs would never update (the b8b6->c6 correction
+ * incident). Occupancy is the more reliable axis, so an identity mismatch is re-checked with
+ * identity stripped before it is believed.
+ *
+ * This used to read "~40% on piece types". Measured on `occ-v10bn35-13c-hn` over the 7 217 occupied
+ * crops of `occ-warm-13c-hn`'s test split it is **0.882**, against ~99.99% on `empty` — still an
+ * asymmetry, but a much smaller one than the number this function was written against. What the
+ * re-check defends is unchanged by that: it takes ONE misread square to sink whole-board agreement,
+ * and 0.882 over 32 pieces still expects a few. Whether the strip-and-retry should now be narrower
+ * is an open measurement question; nobody has re-run it.
  */
 private fun EngineState.identityRead(
     cnn: CnnEvaluator,

@@ -110,8 +110,14 @@ private fun EngineState.advanceDesyncStreak(
 
 /**
  * **Identity-only conflicts never alarm.** An illegal move virtually always changes OCCUPANCY
- * somewhere; a stable wrong-piece-type reading is the known N/B/R gap (~40% identity precision),
- * and counting it rang the alarm on perfectly regular boards.
+ * somewhere; a stable wrong-piece-type reading is the known N/B/R gap, and counting it rang the
+ * alarm on perfectly regular boards.
+ *
+ * That gap used to be quoted here as "~40% identity precision" and it is not: measured on
+ * `occ-v10bn35-13c-hn` over 7 217 occupied crops it is **0.882** overall and **0.818** across the
+ * Q/R/N/B set. The rule survives the correction for its own reason rather than that one — a false
+ * alarm declares the board lost, so the bar has to be occupancy whatever identity scores — but
+ * whether 0.882 is now good enough to alarm on is an open measurement question, not a closed one.
  */
 private fun EngineState.raiseAlarmIfDue(
     cnn: CnnEvaluator,
