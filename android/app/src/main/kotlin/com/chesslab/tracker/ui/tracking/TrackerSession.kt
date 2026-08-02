@@ -27,7 +27,15 @@ interface TrackerSession {
     val events: Flow<TrackerEvent>
     val rawPreview: StateFlow<Bitmap?>
 
-    /** The rectified board — the tracking screen's live view. */
+    /** Display-only turn for [rawPreview]; see `CalibrationFrames.previewRotation`. */
+    val previewRotation: StateFlow<Int>
+
+    /**
+     * The rectified board — the tracking screen's live view.
+     *
+     * Needs no [previewRotation]: the warp puts a8 at the top-left by construction, so this one is
+     * upright whatever the sensor's orientation is. Only the RAW frame carries the sensor's turn.
+     */
     val boardPreview: StateFlow<Bitmap?>
 
     /**
@@ -112,6 +120,7 @@ object NoTrackerSession : TrackerSession {
     override val status: StateFlow<TrackerStatus?> = MutableStateFlow(null)
     override val events: Flow<TrackerEvent> = emptyFlow()
     override val rawPreview: StateFlow<Bitmap?> = MutableStateFlow(null)
+    override val previewRotation: StateFlow<Int> = MutableStateFlow(0)
     override val boardPreview: StateFlow<Bitmap?> = MutableStateFlow(null)
 
     /** Unbound: there is no camera to be on, and the screen must not offer to stop one. */

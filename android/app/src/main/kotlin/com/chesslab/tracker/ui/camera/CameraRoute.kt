@@ -4,20 +4,17 @@ import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -32,10 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.camera.CameraAbilities
@@ -46,6 +40,7 @@ import com.chesslab.tracker.geometry.ProfileLoad
 import com.chesslab.tracker.geometry.calibrationStore
 import com.chesslab.tracker.settings.SettingsHost
 import com.chesslab.tracker.ui.ChesslabScaffold
+import com.chesslab.tracker.ui.SourceFramedPreview
 import com.chesslab.tracker.ui.calibration.CalibrationHost
 import com.chesslab.tracker.ui.calibration.LocalCalibrationHost
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
@@ -166,7 +161,10 @@ private fun CameraScreen(
                 if (open != null) open = null else chrome = !chrome
             },
     ) {
-        Viewfinder(preview, profile, guides = chrome, fill = fill)
+        // Off the host rather than through `CameraScreen`'s parameter list: it is a property of the
+        // frames, and the host is already this screen's handle on them.
+        val rotation by host.previewRotation.collectAsStateWithLifecycle()
+        Viewfinder(preview, rotation, profile, guides = chrome, fill = fill)
         calibrateNote?.let { CalibrateNote(it, Modifier.align(Alignment.Center)) }
         AnimatedVisibility(chrome, Modifier.align(Alignment.TopCenter), enter = fadeIn(), exit = fadeOut()) {
             CameraTopBar(
@@ -220,31 +218,23 @@ private fun CameraScreen(
 @Composable
 private fun BoxScope.Viewfinder(
     preview: Bitmap?,
+    rotationDegrees: Int,
     profile: CalibrationProfile?,
     guides: Boolean,
     fill: Boolean,
 ) {
     val width = preview?.width ?: 0
     val height = preview?.height ?: 0
-    val ratio = if (width > 0 && height > 0) width.toFloat() / height else DEFAULT_RATIO
-    BoxWithConstraints(Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
-        // `requiredSize` off measured constraints, NOT `aspectRatio`: that modifier resolves the
-        // width constraint first, so a `fillMaxHeight` box under it silently came back at the
-        // fitted size and the fill toggle did nothing at all on the phone.
-        val fitted = DpSize(maxWidth, maxWidth / ratio)
-        val covered = DpSize(maxHeight * ratio, maxHeight)
-        val box = if (fill && covered.width > fitted.width) covered else fitted
-        Box(Modifier.requiredSize(box)) {
-            preview?.let {
-                Image(
-                    bitmap = it.asImageBitmap(),
-                    contentDescription = "camera viewfinder",
-                    contentScale = ContentScale.FillBounds,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } ?: Text("no camera frame yet", color = Chrome.onSurfaceMuted, modifier = Modifier.align(Alignment.Center))
-            if (guides) FramingOverlay(profile, width, height, Modifier.fillMaxSize())
-        }
+    SourceFramedPreview(
+        preview = preview,
+        rotationDegrees = rotationDegrees,
+        sourceWidth = width,
+        sourceHeight = height,
+        modifier = Modifier.matchParentSize(),
+        fill = fill,
+        empty = { Text("no camera frame yet", color = Chrome.onSurfaceMuted) },
+    ) {
+        if (guides) FramingOverlay(profile, width, height, Modifier.fillMaxSize())
     }
 }
 
@@ -430,7 +420,6 @@ private fun WhiteBalancePanel(
     )
 }
 
-private const val DEFAULT_RATIO = 4f / 3f
 private const val PANEL_CORNER = 14
 
 /** Manual focus opens at the far end: a board is metres away, not centimetres. */
