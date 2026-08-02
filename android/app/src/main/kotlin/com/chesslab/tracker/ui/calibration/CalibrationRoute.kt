@@ -1,12 +1,9 @@
 package com.chesslab.tracker.ui.calibration
 
 import android.graphics.Bitmap
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -22,10 +19,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -33,6 +27,7 @@ import com.chesslab.tracker.geometry.ArucoCalibrator
 import com.chesslab.tracker.geometry.CalibrationProfile
 import com.chesslab.tracker.geometry.calibrationStore
 import com.chesslab.tracker.ui.ChesslabScaffold
+import com.chesslab.tracker.ui.SourceFramedPreview
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import kotlinx.coroutines.launch
 
@@ -64,11 +59,13 @@ fun CalibrationRoute(
     LaunchedEffect(vm) { vm.autoDetect() }
     val state by vm.state.collectAsState()
     val preview by host.rawPreview.collectAsState()
+    val rotation by host.previewRotation.collectAsState()
     // `onBack` used to be emitted as a SIBLING of the steps: the nav host stacks its children in a
     // Box, so the button was drawn on top of the camera preview instead of below the content.
     CalibrationSteps(
         state = state,
         preview = preview,
+        rotation = rotation,
         vm = vm,
         onBack = onBack,
         // Stays on this screen, deliberately: the sequence just changed the optics and its outcome
@@ -89,6 +86,7 @@ fun CalibrationRoute(
 private fun CalibrationSteps(
     state: CalibrationState,
     preview: Bitmap?,
+    rotation: Int,
     vm: CalibrationViewModel,
     onBack: () -> Unit,
     onRemeasure: () -> Unit,
@@ -111,14 +109,21 @@ private fun CalibrationSteps(
                         onMarginChange = vm::setMargin,
                     )
                 CalibrationStep.MANUAL -> {
-                    PreviewWithOverlay(preview, state, source, labelled = false, modifier = Modifier.weight(1f))
+                    PreviewWithOverlay(preview, rotation, state, source, labelled = false, modifier = Modifier.weight(1f))
                     ManualCornerPicker(state, vm::tap, vm::undoTap, vm::restartTaps)
                     WideButton("Check orientation", vm::toConfirm, enabled = state.corners != null)
                 }
                 else -> {
                     // The preview takes the leftover height: aiming the camera IS this screen, and
                     // it used to sit in a fixed square box drawn at the bitmap's intrinsic size.
-                    PreviewWithOverlay(preview, state, source, state.step == CalibrationStep.DETECTED, Modifier.weight(1f))
+                    PreviewWithOverlay(
+                        preview,
+                        rotation,
+                        state,
+                        source,
+                        state.step == CalibrationStep.DETECTED,
+                        Modifier.weight(1f),
+                    )
                     AimActions(state, vm, onRemeasure)
                 }
             }
@@ -202,31 +207,26 @@ private fun AimActions(
 @Composable
 private fun PreviewWithOverlay(
     preview: Bitmap?,
+    rotationDegrees: Int,
     state: CalibrationState,
     source: IntSize,
     labelled: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    // The overlay maps SOURCE pixels onto the whole box, so the box must carry the source's aspect
-    // ratio and the image must fill it exactly — otherwise every drawn corner sits off the board.
-    val ratio = if (source.width > 0 && source.height > 0) source.width.toFloat() / source.height else DEFAULT_RATIO
-    Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        Box(Modifier.fillMaxWidth().aspectRatio(ratio)) {
-            preview?.let {
-                Image(
-                    bitmap = it.asImageBitmap(),
-                    contentDescription = "camera preview",
-                    contentScale = ContentScale.FillBounds,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } ?: Text("no camera frame yet", color = OnSurfaceMuted)
-            if (labelled) {
-                CalibrationOverlay(state.corners, state.markerIds, state.whitePov, source, Modifier.fillMaxSize())
-            } else {
-                QuadOutline(state.corners, source, Modifier.fillMaxSize())
-            }
+    // The overlay maps SOURCE pixels onto the whole box, and `SourceFramedPreview` is what
+    // guarantees the picture fills that same box — otherwise every drawn corner sits off the board.
+    SourceFramedPreview(
+        preview = preview,
+        rotationDegrees = rotationDegrees,
+        sourceWidth = source.width,
+        sourceHeight = source.height,
+        modifier = modifier.fillMaxWidth(),
+        empty = { Text("no camera frame yet", color = OnSurfaceMuted) },
+    ) {
+        if (labelled) {
+            CalibrationOverlay(state.corners, state.markerIds, state.whitePov, source, Modifier.fillMaxSize())
+        } else {
+            QuadOutline(state.corners, source, Modifier.fillMaxSize())
         }
     }
 }
-
-private const val DEFAULT_RATIO = 4f / 3f

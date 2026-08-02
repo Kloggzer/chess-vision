@@ -25,6 +25,8 @@ class CalibrationHost(
     val latestCalibrationFrame: () -> Mat?,
     /** `TrackerBinder.rawPreview` — downscaled analyzer frames, the live picture. */
     val rawPreview: StateFlow<Bitmap?>,
+    /** `TrackerBinder.previewRotation` — display-only, and it never touches the saved geometry. */
+    val previewRotation: StateFlow<Int>,
     /** `TrackerBinder.applyCalibration(…, relockOptics = true)`. GEOMETRY ONLY. */
     val onCalibrated: (BoardGeometry, FloatArray, String) -> Unit,
     /**

@@ -61,12 +61,25 @@ class CameraFrameBus(
     private val boardGate = InFlightGate()
     private val preview = MutableStateFlow<Bitmap?>(null)
     private val board = MutableStateFlow<Bitmap?>(null)
+    private val rotation = MutableStateFlow(0)
     private val lock = Any()
     private var latest: Mat? = null
     private var lastMs = 0L
     private var lastBoardMs = 0L
 
     override val rawPreview: StateFlow<Bitmap?> = preview.asStateFlow()
+
+    override val previewRotation: StateFlow<Int> = rotation.asStateFlow()
+
+    /**
+     * The rotation the analyzer reported for the frames now in [rawPreview].
+     *
+     * Called per frame; a [MutableStateFlow] only notifies on a CHANGED value, so the steady state
+     * costs a comparison. The value moves at most when the camera is re-bound.
+     */
+    fun noteRotation(degrees: Int) {
+        rotation.value = degrees
+    }
 
     /**
      * The RECTIFIED board — what the tracker actually looks at.
@@ -174,6 +187,22 @@ interface CalibrationFrames {
     fun latestCalibrationFrame(): Mat?
 
     val rawPreview: StateFlow<Bitmap?>
+
+    /**
+     * Degrees to rotate [rawPreview] CLOCKWISE for it to sit upright on the screen — 90 on a
+     * typical back camera held in portrait, because the sensor's long axis is the device's short one.
+     *
+     * The frames are NOT rotated on the way through: `ImageAnalysis` sets no target rotation, so the
+     * whole pipeline — the warp, the ArUco detection, every stored `CalibrationProfile` and every
+     * quad in it — lives in sensor space, and turning the buffer would invalidate all of it at once
+     * (`CalibrationProfile` records that `forResolution()` was deleted in a7dab73 for the same class
+     * of reason). So this is a DISPLAY correction and nothing else, and the only honest place to
+     * apply it is where the picture and its overlay are drawn together, as one turned unit.
+     *
+     * Read from the delivered frame rather than assumed, per the rule the resolution bug left
+     * behind: never trust what was requested, read what arrived.
+     */
+    val previewRotation: StateFlow<Int>
 
     /** The rectified board; null until the first frame is warped. See [CameraFrameBus.boardPreview]. */
     val boardPreview: StateFlow<Bitmap?>

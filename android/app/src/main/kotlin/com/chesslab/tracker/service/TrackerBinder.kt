@@ -46,6 +46,8 @@ class TrackerBinder(
 
     override val rawPreview: StateFlow<Bitmap?> get() = frames.rawPreview
 
+    override val previewRotation: StateFlow<Int> get() = frames.previewRotation
+
     override val boardPreview: StateFlow<Bitmap?> get() = frames.boardPreview
     override val cameraHealth: StateFlow<CameraHealth> get() = frames.cameraHealth
 

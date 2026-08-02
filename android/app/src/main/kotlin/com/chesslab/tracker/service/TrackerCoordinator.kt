@@ -55,6 +55,8 @@ class TrackerCoordinator(
     ) {
         timings.begin()
         drainCalibration()
+        // Display-only, and it has to come from the delivered frame — see `previewRotation`.
+        bus.noteRotation(delivered.rotationDegrees)
         // The preview bus is fed from INSIDE the pipeline now (`FrameStages.publishFrame`), off the
         // frame the convert already produced — see `CameraFrameBus.offer`.
         val result = pipeline.onFrame(image, System.currentTimeMillis())

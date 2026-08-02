@@ -24,6 +24,7 @@ class FakeTrackerSession : TrackerSession {
     override val status = MutableStateFlow<TrackerStatus?>(idleTrackerStatus())
     override val events = MutableSharedFlow<TrackerEvent>(extraBufferCapacity = 32)
     override val rawPreview = MutableStateFlow<Bitmap?>(null)
+    override val previewRotation = MutableStateFlow(0)
     override val boardPreview = MutableStateFlow<Bitmap?>(null)
     override val cameraOn = MutableStateFlow(true)
 

@@ -38,6 +38,7 @@ private class BinderSession(
     override val status: StateFlow<TrackerStatus?> get() = binder.status
     override val events: Flow<TrackerEvent> get() = binder.events
     override val rawPreview: StateFlow<Bitmap?> get() = binder.rawPreview
+    override val previewRotation: StateFlow<Int> get() = binder.previewRotation
     override val boardPreview: StateFlow<Bitmap?> get() = binder.boardPreview
     override val cameraOn: StateFlow<Boolean> get() = binder.cameraOn
 
@@ -123,6 +124,7 @@ fun BindTrackerService(content: @Composable () -> Unit) {
             CalibrationHost(
                 latestCalibrationFrame = bound::latestCalibrationFrame,
                 rawPreview = bound.rawPreview,
+                previewRotation = bound.previewRotation,
                 onCalibrated = { geometry, corners, name -> bound.applyCalibration(geometry, corners, name, relockOptics = true) },
                 remeasureOptics = bound.remeasureOptics,
                 // The re-measure sequence converged the optics BEFORE it measured this quad, so
