@@ -252,16 +252,10 @@ private fun EngineState.commitRecovery(
     moves: List<Move>,
     agreement: Double,
 ): List<TrackerEvent> {
-    val fenBefore = board.fen()
     val ucis = moves.map { uciOf(it) }
-    val sans = ArrayList<String>(moves.size)
-    for (move in moves) {
-        sans.add(board.san(move))
-        board.push(move)
-    }
-    history.addAll(sans)
+    val sans = pushRecovery(moves)
     lastMove = ucis.last()
-    recordDecision(moves.last(), sans.last(), fenBefore, DECIDER_CNN_RECOVERY, priorUsed = false)
+    lastCommitSize = moves.size
     queueSessionCapture(sans.last())
     val anchor = recoveryAnchor(snap)
     if (anchor == null) {
@@ -294,6 +288,40 @@ private fun EngineState.commitRecovery(
             TrackerEvent.SequenceCommitted(ucis, sans, board.fen(), DECIDER_CNN_RECOVERY)
         }
     return events
+}
+
+/**
+ * Push the sequence onto the board and the history, and write ONE decision row per move.
+ *
+ * It used to write a single row for the whole bridge, on `moves.last()`, with the `fenBefore`
+ * captured before the first move. On 2026-08-02 that turned a four-ply rewrite into one log line
+ * and a four-ply gap in the ply numbers: three of the four moves existed nowhere in the log, and
+ * the one row that did exist described a "before" four plies older than its "after", so anything
+ * reconstructing the game from the rows reconstructed it wrong.
+ *
+ * Nothing else moves. The board, the history, `lastMove` and the emitted event are what they were —
+ * this is the instrument, not the repair.
+ *
+ * A bridge of more than one move stamps every one of its rows with `i/N` and the joined ucis, so
+ * the rows group back into the bridge they came from and are not readable as N independent
+ * one-move recoveries. A single recovery — the common case — carries no stamp at all: its text is
+ * what it always was.
+ */
+private fun EngineState.pushRecovery(moves: List<Move>): List<String> {
+    val sans = ArrayList<String>(moves.size)
+    val key = if (moves.size == 1) null else moves.joinToString(" ") { uciOf(it) }
+    for ((i, move) in moves.withIndex()) {
+        val fenBefore = board.fen()
+        val san = board.san(move)
+        sans.add(san)
+        board.push(move)
+        // Appended per move, not in one `addAll` at the end: `recordDecision` reads `history.size`
+        // as the row's ply, so the rows number themselves only if the history grows with them.
+        history.add(san)
+        val stamp = if (key == null) "" else " [move ${i + 1}/${moves.size} of recovery $key]"
+        recordDecision(move, san, fenBefore, DECIDER_CNN_RECOVERY, priorUsed = false, reasonSuffix = stamp)
+    }
+    return sans
 }
 
 /** entry.md invariant 5 — `lastCur` is the fallback ONLY when the snapshot carries no usable warp. */

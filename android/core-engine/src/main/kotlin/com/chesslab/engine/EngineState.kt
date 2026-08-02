@@ -248,6 +248,18 @@ internal class EngineState(
 
     val history: MutableList<String> = mutableListOf() // `history` (SAN)
     var lastMove: String? = null // `last_move` (uci)
+
+    /**
+     * How many plies the LAST commit pushed — 1 for an ordinary move, `moves.size` for a fast-play
+     * pair or a CNN recovery bridge. It is what `undo` takes back, and `undo` clears it.
+     *
+     * It exists because a recovery is committed as a UNIT and used to be taken back one ply at a
+     * time: the four-ply bridge of 2026-08-02 needed four presses, with nothing anywhere saying how
+     * many were left. A count, not a record — nothing here remembers WHAT was pushed, so it cannot
+     * drift out of step with the history, and `undo` bounds it by `history.size` anyway, which is
+     * what makes a stale value after a `setFen` (history cleared, nothing committed since) harmless.
+     */
+    var lastCommitSize: Int = 0
     var note: String? = null // `note`
     var priorLast: Boolean = false // `prior_last`
     var recoveredLast: Boolean = false // `recovered_last`
