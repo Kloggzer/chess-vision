@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,24 +29,25 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.camera.CameraAbilities
 import com.chesslab.tracker.camera.CameraLook
 import com.chesslab.tracker.geometry.CalibrationProfile
-import com.chesslab.tracker.geometry.CalibrationStore
 import com.chesslab.tracker.geometry.ProfileLoad
 import com.chesslab.tracker.geometry.calibrationStore
 import com.chesslab.tracker.settings.SettingsHost
 import com.chesslab.tracker.ui.ChesslabScaffold
 import com.chesslab.tracker.ui.SourceFramedPreview
 import com.chesslab.tracker.ui.calibration.CalibrationHost
+import com.chesslab.tracker.ui.calibration.CalibrationState
+import com.chesslab.tracker.ui.calibration.CalibrationStep
+import com.chesslab.tracker.ui.calibration.CalibrationViewModel
 import com.chesslab.tracker.ui.calibration.LocalCalibrationHost
+import com.chesslab.tracker.ui.calibration.OrientationConfirm
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.tracking.TrackerSessionHost
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 /**
  * The camera screen: a viewfinder with the camera's own controls ON it.
@@ -58,8 +58,9 @@ import kotlinx.coroutines.launch
  * preview: three quarters of the screen was the form, and the thing every one of those controls is
  * judged by was the quarter left over.
  *
- * The board's GEOMETRY is a different screen with a different lifetime (`CalibrationRoute`); nothing
- * here changes where the squares are, except zoom, which says so.
+ * The board's GEOMETRY is the screen's other MODE (`CameraMode.BOARD`), not another screen: it is
+ * judged through the same viewfinder, so it shares the picture and swaps only the overlay and the
+ * deck. Nothing in look mode changes where the squares are, except zoom, which says so.
  *
  * **No camera is bound here.** The viewfinder is the analyzer's own frames, the same ones the
  * calibration screen renders (`TrackerSession.rawPreview`). `TrackerCamera` is the app's single
@@ -72,7 +73,10 @@ import kotlinx.coroutines.launch
  * this feature's clothes.
  */
 @Composable
-fun CameraRoute(onBack: () -> Unit) {
+fun CameraRoute(
+    onBack: () -> Unit,
+    startMode: CameraMode = CameraMode.LOOK,
+) {
     // The aiming screen calibrates from the same host the wizard uses, so the two cannot drift.
     val host = LocalCalibrationHost.current
     val port by CameraLookHost.port.collectAsStateWithLifecycle()
@@ -103,6 +107,7 @@ fun CameraRoute(onBack: () -> Unit) {
         viewModel = viewModel,
         onBack = onBack,
         host = host ?: return,
+        startMode = startMode,
     )
 }
 
@@ -143,13 +148,25 @@ private fun CameraScreen(
     viewModel: CameraViewModel,
     onBack: () -> Unit,
     host: CalibrationHost,
+    startMode: CameraMode,
 ) {
     var open by remember { mutableStateOf<CameraAxis?>(null) }
     var chrome by remember { mutableStateOf(true) }
     var fill by remember { mutableStateOf(false) }
-    val calibrate = rememberAutoCalibrate(host)
-    val calibrating = calibrate.running
-    val calibrateNote = calibrate.note
+    var mode by remember { mutableStateOf(startMode) }
+    val scope = rememberCoroutineScope()
+    val board = rememberBoardModel(host, scope)
+    val boardState by board.state.collectAsStateWithLifecycle()
+    // Off the host rather than through the parameter list: it is a property of the frames, and the
+    // host is already this screen's handle on them.
+    val rotation by host.previewRotation.collectAsStateWithLifecycle()
+    // The rectified board is a DIFFERENT picture, so it takes the whole surface rather than sitting
+    // on the viewfinder. It is also the one step that must not be skippable: a wrong a8 assignment
+    // has no runtime symptom, the board simply reads mirrored.
+    if (mode == CameraMode.BOARD && boardState.step == CalibrationStep.CONFIRM) {
+        ConfirmSurface(boardState, board, host, onBack = board::back)
+        return
+    }
     Box(
         Modifier
             .fillMaxSize()
@@ -161,19 +178,21 @@ private fun CameraScreen(
                 if (open != null) open = null else chrome = !chrome
             },
     ) {
-        // Off the host rather than through `CameraScreen`'s parameter list: it is a property of the
-        // frames, and the host is already this screen's handle on them.
-        val rotation by host.previewRotation.collectAsStateWithLifecycle()
-        Viewfinder(preview, rotation, profile, guides = chrome, fill = fill)
-        calibrateNote?.let { CalibrateNote(it, Modifier.align(Alignment.Center)) }
+        Viewfinder(preview, rotation, fill = fill) {
+            when (mode) {
+                CameraMode.LOOK -> if (chrome) FramingOverlay(profile, preview?.width ?: 0, preview?.height ?: 0, Modifier.fillMaxSize())
+                CameraMode.BOARD ->
+                    BoardOverlay(boardState, IntSize(boardState.frameWidth, boardState.frameHeight)) { x, y, rendered ->
+                        board.tapAt(x, y, rendered, boardState)
+                    }
+            }
+        }
         AnimatedVisibility(chrome, Modifier.align(Alignment.TopCenter), enter = fadeIn(), exit = fadeOut()) {
             CameraTopBar(
-                unsaved = look != saved,
+                unsaved = mode == CameraMode.LOOK && look != saved,
                 canReset = !look.isAuto || !saved.isAuto,
                 fill = fill,
                 onBack = onBack,
-                calibrating = calibrating,
-                onCalibrate = calibrate::press,
                 onSave = viewModel::save,
                 onUndo = viewModel::revert,
                 onAuto = viewModel::backToAuto,
@@ -182,19 +201,68 @@ private fun CameraScreen(
             )
         }
         AnimatedVisibility(chrome, Modifier.align(Alignment.BottomCenter), enter = fadeIn(), exit = fadeOut()) {
-            CameraDeck(
-                look = look,
-                abilities = abilities,
-                unsaved = look != saved,
-                cropped = fill,
-                open = open,
-                onOpen = { open = it },
-                torchOn = torchOn,
-                hasTorch = hasTorch,
-                onTorch = onTorch,
-                onLook = viewModel::set,
-            )
+            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                ModeStrip(mode, { mode = it }, Modifier.padding(bottom = 8.dp))
+                if (mode == CameraMode.BOARD) {
+                    BoardDeck(boardState, board)
+                } else {
+                    LookDeck(look, abilities, saved, fill, open, { open = it }, torchOn, hasTorch, onTorch, viewModel)
+                }
+            }
         }
+    }
+}
+
+/** Look mode's own deck, split out so [CameraScreen] stays a layout and not a parameter list. */
+@Composable
+private fun LookDeck(
+    look: CameraLook,
+    abilities: CameraAbilities?,
+    saved: CameraLook,
+    fill: Boolean,
+    open: CameraAxis?,
+    onOpen: (CameraAxis?) -> Unit,
+    torchOn: Boolean,
+    hasTorch: Boolean,
+    onTorch: (Boolean) -> Unit,
+    viewModel: CameraViewModel,
+) {
+    CameraDeck(
+        look = look,
+        abilities = abilities,
+        unsaved = look != saved,
+        cropped = fill,
+        open = open,
+        onOpen = onOpen,
+        torchOn = torchOn,
+        hasTorch = hasTorch,
+        onTorch = onTorch,
+        onLook = viewModel::set,
+    )
+}
+
+/**
+ * The orientation check, on the whole surface.
+ *
+ * Not a panel over the viewfinder: what is being judged here is the RECTIFIED board, which is a
+ * different picture from the one behind it, and two boards on one screen is the fastest way to
+ * confirm the wrong one.
+ */
+@Composable
+private fun ConfirmSurface(
+    state: CalibrationState,
+    model: CalibrationViewModel,
+    host: CalibrationHost,
+    onBack: () -> Unit,
+) {
+    Column(Modifier.fillMaxSize().background(Color.Black).padding(12.dp)) {
+        OrientationConfirm(
+            state = state,
+            onWhitePovChange = model::setWhitePov,
+            onSave = { model.saveAnd(host) {} },
+            onBack = onBack,
+            onMarginChange = model::setMargin,
+        )
     }
 }
 
@@ -219,23 +287,19 @@ private fun CameraScreen(
 private fun BoxScope.Viewfinder(
     preview: Bitmap?,
     rotationDegrees: Int,
-    profile: CalibrationProfile?,
-    guides: Boolean,
     fill: Boolean,
+    overlay: @Composable BoxScope.() -> Unit,
 ) {
-    val width = preview?.width ?: 0
-    val height = preview?.height ?: 0
     SourceFramedPreview(
         preview = preview,
         rotationDegrees = rotationDegrees,
-        sourceWidth = width,
-        sourceHeight = height,
+        sourceWidth = preview?.width ?: 0,
+        sourceHeight = preview?.height ?: 0,
         modifier = Modifier.matchParentSize(),
         fill = fill,
         empty = { Text("no camera frame yet", color = Chrome.onSurfaceMuted) },
-    ) {
-        if (guides) FramingOverlay(profile, width, height, Modifier.fillMaxSize())
-    }
+        overlay = overlay,
+    )
 }
 
 /**
@@ -424,59 +488,3 @@ private const val PANEL_CORNER = 14
 
 /** Manual focus opens at the far end: a board is metres away, not centimetres. */
 private const val DEFAULT_FOCUS = 0f
-
-/** How long the one-line outcome stays over the picture before it clears itself. */
-private const val NOTE_MS = 4000L
-
-private const val NOTE_CORNER = 10
-
-/**
- * The one-press calibration as a tiny state holder.
- *
- * Out of the composable because the screen is a LAYOUT: a coroutine, three pieces of state and a
- * store lookup in the middle of its argument list is what makes one unreadable.
- */
-private class AutoCalibrateState(
-    private val host: CalibrationHost,
-    private val store: CalibrationStore,
-    private val scope: CoroutineScope,
-) {
-    var running by mutableStateOf(false)
-        private set
-    var note by mutableStateOf<String?>(null)
-        private set
-
-    fun press() {
-        running = true
-        scope.launch {
-            note = autoCalibrate(host, store).note()
-            running = false
-            delay(NOTE_MS)
-            note = null
-        }
-    }
-}
-
-@Composable
-private fun rememberAutoCalibrate(host: CalibrationHost): AutoCalibrateState {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    return remember(host) { AutoCalibrateState(host, calibrationStore(context), scope) }
-}
-
-/** The outcome of one calibrate press, over the picture, gone again after [NOTE_MS]. */
-@Composable
-private fun CalibrateNote(
-    note: String,
-    modifier: Modifier = Modifier,
-) {
-    Text(
-        text = note,
-        style = MaterialTheme.typography.labelLarge,
-        color = Chrome.onSurface,
-        modifier =
-            modifier
-                .background(ChromeScrim, RoundedCornerShape(NOTE_CORNER.dp))
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-    )
-}

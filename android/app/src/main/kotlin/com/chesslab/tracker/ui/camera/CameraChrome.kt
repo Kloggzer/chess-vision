@@ -66,8 +66,6 @@ fun CameraTopBar(
     canReset: Boolean,
     fill: Boolean,
     onBack: () -> Unit,
-    calibrating: Boolean,
-    onCalibrate: () -> Unit,
     onSave: () -> Unit,
     onUndo: () -> Unit,
     onAuto: () -> Unit,
@@ -81,17 +79,9 @@ fun CameraTopBar(
         IconButton(onClick = onBack) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Chrome.onSurface)
         }
-        // The other half of setting this rig up, as ONE press. Aiming and calibrating are one
-        // sitting — you move the phone, then you re-measure the quad — and the wizard's only
-        // unskippable step (which corner is a8) cannot change by moving the phone over the same
-        // board. The wizard stays one tap from the game for the case where it does.
-        TextButton(onClick = onCalibrate, enabled = !calibrating) {
-            Text(
-                text = if (calibrating) "Calibrating…" else "Calibrate",
-                style = MaterialTheme.typography.labelLarge,
-                color = if (calibrating) Chrome.onSurfaceMuted else Chrome.accent,
-            )
-        }
+        // Calibrating is no longer a button up here. It is the screen's other MODE, reached from
+        // the strip above the deck — the one-press version could only ever do the half that needs
+        // no judgement, and it sat next to a viewfinder that was already showing the board.
         Box(Modifier.weight(1f))
         if (unsaved) {
             TextButton(onClick = onSave) {

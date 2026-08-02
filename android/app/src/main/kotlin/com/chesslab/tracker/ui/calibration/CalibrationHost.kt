@@ -5,7 +5,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.chesslab.geometry.BoardGeometry
-import com.chesslab.tracker.camera.OpticsSettling
 import kotlinx.coroutines.flow.StateFlow
 import org.opencv.core.Mat
 
@@ -27,19 +26,14 @@ class CalibrationHost(
     val rawPreview: StateFlow<Bitmap?>,
     /** `TrackerBinder.previewRotation` — display-only, and it never touches the saved geometry. */
     val previewRotation: StateFlow<Int>,
-    /** `TrackerBinder.applyCalibration(…, relockOptics = true)`. GEOMETRY ONLY. */
+    /**
+     * `TrackerBinder.applyCalibration`. GEOMETRY ONLY.
+     *
+     * One member where there used to be two. `onRemeasured` existed solely to say "do NOT re-arm
+     * the optics for this one", and with the automatic convergence removed (`OpticsLock`) there is
+     * nothing to re-arm and nothing for the two call sites to disagree about.
+     */
     val onCalibrated: (BoardGeometry, FloatArray, String) -> Unit,
-    /**
-     * `TrackerBinder.remeasureOptics` — releases focus, exposure and white balance and waits for a
-     * fresh convergence. The screen may only re-measure the geometry after it returns
-     * [OpticsSettling.Converged].
-     */
-    val remeasureOptics: suspend () -> OpticsSettling,
-    /**
-     * As [onCalibrated], but it does NOT re-arm the optics: this quad was measured *after* they
-     * converged, and re-arming would release the lock it was measured under.
-     */
-    val onRemeasured: (BoardGeometry, FloatArray, String) -> Unit,
 )
 
 val LocalCalibrationHost = staticCompositionLocalOf<CalibrationHost?> { null }

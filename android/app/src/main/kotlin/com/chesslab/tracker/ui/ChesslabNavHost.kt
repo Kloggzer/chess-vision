@@ -14,7 +14,7 @@ import androidx.navigation.compose.rememberNavController
 import com.chesslab.tracker.service.TrackerRestartHost
 import com.chesslab.tracker.spectate.ui.SpectatorScreen
 import com.chesslab.tracker.speech.ui.SpeechSettingsScreen
-import com.chesslab.tracker.ui.calibration.CalibrationRoute
+import com.chesslab.tracker.ui.camera.CameraMode
 import com.chesslab.tracker.ui.camera.CameraRoute
 import com.chesslab.tracker.ui.debug.DebugRoute
 import com.chesslab.tracker.ui.games.GameDetailRoute
@@ -71,17 +71,14 @@ fun ChesslabNavHost(navController: NavHostController = rememberNavController()) 
                 }
             }
         }
+        // Calibration is the camera screen in BOARD mode, not a screen of its own — same
+        // viewfinder, same binding, different overlay and deck. The route survives because the
+        // tracking screen's "Recalibrate" is a different entry point with a different intent.
         composable(ROUTE_CALIBRATION) {
-            CalibrationRoute(
-                // Calibration is a detour, not a destination: both exits return to tracking.
-                onCalibrated = { navController.popBackStack() },
-                onBack = { navController.popBackStack() },
-            )
+            CameraRoute(onBack = { navController.popBackStack() }, startMode = CameraMode.BOARD)
         }
-        // The PICTURE. Its sibling `ROUTE_CALIBRATION` is the board's GEOMETRY: two screens because
-        // they are two lifetimes — a camera setting belongs to the room, a marker quad to the board.
         composable(ROUTE_CAMERA) {
-            CameraRoute { navController.popBackStack() }
+            CameraRoute(onBack = { navController.popBackStack() })
         }
         composable(ROUTE_SETTINGS) {
             // Null until the service has published its restart action, and the settings screen

@@ -213,21 +213,6 @@ class TrackerCamera(
     }
 
     /**
-     * Let focus, exposure and white balance converge once more, then lock them again.
-     *
-     * The lock is deliberately not self-healing: it cannot tell a light being switched off from a
-     * correctly locked dark scene. Two moments are the user stating that something changed — a
-     * recalibration, and the "Re-measure camera" button on that screen — and both come through
-     * here.
-     *
-     * It suspends, and it answers, because the button's next step is to re-measure the GEOMETRY and
-     * it may only do that once the lens has stopped moving. A caller with nothing to report still
-     * wants the deadline: `OpticsLock.remeasure` puts the previous lock back when the device never
-     * converges, where a bare re-arm would leave the optics running free for the rest of the game.
-     */
-    suspend fun remeasureOptics(): OpticsSettling = optics.remeasure()
-
-    /**
      * Ask auto-exposure to keep the frame rate up.
      *
      * `CameraRequest.targetFps` was dead code until now: nothing pinned

@@ -1,6 +1,5 @@
 package com.chesslab.tracker.service
 
-import com.chesslab.tracker.camera.OpticsSettling
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -24,11 +23,13 @@ private class FakeLamp(
 }
 
 /**
- * The lamp is not the content — the ORDER is.
+ * The lamp is not the content — the BASELINE is.
  *
- * The optics are frozen, so a torch coming on under a locked exposure blows the image out; and the
- * reference the frame-diff compares against was taken under the old light, so every square would
- * read as changed and the next frame is `too_many_changed`. Torch, then re-measure, then baseline.
+ * The reference the frame-diff compares against was taken under the old light, so the moment the
+ * lamp changes every square reads as changed and the next frame is `too_many_changed`. Torch, then
+ * baseline. There used to be an optics re-measure between the two; with the automatic freeze gone
+ * (`OpticsLock`) there is nothing to re-converge, and a pinned EV must not be undone behind the
+ * user's back.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class TorchSwitchTest {
@@ -39,22 +40,18 @@ class TorchSwitchTest {
     ) = TorchSwitch(
         lamp = lamp,
         scope = scope,
-        remeasure = {
-            log += "remeasure"
-            OpticsSettling.Converged(null)
-        },
         baseline = { log += "baseline" },
     )
 
     @Test
-    fun switchingOnRemeasuresTheOpticsThenTakesABaseline() =
+    fun switchingOnTakesAFreshBaseline() =
         runTest {
             val lamp = FakeLamp()
             val log = mutableListOf<String>()
             switch(lamp, log, this).setTorchOn(true)
             advanceUntilIdle()
             assertEquals(listOf(true), lamp.calls)
-            assertEquals(listOf("remeasure", "baseline"), log, "the order is the whole point")
+            assertEquals(listOf("baseline"), log, "the lamp changed, so the reference must too")
         }
 
     /** Switching OFF invalidates the reference just as completely. Both directions, or neither. */
@@ -69,12 +66,12 @@ class TorchSwitchTest {
             log.clear()
             torch.setTorchOn(false)
             advanceUntilIdle()
-            assertEquals(listOf("remeasure", "baseline"), log)
+            assertEquals(listOf("baseline"), log)
         }
 
     /**
-     * A device with no flash unit must not lose its baseline to a tap that did nothing. Re-measuring
-     * and re-anchoring for a lamp that never came on is a free way to break a running game.
+     * A device with no flash unit must not lose its baseline to a tap that did nothing. Re-anchoring
+     * for a lamp that never came on is a free way to break a running game.
      */
     @Test
     fun aLampThatCannotEngageChangesNothingElse() =
@@ -83,7 +80,7 @@ class TorchSwitchTest {
             val log = mutableListOf<String>()
             switch(lamp, log, this).setTorchOn(true)
             advanceUntilIdle()
-            assertTrue(log.isEmpty(), "no torch, no re-measure and above all no new baseline: $log")
+            assertTrue(log.isEmpty(), "no torch, so above all no new baseline: $log")
         }
 
     @Test

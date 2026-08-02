@@ -11,7 +11,6 @@ import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.camera.CameraLookPort
 import com.chesslab.tracker.camera.DeliveredSize
-import com.chesslab.tracker.camera.OpticsSettling
 import com.chesslab.tracker.camera.TrackerCamera
 import com.chesslab.tracker.camera.cameraRequestFor
 import com.chesslab.tracker.cnn.Attached
@@ -98,22 +97,13 @@ class TrackerService :
 
     override val cameraOn: StateFlow<Boolean> = cameraRunning.asStateFlow()
 
-    /**
-     * The calibration screen's "Re-measure camera", handed straight to the single camera owner.
-     *
-     * One press, one sequence, no loop: the screen owns the ORDER (optics, then geometry) and this
-     * is only the half that needs the device. A getter, because `camera` is built in [wireSession].
-     */
-    override val remeasureOptics: suspend () -> OpticsSettling get() = camera::remeasureOptics
-
     override val cameraLook: CameraLookPort get() = camera.look
 
-    /** The lamp, the optics and the baseline as one act — see [TorchSwitch]. */
+    /** The lamp and the baseline as one act — see [TorchSwitch]. */
     private val torch by lazy {
         TorchSwitch(
             lamp = camera.torch,
             scope = lifecycleScope,
-            remeasure = camera::remeasureOptics,
             baseline = { stacks.current?.host?.submit(EngineAction.CaptureBaseline) },
         )
     }
@@ -376,7 +366,6 @@ class TrackerService :
         geom: BoardGeometry,
         pts: FloatArray,
         profileName: String,
-        relockOptics: Boolean,
     ) {
         geometry = geom.withCropSizeOf(modelSpec)
         corners = pts
@@ -390,12 +379,10 @@ class TrackerService :
         val delivered = camera.deliveredSize ?: DeliveredSize(requested.width, requested.height, 0)
         // `geometry`, not `geom`: the pipeline gets the geometry the crops are actually cut with.
         stacks.current?.coordinator?.applyCalibration(geometry, pts, profileName, delivered)
-        // The optics are locked to whatever the scene looked like when they last converged.
-        // Recalibrating is the user telling us the setup moved, which is the only signal we have
-        // that the frozen exposure/white balance/focus may no longer be the right ones. Launched
-        // and not awaited: nobody is waiting for an answer here, but the wait still has a deadline
-        // and still restores the old lock if the device never settles.
-        if (relockOptics) lifecycleScope.launch { remeasureOptics() }
+        // Nothing optical happens here any more. A recalibration used to re-arm the frozen
+        // exposure, white balance and focus, on the reasoning that the setup had just moved; with
+        // no freeze to re-arm (`OpticsLock`) the camera is either on its own automatic or on the
+        // values the user pinned, and neither is this function's business.
     }
 }
 
