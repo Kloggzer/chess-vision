@@ -2,9 +2,44 @@
 
 | Phase | State | Note |
 |---|---|---|
-| 00 — a recovery shows its work | `todo` | first; it is the instrument |
-| 01 — undo takes back what was committed | `todo` | independent of 02 |
+| 00 — a recovery shows its work | `done` | one row per move, stamped `[move i/N of recovery <ucis>]` |
+| 01 — undo takes back what was committed | `done` | one press unwinds the last commit; the control says its size |
 | 02 — re-anchor without inventing history | `todo` | independent of 01 |
+
+## What the two landed phases changed, and what they found wrong in the spec
+
+**00.** `commitRecovery` now records inside the push loop, so each row carries the position its move
+was actually played from and a ply that counts up with the history. A bridge of more than one move
+stamps every row with `[move i/N of recovery <joined ucis>]`; a one-move recovery — the common case
+— is byte-identical to before. Nothing else moved: same board, same history, same events.
+
+The stamp rides in the reason text through a new defaulted `reasonSuffix` on `recordDecision`, which
+lives in `Commit.kt`, **not** in `DecisionLog.kt` as the ownership table says. `DecisionLog.kt` was
+not touched at all. `DebugPayload.kt` was not touched either.
+
+**01.** `EngineState.lastCommitSize` is set by all three commit paths and `undo` pops that many,
+bounded by the history, with the post-undo cleanup running once. The decision-log trim needed
+nothing new, as the phase predicted — verified, not assumed.
+
+Two corrections to the phase text:
+
+- Step 3's premise is false. "Where the undo control names the move" — neither undo control ever
+  named it; both read a bare `"Undo"`. Implemented as the intent rather than the letter: the buttons
+  read `Undo 4 moves`, and the alarm card, which has room for prose and is where Undo is pressed
+  during this failure, names the plies (`One press takes back: Bxb5 + Kb8 + Bd4 + Nf3`).
+- The design says the cleanup runs "once, **after** the pops". `clearAlarm(ALARM_UNDONE)` runs
+  BEFORE them today and was deliberately left there, because the phase also demands the single-move
+  path behave exactly as it does today and moving it would change that path too — see the open item
+  below.
+
+## Opened, not fixed
+
+**An undo that pops always trims away its own user-correction row.** `clearAlarm(ALARM_UNDONE)`
+writes its `decider = "user"` row at `ply = history.size` *before* the pops, and the trim then drops
+every row above the restored size — including that one. So the log records a user correction only
+when the undo popped nothing (an empty history), which is the case nobody debugs. It is pre-existing,
+it predates this pack, and fixing it means moving `clearAlarm` after the pops, which changes the
+ordinary single-move undo as well. Not this pack's call.
 
 ## The evidence
 
