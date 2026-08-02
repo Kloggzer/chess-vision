@@ -55,9 +55,21 @@ data class TrackerConfig(
     val cornerJumpPx: Double = 6.0,
     // This constant, not the frame rate, sets HALF the commit latency: last motion -> commit is
     // `motionHoldS + 0.05..0.07` at 30 fps, and the same clip replayed at 30/15/10 fps commits every
-    // move within 0.2 s of the same wall time. 0.34 is the floor the clip suite allows — at 0.32
-    // `blender-scholars` loses its mate. See `config.py` and specs/19-live-hardening/STATUS.md §7.
-    val motionHoldS: Double = 0.34,
+    // move within 0.2 s of the same wall time. See `config.py` and specs/19-live-hardening §7.
+    //
+    // **The old floor is gone, and so is the suite's guidance.** This read 0.34 with the note that
+    // 0.32 cost `blender-scholars` its mate. Re-measured 2026-08-02 with the shipped `id35-80`
+    // (16 ms per observation against the 146-290 ms the original figure was taken under): the
+    // 18-clip simulation is green at 0.32, at 0.20 and at 0.10. The constraint did not move — it
+    // disappeared, which means the suite can no longer tell us what this should be either.
+    //
+    // So 0.20 is chosen for a PHYSICAL reason and not a measured one, and this comment says so
+    // rather than implying a floor it does not have: it is the time a hand needs to leave the board
+    // after releasing a piece, and the clips' synthetic arm sweeps are cleaner and faster than a
+    // real one. It buys ~140 ms off every announcement against the old value. If moves start
+    // committing while a hand is still over the board, this is the knob, and the live game is the
+    // only instrument that can say so.
+    val motionHoldS: Double = 0.20,
     val occlusionColorThr: Double = 3.0,
     val minGridLineCoverage: Double = 0.5,
     val reconnectGraceS: Double = 2.0,
