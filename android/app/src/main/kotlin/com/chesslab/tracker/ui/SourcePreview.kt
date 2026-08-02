@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -61,13 +62,22 @@ fun SourceFramedPreview(
     // and built at the source's — the two differ by exactly the transpose.
     val quarterTurn = rotationDegrees.mod(HALF_TURN) != 0
     val shownRatio = if (quarterTurn) 1f / source else source
-    BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
+    BoxWithConstraints(modifier.clipToBounds(), contentAlignment = Alignment.Center) {
         // `requiredSize` off measured constraints, NOT `aspectRatio`: that modifier resolves the
         // width constraint first, so a `fillMaxHeight` box under it silently came back at the
         // fitted size and the fill toggle did nothing at all on the phone.
-        val fitted = DpSize(maxWidth, maxWidth / shownRatio)
-        val covered = DpSize(maxHeight * shownRatio, maxHeight)
-        val shown = if (fill && covered.width > fitted.width) covered else fitted
+        //
+        // Both axes are measured, and that is not belt-and-braces. Anchoring on WIDTH alone is what
+        // the two screens used to do and it was invisible while the picture was landscape on a tall
+        // phone — the height it asked for was always available. A quarter turn makes the shown shape
+        // TALLER than wide, the height-fit becomes the binding one, and a width-anchored box grows
+        // straight through the buttons under it. `requiredSize` ignores the incoming constraints, so
+        // nothing downstream would have stopped it.
+        val byWidth = DpSize(maxWidth, maxWidth / shownRatio)
+        val byHeight = DpSize(maxHeight * shownRatio, maxHeight)
+        val contain = if (byWidth.height <= maxHeight) byWidth else byHeight
+        val cover = if (byWidth.height >= maxHeight) byWidth else byHeight
+        val shown = if (fill) cover else contain
         val built = if (quarterTurn) DpSize(shown.height, shown.width) else shown
         Box(
             Modifier
