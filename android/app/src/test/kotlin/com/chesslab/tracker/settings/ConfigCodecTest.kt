@@ -66,7 +66,7 @@ class ConfigCodecTest {
 
     @Test
     fun anUnknownKeyIsIgnoredRatherThanFatal() {
-        val decoded = ConfigCodec.decode("""{"version":1,"values":{"censusThr":41.0,"knobFromTheFuture":1.0}}""")
+        val decoded = ConfigCodec.decode("""{"version":$CONFIG_SCHEMA_VERSION,"values":{"censusThr":41.0,"knobFromTheFuture":1.0}}""")
         assertNull(decoded.note)
         assertEquals(41.0, decoded.config.censusThr)
     }
