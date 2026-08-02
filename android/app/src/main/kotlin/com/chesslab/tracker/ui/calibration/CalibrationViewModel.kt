@@ -2,6 +2,7 @@ package com.chesslab.tracker.ui.calibration
 
 import android.graphics.Bitmap
 import com.chesslab.geometry.margins4
+import com.chesslab.geometry.nudgeInRectified
 import com.chesslab.tracker.geometry.BoardDetector
 import com.chesslab.tracker.geometry.CalibrationProfile
 import com.chesslab.tracker.geometry.CalibrationResult
@@ -38,6 +39,15 @@ private const val NO_FRAME = "waiting for a camera frame"
 
 private const val CHECKING_GRID = "checking the grid…"
 
+private const val CORNERS = 4
+
+/** No adjustment at all — the automatic's own quad. */
+fun zeroNudge(): List<DoubleArray> = List(CORNERS) { doubleArrayOf(0.0, 0.0) }
+
+/** `[x, y, x, y, …]` as the point list the geometry helpers take. */
+private fun FloatArray.toPointList(): List<DoubleArray> =
+    (0 until size / 2).map { doubleArrayOf(this[it * 2].toDouble(), this[it * 2 + 1].toDouble()) }
+
 /** Percent, for reporting an offset as a fraction of one square. */
 private const val PERCENT = 100.0
 
@@ -61,6 +71,20 @@ data class CalibrationState(
      */
     val margin: List<Double> = margins4(DEFAULT_MARKER_MARGIN),
     val saved: Boolean = false,
+    /**
+     * The quad the per-corner [nudge] offsets are measured FROM — the automatic's own answer.
+     *
+     * Kept apart from [corners] so the eight offsets stay absolute. Folding them in and re-reading
+     * them back would make every adjustment relative to the last one, which drifts: the same slider
+     * at the same position would mean something different depending on how it got there.
+     */
+    val baseCorners: FloatArray? = null,
+    /** Per-corner `[dx, dy]` in RECTIFIED pixels, `[a8, h8, h1, a1]`; + shows more of the board. */
+    val nudge: List<DoubleArray> = List(CORNERS) { doubleArrayOf(0.0, 0.0) },
+    /** The rectified board's edge in pixels — what one unit of [nudge] is a pixel OF. */
+    val boardSize: Int = 0,
+    /** True while the automatic fine-tune is re-fitting against the grooves. */
+    val refining: Boolean = false,
 ) {
     /** A wrong a8 assignment is invisible at runtime, so the confirmation screen is not skippable. */
     val canSave: Boolean get() = step == CalibrationStep.CONFIRM && orientationSeen && corners != null
@@ -86,6 +110,63 @@ class CalibrationViewModel(
     /** Set only by the user on the confirmation screen — an untouched value is carried over. */
     private var whitePovTouched = false
     private var marginTouched = false
+
+    /**
+     * The eight offsets, in rectified pixels, applied to [CalibrationState.baseCorners].
+     *
+     * ONE entry point rather than a setter and a reset, because they are the same act with a
+     * different argument — the caller passes the whole next set, so "move a8 sideways" and "back to
+     * the automatic's quad" go down the same path and cannot drift apart.
+     *
+     * Every slot is recomputed from the base rather than from the current quad — see
+     * [CalibrationState.baseCorners] for why. The warp is refreshed on every change because the
+     * rectified board above IS the instrument: a number without the picture reacting to it is a
+     * number nobody can judge.
+     */
+    fun applyNudge(next: List<DoubleArray>) {
+        val s = _state.value
+        val base = s.baseCorners ?: return
+        if (next.size != CORNERS || s.boardSize <= 0) return
+        val quad = base.toPointList()
+        val moved = base.copyOf()
+        next.forEachIndexed { i, off ->
+            val p = nudgeInRectified(quad, s.boardSize, i, off[0], off[1])
+            moved[i * 2] = p[0].toFloat()
+            moved[i * 2 + 1] = p[1].toFloat()
+        }
+        _state.value = s.copy(nudge = next, corners = moved)
+        scope.launch { refreshWarp(moved, s.whitePov, s.margin) }
+    }
+
+    /**
+     * Re-run the groove fit against the quad as it stands now, and adopt the answer as the new base.
+     *
+     * The same refinement [toConfirm] runs once on the way in, on a button, because the way in is
+     * not the only moment it is worth running: after eight manual nudges the quad is a different
+     * quad, and the fit that failed to find the grooves from the automatic's corners may well find
+     * them from yours. Adopting the result as the base zeroes the offsets — they described a quad
+     * that no longer exists.
+     */
+    fun autoFineTune() {
+        val s = _state.value
+        val corners = s.corners ?: return
+        if (s.refining) return
+        _state.value = s.copy(refining = true, note = CHECKING_GRID)
+        scope.launch {
+            val refined = detector.refine(corners)
+            val use = refined?.corners ?: corners
+            val now = _state.value
+            _state.value =
+                now.copy(
+                    refining = false,
+                    corners = use,
+                    baseCorners = use.copyOf(),
+                    nudge = zeroNudge(),
+                    note = refined?.let(::gridNote) ?: "the grooves were not found — the corners are unchanged",
+                )
+            refreshWarp(use, now.whitePov, now.margin)
+        }
+    }
 
     init {
         scope.launch {
@@ -114,21 +195,16 @@ class CalibrationViewModel(
         _state.value = _state.value.copy(step = CalibrationStep.MANUAL, taps = emptyList(), note = null)
     }
 
-    /** [point] is already mapped to source pixels by [mapTapToSource]. Stored in TAP order. */
-    fun tap(point: TapPoint) {
-        val s = _state.value
-        if (s.taps.size >= CORNER_PROMPTS.size) return
-        val taps = s.taps + point
-        _state.value = s.copy(taps = taps, corners = tapsToCorners(taps) ?: s.corners)
-    }
-
-    fun undoTap() {
-        val taps = _state.value.taps.dropLast(1)
-        _state.value = _state.value.copy(taps = taps, corners = tapsToCorners(taps))
-    }
-
-    fun restartTaps() {
-        _state.value = _state.value.copy(taps = emptyList(), corners = null)
+    /**
+     * The manual corner taps, whole — append, undo and start-over are one act with one argument.
+     *
+     * Three members collapsed into this for the same reason [applyNudge] is one: they only ever
+     * differed in the list they produced, and a caller that hands over the next list cannot get the
+     * three out of step with each other.
+     */
+    fun setTaps(taps: List<TapPoint>) {
+        val next = taps.take(CORNER_PROMPTS.size)
+        _state.value = _state.value.copy(taps = next, corners = tapsToCorners(next) ?: _state.value.corners)
     }
 
     /**
@@ -151,14 +227,21 @@ class CalibrationViewModel(
         // discard outsets the user measured by hand last time.
         val margin = store.geometry.margin
         _state.value =
-            s.copy(step = CalibrationStep.CONFIRM, orientationSeen = true, note = CHECKING_GRID, margin = margin)
+            s.copy(
+                step = CalibrationStep.CONFIRM,
+                orientationSeen = true,
+                note = CHECKING_GRID,
+                margin = margin,
+                boardSize = store.geometry.boardSize,
+                nudge = zeroNudge(),
+            )
         scope.launch {
             val refined = detector.refine(corners)
             val use = refined?.corners ?: corners
             // The user may have gone back while this ran; writing a quad into the AIM step would
             // resurrect a candidate they rejected.
             if (_state.value.step == CalibrationStep.CONFIRM) {
-                _state.value = _state.value.copy(corners = use, note = refined?.let(::gridNote))
+                _state.value = _state.value.copy(corners = use, baseCorners = use.copyOf(), note = refined?.let(::gridNote))
             }
             refreshWarp(use, s.whitePov, margin)
         }
