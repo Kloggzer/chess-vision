@@ -1,7 +1,6 @@
 package com.chesslab.tracker.ui.tracking
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -104,22 +105,33 @@ private fun TrackingBody(
         Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        StateHeader(ui)
-        // The camera board takes the BOARD's slot, not the leftover space under it. Both show the
-        // same 8x8; when you turn the camera on you are diagnosing, and the picture you need to
-        // read square by square is the one from the lens.
-        BoardRow(ui, viewModel.lastMoveUci, camera = preview.takeIf { showPreview })
-        ui.alarm?.let {
-            AlarmCard(
-                alarm = it,
-                onAcceptCnn = viewModel::onAcceptCnnRequested,
-                onUndo = viewModel::onUndo,
-                onNewBaseline = viewModel::onNewBaseline,
-                lastCommit = lastCommit,
-            )
-        }
-        Box(Modifier.fillMaxWidth().weight(1f)) {
-            MoveList(rows = remember(moves) { moveRows(moves) }, modifier = Modifier.fillMaxSize())
+        // Everything above the action bar SCROLLS, and the bar itself is measured outside it.
+        //
+        // A `Column` measures its children in order and hands each what is left. With the bar as an
+        // ordinary child, a grown alarm card ate the height, the weighted move list fell to zero,
+        // and the bar — measured last — got the remainder: on a real board it rendered 1-2 mm tall
+        // and could not be pressed. `heightIn(min = 48.dp)` does not save a child there; a minimum
+        // is not a reservation. Giving the scroll region the weight and leaving the bar unweighted
+        // inverts that: the bar takes its natural height first and the content yields.
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            StateHeader(ui)
+            // The camera board takes the BOARD's slot, not the leftover space under it. Both show
+            // the same 8x8; when you turn the camera on you are diagnosing, and the picture you
+            // need to read square by square is the one from the lens.
+            BoardRow(ui, viewModel.lastMoveUci, camera = preview.takeIf { showPreview })
+            ui.alarm?.let {
+                AlarmCard(
+                    alarm = it,
+                    onAcceptCnn = viewModel::onAcceptCnnRequested,
+                    onUndo = viewModel::onUndo,
+                    onNewBaseline = viewModel::onNewBaseline,
+                    lastCommit = lastCommit,
+                )
+            }
+            MoveList(rows = remember(moves) { moveRows(moves) }, modifier = Modifier.fillMaxWidth())
         }
         ActionBar(
             onUndo = viewModel::onUndo,
@@ -224,10 +236,16 @@ private fun StateHeader(ui: TrackingUiState) {
         // sits above everything: reflowing it shifted the board and the whole action bar under the
         // user's thumb. `minLines` reserves the taller of the two shapes; the ellipsis handles the
         // rest, because at one hard-clipped line the note ended mid-word and read as a bug.
+        // Blank while alarmed, and that is not a hole. This note is built to be the NOTIFICATION
+        // text (`StatusPublisher`), so under an alarm it reads "Position lost — tracking paused.
+        // Open the app to fix it." — an instruction to open the app, printed inside the open app,
+        // directly above a card that says the same thing and carries the buttons. The state word
+        // above and the card below are the two places that state belongs; three was one too many.
+        // The two reserved lines stay, so nothing reflows when the alarm clears.
         Text(
-            text = ui.infoLine ?: " ",
+            text = if (ui.alarm != null) " " else ui.infoLine ?: " ",
             style = MaterialTheme.typography.bodyMedium,
-            color = if (ui.alarm != null) Danger else OnSurfaceMuted,
+            color = OnSurfaceMuted,
             minLines = 2,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
