@@ -128,14 +128,15 @@ def _norm_layer(norm: str, channels: int) -> nn.Module:
     normalizer at all (docs/references.md#brock-2021 — though that paper's method is adaptive
     gradient clipping, which `norm="none"` does NOT do; it is a bare ablation, not that method).
 
-    Which one ships is settled by measurement here, not by the literature — but it is not settled
-    against BatchNorm, and both normalizers currently ship as bundled Android assets.
+    Which one ships is settled by measurement here, not by the literature, and BOTH currently ship
+    as bundled Android assets — the model the device runs is BatchNorm.
     specs/25-normalization-endgame/STATUS.md excluded BatchNorm; specs/32-normalization-on-clean-
     geometry/STATUS.md re-opened it on the re-aligned corpus and at a rate BatchNorm can use, and
-    that is the pack with the current table. The caveat specs/25 does not cover is the reason:
-    every comparison in it ran at the GroupNorm recipe's learning rate, and tolerating larger
-    learning rates is exactly what BatchNorm is claimed to buy (docs/references.md#bjorck-2018).
-    Read specs/32 first, specs/25 for what it measured rather than what it concluded.
+    that is the pack with the current table. The learning rate is the whole reason: every
+    comparison in specs/25 ran at the GroupNorm recipe's rate, and tolerating larger rates is
+    exactly what BatchNorm is claimed to buy (docs/references.md#bjorck-2018). At its own rate it
+    is phantom-free. So never rank normalizers at a single learning rate — sweep it per normalizer,
+    or the comparison measures the rate rather than the norm.
     """
     if norm == "groupnorm":
         return nn.GroupNorm(num_groups=_gn_groups(channels), num_channels=channels)

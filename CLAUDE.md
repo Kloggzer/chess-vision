@@ -72,20 +72,20 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
 
 ## Known pitfalls (still true)
 
-- **BatchNorm is NOT excluded — it ships.** Four of the seven bundled models are
-  `"norm": "batchnorm"` (`bn35-80`, `bn50-80`, `bn100-80`, and `id35-80`, the 13-class one the
-  device runs); check with
-  `grep -rn '"norm"' android/app/src/main/assets/cnn_model/*/config.json`. This bullet used to say
-  the question was settled against BatchNorm on 2026-07-30 across five *measured* causes
-  (`specs/25-normalization-endgame/STATUS.md`). specs/32 re-opened it on 2026-07-31 because two of
-  those five causes were measured on the mis-aligned corpus and at a learning rate chosen for
-  GroupNorm, and neither reproduces once both are fixed: on aligned crops BatchNorm at 3e-03 is
-  phantom-free, and the single-scale run that was supposed to rescue it made it worse instead. Read
-  `specs/32-normalization-on-clean-geometry/STATUS.md` — it carries the current table and its own
-  caveats — and specs/25 only for what it measured, not for its conclusion. **Neither pack decides
-  the question for a third case:** GroupNorm's usable rate band ends where BatchNorm's is still
-  improving, so any comparison that applies one rate to both normalizers mis-ranks them, whichever
-  rate it picks.
+- **BatchNorm works, and the learning rate is why. A normalizer is never measured at ONE rate.**
+  BatchNorm ships: four of the seven bundled models are `"norm": "batchnorm"` (`bn35-80`,
+  `bn50-80`, `bn100-80`, and `id35-80`, the 13-class one the device runs) — check with
+  `grep -rn '"norm"' android/app/src/main/assets/cnn_model/*/config.json`. On aligned crops at
+  3e-03 it is phantom-free, and `occ-v10bn35-13c-hn` reads **0 phantoms / 3 misses**, matching the
+  2-class full-width GroupNorm champion at a third of its width. This bullet used to say the
+  question was settled *against* BatchNorm on 2026-07-30 across five measured causes
+  (`specs/25-normalization-endgame/STATUS.md`); two of those five were measured on the mis-aligned
+  corpus and at a rate chosen for GroupNorm, and neither reproduces once both are fixed
+  (`specs/32-normalization-on-clean-geometry/STATUS.md`, the current table — read specs/25 only for
+  what it measured, not for what it concluded). **The standing trap is the rate, not the norm:**
+  GroupNorm's usable band ends where BatchNorm's is still improving, so a comparison that applies
+  one rate to both mis-ranks them whichever rate it picks — which is exactly how the wrong answer
+  survived from 2026-07-30 to 2026-08-01. Sweep the rate per normalizer or do not compare.
 - **`val_acc` does not predict the veto metric — it has ranked runs in REVERSE.** The DSBN run had
   the best start (epoch 0 0.8457) and plateau of any batch-norm run and produced 2.3x the phantoms
   of the worst-starting one. Only `scripts/sweep_infer_size.py --paths a --dataset <ds>` decides
@@ -238,4 +238,13 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
 - Android: `gradlew.bat :app:ktlintCheck :app:detekt`. Note detekt's unused rules
   (`UnusedPrivateMember`, `UnusedParameter`, `UnusedImports`) only see **private** scope — an
   `internal`/`public` function nobody calls is not detected by anything in this repo.
+- **Gradle reports GREEN on stale tasks — pass `--rerun-tasks` when the gate is the point.**
+  Up-to-date checks key on inputs Gradle knows about, and a test whose *assertion* you changed can
+  sit `UP-TO-DATE` behind an unchanged classpath. Measured 2026-08-02: a plain
+  `gradlew.bat :app:ktlintCheck :app:detekt :core-engine:test :app:testDebugUnitTest` reported
+  BUILD SUCCESSFUL while `ModelSpecTest` was in fact red; the failure only surfaced with
+  `--rerun-tasks`. Use it for the final gate of a change, not for the inner loop.
+- **The documented Android gate does not cover `:core-engine:detekt`, and that task is red.** Two
+  `MagicNumber` hits in `DecisionLog.toLogLine`, pre-existing. Widening the gate means fixing them
+  first; `specs/35-one-seam-per-concern` phase 00 moves that function, so do it there.
 - Do not commit `data/`, `scans/`, `synth_pieces/`, `wheels/` (gitignored).
