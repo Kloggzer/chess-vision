@@ -1,79 +1,19 @@
 package com.chesslab.tracker.camera
 
-import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureRequest
-import android.hardware.camera2.CaptureResult
-import android.hardware.camera2.TotalCaptureResult
 import android.util.Log
 import androidx.camera.camera2.interop.Camera2CameraControl
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.CaptureRequestOptions
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.withTimeoutOrNull
-import java.util.concurrent.atomic.AtomicReference
 
 /**
- * What a [OpticsLock.remeasure] ended up doing, for the screen that asked for one.
+ * The optical state of the session: both stabilizers off, and whatever the USER set.
  *
- * Two cases, deliberately: the device reported a fresh convergence, or it did not report one in
- * time. There is no "partly converged" — freezing half a settled picture is the failure the lock
- * exists to prevent.
- */
-sealed interface OpticsSettling {
-    /** Focus, exposure and white balance settled again and are frozen. Diopters, where reported. */
-    data class Converged(
-        val focusDistance: Float?,
-    ) : OpticsSettling
-
-    /** Nothing settled in time. Whatever was frozen before is frozen again; nothing changed. */
-    data object TimedOut : OpticsSettling
-}
-
-/**
- * One wait for the device's next "everything has settled", with a deadline.
- *
- * Split out of [OpticsLock] because it is the whole of the timeout rule and none of it needs a
- * camera — which is also what makes the rule testable. The deadline is not paranoia: a key the
- * device never populates counts as settled ([OpticsLock.settled]), but a key it populates and
- * never advances does not, and without a deadline the button that triggers a re-measure would
- * simply never come back.
- */
-internal class ConvergenceWait(
-    private val timeoutMs: Long,
-) {
-    private val pending = AtomicReference<CompletableDeferred<Unit>?>(null)
-
-    /**
-     * Arm the wait, run [start], and wait. True when convergence was reported before the deadline.
-     *
-     * Armed BEFORE [start] runs, so a device that converges the instant the freeze is released
-     * cannot report into a wait that does not exist yet.
-     */
-    suspend fun await(start: () -> Unit): Boolean {
-        val wait = CompletableDeferred<Unit>()
-        pending.set(wait)
-        return try {
-            start()
-            withTimeoutOrNull(timeoutMs) { wait.await() } != null
-        } finally {
-            pending.compareAndSet(wait, null)
-        }
-    }
-
-    /** Reported from the capture callback. A signal nobody is waiting for is dropped, not queued. */
-    fun onConverged() {
-        pending.getAndSet(null)?.complete(Unit)
-    }
-}
-
-/**
- * Freezes everything optical once the picture has settled: focus, exposure, white balance, zoom
- * and both stabilizers.
- *
- * A fixed camera over a calibrated board has no use for any of them, and each one actively hurts:
+ * A fixed camera over a calibrated board has no use for a moving picture, and each axis hurts in
+ * its own way:
  *
  * - **Stabilization** (optical AND electronic) shifts the image against the board. The homography
  *   is computed once from the marker quad and every square crop is derived from it, so a stabilizer
@@ -87,11 +27,19 @@ internal class ConvergenceWait(
  * - **Focus** hunting does the same thing with sharpness instead of brightness, and a refocus
  *   between the reference and the current frame changes every edge on the board at once.
  *
- * Locking is deferred until the device reports its own converge, rather than being forced at bind:
- * a lock applied to an unconverged picture freezes the WRONG exposure, which is worse than not
- * locking at all. [rearm] releases everything and starts that wait over — the caller owns the
- * policy of when the scene has changed enough to be worth re-converging. [remeasure] is the same
- * thing with an answer and a deadline, for the user who can see that the picture settled wrong.
+ * **The automatic freeze is gone, deliberately (2026-08-02).** This class used to watch the capture
+ * results, wait for the device to report that exposure, white balance and focus had all settled,
+ * and then lock them for the session — with a `remeasure()` escape hatch for when it settled on the
+ * wrong moment. In practice it kept settling on the wrong moment: at start-up the board is often
+ * not placed, a hand is in the frame or the lamp is not on yet, and the session then held that
+ * picture. An automatic that is wrong often enough to need an escape hatch beside it is not an
+ * automatic; it is a coin flip with extra machinery. So the whole convergence path was removed and
+ * the axes are steered from the camera screen only.
+ *
+ * **The drift above did not go away with it.** Nothing here now stops exposure and white balance
+ * from wandering — that is what the camera screen's focus, EV and illuminant controls are for, and
+ * pinning them is no longer a convenience but the thing that keeps the frame-diff honest. A stated
+ * value needs no convergence and no lock: it holds from the moment it is set.
  */
 @OptIn(ExperimentalCamera2Interop::class)
 class OpticsLock(
@@ -99,32 +47,20 @@ class OpticsLock(
 ) {
     private var camera: Camera? = null
 
-    /** Written on the camera thread, read by [remeasure] on the caller's. */
-    @Volatile
-    private var engaged = false
-
-    /** Diopters, as the device reported them at convergence; null when the lens has no focuser. */
-    @Volatile
-    private var focusDistance: Float? = null
-
     /**
-     * Brightness and illuminant. Its own owner ([CameraLookControl]) — the freeze and the steering
-     * are different acts; this class only carries the white-balance half into the request it owns.
+     * Brightness and illuminant. Its own owner ([CameraLookControl]) — the steering and the request
+     * are different acts; this class only carries the values into the request it owns.
      */
     val looks = CameraLookControl(::applyOptions)
-
-    private val wait = ConvergenceWait(REMEASURE_TIMEOUT_MS)
 
     /**
      * Static request options, applied for every frame of the session.
      *
-     * Both stabilizers go off here rather than in [engage] because they must never be on, not even
-     * during the convergence window: a frame the stabilizer shifted is a frame the tracker would
-     * diff against an unshifted reference.
+     * Both stabilizers go off here rather than anywhere later because they must never be on, not
+     * for a single frame: a frame the stabilizer shifted is a frame the tracker would diff against
+     * an unshifted reference.
      */
     fun prepare(extender: Camera2Interop.Extender<*>) {
-        engaged = false
-        focusDistance = null
         extender
             .setCaptureRequestOption(
                 CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
@@ -132,132 +68,41 @@ class OpticsLock(
             ).setCaptureRequestOption(
                 CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
                 CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_OFF,
-            ).setSessionCaptureCallback(callback)
+            )
     }
 
     /**
-     * Adopt the bound camera and re-assert the zoom.
+     * Adopt the bound camera and re-assert the user's look.
      *
-     * Zoom is the one member of this set that needs no convergence — it is a stated value, not a
-     * measured one. It used to be pinned to 1.0 here, which is the calibrated state by default
-     * since the profile's marker quad was measured at whatever zoom was in force; the camera screen
-     * can now set it, so the WANT is re-asserted instead (default 1.0, so nothing changes for
-     * anyone who never touched it). Changing it invalidates the board geometry — see [CameraLook].
+     * Every axis here is a STATED value, not a measured one, so there is nothing to wait for — the
+     * want is simply re-applied to the new session. Zoom included: changing it invalidates the board
+     * geometry, so the value that was calibrated under is the value that must come back after a
+     * rebind (default 1.0, so nothing changes for anyone who never touched it). See [CameraLook].
      */
     fun attach(camera: Camera) {
         this.camera = camera
         looks.attach(camera)
-    }
-
-    /**
-     * Release the lock and wait for a fresh convergence. For a recalibration or a light change.
-     *
-     * The user's [CameraLook] is NOT released with it: an illuminant preset and an exposure offset
-     * are what the fresh convergence should happen UNDER, not something the re-measure undoes.
-     */
-    fun rearm() {
-        engaged = false
-        focusDistance = null
         applyOptions()
-    }
-
-    /**
-     * [rearm], but with an answer: release the freeze, wait for a fresh convergence, and report it.
-     *
-     * The escape hatch for a lock that settled on the wrong moment — a hand in the frame at
-     * start-up, the board not yet placed, the light not yet on. Nothing here is automatic and
-     * nothing here loops: one call, one sequence. The automatic path is what settled wrong.
-     *
-     * A caller that also re-measures the GEOMETRY must do it strictly after this returns
-     * [OpticsSettling.Converged]. Focus breathing moves the image, so a marker quad measured while
-     * the lens was still hunting describes a picture that is already gone — and a wrong quad
-     * silently transposes every label.
-     *
-     * On a timeout the PREVIOUS lock is put back rather than left released: a camera that cannot be
-     * re-measured is still better off frozen on a stale picture than drifting for the rest of the
-     * session, and the caller is told that nothing changed.
-     */
-    suspend fun remeasure(): OpticsSettling {
-        val previous = focusDistance
-        val hadLock = engaged
-        if (wait.await(::rearm)) return OpticsSettling.Converged(focusDistance)
-        if (hadLock) {
-            focusDistance = previous
-            engaged = true
-            log("optics re-measure timed out after $REMEASURE_TIMEOUT_MS ms — restoring the previous lock")
-            engage()
-        } else {
-            log("optics re-measure timed out after $REMEASURE_TIMEOUT_MS ms — nothing was locked, still waiting")
-        }
-        return OpticsSettling.TimedOut
     }
 
     fun detach() {
         camera = null
-        engaged = false
         looks.detach()
     }
 
-    private val callback =
-        object : CameraCaptureSession.CaptureCallback() {
-            override fun onCaptureCompleted(
-                session: CameraCaptureSession,
-                request: CaptureRequest,
-                result: TotalCaptureResult,
-            ) {
-                if (!engaged && converged(result)) {
-                    engaged = true
-                    focusDistance = result.get(CaptureResult.LENS_FOCUS_DISTANCE)
-                    engage()
-                    // AFTER the freeze: a caller waiting on a re-measure is waiting for the lock to
-                    // be back ON, not merely for the three algorithms to have stopped moving.
-                    wait.onConverged()
-                }
-            }
-        }
-
     /**
-     * A PINNED illuminant has nothing left to converge.
+     * Build and issue the whole repeating request from the user's look.
      *
-     * Without this a chosen preset would deadlock every re-measure: with `CONTROL_AWB_MODE` set to
-     * an illuminant the device reports `CONTROL_AWB_STATE` as `INACTIVE` — measured — which is not
-     * a settled state, so [remeasure] would run to its 5 s deadline and put the previous lock back,
-     * every time, for as long as the preset was chosen.
-     */
-    private fun converged(result: TotalCaptureResult): Boolean =
-        settled(
-            result.get(CaptureResult.CONTROL_AE_STATE),
-            if (looks.illuminantPinned) null else result.get(CaptureResult.CONTROL_AWB_STATE),
-            result.get(CaptureResult.CONTROL_AF_STATE),
-        )
-
-    private fun engage() = applyOptions()
-
-    /**
-     * Build and issue the whole repeating request: the freeze, and the user's look on top of it.
-     *
-     * One builder for both because they are ONE request. The earlier split had [rearm] clear the
-     * user's choice as a side effect of releasing the lock, and had every look change rebuild the
-     * freeze from scratch.
+     * One builder, because it is ONE request. Nothing is conditional on a lock any more: an axis the
+     * user did not touch is left to the device's own automatic, which is exactly what "auto" means
+     * on the camera screen.
      */
     private fun applyOptions() {
         val builder = CaptureRequestOptions.Builder()
-        if (engaged) {
-            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, true)
-            // AWB_LOCK freezes the white-balance ALGORITHM at its last values, which on this device
-            // also suppresses a later change of `CONTROL_AWB_MODE`: measured, Bulb (2 700 K) and
-            // Shade (7 500 K) rendered identically under the lock (mean R/B 1.841 against 1.851)
-            // while both differed from automatic. A pinned illuminant does not drift, so the lock
-            // buys nothing there and costs the whole control.
-            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, !looks.illuminantPinned)
-        }
-        // Focus, from whichever of the two sources has one. A MANUAL distance wins over the
-        // converged one and needs no freeze — it is a stated value, so it holds from the moment it
-        // is set. Automatic focus is pinned only once the lock is earned, at the distance the
-        // device itself converged on: `AF_MODE_OFF` alone would leave the lens wherever it happens
-        // to be, and a refocus between the reference frame and the current one changes every edge
-        // on the board at once.
-        val distance = looks.focusDiopters() ?: focusDistance.takeIf { engaged && looks.canFocus }
+        // A manual distance needs no freeze — it is a stated value, so it holds from the moment it
+        // is set. Untouched, focus is left to the device: `AF_MODE_OFF` without a distance would
+        // strand the lens wherever it happened to be.
+        val distance = looks.focusDiopters()
         distance?.let {
             builder
                 .setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
@@ -270,8 +115,7 @@ class OpticsLock(
     }
 
     private fun said(distance: Float?): String {
-        val head = if (engaged) "locked: exposure, white balance" else "not locked yet"
-        val focus = distance?.let { ", focus %.3f dpt%s".format(it, if (looks.look.value.focus != null) " manual" else "") } ?: ""
+        val focus = distance?.let { ", focus %.3f dpt manual".format(it) } ?: ", focus auto"
         val look = looks.look.value
         val ev =
             looks.abilities.value
@@ -280,7 +124,7 @@ class OpticsLock(
         val brightness = if (look.evIndex == 0) "" else ", $ev"
         val colour = if (look.whiteBalance == WhiteBalance.AUTO) "" else ", ${look.whiteBalance.label}"
         val zoom = if (look.zoomRatio == 1f) "" else ", %.1fx zoom".format(look.zoomRatio)
-        return "$head$focus$brightness$colour$zoom"
+        return "steered$focus$brightness$colour$zoom"
     }
 
     private fun apply(
@@ -290,57 +134,10 @@ class OpticsLock(
         val control = camera?.cameraControl ?: return
         runCatching { Camera2CameraControl.from(control).setCaptureRequestOptions(options) }
             .onSuccess { log("optics $what") }
-            .onFailure { Log.w(TAG, "optics lock rejected by the device", it) }
+            .onFailure { Log.w(TAG, "optics request rejected by the device", it) }
     }
 
     internal companion object {
         const val TAG = "OpticsLock"
-
-        /**
-         * How long [remeasure] waits for the device before giving up.
-         *
-         * Long enough for a full AF sweep plus AE and AWB in room light, which is a second or two
-         * on this hardware, and short enough that a camera which never converges does not hold a
-         * button — and the user — for an unbounded time.
-         */
-        const val REMEASURE_TIMEOUT_MS = 5_000L
-
-        /**
-         * Have all three algorithms finished, so that freezing them freezes the RIGHT picture?
-         *
-         * A key the device does not report cannot be waited for, so a null state counts as settled.
-         * That is deliberate rather than lenient: several devices never populate `CONTROL_AF_STATE`
-         * on a fixed-focus lens, and a stricter reading would leave the optics running free forever
-         * on exactly those devices — the failure mode this class exists to prevent.
-         */
-        fun settled(
-            ae: Int?,
-            awb: Int?,
-            af: Int?,
-        ): Boolean =
-            (ae == null || ae in AE_SETTLED) &&
-                (awb == null || awb in AWB_SETTLED) &&
-                (af == null || af in AF_SETTLED)
-
-        /** `FLASH_REQUIRED` is a settled state too — it means AE finished and wants a flash we have. */
-        val AE_SETTLED =
-            setOf(
-                CameraMetadata.CONTROL_AE_STATE_CONVERGED,
-                CameraMetadata.CONTROL_AE_STATE_FLASH_REQUIRED,
-                CameraMetadata.CONTROL_AE_STATE_LOCKED,
-            )
-        val AWB_SETTLED =
-            setOf(
-                CameraMetadata.CONTROL_AWB_STATE_CONVERGED,
-                CameraMetadata.CONTROL_AWB_STATE_LOCKED,
-            )
-
-        /** `INACTIVE` covers the fixed-focus lens that never runs an AF algorithm at all. */
-        val AF_SETTLED =
-            setOf(
-                CameraMetadata.CONTROL_AF_STATE_INACTIVE,
-                CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED,
-                CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED,
-            )
     }
 }
