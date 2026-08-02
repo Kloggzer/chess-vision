@@ -96,7 +96,7 @@ class SettingsRepositoryTest {
         runTest {
             // A build that predates a knob simply has no key for it — the fallback must be the
             // Python default, never a zero, and never a crash that costs the user every setting.
-            val store = MemoryStore("""{"version":1,"values":{"censusThr":55.0}}""")
+            val store = MemoryStore("""{"version":$CONFIG_SCHEMA_VERSION,"values":{"censusThr":55.0}}""")
             val repo = repository(store, FakePipeline())
             repo.load()
             assertNull(repo.note.value)

@@ -17,14 +17,31 @@ data class TrackerConfig(
     val censusZWeight: Double = 1.0,
     val occlCensusThr: Double = 24.0,
     val cnnConfThr: Double = 0.85,
-    val cnnCooldownS: Double = 2.0,
-    val cnnCheckIntervalS: Double = 10.0,
+    // Both were sized for a CNN that cost 100-300 ms. It costs 16 ms.
+    //
+    // Measured live on the SM8650 on 2026-08-02 over 534 observations of a real game with the
+    // shipped `id35-80`: 10 min / 16 median / 23 p90 / 49 max ms for 64 crops, against a 23.1 ms
+    // median whole frame at 26-28 fps. The old figures these two were chosen against — 146 ms and
+    // 290 ms per observation — belonged to the wide GroupNorm model, which no longer ships.
+    //
+    // [cnnCooldownS] is the throttle on the STUCK arm, so it is the floor on how fast a recovery can
+    // answer a board that has gone wrong: at 2.0 a bridge could not arrive sooner than two seconds
+    // after the tracker noticed, and any confirmer above one vote pays it again per vote. At 0.7 the
+    // whole-board read costs about 2 % of one frame's budget per second.
+    val cnnCooldownS: Double = 0.7,
+    // [cnnCheckIntervalS] is the STABLE arm: a whole-board sanity read while nothing is happening.
+    // Every 10 s was a 0.16 % duty cycle; every 3 s is 0.5 %, and it is the only thing that notices
+    // a board that drifted out from under a quiet game.
+    val cnnCheckIntervalS: Double = 3.0,
     val verifyWindow: Int = 8,
     // ...and the same deadline in SECONDS, which is the unit the player experiences.
-    // `verifyWindow` counts OBSERVATIONS and what one costs is set by the CNN: 8 of them is 1.2 s
-    // at a 146 ms observation and 2.4 s at the 290 ms measured on an SM8650 — unbounded if the
-    // observer stalls. A pending candidate blinds BOTH paths, so that is dead time. See
-    // `config.py` and specs/19-live-hardening/STATUS.md §14.
+    // `verifyWindow` counts OBSERVATIONS and what one costs is set by the CNN — unbounded if the
+    // observer stalls. A pending candidate blinds BOTH paths, so that is dead time, and the SECONDS
+    // deadline is what bounds it. The figures this was written against (146 ms and 290 ms per
+    // observation) were the wide GroupNorm model's; `id35-80` measures 16 ms median for 64 crops
+    // live, so eight observations is now a fraction of the timeout rather than well past it. The
+    // timeout stays because it guards a STALLED observer, which no model speed fixes.
+    // See `config.py` and specs/19-live-hardening/STATUS.md §14.
     val verifyTimeoutS: Double = 1.5,
     val cnnMinAgreement: Double = 0.97,
     val cnnMarginSquares: Int = 1,

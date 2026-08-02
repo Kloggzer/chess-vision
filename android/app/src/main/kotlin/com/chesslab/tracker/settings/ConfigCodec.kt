@@ -11,8 +11,18 @@ import kotlinx.serialization.json.Json
 // therefore decodes to the Python default, and an unknown key from a future build is ignored
 // rather than fatal.
 
-/** Bump when a knob's MEANING changes; an unreadable version resets to defaults with a note. */
-const val CONFIG_SCHEMA_VERSION = 1
+/**
+ * Bump when a knob's MEANING changes; an unreadable version resets to defaults with a note.
+ *
+ * **Also bump when a default moves for a measured reason**, and 2 is the first time that happened.
+ * A stored value shadows a new default forever, which is not academic here: `motionRecencyS` sat at
+ * `0.0` in one phone's DataStore for an unknown length of time and rejected every diff-path commit
+ * against a stale `age > 0` check. Nothing in the source could reveal it, because the value did not
+ * live in the source — it cost an evening of live play. Retuning `cnnCooldownS` and
+ * `cnnCheckIntervalS` to the CNN's measured 16 ms would have reached nobody who had ever opened
+ * Settings without this.
+ */
+const val CONFIG_SCHEMA_VERSION = 2
 
 @Serializable
 private data class ConfigEnvelope(
