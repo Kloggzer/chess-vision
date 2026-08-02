@@ -72,7 +72,15 @@ def test_unscoreable_run_is_refused(sweep):
 
 def test_thirteen_class_list_is_derived():
     """The 13-class list is `config.CLASSES` minus `occluded` — an expression, not a copy."""
-    assert config.IDENTITY_CLASSES == [c for c in config.CLASSES if c != "occluded"]
+    # Spelled out, not restated as the comprehension in config.py: an assertion that repeats the
+    # implementation holds for ANY value of CLASSES and so cannot catch the failure this pins —
+    # a reorder of the canonical list, which silently relabels every crop and every model asset
+    # (`Preprocess.requireExpectedClasses` refuses a model whose order differs).
+    assert config.IDENTITY_CLASSES == [
+        "empty",
+        "wP", "wN", "wB", "wR", "wQ", "wK",
+        "bP", "bN", "bB", "bR", "bQ", "bK",
+    ]
     assert class_list_for("pieces13") is config.IDENTITY_CLASSES
     assert len(config.IDENTITY_CLASSES) == 13
     assert "occluded" not in config.IDENTITY_CLASSES

@@ -67,9 +67,16 @@ from chesslab.training.data import (  # noqa: E402
 #: 128-px native size); numbers there measure extrapolation, not deployment.
 SIZES = (48, 64, 80, 96, 112, 128, 160)
 
-#: The multi-scale GroupNorm champion, and the run whose config.json is byte-identical to
-#: `android/app/src/main/assets/cnn_model/config.json` (i.e. the currently bundled asset).
-RUNS = ("occ-v4-f3e20", "occ-r3s-f3")
+#: The two champions `CLAUDE.md` names, and both are bundled: the assets live in per-model
+#: subdirectories (`android/app/src/main/assets/cnn_model/<model>/config.json`) — there has never
+#: been a `config.json` at the root of that directory. `occ-v9bn-wide` is `bn100-80/`, the 2-class
+#: full-width model; `occ-v10bn35-13c-hn` is `id35-80/`, the 13-class one the device runs. Both
+#: asset config.json files are byte-identical to their run's (verified 2026-08-02).
+#:
+#: The previous default (`occ-v4-f3e20`, `occ-r3s-f3`) named a champion two geometry generations
+#: old: both are pre-realignment runs, and `CLAUDE.md` records that every path-A number taken on
+#: the mis-aligned corpus is void.
+RUNS = ("occ-v9bn-wide", "occ-v10bn35-13c-hn")
 
 SPLITS = ("test", "val")
 

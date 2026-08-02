@@ -72,11 +72,20 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
 
 ## Known pitfalls (still true)
 
-- **Normalization is settled — do not reopen it.** GroupNorm ships. BatchNorm was excluded on
-  2026-07-30 across five *measured* causes (data, scale band, finished-model statistics, statistics
-  at resume in both weak and strong/DSBN form), and a normalizer-free net reached 99 graph nodes at
-  267 phantoms. The exclusion chain is `specs/25-normalization-endgame/STATUS.md`; read it before
-  proposing anything about norms.
+- **BatchNorm is NOT excluded — it ships.** Four of the seven bundled models are
+  `"norm": "batchnorm"` (`bn35-80`, `bn50-80`, `bn100-80`, and `id35-80`, the 13-class one the
+  device runs); check with
+  `grep -rn '"norm"' android/app/src/main/assets/cnn_model/*/config.json`. This bullet used to say
+  the question was settled against BatchNorm on 2026-07-30 across five *measured* causes
+  (`specs/25-normalization-endgame/STATUS.md`). specs/32 re-opened it on 2026-07-31 because two of
+  those five causes were measured on the mis-aligned corpus and at a learning rate chosen for
+  GroupNorm, and neither reproduces once both are fixed: on aligned crops BatchNorm at 3e-03 is
+  phantom-free, and the single-scale run that was supposed to rescue it made it worse instead. Read
+  `specs/32-normalization-on-clean-geometry/STATUS.md` — it carries the current table and its own
+  caveats — and specs/25 only for what it measured, not for its conclusion. **Neither pack decides
+  the question for a third case:** GroupNorm's usable rate band ends where BatchNorm's is still
+  improving, so any comparison that applies one rate to both normalizers mis-ranks them, whichever
+  rate it picks.
 - **`val_acc` does not predict the veto metric — it has ranked runs in REVERSE.** The DSBN run had
   the best start (epoch 0 0.8457) and plateau of any batch-norm run and produced 2.3x the phantoms
   of the worst-starting one. Only `scripts/sweep_infer_size.py --paths a --dataset <ds>` decides
@@ -211,9 +220,14 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
 
 - `uv run pytest -q` (or `.venv/Scripts/python.exe -m pytest -q`) must be green.
 - `uv run ruff check src tests synth` — lint gate.
-- `uv run vulture` — **dead code**. ruff's `F` rules only see one file at a time (unused
-  imports, unused locals); an exported function nobody calls is invisible to them. Configured
-  in `pyproject.toml`, currently silent — keep it that way rather than adding a whitelist.
+- `uv run vulture` — **dead code, but far less of it than the name suggests.** Configured in
+  `pyproject.toml` at `min_confidence = 80`, and vulture scores an unused *function* at 60 — so the
+  gate does NOT catch an exported function nobody calls, which is the case ruff's per-file `F` rules
+  also miss. What survives 80 is unreachable code and unused imports. Measured 2026-08-02: the same
+  tree yields **243 findings at 60** (including `unused function 'board_corners_from_lines'`) and
+  **zero at the configured 80**. `paths = ["src", "tests", "synth"]` also excludes `scripts/`
+  entirely. Keep it silent without a whitelist; do not lower the threshold as a side effect of
+  something else — 243 findings is its own project.
 - **Gating inside a git worktree tests the WRONG TREE unless you set `PYTHONPATH`.** The shared
   `.venv` holds an editable install pointing at the main checkout, so `pytest` run from
   `.claude/worktrees/<agent>/` imports `chesslab` from the main tree and reports green on code it
