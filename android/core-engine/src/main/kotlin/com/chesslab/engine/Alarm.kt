@@ -91,6 +91,21 @@ private fun EngineState.alarmNote(latched: TrackerEvent.Alarm): String {
 }
 
 /**
+ * Drop the streak whole — the count, the set it was counted over, and the seq dedup.
+ *
+ * The three are one fact ("the observations so far disagreed about THESE squares"), so a caller
+ * that zeroes the count alone leaves the set behind for the next observation to be compared
+ * against. It also has exactly one meaning, which is why it is one function: the disagreement is
+ * over. Only two things can say that — a matching observation and [clearAlarm] — and until
+ * 2026-08-02 only the second one did.
+ */
+internal fun EngineState.clearDesyncStreak() {
+    desyncObs = 0
+    desyncConflicts = 0L
+    desyncLastSeq = null
+}
+
+/**
  * Spec 11 seq contract: count DISTINCT observations, not evaluations — `desyncObsN` means
  * "persistent over seconds", not "evaluated three times". An unstable conflict set restarts the
  * streak at ONE, never at zero: this observation is itself evidence.
