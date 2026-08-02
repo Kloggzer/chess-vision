@@ -149,6 +149,38 @@ class TrackingViewModelTest {
             assertEquals(listOf("undo", "resetGame"), session.calls)
         }
 
+    /**
+     * The undo control reads the LAST COMMIT, not the last ply — a `SequenceCommitted` is one press.
+     * The record is of the last commit only, so the press itself spends it and the next one is an
+     * ordinary single-move undo, exactly as the engine treats it.
+     */
+    @Test
+    fun theUndoControlNamesTheWholeLastCommit() =
+        runTest(dispatcher) {
+            val session = FakeTrackerSession()
+            val vm = TrackingViewModel()
+            vm.attach(session)
+            advanceUntilIdle()
+            session.events.emit(TrackerEvent.MoveCommitted("e2e4", "e4", "fen", "diff", false))
+            advanceUntilIdle()
+            assertEquals("Undo", undoLabel(vm.lastCommit.value))
+
+            session.events.emit(
+                TrackerEvent.SequenceCommitted(
+                    listOf("a4b5", "c8b8", "c5d4", "e1f3"),
+                    listOf("Bxb5", "Kb8", "Bd4", "Nf3"),
+                    "fen",
+                    "cnn_recovery",
+                ),
+            )
+            advanceUntilIdle()
+            assertEquals("Undo 4 moves", undoLabel(vm.lastCommit.value))
+
+            vm.onUndo()
+            advanceUntilIdle()
+            assertEquals("Undo", undoLabel(vm.lastCommit.value), "the record is of the LAST commit only")
+        }
+
     @Test
     fun stoppingTheCameraOverridesTheFrozenStatusHeader() =
         runTest(dispatcher) {

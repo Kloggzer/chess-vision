@@ -52,6 +52,8 @@ fun AlarmCard(
     onAcceptCnn: () -> Unit,
     onUndo: () -> Unit,
     onNewBaseline: () -> Unit,
+    /** The SANs of the last commit — see [undoLabel]; this card is where Undo is usually pressed. */
+    lastCommit: List<String> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -75,22 +77,7 @@ fun AlarmCard(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        if (alarm.conflicts.isNotEmpty()) {
-            val listed = alarm.conflicts.take(CONFLICTS_SHOWN).joinToString(", ")
-            val more = alarm.conflicts.size - CONFLICTS_SHOWN
-            Text(
-                text = "Board disagrees on: $listed" + if (more > 0) " (+$more)" else "",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
-        alarm.guessSan?.let {
-            Text(
-                text = "looks like: $it",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
+        AlarmFacts(alarm, lastCommit)
         // Primary action first and on its own line: it is the one that resolves the alarm.
         Button(
             onClick = onAcceptCnn,
@@ -99,11 +86,42 @@ fun AlarmCard(
         ) { Text("Accept CNN position", style = MaterialTheme.typography.labelLarge) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onUndo, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-                Text("Undo", style = MaterialTheme.typography.labelLarge)
+                Text(undoLabel(lastCommit), style = MaterialTheme.typography.labelLarge)
             }
             OutlinedButton(onClick = onNewBaseline, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
                 Text("New baseline", style = MaterialTheme.typography.labelLarge)
             }
         }
+    }
+}
+
+/**
+ * The three things worth knowing before choosing: where the two boards disagree, what the app
+ * thinks it saw, and what Undo would take back.
+ *
+ * The last one is here rather than on the button because a CNN recovery commits a whole bridge —
+ * four plies on 2026-08-02 — and the button has room for a count, not for the moves.
+ */
+@Composable
+private fun AlarmFacts(
+    alarm: AlarmUi,
+    lastCommit: List<String>,
+) {
+    val lines =
+        listOfNotNull(
+            alarm.conflicts.takeIf { it.isNotEmpty() }?.let { conflicts ->
+                val more = conflicts.size - CONFLICTS_SHOWN
+                "Board disagrees on: " + conflicts.take(CONFLICTS_SHOWN).joinToString(", ") +
+                    if (more > 0) " (+$more)" else ""
+            },
+            alarm.guessSan?.let { "looks like: $it" },
+            undoDetail(lastCommit),
+        )
+    lines.forEach {
+        Text(
+            text = it,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
