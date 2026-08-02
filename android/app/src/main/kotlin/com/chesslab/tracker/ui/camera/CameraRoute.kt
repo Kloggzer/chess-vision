@@ -271,6 +271,8 @@ private fun ConfirmSurface(
                 onSave = { model.saveAnd(host) {} },
                 onBack = onBack,
                 onMarginChange = model::setMargin,
+                onNudge = model::applyNudge,
+                onAutoTune = model::autoFineTune,
             )
         }
     }

@@ -1,5 +1,6 @@
 package com.chesslab.tracker.ui.camera
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -8,8 +9,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -103,7 +107,8 @@ fun CalibrationViewModel.tapAt(
     rendered: IntSize,
     state: CalibrationState,
 ) {
-    mapTapToSource(x, y, rendered.width, rendered.height, state.frameWidth, state.frameHeight)?.let(::tap)
+    mapTapToSource(x, y, rendered.width, rendered.height, state.frameWidth, state.frameHeight)
+        ?.let { setTaps(state.taps + it) }
 }
 
 /**
@@ -117,13 +122,23 @@ fun BoardDeck(
     state: CalibrationState,
     model: CalibrationViewModel,
 ) {
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(DECK_GAP.dp)) {
+    // The same scrim the look deck wears. Board mode had none, which put three outline-only buttons
+    // and a line of grey text straight onto a moving picture — over a wooden board in room light an
+    // outline is the one thing guaranteed to disappear.
+    Column(
+        Modifier.fillMaxWidth().background(BottomFade).padding(horizontal = 8.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(DECK_GAP.dp),
+    ) {
         CameraNote(boardPrompt(state))
         when (state.step) {
             CalibrationStep.MANUAL ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(DECK_GAP.dp)) {
-                    DeckButton("Undo tap", Modifier.weight(1f), enabled = state.taps.isNotEmpty(), onClick = model::undoTap)
-                    DeckButton("Start over", Modifier.weight(1f), enabled = state.taps.isNotEmpty(), onClick = model::restartTaps)
+                    DeckButton("Undo tap", Modifier.weight(1f), enabled = state.taps.isNotEmpty()) {
+                        model.setTaps(state.taps.dropLast(1))
+                    }
+                    DeckButton("Start over", Modifier.weight(1f), enabled = state.taps.isNotEmpty()) {
+                        model.setTaps(emptyList())
+                    }
                     DeckButton("Check", Modifier.weight(1f), enabled = state.corners != null, onClick = model::toConfirm)
                 }
             else ->
@@ -145,6 +160,13 @@ private fun boardPrompt(state: CalibrationState): String =
         else -> state.note ?: "Point the camera at the whole board."
     }
 
+/**
+ * A deck button — FILLED, never outlined.
+ *
+ * Everything on this screen floats over a live viewfinder, and an outline is a one-pixel line
+ * competing with wood grain and a chessboard. The tiles beside it already answer this with
+ * [ChromeScrim]; the buttons had `OutlinedButton` and vanished against the picture.
+ */
 @Composable
 private fun DeckButton(
     label: String,
@@ -152,7 +174,19 @@ private fun DeckButton(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    OutlinedButton(onClick = onClick, enabled = enabled, modifier = modifier.heightIn(min = DECK_BUTTON.dp)) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.heightIn(min = DECK_BUTTON.dp),
+        shape = RoundedCornerShape(DECK_CORNER.dp),
+        colors =
+            ButtonDefaults.buttonColors(
+                containerColor = ChromeScrim,
+                contentColor = Chrome.accent,
+                disabledContainerColor = ChromeScrim,
+                disabledContentColor = Chrome.onSurfaceMuted,
+            ),
+    ) {
         Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
     }
 }
@@ -170,3 +204,4 @@ fun CalibrationViewModel.saveAnd(
 
 private const val DECK_GAP = 8
 private const val DECK_BUTTON = 46
+private const val DECK_CORNER = 12

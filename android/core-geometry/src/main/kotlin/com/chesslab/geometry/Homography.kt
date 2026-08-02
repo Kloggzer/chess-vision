@@ -128,6 +128,49 @@ private fun affineProject(
     return readPoints(out, targets.size)
 }
 
+/**
+ * Per-corner fine adjustment, expressed where the user is LOOKING: the rectified board.
+ *
+ * Port of the web UI's `homography.ts:nudgeInRectified`, and the convention is the whole point. The
+ * stored quad is in original-frame pixels, but the picture being judged is the warp. Editing the
+ * frame numbers means nudging a corner on an image you are not looking at and watching the effect
+ * arrive transformed — and, for two of the four corners, mirrored — in the one you are.
+ *
+ * So the offsets are in RECTIFIED pixels with one rule: **positive shows more of the board on that
+ * side**, negative crops it away. Outward is away from the board centre, which is why each corner
+ * takes the sign of its own position: negative at the top-left, positive at the bottom-right.
+ *
+ * One unit is one pixel of the [boardSize] rectified board, so `boardSize / 8` is a whole square.
+ *
+ * [quad] is the UNTUNED base, always. Every slot is computed from it independently, so the offsets
+ * stay absolute instead of becoming a running total that drifts as it is re-applied.
+ */
+fun nudgeInRectified(
+    quad: List<DoubleArray>,
+    boardSize: Int,
+    slot: Int,
+    dx: Double,
+    dy: Double,
+): DoubleArray {
+    require(quad.size >= CORNER_COUNT) { "need 4 corners, got ${quad.size}" }
+    val cc = canvasCorners(boardSize)
+    val sx = if (cc[slot][0] == 0.0) -1.0 else 1.0
+    val sy = if (cc[slot][1] == 0.0) -1.0 else 1.0
+    val target = doubleArrayOf(cc[slot][0] + sx * dx, cc[slot][1] + sy * dy)
+    return perspectiveProject(cc, quad.take(CORNER_COUNT), listOf(target)).first()
+}
+
+/** The nominal rectified corners in `[a8, h8, h1, a1]` order — the square the warp maps onto. */
+private fun canvasCorners(boardSize: Int): List<DoubleArray> {
+    val bs = boardSize.toDouble()
+    return listOf(
+        doubleArrayOf(0.0, 0.0),
+        doubleArrayOf(bs, 0.0),
+        doubleArrayOf(bs, bs),
+        doubleArrayOf(0.0, bs),
+    )
+}
+
 private fun perspectiveProject(
     src: List<DoubleArray>,
     dst: List<DoubleArray>,
