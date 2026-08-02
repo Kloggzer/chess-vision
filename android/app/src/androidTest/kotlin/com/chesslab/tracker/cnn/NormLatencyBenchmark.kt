@@ -137,6 +137,10 @@ class NormLatencyBenchmark {
 
         tensors.values.forEach(OnnxTensor::close)
         sessions.values.forEach(OrtSession::close)
-        File(ctx.filesDir, "unused").delete()
+        // `stageRaw` writes under `filesDir/latbench/<dir>`, so this has to be that tree and it has
+        // to be recursive. It used to delete `filesDir/unused`, a directory nothing ever creates,
+        // and every run therefore left its staged ONNX files behind — ~19 MB per run on a device
+        // whose app storage is the only reason this benchmark can be run at all.
+        File(ctx.filesDir, "latbench").deleteRecursively()
     }
 }
