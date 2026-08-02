@@ -158,15 +158,59 @@ def _histogram(v: np.ndarray, edges, unit: str, indent: str = "    ") -> None:
         print(f"{indent}{label:>9} {unit}: {n:5} ({100 * n / len(v):5.1f} %) {bar}")
 
 
-def report_geometry(scan: dict, spread: np.ndarray, board_size: int) -> dict:
-    """Print the distributions and return them. **Nothing here gates anything yet.**
+#: Refuse a video whose per-frame quads disagree with the chosen one by more than this at p90,
+#: in rectified pixels (one square is `board_size / 8`, i.e. 100 px on the phone profile).
+#:
+#: Measured, not picked: the first real game (VID_20260802_222741, 9576 frames, 2026-08-02, the
+#: `phone` profile) reads median 0.57 / p90 0.93 / max 41.20 px, with 98.0 % of frames under 2 px
+#: and 1.4 % over 16 px. So 4.0 is four times the only real footage on record, and still under the
+#: 3.2-6.5 px band that `docs/data-pipeline.md` 12 measured as materially damaging — though note
+#: that band is a MEDIAN over every crop and this is a p90 over frames, so the two are related by
+#: judgement rather than by arithmetic. Revisit it when a second game has been measured.
+QUAD_SPREAD_P90_MAX = 4.0
 
-    No real game footage existed in this repository when the pack was written, and the nearest
-    numbers on record — the 3.2-6.5 px median square-edge offsets of `docs/data-pipeline.md` 12 —
-    measure per-frame quads that were each FITTED, not one static quad's error across a clip. So
-    the first runs print the distribution and refuse nothing; a threshold goes in afterwards,
-    naming the run it came from. A plausible constant here is how this project ended up with a
-    corpus that was 3-6 px mis-aligned for its entire life.
+#: Refuse a video whose realised inter-frame interval strays from the nominal one by more than
+#: this FRACTION of a frame period at p90. Expressed as a fraction because the tolerance scales
+#: with the clock it is a tolerance on: 10 % of a period is 3.3 ms at 30 fps and 8.3 ms at 12 fps.
+#:
+#: Gated at p90 and not at max on purpose. The 2026-08-02 game is exactly constant-rate — median
+#: and p90 both 0.000 ms — except for ONE frame whose gap is a whole extra period (33.333 ms),
+#: i.e. a single dropped frame in 9576. A max gate would refuse a video that is, for every
+#: purpose the virtual clock has, perfectly CFR.
+CLOCK_P90_PERIOD_FRAC = 0.10
+
+
+def spread_runs(quads, spread: np.ndarray, thr: float, gap: int = 15) -> list[tuple[int, int, int]]:
+    """Contiguous frame ranges whose spread exceeds `thr`, as `(first, last, count)`.
+
+    The distribution alone cannot tell a nudged board from an occluded marker, and the two want
+    opposite responses: a board that moved halfway through means the clip should be CUT there,
+    while a hand over a marker for a few frames means nothing at all — the fixture carries one
+    quad and the replay never re-detects, so those frames are warped through the good quad anyway.
+    `gap` bridges short recoveries so one clean frame does not split a run in two; 15 frames is
+    half a second at 30 fps.
+    """
+    idx = [i for i, q in enumerate(quads) if q is not None]
+    bad = [idx[k] for k in range(len(idx)) if spread[k] > thr]
+    runs: list[tuple[int, int, int]] = []
+    for i in bad:
+        if runs and i - runs[-1][1] <= gap:
+            first, _last, n = runs[-1]
+            runs[-1] = (first, i, n + 1)
+        else:
+            runs.append((i, i, 1))
+    return runs
+
+
+def report_geometry(scan: dict, spread: np.ndarray, board_size: int) -> dict:
+    """Print the distributions, name where the outliers are, and return the numbers.
+
+    The thresholds above were chosen from the first real game and only from it. Until 2026-08-02
+    no real game footage existed in this repository to calibrate against, and the nearest numbers
+    on record (`docs/data-pipeline.md` 12) measure per-frame quads that were each FITTED, which is
+    a different quantity. Anything stricter than "four times the only measurement" would be a
+    constant nobody measured, which is how this project ended up with a corpus that was 3-6 px
+    mis-aligned for its entire life.
     """
     quads, stamps, fps = scan["quads"], scan["stamps"], scan["fps"]
     detected = sum(q is not None for q in quads)
@@ -177,19 +221,55 @@ def report_geometry(scan: dict, spread: np.ndarray, board_size: int) -> dict:
     print(f"  quad spread about the median quad (rectified px, one square = {cell:.0f} px):")
     if spread.size:
         d = _dist(spread)
-        print(f"    median {d['median']:.2f}   p90 {d['p90']:.2f}   max {d['max']:.2f}")
+        print(f"    median {d['median']:.2f}   p90 {d['p90']:.2f}   max {d['max']:.2f}"
+              f"   (gate: p90 <= {QUAD_SPREAD_P90_MAX:g})")
         _histogram(spread, ((0, 2), (2, 4), (4, 8), (8, 16), (16, 1e9)), "px")
+        runs = spread_runs(quads, spread, QUAD_SPREAD_P90_MAX)
+        if runs:
+            worst = sorted(runs, key=lambda r: -r[2])[:6]
+            print(f"    {sum(r[2] for r in runs)} frames over {QUAD_SPREAD_P90_MAX:g} px, in "
+                  f"{len(runs)} runs; the longest:")
+            for first, last, n in worst:
+                print(f"      frames {first}-{last} ({n} frames, "
+                      f"{first / fps:.1f}-{last / fps:.1f} s)")
     else:
         print("    nothing measurable — no frame resolved four markers")
     print(f"  clock: nominal {1000.0 / fps:.2f} ms/frame; |realised - nominal|:")
     if clock.size:
         d = _dist(clock)
-        print(f"    median {d['median']:.3f} ms   p90 {d['p90']:.3f}   max {d['max']:.3f}")
+        limit = CLOCK_P90_PERIOD_FRAC * 1000.0 / fps
+        print(f"    median {d['median']:.3f} ms   p90 {d['p90']:.3f}   max {d['max']:.3f}"
+              f"   (gate: p90 <= {limit:.2f} ms)")
         _histogram(clock, ((0, 1), (1, 4), (4, 16), (16, 1e9)), "ms")
     else:
         print("    nothing measurable — the container reports no presentation timestamps")
     return {"detection_rate": round(rate, 4), "detected": detected, "frames": len(quads),
             "quad_spread_px": _dist(spread), "clock_error_ms": _dist(clock)}
+
+
+def refuse_reasons(geometry: dict, fps: float) -> list[str]:
+    """Why this footage must not become a candidate, or an empty list.
+
+    Refuse rather than warn, because the failure is silent downstream: a quad that does not stand
+    for the clip produces crops that straddle their grooves, and every count in the pipeline looks
+    healthy while it happens (2026-07-31, when the whole corpus turned out to be 3-6 px out). And
+    a variable rate does not skew the replay a little, it makes every wall-clock knob mean a
+    different number of seconds in every second of the video.
+    """
+    out = []
+    p90 = geometry["quad_spread_px"]["p90"]
+    if p90 is None:
+        out.append("no frame resolved four ArUco markers — is the board's border in shot?")
+    elif p90 > QUAD_SPREAD_P90_MAX:
+        out.append(f"quad spread p90 {p90:.2f} px > {QUAD_SPREAD_P90_MAX:g} px: one static quad "
+                   f"does not stand for this footage. Did the board move? Cut the clip where it "
+                   f"did, or re-film.")
+    clock_p90 = geometry["clock_error_ms"]["p90"]
+    limit = CLOCK_P90_PERIOD_FRAC * 1000.0 / fps
+    if clock_p90 is not None and clock_p90 > limit:
+        out.append(f"frame interval p90 off by {clock_p90:.2f} ms > {limit:.2f} ms: the source is "
+                   f"not constant-rate, and fps is the replay's CLOCK. Re-encode first.")
+    return out
 
 
 def ffmpeg_cfr_hint(video: Path, fps: float) -> str:
@@ -258,6 +338,25 @@ class _ReviewFrames:
         return len(self._written)
 
 
+def scalar_margin(profile) -> float:
+    """The profile's margin as ONE number, refusing a per-corner profile with the reason.
+
+    Both consumers are scalar: `ClipDriver` does `float(entry.get("margin", 0.0))` and
+    `test_clips.py` the same, because a clip manifest entry has always carried a single value.
+    The four-value form exists on a profile because the markers are glued on by hand and a re-stick
+    moves each independently — which is a real thing that can happen, and would need a manifest
+    change to carry. Refuse loudly rather than silently averaging: a margin that is 6-8 % wrong
+    jams the grid-line gate and the tracker sits in `occluded` forever, 2232 of 2996 frames.
+    """
+    values = [round(float(v), 6) for v in margins4(profile.margin)]
+    if len(set(values)) != 1:
+        raise SystemExit(
+            f"profile {profile.profile!r} has per-corner margins {values}. A clip manifest entry "
+            f"carries ONE margin, so this profile cannot become a fixture without widening the "
+            f"entry format first — see tests/test_clips.py and emit_parity_fixtures.ClipDriver.")
+    return values[0]
+
+
 def relative_video(video: Path) -> str:
     """The video's path relative to `data/`, refusing anything outside it.
 
@@ -291,16 +390,20 @@ def build_candidate(video: Path, profile, *, name: str, cnn_run: str, obs_s: flo
     from datetime import UTC, datetime
 
     out_dir = realgames_root() / name
+    margin = scalar_margin(profile)
     print(f"scanning {video.name} through profile {profile.profile!r} "
-          f"(board_size {profile.board_size}, margin {profile.margin})")
+          f"(board_size {profile.board_size}, margin {margin:g})")
     scan = scan_geometry(video, profile)
     quad = median_quad(scan["quads"])
     if quad is None:
         raise SystemExit("no frame resolved four ArUco markers — is the board's border visible?")
-    spread = quad_spread(scan["quads"], quad, profile.board_size, profile.margin)
+    spread = quad_spread(scan["quads"], quad, profile.board_size, margin)
     geometry = report_geometry(scan, spread, profile.board_size)
-    print(f"  if the clock above is not flat, re-encode first:\n    "
-          f"{ffmpeg_cfr_hint(video, scan['fps'])}")
+    refusals = refuse_reasons(geometry, scan["fps"])
+    if refusals:
+        raise SystemExit("this footage cannot become a candidate:\n  - "
+                         + "\n  - ".join(refusals)
+                         + f"\n\n  to re-encode:\n    {ffmpeg_cfr_hint(video, scan['fps'])}")
 
     pictures = _ReviewFrames(out_dir / "frames", context)
     print(f"replaying with CNN run {cnn_run!r}, one observation every {obs_s:g} s of video time")
@@ -316,7 +419,7 @@ def build_candidate(video: Path, profile, *, name: str, cnn_run: str, obs_s: flo
         pictures.on_frame(now, mt, frame, index)
 
     out = replay_with_cnn(
-        clip=str(video), corners=quad, margin=profile.margin, cnn_run=cnn_run, obs_s=obs_s,
+        clip=str(video), corners=quad, margin=margin, cnn_run=cnn_run, obs_s=obs_s,
         tracker_kwargs=dict(CNN_FRAME_COUNTERS), board_size=profile.board_size,
         start_fen=start_fen, on_event=on_event,
     )
@@ -334,7 +437,7 @@ def build_candidate(video: Path, profile, *, name: str, cnn_run: str, obs_s: flo
         "source": {"cnn_run": cnn_run, "obs_s": obs_s, "profile": profile.profile,
                    "tracker": dict(CNN_FRAME_COUNTERS), "context": context},
         "effective_config": effective,
-        "geometry": {"corners": quad, "margin": list(profile.margin),
+        "geometry": {"corners": quad, "margin": margin,
                      "board_size": int(profile.board_size),
                      "frame_size": list(scan["frame_size"]), **geometry},
         "clock": {"fps": scan["fps"], "error_ms": geometry["clock_error_ms"]},
@@ -413,16 +516,20 @@ def main(argv: list[str] | None = None) -> int:
     video = Path(args.video)
     profile = load_profile(args.profile)
     if args.geometry_only:
+        margin = scalar_margin(profile)
         print(f"scanning {video.name} through profile {args.profile!r} "
-              f"(board_size {profile.board_size}, margin {profile.margin})")
+              f"(board_size {profile.board_size}, margin {margin:g})")
         scan = scan_geometry(video, profile)
         quad = median_quad(scan["quads"])
         if quad is None:
             raise SystemExit("no frame resolved four ArUco markers — is the border visible?")
-        report_geometry(scan, quad_spread(scan["quads"], quad, profile.board_size,
-                                          profile.margin), profile.board_size)
-        print(f"  re-encode command, if the clock is not flat:\n    "
-              f"{ffmpeg_cfr_hint(video, scan['fps'])}")
+        geometry = report_geometry(
+            scan, quad_spread(scan["quads"], quad, profile.board_size, margin),
+            profile.board_size)
+        for reason in refuse_reasons(geometry, scan["fps"]):
+            print(f"  WOULD REFUSE: {reason}")
+        print("  re-encode command, if the clock is not flat:\n    "
+              + ffmpeg_cfr_hint(video, scan["fps"]))
         return 0
     cnn_run = args.cnn_run or config.default_tracker_run()
     if not cnn_run:
