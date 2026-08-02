@@ -1,11 +1,8 @@
 package com.chesslab.tracker.ui.camera
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -17,35 +14,31 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.chesslab.tracker.geometry.ArucoCalibrator
-import com.chesslab.tracker.geometry.CalibrationProfile
 import com.chesslab.tracker.geometry.calibrationStore
-import com.chesslab.tracker.ui.calibration.CORNER_PROMPTS
 import com.chesslab.tracker.ui.calibration.CalibrationHost
-import com.chesslab.tracker.ui.calibration.CalibrationOverlay
 import com.chesslab.tracker.ui.calibration.CalibrationState
-import com.chesslab.tracker.ui.calibration.CalibrationStep
 import com.chesslab.tracker.ui.calibration.CalibrationViewModel
 import com.chesslab.tracker.ui.calibration.QuadOutline
-import com.chesslab.tracker.ui.calibration.mapTapToSource
 import kotlinx.coroutines.CoroutineScope
 
 /**
- * The board's geometry, as a MODE of the camera screen rather than a screen of its own.
+ * The board on the camera screen: an outline, a sentence, and one button.
  *
- * It is the same instrument either way — you are looking at the picture and judging whether the
- * green quad sits on the board — so it is the same viewfinder, and only the overlay and the
- * controls change. See [CameraMode] for why the two are modes and not destinations.
+ * There is no calibration MODE any more and no wizard behind it. The screen marks the board it can
+ * see so the phone can be aimed, says in one line what is stopping it if anything is, and offers to
+ * adopt what it found. The rectified preview, the orientation switch, the four outset steppers, the
+ * eight corner sliders and the four-tap fallback are all gone.
+ *
+ * The reason they could all go is that **the saved quad is only a seed**: `LiveAlign` re-detects the
+ * markers every third frame for the whole session, so nothing tuned here survives contact with a
+ * game. Judging alignment was never the user's job — the app measures it continuously and better.
+ * See `CalibrationViewModel` and `specs/36-alignment-that-just-works`.
  */
 @Composable
 fun rememberBoardModel(
@@ -67,138 +60,51 @@ fun rememberBoardModel(
 }
 
 /**
- * What is drawn ON the picture in board mode.
+ * Where the app believes the board is, drawn on the live picture.
  *
- * In [CalibrationStep.MANUAL] this is also where the taps are TAKEN, and that is the fix to a real
- * dead end: the tap surface used to be a sibling box below the preview whose only child was a
- * `Canvas` with nothing but `fillMaxWidth`, so it laid out zero pixels tall and could not be hit at
- * all. Even at the right height it was the wrong place — you cannot point at a corner you are not
- * looking at. Here the surface IS the picture, and because it sits inside the turned box the source
- * mapping stays a plain per-axis scale with no knowledge of the rotation.
+ * The only alignment feedback that survives, and the only kind that was ever actionable: you cannot
+ * nudge a quad the tracker re-derives twice a second, but you CAN see that the outline is not on
+ * the board, and move the phone.
  */
 @Composable
-fun BoardOverlay(
-    state: CalibrationState,
-    source: IntSize,
-    onTap: (Float, Float, IntSize) -> Unit,
-) {
-    var rendered by remember { mutableStateOf(IntSize.Zero) }
-    Box(
-        Modifier
-            .fillMaxSize()
-            .onSizeChanged { rendered = it }
-            .pointerInput(state.step, source) {
-                if (state.step != CalibrationStep.MANUAL) return@pointerInput
-                detectTapGestures { o -> onTap(o.x, o.y, rendered) }
-            },
-    ) {
-        if (state.step == CalibrationStep.DETECTED) {
-            CalibrationOverlay(state.corners, state.markerIds, state.whitePov, source, Modifier.fillMaxSize())
-        } else {
-            QuadOutline(state.corners, source, Modifier.fillMaxSize())
-        }
-    }
-}
-
-/** Maps a tap on the picture back to source pixels and hands it to the model. */
-fun CalibrationViewModel.tapAt(
-    x: Float,
-    y: Float,
-    rendered: IntSize,
-    state: CalibrationState,
-) {
-    mapTapToSource(x, y, rendered.width, rendered.height, state.frameWidth, state.frameHeight)
-        ?.let { setTaps(state.taps + it) }
+fun BoardOutline(state: CalibrationState) {
+    QuadOutline(state.corners, IntSize(state.frameWidth, state.frameHeight), Modifier.fillMaxSize())
 }
 
 /**
- * Board mode's controls, in the deck where the look tiles otherwise sit.
+ * The sentence and the button.
  *
- * One line of prose and at most three buttons: the deck is a strip, and everything that used to be
- * a full-width stack of explanations now lives on the picture or not at all.
+ * The button carries no verdict and no gate. There is nothing transient to protect — the quad it
+ * writes is a seed the live path replaces within a few frames — so refusing it on a measurement
+ * could only block a user whose board is fine, which is what the proposed alignment gate would have
+ * done on roughly half of the rig's own frames (`specs/36/STATUS.md`).
  */
 @Composable
 fun BoardDeck(
     state: CalibrationState,
-    model: CalibrationViewModel,
+    onUse: () -> Unit,
 ) {
-    // The same scrim the look deck wears. Board mode had none, which put three outline-only buttons
-    // and a line of grey text straight onto a moving picture — over a wooden board in room light an
-    // outline is the one thing guaranteed to disappear.
+    // The same scrim the look tiles wear. Everything here floats over a live viewfinder, and over
+    // wood grain in room light an outline or bare text is the first thing to disappear.
     Column(
         Modifier.fillMaxWidth().background(BottomFade).padding(horizontal = 8.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(DECK_GAP.dp),
     ) {
-        CameraNote(boardPrompt(state))
-        when (state.step) {
-            CalibrationStep.MANUAL ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(DECK_GAP.dp)) {
-                    DeckButton("Undo tap", Modifier.weight(1f), enabled = state.taps.isNotEmpty()) {
-                        model.setTaps(state.taps.dropLast(1))
-                    }
-                    DeckButton("Start over", Modifier.weight(1f), enabled = state.taps.isNotEmpty()) {
-                        model.setTaps(emptyList())
-                    }
-                    DeckButton("Check", Modifier.weight(1f), enabled = state.corners != null, onClick = model::toConfirm)
-                }
-            else ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(DECK_GAP.dp)) {
-                    DeckButton("Detect again", Modifier.weight(1f), enabled = !state.detecting, onClick = model::detectOnce)
-                    DeckButton("Set corners", Modifier.weight(1f), onClick = model::beginManual)
-                    DeckButton("Check", Modifier.weight(1f), enabled = state.corners != null, onClick = model::toConfirm)
-                }
+        CameraNote(state.note)
+        if (state.found) {
+            Button(
+                onClick = onUse,
+                modifier = Modifier.fillMaxWidth().heightIn(min = DECK_BUTTON.dp),
+                shape = RoundedCornerShape(DECK_CORNER.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = ChromeScrim, contentColor = Chrome.accent),
+            ) {
+                Text(
+                    if (state.saved) "Board in use" else "Use this board",
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                )
+            }
         }
-    }
-}
-
-/** The one line that says what to do next — the step's own prompt, never a generic title. */
-private fun boardPrompt(state: CalibrationState): String =
-    when {
-        state.step == CalibrationStep.MANUAL ->
-            CORNER_PROMPTS.getOrElse(state.taps.size) { "4 corners set — check the orientation" }
-        state.step == CalibrationStep.DETECTED -> "Board found. Check the a8 corner before saving."
-        else -> state.note ?: "Point the camera at the whole board."
-    }
-
-/**
- * A deck button — FILLED, never outlined.
- *
- * Everything on this screen floats over a live viewfinder, and an outline is a one-pixel line
- * competing with wood grain and a chessboard. The tiles beside it already answer this with
- * [ChromeScrim]; the buttons had `OutlinedButton` and vanished against the picture.
- */
-@Composable
-private fun DeckButton(
-    label: String,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    onClick: () -> Unit,
-) {
-    Button(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = modifier.heightIn(min = DECK_BUTTON.dp),
-        shape = RoundedCornerShape(DECK_CORNER.dp),
-        colors =
-            ButtonDefaults.buttonColors(
-                containerColor = ChromeScrim,
-                contentColor = Chrome.accent,
-                disabledContainerColor = ChromeScrim,
-                disabledContentColor = Chrome.onSurfaceMuted,
-            ),
-    ) {
-        Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
-    }
-}
-
-/** Saving is the model's, but the profile has to reach the service too — one call site for both. */
-fun CalibrationViewModel.saveAnd(
-    host: CalibrationHost,
-    then: () -> Unit,
-) {
-    save { profile: CalibrationProfile ->
-        host.onCalibrated(profile.geometry(), profile.corners, profile.name)
-        then()
     }
 }
 
