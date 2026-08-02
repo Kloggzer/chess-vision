@@ -484,6 +484,70 @@ def report_deciders(moves: list[dict]) -> None:
     print(f"    alarm latched at commit: {sum(m['alarm'] is not None for m in moves)}")
 
 
+# --- adopt: a confirmed game becomes a manifest entry ----------------------------------------
+
+MANIFEST = Path(__file__).resolve().parents[1] / "tests" / "data" / "testclips" / "manifest.yaml"
+
+
+def adopt_entry(candidate: dict, *, file_name: str) -> dict:
+    """The manifest entry for a CONFIRMED candidate. Refuses an unconfirmed one.
+
+    **The `tracker` map is empty, and that is the decision this pack turns on.** Every one of the
+    twenty committed Blender clips sets `min_grid_line_coverage: 0.0` (plus `overhang: 0.0` and
+    `census_thr: 40.0`) — the grid gate is switched OFF across the entire regression corpus,
+    because "the clips were shot on a different board than the live setup the defaults are tuned
+    for". A real ArUco clip that inherited that recipe would be permanently exempt from the one
+    gate real geometry exists to exercise, and would re-create the blind spot this pack was
+    written to close. If a real clip cannot commit at the defaults, that is a finding about the
+    defaults or the footage and it is recorded as `known_failure` — never bought off here.
+
+    `deterministic: true` is not optional either: the realtime replay drops frames according to
+    machine load, so two runs give different games, and a pin has to be reproducible.
+    """
+    import chess
+
+    if not candidate.get("confirmed"):
+        raise SystemExit(
+            f"{candidate.get('name')!r} is not confirmed. A tracker's own output must not become "
+            f"a fixture by any path — review it in the web UI and confirm it first.")
+    sans = [m["san"] for m in candidate.get("moves") or []]
+    board = chess.Board(candidate.get("start_fen") or chess.STARTING_FEN)
+    positions, ucis = [board.fen()], []
+    for san in sans:
+        move = board.parse_san(san)          # confirmed, so this cannot raise
+        ucis.append(move.uci())
+        board.push(move)
+        positions.append(board.fen())
+    geom = candidate["geometry"]
+    return {
+        "file": file_name,
+        "source": "real",
+        "start_fen": positions[0],
+        "erwartete_zugliste": sans,
+        "positions": positions,
+        "moves_uci": ucis,
+        "corners": geom["corners"],
+        "margin": geom["margin"],
+        "frame_size": list(geom["frame_size"]),
+        "board_size": int(geom["board_size"]),
+        "deterministic": True,
+        "tracker": {},
+    }
+
+
+def append_entry(entry: dict, manifest: Path = MANIFEST) -> None:
+    """Append to the clip manifest, refusing to redefine an existing `file`."""
+    import yaml
+
+    data = yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}
+    clips = data.setdefault("clips", [])
+    if any(c.get("file") == entry["file"] for c in clips):
+        raise SystemExit(f"{manifest} already has an entry for {entry['file']!r}.")
+    clips.append(entry)
+    manifest.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True),
+                        encoding="utf-8")
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -506,11 +570,30 @@ def build_parser() -> argparse.ArgumentParser:
                     help="position at the first frame (default: the standard start position)")
     ap.add_argument("--geometry-only", action="store_true",
                     help="measure and report; write no candidate and run no CNN")
+    ap.add_argument("--adopt", metavar="NAME", default=None,
+                    help="turn a CONFIRMED candidate into an entry in the clip manifest. "
+                         "Refuses an unconfirmed one.")
+    ap.add_argument("--clip-file", default=None,
+                    help="--adopt: the video file name the manifest entry points at "
+                         "(default: the candidate's own video, by basename)")
     return ap
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.adopt:
+        path = realgames_root() / args.adopt / "candidate.json"
+        if not path.exists():
+            raise SystemExit(f"no candidate at {path}")
+        candidate = json.loads(path.read_text(encoding="utf-8"))
+        entry = adopt_entry(candidate, file_name=args.clip_file
+                            or Path(candidate["video"]).name)
+        append_entry(entry)
+        print(f"appended {entry['file']!r} to {MANIFEST} — {len(entry['erwartete_zugliste'])} "
+              f"moves, tracker overrides: {entry['tracker'] or 'none (the shipped defaults)'}")
+        print("  -> drop the video into data/testclips/ (gitignored) or commit an excerpt")
+        print("  -> then: uv run pytest -m clips")
+        return 0
     if not args.video:
         build_parser().error("a video is required")
     video = Path(args.video)

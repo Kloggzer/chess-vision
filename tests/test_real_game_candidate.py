@@ -237,6 +237,96 @@ def test_review_frames_near_the_start_write_what_exists(tmp_path):
     assert sorted(int(p.stem) for p in (tmp_path / "frames").glob("*.jpg")) == [0, 1, 2, 3]
 
 
+# --- adopt: the second half of the trap's defence -------------------------------------
+
+def _confirmed(**over) -> dict:
+    base = {
+        "confirmed": True,
+        "geometry": {"corners": [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]],
+                     "margin": 0.05, "board_size": 800, "frame_size": [1080, 1920]},
+        "moves": [{"ply": 1, "san": "e4"}, {"ply": 2, "san": "e5"}],
+    }
+    return _candidate(**{**base, **over})
+
+
+def test_adopt_refuses_an_unconfirmed_candidate_and_leaves_the_manifest_alone(tmp_path):
+    """A tracker's own output must not become a fixture by ANY path. 60 % of the motivating
+    game's commits were recoveries; freezing them into a regression test would assert forever
+    that the tracker keeps making them."""
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text("clips: []\n", encoding="utf-8")
+    before = manifest.read_bytes()
+    with pytest.raises(SystemExit) as e:
+        lrg.adopt_entry(_confirmed(confirmed=False), file_name="g.mp4")
+    assert "not confirmed" in str(e.value)
+    assert manifest.read_bytes() == before
+
+
+def test_an_adopted_entry_carries_no_tracker_overrides(tmp_path):
+    """**The pack's central decision, and it gets its own test.**
+
+    Every one of the twenty committed Blender clips sets `min_grid_line_coverage: 0.0` — the grid
+    gate is off across the whole regression corpus. A real ArUco clip that inherited that recipe
+    would be permanently exempt from the one gate real geometry exists to exercise.
+    """
+    entry = lrg.adopt_entry(_confirmed(), file_name="g.mp4")
+    assert entry["tracker"] == {}
+    assert "min_grid_line_coverage" not in entry["tracker"]
+    assert entry["margin"] == 0.05 and entry["margin"] != 0.0
+    assert entry["deterministic"] is True
+    assert entry["source"] == "real"
+
+
+def test_an_adopted_entry_carries_the_line_in_every_form_the_harness_reads(tmp_path):
+    entry = lrg.adopt_entry(_confirmed(), file_name="g.mp4")
+    assert entry["erwartete_zugliste"] == ["e4", "e5"]
+    assert entry["moves_uci"] == ["e2e4", "e7e5"]
+    # positions[0] is the start, so there is one more position than there are moves.
+    assert len(entry["positions"]) == 3
+    assert entry["positions"][0].startswith("rnbqkbnr/pppppppp")
+
+
+def test_the_derived_start_fen_is_the_position_after_the_confirmed_prefix():
+    """An excerpt's `start_fen` is DERIVED, never entered — a wrong one transposes the whole
+    excerpt with nothing downstream to catch it. That is why excerpts are cut after confirmation."""
+    import chess
+
+    moves = [{"ply": i + 1, "san": s} for i, s in enumerate(["e4", "e5", "Nf3", "Nc6"])]
+    entry = lrg.adopt_entry(_confirmed(moves=moves), file_name="g.mp4")
+    board = chess.Board()
+    for uci in ("e2e4", "e7e5"):
+        board.push_uci(uci)
+    assert entry["positions"][2] == board.fen()
+
+
+def test_adopt_refuses_to_redefine_an_existing_file(tmp_path):
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text("clips:\n- file: g.mp4\n", encoding="utf-8")
+    with pytest.raises(SystemExit) as e:
+        lrg.append_entry(lrg.adopt_entry(_confirmed(), file_name="g.mp4"), manifest)
+    assert "already has an entry" in str(e.value)
+
+
+def test_an_appended_entry_still_parses_through_the_clip_suite(tmp_path):
+    """A fresh clone must stay green: `test_clips._entries` drops entries whose file is on
+    neither path, so a committed entry without its video is skipped rather than red."""
+    import yaml
+
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text("clips: []\n", encoding="utf-8")
+    lrg.append_entry(lrg.adopt_entry(_confirmed(), file_name="g.mp4"), manifest)
+    data = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+    assert [c["file"] for c in data["clips"]] == ["g.mp4"]
+    assert float(data["clips"][0]["margin"]) == 0.05      # the form `ClipDriver` reads
+
+
+def test_the_committed_manifest_is_untouched_by_this_module():
+    """`--adopt` writes only when asked. Nothing in importing or testing it may edit the real
+    manifest, which is the one file in this pack that lands in git."""
+    assert lrg.MANIFEST.name == "manifest.yaml"
+    assert lrg.MANIFEST.parent.name == "testclips"
+
+
 # --- end to end, needs footage --------------------------------------------------------
 
 @pytest.mark.clips
