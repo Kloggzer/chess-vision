@@ -2,6 +2,8 @@ package com.chesslab.tracker.sim
 
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerConfig
+import com.chesslab.geometry.BoardGeometry
+import com.chesslab.geometry.margins4
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
@@ -112,7 +114,20 @@ internal class SimClip(
     val name: String,
     val video: File,
     val corners: List<DoubleArray>,
-    val boardSize: Int,
+    /**
+     * Board size AND the margin by which [corners] lie outside the playing field.
+     *
+     * One field rather than two loose numbers because they are one thing — `computeHomography`
+     * takes both and neither means anything without the other. `margin` defaults to
+     * `margins4(0.0)`, which is right for the Blender renders: their corners ARE the field
+     * corners, so every committed parity fixture stays byte-identical. It is wrong for anything
+     * detected from ArUco, whose markers are printed in the label border — replaying such a quad
+     * at 0.0 oversizes the board by 6-8 %, the grid lines miss the coverage band and the tracker
+     * sits in `occluded` forever. Measured on the Python side at 2232 of 2996 frames with zero
+     * commits, and fixed there in `721901a`; `ClipPipeline` had always had `margin` in its
+     * geometry and had never been given one.
+     */
+    val geometry: BoardGeometry,
     val fps: Double,
     val config: TrackerConfig,
     val truth: SimTruth,
@@ -140,7 +155,13 @@ internal fun simClips(): List<SimClip> {
                     val xy = point.jsonArray
                     doubleArrayOf(xy[0].jsonPrimitive.double, xy[1].jsonPrimitive.double)
                 },
-            boardSize = labels.getValue("board_size").jsonPrimitive.int,
+            geometry =
+                BoardGeometry(
+                    boardSize = labels.getValue("board_size").jsonPrimitive.int,
+                    // A Blender clip has no `margin` key and must keep reading 0.0; a real clip's
+                    // entry carries the profile's value, which is what makes its warp right.
+                    margin = margins4(labels["margin"]?.jsonPrimitive?.double ?: 0.0),
+                ),
             fps = meta.getValue("fps").jsonPrimitive.double,
             config = trackerConfigOf(meta.getValue("effectiveConfig").jsonObject),
             truth =
