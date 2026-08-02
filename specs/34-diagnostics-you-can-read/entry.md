@@ -1,6 +1,6 @@
 # 34 — Diagnostics you can read
 
-> **Status:** `todo`. Two phases, in order. 00 must land before 01.
+> **Status:** `done` (branch `feat-diagnostics-log`). Two phases, in order. 00 must land before 01.
 >
 > This replaces `34-telemetry-uplink` (`f00bf0e`), which was five phases and a network. See
 > `STATUS.md` for why it is not that any more — the short version is that a review found the pack

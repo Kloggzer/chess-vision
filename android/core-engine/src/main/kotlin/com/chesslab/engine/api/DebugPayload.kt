@@ -63,6 +63,9 @@ data class DebugDecision(
     val gridCoverage: Double,
     val zThr: Double,
     val motion: Double,
+    // Whether the CNN channel was armed at all when this row was written. Without it a row with
+    // `cnnAgreement = 0.0` reads the same whether the model disagreed or was never attached.
+    val cnnRun: Boolean,
     val cnnAgreement: Double,
     val cnnBestMove: String?,
     val stuckReason: String?,

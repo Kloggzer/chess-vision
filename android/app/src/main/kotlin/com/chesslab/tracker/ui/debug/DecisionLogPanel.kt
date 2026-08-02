@@ -1,5 +1,7 @@
 package com.chesslab.tracker.ui.debug
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -20,11 +22,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.chesslab.engine.api.DebugDecision
+import com.chesslab.tracker.diagnostics.appVersionOf
+import com.chesslab.tracker.diagnostics.zipDiagnostics
 import com.chesslab.tracker.service.DebugState
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+
+/** The picker's suggested name; the user may change it, so nothing downstream may key on it. */
+private const val DIAGNOSTICS_FILE = "chesslab-diagnostics.zip"
 
 /**
  * Who decided each move, on what evidence — and, unlike Python, which candidates were REFUSED.
@@ -39,17 +46,39 @@ fun DecisionLogPanel(
     val context = LocalContext.current
     val rows = remember(state) { state.payload.decisions.asReversed() }
     var expanded by remember { mutableStateOf<Int?>(null) }
+    val exportDiagnostics =
+        rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+            // SAF, the same path the session export uses: the user picks the destination, so
+            // nothing leaves the app's own storage without them choosing where it goes.
+            uri ?: return@rememberLauncherForActivityResult
+            context.contentResolver.openOutputStream(uri)?.use { zipDiagnostics(context.filesDir, it) }
+        }
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        TextButton(onClick = {
-            shareDecisionLog(
-                context,
-                exportDecisionLog(state.payload.decisions, viewModel.config, viewModel.runtime.value, appVersion(context)),
-            )
-        }) {
-            Text("Export as text", color = Accent)
+        // Two exports, and they answer different questions. "Export as text" is the 64-row ring
+        // this screen is showing, right now. "Export diagnostics" is the rotating file on disk:
+        // every row since the app started, each file headed by the config and the model that were
+        // in force — which is the thing nobody could see when `motionRecencyS` sat at 0.0 in the
+        // DataStore and silently rejected every diff-path commit for an evening.
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextButton(onClick = {
+                shareDecisionLog(
+                    context,
+                    exportDecisionLog(
+                        state.payload.decisions,
+                        viewModel.config,
+                        viewModel.runtime.value,
+                        appVersionOf(context).name,
+                    ),
+                )
+            }) {
+                Text("Export as text", color = Accent)
+            }
+            TextButton(onClick = { exportDiagnostics.launch(DIAGNOSTICS_FILE) }) {
+                Text("Export diagnostics", color = Accent)
+            }
         }
         if (rows.isEmpty()) Text("no decisions yet", color = OnSurfaceMuted)
         rows.forEachIndexed { index, row ->
@@ -96,7 +125,3 @@ private fun Detail(row: DebugDecision) {
         StatRow("cnn agreement / best", "${fmt(row.cnnAgreement, 3)} / ${row.cnnBestMove ?: "-"}")
     }
 }
-
-private fun appVersion(context: android.content.Context): String =
-    runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "?" }
-        .getOrDefault("?")

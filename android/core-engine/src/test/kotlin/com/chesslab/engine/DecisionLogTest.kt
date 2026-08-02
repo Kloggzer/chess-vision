@@ -118,7 +118,7 @@ class DecisionLogTest {
     @Test
     fun everyDecisionReachesTheSinkIncludingTheRejections() {
         val lines = mutableListOf<String>()
-        val log = DecisionLog(sink = { lines += it.toLogLine() })
+        val log = DecisionLog(sink = { lines += it.toDebugDecision().toLogLine() })
         log.add(record(1))
         assertEquals(1, lines.size)
         assertTrue(lines.single().startsWith("ply=1 COMMIT e2e4 (e4)"), lines.single())
@@ -126,12 +126,36 @@ class DecisionLogTest {
         val state = detectState(detectConfig(requireMotion = true))
         val seen = mutableListOf<String>()
         state.decisionLog.clear()
-        val mirrored = DecisionLog(sink = { seen += it.toLogLine() })
+        val mirrored = DecisionLog(sink = { seen += it.toDebugDecision().toLogLine() })
         val cand = Candidate(listOf(state.legalMoveFor("e2e4")!!), priorUsed = false, vote = true)
         state.commitGates(cand)
         state.decisionLog.forEach(mirrored::add)
         assertTrue(seen.single().startsWith("ply=0 REJECT e2e4"), seen.single())
         assertTrue(seen.single().contains("evidence too weak"), seen.single())
+    }
+
+    /**
+     * The sink is the ONLY way a decision leaves the module, and it hands out the structure.
+     *
+     * `:app` has two consumers of it — the logcat line and the diagnostics file — and neither can
+     * recover a field the mapping to [DebugDecision] silently drops. The engine's row spells the
+     * move `move`; the seam spells it `uci`, which is exactly the kind of rename that turns into a
+     * permanently empty column nobody notices.
+     */
+    @Test
+    fun theSinkReceivesTheDecisionAsStructure() {
+        val seen = mutableListOf<DebugDecision>()
+        val state = EngineState(detectConfig(requireMotion = true), STARTPOS, decisionSink = { seen += it })
+        val cand = Candidate(listOf(state.legalMoveFor("e2e4")!!), priorUsed = false, vote = true)
+        assertFalse(state.commitGates(cand))
+
+        val row = state.decisionLog.single()
+        val emitted = seen.single()
+        assertEquals(row.move, emitted.uci)
+        assertEquals(row.ply, emitted.ply)
+        assertEquals(row.decider, emitted.decider)
+        assertEquals(row.accepted, emitted.accepted)
+        assertEquals(row.reason, emitted.reason)
     }
 
     /**
@@ -155,7 +179,8 @@ class DecisionLogTest {
         val row = state.decisionLog.last()
         assertFalse(row.accepted, "the verify ladder wrote no rejection row")
         assertEquals("e2e4", row.move)
-        assertTrue(row.toLogLine().startsWith("ply=0 REJECT e2e4"), row.toLogLine())
+        val line = row.toDebugDecision().toLogLine()
+        assertTrue(line.startsWith("ply=0 REJECT e2e4"), line)
     }
 
     /**
@@ -209,7 +234,7 @@ class DecisionLogTest {
                 cnnBestMove = null,
                 stuckReason = "no_legal_move",
             )
-        val line = row.toLogLine()
+        val line = row.toDebugDecision().toLogLine()
         assertTrue(line.contains("changed=[f4=9.2 d4=4.5]"), line)
         assertTrue(line.contains("shadowVeto=e5"), line)
         assertTrue(line.contains("occlVeto=h2"), line)

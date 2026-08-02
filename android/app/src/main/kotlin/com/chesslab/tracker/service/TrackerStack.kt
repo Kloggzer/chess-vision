@@ -2,6 +2,7 @@ package com.chesslab.tracker.service
 
 import com.chesslab.cnn.CnnConfig
 import com.chesslab.cnn.CnnRecovery
+import com.chesslab.engine.api.DebugDecision
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.cnn.Attached
@@ -36,6 +37,13 @@ class TrackerSeed(
     /** Last accepted corners; null only before the first calibration or marker detection. */
     val corners: FloatArray?,
     val startFen: String,
+    /**
+     * Where the rebuilt engine's decision rows go — the session-lived diagnostics writer, which
+     * outlives every stack. It is handed over for the same reason the position is: a restart that
+     * forgot it would leave the new engine writing its rows to nobody, and the session where that
+     * matters is always the one nobody noticed the gap in.
+     */
+    val onDecision: (DebugDecision) -> Unit,
 )
 
 /**
@@ -72,7 +80,12 @@ class TrackerStack(
         )
 
     val host =
-        engineHost(seed.config, CnnRecovery(cnnConfig(seed.config)), seed.startFen) { pipeline.onConfigChanged(it) }
+        engineHost(
+            seed.config,
+            CnnRecovery(cnnConfig(seed.config)),
+            seed.startFen,
+            seed.onDecision,
+        ) { pipeline.onConfigChanged(it) }
 
     /** 07b's crop tap. Inert until the debug switch arms it; the service re-arms it after a restart. */
     val cropTap = DebugCropTap(cropFrameSource(cropStore, seed.geometry))
