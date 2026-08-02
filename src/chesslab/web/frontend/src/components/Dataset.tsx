@@ -9,6 +9,7 @@ import { api, post, del } from "../api";
 import { Card, Button, Glyph, noteCls } from "./ui";
 import { QuickTune, SessionAlign } from "./Alignment";
 import CornerEditor from "./CornerEditor";
+import GameReview, { GameReviewPicker } from "./GameReview";
 
 const input = "rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-100 outline-none focus:border-sky-500";
 
@@ -85,6 +86,7 @@ export function SessionsPanel() {
   const [noteKind, setNoteKind] = useState<"ok" | "err" | "busy" | "">("");
   const [reviewSid, setReviewSid] = useState("");
   const [reviewIdx, setReviewIdx] = useState(0);
+  const [reviewGame, setReviewGame] = useState("");
   // While a corner edit is pending, the aligned frame shows the tuned warp instead of the
   // stored one — one picture, not two.
   const [tunedUrl, setTunedUrl] = useState<string | null>(null);
@@ -332,6 +334,14 @@ export function SessionsPanel() {
                           open={geomOpen} onOpen={() => setGeomOpen((o) => !o)}
                           onWritten={() => invalidate("session-review", "sessions-manage")} />
           )}
+        </div>
+      )}
+      {/* The tail of the same workflow, not a fifth tab: a filmed game whose move list the
+          tracker proposed and a human still has to agree with before anything may use it. */}
+      <GameReviewPicker selected={reviewGame} onSelect={setReviewGame} />
+      {reviewGame && (
+        <div className="mt-3">
+          <GameReview key={reviewGame} name={reviewGame} onClose={() => setReviewGame("")} />
         </div>
       )}
       {ingested.length > 0 && (
