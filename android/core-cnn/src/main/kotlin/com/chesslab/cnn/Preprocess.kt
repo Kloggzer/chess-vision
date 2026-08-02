@@ -81,18 +81,24 @@ private val ACCEPTED_CLASS_LISTS: List<List<String>> =
     listOf(EXPECTED_CLASSES, PIECES13_CLASSES, OCCUPANCY_CLASSES)
 
 /**
- * Fails loudly when the model asset's class list is neither the canonical 14-class order nor
- * the 2-class occupancy order. Returns the asset list so callers keep using THAT, not
- * [EXPECTED_CLASSES].
+ * Fails loudly when the model asset's class list is none of the three in [ACCEPTED_CLASS_LISTS]:
+ * the canonical 14-class order, the 13-class identity order, or the 2-class occupancy order.
+ * Returns the asset list so callers keep using THAT, not [EXPECTED_CLASSES].
  *
- * A reordered list silently relabels every piece, so refusing to load is the only safe answer.
+ * A reordered list silently relabels every piece, so refusing to load is the only safe answer —
+ * and the message has to name every accepted order, because the one it omits is the one the
+ * failing model is closest to. It named only the 14- and 2-class lists until 2026-08-02, which
+ * made a mis-ordered 13-class model — the shipped `id35-80` shape, so now the likely case — fail
+ * with an error naming the two lists it was never meant to match.
+ *
  * The 2-class list is accepted because the tracker consumes OCCUPANCY, not identity:
  * `observationFromProbs` detects it via [classesHaveIdentity] and reports no label at all, so
  * the engine takes its existing occupancy-only path rather than comparing `"occupied"` to `"wP"`.
  */
 fun requireExpectedClasses(classes: List<String>): List<String> {
     require(classes in ACCEPTED_CLASS_LISTS) {
-        "model classes $classes != expected $EXPECTED_CLASSES or $OCCUPANCY_CLASSES"
+        "model classes $classes is none of the accepted orders: " +
+            ACCEPTED_CLASS_LISTS.joinToString(" / ")
     }
     return classes
 }

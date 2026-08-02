@@ -2,6 +2,7 @@ package com.chesslab.tracker.cnn
 
 import com.chesslab.cnn.EXPECTED_CLASSES
 import com.chesslab.cnn.InputRepr
+import com.chesslab.cnn.OCCUPANCY_CLASSES
 import com.chesslab.cnn.PIECES13_CLASSES
 import com.chesslab.cnn.classesHaveIdentity
 import kotlinx.serialization.json.Json
@@ -52,7 +53,13 @@ class ModelSpecTest {
                 it[3] = "wN"
             }
         val error = assertThrows<IllegalArgumentException> { ModelSpec.parse(config(classes = swapped)) }
-        assertTrue(error.message!!.contains("expected"), error.message)
+        // Every accepted order has to appear, not just the word "expected". The message named only
+        // the 14- and 2-class lists until 2026-08-02, so whoever shipped a mis-ordered 13-class
+        // model — the `id35-80` shape the device runs — was handed the two lists their model was
+        // never meant to match and no sight of the one it was.
+        for (accepted in listOf(EXPECTED_CLASSES, PIECES13_CLASSES, OCCUPANCY_CLASSES)) {
+            assertTrue(error.message!!.contains(accepted.toString()), "$accepted missing from: ${error.message}")
+        }
     }
 
     /**
