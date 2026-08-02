@@ -26,6 +26,10 @@ import kotlin.coroutines.EmptyCoroutineContext
 /** NaN is a legal value here — three `Int?` knobs encode "no override" as one. */
 private val PARSER = Json { allowSpecialFloatingPointValues = true }
 
+private fun JsonObject.str(key: String): String = getValue(key).jsonPrimitive.content
+
+private fun JsonObject.obj(key: String): JsonObject = getValue(key).jsonObject
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class DiagnosticsLogTest {
     @TempDir
@@ -94,8 +98,8 @@ class DiagnosticsLogTest {
             assertTrue(dir().listFiles().orEmpty().size > 1, "the test never rotated")
             val seqs =
                 lines()
-                    .filter { it.getValue("kind").jsonPrimitive.content == KIND_DECISION }
-                    .map { it.getValue("seq").jsonPrimitive.content.toLong() }
+                    .filter { it.str("kind") == KIND_DECISION }
+                    .map { it.str("seq").toLong() }
             assertEquals(seqs.sorted(), seqs, "the rows are out of order")
             assertEquals(seqs.toSet().size, seqs.size, "a seq repeats")
         }
@@ -119,7 +123,7 @@ class DiagnosticsLogTest {
             assertTrue(files.size > 1, "the test never rotated")
             files.forEach { file ->
                 val first = PARSER.parseToJsonElement(file.readLines().first()).jsonObject
-                assertEquals(KIND_RUN_START, first.getValue("kind").jsonPrimitive.content, file.name)
+                assertEquals(KIND_RUN_START, first.str("kind"), file.name)
             }
         }
 
@@ -139,16 +143,16 @@ class DiagnosticsLogTest {
             advanceUntilIdle()
 
             val row = lines().single()
-            assertEquals(KIND_RUN_START, row.getValue("kind").jsonPrimitive.content)
-            val values = row.getValue("config").jsonObject.getValue("values").jsonObject
+            assertEquals(KIND_RUN_START, row.str("kind"))
+            val values = row.obj("config").obj("values")
             assertEquals(
                 TrackerConfig().motionRecencyS,
-                values.getValue("motionRecencyS").jsonPrimitive.content.toDouble(),
+                values.str("motionRecencyS").toDouble(),
             )
-            val model = row.getValue("model").jsonObject
-            assertEquals("occ-v6-f5nd", model.getValue("loadedDir").jsonPrimitive.content)
-            assertEquals("80x80", model.getValue("inferSize").jsonPrimitive.content)
-            assertEquals("XNNPACK", model.getValue("actualEp").jsonPrimitive.content)
+            val model = row.obj("model")
+            assertEquals("occ-v6-f5nd", model.str("loadedDir"))
+            assertEquals("80x80", model.str("inferSize"))
+            assertEquals("XNNPACK", model.str("actualEp"))
         }
 
     /**
@@ -166,14 +170,17 @@ class DiagnosticsLogTest {
             advanceUntilIdle()
 
             val row = lines().single()
-            val engineFields = DebugDecision::class.java.declaredFields.map { it.name }.toSet()
+            val engineFields =
+                DebugDecision::class.java.declaredFields
+                    .map { it.name }
+                    .toSet()
             assertEquals(engineFields + setOf("kind", "seq"), row.keys, "the wire shape drifted from the engine's")
-            assertEquals(9.25, row.getValue("changedVals").jsonObject.getValue("f4").jsonPrimitive.content.toDouble())
-            assertEquals(4.5, row.getValue("changedVals").jsonObject.getValue("d4").jsonPrimitive.content.toDouble())
-            assertEquals("e2e4", row.getValue("uci").jsonPrimitive.content)
-            assertEquals("rejected", row.getValue("decider").jsonPrimitive.content)
-            assertFalse(row.getValue("accepted").jsonPrimitive.content.toBoolean())
-            assertTrue(row.getValue("cnnRun").jsonPrimitive.content.toBoolean())
+            assertEquals(9.25, row.obj("changedVals").str("f4").toDouble())
+            assertEquals(4.5, row.obj("changedVals").str("d4").toDouble())
+            assertEquals("e2e4", row.str("uci"))
+            assertEquals("rejected", row.str("decider"))
+            assertFalse(row.str("accepted").toBoolean())
+            assertTrue(row.str("cnnRun").toBoolean())
             assertNotNull(row["fenAfter"])
         }
 
@@ -188,7 +195,12 @@ class DiagnosticsLogTest {
             advanceUntilIdle()
 
             val forbidden = listOf("byte[]", "crop", "bitmap", "image", "pixel")
-            val text = dir().listFiles().orEmpty().joinToString("\n") { it.readText() }.lowercase()
+            val text =
+                dir()
+                    .listFiles()
+                    .orEmpty()
+                    .joinToString("\n") { it.readText() }
+                    .lowercase()
             forbidden.forEach { assertFalse(text.contains(it), "the file mentions '$it'") }
         }
 }
