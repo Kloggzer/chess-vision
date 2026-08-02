@@ -50,6 +50,29 @@ class TakenBackTest {
         assertTrue(state.note!!.endsWith(NOTE_TAKEN_BACK_WAY_OUT), "the note must name a way out: ${state.note}")
     }
 
+    /** A commit is deliberately not an exit: clearing on commit is what freed the first bridge. */
+    @Test
+    fun anOrdinaryCommitDoesNotReleaseTheHold() {
+        val (engine, _) = looped()
+        val state = engine.state
+        engine.observe(seq = 1)
+        engine.undo()
+        val held = state.takenBack
+        state.commitMove(moveOf(state, "b1c3"), grayFrame(), null)
+        assertEquals(held, state.takenBack, "a commit must not clear the hold")
+    }
+
+    /** …and the user's own resolutions are. */
+    @Test
+    fun aBaselineReleasesTheHold() {
+        val (engine, _) = looped()
+        engine.observe(seq = 1)
+        engine.undo()
+        assertTrue(engine.state.takenBack != null)
+        engine.captureBaseline()
+        assertEquals(null, engine.state.takenBack)
+    }
+
     /**
      * The live shape, which is harder than the one above: an ordinary move had already landed on top
      * of the bridge, so `lastCommitSize` belonged to THAT move and the bridge came back one press
@@ -76,12 +99,25 @@ class TakenBackTest {
     }
 
     /**
-     * The mechanism exists because a hand over the board genuinely hides plies, and the user needs
-     * three- and four-ply bridges to work. The veto is keyed to the exact line that was rejected, so
-     * anything the CNN newly sees from the same position is still committed.
+     * REVERSED on the evening it shipped, by the phone.
+     *
+     * This used to assert the opposite — that a different line from the same position still commits,
+     * on the reasoning that a new line is new evidence. The live game says no: the CNN produced two
+     * different four-move bridges from the same standoff (`g3h3 d6d5 h3f3 d5e4`, then
+     * `h5f3 c8h3 f3g3 a8c8`), the line-keyed veto never fired once, and the second bridge committing
+     * also cleared the record guarding the first. "A different line" was not new evidence; it was
+     * the same disagreement read a second way.
+     *
+     * So the hold is keyed to the POSITION. An undo says "the game is here", and nothing derived
+     * from the CNN may move it away from there until the user resolves the disagreement.
+     *
+     * The cost is real and deliberate: a legitimate bridge offered at exactly that position is held
+     * too, and the tracker stalls with a note naming the way out instead of running away. Multi-ply
+     * bridges are NOT restricted anywhere else — `recoveryMaxPlies` is untouched and a hold only
+     * exists at a position an undo returned to.
      */
     @Test
-    fun aDifferentLineFromTheSamePositionStillCommits() {
+    fun aDifferentLineFromTheSamePositionIsHeldToo() {
         val (engine, cnn) = looped()
         val state = engine.state
         engine.observe(seq = 1)
@@ -90,8 +126,8 @@ class TakenBackTest {
         cnn.moves = listOf("d2d4", "d7d5", "c2c4")
         engine.observe(seq = 2)
 
-        assertEquals(listOf("d4", "d5", "c4"), state.history, "a legitimate bridge must still fire")
-        assertNull(state.takenBack, "and committing ends the take-back")
+        assertEquals(emptyList<String>(), state.history, "any bridge is held at the position undone to")
+        assertTrue(state.takenBack != null, "and the hold survives — only the user releases it")
     }
 
     /** An undo the user did not mean must not strand the tracker — "New baseline" is the way out. */
