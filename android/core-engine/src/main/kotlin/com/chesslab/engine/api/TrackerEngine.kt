@@ -104,18 +104,23 @@ class TrackerEngine(
     config: TrackerConfig,
     startFen: String = STARTPOS,
     /**
-     * Every decision — committed OR rejected — as one line, the moment it is made.
+     * Every decision — committed OR rejected — the moment it is made.
      *
-     * Default no-op, so tests and the clip harness stay silent. `:app` points it at logcat. The
-     * engine cannot import Android and cannot read a clock, so this is the only way a decision
-     * leaves the module; the sink is called on the engine's own thread and must not block.
+     * Default no-op, so tests and the clip harness stay silent. `:app` points it at logcat and at
+     * the diagnostics file. The engine cannot import Android and cannot read a clock, so this is
+     * the only way a decision leaves the module; the sink is called on the engine's own thread and
+     * must not block.
+     *
+     * It carries the [DebugDecision], not a rendered line: a consumer that wants to count
+     * rejections by reason, or pull every row of one ply, would otherwise have to re-parse a
+     * sentence written to be read. `toLogLine` renders it at whichever edge wants prose.
      *
      * It exists because on 2026-08-01 a live board sat in a mismatch cycle on a legitimate `Qxd4`
      * and the question "did the deterministic path see d4 change at all?" could not be answered:
      * the app emitted three log tags, none of them the engine's, and the decision rows lived only
      * in a 64-entry in-memory ring behind an off-by-default debug switch.
      */
-    private val decisionSink: (String) -> Unit = {},
+    private val decisionSink: (DebugDecision) -> Unit = {},
 ) {
     internal val state = EngineState(config, startFen, decisionSink = decisionSink)
 

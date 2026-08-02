@@ -17,6 +17,10 @@ import com.chesslab.tracker.cnn.Attached
 import com.chesslab.tracker.cnn.CnnModelAssets
 import com.chesslab.tracker.cnn.CnnState
 import com.chesslab.tracker.cnn.ModelSpec
+import com.chesslab.tracker.diagnostics.DiagnosticsLog
+import com.chesslab.tracker.diagnostics.appVersionOf
+import com.chesslab.tracker.diagnostics.diagnosticsDir
+import com.chesslab.tracker.diagnostics.runStartOf
 import com.chesslab.tracker.games.GameSessionController
 import com.chesslab.tracker.geometry.calibrationStore
 import com.chesslab.tracker.geometry.withCropSizeOf
@@ -35,12 +39,22 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 private const val PREVIEW_MAX_SIDE = 640
+
+/**
+ * How long the run header waits for the CNN attach to resolve.
+ *
+ * An attach is a synchronous ONNX session open and normally takes a second or two; the multi-minute
+ * case was QNN's EPContext generation, and the QNN provider is not in this binary at all.
+ */
+private const val ATTACH_HEADER_WAIT_MS = 30_000L
 
 /**
  * The single owner of the camera and of the engine.
@@ -65,6 +79,10 @@ class TrackerService :
     private lateinit var notification: TrackerNotification
     private lateinit var speech: MoveAnnouncer
     private lateinit var games: GameSessionController
+    private lateinit var diagnostics: DiagnosticsLog
+
+    /** Read once: `PackageManager` is a binder call and the answer cannot change under us. */
+    private val version by lazy { appVersionOf(this) }
 
     private val calibration by lazy { calibrationStore(this) }
 
@@ -80,7 +98,7 @@ class TrackerService :
     private val stacks =
         StackSwitch {
             TrackerStack(
-                TrackerSeed(settings.config.value, ::geometry, corners, publisher.lastFen ?: STARTPOS),
+                TrackerSeed(settings.config.value, ::geometry, corners, publisher.lastFen ?: STARTPOS, diagnostics::offer),
                 settings,
                 publisher,
                 frames,
@@ -221,12 +239,17 @@ class TrackerService :
         camera.close()
         stacks.close()
         frames.close()
+        // After the stack, so the last rows of the session it just tore down are still accepted.
+        diagnostics.close()
         super.onDestroy()
     }
 
     /** The long-lived half. Nothing here is rebuilt by a restart — see the class doc. */
     private fun wireSession() {
         publisher = StatusPublisher(lifecycleScope, timings, cameraRate)
+        // Before the stack, which is wired to its sink at construction. Session-lived on purpose:
+        // a tracker restart is a new run header in the same file, not a new file.
+        diagnostics = DiagnosticsLog(diagnosticsDir(filesDir), lifecycleScope)
         settings =
             SettingsRepository(DataStoreConfigStore(this), lifecycleScope) { config ->
                 stacks.current?.host?.submit(EngineAction.UpdateConfig(config))
@@ -326,6 +349,20 @@ class TrackerService :
                 stack.observer.state
                     .onEach { cnn.value = it }
                     .launchIn(stack.scope)
+                // The run header waits for the attach to RESOLVE, because the execution provider
+                // it names is the one the runtime SELECTED — a request is not a delivery, and a
+                // quiet fall-through from the NPU to the CPU costs ten times the latency at the
+                // same fps. A sticky failure resolves too, and "loaded: null" is itself the answer.
+                stack.scope.launch {
+                    // …but not forever. A header that never arrives is the worse failure of the
+                    // two: the file would then carry rows and no config at all, which is exactly
+                    // the state this phase exists to end. Past the wait the model block simply
+                    // reports what the probe holds, nulls included.
+                    withTimeoutOrNull(ATTACH_HEADER_WAIT_MS) { stack.observer.state.first { it !is CnnState.Attaching } }
+                    diagnostics.runStart(
+                        runStartOf(settings.appSettings.value, settings.config.value, modelSpec, cnnProbe.info(), version),
+                    )
+                }
             }
         }
 

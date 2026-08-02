@@ -3,11 +3,13 @@ package com.chesslab.tracker.service
 import android.util.Log
 import com.chesslab.engine.api.CnnEvaluator
 import com.chesslab.engine.api.CnnSnapshot
+import com.chesslab.engine.api.DebugDecision
 import com.chesslab.engine.api.FrameInput
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEngine
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
+import com.chesslab.engine.toLogLine
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.BlockingQueue
 
@@ -163,12 +165,21 @@ fun engineHost(
     config: TrackerConfig,
     cnn: CnnEvaluator?,
     startFen: String,
+    onDecision: (DebugDecision) -> Unit,
     onConfigApplied: (TrackerConfig) -> Unit,
 ): EngineHost {
     // Not gated on the debug switch. A decision row is written at most once per committed or
     // rejected move — not per frame — and the one session where it is needed is always the one
     // nobody armed a debug flag for beforehand.
-    val engine = TrackerEngine(config, startFen) { Log.i(DECISION_TAG, it) }
+    //
+    // Two consumers, one sink. The engine hands out the row as structure; the prose is rendered
+    // HERE, so a second consumer does not have to re-parse a sentence to count rejections. logcat
+    // stays because it is what makes a live look possible over adb, with nothing to export first.
+    val engine =
+        TrackerEngine(config, startFen) {
+            Log.i(DECISION_TAG, it.toLogLine())
+            onDecision(it)
+        }
     engine.attachCnn(cnn)
     return EngineHost(TrackerEngineOps(engine, onConfigApplied))
 }
