@@ -131,3 +131,33 @@ while any move is red; or the tier counts not summing to the ply count.
   `settle/avg/confirm_frames`**: the Python harness builds with `cnn_run=None` (4/3/2) while the
   candidate records the CNN-attached 3/2/1. Nothing depends on it yet — no real entry exists —
   but the first one will.
+
+## Why the replay commits nothing — traced 2026-08-03, not fixed
+
+Phase 00 measured it and eliminated the cheap explanations: quad p90 **0.93 rectified px**, board not
+transposed, margin irrelevant (checkerboard separation 131–132 at every value 0.00–0.10), source
+constant-rate. What remains is that **7 squares read `changed` on a physically static board before
+the first move**, against `max_changed = 6`. The diff path is jammed from the first settle, and each
+real move then adds its own squares permanently: 7 → 12 → 15 → 19 → 23.
+
+`SquareNoise.update`'s own docstring describes the mechanism and names `b1`, one of the hot squares:
+the **gray** channel passes `exclude_alpha_scale = 0.0`, so a square that fires from frame one is
+excluded from learning entirely and can never be absorbed. The census channel has a slow lane
+(0.125) for exactly this, and the gray channel deliberately does not — because, in the docstring's
+words, *"a real move commits (and re-anchors) long before it could be learned away."*
+
+**That premise fails in a cold replay.** On the phone every commit re-anchors and `captureBaseline`
+is a button; in a replay that has never committed, nothing ever re-anchors, so the hot squares stay
+hot for the whole video. It is a deadlock, not a threshold: `z_thr` 6, 10 and 6 with
+`max_changed` 10 all still commit zero.
+
+**Correction to the phase-00 report's closing question.** It asks how the phone committed 91 moves
+on "this same physical game". They are not the same recording — the tracked game's diagnostics file
+is timestamped 19:52 and the video was filmed at 22:27, hours apart, with a different camera app at
+a different resolution. So this is not "the same pixels succeed live and fail offline", and the
+comparison cannot be used as evidence about either path.
+
+**Not fixed here, deliberately.** Giving the gray channel a slow lane, or re-anchoring a replay that
+has been stuck since the first frame, is a change to tracker runtime behaviour at the seam this
+project has spent a week getting wrong. It wants its own measurement — starting with whether the
+same 7 squares fire on a Blender clip, which would say whether this is about real footage at all.
