@@ -247,6 +247,27 @@ class CnnTickTest {
         assertEquals(DECIDER_REASON.getValue(DECIDER_CNN_RECOVERY), row.reason)
     }
 
+    /**
+     * Four rows that each say "position was LOST — rebuilt by the CNN" are indistinguishable from
+     * four separate one-move recoveries, which is a different and far less alarming event. The
+     * stamp is what tells them apart, and it groups the bridge back together for a reader.
+     */
+    @Test
+    fun theRowsOfOneBridgeCarryTheirPositionInItAndItsKey() {
+        val state = recoveryState()
+        val cnn = RecoveryEvaluator(moves = listOf("e2e4", "e7e5", "g1f3"), agreement = 0.95)
+        state.cnnTick(cnn, recoverySnap(state, obsForBoard(state.board), 1, grayFrame()))
+
+        val rows = state.decisionLog.filter { it.accepted }
+        val key = "e2e4 e7e5 g1f3"
+        assertEquals(
+            listOf("[move 1/3 of recovery $key]", "[move 2/3 of recovery $key]", "[move 3/3 of recovery $key]"),
+            rows.map { it.reason.substringAfter(DECIDER_REASON.getValue(DECIDER_CNN_RECOVERY)).trim() },
+        )
+        // And the whole stamp reaches the log line, which is the only form anyone reads live.
+        assertTrue(rows.last().toLogLine().contains("[move 3/3 of recovery $key]"), rows.last().toLogLine())
+    }
+
     @Test
     fun recoveryDropsAnUnplayableSequence() {
         val state = recoveryState()

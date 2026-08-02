@@ -198,8 +198,15 @@ internal fun EngineState.recordDecision(
     fenBefore: String,
     decider: String,
     priorUsed: Boolean,
+    /**
+     * Appended verbatim to the canonical [DECIDER_REASON] text. It exists so a CNN recovery can say
+     * which move of which bridge a row is (`CnnTick.pushRecovery`) without widening
+     * `DebugDecision` — that type is a wire shape and a new column there is `specs/34`'s business.
+     */
+    reasonSuffix: String = "",
 ) {
-    val reason = (DECIDER_REASON[decider] ?: decider) + (if (priorUsed) PRIOR_REASON_SUFFIX else "")
+    val reason =
+        (DECIDER_REASON[decider] ?: decider) + (if (priorUsed) PRIOR_REASON_SUFFIX else "") + reasonSuffix
     decisionLog.add(
         DecisionRecord(
             tsS = nowS,
