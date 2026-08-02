@@ -1,6 +1,7 @@
 package com.chesslab.tracker.ui.camera
 
 import android.graphics.Bitmap
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -247,6 +248,12 @@ private fun LookDeck(
  * Not a panel over the viewfinder: what is being judged here is the RECTIFIED board, which is a
  * different picture from the one behind it, and two boards on one screen is the fastest way to
  * confirm the wrong one.
+ *
+ * It therefore has to carry its OWN way back, and both of them have to lead to the same place. The
+ * first version had neither: no bar, so the only exit without saving was a text button reading
+ * "Corners look wrong", and no [BackHandler], so the system gesture popped the whole camera
+ * destination and dropped the user on the game board. A step that replaced the screen and did not
+ * handle back is a step that answers the phone's most-used control with the wrong view.
  */
 @Composable
 private fun ConfirmSurface(
@@ -255,14 +262,17 @@ private fun ConfirmSurface(
     host: CalibrationHost,
     onBack: () -> Unit,
 ) {
-    Column(Modifier.fillMaxSize().background(Color.Black).padding(12.dp)) {
-        OrientationConfirm(
-            state = state,
-            onWhitePovChange = model::setWhitePov,
-            onSave = { model.saveAnd(host) {} },
-            onBack = onBack,
-            onMarginChange = model::setMargin,
-        )
+    BackHandler(onBack = onBack)
+    ChesslabScaffold("Check orientation", onBack) { bars ->
+        Column(Modifier.fillMaxSize().padding(bars).padding(12.dp)) {
+            OrientationConfirm(
+                state = state,
+                onWhitePovChange = model::setWhitePov,
+                onSave = { model.saveAnd(host) {} },
+                onBack = onBack,
+                onMarginChange = model::setMargin,
+            )
+        }
     }
 }
 

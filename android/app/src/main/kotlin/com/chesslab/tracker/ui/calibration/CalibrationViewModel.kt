@@ -183,8 +183,18 @@ class CalibrationViewModel(
         s.corners?.let { c -> scope.launch { refreshWarp(c, value, s.margin) } }
     }
 
+    /**
+     * Leave the orientation check, back to wherever the corners came FROM.
+     *
+     * It used to go to [CalibrationStep.AIM] unconditionally, which threw away manual work without
+     * saying so: the taps survive in the state, but AIM restarts the ArUco poll and the next
+     * detection overwrites the quad the user had just placed by hand. "Corners look wrong" after
+     * setting them by hand has exactly one sensible destination, and it is not the automatic.
+     */
     fun back() {
-        _state.value = _state.value.copy(step = CalibrationStep.AIM, warped = null, orientationSeen = false)
+        val s = _state.value
+        val to = if (s.taps.isNotEmpty()) CalibrationStep.MANUAL else CalibrationStep.AIM
+        _state.value = s.copy(step = to, warped = null, orientationSeen = false)
     }
 
     fun save(onSaved: (CalibrationProfile) -> Unit = {}) {
