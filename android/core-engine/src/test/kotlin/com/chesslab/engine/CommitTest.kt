@@ -115,6 +115,30 @@ class CommitTest {
         assertTrue(!state.motionSinceRef, "a fresh reference requires a new hand before the next commit")
     }
 
+    /**
+     * Every commit path states its size, because `undo` takes back a COMMIT and a commit is not
+     * always one ply. The CNN recovery of 2026-08-02 pushed four and `undo` popped one.
+     */
+    @Test
+    fun everyCommitPathRecordsHowManyPliesItPushed() {
+        val single = detectState()
+        single.commitMove(moveOf(single, "e2e4"), grayFrame(), null)
+        assertEquals(1, single.lastCommitSize)
+
+        val pair = detectState()
+        val first = moveOf(pair, "e2e4")
+        pair.board.push(first)
+        val second = moveOf(pair, "e7e5")
+        pair.board.pop()
+        pair.commitSequence(listOf(first, second), grayFrame(), null)
+        assertEquals(2, pair.lastCommitSize)
+
+        val recovered = recoveryState()
+        val cnn = RecoveryEvaluator(moves = listOf("e2e4", "e7e5", "g1f3"), agreement = 0.95)
+        recovered.cnnTick(cnn, recoverySnap(recovered, obsForBoard(recovered.board), 1, grayFrame()))
+        assertEquals(3, recovered.lastCommitSize)
+    }
+
     @Test
     fun undoClearsBuffers() {
         val engine = TrackerEngine(detectConfig())
