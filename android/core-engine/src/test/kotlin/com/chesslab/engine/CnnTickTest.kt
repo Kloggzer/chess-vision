@@ -265,7 +265,9 @@ class CnnTickTest {
             rows.map { it.reason.substringAfter(DECIDER_REASON.getValue(DECIDER_CNN_RECOVERY)).trim() },
         )
         // And the whole stamp reaches the log line, which is the only form anyone reads live.
-        assertTrue(rows.last().toLogLine().contains("[move 3/3 of recovery $key]"), rows.last().toLogLine())
+        // Via `toDebugDecision` since the sink carries structure rather than a sentence (specs/34).
+        val line = rows.last().toDebugDecision().toLogLine()
+        assertTrue(line.contains("[move 3/3 of recovery $key]"), line)
     }
 
     @Test
