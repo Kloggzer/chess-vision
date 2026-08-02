@@ -260,6 +260,16 @@ internal class EngineState(
      * what makes a stale value after a `setFen` (history cleared, nothing committed since) harmless.
      */
     var lastCommitSize: Int = 0
+
+    /**
+     * The line `undo` last took back, and the position it was taken back to — see [TakenBack].
+     *
+     * It is the ONLY thing in the engine that remembers a human rejection. Everything else the
+     * recovery reads describes the board, and the board is unchanged by an undo, which is why the
+     * bridge of 2026-08-02 came back three times.
+     */
+    var takenBack: TakenBack? = null
+
     var note: String? = null // `note`
     var priorLast: Boolean = false // `prior_last`
     var recoveredLast: Boolean = false // `recovered_last`

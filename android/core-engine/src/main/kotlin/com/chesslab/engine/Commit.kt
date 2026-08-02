@@ -181,6 +181,8 @@ private fun EngineState.finishCommit(
 ) {
     setRef(cur, curBgr, fromCommit = true)
     state = STATE_MOVE
+    // The game moved on past the position the take-back veto was pinned to.
+    takenBack = null
     confirmer.reset()
     // also resets the recovery confirmer
     clearStuck()

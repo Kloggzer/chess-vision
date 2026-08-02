@@ -5,6 +5,7 @@
 | 00 — a recovery shows its work | `done` | one row per move, stamped `[move i/N of recovery <ucis>]` |
 | 01 — undo takes back what was committed | `done` | one press unwinds the last commit; the control says its size |
 | 02 — re-anchor without inventing history | `todo` | independent of 01 |
+| 03 — an undo the recovery can hear | `done` | added 2026-08-02 from the loop below; `undo` vetoes the line it took back |
 
 ## What the two landed phases changed, and what they found wrong in the spec
 
@@ -55,18 +56,45 @@ confirmed in `CnnTick.kt` and `api/TrackerEngine.kt`:
 - every rejection row in that cycle reads **`cnnAgree=0.980`**, against a position the CNN itself
   had produced.
 
-## The open question this pack does NOT answer
+## The open question — ANSWERED 2026-08-02, and not in the direction the pack expected
 
-**Should a recovery be allowed to commit more than one move?**
+**Should a recovery be allowed to commit more than one move? Yes. `recoveryMaxPlies = 4` stays.**
 
-The tempting fix is "one move or nothing", and there is no evidence for it. The mechanism exists
-because a hand over the board genuinely does hide two plies, and refusing those trades a loud
-failure for a silent stall. Nobody has measured how often a multi-move recovery is *right* — and it
-cannot be measured today, because `commitRecovery` writes one row for N moves.
+Closed by the user, not by a count: fast move sequences genuinely happen — several plies between two
+usable CNN observations — so a multi-move bridge is a **requirement**, not a tolerated weakness.
+Anything that bounds the sequence length or makes a legitimate 3–4 ply bridge harder to commit is
+wrong. Phase 03 is written to that constraint: its veto is keyed to one specific line a human
+rejected and cannot fire on a line that was never rejected.
 
-Phase 00 is what makes it answerable. After a week of real games with a row per move, the question
-is a `grep` and a count. Until then, changing the commit rule would be a conclusion drawn from one
-bad game, which this project has a standing rule against.
+The pack's instinct — "do not change the commit rule on one bad game" — was right for the wrong
+reason. The rule did not need measuring; the *trigger* did.
+
+## What the first night of per-move rows actually measured
+
+Phase 00 made the shape readable and it was not a length problem. It was a loop: `undo` moves the
+app's position, the CNN reads the board, the board is unchanged by an undo, so the identical bridge
+is re-derived and re-committed on the next observation. See phase 03 for the trace.
+
+Two candidate corroboration levers were examined against the same log and **both are refuted**:
+
+- `best = -3.12` on every recovery row is not the pixels arguing against the sequence. It is
+  `bestScore` from the last `tryDetect`, and `Hypothesis.noSingleFitsGate` fires on `best < 0.0` —
+  which is the branch that marks the tracker stuck, which is the recovery's own trigger. A negative
+  `best` is a PRECONDITION of a recovery, not evidence against it.
+- `motion = 0.0000` is a tautology: `cnnTick` evaluates only on a stable or stuck board. A
+  legitimate fast sequence settles before it is read, too.
+
+Nothing measured so far separates "the diff is poor because several real moves happened" from "the
+diff is poor because this bridge is fiction". That remains open, and it is the valuable question.
+
+## Opened by 03, not fixed
+
+**Phase 01's bridge-sized undo is spent by the next commit.** `lastCommitSize` is overwritten by
+whatever commits on top of a bridge, so once an ordinary move has landed the bridge comes back one
+press per ply again — which is exactly what the live log's descending plies 103, 102, 101 are. Phase
+03's take-back line accumulates across consecutive presses for that reason, so the veto spans it;
+the number of presses does not shrink. Making `undo` itself walk further back is a history-walk
+feature with its own UI and is not this pack's call.
 
 ## Related, and deliberately not fixed here
 

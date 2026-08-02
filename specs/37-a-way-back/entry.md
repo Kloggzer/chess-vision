@@ -74,6 +74,12 @@ what makes that measurable: with a row per move, a week of logs answers it. **Do
 commit rule on the strength of one bad game.** This project has a standing rule that a conclusion
 drawn from a single run is not a result.
 
+> **Settled 2026-08-02, and the caution was aimed at the wrong thing.** `recoveryMaxPlies = 4`
+> **stays** — the user needs multi-ply bridges, so the length was never the defect. The first night
+> of phase 00's rows showed a LOOP instead: `undo` moves the app's position, the CNN reads the board,
+> the board is unchanged by an undo, so the identical bridge comes straight back. Phase 03 was added
+> for it. See `STATUS.md`.
+
 ## Ownership
 
 | Phase | Owns |
@@ -81,6 +87,7 @@ drawn from a single run is not a result.
 | **00** | `core-engine/CnnTick.kt` (`commitRecovery` only), `core-engine/DecisionLog.kt`, its tests |
 | **01** | `core-engine/api/TrackerEngine.kt` (`undo` only), `core-engine/EngineState.kt`, its tests |
 | **02** | `core-engine/api/TrackerEngine.kt` (new action), `service/EngineAction.kt`, `service/TrackerBinder.kt`, `ui/tracking/**` |
+| **03** | `core-engine/TakenBack.kt`, `Game.kt` (`pop`), `EngineState.kt`, `Commit.kt` (`finishCommit`), `CnnTick.kt` (`onRecovery`/`commitRecovery`), `api/TrackerEngine.kt` (`undo`/`setFen`/`captureBaseline`), its tests. Added after the fact — see `03-…md`. |
 
 ## Protocol
 

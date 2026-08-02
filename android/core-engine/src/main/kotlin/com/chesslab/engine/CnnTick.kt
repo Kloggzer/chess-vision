@@ -210,6 +210,15 @@ private fun EngineState.onRecovery(
     hasIdentity: Boolean,
 ): List<TrackerEvent> {
     val key = read.moves.joinToString(" ")
+    // The runaway of 2026-08-02. An undo moves the APP's position; the CNN reads the BOARD; the
+    // board is unchanged by an undo — so the very next observation derives the identical bridge and
+    // commits it again. Three presses, three re-commits, and no number of presses could have won:
+    // this record is the only thing that carries a human rejection into the recovery path.
+    if (wasTakenBack(read.moves)) {
+        recoveryConfirmer.reset()
+        note = "$NOTE_TAKEN_BACK_PREFIX ($key) $NOTE_TAKEN_BACK_WAY_OUT"
+        return emptyList()
+    }
     // Voting, not single-shot: the legacy port pushed a whole sequence onto the board on ONE
     // glance (specs/12 D6). The recovery confirmer is what makes it multi-observation evidence.
     if (!recoveryConfirmer.feed(key)) {
@@ -272,6 +281,9 @@ private fun EngineState.commitRecovery(
     motionSinceRef = true
     lastMotionTs = nowS
     state = STATE_MOVE
+    // A recovery that got THROUGH the take-back veto is a different line from the rejected one, so
+    // the game has moved on and the veto's position no longer exists.
+    takenBack = null
     recoveredLast = true
     priorLast = false
     cnnStatus = CNN_STATUS_OK

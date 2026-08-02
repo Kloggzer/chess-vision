@@ -36,6 +36,7 @@ import com.chesslab.engine.scoreViableMoves
 import com.chesslab.engine.setRef
 import com.chesslab.engine.sortedSquareNames
 import com.chesslab.engine.squareNames
+import com.chesslab.engine.takeBack
 import com.chesslab.engine.topChangedVals
 import com.chesslab.engine.uciOf
 import com.chesslab.engine.with
@@ -240,6 +241,11 @@ class TrackerEngine(
      * ONCE, not once per popped ply. The trim needs nothing special for a multi-ply undo: it drops
      * every row whose `ply` exceeds the restored history size, which is exactly the per-move rows a
      * recovery writes.
+     *
+     * It also RECORDS the line it took back ([EngineState.takenBack]). Popping alone was not a way
+     * back: on 2026-08-02 the CNN recovery re-derived and re-committed the identical three-move
+     * bridge after every press, because an undo moves the app's position and the board it reads is
+     * unchanged. The record is the only thing in the engine that remembers a human rejection.
      */
     fun undo(): List<TrackerEvent> {
         val events = state.clearAlarm(ALARM_UNDONE).toMutableList()
@@ -247,10 +253,7 @@ class TrackerEngine(
             // Bounded by the history: a count left over from before a `setFen` must never pop past
             // the moves this board actually holds.
             val plies = state.lastCommitSize.coerceIn(1, state.history.size)
-            repeat(plies) {
-                state.board.pop()
-                state.history.removeAt(state.history.size - 1)
-            }
+            state.takeBack(plies)
             state.lastCommitSize = 0
             state.lastMove = null
             state.clearReferenceState()
@@ -287,6 +290,8 @@ class TrackerEngine(
         state.lastCnnTs = 0.0
         state.occlGridActive = false
         state.gridCoverage = 1.0
+        // The position is redefined, so the line the take-back veto is pinned to no longer exists.
+        state.takenBack = null
         state.note = "Reference set"
         // The user accepted reality by resyncing — release the illegal-move latch (invariant 9).
         return state.clearAlarm(ALARM_ACCEPTED)
@@ -300,6 +305,9 @@ class TrackerEngine(
     fun captureBaseline(): List<TrackerEvent> {
         state.clearReferenceState()
         state.holdUntil = 0.0
+        // "The board matches the shown FEN" contradicts the premise of the take-back veto, and this
+        // is the button the veto's own note points at when a legitimate bridge was undone by mistake.
+        state.takenBack = null
         val events = state.clearAlarm(ALARM_ACCEPTED)
         state.note = "Baseline: re-capturing reference from the next clear frame…"
         return events
