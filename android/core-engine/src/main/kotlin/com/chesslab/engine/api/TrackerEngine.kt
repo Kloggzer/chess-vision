@@ -83,6 +83,17 @@ private const val NOTE_CNN_KINGS = "CNN position has missing/extra kings — use
 /** The empty slot of the rebuilt placement — `' '` is not a FEN piece symbol. */
 private const val EMPTY_SQUARE = ' '
 
+/**
+ * What the user is told an undo took back. "last move undone" after a four-ply recovery would be
+ * the same understatement the button used to make, on the screen where it is easiest to miss.
+ */
+private fun undoneNote(plies: Int): String =
+    if (plies == 1) {
+        "last move undone (logged as bad example)"
+    } else {
+        "last $plies moves undone — they were committed as one (logged as bad examples)"
+    }
+
 private const val PIECE_TYPES = "PNBRQK"
 
 /** FEN field indices of the two clocks (`placement side castling ep halfmove fullmove`). */
@@ -210,12 +221,32 @@ class TrackerEngine(
     /**
      * `undo` — the undone move was WRONG, so it is a user correction: the alarm latch is released
      * and the decision rows of the undone plies are dropped.
+     *
+     * It takes back the LAST COMMIT, whatever its size. A CNN recovery is committed as a unit — four
+     * plies in one commit in the live game of 2026-08-02 — and used to come back one press at a
+     * time, with nothing anywhere saying how many presses were left and each press clearing the
+     * reference and the alarm again, so the state after one press was not the state before the
+     * sequence. That asymmetry is the whole of the user's "no way back".
+     *
+     * The record is of the LAST commit only, and it is cleared here, so a second press unwinds one
+     * ordinary move. That is right: anything older is a normal move, not a bridge.
+     *
+     * Everything that resets on an undo — the reference, the alarm, the decision-log trim — runs
+     * ONCE, not once per popped ply. The trim needs nothing special for a multi-ply undo: it drops
+     * every row whose `ply` exceeds the restored history size, which is exactly the per-move rows a
+     * recovery writes.
      */
     fun undo(): List<TrackerEvent> {
         val events = state.clearAlarm(ALARM_UNDONE).toMutableList()
         if (state.history.isNotEmpty()) {
-            state.board.pop()
-            state.history.removeAt(state.history.size - 1)
+            // Bounded by the history: a count left over from before a `setFen` must never pop past
+            // the moves this board actually holds.
+            val plies = state.lastCommitSize.coerceIn(1, state.history.size)
+            repeat(plies) {
+                state.board.pop()
+                state.history.removeAt(state.history.size - 1)
+            }
+            state.lastCommitSize = 0
             state.lastMove = null
             state.clearReferenceState()
             state.recoveredLast = false
@@ -224,7 +255,7 @@ class TrackerEngine(
                 state.decisionLog.removeAt(state.decisionLog.size - 1)
             }
             state.pendingCapture = null
-            state.note = "last move undone (logged as bad example)"
+            state.note = undoneNote(plies)
         }
         return events
     }
