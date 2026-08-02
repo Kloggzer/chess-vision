@@ -44,8 +44,17 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 private const val PREVIEW_MAX_SIDE = 640
+
+/**
+ * How long the run header waits for the CNN attach to resolve.
+ *
+ * An attach is a synchronous ONNX session open and normally takes a second or two; the multi-minute
+ * case was QNN's EPContext generation, and the QNN provider is not in this binary at all.
+ */
+private const val ATTACH_HEADER_WAIT_MS = 30_000L
 
 /**
  * The single owner of the camera and of the engine.
@@ -345,7 +354,11 @@ class TrackerService :
                 // quiet fall-through from the NPU to the CPU costs ten times the latency at the
                 // same fps. A sticky failure resolves too, and "loaded: null" is itself the answer.
                 stack.scope.launch {
-                    stack.observer.state.first { it !is CnnState.Attaching }
+                    // …but not forever. A header that never arrives is the worse failure of the
+                    // two: the file would then carry rows and no config at all, which is exactly
+                    // the state this phase exists to end. Past the wait the model block simply
+                    // reports what the probe holds, nulls included.
+                    withTimeoutOrNull(ATTACH_HEADER_WAIT_MS) { stack.observer.state.first { it !is CnnState.Attaching } }
                     diagnostics.runStart(
                         runStartOf(settings.appSettings.value, settings.config.value, modelSpec, cnnProbe.info(), version),
                     )
