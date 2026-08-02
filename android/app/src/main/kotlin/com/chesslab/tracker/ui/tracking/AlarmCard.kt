@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -65,19 +67,36 @@ fun AlarmCard(
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(
-            text = headlineFor(alarm.kind),
-            style = MaterialTheme.typography.titleLarge,
-            color = Danger,
-        )
-        Text(
-            text =
-                "Tracking is paused and the board below is the last position the app was sure " +
-                    "of — not what is in front of you. Pick one:",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        AlarmFacts(alarm, lastCommit)
+        // The PROSE is bounded and scrolls; the buttons below never move.
+        //
+        // This card is a non-weighted child of a full-height Column, and a Column hands each
+        // non-weighted child what is left in order. The conflict list grows with the number of
+        // disagreeing squares, so on a bad board the card grew until the action bar underneath it —
+        // measured last — rendered 1-2 mm tall and could not be pressed. `heightIn(min = 48.dp)`
+        // does not save a child there: a minimum is not a reservation.
+        //
+        // Capping the card's TEXT is the fix rather than scrolling the screen: the move list below
+        // is a `LazyColumn`, and nesting one inside a `Modifier.verticalScroll` throws outright
+        // (tried on 2026-08-02, crashed on launch). Bounding the growth at its source needs no
+        // scrolling container above the list at all.
+        Column(
+            Modifier.heightIn(max = PROSE_MAX.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = headlineFor(alarm.kind),
+                style = MaterialTheme.typography.titleLarge,
+                color = Danger,
+            )
+            Text(
+                text =
+                    "Tracking is paused and the board below is the last position the app was sure " +
+                        "of — not what is in front of you. Pick one:",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            AlarmFacts(alarm, lastCommit)
+        }
         // Primary action first and on its own line: it is the one that resolves the alarm.
         Button(
             onClick = onAcceptCnn,
@@ -125,3 +144,11 @@ private fun AlarmFacts(
         )
     }
 }
+
+/**
+ * How much height the card's prose may take before it scrolls instead of growing.
+ *
+ * Enough for the headline, the two-line explanation and a handful of facts; short enough that the
+ * three buttons and the action bar under the card keep their own height on a phone in portrait.
+ */
+private const val PROSE_MAX = 200
