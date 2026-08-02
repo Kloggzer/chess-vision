@@ -1,6 +1,7 @@
 package com.chesslab.tracker.diagnostics
 
 import com.chesslab.engine.api.DebugDecision
+import com.chesslab.tracker.record.zipSession
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
@@ -8,6 +9,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.IOException
+import java.io.OutputStream
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.CoroutineContext
 
@@ -149,3 +151,15 @@ private fun File.index(): Int = name.removePrefix(FILE_PREFIX).removeSuffix(FILE
 
 /** The one place the directory is named, so the writer and the export button cannot disagree. */
 fun diagnosticsDir(filesDir: File): File = File(filesDir, "diagnostics")
+
+/**
+ * The whole directory as a ZIP, for the `ACTION_CREATE_DOCUMENT` picker.
+ *
+ * Rotation means the log is several files, and the interesting one is rarely the newest — a run
+ * header sits at the top of each, so the set is what answers "what was running". [zipSession] is
+ * a plain directory-to-zip despite its name; the session export is simply its first caller.
+ */
+fun zipDiagnostics(
+    filesDir: File,
+    out: OutputStream,
+): Int = zipSession(diagnosticsDir(filesDir), out)
