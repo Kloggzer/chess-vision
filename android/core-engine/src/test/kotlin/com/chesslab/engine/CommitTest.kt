@@ -115,6 +115,30 @@ class CommitTest {
         assertTrue(!state.motionSinceRef, "a fresh reference requires a new hand before the next commit")
     }
 
+    /**
+     * Every commit path states its size, because `undo` takes back a COMMIT and a commit is not
+     * always one ply. The CNN recovery of 2026-08-02 pushed four and `undo` popped one.
+     */
+    @Test
+    fun everyCommitPathRecordsHowManyPliesItPushed() {
+        val single = detectState()
+        single.commitMove(moveOf(single, "e2e4"), grayFrame(), null)
+        assertEquals(1, single.lastCommitSize)
+
+        val pair = detectState()
+        val first = moveOf(pair, "e2e4")
+        pair.board.push(first)
+        val second = moveOf(pair, "e7e5")
+        pair.board.pop()
+        pair.commitSequence(listOf(first, second), grayFrame(), null)
+        assertEquals(2, pair.lastCommitSize)
+
+        val recovered = recoveryState()
+        val cnn = RecoveryEvaluator(moves = listOf("e2e4", "e7e5", "g1f3"), agreement = 0.95)
+        recovered.cnnTick(cnn, recoverySnap(recovered, obsForBoard(recovered.board), 1, grayFrame()))
+        assertEquals(3, recovered.lastCommitSize)
+    }
+
     @Test
     fun undoClearsBuffers() {
         val engine = TrackerEngine(detectConfig())
@@ -130,6 +154,91 @@ class CommitTest {
         assertEquals(emptyList<String>(), state.history)
         assertNull(state.refGray, "undo forces a fresh reference capture")
         assertEquals(0, state.decisionLog.size, "the undone move's provenance row is dropped")
+    }
+
+    /**
+     * The incident of 2026-08-02. A recovery bridged four plies in one commit, `undo` popped one,
+     * and nothing anywhere said how many presses were left — *"ich habe keine Chance wieder zum
+     * Spielstate zurückzukommen"*. One press now unwinds the commit.
+     */
+    @Test
+    fun undoUnwindsAMultiMoveRecoveryAsAUnit() {
+        val engine = TrackerEngine(recoveryConfig(), STARTPOS)
+        val state = engine.state.armed()
+        val fenBefore = state.board.fen()
+        engine.attachCnn(RecoveryEvaluator(moves = listOf("e2e4", "e7e5", "g1f3", "b8c6"), agreement = 0.95))
+        engine.onCnnSnapshot(recoverySnap(state, obsForBoard(state.board), seq = 1, gray = grayFrame()))
+        assertEquals(4, state.history.size, "precondition: the bridge committed four plies")
+
+        engine.undo()
+
+        assertEquals(fenBefore, state.board.fen())
+        assertEquals(emptyList<String>(), state.history)
+        // Including phase 00's per-move rows: the trim drops every row above the restored history.
+        assertEquals(0, state.decisionLog.count { it.accepted }, "orphan rows for moves that no longer exist")
+        assertTrue(state.note!!.contains("4 moves undone"), state.note!!)
+    }
+
+    /**
+     * The single commit is the common path and the regression risk — pin it. One press must still
+     * mean one ply, with the same note it has always had.
+     */
+    @Test
+    fun undoOfAnOrdinaryCommitIsUnchanged() {
+        val engine = TrackerEngine(detectConfig())
+        val state = engine.state
+        state.commitMove(moveOf(state, "e2e4"), grayFrame(), null)
+        state.commitMove(moveOf(state, "e7e5"), grayFrame(), null)
+
+        engine.undo()
+
+        assertEquals(listOf("e4"), state.history)
+        assertEquals("last move undone (logged as bad example)", state.note)
+    }
+
+    /**
+     * The record is of the LAST commit only. After it is spent the next press is an ordinary
+     * single-ply undo — anything older is a normal move, not a bridge.
+     */
+    @Test
+    fun asecondUndoAfterASequenceTakesBackOneOrdinaryMove() {
+        val engine = TrackerEngine(recoveryConfig(), STARTPOS)
+        val state = engine.state.armed()
+        state.commitMove(moveOf(state, "d2d4"), grayFrame(), null)
+        state.armed()
+        engine.attachCnn(RecoveryEvaluator(moves = listOf("d7d5", "c2c4"), agreement = 0.95))
+        engine.onCnnSnapshot(recoverySnap(state, obsForBoard(state.board), seq = 1, gray = grayFrame()))
+        assertEquals(3, state.history.size)
+
+        engine.undo()
+        assertEquals(listOf("d4"), state.history, "the bridge came back whole")
+        engine.undo()
+        assertEquals(emptyList<String>(), state.history, "and the ordinary move one at a time")
+    }
+
+    /**
+     * The post-undo cleanup is not part of the pop — the obvious wrong shape here is to loop the
+     * whole body N times, which clears the latch, re-notes and re-trims once per popped ply.
+     *
+     * The note is the counter that can actually fail: a looped body would end on "last move undone"
+     * for a four-ply take-back, because each iteration writes its own. `clearAlarm` is idempotent by
+     * design and releases at most one latch however often it is called, so the event count pins the
+     * release without being able to distinguish the two shapes on its own.
+     */
+    @Test
+    fun theCleanupRunsOncePerUndoNotOncePerPoppedMove() {
+        val engine = TrackerEngine(recoveryConfig(), STARTPOS)
+        val state = engine.state.armed()
+        engine.attachCnn(RecoveryEvaluator(moves = listOf("e2e4", "e7e5", "g1f3", "b8c6"), agreement = 0.95))
+        engine.onCnnSnapshot(recoverySnap(state, obsForBoard(state.board), seq = 1, gray = grayFrame()))
+        // Latched AFTER the commit: a recovery clears the alarm itself (defect 2, not this pack's).
+        state.alarm = TrackerEvent.Alarm("illegal_move", listOf("e4"), null, null)
+
+        val events = engine.undo()
+
+        assertEquals(1, events.count { it is TrackerEvent.AlarmCleared }, "one undo, one release")
+        assertNull(state.alarm)
+        assertTrue(state.note!!.contains("4 moves undone"), state.note!!)
     }
 
     @Test

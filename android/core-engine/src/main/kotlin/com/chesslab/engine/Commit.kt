@@ -126,6 +126,7 @@ internal fun EngineState.commitMove(
     board.push(move)
     history.add(san)
     lastMove = uci
+    lastCommitSize = 1
     recordDecision(move, san, fenBefore, decider, priorUsed)
     queueSessionCapture(san)
     // The reference comes from the DETECTION frame and may contain hand residue; re-capturing
@@ -161,6 +162,7 @@ internal fun EngineState.commitSequence(
     }
     history.addAll(sans)
     lastMove = uciOf(moves.last())
+    lastCommitSize = moves.size
     recordDecision(moves.last(), sans.last(), fenBefore, decider, priorUsed = false)
     queueSessionCapture(sans.last())
     finishCommit(cur, curBgr)
@@ -198,8 +200,15 @@ internal fun EngineState.recordDecision(
     fenBefore: String,
     decider: String,
     priorUsed: Boolean,
+    /**
+     * Appended verbatim to the canonical [DECIDER_REASON] text. It exists so a CNN recovery can say
+     * which move of which bridge a row is (`CnnTick.pushRecovery`) without widening
+     * `DebugDecision` — that type is a wire shape and a new column there is `specs/34`'s business.
+     */
+    reasonSuffix: String = "",
 ) {
-    val reason = (DECIDER_REASON[decider] ?: decider) + (if (priorUsed) PRIOR_REASON_SUFFIX else "")
+    val reason =
+        (DECIDER_REASON[decider] ?: decider) + (if (priorUsed) PRIOR_REASON_SUFFIX else "") + reasonSuffix
     decisionLog.add(
         DecisionRecord(
             tsS = nowS,

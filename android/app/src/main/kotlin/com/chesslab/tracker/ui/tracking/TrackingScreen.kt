@@ -99,6 +99,7 @@ private fun TrackingBody(
     onEndGame: () -> Unit,
 ) {
     var showPreview by remember { mutableStateOf(false) }
+    val lastCommit = viewModel.lastCommit.collectAsStateWithLifecycle().value
     Column(
         Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -114,6 +115,7 @@ private fun TrackingBody(
                 onAcceptCnn = viewModel::onAcceptCnnRequested,
                 onUndo = viewModel::onUndo,
                 onNewBaseline = viewModel::onNewBaseline,
+                lastCommit = lastCommit,
             )
         }
         Box(Modifier.fillMaxWidth().weight(1f)) {
@@ -121,6 +123,7 @@ private fun TrackingBody(
         }
         ActionBar(
             onUndo = viewModel::onUndo,
+            undoLabel = undoLabel(lastCommit),
             // Resetting a game that has moves USED to throw it away without a word.
             onResetGame = onEndGame,
             onRecalibrate = viewModel::onRecalibrate,
@@ -245,6 +248,7 @@ private fun toneColor(tone: StateTone): Color =
 @Composable
 private fun ActionBar(
     onUndo: () -> Unit,
+    undoLabel: String,
     onResetGame: () -> Unit,
     onRecalibrate: () -> Unit,
     showPreview: Boolean,
@@ -257,7 +261,9 @@ private fun ActionBar(
 ) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ActionButton("Undo", onUndo, Modifier.weight(1f))
+            // Not always "Undo": one press unwinds the last COMMIT, and a CNN recovery commits a
+            // whole bridge (four plies on 2026-08-02).
+            ActionButton(undoLabel, onUndo, Modifier.weight(1f))
             ActionButton("Reset game", onResetGame, Modifier.weight(1f))
             ActionButton("Recalibrate", onRecalibrate, Modifier.weight(1f))
         }
