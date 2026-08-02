@@ -2,6 +2,7 @@ package com.chesslab.engine
 
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.CnnSnapshot
+import com.chesslab.engine.api.DebugDecision
 import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEvent
@@ -26,8 +27,8 @@ internal class EngineState(
     startFen: String = STARTPOS,
     // profile.white_pov
     val whitePov: Boolean = true,
-    /** Every decision row as one line, the moment it is recorded. See [DecisionLog]. */
-    private val decisionSink: (String) -> Unit = {},
+    /** Every decision row, the moment it is recorded. See [DecisionLog]. */
+    private val decisionSink: (DebugDecision) -> Unit = {},
 ) {
     // -- clock: the engine is deterministic; nowS comes from FrameInput.timestampMs / 1000.0. ----
 
@@ -337,7 +338,7 @@ internal class EngineState(
     // -- provenance -----------------------------------------------------------------------------------
 
     // `_decision_log` — ring-capped (see DecisionLog); the list contract is unchanged.
-    val decisionLog: MutableList<DecisionRecord> = DecisionLog(sink = { decisionSink(it.toLogLine()) })
+    val decisionLog: MutableList<DecisionRecord> = DecisionLog(sink = { decisionSink(it.toDebugDecision()) })
     var pendingCapture: PendingCapture? = null // `_pending_capture`
 
     // -- derived geometry (Python rebuilds `_square_boxes` per call; the port caches) ------------------

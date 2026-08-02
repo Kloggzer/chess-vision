@@ -76,12 +76,17 @@ internal class DecisionLog(
  * The Qxd4 case of 2026-08-01 is the worked example: four legal moves produced a bit-identical
  * occupancy board, and the question "did the diff channel see d4 change?" was unanswerable because
  * nothing was written down. This line answers it.
+ *
+ * It renders the PUBLIC [DebugDecision] and is public itself, because the sink now hands out the
+ * structure and the line is rendered at the edge that wants prose. It stays in `:core-engine`
+ * regardless: [pyFixed] is the module's `internal` Python-parity primitive (`BigDecimal` +
+ * `HALF_EVEN`), and moving the renderer would mean forking or widening it for one caller.
  */
-internal fun DecisionRecord.toLogLine(): String {
+fun DebugDecision.toLogLine(): String {
     val z = changedVals.joinToString(" ") { (square, value) -> "$square=${pyFixed(value, 1)}" }
     val head = if (accepted) "COMMIT" else "REJECT"
     return buildString {
-        append("ply=$ply $head ${move ?: "-"}")
+        append("ply=$ply $head ${uci ?: "-"}")
         san?.let { append(" ($it)") }
         append(" by=$decider why=$reason")
         append(" best=${pyFixed(bestScore, 2)} 2nd=${pyFixed(secondScore, 2)} margin=${pyFixed(margin, 2)}")
@@ -113,7 +118,7 @@ internal fun DecisionRecord.toLogLine(): String {
  * - `VerifySingle.reject` — the CNN verify ladder discarded the pending candidate.
  * - `Guards.markStuck` — no candidate ever formed; the row records the window in which nothing
  *   happened, because "blocked before a candidate could form" and "nothing happened at all" used
- *   to look identical in the log. [key] is the EMPTY string, so `toLogLine`'s `move ?: "-"` does
+ *   to look identical in the log. [key] is the EMPTY string, so `toLogLine`'s `uci ?: "-"` does
  *   not fire (it guards null, not blank) and the line carries a double space where a uci goes.
  * - `Alarm.latchAlarm` — the opposite end: the board was declared LOST. [key] is the guessed
  *   illegal move, or empty when there is no guess. Not a rejection in any sense; it is here
@@ -212,7 +217,7 @@ private fun EngineState.cnnReads(): List<DebugCnnRead> {
  * The engine's internal row as the seam's. The two are separate types because `DecisionRecord` is
  * `internal` and carries engine spellings (`move`, `cnnRun`), while the UI reads `api/` only.
  */
-private fun DecisionRecord.toDebugDecision(): DebugDecision =
+internal fun DecisionRecord.toDebugDecision(): DebugDecision =
     DebugDecision(
         tsS = tsS,
         ply = ply,
