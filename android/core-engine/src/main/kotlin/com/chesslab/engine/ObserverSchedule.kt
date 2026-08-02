@@ -7,8 +7,17 @@ private const val OBSERVER_BACKOFF_S = 1.0
 
 /**
  * The free-running observer (Spec 11). The observation itself runs in `:app` — pixels and ONNX are
- * not this module's business — but its invariants are engine law, so they are stated and enforced
- * here:
+ * not this module's business.
+ *
+ * **The schedule below is not what runs.** [observerDue], [observationStarted], [observationFinished]
+ * and [observationFailed] are `internal`, so `:app` cannot call them even in principle, and the only
+ * callers in the tree are this module's own tests; `:app`'s `CnnObserver` keeps its own `busy` /
+ * `startedMs` / backoff and never consults [EngineState.cnnBusy]. So the rules below are the port's
+ * record of Python's `_observer_due` and a place to test it — they are stated here, not enforced
+ * here, and changing them changes nothing on the device. [anchorAtDetSize] is the exception: it is
+ * live, called from every recovery commit.
+ *
+ * The rules:
  *
  * 1. Observe OFF the frame thread; inference is the expensive part and must not stall detection.
  * 2. The anchor warp rides along: warp at full `boardSize`, then resize to `detSize` with

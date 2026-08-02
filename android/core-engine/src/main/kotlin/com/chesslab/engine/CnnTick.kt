@@ -76,7 +76,7 @@ private fun EngineState.applyRead(
         read.inconclusive -> {
             // Too occluded to make a statement — and occlusion breaks the desync streak.
             recoveryConfirmer.reset()
-            desyncObs = 0
+            clearDesyncStreak()
             emptyList()
         }
         else -> onMismatch(cnn, snap, read, hasIdentity)
@@ -171,6 +171,15 @@ private fun EngineState.onMatchOk(
     }
     cnnStatus = CNN_STATUS_OK
     cnnConflicts = emptyList()
+    // A matching board is the END of a disagreement, and until now only a LATCHED one noticed: the
+    // reset lived solely in `clearAlarm`, which returns early when nothing is latched. Two
+    // consequences, both live. The alarm could be reached by mismatching observations INTERLEAVED
+    // with matching ones — three mismatches spread over a minute of otherwise clean glances latch
+    // it — while a merely *inconclusive* glance, which is strictly weaker evidence, did break the
+    // streak. And `desyncObs` then never returned to zero for the rest of the session, so
+    // `maybePatchAnomaly`, which refuses to heal while it is set, stayed off from the first
+    // disagreement onwards although its own comment says "while".
+    clearDesyncStreak()
     val events = mutableListOf<TrackerEvent>()
     if (alarm != null) {
         events += clearAlarm(null)
@@ -219,8 +228,14 @@ private fun EngineState.onRecovery(
         note = "$NOTE_TAKEN_BACK_PREFIX ($key) $NOTE_TAKEN_BACK_WAY_OUT"
         return emptyList()
     }
-    // Voting, not single-shot: the legacy port pushed a whole sequence onto the board on ONE
-    // glance (specs/12 D6). The recovery confirmer is what makes it multi-observation evidence.
+    // This is the ONLY thing between a derived sequence and the board, and with the CNN attached
+    // it does not stop anything: the confirmer is built from `confirmFrames`, which is 1 whenever
+    // `cnnOn`, and a `Confirmer(1)` confirms on the first key it ever sees — so the branch below
+    // is unreachable in every configuration that can reach this function through an attached
+    // evaluator, and a four-ply rewrite of the game commits on one glance. The comment here used
+    // to claim the opposite ("voting, not single-shot", specs/12 D6); that is true only of the
+    // without-CNN window (2). Giving the recovery its own floor is specs/39 phase 02 — it is a
+    // threshold change that costs one `cnnCooldownS` on every bridge, so it is not made here.
     if (!recoveryConfirmer.feed(key)) {
         note = "CNN recovery checks $key… (${recoveryConfirmer.count}/$confirmFrames)"
         return emptyList()

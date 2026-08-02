@@ -100,6 +100,13 @@ internal class EngineState(
     // is CNN-conditional, so the buffers below cannot be sized without them.
     var cnnRun: Boolean = false
 
+    /**
+     * `_cnn_failed`. **Nothing in `:core-engine` or `:app` ever sets it** — only two tests do, so
+     * [cnnOn] is in practice `config.cnnVerify && cnnRun`. The classifier's own failure state lives
+     * in `:app`'s `CnnObserver`, which stops delivering snapshots rather than telling the engine.
+     * It is kept because it is the port's third `cnnOn` input and because the seam is frozen; do not
+     * read the paths that mention it as covering a failure that can currently reach here.
+     */
     var cnnFailed: Boolean = false
 
     /**

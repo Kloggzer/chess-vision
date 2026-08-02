@@ -92,6 +92,32 @@ class CnnTickTest {
         assertEquals("ok", state.cnnStatus)
     }
 
+    /**
+     * The stuck arm of `evaluationDue` is what routes a stuck board to recovery, and its
+     * `stuckCount >= settleFrames` half had no coverage anywhere: every fixture in this file
+     * overrides `settleFrames` to 1, which the single `markStuck` in `armed()` already satisfies,
+     * so deleting the clause outright left all 365 `:core-engine` tests green. It is the only
+     * thing that distinguishes "one awkward frame" from "this tracker is stuck".
+     */
+    @Test
+    fun theStuckGateNeedsSettleFramesOfTheSameReason() {
+        val state = EngineState(recoveryConfig().copy(settleFramesOverride = 3), STARTPOS, whitePov = true)
+        state.cnnRun = true
+        state.nowS = 1000.0
+        state.markStuck(STUCK_NO_LEGAL_MOVE)
+        val cnn = RecoveryEvaluator(match = true)
+        assertEquals(1, state.stuckCount)
+
+        state.cnnTick(cnn, recoverySnap(state, obsForBoard(state.board), seq = 1))
+        assertNull(state.cnnStatus, "one stuck frame is not a stuck tracker")
+
+        state.markStuck(STUCK_NO_LEGAL_MOVE)
+        state.markStuck(STUCK_NO_LEGAL_MOVE)
+        assertEquals(3, state.stuckCount, "the streak counts repeats of the SAME reason")
+        state.cnnTick(cnn, recoverySnap(state, obsForBoard(state.board), seq = 2))
+        assertEquals("ok", state.cnnStatus, "settleFrames repeats open the gate")
+    }
+
     @Test
     fun boardChangedDuringObservationDiscards() {
         val state = recoveryState()

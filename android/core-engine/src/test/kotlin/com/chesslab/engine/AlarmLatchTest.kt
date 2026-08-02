@@ -139,6 +139,32 @@ class AlarmLatchTest {
         assertNull(state.alarm)
     }
 
+    /**
+     * A matching glance is the strongest thing the CNN can say, and it did not break the streak
+     * unless an alarm happened to be latched already — the reset lived only in `clearAlarm`, which
+     * returns early when nothing is latched. So three mismatches spread across otherwise clean
+     * observations latched the alarm, while a merely *inconclusive* glance broke the streak.
+     */
+    @Test
+    fun aMatchingObservationBreaksTheDesyncStreak() {
+        val state = recoveryState(NF3_NO_CASTLING)
+        val cnn = RecoveryEvaluator(conflicts = listOf("e1", "g1"), guess = "e1g1")
+        val obs = obsForBoard(state.board, mapOf("e1" to LABEL_EMPTY, "g1" to "wK"))
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 1))
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 2))
+        assertEquals(2, state.desyncObs)
+
+        cnn.match = true
+        state.cnnTick(cnn, recoverySnap(state, obsForBoard(state.board), seq = 3))
+        assertEquals(0, state.desyncObs, "the board agreed — the disagreement is over")
+        assertEquals(0L, state.desyncConflicts, "and the set it was counted over goes with it")
+
+        cnn.match = false
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 4))
+        assertEquals(1, state.desyncObs, "the next mismatch is the FIRST of a new streak")
+        assertNull(state.alarm, "two mismatches around a matching glance are not three in a row")
+    }
+
     @Test
     fun alarmBlocksFabricatedRecovery() {
         // `test_alarm_blocks_fabricated_recovery`: g2g4 is legal and plausible but leaves the white

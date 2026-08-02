@@ -93,6 +93,35 @@ class AnomalyPatcherTest {
         assertEquals(STUCK_NO_LEGAL_MOVE, state.stuckReason)
     }
 
+    /**
+     * The guard says "while the CNN disagrees" and `desyncObs` said "ever disagreed": the streak
+     * only ever counted UP, and the one place that put it back to zero was `clearAlarm`, which
+     * returns early unless a latch is actually set. One disagreeing glance therefore disabled the
+     * healing for the rest of the session, on a path where nothing else would ever say so.
+     */
+    @Test
+    fun aMatchingObservationLetsThePatcherHealAgain() {
+        val state = recoveryState()
+        val ref = grayFrame()
+        state.refGray = ref
+        state.refFen = state.board.fen()
+        val cnn = RecoveryEvaluator(conflicts = listOf("e2"))
+        val disagreeing = obsForBoard(state.board, mapOf("e2" to LABEL_EMPTY))
+        state.cnnTick(cnn, recoverySnap(state, disagreeing, seq = 1))
+        assertEquals(1, state.desyncObs, "precondition: one disagreeing glance")
+
+        state.armAnomaly("e2")
+        state.maybePatchAnomaly(bestLl = -1.0, cur = grayFrame(listOf("e2")), curBgr = null)
+        assertTrue(ref.data.all { it == TEST_BASE_LEVEL.toByte() }, "a disagreeing CNN blocks the patch")
+
+        cnn.match = true
+        state.cnnTick(cnn, recoverySnap(state, obsForBoard(state.board), seq = 2))
+        state.armAnomaly("e2")
+        state.maybePatchAnomaly(bestLl = -1.0, cur = grayFrame(listOf("e2")), curBgr = null)
+
+        assertTrue(ref.data.any { it == TEST_BLOB_LEVEL.toByte() }, "the CNN agreed again — healing must resume")
+    }
+
     @Test
     fun patchInvalidatesRefCensusCache() {
         val state = detectState(ref = grayFrame())

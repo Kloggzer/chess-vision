@@ -15,6 +15,7 @@ import com.chesslab.engine.VerifySingle
 import com.chesslab.engine.ViableMoves
 import com.chesslab.engine.applyTaints
 import com.chesslab.engine.applyVetoes
+import com.chesslab.engine.clearDesyncStreak
 import com.chesslab.engine.clearStuck
 import com.chesslab.engine.cnnTick
 import com.chesslab.engine.commitMove
@@ -148,9 +149,11 @@ class TrackerEngine(
         val noteBefore = state.note
         val stuckBefore = state.stuckReason
         val events = mutableListOf<TrackerEvent>()
-        // `avgFrames` is CNN-conditional and `cnnOn` has a third input the two call sites below do
-        // not cover: `cnnFailed`, which the verify path raises mid-game. One integer comparison per
-        // frame is what keeps the buffers and the gate that reads `state.avgFrames` in agreement.
+        // `avgFrames` and `confirmFrames` are CNN-conditional, and `cnnOn` has a third input the two
+        // call sites below do not cover: `cnnFailed`. This used to say "which the verify path raises
+        // mid-game" — nothing raises it (see `EngineState.cnnFailed`), so these two calls are
+        // currently defensive rather than load-bearing. One integer comparison per frame is the
+        // price of them staying correct if it ever is raised.
         state.syncAvgWindow()
         state.syncConfirmWindow()
         val outcome = loop.step(input)
@@ -738,9 +741,7 @@ internal fun EngineState.clearAlarm(logReason: String?): List<TrackerEvent> {
     if (alarm == null) return emptyList()
     alarm = null
     alarmSince = 0.0
-    desyncObs = 0
-    desyncConflicts = 0L
-    desyncLastSeq = null
+    clearDesyncStreak()
     if (logReason == null) return listOf(TrackerEvent.AlarmCleared(ALARM_BOARD_RESTORED))
     decisionLog.add(
         DecisionRecord(
