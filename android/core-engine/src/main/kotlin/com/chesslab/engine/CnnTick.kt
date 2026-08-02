@@ -214,7 +214,7 @@ private fun EngineState.onRecovery(
     // board is unchanged by an undo — so the very next observation derives the identical bridge and
     // commits it again. Three presses, three re-commits, and no number of presses could have won:
     // this record is the only thing that carries a human rejection into the recovery path.
-    if (wasTakenBack(read.moves)) {
+    if (recoveryHeld() || wasTakenBack(read.moves)) {
         recoveryConfirmer.reset()
         note = "$NOTE_TAKEN_BACK_PREFIX ($key) $NOTE_TAKEN_BACK_WAY_OUT"
         return emptyList()
@@ -281,9 +281,8 @@ private fun EngineState.commitRecovery(
     motionSinceRef = true
     lastMotionTs = nowS
     state = STATE_MOVE
-    // A recovery that got THROUGH the take-back veto is a different line from the rejected one, so
-    // the game has moved on and the veto's position no longer exists.
-    takenBack = null
+    // Not cleared here either: a recovery reaching this point is at a position the hold does not
+    // cover, so the FEN key already says so. Clearing was what let a second bridge free the first.
     recoveredLast = true
     priorLast = false
     cnnStatus = CNN_STATUS_OK

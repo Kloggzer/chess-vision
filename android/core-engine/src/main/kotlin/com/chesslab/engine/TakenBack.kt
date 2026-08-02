@@ -1,7 +1,7 @@
 package com.chesslab.engine
 
-/** The note the recovery leaves when it declines to replay a line the user took back. */
-internal const val NOTE_TAKEN_BACK_PREFIX = "CNN recovery would replay the moves you just took back"
+/** The note the recovery leaves while it is held at a position the user undid back to. */
+internal const val NOTE_TAKEN_BACK_PREFIX = "CNN recovery is held — you took this position back"
 
 /** What to do about it — the recovery will not move again on its own until one of these happens. */
 internal const val NOTE_TAKEN_BACK_WAY_OUT = "— holding. Play on, or press \"New baseline\" if the board is right."
@@ -60,3 +60,24 @@ internal fun EngineState.wasTakenBack(ucis: List<String>): Boolean {
     val back = takenBack
     return back != null && ucis.isNotEmpty() && back.fen == board.fen() && back.ucis.take(ucis.size) == ucis
 }
+
+/**
+ * True while the board sits at a position an undo returned it to — **whatever** the recovery derives.
+ *
+ * [wasTakenBack] guards the LINE and that was too narrow. Measured on the phone the same evening it
+ * shipped: the veto never fired once, because the CNN did not repeat itself. It produced two
+ * different four-move bridges — `g3h3 d6d5 h3f3 d5e4`, then `h5f3 c8h3 f3g3 a8c8` — and a line-keyed
+ * veto lets an unfamiliar line straight through. Worse, each one committed, and a commit used to
+ * clear the record, so the second bridge also disarmed the guard for the first.
+ *
+ * So the thing to hold is the POSITION, not the line. An undo is the user saying "the game is here";
+ * until something settles the disagreement, no CNN-derived bridge may move it away again. The key
+ * is the FEN, which makes the hold self-limiting: any move that legitimately advances the game
+ * leaves that position and the hold is inert without anyone clearing it. It only bites if the game
+ * comes back to exactly the position that was undone to.
+ *
+ * The exits are the three things that mean the disagreement is over, and all three are the user's:
+ * a fresh baseline (the board is right), accepting the CNN's position (the app was right), or a FEN
+ * resync. A commit is deliberately NOT an exit — that was the hole.
+ */
+internal fun EngineState.recoveryHeld(): Boolean = takenBack?.fen == board.fen()

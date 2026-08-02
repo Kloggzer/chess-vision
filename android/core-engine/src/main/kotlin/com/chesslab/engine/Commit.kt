@@ -181,8 +181,11 @@ private fun EngineState.finishCommit(
 ) {
     setRef(cur, curBgr, fromCommit = true)
     state = STATE_MOVE
-    // The game moved on past the position the take-back veto was pinned to.
-    takenBack = null
+    // The take-back hold is NOT cleared here, and that is the fix for the evening it shipped.
+    // Clearing on commit meant a second, different CNN bridge disarmed the guard set by the first:
+    // bridge A undone, bridge B derived, B commits, the hold is gone, A is free again. The hold is
+    // keyed to a FEN, so a commit that genuinely advances the game leaves that position and the
+    // hold is inert on its own — it needs no clearing, and clearing it was the hole.
     confirmer.reset()
     // also resets the recovery confirmer
     clearStuck()
