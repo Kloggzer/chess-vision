@@ -112,6 +112,14 @@ class _Observer:
         self.next_at = now + self.period
         self.count += 1
         obs = mt.recovery.observe(frame, mt._last_corners)
+        # NOTE (2026-08-02, unresolved): this warps at `board_size`, runs `_gray` there and
+        # box-downsamples afterwards, which is the pipeline `tracker._cnn_snapshot` explicitly
+        # warns against — "a different pipeline than warping at _det_size ... measured on real
+        # frames it lands 5-11 squares above z_thr on a physically unchanged board". Cutting it
+        # the way `_loop` does (warp straight to `_det_size`, then `_gray`) was tried against the
+        # 2026-08-02 real game and produced BYTE-IDENTICAL output, so it is not the cause of that
+        # clip's zero commits and the change was reverted rather than shipped unmeasured. It is
+        # still a latent divergence from the invariant; fix it in a pack that owns this observer.
         warped = self.trk.warp_from_corners(frame, mt.profile, mt._last_corners)
         gray = None if warped is None else mt._gray(warped)
         if warped is not None and mt.detect_scale < 1.0:
