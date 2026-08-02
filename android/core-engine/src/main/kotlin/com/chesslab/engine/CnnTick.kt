@@ -300,10 +300,16 @@ private fun EngineState.commitRecovery(
  *
  * Nothing else moves. The board, the history, `lastMove` and the emitted event are what they were —
  * this is the instrument, not the repair.
+ *
+ * A bridge of more than one move stamps every one of its rows with `i/N` and the joined ucis, so
+ * the rows group back into the bridge they came from and are not readable as N independent
+ * one-move recoveries. A single recovery — the common case — carries no stamp at all: its text is
+ * what it always was.
  */
 private fun EngineState.pushRecovery(moves: List<Move>): List<String> {
     val sans = ArrayList<String>(moves.size)
-    for (move in moves) {
+    val key = if (moves.size == 1) null else moves.joinToString(" ") { uciOf(it) }
+    for ((i, move) in moves.withIndex()) {
         val fenBefore = board.fen()
         val san = board.san(move)
         sans.add(san)
@@ -311,7 +317,8 @@ private fun EngineState.pushRecovery(moves: List<Move>): List<String> {
         // Appended per move, not in one `addAll` at the end: `recordDecision` reads `history.size`
         // as the row's ply, so the rows number themselves only if the history grows with them.
         history.add(san)
-        recordDecision(move, san, fenBefore, DECIDER_CNN_RECOVERY, priorUsed = false)
+        val stamp = if (key == null) "" else " [move ${i + 1}/${moves.size} of recovery $key]"
+        recordDecision(move, san, fenBefore, DECIDER_CNN_RECOVERY, priorUsed = false, reasonSuffix = stamp)
     }
     return sans
 }
