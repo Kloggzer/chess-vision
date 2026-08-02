@@ -30,6 +30,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 import cv2
 
@@ -42,6 +43,48 @@ epf = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(epf)
 
 DEFAULT_OBS_S = 0.30
+
+
+class Commit(NamedTuple):
+    """One committed PLY. A tuple, so `c[0]`, `c[1]`, `c[2]` keep meaning what they meant.
+
+    The tracker commits a BATCH — a recovery bridge pushes up to `recoveryMaxPlies` moves at
+    once and writes ONE decision row for the lot (`tracker.py::_record_decision`, and the same
+    shape on Android, `Commit.kt`). Everything downstream of a replay wants a per-ply view, so
+    this record is expanded per ply and the batch's decider is stamped on every move in it.
+
+    `alarm` and `frame` exist only because this harness drives the loop itself. **No decision row
+    on either platform carries an alarm flag** — not `DecisionRecord`, not the persisted
+    `DiagnosticsRecords.DecisionRow`, not Python's `_record_decision`. It is polled from
+    `status()` at the commit, so it is an observation this pass made, not a property the tracker
+    records. Anything that reports it must say so.
+    """
+
+    t: float
+    san: str
+    decider: str
+    frame: int
+    fen_after: str
+    alarm: dict | None
+
+
+def _fens_after(board, first_ply: int) -> list[str]:
+    """The position after EACH ply from `first_ply` on, not just after the batch.
+
+    `board.fen()` at the commit is the position after the LAST move of the batch. Stamping it on
+    every ply of a three-move recovery bridge would show a reviewer the wrong board for two of
+    them — and telling those three moves apart is the entire job of the review this feeds.
+    Replayed on a copy so the live tracker's board is never touched.
+    """
+    replay = board.copy(stack=True)
+    tail = []
+    while len(replay.move_stack) > first_ply:
+        tail.append(replay.pop())
+    out = []
+    for move in reversed(tail):
+        replay.push(move)
+        out.append(replay.fen())
+    return out
 
 
 class _Observer:
@@ -85,6 +128,14 @@ class _Observer:
 def run(clip: str, corners, margin: float, cnn_run: str, obs_s: float = DEFAULT_OBS_S,
         tracker_kwargs: dict | None = None, board_size: int = 640,
         start_fen: str | None = None, on_event=None) -> dict:
+    """Replay `clip` with a real CNN attached. `commits` comes back as one `Commit` per PLY.
+
+    `on_event(now, mt, frame, index)` fires once per decoded frame, after the engine has seen it.
+    It gets the frame and its index because the decode happens ONCE, in order: anything that wants
+    a picture of a moment has to take it while the frame is in hand. Seeking back for it later is
+    not equivalent — h.264 seeking by index is approximate, so a caller that seeks would hand its
+    user a NEARBY frame while claiming it is the one.
+    """
     from chesslab.move_tracker import tracker as trk
 
     cap = cv2.VideoCapture(clip)
@@ -100,7 +151,7 @@ def run(clip: str, corners, margin: float, cnn_run: str, obs_s: float = DEFAULT_
     }
     clock = epf._VirtualClock()
     real_time, trk.time = trk.time, clock
-    commits: list[tuple[float, str, str]] = []
+    commits: list[Commit] = []
     try:
         with epf.ClipDriver(entry, trk, clock) as driver:
             driver.reset_scratch("q")
@@ -125,12 +176,16 @@ def run(clip: str, corners, margin: float, cnn_run: str, obs_s: float = DEFAULT_
                 now = clock.time() - epf.VCLOCK_START
                 observer.tick(frame, now)
                 if len(mt.board.move_stack) > n_plies:
+                    status = mt.status()
                     decider = (mt._decision_log[-1].get("decider") if mt._decision_log else None)
-                    for san in mt.status()["history"][n_plies:]:
-                        commits.append((round(now, 2), san, decider or "?"))
+                    fens = _fens_after(mt.board, n_plies)
+                    alarm = status["alarm"]
+                    for san, fen_after in zip(status["history"][n_plies:], fens, strict=False):
+                        commits.append(Commit(round(now, 2), san, decider or "?", seen - 1,
+                                              fen_after, alarm))
                     n_plies = len(mt.board.move_stack)
                 if on_event is not None:
-                    on_event(now, mt)
+                    on_event(now, mt, frame, seen - 1)
             return {"commits": commits, "history": list(mt.status()["history"]),
                     "fen": mt.board.fen(), "note": mt.note,
                     "observations": observer.count, "frames": seen}
@@ -149,7 +204,7 @@ if __name__ == "__main__":
         tracker_kwargs=json.loads(sys.argv[6]) if len(sys.argv) > 6 else None,
     )
     print(f"frames {out['frames']}  observations {out['observations']}")
-    for t, san, decider in out["commits"]:
-        print(f"  t={t:6.2f}  {san:8s} {decider}")
+    for c in out["commits"]:
+        print(f"  t={c.t:6.2f}  {c.san:8s} {c.decider}")
     print("committed:", " ".join(out["history"]) or "-")
     print("note:", out["note"])
