@@ -2,9 +2,33 @@
 
 | Phase | State | Note |
 |---|---|---|
-| 00 — delete the wizard | `todo` | |
-| 01 — mark and adopt | `todo` | after 00 |
-| 02 — refit on pose change | `todo` | independent |
+| 00 — delete the wizard | `done` | `53cbc00`, net −935 lines |
+| 01 — mark and adopt | `done` | `53cbc00` + `b4b97e4` |
+| 02 — refit on pose change | `done` | `b4b97e4`, **not yet observed on device** |
+
+## What landed beyond the written phases
+
+The pack said phase 01 would end in one button. It ends in **none**: the board is adopted on its own
+once all four codes are read. The user's reason is the pack's own argument taken one step further —
+if there is nothing to judge, there is nothing to confirm. `entry.md`'s "a geometry write is the
+user's act" did not survive it, and should not have: the write carries board size and source
+dimensions, both measured, neither chosen.
+
+One guard was added that the pack did not call for. Adoption requires **all four markers**. Below
+four, `resolveBoardCorners` reconstructs the missing corners and at two falls back to a similarity
+fit — a square-board assumption with no perspective — so writing a board size derived from it would
+be the same silent invalidation the pack exists to stop. The outline still draws; the record does
+not move.
+
+The saved quad now draws **amber** against the live quad's green. Two quads in the same colour said
+nothing, and their disagreement is the only drift signal the screen still carries.
+
+## Open
+
+- **Phase 02 has never fired on the device.** `DRIFT_REFIT_CELLS = 0.25` is a starting value with no
+  measured distribution behind it, documented as such in its KDoc. The confirmation is the log line
+  `board moved … cells since the grid fit` after a real nudge; until that is seen, the expiry is
+  implemented and untested in the only environment that counts.
 
 ## How this pack got smaller
 
