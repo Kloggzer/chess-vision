@@ -47,9 +47,15 @@ internal class Game(
         board.doMove(move)
     }
 
-    fun pop() {
-        board.undoMove()
-    }
+    /**
+     * Revert the last pushed move and RETURN it (`null` on an empty stack).
+     *
+     * The return value exists for `undo`: after the take-back loop of 2026-08-02 the engine has to
+     * know which line the user rejected, and the history holds SAN, which is position-relative and
+     * therefore useless as a key. chesslib already carries the move on its own backup stack, so
+     * reading it here costs nothing and adds no state that could drift out of step with the board.
+     */
+    fun pop(): Move? = board.undoMove()
 
     /** Piece FEN char at the [Squares.ALL] index (`'P'..'k'`), or `null` when the square is empty. */
     fun pieceCharAt(index: Int): Char? {
