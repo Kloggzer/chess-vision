@@ -27,7 +27,7 @@ class EndpointCandidateTest {
     fun unambiguousEndpoint() {
         val state = hypothesisState(AFTER_E4)
         val z = zOf("c6" to HOT)
-        val scored = loglikScores(state.board, z, state.config.zThr, state.config.llK)
+        val scored = loglikScores(state.board, z, state.config.zThr, LL_K)
 
         val move = state.singleEndpointCandidate(z, scored)
 
@@ -40,7 +40,7 @@ class EndpointCandidateTest {
     fun noneWhenMultipleStrongSquares() {
         val state = hypothesisState()
         val z = zOf("c6" to HOT, "e4" to HOT)
-        val scored = loglikScores(state.board, z, state.config.zThr, state.config.llK)
+        val scored = loglikScores(state.board, z, state.config.zThr, LL_K)
 
         assertNull(state.singleEndpointCandidate(z, scored))
     }
@@ -50,7 +50,7 @@ class EndpointCandidateTest {
     fun noneWhenNoStrongSquare() {
         val state = hypothesisState(AFTER_E4)
         val z = zOf("c6" to state.config.zThr - 0.01)
-        val scored = loglikScores(state.board, z, state.config.zThr, state.config.llK)
+        val scored = loglikScores(state.board, z, state.config.zThr, LL_K)
 
         assertNull(state.singleEndpointCandidate(z, scored))
     }
@@ -60,7 +60,7 @@ class EndpointCandidateTest {
     fun shadowVetoedDestinationYieldsNull() {
         val state = hypothesisState(AFTER_E4)
         val z = zOf("c6" to HOT)
-        val scored = loglikScores(state.board, z, state.config.zThr, state.config.llK)
+        val scored = loglikScores(state.board, z, state.config.zThr, LL_K)
         state.shadowVetoed = ofSquares("c6")
 
         assertNull(state.singleEndpointCandidate(z, scored))
@@ -78,7 +78,7 @@ class EndpointCandidateTest {
     fun rivalsToTheSameDestinationDoNotBlock() {
         val state = hypothesisState(TWO_KNIGHTS)
         val z = zOf("d2" to HOT)
-        val scored = loglikScores(state.board, z, state.config.zThr, state.config.llK)
+        val scored = loglikScores(state.board, z, state.config.zThr, LL_K)
 
         val move = state.singleEndpointCandidate(z, scored)
 

@@ -1,6 +1,5 @@
 package com.chesslab.tracker.camera
 
-import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
 
@@ -12,11 +11,7 @@ import kotlin.math.pow
  *
  * Holds no CameraX and no Android type: [TrackerCamera] is the untestable shell around it.
  */
-class ReconnectPolicy(
-    reconnectGraceS: Double = DEFAULT_GRACE_S,
-) {
-    private val baseS = max(MIN_BASE_S, reconnectGraceS)
-
+class ReconnectPolicy {
     /** Consecutive failed bindings since the last sustained recovery. */
     var attempts: Int = 0
         private set
@@ -28,8 +23,15 @@ class ReconnectPolicy(
     private var diagnosed = false
     private var lastFailureMs = Long.MIN_VALUE
 
-    /** 3 / 6 / 12 / 24 / 30 / 30 … — a genuinely gone device must not be hammered forever. */
-    fun backoffS(): Double = min(CAP_S, baseS * 2.0.pow(min(attempts, MAX_DOUBLINGS)))
+    /**
+     * 3 / 6 / 12 / 24 / 30 / 30 … — a genuinely gone device must not be hammered forever.
+     *
+     * The base was a constructor parameter fed from `TrackerConfig.reconnectGraceS` in intent only:
+     * [TrackerCamera] always took the default and the sole caller never passed a policy, so the
+     * knob reached nothing and was deleted on 2026-08-02. Python's `max(3.0, grace)` floor made its
+     * 2.0 default inert regardless — the value could never have changed this schedule.
+     */
+    fun backoffS(): Double = min(CAP_S, BASE_S * 2.0.pow(min(attempts, MAX_DOUBLINGS)))
 
     fun onFailure(nowMs: Long) {
         attempts++
@@ -68,8 +70,8 @@ class ReconnectPolicy(
     }
 
     private companion object {
-        const val DEFAULT_GRACE_S = 2.0
-        const val MIN_BASE_S = 3.0
+        /** Python's `max(3.0, reconnect_grace_s)`, with the grace gone and the floor left standing. */
+        const val BASE_S = 3.0
         const val CAP_S = 30.0
         const val MAX_DOUBLINGS = 4
         const val HEALTHY_MS = 10_000L

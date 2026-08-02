@@ -21,8 +21,17 @@ import kotlinx.serialization.json.Json
  * live in the source — it cost an evening of live play. Retuning `cnnCooldownS` and
  * `cnnCheckIntervalS` to the CNN's measured 16 ms would have reached nobody who had ever opened
  * Settings without this.
+ *
+ * **3 removes two knobs** — `llK` became the `LL_K` constant and `reconnectGraceS` had no
+ * production reader at all — so a stored envelope from 2 carries keys the seam no longer has. It
+ * would decode without complaint (`ignoreUnknownKeys`), which is exactly why the version has to
+ * say so: the config a user exported at 2 is not the config this build runs.
+ *
+ * Note what a bump costs, because it is not free: it resets every knob to the defaults, and
+ * `boardSize` is a measurement the calibration profile owns rather than a default anyone chose.
+ * `TrackerService`'s `onMeasuredBoard` is what keeps that reset from silently stopping detection.
  */
-const val CONFIG_SCHEMA_VERSION = 2
+const val CONFIG_SCHEMA_VERSION = 3
 
 @Serializable
 private data class ConfigEnvelope(

@@ -26,7 +26,7 @@ internal fun EngineState.pairCandidate(
 ): Candidate? {
     val soft = config.zThr * PAIR_SOFT_FACTOR
     val viable =
-        loglikPairScores(board, z, config.zThr, config.llK)
+        loglikPairScores(board, z, config.zThr, LL_K)
             .filter { pairViable(it.first, z, soft) }
     if (viable.isEmpty()) return null
     val (seq, best) = viable[0]

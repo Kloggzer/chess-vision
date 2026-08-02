@@ -7,6 +7,7 @@ import android.os.IBinder
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.chesslab.engine.api.STARTPOS
+import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.camera.CameraLookPort
@@ -98,7 +99,13 @@ class TrackerService :
     private val stacks =
         StackSwitch {
             TrackerStack(
-                TrackerSeed(settings.config.value, ::geometry, corners, publisher.lastFen ?: STARTPOS, diagnostics::offer),
+                TrackerSeed(
+                    onMeasuredBoard(settings.config.value, geometry),
+                    ::geometry,
+                    corners,
+                    publisher.lastFen ?: STARTPOS,
+                    diagnostics::offer,
+                ),
                 settings,
                 publisher,
                 frames,
@@ -251,8 +258,9 @@ class TrackerService :
         // a tracker restart is a new run header in the same file, not a new file.
         diagnostics = DiagnosticsLog(diagnosticsDir(filesDir), lifecycleScope)
         settings =
-            SettingsRepository(DataStoreConfigStore(this), lifecycleScope) { config ->
-                stacks.current?.host?.submit(EngineAction.UpdateConfig(config))
+            SettingsRepository(DataStoreConfigStore(this), lifecycleScope) {
+                // The config the ENGINE gets, never the stored one — see [onMeasuredBoard].
+                stacks.current?.host?.submit(EngineAction.UpdateConfig(onMeasuredBoard(settings.config.value, geometry)))
             }
         camera =
             TrackerCamera(this, cameraRequestFor(settings.appSettings.value.resolutionMode), { image, delivered ->
@@ -422,6 +430,25 @@ class TrackerService :
         // values the user pinned, and neither is this function's business.
     }
 }
+
+/**
+ * The stored config, with the board size the calibration profile actually measured.
+ *
+ * The profile owns that number; the config only carries it so the engine can derive `detSize`, and
+ * `FrameLoop` refuses a detection plane whose size disagrees with its square boxes. Until now only
+ * [TrackerService.applyCalibration] kept the two in step, so three ordinary things left them apart:
+ * "Reset all to Python defaults", a `CONFIG_SCHEMA_VERSION` bump (which restores the defaults by
+ * design), and — before the settings screen stopped offering it — the board-size slider. The stored
+ * default is 1600 and the profile clamps to 320..1280, so after any of them the engine indexed
+ * squares for a plane that never arrives. It is not loud: `TrackerCamera.deliver` catches the
+ * refusal per frame, so what a user sees is a tracker that has stopped noticing moves. Applying it
+ * at the one funnel every config change passes through is what makes the profile's ownership real
+ * rather than merely documented.
+ */
+private fun onMeasuredBoard(
+    stored: TrackerConfig,
+    geometry: BoardGeometry,
+): TrackerConfig = if (stored.boardSize == geometry.boardSize) stored else stored.copy(boardSize = geometry.boardSize)
 
 /**
  * The model's own declaration of the crop size it takes, through the one Kotlin reader

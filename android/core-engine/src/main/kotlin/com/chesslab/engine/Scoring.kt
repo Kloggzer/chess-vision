@@ -14,8 +14,18 @@ import com.github.bhlangonijr.chesslib.move.Move
 /** `zThr` default of `config.TRACK_DEFAULTS`. */
 internal const val Z_THR_DEFAULT = 3.0
 
-/** `ll_k` default of the `MoveTracker` constructor. */
-internal const val LL_K_DEFAULT = 1.0
+/**
+ * The log-likelihood temperature — `ll_k` of the `MoveTracker` constructor, and a CONSTANT.
+ *
+ * It scales every per-square logit, so it silently rescales `ambiguityMarginLl`, `commitLlFloor`
+ * and `reanchorLlFloor` together — three knobs whose own thresholds were tuned against incidents
+ * measured at this scale (`f6h5 @ 0.44`, `h2h4 + Be7` against a fabricated `Nf3 + Be7`). Python
+ * exposes it on the constructor only: no CLI flag, not in `TRACK_DEFAULTS`, and 1.0 in all 18
+ * parity fixtures. It was a `TrackerConfig` field with a slider until 2026-08-02, which offered a
+ * user the one edit that invalidates three other calibrated numbers at once and reads as none of
+ * them. Changing it means re-deriving those three, not turning a dial.
+ */
+internal const val LL_K = 1.0
 
 /** `np.clip(..., -12.0, 12.0)`. */
 internal const val LOGIT_CLIP = 12.0
@@ -49,7 +59,7 @@ internal fun loglikScores(
     g: Game,
     z: DoubleArray,
     zThr: Double = Z_THR_DEFAULT,
-    k: Double = LL_K_DEFAULT,
+    k: Double = LL_K,
 ): List<Pair<Move, Double>> {
     val moves = g.legalMoves()
     if (moves.isEmpty()) return emptyList()
@@ -78,7 +88,7 @@ internal fun loglikPairScores(
     g: Game,
     z: DoubleArray,
     zThr: Double = Z_THR_DEFAULT,
-    k: Double = LL_K_DEFAULT,
+    k: Double = LL_K,
     soft: Double? = null,
 ): List<Pair<List<Move>, Double>> {
     val cut = soft ?: zThr * PAIR_SOFT_FACTOR

@@ -23,20 +23,37 @@ private fun trackerConfigFields(): Set<String> =
         .toSet()
 
 class KnobCatalogTest {
+    /**
+     * Every field is classified — shown to a person, or named in [NOT_A_SETTING] with the reason.
+     *
+     * The old rule was "every field must have a row", which is how the screen came to offer 46
+     * sliders: it made adding a knob to the seam the same act as offering it to a user, and nobody
+     * ever had to argue that a human should see it. The partition forces that argument, in the
+     * direction that matters — a new knob is invisible until someone writes down why it is a
+     * decision, or why it is not.
+     */
     @Test
-    fun catalogCoversEveryTrackerConfigProperty() {
+    fun everyTrackerConfigFieldIsEitherShownOrExplained() {
         val fields = trackerConfigFields()
         val catalog = KNOB_CATALOG.map { it.key }.toSet()
-        // Both directions: a knob added to the seam must appear on the screen, and a row for a
-        // field that no longer exists would tune nothing.
-        assertEquals(emptySet<String>(), fields - catalog, "TrackerConfig fields missing from the settings catalog")
+        assertEquals(emptySet<String>(), fields - catalog - NOT_A_SETTING.keys, "TrackerConfig fields nobody classified")
         assertEquals(emptySet<String>(), catalog - fields, "catalog rows with no TrackerConfig field")
-        assertEquals(fields.size, KNOB_CATALOG.size, "one row per field, no duplicates")
+        assertEquals(emptySet<String>(), NOT_A_SETTING.keys - fields, "NOT_A_SETTING entries with no TrackerConfig field")
+        assertEquals(emptySet<String>(), catalog intersect NOT_A_SETTING.keys, "a knob is shown or explained, never both")
+        assertEquals(fields.size, KNOB_CATALOG.size + NOT_A_SETTING.size, "one entry per field, no duplicates")
+    }
+
+    /** A reason that says nothing is the same as no reason — this is the whole value of the table. */
+    @Test
+    fun everyWithheldKnobSaysWhy() {
+        NOT_A_SETTING.forEach { (key, why) ->
+            assertTrue(why.trim().endsWith(".") && why.length > MIN_REASON, "$key has no usable reason")
+        }
     }
 
     @Test
     fun catalogAndPersistenceTableAgree() {
-        assertEquals(KNOBS.map { it.key }.toSet(), KNOB_CATALOG.map { it.key }.toSet())
+        assertEquals(KNOBS.map { it.key }.toSet(), KNOB_CATALOG.map { it.key }.toSet() + NOT_A_SETTING.keys)
     }
 
     @Test
@@ -98,15 +115,6 @@ class KnobCatalogTest {
     }
 
     @Test
-    fun anOptionalKnobFallsToAutoBelowItsRange() {
-        val settle = KNOB_CATALOG.first { it.key == "settleFramesOverride" }
-        assertTrue(settle.isOptional)
-        assertEquals(null, settle.applyTo(TrackerConfig(settleFramesOverride = 3), 0.0).settleFramesOverride)
-        assertEquals(4, settle.applyTo(TrackerConfig(), 4.0).settleFramesOverride)
-        assertEquals("auto", settle.format(Double.NaN))
-    }
-
-    @Test
     fun aFlagKnobIsRenderedAsOnOff() {
         val prior = KNOB_CATALOG.first { it.key == "usePrior" }
         assertTrue(prior.isFlag)
@@ -117,3 +125,6 @@ class KnobCatalogTest {
 }
 
 private const val TWELVE = 12
+
+/** Long enough to be a sentence rather than a shrug. */
+private const val MIN_REASON = 40

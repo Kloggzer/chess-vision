@@ -6,7 +6,12 @@ import com.chesslab.tracker.settings.Knob
 import com.chesslab.tracker.settings.KnobKind
 import java.util.Locale
 
-/** The seven concerns a knob can belong to. Order is the order of the screen. */
+/**
+ * The six concerns a tunable knob can belong to. Order is the order of the screen.
+ *
+ * There was a seventh, `GEOMETRY`, holding one row: the board size. That is a measurement the
+ * calibration profile makes, not a decision — see [NOT_A_SETTING].
+ */
 enum class KnobGroup(
     val title: String,
 ) {
@@ -16,7 +21,6 @@ enum class KnobGroup(
     SCORING("Scoring"),
     CNN("CNN"),
     CAMERA("Camera"),
-    GEOMETRY("Geometry"),
 }
 
 /**

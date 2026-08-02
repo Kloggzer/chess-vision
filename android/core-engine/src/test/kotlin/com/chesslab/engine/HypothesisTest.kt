@@ -79,7 +79,7 @@ class HypothesisTest {
     fun hotUntouchedSquarePenalizes() {
         val state = hypothesisState()
         val z = zOf("e2" to HOT, "e4" to HOT, "a3" to HOT)
-        val scored = loglikScores(state.board, z, state.config.zThr, state.config.llK).associate { uciOf(it.first) to it.second }
+        val scored = loglikScores(state.board, z, state.config.zThr, LL_K).associate { uciOf(it.first) to it.second }
 
         assertTrue(scored.getValue("e2e4") > scored.getValue("d2d4"), "d2d4 explains nothing hot")
         // a3 is hot but only a2a3 / b1a3 cover it — and their other endpoint is cold, so neither is

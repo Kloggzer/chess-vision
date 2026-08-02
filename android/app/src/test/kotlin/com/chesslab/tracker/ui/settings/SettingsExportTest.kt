@@ -2,6 +2,7 @@ package com.chesslab.tracker.ui.settings
 
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.tracker.settings.AppSettings
+import com.chesslab.tracker.settings.KNOBS
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -18,7 +19,9 @@ class SettingsExportTest {
     fun aPristineConfigReportsNoDeviations() {
         val json = sections(TrackerConfig())
         assertTrue(json.getValue("nonDefault").jsonObject.isEmpty())
-        assertEquals(KNOB_CATALOG.size, json.getValue("config").jsonObject.size)
+        // KNOBS, not KNOB_CATALOG: a bug report carries the whole config, including the knobs the
+        // screen withholds because they are not decisions.
+        assertEquals(KNOBS.size, json.getValue("config").jsonObject.size)
     }
 
     @Test
