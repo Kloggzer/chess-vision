@@ -1,14 +1,32 @@
 package com.chesslab.engine.api
 
-// TrackerConfig.kt — every knob from src/chesslab/config.py TRACK_DEFAULTS (lines 590-646),
-// plus the constructor-only knobs that have no CLI flag. Defaults copied VERBATIM from
-// config.py — NOT from the tracker.py constructor signature, which disagrees on
-// occlusionColorThr (constructor 1.5, TRACK_DEFAULTS 3.0). TRACK_DEFAULTS WINS.
+// TrackerConfig.kt — every knob from src/chesslab/config.py TRACK_DEFAULTS, plus the
+// constructor-only knobs that have no CLI flag. Defaults copied VERBATIM from config.py — NOT
+// from the tracker.py constructor signature, which disagrees on occlusionColorThr
+// (constructor 1.5, TRACK_DEFAULTS 3.0). TRACK_DEFAULTS WINS.
+//
+// **No default here is measured by `:app:testDebugUnitTest -Pchesslab.sim=true`.** The 18-clip
+// simulation builds its config field-for-field out of each clip's recorded `effectiveConfig`
+// (`sim/SimClips.kt`), and all 18 fixtures still record the values Python ran with — motionHoldS
+// 0.34, cnnCooldownS 2.0, cnnCheckIntervalS 10.0. Proven on 2026-08-02 by setting `motionHoldS`
+// to 5.00, a value that would freeze the tracker for longer than most clips run, and re-running:
+// the 18 diff-only baselines and all six CNN-arm divergences came back byte-identical. So a green
+// suite is not evidence for a default, it is evidence that the default was never in play. Retune
+// against the live device or against a physical argument, and say which in the comment.
 data class TrackerConfig(
     val motionThr: Double = 0.25,
     val motionPxThr: Double = 20.0,
     val zThr: Double = 3.0,
     val ambiguityMarginLl: Double = 2.0,
+    // Inert at this value, and the arithmetic says so rather than the clips. A move is viable only
+    // if EVERY touched square carries `z >= zThr * 0.5` (`Hypothesis.scoreViableMoves`), and a
+    // square's logit is `LL_K * (z - zThr)`, so a viable move scores at worst `-1.5` per touched
+    // square. `quietOutcome` compares that against `reanchorLlFloor * touched / 2`, i.e. `-2.0` per
+    // square — always the smaller number. The comparison therefore cannot be true for any viable
+    // move, at 2 touched squares or at castling's 4, and the re-anchor branch is reached only
+    // through its other disjunct, "no viable move at all". The knob comes alive above -3.0, where
+    // it starts throwing away references the tracker should keep, so its useful range is empty in
+    // both directions. Kept for `TRACK_DEFAULTS` parity, not offered as a setting.
     val reanchorLlFloor: Double = REANCHOR_LL_FLOOR_DEFAULT,
     val nudgeTimeoutS: Double = 5.0,
     val driftWindowS: Double = 30.0,
@@ -57,22 +75,24 @@ data class TrackerConfig(
     // `motionHoldS + 0.05..0.07` at 30 fps, and the same clip replayed at 30/15/10 fps commits every
     // move within 0.2 s of the same wall time. See `config.py` and specs/19-live-hardening §7.
     //
-    // **The old floor is gone, and so is the suite's guidance.** This read 0.34 with the note that
-    // 0.32 cost `blender-scholars` its mate. Re-measured 2026-08-02 with the shipped `id35-80`
-    // (16 ms per observation against the 146-290 ms the original figure was taken under): the
-    // 18-clip simulation is green at 0.32, at 0.20 and at 0.10. The constraint did not move — it
-    // disappeared, which means the suite can no longer tell us what this should be either.
+    // **There is no measured floor here, and there never was one on this side.** This read 0.34
+    // with the note that 0.32 cost `blender-scholars` its mate. That measurement is real but it is
+    // PYTHON's, taken with `pytest -m clips` at 30 fps; `config.py` still carries it. The Kotlin
+    // 18-clip simulation cannot reproduce or refute it, because it never reads this default at all
+    // (see the file header) and its clips run at 12 fps, where 0.34 and 0.32 are a quarter of one
+    // frame apart. The runs recorded as "green at 0.32, at 0.20 and at 0.10" were three runs at
+    // 0.34.
     //
-    // So 0.20 is chosen for a PHYSICAL reason and not a measured one, and this comment says so
-    // rather than implying a floor it does not have: it is the time a hand needs to leave the board
-    // after releasing a piece, and the clips' synthetic arm sweeps are cleaner and faster than a
-    // real one. It buys ~140 ms off every announcement against the old value. If moves start
-    // committing while a hand is still over the board, this is the knob, and the live game is the
-    // only instrument that can say so.
+    // So 0.20 is chosen for a PHYSICAL reason and not a measured one: it is the time a hand needs
+    // to leave the board after releasing a piece. It buys ~140 ms off every announcement. What it
+    // risks is Python's recorded failure mode — detection firing while more squares are still
+    // covered than `maxChanged` allows, which is refused as `too_many_changed` and can swallow the
+    // move that follows. That is a real hazard, it is unmeasured on this side, and the live game is
+    // the only instrument that can settle it. If moves start committing while a hand is still over
+    // the board, or a mating move goes missing, this is the knob.
     val motionHoldS: Double = 0.20,
     val occlusionColorThr: Double = 3.0,
     val minGridLineCoverage: Double = 0.5,
-    val reconnectGraceS: Double = 2.0,
     val diffClaheClip: Double = 2.0,
     val requireMotionForMove: Boolean = true,
     val motionRecencyS: Double = 20.0,
@@ -82,12 +102,17 @@ data class TrackerConfig(
     val verifyObsVotes: Int = 2,
     val observerIntervalS: Double = 0.0,
     // constructor-only in Python (no CLI flag, not in TRACK_DEFAULTS):
-    val llK: Double = 1.0,
     val darkLumaThr: Double = 18.0,
     val cnnVerify: Boolean = true,
     val liveAlign: Boolean = true,
     val usePrior: Boolean = true,
-    // config.DEFAULT_BOARD_SIZE
+    // NOT a preference and not really a default: the calibration profile MEASURES the board size
+    // from the detected quad and the app copies it in here, because `detSize` is derived twice —
+    // once from this field for the engine's square boxes, once from the profile for the warp — and
+    // `FrameLoop.step` refuses a plane whose size disagrees with its boxes. `config.py`'s 1600 is
+    // only what stands here until the first sync; the profile can never produce it (it clamps to
+    // 320..1280), so a config that reaches a frame carrying 1600 stops detection outright, one
+    // silently dropped frame at a time.
     val boardSize: Int = 1600,
     // Python takes settle/avg/confirm as constructor params defaulting to None, and only
     // then falls back to the CNN-conditional counts. A clip

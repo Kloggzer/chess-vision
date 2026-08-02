@@ -1,5 +1,6 @@
 package com.chesslab.engine.parity
 
+import com.chesslab.engine.LL_K
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerConfig
@@ -165,9 +166,19 @@ data class ParityEffectiveConfig(
     val detSize: Int,
 )
 
-/** Builds the exact `TrackerConfig` the fixture was produced with. */
-fun ParityEffectiveConfig.toTrackerConfig(): TrackerConfig =
-    TrackerConfig(
+/**
+ * Builds the exact `TrackerConfig` the fixture was produced with.
+ *
+ * `llK` and `reconnectGraceS` are read off the fixture and NOT passed on, because neither is a
+ * `TrackerConfig` field any more. `llK` became the `LL_K` constant, so the fixture's value is
+ * checked against it here instead — which is the stronger statement: parity with Python is now a
+ * property the fixtures assert rather than one the constructor copies. `reconnectGraceS` reached no
+ * production reader on Android at all and was deleted; the fixture keeps recording what Python ran
+ * with, and nothing here pretends to honour it.
+ */
+fun ParityEffectiveConfig.toTrackerConfig(): TrackerConfig {
+    require(llK == LL_K) { "fixture llK $llK disagrees with the LL_K constant $LL_K" }
+    return TrackerConfig(
         motionThr = motionThr,
         motionPxThr = motionPxThr,
         zThr = zThr,
@@ -197,7 +208,6 @@ fun ParityEffectiveConfig.toTrackerConfig(): TrackerConfig =
         verifyTimeoutS = verifyTimeoutS,
         occlusionColorThr = occlusionColorThr,
         minGridLineCoverage = minGridLineCoverage,
-        reconnectGraceS = reconnectGraceS,
         diffClaheClip = diffClaheClip,
         requireMotionForMove = requireMotionForMove,
         motionRecencyS = motionRecencyS,
@@ -206,7 +216,6 @@ fun ParityEffectiveConfig.toTrackerConfig(): TrackerConfig =
         desyncObsN = desyncObsN,
         verifyObsVotes = verifyObsVotes,
         observerIntervalS = observerIntervalS,
-        llK = llK,
         darkLumaThr = darkLumaThr,
         cnnVerify = cnnVerify,
         liveAlign = liveAlign,
@@ -219,6 +228,7 @@ fun ParityEffectiveConfig.toTrackerConfig(): TrackerConfig =
         confirmFramesOverride = confirmFrames,
         boardSize = boardSize,
     )
+}
 
 @Serializable
 data class ParityMeta(

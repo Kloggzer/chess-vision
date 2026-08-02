@@ -58,7 +58,7 @@ internal class ViableMoves(
  * appends the blocked UCIs to [EngineState.shadowBlocked] (cleared here, once per detection).
  */
 internal fun EngineState.scoreViableMoves(z: DoubleArray): ViableMoves {
-    val scored = loglikScores(board, z, config.zThr, config.llK)
+    val scored = loglikScores(board, z, config.zThr, LL_K)
     val soft = config.zThr * PAIR_SOFT_FACTOR
     val veto = shadowVetoed
     val viableRaw = scored.filter { (mv, _) -> allAbove(moveTouchedMask(board, mv), z, soft) }

@@ -18,19 +18,6 @@ class ReconnectPolicyTest {
     }
 
     @Test
-    fun backoffBaseFollowsReconnectGraceS() {
-        val policy = ReconnectPolicy(reconnectGraceS = 8.0)
-        val seen = mutableListOf<Double>()
-        repeat(4) {
-            seen += policy.backoffS()
-            policy.onFailure(it * 1000L)
-        }
-        assertEquals(listOf(8.0, 16.0, 30.0, 30.0), seen)
-        // A grace below the floor is clamped to it, exactly like Python's max(3.0, grace).
-        assertEquals(3.0, ReconnectPolicy(reconnectGraceS = 0.5).backoffS())
-    }
-
-    @Test
     fun oneLuckyFrameDoesNotResetEscalation() {
         val policy = ReconnectPolicy()
         policy.onFailure(0L)

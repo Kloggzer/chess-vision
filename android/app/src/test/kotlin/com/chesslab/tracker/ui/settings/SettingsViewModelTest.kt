@@ -50,23 +50,23 @@ class SettingsViewModelTest {
         runTest {
             val applied = mutableListOf<TrackerConfig>()
             val vm = viewModel(MemoryStore(), applied)
-            vm.setKnob(knob("detectScale"), 1.0)
+            vm.setKnob(knob("alignEvery"), 5.0)
             advanceUntilIdle()
             assertNull(vm.note.value)
-            assertEquals(setOf("detectScale"), vm.restartRequired.value)
+            assertEquals(setOf("alignEvery"), vm.restartRequired.value)
             // Persisted and forwarded all the same: only the EFFECT waits for the restart.
-            assertEquals(1.0, applied.single().detectScale)
+            assertEquals(5, applied.single().alignEvery)
         }
 
     @Test
     fun aRestartOnlyEditSurvivesAReload() =
         runTest {
             val store = MemoryStore()
-            viewModel(store, mutableListOf()).setKnob(knob("boardSize"), 800.0)
+            viewModel(store, mutableListOf()).setKnob(knob("alignEvery"), 5.0)
             advanceUntilIdle()
             val reloaded = SettingsRepository(store, this) {}
             reloaded.load()
-            assertEquals(800, reloaded.config.value.boardSize)
+            assertEquals(5, reloaded.config.value.alignEvery)
         }
 
     @Test
@@ -89,7 +89,7 @@ class SettingsViewModelTest {
             val store = MemoryStore()
             val vm = viewModel(store, mutableListOf())
             vm.setKnob(knob("censusThr"), 55.0)
-            vm.setKnob(knob("boardSize"), 800.0)
+            vm.setKnob(knob("alignEvery"), 5.0)
             vm.resetAll()
             advanceUntilIdle()
             assertEquals(TrackerConfig(), vm.config.value)

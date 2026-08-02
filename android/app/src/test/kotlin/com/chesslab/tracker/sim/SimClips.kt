@@ -191,6 +191,12 @@ private fun JsonObject.b(key: String): Boolean = getValue(key).jsonPrimitive.boo
 /**
  * `meta.effectiveConfig` -> `TrackerConfig`, field for field.
  *
+ * EVERY field is taken from the fixture, which is what makes this a port-parity instrument and
+ * NOT a tuning one: a `TrackerConfig` default can be changed to anything at all and this run will
+ * not notice (proven 2026-08-02 with `motionHoldS = 5.00`). `verifyTimeoutS` was the one field the
+ * list forgot, so it alone fell through to the Kotlin default — the same value today, and an
+ * invisible trapdoor the moment it stopped being.
+ *
  * `settleFrames` / `avgFrames` / `confirmFrames` are passed as explicit OVERRIDES, exactly like
  * `ParityFixtures.toTrackerConfig`. That is the one decision worth stating: attaching a CNN flips
  * `EngineState.cnnOn`, and without the overrides the derived counts would silently drop from 4/3/2
@@ -224,9 +230,9 @@ internal fun trackerConfigOf(cfg: JsonObject): TrackerConfig =
         alignScale = cfg.d("alignScale"),
         cornerJumpPx = cfg.d("cornerJumpPx"),
         motionHoldS = cfg.d("motionHoldS"),
+        verifyTimeoutS = cfg.d("verifyTimeoutS"),
         occlusionColorThr = cfg.d("occlusionColorThr"),
         minGridLineCoverage = cfg.d("minGridLineCoverage"),
-        reconnectGraceS = cfg.d("reconnectGraceS"),
         diffClaheClip = cfg.d("diffClaheClip"),
         requireMotionForMove = cfg.b("requireMotionForMove"),
         motionRecencyS = cfg.d("motionRecencyS"),
@@ -235,7 +241,6 @@ internal fun trackerConfigOf(cfg: JsonObject): TrackerConfig =
         desyncObsN = cfg.i("desyncObsN"),
         verifyObsVotes = cfg.i("verifyObsVotes"),
         observerIntervalS = cfg.d("observerIntervalS"),
-        llK = cfg.d("llK"),
         darkLumaThr = cfg.d("darkLumaThr"),
         cnnVerify = cfg.b("cnnVerify"),
         liveAlign = cfg.b("liveAlign"),

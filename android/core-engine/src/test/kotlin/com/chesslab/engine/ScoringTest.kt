@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test
 /**
  * `loglik_scores` and `loglik_pair_scores` against the phase-00b
  * golden fixtures (`tierA.loglikScores` / `tierA.loglikPairScores`, the top 12 in Python's own
- * order over `tierA.zFused`, with `zThr` / `llK` from `meta.effectiveConfig`).
+ * order over `tierA.zFused`, with `zThr` from `meta.effectiveConfig` and the `LL_K` constant).
  *
  * **Ties are not order-comparable**: chesslib and python-chess enumerate legal moves in
  * different orders and neither implementation has a tie-break. The score SEQUENCE is
@@ -28,7 +28,7 @@ class ScoringTest {
             for (frame in clip.tierAFrames()) {
                 val tierA = requireNotNull(frame.tierA)
                 val game = Game(requireNotNull(frame.fen))
-                val actual = loglikScores(game, tierA.zFused.toZArray(), cfg.zThr, cfg.llK)
+                val actual = loglikScores(game, tierA.zFused.toZArray(), cfg.zThr, LL_K)
                 val expected = tierA.loglikTop()
                 val where = "$name/${frame.frame}"
                 assertSortedDescending(actual.map { it.second }, where)
@@ -50,7 +50,7 @@ class ScoringTest {
             for (frame in clip.tierAFrames()) {
                 val tierA = requireNotNull(frame.tierA)
                 val game = Game(requireNotNull(frame.fen))
-                val actual = loglikPairScores(game, tierA.zFused.toZArray(), cfg.zThr, cfg.llK)
+                val actual = loglikPairScores(game, tierA.zFused.toZArray(), cfg.zThr, LL_K)
                 val expected = tierA.loglikPairTop()
                 val where = "$name/${frame.frame}"
                 assertSortedDescending(actual.map { it.second }, where)
@@ -178,7 +178,7 @@ class ScoringTest {
 
     private companion object {
         const val Z_THR = Z_THR_DEFAULT
-        const val K = LL_K_DEFAULT
+        const val K = LL_K
         const val HOT_Z = 10.0
         const val GATE_EPS = 0.001
         const val RECAPTURE_FEN = "4k3/2n5/8/3p4/4P3/8/8/4K3 w - - 0 1"
