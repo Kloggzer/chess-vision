@@ -492,7 +492,7 @@ def test_like_takes_the_donors_assignment_verbatim(tmp_path, monkeypatch):
 
     `assign_sessions_to_splits` does not return a dataset's own recorded split when fed that
     dataset's own recorded parameters, so a plain rebuild silently moves sessions between train and
-    test. `--split-like` is the only safe way to build a comparable dataset.
+    test. `--like` is the only safe way to build a comparable dataset.
     """
     import json
 
