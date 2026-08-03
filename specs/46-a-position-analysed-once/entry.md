@@ -37,6 +37,10 @@ A cache key that is wrong is worse than no cache, so state it precisely and test
   budgets on this game (specs/42), so a grade computed at one budget is not a grade at another.
   Reusing across budgets would silently mix two rulers, which is the same class of error as
   `quad_spread` in specs/41.
+- **The same key is wanted elsewhere, so write it once.** `specs/47` needs a position key to name
+  openings from `lichess-org/chess-openings`, whose `epd` column is defined as *"EPD (FEN without
+  move numbers) of the opening position, en passant field only if legal"* — the same normalisation
+  this pack arrived at independently, en-passant caveat included. Build one function, share it.
 - Store the raw evaluation, not the verdict. The verdict depends on the OTHER position's score
   (the drop from before to after), and the bands have already been corrected once — a cache of
   conclusions would have frozen the 2x-too-forgiving thresholds specs/44 found.
