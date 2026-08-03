@@ -76,12 +76,13 @@ recorder.
 
 ## What the pack got wrong once built
 
-- The pack says *"Keep it lean. This is a move, and a move should not add."* It added:
-  `ui/settings/` went **1 661 → 1 884 lines (+223)**, `SettingsScreen.kt` **384 → 559**. Most of it
-  is the six summary strings and the three row composables that read them — the Android pattern's
-  "state the current value" half is not free, because a summary that describes the destination needs
-  no data and a summary that states the value needs a flow per row. The rest is the second listing
-  (`developer`) and `parentOf`. Nothing here is duplicated logic; it is the price of the pattern.
+- The pack says *"Keep it lean. This is a move, and a move should not add."* It added **+210 lines**
+  in `ui/settings/` (`SettingsScreen.kt` 384 → 552, `SettingsPlace.kt` 79 → 116), plus 30 changed
+  lines in `Chrome.kt`. Most of it is the six summary strings and the three row composables that
+  read them — the Android pattern's "state the current value" half is not free, because a summary
+  that describes the destination needs no data while a summary that states the value needs a flow
+  per row. The rest is the second listing (`developer`) and `parentOf`. Nothing here is duplicated
+  logic; it is the price of the pattern the user asked for by name.
 - The pack assumed `debugEnabled` was a candidate gate for the door. It is not the same thing: it
   gates the payload's COST, and using it for access would mean a developer screen whose diagnostics
   are dark until a switch nobody can see is flipped.
