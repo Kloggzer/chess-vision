@@ -59,7 +59,7 @@ fun SpeechSettingsScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (bound == null) {
-                Text("The tracker service is not running yet.", color = OnSurfaceMuted)
+                Text("Reading the stored settings…", color = OnSurfaceMuted)
                 return@Column
             }
             val app by bound.appSettings.collectAsStateWithLifecycle()

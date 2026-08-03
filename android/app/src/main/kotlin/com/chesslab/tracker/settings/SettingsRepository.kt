@@ -1,10 +1,14 @@
 package com.chesslab.tracker.settings
 
+import android.content.Context
 import com.chesslab.engine.api.TrackerConfig
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** Python's `_apply_live_tuning` note — the user's proof that the change took effect. */
@@ -34,7 +38,12 @@ class UpdateResult(
 class SettingsRepository(
     private val store: ConfigStore,
     private val scope: CoroutineScope,
-    private val submit: (TrackerConfig) -> Unit,
+    /**
+     * The live engine's seat. A `var` because the repository outlives the tracker: the settings
+     * screen works with nothing running, and the service claims this on start and gives it back on
+     * destroy rather than the repository being rebuilt around it.
+     */
+    var submit: (TrackerConfig) -> Unit = {},
 ) {
     private val current = MutableStateFlow(ConfigCodec.defaults)
     val config: StateFlow<TrackerConfig> = current.asStateFlow()
@@ -55,15 +64,29 @@ class SettingsRepository(
     /** Read by 07b's debug payload; only the settings screen writes it. */
     val debugEnabled: StateFlow<Boolean> = debugState.asStateFlow()
 
+    private val loadedState = MutableStateFlow(false)
+
+    /**
+     * Read the persisted truth. Called exactly once per process, by [SettingsHost].
+     *
+     * `finally`, because everything downstream waits on this: a store that throws must leave the
+     * defaults standing and the tracker startable, not hang [awaitLoaded] forever.
+     */
     suspend fun load() {
-        val decoded = ConfigCodec.decode(store.read(SLOT_CONFIG))
-        loadNote.value = decoded.note
-        current.value = decoded.config
-        publishApp(decodeAppSettings(store.read(SLOT_APP)))
-        submit(decoded.config)
-        // The service constructs this repository; there is no other path from the composition
-        // root to it, so it announces itself once it holds the persisted truth (D07a-2).
-        SettingsHost.publish(this)
+        try {
+            val decoded = ConfigCodec.decode(store.read(SLOT_CONFIG))
+            loadNote.value = decoded.note
+            current.value = decoded.config
+            publishApp(decodeAppSettings(store.read(SLOT_APP)))
+            submit(decoded.config)
+        } finally {
+            loadedState.value = true
+        }
+    }
+
+    /** The service reads `appSettings` before it builds anything, and defaults would build the wrong thing. */
+    suspend fun awaitLoaded() {
+        loadedState.first { it }
     }
 
     /**
@@ -99,17 +122,33 @@ class SettingsRepository(
 }
 
 /**
- * Where the UI picks the repository up, mirroring 06b's `TrackerSessionHost`.
+ * The ONE repository, and where the UI picks it up.
  *
- * The settings screen needs the ONE repository the service owns — a second one over the same
- * DataStore would be a second source of truth, and the engine would never see its edits.
+ * It belongs to the PROCESS, not to the tracker. The service used to build it, so with the camera
+ * no longer starting on launch the settings screen would have been dead until somebody started a
+ * game — and a second repository over the same DataStore is a second source of truth the engine
+ * never sees the edits of.
+ *
+ * [repository] stays null until the store has been read, so no screen renders the defaults and then
+ * jumps; [get] returns the instance immediately, because the service needs the handle before it
+ * needs the values (it waits on `awaitLoaded`).
  */
 object SettingsHost {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private var instance: SettingsRepository? = null
+
     private val current = MutableStateFlow<SettingsRepository?>(null)
 
     val repository: StateFlow<SettingsRepository?> = current
 
-    fun publish(repository: SettingsRepository?) {
-        current.value = repository
-    }
+    @Synchronized
+    fun get(context: Context): SettingsRepository =
+        instance ?: SettingsRepository(DataStoreConfigStore(context.applicationContext), scope).also {
+            instance = it
+            scope.launch {
+                it.load()
+                current.value = it
+            }
+        }
 }
