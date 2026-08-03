@@ -262,9 +262,10 @@ flowchart TD
     H["<b>Home</b> — dashboard<br/><i>startDestination</i>"]
     G["<b>Games</b> — the library"]
     SET["<b>Settings</b>"]
-    H -.->|persistent bottom bar| G
-    G -.->|persistent bottom bar| SET
-    H ==>|Start a game| TR["Tracker<br/><i>a session, not a place</i>"]
+    H -->|Games| G
+    H -->|Settings| SET
+    H ==>|Start a game / Resume| TR["Tracker<br/><i>a session, not a place</i>"]
+    TR -.->|in-progress banner| H
     H -->|recent row| RV["review/{id}"]
     H -->|See all| G
     G -->|row| RV
@@ -276,8 +277,47 @@ flowchart TD
     style TR fill:#3d2f1f,color:#fff
 ```
 
-**Top-level destinations 6 → 3. Registered routes 9 → 7.** The bottom bar is persistent across all
-three of its destinations — unlike today's row, which exists on one.
+**Top-level destinations 6 → 3. Registered routes 9 → 7. And NO persistent bar** — decided
+2026-08-03, see §3.1a. Home is the hub; Games and Settings are pushed from it and come back with
+the system Back.
+
+### 3.1a No bar — and how a running game is reached
+
+**Decided 2026-08-03. The bottom bar is dropped.** Three reasons, the first two the user's:
+
+1. **The bottom already belongs to Android.** The reference phone runs MIUI's three-button
+   navigation. An app bar would stack a second band directly above the system one, and the tracker
+   and the review are precisely the screens that need the height back.
+2. **A bar that changes is not a bar.** This also settles the old Q2: a fourth item existing only
+   while a game runs would change the bar's composition, which is exactly what was ruled out.
+3. Three destinations do not need persistent chrome. Home is the hub, Games and Settings are pushed
+   from it, and the system Back is the way out — one behaviour, no invented one.
+
+**That leaves the bar's real job unsolved, so it is solved here rather than as a footnote:**
+*how does the user get back to a running game?*
+
+A tracked game is an ongoing activity, and it is reached the way Android reaches ongoing
+activities. **All three of these, because they cover three different places the user can be:**
+
+| Where the user is | The way back |
+|---|---|
+| Outside the app | **The foreground notification.** It already exists and specs/43 already made *stopping* reachable from it; returning is the same surface and costs a `contentIntent`. |
+| On Home | **The first row.** "Start a game" becomes **"Resume · 14 moves · White to move"** while a session runs. No new surface, and it makes the running game the most prominent thing on the screen where it should be. |
+| Anywhere else in the app | **A slim in-progress banner**, one row, directly under the app bar — the shape a call or a navigation app uses. Tapping it returns to the tracker. |
+
+Three rules bind all three:
+
+- **A running game is never more than one deliberate tap away, from anywhere.**
+- **None of these affordances exists when no game is running.** The banner is absent, not empty;
+  the Home row reads "Start a game" again. Nothing here is a permanent widget showing a null state.
+- **The UI must make specs/43's guarantee legible, not merely true.** A game already survives tab
+  switches, leaving the app and the shade — it ends only on an explicit stop. Today nothing on
+  screen says so, and a user who navigates away has no reason to believe the game is still being
+  tracked. The banner IS that statement.
+
+Note the banner is the only new persistent-ish chrome in this proposal, and it is strictly better
+than the bar it replaces: it appears only when there is something to return to, it carries state
+worth reading ("14 moves"), and it costs one row instead of one row on every screen forever.
 
 ### 3.2 What goes, and why
 
@@ -645,17 +685,20 @@ Everything above the dashboard line is subtraction.
 
 ---
 
-## 7. Questions the review should settle
+## 7. Decisions taken 2026-08-03 — the review is closed
 
-1. **Bottom bar of three, or no bar at all?** The alternative is a pure Home with everything pushed
-   from it and no persistent chrome. A bar is more conventional; no bar gives the tracker and the
-   review more height. I propose the bar; it is the one decision here I would happily lose.
-2. **Does the tracker keep a "Board" seat in the bar while a game runs?** Today it is the home; in
-   this proposal it is a session reached from Home's first row. A fourth bar item that only exists
-   during a game is possible and I have not proposed it.
-3. **Is 6 dp → 8 dp acceptable?** It is the single change that touches the most pixels (24 gaps).
-   Keeping 6 as `Space.sm` and pushing 8 to `md` is the alternative, and it makes 39 uses move
-   instead of 24.
-4. **Opening book now, or after?** It is the only item that adds a dependency-shaped thing (an
-   asset, an index, a shared normaliser). The dashboard works without it.
-5. **Do you want the `.dp` guard test?**
+The user answered three, objected to one, and delegated the rest: *"triff eine entscheidung und pack
+das."* Nothing below is open.
+
+| # | Question | Decision |
+|---|---|---|
+| 1 | Bottom bar of three, or none? | **No bar.** Home is the hub. See §3.1a for the three grounds and for how a running game is reached instead. |
+| 2 | Does the tracker keep a bar seat while a game runs? | **Moot, and would have been refused anyway** — the user's *"sollte sich die leiste so oft verändern?"* rules out a bar that changes composition. |
+| 3 | 6 dp → 8 dp? | **Yes.** 24 gaps move. `Space.sm` is 8. |
+| 4 | Opening book now? | **Not now.** It stays out of scope; the dashboard is designed without it and the note that it is the one dependency-shaped item stands for later. `MoveQuality.BOOK` stays deleted. |
+| 5 | A `.dp` guard test? | **Yes.** Design and ship it with the scale, so the 26 values cannot quietly become 27. |
+
+**One thing the implementer must not read into this.** The proposal was reviewed as a document, on
+an emulator, at 560 dpi. Nothing in it has been seen on the reference phone — none was attached, and
+installing on it destroys its data (`CLAUDE.md`). Layout verdicts survive that; anything decided on
+a few dp does not.
