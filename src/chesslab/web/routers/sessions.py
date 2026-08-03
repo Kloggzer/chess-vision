@@ -680,7 +680,7 @@ def session_corners_zoom(sid: str, idx: int, pts: str = Query(""), around: str =
     """
     import cv2
 
-    from ...alignment import square_offsets
+    from ...alignment import frame_offsets
     from ...calibration import warp_from_corners
 
     sdir, _archived, _rows, _clamped, entry = _review_entry(sid, idx)
@@ -702,7 +702,11 @@ def session_corners_zoom(sid: str, idx: int, pts: str = Query(""), around: str =
     # reassuring and wrong.
     sq = around.strip().lower()
     if not sq:
-        off, _ = square_offsets(warped, prof.board_size)
+        # `frame_offsets` and not `square_offsets(warped, ...)`: the latter would be handed a
+        # BORDERLESS warp, where the two outer lines per axis have no surrounding board to be
+        # measured in and come back unread — so every edge square would drop out of the map and
+        # the "worst square" could only ever be an interior one.
+        off, _ = frame_offsets(frame, quad, prof)
         sq = max(off, key=off.get) if off else "d4"
     f = min(max(ord(sq[0]) - 97, 1), 6)
     r = min(max(7 - (int(sq[1]) - 1), 1), 6)
@@ -733,7 +737,7 @@ def session_fixed_montage(sid: str, limit: int = Query(6), around: str = Query("
     import cv2
     import numpy as np
 
-    from ...alignment import square_offsets, worst_offset
+    from ...alignment import frame_offsets, worst_offset
     from ...calibration import warp_from_corners
 
     sdir, _archived, rows, _clamped, _entry = _review_entry(sid, 0)
@@ -757,7 +761,9 @@ def session_fixed_montage(sid: str, limit: int = Query(6), around: str = Query("
     scored.sort(reverse=True)
 
     def worst_square(frame, quad) -> str:
-        off, _ = square_offsets(warp_from_corners(frame, prof, quad), prof.board_size)
+        # Through `frame_offsets`, so the EDGE squares are in the map: a borderless warp leaves the
+        # two outer lines per axis unmeasurable, and the worst square would then always be interior.
+        off, _ = frame_offsets(frame, quad, prof)
         return max(off, key=off.get) if off else "d4"
 
     def tile(frame, quad, sq, label, colour):
