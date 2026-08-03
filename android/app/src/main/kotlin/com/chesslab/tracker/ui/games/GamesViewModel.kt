@@ -1,5 +1,7 @@
 package com.chesslab.tracker.ui.games
 
+import com.chesslab.tracker.analysis.ReviewBudget
+import com.chesslab.tracker.analysis.ReviewStore
 import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.games.GameSummary
 import com.chesslab.tracker.record.SessionStore
@@ -10,7 +12,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 data class GamesUi(
+    /** False until the first read of the store returns — an empty state must not flash. */
+    val loaded: Boolean = false,
     val games: List<GameSummary> = emptyList(),
+    val stats: LibraryStats = LibraryStats(0, 0, 0, null, 0, 0),
 )
 
 /**
@@ -21,17 +26,22 @@ data class GamesUi(
  * recorded frames with it, and that checkbox is on the delete dialog. Everything else about
  * recording — the preferences, the on-disk total, the per-session export — moved to
  * Settings › Recording with the panel it belongs to.
+ *
+ * The [LibraryStats] came the other way, off Home (specs/48): they describe this list, so they are
+ * read where the list is.
  */
 class GamesViewModel(
     private val games: GameStore,
+    private val reviews: ReviewStore,
     private val sessions: SessionStore,
     private val scope: CoroutineScope,
+    private val budget: ReviewBudget = ReviewBudget(),
 ) {
     private val mutable = MutableStateFlow(GamesUi())
 
     val ui: StateFlow<GamesUi> = mutable
 
-    fun refresh() = io { mutable.value = GamesUi(games.list()) }
+    fun refresh() = io { reload() }
 
     fun rename(
         id: String,
@@ -40,7 +50,7 @@ class GamesViewModel(
         event: String,
     ) = io {
         games.rename(id, white, black, event)
-        mutable.value = GamesUi(games.list())
+        reload()
     }
 
     fun delete(
@@ -50,7 +60,13 @@ class GamesViewModel(
         val sessionId = games.list().firstOrNull { it.id == id }?.sessionId
         games.delete(id)
         if (withSession) sessionId?.let(sessions::delete)
-        mutable.value = GamesUi(games.list())
+        reload()
+    }
+
+    private fun reload() {
+        val rows = games.list()
+        val accuracies = rows.associate { it.id to accuracyOf(games, reviews, budget, it) }
+        mutable.value = GamesUi(loaded = true, games = rows, stats = libraryStats(rows, accuracies))
     }
 
     private fun io(block: suspend () -> Unit) {

@@ -1,29 +1,27 @@
 package com.chesslab.tracker.ui.settings
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.chesslab.engine.api.TrackerConfig
+import com.chesslab.tracker.ui.Card
+import com.chesslab.tracker.ui.Figure
+import com.chesslab.tracker.ui.TextAction
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
-import com.chesslab.tracker.ui.theme.Radius
 import com.chesslab.tracker.ui.theme.Space
-import com.chesslab.tracker.ui.theme.SurfaceRaised
+import com.chesslab.tracker.ui.theme.chesslabSwitchColors
 
 /**
  * One knob.
@@ -40,37 +38,32 @@ fun KnobRow(
     onReset: () -> Unit,
 ) {
     val value = knob.valueOf(config)
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(SurfaceRaised, RoundedCornerShape(Radius.sm))
-            .padding(horizontal = Space.md, vertical = Space.sm),
-        verticalArrangement = Arrangement.spacedBy(Space.xs),
-    ) {
+    Card {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(
                 text = if (knob.isDefault(config)) knob.key else "• ${knob.key}",
                 style = MaterialTheme.typography.labelLarge,
                 color = OnSurface,
             )
-            Text(knob.format(value), style = MaterialTheme.typography.labelLarge, color = Accent)
+            // A figure, and the whole point of a knob list is comparing them down the column.
+            Figure(knob.format(value), Accent)
         }
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(Space.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Chip("default ${knob.format(knob.pythonDefault)}", OnSurfaceMuted)
-            if (!knob.live) Chip(if (restartPending) "restart required" else "restart to apply", Busy)
-            if (!knob.isDefault(config)) {
-                TextButton(onClick = onReset) {
-                    Text("reset", style = MaterialTheme.typography.labelMedium, color = OnSurfaceMuted)
-                }
-            }
+            Note("default ${knob.format(knob.pythonDefault)}", OnSurfaceMuted)
+            if (!knob.live) Note(if (restartPending) "restart required" else "restart to apply", Busy)
+            if (!knob.isDefault(config)) TextAction("reset", onReset)
         }
         Text(knob.help, style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
         if (knob.isFlag) {
-            Switch(checked = value != 0.0, onCheckedChange = { onValue(if (it) 1.0 else 0.0) })
+            Switch(
+                checked = value != 0.0,
+                onCheckedChange = { onValue(if (it) 1.0 else 0.0) },
+                colors = chesslabSwitchColors(),
+            )
         } else {
             KnobSlider(knob, value, onValue)
         }
@@ -99,8 +92,9 @@ private fun KnobSlider(
     )
 }
 
+/** A word beside the value, not a [com.chesslab.tracker.ui.ChesslabChip] — nothing here is tappable. */
 @Composable
-fun Chip(
+private fun Note(
     text: String,
     color: Color,
 ) {
@@ -108,6 +102,6 @@ fun Chip(
         text = text,
         style = MaterialTheme.typography.labelSmall,
         color = color,
-        modifier = Modifier.background(Color.Transparent).padding(end = Space.hair),
+        modifier = Modifier.padding(end = Space.hair),
     )
 }

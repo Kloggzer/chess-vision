@@ -44,6 +44,9 @@ import com.chesslab.tracker.games.GameView
 import com.chesslab.tracker.games.UNKNOWN
 import com.chesslab.tracker.service.TrackerRun
 import com.chesslab.tracker.ui.ChesslabScaffold
+import com.chesslab.tracker.ui.ConfirmDialog
+import com.chesslab.tracker.ui.Figure
+import com.chesslab.tracker.ui.OutlineAction
 import com.chesslab.tracker.ui.analysis.EvalBarSlot
 import com.chesslab.tracker.ui.games.GameSessionHost
 import com.chesslab.tracker.ui.games.gamesDir
@@ -95,6 +98,8 @@ private fun TrackingScreen(
     val games by GameSessionHost.controller.collectAsStateWithLifecycle()
     val live by (games?.state ?: NO_LIVE_GAME).collectAsStateWithLifecycle()
     var endingGame by remember { mutableStateOf(false) }
+    var discarding by remember { mutableStateOf(false) }
+    var recalibrating by remember { mutableStateOf(false) }
     var showPreview by remember { mutableStateOf(false) }
     var showShare by remember { mutableStateOf(false) }
 
@@ -111,12 +116,51 @@ private fun TrackingScreen(
             )
         },
     ) { bars ->
-        TrackingBody(viewModel, ui, live.game, preview.takeIf { showPreview }, running, Modifier.padding(bars)) {
-            endingGame = true
-        }
+        TrackingBody(
+            viewModel = viewModel,
+            ui = ui,
+            game = live.game,
+            camera = preview.takeIf { showPreview },
+            running = running,
+            modifier = Modifier.padding(bars),
+            onEndGame = { endingGame = true },
+            // Recalibrating replaces the geometry the running game has been tracked against, and
+            // there is no way back to the old quad. With no moves committed there is nothing to lose.
+            onRecalibrate = { if (live.moveCount > 0) recalibrating = true else viewModel.onRecalibrate() },
+        )
     }
 
     if (showShare) ShareDialog { showShare = false }
+    if (recalibrating) {
+        ConfirmDialog(
+            title = "Recalibrate mid-game?",
+            body = "${live.moveCount} moves have been tracked against the current board geometry. " +
+                "Fitting a new grid replaces it, and the old one is not kept.",
+            verb = "Recalibrate",
+            onConfirm = {
+                recalibrating = false
+                viewModel.onRecalibrate()
+            },
+            onDismiss = { recalibrating = false },
+        )
+    }
+    if (discarding) {
+        ConfirmDialog(
+            title = "Discard this game?",
+            body = "${live.moveCount} moves and everything recorded for them. This cannot be undone.",
+            verb = "Discard",
+            onConfirm = {
+                discarding = false
+                // The record must go too. Resetting only the ENGINE left the discarded game standing
+                // in the service, so the next ply was illegal from it and opened a seam inside a game
+                // the user had just thrown away.
+                games?.discard()
+                viewModel.onResetGame()
+                endingGame = false
+            },
+            onDismiss = { discarding = false },
+        )
+    }
     TrackingDialogs(
         viewModel = viewModel,
         ui = ui,
@@ -128,13 +172,16 @@ private fun TrackingScreen(
             viewModel.onResetGame()
             endingGame = false
         },
+        // With moves on the board this only OPENS the confirmation; with none there is nothing to
+        // confirm, and the same callback re-seeds the tracker outright.
         onEndDiscard = {
-            // The record must go too. Resetting only the ENGINE left the discarded game standing in
-            // the service, so the next ply was illegal from it and opened a seam inside a game the
-            // user had just thrown away.
-            games?.discard()
-            viewModel.onResetGame()
-            endingGame = false
+            if (live.moveCount > 0) {
+                discarding = true
+            } else {
+                games?.discard()
+                viewModel.onResetGame()
+                endingGame = false
+            }
         },
         onEndDismiss = { endingGame = false },
     )
@@ -228,6 +275,7 @@ private fun TrackingBody(
     running: Boolean,
     modifier: Modifier = Modifier,
     onEndGame: () -> Unit,
+    onRecalibrate: () -> Unit,
 ) {
     val lastCommit = viewModel.lastCommit.collectAsStateWithLifecycle().value
     Column(
@@ -260,7 +308,7 @@ private fun TrackingBody(
                 undoLabel = undoLabel(lastCommit),
                 // Ending a game that has moves USED to throw it away without a word.
                 onEndGame = onEndGame,
-                onRecalibrate = viewModel::onRecalibrate,
+                onRecalibrate = onRecalibrate,
             )
         }
         TrackingSwitch(running)
@@ -342,7 +390,7 @@ private fun StateHeader(ui: TrackingUiState) {
             Column(horizontalAlignment = Alignment.End) {
                 // The fps colour is frozen to the alarm colour while alarmed: the loop is running
                 // but no move can commit, and a healthy-looking counter would say otherwise.
-                Text(ui.fpsText, style = MaterialTheme.typography.labelMedium, color = tone)
+                Figure(ui.fpsText, tone)
                 ui.fpsDetail?.let {
                     Text(it, style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted, maxLines = 1)
                 }
@@ -387,25 +435,11 @@ private fun ActionBar(
 ) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
         // Not always "Undo": one press unwinds the last COMMIT, and a CNN recovery commits a
-        // whole bridge (four plies on 2026-08-02).
-        ActionButton(undoLabel, onUndo, Modifier.weight(1f))
-        ActionButton("End game", onEndGame, Modifier.weight(1f))
-        ActionButton("Recalibrate", onRecalibrate, Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun ActionButton(
-    label: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    OutlinedButton(
-        onClick = onClick,
-        modifier = modifier.heightIn(min = Touch.min),
-        contentPadding = PaddingValues(Space.xs),
-    ) {
-        Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+        // whole bridge (four plies on 2026-08-02). It gets NO confirmation — it IS the reversal.
+        OutlineAction(undoLabel, onUndo, Modifier.weight(1f))
+        // Nor does ending: the game is saved on the way out, and its dialog asks who played.
+        OutlineAction("End game", onEndGame, Modifier.weight(1f))
+        OutlineAction("Recalibrate", onRecalibrate, Modifier.weight(1f))
     }
 }
 
@@ -467,9 +501,9 @@ private fun EndGameDialog(
         },
         dismissButton = {
             // Never the default action, and never silent: discarding a played game is the one
-            // outcome here that cannot be undone.
+            // outcome here that cannot be undone, so it does not act — it opens the confirmation.
             if (moves > 0) {
-                TextButton(onClick = onDiscard) { Text("Discard", color = Danger) }
+                TextButton(onClick = onDiscard) { Text("Discard…", color = Danger) }
             } else {
                 TextButton(onClick = onDismiss) { Text("Cancel", color = OnSurfaceMuted) }
             }

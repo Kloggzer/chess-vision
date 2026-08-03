@@ -97,6 +97,8 @@ fun ChesslabNavHost(navController: NavHostController = rememberNavController()) 
                 SettingsRoute(
                     onBack = { navController.popBackStack() },
                     onOpenDebug = { navController.navigate(ROUTE_DEBUG) },
+                    // The second door to the camera screen, from where somebody looks for setup.
+                    onOpenCalibration = { navController.navigate(ROUTE_CAMERA) },
                     onRestartTracker = restart?.let { { it.restartTracker() } },
                 )
             }

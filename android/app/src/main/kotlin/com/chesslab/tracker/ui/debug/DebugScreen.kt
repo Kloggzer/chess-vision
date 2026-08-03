@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.chesslab.tracker.ui.ChesslabScaffold
+import com.chesslab.tracker.ui.Figure
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
@@ -107,6 +108,7 @@ internal fun StatRow(
 ) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = OnSurfaceMuted)
-        Text(value, style = MaterialTheme.typography.labelMedium, color = tone)
+        // The value is a figure — every panel here is a table read down its right-hand column.
+        Figure(value, tone)
     }
 }

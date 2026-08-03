@@ -9,6 +9,27 @@ import androidx.compose.ui.unit.sp
 // Nothing below 14sp exists in this app: the phone lies on the table, not in the hand.
 // The state line is display-sized on purpose — it is the one thing that must be readable
 // from a metre away without leaning in.
+//
+// **Monospace is for figures that align, and for nothing else** (specs/48). It was carrying the
+// structure: `RECENT GAMES`, `YOUR LIBRARY`, the tab labels and the in-progress banner were all set
+// in it, which is how a chess app comes to look like a log viewer. Every one of those is a LABEL and
+// they are in the body face now, semibold and tracked — the same signal without the terminal.
+// The one monospace style left is [Figures], and it is named after what it is for.
+
+/**
+ * Evaluations, move numbers, counts, fps — anything whose digits must line up between rows or
+ * between frames.
+ *
+ * Deliberately NOT a `Typography` slot: a slot is something a call site reaches for because it is
+ * the right size, and this is something a call site reaches for because the content is a figure.
+ */
+val Figures =
+    TextStyle(
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.Medium,
+        fontSize = 14.sp,
+        lineHeight = 18.sp,
+    )
 
 val ChesslabTypography =
     Typography(
@@ -47,12 +68,15 @@ val ChesslabTypography =
                 fontSize = 16.sp,
                 lineHeight = 20.sp,
             ),
+        // The LABEL role: section headings, tab labels, chips, the banner. Tracked rather than
+        // monospaced — the tracking is what makes a short uppercase run read as a heading.
         labelMedium =
             TextStyle(
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Medium,
+                fontFamily = FontFamily.Default,
+                fontWeight = FontWeight.SemiBold,
                 fontSize = 14.sp,
                 lineHeight = 18.sp,
+                letterSpacing = 1.sp,
             ),
         // Material's own labelSmall/bodySmall are 11sp and 12sp. Both are used across the settings,
         // debug and analysis screens, and both break the "nothing below 14sp" rule by default.

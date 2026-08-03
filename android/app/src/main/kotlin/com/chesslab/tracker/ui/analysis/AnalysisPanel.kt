@@ -14,11 +14,14 @@ import com.chesslab.tracker.analysis.AnalysisLine
 import com.chesslab.tracker.analysis.AnalysisResult
 import com.chesslab.tracker.analysis.GateBlock
 import com.chesslab.tracker.analysis.winChanceWhite
+import com.chesslab.tracker.ui.Figure
+import com.chesslab.tracker.ui.percent
 import com.chesslab.tracker.ui.theme.OnSurface
+import com.chesslab.tracker.ui.Figure
+import com.chesslab.tracker.ui.percent
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
 import kotlin.math.abs
-import kotlin.math.roundToInt
 
 /** Why the bar is greyed, in the user's words. */
 internal fun blockText(block: GateBlock?): String? =
@@ -42,7 +45,7 @@ internal fun lineScore(line: AnalysisLine): String {
     val cp = line.cp
     return when {
         mate != null -> (if (mate < 0) "-M" else "M") + abs(mate)
-        cp != null -> "${winChanceWhite(cp).roundToInt()}%"
+        cp != null -> percent(winChanceWhite(cp))
         else -> "?"
     }
 }
@@ -76,6 +79,6 @@ fun AnalysisPanel(
 private fun PvRow(line: AnalysisLine) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(line.san ?: line.uci ?: "—", style = MaterialTheme.typography.bodyMedium, color = OnSurface)
-        Text(lineScore(line), style = MaterialTheme.typography.bodyMedium, color = OnSurfaceMuted)
+        Figure(lineScore(line), OnSurfaceMuted)
     }
 }

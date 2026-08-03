@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.service.DebugState
+import com.chesslab.tracker.ui.Figure
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.Danger
@@ -82,18 +83,14 @@ private fun ReadRow(row: CnnReadRow) {
             else -> OnSurfaceMuted
         }
     Row(Modifier.fillMaxWidth().padding(vertical = Stroke.hairline), horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
-        Text(row.square, Modifier.weight(0.8f), style = MaterialTheme.typography.labelMedium, color = tone)
-        Text(row.label, Modifier.weight(1.2f), style = MaterialTheme.typography.labelMedium, color = tone)
-        Text(pct(row.conf), Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = tone)
-        Text(
-            if (row.occupied) "occ" else "empty",
-            Modifier.weight(1f),
-            style = MaterialTheme.typography.labelMedium,
-            color = tone,
-        )
-        Text(pct(row.pOccluded), Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = tone)
-        Text(row.believed, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = OnSurfaceMuted)
+        // Six columns read down, so all six are figures whether or not they are numbers.
+        Figure(row.square, tone, Modifier.weight(0.8f))
+        Figure(row.label, tone, Modifier.weight(1.2f))
+        Figure(pct(row.conf), tone, Modifier.weight(1f))
+        Figure(if (row.occupied) "occ" else "empty", tone, Modifier.weight(1f))
+        Figure(pct(row.pOccluded), tone, Modifier.weight(1f))
+        Figure(row.believed, OnSurfaceMuted, Modifier.weight(1f))
     }
 }
 
-internal fun pct(value: Double): String = fmt(value * PERCENT, 0) + "%"
+internal fun pct(value: Double): String = fmt(value * PERCENT, 0) + " %"
