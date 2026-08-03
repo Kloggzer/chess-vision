@@ -35,10 +35,47 @@ with an engine, and since specs/43 it launches with no camera at all, so the fir
 is a tracker that is not tracking. That is the clearest symptom of the drift: the landing screen is
 where the app used to have its only purpose.
 
-The user's proposal is a **dashboard**: jump-off points and stats. Take it seriously and design it
-from what the app actually knows — games played and stored, accuracy over time, the last game and
-its worst move, whether a calibration exists, whether tracking is running. Do not invent a metric to
-fill a card.
+The user's proposal is a **dashboard**, sketched by them on 2026-08-03:
+
+> *"Landingpage aka dashboard — 'Welcome back'. Erste Zeile: start recording. 2. Recent games listed
+> n her more. Ggf als Panel zweispaltig. Some statistics. Ggf wer gegen wen, musste dann noch in den
+> Tracker wer wer ist. Meistgespielte Eröffnung mit Tutorial."*
+
+Read as a layout:
+
+| Row | Content | Notes |
+|---|---|---|
+| Greeting | "Welcome back" | |
+| 1 | **Start recording** | the primary action, and the only one that needs the camera |
+| 2 | **Recent games**, a short list, with a way to see the rest | the full library stays where it is |
+| 3 | **Statistics** | possibly a two-column panel |
+
+**Design it from what the app actually knows.** The proposal contains three different kinds of item
+and they cost very different things:
+
+1. **Free today.** Recent games, results, ply counts, seams and per-game accuracy all fall out of
+   `GameStore` and the stored analysis. Games played, accuracy over time, the last game's worst
+   move — all readable now.
+2. **A small, real addition: who played.** `StoredGame` already carries `white` and `black`, and
+   `GameStore.rename` already sets them — **nothing ever captures them**, which is why every game
+   reads `? vs ?` on the device. The user saw this too: *"musste dann noch in den Tracker wer wer
+   ist."* So the tracker needs to ask, once, at the start of a game, or offer it at the end. The
+   model is ready; the capture is missing. Design where that question lives so it does not become a
+   dialog in front of a person who wants to press one button and play.
+3. **Genuinely new machinery: the most-played opening.** The app cannot name an opening. It has no
+   opening book at all — which is also why `MoveQuality.BOOK` is unreachable and specs/42 recorded
+   it as a band nothing produces. **One opening book serves both**: the dashboard statistic and the
+   BOOK category the grading already has a slot for. That is a real argument for adding one, and it
+   is a piece of work, not a card.
+
+   *"mit Tutorial"* is a fourth thing again — teaching content, not code. Do not write chess
+   instruction into this app. Either link an existing source or drop it; an invented explanation of
+   an opening is exactly the fabrication this project refuses elsewhere.
+
+**Do not invent a metric to fill a card.** Every number on the dashboard must be traceable to
+something the app measured. A card with no data yet should say so, or not exist until it has any —
+a brand-new install has no games, and the dashboard's empty state is a design problem in its own
+right, not an afterthought.
 
 ## Elements that may combine
 
