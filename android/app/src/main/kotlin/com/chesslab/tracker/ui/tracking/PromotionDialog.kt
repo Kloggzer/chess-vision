@@ -21,10 +21,10 @@ import com.chesslab.tracker.ui.theme.PieceWhite
 import com.chesslab.tracker.ui.theme.Space
 
 /** Q / R / B / N, in that order. Lowercase is what `choosePromotion` expects. */
+private val PROMOTION_CHOICES = listOf('q', 'r', 'b', 'n')
+
 /** Four glyphs a thumb has to hit mid-game, so this is a size and not a touch minimum. */
 private val PIECE_BUTTON = 76.dp
-
-private val PROMOTION_CHOICES = listOf('q', 'r', 'b', 'n')
 
 /** `w` in the FEN's side-to-move field — the promoting side, so the buttons show its colour. */
 internal fun whiteToMove(fen: String): Boolean = fen.split(' ').getOrNull(1) != "b"

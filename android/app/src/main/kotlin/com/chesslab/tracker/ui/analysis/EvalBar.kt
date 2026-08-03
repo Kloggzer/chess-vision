@@ -1,7 +1,7 @@
 package com.chesslab.tracker.ui.analysis
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -21,50 +21,61 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.analysis.AnalysisResult
 import com.chesslab.tracker.analysis.AnalysisState
-import com.chesslab.tracker.analysis.CP_PER_PAWN
 import com.chesslab.tracker.ui.theme.BoardDark
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.PieceWhite
+import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.tracking.NoTrackerSession
 import com.chesslab.tracker.ui.tracking.TrackerSessionHost
-import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 private const val NO_EVAL = "–"
 
 internal val BAR_WIDTH = 18.dp
 
+/** Its own radius, not `Radius.sm`: 8 dp on an 18 dp column is a pill, not a rounded bar. */
+private val BAR_CORNER = 3.dp
+
 /**
- * The slot is wider than the bar so `+0.3` and `-M3` fit on ONE line — at bar width the label
- * wrapped to `+0.` / `3`, which is not a number anybody can read at arm's length.
+ * The slot is wider than the bar so `100%` and `-M3` fit on ONE line — at bar width the label
+ * wrapped, which is not a number anybody can read at arm's length.
  *
  * The width does not change when analysis is off: a 6dp hairline beside the board read as a
- * rendering artifact rather than a control, and this is still the ONLY way into the analysis
- * settings sheet, so it cannot shrink to nothing either.
+ * rendering artifact rather than a control.
  */
 internal val SLOT_WIDTH = 40.dp
 
-/** The centipawn score as pawns, or `M3` for a mate. Pure, so the sign convention is testable. */
+/**
+ * White's win expectancy as a percentage, or `M3` for a mate. Pure, so the convention is testable.
+ *
+ * It read PAWNS (`+0.3`) until specs/47 while the review screen's bar — the same drawing, the same
+ * slot — read `61 %`. specs/44 removed centipawns from the review because they have to be taught;
+ * they survived here, one screen over. A mate keeps its own words: a distance is not an evaluation,
+ * and `100%` would throw the distance away.
+ */
 internal fun evalLabel(result: AnalysisResult?): String {
     val mate = result?.mate
-    val cp = result?.cp
+    val winWhite = result?.winWhite
     return when {
         result == null || result.gameOver -> NO_EVAL
         mate != null -> (if (mate < 0) "-M" else "M") + abs(mate)
-        cp != null -> String.format(Locale.ROOT, "%+.1f", cp / CP_PER_PAWN)
+        winWhite != null -> "${winWhite.roundToInt()}%"
         else -> NO_EVAL
     }
 }
 
 /**
- * The tracking screen's single analysis insertion: bar, top-3 panel and settings, all reached from
- * this one element. It renders nothing at all when no engine binary shipped for this ABI.
+ * The tracking screen's single analysis insertion: the bar and the engine's top lines. It renders
+ * nothing at all when no engine binary shipped for this ABI. The knobs live in Settings › Analysis
+ * and nowhere else.
  *
  * It reads the tracker's status itself rather than taking it as a parameter — the eval bar must not
  * become a reason for the tracking screen to carry analysis plumbing.
@@ -83,16 +94,18 @@ fun EvalBarSlot(modifier: Modifier = Modifier) {
     if (state == AnalysisState.Unavailable) return
 
     var showPanel by remember { mutableStateOf(false) }
-    var showSettings by remember { mutableStateOf(false) }
     Column(
-        modifier.fillMaxHeight().width(SLOT_WIDTH).pointerInput(settings.enabled) {
-            detectTapGestures(
-                onTap = { if (settings.enabled) showPanel = true else showSettings = true },
-                onLongPress = { showSettings = true },
-            )
-        },
+        // A tap opens the engine's lines. The LONG PRESS that used to open the analysis settings is
+        // gone with the sheet: it duplicated Settings › Analysis behind a gesture on a 40 dp sliver
+        // that nobody could discover, and it was the stated reason this slot could not shrink.
+        // The label is a number that changes, so the description is what an agent taps.
+        modifier
+            .fillMaxHeight()
+            .width(SLOT_WIDTH)
+            .clickable { showPanel = true }
+            .semantics { contentDescription = "Engine evaluation" },
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        verticalArrangement = Arrangement.spacedBy(Space.hair),
     ) {
         Text(
             text = if (settings.enabled) evalLabel(result) else "eval",
@@ -111,9 +124,6 @@ fun EvalBarSlot(modifier: Modifier = Modifier) {
     }
 
     if (showPanel) AnalysisPanel(result = result, block = block, onDismiss = { showPanel = false })
-    if (showSettings) {
-        AnalysisSettingsSheet(settings = settings, onChange = host::update, onDismiss = { showSettings = false })
-    }
 }
 
 /**
@@ -132,7 +142,7 @@ internal fun EvalFill(
     val white = ((winWhite ?: 50.0) / 100.0).toFloat()
     Column(
         modifier
-            .clip(RoundedCornerShape(3.dp))
+            .clip(RoundedCornerShape(BAR_CORNER))
             .background(BoardDark),
     ) {
         Spacer(Modifier.fillMaxWidth().weight(max(MIN_WEIGHT, 1f - white)))

@@ -20,6 +20,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.chesslab.tracker.ui.ChesslabScaffold
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import com.chesslab.tracker.ui.theme.Space
 
 /**
  * The debug route. 07a wires it behind the settings screen under `ROUTE_DEBUG` — it is deliberately
@@ -46,7 +47,7 @@ private fun DebugScreen(
     val cnn by viewModel.cnn.collectAsStateWithLifecycle()
 
     ChesslabScaffold("Debug", onBack) { bars ->
-        Column(Modifier.fillMaxSize().padding(bars).padding(horizontal = 12.dp)) {
+        Column(Modifier.fillMaxSize().padding(bars)) {
             // The attach banner rides above the tabs on every tab, not only on the CNN one: a
             // silent attach failure once survived a whole session (MEMORY android-live-bringup-2607).
             CnnAttachBanner(cnn)
@@ -65,13 +66,13 @@ private fun DebugScreen(
                     "waiting for the tracker's first debug frame…",
                     style = MaterialTheme.typography.bodyMedium,
                     color = OnSurfaceMuted,
-                    modifier = Modifier.padding(top = 24.dp),
+                    modifier = Modifier.padding(top = Space.xl),
                 )
                 return@Column
             }
             Column(
-                Modifier.fillMaxSize().padding(top = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                Modifier.fillMaxSize().padding(top = Space.md),
+                verticalArrangement = Arrangement.spacedBy(Space.sm),
             ) {
                 when (tab) {
                     DebugTab.TIMINGS -> TimingsPanel(debug)

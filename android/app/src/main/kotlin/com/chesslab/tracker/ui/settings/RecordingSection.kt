@@ -1,9 +1,8 @@
-package com.chesslab.tracker.ui.games
+package com.chesslab.tracker.ui.settings
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -15,27 +14,164 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.games.GameSessionState
+import com.chesslab.tracker.record.RecordingPrefs
+import com.chesslab.tracker.record.RecordingSettings
 import com.chesslab.tracker.record.SessionInfo
+import com.chesslab.tracker.record.SessionStore
 import com.chesslab.tracker.record.formatBytes
 import com.chesslab.tracker.record.zipSession
+import com.chesslab.tracker.ui.games.GameSessionHost
+import com.chesslab.tracker.ui.games.RecordingSettingsHost
+import com.chesslab.tracker.ui.games.sessionsDir
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import com.chesslab.tracker.ui.theme.Space
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import java.io.File
 
 private const val MB = 1024L * 1024L
 private val CAPS = listOf(250L * MB, 1024L * MB, 2048L * MB, 0L)
 
 private fun capLabel(bytes: Long): String = if (bytes <= 0L) "unlimited" else formatBytes(bytes)
+
+/** The screen renders before the service is bound; an unbound live game is simply an empty one. */
+private val NO_LIVE_GAME = MutableStateFlow(GameSessionState())
+
+data class RecordingUi(
+    val prefs: RecordingPrefs = RecordingPrefs(),
+    val sessions: List<SessionInfo> = emptyList(),
+    val sessionBytes: Long = 0L,
+)
+
+/**
+ * Recording's own state, split off the games screen when the panel moved here.
+ *
+ * [RecordingUi.sessionBytes] walks the sessions tree, so it is read on screen entry and on an
+ * explicit action, never on the capture path.
+ */
+class RecordingViewModel(
+    private val sessions: SessionStore,
+    private val settings: RecordingSettings,
+    private val scope: CoroutineScope,
+) {
+    private val mutable = MutableStateFlow(RecordingUi())
+    val ui: StateFlow<RecordingUi> = mutable
+
+    fun refresh() = io { mutable.value = RecordingUi(settings.load(), sessions.list(), sessions.totalBytes()) }
+
+    fun setPrefs(prefs: RecordingPrefs) =
+        io {
+            settings.save(prefs)
+            mutable.value = mutable.value.copy(prefs = prefs)
+        }
+
+    fun deleteSession(id: String) =
+        io {
+            sessions.delete(id)
+            mutable.value = mutable.value.copy(sessions = sessions.list(), sessionBytes = sessions.totalBytes())
+        }
+
+    fun sessionDir(id: String): File = sessions.dir(id)
+
+    private fun io(block: suspend () -> Unit) {
+        scope.launch(Dispatchers.IO) { block() }
+    }
+}
+
+/**
+ * Session recording, off by default — a Settings subpage since specs/47.
+ *
+ * It was the first and tallest card on the Games screen, which is the screen that holds the game
+ * library: a five-line explainer, four size chips and a second toggle, above the games themselves.
+ * It is a setting; this is where settings are.
+ *
+ * The explanation is not decoration: this is the one switch in the app that makes the phone write
+ * hundreds of megabytes of its own storage, and the payoff (auto-labeled training data for
+ * `chesslab slice`) is invisible on the device itself.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun RecordingSection() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val model =
+        remember(context) {
+            RecordingViewModel(SessionStore(sessionsDir(context)), RecordingSettingsHost.get(context), scope)
+        }
+    LaunchedEffect(model) { model.refresh() }
+    val ui by model.ui.collectAsStateWithLifecycle()
+    val controller by GameSessionHost.controller.collectAsStateWithLifecycle()
+    val live by (controller?.state ?: NO_LIVE_GAME).collectAsStateWithLifecycle()
+    var expanded by remember { mutableStateOf(false) }
+
+    Card {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            // `weight` on the text, not a fixed width: measured first it claims the whole row and
+            // wraps its next line under the Switch, which holds its minimum size regardless.
+            Text(
+                text = "Record training frames",
+                style = MaterialTheme.typography.titleMedium,
+                color = OnSurface,
+                modifier = Modifier.weight(1f).padding(end = Space.md),
+            )
+            Switch(ui.prefs.enabled, { model.setPrefs(ui.prefs.copy(enabled = it)) })
+        }
+        Text(
+            "Each committed move stores the raw camera frame with its FEN and board corners — exactly what " +
+                "`chesslab slice` turns into 64 labeled crops. It costs storage (a game is tens of megabytes) " +
+                "and nothing on the phone reads it back, so it is off unless you want the data.",
+            style = MaterialTheme.typography.bodySmall,
+            color = OnSurfaceMuted,
+        )
+        LiveRecordingLine(live)
+        Text(
+            "On disk: ${formatBytes(ui.sessionBytes)} in ${ui.sessions.size} sessions · limit ${capLabel(ui.prefs.capBytes)}",
+            style = MaterialTheme.typography.bodySmall,
+            color = OnSurfaceMuted,
+        )
+        // Real chips, not coloured text: as plain labels the four caps had no tappable affordance
+        // and the selected one was distinguishable only by hue.
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+            CAPS.forEach { cap ->
+                FilterChip(
+                    selected = cap == ui.prefs.capBytes,
+                    onClick = { model.setPrefs(ui.prefs.copy(capBytes = cap)) },
+                    label = { Text(capLabel(cap), style = MaterialTheme.typography.labelMedium) },
+                )
+            }
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Skip physically impossible positions",
+                style = MaterialTheme.typography.bodySmall,
+                color = OnSurfaceMuted,
+                modifier = Modifier.weight(1f).padding(end = Space.md),
+            )
+            Switch(ui.prefs.inventoryFilter, { model.setPrefs(ui.prefs.copy(inventoryFilter = it)) })
+        }
+        TextButton(onClick = { expanded = !expanded }) {
+            Text(if (expanded) "Hide recordings" else "Show recordings (${ui.sessions.size})", color = OnSurfaceMuted)
+        }
+        if (expanded) ui.sessions.forEach { SessionRow(it, model) }
+    }
+}
 
 /**
  * What the running recorder is actually doing.
@@ -62,77 +198,10 @@ private fun LiveRecordingLine(live: GameSessionState) {
     }
 }
 
-/**
- * Session recording, off by default.
- *
- * The explanation is not decoration: this is the one switch in the app that makes the phone write
- * hundreds of megabytes of its own storage, and the payoff (auto-labeled training data for
- * `chesslab slice`) is invisible on the device itself.
- */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun RecordingPanel(
-    ui: GamesUi,
-    model: GamesViewModel,
-    live: GameSessionState,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            // `weight` on the text, not a fixed width: measured first it claims the whole row and
-            // wraps its next line under the Switch, which holds its minimum size regardless.
-            Text(
-                text = "Record training frames",
-                style = MaterialTheme.typography.titleMedium,
-                color = OnSurface,
-                modifier = Modifier.weight(1f).padding(end = 12.dp),
-            )
-            Switch(ui.prefs.enabled, { model.setPrefs(ui.prefs.copy(enabled = it)) })
-        }
-        Text(
-            "Each committed move stores the raw camera frame with its FEN and board corners — exactly what " +
-                "`chesslab slice` turns into 64 labeled crops. It costs storage (a game is tens of megabytes) " +
-                "and nothing on the phone reads it back, so it is off unless you want the data.",
-            style = MaterialTheme.typography.bodySmall,
-            color = OnSurfaceMuted,
-        )
-        LiveRecordingLine(live)
-        Text(
-            "On disk: ${formatBytes(ui.sessionBytes)} in ${ui.sessions.size} sessions · limit ${capLabel(ui.prefs.capBytes)}",
-            style = MaterialTheme.typography.bodySmall,
-            color = OnSurfaceMuted,
-        )
-        // Real chips, not coloured text: as plain labels the four caps had no tappable affordance
-        // and the selected one was distinguishable only by hue.
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            CAPS.forEach { cap ->
-                FilterChip(
-                    selected = cap == ui.prefs.capBytes,
-                    onClick = { model.setPrefs(ui.prefs.copy(capBytes = cap)) },
-                    label = { Text(capLabel(cap), style = MaterialTheme.typography.labelMedium) },
-                )
-            }
-        }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "Skip physically impossible positions",
-                style = MaterialTheme.typography.bodySmall,
-                color = OnSurfaceMuted,
-                modifier = Modifier.weight(1f).padding(end = 12.dp),
-            )
-            Switch(ui.prefs.inventoryFilter, { model.setPrefs(ui.prefs.copy(inventoryFilter = it)) })
-        }
-        TextButton(onClick = { expanded = !expanded }) {
-            Text(if (expanded) "Hide recordings" else "Show recordings (${ui.sessions.size})", color = OnSurfaceMuted)
-        }
-        if (expanded) ui.sessions.forEach { SessionRow(it, model) }
-    }
-}
-
 @Composable
 private fun SessionRow(
     session: SessionInfo,
-    model: GamesViewModel,
+    model: RecordingViewModel,
 ) {
     val context = LocalContext.current
     val export =
@@ -146,7 +215,7 @@ private fun SessionRow(
             "${session.id} · ${session.frames} frames · ${formatBytes(session.bytes)}",
             style = MaterialTheme.typography.bodySmall,
             color = OnSurfaceMuted,
-            modifier = Modifier.weight(1f).padding(end = 8.dp),
+            modifier = Modifier.weight(1f).padding(end = Space.sm),
         )
         Row {
             TextButton(onClick = { export.launch("${session.id}.zip") }) { Text("Export", color = Accent) }

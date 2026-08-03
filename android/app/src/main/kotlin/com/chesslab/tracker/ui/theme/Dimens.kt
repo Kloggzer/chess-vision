@@ -2,7 +2,7 @@ package com.chesslab.tracker.ui.theme
 
 import androidx.compose.ui.unit.dp
 
-/**
+/*
  * The app's spacing scale.
  *
  * Plain objects, not a `CompositionLocal`: colour is a local because it changes with the theme, and

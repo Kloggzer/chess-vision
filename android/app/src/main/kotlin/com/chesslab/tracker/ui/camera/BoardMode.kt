@@ -19,8 +19,8 @@ import com.chesslab.tracker.ui.calibration.CalibrationHost
 import com.chesslab.tracker.ui.calibration.CalibrationState
 import com.chesslab.tracker.ui.calibration.CalibrationViewModel
 import com.chesslab.tracker.ui.calibration.QuadOutline
-import kotlinx.coroutines.CoroutineScope
 import com.chesslab.tracker.ui.theme.Space
+import kotlinx.coroutines.CoroutineScope
 
 /**
  * The board on the camera screen: an outline and a sentence. Nothing to press.
