@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-private val SNAPSHOT = gameSnapshot(status(), listOf(PlayedMove("e4", "e2e4")), 1L)
+private val SNAPSHOT = gameSnapshot(status(), played("e4" to "e2e4"), 1L)
 
 private fun leaves(node: RoutingNode): List<String> =
     if (node.children.isEmpty()) listOf(node.toString()) else node.children.flatMap(::leaves)

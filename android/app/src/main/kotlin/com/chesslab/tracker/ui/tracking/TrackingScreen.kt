@@ -32,8 +32,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.chesslab.tracker.games.GameSessionState
+import com.chesslab.tracker.games.GameView
 import com.chesslab.tracker.ui.analysis.EvalBarSlot
 import com.chesslab.tracker.ui.games.GameSessionHost
+import com.chesslab.tracker.ui.review.MoveList
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.Danger
@@ -56,7 +58,6 @@ fun TrackingRoute(
 @Composable
 private fun TrackingScreen(viewModel: TrackingViewModel) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
-    val moves by viewModel.moves.collectAsStateWithLifecycle()
     val promotion by viewModel.promotion.collectAsStateWithLifecycle()
     val acceptCnn by viewModel.acceptCnn.collectAsStateWithLifecycle()
     val preview by viewModel.preview.collectAsStateWithLifecycle()
@@ -67,7 +68,7 @@ private fun TrackingScreen(viewModel: TrackingViewModel) {
     val live by (games?.state ?: NO_LIVE_GAME).collectAsStateWithLifecycle()
     var endingGame by remember { mutableStateOf(false) }
 
-    TrackingBody(viewModel, ui, moves, preview, cameraOn) { endingGame = true }
+    TrackingBody(viewModel, ui, live.game, preview, cameraOn) { endingGame = true }
 
     TrackingDialogs(
         viewModel = viewModel,
@@ -81,6 +82,10 @@ private fun TrackingScreen(viewModel: TrackingViewModel) {
             endingGame = false
         },
         onEndDiscard = {
+            // The record must go too. Resetting only the ENGINE left the discarded game standing in
+            // the service, so the next ply was illegal from it and opened a seam inside a game the
+            // user had just thrown away.
+            games?.discard()
             viewModel.onResetGame()
             endingGame = false
         },
@@ -93,7 +98,7 @@ private fun TrackingScreen(viewModel: TrackingViewModel) {
 private fun TrackingBody(
     viewModel: TrackingViewModel,
     ui: TrackingUiState,
-    moves: List<MoveEntry>,
+    game: GameView,
     preview: android.graphics.Bitmap?,
     cameraOn: Boolean,
     onEndGame: () -> Unit,
@@ -108,7 +113,7 @@ private fun TrackingBody(
         // The camera board takes the BOARD's slot, not the leftover space under it. Both show the
         // same 8x8; when you turn the camera on you are diagnosing, and the picture you need to
         // read square by square is the one from the lens.
-        BoardRow(ui, viewModel.lastMoveUci, camera = preview.takeIf { showPreview })
+        BoardRow(ui, game.plies.lastOrNull()?.uci, camera = preview.takeIf { showPreview })
         ui.alarm?.let {
             AlarmCard(
                 alarm = it,
@@ -119,7 +124,8 @@ private fun TrackingBody(
             )
         }
         Box(Modifier.fillMaxWidth().weight(1f)) {
-            MoveList(rows = remember(moves) { moveRows(moves) }, modifier = Modifier.fillMaxSize())
+            // The same list the review screen and the LAN page render, from the same source.
+            MoveList(game = game, modifier = Modifier.fillMaxSize())
         }
         ActionBar(
             onUndo = viewModel::onUndo,
@@ -358,7 +364,8 @@ private fun EndGameDialog(
             Text(
                 if (moves > 0) {
                     "$moves moves are recorded. Saving keeps them in Games together with this " +
-                        "session's frames; discarding throws both away."
+                        "session's frames; discarding drops the game — frames already written stay " +
+                        "on disk and are deleted from the Games screen."
                 } else {
                     "Nothing is recorded yet. This re-seeds the tracker from the starting position."
                 },

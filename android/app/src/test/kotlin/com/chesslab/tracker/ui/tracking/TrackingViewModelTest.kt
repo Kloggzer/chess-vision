@@ -94,7 +94,9 @@ class TrackingViewModelTest {
             )
             advanceUntilIdle()
             assertEquals(statusFen, vm.ui.value.fen)
-            assertEquals("e2e4", vm.lastMoveUci)
+            // And no score sheet is kept here at all: the game's plies are the service's live game
+            // (`GameSessionState.game`), the one source the review screen and the LAN page also read.
+            assertEquals(listOf("e4"), vm.lastCommit.value, "only the LAST COMMIT, for the undo label")
         }
 
     @Test
