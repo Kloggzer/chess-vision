@@ -34,7 +34,6 @@ const val ROUTE_CALIBRATION = "calibration"
 const val ROUTE_CAMERA = "camera"
 const val ROUTE_SETTINGS = "settings"
 const val ROUTE_DEBUG = "debug"
-const val ROUTE_ANALYSIS = "analysis"
 const val ROUTE_GAMES = "games"
 
 /**
@@ -114,6 +113,8 @@ fun ChesslabNavHost(navController: NavHostController = rememberNavController()) 
             )
         }
         composable(ROUTE_SPEECH) { SpeechSettingsScreen(onBack = { navController.popBackStack() }) }
-        // TODO(phase 07c) composable(ROUTE_ANALYSIS)
+        // No analysis route, and there will not be one: 07c shipped the eval bar as a SLOT beside
+        // the board (`EvalBarSlot`), which is where an evaluation belongs. `ROUTE_ANALYSIS` and its
+        // TODO sat here unreferenced through the whole of 07c and everything after it.
     }
 }
