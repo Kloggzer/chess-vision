@@ -74,6 +74,9 @@ BANDS = 8
 #: fewest a robust fit can be run on and still have one to reject.
 MIN_BAND_SAMPLES = 3
 
+#: Huber weight at or above which a sample counts as KEPT rather than outvoted.
+WEIGHT_KEPT = 0.5
+
 #: Iterations of measure-and-refit. The first pass removes most of the error, and re-measuring in
 #: the corrected warp puts the grooves back inside their search windows.
 ITERS = 4
@@ -197,8 +200,10 @@ def _fit_axis(ks: np.ndarray, lever: np.ndarray, pos: np.ndarray, present: list[
     out: dict[int, tuple[float, float]] = {}
     for k in present:
         # A line whose samples were all downweighted has not been measured, it has been outvoted.
-        kept = float(w[ks == k].sum())
-        if kept < min_samples:
+        # COUNTED at the Huber half-weight, not summed: the Kotlin port does the same
+        # (`AxisFit.kt::WEIGHT_KEPT`), and summing fractional weights would let six samples at 0.5
+        # stand in for three clean ones.
+        if int((w[ks == k] >= WEIGHT_KEPT).sum()) < min_samples:
             continue
         out[k] = (float(sol[0] + sol[1] * k), float(sol[cols[k]]))
     return out
