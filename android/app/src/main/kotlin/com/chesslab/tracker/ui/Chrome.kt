@@ -32,6 +32,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -52,6 +53,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.games.GameSessionState
 import com.chesslab.tracker.service.TrackerRun
 import com.chesslab.tracker.ui.games.GameSessionHost
+import com.chesslab.tracker.ui.review.ReviewHost
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Background
 import com.chesslab.tracker.ui.theme.Danger
@@ -149,6 +151,7 @@ fun ChesslabScaffold(
                         ),
                 )
                 LiveGameBanner()
+                AnalysisBanner()
                 Rule()
             }
         },
@@ -156,7 +159,13 @@ fun ChesslabScaffold(
         // The scaffold owns the side margin AND the gap under the rule, for the same reason: a
         // screen that sets its own gets it wrong somewhere. Without this the first card sits
         // ON the hairline, which reads as the card having no top edge at all.
-        Box(Modifier.padding(horizontal = Space.md, vertical = Space.sm)) { content(bars) }
+        //
+        // The BOTTOM gap is bigger than the top one and that is not symmetry, it is the system's
+        // navigation. `MainActivity` consumes `safeDrawingPadding()`, so the window is inset — but a
+        // list's last item then ends flush AT that boundary with Android's own buttons immediately
+        // below, and "Show all 83 moves" was a control the user could not aim at because of it.
+        // Every screen that ends in a scrolling list has the same problem, so it is fixed once here.
+        Box(Modifier.padding(start = Space.md, end = Space.md, top = Space.sm, bottom = Space.xl)) { content(bars) }
     }
 }
 
@@ -205,6 +214,62 @@ private fun LiveGameBanner() {
         Text("Resume", style = MaterialTheme.typography.labelMedium, color = Accent)
     }
 }
+
+/**
+ * **Panel — in-progress banner, second form.** The engine review, on every screen while it runs.
+ *
+ * The run outlives the screen that started it ([com.chesslab.tracker.ui.review.ReviewHost]), and a
+ * search that nobody can see or stop is a background engine burning battery. This is the seeing and
+ * the stopping: it names the game, says how far it has got, and carries the app's ONLY Stop for it.
+ * Absent when nothing is running, like the banner above it.
+ */
+@Composable
+private fun AnalysisBanner() {
+    val model by ReviewHost.model.collectAsStateWithLifecycle()
+    val review = model ?: return
+    val ui by review.ui.collectAsStateWithLifecycle()
+    if (!ui.running) return
+    Column(Modifier.fillMaxWidth().background(Surface)) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = Space.md, end = Space.sm, top = Space.sm),
+            horizontalArrangement = Arrangement.spacedBy(Space.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Spacer(Modifier.size(Space.sm).clip(CircleShape).background(Accent))
+            Text(
+                text = analysisLine(ui.game?.id, ui.grade?.scored, ui.grade?.positions),
+                style = MaterialTheme.typography.bodyMedium,
+                color = OnSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            TextAction("Stop", review::stop)
+        }
+        // Determinate, because a review is minutes and the one thing worth knowing is how much more.
+        val done = ui.grade?.scored ?: 0
+        val total = ui.grade?.positions ?: 0
+        if (total > 0) {
+            LinearProgressIndicator(
+                { done.toFloat() / total },
+                Modifier.fillMaxWidth().height(Stroke.thick),
+                color = Accent,
+            )
+        }
+    }
+}
+
+/** Named so the wording is testable without a device: it is the only thing the banner says. */
+internal fun analysisLine(
+    id: String?,
+    scored: Int?,
+    positions: Int?,
+): String =
+    when {
+        id == null -> "Reviewing a game…"
+        scored == null || positions == null || positions == 0 -> "Reviewing $id · starting the engine"
+        else -> "Reviewing $id · $scored / $positions"
+    }
 
 /** The state worth reading off a one-row banner: that it is tracking, and how far it has got. */
 internal fun liveGameLine(live: GameSessionState): String =
