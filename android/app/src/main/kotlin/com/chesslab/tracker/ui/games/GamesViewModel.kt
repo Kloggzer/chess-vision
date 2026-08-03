@@ -2,15 +2,12 @@ package com.chesslab.tracker.ui.games
 
 import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.games.GameSummary
-import com.chesslab.tracker.games.StoredGame
-import com.chesslab.tracker.games.buildPgn
 import com.chesslab.tracker.record.SessionStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 data class GamesUi(
     val games: List<GameSummary> = emptyList(),
@@ -55,14 +52,6 @@ class GamesViewModel(
         if (withSession) sessionId?.let(sessions::delete)
         mutable.value = GamesUi(games.list())
     }
-
-    suspend fun open(id: String): StoredGame? = withContext(Dispatchers.IO) { games.open(id) }
-
-    /** The export form: re-rendered, because the provenance toggle is an export-time choice. */
-    suspend fun pgn(
-        id: String,
-        provenance: Boolean,
-    ): String? = open(id)?.let { buildPgn(it, provenance) }
 
     private fun io(block: suspend () -> Unit) {
         scope.launch(Dispatchers.IO) { block() }

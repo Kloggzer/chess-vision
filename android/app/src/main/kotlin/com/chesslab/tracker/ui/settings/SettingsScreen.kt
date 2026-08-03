@@ -3,6 +3,7 @@ package com.chesslab.tracker.ui.settings
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -81,6 +82,11 @@ private fun SettingsScreen(
     // opens the third level twice.
     val title = if (query.isNotBlank()) "Search" else settingsTitle(place)
     val up: () -> Unit = { if (place is SettingsPlace.Groups) onBack() else place = SettingsPlace.Groups }
+    // The arrow and the SYSTEM back button have to mean the same thing. They did not: the arrow
+    // returned to the group list while the hardware button popped the whole Settings route, so
+    // pressing back inside a group left Settings altogether. Cheap before; with four more subpages
+    // (Spoken moves, Analysis, Recording, Device) it is the normal way out.
+    BackHandler(enabled = place !is SettingsPlace.Groups, onBack = up)
 
     ChesslabScaffold(title, up) { bars ->
         Column(Modifier.fillMaxSize().padding(bars)) {

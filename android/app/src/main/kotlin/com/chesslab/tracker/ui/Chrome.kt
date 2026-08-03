@@ -184,7 +184,9 @@ fun DisclosureRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column {
+        // `weight`, or a subtitle long enough to wrap claims the whole row and pushes the chevron
+        // off the screen — which is what the review screen's own disclosure row did.
+        Column(Modifier.weight(1f).padding(end = Space.sm)) {
             Text(title, style = MaterialTheme.typography.titleMedium, color = OnSurface)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
         }

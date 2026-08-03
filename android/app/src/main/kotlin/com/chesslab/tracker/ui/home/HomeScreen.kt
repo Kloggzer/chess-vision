@@ -7,14 +7,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -34,13 +35,13 @@ import com.chesslab.tracker.ui.games.GameSessionHost
 import com.chesslab.tracker.ui.games.gamesDir
 import com.chesslab.tracker.ui.review.resultHeadline
 import com.chesslab.tracker.ui.settings.Card
-import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Radius
 import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.theme.Surface
+import com.chesslab.tracker.ui.theme.Touch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.roundToInt
 
@@ -137,9 +138,15 @@ private fun StartCard(
         }
         // The ONE control on this screen that needs the camera. It opens the tracker; the camera and
         // its permission belong to the tracker's own switch and are asked for there.
-        TextButton(onClick = onStart) {
-            Text(if (fresh) "Start your first game" else "Start a game", color = Accent)
-        }
+        //
+        // The label does NOT change with the library's state — the greeting above it carries that.
+        // A control whose wording moves is a control no agent and no smoke test can tap by text.
+        PrimaryButton("Start a game", onStart)
+        Text(
+            "The camera starts when you do.",
+            style = MaterialTheme.typography.labelSmall,
+            color = OnSurfaceMuted,
+        )
     }
 }
 
@@ -155,10 +162,22 @@ private fun ResumeCard(
             style = MaterialTheme.typography.titleMedium,
             color = OnSurface,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-            TextButton(onClick = onResume) { Text("Resume", color = Accent) }
-            if (live.moveCount > 0) TextButton(onClick = onEnd) { Text("End & save", color = OnSurfaceMuted) }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+            PrimaryButton("Resume", onResume, Modifier.weight(1f))
+            if (live.moveCount > 0) PrimaryButton("End & save", onEnd, Modifier.weight(1f))
         }
+    }
+}
+
+/** The screen's action shape: full width where it stands alone, and never below Material's floor. */
+@Composable
+private fun PrimaryButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedButton(onClick = onClick, modifier = modifier.fillMaxWidth().heightIn(min = Touch.min)) {
+        Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
     }
 }
 
