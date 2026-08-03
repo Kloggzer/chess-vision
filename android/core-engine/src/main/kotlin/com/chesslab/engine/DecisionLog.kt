@@ -18,6 +18,16 @@ import com.chesslab.engine.api.DebugPayload
  */
 internal const val DECISION_LOG_CAP = 64
 
+/**
+ * Motion is printed to four places because it is the one field read against a threshold of 0.0025.
+ * At two places every quiet frame prints `motion=0.00` and the value stops distinguishing "still"
+ * from "just under the gate" — which is exactly the comparison a stuck log is read for.
+ */
+private const val MOTION_DP = 4
+
+/** Agreement is a fraction near 1; two places would print 0.98 for both 0.980 and 0.984. */
+private const val AGREEMENT_DP = 3
+
 /** `_decider` of a row that records why a candidate was NOT committed. */
 internal const val DECIDER_REJECTED = "rejected"
 
@@ -93,8 +103,8 @@ fun DebugDecision.toLogLine(): String {
         append(" zThr=${pyFixed(zThr, 1)} changed=[$z]")
         if (shadowVetoed.isNotEmpty()) append(" shadowVeto=${shadowVetoed.joinToString(",")}")
         if (occludedVetoed.isNotEmpty()) append(" occlVeto=${occludedVetoed.joinToString(",")}")
-        append(" motion=${pyFixed(motion, 4)} grid=${pyFixed(gridCoverage, 2)}")
-        append(" cnn=${if (cnnRun) "run" else "off"} cnnAgree=${pyFixed(cnnAgreement, 3)}")
+        append(" motion=${pyFixed(motion, MOTION_DP)} grid=${pyFixed(gridCoverage, 2)}")
+        append(" cnn=${if (cnnRun) "run" else "off"} cnnAgree=${pyFixed(cnnAgreement, AGREEMENT_DP)}")
         cnnBestMove?.let { append(" cnnMove=$it") }
         stuckReason?.let { append(" stuck=$it") }
         verifyOutcome?.let { append(" verify=$it") }

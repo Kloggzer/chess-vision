@@ -242,7 +242,7 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
 - Frontend changes: `cd src/chesslab/web/frontend && npm run build` (output is
   committed under `web/static/`); `npm run lint` must not add new errors; `npm run knip` —
   dead files, exports and dependencies — must stay silent.
-- Android: `gradlew.bat :app:ktlintCheck :app:detekt`. Note detekt's unused rules
+- Android: `gradlew.bat :app:ktlintCheck :app:detekt :core-engine:detekt`. Note detekt's unused rules
   (`UnusedPrivateMember`, `UnusedParameter`, `UnusedImports`) only see **private** scope — an
   `internal`/`public` function nobody calls is not detected by anything in this repo.
 - **Gradle reports GREEN on stale tasks — pass `--rerun-tasks` when the gate is the point.**
@@ -251,7 +251,8 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
   `gradlew.bat :app:ktlintCheck :app:detekt :core-engine:test :app:testDebugUnitTest` reported
   BUILD SUCCESSFUL while `ModelSpecTest` was in fact red; the failure only surfaced with
   `--rerun-tasks`. Use it for the final gate of a change, not for the inner loop.
-- **The documented Android gate does not cover `:core-engine:detekt`, and that task is red.** Two
-  `MagicNumber` hits in `DecisionLog.toLogLine`, pre-existing. Widening the gate means fixing them
-  first; `specs/35-one-seam-per-concern` phase 00 moves that function, so do it there.
+- **The Android gate now covers `:core-engine:detekt`** — it was excluded while two `MagicNumber`
+  hits sat in `DecisionLog.toLogLine`, which is precisely why nobody noticed them. Fixed 2026-08-03
+  by naming them; run `:core-engine:detekt` with the rest. A module left out of the gate is a module
+  whose lint findings are invisible, not absent.
 - Do not commit `data/`, `scans/`, `synth_pieces/`, `wheels/` (gitignored).
