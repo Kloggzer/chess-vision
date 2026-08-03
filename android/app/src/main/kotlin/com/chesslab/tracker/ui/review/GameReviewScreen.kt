@@ -246,7 +246,7 @@ private fun ReviewProgressLine(
     Text(
         // Up to 3 s a position, so a long game is minutes. Measured on the device: 84 positions in
         // 28 s at the old depth-16 budget, and this one is allowed considerably more per position.
-        "Up to a few seconds per position. The engine runs at lowest priority; tracking still has the camera.",
+        "Up to a few seconds per position. The engine runs at lowest priority, so a running tracker keeps its frame rate.",
         style = MaterialTheme.typography.bodySmall,
         color = OnSurfaceMuted,
     )
