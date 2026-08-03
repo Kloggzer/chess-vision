@@ -33,14 +33,19 @@ Two corrections to the phase text:
   path behave exactly as it does today and moving it would change that path too — see the open item
   below.
 
-## Opened, not fixed
+## Opened here, fixed 2026-08-03 in `5161a0b`
 
-**An undo that pops always trims away its own user-correction row.** `clearAlarm(ALARM_UNDONE)`
-writes its `decider = "user"` row at `ply = history.size` *before* the pops, and the trim then drops
-every row above the restored size — including that one. So the log records a user correction only
-when the undo popped nothing (an empty history), which is the case nobody debugs. It is pre-existing,
-it predates this pack, and fixing it means moving `clearAlarm` after the pops, which changes the
-ordinary single-move undo as well. Not this pack's call.
+**An undo that pops always trimmed away its own user-correction row.** `clearAlarm(ALARM_UNDONE)`
+wrote its `decider = "user"` row at `ply = history.size` *before* the pops, and the trim then
+dropped every row above the restored size — including that one. So the log recorded a user
+correction only when the undo popped nothing (an empty history), which is the case nobody debugs.
+
+Fixed as this pack proposed: `clearAlarm` runs after the pops and the trim, which additionally
+stamps the row with the ply and `fenAfter` of the position the user RESTORED — what the row means.
+`AlarmLatchTest.undoKeepsItsOwnUserRow` commits a ply before latching the alarm and fails under the
+old order, alone among the 20 tests in that class. That is why it survived so long:
+`undoClearsAlarmLatch` runs on an engine with no history, where the pop-and-trim block is skipped
+and the row is never in the trim's way. Full Android gate green with `--rerun-tasks`.
 
 ## The evidence
 
