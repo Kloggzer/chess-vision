@@ -203,13 +203,11 @@ private class SettingsNav(
  * Android's own search bar, which is the whole specification (the user: *"like android does it in
  * the settings"*, with the magnifier on the right).
  *
- * It was a large rounded container whose placeholder — *"Search settings — try \"shadow\", \"cnn\",
- * \"timeout\""* — wrapped to two lines, so the tallest thing at the top of the screen was a hint
- * about how to use a search box. The examples moved into the empty result, where somebody who found
- * nothing can act on them.
- *
- * The trailing icon turns into a clear ✕ once there is text — the magnifier stays on the right for
- * the whole time it means anything, and the ✕ is the only affordance that can empty the field.
+ * The placeholder was *"Search settings — try \"shadow\", \"cnn\", \"timeout\""*, which wrapped to
+ * two lines and made the tallest thing at the top of the screen a hint about how to use a search
+ * box; the examples are in the empty result now, where somebody who found nothing can act on them.
+ * The trailing icon becomes a clear ✕ once there is text — the magnifier stays on the right for as
+ * long as it means anything, and the ✕ is the only affordance that can empty the field.
  */
 @Composable
 private fun SearchField(
@@ -368,11 +366,7 @@ private fun LazyListScope.landing(
     }
 }
 
-/**
- * The engine's summary, read from the host rather than passed down: it is the only consumer and
- * `AnalysisSettingsHost` is a singleton flow, so threading it through two layout functions would buy
- * nothing.
- */
+/** Read from the host rather than passed down: [landing] is a `LazyListScope`, not a composable. */
 @Composable
 private fun AnalysisRow(nav: SettingsNav) {
     val analysis by AnalysisSettingsHost.settings.collectAsStateWithLifecycle()
@@ -386,9 +380,8 @@ private fun AnalysisRow(nav: SettingsNav) {
 }
 
 /**
- * The recorder's summary. [com.chesslab.tracker.record.RecordingSettings.load] is called here
- * because the cache is otherwise the DEFAULT until the tracker service has wired itself — a summary
- * that reads "Off" over a running recorder is worse than no summary at all.
+ * `load()` is called here because the prefs cache is otherwise the DEFAULT until the tracker service
+ * has wired itself, and a summary reading "Off" over a running recorder is worse than no summary.
  */
 @Composable
 private fun RecordingRow(nav: SettingsNav) {
