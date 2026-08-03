@@ -30,7 +30,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.spectate.QrCode
 import com.chesslab.tracker.spectate.SpectatorHost
 import com.chesslab.tracker.spectate.SpectatorState
-import com.chesslab.tracker.ui.settings.Card
+import com.chesslab.tracker.ui.Card
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space

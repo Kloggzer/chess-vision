@@ -5,7 +5,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import com.chesslab.tracker.analysis.GameGrade
 import com.chesslab.tracker.games.GameView
-import com.chesslab.tracker.ui.settings.Card
+import com.chesslab.tracker.ui.Card
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 

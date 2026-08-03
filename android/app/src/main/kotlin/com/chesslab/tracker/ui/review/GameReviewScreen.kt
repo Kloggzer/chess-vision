@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,30 +56,41 @@ import com.chesslab.tracker.analysis.lineFrames
 import com.chesslab.tracker.analysis.missedMate
 import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.games.GameView
+import com.chesslab.tracker.ui.Card
 import com.chesslab.tracker.ui.ChesslabScaffold
 import com.chesslab.tracker.ui.DisclosureRow
+import com.chesslab.tracker.ui.Figure
+import com.chesslab.tracker.ui.SeverityStripe
+import com.chesslab.tracker.ui.TextAction
 import com.chesslab.tracker.ui.analysis.BAR_WIDTH
 import com.chesslab.tracker.ui.analysis.EvalFill
 import com.chesslab.tracker.ui.analysis.SLOT_WIDTH
 import com.chesslab.tracker.ui.analysis.stockfishEngineFactory
 import com.chesslab.tracker.ui.games.gamesDir
-import com.chesslab.tracker.ui.settings.Card
+import com.chesslab.tracker.ui.percent
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.Danger
+import com.chesslab.tracker.ui.theme.FiguresDisplay
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import com.chesslab.tracker.ui.theme.Outline
 import com.chesslab.tracker.ui.theme.Radius
 import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.theme.Stroke
-import com.chesslab.tracker.ui.theme.Surface
 import com.chesslab.tracker.ui.theme.SurfaceRaised
 import com.chesslab.tracker.ui.tracking.BoardCanvas
-import kotlin.math.roundToInt
 
+/**
+ * Order is the order of the tab row, and **Moments is first** (specs/48).
+ *
+ * A finished game is opened to find out what went wrong. Review — the board you step through — is
+ * where a moment sends you when it makes you curious, and it still starts at ply 0, so opening on it
+ * asked the reader to walk 83 plies to find the three that mattered.
+ */
 private enum class ReviewSection {
-    REVIEW,
     MOMENTS,
+    REVIEW,
     MOVES,
 }
 
@@ -137,7 +149,7 @@ private fun GameReviewScreen(
     model: ReviewViewModel,
 ) {
     var seek by remember(game.id) { mutableIntStateOf(0) }
-    var section by remember(game.id) { mutableStateOf(ReviewSection.REVIEW) }
+    var section by remember(game.id) { mutableStateOf(ReviewSection.MOMENTS) }
     var allMoves by remember(game.id) { mutableStateOf(false) }
     var mateLine by remember(game.id) { mutableStateOf<MateLineRequest?>(null) }
     val grade = ui.grade
@@ -163,21 +175,23 @@ private fun GameReviewScreen(
             }
             when (section) {
                 ReviewSection.REVIEW -> {
-                    // The rating leads. It is the answer to "how did I do", it is the one thing the
-                    // user asked for by name, and both products this was measured against open with it.
-                    item(key = "summary") { AccuracyRow(ui, game, onReview = model::review) }
                     item(key = "board") { ReviewBoard(game, review.selected, grade, review.fromHere) }
                     item(key = "verdict") { ReviewVerdict(review, game, grade) { mateLine = it } }
                     item(key = "nav") { PlyNav(review.selected, game.plies.size) { seek = it } }
                     item(key = "details") { Details(ui, game, review.selected, onDiscard = model::discard) }
                 }
-                ReviewSection.MOMENTS ->
+                // The rating leads on the tab the screen opens on. It is the answer to "how did I
+                // do", it is the one thing the user asked for by name, and it is also where the
+                // engine is started from when nothing has been graded yet.
+                ReviewSection.MOMENTS -> {
+                    item(key = "summary") { AccuracyRow(ui, game, onReview = model::review) }
                     item(key = "moments") {
                         KeyMoments(game, grade) {
                             seek = it
                             section = ReviewSection.REVIEW
                         }
                     }
+                }
                 ReviewSection.MOVES ->
                     movesSection(game, grade, review.selected, allMoves, onToggle = { allMoves = !allMoves }) {
                         seek = it
@@ -319,12 +333,8 @@ private fun MateLineExplorer(
                 )
                 MateResolutionStatus(resolving, resolved.complete)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    TextButton(onClick = { step = (step - 1).coerceAtLeast(0) }, enabled = step > 0) {
-                        Text("Previous", color = if (step > 0) Accent else OnSurfaceMuted)
-                    }
-                    TextButton(onClick = { step = (step + 1).coerceAtMost(frames.lastIndex) }, enabled = step < frames.lastIndex) {
-                        Text("Next", color = if (step < frames.lastIndex) Accent else OnSurfaceMuted)
-                    }
+                    TextAction("Previous", { step = (step - 1).coerceAtLeast(0) }, enabled = step > 0)
+                    TextAction("Next", { step = (step + 1).coerceAtMost(frames.lastIndex) }, enabled = step < frames.lastIndex)
                 }
             }
         },
@@ -377,9 +387,7 @@ private fun LazyListScope.movesSection(
     )
     if (game.plies.size > TOP_MOVE_ROWS * 2) {
         item(key = "moves-toggle") {
-            TextButton(onClick = onToggle) {
-                Text(if (allMoves) "Show fewer" else "Show all ${game.plies.size} moves", color = Accent)
-            }
+            TextAction(if (allMoves) "Show fewer" else "Show all ${game.plies.size} moves", onToggle)
         }
     }
 }
@@ -424,9 +432,11 @@ private fun ReviewTabs(
     onSelect: (ReviewSection) -> Unit,
 ) {
     Row(Modifier.fillMaxWidth()) {
-        ReviewTab("Review", null, ReviewSection.REVIEW, selected, enabled = true, onSelect, Modifier.weight(1f))
-        ReviewTab("Moments", moments, ReviewSection.MOMENTS, selected, enabled = moments != null, onSelect, Modifier.weight(1f))
-        ReviewTab("Moves", moves, ReviewSection.MOVES, selected, enabled = true, onSelect, Modifier.weight(1f))
+        // Always enabled, unlike before: it is the tab the screen opens on, and an ungraded game
+        // reaches its own "Review this game" button through it.
+        ReviewTab("Moments", moments, ReviewSection.MOMENTS, selected, onSelect, Modifier.weight(1f))
+        ReviewTab("Review", null, ReviewSection.REVIEW, selected, onSelect, Modifier.weight(1f))
+        ReviewTab("Moves", moves, ReviewSection.MOVES, selected, onSelect, Modifier.weight(1f))
     }
 }
 
@@ -436,26 +446,18 @@ private fun ReviewTab(
     count: Int?,
     section: ReviewSection,
     selected: ReviewSection,
-    enabled: Boolean,
     onSelect: (ReviewSection) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val active = selected == section
-    val tint = if (active) Accent else OnSurfaceMuted.copy(alpha = if (enabled) 1f else 0.45f)
-    Column(
-        modifier.selectable(
-            selected = active,
-            enabled = enabled,
-            role = Role.Tab,
-            onClick = { onSelect(section) },
-        ),
-    ) {
+    val tint = if (active) Accent else OnSurfaceMuted
+    Column(modifier.selectable(selected = active, role = Role.Tab, onClick = { onSelect(section) })) {
         Row(
             Modifier.fillMaxWidth().padding(vertical = Space.md),
             horizontalArrangement = Arrangement.spacedBy(Space.xs, Alignment.CenterHorizontally),
         ) {
             Text(label, style = MaterialTheme.typography.labelMedium, color = tint)
-            count?.let { Text("$it", style = MaterialTheme.typography.labelMedium, color = tint) }
+            count?.let { Figure("$it", tint) }
         }
         Box(Modifier.fillMaxWidth().height(Stroke.thick).background(if (active) Accent else Color.Transparent))
     }
@@ -577,7 +579,7 @@ private fun AccuracyRow(
             grade == null && ui.running ->
                 Text("Starting the engine…", style = MaterialTheme.typography.bodyMedium, color = OnSurface)
             grade == null ->
-                TextButton(onClick = onReview) { Text("Review this game", color = Accent) }
+                TextAction("Review this game", onReview)
             else -> {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(resultHeadline(game.result), style = MaterialTheme.typography.titleMedium, color = OnSurface)
@@ -621,16 +623,20 @@ private fun AccuracyBlock(
     modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier.background(Surface, RoundedCornerShape(Radius.sm)).padding(horizontal = Space.md, vertical = Space.sm),
+        // A rule, not a fill: this tile sits ON a card, and a fill of the card's own colour is
+        // invisible while a lighter one is elevation by fill.
+        modifier
+            .border(Stroke.hairline, Outline, RoundedCornerShape(Radius.sm))
+            .padding(horizontal = Space.md, vertical = Space.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
             Text(label, style = MaterialTheme.typography.labelMedium, color = OnSurface)
-            Text("${side.scored}/${side.plies} graded", style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted)
+            Figure("${side.scored}/${side.plies} graded", OnSurfaceMuted)
         }
         Text(
-            side.accuracy?.let { "${it.roundToInt()}%" } ?: "—",
-            style = MaterialTheme.typography.titleLarge,
+            side.accuracy?.let { percent(it) } ?: "—",
+            style = FiguresDisplay,
             // Lichess' own accuracy bands, from `roundTraining.ts`: >=85 good, >=70 inaccuracy,
             // >=55 mistake, else blunder. A number nobody can place is a number nobody can use.
             color = side.accuracy?.let { accuracyColor(it) } ?: OnSurfaceMuted,
@@ -759,9 +765,7 @@ private fun KeyMoments(
             }
             findings.take(if (all) findings.size else TOP_FINDINGS).forEach { FindingCard(it, onSeek) }
             if (findings.size > TOP_FINDINGS) {
-                TextButton(onClick = { all = !all }) {
-                    Text(if (all) "Show fewer" else "Show all ${findings.size}", color = Accent)
-                }
+                TextAction(if (all) "Show fewer" else "Show all ${findings.size}", { all = !all })
             }
         }
         if (missed.isNotEmpty()) {
@@ -786,21 +790,12 @@ private fun FindingCard(
     onSeek: (Int) -> Unit,
 ) {
     var open by remember(finding.ply) { mutableStateOf(false) }
-    Column(
-        Modifier.fillMaxWidth().clickable { onSeek(finding.ply - 1) }.padding(vertical = Space.xs),
-        verticalArrangement = Arrangement.spacedBy(Space.hair),
-    ) {
+    val severity = if (finding.missedMate) Danger else badgeColor(finding.quality)
+    SeverityStripe(severity, Modifier.clickable { onSeek(finding.ply - 1) }.padding(vertical = Space.xs)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(
-                findingTitle(finding),
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (finding.missedMate) Danger else badgeColor(finding.quality),
-            )
-            Text(
-                "${percent(finding.winBefore)} → ${percent(finding.winAfter)}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = OnSurfaceMuted,
-            )
+            Text(findingTitle(finding), style = MaterialTheme.typography.bodyMedium, color = severity)
+            // The numbers that justify the verdict, in the one style figures are set in.
+            Figure("${percent(finding.winBefore)} → ${percent(finding.winAfter)}", OnSurfaceMuted)
         }
         Text(sentence(finding), style = MaterialTheme.typography.bodySmall, color = OnSurface)
         finding.bestSan?.let { Text("Better: $it.", style = MaterialTheme.typography.bodySmall, color = Accent) }
@@ -851,8 +846,6 @@ private const val LOSING = 20.0
 /** Ply 17 is White's move 9; ply 18 is Black's, written `9...`. */
 private fun moveNumber(ply: Int): String = "${(ply + 1) / 2}." + if (ply % 2 == 0) ".." else ""
 
-private fun percent(value: Double): String = "${value.roundToInt()} %"
-
 internal fun label(quality: MoveQuality): String =
     when (quality) {
         MoveQuality.BEST -> "Best move"
@@ -882,23 +875,13 @@ private fun PlyNav(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TextButton(onClick = { onSeek(0) }, enabled = selected > 0) {
-            Text("|<", color = if (selected > 0) Accent else OnSurfaceMuted)
-        }
-        TextButton(onClick = { onSeek((selected - 1).coerceAtLeast(0)) }, enabled = selected > 0) {
-            Text("<", color = if (selected > 0) Accent else OnSurfaceMuted)
-        }
-        Text(
-            if (selected == 0) "start" else "ply $selected / $plies",
-            style = MaterialTheme.typography.bodySmall,
-            color = OnSurfaceMuted,
-        )
-        TextButton(onClick = { onSeek((selected + 1).coerceAtMost(plies)) }, enabled = selected < plies) {
-            Text(">", color = if (selected < plies) Accent else OnSurfaceMuted)
-        }
-        TextButton(onClick = { onSeek(plies) }, enabled = selected < plies) {
-            Text(">|", color = if (selected < plies) Accent else OnSurfaceMuted)
-        }
+        TextAction("|<", { onSeek(0) }, enabled = selected > 0)
+        TextAction("<", { onSeek((selected - 1).coerceAtLeast(0)) }, enabled = selected > 0)
+        // A position in a game is a figure: it has to hold still while the two arrows either side
+        // of it are pressed.
+        Figure(if (selected == 0) "start" else "ply $selected / $plies", OnSurfaceMuted)
+        TextAction(">", { onSeek((selected + 1).coerceAtMost(plies)) }, enabled = selected < plies)
+        TextAction(">|", { onSeek(plies) }, enabled = selected < plies)
     }
 }
 
@@ -943,9 +926,7 @@ private fun Details(
             )
         }
         PgnRow(ui.pgn, game.id)
-        if (ui.grade?.complete == true) {
-            TextButton(onClick = onDiscard) { Text("Analyse again", color = OnSurfaceMuted) }
-        }
+        if (ui.grade?.complete == true) TextAction("Analyse again", onDiscard)
     }
 }
 
@@ -956,8 +937,8 @@ private fun PgnRow(
 ) {
     val context = LocalContext.current
     Row(horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
-        TextButton(onClick = { share(context, pgn, id) }) { Text("Share PGN", color = Accent) }
-        TextButton(onClick = { copy(context, pgn) }) { Text("Copy", color = Accent) }
+        TextAction("Share PGN", { share(context, pgn, id) })
+        TextAction("Copy", { copy(context, pgn) })
     }
 }
 

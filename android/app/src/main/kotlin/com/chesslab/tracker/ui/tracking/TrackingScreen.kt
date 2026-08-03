@@ -4,14 +4,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
@@ -21,7 +19,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -38,12 +35,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.chesslab.tracker.games.GameSessionController
 import com.chesslab.tracker.games.GameSessionState
 import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.games.GameView
 import com.chesslab.tracker.games.UNKNOWN
 import com.chesslab.tracker.service.TrackerRun
 import com.chesslab.tracker.ui.ChesslabScaffold
+import com.chesslab.tracker.ui.ConfirmDialog
+import com.chesslab.tracker.ui.Figure
+import com.chesslab.tracker.ui.OutlineAction
 import com.chesslab.tracker.ui.analysis.EvalBarSlot
 import com.chesslab.tracker.ui.games.GameSessionHost
 import com.chesslab.tracker.ui.games.gamesDir
@@ -55,7 +56,6 @@ import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
-import com.chesslab.tracker.ui.theme.Touch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
@@ -79,6 +79,18 @@ fun TrackingRoute(
     TrackingScreen(viewModel, running, onBack)
 }
 
+/**
+ * What is open on top of the board. One state rather than five booleans: at most one of these can be
+ * up at a time, and five independent flags made that an invariant nothing enforced.
+ */
+private enum class TrackerModal {
+    NONE,
+    ENDING,
+    DISCARDING,
+    RECALIBRATING,
+    SHARE,
+}
+
 @Composable
 private fun TrackingScreen(
     viewModel: TrackingViewModel,
@@ -86,17 +98,14 @@ private fun TrackingScreen(
     onBack: () -> Unit,
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
-    val promotion by viewModel.promotion.collectAsStateWithLifecycle()
-    val acceptCnn by viewModel.acceptCnn.collectAsStateWithLifecycle()
     val preview by viewModel.preview.collectAsStateWithLifecycle()
     val cameraOn by viewModel.cameraOn.collectAsStateWithLifecycle()
     // The live game lives in the service, not in this screen's view model — the same handle Home and
     // the Games screen use. Reaching for it here is what lets a game be SAVED where it is played.
     val games by GameSessionHost.controller.collectAsStateWithLifecycle()
     val live by (games?.state ?: NO_LIVE_GAME).collectAsStateWithLifecycle()
-    var endingGame by remember { mutableStateOf(false) }
+    var modal by remember { mutableStateOf(TrackerModal.NONE) }
     var showPreview by remember { mutableStateOf(false) }
-    var showShare by remember { mutableStateOf(false) }
 
     ChesslabScaffold(
         title = "Tracking",
@@ -107,37 +116,102 @@ private fun TrackingScreen(
                 cameraOn = cameraOn,
                 showPreview = showPreview,
                 onTogglePreview = { showPreview = !showPreview },
-                onShare = { showShare = true },
+                onShare = { modal = TrackerModal.SHARE },
             )
         },
     ) { bars ->
-        TrackingBody(viewModel, ui, live.game, preview.takeIf { showPreview }, running, Modifier.padding(bars)) {
-            endingGame = true
-        }
+        TrackingBody(
+            viewModel = viewModel,
+            ui = ui,
+            game = live.game,
+            camera = preview.takeIf { showPreview },
+            running = running,
+            modifier = Modifier.padding(bars),
+            onEndGame = { modal = TrackerModal.ENDING },
+            // Recalibrating replaces the geometry the running game has been tracked against, and
+            // there is no way back to the old quad. With no moves committed there is nothing to lose.
+            onRecalibrate = {
+                if (live.moveCount > 0) modal = TrackerModal.RECALIBRATING else viewModel.onRecalibrate()
+            },
+        )
     }
 
-    if (showShare) ShareDialog { showShare = false }
-    TrackingDialogs(
-        viewModel = viewModel,
-        ui = ui,
-        promotion = promotion,
-        acceptCnn = acceptCnn,
-        endingMoves = live.moveCount.takeIf { endingGame },
-        onEndSave = { white, black ->
-            games?.endAndSave(white, black)
-            viewModel.onResetGame()
-            endingGame = false
-        },
-        onEndDiscard = {
-            // The record must go too. Resetting only the ENGINE left the discarded game standing in
-            // the service, so the next ply was illegal from it and opened a seam inside a game the
-            // user had just thrown away.
-            games?.discard()
-            viewModel.onResetGame()
-            endingGame = false
-        },
-        onEndDismiss = { endingGame = false },
-    )
+    TrackingModals(viewModel, games, live.moveCount, modal) { modal = it }
+}
+
+/**
+ * Everything modal on this screen, kept out of the layout so the screen reads as a layout.
+ *
+ * Two of these are the acts that cannot be undone (specs/48 rule 6). Undo, Stop tracking and End
+ * game are deliberately NOT among them: Undo IS the reversal, and the other two save the game on
+ * the way out.
+ */
+@Composable
+private fun TrackingModals(
+    viewModel: TrackingViewModel,
+    games: GameSessionController?,
+    moves: Int,
+    modal: TrackerModal,
+    onModal: (TrackerModal) -> Unit,
+) {
+    val ui by viewModel.ui.collectAsStateWithLifecycle()
+    val promotion by viewModel.promotion.collectAsStateWithLifecycle()
+    val acceptCnn by viewModel.acceptCnn.collectAsStateWithLifecycle()
+    val close = { onModal(TrackerModal.NONE) }
+    // The record must go with the engine reset. Resetting only the ENGINE left the discarded game
+    // standing in the service, so the next ply was illegal from it and opened a seam inside a game
+    // the user had just thrown away.
+    val discard = {
+        games?.discard()
+        viewModel.onResetGame()
+        close()
+    }
+    when (modal) {
+        TrackerModal.SHARE -> ShareDialog(close)
+        TrackerModal.ENDING ->
+            EndGameDialog(
+                moves = moves,
+                onSave = { white, black ->
+                    games?.endAndSave(white, black)
+                    viewModel.onResetGame()
+                    close()
+                },
+                // With moves on the board this only OPENS the confirmation; with none there is
+                // nothing to confirm and the same control re-seeds the tracker outright.
+                onDiscard = { if (moves > 0) onModal(TrackerModal.DISCARDING) else discard() },
+                onDismiss = close,
+            )
+        TrackerModal.DISCARDING ->
+            ConfirmDialog(
+                title = "Discard this game?",
+                body = "$moves moves and everything recorded for them. This cannot be undone.",
+                verb = "Discard",
+                onConfirm = discard,
+                onDismiss = close,
+            )
+        TrackerModal.RECALIBRATING ->
+            ConfirmDialog(
+                title = "Recalibrate mid-game?",
+                body =
+                    "$moves moves have been tracked against the current board geometry. Fitting a " +
+                        "new grid replaces it, and the old one is not kept.",
+                verb = "Recalibrate",
+                onConfirm = {
+                    close()
+                    viewModel.onRecalibrate()
+                },
+                onDismiss = close,
+            )
+        TrackerModal.NONE -> Unit
+    }
+    acceptCnn?.let {
+        AcceptCnnDialog(
+            preview = it,
+            onConfirm = viewModel::onAcceptCnnConfirmed,
+            onCancel = viewModel::onAcceptCnnCancelled,
+        )
+    }
+    promotion?.let { PromotionDialog(prompt = it, fen = ui.fen, onChoose = viewModel::onPromotionChosen) }
 }
 
 /**
@@ -228,6 +302,7 @@ private fun TrackingBody(
     running: Boolean,
     modifier: Modifier = Modifier,
     onEndGame: () -> Unit,
+    onRecalibrate: () -> Unit,
 ) {
     val lastCommit = viewModel.lastCommit.collectAsStateWithLifecycle().value
     Column(
@@ -260,37 +335,10 @@ private fun TrackingBody(
                 undoLabel = undoLabel(lastCommit),
                 // Ending a game that has moves USED to throw it away without a word.
                 onEndGame = onEndGame,
-                onRecalibrate = viewModel::onRecalibrate,
+                onRecalibrate = onRecalibrate,
             )
         }
         TrackingSwitch(running)
-    }
-}
-
-/** Everything modal on this screen, kept out of the layout so the screen reads as a layout. */
-@Composable
-private fun TrackingDialogs(
-    viewModel: TrackingViewModel,
-    ui: TrackingUiState,
-    promotion: PromotionPrompt?,
-    acceptCnn: AcceptCnnPreview?,
-    endingMoves: Int?,
-    onEndSave: (String, String) -> Unit,
-    onEndDiscard: () -> Unit,
-    onEndDismiss: () -> Unit,
-) {
-    endingMoves?.let {
-        EndGameDialog(moves = it, onSave = onEndSave, onDiscard = onEndDiscard, onDismiss = onEndDismiss)
-    }
-    acceptCnn?.let {
-        AcceptCnnDialog(
-            preview = it,
-            onConfirm = viewModel::onAcceptCnnConfirmed,
-            onCancel = viewModel::onAcceptCnnCancelled,
-        )
-    }
-    promotion?.let {
-        PromotionDialog(prompt = it, fen = ui.fen, onChoose = viewModel::onPromotionChosen)
     }
 }
 
@@ -342,7 +390,7 @@ private fun StateHeader(ui: TrackingUiState) {
             Column(horizontalAlignment = Alignment.End) {
                 // The fps colour is frozen to the alarm colour while alarmed: the loop is running
                 // but no move can commit, and a healthy-looking counter would say otherwise.
-                Text(ui.fpsText, style = MaterialTheme.typography.labelMedium, color = tone)
+                Figure(ui.fpsText, tone)
                 ui.fpsDetail?.let {
                     Text(it, style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted, maxLines = 1)
                 }
@@ -387,25 +435,11 @@ private fun ActionBar(
 ) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
         // Not always "Undo": one press unwinds the last COMMIT, and a CNN recovery commits a
-        // whole bridge (four plies on 2026-08-02).
-        ActionButton(undoLabel, onUndo, Modifier.weight(1f))
-        ActionButton("End game", onEndGame, Modifier.weight(1f))
-        ActionButton("Recalibrate", onRecalibrate, Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun ActionButton(
-    label: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    OutlinedButton(
-        onClick = onClick,
-        modifier = modifier.heightIn(min = Touch.min),
-        contentPadding = PaddingValues(Space.xs),
-    ) {
-        Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+        // whole bridge (four plies on 2026-08-02). It gets NO confirmation — it IS the reversal.
+        OutlineAction(undoLabel, onUndo, Modifier.weight(1f))
+        // Nor does ending: the game is saved on the way out, and its dialog asks who played.
+        OutlineAction("End game", onEndGame, Modifier.weight(1f))
+        OutlineAction("Recalibrate", onRecalibrate, Modifier.weight(1f))
     }
 }
 
@@ -467,9 +501,9 @@ private fun EndGameDialog(
         },
         dismissButton = {
             // Never the default action, and never silent: discarding a played game is the one
-            // outcome here that cannot be undone.
+            // outcome here that cannot be undone, so it does not act — it opens the confirmation.
             if (moves > 0) {
-                TextButton(onClick = onDiscard) { Text("Discard", color = Danger) }
+                TextButton(onClick = onDiscard) { Text("Discard…", color = Danger) }
             } else {
                 TextButton(onClick = onDismiss) { Text("Cancel", color = OnSurfaceMuted) }
             }
