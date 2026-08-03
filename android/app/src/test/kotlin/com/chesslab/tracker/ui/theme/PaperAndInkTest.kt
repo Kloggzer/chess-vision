@@ -60,10 +60,17 @@ class PaperAndInkTest {
         }
     }
 
-    /** **Monospace is for figures that align** — never a heading, never a label, never prose. */
+    /**
+     * **Monospace is for figures that align** — never a heading, never a label, never prose.
+     *
+     * [FiguresDisplay] is deliberately NOT monospace: a large number lines up on `tnum`, and the
+     * face's letter spacing comes with the monospace family whether it is wanted or not.
+     */
     @Test
     fun theOnlyMonospaceStyleIsTheOneNamedAfterFigures() {
         assertEquals(FontFamily.Monospace, Figures.fontFamily)
+        assertEquals("tnum", FiguresDisplay.fontFeatureSettings)
+        assertNotEquals(FontFamily.Monospace, FiguresDisplay.fontFamily)
         val slots =
             with(ChesslabTypography) {
                 listOf(displayMedium, titleLarge, bodyLarge, bodyMedium, labelLarge, labelMedium, labelSmall, bodySmall)

@@ -71,6 +71,7 @@ import com.chesslab.tracker.ui.percent
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.Danger
+import com.chesslab.tracker.ui.theme.FiguresDisplay
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Outline
@@ -635,7 +636,7 @@ private fun AccuracyBlock(
         }
         Text(
             side.accuracy?.let { percent(it) } ?: "—",
-            style = MaterialTheme.typography.titleLarge,
+            style = FiguresDisplay,
             // Lichess' own accuracy bands, from `roundTraining.ts`: >=85 good, >=70 inaccuracy,
             // >=55 mistake, else blunder. A number nobody can place is a number nobody can use.
             color = side.accuracy?.let { accuracyColor(it) } ?: OnSurfaceMuted,

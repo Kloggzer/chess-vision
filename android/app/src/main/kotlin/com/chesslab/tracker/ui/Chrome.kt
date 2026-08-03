@@ -8,11 +8,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -54,6 +56,7 @@ import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Background
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.Figures
+import com.chesslab.tracker.ui.theme.FiguresDisplay
 import com.chesslab.tracker.ui.theme.OnAccent
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
@@ -250,14 +253,29 @@ fun StatTile(
 ) {
     Column(
         modifier
+            // A pair of tiles is a ROW of tiles, and one whose note wraps to two lines made the row
+            // ragged — measured on the emulator, "both sides, over 1 reviewed" against "83 moves
+            // recorded". The caller gives the row an intrinsic height; each tile fills it.
+            .fillMaxHeight()
             .border(Stroke.hairline, Outline, RoundedCornerShape(Radius.md))
             .padding(horizontal = Space.md, vertical = Space.sm),
         verticalArrangement = Arrangement.spacedBy(Space.hair),
     ) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = OnSurfaceMuted)
-        Text(value, style = MaterialTheme.typography.titleLarge, color = OnSurface)
+        // The grid is read DOWN: `1 of 1` over `0 of 1`, `69 %` beside a `1`.
+        Text(value, style = FiguresDisplay, color = OnSurface, maxLines = 1)
         Text(note, style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted)
     }
+}
+
+/** A pair of [StatTile]s, equal height whether or not one of the notes wraps. */
+@Composable
+fun StatRow(content: @Composable RowScope.() -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+        horizontalArrangement = Arrangement.spacedBy(Space.sm),
+        content = content,
+    )
 }
 
 /**
@@ -368,7 +386,13 @@ fun TextAction(
     }
 }
 
-/** **Primitive — outlined danger.** Destructive, and destructive is never filled. */
+/**
+ * **Primitive — outlined danger.** Destructive, and destructive is never filled.
+ *
+ * It keeps Material's roomier side padding rather than [ACTION_PADDING]: a destructive button is
+ * never one of three across a phone, and at 8 dp the outline hugged the word so tightly inside a
+ * dialog that it read as a badge rather than a button.
+ */
 @Composable
 fun DangerAction(
     label: String,
@@ -380,7 +404,6 @@ fun DangerAction(
         modifier = modifier.heightIn(min = Touch.min),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = Danger),
         border = BorderStroke(Stroke.hairline, Danger),
-        contentPadding = ACTION_PADDING,
     ) {
         Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
     }
