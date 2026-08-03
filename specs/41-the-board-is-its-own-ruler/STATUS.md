@@ -2,7 +2,9 @@
 
 | Phase | State | Note |
 |---|---|---|
-| — | `todo` | entry written 2026-08-03 from measurement; no phase files yet |
+| 00 — a ruler you can trust | `todo` | absolute, truth-calibrated alignment gate; blocks everything else |
+| 01 — find the grid | `todo` | 2D line/lattice detection on real footage, coarse→fine, per-frame allowed |
+| 02 — both trackers | `todo` | Python live warp to Android parity; `board_corners_from_lines` wired or deleted |
 
 ## Measured before the pack was written
 
