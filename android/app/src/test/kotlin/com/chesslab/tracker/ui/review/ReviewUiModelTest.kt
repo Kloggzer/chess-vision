@@ -5,6 +5,7 @@ import com.chesslab.tracker.analysis.MoveQuality
 import com.chesslab.tracker.analysis.PlyGrade
 import com.chesslab.tracker.analysis.ReviewBudget
 import com.chesslab.tracker.analysis.SideSummary
+import com.chesslab.tracker.ui.analysisLine
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
@@ -34,6 +35,36 @@ class ReviewUiModelTest {
         assertEquals("Mate in 2", positionLeadLabel(2.5, -2))
         assertEquals("Checkmate", positionLeadLabel(2.5, 0))
         assertEquals("—", positionLeadLabel(null, null))
+    }
+
+    /**
+     * The engine's state is a property of the SCREEN, so it is decided here and not inside one tab.
+     *
+     * The bug it closes: `Review this game`, `Starting the engine…` and the progress bar all lived
+     * under Moments, so tapping the button from the board tab produced no visible change anywhere.
+     */
+    @Test
+    fun theEngineStateIsWhatEveryTabShows() {
+        val partial = gameGrade().copy(scored = 30, positions = 84)
+        val complete = gameGrade().copy(scored = 84, positions = 84)
+
+        assertEquals(AnalysisPhase.NOT_STARTED, analysisPhase(ReviewUi()))
+        assertEquals(AnalysisPhase.RUNNING, analysisPhase(ReviewUi(running = true, grade = partial)))
+        assertEquals(AnalysisPhase.PARTIAL, analysisPhase(ReviewUi(grade = partial)))
+        assertEquals(AnalysisPhase.MISSING_ENGINE, analysisPhase(ReviewUi(engineMissing = true)))
+        // A finished review has nothing left to say, so the card is absent rather than empty.
+        assertNull(analysisPhase(ReviewUi(grade = complete)))
+    }
+
+    /** A run that outlives the screen has to be legible from anywhere — see `AnalysisBanner`. */
+    @Test
+    fun aRunInFlightSaysWhichGameAndHowFar() {
+        assertEquals("Reviewing 2026-08-02_2159 · 30 / 84", analysisLine("2026-08-02_2159", 30, 84))
+        assertEquals("Reviewing 2026-08-02_2159 · starting the engine", analysisLine("2026-08-02_2159", null, null))
+        assertEquals("Reviewing 2026-08-02_2159 · starting the engine", analysisLine("2026-08-02_2159", 0, 0))
+        assertEquals("Reviewing a game…", analysisLine(null, 1, 2))
+        assertEquals("Reading the game around the move you are on · 30 / 84", progressLine(30, 84))
+        assertEquals("Starting the engine…", progressLine(null, null))
     }
 
     @Test
