@@ -153,7 +153,10 @@ fun ChesslabScaffold(
             }
         },
     ) { bars ->
-        Box(Modifier.padding(horizontal = Space.md)) { content(bars) }
+        // The scaffold owns the side margin AND the gap under the rule, for the same reason: a
+        // screen that sets its own gets it wrong somewhere. Without this the first card sits
+        // ON the hairline, which reads as the card having no top edge at all.
+        Box(Modifier.padding(horizontal = Space.md, vertical = Space.sm)) { content(bars) }
     }
 }
 
