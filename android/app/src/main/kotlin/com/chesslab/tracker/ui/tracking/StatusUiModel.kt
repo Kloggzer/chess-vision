@@ -69,6 +69,32 @@ private fun closesPromotion(
     return ucis.any { it.startsWith("${prompt.from}${prompt.to}") }
 }
 
+/**
+ * **What the screen is FOR right now**, and therefore what its one filled button is (specs/48
+ * rule 3, specs/49).
+ *
+ * The tracking screen has two jobs — making the camera work, and watching a game — and it used to
+ * show one layout for both, so in either state about half of what was on screen was inert. `WAITING`
+ * was the largest type on the screen and could not be acted on, while the line that said what to do
+ * was grey underneath it and named the third of three identical outline buttons.
+ *
+ * [WATCH] deliberately has no button: watching is not an act. While the alarm latch is up the alarm
+ * card owns the screen's filled button — it *is* the screen's current job then, which is why it does
+ * not need a rung of its own here.
+ */
+enum class TrackerTask {
+    /** No service. The filled button is `TrackingSwitch`'s own Start tracking. */
+    START,
+
+    /** The camera was released and the game is being held; taking it back is the whole job. */
+    RESUME_CAMERA,
+
+    /** No board geometry. Nothing else on this screen can say anything until there is. */
+    CALIBRATE,
+
+    WATCH,
+}
+
 data class TrackingUiState(
     val fen: String,
     val stateText: String,
@@ -81,6 +107,14 @@ data class TrackingUiState(
     val overlay: OverlayLayers,
     // `[a8, h8, h1, a1]` in source px, or null before the first calibration.
     val corners: FloatArray? = null,
+    val task: TrackerTask = TrackerTask.WATCH,
+    /**
+     * Whether the screen may draw a GAME: a live camera delivering frames onto a calibrated board.
+     *
+     * False is not an error — it is the other layout, the one whose job is to make the camera work
+     * and which therefore shows the camera instead of a board, an eval bar and an empty move list.
+     */
+    val ready: Boolean = true,
 ) {
     /** The board scrim and the frozen fps colour are the SAME condition — a latched alarm. */
     val boardTinted: Boolean get() = alarm != null
@@ -166,8 +200,29 @@ fun trackingUiState(
                 z = status.z,
             ),
         corners = status.corners,
+        task = task(feed, status),
+        // Frames AND geometry. Corners with no frames is the honest third case: the board holds the
+        // position it last had, but nothing on screen is live, so it belongs in the other layout —
+        // where the (blank) camera view says exactly that.
+        ready = task(feed, status) == TrackerTask.WATCH && status.cameraFps > 0.0,
     )
 }
+
+/**
+ * The ranking, and it is the same one the header uses: no tracker outranks a released camera, which
+ * outranks a board that was never fitted. Every rung above [TrackerTask.WATCH] has one thing the
+ * user can do about it, and that thing is the screen's filled button.
+ */
+private fun task(
+    feed: Feed,
+    status: TrackerStatus,
+): TrackerTask =
+    when {
+        feed == Feed.OFF -> TrackerTask.START
+        feed == Feed.PAUSED -> TrackerTask.RESUME_CAMERA
+        status.corners == null -> TrackerTask.CALIBRATE
+        else -> TrackerTask.WATCH
+    }
 
 /**
  * While alarmed the engine blocks every commit, so showing "moving" would imply the game is

@@ -38,9 +38,31 @@ import com.chesslab.tracker.ui.theme.chesslabSwitchColors
 private val MODEL_ASSETS = listOf("model.onnx")
 
 /**
- * Everything that is not a `TrackerConfig` knob: what the camera is asked for, which way the board
- * faces, which graph and provider the CNN should use. All of it is read when the tracker is built,
- * so all of it needs a restart.
+ * Which way the board faces — the one `AppSettings` field that is a PLAYER's rather than the
+ * machine's, and therefore the one that stayed on the Settings landing page when specs/51 moved the
+ * rest behind the developer door.
+ *
+ * It describes the board in front of the user, not the device reading it, and getting it wrong is
+ * silent: a wrong a8 assignment transposes every label without anything on screen saying so.
+ */
+@Composable
+fun BoardOrientationSection(
+    app: AppSettings,
+    onChange: (AppSettings) -> Unit,
+) {
+    Choice(
+        title = "Board orientation",
+        help = "Which physical corner is a8. A wrong a8 assignment silently transposes every label.",
+        options = BoardOrientation.entries.map { it.label to it },
+        selected = app.orientation,
+        onSelect = { onChange(app.copy(orientation = it)) },
+    )
+}
+
+/**
+ * Everything that is not a `TrackerConfig` knob and not the board's own orientation: what the camera
+ * is asked for, which graph and provider the CNN should use. All of it is read when the tracker is
+ * built, so all of it needs a restart — and all of it is the machine's, so it lives behind Developer.
  */
 @Composable
 fun AppSettingsSection(
@@ -56,13 +78,6 @@ fun AppSettingsSection(
             options = ResolutionMode.entries.map { it.label to it },
             selected = app.resolutionMode,
             onSelect = { onChange(app.copy(resolutionMode = it)) },
-        )
-        Choice(
-            title = "Board orientation",
-            help = "Which physical corner is a8. A wrong a8 assignment silently transposes every label.",
-            options = BoardOrientation.entries.map { it.label to it },
-            selected = app.orientation,
-            onSelect = { onChange(app.copy(orientation = it)) },
         )
         Choice(
             title = "CNN model",

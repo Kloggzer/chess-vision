@@ -167,8 +167,43 @@ class StatusUiModelTest {
         val corners = floatArrayOf(10f, 20f, 110f, 22f, 108f, 120f, 12f, 118f)
         assertArrayEquals(corners, trackingUiState(idleTrackerStatus().copy(corners = corners)).corners)
         assertNull(trackingUiState(idleTrackerStatus()).corners)
-        // …and the drawing side accepts exactly that shape (invariant 11 order, 4 points).
-        assertEquals(4, cornerOffsets(corners)?.size)
-        assertNull(cornerOffsets(floatArrayOf(1f, 2f)))
+    }
+
+    /**
+     * **The filled button is whatever the screen needs NOW** (specs/49). Ranked exactly like the
+     * header: no tracker outranks a released camera, which outranks a board that was never fitted.
+     */
+    @Test
+    fun theTaskIsWhateverTheScreenNeedsNow() {
+        assertEquals(TrackerTask.START, trackingUiState(status(), tracking = false).task)
+        assertEquals(TrackerTask.RESUME_CAMERA, trackingUiState(status(), cameraOn = false).task)
+        assertEquals(TrackerTask.CALIBRATE, trackingUiState(status(corners = null)).task)
+        assertEquals(TrackerTask.WATCH, trackingUiState(status(fps = 14.8)).task)
+        // A released camera on an uncalibrated board is still a released camera — taking it back is
+        // the only act that can lead anywhere, and it must not be ranked under Calibrate.
+        assertEquals(TrackerTask.RESUME_CAMERA, trackingUiState(status(corners = null), cameraOn = false).task)
+    }
+
+    /**
+     * `ready` is what decides which of the two layouts renders, and it needs BOTH a geometry and
+     * frames. Corners with a dead feed is the case that would otherwise draw a board, an eval bar
+     * and a move list over a camera that is delivering nothing.
+     */
+    @Test
+    fun readyNeedsGeometryAndFrames() {
+        assertTrue(trackingUiState(status(fps = 14.8)).ready)
+        assertFalse(trackingUiState(status(corners = null)).ready)
+        assertFalse(trackingUiState(status(fps = 0.0, cameraFps = 0.0)).ready)
+        assertFalse(trackingUiState(status(), cameraOn = false).ready)
+        assertFalse(trackingUiState(status(), tracking = false).ready)
+    }
+
+    /** A latched alarm is a state of a game being WATCHED — the alarm card owns the filled button. */
+    @Test
+    fun anAlarmDoesNotLeaveTheWatchingLayout() {
+        val alarm = TrackerEvent.Alarm("illegal_move", listOf("e4"), null, null)
+        val ui = trackingUiState(status(fps = 14.8, alarm = alarm))
+        assertTrue(ui.ready)
+        assertEquals(TrackerTask.WATCH, ui.task)
     }
 }

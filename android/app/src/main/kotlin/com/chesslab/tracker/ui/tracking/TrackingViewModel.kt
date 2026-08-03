@@ -52,6 +52,23 @@ class TrackingViewModel : ViewModel() {
     private val previewState = MutableStateFlow<Bitmap?>(null)
     val preview: StateFlow<Bitmap?> = previewState.asStateFlow()
 
+    private val rawPreviewState = MutableStateFlow<Bitmap?>(null)
+
+    /**
+     * The RAW camera frame, for the not-ready layout (specs/49).
+     *
+     * [preview] is the rectified board, which by construction does not exist before there is a
+     * calibration — so the one state where the user most needs to see what the phone sees is exactly
+     * the state that flow is empty in. Collected through a job like the others rather than delegated
+     * to `session.rawPreview`, or a re-attach would leave the screen reading the old session's flow.
+     */
+    val rawPreview: StateFlow<Bitmap?> = rawPreviewState.asStateFlow()
+
+    private val rotationState = MutableStateFlow(0)
+
+    /** Display-only turn for [rawPreview]; the warp and every stored quad live in sensor space. */
+    val previewRotation: StateFlow<Int> = rotationState.asStateFlow()
+
     private val cameraOnState = MutableStateFlow(true)
 
     /** The service's answer, never a local guess: the UI asks for a change and waits for the flow. */
@@ -95,6 +112,8 @@ class TrackingViewModel : ViewModel() {
             }
         jobs += session.events.onEach(::onEvent).launchIn(viewModelScope)
         jobs += session.boardPreview.onEach { previewState.value = it }.launchIn(viewModelScope)
+        jobs += session.rawPreview.onEach { rawPreviewState.value = it }.launchIn(viewModelScope)
+        jobs += session.previewRotation.onEach { rotationState.value = it }.launchIn(viewModelScope)
         jobs +=
             session.cameraOn
                 .onEach {

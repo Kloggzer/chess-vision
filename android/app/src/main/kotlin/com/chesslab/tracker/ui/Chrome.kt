@@ -48,6 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.games.GameSessionState
@@ -347,16 +348,32 @@ fun StatRow(content: @Composable RowScope.() -> Unit) {
 }
 
 /**
- * **Primitive — disclosure row.** A title, one line of what is behind it, a chevron, and the rule
- * that separates it from the next one.
+ * **Primitive — disclosure row.** A title, one line of what is behind it, and the rule that
+ * separates it from the next one.
  *
- * The subtitle says what you will FIND, never what the screen is called. The rule belongs *between*
- * rows and never around them — a bordered row inside a list is a card pretending to be one.
+ * The subtitle says what you will FIND or what the setting currently IS — never what the screen is
+ * called. The rule belongs *between* rows and never around them — a bordered row inside a list is a
+ * card pretending to be one.
+ *
+ * **Two variants, one component** (specs/51). The default is the chevron form Home and the review
+ * screen use. Settings passes an [icon] and `chevron = false`, which is Android's own Settings
+ * shape: the pictogram plus a subtitle stating the current value carry the affordance, so the arrow
+ * is furniture. A second row type that looked nearly like this one is how a vocabulary rots, which
+ * is the thing specs/47 and specs/48 existed to undo — so the collision is resolved here and not by
+ * a `SettingsRow`.
+ *
+ * The [icon] is DECORATIVE and carries no `contentDescription` on purpose: the row's accessible name
+ * is its title, which is what `android-ui.ps1 tap-text` reaches. A described icon would put a second
+ * semantics node beside a label that already says the same word.
  */
 @Composable
 fun DisclosureRow(
     title: String,
     subtitle: String,
+    // The two variants sit BEFORE [onOpen] so the action stays the trailing lambda every existing
+    // call site already writes — adding a parameter must not rewrite the callers.
+    icon: ImageVector? = null,
+    chevron: Boolean = true,
     onOpen: () -> Unit,
 ) {
     Column {
@@ -365,13 +382,16 @@ fun DisclosureRow(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            icon?.let {
+                Icon(it, contentDescription = null, tint = OnSurfaceMuted, modifier = Modifier.padding(end = Space.md))
+            }
             // `weight`, or a subtitle long enough to wrap claims the whole row and pushes the chevron
             // off the screen — which is what the review screen's own disclosure row did.
             Column(Modifier.weight(1f).padding(end = Space.sm)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, color = OnSurface)
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
             }
-            Text("›", style = MaterialTheme.typography.titleMedium, color = OnSurfaceMuted)
+            if (chevron) Text("›", style = MaterialTheme.typography.titleMedium, color = OnSurfaceMuted)
         }
         Rule()
     }

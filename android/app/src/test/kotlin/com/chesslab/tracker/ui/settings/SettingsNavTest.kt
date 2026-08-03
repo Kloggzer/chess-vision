@@ -1,14 +1,19 @@
 package com.chesslab.tracker.ui.settings
 
 import com.chesslab.engine.api.TrackerConfig
+import com.chesslab.tracker.analysis.AnalysisSettings
+import com.chesslab.tracker.record.RecordingPrefs
+import com.chesslab.tracker.settings.AppSettings
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * The search and the "what did I change" view — the two things that make 46 documented knobs
- * usable rather than merely present.
+ * The search, the "what did I change" view, and the two-level shape specs/51 gave this screen —
+ * the things that make ~37 documented knobs usable rather than merely present, without putting
+ * them in front of somebody who came here to turn spoken moves on.
  */
 class SettingsNavTest {
     @Test
@@ -62,6 +67,42 @@ class SettingsNavTest {
     fun aFreshConfigHasNothingModified() {
         assertTrue(modifiedKnobs(TrackerConfig()).isEmpty())
         KnobGroup.entries.forEach { assertEquals(0, modifiedCount(it, TrackerConfig())) }
+    }
+
+    /**
+     * The whole point of the developer door: a tuning group's way out is Developer, never the
+     * player's landing page. Getting this wrong drops the user two levels on one tap, which is the
+     * exact bug specs/47 fixed for the system back button.
+     */
+    @Test
+    fun aTuningGroupReturnsToDeveloperAndAPlayerPageToSettings() {
+        assertEquals(SettingsPlace.Developer, parentOf(SettingsPlace.Group(KnobGroup.MOTION)))
+        assertEquals(SettingsPlace.Developer, parentOf(SettingsPlace.Modified))
+        assertEquals(SettingsPlace.Developer, parentOf(SettingsPlace.Device))
+        assertEquals(SettingsPlace.Groups, parentOf(SettingsPlace.Developer))
+        assertEquals(SettingsPlace.Groups, parentOf(SettingsPlace.Board))
+        assertEquals(SettingsPlace.Groups, parentOf(SettingsPlace.Speech))
+    }
+
+    /** `null` is the one place that leaves Settings altogether, and only the landing page may. */
+    @Test
+    fun onlyTheLandingPageLeavesSettings() {
+        assertNull(parentOf(SettingsPlace.Groups))
+    }
+
+    /**
+     * Every summary states the CURRENT VALUE, and "off" has to read as off — a row that describes
+     * the destination instead is the half of the Android pattern that does no work.
+     */
+    @Test
+    fun aSummaryStatesTheValueAndNotTheDestination() {
+        assertEquals("Off", speechSummary(AppSettings()))
+        assertEquals("Deutsch · Words", speechSummary(AppSettings(speechEnabled = true, speechLanguage = "de-DE")))
+        assertEquals("Off", analysisSummary(AnalysisSettings()))
+        assertEquals("Stockfish · 400 ms a move", analysisSummary(AnalysisSettings(enabled = true)))
+        assertEquals("Off", recordingSummary(RecordingPrefs()))
+        assertEquals("On · no storage limit", recordingSummary(RecordingPrefs(enabled = true, capBytes = 0L)))
+        assertEquals("On · up to 250 MB", recordingSummary(RecordingPrefs(enabled = true, capBytes = 250L * 1024 * 1024)))
     }
 
     @Test

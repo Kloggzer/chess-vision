@@ -1,16 +1,19 @@
 package com.chesslab.tracker.ui.tracking
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
@@ -30,11 +33,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.chesslab.tracker.analysis.AnalysisSettingsHost
 import com.chesslab.tracker.games.GameSessionController
 import com.chesslab.tracker.games.GameSessionState
 import com.chesslab.tracker.games.GameStore
@@ -44,7 +49,9 @@ import com.chesslab.tracker.service.TrackerRun
 import com.chesslab.tracker.ui.ChesslabScaffold
 import com.chesslab.tracker.ui.ConfirmDialog
 import com.chesslab.tracker.ui.Figure
+import com.chesslab.tracker.ui.FilledAction
 import com.chesslab.tracker.ui.OutlineAction
+import com.chesslab.tracker.ui.SourceFramedPreview
 import com.chesslab.tracker.ui.analysis.EvalBarSlot
 import com.chesslab.tracker.ui.games.GameSessionHost
 import com.chesslab.tracker.ui.games.gamesDir
@@ -55,7 +62,10 @@ import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import com.chesslab.tracker.ui.theme.Outline
+import com.chesslab.tracker.ui.theme.Radius
 import com.chesslab.tracker.ui.theme.Space
+import com.chesslab.tracker.ui.theme.Stroke
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
@@ -107,6 +117,13 @@ private fun TrackingScreen(
     var modal by remember { mutableStateOf(TrackerModal.NONE) }
     var showPreview by remember { mutableStateOf(false) }
 
+    // Recalibrating replaces the geometry the running game has been tracked against, and there is no
+    // way back to the old quad. With no moves committed there is nothing to lose (specs/48 rule 6),
+    // and moving the control into the overflow does not change that.
+    val onRecalibrate = {
+        if (live.moveCount > 0) modal = TrackerModal.RECALIBRATING else viewModel.onRecalibrate()
+    }
+
     ChesslabScaffold(
         title = "Tracking",
         onBack = onBack,
@@ -117,6 +134,7 @@ private fun TrackingScreen(
                 showPreview = showPreview,
                 onTogglePreview = { showPreview = !showPreview },
                 onShare = { modal = TrackerModal.SHARE },
+                onRecalibrate = onRecalibrate,
             )
         },
     ) { bars ->
@@ -128,11 +146,7 @@ private fun TrackingScreen(
             running = running,
             modifier = Modifier.padding(bars),
             onEndGame = { modal = TrackerModal.ENDING },
-            // Recalibrating replaces the geometry the running game has been tracked against, and
-            // there is no way back to the old quad. With no moves committed there is nothing to lose.
-            onRecalibrate = {
-                if (live.moveCount > 0) modal = TrackerModal.RECALIBRATING else viewModel.onRecalibrate()
-            },
+            onRecalibrate = onRecalibrate,
         )
     }
 
@@ -215,7 +229,7 @@ private fun TrackingModals(
 }
 
 /**
- * Everything the action bar used to spend two rows of chips on.
+ * Everything the action bar used to spend two rows of chips on — and, since specs/49, Recalibrate.
  *
  * The labels are FIXED words with the state beside them in a second `Text`, so `tap-text "Camera
  * view"` keeps working whichever way the toggle stands — a label that changes wording is a control
@@ -228,6 +242,7 @@ private fun RowScope.TrackerMenu(
     showPreview: Boolean,
     onTogglePreview: () -> Unit,
     onShare: () -> Unit,
+    onRecalibrate: () -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
     val torchOn by viewModel.torchOn.collectAsStateWithLifecycle()
@@ -235,6 +250,12 @@ private fun RowScope.TrackerMenu(
         Icon(Icons.Filled.MoreVert, contentDescription = "More")
     }
     DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        // Recalibrating a board that is already tracking is a repair, not one of the three things a
+        // running game is for. It kept its confirmation — a menu is not a licence.
+        DropdownMenuItem(text = { Text("Recalibrate") }, onClick = {
+            onRecalibrate()
+            open = false
+        })
         MenuToggle("Camera view", showPreview) {
             onTogglePreview()
             open = false
@@ -292,7 +313,15 @@ private fun ShareDialog(onDismiss: () -> Unit) {
     )
 }
 
-/** The layout, lifted out so [TrackingScreen] reads as wiring rather than as a wall. */
+/**
+ * **Two jobs, two layouts** (specs/49). Getting the camera working and watching a game need
+ * different content, and one arrangement for both left roughly half the screen inert in either
+ * state: an eval bar with nothing to evaluate, a ~500 px box holding "No moves yet", and — on the
+ * screen that OWNS the camera — no camera, so a failing calibration could not be seen at all.
+ *
+ * [TrackingSwitch] is outside the branch because starting and stopping is the one control both
+ * states share, and it is the bottom of the screen in both.
+ */
 @Composable
 private fun TrackingBody(
     viewModel: TrackingViewModel,
@@ -304,47 +333,136 @@ private fun TrackingBody(
     onEndGame: () -> Unit,
     onRecalibrate: () -> Unit,
 ) {
-    val lastCommit = viewModel.lastCommit.collectAsStateWithLifecycle().value
     Column(
         modifier.fillMaxSize().padding(vertical = Space.sm),
         verticalArrangement = Arrangement.spacedBy(Space.sm),
     ) {
-        StateHeader(ui)
-        // The camera board takes the BOARD's slot, not the leftover space under it. Both show the
-        // same 8x8; when you turn the camera on you are diagnosing, and the picture you need to
-        // read square by square is the one from the lens.
-        BoardRow(ui, game.plies.lastOrNull()?.uci, camera)
-        ui.alarm?.let {
-            AlarmCard(
-                alarm = it,
-                onAcceptCnn = viewModel::onAcceptCnnRequested,
-                onUndo = viewModel::onUndo,
-                onNewBaseline = viewModel::onNewBaseline,
-                lastCommit = lastCommit,
-            )
-        }
-        Box(Modifier.fillMaxWidth().weight(1f)) {
-            // The same list the review screen and the LAN page render, from the same source.
-            MoveList(game = game, modifier = Modifier.fillMaxSize())
-        }
-        // Not tracking is a legitimate state of this screen, not an error: the board keeps the
-        // position it last had and the only control left is the one that would change that.
-        if (running) {
-            ActionBar(
-                onUndo = viewModel::onUndo,
-                undoLabel = undoLabel(lastCommit),
-                // Ending a game that has moves USED to throw it away without a word.
-                onEndGame = onEndGame,
-                onRecalibrate = onRecalibrate,
-            )
+        StatusLine(ui)
+        if (ui.ready) {
+            Watching(viewModel, ui, game, camera, running, onEndGame)
+        } else {
+            NotReady(viewModel, ui, onRecalibrate)
         }
         TrackingSwitch(running)
     }
 }
 
 /**
+ * **B — tracking.** The job is to watch a game, so the game is what is on screen.
+ *
+ * Nothing here is filled while tracking is nominal: watching is not an act. The one exception is the
+ * alarm card, which when the latch is up IS the screen's current job and carries its own resolution.
+ */
+@Composable
+private fun ColumnScope.Watching(
+    viewModel: TrackingViewModel,
+    ui: TrackingUiState,
+    game: GameView,
+    camera: android.graphics.Bitmap?,
+    running: Boolean,
+    onEndGame: () -> Unit,
+) {
+    val lastCommit = viewModel.lastCommit.collectAsStateWithLifecycle().value
+    // ONE reserved line, and it is the most volatile string on the screen — reflowing it above the
+    // board shifts every button under the user's thumb. It reserved TWO, for a not-calibrated
+    // sentence that belongs to the other layout now and is printed there at full size. Blank while
+    // alarmed: the note doubles as the NOTIFICATION text, so it then reads "Open the app to fix it"
+    // directly above the card that carries the buttons.
+    Text(
+        text = if (ui.alarm != null) " " else ui.infoLine ?: " ",
+        style = MaterialTheme.typography.bodySmall,
+        color = OnSurfaceMuted,
+        minLines = 1,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+    // The camera board takes the BOARD's slot, not the leftover space under it. Both show the
+    // same 8x8; when you turn the camera on you are diagnosing, and the picture you need to
+    // read square by square is the one from the lens.
+    BoardRow(ui, game.plies.lastOrNull()?.uci, camera)
+    ui.alarm?.let {
+        AlarmCard(
+            alarm = it,
+            onAcceptCnn = viewModel::onAcceptCnnRequested,
+            onUndo = viewModel::onUndo,
+            onNewBaseline = viewModel::onNewBaseline,
+            lastCommit = lastCommit,
+        )
+    }
+    // The list GROWS with its content and is absent while there is none. `fill = false` caps it at
+    // what is left over and lets it be smaller — it used to be a ~500 px reserved box whose whole
+    // content was the words "No moves yet", which is the empty-state rule inverted.
+    if (game.plies.isNotEmpty()) {
+        MoveList(game = game, modifier = Modifier.fillMaxWidth().weight(1f, fill = false))
+    }
+    // Not tracking is a legitimate state of this screen, not an error: the board keeps the
+    // position it last had and the only control left is the one that would change that.
+    if (running) {
+        ActionBar(
+            onUndo = viewModel::onUndo,
+            undoLabel = undoLabel(lastCommit),
+            // Ending a game that has moves USED to throw it away without a word.
+            onEndGame = onEndGame,
+        )
+    }
+}
+
+/**
+ * **A — not ready.** No camera, no frames or no geometry. The job is to make it work.
+ *
+ * The picture takes the space, because seeing what the phone sees is the only way to know why it is
+ * failing — and the board this screen would otherwise draw is the position the app BELIEVES, which
+ * here is an unrelated picture. No board, no eval bar, no move list: none of them can say anything
+ * yet. The reason is stated once, at normal size, in the body colour.
+ */
+@Composable
+private fun ColumnScope.NotReady(
+    viewModel: TrackingViewModel,
+    ui: TrackingUiState,
+    onRecalibrate: () -> Unit,
+) {
+    val preview by viewModel.rawPreview.collectAsStateWithLifecycle()
+    val rotation by viewModel.previewRotation.collectAsStateWithLifecycle()
+    ui.infoLine?.let {
+        Text(it, style = MaterialTheme.typography.bodyLarge, color = OnSurface)
+    }
+    // With no service there is no camera to look at, so there is no picture and no frame around
+    // one — a box saying "No camera frame yet" over a tracker nobody has started is the reserved
+    // empty container this pack exists to remove. The space keeps the switch at the bottom.
+    if (ui.task == TrackerTask.START) {
+        Spacer(Modifier.weight(1f))
+    } else {
+        SourceFramedPreview(
+            preview = preview,
+            rotationDegrees = rotation,
+            sourceWidth = preview?.width ?: 0,
+            sourceHeight = preview?.height ?: 0,
+            // The edge is what makes it read as a picture rather than as a hole in the screen: the
+            // frame is letterboxed inside its box and the bands are the app's own ground colour.
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .border(Stroke.hairline, Outline, RoundedCornerShape(Radius.md))
+                    .clip(RoundedCornerShape(Radius.md)),
+            empty = { Text("No camera frame yet", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceMuted) },
+        )
+    }
+    // The screen's ONE filled button, and it is whatever the screen needs NOW. `START` has none of
+    // its own: `TrackingSwitch` below is already that button, and two filled buttons is rule 3
+    // broken in the state the rule was written for.
+    when (ui.task) {
+        TrackerTask.CALIBRATE -> FilledAction("Calibrate", onRecalibrate, Modifier.fillMaxWidth())
+        TrackerTask.RESUME_CAMERA -> FilledAction("Resume camera", viewModel::onToggleCamera, Modifier.fillMaxWidth())
+        TrackerTask.START, TrackerTask.WATCH -> Unit
+    }
+}
+
+/**
  * The eval bar is optional, gated and self-contained (07c) — it reads the tracker's status itself
- * and renders nothing when no engine shipped for this ABI.
+ * and renders nothing when no engine shipped for this ABI. It is skipped outright when analysis is
+ * switched off: with nothing to evaluate it drew a static half-and-half split and the word "eval"
+ * beside the board, for the whole length of every game. **Absent, not empty.**
  *
  * `IntrinsicSize.Min` is load-bearing: the bar fills the row's height, so without an intrinsic the
  * row claimed the whole column, the move list collapsed to zero and the action bar was pushed
@@ -356,11 +474,12 @@ private fun BoardRow(
     lastMoveUci: String?,
     camera: android.graphics.Bitmap? = null,
 ) {
+    val analysis by AnalysisSettingsHost.settings.collectAsStateWithLifecycle()
     Row(
         Modifier.fillMaxWidth().height(IntrinsicSize.Min),
         horizontalArrangement = Arrangement.spacedBy(Space.sm),
     ) {
-        EvalBarSlot()
+        if (analysis.enabled) EvalBarSlot()
         if (camera != null) {
             BoardPreview(bitmap = camera, overlay = ui.overlay, modifier = Modifier.weight(1f).aspectRatio(1f))
         } else {
@@ -374,45 +493,29 @@ private fun BoardRow(
     }
 }
 
-/** The two things that must be readable from a metre away: what it thinks, and how fast it thinks it. */
+/**
+ * One row: what it thinks, and how fast it thinks it.
+ *
+ * It was a stacked block whose largest element — `WAITING`, ~90 px, the biggest type on the screen —
+ * was a fact nobody could act on. What to DO about it is the filled button now, which is where an
+ * instruction belongs. The fps colour is frozen to the alarm colour while alarmed: the loop runs but
+ * no move can commit, and a healthy-looking counter would say otherwise.
+ */
 @Composable
-private fun StateHeader(ui: TrackingUiState) {
+private fun StatusLine(ui: TrackingUiState) {
     val tone = toneColor(ui.tone)
-    Column(verticalArrangement = Arrangement.spacedBy(Space.hair)) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(ui.stateText, style = MaterialTheme.typography.displayMedium, color = tone)
-            // Stacked rather than one long line: the rate and the reason each stay short enough to
-            // read at arm's length, which a single "camera 30 fps · not calibrated" does not.
-            Column(horizontalAlignment = Alignment.End) {
-                // The fps colour is frozen to the alarm colour while alarmed: the loop is running
-                // but no move can commit, and a healthy-looking counter would say otherwise.
-                Figure(ui.fpsText, tone)
-                ui.fpsDetail?.let {
-                    Text(it, style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted, maxLines = 1)
-                }
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(ui.stateText, style = MaterialTheme.typography.titleMedium, color = tone, maxLines = 1)
+        Row(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalAlignment = Alignment.CenterVertically) {
+            ui.fpsDetail?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted, maxLines = 1)
             }
+            Figure(ui.fpsText, tone)
         }
-        // ALWAYS two lines, never one or none. The note is the most volatile string on the screen
-        // ("stuck: cnn_desync" -> the two-line "not calibrated yet — tap Recalibrate …"), and it
-        // sits above everything: reflowing it shifted the board and the whole action bar under the
-        // user's thumb. `minLines` reserves the taller of the two shapes; the ellipsis handles the
-        // rest, because at one hard-clipped line the note ended mid-word and read as a bug.
-        // Blank while alarmed, and that is not a hole. This note is built to be the NOTIFICATION
-        // text (`StatusPublisher`), so under an alarm it reads "Position lost — tracking paused.
-        // Open the app to fix it." — an instruction to open the app, printed inside the open app,
-        // directly above a card that says the same thing and carries the buttons.
-        Text(
-            text = if (ui.alarm != null) " " else ui.infoLine ?: " ",
-            style = MaterialTheme.typography.bodyMedium,
-            color = OnSurfaceMuted,
-            minLines = 2,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
     }
 }
 
@@ -425,13 +528,19 @@ private fun toneColor(tone: StateTone): Color =
         StateTone.Alarm -> Danger
     }
 
-/** Undo, End game and Recalibrate are three DIFFERENT things (MEMORY: `android-single-camera-owner`). */
+/**
+ * The two things a running game is FOR — taking a move back and finishing.
+ *
+ * Recalibrate was the third identical outline button here and is in the `⋯` overflow now: it is a
+ * repair, not a move in the game, and having it beside Undo is what made the sentence "tap
+ * Recalibrate" point at one of three things that all looked the same. It is still a DIFFERENT act
+ * from Reset game and must never share a handler (MEMORY: `android-single-camera-owner`).
+ */
 @Composable
 private fun ActionBar(
     onUndo: () -> Unit,
     undoLabel: String,
     onEndGame: () -> Unit,
-    onRecalibrate: () -> Unit,
 ) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
         // Not always "Undo": one press unwinds the last COMMIT, and a CNN recovery commits a
@@ -439,7 +548,6 @@ private fun ActionBar(
         OutlineAction(undoLabel, onUndo, Modifier.weight(1f))
         // Nor does ending: the game is saved on the way out, and its dialog asks who played.
         OutlineAction("End game", onEndGame, Modifier.weight(1f))
-        OutlineAction("Recalibrate", onRecalibrate, Modifier.weight(1f))
     }
 }
 

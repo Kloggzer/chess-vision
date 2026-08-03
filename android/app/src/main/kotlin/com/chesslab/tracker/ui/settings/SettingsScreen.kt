@@ -12,10 +12,23 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -24,8 +37,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.engine.api.TrackerConfig
+import com.chesslab.tracker.analysis.AnalysisSettings
+import com.chesslab.tracker.analysis.AnalysisSettingsHost
+import com.chesslab.tracker.record.RecordingPrefs
 import com.chesslab.tracker.settings.AppSettings
 import com.chesslab.tracker.settings.SettingsHost
+import com.chesslab.tracker.speech.ui.SPEECH_LANGUAGES
 import com.chesslab.tracker.speech.ui.SpeechSection
 import com.chesslab.tracker.ui.ChesslabScaffold
 import com.chesslab.tracker.ui.ConfirmDialog
@@ -34,18 +51,25 @@ import com.chesslab.tracker.ui.DisclosureRow
 import com.chesslab.tracker.ui.FilledAction
 import com.chesslab.tracker.ui.OutlineAction
 import com.chesslab.tracker.ui.SectionHeading
-import com.chesslab.tracker.ui.TextAction
+import com.chesslab.tracker.ui.games.RecordingSettingsHost
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import com.chesslab.tracker.ui.theme.Radius
 import com.chesslab.tracker.ui.theme.Space
 
 /**
- * The mobile equivalent of the desktop's `--flags` plus `app.py`'s live-tuning endpoint.
+ * Settings, and behind one door the mobile equivalent of the desktop's `--flags`.
  *
  * `specs/12` D5 cut the tuning surface from the phone entirely, which made a bad board/lighting
- * combination unfixable in the field. Every knob is here, grouped, with the Python default beside
- * the live value and one line of why it is what it is.
+ * combination unfixable in the field. Every knob is still here — but not HERE: specs/51 moved the
+ * six tuning groups, `Device & model` and the debug panels behind **Developer**, because the ratio
+ * on this screen was roughly ten machine settings to one of the user's.
+ *
+ * What is left is the Android Settings pattern, taken literally (the user, 2026-08-04: *"tbh make
+ * the settings menu exactly like the android settings menu"*): rows with a leading icon and a
+ * summary that states the CURRENT VALUE, no chevrons, grouped by heading and space rather than by
+ * container. One component does both shapes — see [DisclosureRow].
  */
 @Composable
 fun SettingsRoute(
@@ -83,21 +107,27 @@ private fun SettingsScreen(
     var place by remember { mutableStateOf<SettingsPlace>(SettingsPlace.Groups) }
     var query by remember { mutableStateOf("") }
 
-    // One back affordance, two meanings: inside a group it returns to the list, at the top it
-    // leaves. A screen that drops you out of Settings from three levels down is the reason nobody
-    // opens the third level twice.
-    val title = if (query.isNotBlank()) "Search" else settingsTitle(place)
-    val up: () -> Unit = { if (place is SettingsPlace.Groups) onBack() else place = SettingsPlace.Groups }
-    // The arrow and the SYSTEM back button have to mean the same thing. They did not: the arrow
-    // returned to the group list while the hardware button popped the whole Settings route, so
-    // pressing back inside a group left Settings altogether. Cheap before; with four more subpages
-    // (Spoken moves, Analysis, Recording, Device) it is the normal way out.
+    // The search box lives with the LIST, and after specs/51 the list is on the developer page:
+    // searching four rows is furniture, while `censusThr` is exactly what somebody hunts for.
+    val searching = place is SettingsPlace.Developer && query.isNotBlank()
+    val title = if (searching) "Search" else settingsTitle(place)
+    // One back affordance, one meaning, and the arrow and the SYSTEM button call the same lambda so
+    // the two can never diverge. [parentOf] is what makes a tuning group return to Developer rather
+    // than to the player's landing page two levels up.
+    val up: () -> Unit = {
+        if (searching) {
+            query = ""
+        } else {
+            val parent = parentOf(place)
+            if (parent == null) onBack() else place = parent
+        }
+    }
     BackHandler(enabled = place !is SettingsPlace.Groups, onBack = up)
 
     ChesslabScaffold(title, up) { bars ->
         Column(Modifier.fillMaxSize().padding(bars)) {
             note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Accent) }
-            SearchField(query) { query = it }
+            if (place is SettingsPlace.Developer) SearchField(query) { query = it }
             SettingsList(
                 viewModel,
                 config,
@@ -124,30 +154,42 @@ private fun SettingsScreen(
             viewModel.resetAll()
         }, onDismiss = { confirmResetAll = false })
     }
-    // The SIXTH irreversible action, and the pack's list did not have it: resetting one group throws
-    // away exactly the same kind of tuning as resetting all of them, in one tap and with no dialog.
     resetGroup?.let { group ->
-        ConfirmDialog(
-            title = "Reset ${group.title} to defaults?",
-            body =
-                "${modifiedCount(group, config)} of ${knobsIn(group).size} settings in this group are " +
-                    "away from the Python default and go back to it. This cannot be undone.",
-            verb = "Reset ${group.title}",
-            onConfirm = {
-                viewModel.resetGroup(group)
-                resetGroup = null
-            },
-            onDismiss = { resetGroup = null },
-        )
+        ConfirmResetGroup(group, config, onConfirm = {
+            viewModel.resetGroup(group)
+            resetGroup = null
+        }, onDismiss = { resetGroup = null })
     }
 }
 
 /**
- * The four places this screen can send you, and the two things it can reset.
+ * The SIXTH irreversible action, and specs/48's list did not have it: resetting one group throws
+ * away exactly the same kind of tuning as resetting all of them, in one tap.
+ */
+@Composable
+private fun ConfirmResetGroup(
+    group: KnobGroup,
+    config: TrackerConfig,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ConfirmDialog(
+        title = "Reset ${group.title} to defaults?",
+        body =
+            "${modifiedCount(group, config)} of ${knobsIn(group).size} settings in this group are " +
+                "away from the Python default and go back to it. This cannot be undone.",
+        verb = "Reset ${group.title}",
+        onConfirm = onConfirm,
+        onDismiss = onDismiss,
+    )
+}
+
+/**
+ * The places this screen can send you, and the two things it can reset.
  *
- * One object rather than six parameters threaded through  into : they travel
+ * One object rather than five parameters threaded through [SettingsList] into [landing]: they travel
  * together, they are all "what happens when a row is tapped", and the list that carries them is a
- *  extension where a long parameter list is at its least readable.
+ * [LazyListScope] extension where a long parameter list is at its least readable.
  */
 private class SettingsNav(
     val openGroup: (SettingsPlace) -> Unit,
@@ -157,7 +199,16 @@ private class SettingsNav(
     val resetAll: () -> Unit,
 )
 
-/** Filters as you type, across key, group and the help line — see [searchKnobs]. */
+/**
+ * Android's own search bar, which is the whole specification (the user: *"like android does it in
+ * the settings"*, with the magnifier on the right).
+ *
+ * The placeholder was *"Search settings — try \"shadow\", \"cnn\", \"timeout\""*, which wrapped to
+ * two lines and made the tallest thing at the top of the screen a hint about how to use a search
+ * box; the examples are in the empty result now, where somebody who found nothing can act on them.
+ * The trailing icon becomes a clear ✕ once there is text — the magnifier stays on the right for as
+ * long as it means anything, and the ✕ is the only affordance that can empty the field.
+ */
 @Composable
 private fun SearchField(
     query: String,
@@ -167,9 +218,18 @@ private fun SearchField(
         value = query,
         onValueChange = onQuery,
         singleLine = true,
+        shape = RoundedCornerShape(Radius.lg),
         modifier = Modifier.fillMaxWidth().padding(vertical = Space.sm),
-        placeholder = { Text("Search settings — try \"shadow\", \"cnn\", \"timeout\"", color = OnSurfaceMuted) },
-        trailingIcon = { if (query.isNotEmpty()) TextAction("clear", { onQuery("") }) },
+        placeholder = { Text("Search settings", color = OnSurfaceMuted) },
+        trailingIcon = {
+            if (query.isEmpty()) {
+                Icon(Icons.Filled.Search, contentDescription = "Search", tint = OnSurfaceMuted)
+            } else {
+                IconButton(onClick = { onQuery("") }) {
+                    Icon(Icons.Filled.Close, contentDescription = "Clear search", tint = OnSurfaceMuted)
+                }
+            }
+        },
     )
 }
 
@@ -185,22 +245,20 @@ private fun SettingsList(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val searching = place is SettingsPlace.Developer && query.isNotBlank()
     val rows =
         when {
-            query.isNotBlank() -> searchKnobs(query)
+            searching -> searchKnobs(query)
             place is SettingsPlace.Group -> knobsIn(place.group)
             place is SettingsPlace.Modified -> modifiedKnobs(config)
             else -> emptyList()
         }
-    val listing = query.isBlank() && place is SettingsPlace.Groups
 
     LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(Space.sm)) {
-        if (query.isNotBlank() && rows.isEmpty()) {
-            item(key = "empty") {
-                Text("Nothing matches “$query”.", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceMuted)
-            }
+        if (searching && rows.isEmpty()) {
+            item(key = "empty") { NoMatch(query) }
         }
-        if (place is SettingsPlace.Group && query.isBlank()) {
+        if (place is SettingsPlace.Group) {
             item(key = "resetGroup") {
                 OutlineAction("Reset ${place.group.title} to defaults", { nav.resetGroup(place.group) })
             }
@@ -215,12 +273,26 @@ private fun SettingsList(
                 onReset = { viewModel.resetKnob(knob) },
             )
         }
-        if (query.isBlank()) subpage(place, app, viewModel)
-        if (listing) landing(viewModel, config, app, context, nav)
+        subpage(place, app, viewModel)
+        if (place is SettingsPlace.Groups) landing(app, nav)
+        if (place is SettingsPlace.Developer && !searching) developer(viewModel, config, app, context, nav)
     }
 }
 
-/** The four pages that are not knob lists. Each is exactly what used to be a surface of its own. */
+/** The examples that used to be the placeholder, where they are of some use: nothing was found. */
+@Composable
+private fun NoMatch(query: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+        Text("Nothing matches “$query”.", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceMuted)
+        Text(
+            "The key, the group and the explanation are all searched — try “shadow”, “cnn” or “timeout”.",
+            style = MaterialTheme.typography.bodySmall,
+            color = OnSurfaceMuted,
+        )
+    }
+}
+
+/** The subpages that are not knob lists. Each is exactly what used to be a surface of its own. */
 private fun LazyListScope.subpage(
     place: SettingsPlace,
     app: AppSettings,
@@ -231,18 +303,113 @@ private fun LazyListScope.subpage(
         SettingsPlace.Analysis -> item(key = "analysis") { AnalysisSettingsSection() }
         SettingsPlace.Recording -> item(key = "recording") { RecordingSection() }
         SettingsPlace.Device -> item(key = "device") { AppSettingsSection(app) { viewModel.setApp(it) } }
+        SettingsPlace.Board -> item(key = "board") { BoardOrientationSection(app) { viewModel.setApp(it) } }
         else -> Unit
     }
 }
 
 /**
- * The landing page: what was changed, the six tracker groups, the four app pages, diagnostics.
+ * **The player's screen.** Four things a chess player changes, two doors for the board, and one
+ * clearly labelled door for everything that belongs to the machine.
  *
- * Every row is the same [DisclosureRow] the review screen's "Analysis details" uses — one
- * disclosure pattern for the whole app — and the three headings exist so that eleven of them are
- * not one flat wall.
+ * Every summary states the CURRENT VALUE rather than describing the destination, which is the half
+ * of the Android pattern that does the work: `Spoken moves · Off` answers the question without the
+ * tap. The two board rows are grouped by a heading and separated by rules, never by a container.
  */
 private fun LazyListScope.landing(
+    app: AppSettings,
+    nav: SettingsNav,
+) {
+    item(key = "board-heading") { SectionHeading("Board") }
+    // The SECOND door to calibration (specs/48 §3). It is a setup task that happens to need a live
+    // camera, so the tracker reaches it too — but somebody looking for setup looks in Settings, and
+    // two entrances to one room is not duplication as long as they are one route (`ROUTE_CAMERA`).
+    item(key = "calibration-row") {
+        DisclosureRow(
+            title = "Board calibration",
+            subtitle = "Point the camera at the board and fit the grid",
+            onOpen = nav.openCalibration,
+            icon = Icons.Filled.Place,
+            chevron = false,
+        )
+    }
+    item(key = "orientation-row") {
+        DisclosureRow(
+            title = "Board orientation",
+            subtitle = app.orientation.label,
+            onOpen = { nav.openGroup(SettingsPlace.Board) },
+            icon = Icons.Filled.Refresh,
+            chevron = false,
+        )
+    }
+    item(key = "playing-heading") { SectionHeading("Playing") }
+    item(key = "speech-row") {
+        DisclosureRow(
+            title = "Spoken moves",
+            subtitle = speechSummary(app),
+            onOpen = { nav.openGroup(SettingsPlace.Speech) },
+            icon = Icons.Filled.Notifications,
+            chevron = false,
+        )
+    }
+    item(key = "analysis-row") { AnalysisRow(nav) }
+    item(key = "recording-row") { RecordingRow(nav) }
+    item(key = "advanced-heading") { SectionHeading("Advanced") }
+    item(key = "developer-row") {
+        DisclosureRow(
+            title = "Developer",
+            subtitle = "Tracker tuning, diagnostics, export and reset",
+            onOpen = { nav.openGroup(SettingsPlace.Developer) },
+            icon = Icons.Filled.Build,
+            chevron = false,
+        )
+    }
+}
+
+/** Read from the host rather than passed down: [landing] is a `LazyListScope`, not a composable. */
+@Composable
+private fun AnalysisRow(nav: SettingsNav) {
+    val analysis by AnalysisSettingsHost.settings.collectAsStateWithLifecycle()
+    DisclosureRow(
+        title = "Analysis",
+        subtitle = analysisSummary(analysis),
+        onOpen = { nav.openGroup(SettingsPlace.Analysis) },
+        icon = Icons.Filled.Star,
+        chevron = false,
+    )
+}
+
+/**
+ * `load()` is called here because the prefs cache is otherwise the DEFAULT until the tracker service
+ * has wired itself, and a summary reading "Off" over a running recorder is worse than no summary.
+ */
+@Composable
+private fun RecordingRow(nav: SettingsNav) {
+    val context = LocalContext.current
+    val settings = remember(context) { RecordingSettingsHost.get(context) }
+    LaunchedEffect(settings) { settings.load() }
+    val prefs by settings.prefs.collectAsStateWithLifecycle()
+    DisclosureRow(
+        title = "Recording",
+        subtitle = recordingSummary(prefs),
+        onOpen = { nav.openGroup(SettingsPlace.Recording) },
+        icon = Icons.Filled.PlayArrow,
+        chevron = false,
+    )
+}
+
+/**
+ * **The developer door.** Everything whose usable range was established by measurement rather than
+ * by preference: the six tuning groups, the device and model choices, the diagnostics, the export
+ * and the reset.
+ *
+ * **There is no gate in front of it** — no switch, no seven taps — and that is decided rather than
+ * skipped. Nothing here is dangerous to LOOK at; the danger is a stray tuning knob, and a knob needs
+ * a deliberate slider drag, not a stumble. A hidden entrance would recreate exactly what `specs/12`
+ * D5 cost: a bad board under a strange lamp with no way to fix it in the field. `debugEnabled` keeps
+ * its real job one row below, which is gating the debug PAYLOAD's cost, not access to it.
+ */
+private fun LazyListScope.developer(
     viewModel: SettingsViewModel,
     config: TrackerConfig,
     app: AppSettings,
@@ -259,13 +426,7 @@ private fun LazyListScope.landing(
             }
         }
     }
-    // The SECOND door to calibration. It is a setup task that happens to need a live camera, so the
-    // tracker reaches it too — but somebody looking for setup looks in Settings, and two entrances
-    // to one room is not duplication as long as they are one route (`ROUTE_CAMERA`).
-    item(key = "calibration-row") {
-        DisclosureRow("Board calibration", "Point the camera at the board and fit the grid", nav.openCalibration)
-    }
-    item(key = "tracking-heading") { SectionHeading("Tracking") }
+    item(key = "tracking-heading") { SectionHeading("Tracker tuning") }
     items(KnobGroup.entries.size, key = { KnobGroup.entries[it].name }) { index ->
         val group = KnobGroup.entries[index]
         val n = modifiedCount(group, config)
@@ -274,28 +435,16 @@ private fun LazyListScope.landing(
             subtitle = "${knobsIn(group).size} settings" + if (n > 0) "  •$n modified" else "",
         ) { nav.openGroup(SettingsPlace.Group(group)) }
     }
-    item(key = "app-heading") { SectionHeading("App") }
-    item(key = "speech-row") {
-        DisclosureRow("Spoken moves", "Announce moves and alarms, language, verbosity") {
-            nav.openGroup(SettingsPlace.Speech)
-        }
-    }
-    item(key = "analysis-row") {
-        DisclosureRow("Analysis (Stockfish)", "The engine beside the board, and when it may run") {
-            nav.openGroup(SettingsPlace.Analysis)
-        }
-    }
-    item(key = "recording-row") {
-        DisclosureRow("Recording", "Store camera frames as training data") {
-            nav.openGroup(SettingsPlace.Recording)
-        }
-    }
+    item(key = "device-heading") { SectionHeading("Device") }
     item(key = "device-row") {
-        DisclosureRow("Device & model", "Camera resolution, board orientation, CNN model and provider") {
+        DisclosureRow("Device & model", "Camera resolution, CNN model, graph and execution provider") {
             nav.openGroup(SettingsPlace.Device)
         }
     }
     item(key = "diagnostics-heading") { SectionHeading("Diagnostics") }
+    // The debug panels kept their own route: `TrackerStatus.debug` is assembled only while that
+    // screen is composed, and thirteen panels do not belong inside a settings LazyColumn. What the
+    // user asked to remove was the MENU ENTRY beside "Spoken moves", and this is where it went.
     item(key = "debug") {
         DebugRow(enabled = app.debugEnabled, onEnabled = viewModel::setDebugEnabled, onOpen = nav.openDebug)
     }
@@ -306,6 +455,25 @@ private fun LazyListScope.landing(
         }
     }
 }
+
+/** `Off`, or the two facts the subpage would tell you anyway. */
+internal fun speechSummary(app: AppSettings): String =
+    if (!app.speechEnabled) {
+        "Off"
+    } else {
+        val language = SPEECH_LANGUAGES.firstOrNull { it.second == app.speechLanguage }?.first ?: app.speechLanguage
+        "$language · ${app.speechVerbosity.label}"
+    }
+
+internal fun analysisSummary(settings: AnalysisSettings): String =
+    if (!settings.enabled) "Off" else "Stockfish · ${settings.options.movetimeMs} ms a move"
+
+internal fun recordingSummary(prefs: RecordingPrefs): String =
+    when {
+        !prefs.enabled -> "Off"
+        prefs.capBytes <= 0L -> "On · no storage limit"
+        else -> "On · up to ${capLabel(prefs.capBytes)}"
+    }
 
 /**
  * The honest half of live tuning: the eleven-out-of-twelve case.
