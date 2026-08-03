@@ -23,7 +23,7 @@ import argparse
 import json
 import os
 import sys
-from collections import deque
+from collections import Counter, deque
 from pathlib import Path
 
 import cv2
@@ -38,7 +38,12 @@ from replay_clip_cnn import DEFAULT_OBS_S  # noqa: E402
 from replay_clip_cnn import run as replay_with_cnn  # noqa: E402
 
 from chesslab import config  # noqa: E402
-from chesslab.calibration import compute_homography, load_profile, margins4  # noqa: E402
+from chesslab.calibration import (  # noqa: E402
+    compute_homography,
+    detect_board_markers,
+    load_profile,
+    margins4,
+)
 
 
 def realgames_root() -> Path:
@@ -65,19 +70,28 @@ def scan_geometry(video: Path, profile, progress_every: int = 300) -> dict:
     size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
     quads: list[list[list[float]] | None] = []
     stamps: list[float] = []
+    # How many markers DECODED, per frame — not how many quads came back. A quad from three
+    # markers is an affine parallelogram standing in for a perspective view, and the 2026-08-02
+    # video is exactly that case: its fourth marker is clipped by the right image border, so a
+    # run can report "99.9 % of frames yielded a quad" while not one of them was measured.
+    # `raw_corners` refuses below four now; this histogram is what says WHY a video was refused.
+    seen = Counter()
     while True:
         stamps.append(cap.get(cv2.CAP_PROP_POS_MSEC))
         ok, frame = cap.read()
         if not ok:
             stamps.pop()
             break
+        found = detect_board_markers(frame, profile.marker_dict, corner="center")
+        seen[len(found)] += 1
         quad = raw_corners(frame, profile)
         quads.append(None if quad is None else [[float(x), float(y)] for x, y in quad])
         if progress_every and len(quads) % progress_every == 0:
             print(f"  ...{len(quads)} frames, {sum(q is not None for q in quads)} with a quad",
                   flush=True)
     cap.release()
-    return {"fps": float(fps), "frame_size": size, "quads": quads, "stamps": stamps}
+    return {"fps": float(fps), "frame_size": size, "quads": quads, "stamps": stamps,
+            "markers_seen": dict(seen)}
 
 
 def median_quad(quads) -> list[list[float]] | None:

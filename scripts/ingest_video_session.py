@@ -43,7 +43,7 @@ from chesslab.collect import SessionWriter  # noqa: E402
 EMPTY_FEN = "8/8/8/8/8/8/8/8 w - - 0 1"
 
 
-def raw_corners(frame, profile):
+def raw_corners(frame, profile, min_markers: int = 4):
     """Board corners from THIS frame's markers alone — no tracker, no smoothing, no seed.
 
     `board_corners_for_frame` goes through a `MarkerTracker`, which is right for a fixed camera and
@@ -55,12 +55,26 @@ def raw_corners(frame, profile):
     pose) rectifies perfectly, every rotated frame lands a few degrees off with the board's edge
     labels inside the crop area.
 
-    Returns None when fewer than four markers resolve, so a frame is skipped rather than warped
-    through a guess.
+    Returns None when fewer than `min_markers` resolve, so a frame is skipped rather than warped
+    through a guess. That sentence was in this docstring since it was written and was NOT true:
+    `resolve_board_corners` answers from two markers up, silently degrading to an affine
+    parallelogram at three and a similarity at two, and the `res[0]` here took whatever came back.
+
+    It cost a full day on 2026-08-03. The 2026-08-02 game video has its fourth marker clipped by
+    the right image border, so exactly three ever decode; every frame was warped through an affine
+    reconstruction of a PERSPECTIVE view, which cannot be right by construction. The quality
+    measurement did not catch it because it compares each frame's quad against the MEDIAN of the
+    same quads: a consistently wrong quad has excellent spread (p90 0.93 px), and "99.9 % of frames
+    yielded a quad" counted the guesses. Precision, reported as accuracy.
+
+    `n_used` is returned alongside so a caller can say WHICH degradation it is accepting. Nothing
+    may report a detection rate without it.
     """
     det = detect_board_markers(frame, profile.marker_dict, corner="center")
     res = resolve_board_corners(det, board_size=profile.board_size)
-    return res[0] if res is not None else None
+    if res is None or res[1] < min_markers:
+        return None
+    return res[0]
 
 
 def report_alignment(sid: str, profile) -> None:
