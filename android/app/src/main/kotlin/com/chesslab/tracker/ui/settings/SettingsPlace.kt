@@ -19,7 +19,35 @@ sealed interface SettingsPlace {
 
     /** Everything that was moved off its Python default, across all groups. */
     data object Modified : SettingsPlace
+
+    /**
+     * The four subpages that are NOT `TrackerConfig` knobs.
+     *
+     * Two of them used to be surfaces of their own: "Spoken moves" was a top-level tab, and the
+     * analysis knobs were reachable only by long-pressing the eval bar. `Recording` was a card on
+     * the Games screen. `Device` was five choice cards inline on this landing page, which is what
+     * made a list of eleven groups a wall.
+     */
+    data object Speech : SettingsPlace
+
+    data object Analysis : SettingsPlace
+
+    data object Recording : SettingsPlace
+
+    data object Device : SettingsPlace
 }
+
+/** What the title bar reads while [place] is open. */
+fun settingsTitle(place: SettingsPlace): String =
+    when (place) {
+        is SettingsPlace.Group -> place.group.title
+        SettingsPlace.Modified -> "Modified"
+        SettingsPlace.Speech -> "Spoken moves"
+        SettingsPlace.Analysis -> "Analysis"
+        SettingsPlace.Recording -> "Recording"
+        SettingsPlace.Device -> "Device & model"
+        SettingsPlace.Groups -> "Settings"
+    }
 
 /**
  * Knobs whose key, GROUP TITLE or help text matches every whitespace-separated term in [query].

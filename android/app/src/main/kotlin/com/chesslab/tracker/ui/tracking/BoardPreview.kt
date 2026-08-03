@@ -23,6 +23,10 @@ import androidx.compose.ui.unit.dp
 import com.chesslab.tracker.ui.theme.LocalChesslabPalette
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 
+/** Drawing weights on the camera image. Local, because `Stroke` here is the DrawScope one. */
+private val OVERLAY_STROKE = 3.dp
+private val GRID_STROKE = 1.dp
+
 private const val FILES = "abcdefgh"
 private const val N = 8
 
@@ -112,7 +116,7 @@ fun BoardPreview(
                 overlay.cnnConflicts.forEach { square ->
                     cellRect(rect, square)?.let {
                         drawRect(palette.overlayConflict.copy(alpha = CONFLICT_FILL), it.topLeft, it.size)
-                        drawRect(palette.overlayConflict, it.topLeft, it.size, style = Stroke(width = 3.dp.toPx()))
+                        drawRect(palette.overlayConflict, it.topLeft, it.size, style = Stroke(width = OVERLAY_STROKE.toPx()))
                     }
                 }
             }
@@ -149,8 +153,8 @@ private fun DrawScope.drawGrid(
     for (i in 0..N) {
         val x = board.left + board.width * i / N
         val y = board.top + board.height * i / N
-        drawLine(color, Offset(x, board.top), Offset(x, board.bottom), strokeWidth = 1.dp.toPx())
-        drawLine(color, Offset(board.left, y), Offset(board.right, y), strokeWidth = 1.dp.toPx())
+        drawLine(color, Offset(x, board.top), Offset(x, board.bottom), strokeWidth = GRID_STROKE.toPx())
+        drawLine(color, Offset(board.left, y), Offset(board.right, y), strokeWidth = GRID_STROKE.toPx())
     }
 }
 
@@ -184,7 +188,7 @@ private fun DrawScope.drawSquares(
 ) {
     squares.forEach { square ->
         cellRect(board, square)?.let {
-            drawRect(color = color, topLeft = it.topLeft, size = it.size, style = Stroke(width = 3.dp.toPx()))
+            drawRect(color = color, topLeft = it.topLeft, size = it.size, style = Stroke(width = OVERLAY_STROKE.toPx()))
         }
     }
 }

@@ -134,17 +134,19 @@ fun BindTrackerService(content: @Composable () -> Unit) {
         }
     }
     val bound = binder
-    if (bound == null) {
-        content()
-    } else {
-        ProvideCalibrationHost(
+    // ONE call site for `content`, always. Two — a bare call while unbound and a wrapped one once
+    // bound — are two positions in the composition, so the whole subtree was thrown away and
+    // rebuilt the moment the binder arrived, taking `rememberNavController` with it. See
+    // `ProvideCalibrationHost`.
+    ProvideCalibrationHost(
+        bound?.let {
             CalibrationHost(
-                latestCalibrationFrame = bound::latestCalibrationFrame,
-                rawPreview = bound.rawPreview,
-                previewRotation = bound.previewRotation,
-                onCalibrated = bound::applyCalibration,
-            ),
-            content,
-        )
-    }
+                latestCalibrationFrame = it::latestCalibrationFrame,
+                rawPreview = it.rawPreview,
+                previewRotation = it.previewRotation,
+                onCalibrated = it::applyCalibration,
+            )
+        },
+        content,
+    )
 }

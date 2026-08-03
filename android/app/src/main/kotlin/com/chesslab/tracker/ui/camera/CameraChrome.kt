@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.chesslab.tracker.ui.theme.InkPalette
+import com.chesslab.tracker.ui.theme.Space
 
 /**
  * The camera screen's chrome is ALWAYS the ink palette, in both app themes.
@@ -73,7 +74,7 @@ fun CameraTopBar(
     onHide: () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().background(TopFade).padding(horizontal = 4.dp, vertical = 2.dp),
+        Modifier.fillMaxWidth().background(TopFade).padding(horizontal = Space.xs, vertical = Space.hair),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(onClick = onBack) {
@@ -172,7 +173,7 @@ fun ChromeBanner(
                 Modifier
                     .clip(RoundedCornerShape(BANNER_CORNER.dp))
                     .background(ChromeScrim)
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                    .padding(horizontal = Space.md, vertical = Space.xs),
         )
     }
 }

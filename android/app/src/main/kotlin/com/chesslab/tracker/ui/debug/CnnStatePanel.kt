@@ -12,7 +12,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.cnn.CnnState
 import com.chesslab.tracker.service.CnnRuntimeInfo
@@ -22,6 +21,7 @@ import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnDanger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import com.chesslab.tracker.ui.theme.Space
 
 /** ATTACHED | ATTACHING | FAILED(reason) | DISABLED, plus the reason verbatim. */
 internal fun attachLabel(state: CnnState): String =
@@ -99,7 +99,7 @@ fun CnnAttachBanner(state: CnnState) {
         text,
         style = MaterialTheme.typography.labelLarge,
         color = OnDanger,
-        modifier = Modifier.fillMaxWidth().background(Danger).padding(8.dp),
+        modifier = Modifier.fillMaxWidth().background(Danger).padding(Space.sm),
     )
 }
 
@@ -109,7 +109,7 @@ fun CnnStatePanel(
     viewModel: DebugViewModel,
 ) {
     val runtime by viewModel.runtime.collectAsStateWithLifecycle()
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.sm)) {
         Text(attachLabel(state), style = MaterialTheme.typography.titleLarge, color = attachTone(state))
         StatRow("execution provider", epLine(runtime), epTone(runtime))
         // The model FIRST, and in its own row: three are bundled and switchable, so every other

@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import com.chesslab.tracker.camera.CameraAbilities
 import com.chesslab.tracker.camera.CameraLook
 import com.chesslab.tracker.camera.WhiteBalance
+import com.chesslab.tracker.ui.theme.Space
 import kotlinx.coroutines.delay
 
 /**
@@ -121,7 +122,7 @@ fun CameraTile(
             .clip(RoundedCornerShape(TILE_CORNER.dp))
             .background(if (open) Chrome.selection else ChromeScrim)
             .clickable(onClick = onClick)
-            .padding(horizontal = 4.dp, vertical = 8.dp),
+            .padding(horizontal = Space.xs, vertical = Space.sm),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -221,7 +222,7 @@ fun <T> CameraChoice(
 ) {
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(Space.sm),
     ) {
         options.forEach { (text, value) ->
             FilterChip(
@@ -244,11 +245,29 @@ private fun chromeChipColors() =
         selectedLabelColor = Chrome.accent,
     )
 
-/** A line of explanation inside an open panel — the consequence of the control, not its name. */
+/**
+ * A line of explanation over the viewfinder — the consequence of the control, not its name.
+ *
+ * It carries the same scrim `ChromeBanner` does, and for the same reason. This screen is dark in
+ * BOTH themes (`Chrome = InkPalette`); over the pale letterbox of a portrait clip in the light
+ * scheme, muted ink on cream was measured unreadable — `screenshots/light/02-camera.png`, bottom
+ * line. A note the eye cannot find is a note that is not there.
+ */
 @Composable
 fun CameraNote(text: String) {
-    Text(text, style = MaterialTheme.typography.bodySmall, color = Chrome.onSurfaceMuted)
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color = Chrome.onSurfaceMuted,
+        modifier =
+            Modifier
+                .clip(RoundedCornerShape(NOTE_CORNER))
+                .background(ChromeScrim)
+                .padding(horizontal = Space.sm, vertical = Space.hair),
+    )
 }
+
+private val NOTE_CORNER = 8.dp
 
 private const val PERCENT = 100f
 private const val AUTO = "Auto"

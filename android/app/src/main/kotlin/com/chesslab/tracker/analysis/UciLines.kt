@@ -26,9 +26,6 @@ internal data class UciInfo(
 
 private val WHITESPACE = Regex("\\s+")
 
-/** Centipawns per pawn — the unit the bar and the panel display in. */
-internal const val CP_PER_PAWN = 100.0
-
 /**
  * Parse `info depth 20 multipv 1 score cp 35 … pv e2e4 e7e5`.
  *

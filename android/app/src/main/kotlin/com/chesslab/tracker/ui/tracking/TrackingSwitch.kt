@@ -21,10 +21,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import com.chesslab.tracker.service.TrackerRun
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import com.chesslab.tracker.ui.theme.Space
+import com.chesslab.tracker.ui.theme.Touch
 
 /** Notifications are only needed for the foreground-service notification, and only from API 33. */
 private val REQUESTED_PERMISSIONS: Array<String>
@@ -59,7 +60,7 @@ fun TrackingSwitch(
             denied = !granted
             if (granted) TrackerRun.start()
         }
-    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
         OutlinedButton(
             onClick = {
                 when {
@@ -68,8 +69,8 @@ fun TrackingSwitch(
                     else -> request.launch(REQUESTED_PERMISSIONS)
                 }
             },
-            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-            contentPadding = PaddingValues(4.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = Touch.min),
+            contentPadding = PaddingValues(Space.xs),
         ) {
             Text(
                 if (running) "Stop tracking" else "Start tracking",

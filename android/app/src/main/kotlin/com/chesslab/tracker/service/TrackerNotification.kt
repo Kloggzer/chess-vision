@@ -20,6 +20,16 @@ const val ACTION_STOP_TRACKING = "com.chesslab.tracker.STOP_TRACKING"
 private const val REQUEST_STOP = 1
 
 /**
+ * Tells [MainActivity] to open the TRACKER rather than Home.
+ *
+ * The app's start destination is the dashboard, so without this the notification landed a user who
+ * tapped "chesslab is tracking" on a screen that is not the game. specs/47 §3.1a: a running game is
+ * never more than one deliberate tap away, from anywhere — and from outside the app the
+ * notification is that tap.
+ */
+const val EXTRA_OPEN_TRACKER = "com.chesslab.tracker.OPEN_TRACKER"
+
+/**
  * The ongoing foreground notification.
  *
  * Android 14 requires `startForeground` with type `camera` BEFORE the camera binds, so this must
@@ -37,7 +47,9 @@ class TrackerNotification(
         PendingIntent.getActivity(
             context,
             0,
-            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            Intent(context, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                .putExtra(EXTRA_OPEN_TRACKER, true),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 

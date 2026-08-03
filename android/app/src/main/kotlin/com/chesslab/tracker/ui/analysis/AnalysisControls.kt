@@ -12,10 +12,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import com.chesslab.tracker.analysis.AnalysisSettings
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.OnSurface
+import com.chesslab.tracker.ui.theme.Space
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -34,7 +34,7 @@ fun AnalysisControls(
     onChange: (AnalysisSettings) -> Unit,
 ) {
     val options = settings.options
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Space.hair)) {
         Toggle("Engine analysis", settings.enabled) { onChange(settings.copy(enabled = it)) }
         Toggle("Pause on thermal / battery pressure", settings.respectPressure) {
             onChange(settings.copy(respectPressure = it))
@@ -71,7 +71,7 @@ private fun Toggle(
             text = label,
             style = MaterialTheme.typography.bodyMedium,
             color = OnSurface,
-            modifier = Modifier.weight(1f).padding(end = 12.dp),
+            modifier = Modifier.weight(1f).padding(end = Space.md),
         )
         Switch(checked = checked, onCheckedChange = onChange)
     }
@@ -91,7 +91,7 @@ private fun Knob(
             text = label,
             style = MaterialTheme.typography.bodyMedium,
             color = OnSurface,
-            modifier = Modifier.weight(1f).padding(end = 12.dp),
+            modifier = Modifier.weight(1f).padding(end = Space.md),
         )
         Text(value, style = MaterialTheme.typography.labelLarge, color = Accent)
     }

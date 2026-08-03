@@ -180,14 +180,26 @@ data class GameGrade(
 
     fun of(ply: Int): PlyGrade? = byPly[ply]
 
-    /** The plies worth opening the screen for, worst first. */
+    /**
+     * The plies that decided the game, worst first — sorted by SWING and by nothing else.
+     *
+     * It used to sort `compareByDescending { missedMate }` first, so every missed mate outranked
+     * every real swing by construction: the top row of "What decided the game" was routinely a move
+     * that went 98 % → 98 %. Missing a mate from a won position is a curiosity, not a turning
+     * point, and it is [missedChances] now — its own question, its own section.
+     */
     fun findings(): List<PlyGrade> =
         byPly.values
-            .filter { it.missedMate || it.quality >= MoveQuality.INACCURACY }
-            .sortedWith(
-                compareByDescending<PlyGrade> { it.missedMate }
-                    .thenByDescending { it.winBefore - it.winAfter },
-            )
+            .filter { it.quality >= MoveQuality.INACCURACY }
+            .sortedByDescending { it.winBefore - it.winAfter }
+
+    /**
+     * The forced mates that were available and not taken, in the order they came up.
+     *
+     * A missed mate that also cost a large share of the position appears in [findings] TOO, and
+     * that is correct: it is both things.
+     */
+    fun missedChances(): List<PlyGrade> = byPly.values.filter { it.missedMate }.sortedBy { it.ply }
 
     val forcedMatePlies: Int get() = byPly.values.count { it.forcedMateLine }
 

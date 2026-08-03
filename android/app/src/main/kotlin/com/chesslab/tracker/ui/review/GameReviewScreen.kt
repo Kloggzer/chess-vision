@@ -10,13 +10,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -24,11 +24,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -60,13 +56,11 @@ import com.chesslab.tracker.analysis.missedMate
 import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.games.GameView
 import com.chesslab.tracker.ui.ChesslabScaffold
-import com.chesslab.tracker.ui.ScreenPadding
+import com.chesslab.tracker.ui.DisclosureRow
 import com.chesslab.tracker.ui.analysis.BAR_WIDTH
-import com.chesslab.tracker.ui.analysis.EvalBarSlot
 import com.chesslab.tracker.ui.analysis.EvalFill
 import com.chesslab.tracker.ui.analysis.SLOT_WIDTH
 import com.chesslab.tracker.ui.analysis.stockfishEngineFactory
-import com.chesslab.tracker.ui.games.GameSessionHost
 import com.chesslab.tracker.ui.games.gamesDir
 import com.chesslab.tracker.ui.settings.Card
 import com.chesslab.tracker.ui.theme.Accent
@@ -74,12 +68,13 @@ import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import com.chesslab.tracker.ui.theme.Radius
+import com.chesslab.tracker.ui.theme.Space
+import com.chesslab.tracker.ui.theme.Stroke
 import com.chesslab.tracker.ui.theme.Surface
 import com.chesslab.tracker.ui.theme.SurfaceRaised
 import com.chesslab.tracker.ui.tracking.BoardCanvas
 import kotlin.math.roundToInt
-
-private val BOARD_GAP = 6.dp
 
 private enum class ReviewSection {
     REVIEW,
@@ -100,33 +95,18 @@ private const val TOP_FINDINGS = 3
 private const val TOP_MOVE_ROWS = 8
 
 /**
- * The LIVE source. The spectator view is this screen with the game still running — "die spectator
- * view kann basically dieselbe view sein wie die nach dem spiel nur halt live" (2026-08-02).
+ * The review of a stored game.
  *
- * With no tracker there is no live game, and this says so. It used to fall back to an empty
- * `GameView` — a start position rendered as if it were the state of a board somebody was playing on.
+ * There used to be a second entry point, `LiveReviewRoute` — the "Spectator" tab. It was this
+ * composable fed by the running game, i.e. the tracker's own board and the tracker's own move list
+ * on a destination of their own, and its only unique content was one Wi-Fi switch. The switch is in
+ * the tracker's overflow menu now and this screen reads exactly one kind of game.
+ *
+ * An archived review opens on **rating, board with the win bar, what the move on screen did, and the
+ * navigation**. Key moments and the complete score sheet are peers behind explicit tabs. Selecting
+ * either returns to the board at that position, so the arrow and explanation remain the place where
+ * a move is understood.
  */
-@Composable
-fun LiveReviewRoute(onBack: () -> Unit) {
-    val controller by GameSessionHost.controller.collectAsStateWithLifecycle()
-    val session = controller
-    if (session == null) {
-        ChesslabScaffold("Live game", onBack) { bars ->
-            Text(
-                "No game running. Start tracking on the Board tab to play one.",
-                Modifier.padding(bars).padding(12.dp),
-                color = OnSurfaceMuted,
-            )
-        }
-        return
-    }
-    val live by session.state.collectAsStateWithLifecycle()
-    GameReviewScreen(title = "Live game", game = live.game, onBack = onBack, grade = null, onFocus = {}) { _, _ ->
-        SpectatorShareCard()
-    }
-}
-
-/** The ARCHIVE source. Same screen, same board, same list — a stored game instead of a running one. */
 @Composable
 fun ArchiveReviewRoute(
     id: String,
@@ -146,107 +126,67 @@ fun ArchiveReviewRoute(
         ChesslabScaffold(id, onBack) { bars -> Text("Game not found.", Modifier.padding(bars), color = OnSurfaceMuted) }
         return
     }
-    GameReviewScreen(
-        title = game.id,
-        game = game,
-        onBack = onBack,
-        grade = ui.grade,
-        onFocus = model::focus,
-        resolveMateLine = model::resolveMateLine,
-        // The rating leads. It is the answer to "how did I do", it is the one thing the user asked
-        // for by name, and both products this was measured against open with it.
-        summary = { AccuracyRow(ui, game, onReview = model::review) },
-    ) { selected, seek ->
-        Details(ui, game, selected, onDiscard = model::discard)
-    }
+    GameReviewScreen(ui, game, onBack, model)
 }
 
-/**
- * ONE board and one focused job per section. Live or archived is [GameView.live] and nothing else.
- *
- * An archived review opens on **rating, board with the win bar, what the move on screen did, and the
- * navigation**. Key moments and the complete score sheet are peers behind explicit tabs rather than
- * another two screens' worth of content below the board. Selecting either returns to the board at
- * that position, so the arrow and explanation remain the place where a move is understood.
- *
- * Each section still owns one `LazyColumn`; the score sheet contributes rows to it instead of nesting
- * a second lazy list. That preserves the phone layout without forcing every section into one view.
- */
 @Composable
 private fun GameReviewScreen(
-    title: String,
+    ui: ReviewUi,
     game: GameView,
     onBack: () -> Unit,
-    grade: GameGrade?,
-    onFocus: (Int) -> Unit,
-    resolveMateLine: suspend (String, List<String>) -> ResolvedMateLine = { _, seed ->
-        ResolvedMateLine(seed, emptyList(), complete = false)
-    },
-    summary: @Composable () -> Unit = {},
-    extra: @Composable (selected: Int, onSeek: (Int) -> Unit) -> Unit,
+    model: ReviewViewModel,
 ) {
-    // The live board follows the game; the archived one follows the finger. Both are a PLY NUMBER,
-    // so the two modes differ in where that number comes from and in nothing else.
-    var seek by remember(game.id) { mutableIntStateOf(initialReviewPly(game.live, game.plies.size)) }
+    var seek by remember(game.id) { mutableIntStateOf(0) }
     var section by remember(game.id) { mutableStateOf(ReviewSection.REVIEW) }
     var allMoves by remember(game.id) { mutableStateOf(false) }
     var mateLine by remember(game.id) { mutableStateOf<MateLineRequest?>(null) }
-    val review = reviewSelection(game, grade, if (game.live) game.plies.size else seek)
-    // The advice on the BOARD has to be a move from the position the board is showing. A ply's own
-    // `bestUci` is the engine's move in the position BEFORE it, so drawing that here would put an
-    // arrow for one position on top of another — it did, and `e4-e5` was rendered over a board where
-    // that had already happened. The engine's move from THIS position is the next ply's.
-    val listState = rememberReviewListState(game, section, review.selected, onFocus)
+    val grade = ui.grade
+    val review = reviewSelection(game, grade, seek)
+    val listState = rememberReviewListState(game, section, review.selected, model::focus)
 
-    ChesslabScaffold(title, onBack) { bars ->
+    ChesslabScaffold(game.id, onBack) { bars ->
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize().padding(bars),
-            contentPadding = ScreenPadding,
-            verticalArrangement = Arrangement.spacedBy(if (section == ReviewSection.MOVES) 0.dp else 8.dp),
+            contentPadding = PaddingValues(vertical = Space.sm),
+            // The score sheet's rows carry their own vertical padding; a gap between them as well
+            // makes 42 rows a ladder.
+            verticalArrangement = Arrangement.spacedBy(if (section == ReviewSection.MOVES) 0.dp else Space.sm),
         ) {
-            if (!game.live) {
-                item(key = "tabs") {
-                    ReviewTabs(
-                        selected = section,
-                        moments = grade?.findings()?.size,
-                        moves = game.plies.size,
-                        onSelect = { section = it },
-                    )
-                }
+            item(key = "tabs") {
+                ReviewTabs(
+                    selected = section,
+                    moments = grade?.let { it.findings().size + it.missedChances().size },
+                    moves = game.plies.size,
+                    onSelect = { section = it },
+                )
             }
-
-            when {
-                game.live -> {
-                    item(key = "board") { ReviewBoard(game, review.selected, grade, review.fromHere) }
-                    item(key = "extra") { extra(review.selected) { seek = it } }
-                    moveListSection(game, grade, review.selected, onSelect = null)
-                }
-                section == ReviewSection.REVIEW -> {
-                    item(key = "summary") { summary() }
+            when (section) {
+                ReviewSection.REVIEW -> {
+                    // The rating leads. It is the answer to "how did I do", it is the one thing the
+                    // user asked for by name, and both products this was measured against open with it.
+                    item(key = "summary") { AccuracyRow(ui, game, onReview = model::review) }
                     item(key = "board") { ReviewBoard(game, review.selected, grade, review.fromHere) }
                     item(key = "verdict") { ReviewVerdict(review, game, grade) { mateLine = it } }
                     item(key = "nav") { PlyNav(review.selected, game.plies.size) { seek = it } }
-                    item(key = "extra") { extra(review.selected) { seek = it } }
+                    item(key = "details") { Details(ui, game, review.selected, onDiscard = model::discard) }
                 }
-                section == ReviewSection.MOMENTS -> {
+                ReviewSection.MOMENTS ->
                     item(key = "moments") {
                         KeyMoments(game, grade) {
                             seek = it
                             section = ReviewSection.REVIEW
                         }
                     }
-                }
-                else -> {
+                ReviewSection.MOVES ->
                     movesSection(game, grade, review.selected, allMoves, onToggle = { allMoves = !allMoves }) {
                         seek = it
                         section = ReviewSection.REVIEW
                     }
-                }
             }
         }
     }
-    mateLine?.let { MateLineExplorer(it, resolveMateLine) { mateLine = null } }
+    mateLine?.let { MateLineExplorer(it, model::resolveMateLine) { mateLine = null } }
 }
 
 @Composable
@@ -257,7 +197,8 @@ private fun rememberReviewListState(
     onFocus: (Int) -> Unit,
 ): LazyListState {
     val listState = rememberLazyListState()
-    ReviewScrollEffects(listState, game, section, selected, onFocus)
+    LaunchedEffect(selected) { onFocus(selected) }
+    LaunchedEffect(section, game.id) { listState.scrollToItem(0) }
     return listState
 }
 
@@ -361,7 +302,7 @@ private fun MateLineExplorer(
         confirmButton = { TextButton(onClick = onDismiss) { Text("Close", color = Accent) } },
         title = { Text(if (request.missed) "Missed mate" else "Forced mate", color = OnSurface) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
                 BoardCanvas(fen = frame.fen, lastMoveUci = frame.lastMoveUci)
                 Text(
                     "Any reply loses.",
@@ -444,23 +385,6 @@ private fun LazyListScope.movesSection(
 }
 
 @Composable
-private fun ReviewScrollEffects(
-    listState: LazyListState,
-    game: GameView,
-    section: ReviewSection,
-    selected: Int,
-    onFocus: (Int) -> Unit,
-) {
-    LaunchedEffect(selected) { onFocus(selected) }
-    LaunchedEffect(game.plies.size, game.live) {
-        if (game.live && game.plies.isNotEmpty()) listState.animateScrollToItem(listState.layoutInfo.totalItemsCount)
-    }
-    LaunchedEffect(section) {
-        if (!game.live) listState.scrollToItem(0)
-    }
-}
-
-@Composable
 private fun ReviewBoard(
     game: GameView,
     selected: Int,
@@ -469,10 +393,13 @@ private fun ReviewBoard(
 ) {
     // `IntrinsicSize.Min` is load-bearing: the bar fills the row's height, so without an intrinsic
     // it has no height to fill at all inside a lazy item.
-    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(BOARD_GAP)) {
-        // Two bars, one drawing. The live one is fed by the tracker's current position; the archive
-        // one is fed by the ply being read and moves with the finger.
-        if (game.live) EvalBarSlot() else ReviewEvalBar(grade?.winWhite?.getOrNull(selected))
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+        ReviewEvalBar(grade?.winWhite?.getOrNull(selected))
+        // The advice on the BOARD has to be a move from the position the board is showing. A ply's
+        // own `bestUci` is the engine's move in the position BEFORE it, so drawing that here would
+        // put an arrow for one position on top of another — it did, and `e4-e5` was rendered over a
+        // board where that had already happened. The engine's move from THIS position is the next
+        // ply's, and the verdict card names exactly this move.
         BoardCanvas(
             fen = game.fenAt(selected),
             modifier = Modifier.weight(1f),
@@ -482,6 +409,13 @@ private fun ReviewBoard(
     }
 }
 
+/**
+ * The tab's accessible name is the LABEL, always.
+ *
+ * The count used to be inside the same `Text` (`Moments · 24`), so the name changed while the
+ * analysis streamed — watched going `· 2` → `· 11` → `· 20` → `· 24` over three minutes — and
+ * `tap-text "Moments"` failed. That is the `CLAUDE.md` rule met in the wild.
+ */
 @Composable
 private fun ReviewTabs(
     selected: ReviewSection,
@@ -490,22 +424,16 @@ private fun ReviewTabs(
     onSelect: (ReviewSection) -> Unit,
 ) {
     Row(Modifier.fillMaxWidth()) {
-        ReviewTab("Review", ReviewSection.REVIEW, selected, enabled = true, onSelect, Modifier.weight(1f))
-        ReviewTab(
-            moments?.let { "Moments · $it" } ?: "Moments",
-            ReviewSection.MOMENTS,
-            selected,
-            enabled = moments != null,
-            onSelect,
-            Modifier.weight(1f),
-        )
-        ReviewTab("Moves · $moves", ReviewSection.MOVES, selected, enabled = true, onSelect, Modifier.weight(1f))
+        ReviewTab("Review", null, ReviewSection.REVIEW, selected, enabled = true, onSelect, Modifier.weight(1f))
+        ReviewTab("Moments", moments, ReviewSection.MOMENTS, selected, enabled = moments != null, onSelect, Modifier.weight(1f))
+        ReviewTab("Moves", moves, ReviewSection.MOVES, selected, enabled = true, onSelect, Modifier.weight(1f))
     }
 }
 
 @Composable
 private fun ReviewTab(
     label: String,
+    count: Int?,
     section: ReviewSection,
     selected: ReviewSection,
     enabled: Boolean,
@@ -513,6 +441,7 @@ private fun ReviewTab(
     modifier: Modifier = Modifier,
 ) {
     val active = selected == section
+    val tint = if (active) Accent else OnSurfaceMuted.copy(alpha = if (enabled) 1f else 0.45f)
     Column(
         modifier.selectable(
             selected = active,
@@ -521,20 +450,20 @@ private fun ReviewTab(
             onClick = { onSelect(section) },
         ),
     ) {
-        Box(Modifier.fillMaxWidth().padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
-            Text(
-                label,
-                style = MaterialTheme.typography.labelMedium,
-                color = if (active) Accent else OnSurfaceMuted.copy(alpha = if (enabled) 1f else 0.45f),
-            )
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = Space.md),
+            horizontalArrangement = Arrangement.spacedBy(Space.xs, Alignment.CenterHorizontally),
+        ) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = tint)
+            count?.let { Text("$it", style = MaterialTheme.typography.labelMedium, color = tint) }
         }
-        Box(Modifier.fillMaxWidth().height(2.dp).background(if (active) Accent else Color.Transparent))
+        Box(Modifier.fillMaxWidth().height(Stroke.thick).background(if (active) Accent else Color.Transparent))
     }
 }
 
 @Composable
 private fun MoveSectionHeading() {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = Space.xs, vertical = Space.xs)) {
         Text("All moves", style = MaterialTheme.typography.titleSmall, color = OnSurface)
         Text(
             "Winning chances lost by that move · tap for details",
@@ -551,9 +480,6 @@ private fun MoveSectionHeading() {
  * dialogs is worse than none. It explains a CONCEPT to somebody who wants to go deeper; it is not a
  * licence to leave jargon on screen and translate it here. If a label needs this to be understood at
  * all, the label is wrong.
- *
- * There are three on the whole screen, and that is deliberate: a first screenful sprouting eight of
- * them is the screen saying it is still talking too much.
  */
 @Composable
 private fun Info(
@@ -565,7 +491,7 @@ private fun Info(
         "ⓘ",
         style = MaterialTheme.typography.bodyMedium,
         color = OnSurfaceMuted,
-        modifier = Modifier.clickable { open = true }.padding(horizontal = 4.dp),
+        modifier = Modifier.clickable { open = true }.padding(horizontal = Space.xs),
     )
     if (open) {
         AlertDialog(
@@ -606,14 +532,14 @@ private const val QUALITY_INFO =
  *
  * The number is White's share, so the label reads the same way round as the fill: white grows from
  * the bottom. A percentage rather than a pawn count, because that is the unit the rest of this
- * screen speaks and the whole complaint was that the old one had to be taught.
+ * screen speaks — and, since specs/47, the unit the LIVE bar beside the tracker's board speaks too.
  */
 @Composable
 private fun ReviewEvalBar(winWhite: Double?) {
     Column(
         Modifier.fillMaxHeight().width(SLOT_WIDTH),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        verticalArrangement = Arrangement.spacedBy(Space.hair),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -635,7 +561,7 @@ private fun ReviewEvalBar(winWhite: Double?) {
  * The rating, and the only thing above the board.
  *
  * It states its own denominator because a rating owes one: this game's accuracy is over the moves the
- * app actually watched, in a position that was not already decided, and that is 13 of White's 42.
+ * app actually watched, in a position that was not already decided.
  */
 @Composable
 private fun AccuracyRow(
@@ -657,7 +583,7 @@ private fun AccuracyRow(
                     Text(resultHeadline(game.result), style = MaterialTheme.typography.titleMedium, color = OnSurface)
                     Info("Accuracy", ACCURACY_INFO)
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
                     AccuracyBlock("White", grade.white, Modifier.weight(1f))
                     AccuracyBlock("Black", grade.black, Modifier.weight(1f))
                 }
@@ -695,7 +621,7 @@ private fun AccuracyBlock(
     modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier.background(Surface, RoundedCornerShape(8.dp)).padding(horizontal = 10.dp, vertical = 6.dp),
+        modifier.background(Surface, RoundedCornerShape(Radius.sm)).padding(horizontal = Space.md, vertical = Space.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -723,14 +649,16 @@ private fun accuracyColor(accuracy: Double) =
     }
 
 /**
- * The one ply the user is looking at, in words rather than in units — four short lines at most.
+ * The one ply the user is looking at, in words rather than in units — ONE full-width card.
  *
- * This is the answer to "it requires too much knowledge": a win-expectancy pair is a sentence anybody
- * can read. It is kept this short deliberately; a beginner holds about four chunks of working memory
- * and the notation is already competing for them.
+ * It was two equal-width boxes in a fixed 68 dp row with different vertical alignments, the right
+ * one holding three glyphs: the settings gear, a colon and a move. And the two boxes described two
+ * different positions — the chip printed [PlyGrade.bestSan], the engine's move in the position
+ * BEFORE the ply, while the board beside it drew its arrow for the position ON SCREEN.
  *
- * [fromHere] is the engine's move in the position ON SCREEN — the same move the ARROW draws, and
- * emphatically not [PlyGrade.bestSan], which belongs to the position one ply back.
+ * Now the card names the move that produced the position on screen and what it cost, and its one
+ * engine line is [fromHere] — the SAME move the arrow draws, from the SAME position. There is no
+ * second position on this row.
  */
 @Composable
 private fun PlyVerdict(
@@ -742,96 +670,35 @@ private fun PlyVerdict(
     mateHint: MateLineRequest?,
     onExploreMate: () -> Unit,
 ) {
-    Row(
-        Modifier.fillMaxWidth().height(68.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.Top,
-    ) {
-        Column(
-            Modifier
-                .weight(1f)
-                .fillMaxHeight()
-                .background(SurfaceRaised, RoundedCornerShape(8.dp))
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            when {
-                selected == 0 || san == null ->
-                    Text("Starting position", style = MaterialTheme.typography.bodyMedium, color = OnSurface)
-                ply == null ->
-                    Text(
-                        "$san · ${if (grade == null) "not reviewed" else "analysing…"}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = OnSurfaceMuted,
-                    )
-                else -> Verdict(ply, san)
-            }
-        }
-        ReviewContextChip(mateHint, ply?.bestSan ?: fromHere?.bestSan, onExploreMate, Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun ReviewContextChip(
-    mateHint: MateLineRequest?,
-    engineMove: String?,
-    onExploreMate: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Box(modifier.fillMaxHeight(), contentAlignment = Alignment.Center) {
+    Card {
         when {
-            mateHint != null -> {
-                val distance = mateHint.mateIn?.let { " in $it" }.orEmpty()
-                AssistChip(
-                    onClick = onExploreMate,
-                    label = {
-                        Column(verticalArrangement = Arrangement.Center) {
-                            Text(
-                                engineMove ?: "Engine move",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = Accent,
-                                maxLines = 1,
-                            )
-                            Text(
-                                if (mateHint.missed) {
-                                    "Missed mate$distance →"
-                                } else {
-                                    "${mateHint.side} · forced mate →"
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (mateHint.missed) Danger else Accent,
-                                maxLines = 1,
-                            )
-                        }
-                    },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Filled.Settings,
-                            contentDescription = "Engine suggestion",
-                            tint = Accent,
-                            modifier = Modifier.size(16.dp),
-                        )
-                    },
-                    modifier = Modifier.fillMaxSize(),
+            selected == 0 || san == null ->
+                Text("Starting position", style = MaterialTheme.typography.bodyMedium, color = OnSurface)
+            ply == null ->
+                Text(
+                    "$san · ${if (grade == null) "not reviewed" else "analysing…"}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = OnSurfaceMuted,
                 )
-            }
-            engineMove != null ->
-                Row(
-                    Modifier
-                        .fillMaxSize()
-                        .background(SurfaceRaised, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 10.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                ) {
-                    Icon(
-                        Icons.Filled.Settings,
-                        contentDescription = "Engine suggestion",
-                        tint = Accent,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Text(": $engineMove", style = MaterialTheme.typography.labelLarge, color = Accent, maxLines = 1)
-                }
+            else -> Verdict(ply, san)
+        }
+        // Only when the game did NOT continue with the engine's own move: where it did, the next row
+        // of the score sheet already is the advice and a line repeating it says nothing.
+        fromHere?.bestSan?.let {
+            Text(
+                "The engine plays $it here.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Accent,
+            )
+        }
+        mateHint?.let {
+            val distance = it.mateIn?.let { n -> " in $n" }.orEmpty()
+            Text(
+                text = if (it.missed) "Missed mate$distance — see the line" else "${it.side} · forced mate — see the line",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (it.missed) Danger else Accent,
+                modifier = Modifier.clickable(onClick = onExploreMate).padding(vertical = Space.xs),
+            )
         }
     }
 }
@@ -841,23 +708,27 @@ private fun Verdict(
     ply: PlyGrade,
     san: String,
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
+    Row(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalAlignment = Alignment.Bottom) {
         Text(san, style = MaterialTheme.typography.titleMedium, color = OnSurface, fontWeight = FontWeight.Bold)
         Text(label(ply.quality), style = MaterialTheme.typography.titleMedium, color = badgeColor(ply.quality))
     }
     Text(
-        "Win ${percent(ply.winBefore)} → ${percent(ply.winAfter)}",
+        "Winning chances ${percent(ply.winBefore)} → ${percent(ply.winAfter)}",
         style = MaterialTheme.typography.bodySmall,
         color = OnSurfaceMuted,
     )
 }
 
 /**
- * The moves that decided the game — the actionable half of the screen, and never behind a tap.
+ * The moves that decided the game, and — separately — the mates nobody took.
  *
- * A rebuilt ply is not in here at all: `GameGrade.findings` filters them, because "learn from this
- * mistake" about a move the tracker invented is the worst version of the one bug this project cannot
- * afford.
+ * `GameGrade.findings()` used to sort `compareByDescending { missedMate }` FIRST, so every missed
+ * mate outranked every real swing by construction and the heading's top row was routinely a move
+ * that went 98 % → 98 %. A missed mate from a won position is a curiosity; a 35-point swing is the
+ * turning point the heading promises. They are two questions and they are two sections.
+ *
+ * A rebuilt ply is in neither: `findings` filters them, because "learn from this mistake" about a
+ * move the tracker invented is the worst version of the one bug this project cannot afford.
  */
 @Composable
 private fun KeyMoments(
@@ -868,7 +739,8 @@ private fun KeyMoments(
     if (grade == null) return
     var all by remember { mutableStateOf(false) }
     val findings = grade.findings()
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    val missed = grade.missedChances()
+    Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
         MateStoryCard(game, grade)
         Card {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -892,6 +764,12 @@ private fun KeyMoments(
                 }
             }
         }
+        if (missed.isNotEmpty()) {
+            Card {
+                Text("Missed chances", style = MaterialTheme.typography.titleSmall, color = OnSurface)
+                missed.forEach { FindingCard(it, onSeek) }
+            }
+        }
     }
 }
 
@@ -909,8 +787,8 @@ private fun FindingCard(
 ) {
     var open by remember(finding.ply) { mutableStateOf(false) }
     Column(
-        Modifier.fillMaxWidth().clickable { onSeek(finding.ply - 1) }.padding(vertical = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        Modifier.fillMaxWidth().clickable { onSeek(finding.ply - 1) }.padding(vertical = Space.xs),
+        verticalArrangement = Arrangement.spacedBy(Space.hair),
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(
@@ -973,7 +851,7 @@ private const val LOSING = 20.0
 /** Ply 17 is White's move 9; ply 18 is Black's, written `9...`. */
 private fun moveNumber(ply: Int): String = "${(ply + 1) / 2}." + if (ply % 2 == 0) ".." else ""
 
-private fun percent(value: Double): String = "${value.roundToInt()}%"
+private fun percent(value: Double): String = "${value.roundToInt()} %"
 
 internal fun label(quality: MoveQuality): String =
     when (quality) {
@@ -1029,9 +907,9 @@ private fun PlyNav(
  * PGN.
  *
  * All of it was on the primary view and none of it earns a place there — "they can put it somewhere
- * in a secondary menu" (2026-08-03). The tracker's decider in particular was printed beside every
- * SAN, where it competed with the move itself for a reader who has no use for the word
- * `cnn_occupancy`.
+ * in a secondary menu" (2026-08-03). It then became a bare muted `TextButton` on an empty
+ * background, indistinguishable from the headings above it, which is content nobody would find. It
+ * is the app's one disclosure row now, the same one Settings uses eleven times.
  */
 @Composable
 private fun Details(
@@ -1041,8 +919,8 @@ private fun Details(
     onDiscard: () -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
-    TextButton(onClick = { open = !open }) {
-        Text(if (open) "Hide analysis details" else "Analysis details", color = OnSurfaceMuted)
+    DisclosureRow("Analysis details", "How this was graded, the PGN, and where each move came from") {
+        open = !open
     }
     if (!open) return
     Card {
@@ -1077,7 +955,7 @@ private fun PgnRow(
     id: String,
 ) {
     val context = LocalContext.current
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
         TextButton(onClick = { share(context, pgn, id) }) { Text("Share PGN", color = Accent) }
         TextButton(onClick = { copy(context, pgn) }) { Text("Copy", color = Accent) }
     }

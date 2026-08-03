@@ -1,120 +1,137 @@
 package com.chesslab.tracker.ui
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.chesslab.tracker.service.TrackerRestartHost
-import com.chesslab.tracker.speech.ui.SpeechSettingsScreen
 import com.chesslab.tracker.ui.camera.CameraRoute
 import com.chesslab.tracker.ui.debug.DebugRoute
 import com.chesslab.tracker.ui.games.GamesRoute
+import com.chesslab.tracker.ui.home.HomeRoute
 import com.chesslab.tracker.ui.review.ArchiveReviewRoute
-import com.chesslab.tracker.ui.review.LiveReviewRoute
 import com.chesslab.tracker.ui.settings.SettingsRoute
 import com.chesslab.tracker.ui.tracking.TrackingRoute
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 
 /**
- * The one navigation topology of the app. Later phases attach their routes HERE — a second
- * `NavHost` would give the app two back stacks and two ideas of where "back" goes.
+ * The one navigation topology of the app. A second `NavHost` would give it two back stacks and two
+ * ideas of where "back" goes.
  *
- * Ownership (entry.md registry): created by 06b; extended by 07a (settings, debug), 08a (games),
- * 08b (spectator). One agent per phase touches this file — in phase 08 that is 08a, which is why
- * the spectator and speech routes are wired here and not by their own agents.
+ * **Seven destinations, seven distinct screens.** It was nine registered destinations over seven
+ * implementations: `calibration` was a byte-identical alias of `camera`, and `review` (the live
+ * "Spectator" tab) was the same composable as `review/{id}` fed by the running game — a board and a
+ * move list the tracker already drew, plus one Wi-Fi switch, which is now in the tracker's overflow.
+ * `speech` was four settings holding a sixth of the app's top-level surface and is a Settings
+ * subpage.
+ *
+ * There is NO tab row and no bottom bar (specs/47 §3.1a). What the bar would have carried — the way
+ * back into a game that is still being tracked — is [LocalResumeTracker], provided here for every
+ * screen that is not the tracker itself.
  */
+const val ROUTE_HOME = "home"
 const val ROUTE_TRACKING = "tracking"
-const val ROUTE_CALIBRATION = "calibration"
 const val ROUTE_CAMERA = "camera"
 const val ROUTE_SETTINGS = "settings"
 const val ROUTE_DEBUG = "debug"
 const val ROUTE_GAMES = "games"
+const val ROUTE_REVIEW = "review"
 
 /**
- * The one review surface, twice. `review` is the running game — what used to be the "spectator"
- * screen, which was in fact only the Wi-Fi switch and never showed a board. `review/{id}` is a
- * stored game. Same composable, same board, same move list; the source is the whole difference.
+ * "Open the running game", from the foreground notification.
+ *
+ * A one-shot request rather than a flag on the nav host: the activity is `singleTop`, so the same
+ * instance receives every later tap through `onNewIntent`, and a state that stayed true would send
+ * the user back to the tracker every time this graph recomposed.
  */
-const val ROUTE_REVIEW = "review"
-const val ROUTE_SPEECH = "speech"
+object OpenTracker {
+    private val requests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    val flow: SharedFlow<Unit> = requests
+
+    fun request() {
+        requests.tryEmit(Unit)
+    }
+}
 
 @Composable
 fun ChesslabNavHost(navController: NavHostController = rememberNavController()) {
     // The running game and its recording are NOT attached here: they belong to the service, which
     // outlives the whole UI (D08a-4). Screens observe them through `GameSessionHost`.
-    NavHost(navController = navController, startDestination = ROUTE_TRACKING) {
+    val resumeTracker: () -> Unit = { navController.navigate(ROUTE_TRACKING) }
+    LaunchedEffect(navController) { OpenTracker.flow.collect { resumeTracker() } }
+    NavHost(navController = navController, startDestination = ROUTE_HOME) {
+        // Home and the tracker are the two screens where a "return to the game" banner would be
+        // either redundant or a link to itself, so neither provides one.
+        composable(ROUTE_HOME) {
+            HomeRoute(
+                onStartGame = resumeTracker,
+                onOpenGames = { navController.navigate(ROUTE_GAMES) },
+                onOpenSettings = { navController.navigate(ROUTE_SETTINGS) },
+                onOpenGame = { navController.navigate("$ROUTE_REVIEW/$it") },
+            )
+        }
         composable(ROUTE_TRACKING) {
-            // The settings entry sits here rather than inside `TrackingScreen`: that file belongs
-            // to another agent this phase, and the tracking screen's own layout is a game surface.
-            Column(Modifier.fillMaxSize()) {
-                // 08b's and 08c's screens have no entry point of their own: this file is the
-                // only one either of them is allowed to reach, and the registry gives it to 08a.
-                TopNav(
-                    destinations =
-                        listOf(
-                            NavDestination("Board") {},
-                            NavDestination("Camera") { navController.navigate(ROUTE_CAMERA) },
-                            NavDestination("Games") { navController.navigate(ROUTE_GAMES) },
-                            NavDestination("Spectator") { navController.navigate(ROUTE_REVIEW) },
-                            NavDestination("Speech") { navController.navigate(ROUTE_SPEECH) },
-                            NavDestination("Settings") { navController.navigate(ROUTE_SETTINGS) },
-                        ),
-                    // The row only exists on the board route, so the board tab is the selected one;
-                    // every other destination is a pushed screen that names itself in its title bar.
-                    selected = 0,
-                )
-                Box(Modifier.weight(1f)) {
-                    TrackingRoute(onRecalibrate = { navController.navigate(ROUTE_CALIBRATION) })
-                }
-            }
+            TrackingRoute(
+                onBack = { navController.popBackStack() },
+                onCamera = { navController.navigate(ROUTE_CAMERA) },
+            )
         }
-        // Calibration is the camera screen in BOARD mode, not a screen of its own — same
-        // viewfinder, same binding, different overlay and deck. The route survives because the
-        // tracking screen's "Recalibrate" is a different entry point with a different intent.
-        composable(ROUTE_CALIBRATION) {
-            CameraRoute(onBack = { navController.popBackStack() })
-        }
+        // The camera screen is the tracker's viewfinder, in board mode when it is recalibrating. It
+        // cannot function without the tracker — unbound it is one sentence on an empty screen — so
+        // it is reached from there and nowhere else.
         composable(ROUTE_CAMERA) {
-            CameraRoute(onBack = { navController.popBackStack() })
+            Resumable(resumeTracker) { CameraRoute(onBack = { navController.popBackStack() }) }
         }
         composable(ROUTE_SETTINGS) {
             // Null until the service has published its restart action, and the settings screen
             // renders the honest "close and reopen the app" text for exactly that window.
             val restart by TrackerRestartHost.restart.collectAsStateWithLifecycle()
-            SettingsRoute(
-                onBack = { navController.popBackStack() },
-                onOpenDebug = { navController.navigate(ROUTE_DEBUG) },
-                onRestartTracker = restart?.let { { it.restartTracker() } },
-            )
+            Resumable(resumeTracker) {
+                SettingsRoute(
+                    onBack = { navController.popBackStack() },
+                    onOpenDebug = { navController.navigate(ROUTE_DEBUG) },
+                    onRestartTracker = restart?.let { { it.restartTracker() } },
+                )
+            }
         }
         // Reachable ONLY from the settings screen: `TrackerStatus.debug` is assembled while this
-        // screen is composed, and a tab on the main flow would make that cost permanent.
+        // screen is composed, and a top-level entry would make that cost permanent.
         composable(ROUTE_DEBUG) {
-            DebugRoute(onBack = { navController.popBackStack() })
+            Resumable(resumeTracker) { DebugRoute(onBack = { navController.popBackStack() }) }
         }
         composable(ROUTE_GAMES) {
-            GamesRoute(
-                onBack = { navController.popBackStack() },
-                onOpenGame = { navController.navigate("$ROUTE_REVIEW/$it") },
-                onOpenLive = { navController.navigate(ROUTE_REVIEW) },
-            )
+            Resumable(resumeTracker) {
+                GamesRoute(
+                    onBack = { navController.popBackStack() },
+                    onOpenGame = { navController.navigate("$ROUTE_REVIEW/$it") },
+                )
+            }
         }
-        composable(ROUTE_REVIEW) { LiveReviewRoute(onBack = { navController.popBackStack() }) }
         composable("$ROUTE_REVIEW/{id}") { entry ->
-            ArchiveReviewRoute(
-                id = entry.arguments?.getString("id").orEmpty(),
-                onBack = { navController.popBackStack() },
-            )
+            Resumable(resumeTracker) {
+                ArchiveReviewRoute(
+                    id = entry.arguments?.getString("id").orEmpty(),
+                    onBack = { navController.popBackStack() },
+                )
+            }
         }
-        composable(ROUTE_SPEECH) { SpeechSettingsScreen(onBack = { navController.popBackStack() }) }
         // No analysis route, and there will not be one: 07c shipped the eval bar as a SLOT beside
-        // the board (`EvalBarSlot`), which is where an evaluation belongs. `ROUTE_ANALYSIS` and its
-        // TODO sat here unreferenced through the whole of 07c and everything after it.
+        // the board (`EvalBarSlot`), which is where an evaluation belongs.
     }
+}
+
+/** A screen a running game can be returned FROM — see [LocalResumeTracker]. */
+@Composable
+private fun Resumable(
+    resume: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    CompositionLocalProvider(LocalResumeTracker provides resume, content = content)
 }

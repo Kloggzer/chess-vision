@@ -11,12 +11,6 @@ import org.junit.jupiter.api.Test
 
 class ReviewUiModelTest {
     @Test
-    fun archivedReviewsStartAtTheBeginningWhileLiveGamesFollowTheEnd() {
-        assertEquals(0, initialReviewPly(live = false, plies = 83))
-        assertEquals(83, initialReviewPly(live = true, plies = 83))
-    }
-
-    @Test
     fun scoreSheetShowsWinningChancesLostByTheMove() {
         assertEquals("−35%", moveImpactLabel(plyGrade(MoveQuality.BLUNDER, before = 47.0, after = 12.0)))
         assertEquals("−8%", moveImpactLabel(plyGrade(MoveQuality.INACCURACY, before = 60.0, after = 51.6)))
@@ -24,15 +18,19 @@ class ReviewUiModelTest {
         assertNull(moveImpactLabel(null))
     }
 
+    /**
+     * The position column speaks ONE unit with the rest of the app: win expectancy. It printed
+     * `White +1.2` — a pawn count — beside a `−10 %` cost, over a background drawn from the
+     * percentage, until specs/47.
+     */
     @Test
-    fun positionColumnNamesTheSideAheadWithoutExposingExtremeScores() {
-        assertEquals("White +9.0", positionLeadLabel(900, null))
-        assertEquals("Black +8.0", positionLeadLabel(-800, null))
-        assertEquals("Equal", positionLeadLabel(0, null))
-        assertEquals("White winning", positionLeadLabel(8_200, null))
-        assertEquals("Mate in 3", positionLeadLabel(10_000, 3))
-        assertEquals("Mate in 2", positionLeadLabel(-10_000, -2))
-        assertEquals("Checkmate", positionLeadLabel(-10_000, 0))
+    fun positionColumnReadsWinExpectancyAndKeepsMateInWords() {
+        assertEquals("96 %", positionLeadLabel(96.4, null))
+        assertEquals("4 %", positionLeadLabel(3.6, null))
+        assertEquals("50 %", positionLeadLabel(50.0, null))
+        assertEquals("Mate in 3", positionLeadLabel(97.5, 3))
+        assertEquals("Mate in 2", positionLeadLabel(2.5, -2))
+        assertEquals("Checkmate", positionLeadLabel(2.5, 0))
         assertEquals("—", positionLeadLabel(null, null))
     }
 

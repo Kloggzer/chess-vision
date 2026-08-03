@@ -95,11 +95,14 @@ class GameSessionController(
      * Ends the running game and stores it. Returns `null` for an empty game — starting and
      * stopping the tracker must not fill the library with zero-move rows.
      */
-    fun endAndSave(): GameSummary? {
+    fun endAndSave(
+        white: String = UNKNOWN,
+        black: String = UNKNOWN,
+    ): GameSummary? {
         val game = live ?: return null
         val session = capture.stop()
         live = null
-        val saved = store.save(game.finish(idFor(now()), now(), session?.sessionId))
+        val saved = store.save(game.finish(idFor(now()), now(), session?.sessionId, white, black))
         mutable.value = GameSessionState(lastSavedId = saved?.id, recordingReason = capture.reason)
         return saved
     }

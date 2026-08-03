@@ -3,7 +3,7 @@ package com.chesslab.tracker.ui.settings
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import androidx.compose.foundation.clickable
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,19 +22,20 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.tracker.settings.AppSettings
 import com.chesslab.tracker.settings.SettingsHost
+import com.chesslab.tracker.speech.ui.SpeechSection
 import com.chesslab.tracker.ui.ChesslabScaffold
+import com.chesslab.tracker.ui.DisclosureRow
+import com.chesslab.tracker.ui.SectionHeading
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Busy
-import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import com.chesslab.tracker.ui.theme.Space
 
 /**
  * The mobile equivalent of the desktop's `--flags` plus `app.py`'s live-tuning endpoint.
@@ -52,7 +53,7 @@ fun SettingsRoute(
     val repository by SettingsHost.repository.collectAsStateWithLifecycle()
     val bound = repository
     if (bound == null) {
-        Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxSize().padding(Space.lg), verticalArrangement = Arrangement.spacedBy(Space.md)) {
             Text("Reading the stored settings…", color = OnSurfaceMuted)
             SectionButton("Back") { onBack() }
         }
@@ -79,17 +80,16 @@ private fun SettingsScreen(
     // One back affordance, two meanings: inside a group it returns to the list, at the top it
     // leaves. A screen that drops you out of Settings from three levels down is the reason nobody
     // opens the third level twice.
-    val title =
-        when {
-            query.isNotBlank() -> "Search"
-            place is SettingsPlace.Group -> (place as SettingsPlace.Group).group.title
-            place is SettingsPlace.Modified -> "Modified"
-            else -> "Settings"
-        }
+    val title = if (query.isNotBlank()) "Search" else settingsTitle(place)
     val up: () -> Unit = { if (place is SettingsPlace.Groups) onBack() else place = SettingsPlace.Groups }
+    // The arrow and the SYSTEM back button have to mean the same thing. They did not: the arrow
+    // returned to the group list while the hardware button popped the whole Settings route, so
+    // pressing back inside a group left Settings altogether. Cheap before; with four more subpages
+    // (Spoken moves, Analysis, Recording, Device) it is the normal way out.
+    BackHandler(enabled = place !is SettingsPlace.Groups, onBack = up)
 
     ChesslabScaffold(title, up) { bars ->
-        Column(Modifier.fillMaxSize().padding(bars).padding(horizontal = 12.dp)) {
+        Column(Modifier.fillMaxSize().padding(bars)) {
             note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Accent) }
             SearchField(query) { query = it }
             SettingsList(
@@ -126,7 +126,7 @@ private fun SearchField(
         value = query,
         onValueChange = onQuery,
         singleLine = true,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = Space.sm),
         placeholder = { Text("Search settings — try \"shadow\", \"cnn\", \"timeout\"", color = OnSurfaceMuted) },
         trailingIcon = {
             if (query.isNotEmpty()) {
@@ -161,7 +161,7 @@ private fun SettingsList(
         }
     val listing = query.isBlank() && place is SettingsPlace.Groups
 
-    LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(Space.sm)) {
         if (query.isNotBlank() && rows.isEmpty()) {
             item(key = "empty") {
                 Text("Nothing matches “$query”.", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceMuted)
@@ -169,7 +169,7 @@ private fun SettingsList(
         }
         if (place is SettingsPlace.Group && query.isBlank()) {
             item(key = "resetGroup") {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
                     SectionButton("Reset ${place.group.title} to defaults") { viewModel.resetGroup(place.group) }
                 }
             }
@@ -184,12 +184,33 @@ private fun SettingsList(
                 onReset = { viewModel.resetKnob(knob) },
             )
         }
-
+        if (query.isBlank()) subpage(place, app, viewModel)
         if (listing) landing(viewModel, config, app, context, onOpenGroup, onOpenDebug, onResetAll)
     }
 }
 
-/** The landing page: what was changed, the seven groups, then the app-level sections. */
+/** The four pages that are not knob lists. Each is exactly what used to be a surface of its own. */
+private fun LazyListScope.subpage(
+    place: SettingsPlace,
+    app: AppSettings,
+    viewModel: SettingsViewModel,
+) {
+    when (place) {
+        SettingsPlace.Speech -> item(key = "speech") { SpeechSection() }
+        SettingsPlace.Analysis -> item(key = "analysis") { AnalysisSettingsSection() }
+        SettingsPlace.Recording -> item(key = "recording") { RecordingSection() }
+        SettingsPlace.Device -> item(key = "device") { AppSettingsSection(app) { viewModel.setApp(it) } }
+        else -> Unit
+    }
+}
+
+/**
+ * The landing page: what was changed, the six tracker groups, the four app pages, diagnostics.
+ *
+ * Every row is the same [DisclosureRow] the review screen's "Analysis details" uses — one
+ * disclosure pattern for the whole app — and the three headings exist so that eleven of them are
+ * not one flat wall.
+ */
 private fun LazyListScope.landing(
     viewModel: SettingsViewModel,
     config: TrackerConfig,
@@ -204,49 +225,50 @@ private fun LazyListScope.landing(
         // First, and only when it exists: on a tuned board this is the whole answer to "what did I
         // do to this thing", and on a fresh one it is noise.
         item(key = "modified") {
-            GroupCard("Modified", "${changed.size} away from the Python default") {
+            DisclosureRow("Modified", "${changed.size} away from the Python default") {
                 onOpenGroup(SettingsPlace.Modified)
             }
         }
     }
+    item(key = "tracking-heading") { SectionHeading("TRACKING") }
     items(KnobGroup.entries.size, key = { KnobGroup.entries[it].name }) { index ->
         val group = KnobGroup.entries[index]
         val n = modifiedCount(group, config)
-        GroupCard(
+        DisclosureRow(
             title = group.title,
             subtitle = "${knobsIn(group).size} settings" + if (n > 0) "  •$n modified" else "",
         ) { onOpenGroup(SettingsPlace.Group(group)) }
     }
-    item(key = "analysis") { AnalysisSettingsSection() }
-    item(key = "app") { AppSettingsSection(app) { viewModel.setApp(it) } }
+    item(key = "app-heading") { SectionHeading("APP") }
+    item(key = "speech-row") {
+        DisclosureRow("Spoken moves", "Announce moves and alarms, language, verbosity") {
+            onOpenGroup(SettingsPlace.Speech)
+        }
+    }
+    item(key = "analysis-row") {
+        DisclosureRow("Analysis (Stockfish)", "The engine beside the board, and when it may run") {
+            onOpenGroup(SettingsPlace.Analysis)
+        }
+    }
+    item(key = "recording-row") {
+        DisclosureRow("Recording", "Store camera frames as training data") {
+            onOpenGroup(SettingsPlace.Recording)
+        }
+    }
+    item(key = "device-row") {
+        DisclosureRow("Device & model", "Camera resolution, board orientation, CNN model and provider") {
+            onOpenGroup(SettingsPlace.Device)
+        }
+    }
+    item(key = "diagnostics-heading") { SectionHeading("DIAGNOSTICS") }
     item(key = "debug") {
         DebugRow(enabled = app.debugEnabled, onEnabled = viewModel::setDebugEnabled, onOpen = onOpenDebug)
     }
     item(key = "footer") {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
             SectionButton("Export settings as JSON") { share(context, exportText(context, config, app)) }
             SectionButton("Reset all to Python defaults") { onResetAll() }
         }
-    }
-}
-
-/** One tappable group on the landing page. The count is the point: it says how much is behind it. */
-@Composable
-private fun GroupCard(
-    title: String,
-    subtitle: String,
-    onOpen: () -> Unit,
-) {
-    Row(
-        Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column {
-            Text(title, style = MaterialTheme.typography.titleMedium, color = OnSurface)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
-        }
-        Text("›", style = MaterialTheme.typography.titleMedium, color = OnSurfaceMuted)
     }
 }
 
@@ -262,7 +284,7 @@ private fun RestartBar(
     onRestartTracker: (() -> Unit)?,
     onRestarted: () -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth().padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(Modifier.fillMaxWidth().padding(top = Space.sm), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
         Text(
             "Saved, waiting for a tracker restart: ${pending.sorted().joinToString(", ")}",
             style = MaterialTheme.typography.bodySmall,
