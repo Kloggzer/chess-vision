@@ -90,7 +90,12 @@ class FrameSizeGuard(
             if (calibrated) {
                 "profile '$profileName' was calibrated at ${profileW}x$profileH, camera delivers ${width}x$height"
             } else {
-                "not calibrated yet — tap Recalibrate and point the camera at the whole board"
+                // It said "tap Recalibrate", which named the third of three identical outline
+                // buttons. specs/49 made the tracker's filled button read `Calibrate` in exactly
+                // this state, so the sentence names no control at all: whatever the screen needs
+                // now is the one thing on it that is filled. The wording also has to work as the
+                // NOTIFICATION text, where there is nothing to tap.
+                "not calibrated yet — point the camera at the whole board"
             }
         mismatch = SizeMismatch(text, width, height)
         // Rate limit: the retry path must not spam the log every frame.
