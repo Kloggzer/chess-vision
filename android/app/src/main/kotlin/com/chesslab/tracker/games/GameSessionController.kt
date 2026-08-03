@@ -9,6 +9,15 @@ import kotlinx.coroutines.flow.StateFlow
 
 data class GameSessionState(
     val moveCount: Int = 0,
+    /**
+     * The running game, as the ONE review surface reads it — the tracking screen's move list, the
+     * review screen and the LAN spectator all take their score sheet from here.
+     *
+     * Before this existed each of those three accumulated its own list off the event stream, and
+     * only this one handled an undo (`LiveGame.onFen`): the tracking screen kept showing a move the
+     * engine had taken back, and the spectator never dropped one at all.
+     */
+    val game: GameView = GameView.NONE,
     val lastSavedId: String? = null,
     val recordingSessionId: String? = null,
     /**
@@ -95,6 +104,20 @@ class GameSessionController(
         return saved
     }
 
+    /**
+     * Drops the running game without storing it — the "Discard" half of the end-game dialog.
+     *
+     * That half had no counterpart here at all: discarding reset the ENGINE and left this record
+     * standing, so the next committed ply was illegal from it and opened a SEAM inside a game the
+     * user had already thrown away. Invisible while nothing else read the record; the moment the
+     * live game became the one score sheet on screen it was a discarded game still being shown.
+     */
+    fun discard() {
+        capture.stop()
+        live = null
+        mutable.value = GameSessionState(recordingReason = capture.reason)
+    }
+
     private fun onCommitted(
         ucis: List<String>,
         sans: List<String>,
@@ -168,6 +191,7 @@ class GameSessionController(
         mutable.value =
             mutable.value.copy(
                 moveCount = live?.moveCount ?: 0,
+                game = live?.view() ?: GameView.NONE,
                 recordingSessionId = capture.recorder?.sessionId,
                 recordedFrames = capture.recorder?.count ?: 0,
                 recordingReason = capture.reason,

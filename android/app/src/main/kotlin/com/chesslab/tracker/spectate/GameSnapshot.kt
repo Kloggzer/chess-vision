@@ -2,15 +2,9 @@ package com.chesslab.tracker.spectate
 
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerStatus
-import com.github.bhlangonijr.chesslib.Board
-import com.github.bhlangonijr.chesslib.Side
+import com.chesslab.tracker.games.GameView
+import com.chesslab.tracker.games.resultFromFen
 import kotlinx.serialization.Serializable
-
-/** One committed ply, as the wire needs it. Deliberately not `ui.tracking.MoveEntry`: that carries decider provenance. */
-data class PlayedMove(
-    val san: String,
-    val uci: String,
-)
 
 /**
  * Everything a spectator is allowed to know.
@@ -35,19 +29,25 @@ const val STATUS_STUCK = "stuck"
 const val STATUS_ALARM = "alarm"
 const val STATUS_OVER = "over"
 
-/** Fold the tracker's public status and the committed plies into the wire projection. */
+/**
+ * Fold the tracker's public status and the ONE live game into the wire projection.
+ *
+ * [game] is the same `GameView` the review screen renders — the spectator page is a second
+ * RENDERER of one projection, never a second projection.
+ */
 fun gameSnapshot(
     status: TrackerStatus?,
-    moves: List<PlayedMove>,
+    game: GameView,
     nowMs: Long,
 ): GameSnapshot {
     val fen = status?.fen ?: STARTPOS
     val result = outcome(fen)
+    val plies = game.plies
     return GameSnapshot(
         fen = fen,
-        sanHistory = moves.map { it.san },
-        lastMoveUci = moves.lastOrNull()?.uci,
-        status = spectatorStatus(status, moves.size, result),
+        sanHistory = plies.map { it.san },
+        lastMoveUci = plies.lastOrNull()?.uci,
+        status = spectatorStatus(status, plies.size, result),
         result = result,
         updatedAtEpochMs = nowMs,
     )
@@ -71,13 +71,10 @@ private fun spectatorStatus(
         else -> STATUS_TRACKING
     }
 
-/** `null` while the game is live. A malformed FEN is "live", never a fabricated result. */
-private fun outcome(fen: String): String? =
-    runCatching {
-        val board = Board().apply { loadFromFen(fen) }
-        when {
-            board.isMated -> if (board.sideToMove == Side.WHITE) "0-1" else "1-0"
-            board.isStaleMate || board.isDraw -> "1/2-1/2"
-            else -> null
-        }
-    }.getOrNull()
+/**
+ * `null` while the game is live. A malformed FEN is "live", never a fabricated result.
+ *
+ * [resultFromFen] is the library's own rule and returns `*` for a game still running; this only
+ * turns that into the null the wire uses. It used to be a second copy of the same board reading.
+ */
+private fun outcome(fen: String): String? = runCatching { resultFromFen(fen) }.getOrNull()?.takeIf { it != "*" }

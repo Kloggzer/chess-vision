@@ -1,5 +1,21 @@
 package com.chesslab.tracker.ui.tracking
 
+import com.chesslab.engine.api.TrackerEvent
+
+/**
+ * The SANs one commit carried — empty for every event that is not a commit.
+ *
+ * A `SequenceCommitted` is a recovery of several plies at once and the engine unwinds the bridge
+ * whole, so this is what [undoLabel] counts. It is deliberately NOT a score sheet: the game's move
+ * list is `GameSessionState.game`, built once by `LiveGame`.
+ */
+fun commitSans(event: TrackerEvent): List<String> =
+    when (event) {
+        is TrackerEvent.MoveCommitted -> listOf(event.san)
+        is TrackerEvent.SequenceCommitted -> event.sans
+        else -> emptyList()
+    }
+
 /**
  * What one press of Undo will take back.
  *
