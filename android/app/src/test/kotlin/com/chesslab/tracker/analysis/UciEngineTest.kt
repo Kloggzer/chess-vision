@@ -34,9 +34,9 @@ class UciEngineTest {
             )
         val lines = engine.analyse("startpos-fen", movetimeMs = 400, multiPv = 3)
         assertEquals(3, lines.size)
-        assertEquals(PvLine("e2e4", 35, null, 12), lines[0])
-        assertEquals(PvLine("d2d4", 12, null, 12), lines[1])
-        assertEquals(PvLine("g1f3", null, 4, 12), lines[2])
+        assertEquals(PvLine(35, null, 12, listOf("e2e4", "e7e5")), lines[0])
+        assertEquals(PvLine(12, null, 12, listOf("d2d4", "d7d5")), lines[1])
+        assertEquals(PvLine(null, 4, 12, listOf("g1f3", "b8c6")), lines[2])
         assertTrue("go movetime 400" in proc.commands)
     }
 
@@ -52,7 +52,7 @@ class UciEngineTest {
                     ),
                 ),
             )
-        assertEquals(listOf(PvLine("d2d4", 44, null, 18)), engine.analyse("fen", 400, 1))
+        assertEquals(listOf(PvLine(44, null, 18, listOf("d2d4"))), engine.analyse("fen", 400, 1))
     }
 
     @Test
@@ -66,8 +66,8 @@ class UciEngineTest {
     @Test
     fun scoresAreWhitePov() {
         // The engine always reports the SIDE TO MOVE. Black to move, "+120" means Black is better.
-        assertEquals(-120, PvLine("e7e5", 120, null, 9).toWhitePov(whiteToMove = false).cp)
-        assertEquals(-3, PvLine("e7e5", null, 3, 9).toWhitePov(whiteToMove = false).mate)
-        assertEquals(120, PvLine("e2e4", 120, null, 9).toWhitePov(whiteToMove = true).cp)
+        assertEquals(-120, PvLine(120, null, 9, listOf("e7e5")).toWhitePov(whiteToMove = false).cp)
+        assertEquals(-3, PvLine(null, 3, 9, listOf("e7e5")).toWhitePov(whiteToMove = false).mate)
+        assertEquals(120, PvLine(120, null, 9, listOf("e2e4")).toWhitePov(whiteToMove = true).cp)
     }
 }

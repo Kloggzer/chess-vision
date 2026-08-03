@@ -32,8 +32,6 @@ import com.chesslab.tracker.games.ReviewPly
 import com.chesslab.tracker.games.SeamOrigin
 import com.chesslab.tracker.games.moveRows
 import com.chesslab.tracker.games.startsWithBlack
-import com.chesslab.tracker.ui.theme.Accent
-import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.SurfaceRaised
@@ -41,46 +39,57 @@ import com.chesslab.tracker.ui.theme.SurfaceRaised
 /**
  * The score sheet — live or archived, and the same list either way.
  *
- * The only thing that differs is what is written beside each ply: the tracker's decider while the
- * game runs, the engine's grade once it has been reviewed. [grade] null means "not reviewed", never
- * "clean".
+ * It is ROWS IN THE SCREEN'S OWN LazyColumn rather than a list of its own. It used to be a nested
+ * `LazyColumn` in a fixed-height box, and on a phone that box lost the fight: the board is square
+ * and takes a screen width of height, and once the verdict was added above it the list measured to
+ * one and a half rows while the accuracy card was clipped off the bottom. One scrolling list has no
+ * such fight, and it is what both products this screen was measured against do.
+ *
+ * The only thing that differs between live and archived is what is written beside each ply: the
+ * tracker's decider while the game runs, the engine's grade once it has been reviewed. [grade] null
+ * means "not reviewed", never "clean".
  *
  * It takes the whole [game] rather than a flat ply list because a game can hold SEAMS, and the
  * moves after one do not follow the moves before it. A flat list says they do.
  *
  * [selected] is a ply number, 0 for the start position. [onSelect] null makes the list read-only,
  * which is what the live surface wants: there the board follows the game, not the finger.
+ *
+ * The standalone [MoveList] above is for the TRACKING screen, which has no lazy list of its own and
+ * wants the score sheet in a fixed box that follows the game to the bottom.
  */
 @Composable
 fun MoveList(
     game: GameView,
     modifier: Modifier = Modifier,
-    grade: GameGrade? = null,
-    selected: Int = 0,
-    onSelect: ((Int) -> Unit)? = null,
-    follow: Boolean = true,
 ) {
     val listState = rememberLazyListState()
     val plyCount = game.plies.size
-    LaunchedEffect(plyCount, follow) {
-        if (follow && plyCount > 0) listState.animateScrollToItem(listState.layoutInfo.totalItemsCount)
+    LaunchedEffect(plyCount) {
+        if (plyCount > 0) listState.animateScrollToItem(listState.layoutInfo.totalItemsCount)
     }
     Box(modifier.clip(RoundedCornerShape(12.dp)).background(SurfaceRaised)) {
-        if (plyCount == 0) {
-            Text(
-                text = "No moves yet",
-                style = MaterialTheme.typography.bodyMedium,
-                color = OnSurfaceMuted,
-                modifier = Modifier.padding(12.dp),
-            )
-        } else {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-                game.segments.forEachIndexed { index, segment ->
-                    segment.enteredBy?.let { seam -> item(key = "seam-$index") { SeamRow(seam, segment.startFen) } }
-                    segmentRows(index, segment.startFen, segment.plies, grade, selected, onSelect)
-                }
-            }
+        LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            moveListSection(game, grade = null, selected = 0, onSelect = null)
         }
+    }
+}
+
+fun LazyListScope.moveListSection(
+    game: GameView,
+    grade: GameGrade?,
+    selected: Int,
+    onSelect: ((Int) -> Unit)?,
+) {
+    if (game.plies.isEmpty()) {
+        item(key = "no-moves") {
+            Text("No moves yet", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceMuted, modifier = Modifier.padding(12.dp))
+        }
+        return
+    }
+    game.segments.forEachIndexed { index, segment ->
+        segment.enteredBy?.let { seam -> item(key = "seam-$index") { SeamRow(seam) } }
+        segmentRows(index, segment.startFen, segment.plies, grade, selected, onSelect)
     }
 }
 
@@ -96,24 +105,26 @@ private fun LazyListScope.segmentRows(
     items(rows, key = { "seg$segment-${it.number}" }) { MoveRowLine(it, grade, selected, onSelect) }
 }
 
-/** What the app committed to get here, and the position the moves below actually start from. */
+/**
+ * A GAP in the record, in plain words.
+ *
+ * This is the one thing about how the game was captured that a player genuinely needs told. Which
+ * path committed an individual move is not — a recovered move is normally the move that was played,
+ * and the decider says how the app found out, not whether it happened. A seam is different: the moves
+ * on the two sides of it are not one continuous record, so the review says so and refuses to grade
+ * across it.
+ */
 @Composable
-private fun SeamRow(
-    seam: SeamOrigin,
-    startFen: String,
-) {
+private fun SeamRow(seam: SeamOrigin) {
     Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        Text("The app lost track of the board here", style = MaterialTheme.typography.bodyMedium, color = Danger)
         Text(
-            "Board rebuilt by ${seam.decider}: ${seam.sans.joinToString(" ")}",
-            style = MaterialTheme.typography.bodyMedium,
-            color = Danger,
-        )
-        Text(
-            "The app lost the board here — the moves below do not follow the ones above.",
+            "It picked the game up again below. The moves around this point may not be exactly what was " +
+                "played, so they are not graded." +
+                if (seam.sans.isNotEmpty()) " It filled the gap with ${seam.sans.joinToString(" ")}." else "",
             style = MaterialTheme.typography.bodySmall,
             color = OnSurfaceMuted,
         )
-        Text("Resumed at: $startFen", style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
     }
 }
 
@@ -158,48 +169,36 @@ private fun MoveCell(
         Text(
             text = ply.san,
             style = MaterialTheme.typography.bodyLarge,
+            // The SAN and its grade, and nothing else. `cnn_occupancy` used to sit here beside every
+            // move: the tracker's own vocabulary, competing with the move for the reader's eye and
+            // saying nothing a player can act on. It is in Details now.
             color = MaterialTheme.colorScheme.onSurface,
             // The selected ply is the one the board is showing. Without it the board and the list
             // disagree about where you are the moment you scroll away from the end.
             fontWeight = if (ply.ply == selected) FontWeight.Bold else FontWeight.Normal,
-            // The SAN is the row. It is measured first and never wraps or shrinks; whatever is
-            // beside it gets the remainder.
             maxLines = 1,
         )
-        Text(
-            // The grade wins the slot when there is one: after the game the decider is trivia and
-            // "which move lost it" is the reason this screen is open at all.
-            text = quality?.let(::badge) ?: ply.decider.orEmpty(),
-            style = MaterialTheme.typography.labelMedium,
-            // Not `quality?.let(::badgeColor)`: the palette is read through composable getters, and
-            // a @Composable function reference cannot be passed to `let`.
-            color = if (quality == null) OnSurfaceMuted else badgeColor(quality),
-            // Half a phone width holds two of these cells, and `cnn_occupancy` does not fit one.
-            // Unbounded it wrapped mid-word — `Nc6 cnn_occupanc` / `y` — and pushed the row to two
-            // lines. `fill = false` so a short label does not stretch the cell.
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
-        )
+        quality?.let {
+            Text(
+                text = badge(it),
+                style = MaterialTheme.typography.labelMedium,
+                // Not `quality?.let(::badgeColor)`: the palette is read through composable getters,
+                // and a @Composable function reference cannot be passed to `let`.
+                color = badgeColor(it),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+        }
     }
 }
 
-/** Short enough to sit beside a SAN on a phone; the summary card spells the bands out. */
+/** Short enough to sit beside a SAN on a phone; the verdict above the list spells the band out. */
 private fun badge(quality: MoveQuality): String =
     when (quality) {
-        MoveQuality.BOOK -> "book"
         MoveQuality.BEST -> "best"
         MoveQuality.GOOD -> ""
         MoveQuality.INACCURACY -> "?!"
         MoveQuality.MISTAKE -> "?"
         MoveQuality.BLUNDER -> "??"
-    }
-
-@Composable
-private fun badgeColor(quality: MoveQuality) =
-    when (quality) {
-        MoveQuality.BLUNDER, MoveQuality.MISTAKE -> Danger
-        MoveQuality.INACCURACY -> Busy
-        MoveQuality.BEST -> Accent
-        else -> OnSurfaceMuted
     }

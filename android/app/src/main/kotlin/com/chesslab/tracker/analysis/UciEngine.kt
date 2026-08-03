@@ -53,19 +53,20 @@ class UciEngine(
     /**
      * One `go` cycle. Returns the last `info` seen per multipv slot, slot 1 first.
      *
-     * [depth] adds a depth limit alongside the movetime, and UCI stops at whichever comes first.
-     * The live eval bar wants the time bound (never cost the tracker a frame); the review pass
-     * wants the depth bound with time only as a cap, so that two devices grade a game the same.
+     * [nodes] adds a node limit alongside the movetime, and UCI stops at whichever comes first. The
+     * live eval bar wants the time bound and nothing else (it must never cost the tracker a frame);
+     * the review pass wants the NODE bound, with time only as a safety valve, so that the same game
+     * grades the same on any device and at any temperature. See `ReviewBudget`.
      */
     fun analyse(
         fen: String,
         movetimeMs: Long,
         multiPv: Int,
-        depth: Int? = null,
+        nodes: Long? = null,
     ): List<PvLine> {
         send("setoption name MultiPV value $multiPv")
         send("position fen $fen")
-        send("go movetime $movetimeMs" + (depth?.let { " depth $it" } ?: ""))
+        send("go movetime $movetimeMs" + (nodes?.let { " nodes $it" } ?: ""))
         val best = sortedMapOf<Int, PvLine>()
         val deadlineNs = System.nanoTime() + (movetimeMs + ANALYSE_GRACE_MS) * NS_PER_MS
         while (true) {

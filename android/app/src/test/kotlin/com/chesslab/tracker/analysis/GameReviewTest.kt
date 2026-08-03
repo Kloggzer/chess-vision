@@ -1,131 +1,240 @@
 package com.chesslab.tracker.analysis
 
+import com.chesslab.tracker.games.GameView
+import com.chesslab.tracker.games.ReviewSegment
+import com.chesslab.tracker.games.SeamOrigin
+import com.chesslab.tracker.games.StoredGame
+import com.chesslab.tracker.games.StoredMove
+import com.chesslab.tracker.games.reviewView
+import com.github.bhlangonijr.chesslib.move.MoveList
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 private val BUDGET = ReviewBudget()
 
-private fun grade(
-    scores: List<Score>,
-    startsWithBlack: Boolean = false,
-) = grade((1..scores.size - 1).toList(), startsWithBlack, scores, BUDGET)
+private const val START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+/** A real opening, so every ply carries a legal `fenAfter` and a SAN the grader can name. */
+private const val SANS = "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6"
+
+/** The first [count] plies of [SANS] as one continuous segment. */
+private fun game(count: Int): GameView {
+    val moves = MoveList().apply { loadFromSan(SANS) }
+    val sans = moves.toSanArray()
+    val stored = moves.take(count).mapIndexed { index, move -> StoredMove(index + 1, sans[index], move.toString(), 0L) }
+    return StoredGame(
+        id = "t",
+        startFen = START,
+        startedAtEpochMs = 0,
+        finishedAtEpochMs = 0,
+        profileName = "t",
+        result = "*",
+        moves = stored,
+    ).reviewView()
+}
+
+private fun score(
+    cp: Int,
+    best: String? = null,
+) = Score(cp, 18, listOfNotNull(best))
+
+private fun grade(scores: List<Score?>) = grade(game(scores.size - 1), scores, BUDGET)
 
 class GameReviewTest {
     /**
-     * The sign flip is the whole reason `cpLoss` exists, and it is the classic bug: a losing move by
-     * Black moves the WHITE-POV score up, not down.
+     * The sign flip is the classic bug: a losing move by Black moves the WHITE-POV score UP. Read as
+     * win expectancy it is the same flip, and the MOVER's own chances are what the screen prints.
      */
     @Test
     fun aLossIsMeasuredFromTheMoversPointOfView() {
-        // +20 -> -180 with White to move: White dropped 200 cp.
-        val white = grade(listOf(Score(20, 18), Score(-180, 18)))
-        assertEquals(200, white.plies.single().cpLoss)
-        assertEquals(MoveQuality.MISTAKE, white.plies.single().quality)
+        // +20 -> -60 with White to move: White's own winning chances fall.
+        val white = grade(listOf(score(20), score(-60))).of(1)!!
+        assertTrue(white.winBefore > white.winAfter)
+        assertEquals(MoveQuality.INACCURACY, white.quality)
 
-        // The same swing after Black's move is Black's loss, and White's sheet stays empty.
-        val black = grade(listOf(Score(-20, 18), Score(180, 18)), startsWithBlack = true)
-        assertEquals(200, black.plies.single().cpLoss)
-        assertEquals(0, black.white.plies)
-        assertEquals(1, black.black.plies)
+        // The same board swing after BLACK's ply is Black's loss, so Black's chances fall instead.
+        val black = grade(listOf(score(20), score(20), score(220))).of(2)!!
+        assertTrue(black.winBefore > black.winAfter)
     }
 
     @Test
     fun pliesAreSplitBetweenTheSidesThatPlayedThem() {
-        val scores = listOf(Score(0, 18), Score(-300, 18), Score(0, 18), Score(-300, 18))
-        val graded = grade(scores)
-        assertEquals(listOf(1, 2, 3), graded.plies.map { it.ply })
+        val graded = grade(listOf(score(0), score(-600), score(0), score(-600)))
+        assertEquals(listOf(1, 2, 3), graded.byPly.keys.toList())
         assertEquals(2, graded.white.plies, "plies 1 and 3")
         assertEquals(1, graded.black.plies, "ply 2")
         assertEquals(2, graded.white.count(MoveQuality.BLUNDER))
-        // Ply 2 took White's -300 back to 0: that is Black losing 300, on Black's sheet.
+        // Ply 2 took White's -600 back to 0: that is Black losing, on Black's sheet.
         assertEquals(1, graded.black.count(MoveQuality.BLUNDER))
     }
 
     /**
-     * A mate is scored far outside every band, so throwing one away is a blunder and shortening one
-     * is not a loss at all — both ends of the subtraction are the same number.
-     */
-    @Test
-    fun mateIsScoredOutsideTheBandsAndShorteningItCostsNothing() {
-        val kept = grade(listOf(Score(10_000, 12), Score(10_000, 14)))
-        assertEquals(0, kept.plies.single().cpLoss)
-        assertEquals(MoveQuality.BEST, kept.plies.single().quality)
-
-        val thrown = grade(listOf(Score(10_000, 12), Score(50, 18)))
-        assertEquals(MoveQuality.BLUNDER, thrown.plies.single().quality)
-    }
-
-    /**
-     * The defect this file did not catch, found on the device on 2026-08-03: the card read
-     * **"White · 526 cp average loss over 42 plies · best 21"**, self-contradicting on its face.
-     * `MATE_CP` is 10 000 so the BANDS rank a thrown-away mate correctly, and it was flowing into
-     * the mean uncapped — one such ply contributes 238 cp to a 42-term average on its own.
+     * **The defect that removed centipawns as the unit, 2026-08-03.**
      *
-     * The cap is on the AVERAGE only. The band is untouched (1000 and 10 000 are both blunders) and
-     * so is the per-ply number, which is the truth about that ply.
+     * Read as centipawns, trading a forced mate for a merely winning endgame is a subtraction of
+     * thousands and grades BLUNDER. Read through lichess' ±1000 ceiling it is what it is: nothing.
+     * Measured on the device game `2026-08-02_2159`, ply 63 `Rxc6+` lost 1 866 cp and moved the
+     * winning chances not at all. Three plies of that game were badged BLUNDER on this arithmetic.
      */
     @Test
-    fun oneThrownAwayMateDoesNotDominateTheAverage() {
-        // 41 quiet plies at zero loss, then one that throws a forced mate away.
-        val quiet = List(42) { Score(0, 18) }
-        val graded = grade(quiet + listOf(Score(10_000, 18), Score(0, 18)))
-        val loud = graded.plies.last()
-        assertEquals(MoveQuality.BLUNDER, loud.quality, "the band still ranks it as the worst kind of move")
-        assertEquals(10_000, loud.cpLoss, "and the ply itself still reports the truth, uncapped")
+    fun tradingAMateForAWonEndgameIsNotABlunder() {
+        val kept = grade(listOf(score(10_000), score(8_134))).of(1)!!
+        assertEquals(kept.winBefore, kept.winAfter, 1e-9, "both are past the ceiling, so both are one number")
+        assertEquals(MoveQuality.GOOD, kept.quality, "not the engine's move, but it gave away nothing")
+        assertTrue(kept.decided, "and it cannot count towards anybody's accuracy")
 
-        // The mating ply is index 42, so it is White's; White has 22 plies including it.
-        assertEquals(22, graded.white.plies)
-        assertEquals(1000 / 22, graded.white.averageCpLoss, "capped at 1000 before the mean, never 10000/22 = 454")
+        // Mate-in-5 to mate-in-9 is the same score at both ends and therefore no loss at all.
+        assertEquals(MoveQuality.GOOD, grade(listOf(score(10_000), score(10_000))).of(1)!!.quality)
+
+        // Throwing the whole game away from a won position still is one, and is NOT "decided":
+        // saturated at both ends but on opposite sides is the largest blunder there is.
+        val thrown = grade(listOf(score(10_000), score(-10_000))).of(1)!!
+        assertEquals(MoveQuality.BLUNDER, thrown.quality)
+        assertFalse(thrown.decided)
     }
 
-    /** A cap is silent unless somebody says how much of the mean it swallowed. */
+    /** A move that beats the engine's line reads as a NEGATIVE drop; it must not be a bonus. */
     @Test
-    fun mateScoredPliesAreCountedPerSide() {
-        val graded = grade(listOf(Score(0, 18), Score(10_000, 18), Score(10_000, 18), Score(0, 18)))
-        // Plies 1 and 2 each touch a mate score; ply 3 touches the second one.
-        assertEquals(listOf(true, true, true), graded.plies.map { it.mateScored })
-        assertEquals(2, graded.white.mateScoredPlies, "plies 1 and 3")
-        assertEquals(1, graded.black.mateScoredPlies, "ply 2")
-    }
-
-    @Test
-    fun aGameWithNoMateReportsNoneAndIsUnaffectedByTheCap() {
-        val graded = grade(listOf(Score(0, 18), Score(-120, 18), Score(-120, 18)))
-        assertEquals(0, graded.white.mateScoredPlies)
-        assertEquals(0, graded.black.mateScoredPlies)
-        assertEquals(120, graded.white.averageCpLoss)
+    fun aMoveThatBeatsTheEngineNeverPaysForABlunderElsewhere() {
+        val graded = grade(listOf(score(0), score(-600), score(-900)))
+        assertEquals(100.0, graded.of(2)!!.accuracy, 1e-9, "Black gained; the drop floors at zero")
+        assertTrue(graded.white.accuracy!! < 50.0, "and White's blunder is not averaged away by it")
     }
 
     /**
-     * A grade is a claim only as deep as the search behind it, and the shallower of the two searches
-     * bounds it: a loss measured against a position the engine only reached depth 9 on is a depth-9
-     * claim whatever the other end managed.
+     * BEST is the engine's own move, so the grader compares against the line it stored — this is the
+     * whole "what would have been better" feature, and it costs no extra search.
+     */
+    @Test
+    fun theEnginesOwnMoveIsBothTheBadgeAndTheAdvice() {
+        val played = grade(listOf(score(20, best = "e2e4"), score(20))).of(1)!!
+        assertEquals(MoveQuality.BEST, played.quality)
+        assertEquals("e4", played.bestSan)
+        assertEquals("e4", played.san, "and the ply names itself, so a finding needs nothing else")
+
+        val other = grade(listOf(score(20, best = "d2d4"), score(20))).of(1)!!
+        assertEquals(MoveQuality.GOOD, other.quality)
+        assertEquals("d4", other.bestSan, "named in SAN from the position BEFORE the ply")
+    }
+
+    /**
+     * The whole continuation, not just its first move — the engine returned it and specs/42 read one
+     * token of it. An illegal tail truncates rather than losing the line: half an idea beats none.
+     */
+    @Test
+    fun theEnginesWholeLineIsNamedInSanAndStopsAtTheFirstMoveItCannotPlay() {
+        val line = grade(listOf(Score(20, 18, listOf("d2d4", "d7d5", "c2c4")), score(20))).of(1)!!
+        assertEquals(listOf("d4", "d5", "c4"), line.bestLine)
+
+        val broken = grade(listOf(Score(20, 18, listOf("d2d4", "e7e5", "h1h8")), score(20))).of(1)!!
+        assertEquals(listOf("d4", "e5"), broken.bestLine, "h1h8 is not legal there, and everything after it is fiction")
+    }
+
+    /**
+     * **A GAP in the record is the one thing that cannot be graded.**
+     *
+     * A seam is where the app lost the board and picked it up somewhere else; the plies that got
+     * there appear in no segment's move list. So the position before the first ply of the new segment
+     * is NOT the result of the move before it, and grading that ply charges a player for whatever
+     * happened in the gap.
+     *
+     * The `cnn_recovery` DECIDER is a different thing and is deliberately not consulted: it says how
+     * the app found out what was played, not whether it happened, and recovery normally reconstructs
+     * the real move. Dropping those was throwing away half a game's evidence.
+     */
+    @Test
+    fun theFirstPlyAfterASeamIsNotGraded() {
+        val whole = game(4)
+        val seamed =
+            whole.copy(
+                segments =
+                    listOf(
+                        whole.segments.first().copy(plies = whole.plies.take(2)),
+                        ReviewSegment(
+                            startFen = whole.plies[1].fenAfter,
+                            plies = whole.plies.drop(2),
+                            enteredBy = SeamOrigin(fenBefore = START, sans = listOf("??"), ucis = listOf("a1a2"), decider = "cnn_recovery"),
+                        ),
+                    ),
+            )
+        val graded = grade(seamed, List(5) { score(it * -300) }, BUDGET)
+        assertNull(graded.of(3), "ply 3 opens the new segment: its 'before' is on the far side of the gap")
+        assertNotNull(graded.of(2))
+        assertNotNull(graded.of(4))
+        assertEquals(setOf(3), seamPlies(seamed))
+    }
+
+    /** And with no seam, a recovered move is graded exactly like any other. */
+    @Test
+    fun aRecoveredMoveIsGradedLikeAnyOther() {
+        val graded = grade(listOf(score(0), score(-600), score(-600)))
+        assertEquals(1, graded.white.scored)
+        assertNotNull(graded.white.accuracy)
+        assertEquals(listOf(1), graded.findings().map { it.ply })
+    }
+
+    /**
+     * A finish played out against a forced mate scores 100 % per move for free. Measured on the
+     * device game, whose last 15 plies per side are exactly that: counting them reads White 76.5 /
+     * Black 75.6, dropping them reads 71.4 / 66.5.
+     */
+    @Test
+    fun movesPlayedAfterTheGameWasDecidedDoNotCount() {
+        val graded = grade(listOf(score(0), score(-600), score(-2_000), score(-3_000), score(-2_500)))
+        assertFalse(graded.of(1)!!.decided, "0 -> -600 is still a game")
+        assertTrue(graded.of(3)!!.decided, "-2000 -> -3000 is not")
+        assertEquals(2, graded.white.plies)
+        assertEquals(1, graded.white.scored, "only the ply that was still a game")
+    }
+
+    /**
+     * A grade is a claim only as deep as the search behind it, and the SHALLOWER of the two searches
+     * bounds it.
      */
     @Test
     fun aPlyIsWeightedByTheShallowerOfItsTwoSearches() {
-        assertEquals(9, grade(listOf(Score(0, 20), Score(0, 9))).plies.single().depth)
-        assertEquals(9, grade(listOf(Score(0, 9), Score(0, 20))).plies.single().depth)
+        assertEquals(9, grade(listOf(Score(0, 20), Score(0, 9))).of(1)!!.depth)
+        assertEquals(9, grade(listOf(Score(0, 9), Score(0, 20))).of(1)!!.depth)
     }
 
     /**
-     * A move that beats the engine's line at this depth is a NEGATIVE loss. It grades BEST, but it
-     * must not subtract from the average — that would let a lucky best move pay for a blunder.
+     * The pass is no longer frontloaded, so a half-scored game must grade to a half-grade rather
+     * than to nothing — that IS the feature.
      */
     @Test
-    fun averageLossNeverPaysForABlunderWithALuckyBestMove() {
-        val graded = grade(listOf(Score(0, 18), Score(-400, 18), Score(-800, 18), Score(-400, 18)))
-        assertEquals(2, graded.white.plies)
-        assertEquals(MoveQuality.BLUNDER, graded.plies[0].quality)
-        assertEquals(MoveQuality.BEST, graded.plies[2].quality, "White regained 400 cp: a negative loss")
-        assertEquals(200, graded.white.averageCpLoss, "(400 + 0) / 2, never (400 - 400) / 2")
+    fun aPartialRunGradesOnlyThePliesWhoseBothPositionsAreIn() {
+        val graded = grade(listOf(score(0), score(-600), null, score(0)))
+        assertEquals(listOf(1), graded.byPly.keys.toList(), "plies 2 and 3 each need the missing position")
+        assertEquals(3, graded.scored)
+        assertEquals(4, graded.positions)
+        assertFalse(graded.complete)
+        assertNotNull(graded.of(1))
     }
 
     @Test
-    fun findingsAreTheMistakesAndBlundersOnly() {
-        val graded = grade(listOf(Score(0, 18), Score(-5, 18), Score(-5, 18), Score(-400, 18)))
-        assertEquals(listOf(3), graded.findings().map { it.ply })
-        assertTrue(graded.of(99) == null, "asking for a ply that is not there is null, not a crash")
-        assertEquals(3, graded.of(3)?.ply)
+    fun findingsAreTheWorstFirstAndNothingBelowAnInaccuracy() {
+        val graded = grade(listOf(score(0), score(-100), score(-100), score(-900), score(-900), score(-870)))
+        assertEquals(listOf(3, 1), graded.findings().map { it.ply }, "ply 3 gave away more than ply 1")
+        assertNull(graded.of(99), "asking for a ply that is not there is null, not a crash")
+    }
+
+    /** Nearest the reader's finger first, then outward — the whole reason a review feels instant. */
+    @Test
+    fun theNextPositionSearchedIsTheOneNearestTheReader() {
+        val none = List<Score?>(6) { null }
+        assertEquals(4, nextIndex(none, focus = 4))
+        assertEquals(0, nextIndex(none, focus = 0))
+        assertEquals(5, nextIndex(none, focus = 99), "a focus past the end walks back from the end")
+
+        // Ply 2 is the step from position 1 to position 2. Position 2 is in, so position 1 — the
+        // other half of the ply the reader is on — comes before anything further out.
+        val partial = listOf(null, null, score(0), null, null, null)
+        assertEquals(1, nextIndex(partial, focus = 2))
+        assertEquals(3, nextIndex(listOf(score(0), score(0), score(0), null, null, null), focus = 2))
+        assertNull(nextIndex(List(3) { score(0) }, focus = 1), "nothing left means the run is over")
     }
 }
