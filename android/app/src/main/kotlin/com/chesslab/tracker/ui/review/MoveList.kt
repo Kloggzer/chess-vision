@@ -28,7 +28,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.chesslab.tracker.analysis.CP_PER_PAWN
 import com.chesslab.tracker.analysis.GameGrade
 import com.chesslab.tracker.analysis.MoveQuality
 import com.chesslab.tracker.analysis.PlyGrade
@@ -43,15 +42,19 @@ import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.PieceWhite
+import com.chesslab.tracker.ui.theme.Radius
+import com.chesslab.tracker.ui.theme.Space
+import com.chesslab.tracker.ui.theme.Stroke
 import com.chesslab.tracker.ui.theme.SurfaceRaised
-import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private val POSITION_COLUMN_WIDTH = 94.dp
 private val MOVE_ROW_HEIGHT = 52.dp
-private const val POSITION_LIMIT_CP = 2_000
-private const val MATE_CP = 10_000
+private val MOVE_NUMBER_WIDTH = 34.dp
+
+/** Level, as the win-expectancy curve means it. */
+private const val EVEN = 50.0
 
 /**
  * The score sheet — live or archived, and the same list either way.
@@ -85,8 +88,8 @@ fun MoveList(
     LaunchedEffect(plyCount) {
         if (plyCount > 0) listState.animateScrollToItem(listState.layoutInfo.totalItemsCount)
     }
-    Box(modifier.clip(RoundedCornerShape(12.dp)).background(SurfaceRaised)) {
-        LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+    Box(modifier.clip(RoundedCornerShape(Radius.md)).background(SurfaceRaised)) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().padding(horizontal = Space.md, vertical = Space.sm)) {
             moveListSection(game, grade = null, selected = 0, onSelect = null)
         }
     }
@@ -101,7 +104,7 @@ fun LazyListScope.moveListSection(
 ) {
     if (game.plies.isEmpty()) {
         item(key = "no-moves") {
-            Text("No moves yet", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceMuted, modifier = Modifier.padding(12.dp))
+            Text("No moves yet", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceMuted, modifier = Modifier.padding(Space.md))
         }
         return
     }
@@ -120,15 +123,15 @@ fun LazyListScope.moveListSection(
 @Composable
 private fun MoveColumnHeaders(showPosition: Boolean) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(bottom = Space.xs),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(Space.md),
     ) {
         Text(
             "#",
             style = MaterialTheme.typography.labelMedium,
             color = OnSurfaceMuted,
-            modifier = Modifier.width(34.dp),
+            modifier = Modifier.width(MOVE_NUMBER_WIDTH),
         )
         Text(
             "White",
@@ -176,7 +179,7 @@ private fun LazyListScope.segmentRows(
  */
 @Composable
 private fun SeamRow(seam: SeamOrigin) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+    Column(Modifier.fillMaxWidth().padding(vertical = Space.sm)) {
         Text("The app lost track of the board here", style = MaterialTheme.typography.bodyMedium, color = Danger)
         Text(
             "It picked the game up again below. The moves around this point may not be exactly what was " +
@@ -196,15 +199,15 @@ private fun MoveRowLine(
     onSelect: ((Int) -> Unit)?,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = Space.xs),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(Space.md),
     ) {
         Text(
             text = "${row.number}.",
             style = MaterialTheme.typography.labelMedium,
             color = OnSurfaceMuted,
-            modifier = Modifier.width(34.dp),
+            modifier = Modifier.width(MOVE_NUMBER_WIDTH),
         )
         MoveCell(row.white, grade, selected, onSelect, Modifier.weight(1f))
         MoveCell(row.black, grade, selected, onSelect, Modifier.weight(1f))
@@ -218,13 +221,12 @@ private fun PositionCell(
     grade: GameGrade,
 ) {
     val lastPly = row.black ?: row.white
-    val after = lastPly?.let { grade.evalCp.getOrNull(it.ply) }
     val mate = lastPly?.let { grade.evalMate.getOrNull(it.ply) }
     val winWhite = lastPly?.let { grade.winWhite.getOrNull(it.ply) }
     val trendColor =
         when {
-            after == null -> OnSurfaceMuted
-            after >= 0 -> OnSurface
+            winWhite == null -> OnSurfaceMuted
+            winWhite >= EVEN -> OnSurface
             else -> Danger
         }
     Box(
@@ -232,14 +234,14 @@ private fun PositionCell(
             Modifier
                 .width(POSITION_COLUMN_WIDTH)
                 .height(MOVE_ROW_HEIGHT)
-                .clip(RoundedCornerShape(8.dp)),
+                .clip(RoundedCornerShape(Radius.sm)),
     ) {
         HorizontalPositionBackground(winWhite)
         Text(
-            text = positionLeadLabel(after, mate),
+            text = positionLeadLabel(winWhite, mate),
             style = MaterialTheme.typography.labelSmall,
             color = trendColor,
-            modifier = Modifier.align(Alignment.CenterStart).padding(horizontal = 8.dp),
+            modifier = Modifier.align(Alignment.CenterStart).padding(horizontal = Space.sm),
             maxLines = 2,
         )
     }
@@ -268,27 +270,30 @@ private fun HorizontalPositionBackground(winWhite: Double?) {
             color = separator,
             start = Offset(boundary, 0f),
             end = Offset(boundary, size.height),
-            strokeWidth = 1.dp.toPx(),
+            strokeWidth = Stroke.hairline.toPx(),
         )
     }
 }
 
+/**
+ * The position after the row's last ply, as WHITE's win expectancy — the same quantity the bar
+ * behind it draws and the same one the `−10%` beside the SAN is a delta of.
+ *
+ * It printed `White +1.2` until specs/47: a pawn count, in a column whose background was already
+ * drawn from the percentage, one tab away from a screen that had centipawns removed from it
+ * deliberately (specs/44). "Mate in 6" and "Checkmate" keep their words — a distance is not an
+ * evaluation, and the percentage has nothing left to say once a mate is forced.
+ */
 internal fun positionLeadLabel(
-    cp: Int?,
+    winWhite: Double?,
     mate: Int?,
 ): String =
     when {
-        cp == null -> "—"
+        winWhite == null -> "—"
         mate == 0 -> "Checkmate"
         mate != null -> "Mate in ${abs(mate)}"
-        abs(cp) >= MATE_CP -> "Mate"
-        abs(cp) >= POSITION_LIMIT_CP -> if (cp > 0) "White winning" else "Black winning"
-        cp == 0 -> "Equal"
-        cp > 0 -> "White ${pawnScore(cp)}"
-        else -> "Black ${pawnScore(cp)}"
+        else -> "${winWhite.roundToInt()} %"
     }
-
-private fun pawnScore(cp: Int): String = String.format(Locale.ROOT, "+%.1f", abs(cp) / CP_PER_PAWN)
 
 @Composable
 private fun MoveCell(
@@ -306,7 +311,7 @@ private fun MoveCell(
     val quality = plyGrade?.quality
     val impact = moveImpactLabel(plyGrade)
     val cell = if (onSelect == null) modifier else modifier.clickable { onSelect(ply.ply) }
-    Column(cell, verticalArrangement = Arrangement.spacedBy(1.dp)) {
+    Column(cell, verticalArrangement = Arrangement.spacedBy(Space.hair)) {
         Text(
             text = ply.san,
             style = MaterialTheme.typography.bodyLarge,
@@ -320,7 +325,7 @@ private fun MoveCell(
             maxLines = 1,
         )
         if (quality != null || impact != null) {
-            Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.xs), verticalAlignment = Alignment.CenterVertically) {
                 quality?.let {
                     val badge = badge(it)
                     if (badge.isNotEmpty()) {

@@ -33,6 +33,11 @@ import com.chesslab.tracker.spectate.SpectatorState
 import com.chesslab.tracker.ui.settings.Card
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import com.chesslab.tracker.ui.theme.Space
+
+/** The "it is running" dot, and the QR's drawn side. Component sizes, not spacing. */
+private val STATUS_DOT = 10.dp
+private val QR_SIDE = 200.dp
 
 private const val QR_PX = 512
 
@@ -62,7 +67,7 @@ fun SpectatorShareCard() {
             Text(
                 "Share this board on Wi-Fi",
                 style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.weight(1f).padding(end = 12.dp),
+                modifier = Modifier.weight(1f).padding(end = Space.md),
             )
             Switch(checked = enabled, onCheckedChange = controller::setEnabled)
         }
@@ -98,18 +103,18 @@ private fun RunningBlock(
     onToggleQr: () -> Unit,
 ) {
     val clipboard = LocalClipboardManager.current
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
         // The theme's "it is running" colour, not a hard-coded green: this dot sits on paper in the
         // light scheme, where a saturated web green is the one thing on the card that is not legible.
-        Spacer(Modifier.size(10.dp).clip(CircleShape).background(Accent))
+        Spacer(Modifier.size(STATUS_DOT).clip(CircleShape).background(Accent))
         Text(url, style = MaterialTheme.typography.bodyMedium)
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
         TextButton(onClick = { clipboard.setText(AnnotatedString(url)) }) { Text("Copy URL", color = Accent) }
         TextButton(onClick = onToggleQr) { Text(if (showQr) "Hide QR" else "Show QR", color = Accent) }
     }
     if (showQr) {
         val qr = remember(url) { QrCode.forUrl(url, QR_PX).asImageBitmap() }
-        Image(bitmap = qr, contentDescription = "QR code for $url", modifier = Modifier.size(200.dp))
+        Image(bitmap = qr, contentDescription = "QR code for $url", modifier = Modifier.size(QR_SIDE))
     }
 }

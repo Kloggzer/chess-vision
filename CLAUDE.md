@@ -279,7 +279,9 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
 - Android UI/camera: run
   `.\scripts\android-emulator.ps1 -Avd Chesslab_Agent1 -Port 5554 -Clip blender-opening -RestartExisting`.
   The `emulator` APK is x86_64-only and separate from the arm64 phone builds; the smoke test
-  must print `Camera feed confirmed`, not merely reach `Stop tracking`. Use
+  must print `Camera feed confirmed`, not merely reach `Stop tracking`. **Never install with
+  `gradlew :app:installEmulator`** — it installs on EVERY attached emulator, including another
+  agent's (measured 2026-08-03: "Installed on 2 devices"). The script installs on the one serial. Use
   `scripts/android-ui.ps1` for text/semantics-first control. The AVD is headful by default;
   `-Headless` is opt-in. Concurrent agents use distinct AVDs, even ports/ADB serials and Git
   worktrees; artifacts are isolated under `tmp/android-emulator/<serial>/`.
@@ -297,7 +299,18 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
 - **Text-first UI control means icon-only controls need a `contentDescription`.**
   `scripts/android-ui.ps1 tap-text` / `tap-description` read Compose semantics, so a control with no
   label and no description cannot be driven by any agent or smoke test. A visible label that changes
-  wording breaks the same way — keep it stable or add a dedicated UI test.
+  wording breaks the same way — keep it stable or add a dedicated UI test. Where a label needs a
+  COUNT beside it, the count is a second `Text` node: `Moments · 24` inside one `Text` made the tab's
+  accessible name change while the analysis streamed, and `tap-text "Moments"` failed.
+- **Android spacing is 12 tokens in `ui/theme/Dimens.kt`, and `DpLiteralGuardTest` enforces it.**
+  A `.dp` literal in a `ui/` file is either a component SIZE with a name (`private val
+  POSITION_COLUMN_WIDTH = 94.dp`, kept in the file that draws it) or it is a bug — the guard is a
+  rule, not a count, so it neither needs editing when a legitimate size is added nor lets one
+  literal be swapped for another. `0.dp` is allowed: it is the absence of a value. Before specs/47
+  the tree held **26 distinct values over 195 uses** and no token for any of them.
+- **`ChesslabScaffold` owns the screen's side margin; no screen sets its own.** They disagreed —
+  12 dp on Games/Settings/Speech/Debug, 14 dp on the board, 0 on the camera. The camera is the one
+  screen that is not scaffolded, deliberately (`CameraChrome.kt`).
 - **Gradle reports GREEN on stale tasks — pass `--rerun-tasks` when the gate is the point.**
   Up-to-date checks key on inputs Gradle knows about, and a test whose *assertion* you changed can
   sit `UP-TO-DATE` behind an unchanged classpath. Measured 2026-08-02: a plain

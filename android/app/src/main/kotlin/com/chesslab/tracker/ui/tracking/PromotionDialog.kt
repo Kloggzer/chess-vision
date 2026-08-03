@@ -18,9 +18,13 @@ import androidx.compose.ui.window.DialogProperties
 import com.chesslab.tracker.ui.theme.BoardDark
 import com.chesslab.tracker.ui.theme.PieceBlack
 import com.chesslab.tracker.ui.theme.PieceWhite
+import com.chesslab.tracker.ui.theme.Space
 
 /** Q / R / B / N, in that order. Lowercase is what `choosePromotion` expects. */
 private val PROMOTION_CHOICES = listOf('q', 'r', 'b', 'n')
+
+/** Four glyphs a thumb has to hit mid-game, so this is a size and not a touch minimum. */
+private val PIECE_BUTTON = 76.dp
 
 /** `w` in the FEN's side-to-move field — the promoting side, so the buttons show its colour. */
 internal fun whiteToMove(fen: String): Boolean = fen.split(' ').getOrNull(1) != "b"
@@ -48,16 +52,16 @@ fun PromotionDialog(
         properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
         title = { Text("Promotion", style = MaterialTheme.typography.titleLarge) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(Space.md)) {
                 Text(
                     "${prompt.from} → ${prompt.to}. Choose the piece.",
                     style = MaterialTheme.typography.bodyLarge,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(Space.md)) {
                     PROMOTION_CHOICES.forEach { piece ->
                         Button(
                             onClick = { onChoose(piece) },
-                            modifier = Modifier.size(76.dp),
+                            modifier = Modifier.size(PIECE_BUTTON),
                             colors =
                                 ButtonDefaults.buttonColors(
                                     containerColor = if (white) PieceWhite else BoardDark,

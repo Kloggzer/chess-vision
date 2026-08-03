@@ -15,7 +15,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.service.DebugState
 import com.chesslab.tracker.ui.theme.Accent
@@ -23,6 +22,8 @@ import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import com.chesslab.tracker.ui.theme.Space
+import com.chesslab.tracker.ui.theme.Stroke
 
 private const val PERCENT = 100.0
 
@@ -43,7 +44,7 @@ fun CnnReadsPanel(
     val view = remember(state, ascending) { cnnReadRows(state.payload, ascending) }
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(Space.xs),
     ) {
         StatRow(
             "observation seq",
@@ -80,7 +81,7 @@ private fun ReadRow(row: CnnReadRow) {
             row.confident -> OnSurface
             else -> OnSurfaceMuted
         }
-    Row(Modifier.fillMaxWidth().padding(vertical = 1.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(Modifier.fillMaxWidth().padding(vertical = Stroke.hairline), horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
         Text(row.square, Modifier.weight(0.8f), style = MaterialTheme.typography.labelMedium, color = tone)
         Text(row.label, Modifier.weight(1.2f), style = MaterialTheme.typography.labelMedium, color = tone)
         Text(pct(row.conf), Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = tone)

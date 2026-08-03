@@ -268,6 +268,30 @@ class GameReviewTest {
         assertNull(graded.of(99), "asking for a ply that is not there is null, not a crash")
     }
 
+    /**
+     * "What decided the game" is sorted by SWING, and by nothing else.
+     *
+     * It used to sort `compareByDescending { missedMate }` first, so a mate missed from a position
+     * that was already 98 % — and stayed 98 % — outranked every real turning point by construction.
+     * That move belongs in "Missed chances" and in no ranking of what decided anything.
+     */
+    @Test
+    fun aMissedMateThatChangedNothingIsNotWhatDecidedTheGame() {
+        val graded =
+            grade(
+                listOf(
+                    score(0),
+                    // Ply 1: White hands over most of a level position — the turning point.
+                    // Ply 2: Black, already winning, lets a forced mate go and stays exactly as won.
+                    score(-900, best = "d7d5", mate = -6),
+                    score(-900),
+                ),
+            )
+        assertTrue(graded.of(2)!!.missedMate)
+        assertEquals(listOf(2), graded.missedChances().map { it.ply })
+        assertEquals(listOf(1), graded.findings().map { it.ply }, "the swing, not the missed mate")
+    }
+
     /** Nearest the reader's finger first, then outward — the whole reason a review feels instant. */
     @Test
     fun theNextPositionSearchedIsTheOneNearestTheReader() {

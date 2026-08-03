@@ -186,10 +186,17 @@ class LiveGame(
                 },
         )
 
+    /**
+     * [white] and [black] are asked for in the end-game dialog, which already interrupts. Nothing is
+     * asked before the first move — the model has carried these two fields since 08a and nothing
+     * ever wrote them, so every stored game read `? vs ?` on the device.
+     */
     fun finish(
         id: String,
         finishedAtEpochMs: Long,
         sessionId: String? = null,
+        white: String = UNKNOWN,
+        black: String = UNKNOWN,
     ): StoredGame =
         StoredGame(
             id = id,
@@ -199,6 +206,8 @@ class LiveGame(
             profileName = profileName,
             result = resultFromFen(currentFen),
             moves = segments.flatMap { segment -> segment.moves.map { it.move } },
+            white = white,
+            black = black,
             sessionId = sessionId,
             segments = segments.map { GameSegment(it.startFen, it.moves.map { move -> move.move }, it.enteredBy) },
         )

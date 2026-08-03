@@ -19,6 +19,7 @@ import com.chesslab.tracker.ui.calibration.CalibrationHost
 import com.chesslab.tracker.ui.calibration.CalibrationState
 import com.chesslab.tracker.ui.calibration.CalibrationViewModel
 import com.chesslab.tracker.ui.calibration.QuadOutline
+import com.chesslab.tracker.ui.theme.Space
 import kotlinx.coroutines.CoroutineScope
 
 /**
@@ -79,7 +80,7 @@ fun BoardDeck(state: CalibrationState) {
     // The same scrim the look tiles wear. Over wood grain in room light, bare text on a live
     // viewfinder is the first thing to disappear.
     Column(
-        Modifier.fillMaxWidth().background(BottomFade).padding(horizontal = 8.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().background(BottomFade).padding(horizontal = Space.sm, vertical = Space.md),
         verticalArrangement = Arrangement.spacedBy(DECK_GAP.dp),
     ) {
         CameraNote(state.note)

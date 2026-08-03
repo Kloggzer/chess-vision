@@ -31,12 +31,6 @@ data class ReviewUi(
     val engineMissing: Boolean = false,
 )
 
-/** Archived reviews start at the beginning; only a running game follows its latest position. */
-internal fun initialReviewPly(
-    live: Boolean,
-    plies: Int,
-): Int = if (live) plies else 0
-
 /**
  * The archive source and the grading run behind it.
  *
@@ -57,7 +51,10 @@ class ReviewViewModel(
 
     private var running: Job? = null
 
-    /** The ply the user is looking at. The engine grades outward from here — see [GameReviewer]. */
+    /**
+     * The ply the user is looking at. The engine grades outward from here — see [GameReviewer].
+     * A review opens at the START, so that is where the first searches go.
+     */
     @Volatile
     private var focus: Int = 0
 
@@ -65,7 +62,7 @@ class ReviewViewModel(
         scope.launch {
             val stored = withContext(Dispatchers.IO) { store.open(id) }
             val game = stored?.reviewView()
-            focus = initialReviewPly(game?.live == true, game?.plies?.size ?: 0)
+            focus = 0
             val stale =
                 game?.let { view ->
                     withContext(Dispatchers.IO) { reviews.load(id, budget, view.plies.size + 1) }

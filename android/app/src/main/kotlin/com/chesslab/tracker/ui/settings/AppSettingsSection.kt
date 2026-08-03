@@ -18,7 +18,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import com.chesslab.tracker.cnn.BUNDLED_MODELS
 import com.chesslab.tracker.settings.AppSettings
 import com.chesslab.tracker.settings.BoardOrientation
@@ -26,6 +25,8 @@ import com.chesslab.tracker.settings.EpRequest
 import com.chesslab.tracker.settings.ResolutionMode
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import com.chesslab.tracker.ui.theme.Radius
+import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.theme.SurfaceRaised
 
 /**
@@ -49,7 +50,7 @@ fun AppSettingsSection(
     app: AppSettings,
     onChange: (AppSettings) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Space.md)) {
         Choice(
             title = "Camera resolution",
             help =
@@ -108,7 +109,7 @@ fun DebugRow(
                 text = "Debug menu",
                 style = MaterialTheme.typography.labelLarge,
                 color = OnSurface,
-                modifier = Modifier.weight(1f).padding(end = 12.dp),
+                modifier = Modifier.weight(1f).padding(end = Space.md),
             )
             Switch(checked = enabled, onCheckedChange = onEnabled)
         }
@@ -144,7 +145,7 @@ private fun <T> Options(
     selected: T,
     onSelect: (T) -> Unit,
 ) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
         options.forEach { (label, value) ->
             FilterChip(
                 selected = value == selected,
@@ -171,9 +172,9 @@ fun Card(content: @Composable ColumnScope.() -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
-            .background(SurfaceRaised, RoundedCornerShape(8.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .background(SurfaceRaised, RoundedCornerShape(Radius.sm))
+            .padding(horizontal = Space.md, vertical = Space.sm),
+        verticalArrangement = Arrangement.spacedBy(Space.sm),
         content = content,
     )
 }

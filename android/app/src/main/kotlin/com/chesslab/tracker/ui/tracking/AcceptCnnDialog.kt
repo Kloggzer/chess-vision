@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import com.chesslab.tracker.ui.theme.Space
 import java.util.Locale
 
 /** One square as the CNN read it. Supplied only where the UI can see the model's output. */
@@ -45,6 +46,9 @@ data class AcceptCnnPreview(
 ) {
     val isEmpty: Boolean get() = rows.isEmpty()
 }
+
+/** How tall the conflict list may grow before it scrolls inside the dialog. */
+private val LIST_MAX_HEIGHT = 320.dp
 
 private const val PERCENT = 100.0
 
@@ -116,8 +120,8 @@ fun AcceptCnnDialog(
         title = { Text("Adopt CNN position?", style = MaterialTheme.typography.titleLarge) },
         text = {
             Column(
-                Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                Modifier.heightIn(max = LIST_MAX_HEIGHT).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(Space.sm),
             ) {
                 if (preview.isEmpty) {
                     Text("No conflicting squares are reported.", style = MaterialTheme.typography.bodyLarge)
