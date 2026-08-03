@@ -39,16 +39,17 @@ class ReviewDepthMeasurementTest {
 
         val live = review(enginePath, game, LIVE_BUDGET)
         val deep = review(enginePath, game, ReviewBudget())
-        assertEquals(live.plies.size, deep.plies.size)
+        assertEquals(live.byPly.keys, deep.byPly.keys)
 
-        val changed = live.plies.indices.filter { live.plies[it].quality != deep.plies[it].quality }
-        println("plies ${live.plies.size} · class changes ${changed.size}")
+        val changed = live.byPly.filter { (ply, a) -> deep.of(ply)!!.quality != a.quality }
+        println("plies ${live.byPly.size} · class changes ${changed.size}")
         println("live  ${LIVE_BUDGET.movetimeMs} ms multiPv ${LIVE_BUDGET.multiPv} · median depth ${median(live)}")
         println("deep  depth ${ReviewBudget().depth} cap ${ReviewBudget().movetimeMs} ms · median depth ${median(deep)}")
-        changed.forEach {
-            val a = live.plies[it]
-            val b = deep.plies[it]
-            println("ply ${a.ply}: ${a.quality} (${a.cpLoss} cp @${a.depth}) -> ${b.quality} (${b.cpLoss} cp @${b.depth})")
+        println("accuracy live W ${live.white.accuracy} B ${live.black.accuracy}")
+        println("accuracy deep W ${deep.white.accuracy} B ${deep.black.accuracy}")
+        changed.forEach { (ply, a) ->
+            val b = deep.of(ply)!!
+            println("ply $ply: ${a.quality} (${a.winBefore}->${a.winAfter} @${a.depth}) -> ${b.quality} @${b.depth}")
         }
     }
 
@@ -58,10 +59,16 @@ class ReviewDepthMeasurementTest {
         budget: ReviewBudget,
     ): GameGrade =
         runBlocking {
-            GameReviewer({ UciEngine(enginePath) }, budget).review(game)
-        } ?: error("the engine produced no grade")
+            var last: List<Score?> = emptyList()
+            val started = GameReviewer({ UciEngine(enginePath) }, budget).review(game) { last = it }
+            if (!started) error("the engine produced no grade")
+            grade(game.plies, game.startFen, last, budget)
+        }
 
-    private fun median(grade: GameGrade): Int = grade.plies.map { it.depth }.sorted()[grade.plies.size / 2]
+    private fun median(grade: GameGrade): Int {
+        val depths = grade.byPly.values.map { it.depth }
+        return depths.sorted()[depths.size / 2]
+    }
 
     /** SAN move text (a PGN movetext body) -> the same projection the review screen renders. */
     private fun gameOf(path: String): GameView {
