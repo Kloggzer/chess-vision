@@ -42,6 +42,15 @@ private const val EPS: Double = 1e-9
  * (plain centroid, 3-point parabola, half-depth parabola) lands inside the same 0.15 px. It is here
  * because it is the one that does not depend on the neighbouring squares' brightness, not because
  * it won anything. The win in this module is the BANDS, not the estimator.
+ *
+ * That local baseline is also the whole answer to an illumination gradient: the 2026-08-02 phone
+ * footage reads per-square mean luma 25 on one side of the board and 168 on the other, and a global
+ * threshold cannot serve both. A window a third of a cell wide sees none of that spread.
+ *
+ * **A groove is NARROW, and that is what tells it from a piece.** [halfDepthCentroid] refuses a dark
+ * run that is still going at both ends of the centroid window: a 3D piece leaning over the line
+ * behind it is wide and dark, and accepting those tilted the fitted line by 36 mrad and cost 16.3 px
+ * on a frame whose quad was in fact correct. Reporting the line as UNREAD is the honest answer.
  */
 internal fun notchCentre(
     win: DoubleArray,
@@ -102,6 +111,8 @@ private fun halfDepthCentroid(
     var hi = peak
     while (lo > max(0, peak - csp) && resid[lo - 1] > half) lo--
     while (hi < min(resid.size - 1, peak + csp) && resid[hi + 1] > half) hi++
+    // Still dark at BOTH ends: this is an object, not a groove. See the KDoc above.
+    if (resid[max(0, lo - 1)] > half && resid[min(resid.size - 1, hi + 1)] > half) return null
     val len = hi - lo + 1
     var total = 0.0
     var weighted = 0.0
@@ -114,27 +125,40 @@ private fun halfDepthCentroid(
 }
 
 /**
- * The 7 interior groove positions in one collapsed profile, `NaN` where none was found.
+ * The 9 groove positions in one collapsed profile, `NaN` where none was found.
  *
  * A groove that cannot be told from its neighbourhood comes back as `NaN` rather than as a guess:
  * pieces sit ON the grooves and legitimately hide some, and a caller needs to see which boundary is
  * unmeasured.
+ *
+ * [pad] is where nominal line 0 sits in [prof], so index 0 and 8 can be MEASURED in a padded warp
+ * instead of pinned at 0 and `boardSize` — the values the warp puts there by construction, whose
+ * presence made a uniform scale error read 25 % short. [outerSpan] is deliberately tighter than
+ * [span]: the reference board carries a printed rank/file border whose own boundary runs about a
+ * third of a cell outside the playing field, and a window that reaches it locks onto the wrong line.
+ * [outerSpan] `<= 0` measures the interior lines only.
  */
 internal fun profileLines(
     prof: DoubleArray,
     cell: Double,
     span: Int,
     csp: Int,
+    pad: Double = 0.0,
+    outerSpan: Int = 0,
 ): DoubleArray {
     val pos = DoubleArray(BOARD_SIDE + 1) { Double.NaN }
-    for (k in 1 until BOARD_SIDE) {
-        val c = pyRound(k * cell)
-        val lo = max(0, c - span)
-        val hi = min(prof.size, c + span + 1)
+    val first = if (outerSpan > 0) 0 else 1
+    val last = if (outerSpan > 0) BOARD_SIDE else BOARD_SIDE - 1
+    for (k in first..last) {
+        val w = if (k == 0 || k == BOARD_SIDE) outerSpan else span
+        val centre = pad + k * cell
+        val c = pyRound(centre)
+        val lo = max(0, c - w)
+        val hi = min(prof.size, c + w + 1)
         val found = if (hi - lo >= MIN_WINDOW) notchCentre(prof.copyOfRange(lo, hi), csp) else null
         // Beyond the search window the estimate has locked onto the NEIGHBOURING groove, which
         // would report a small offset for a board that is off by a whole square.
-        if (found != null && abs(lo + found[0] - k * cell) <= span) pos[k] = lo + found[0]
+        if (found != null && abs(lo + found[0] - centre) <= w) pos[k] = lo + found[0]
     }
     return pos
 }

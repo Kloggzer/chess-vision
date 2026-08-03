@@ -253,11 +253,22 @@ class ClipDriver:
         from chesslab import lens as _lens
 
         self._profile_file = profile_path(self.profile_name)
+        # `crop` from the ENTRY when it carries one, and the defaults only when it does not.
+        # `CropParams.default` reads `config.CROP`, whose `pad_side` is 0.10, while the rig
+        # profile the models are trained and served against says 0.05 — so a replay without this
+        # cut every CNN crop 120 px wide where every other path cuts 110. Measured on
+        # VID_20260802_222741 frame 0: at 0.10 the observation disagrees with the untouched start
+        # position on a7, c7, b8 (and h8 from frame 60), the desync streak escalates to the
+        # illegal-move alarm within three seconds, and no move is ever committed; at the profile's
+        # 0.05 the same frames read ZERO conflicts. The twenty committed Blender clips carry no
+        # `crop` key and so keep the defaults, byte for byte.
         prof = CalibrationProfile(
             profile=self.profile_name, camera_index=-1, frame_size=size, board_size=target,
             image_corners=corners, homography=compute_homography(corners, target, margin),
-            white_pov=True, crop=CropParams.default(target), margin=margin,
-            source=entry["file"])
+            white_pov=True,
+            crop=(CropParams.from_dict(entry["crop"]) if entry.get("crop")
+                  else CropParams.default(target)),
+            margin=margin, source=entry["file"])
         # Stamp the lens state exactly as `profile_from_frame` does. Without it the
         # profile reads STALE and `ensure_profile` tries to auto-recalibrate — which
         # opens the REAL camera 0 (it uses `open_camera`, not the patched `open_source`)

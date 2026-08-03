@@ -107,6 +107,40 @@ fun warpBoardForCrops(
 }
 
 /**
+ * Rectification with an arbitrary [pad] on all four sides — the GRID-MEASUREMENT warp.
+ *
+ * A third warp and not a reuse of [warpBoardForCrops], because the two want opposite pads:
+ * `cropBorderPx` is sized for the crop extension and is much wider than a quarter cell, and a wide
+ * pad lets `gridLines`' outer search reach the board's printed rank/file border a third of a cell
+ * outside the playing field — where it locks onto the wrong line and reports a small offset for a
+ * board scaled wrong by half a square. `GRID_PAD_CELLS` is chosen against that number.
+ *
+ * Geometry is identical to the borderless warp, only shifted by [pad].
+ */
+internal fun warpFromCornersPadded(
+    frame: Mat,
+    geom: BoardGeometry,
+    corners: List<DoubleArray>,
+    pad: Int,
+): Mat {
+    val bs = geom.boardSize
+    val h = computeHomography(corners, bs, geom.margin)
+    val m = DoubleArray(H_DIM * H_DIM)
+    h.readH(m)
+    for (c in 0 until H_DIM) {
+        val h2 = m[2 * H_DIM + c]
+        m[c] += pad * h2
+        m[H_DIM + c] += pad * h2
+    }
+    h.writeH(m)
+    val side = (bs + 2 * pad).toDouble()
+    val out = Mat()
+    Imgproc.warpPerspective(frame, out, h, Size(side, side))
+    h.release()
+    return out
+}
+
+/**
  * `Mat` -> the OpenCV-free seam type. 8-bit single channel, row-major, stride == width.
  *
  * [into] lets the caller supply the destination, exactly like the `dst: Mat?` of the two warps: the

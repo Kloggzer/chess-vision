@@ -192,10 +192,16 @@ class LiveAlign(
      * grooves, so it overwrote the refined corners almost immediately and every crop was cut with
      * the geometry the refinement exists to remove.
      *
-     * MEASURED once per calibration (~80 ms at boardSize 1600, here on the align dispatcher with
-     * one detection in flight, so it costs at most one skipped align), then RE-APPLIED for free:
-     * four points through a 3x3. Measuring here rather than carrying the value from the calibration
-     * screen also means it is re-established after an app restart, where the screen never runs.
+     * MEASURED once per pose, then RE-APPLIED for free: four points through a 3x3. It runs on the
+     * align dispatcher with one detection in flight, so it costs at most one skipped align.
+     * Measuring here rather than carrying the value from the calibration screen also means it is
+     * re-established after an app restart, where the screen never runs.
+     *
+     * The cost is NOT the ~80 ms this KDoc used to quote: that was the 4-band, 14-line, affine
+     * version. specs/41 took it to 8 bands over 18 lines with 4 iterations and a projective fit,
+     * which measures 70-85 ms at boardSize 800 on a desktop and has NOT been measured on device.
+     * Whatever it is, it is a once-per-pose cost on a background dispatcher; do not quote a number
+     * here that nobody took.
      *
      * The correction lives in rectified space, which is what lets it transfer to a quad it was not
      * measured on — the whole live case, since the markers move a little between detections.
