@@ -1,16 +1,19 @@
 package com.chesslab.tracker.ui.tracking
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
@@ -30,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,7 +62,10 @@ import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import com.chesslab.tracker.ui.theme.Outline
+import com.chesslab.tracker.ui.theme.Radius
 import com.chesslab.tracker.ui.theme.Space
+import com.chesslab.tracker.ui.theme.Stroke
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
@@ -419,14 +426,28 @@ private fun ColumnScope.NotReady(
     ui.infoLine?.let {
         Text(it, style = MaterialTheme.typography.bodyLarge, color = OnSurface)
     }
-    SourceFramedPreview(
-        preview = preview,
-        rotationDegrees = rotation,
-        sourceWidth = preview?.width ?: 0,
-        sourceHeight = preview?.height ?: 0,
-        modifier = Modifier.fillMaxWidth().weight(1f),
-        empty = { Text("No camera frame yet", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceMuted) },
-    )
+    // With no service there is no camera to look at, so there is no picture and no frame around
+    // one — a box saying "No camera frame yet" over a tracker nobody has started is the reserved
+    // empty container this pack exists to remove. The space keeps the switch at the bottom.
+    if (ui.task == TrackerTask.START) {
+        Spacer(Modifier.weight(1f))
+    } else {
+        SourceFramedPreview(
+            preview = preview,
+            rotationDegrees = rotation,
+            sourceWidth = preview?.width ?: 0,
+            sourceHeight = preview?.height ?: 0,
+            // The edge is what makes it read as a picture rather than as a hole in the screen: the
+            // frame is letterboxed inside its box and the bands are the app's own ground colour.
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .border(Stroke.hairline, Outline, RoundedCornerShape(Radius.md))
+                    .clip(RoundedCornerShape(Radius.md)),
+            empty = { Text("No camera frame yet", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceMuted) },
+        )
+    }
     // The screen's ONE filled button, and it is whatever the screen needs NOW. `START` has none of
     // its own: `TrackingSwitch` below is already that button, and two filled buttons is rule 3
     // broken in the state the rule was written for.
