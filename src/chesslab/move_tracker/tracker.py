@@ -714,6 +714,7 @@ class MoveTracker:
                  confirm_frames: int | None = None,
                  ambiguity_margin: float | None = None,    # DEPRECATED (Spec 10): ersetzt durch ambiguity_margin_ll
                  live_align: bool = True, align_every: int = 3, align_scale: float = 0.5,
+                 grid_align: bool = True,
                  avg_frames: int | None = None, max_changed: int = 6,
                  cnn_run: str | None = None, cnn_conf_thr: float = 0.85,
                  cnn_cooldown_s: float = 2.0, cnn_check_interval_s: float = 10.0,
@@ -864,6 +865,12 @@ class MoveTracker:
         self.live_align = live_align                  # True: track markers live; False: freeze calibration
         self.align_every = max(1, int(align_every))   # ArUco every N-th frame (corners held between)
         self.align_scale = align_scale                # ArUco on downscaled frame (0.5 = half-res)
+        # Grid stage: the ArUco quad is COARSE, the board's own grooves are the fine measurement.
+        # Off only for a source that has no grid to find (a synthetic clip with no grooves).
+        self.grid_align = grid_align
+        self._grid_fix = None                         # rectified-space correction, once per pose
+        self._grid_tried = False                      # a failed measurement must not retry per align
+        self._grid_fitted_at = None                   # the quad it was fitted at (drift expiry)
         self.detect_scale = detect_scale              # Detection warp scale (0.5=half-res; 1.0=off)
         self._det_size = (int(self.profile.board_size * detect_scale)
                           if detect_scale < 1.0 else self.profile.board_size)
@@ -1005,6 +1012,7 @@ class MoveTracker:
             corners = board_corners_for_frame(frame, self.profile, self.marker_tracker,
                                               detect_scale=self.align_scale)
             if corners is not None:
+                corners = self._on_grid(frame, corners)
                 self._last_corners = corners
                 self._check_lens_drift(frame, corners)
                 return warp_from_corners(frame, self.profile, corners, target_size)
@@ -1014,6 +1022,49 @@ class MoveTracker:
             return None
         self._last_corners = corners
         return warp_from_corners(frame, self.profile, corners, target_size)
+
+    def _on_grid(self, frame, corners):
+        """The ArUco quad pulled back onto the board's own grooves.
+
+        Parity with Android's `LiveAlign.onGrid`, and until 2026-08-03 the Python tracker had no
+        equivalent at all: `_warp` went through `board_corners_for_frame` and markers were the only
+        geometry it ever saw. That is the gap this exists to close — markers alone reconstruct a
+        PARALLELOGRAM when one of the four does not decode, and the 2026-08-02 game measured 29.6 px
+        of square-edge error at the median on a 100 px cell that way, against 2.0 px once the grid
+        is consulted.
+
+        MEASURED at most once per pose (~75 ms at `board_size` 800), then RE-APPLIED for free: four
+        points through a 3x3. `_grid_fitted_at` is what stops the correction outliving its own
+        premise — it is a constant OF THAT SETUP, and a nudged camera is followed correctly by the
+        markers and then has a correction measured at the old pose silently added on top.
+
+        Never raises and never makes the frame worse: `improve_quad` returns a quad only when it
+        actually improved that frame, and everything here falls back to the input.
+        """
+        if not self.grid_align:
+            return corners
+        try:
+            from .. import alignment
+
+            if (self._grid_fitted_at is not None and alignment.quad_drift_cells(
+                    corners, self._grid_fitted_at, self.profile) > alignment.DRIFT_EXPIRE_CELLS):
+                self._grid_fix, self._grid_tried, self._grid_fitted_at = None, False, None
+            if self._grid_fix is None and not self._grid_tried:
+                self._grid_tried = True
+                self._grid_fitted_at = [list(map(float, p)) for p in corners]
+                fixed, before, after = alignment.improve_quad(frame, corners, self.profile)
+                self._grid_fix = (None if fixed is None
+                                  else alignment.grid_correction(corners, fixed, self.profile))
+                log.info("grid correction: %s (worst offset %.2f -> %.2f px)",
+                         "none — the grid is already on the squares, or unreadable"
+                         if self._grid_fix is None else "measured, carried onto every alignment",
+                         before, after)
+            if self._grid_fix is None:
+                return corners
+            return alignment.apply_grid_correction(self._grid_fix, corners, self.profile) or corners
+        except Exception as e:  # noqa: BLE001 — geometry refinement must never break tracking
+            log.debug("grid alignment skipped: %r", e)
+            return corners
 
     def _check_lens_drift(self, frame, corners) -> None:
         """Watch for "somebody touched the varifocal lens" — see `lens.DriftMonitor`.

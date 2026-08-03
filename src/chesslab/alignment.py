@@ -546,6 +546,92 @@ def correct_quad(frame, quad, profile, iters: int = ITERS):
     return cur
 
 
+def refine_quad(frame, quad, profile, *, max_frac: float = MAX_OFFSET_FRAC):
+    """`(best quad, verdict)` — the COARSE-to-FINE staging, in one call.
+
+    `quad` is whatever located the board at all: an ArUco quad from two, three or four markers, the
+    previous frame's answer, or a stored profile. It is explicitly allowed to be tens of pixels
+    wrong — the whole-video median for a three-marker quad is 29.6 px of a 100 px cell — because
+    all it has to do is bring the grooves inside the first search window. The grid fit supplies the
+    accuracy, including the perspective the coarse stage could not have.
+
+    The verdict describes the quad that comes BACK. A fit that failed leaves the coarse quad in
+    place and says so through the verdict, so a caller never has to guess which stage answered.
+    """
+    fixed = correct_quad(frame, quad, profile)
+    best = quad if fixed is None else fixed
+    return best, alignment_of(frame, best, profile, max_frac=max_frac)
+
+
+#: A pose has moved, and its grid correction expired, past this mean per-corner distance in CELLS.
+#: The Android side acts on a quarter cell (`QuadDriftTest`); the Python side matches it so a clip
+#: replayed on either produces the same geometry.
+DRIFT_EXPIRE_CELLS = 0.25
+
+
+def grid_correction(raw, refined, profile):
+    """The RECTIFIED-space correction `refined` implies, reusable on a later quad, or None.
+
+    This is what makes the measurement survive live alignment. `board_corners_for_frame` re-derives
+    the quad from the ArUco markers every few frames and knows nothing about grooves, so a refined
+    quad written into the pipeline is overwritten within ~0.2 s and every crop is cut with the
+    geometry the refinement exists to remove. Re-measuring at that cadence is not affordable — the
+    fit is ~75 ms at `board_size` 800 — while re-applying is four points through a 3x3.
+
+    Rectified space, not frame space, is what makes it reusable: the correction says "the grid sits
+    this far off inside the warp", which is a property of the board and the lens rather than of
+    where the quad currently is. `specs/30` measured that residual as systematic per setup — two
+    sessions of the same rig agree to 0.1 px — while differing in SIGN between setups.
+
+    Port parity: `android/core-geometry/.../GridCorrection.kt::gridCorrection`.
+    """
+    import cv2
+
+    from .calibration import compute_homography
+
+    if len(raw) < 4 or len(refined) < 4:
+        return None
+    a = cv2.getPerspectiveTransform(np.asarray(raw[:4], np.float32),
+                                    np.asarray(refined[:4], np.float32))
+    h = np.array(compute_homography(raw, profile.board_size, profile.margin), np.float64)
+    try:
+        m = h @ np.asarray(a, np.float64) @ np.linalg.inv(h)
+    except np.linalg.LinAlgError:
+        return None
+    return m if np.all(np.isfinite(m)) else None
+
+
+def apply_grid_correction(correction, quad, profile):
+    """`quad` with a `grid_correction` applied through its OWN homography, or None."""
+    from .calibration import compute_homography
+
+    h = np.array(compute_homography(quad, profile.board_size, profile.margin), np.float64)
+    try:
+        m = np.linalg.inv(h) @ np.asarray(correction, np.float64) @ h
+    except np.linalg.LinAlgError:
+        return None
+    p = m @ np.hstack([np.asarray(quad, np.float64), np.ones((len(quad), 1))]).T
+    if np.any(np.abs(p[2]) < 1e-9) or not np.all(np.isfinite(p)):
+        return None
+    return (p[:2] / p[2]).T.tolist()
+
+
+def quad_drift_cells(a, b, profile) -> float:
+    """How far two quads are apart, as a fraction of ONE CELL — never in raw pixels.
+
+    A pixel means nothing without the board size: four pixels is 4 % of a square at `board_size`
+    800 and 2 % at 1600. Mean over the four corners rather than the worst, deliberately — what this
+    answers is "has the setup moved", and one corner's detection jitter should not say yes alone.
+
+    Port parity: `GridCorrection.kt::quadDriftCells`.
+    """
+    cell = profile.board_size / 8.0
+    if a is None or b is None or len(a) < 4 or len(b) < 4 or cell <= 0:
+        return 0.0
+    d = np.linalg.norm(np.asarray(a[:4], np.float64) - np.asarray(b[:4], np.float64), axis=1)
+    return float(d.mean() / cell)
+
+
 def improve_quad(frame, quad, profile) -> tuple[list | None, float, float]:
     """`(corrected quad or None, offset before, offset after)`.
 

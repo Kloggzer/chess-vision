@@ -33,16 +33,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # sibling scripts
 
 from emit_parity_fixtures import _effective_config  # noqa: E402
-from ingest_video_session import raw_corners  # noqa: E402
 from replay_clip_cnn import DEFAULT_OBS_S  # noqa: E402
 from replay_clip_cnn import run as replay_with_cnn  # noqa: E402
 
 from chesslab import config  # noqa: E402
+from chesslab.alignment import MAX_OFFSET_FRAC, refine_quad  # noqa: E402
 from chesslab.calibration import (  # noqa: E402
     compute_homography,
     detect_board_markers,
     load_profile,
     margins4,
+    resolve_board_corners,
 )
 
 
@@ -53,15 +54,28 @@ def realgames_root() -> Path:
 
 # --- the geometry, measured -----------------------------------------------------------------
 
-def scan_geometry(video: Path, profile, progress_every: int = 300) -> dict:
-    """Decode once and record, per frame, the ArUco quad and the presentation timestamp.
+def scan_geometry(video: Path, profile, progress_every: int = 100, every: int = 10) -> dict:
+    """Decode once and record, per sampled frame, the MEASURED quad and its alignment verdict.
 
-    `raw_corners` and not `board_corners_for_frame`: the latter goes through a `MarkerTracker`
-    whose dead zone, EMA and seed fallback all assume a static board, and a game filmed over
-    minutes is one where the board gets nudged. The tracker then lags by a different amount per
-    marker — they sit at different distances from the centre of rotation — and shears the quad by
-    a few degrees. Measured on the 2026-07-31 rotation video; the reasoning is written out in
-    `ingest_video_session.raw_corners`.
+    **Markers are the coarse stage, the board's own grid is the fine one.** `raw_corners` refuses
+    below four markers, which is right for a source whose geometry is markers and nothing else —
+    but this video only ever decodes three (its fourth is clipped by the right image border), so
+    that path answers "no geometry" for footage a human can read the grid off instantly. Here the
+    ArUco quad only has to bring the grooves inside the first search window; `refine_quad` fits the
+    board's 18 lines and supplies the accuracy, including the perspective a three-marker affine
+    reconstruction cannot have. Measured over the whole video, worst square offset in rectified px
+    on a 100 px cell: ArUco alone median 29.6 / p90 36.3 / max 38.4, after the grid fit median
+    2.00 / p90 2.43 / max 5.31.
+
+    No `MarkerTracker`: its dead zone, EMA and seed fallback all assume a static board, and a game
+    filmed over minutes is one where the board gets nudged. The tracker then lags by a different
+    amount per marker — they sit at different distances from the centre of rotation — and shears
+    the quad by a few degrees. Measured on the 2026-07-31 rotation video.
+
+    `every` samples the geometry: the fit costs ~75 ms a frame at `board_size` 800, so a full pass
+    over 9576 frames is half an hour and adds nothing — the output is ONE static quad, and a
+    thousand samples fix its median far below the measurement noise. Timestamps are still read for
+    every frame, because the clock check is about the frames that exist, not the ones measured.
     """
     cap = cv2.VideoCapture(str(video))
     if not cap.isOpened():
@@ -69,38 +83,53 @@ def scan_geometry(video: Path, profile, progress_every: int = 300) -> dict:
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
     quads: list[list[list[float]] | None] = []
+    index: list[int] = []
+    worst: list[float] = []
+    unread: list[int] = []
     stamps: list[float] = []
-    # How many markers DECODED, per frame — not how many quads came back. A quad from three
+    # How many markers DECODED, per sampled frame — not how many quads came back. A quad from three
     # markers is an affine parallelogram standing in for a perspective view, and the 2026-08-02
-    # video is exactly that case: its fourth marker is clipped by the right image border, so a
-    # run can report "99.9 % of frames yielded a quad" while not one of them was measured.
-    # `raw_corners` refuses below four now; this histogram is what says WHY a video was refused.
+    # video is exactly that case. This histogram is what says which stage did the work.
     seen = Counter()
+    i = 0
     while True:
         stamps.append(cap.get(cv2.CAP_PROP_POS_MSEC))
         ok, frame = cap.read()
         if not ok:
             stamps.pop()
             break
-        found = detect_board_markers(frame, profile.marker_dict, corner="center")
-        seen[len(found)] += 1
-        quad = raw_corners(frame, profile)
-        quads.append(None if quad is None else [[float(x), float(y)] for x, y in quad])
-        if progress_every and len(quads) % progress_every == 0:
-            print(f"  ...{len(quads)} frames, {sum(q is not None for q in quads)} with a quad",
-                  flush=True)
+        if i % max(1, every) == 0:
+            found = detect_board_markers(frame, profile.marker_dict, corner="center")
+            seen[len(found)] += 1
+            coarse = resolve_board_corners(found, board_size=profile.board_size)
+            quad, verdict = ((None, None) if coarse is None
+                             else refine_quad(frame, coarse[0], profile))
+            index.append(i)
+            quads.append(None if not (verdict and verdict.ok)
+                         else [[float(x), float(y)] for x, y in quad])
+            worst.append(float("nan") if verdict is None else verdict.worst)
+            unread.append(-1 if verdict is None else verdict.unread)
+            if progress_every and len(quads) % progress_every == 0:
+                print(f"  ...{i} frames, {sum(q is not None for q in quads)} of {len(quads)} "
+                      f"sampled passed the alignment gate", flush=True)
+        i += 1
     cap.release()
     return {"fps": float(fps), "frame_size": size, "quads": quads, "stamps": stamps,
-            "markers_seen": dict(seen)}
+            "markers_seen": dict(seen), "index": index, "worst": worst, "unread": unread,
+            "every": int(max(1, every))}
 
 
 def median_quad(quads) -> list[list[float]] | None:
-    """The per-corner median over every frame that detected.
+    """The per-corner median over every frame that PASSED the alignment gate.
 
     Median and not mean: one mis-resolved marker throws a corner by hundreds of pixels, and there
     is no reading of "the board sat here" under which such a frame should move the answer at all.
     The four corners are taken independently — the result is not required to be one of the
     observed quads, only to be the central one.
+
+    Passing frames only, and that is not a detail: on the 2026-08-02 game 34 of 35 rejected frames
+    are a HAND over the board, where the grid fit is fitting to whatever grooves the hand left
+    visible. Those frames have nothing to say about where the board is.
     """
     seen = [q for q in quads if q is not None]
     if not seen:
@@ -175,13 +204,24 @@ def _histogram(v: np.ndarray, edges, unit: str, indent: str = "    ") -> None:
 #: Refuse a video whose per-frame quads disagree with the chosen one by more than this at p90,
 #: in rectified pixels (one square is `board_size / 8`, i.e. 100 px on the phone profile).
 #:
-#: Measured, not picked: the first real game (VID_20260802_222741, 9576 frames, 2026-08-02, the
-#: `phone` profile) reads median 0.57 / p90 0.93 / max 41.20 px, with 98.0 % of frames under 2 px
-#: and 1.4 % over 16 px. So 4.0 is four times the only real footage on record, and still under the
-#: 3.2-6.5 px band that `docs/data-pipeline.md` 12 measured as materially damaging — though note
-#: that band is a MEDIAN over every crop and this is a p90 over frames, so the two are related by
-#: judgement rather than by arithmetic. Revisit it when a second game has been measured.
+#: **This is not a correctness gate and must never be read as one.** It compares each frame's quad
+#: against the MEDIAN OF THE SAME QUADS, so a consistently wrong quad scores beautifully: the
+#: 2026-08-02 game read median 0.57 / p90 0.93 with 98 % of frames under 2 px while every quad in
+#: it was 27-33 px out. Precision reported as accuracy, and it cost a day. What it does measure,
+#: and the only thing it is kept for, is whether ONE static quad can stand for the whole clip —
+#: i.e. whether the board was nudged mid-game. Correctness is `ALIGN_PASS_MIN` below.
 QUAD_SPREAD_P90_MAX = 4.0
+
+#: Refuse a video where fewer than this fraction of sampled frames pass `alignment.alignment_of` —
+#: an ABSOLUTE verdict against the board's own grid, not against the other frames.
+#:
+#: Measured on the 2026-08-02 game (9576 frames, every 10th sampled, `phone` profile): 923 of 958
+#: pass, 96.3 %. Of the 35 that do not, 34 are a HAND over the board and one sees a single ArUco
+#: marker. So a hand is what failure looks like on good footage, and a game is roughly 4 % hands.
+#: 0.85 leaves room for a slower game with more hand time while still refusing footage where the
+#: grid genuinely cannot be found — at 0.85 this video would have to get four times handsier before
+#: it stopped qualifying.
+ALIGN_PASS_MIN = 0.85
 
 #: Refuse a video whose realised inter-frame interval strays from the nominal one by more than
 #: this FRACTION of a frame period at p90. Expressed as a fraction because the tolerance scales
@@ -194,7 +234,8 @@ QUAD_SPREAD_P90_MAX = 4.0
 CLOCK_P90_PERIOD_FRAC = 0.10
 
 
-def spread_runs(quads, spread: np.ndarray, thr: float, gap: int = 15) -> list[tuple[int, int, int]]:
+def spread_runs(index, quads, spread: np.ndarray, thr: float,
+                gap: int = 15) -> list[tuple[int, int, int]]:
     """Contiguous frame ranges whose spread exceeds `thr`, as `(first, last, count)`.
 
     The distribution alone cannot tell a nudged board from an occluded marker, and the two want
@@ -204,7 +245,7 @@ def spread_runs(quads, spread: np.ndarray, thr: float, gap: int = 15) -> list[tu
     `gap` bridges short recoveries so one clean frame does not split a run in two; 15 frames is
     half a second at 30 fps.
     """
-    idx = [i for i, q in enumerate(quads) if q is not None]
+    idx = [index[i] for i, q in enumerate(quads) if q is not None]
     bad = [idx[k] for k in range(len(idx)) if spread[k] > thr]
     runs: list[tuple[int, int, int]] = []
     for i in bad:
@@ -216,38 +257,74 @@ def spread_runs(quads, spread: np.ndarray, thr: float, gap: int = 15) -> list[tu
     return runs
 
 
+def align_runs(scan: dict, gap: int = 15) -> list[tuple[int, int, int]]:
+    """Contiguous frame ranges that FAILED the alignment gate, as `(first, last, count)`.
+
+    Where the spread runs say "the board moved", these say "the board could not be seen". On the
+    2026-08-02 game they land exactly on the moves, because what stops the grid being measurable
+    is the hand making them.
+    """
+    runs: list[tuple[int, int, int]] = []
+    for k, q in enumerate(scan["quads"]):
+        if q is not None:
+            continue
+        i = scan["index"][k]
+        if runs and i - runs[-1][1] <= gap * scan["every"]:
+            first, _last, n = runs[-1]
+            runs[-1] = (first, i, n + 1)
+        else:
+            runs.append((i, i, 1))
+    return runs
+
+
 def report_geometry(scan: dict, spread: np.ndarray, board_size: int) -> dict:
     """Print the distributions, name where the outliers are, and return the numbers.
 
-    The thresholds above were chosen from the first real game and only from it. Until 2026-08-02
-    no real game footage existed in this repository to calibrate against, and the nearest numbers
-    on record (`docs/data-pipeline.md` 12) measure per-frame quads that were each FITTED, which is
-    a different quantity. Anything stricter than "four times the only measurement" would be a
-    constant nobody measured, which is how this project ended up with a corpus that was 3-6 px
-    mis-aligned for its entire life.
+    Two different questions, reported separately because conflating them cost this pack its first
+    day. `alignment` is ABSOLUTE — how far is each frame's real square edge from where its quad
+    says it is, measured against the board's own grooves. `quad spread` is RELATIVE — do the
+    frames agree with each other, which answers whether the board was nudged and answers nothing
+    at all about whether any of them is right.
     """
     quads, stamps, fps = scan["quads"], scan["stamps"], scan["fps"]
-    detected = sum(q is not None for q in quads)
-    rate = detected / len(quads) if quads else 0.0
+    passed = sum(q is not None for q in quads)
+    rate = passed / len(quads) if quads else 0.0
     cell = board_size / 8.0
     clock = clock_error(stamps, fps)
-    print(f"  frames {len(quads)}   quad detected {detected} ({100 * rate:.1f} %)")
-    print(f"  quad spread about the median quad (rectified px, one square = {cell:.0f} px):")
+    worst = np.asarray([w for w in scan["worst"] if np.isfinite(w)], dtype=np.float64)
+    print(f"  frames {len(stamps)}, geometry sampled every {scan['every']} -> {len(quads)}")
+    print(f"  markers decoded per sampled frame: {dict(sorted(scan['markers_seen'].items()))}")
+    print(f"  ALIGNMENT, absolute, against the board's own grid "
+          f"(rectified px, one square = {cell:.0f} px):")
+    if worst.size:
+        d = _dist(worst)
+        print(f"    worst square offset: median {d['median']:.2f}   p90 {d['p90']:.2f}   "
+              f"max {d['max']:.2f}   (limit {MAX_OFFSET_FRAC * cell:.2f})")
+        _histogram(worst, ((0, 2), (2, 4), (4, 8), (8, 16), (16, 1e9)), "px")
+    print(f"    PASSED the gate: {passed} of {len(quads)} ({100 * rate:.1f} %) "
+          f"(gate: >= {100 * ALIGN_PASS_MIN:.0f} %)")
+    runs = align_runs(scan)
+    if runs:
+        top = sorted(runs, key=lambda r: -r[2])[:6]
+        print(f"    {len(runs)} run(s) of failing frames; the longest — expect hands here:")
+        for first, last, n in top:
+            print(f"      frames {first}-{last} ({n} sampled, {first / fps:.1f}-{last / fps:.1f} s)")
+    print("  quad spread about the median quad — a BOARD-MOVEMENT check, not a correctness one:")
     if spread.size:
         d = _dist(spread)
         print(f"    median {d['median']:.2f}   p90 {d['p90']:.2f}   max {d['max']:.2f}"
               f"   (gate: p90 <= {QUAD_SPREAD_P90_MAX:g})")
         _histogram(spread, ((0, 2), (2, 4), (4, 8), (8, 16), (16, 1e9)), "px")
-        runs = spread_runs(quads, spread, QUAD_SPREAD_P90_MAX)
-        if runs:
-            worst = sorted(runs, key=lambda r: -r[2])[:6]
-            print(f"    {sum(r[2] for r in runs)} frames over {QUAD_SPREAD_P90_MAX:g} px, in "
-                  f"{len(runs)} runs; the longest:")
-            for first, last, n in worst:
+        sruns = spread_runs(scan["index"], quads, spread, QUAD_SPREAD_P90_MAX)
+        if sruns:
+            top = sorted(sruns, key=lambda r: -r[2])[:6]
+            print(f"    {sum(r[2] for r in sruns)} frames over {QUAD_SPREAD_P90_MAX:g} px, in "
+                  f"{len(sruns)} runs; the longest:")
+            for first, last, n in top:
                 print(f"      frames {first}-{last} ({n} frames, "
                       f"{first / fps:.1f}-{last / fps:.1f} s)")
     else:
-        print("    nothing measurable — no frame resolved four markers")
+        print("    nothing measurable — no sampled frame passed the alignment gate")
     print(f"  clock: nominal {1000.0 / fps:.2f} ms/frame; |realised - nominal|:")
     if clock.size:
         d = _dist(clock)
@@ -257,7 +334,10 @@ def report_geometry(scan: dict, spread: np.ndarray, board_size: int) -> dict:
         _histogram(clock, ((0, 1), (1, 4), (4, 16), (16, 1e9)), "ms")
     else:
         print("    nothing measurable — the container reports no presentation timestamps")
-    return {"detection_rate": round(rate, 4), "detected": detected, "frames": len(quads),
+    return {"align_pass_rate": round(rate, 4), "aligned": passed, "sampled": len(quads),
+            "frames": len(stamps), "sample_every": scan["every"],
+            "markers_seen": dict(sorted(scan["markers_seen"].items())),
+            "worst_offset_px": _dist(worst),
             "quad_spread_px": _dist(spread), "clock_error_ms": _dist(clock)}
 
 
@@ -271,10 +351,16 @@ def refuse_reasons(geometry: dict, fps: float) -> list[str]:
     different number of seconds in every second of the video.
     """
     out = []
+    rate = geometry["align_pass_rate"]
+    if not geometry["aligned"]:
+        out.append("no sampled frame's grid could be measured — is the board in shot, and is the "
+                   "profile's board_size and margin right for this camera?")
+    elif rate < ALIGN_PASS_MIN:
+        out.append(f"only {100 * rate:.1f} % of sampled frames align to the board's own grid "
+                   f"(need {100 * ALIGN_PASS_MIN:.0f} %). Hands over the board are the normal "
+                   f"cause; a rate this low means the grid itself is not being found.")
     p90 = geometry["quad_spread_px"]["p90"]
-    if p90 is None:
-        out.append("no frame resolved four ArUco markers — is the board's border in shot?")
-    elif p90 > QUAD_SPREAD_P90_MAX:
+    if p90 is not None and p90 > QUAD_SPREAD_P90_MAX:
         out.append(f"quad spread p90 {p90:.2f} px > {QUAD_SPREAD_P90_MAX:g} px: one static quad "
                    f"does not stand for this footage. Did the board move? Cut the clip where it "
                    f"did, or re-film.")
@@ -391,7 +477,8 @@ def relative_video(video: Path) -> str:
 
 
 def build_candidate(video: Path, profile, *, name: str, cnn_run: str, obs_s: float,
-                    context: int, start_fen: str | None) -> dict:
+                    context: int, start_fen: str | None, every: int = 10,
+                    start_frame: int = 0) -> dict:
     """Measure, replay, and write down what came out **as a proposal**.
 
     The order matters: the geometry is measured first because `corners` and `margin` are inputs to
@@ -407,10 +494,10 @@ def build_candidate(video: Path, profile, *, name: str, cnn_run: str, obs_s: flo
     margin = scalar_margin(profile)
     print(f"scanning {video.name} through profile {profile.profile!r} "
           f"(board_size {profile.board_size}, margin {margin:g})")
-    scan = scan_geometry(video, profile)
+    scan = scan_geometry(video, profile, every=every)
     quad = median_quad(scan["quads"])
     if quad is None:
-        raise SystemExit("no frame resolved four ArUco markers — is the board's border visible?")
+        raise SystemExit("no sampled frame aligned to the board's grid — is the board in shot?")
     spread = quad_spread(scan["quads"], quad, profile.board_size, margin)
     geometry = report_geometry(scan, spread, profile.board_size)
     refusals = refuse_reasons(geometry, scan["fps"])
@@ -435,7 +522,12 @@ def build_candidate(video: Path, profile, *, name: str, cnn_run: str, obs_s: flo
     out = replay_with_cnn(
         clip=str(video), corners=quad, margin=margin, cnn_run=cnn_run, obs_s=obs_s,
         tracker_kwargs=dict(CNN_FRAME_COUNTERS), board_size=profile.board_size,
-        start_fen=start_fen, on_event=on_event,
+        start_fen=start_fen, on_event=on_event, start_frame=start_frame,
+        # The PROFILE's crop, never `config.CROP`'s. The default `pad_side` is 0.10 and this rig
+        # is 0.05, i.e. a 120 px crop box where the model is trained and served at 110 — measured
+        # on this video, that alone makes the CNN disagree with the untouched start position on
+        # a7/c7/b8/h8, latch the illegal-move alarm in three seconds, and commit nothing.
+        crop=profile.crop.to_dict(),
     )
     moves = [{"ply": i + 1, "san": c.san, "frame": c.frame, "t": c.t,
               "decider": c.decider, "alarm": c.alarm, "fen_after": c.fen_after}
@@ -449,7 +541,8 @@ def build_candidate(video: Path, profile, *, name: str, cnn_run: str, obs_s: flo
         "confirmed": False,
         "created_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "source": {"cnn_run": cnn_run, "obs_s": obs_s, "profile": profile.profile,
-                   "tracker": dict(CNN_FRAME_COUNTERS), "context": context},
+                   "tracker": dict(CNN_FRAME_COUNTERS), "context": context,
+                   "start_frame": int(start_frame), "crop": profile.crop.to_dict()},
         "effective_config": effective,
         "geometry": {"corners": quad, "margin": margin,
                      "board_size": int(profile.board_size),
@@ -584,6 +677,16 @@ def build_parser() -> argparse.ArgumentParser:
                     help="position at the first frame (default: the standard start position)")
     ap.add_argument("--geometry-only", action="store_true",
                     help="measure and report; write no candidate and run no CNN")
+    ap.add_argument("--start-frame", type=int, default=0,
+                    help="drop this many leading frames before the replay starts. For footage "
+                         "whose opening second is not yet the scene — this video's a-file corner "
+                         "gains 32-38 %% of its luma between frame 20 and 30 while h8 loses 20 %%, "
+                         "and a reference taken before that reads a1/a2/b1 as permanently changed. "
+                         "It is 'cut the clip where it happened', not a threshold override")
+    ap.add_argument("--geometry-every", type=int, default=10,
+                    help="fit the board's grid on every Nth frame (default 10). The output is "
+                         "ONE static quad, so a thousand samples fix its median far below the "
+                         "measurement noise; a full pass costs ~75 ms a frame")
     ap.add_argument("--adopt", metavar="NAME", default=None,
                     help="turn a CONFIRMED candidate into an entry in the clip manifest. "
                          "Refuses an unconfirmed one.")
@@ -616,10 +719,10 @@ def main(argv: list[str] | None = None) -> int:
         margin = scalar_margin(profile)
         print(f"scanning {video.name} through profile {args.profile!r} "
               f"(board_size {profile.board_size}, margin {margin:g})")
-        scan = scan_geometry(video, profile)
+        scan = scan_geometry(video, profile, every=args.geometry_every)
         quad = median_quad(scan["quads"])
         if quad is None:
-            raise SystemExit("no frame resolved four ArUco markers — is the border visible?")
+            raise SystemExit("no sampled frame aligned to the board's grid — is it in shot?")
         geometry = report_geometry(
             scan, quad_spread(scan["quads"], quad, profile.board_size, margin),
             profile.board_size)
@@ -633,7 +736,8 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("no model run on disk — a replay without a CNN cannot reach recovery, "
                          "which is the path this candidate exists to expose")
     candidate = build_candidate(video, profile, name=args.name or video.stem, cnn_run=cnn_run,
-                                obs_s=args.obs_s, context=args.context, start_fen=args.start_fen)
+                                obs_s=args.obs_s, context=args.context, start_fen=args.start_fen,
+                                every=args.geometry_every, start_frame=args.start_frame)
     path = write_candidate(candidate)
     report_deciders(candidate["moves"])
     print(f"  wrote {path} ({candidate['frames_written']} review frames) — confirmed: false")
