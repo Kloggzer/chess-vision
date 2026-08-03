@@ -54,7 +54,8 @@ import java.io.File
 private const val MB = 1024L * 1024L
 private val CAPS = listOf(250L * MB, 1024L * MB, 2048L * MB, 0L)
 
-private fun capLabel(bytes: Long): String = if (bytes <= 0L) "unlimited" else formatBytes(bytes)
+/** Also the Settings landing summary — one place decides how a storage cap is written. */
+internal fun capLabel(bytes: Long): String = if (bytes <= 0L) "unlimited" else formatBytes(bytes)
 
 /** The screen renders before the service is bound; an unbound live game is simply an empty one. */
 private val NO_LIVE_GAME = MutableStateFlow(GameSessionState())

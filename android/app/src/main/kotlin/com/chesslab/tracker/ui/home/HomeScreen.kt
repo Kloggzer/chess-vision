@@ -120,8 +120,12 @@ private fun LazyListScope.recentGames(
 ) {
     item(key = "recent-heading") { SectionHeading("Recent games") }
     items(ui.recent, key = { it.id }) { row -> RecentGameCard(row) { onOpenGame(row.id) } }
+    // Home KEEPS the chevron and takes no icon, deliberately (specs/51). Android's Settings could
+    // drop the arrow because a leading pictogram and a summary stating the current VALUE carry the
+    // affordance between them; this row has neither — it is a launcher door, not a setting — so the
+    // chevron is the only thing on it that says it goes somewhere.
     item(key = "all-games") {
-        DisclosureRow("All games", "${ui.games} stored · statistics, rename, delete and share", onOpenGames)
+        DisclosureRow("All games", "${ui.games} stored · statistics, rename, delete and share", onOpen = onOpenGames)
     }
 }
 
