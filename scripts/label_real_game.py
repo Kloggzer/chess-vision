@@ -13,8 +13,15 @@ become a fixture would freeze its mistakes and then assert forever that it keeps
 Why this is not `ingest_video_session.py`. That script samples one frame per second into a
 session directory, re-detecting a quad per frame and silently skipping the ones that fail. A
 regression clip is the opposite artefact: consumed as a VIDEO, at full rate, through ONE fixed
-quad. Per-frame detection here is therefore not an input, it is a quality MEASUREMENT — how
-well a single static quad can stand for this footage.
+quad. Per-frame detection here is therefore both an input and a MEASUREMENT: the sampled quads
+are what the static one is the median OF, and their spread is how well that one quad can stand
+for the footage.
+
+**Geometry is two stages.** ArUco is the coarse one — it only has to bring the board's grooves
+inside a search window — and the board's own grid is the fine one (`alignment.refine_quad`).
+Markers alone reconstruct a parallelogram whenever one of the four does not decode, which is the
+case in 940 of 958 sampled frames of the 2026-08-02 game: 29.6 px of median square-edge error on
+a 100 px cell, against 2.0 px once the grid is consulted. See `specs/41-the-board-is-its-own-ruler/`.
 """
 
 from __future__ import annotations
