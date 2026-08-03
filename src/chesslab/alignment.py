@@ -315,8 +315,9 @@ def square_offsets(warped, board_size: int, pad: int = 0,
     unread = sum(1 for ax in lines for f in ax if f is None)
 
     def at(axis: int, k: int, coord: float) -> float:
-        f = lines[axis][k]
-        return float("nan") if f is None else f[0] * (coord - centre) + f[1] - pad
+        """Where line `k` of `axis` crosses `coord`, in playing-field coordinates (pad removed)."""
+        line = lines[axis][k]
+        return float("nan") if line is None else line[0] * (coord - centre) + line[1] - pad
 
     off: dict[str, float] = {}
     for f in range(8):
