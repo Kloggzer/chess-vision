@@ -52,7 +52,6 @@ import com.chesslab.tracker.ui.theme.Stroke
 import com.chesslab.tracker.ui.theme.Surface
 import com.chesslab.tracker.ui.theme.SurfaceRaised
 import kotlin.math.abs
-import kotlin.math.roundToInt
 
 private val POSITION_COLUMN_WIDTH = 94.dp
 private val MOVE_ROW_HEIGHT = 52.dp
@@ -60,6 +59,9 @@ private val MOVE_NUMBER_WIDTH = 34.dp
 
 /** Level, as the win-expectancy curve means it. */
 private const val EVEN = 50.0
+
+/** Below this the cost rounds to zero, and `−0 %` is not a cost anybody should read. */
+private const val HALF_A_POINT = 0.5
 
 /**
  * The score sheet — live or archived, and the same list either way.
@@ -362,7 +364,7 @@ internal fun moveImpactLabel(grade: PlyGrade?): String? {
     if (grade == null) return null
     if (grade.quality == MoveQuality.BEST) return percent(0.0)
     val lost = (grade.winBefore - grade.winAfter).coerceAtLeast(0.0)
-    return if (lost < 0.5) percent(0.0) else "−${percent(lost)}"
+    return if (lost < HALF_A_POINT) percent(0.0) else "−${percent(lost)}"
 }
 
 /** Short enough to sit beside a SAN on a phone; the verdict above the list spells the band out. */

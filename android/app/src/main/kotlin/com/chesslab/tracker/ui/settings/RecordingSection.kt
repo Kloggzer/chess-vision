@@ -151,27 +151,7 @@ fun RecordingSection() {
             style = MaterialTheme.typography.bodySmall,
             color = OnSurfaceMuted,
         )
-        // The limit STOPS the recorder; it never prunes (`SessionCapture.capReached`). So lowering it
-        // below what is on disk is reversible — raise it and recording resumes — and it deliberately
-        // does NOT get the destructive confirmation, because a dialog promising a deletion that does
-        // not happen is worse than no dialog. What it does need is to say what it will do:
-        if (ui.prefs.capBytes in 1..<ui.sessionBytes) {
-            Text(
-                "Recording is stopped: what is on disk is already over this limit. Nothing is deleted — " +
-                    "raise the limit and it resumes.",
-                style = MaterialTheme.typography.bodySmall,
-                color = Busy,
-            )
-        }
-        // Real chips, not coloured text: as plain labels the four caps had no tappable affordance
-        // and the selected one was distinguishable only by hue.
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-            CAPS.forEach { cap ->
-                ChesslabChip(capLabel(cap), cap == ui.prefs.capBytes) {
-                    model.setPrefs(ui.prefs.copy(capBytes = cap))
-                }
-            }
-        }
+        StorageLimit(ui.prefs.capBytes, ui.sessionBytes) { model.setPrefs(ui.prefs.copy(capBytes = it)) }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = "Skip physically impossible positions",
@@ -187,6 +167,36 @@ fun RecordingSection() {
         }
         TextAction(if (expanded) "Hide recordings" else "Show recordings (${ui.sessions.size})", { expanded = !expanded })
         if (expanded) ui.sessions.forEach { SessionRow(it, model) }
+    }
+}
+
+/**
+ * The cap, and what it does when it is already exceeded.
+ *
+ * The limit **STOPS** the recorder; it never prunes (`SessionCapture.capReached`). So lowering it
+ * below what is on disk is reversible — raise it and recording resumes — and it deliberately does
+ * NOT get the destructive confirmation the pack's rule 6 asks for: a dialog promising a deletion
+ * that does not happen is worse than no dialog. What it does need is to say what it will do.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun StorageLimit(
+    cap: Long,
+    onDisk: Long,
+    onCap: (Long) -> Unit,
+) {
+    if (cap in 1..<onDisk) {
+        Text(
+            "Recording is stopped: what is on disk is already over this limit. Nothing is deleted — " +
+                "raise the limit and it resumes.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Busy,
+        )
+    }
+    // Real chips, not coloured text: as plain labels the four caps had no tappable affordance and
+    // the selected one was distinguishable only by hue.
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+        CAPS.forEach { ChesslabChip(capLabel(it), it == cap) { onCap(it) } }
     }
 }
 
@@ -245,8 +255,9 @@ private fun SessionRow(
     if (confirming) {
         ConfirmDialog(
             title = "Delete ${session.id}?",
-            body = "${session.frames} recorded frames, ${formatBytes(session.bytes)}. They exist nowhere else unless " +
-                "this session was exported. This cannot be undone.",
+            body =
+                "${session.frames} recorded frames, ${formatBytes(session.bytes)}. They exist nowhere else unless " +
+                    "this session was exported. This cannot be undone.",
             verb = "Delete",
             onConfirm = {
                 model.deleteSession(session.id)

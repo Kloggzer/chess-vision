@@ -12,11 +12,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -107,12 +105,14 @@ private fun SettingsScreen(
                 pending,
                 place,
                 query,
-                onOpenDebug,
-                onOpenCalibration,
+                SettingsNav(
+                    openGroup = { place = it },
+                    openDebug = onOpenDebug,
+                    openCalibration = onOpenCalibration,
+                    resetGroup = { resetGroup = it },
+                    resetAll = { confirmResetAll = true },
+                ),
                 Modifier.weight(1f),
-                onOpenGroup = { place = it },
-                onResetGroup = { resetGroup = it },
-                onResetAll = { confirmResetAll = true },
             )
             if (pending.isNotEmpty()) RestartBar(pending, onRestartTracker, viewModel::onRestarted)
         }
@@ -142,6 +142,21 @@ private fun SettingsScreen(
     }
 }
 
+/**
+ * The four places this screen can send you, and the two things it can reset.
+ *
+ * One object rather than six parameters threaded through  into : they travel
+ * together, they are all "what happens when a row is tapped", and the list that carries them is a
+ *  extension where a long parameter list is at its least readable.
+ */
+private class SettingsNav(
+    val openGroup: (SettingsPlace) -> Unit,
+    val openDebug: () -> Unit,
+    val openCalibration: () -> Unit,
+    val resetGroup: (KnobGroup) -> Unit,
+    val resetAll: () -> Unit,
+)
+
 /** Filters as you type, across key, group and the help line — see [searchKnobs]. */
 @Composable
 private fun SearchField(
@@ -166,12 +181,8 @@ private fun SettingsList(
     pending: Set<String>,
     place: SettingsPlace,
     query: String,
-    onOpenDebug: () -> Unit,
-    onOpenCalibration: () -> Unit,
+    nav: SettingsNav,
     modifier: Modifier = Modifier,
-    onOpenGroup: (SettingsPlace) -> Unit,
-    onResetGroup: (KnobGroup) -> Unit,
-    onResetAll: () -> Unit,
 ) {
     val context = LocalContext.current
     val rows =
@@ -191,7 +202,7 @@ private fun SettingsList(
         }
         if (place is SettingsPlace.Group && query.isBlank()) {
             item(key = "resetGroup") {
-                OutlineAction("Reset ${place.group.title} to defaults", { onResetGroup(place.group) })
+                OutlineAction("Reset ${place.group.title} to defaults", { nav.resetGroup(place.group) })
             }
         }
         items(rows.size, key = { rows[it].key }) { index ->
@@ -205,7 +216,7 @@ private fun SettingsList(
             )
         }
         if (query.isBlank()) subpage(place, app, viewModel)
-        if (listing) landing(viewModel, config, app, context, onOpenGroup, onOpenDebug, onOpenCalibration, onResetAll)
+        if (listing) landing(viewModel, config, app, context, nav)
     }
 }
 
@@ -236,10 +247,7 @@ private fun LazyListScope.landing(
     config: TrackerConfig,
     app: AppSettings,
     context: Context,
-    onOpenGroup: (SettingsPlace) -> Unit,
-    onOpenDebug: () -> Unit,
-    onOpenCalibration: () -> Unit,
-    onResetAll: () -> Unit,
+    nav: SettingsNav,
 ) {
     val changed = modifiedKnobs(config)
     if (changed.isNotEmpty()) {
@@ -247,7 +255,7 @@ private fun LazyListScope.landing(
         // do to this thing", and on a fresh one it is noise.
         item(key = "modified") {
             DisclosureRow("Modified", "${changed.size} away from the Python default") {
-                onOpenGroup(SettingsPlace.Modified)
+                nav.openGroup(SettingsPlace.Modified)
             }
         }
     }
@@ -255,7 +263,7 @@ private fun LazyListScope.landing(
     // tracker reaches it too — but somebody looking for setup looks in Settings, and two entrances
     // to one room is not duplication as long as they are one route (`ROUTE_CAMERA`).
     item(key = "calibration-row") {
-        DisclosureRow("Board calibration", "Point the camera at the board and fit the grid", onOpenCalibration)
+        DisclosureRow("Board calibration", "Point the camera at the board and fit the grid", nav.openCalibration)
     }
     item(key = "tracking-heading") { SectionHeading("Tracking") }
     items(KnobGroup.entries.size, key = { KnobGroup.entries[it].name }) { index ->
@@ -264,37 +272,37 @@ private fun LazyListScope.landing(
         DisclosureRow(
             title = group.title,
             subtitle = "${knobsIn(group).size} settings" + if (n > 0) "  •$n modified" else "",
-        ) { onOpenGroup(SettingsPlace.Group(group)) }
+        ) { nav.openGroup(SettingsPlace.Group(group)) }
     }
     item(key = "app-heading") { SectionHeading("App") }
     item(key = "speech-row") {
         DisclosureRow("Spoken moves", "Announce moves and alarms, language, verbosity") {
-            onOpenGroup(SettingsPlace.Speech)
+            nav.openGroup(SettingsPlace.Speech)
         }
     }
     item(key = "analysis-row") {
         DisclosureRow("Analysis (Stockfish)", "The engine beside the board, and when it may run") {
-            onOpenGroup(SettingsPlace.Analysis)
+            nav.openGroup(SettingsPlace.Analysis)
         }
     }
     item(key = "recording-row") {
         DisclosureRow("Recording", "Store camera frames as training data") {
-            onOpenGroup(SettingsPlace.Recording)
+            nav.openGroup(SettingsPlace.Recording)
         }
     }
     item(key = "device-row") {
         DisclosureRow("Device & model", "Camera resolution, board orientation, CNN model and provider") {
-            onOpenGroup(SettingsPlace.Device)
+            nav.openGroup(SettingsPlace.Device)
         }
     }
     item(key = "diagnostics-heading") { SectionHeading("Diagnostics") }
     item(key = "debug") {
-        DebugRow(enabled = app.debugEnabled, onEnabled = viewModel::setDebugEnabled, onOpen = onOpenDebug)
+        DebugRow(enabled = app.debugEnabled, onEnabled = viewModel::setDebugEnabled, onOpen = nav.openDebug)
     }
     item(key = "footer") {
         Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
             OutlineAction("Export settings as JSON", { share(context, exportText(context, config, app)) })
-            DangerAction("Reset all to Python defaults", onResetAll)
+            DangerAction("Reset all to Python defaults", nav.resetAll)
         }
     }
 }

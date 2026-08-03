@@ -12,9 +12,11 @@ import org.junit.jupiter.api.Test
 class ReviewUiModelTest {
     @Test
     fun scoreSheetShowsWinningChancesLostByTheMove() {
-        assertEquals("−35%", moveImpactLabel(plyGrade(MoveQuality.BLUNDER, before = 47.0, after = 12.0)))
-        assertEquals("−8%", moveImpactLabel(plyGrade(MoveQuality.INACCURACY, before = 60.0, after = 51.6)))
-        assertEquals("0%", moveImpactLabel(plyGrade(MoveQuality.BEST, before = 60.0, after = 50.0)))
+        assertEquals("−35 %", moveImpactLabel(plyGrade(MoveQuality.BLUNDER, before = 47.0, after = 12.0)))
+        assertEquals("−8 %", moveImpactLabel(plyGrade(MoveQuality.INACCURACY, before = 60.0, after = 51.6)))
+        assertEquals("0 %", moveImpactLabel(plyGrade(MoveQuality.BEST, before = 60.0, after = 50.0)))
+        // A move that gave away less than half a point reads a plain zero, never `−0 %`.
+        assertEquals("0 %", moveImpactLabel(plyGrade(MoveQuality.GOOD, before = 60.0, after = 59.7)))
         assertNull(moveImpactLabel(null))
     }
 

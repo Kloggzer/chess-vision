@@ -77,10 +77,8 @@ import com.chesslab.tracker.ui.theme.Outline
 import com.chesslab.tracker.ui.theme.Radius
 import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.theme.Stroke
-import com.chesslab.tracker.ui.theme.Surface
 import com.chesslab.tracker.ui.theme.SurfaceRaised
 import com.chesslab.tracker.ui.tracking.BoardCanvas
-import kotlin.math.roundToInt
 
 /**
  * Order is the order of the tab row, and **Moments is first** (specs/48).

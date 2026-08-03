@@ -30,7 +30,7 @@ import androidx.compose.ui.graphics.Color
  * explicitly by the two components that are furniture — see [ChesslabSwitchColors] and
  * [ChesslabChipColors].
  */
-private fun ChesslabPalette.scheme(dark: Boolean): ColorScheme {
+internal fun ChesslabPalette.scheme(dark: Boolean): ColorScheme {
     val base = if (dark) darkColorScheme() else lightColorScheme()
     return base.copy(
         primary = accent,
