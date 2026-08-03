@@ -3119,3 +3119,59 @@ def test_grid_gate_needs_the_marker_margin():
         "with the margin applied every one of the 14 interior lines must be found"
     assert _coverage(canvas, quad, board_size, 0.0) < gate, \
         "without it the gate must trip — this is the regression the harness had"
+
+
+class TestGridAlignInTheLiveWarp:
+    """`_on_grid`: the ArUco quad pulled onto the board's own grooves, once per pose.
+
+    Parity with Android's `LiveAlign.onGrid`, and until 2026-08-03 the Python tracker had no
+    equivalent at all — `_warp` went through `board_corners_for_frame` and markers were the only
+    geometry it ever saw. Three markers reconstruct a PARALLELOGRAM, which is how the 2026-08-02
+    game came to carry 29.6 px of median square-edge error on a 100 px cell.
+    """
+
+    def test_off_by_flag_returns_the_input_untouched(self, monkeypatch):
+        mt = _make_tracker(monkeypatch, grid_align=False)
+        quad = [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]]
+        assert mt._on_grid(np.zeros((40, 40, 3), np.uint8), quad) is quad
+
+    def test_a_frame_with_no_grid_falls_back_to_the_aruco_quad(self, monkeypatch):
+        """Never raises and never makes a frame worse: a featureless frame yields no correction."""
+        mt = _make_tracker(monkeypatch, grid_align=True)
+        quad = list(map(list, mt.profile.image_corners))
+        blank = np.full((mt.profile.frame_size[1], mt.profile.frame_size[0], 3), 128, np.uint8)
+        assert mt._on_grid(blank, quad) == quad
+        assert mt._grid_fix is None
+        assert mt._grid_tried is True, "a failed measurement must not retry on every alignment"
+
+    def test_the_correction_is_measured_once_and_then_carried(self, monkeypatch):
+        """The expensive step runs once per pose; every later alignment re-applies a 3x3."""
+        mt = _make_tracker(monkeypatch, grid_align=True)
+        quad = list(map(list, mt.profile.image_corners))
+        calls = []
+        monkeypatch.setattr(
+            "chesslab.alignment.improve_quad",
+            lambda frame, q, prof: (calls.append(q) or ([[x + 1.0, y] for x, y in q], 9.0, 1.0)))
+        frame = np.zeros((mt.profile.frame_size[1], mt.profile.frame_size[0], 3), np.uint8)
+        first = mt._on_grid(frame, quad)
+        second = mt._on_grid(frame, quad)
+        assert len(calls) == 1, "the fit must not re-run while the pose holds"
+        assert np.allclose(np.asarray(first), np.asarray(second))
+        assert np.abs(np.asarray(first) - np.asarray(quad)).max() == pytest.approx(1.0, abs=1e-6)
+
+    def test_a_moved_pose_expires_the_correction(self, monkeypatch):
+        """It is a constant OF THAT SETUP. A nudged camera is followed correctly by the markers and
+        would otherwise have a correction measured at the old pose silently added on top."""
+        from chesslab.alignment import DRIFT_EXPIRE_CELLS
+
+        mt = _make_tracker(monkeypatch, grid_align=True)
+        quad = list(map(list, mt.profile.image_corners))
+        calls = []
+        monkeypatch.setattr(
+            "chesslab.alignment.improve_quad",
+            lambda frame, q, prof: (calls.append(q) or ([[x + 1.0, y] for x, y in q], 9.0, 1.0)))
+        frame = np.zeros((mt.profile.frame_size[1], mt.profile.frame_size[0], 3), np.uint8)
+        mt._on_grid(frame, quad)
+        shift = 2.0 * DRIFT_EXPIRE_CELLS * mt.profile.board_size / 8.0
+        mt._on_grid(frame, [[x + shift, y] for x, y in quad])
+        assert len(calls) == 2, "a pose that moved past the threshold must be re-measured"
