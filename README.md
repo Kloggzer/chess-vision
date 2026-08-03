@@ -18,7 +18,7 @@ Two things live here and they feed each other:
 
 | You want to | Read |
 |---|---|
-| run the phone tracker | [The Android tracker](#the-android-tracker) below |
+| run the Android tracker | [The Android tracker](#the-android-tracker) below; [emulator workflow](docs/android-emulator.md) |
 | build a dataset from your own camera | [`docs/data-pipeline.md`](docs/data-pipeline.md) — read before touching `data/` |
 | train or export a model | [Train, evaluate, export](#train-evaluate-export) below, then [`docs/setup/`](docs/setup/README.md) |
 | understand the desktop tracker's logic | [`docs/move-tracker-flow.md`](docs/move-tracker-flow.md), [`src/chesslab/move_tracker/README.md`](src/chesslab/move_tracker/README.md) |
@@ -110,10 +110,21 @@ detekt tasks all exist. Two traps are recorded in [`CLAUDE.md`](CLAUDE.md) and n
 here: Gradle reports green on stale tasks (`--rerun-tasks` for a real gate), and
 `:core-engine:detekt` is red for pre-existing reasons and therefore not in the gate.
 Stockfish is a pinned git submodule under `android/third_party/`, built from source for
-arm64-v8a only — initialise submodules before an `assembleDebug`.
+arm64-v8a in the phone builds and x86_64 in the separate emulator build — initialise
+submodules before an assemble task.
 
-> Everything in this section was verified by reading the source in this tree. None of it was
-> built or run on a device here.
+Phone-free development uses an x86_64 AVD with a recorded MP4 as its CameraX input. The
+normal debug and release APKs remain arm64-only; the `emulator` build has its own app id and
+can coexist with them. Setup and the agent-friendly ADB controls are documented in
+[`docs/android-emulator.md`](docs/android-emulator.md). Once the AVD exists, the short path is:
+
+```powershell
+.\scripts\android-emulator.ps1 -Avd Chesslab_Agent1 -Port 5554 -Clip blender-opening
+```
+
+> The emulator path was verified on 2026-08-03 with two simultaneous headful API 35 x86_64 AVDs,
+> recorded CameraX input and independent FPS smoke tests. Phone-only optics, drivers and
+> performance still require a physical-device release check.
 
 ## The desktop pipeline
 

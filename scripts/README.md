@@ -4,6 +4,10 @@ These scripts live under `scripts/` and are run directly with `uv run python scr
 They are not part of the `chesslab` CLI — they exist for one-off or diagnostic tasks in the
 synthetic-pieces and video-testing pipelines.
 
+The three `android-*.ps1` scripts are the exception: they run directly in PowerShell and
+provide the reproducible Android emulator/ADB workflow described in
+[`docs/android-emulator.md`](../docs/android-emulator.md).
+
 ### `replay_clip.py`
 Replay a test clip headless through the move tracker and log moves/states/scores.
 Use `--realtime` to throttle to real-time speed; without it the clip runs as fast as

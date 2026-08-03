@@ -20,6 +20,8 @@ live games without a CNN (frame diff + legality, optional CNN safeguard).
 - `docs/architecture-review/architecture-overview.md` — component map (Mermaid).
 - `docs/move-tracker-flow.md` — tracker detection flow (Mermaid).
 - `docs/synth-pipeline.md` — synthetic data pipeline (Blender renders → ingest).
+- `docs/android-emulator.md` — canonical headful x86_64 AVD workflow, recorded-video
+  camera input and ADB controls for coding agents.
 - `docs/setup/` — PyTorch backends (ROCm / CUDA / CPU).
 - One CLI entry point: `chesslab <command>` (`src/chesslab/cli.py`, Typer).
 
@@ -75,4 +77,11 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
 - `uv run ruff check src tests synth` — lint gate.
 - Frontend changes: `cd src/chesslab/web/frontend && npm run build` (output is
   committed under `web/static/`); `npm run lint` must not add new errors.
+- Android UI/camera changes: run
+  `.\scripts\android-emulator.ps1 -Avd Chesslab_Agent1 -Port 5554 -Clip blender-opening -RestartExisting`.
+  The `emulator` APK is x86_64-only and separate from the arm64 phone builds; the smoke test
+  must print `Camera feed confirmed`, not merely reach `Stop tracking`. Agents interact through
+  `scripts/android-ui.ps1`; the emulator is headful unless `-Headless` is explicitly passed.
+  Concurrent agents must use distinct AVDs, even ports/ADB serials and Git worktrees; artifacts
+  are isolated under `tmp/android-emulator/<serial>/`.
 - Do not commit `data/`, `scans/`, `synth_pieces/`, `wheels/` (gitignored).
