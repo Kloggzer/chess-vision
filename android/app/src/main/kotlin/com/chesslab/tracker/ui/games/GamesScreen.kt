@@ -9,8 +9,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -25,76 +31,56 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.chesslab.tracker.games.GameSessionState
 import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.games.GameSummary
 import com.chesslab.tracker.record.SessionStore
 import com.chesslab.tracker.ui.ChesslabScaffold
 import com.chesslab.tracker.ui.settings.Card
-import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
-import kotlinx.coroutines.flow.MutableStateFlow
+import com.chesslab.tracker.ui.theme.Space
 
 @Composable
 fun GamesRoute(
     onBack: () -> Unit,
     onOpenGame: (String) -> Unit,
-    onOpenLive: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val model =
         remember(context) {
-            GamesViewModel(
-                games = GameStore(gamesDir(context)),
-                sessions = SessionStore(sessionsDir(context)),
-                settings = RecordingSettingsHost.get(context),
-                scope = scope,
-            )
+            GamesViewModel(games = GameStore(gamesDir(context)), sessions = SessionStore(sessionsDir(context)), scope = scope)
         }
     LaunchedEffect(model) { model.refresh() }
-    GamesScreen(model, onBack, onOpenGame, onOpenLive)
+    GamesScreen(model, onBack, onOpenGame)
 }
 
-/** The screen renders before the service is bound; an unbound live game is simply an empty one. */
-private val NO_LIVE_GAME = MutableStateFlow(GameSessionState())
-
+/**
+ * The library, and only the library.
+ *
+ * It used to open on "Record training frames" — a developer data-capture setting with a five-line
+ * explanation, four size chips and a second toggle — which was by far the tallest element on the
+ * screen that holds the games, with the single stored game below it. That panel is a SETTING and it
+ * is in Settings › Recording. The running game is not here either: the in-progress banner every
+ * screen wears is one row instead of a card, and it is on this screen too.
+ */
 @Composable
 private fun GamesScreen(
     model: GamesViewModel,
     onBack: () -> Unit,
     onOpenGame: (String) -> Unit,
-    onOpenLive: () -> Unit,
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
-    val controller by GameSessionHost.controller.collectAsStateWithLifecycle()
-    val live by (controller?.state ?: NO_LIVE_GAME).collectAsStateWithLifecycle()
     var renaming by remember { mutableStateOf<GameSummary?>(null) }
     var deleting by remember { mutableStateOf<GameSummary?>(null) }
 
     ChesslabScaffold("Games", onBack) { bars ->
         LazyColumn(
-            Modifier.fillMaxSize().padding(bars).padding(horizontal = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            Modifier.fillMaxSize().padding(bars),
+            verticalArrangement = Arrangement.spacedBy(Space.sm),
         ) {
-            item(key = "live") {
-                Card {
-                    LiveGameRow(
-                        moves = live.moveCount,
-                        reason = live.recordingReason,
-                        onOpen = onOpenLive,
-                        onEnd = {
-                            controller?.endAndSave()
-                            model.refresh()
-                        },
-                    )
-                }
-            }
-            item(key = "recording") { Card { RecordingPanel(ui, model, live) } }
             items(ui.games, key = { it.id }) { row ->
                 Card {
                     GameRow(row, onOpen = { onOpenGame(row.id) }, onRename = { renaming = row }, onDelete = { deleting = row })
@@ -120,31 +106,10 @@ private fun GamesScreen(
     }
 }
 
-/** The running game is a row like any other — it opens the SAME review screen, still live. */
-@Composable
-private fun LiveGameRow(
-    moves: Int,
-    reason: String?,
-    onOpen: () -> Unit,
-    onEnd: () -> Unit,
-) {
-    Column(
-        Modifier.fillMaxWidth().clickable(onClick = onOpen),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                if (moves == 0) "No game in progress" else "Game in progress — $moves moves",
-                style = MaterialTheme.typography.titleMedium,
-                color = if (moves == 0) OnSurfaceMuted else OnSurface,
-                modifier = Modifier.weight(1f).padding(end = 8.dp),
-            )
-            if (moves > 0) TextButton(onClick = onEnd) { Text("End game & save", color = Accent) }
-        }
-        reason?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Danger) }
-    }
-}
-
+/**
+ * Three lines, not four. Rename and Delete used to be permanent buttons on every row — two controls
+ * per game, for acts taken once — and they are behind the row's own `⋯` now.
+ */
 @Composable
 private fun GameRow(
     row: GameSummary,
@@ -152,26 +117,49 @@ private fun GameRow(
     onRename: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth().clickable(onClick = onOpen), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text("${row.id}  ${row.result}", style = MaterialTheme.typography.titleMedium, color = OnSurface)
-        Text(
-            "${row.moveCount} moves · ${row.white} vs ${row.black}" + if (row.sessionId != null) " · recorded" else "",
-            style = MaterialTheme.typography.bodySmall,
-            color = OnSurfaceMuted,
-        )
-        // A game the app lost and rebuilt is not the same evidence as one it tracked cleanly, and
-        // the row is where that has to be visible — the alternative is opening every game to find out.
-        if (row.seams > 0) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(
+            Modifier.weight(1f).clickable(onClick = onOpen),
+            verticalArrangement = Arrangement.spacedBy(Space.hair),
+        ) {
+            Text("${row.id}  ${row.result}", style = MaterialTheme.typography.titleMedium, color = OnSurface)
             Text(
-                "rebuilt ${row.seams}× — the app lost the board and picked it up again",
+                "${row.moveCount} moves · ${row.white} vs ${row.black}" + if (row.sessionId != null) " · recorded" else "",
                 style = MaterialTheme.typography.bodySmall,
-                color = Danger,
+                color = OnSurfaceMuted,
             )
+            // A game the app lost and rebuilt is not the same evidence as one it tracked cleanly, and
+            // the row is where that has to be visible — the alternative is opening every game to find out.
+            if (row.seams > 0) {
+                Text(
+                    "rebuilt ${row.seams}× — the app lost the board and picked it up again",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Danger,
+                )
+            }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            TextButton(onClick = onRename) { Text("Rename", color = OnSurfaceMuted) }
-            TextButton(onClick = onDelete) { Text("Delete", color = Danger) }
-        }
+        RowMenu(onRename, onDelete)
+    }
+}
+
+@Composable
+private fun RowMenu(
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    IconButton(onClick = { open = true }) {
+        Icon(Icons.Filled.MoreVert, contentDescription = "Game options")
+    }
+    DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        DropdownMenuItem(text = { Text("Rename") }, onClick = {
+            open = false
+            onRename()
+        })
+        DropdownMenuItem(text = { Text("Delete", color = Danger) }, onClick = {
+            open = false
+            onDelete()
+        })
     }
 }
 
@@ -188,7 +176,7 @@ private fun RenameDialog(
         onDismissRequest = onDismiss,
         title = { Text("Rename game") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
                 OutlinedTextField(white, { white = it }, label = { Text("White") })
                 OutlinedTextField(black, { black = it }, label = { Text("Black") })
                 OutlinedTextField(event, { event = it }, label = { Text("Event") })

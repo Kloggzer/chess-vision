@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.FilterChip
@@ -21,7 +20,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.settings.AppSettings
 import com.chesslab.tracker.settings.SettingsHost
@@ -29,22 +27,28 @@ import com.chesslab.tracker.speech.MovePhrase
 import com.chesslab.tracker.speech.SpeechState
 import com.chesslab.tracker.speech.SpeechVerbosity
 import com.chesslab.tracker.speech.androidSpeechEngine
-import com.chesslab.tracker.ui.ChesslabScaffold
 import com.chesslab.tracker.ui.settings.Card
 import com.chesslab.tracker.ui.settings.SectionButton
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import com.chesslab.tracker.ui.theme.Space
 
 /** The languages with a hand-written vocabulary in `MovePhrase`; anything else speaks English. */
 private val LANGUAGES = listOf("English" to "en-US", "Deutsch" to "de-DE")
 
 /**
- * Speech is off until the user turns it on here, and this screen is the only place that says a
- * sentence on demand — the test button is the only way to find out that the device has no voice
- * data for a language before a game depends on it.
+ * Spoken moves — a Settings subpage since specs/47.
+ *
+ * Four settings held a sixth of the app's top-level surface as a "Speech" tab, and they were
+ * already built out of Settings' own `Card` and `SectionButton`. Nothing about them changed; only
+ * where they are.
+ *
+ * Speech is off until the user turns it on here, and this is the only place that says a sentence on
+ * demand — the test button is the only way to find out that the device has no voice data for a
+ * language before a game depends on it.
  */
 @Composable
-fun SpeechSettingsScreen(onBack: () -> Unit) {
+fun SpeechSection() {
     val repository by SettingsHost.repository.collectAsStateWithLifecycle()
     val bound = repository
     val context = LocalContext.current
@@ -53,28 +57,23 @@ fun SpeechSettingsScreen(onBack: () -> Unit) {
     DisposableEffect(preview) { onDispose { preview.close() } }
     val state by preview.state.collectAsStateWithLifecycle()
 
-    ChesslabScaffold("Spoken moves", onBack) { bars ->
-        Column(
-            Modifier.fillMaxSize().padding(bars).padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            if (bound == null) {
-                Text("Reading the stored settings…", color = OnSurfaceMuted)
-                return@Column
-            }
-            val app by bound.appSettings.collectAsStateWithLifecycle()
-            Body(app, state, { bound.updateApp(it) }) {
-                preview.setLanguage(app.speechLanguage)
-                preview.say(MovePhrase.of("Nf3", 1, app.speechVerbosity, app.speechLanguage))
-            }
-            (state as? SpeechState.LanguageMissing)?.let {
-                Card {
-                    Text("No voice data for ${it.locale} — speaking US English.", color = OnSurfaceMuted)
-                    SectionButton("Install voice data") {
-                        context.startActivity(
-                            Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                        )
-                    }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.sm)) {
+        if (bound == null) {
+            Text("Reading the stored settings…", color = OnSurfaceMuted)
+            return@Column
+        }
+        val app by bound.appSettings.collectAsStateWithLifecycle()
+        Body(app, state, { bound.updateApp(it) }) {
+            preview.setLanguage(app.speechLanguage)
+            preview.say(MovePhrase.of("Nf3", 1, app.speechVerbosity, app.speechLanguage))
+        }
+        (state as? SpeechState.LanguageMissing)?.let {
+            Card {
+                Text("No voice data for ${it.locale} — speaking US English.", color = OnSurfaceMuted)
+                SectionButton("Install voice data") {
+                    context.startActivity(
+                        Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
                 }
             }
         }
@@ -104,7 +103,7 @@ private fun Body(
                 text = "Announce moves",
                 style = MaterialTheme.typography.labelLarge,
                 color = OnSurface,
-                modifier = Modifier.weight(1f).padding(end = 12.dp),
+                modifier = Modifier.weight(1f).padding(end = Space.md),
             )
             Switch(checked = app.speechEnabled, onCheckedChange = { onChange(app.copy(speechEnabled = it)) })
         }
@@ -121,7 +120,7 @@ private fun Body(
                 text = "Announce alarms",
                 style = MaterialTheme.typography.labelLarge,
                 color = OnSurface,
-                modifier = Modifier.weight(1f).padding(end = 12.dp),
+                modifier = Modifier.weight(1f).padding(end = Space.md),
             )
             Switch(checked = app.speechAnnounceAlarms, onCheckedChange = { onChange(app.copy(speechAnnounceAlarms = it)) })
         }
@@ -147,7 +146,7 @@ private fun <T> Chips(
     selected: T,
     onSelect: (T) -> Unit,
 ) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
         options.forEach { (label, value) ->
             FilterChip(
                 selected = value == selected,

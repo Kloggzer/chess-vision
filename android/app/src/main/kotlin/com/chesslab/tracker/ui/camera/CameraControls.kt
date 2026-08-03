@@ -32,8 +32,8 @@ import androidx.compose.ui.unit.dp
 import com.chesslab.tracker.camera.CameraAbilities
 import com.chesslab.tracker.camera.CameraLook
 import com.chesslab.tracker.camera.WhiteBalance
-import kotlinx.coroutines.delay
 import com.chesslab.tracker.ui.theme.Space
+import kotlinx.coroutines.delay
 
 /**
  * How long a drag has to stand still before the camera is told.

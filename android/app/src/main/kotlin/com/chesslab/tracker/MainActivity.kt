@@ -1,5 +1,6 @@
 package com.chesslab.tracker
 
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -12,9 +13,11 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import com.chesslab.tracker.service.EXTRA_OPEN_TRACKER
 import com.chesslab.tracker.settings.SettingsHost
 import com.chesslab.tracker.ui.BindTrackerService
 import com.chesslab.tracker.ui.ChesslabNavHost
+import com.chesslab.tracker.ui.OpenTracker
 import com.chesslab.tracker.ui.theme.ChesslabTheme
 
 /**
@@ -27,6 +30,15 @@ import com.chesslab.tracker.ui.theme.ChesslabTheme
  * control that opens a camera (`TrackingSwitch`).
  */
 class MainActivity : ComponentActivity() {
+    override fun onNewIntent(intent: Intent) {
+        // `FLAG_ACTIVITY_SINGLE_TOP` means a second tap on the notification arrives here instead of
+        // through `onCreate`, and `getIntent()` is NOT updated on its own — without `setIntent` the
+        // second tap would land on whatever screen the user left behind.
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_OPEN_TRACKER, false)) OpenTracker.request()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // targetSdk 35 means Android 15+ forces edge-to-edge, and Android 16 dropped the opt-out:
         // the window ALWAYS extends under the status and navigation bars. Declaring it here (rather
@@ -44,6 +56,7 @@ class MainActivity : ComponentActivity() {
         // forever — Settings, Spoken moves and the camera controls sat on "Reading the stored
         // settings…" with no error and no crash. `get` is idempotent and returns the one instance.
         SettingsHost.get(this)
+        if (intent.getBooleanExtra(EXTRA_OPEN_TRACKER, false)) OpenTracker.request()
         setContent {
             ChesslabTheme {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {

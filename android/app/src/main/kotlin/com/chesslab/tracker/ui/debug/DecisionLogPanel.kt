@@ -20,7 +20,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import com.chesslab.engine.api.DebugDecision
 import com.chesslab.tracker.diagnostics.appVersionOf
 import com.chesslab.tracker.diagnostics.zipDiagnostics
