@@ -34,8 +34,13 @@ import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.theme.chesslabSwitchColors
 
-/** The languages with a hand-written vocabulary in `MovePhrase`; anything else speaks English. */
-private val LANGUAGES = listOf("English" to "en-US", "Deutsch" to "de-DE")
+/**
+ * The languages with a hand-written vocabulary in `MovePhrase`; anything else speaks English.
+ *
+ * Internal because the Settings landing row states the current one in its summary, and a second
+ * code→name table over there would be free to disagree with the chips on this page.
+ */
+internal val SPEECH_LANGUAGES = listOf("English" to "en-US", "Deutsch" to "de-DE")
 
 /**
  * Spoken moves — a Settings subpage since specs/47.
@@ -136,7 +141,7 @@ private fun Body(
     }
     Card {
         Text("Language", style = MaterialTheme.typography.labelLarge, color = OnSurface)
-        Chips(LANGUAGES, app.speechLanguage) { onChange(app.copy(speechLanguage = it)) }
+        Chips(SPEECH_LANGUAGES, app.speechLanguage) { onChange(app.copy(speechLanguage = it)) }
     }
     Card {
         Text("Verbosity", style = MaterialTheme.typography.labelLarge, color = OnSurface)
