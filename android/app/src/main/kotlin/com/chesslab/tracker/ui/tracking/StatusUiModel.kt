@@ -115,38 +115,47 @@ private const val FPS_SAME = 1.0
 
 private const val STOPPED_INFO = "No frames are arriving — the camera is released. Resume to continue; the game is kept."
 
+/** No service at all — a legitimate state, and the one the app now opens in. */
+private const val OFF_STATE_TEXT = "NOT TRACKING"
+
+private const val OFF_INFO = "No camera is running. Start tracking to detect moves — Games and Review need none."
+
 /**
- * [cameraOn] outranks every engine state in the header.
+ * What the header is describing. Ranked, and the ranking is the whole point: no tracker outranks a
+ * released camera, which outranks whatever the engine last thought.
  *
- * With the camera released the status simply stops arriving, so the last sample stands forever: the
- * screen would keep showing "WAITING · 14.8 fps" over a dead feed. Whatever the engine last thought
- * is not what the user needs to know here.
+ * With no service there is no status at all and the last position stands; with the camera merely
+ * released the status stops arriving, so the last sample stands forever and the screen would keep
+ * showing "WAITING · 14.8 fps" over a dead feed. The two are not the same state — one has no game,
+ * the other has one and is holding it.
  */
+private enum class Feed { OFF, PAUSED, LIVE }
+
 fun trackingUiState(
     status: TrackerStatus,
     cameraOn: Boolean = true,
+    tracking: Boolean = true,
 ): TrackingUiState {
     val alarm =
         status.alarm?.let { AlarmUi(kind = it.kind, conflicts = it.conflicts, guessSan = it.guessSan) }
+    val feed =
+        when {
+            !tracking -> Feed.OFF
+            !cameraOn -> Feed.PAUSED
+            else -> Feed.LIVE
+        }
     return TrackingUiState(
         fen = status.fen,
-        // While alarmed the engine blocks every commit, so showing "moving" would imply the game is
-        // progressing when it provably is not: the state line is pinned to the alarm instead.
-        stateText =
-            when {
-                !cameraOn -> STOPPED_STATE_TEXT
-                alarm != null -> ALARM_STATE_TEXT
-                else -> stateLabel(status.state)
+        stateText = stateText(feed, alarm, status.state),
+        tone = tone(feed, alarm, status.state),
+        fpsText = if (feed == Feed.LIVE) fpsText(status) else STOPPED_FPS_TEXT,
+        fpsDetail = if (feed == Feed.LIVE) fpsDetail(status) else null,
+        infoLine =
+            when (feed) {
+                Feed.LIVE -> infoLine(status)
+                Feed.PAUSED -> STOPPED_INFO
+                Feed.OFF -> OFF_INFO
             },
-        tone =
-            when {
-                !cameraOn -> StateTone.Idle
-                alarm != null -> StateTone.Alarm
-                else -> stateTone(status.state)
-            },
-        fpsText = if (cameraOn) fpsText(status) else STOPPED_FPS_TEXT,
-        fpsDetail = if (cameraOn) fpsDetail(status) else null,
-        infoLine = if (cameraOn) infoLine(status) else STOPPED_INFO,
         alarm = alarm,
         overlay =
             OverlayLayers(
@@ -159,6 +168,33 @@ fun trackingUiState(
         corners = status.corners,
     )
 }
+
+/**
+ * While alarmed the engine blocks every commit, so showing "moving" would imply the game is
+ * progressing when it provably is not: the state line is pinned to the alarm instead.
+ */
+private fun stateText(
+    feed: Feed,
+    alarm: AlarmUi?,
+    state: String,
+): String =
+    when {
+        feed == Feed.OFF -> OFF_STATE_TEXT
+        feed == Feed.PAUSED -> STOPPED_STATE_TEXT
+        alarm != null -> ALARM_STATE_TEXT
+        else -> stateLabel(state)
+    }
+
+private fun tone(
+    feed: Feed,
+    alarm: AlarmUi?,
+    state: String,
+): StateTone =
+    when {
+        feed != Feed.LIVE -> StateTone.Idle
+        alarm != null -> StateTone.Alarm
+        else -> stateTone(state)
+    }
 
 private fun stateLabel(state: String): String =
     when (state) {

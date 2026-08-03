@@ -33,6 +33,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.chesslab.tracker.games.GameSessionState
 import com.chesslab.tracker.games.GameView
+import com.chesslab.tracker.service.TrackerRun
 import com.chesslab.tracker.ui.analysis.EvalBarSlot
 import com.chesslab.tracker.ui.games.GameSessionHost
 import com.chesslab.tracker.ui.review.MoveList
@@ -50,13 +51,20 @@ fun TrackingRoute(
     viewModel: TrackingViewModel = viewModel(),
 ) {
     val session by TrackerSessionHost.session.collectAsStateWithLifecycle()
+    // The run switch, not the session: between the tap and the service's first callback there is
+    // no session and tracking is nevertheless on.
+    val running by TrackerRun.running.collectAsStateWithLifecycle()
     LaunchedEffect(session) { viewModel.attach(session ?: NoTrackerSession) }
+    LaunchedEffect(running) { viewModel.tracking = running }
     LaunchedEffect(viewModel) { viewModel.recalibrateRequests.collect { onRecalibrate() } }
-    TrackingScreen(viewModel)
+    TrackingScreen(viewModel, running)
 }
 
 @Composable
-private fun TrackingScreen(viewModel: TrackingViewModel) {
+private fun TrackingScreen(
+    viewModel: TrackingViewModel,
+    running: Boolean,
+) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val promotion by viewModel.promotion.collectAsStateWithLifecycle()
     val acceptCnn by viewModel.acceptCnn.collectAsStateWithLifecycle()
@@ -68,7 +76,7 @@ private fun TrackingScreen(viewModel: TrackingViewModel) {
     val live by (games?.state ?: NO_LIVE_GAME).collectAsStateWithLifecycle()
     var endingGame by remember { mutableStateOf(false) }
 
-    TrackingBody(viewModel, ui, live.game, preview, cameraOn) { endingGame = true }
+    TrackingBody(viewModel, ui, live.game, preview, cameraOn, running) { endingGame = true }
 
     TrackingDialogs(
         viewModel = viewModel,
@@ -101,6 +109,7 @@ private fun TrackingBody(
     game: GameView,
     preview: android.graphics.Bitmap?,
     cameraOn: Boolean,
+    running: Boolean,
     onEndGame: () -> Unit,
 ) {
     var showPreview by remember { mutableStateOf(false) }
@@ -127,20 +136,25 @@ private fun TrackingBody(
             // The same list the review screen and the LAN page render, from the same source.
             MoveList(game = game, modifier = Modifier.fillMaxSize())
         }
-        ActionBar(
-            onUndo = viewModel::onUndo,
-            undoLabel = undoLabel(lastCommit),
-            // Resetting a game that has moves USED to throw it away without a word.
-            onResetGame = onEndGame,
-            onRecalibrate = viewModel::onRecalibrate,
-            showPreview = showPreview,
-            onTogglePreview = { showPreview = !showPreview },
-            cameraOn = cameraOn,
-            onToggleCamera = viewModel::onToggleCamera,
-            torchOn = viewModel.torchOn.collectAsStateWithLifecycle().value,
-            hasTorch = viewModel.hasTorch,
-            onToggleTorch = viewModel::onToggleTorch,
-        )
+        // Not tracking is a legitimate state of this tab, not an error: the board keeps the position
+        // it last had and the only control left is the one that would change that.
+        if (running) {
+            ActionBar(
+                onUndo = viewModel::onUndo,
+                undoLabel = undoLabel(lastCommit),
+                // Resetting a game that has moves USED to throw it away without a word.
+                onResetGame = onEndGame,
+                onRecalibrate = viewModel::onRecalibrate,
+                showPreview = showPreview,
+                onTogglePreview = { showPreview = !showPreview },
+                cameraOn = cameraOn,
+                onToggleCamera = viewModel::onToggleCamera,
+                torchOn = viewModel.torchOn.collectAsStateWithLifecycle().value,
+                hasTorch = viewModel.hasTorch,
+                onToggleTorch = viewModel::onToggleTorch,
+            )
+        }
+        TrackingSwitch(running)
     }
 }
 
