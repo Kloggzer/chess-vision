@@ -25,8 +25,8 @@ Numbers from before 2026-08-03 are not comparable to these.
 | `grid_lines` measures all **9** lines per axis in a padded warp (`warp_for_grid`, `GRID_PAD_CELLS` 0.25) | `line_positions` pinned index 0 and 8 at 0 and `board_size` — values the warp puts there by construction. `tests/test_alignment.py` asserted the resulting 25 % under-report as *structural*; it now asserts the true size. |
 | A line that cannot be found is **unread**, and `unread > 0` FAILS the verdict | The pinned version certified 302 frames whose grid the eye can see is wrong |
 | `alignment_of` returns a verdict, not a number: worst offset ≤ **4 % of a cell** AND all 18 lines read | Argued from `docs/data-pipeline.md` §12 — damaging band starts at 3.2 %, repaired sessions reach 3.3 % max 4.3 %, so the gate sits at the seam. A fraction, so it means the same at cell 100 and cell 200. |
-| `_notch_centre` refuses a dark run still going at both ends of the centroid window | A 3D piece leaning over the groove behind it is wide and dark. See "the metric fooled itself" below. |
-| The slope is pooled per axis as `a + b·k` | Nine independent 8-sample regressions invent tilt |
+| `_notch_centre` refuses a dark run still going at both ends of the centroid window | A 3D piece leaning over the groove behind it is wide and dark, and the old estimator accepted it as a groove. On frame 900, where ranks 7 and 8 are a solid row of black pieces, every band of the line between them reported the pieces: the fitted line came out tilted by 36 mrad and the metric FAILED a quad that was in fact correct, at 16.3 px. Reporting the line as unread is the honest answer. |
+| The slope is pooled per axis as `a + b·k` | Nine independent 8-sample regressions invent tilt; two parameters over ~70 samples do not. Linear in `k` and not one constant, because a residual homography fans a family of parallel lines into a pencil — a single constant would leave the projective component of the error unmeasurable, and that is the whole component a three-marker quad's error consists of. |
 
 **Truth calibration** (`tests/test_alignment.py`, `AlignmentTruthTest.kt`): reported vs analytic
 worst offset within **0.5 px** on a bare board and **1.0 px** with pieces on the grooves, over
@@ -107,6 +107,10 @@ the measurement noise.
 ---
 
 ## Approaches measured and REJECTED
+
+⚠ The CLAHE and affine-lattice rows were measured during exploration, with the OLD pinned metric.
+They rank the variants against each other correctly — same instrument on both sides of each
+comparison — but their absolute values are not comparable to the tables above.
 
 | Approach | Result | Verdict |
 |---|---|---|
