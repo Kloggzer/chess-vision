@@ -24,6 +24,8 @@ import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Outline
+import com.chesslab.tracker.ui.theme.Space
+import com.chesslab.tracker.ui.theme.Stroke
 import java.util.Locale
 
 /**
@@ -37,7 +39,7 @@ fun TimingsPanel(state: DebugState) {
     val total = state.stages.firstOrNull { it.stage == TOTAL }
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(Space.sm),
     ) {
         // Two rates, never one: `camera` is what CameraX delivered, `detection` is what reached the
         // engine. A camera at 30 with detection at 0 is an uncalibrated board, not a broken feed.
@@ -67,6 +69,9 @@ fun TimingsPanel(state: DebugState) {
     }
 }
 
+/** The stacked bar's height. A component size: it is the chart, not a gap. */
+private val CHART_HEIGHT = 18.dp
+
 private const val TOTAL = "total"
 
 /** One horizontal bar, each stage a slice of the frame budget. Empty when nothing was measured. */
@@ -76,7 +81,7 @@ private fun StackedBar(
     total: Double,
 ) {
     if (total <= 0.0) return
-    Row(Modifier.fillMaxWidth().height(18.dp).background(Outline)) {
+    Row(Modifier.fillMaxWidth().height(CHART_HEIGHT).background(Outline)) {
         stages.forEach { stage ->
             val share = (stage.last / total).toFloat()
             if (share > 0f) Row(Modifier.weight(share).fillMaxWidth().background(sliceColor(stage.stage))) {}
@@ -87,7 +92,7 @@ private fun StackedBar(
 @Composable
 private fun StageRow(stat: StageStat) {
     val tone = if (stat.stage == TOTAL) budgetTone(stat.last) else OnSurface
-    Row(Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
+    Row(Modifier.fillMaxWidth().padding(vertical = Stroke.hairline)) {
         Text(stat.stage, Modifier.weight(1.4f), style = MaterialTheme.typography.labelMedium, color = sliceColor(stat.stage))
         listOf(stat.last, stat.median, stat.p95).forEach {
             Text(fmt(it, 1), Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = tone)

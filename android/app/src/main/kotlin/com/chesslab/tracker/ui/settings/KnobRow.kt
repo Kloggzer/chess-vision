@@ -22,6 +22,8 @@ import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import com.chesslab.tracker.ui.theme.Radius
+import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.theme.SurfaceRaised
 
 /**
@@ -42,9 +44,9 @@ fun KnobRow(
     Column(
         Modifier
             .fillMaxWidth()
-            .background(SurfaceRaised, RoundedCornerShape(8.dp))
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+            .background(SurfaceRaised, RoundedCornerShape(Radius.sm))
+            .padding(horizontal = Space.md, vertical = Space.sm),
+        verticalArrangement = Arrangement.spacedBy(Space.xs),
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(
@@ -56,7 +58,7 @@ fun KnobRow(
         }
         Row(
             Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(Space.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Chip("default ${knob.format(knob.pythonDefault)}", OnSurfaceMuted)
@@ -107,6 +109,6 @@ fun Chip(
         text = text,
         style = MaterialTheme.typography.labelSmall,
         color = color,
-        modifier = Modifier.background(Color.Transparent).padding(end = 2.dp),
+        modifier = Modifier.background(Color.Transparent).padding(end = Space.hair),
     )
 }
