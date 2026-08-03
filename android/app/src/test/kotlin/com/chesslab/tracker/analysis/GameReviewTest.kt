@@ -57,6 +57,47 @@ class GameReviewTest {
     }
 
     /**
+     * The defect this file did not catch, found on the device on 2026-08-03: the card read
+     * **"White · 526 cp average loss over 42 plies · best 21"**, self-contradicting on its face.
+     * `MATE_CP` is 10 000 so the BANDS rank a thrown-away mate correctly, and it was flowing into
+     * the mean uncapped — one such ply contributes 238 cp to a 42-term average on its own.
+     *
+     * The cap is on the AVERAGE only. The band is untouched (1000 and 10 000 are both blunders) and
+     * so is the per-ply number, which is the truth about that ply.
+     */
+    @Test
+    fun oneThrownAwayMateDoesNotDominateTheAverage() {
+        // 41 quiet plies at zero loss, then one that throws a forced mate away.
+        val quiet = List(42) { Score(0, 18) }
+        val graded = grade(quiet + listOf(Score(10_000, 18), Score(0, 18)))
+        val loud = graded.plies.last()
+        assertEquals(MoveQuality.BLUNDER, loud.quality, "the band still ranks it as the worst kind of move")
+        assertEquals(10_000, loud.cpLoss, "and the ply itself still reports the truth, uncapped")
+
+        // The mating ply is index 42, so it is White's; White has 22 plies including it.
+        assertEquals(22, graded.white.plies)
+        assertEquals(1000 / 22, graded.white.averageCpLoss, "capped at 1000 before the mean, never 10000/22 = 454")
+    }
+
+    /** A cap is silent unless somebody says how much of the mean it swallowed. */
+    @Test
+    fun mateScoredPliesAreCountedPerSide() {
+        val graded = grade(listOf(Score(0, 18), Score(10_000, 18), Score(10_000, 18), Score(0, 18)))
+        // Plies 1 and 2 each touch a mate score; ply 3 touches the second one.
+        assertEquals(listOf(true, true, true), graded.plies.map { it.mateScored })
+        assertEquals(2, graded.white.mateScoredPlies, "plies 1 and 3")
+        assertEquals(1, graded.black.mateScoredPlies, "ply 2")
+    }
+
+    @Test
+    fun aGameWithNoMateReportsNoneAndIsUnaffectedByTheCap() {
+        val graded = grade(listOf(Score(0, 18), Score(-120, 18), Score(-120, 18)))
+        assertEquals(0, graded.white.mateScoredPlies)
+        assertEquals(0, graded.black.mateScoredPlies)
+        assertEquals(120, graded.white.averageCpLoss)
+    }
+
+    /**
      * A grade is a claim only as deep as the search behind it, and the shallower of the two searches
      * bounds it: a loss measured against a position the engine only reached depth 9 on is a depth-9
      * claim whatever the other end managed.

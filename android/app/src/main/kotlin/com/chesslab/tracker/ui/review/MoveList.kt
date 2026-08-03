@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.chesslab.tracker.analysis.GameGrade
 import com.chesslab.tracker.analysis.MoveQuality
@@ -161,6 +162,9 @@ private fun MoveCell(
             // The selected ply is the one the board is showing. Without it the board and the list
             // disagree about where you are the moment you scroll away from the end.
             fontWeight = if (ply.ply == selected) FontWeight.Bold else FontWeight.Normal,
+            // The SAN is the row. It is measured first and never wraps or shrinks; whatever is
+            // beside it gets the remainder.
+            maxLines = 1,
         )
         Text(
             // The grade wins the slot when there is one: after the game the decider is trivia and
@@ -170,6 +174,12 @@ private fun MoveCell(
             // Not `quality?.let(::badgeColor)`: the palette is read through composable getters, and
             // a @Composable function reference cannot be passed to `let`.
             color = if (quality == null) OnSurfaceMuted else badgeColor(quality),
+            // Half a phone width holds two of these cells, and `cnn_occupancy` does not fit one.
+            // Unbounded it wrapped mid-word — `Nc6 cnn_occupanc` / `y` — and pushed the row to two
+            // lines. `fill = false` so a short label does not stretch the cell.
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
         )
     }
 }

@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.analysis.GameGrade
 import com.chesslab.tracker.analysis.MoveQuality
+import com.chesslab.tracker.analysis.PlyGrade
 import com.chesslab.tracker.games.GameSessionState
 import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.games.GameView
@@ -40,6 +41,7 @@ import com.chesslab.tracker.ui.games.GameSessionHost
 import com.chesslab.tracker.ui.games.gamesDir
 import com.chesslab.tracker.ui.settings.Card
 import com.chesslab.tracker.ui.theme.Accent
+import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.tracking.BoardCanvas
@@ -82,7 +84,7 @@ fun ArchiveReviewRoute(
         return
     }
     GameReviewScreen(title = game.id, game = game, grade = ui.grade, onBack = onBack) {
-        ReviewCard(ui, onReview = model::review)
+        ReviewCard(ui, seams = game.segments.count { it.enteredBy != null }, onReview = model::review)
         PgnRow(ui.pgn, game.id)
     }
 }
@@ -210,6 +212,7 @@ private fun copy(
 @Composable
 private fun ReviewCard(
     ui: ReviewUi,
+    seams: Int,
     onReview: () -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
@@ -219,7 +222,7 @@ private fun ReviewCard(
         when {
             ui.engineMissing -> Text("No engine on this device.", style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
             progress != null -> ReviewProgressLine(progress.done, progress.total)
-            grade != null -> GradeSummary(grade, open) { open = !open }
+            grade != null -> GradeSummary(grade, seams, open) { open = !open }
             else -> TextButton(onClick = onReview) { Text("Review with engine", color = Accent) }
         }
     }
@@ -232,7 +235,9 @@ private fun ReviewProgressLine(
 ) {
     Text("Reviewing… $done / $total positions", style = MaterialTheme.typography.bodyMedium, color = OnSurface)
     Text(
-        "The engine runs at lowest priority; tracking still has the camera.",
+        // Up to 3 s a position, so a long game is minutes. Measured on the device: 84 positions in
+        // 28 s at the old depth-16 budget, and this one is allowed considerably more per position.
+        "Up to a few seconds per position. The engine runs at lowest priority; tracking still has the camera.",
         style = MaterialTheme.typography.bodySmall,
         color = OnSurfaceMuted,
     )
@@ -247,6 +252,7 @@ private fun ReviewProgressLine(
 @Composable
 private fun GradeSummary(
     grade: GameGrade,
+    seams: Int,
     open: Boolean,
     onToggle: () -> Unit,
 ) {
@@ -254,24 +260,41 @@ private fun GradeSummary(
     SideLine("White", grade, white = true)
     SideLine("Black", grade, white = false)
     Text(
-        "Searched to depth ${grade.budget.depth}, capped at ${grade.budget.movetimeMs} ms per position. " +
-            "A ply that hit the cap was graded shallower.",
+        "Up to ${grade.budget.movetimeMs} ms per position, stopping early at depth ${grade.budget.depth}. " +
+            "The live evaluation gets 400 ms, and one ply in six is graded differently at that budget — " +
+            "each finding below names the depth it was actually read at.",
         style = MaterialTheme.typography.bodySmall,
         color = OnSurfaceMuted,
     )
+    // A tracked game is not a score sheet somebody wrote down: where the app lost the board it
+    // invented the moves that got it back, and those plies are graded here exactly like played ones.
+    // The move list shows each seam in place; this says how many, beside the numbers they distort.
+    if (seams > 0) {
+        Text(
+            "The app rebuilt the board $seams× in this game. The plies it committed to recover are " +
+                "graded here like any other — a blunder around a rebuild may be the tracker's, not a player's.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Danger,
+        )
+    }
     val findings = grade.findings()
     TextButton(onClick = onToggle) {
         Text(if (open) "Hide findings" else "Findings (${findings.size})", color = Accent)
     }
-    if (open) {
-        findings.forEach {
-            Text(
-                "ply ${it.ply} · ${it.quality.name.lowercase()} · ${it.cpLoss} cp at depth ${it.depth}",
-                style = MaterialTheme.typography.bodySmall,
-                color = OnSurfaceMuted,
-            )
-        }
-    }
+    if (open) findings.forEach { FindingLine(it) }
+}
+
+@Composable
+private fun FindingLine(finding: PlyGrade) {
+    Text(
+        // A mate-scored ply never shows its centipawns: 10 000 is a flag meaning "forced mate",
+        // and printing it as a pawn count is the same confusion the average used to have.
+        "ply ${finding.ply} · ${finding.quality.name.lowercase()} · " +
+            (if (finding.mateScored) "forced mate" else "${finding.cpLoss} cp") +
+            " at depth ${finding.depth}",
+        style = MaterialTheme.typography.bodySmall,
+        color = OnSurfaceMuted,
+    )
 }
 
 @Composable
@@ -281,12 +304,22 @@ private fun SideLine(
     white: Boolean,
 ) {
     val side = if (white) grade.white else grade.black
+    val bands =
+        MoveQuality.entries
+            .filter { side.count(it) > 0 }
+            .joinToString(" ") { "${it.name.lowercase()} ${side.count(it)}" }
     Text(
-        "$label · ${side.averageCpLoss} cp average loss over ${side.plies} plies · " +
-            MoveQuality.entries
-                .filter { side.count(it) > 0 }
-                .joinToString(" ") { "${it.name.lowercase()} ${side.count(it)}" },
+        "$label · ${side.averageCpLoss} cp average loss over ${side.plies} plies · $bands",
         style = MaterialTheme.typography.bodySmall,
         color = OnSurfaceMuted,
     )
+    // Where the average means least, and on a won endgame that is most of it.
+    if (side.mateScoredPlies > 0) {
+        Text(
+            "  ${side.mateScoredPlies} of those were scored against a forced mate, where a centipawn " +
+                "average stops measuring anything.",
+            style = MaterialTheme.typography.labelSmall,
+            color = OnSurfaceMuted,
+        )
+    }
 }
