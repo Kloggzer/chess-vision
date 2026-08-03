@@ -1,12 +1,22 @@
 package com.chesslab.tracker.analysis
 
-/** One `multipv` line. [cp]/[mate] are the engine's own SIDE-TO-MOVE point of view until flipped. */
+/** How much of the engine's line is kept. Enough to read an idea; short enough to store per position. */
+private const val PV_PLIES = 6
+
+/**
+ * One `multipv` line. [cp]/[mate] are the engine's own SIDE-TO-MOVE point of view until flipped.
+ *
+ * [pv] is the recommended CONTINUATION, first move first — the review shows it as "what would have
+ * been better", which is the one thing the search already paid for and specs/42 discarded.
+ */
 data class PvLine(
-    val uci: String?,
     val cp: Int?,
     val mate: Int?,
     val depth: Int,
-)
+    val pv: List<String> = emptyList(),
+) {
+    val uci: String? get() = pv.firstOrNull()
+}
 
 /** A parsed `info` line: the [PvLine] plus the `multipv` slot it belongs to (1-based). */
 internal data class UciInfo(
@@ -33,13 +43,19 @@ internal fun parseUciInfo(raw: String): UciInfo? {
         multiPv = intAfter(tokens, "multipv") ?: 1,
         line =
             PvLine(
-                // `pv` is always last: the first token after it is the move being recommended.
-                uci = tokens.indexOf("pv").takeIf { it >= 0 }?.let { tokens.getOrNull(it + 1) },
                 cp = cp,
                 mate = mate,
                 depth = intAfter(tokens, "depth") ?: 0,
+                // `pv` is always last, so everything after it is the line.
+                pv = pvOf(tokens),
             ),
     )
+}
+
+private fun pvOf(tokens: List<String>): List<String> {
+    val at = tokens.indexOf("pv")
+    if (at < 0) return emptyList()
+    return tokens.drop(at + 1).take(PV_PLIES)
 }
 
 /** `(cp, mate)`, exactly one of them set; null when the line carries no score at all. */

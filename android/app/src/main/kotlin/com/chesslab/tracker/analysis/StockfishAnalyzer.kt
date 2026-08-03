@@ -4,8 +4,6 @@ import android.os.Process
 import android.util.Log
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.Side
-import com.github.bhlangonijr.chesslib.move.Move
-import com.github.bhlangonijr.chesslib.move.MoveList
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -150,7 +148,7 @@ class StockfishAnalyzer(
         val lines =
             raw
                 .map { it.toWhitePov(whiteToMove) }
-                .map { AnalysisLine(uci = it.uci, san = sanOf(fen, it.uci, board.sideToMove), cp = it.cp, mate = it.mate) }
+                .map { AnalysisLine(uci = it.uci, san = it.uci?.let { uci -> sanOf(fen, uci) }, cp = it.cp, mate = it.mate) }
         val best = lines.firstOrNull()
         return AnalysisResult(
             fen = fen,
@@ -198,16 +196,6 @@ private fun winWhite(best: AnalysisLine?): Double {
         }
     return round(win * WIN_ROUNDING) / WIN_ROUNDING
 }
-
-/** SAN for display only. An unparsable move is shown as its UCI rather than failing the analysis. */
-private fun sanOf(
-    fen: String,
-    uci: String?,
-    side: Side,
-): String? =
-    uci?.let {
-        runCatching { MoveList(fen).apply { add(Move(it, side)) }.toSanArray().first() }.getOrNull() ?: it
-    }
 
 /**
  * Analysis' OWN single thread, distinct from the camera analyzer executor, the frame pipeline and
