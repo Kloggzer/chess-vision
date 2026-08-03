@@ -6,6 +6,11 @@
 | 01 — the game you review | `done` | built and tested; **never exercised by a human on real data**, because 00 produced nothing to review |
 | 02 — the clip the harnesses run | `partial` | `--adopt` + the Kotlin margin defect are done; excerpts and the real manifest entry are **blocked** — there is no confirmable candidate |
 
+> **Read the 2026-08-03 section first.** The headline below is correct that the replay commits
+> nothing, and WRONG about why: it blames `SquareNoise` and clears the quad. Both were re-measured
+> on 2026-08-03 — 0 of 64 squares are stuck at the noise init, and the quad was never measured at
+> all, because only three of the four markers decode on this video. Kept for its numbers.
+
 ## The headline measurement, and it is not the one the pack expected
 
 **The 2026-08-02 game commits nothing.** 9576 frames, 5:19, the shipped `id35-80` twin
@@ -16,7 +21,7 @@ Everything that was suspected first was measured and cleared:
 
 | Suspicion | Measurement | Verdict |
 |---|---|---|
-| the quad is wrong | p90 **0.93** rectified px against the median quad | cleared |
+| the quad is wrong | p90 **0.93** rectified px against the median quad | ~~cleared~~ **VOID** — spread about the median of consistently-wrong quads is precision, not accuracy |
 | the board is transposed / not at the start | frame 0 warped and labelled; start position, a8 top-left | cleared |
 | `margin` is wrong | checkerboard light/dark separation **131-132** at every margin 0.00-0.10 | cleared, and margin barely bites on this footage |
 | the source is variable-rate | p90 **0.000 ms**, one dropped frame in 9576 | cleared |
@@ -132,7 +137,56 @@ while any move is red; or the tier counts not summing to the ply count.
   candidate records the CNN-attached 3/2/1. Nothing depends on it yet — no real entry exists —
   but the first one will.
 
-## Why the replay commits nothing — traced 2026-08-03, not fixed
+## The real cause, found 2026-08-03: only THREE markers ever decode
+
+**The video's fourth ArUco marker is clipped by the right image border.** `detect_board_markers`
+returns ids `[0, 1, 3]` on every frame of the 9576; id 2, the `h1` corner, sits at roughly
+(997, 279) in a 1080-wide frame with its outer edge past the boundary, so it never decodes. The
+user said so from memory before any of this was measured, and the crop confirms it.
+
+`resolve_board_corners` answers from two markers up. At three it uses `cv2.getAffineTransform` —
+a PARALLELOGRAM — to stand in for a perspective view of a plane, which cannot be right by
+construction. `raw_corners` then returned it, despite a docstring that has said since the day it
+was written that it "returns None when fewer than four markers resolve, so a frame is skipped
+rather than warped through a guess". Fixed: `min_markers = 4`, and `scan_geometry` now records the
+per-frame marker count.
+
+**Why phase 00 cleared the geometry, and why that verdict was void.** `quad_spread` compares each
+frame's quad against the MEDIAN OF THE SAME QUADS. A consistently wrong quad has excellent spread:
+p90 0.93 rectified px, 99.9 % of frames "detected". Precision measured and reported as accuracy.
+The one measurement that would have caught it — how many markers actually decoded — was the one
+number the run did not print.
+
+## What was measured and is NOT the cause
+
+Recorded because each cost real time and each is now excluded, on this footage:
+
+| Hypothesis | Measurement | Verdict |
+|---|---|---|
+| the gray channel's `exclude_alpha_scale = 0.0` deadlocks the noise model | **0 of 64** squares still at the 6.0 init at t=3/8/20/45 s; every std sits at the 3.0 floor | **wrong** — all 64 learned |
+| the reference frame is a geometric outlier | frame 3 deviates **0.61 px** from the median quad; frames 0-29 all 0.36-1.23 | cleared |
+| the camera refocused after the reference | Laplacian variance over the rectified board: 0.61x-1.08x of the reference, **0.0 %** of the video below half | cleared |
+| exposure drift | board mean luma 73-93 over 5:19, no trend | cleared |
+| the board is not at the start position | per-square means at frame 3: rows 3-6 alternate 26/165 with no piece, rows 1/2/7/8 occupied | cleared, it is the start position |
+| the camera or board moved (piece-top parallax) | phase correlation frame 3 vs 90: **0.11-0.17 px** on piece blocks AND on the empty plane | cleared |
+
+The hot squares themselves: at t=3.0 s, before any move, `a2` z=10.4, `b1` 8.4, `a1` 5.1, `b2` 4.9,
+`c2` 4.2, `c1` 3.9, `b3` 3.2 — against `max_changed = 6`. Note `b3` is an EMPTY square whose crop
+catches the b2 pawn's body (`pad_up`), and that the empty dark squares `a3` 8.2 and `c3` 7.2 differ
+far less than the occupied ones (a2 30.0, b3 29.2, b1 27.1) — the residual is concentrated where
+pieces stand, which is what a mis-fitted plane does to a board of tall pieces.
+
+## The deadlock is still real, and is now a SECOND finding
+
+Whatever put the first squares over the line, the tracker cannot recover from it: the reference is
+only re-anchored on a commit, and a run that has never committed never re-anchors. `z_thr` 6, 10,
+and 6 with `max_changed` 10 all still commit zero. On the phone this never shows because a commit
+happens within seconds and `captureBaseline` is a button; a cold replay has neither. That is worth
+its own fix regardless of this video's markers.
+
+## Superseded — the 2026-08-03 first trace, kept for what it measured
+
+### Why the replay commits nothing — traced 2026-08-03, not fixed
 
 Phase 00 measured it and eliminated the cheap explanations: quad p90 **0.93 rectified px**, board not
 transposed, margin irrelevant (checkerboard separation 131–132 at every value 0.00–0.10), source
