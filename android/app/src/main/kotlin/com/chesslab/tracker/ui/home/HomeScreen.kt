@@ -10,6 +10,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -77,7 +81,18 @@ fun HomeRoute(
     // Refreshed when the tracker stops too: that is the moment a game joins the library.
     LaunchedEffect(running) { model.refresh() }
 
-    ChesslabScaffold("chesslab", onBack = null) { bars ->
+    ChesslabScaffold(
+        "chesslab",
+        onBack = null,
+        // Settings is a destination people go to on purpose and rarely, which is exactly what the
+        // bar's action slot is for. As a row at the bottom of Home it took a full-width seat below
+        // the games — the thing the screen is actually about — for the least frequent act on it.
+        actions = {
+            IconButton(onClick = onOpenSettings) {
+                Icon(Icons.Filled.Settings, contentDescription = "Settings")
+            }
+        },
+    ) { bars ->
         LazyColumn(
             Modifier.fillMaxSize().padding(bars),
             verticalArrangement = Arrangement.spacedBy(Space.sm),
@@ -93,9 +108,6 @@ fun HomeRoute(
                 item(key = "empty") { NoGamesYet() }
             } else {
                 recentGames(ui, onOpenGame, onOpenGames)
-            }
-            item(key = "settings") {
-                DisclosureRow("Settings", "Tracking, analysis, recording and the debug menu", onOpenSettings)
             }
         }
     }
