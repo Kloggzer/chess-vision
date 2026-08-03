@@ -2,6 +2,8 @@ package com.chesslab.tracker.ui.review
 
 import com.chesslab.tracker.analysis.GameGrade
 import com.chesslab.tracker.analysis.GameReviewer
+import com.chesslab.tracker.analysis.MateLineResolver
+import com.chesslab.tracker.analysis.ResolvedMateLine
 import com.chesslab.tracker.analysis.ReviewBudget
 import com.chesslab.tracker.analysis.ReviewStore
 import com.chesslab.tracker.analysis.UciEngine
@@ -28,6 +30,12 @@ data class ReviewUi(
     /** True once a run found no engine binary — the button disappears rather than failing again. */
     val engineMissing: Boolean = false,
 )
+
+/** Archived reviews start at the beginning; only a running game follows its latest position. */
+internal fun initialReviewPly(
+    live: Boolean,
+    plies: Int,
+): Int = if (live) plies else 0
 
 /**
  * The archive source and the grading run behind it.
@@ -57,7 +65,7 @@ class ReviewViewModel(
         scope.launch {
             val stored = withContext(Dispatchers.IO) { store.open(id) }
             val game = stored?.reviewView()
-            focus = game?.plies?.size ?: 0
+            focus = initialReviewPly(game?.live == true, game?.plies?.size ?: 0)
             val stale =
                 game?.let { view ->
                     withContext(Dispatchers.IO) { reviews.load(id, budget, view.plies.size + 1) }
@@ -71,6 +79,18 @@ class ReviewViewModel(
     fun focus(ply: Int) {
         focus = ply
     }
+
+    /** Loads a completed position-hash line, or resolves and persists it once if this is a miss. */
+    suspend fun resolveMateLine(
+        startFen: String,
+        seed: List<String>,
+    ): ResolvedMateLine =
+        withContext(Dispatchers.IO) {
+            reviews.loadMateLine(startFen, budget)?.let { return@withContext it }
+            MateLineResolver(engineFactory, budget).resolve(startFen, seed).also { resolved ->
+                reviews.saveMateLine(startFen, budget, resolved)
+            }
+        }
 
     /** Idempotent while a run is in flight: a second tap must not start a second engine. */
     fun review() {

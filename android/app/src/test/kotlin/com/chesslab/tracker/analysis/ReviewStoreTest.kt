@@ -17,7 +17,7 @@ class ReviewStoreTest {
     @Test
     fun aPartialRunIsStoredAndReloadedWithItsHoles() {
         val store = store()
-        val scores = listOf(Score(20, 30, listOf("e2e4")), null, Score(-40, 28))
+        val scores = listOf(Score(10_000, 30, listOf("e2e4"), mate = 3), null, Score(-40, 28))
         store.save("g1", ReviewBudget(), scores)
         assertEquals(scores, store.load("g1", ReviewBudget(), positions = 3))
     }
@@ -90,5 +90,30 @@ class ReviewStoreTest {
         store.save("g1", ReviewBudget(), listOf(Score(0, 30)))
         store.delete("g1")
         assertNull(store.load("g1", ReviewBudget(), positions = 1))
+    }
+
+    @Test
+    fun aCompletedMateLineIsSharedByPositionAcrossGamesAndRestarts() {
+        val fenAtMove12 = "7k/8/8/8/8/8/6Q1/6K1 w - - 0 12"
+        val samePositionAtMove40 = "7k/8/8/8/8/8/6Q1/6K1 w - - 0 40"
+        val resolved = ResolvedMateLine(listOf("g2g7"), listOf("Qg7#"), complete = true)
+
+        store().saveMateLine(fenAtMove12, ReviewBudget(), resolved)
+
+        assertEquals(resolved, store().loadMateLine(samePositionAtMove40, ReviewBudget()))
+    }
+
+    @Test
+    fun anIncompleteOrDifferentBudgetMateLineIsNeverServedAsComplete() {
+        val fen = "7k/8/8/8/8/8/6Q1/6K1 w - - 0 12"
+        val incomplete = ResolvedMateLine(listOf("g2g7"), listOf("Qg7+"), complete = false)
+        val store = store()
+
+        store.saveMateLine(fen, ReviewBudget(), incomplete)
+        assertNull(store.loadMateLine(fen, ReviewBudget()))
+
+        val complete = ResolvedMateLine(listOf("g2g7"), listOf("Qg7#"), complete = true)
+        store.saveMateLine(fen, ReviewBudget(nodes = 20), complete)
+        assertNull(store.loadMateLine(fen, ReviewBudget(nodes = 30)))
     }
 }
