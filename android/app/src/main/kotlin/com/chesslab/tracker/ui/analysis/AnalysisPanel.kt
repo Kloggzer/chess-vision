@@ -17,8 +17,6 @@ import com.chesslab.tracker.analysis.winChanceWhite
 import com.chesslab.tracker.ui.Figure
 import com.chesslab.tracker.ui.percent
 import com.chesslab.tracker.ui.theme.OnSurface
-import com.chesslab.tracker.ui.Figure
-import com.chesslab.tracker.ui.percent
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
 import kotlin.math.abs

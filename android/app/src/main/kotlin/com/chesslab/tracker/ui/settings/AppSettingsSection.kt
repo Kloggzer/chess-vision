@@ -135,12 +135,12 @@ private fun <T> Choice(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 /**
  * **Primitive — chip group.** A choice among few, all visible at once.
  *
  * Selection is the furniture colour, so it never competes with the screen's one filled button.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun <T> Options(
     options: List<Pair<String, T>>,
@@ -153,4 +153,3 @@ private fun <T> Options(
         }
     }
 }
-
