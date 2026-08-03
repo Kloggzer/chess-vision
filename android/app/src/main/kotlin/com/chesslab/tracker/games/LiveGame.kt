@@ -161,6 +161,31 @@ class LiveGame(
         return true
     }
 
+    /**
+     * The LIVE source. Identical in type to what a stored game replays to, so the review screen and
+     * the LAN page cannot tell a running game from a finished one except by [GameView.live].
+     *
+     * No replay is needed here: every ply already carries the position it produced.
+     */
+    fun view(): GameView =
+        GameView(
+            id = "",
+            live = true,
+            startFen = startFen,
+            result = resultFromFen(currentFen),
+            segments =
+                segments.map { segment ->
+                    ReviewSegment(
+                        startFen = segment.startFen,
+                        plies =
+                            segment.moves.map {
+                                ReviewPly(it.move.ply, it.move.san, it.move.uci, it.fenAfter, it.move.provenance?.decider)
+                            },
+                        enteredBy = segment.enteredBy,
+                    )
+                },
+        )
+
     fun finish(
         id: String,
         finishedAtEpochMs: Long,

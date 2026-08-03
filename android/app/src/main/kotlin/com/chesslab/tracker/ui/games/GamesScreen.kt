@@ -43,6 +43,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 fun GamesRoute(
     onBack: () -> Unit,
     onOpenGame: (String) -> Unit,
+    onOpenLive: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -56,7 +57,7 @@ fun GamesRoute(
             )
         }
     LaunchedEffect(model) { model.refresh() }
-    GamesScreen(model, onBack, onOpenGame)
+    GamesScreen(model, onBack, onOpenGame, onOpenLive)
 }
 
 /** The screen renders before the service is bound; an unbound live game is simply an empty one. */
@@ -67,6 +68,7 @@ private fun GamesScreen(
     model: GamesViewModel,
     onBack: () -> Unit,
     onOpenGame: (String) -> Unit,
+    onOpenLive: () -> Unit,
 ) {
     val ui by model.ui.collectAsStateWithLifecycle()
     val controller by GameSessionHost.controller.collectAsStateWithLifecycle()
@@ -81,10 +83,15 @@ private fun GamesScreen(
         ) {
             item(key = "live") {
                 Card {
-                    LiveGameRow(live.moveCount, live.recordingReason) {
-                        controller?.endAndSave()
-                        model.refresh()
-                    }
+                    LiveGameRow(
+                        moves = live.moveCount,
+                        reason = live.recordingReason,
+                        onOpen = onOpenLive,
+                        onEnd = {
+                            controller?.endAndSave()
+                            model.refresh()
+                        },
+                    )
                 }
             }
             item(key = "recording") { Card { RecordingPanel(ui, model, live) } }
@@ -113,13 +120,18 @@ private fun GamesScreen(
     }
 }
 
+/** The running game is a row like any other — it opens the SAME review screen, still live. */
 @Composable
 private fun LiveGameRow(
     moves: Int,
     reason: String?,
+    onOpen: () -> Unit,
     onEnd: () -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Column(
+        Modifier.fillMaxWidth().clickable(onClick = onOpen),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 if (moves == 0) "No game in progress" else "Game in progress — $moves moves",

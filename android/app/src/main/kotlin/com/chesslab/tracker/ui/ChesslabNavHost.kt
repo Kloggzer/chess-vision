@@ -12,12 +12,12 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.chesslab.tracker.service.TrackerRestartHost
-import com.chesslab.tracker.spectate.ui.SpectatorScreen
 import com.chesslab.tracker.speech.ui.SpeechSettingsScreen
 import com.chesslab.tracker.ui.camera.CameraRoute
 import com.chesslab.tracker.ui.debug.DebugRoute
-import com.chesslab.tracker.ui.games.GameDetailRoute
 import com.chesslab.tracker.ui.games.GamesRoute
+import com.chesslab.tracker.ui.review.ArchiveReviewRoute
+import com.chesslab.tracker.ui.review.LiveReviewRoute
 import com.chesslab.tracker.ui.settings.SettingsRoute
 import com.chesslab.tracker.ui.tracking.TrackingRoute
 
@@ -34,10 +34,14 @@ const val ROUTE_CALIBRATION = "calibration"
 const val ROUTE_CAMERA = "camera"
 const val ROUTE_SETTINGS = "settings"
 const val ROUTE_DEBUG = "debug"
-const val ROUTE_ANALYSIS = "analysis"
 const val ROUTE_GAMES = "games"
-const val ROUTE_GAME_DETAIL = "game"
-const val ROUTE_SPECTATOR = "spectator"
+
+/**
+ * The one review surface, twice. `review` is the running game — what used to be the "spectator"
+ * screen, which was in fact only the Wi-Fi switch and never showed a board. `review/{id}` is a
+ * stored game. Same composable, same board, same move list; the source is the whole difference.
+ */
+const val ROUTE_REVIEW = "review"
 const val ROUTE_SPEECH = "speech"
 
 @Composable
@@ -57,7 +61,7 @@ fun ChesslabNavHost(navController: NavHostController = rememberNavController()) 
                             NavDestination("Board") {},
                             NavDestination("Camera") { navController.navigate(ROUTE_CAMERA) },
                             NavDestination("Games") { navController.navigate(ROUTE_GAMES) },
-                            NavDestination("Spectator") { navController.navigate(ROUTE_SPECTATOR) },
+                            NavDestination("Spectator") { navController.navigate(ROUTE_REVIEW) },
                             NavDestination("Speech") { navController.navigate(ROUTE_SPEECH) },
                             NavDestination("Settings") { navController.navigate(ROUTE_SETTINGS) },
                         ),
@@ -97,17 +101,20 @@ fun ChesslabNavHost(navController: NavHostController = rememberNavController()) 
         composable(ROUTE_GAMES) {
             GamesRoute(
                 onBack = { navController.popBackStack() },
-                onOpenGame = { navController.navigate("$ROUTE_GAME_DETAIL/$it") },
+                onOpenGame = { navController.navigate("$ROUTE_REVIEW/$it") },
+                onOpenLive = { navController.navigate(ROUTE_REVIEW) },
             )
         }
-        composable("$ROUTE_GAME_DETAIL/{id}") { entry ->
-            GameDetailRoute(
+        composable(ROUTE_REVIEW) { LiveReviewRoute(onBack = { navController.popBackStack() }) }
+        composable("$ROUTE_REVIEW/{id}") { entry ->
+            ArchiveReviewRoute(
                 id = entry.arguments?.getString("id").orEmpty(),
                 onBack = { navController.popBackStack() },
             )
         }
-        composable(ROUTE_SPECTATOR) { SpectatorScreen(onBack = { navController.popBackStack() }) }
         composable(ROUTE_SPEECH) { SpeechSettingsScreen(onBack = { navController.popBackStack() }) }
-        // TODO(phase 07c) composable(ROUTE_ANALYSIS)
+        // No analysis route, and there will not be one: 07c shipped the eval bar as a SLOT beside
+        // the board (`EvalBarSlot`), which is where an evaluation belongs. `ROUTE_ANALYSIS` and its
+        // TODO sat here unreferenced through the whole of 07c and everything after it.
     }
 }

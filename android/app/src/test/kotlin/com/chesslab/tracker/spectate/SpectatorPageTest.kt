@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class SpectatorPageTest {
-    private val page = spectatorPageHtml(gameSnapshot(status(fen = KNOWN_FEN), listOf(PlayedMove("e4", "e2e4")), 1L))
+    private val page = spectatorPageHtml(gameSnapshot(status(fen = KNOWN_FEN), played("e4" to "e2e4"), 1L))
 
     @Test
     fun pageHasNoExternalReferences() {
