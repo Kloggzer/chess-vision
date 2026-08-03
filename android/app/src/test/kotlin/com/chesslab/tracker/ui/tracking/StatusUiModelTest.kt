@@ -116,6 +116,25 @@ class StatusUiModelTest {
         assertEquals("camera 30", dropping.fpsDetail)
     }
 
+    /**
+     * Not tracking is not the same as a paused camera, and neither may be reported as engine state.
+     *
+     * The app now opens with no service at all (specs/43), so the header's top rung is "there is no
+     * tracker" — a stale "WAITING · 14.8 fps" over nothing at all is the lie this outranks.
+     */
+    @Test
+    fun notTrackingOutranksThePausedCameraAndEveryEngineState() {
+        val off = trackingUiState(status(state = STATE_MOVING, fps = 14.8), tracking = false)
+        assertEquals("NOT TRACKING", off.stateText)
+        assertEquals(StateTone.Idle, off.tone)
+        assertEquals("camera off", off.fpsText)
+        assertNull(off.fpsDetail)
+        // A paused camera keeps its game and says so; no tracker has none to keep.
+        val paused = trackingUiState(status(fps = 14.8), cameraOn = false)
+        assertEquals("STOPPED", paused.stateText)
+        assertNotEquals(paused.infoLine, off.infoLine)
+    }
+
     @Test
     fun changedShadowAndOcclusionSetsMapToThreeDistinctOverlayLayers() {
         val ui =

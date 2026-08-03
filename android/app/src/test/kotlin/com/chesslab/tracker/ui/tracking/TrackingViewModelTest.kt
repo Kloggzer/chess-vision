@@ -205,6 +205,29 @@ class TrackingViewModelTest {
             assertEquals("WAITING", vm.ui.value.stateText)
         }
 
+    /**
+     * Stopping the tracker leaves the Board tab on the position it had.
+     *
+     * The session goes away with the service, and the fallback used to be the START position — so a
+     * stopped game snapped back to a board nobody had played, which reads as data loss.
+     */
+    @Test
+    fun theBoardKeepsItsPositionWhenTheServiceGoes() =
+        runTest(dispatcher) {
+            val session = FakeTrackerSession()
+            val vm = TrackingViewModel()
+            vm.attach(session)
+            val played = "8/8/8/8/8/8/8/K6k w - - 0 1"
+            session.status.value = fenStatus(played)
+            advanceUntilIdle()
+
+            vm.attach(NoTrackerSession)
+            vm.tracking = false
+            advanceUntilIdle()
+            assertEquals(played, vm.ui.value.fen)
+            assertEquals("NOT TRACKING", vm.ui.value.stateText)
+        }
+
     @Test
     fun doesNotCollectStatusMoreThanOnce() =
         runTest(dispatcher) {
