@@ -38,6 +38,11 @@ data class ReviewUi(
  * state is the file store. It used to say "this survives nothing", and that was the complaint —
  * every second of engine time died with the screen. It now survives in [ReviewStore], keyed by the
  * budget that produced it, and a re-opened game is graded from disk in one read.
+ *
+ * Since specs/50 the RUN survives too, because the scope is the process ([ReviewHost]) and not the
+ * composition. Which is why [load] is a no-op for the game already open: it is called from a
+ * `LaunchedEffect` every time the screen is entered, and a reload would have thrown away the run it
+ * came back to watch.
  */
 class ReviewViewModel(
     private val store: GameStore,
@@ -59,6 +64,10 @@ class ReviewViewModel(
     private var focus: Int = 0
 
     fun load(id: String) {
+        if (mutable.value.game?.id == id) return
+        // A different game: one review at a time, and the positions already scored are on disk.
+        running?.cancel()
+        running = null
         scope.launch {
             val stored = withContext(Dispatchers.IO) { store.open(id) }
             val game = stored?.reviewView()
@@ -109,6 +118,28 @@ class ReviewViewModel(
                         engineMissing = !started && game.plies.isNotEmpty(),
                     )
             }
+    }
+
+    /**
+     * Stops the run and keeps what it scored — the counterpart of the run outliving the screen.
+     *
+     * Every scored position is already on disk, so this loses at most the search in flight and
+     * `Continue review` picks the rest up.
+     */
+    fun stop() {
+        running?.cancel()
+        running = null
+        mutable.value = mutable.value.copy(running = false)
+    }
+
+    /**
+     * The game is gone. Since the run outlives the screen, one still grading a DELETED record would
+     * go on writing `<id>.analysis.json` for a game that no longer exists.
+     */
+    fun forget(id: String) {
+        if (mutable.value.game?.id != id) return
+        stop()
+        mutable.value = ReviewUi()
     }
 
     /** Throws the stored analysis away and starts again — the only way to re-search a graded game. */
