@@ -586,14 +586,15 @@ private fun ReviewEvalBar(winWhite: Double?) {
 }
 
 /**
- * What the engine is doing, on EVERY tab — or null once there is nothing left to say.
+ * What the engine is doing, on EVERY tab — or null when the screen owes the reader nothing.
  *
- * Null is the common case: a finished review has no state worth a card. The other four are the
- * states in which the screen owes the reader either an action or a number.
+ * Null twice over. A FINISHED review has no state worth a card. A run IN FLIGHT has one, but it is
+ * not this screen's to draw: the run outlives the screen now, so it is reported by the app bar's
+ * analysis banner, which is pinned, appears on every screen and carries the only Stop there is.
+ * Drawing it here as well put two progress bars and two counts one above the other.
  */
 internal enum class AnalysisPhase {
     MISSING_ENGINE,
-    RUNNING,
     NOT_STARTED,
 
     /** Scored, but not to the end — a run was stopped, or the screen was left before specs/50. */
@@ -604,7 +605,7 @@ internal fun analysisPhase(ui: ReviewUi): AnalysisPhase? {
     val grade = ui.grade
     return when {
         ui.engineMissing -> AnalysisPhase.MISSING_ENGINE
-        ui.running -> AnalysisPhase.RUNNING
+        ui.running -> null
         grade == null -> AnalysisPhase.NOT_STARTED
         !grade.complete -> AnalysisPhase.PARTIAL
         else -> null
@@ -612,12 +613,10 @@ internal fun analysisPhase(ui: ReviewUi): AnalysisPhase? {
 }
 
 /**
- * The one card that starts, reports and resumes the engine pass.
+ * The one card that starts or resumes the engine pass.
  *
  * Reviewing is what an unread game's screen is FOR, so by specs/48 rule 3 it is the filled button —
  * it was a bare `TextAction` with no visible hit area, inside the one tab that also hid the progress.
- * There is no Stop here on purpose: the run outlives this screen, so its Stop belongs where it can
- * be reached from anywhere, which is the app bar's analysis banner.
  */
 @Composable
 private fun AnalysisState(
@@ -633,21 +632,6 @@ private fun AnalysisState(
                 Text("Not reviewed yet.", style = MaterialTheme.typography.bodyMedium, color = OnSurface)
                 FilledAction("Review this game", onReview)
             }
-            // Not a spinner over an empty screen: what is graded already stays readable underneath,
-            // and this only says how much more is coming. A full pass is minutes, which is the band
-            // where NN/g's rule asks for a percent-done rather than an animation.
-            AnalysisPhase.RUNNING -> {
-                LinearProgressIndicator(
-                    { (grade?.scored ?: 0).toFloat() / (grade?.positions ?: 1) },
-                    Modifier.fillMaxWidth(),
-                    color = Accent,
-                )
-                Text(
-                    progressLine(grade?.scored, grade?.positions),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = OnSurfaceMuted,
-                )
-            }
             // A partial review must never look like a finished one. It is the state a stopped run
             // leaves, and before specs/50 it was also what leaving the screen left, silently.
             AnalysisPhase.PARTIAL -> {
@@ -661,16 +645,6 @@ private fun AnalysisState(
         }
     }
 }
-
-internal fun progressLine(
-    scored: Int?,
-    positions: Int?,
-): String =
-    if (scored == null || positions == null) {
-        "Starting the engine…"
-    } else {
-        "Reading the game around the move you are on · $scored / $positions"
-    }
 
 /**
  * The rating, and the first thing on the tab the screen opens on.
@@ -773,25 +747,28 @@ private fun PlyVerdict(
     onExploreMate: () -> Unit,
 ) {
     Card {
-        Row(
-            Modifier.fillMaxWidth().height(VERDICT_HEIGHT),
-            horizontalArrangement = Arrangement.spacedBy(Space.sm),
-        ) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.hair)) {
-                when {
-                    selected == 0 || san == null ->
-                        Text("Starting position", style = MaterialTheme.typography.bodyMedium, color = OnSurface)
-                    ply == null ->
-                        Text(
-                            "$san · ${if (grade == null) "not reviewed" else "analysing…"}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = OnSurfaceMuted,
-                        )
-                    else -> Verdict(ply, san)
+        // The HEIGHT is on the column, so the mate link takes its band out of the two columns above
+        // rather than adding to them. The card is the same height at every ply either way.
+        Column(Modifier.fillMaxWidth().height(VERDICT_HEIGHT)) {
+            Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.hair)) {
+                    when {
+                        selected == 0 || san == null ->
+                            Text("Starting position", style = MaterialTheme.typography.bodyMedium, color = OnSurface)
+                        ply == null ->
+                            Text(
+                                "$san · ${if (grade == null) "not reviewed" else "analysing…"}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = OnSurfaceMuted,
+                            )
+                        else -> Verdict(ply, san)
+                    }
                 }
-                mateHint?.let { MateLink(it, onExploreMate) }
+                EngineColumn(fromHere?.bestSan, Modifier.weight(1f))
             }
-            EngineColumn(fromHere?.bestSan, Modifier.weight(1f))
+            // Full width, under both columns: at half a card "Missed mate in 6 — see the line" was
+            // cut off after "see the".
+            mateHint?.let { MateLink(it, onExploreMate) }
         }
     }
 }

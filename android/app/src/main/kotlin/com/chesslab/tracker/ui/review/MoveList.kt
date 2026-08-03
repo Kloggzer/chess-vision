@@ -249,11 +249,10 @@ private fun PositionCell(
     ) {
         // The number sits BESIDE the bar, never on it. Drawn inside, the fill's own boundary ran
         // straight through it — rows 6-8 of the shipped screen read `73| %`, `68| %`, `67| %`.
-        Figure(
-            positionLeadLabel(winWhite, mate),
-            trendColor,
-            Modifier.weight(1f),
-        )
+        // Right-aligned, so `4 %` and `52 %` line up on the unit and neither drifts off the bar.
+        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+            Figure(positionLeadLabel(winWhite, mate), trendColor)
+        }
         // A forced mate takes the whole cell: the bar is a share out of 100 and it has nothing left
         // to say once the game is decided, while "Mate in 6" needs every pixel of the column.
         if (mate == null) {
