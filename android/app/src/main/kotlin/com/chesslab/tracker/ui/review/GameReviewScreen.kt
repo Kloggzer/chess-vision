@@ -31,7 +31,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.analysis.GameGrade
 import com.chesslab.tracker.analysis.MoveQuality
 import com.chesslab.tracker.analysis.PlyGrade
-import com.chesslab.tracker.games.GameSessionState
 import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.games.GameView
 import com.chesslab.tracker.ui.ChesslabScaffold
@@ -45,10 +44,6 @@ import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.tracking.BoardCanvas
-import kotlinx.coroutines.flow.MutableStateFlow
-
-/** The screen renders before the service is bound; an unbound live game is simply an empty one. */
-private val NO_LIVE_GAME = MutableStateFlow(GameSessionState())
 
 /**
  * The LIVE source. The spectator view is this screen with the game still running — "die spectator
@@ -56,11 +51,25 @@ private val NO_LIVE_GAME = MutableStateFlow(GameSessionState())
  *
  * The Wi-Fi share card lives here rather than on a screen of its own, because what it shares IS
  * this board and this move list.
+ *
+ * With no tracker there is no live game, and this says so. It used to fall back to an empty
+ * `GameView` — a start position rendered as if it were the state of a board somebody was playing on.
  */
 @Composable
 fun LiveReviewRoute(onBack: () -> Unit) {
     val controller by GameSessionHost.controller.collectAsStateWithLifecycle()
-    val live by (controller?.state ?: NO_LIVE_GAME).collectAsStateWithLifecycle()
+    val session = controller
+    if (session == null) {
+        ChesslabScaffold("Live game", onBack) { bars ->
+            Text(
+                "No game running. Start tracking on the Board tab to play one.",
+                Modifier.padding(bars).padding(12.dp),
+                color = OnSurfaceMuted,
+            )
+        }
+        return
+    }
+    val live by session.state.collectAsStateWithLifecycle()
     GameReviewScreen(title = "Live game", game = live.game, onBack = onBack) { SpectatorShareCard() }
 }
 
