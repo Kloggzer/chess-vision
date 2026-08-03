@@ -206,7 +206,8 @@ def profile_from_frame(frame, profile: str, *, board_size: int = 1000,
     res = resolve_board_corners(pts, board_size=board_size)
     if res is None:
         return None
-    corners, _n_used = res
+    corners, n_used = res
+    _warn_degraded(n_used)
     h, w = frame.shape[:2]
     prof = CalibrationProfile(
         profile=profile,
@@ -749,7 +750,40 @@ def board_corners_for_frame(frame, profile: CalibrationProfile, tracker: MarkerT
             pts[m] = [pts[prev_i][0] + pts[next_i][0] - pts[opp_i][0],
                       pts[prev_i][1] + pts[next_i][1] - pts[opp_i][1]]
     res = resolve_board_corners(pts, board_size=profile.board_size)
-    return res[0] if res is not None else None
+    if res is None:
+        return None
+    _warn_degraded(res[1])
+    return res[0]
+
+
+#: Marker counts already warned about, so a live tracker at three markers logs once rather than
+#: thirty times a second. Reset is not worth a mechanism: the set holds at most three ints.
+_DEGRADED_WARNED: set[int] = set()
+
+
+def _warn_degraded(n_used: int) -> None:
+    """Say LOUDLY, once per count, that this quad is a reconstruction and not a measurement.
+
+    `resolve_board_corners` answers from two markers up: four is an exact perspective transform,
+    three degrades to `cv2.getAffineTransform` — a PARALLELOGRAM standing in for a perspective view
+    of a plane, which cannot be right by construction — and two to a similarity that assumes the
+    board is square in the image. None of that failed anywhere, which is the problem: the
+    2026-08-02 game ran its whole length on three markers with 27-33 px of square-edge error on a
+    100 px cell, and every count downstream looked healthy.
+
+    A warning and not a refusal, because since 2026-08-03 a degraded quad is a usable COARSE seed —
+    `alignment.refine_quad` fits the board's own grid on top of it and takes the same footage to
+    2.0 px. What must never happen again is it passing silently.
+    """
+    if n_used >= 4 or n_used in _DEGRADED_WARNED:
+        return
+    _DEGRADED_WARNED.add(n_used)
+    shape = "an affine parallelogram" if n_used == 3 else "a similarity (square-board assumption)"
+    log.warning(
+        "only %d of 4 ArUco markers resolved — the corner quad is %s, not a measured perspective. "
+        "Expect tens of pixels of square-edge error until the board's grid corrects it "
+        "(alignment.refine_quad). Check that all four markers are fully inside the frame.",
+        n_used, shape)
 
 
 def warp_from_corners(frame, profile: CalibrationProfile, corners, target_size: int | None = None):
