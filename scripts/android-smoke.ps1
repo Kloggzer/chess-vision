@@ -47,15 +47,19 @@ function Wait-ForTextPattern([string]$Pattern, [int]$TimeoutSeconds = 45) {
 
 & $uiScript stop -Serial $Serial -ArtifactDir $ArtifactDir | Out-Null
 & $uiScript launch -Serial $Serial -ArtifactDir $ArtifactDir | Out-Host
-Wait-ForText "Start tracking"
+# specs/47: the app opens on Home, not on the tracker. There is no tab row and no bottom bar —
+# three destinations, and the two that are not the tracker are rows on this screen.
+Wait-ForText "Start a game"
 
 [xml]$document = Get-Content -LiteralPath $dumpPath -Raw
 $visible = @($document.SelectNodes("//node")) | ForEach-Object { $_.GetAttribute("text") }
-foreach ($label in @("Board", "Camera", "Games", "Settings")) {
-    if ($visible -notcontains $label) { throw "Main navigation label '$label' is missing." }
+foreach ($label in @("Start a game", "Games", "Settings")) {
+    if ($visible -notcontains $label) { throw "Home destination '$label' is missing." }
 }
 
 if (-not $LaunchOnly) {
+    & $uiScript tap-text -Serial $Serial -Text "Start a game" -ArtifactDir $ArtifactDir | Out-Host
+    Wait-ForText "Start tracking" 30
     & $uiScript tap-text -Serial $Serial -Text "Start tracking" -ArtifactDir $ArtifactDir | Out-Host
     Wait-ForText "Stop tracking" 45
     $cameraRate = Wait-ForTextPattern '^camera [0-9]+(?:\.[0-9]+)? fps$' 60

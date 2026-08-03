@@ -38,9 +38,18 @@ class CalibrationHost(
 
 val LocalCalibrationHost = staticCompositionLocalOf<CalibrationHost?> { null }
 
-/** Provided by whoever owns the service binding, around the nav host. */
+/**
+ * Provided by whoever owns the service binding, around the nav host.
+ *
+ * [host] is NULLABLE and the provider is unconditional, and that is load-bearing: `content` must be
+ * called from exactly ONE position in the composition. Calling it bare while unbound and inside a
+ * provider once bound made those two different positions, so Compose discarded the whole subtree
+ * when the binder arrived — `rememberNavController` with it. Until specs/47 the start destination
+ * was the tracker and the reset was invisible; with Home as the start destination, tapping "Start
+ * tracking" bound the service and threw the user straight back to the dashboard.
+ */
 @Composable
 fun ProvideCalibrationHost(
-    host: CalibrationHost,
+    host: CalibrationHost?,
     content: @Composable () -> Unit,
 ) = CompositionLocalProvider(LocalCalibrationHost provides host, content = content)
