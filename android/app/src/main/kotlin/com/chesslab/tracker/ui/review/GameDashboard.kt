@@ -4,18 +4,21 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import com.chesslab.tracker.analysis.GameGrade
-import com.chesslab.tracker.games.GameView
 import com.chesslab.tracker.ui.Card
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 
+/**
+ * The mates in this game — and NOT the result again.
+ *
+ * It opened with [resultHeadline] until specs/50, which was fine while the rating card was on
+ * another tab. specs/48 moved them together and the Moments tab then read "White wins" twice, in two
+ * stacked cards.
+ */
 @Composable
-internal fun MateStoryCard(
-    game: GameView,
-    grade: GameGrade,
-) {
+internal fun MateStoryCard(grade: GameGrade) {
     Card {
-        Text(resultHeadline(game.result), style = MaterialTheme.typography.titleMedium, color = OnSurface)
+        Text("Mating chances", style = MaterialTheme.typography.titleMedium, color = OnSurface)
         Text(mateStory(grade), style = MaterialTheme.typography.bodyMedium, color = OnSurface)
         Text(
             forcedMateStory(grade.forcedMatePlies),

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -53,7 +54,11 @@ import com.chesslab.tracker.ui.theme.Surface
 import com.chesslab.tracker.ui.theme.SurfaceRaised
 import kotlin.math.abs
 
-private val POSITION_COLUMN_WIDTH = 94.dp
+/** 94 dp until specs/50, when the number moved out of the bar and needed a column of its own. */
+private val POSITION_COLUMN_WIDTH = 104.dp
+
+/** What is left of the column beside the label: enough fill to read a share at a glance. */
+private val POSITION_BAR_WIDTH = 48.dp
 private val MOVE_ROW_HEIGHT = 52.dp
 private val MOVE_NUMBER_WIDTH = 34.dp
 
@@ -237,19 +242,24 @@ private fun PositionCell(
             winWhite >= EVEN -> OnSurface
             else -> Danger
         }
-    Box(
-        modifier =
-            Modifier
-                .width(POSITION_COLUMN_WIDTH)
-                .height(MOVE_ROW_HEIGHT)
-                .clip(RoundedCornerShape(Radius.sm)),
+    Row(
+        modifier = Modifier.width(POSITION_COLUMN_WIDTH).height(MOVE_ROW_HEIGHT),
+        horizontalArrangement = Arrangement.spacedBy(Space.xs),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        HorizontalPositionBackground(winWhite)
-        Figure(
-            positionLeadLabel(winWhite, mate),
-            trendColor,
-            Modifier.align(Alignment.CenterStart).padding(horizontal = Space.sm),
-        )
+        // The number sits BESIDE the bar, never on it. Drawn inside, the fill's own boundary ran
+        // straight through it — rows 6-8 of the shipped screen read `73| %`, `68| %`, `67| %`.
+        // Right-aligned, so `4 %` and `52 %` line up on the unit and neither drifts off the bar.
+        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+            Figure(positionLeadLabel(winWhite, mate), trendColor)
+        }
+        // A forced mate takes the whole cell: the bar is a share out of 100 and it has nothing left
+        // to say once the game is decided, while "Mate in 6" needs every pixel of the column.
+        if (mate == null) {
+            Box(Modifier.width(POSITION_BAR_WIDTH).fillMaxHeight().clip(RoundedCornerShape(Radius.sm))) {
+                HorizontalPositionBackground(winWhite)
+            }
+        }
     }
 }
 

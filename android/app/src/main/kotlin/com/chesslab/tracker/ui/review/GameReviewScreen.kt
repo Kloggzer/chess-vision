@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,7 +37,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,23 +50,21 @@ import com.chesslab.tracker.analysis.GameGrade
 import com.chesslab.tracker.analysis.MoveQuality
 import com.chesslab.tracker.analysis.PlyGrade
 import com.chesslab.tracker.analysis.ResolvedMateLine
-import com.chesslab.tracker.analysis.ReviewStore
 import com.chesslab.tracker.analysis.SideSummary
 import com.chesslab.tracker.analysis.lineFrames
 import com.chesslab.tracker.analysis.missedMate
-import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.games.GameView
 import com.chesslab.tracker.ui.Card
 import com.chesslab.tracker.ui.ChesslabScaffold
 import com.chesslab.tracker.ui.DisclosureRow
 import com.chesslab.tracker.ui.Figure
+import com.chesslab.tracker.ui.FilledAction
+import com.chesslab.tracker.ui.OutlineAction
 import com.chesslab.tracker.ui.SeverityStripe
 import com.chesslab.tracker.ui.TextAction
 import com.chesslab.tracker.ui.analysis.BAR_WIDTH
 import com.chesslab.tracker.ui.analysis.EvalFill
 import com.chesslab.tracker.ui.analysis.SLOT_WIDTH
-import com.chesslab.tracker.ui.analysis.stockfishEngineFactory
-import com.chesslab.tracker.ui.games.gamesDir
 import com.chesslab.tracker.ui.percent
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Busy
@@ -125,12 +123,9 @@ fun ArchiveReviewRoute(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val model =
-        remember(context) {
-            val dir = gamesDir(context)
-            ReviewViewModel(GameStore(dir), ReviewStore(dir), stockfishEngineFactory(context.applicationContext), scope)
-        }
+    // NOT `rememberCoroutineScope()`: that tied a multi-minute grading pass to this composition, so
+    // leaving the screen cancelled it without a word. See [ReviewHost].
+    val model = remember(context) { ReviewHost.of(context) }
     LaunchedEffect(id) { model.load(id) }
     val ui by model.ui.collectAsStateWithLifecycle()
     val game = ui.game
@@ -173,6 +168,13 @@ private fun GameReviewScreen(
                     onSelect = { section = it },
                 )
             }
+            // Whether the engine has read this game is a property of the SCREEN, not of one tab.
+            // It used to live inside `AccuracyRow` under Moments only, so a user on the board tab
+            // tapped a text link in a section they could not see and nothing appeared to happen:
+            // "clicking the review button does not give me an indicator whatsoever" (2026-08-04).
+            analysisPhase(ui)?.let { phase ->
+                item(key = "analysis") { AnalysisState(phase, grade, model::review) }
+            }
             when (section) {
                 ReviewSection.REVIEW -> {
                     item(key = "board") { ReviewBoard(game, review.selected, grade, review.fromHere) }
@@ -180,13 +182,13 @@ private fun GameReviewScreen(
                     item(key = "nav") { PlyNav(review.selected, game.plies.size) { seek = it } }
                     item(key = "details") { Details(ui, game, review.selected, onDiscard = model::discard) }
                 }
-                // The rating leads on the tab the screen opens on. It is the answer to "how did I
-                // do", it is the one thing the user asked for by name, and it is also where the
-                // engine is started from when nothing has been graded yet.
+                // The rating leads on the tab the screen opens on: it is the answer to "how did I
+                // do" and the one thing the user asked for by name. STARTING the engine is not here
+                // any more — that is the whole screen's business and it is above this `when`.
                 ReviewSection.MOMENTS -> {
-                    item(key = "summary") { AccuracyRow(ui, game, onReview = model::review) }
+                    grade?.let { item(key = "summary") { AccuracyRow(it, game) } }
                     item(key = "moments") {
-                        KeyMoments(game, grade) {
+                        KeyMoments(grade) {
                             seek = it
                             section = ReviewSection.REVIEW
                         }
@@ -386,8 +388,15 @@ private fun LazyListScope.movesSection(
         maxRows = if (allMoves) null else TOP_MOVE_ROWS,
     )
     if (game.plies.size > TOP_MOVE_ROWS * 2) {
+        // An OUTLINE button, not a text link. Text is the rank for navigation inside a card; this is
+        // the only way out of a truncated list, and *"ich finde es schwierig die clickzone zu
+        // ermitteln"* is what a link with no visible edge costs at the end of a long table.
         item(key = "moves-toggle") {
-            TextAction(if (allMoves) "Show fewer" else "Show all ${game.plies.size} moves", onToggle)
+            OutlineAction(
+                if (allMoves) "Show fewer" else "Show all ${game.plies.size} moves",
+                onToggle,
+                Modifier.padding(top = Space.sm),
+            )
         }
     }
 }
@@ -440,6 +449,16 @@ private fun ReviewTabs(
     }
 }
 
+/**
+ * The width kept clear for a count on BOTH sides of every label.
+ *
+ * Three digits of [com.chesslab.tracker.ui.theme.Figures] plus the gap. It is reserved on the empty
+ * side too, and that is the point: with the pair centred, a label shifted left by half its own
+ * count, so `Moments` and `Moves` sat off the centre of their tab and `Review` did not — the three
+ * labels did not line up with each other or with the underline. What is centred is the LABEL.
+ */
+private val TAB_COUNT_SLOT = 32.dp
+
 @Composable
 private fun ReviewTab(
     label: String,
@@ -454,10 +473,17 @@ private fun ReviewTab(
     Column(modifier.selectable(selected = active, role = Role.Tab, onClick = { onSelect(section) })) {
         Row(
             Modifier.fillMaxWidth().padding(vertical = Space.md),
-            horizontalArrangement = Arrangement.spacedBy(Space.xs, Alignment.CenterHorizontally),
+            horizontalArrangement = Arrangement.Center,
         ) {
-            Text(label, style = MaterialTheme.typography.labelMedium, color = tint)
-            count?.let { Figure("$it", tint) }
+            Spacer(Modifier.width(TAB_COUNT_SLOT))
+            // `alignByBaseline`, because the count is a different FACE at the same size: box-aligned
+            // it floated above the word beside it, which is what "off center" was.
+            Text(label, style = MaterialTheme.typography.labelMedium, color = tint, modifier = Modifier.alignByBaseline())
+            Figure(
+                count?.toString().orEmpty(),
+                tint,
+                Modifier.width(TAB_COUNT_SLOT).padding(start = Space.xs).alignByBaseline(),
+            )
         }
         Box(Modifier.fillMaxWidth().height(Stroke.thick).background(if (active) Accent else Color.Transparent))
     }
@@ -560,60 +586,93 @@ private fun ReviewEvalBar(winWhite: Double?) {
 }
 
 /**
- * The rating, and the only thing above the board.
+ * What the engine is doing, on EVERY tab — or null when the screen owes the reader nothing.
+ *
+ * Null twice over. A FINISHED review has no state worth a card. A run IN FLIGHT has one, but it is
+ * not this screen's to draw: the run outlives the screen now, so it is reported by the app bar's
+ * analysis banner, which is pinned, appears on every screen and carries the only Stop there is.
+ * Drawing it here as well put two progress bars and two counts one above the other.
+ */
+internal enum class AnalysisPhase {
+    MISSING_ENGINE,
+    NOT_STARTED,
+
+    /** Scored, but not to the end — a run was stopped, or the screen was left before specs/50. */
+    PARTIAL,
+}
+
+internal fun analysisPhase(ui: ReviewUi): AnalysisPhase? {
+    val grade = ui.grade
+    return when {
+        ui.engineMissing -> AnalysisPhase.MISSING_ENGINE
+        ui.running -> null
+        grade == null -> AnalysisPhase.NOT_STARTED
+        !grade.complete -> AnalysisPhase.PARTIAL
+        else -> null
+    }
+}
+
+/**
+ * The one card that starts or resumes the engine pass.
+ *
+ * Reviewing is what an unread game's screen is FOR, so by specs/48 rule 3 it is the filled button —
+ * it was a bare `TextAction` with no visible hit area, inside the one tab that also hid the progress.
+ */
+@Composable
+private fun AnalysisState(
+    phase: AnalysisPhase,
+    grade: GameGrade?,
+    onReview: () -> Unit,
+) {
+    Card {
+        when (phase) {
+            AnalysisPhase.MISSING_ENGINE ->
+                Text("No engine on this device.", style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
+            AnalysisPhase.NOT_STARTED -> {
+                Text("Not reviewed yet.", style = MaterialTheme.typography.bodyMedium, color = OnSurface)
+                FilledAction("Review this game", onReview)
+            }
+            // A partial review must never look like a finished one. It is the state a stopped run
+            // leaves, and before specs/50 it was also what leaving the screen left, silently.
+            AnalysisPhase.PARTIAL -> {
+                Text(
+                    "Partial review · ${grade?.scored} of ${grade?.positions} positions graded.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = OnSurface,
+                )
+                OutlineAction("Continue review", onReview)
+            }
+        }
+    }
+}
+
+/**
+ * The rating, and the first thing on the tab the screen opens on.
  *
  * It states its own denominator because a rating owes one: this game's accuracy is over the moves the
  * app actually watched, in a position that was not already decided.
  */
 @Composable
 private fun AccuracyRow(
-    ui: ReviewUi,
+    grade: GameGrade,
     game: GameView,
-    onReview: () -> Unit,
 ) {
-    val grade = ui.grade
     Card {
-        when {
-            ui.engineMissing ->
-                Text("No engine on this device.", style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
-            grade == null && ui.running ->
-                Text("Starting the engine…", style = MaterialTheme.typography.bodyMedium, color = OnSurface)
-            grade == null ->
-                TextAction("Review this game", onReview)
-            else -> {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(resultHeadline(game.result), style = MaterialTheme.typography.titleMedium, color = OnSurface)
-                    Info("Accuracy", ACCURACY_INFO)
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-                    AccuracyBlock("White", grade.white, Modifier.weight(1f))
-                    AccuracyBlock("Black", grade.black, Modifier.weight(1f))
-                }
-                val graded = grade.white.scored + grade.black.scored
-                val moves = grade.white.plies + grade.black.plies
-                Text(
-                    accuracyDenominator(graded, moves),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = OnSurfaceMuted,
-                    maxLines = 1,
-                )
-                if (ui.running) Progress(grade)
-            }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(resultHeadline(game.result), style = MaterialTheme.typography.titleMedium, color = OnSurface)
+            Info("Accuracy", ACCURACY_INFO)
         }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+            AccuracyBlock("White", grade.white, Modifier.weight(1f))
+            AccuracyBlock("Black", grade.black, Modifier.weight(1f))
+        }
+        Text(
+            accuracyDenominator(grade.white.scored + grade.black.scored, grade.white.plies + grade.black.plies),
+            style = MaterialTheme.typography.labelSmall,
+            color = OnSurfaceMuted,
+            maxLines = 1,
+        )
     }
-}
-
-@Composable
-private fun Progress(grade: GameGrade) {
-    // Not a spinner over an empty screen: what is graded already stays readable underneath, and this
-    // only says how much more is coming. A full pass is minutes, which is the band where NN/g's rule
-    // asks for a percent-done rather than an animation.
-    LinearProgressIndicator({ grade.scored.toFloat() / grade.positions }, Modifier.fillMaxWidth(), color = Accent)
-    Text(
-        "Reading the game around the move you are on · ${grade.scored} / ${grade.positions}",
-        style = MaterialTheme.typography.labelSmall,
-        color = OnSurfaceMuted,
-    )
 }
 
 @Composable
@@ -655,16 +714,27 @@ private fun accuracyColor(accuracy: Double) =
     }
 
 /**
- * The one ply the user is looking at, in words rather than in units — ONE full-width card.
+ * The height the caption is ALWAYS drawn at, and the reason it is a constant.
  *
- * It was two equal-width boxes in a fixed 68 dp row with different vertical alignments, the right
- * one holding three glyphs: the settings gear, a colon and a move. And the two boxes described two
- * different positions — the chip printed [PlyGrade.bestSan], the engine's move in the position
- * BEFORE the ply, while the board beside it drew its arrow for the position ON SCREEN.
+ * The navigation row sits directly under this card and is pressed repeatedly. A card that grows from
+ * one line ("Starting position") to four (move, cost, the engine's reply, a mate link) moves the
+ * arrows under the reader's thumb between one ply and the next — *"mega nervig"*, and *"das ui
+ * springt hin und her"* when a later rewrite dropped the fixed box `a5cdfd1` had put here.
+ */
+private val VERDICT_HEIGHT = 72.dp
+
+/**
+ * The one ply the user is looking at — TWO columns, and each column is one position.
  *
- * Now the card names the move that produced the position on screen and what it cost, and its one
- * engine line is [fromHere] — the SAME move the arrow draws, from the SAME position. There is no
- * second position on this row.
+ * *"die zweispaltigkeit war besser"* (2026-08-04). It was two columns at `a5cdfd1` and became one
+ * full-width stack, which is what made the caption's height a function of its content.
+ *
+ * The split is not cosmetic. **Left is the position BEFORE this ply**: the move that was played,
+ * what it is called, what it cost, and — where there is one — the forced mate that ran from there.
+ * **Right is the position ON SCREEN**: [fromHere], the engine's move from the board the reader is
+ * looking at, and the same move its arrow draws. The removed `ReviewContextChip` put a move for one
+ * of those positions beside a board drawn from the other (specs/44); keeping the two questions in
+ * two columns is what stops that from coming back.
  */
 @Composable
 private fun PlyVerdict(
@@ -677,36 +747,62 @@ private fun PlyVerdict(
     onExploreMate: () -> Unit,
 ) {
     Card {
-        when {
-            selected == 0 || san == null ->
-                Text("Starting position", style = MaterialTheme.typography.bodyMedium, color = OnSurface)
-            ply == null ->
-                Text(
-                    "$san · ${if (grade == null) "not reviewed" else "analysing…"}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = OnSurfaceMuted,
-                )
-            else -> Verdict(ply, san)
-        }
-        // Only when the game did NOT continue with the engine's own move: where it did, the next row
-        // of the score sheet already is the advice and a line repeating it says nothing.
-        fromHere?.bestSan?.let {
-            Text(
-                "The engine plays $it here.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Accent,
-            )
-        }
-        mateHint?.let {
-            val distance = it.mateIn?.let { n -> " in $n" }.orEmpty()
-            Text(
-                text = if (it.missed) "Missed mate$distance — see the line" else "${it.side} · forced mate — see the line",
-                style = MaterialTheme.typography.bodySmall,
-                color = if (it.missed) Danger else Accent,
-                modifier = Modifier.clickable(onClick = onExploreMate).padding(vertical = Space.xs),
-            )
+        // The HEIGHT is on the column, so the mate link takes its band out of the two columns above
+        // rather than adding to them. The card is the same height at every ply either way.
+        Column(Modifier.fillMaxWidth().height(VERDICT_HEIGHT)) {
+            Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.hair)) {
+                    when {
+                        selected == 0 || san == null ->
+                            Text("Starting position", style = MaterialTheme.typography.bodyMedium, color = OnSurface)
+                        ply == null ->
+                            Text(
+                                "$san · ${if (grade == null) "not reviewed" else "analysing…"}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = OnSurfaceMuted,
+                            )
+                        else -> Verdict(ply, san)
+                    }
+                }
+                EngineColumn(fromHere?.bestSan, Modifier.weight(1f))
+            }
+            // Full width, under both columns: at half a card "Missed mate in 6 — see the line" was
+            // cut off after "see the".
+            mateHint?.let { MateLink(it, onExploreMate) }
         }
     }
+}
+
+/** The engine's move from the position on screen, and nothing from any other position. */
+@Composable
+private fun EngineColumn(
+    bestSan: String?,
+    modifier: Modifier = Modifier,
+) {
+    // Only when the game did NOT continue with the engine's own move: where it did, the next row of
+    // the score sheet already is the advice and a line repeating it says nothing.
+    if (bestSan == null) {
+        Box(modifier)
+        return
+    }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(Space.hair)) {
+        Text("The engine plays", style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted)
+        Text(bestSan, style = MaterialTheme.typography.titleMedium, color = Accent, maxLines = 1)
+    }
+}
+
+@Composable
+private fun MateLink(
+    hint: MateLineRequest,
+    onExploreMate: () -> Unit,
+) {
+    val distance = hint.mateIn?.let { " in $it" }.orEmpty()
+    Text(
+        text = if (hint.missed) "Missed mate$distance — see the line" else "${hint.side} · forced mate — see the line",
+        style = MaterialTheme.typography.bodySmall,
+        color = if (hint.missed) Danger else Accent,
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onExploreMate).padding(vertical = Space.xs),
+    )
 }
 
 @Composable
@@ -718,11 +814,8 @@ private fun Verdict(
         Text(san, style = MaterialTheme.typography.titleMedium, color = OnSurface, fontWeight = FontWeight.Bold)
         Text(label(ply.quality), style = MaterialTheme.typography.titleMedium, color = badgeColor(ply.quality))
     }
-    Text(
-        "Winning chances ${percent(ply.winBefore)} → ${percent(ply.winAfter)}",
-        style = MaterialTheme.typography.bodySmall,
-        color = OnSurfaceMuted,
-    )
+    // A figure, because stepping ply by ply is exactly when two numbers must not dance in place.
+    Figure("${percent(ply.winBefore)} → ${percent(ply.winAfter)}", OnSurfaceMuted)
 }
 
 /**
@@ -738,7 +831,6 @@ private fun Verdict(
  */
 @Composable
 private fun KeyMoments(
-    game: GameView,
     grade: GameGrade?,
     onSeek: (Int) -> Unit,
 ) {
@@ -747,7 +839,7 @@ private fun KeyMoments(
     val findings = grade.findings()
     val missed = grade.missedChances()
     Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
-        MateStoryCard(game, grade)
+        MateStoryCard(grade)
         Card {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("What decided the game", style = MaterialTheme.typography.titleSmall, color = OnSurface)
@@ -764,8 +856,9 @@ private fun KeyMoments(
                 )
             }
             findings.take(if (all) findings.size else TOP_FINDINGS).forEach { FindingCard(it, onSeek) }
+            // The same control as the score sheet's, for the same reason it is outlined there.
             if (findings.size > TOP_FINDINGS) {
-                TextAction(if (all) "Show fewer" else "Show all ${findings.size}", { all = !all })
+                OutlineAction(if (all) "Show fewer" else "Show all ${findings.size}", { all = !all })
             }
         }
         if (missed.isNotEmpty()) {

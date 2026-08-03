@@ -53,11 +53,14 @@ Wait-ForText "Start a game"
 
 [xml]$document = Get-Content -LiteralPath $dumpPath -Raw
 $visible = @($document.SelectNodes("//node")) | ForEach-Object { $_.GetAttribute("text") }
+# Settings became an icon-only cog in the app bar, so it has a contentDescription and no text.
+$described = @($document.SelectNodes("//node")) | ForEach-Object { $_.GetAttribute("content-desc") }
 # specs/48: Home is a launcher, so the library row is "All games" — the row that used to read
 # "Games" sat beside a "Games" stat tile counting the same thing, and the tiles moved to Games.
-foreach ($label in @("Start a game", "All games", "Settings")) {
+foreach ($label in @("Start a game", "All games")) {
     if ($visible -notcontains $label) { throw "Home destination '$label' is missing." }
 }
+if ($described -notcontains "Settings") { throw "Home destination 'Settings' is missing." }
 
 if (-not $LaunchOnly) {
     & $uiScript tap-text -Serial $Serial -Text "Start a game" -ArtifactDir $ArtifactDir | Out-Host
