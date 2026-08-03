@@ -26,6 +26,18 @@ private const val MIN_FIT_SAMPLES: Int = 8
 /** Unknowns: the row-major 3x3, up to scale. */
 private const val UNKNOWNS: Int = 9
 
+/** Column where the x-equation's block starts in a DLT row. */
+private const val X_BLOCK: Int = 0
+
+/** Column where the y-equation's block starts. */
+private const val Y_BLOCK: Int = 3
+
+/** Column where the projective row's block starts — shared by both equations. */
+private const val W_BLOCK: Int = 6
+
+/** Index of `h22`, the element the solution is normalised by. */
+private const val H_LAST: Int = UNKNOWNS - 1
+
 /** Huber IRLS: reweight this many times. */
 private const val HUBER_ITERS: Int = 5
 
@@ -60,14 +72,22 @@ internal fun fitProjective(
     src: List<DoubleArray>,
     dst: List<DoubleArray>,
 ): DoubleArray? {
-    val n = src.size
-    if (n < MIN_FIT_SAMPLES || dst.size != n) return null
-    val (ns, ts) = normalise(src) ?: return null
-    val (nd, td) = normalise(dst) ?: return null
-    val h = solveIteratively(ns, nd) ?: return null
-    val tdInv = invert3(td) ?: return null
-    val m = mul3(mul3(tdInv, h), ts)
-    return if (abs(m[8]) > EPS && m.all { it.isFinite() }) DoubleArray(UNKNOWNS) { m[it] / m[8] } else null
+    val usable = src.size >= MIN_FIT_SAMPLES && dst.size == src.size
+    val source = if (usable) normalise(src) else null
+    val target = if (source == null) null else normalise(dst)
+    val m = if (target == null) null else denormalised(source!!, target)
+    val ok = m != null && abs(m[H_LAST]) > EPS && m.all { it.isFinite() }
+    return if (ok) DoubleArray(UNKNOWNS) { m!![it] / m[H_LAST] } else null
+}
+
+/** The IRLS solution mapped back out of normalised coordinates, or null. */
+private fun denormalised(
+    source: Pair<List<DoubleArray>, DoubleArray>,
+    target: Pair<List<DoubleArray>, DoubleArray>,
+): DoubleArray? {
+    val h = solveIteratively(source.first, target.first) ?: return null
+    val tdInv = invert3(target.second) ?: return null
+    return mul3(mul3(tdInv, h), source.second)
 }
 
 /** Centroid at the origin, mean distance sqrt(2) — with the transform that got it there. */
@@ -117,24 +137,9 @@ private fun smallestSingularVector(
     val rows = DoubleArray(2 * n * UNKNOWNS)
     for (i in 0 until n) {
         val sw = sqrt(max(w[i], MIN_WEIGHT))
-        val x = src[i][0]
-        val y = src[i][1]
-        val u = dst[i][0]
-        val v = dst[i][1]
         val xr = 2 * i * UNKNOWNS
-        val yr = xr + UNKNOWNS
-        rows[xr] = x * sw
-        rows[xr + 1] = y * sw
-        rows[xr + 2] = sw
-        rows[xr + 6] = -u * x * sw
-        rows[xr + 7] = -u * y * sw
-        rows[xr + 8] = -u * sw
-        rows[yr + 3] = x * sw
-        rows[yr + 4] = y * sw
-        rows[yr + 5] = sw
-        rows[yr + 6] = -v * x * sw
-        rows[yr + 7] = -v * y * sw
-        rows[yr + 8] = -v * sw
+        fillEquation(rows, xr, X_BLOCK, src[i], dst[i][0], sw)
+        fillEquation(rows, xr + UNKNOWNS, Y_BLOCK, src[i], dst[i][1], sw)
     }
     val a = Mat(2 * n, UNKNOWNS, CvType.CV_64F)
     val u = Mat()
@@ -145,14 +150,38 @@ private fun smallestSingularVector(
         Core.SVDecomp(a, s, u, vt)
         if (vt.rows() < UNKNOWNS) return null
         val out = DoubleArray(UNKNOWNS)
-        vt.row(UNKNOWNS - 1).get(0, 0, out)
-        return if (out.all { it.isFinite() } && abs(out[8]) > EPS) out else null
+        vt.row(H_LAST).get(0, 0, out)
+        return if (out.all { it.isFinite() } && abs(out[H_LAST]) > EPS) out else null
     } finally {
         a.release()
         u.release()
         s.release()
         vt.release()
     }
+}
+
+/**
+ * One DLT equation: `block` carries `(x, y, 1)` and the shared projective block `-t * (x, y, 1)`.
+ *
+ * `t` is the destination coordinate this equation constrains — `u` for the x-equation, `v` for the
+ * y-equation — which is what makes the two rows identical apart from where the first block lands.
+ */
+private fun fillEquation(
+    rows: DoubleArray,
+    at: Int,
+    block: Int,
+    p: DoubleArray,
+    t: Double,
+    sw: Double,
+) {
+    val x = p[0] * sw
+    val y = p[1] * sw
+    rows[at + block] = x
+    rows[at + block + 1] = y
+    rows[at + block + 2] = sw
+    rows[at + W_BLOCK] = -t * x
+    rows[at + W_BLOCK + 1] = -t * y
+    rows[at + W_BLOCK + 2] = -t * sw
 }
 
 /** Reprojection residual per sample, then the Huber weight it earns for the next pass. */
@@ -167,13 +196,6 @@ private fun reweight(
         val p = project3(h, src[i])
         residuals[i] = if (p == null) Double.MAX_VALUE else hypot(p[0] - dst[i][0], p[1] - dst[i][1])
     }
-    val s = max(MIN_SCALE, MAD_TO_SIGMA * median(residuals))
+    val s = max(MIN_SCALE, MAD_TO_SIGMA * medianOf(residuals))
     for (i in w.indices) w[i] = min(1.0, HUBER_K * s / max(residuals[i], MIN_WEIGHT))
-}
-
-private fun median(values: DoubleArray): Double {
-    if (values.isEmpty()) return 0.0
-    val sorted = values.sortedArray()
-    val mid = sorted.size / 2
-    return if (sorted.size % 2 == 1) sorted[mid] else (sorted[mid - 1] + sorted[mid]) / 2.0
 }
