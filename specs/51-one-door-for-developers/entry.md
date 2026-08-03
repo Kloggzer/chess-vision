@@ -41,6 +41,31 @@ live failure it has had. `CLAUDE.md` records several conclusions that exist only
 could open that screen. The instruction is *remove the menu*, and moving it behind Developer does
 that. If any panel is genuinely dead, say which and why rather than assuming.
 
+## Settings IS the Android Settings pattern
+
+The user, escalating from the search box to the whole screen, 2026-08-04: *"tbh make the settings
+menu exactly like the android settings menu."*
+
+Take that literally. It is a pattern everybody already knows, which is the entire argument for it:
+
+- **A rounded search bar across the top.** One line, plain `Search settings` placeholder, magnifier
+  in the bar and on the right as asked.
+- **Rows, not cards.** Leading icon, title, and a one-line summary underneath that says the current
+  value or what is behind the row — `Spoken moves · English, words` rather than a description of the
+  screen's name.
+- **No chevrons.** Android's Settings dropped them; the icon and the summary carry the affordance.
+- **Grouping by space and heading**, not by container. The rule between rows, never around them —
+  which is specs/48 rule 1 as it already stands.
+- Subpages repeat the same structure.
+
+**Where this collides with specs/48, the user's words win** — that is the stated precedence. But
+resolve it as a *variant, not a second row type*: `DisclosureRow` gains an optional leading icon and
+an option to drop the chevron, so the app keeps one component. Two row types that look nearly alike
+is how a vocabulary rots.
+
+Home also uses `DisclosureRow`. Decide whether it follows Settings here or keeps the chevron, and
+say why — a defensible answer either way, but not an accident.
+
 ## The search field
 
 The user, 2026-08-04: *"the search box does not fit the ui, make it a basic search input field with
