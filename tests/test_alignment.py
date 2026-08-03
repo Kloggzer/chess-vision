@@ -2,6 +2,12 @@
 
 The board is rendered rectified and then projected through a chosen quad, so "where the grid
 really is" is not an estimate here — it is the quad the frame was built from.
+
+The rendered board carries a BORDER outside the playing field, because the measurement does: since
+2026-08-03 `grid_lines` locates the two outer lines per axis instead of pinning them at 0 and
+`board_size`, and a fixture without a surround would test a code path no real frame takes. The
+border is what makes `test_a_uniform_scale_is_reported_at_its_true_size` possible at all — that
+test asserted the opposite until this change, and recorded the blind spot as structural.
 """
 
 import cv2
@@ -9,13 +15,20 @@ import numpy as np
 import pytest
 
 from chesslab.alignment import (
-    board_lattice,
+    DRIFT_EXPIRE_CELLS,
+    GRID_PAD_CELLS,
+    Alignment,
+    alignment_of,
+    apply_grid_correction,
     correct_quad,
     frame_offsets,
+    grid_correction,
+    grid_lines,
     improve_quad,
-    line_geometry,
-    line_positions,
+    quad_drift_cells,
+    refine_quad,
     square_offsets,
+    warp_for_grid,
     worst_offset,
 )
 from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
@@ -23,6 +36,11 @@ from chesslab.calibration import CalibrationProfile, CropParams, compute_homogra
 BS = 800
 CELL = BS / 8
 TRUTH = [[240.0, 180.0], [1180.0, 200.0], [1150.0, 1060.0], [210.0, 1020.0]]  # a8,h8,h1,a1
+
+#: Cells of board rendered outside the playing field. Wider than `GRID_PAD_CELLS` so the warp the
+#: measurement takes is filled with board rather than with whatever the canvas was cleared to.
+BORDER_CELLS = 0.8
+BORDER = int(round(BORDER_CELLS * CELL))
 
 
 def _profile() -> CalibrationProfile:
@@ -40,24 +58,33 @@ def _profile() -> CalibrationProfile:
 
 
 def _board() -> np.ndarray:
-    """A rectified board: alternating squares with a dark groove on every cell boundary."""
-    img = np.full((BS, BS, 3), 205, np.uint8)
+    """A rectified board with a `BORDER` px surround: alternating squares, a dark groove on every
+    cell boundary, and the same groove on the playing-field boundary itself."""
+    n = BS + 2 * BORDER
+    img = np.full((n, n, 3), 175, np.uint8)                       # the border strip
+    img[BORDER:BORDER + BS, BORDER:BORDER + BS] = 205
     for f in range(8):
         for r in range(8):
             if (f + r) % 2 == 0:
-                x, y = int(f * CELL), int(r * CELL)
+                x, y = BORDER + int(f * CELL), BORDER + int(r * CELL)
                 img[y:y + int(CELL), x:x + int(CELL)] = 70
     for k in range(9):
-        p = int(round(k * CELL))
-        img[max(0, p - 2):p + 3, :] = 20
-        img[:, max(0, p - 2):p + 3] = 20
+        p = BORDER + int(round(k * CELL))
+        img[p - 2:p + 3, :] = 20
+        img[:, p - 2:p + 3] = 20
     return cv2.GaussianBlur(img, (0, 0), 1.0)
 
 
+def _pad_shift(px: int) -> np.ndarray:
+    t = np.eye(3)
+    t[:2, 2] = (px, px)
+    return t
+
+
 def _frame(quad=None) -> np.ndarray:
-    """The synthetic board seen through `quad` (the truth quad by default)."""
+    """The synthetic board, border and all, seen through `quad` (the truth quad by default)."""
     h = np.array(compute_homography(quad or TRUTH, BS), np.float64)
-    return cv2.warpPerspective(_board(), np.linalg.inv(h), (1400, 1200))
+    return cv2.warpPerspective(_board(), np.linalg.inv(h) @ _pad_shift(-BORDER), (1400, 1200))
 
 
 def _bend(quad, m):
@@ -66,6 +93,18 @@ def _bend(quad, m):
     t = np.linalg.inv(h) @ np.linalg.inv(m) @ h
     p = t @ np.hstack([np.asarray(quad, float), np.ones((4, 1))]).T
     return (p[:2] / p[2]).T.tolist()
+
+
+def _displaced(m):
+    """`(image, pad)` — the padded board displaced by the rectified-space transform `m`.
+
+    The transform is conjugated by the pad shift so `m` keeps meaning what it means in rectified
+    coordinates, which is what `_true_worst` computes against.
+    """
+    n = BS + 2 * BORDER
+    img = cv2.warpPerspective(_board(), _pad_shift(BORDER) @ m @ _pad_shift(-BORDER), (n, n),
+                              borderMode=cv2.BORDER_REPLICATE)
+    return img, BORDER
 
 
 def _shift(dx, dy):
@@ -81,21 +120,53 @@ def _shear(deg):
     return m
 
 
-def test_line_positions_pins_the_edges_and_finds_the_grooves():
-    xs, ys = line_positions(_board(), BS)
-    assert (xs[0], xs[8], ys[0], ys[8]) == (0.0, float(BS), 0.0, float(BS))
-    assert np.allclose(xs[1:8], np.arange(1, 8) * CELL, atol=0.6)
-    assert np.allclose(ys[1:8], np.arange(1, 8) * CELL, atol=0.6)
+def _rot(deg):
+    t = np.radians(deg)
+    m = np.eye(3)
+    m[:2, :2] = [[np.cos(t), -np.sin(t)], [np.sin(t), np.cos(t)]]
+    m[:2, 2] = np.array([BS / 2, BS / 2]) - m[:2, :2] @ np.array([BS / 2, BS / 2])
+    return m
 
 
-def test_lattice_has_a_sample_per_line_and_band():
-    src, dst, ax = board_lattice(_board(), BS, bands=4)
-    assert len(src) == len(dst) == len(ax) == 2 * 4 * 7
-    assert np.abs(src - dst).max() < 1.0
+def _scale(s):
+    m = np.eye(3)
+    m[0, 0] = m[1, 1] = s
+    m[:2, 2] = np.array([BS / 2, BS / 2]) * (1 - s)
+    return m
+
+
+def _persp(kx, ky):
+    """A pure PROJECTIVE displacement — the family an affine correction cannot remove.
+
+    A three-marker quad is `cv2.getAffineTransform`'s parallelogram standing in for a perspective
+    view of a plane, so this is the shape of its error and the reason `_fit_projective` replaced
+    the affine fit.
+    """
+    m = np.eye(3)
+    m[2, 0], m[2, 1] = kx / BS, ky / BS
+    m[:2, 2] = np.array([BS / 2, BS / 2]) - (1.0 + (kx + ky) / 2.0) * np.array([BS / 2, BS / 2])
+    return m / m[2, 2]
+
+
+def test_grid_lines_measures_all_eighteen_including_the_outer_ones():
+    """The whole point of the padded warp: index 0 and 8 are MEASURED, not put there."""
+    lines = grid_lines(_board(), BS, pad=BORDER)
+    assert all(f is not None for ax in lines for f in ax)
+    for axis in (0, 1):
+        got = np.array([lines[axis][k][1] for k in range(9)])
+        assert np.allclose(got, BORDER + np.arange(9) * CELL, atol=0.6)
+        assert np.abs([lines[axis][k][0] for k in range(9)]).max() < 0.004
+
+
+def test_grid_lines_refuses_the_outer_ones_without_a_pad():
+    """No surrounding board, no window to search in — reported missing, never assumed."""
+    lines = grid_lines(_board()[BORDER:BORDER + BS, BORDER:BORDER + BS], BS)
+    assert [lines[0][0], lines[0][8], lines[1][0], lines[1][8]] == [None] * 4
+    assert all(lines[a][k] is not None for a in (0, 1) for k in range(1, 8))
 
 
 def test_offsets_are_near_zero_on_the_truth_quad():
-    off, unread = square_offsets(_board(), BS)
+    off, unread = square_offsets(_board(), BS, BORDER)
     assert unread == 0
     assert len(off) == 64
     assert max(off.values()) < 1.5
@@ -116,14 +187,6 @@ def test_a_shear_is_visible_at_all():
     quiet = worst_offset(frame, TRUTH, prof)
     loud = worst_offset(frame, _bend(TRUTH, _shear(0.7)), prof)
     assert loud - quiet > 2.5
-
-
-def _rot(deg):
-    t = np.radians(deg)
-    m = np.eye(3)
-    m[:2, :2] = [[np.cos(t), -np.sin(t)], [np.sin(t), np.cos(t)]]
-    m[:2, 2] = np.array([BS / 2, BS / 2]) - m[:2, :2] @ np.array([BS / 2, BS / 2])
-    return m
 
 
 def _line_at(h, k, axis, coord):
@@ -158,8 +221,8 @@ def _pieces(img):
     """Dark discs centred on cells. They overlap the grooves, which is the whole difficulty."""
     out = img.copy()
     for f, r in [(0, 0), (1, 0), (3, 1), (5, 0), (7, 1), (2, 6), (4, 7), (6, 6), (3, 3), (4, 4)]:
-        cv2.circle(out, (int((f + 0.5) * CELL), int((r + 0.5) * CELL)), int(CELL * 0.46),
-                   (35, 35, 35), -1)
+        cv2.circle(out, (BORDER + int((f + 0.5) * CELL), BORDER + int((r + 0.5) * CELL)),
+                   int(CELL * 0.46), (35, 35, 35), -1)
     rng = np.random.default_rng(42)
     out = cv2.GaussianBlur(out, (0, 0), 1.2).astype(np.float32) + rng.normal(0, 4.0, out.shape)
     return np.clip(out, 0, 255).astype(np.uint8)
@@ -173,6 +236,10 @@ def _pieces(img):
     ("rotation", _rot(1.00)),
     ("shear", _shear(0.25)),
     ("shear", _shear(0.50)),
+    ("scale", _scale(1.005)),
+    ("scale", _scale(0.990)),
+    ("perspective", _persp(0.010, 0.0)),
+    ("perspective", _persp(0.006, -0.008)),
 ])
 def test_the_reported_number_is_the_true_number(name, m):
     """Calibration against analytic truth, on a board and on one cluttered with pieces.
@@ -182,43 +249,50 @@ def test_the_reported_number_is_the_true_number(name, m):
     a 3.07 px rotation, while being exact on a translation. A number that is right for one family of
     errors and silent for another is worse than no number, because it reads as a verdict.
 
+    The SCALE and PERSPECTIVE rows are new on 2026-08-03 and are the reason the pinning had to go:
+    a uniform scale used to read 25 % short, structurally, because index 0 and 8 were put where the
+    warp puts them rather than looked for. Both families are now measured like any other.
+
     Half a pixel is the bar on the bare board. Anything looser would pass a metric that
     under-reports a real shear by enough to certify a frame the crops are being cut wrong on.
-    A piece sitting on a groove genuinely drags its centroid, so the cluttered board gets one pixel
-    — the worst case there is the 1 deg rotation at 0.9 px, against the old collapse's 15 px.
+    A piece sitting on a groove genuinely drags its centroid, so the cluttered board gets one pixel.
     """
-    board = cv2.warpPerspective(_board(), m, (BS, BS), borderMode=cv2.BORDER_REPLICATE)
+    img, pad = _displaced(m)
     truth = _true_worst(m)
-    assert abs(max(square_offsets(board, BS)[0].values()) - truth) < 0.5, name
-    assert abs(max(square_offsets(_pieces(board), BS)[0].values()) - truth) < 1.0, name
+    assert abs(max(square_offsets(img, BS, pad)[0].values()) - truth) < 0.5, name
+    assert abs(max(square_offsets(_pieces(img), BS, pad)[0].values()) - truth) < 1.0, name
 
 
-def test_a_uniform_scale_is_under_reported_and_that_is_structural():
-    """The one known blind spot, recorded so it is not rediscovered as a bug.
+def test_a_uniform_scale_is_reported_at_its_true_size():
+    """The blind spot that used to be recorded here as structural, closed by measuring the edges.
 
-    `line_positions` pins index 0 and 8 at 0 and `board_size` because the warp puts them there by
-    construction — they are not measurable. A scale error is largest at exactly those outer edges,
-    so the metric sees only what is left at the innermost measurable lines and reports 3/4 of it.
-    Under-reporting, not silence, and it applies to the old collapse identically.
+    `line_positions` pinned index 0 and 8 at 0 and `board_size` because the warp puts them there by
+    construction. A scale error is largest at exactly those outer edges, so the metric saw only
+    what was left at the innermost measurable lines and reported 3/4 of it — this test asserted
+    `0.75 * truth` and passed. `grid_lines` looks for those lines in a padded warp instead.
     """
-    m = np.eye(3)
-    m[0, 0] = m[1, 1] = 1.005
-    m[:2, 2] = np.array([BS / 2, BS / 2]) * (1 - 1.005)
-    board = cv2.warpPerspective(_board(), m, (BS, BS), borderMode=cv2.BORDER_REPLICATE)
-    reported = max(square_offsets(board, BS)[0].values())
-    assert abs(reported - 0.75 * _true_worst(m)) < 0.3
+    m = _scale(1.005)
+    img, pad = _displaced(m)
+    reported = max(square_offsets(img, BS, pad)[0].values())
+    assert abs(reported - _true_worst(m)) < 0.5
+    assert _true_worst(m) > 1.9                    # ... and it is a real error, not a rounding one
 
 
-def test_line_geometry_reports_the_tilt():
+def test_grid_lines_reports_the_tilt():
     prof = _profile()
     bent = _bend(TRUTH, _shear(0.7))
-    from chesslab.calibration import warp_from_corners
+    warped, pad = warp_for_grid(_frame(), prof, bent)
+    lines = grid_lines(warped, BS, pad=pad)
+    assert abs(lines[0][1][0]) == pytest.approx(np.tan(np.radians(0.7)), abs=0.004)
 
-    _xs, _ys, sx, _sy = line_geometry(warp_from_corners(_frame(), prof, bent), BS)
-    assert abs(sx[1]) == pytest.approx(np.tan(np.radians(0.7)), abs=0.004)
 
-
-@pytest.mark.parametrize("m", [_shift(6.0, -4.0), _shear(0.6), _shift(5.0, 5.0) @ _shear(-0.5)])
+@pytest.mark.parametrize("m", [
+    _shift(6.0, -4.0),
+    _shear(0.6),
+    _shift(5.0, 5.0) @ _shear(-0.5),
+    _persp(0.012, 0.004),
+    _persp(-0.010, 0.010) @ _shift(4.0, -3.0),
+])
 def test_correct_quad_walks_a_bent_quad_back(m):
     prof = _profile()
     frame = _frame()
@@ -247,3 +321,109 @@ def test_correct_quad_gives_up_on_a_blank_frame():
     assert correct_quad(blank, TRUTH, prof) is None
     quad, _before, _after = improve_quad(blank, TRUTH, prof)
     assert quad is None
+
+
+def test_the_verdict_passes_the_truth_and_fails_a_bent_quad():
+    prof = _profile()
+    frame = _frame()
+    good = alignment_of(frame, TRUTH, prof)
+    assert isinstance(good, Alignment)
+    assert good.ok and good.unread == 0
+    assert good.limit == pytest.approx(0.04 * CELL)
+    bad = alignment_of(frame, _bend(TRUTH, _shift(9.0, 0.0)), prof)
+    assert not bad.ok
+    assert bad.worst > good.limit
+    assert "off their grid" in bad.reason
+
+
+def test_the_verdict_fails_when_a_line_could_not_be_found():
+    """Unread lines are a FAILURE, not a footnote — the frame is unmeasured where they are."""
+    prof = _profile()
+    verdict = alignment_of(np.full((1200, 1400, 3), 128, np.uint8), TRUTH, prof)
+    assert not verdict.ok
+    assert "could not be located" in verdict.reason or "no square" in verdict.reason
+
+
+def test_the_verdict_is_absolute_not_a_spread_about_its_own_median():
+    """A CONSISTENTLY wrong quad must fail. `quad_spread` scored exactly this case at p90 0.93 px.
+
+    Every frame here carries the same 9 px displacement, so any measure of agreement between them
+    is perfect. The verdict is not a measure of agreement.
+    """
+    prof = _profile()
+    bent = _bend(TRUTH, _shift(9.0, 0.0))
+    for _ in range(3):
+        assert not alignment_of(_frame(), bent, prof).ok
+
+
+def test_the_correction_reapplied_reproduces_the_refinement():
+    """The correction has to SURVIVE live alignment, or the refinement is decoration.
+
+    `board_corners_for_frame` re-derives the quad from the markers every `align_every` frames and
+    knows nothing about grooves, so a refined quad written into the tracker is overwritten within
+    ~0.2 s. Re-measuring at that cadence costs ~75 ms; re-applying is four points through a 3x3.
+    """
+    prof = _profile()
+    frame = _frame()
+    bent = _bend(TRUTH, _shear(0.6))
+    refined = correct_quad(frame, bent, prof)
+    assert refined is not None
+    correction = grid_correction(bent, refined, prof)
+    assert correction is not None
+    again = apply_grid_correction(correction, bent, prof)
+    assert again is not None
+    assert np.abs(np.array(again) - np.array(refined)).max() < 0.01
+
+
+def test_the_correction_transfers_to_a_quad_it_was_not_measured_on():
+    """The live case: the markers move a little between alignments, and the grid residual is a
+    property of the board and the lens rather than of where the quad currently sits."""
+    prof = _profile()
+    frame = _frame()
+    bent = _bend(TRUTH, _shear(0.6))
+    correction = grid_correction(bent, correct_quad(frame, bent, prof), prof)
+    nudged = [[x + 1.5, y - 1.0] for x, y in bent]
+    corrected = apply_grid_correction(correction, nudged, prof)
+    assert corrected is not None
+    assert worst_offset(frame, corrected, prof) < worst_offset(frame, nudged, prof)
+
+
+def test_quad_drift_is_measured_in_cells_and_notices_a_moved_pose():
+    """Cells, never raw pixels: 4 px is 4 % of a square at `board_size` 800 and 2 % at 1600.
+
+    Parity with `GridCorrection.kt::quadDriftCells`, whose threshold `LiveAlign` acts on.
+    """
+    assert quad_drift_cells(TRUTH, TRUTH, _profile()) == 0.0
+    moved = [[x + CELL, y] for x, y in TRUTH]
+    assert quad_drift_cells(TRUTH, moved, _profile()) == pytest.approx(1.0)
+    small = [[x + 1.0, y] for x, y in TRUTH]
+    assert quad_drift_cells(TRUTH, small, _profile()) < DRIFT_EXPIRE_CELLS
+
+
+def test_refine_quad_takes_a_coarse_quad_to_a_passing_verdict():
+    """The coarse-to-fine staging: a quad tens of pixels out goes in, a passing verdict comes out."""
+    prof = _profile()
+    frame = _frame()
+    coarse = _bend(TRUTH, _shift(8.0, -6.0) @ _shear(0.5))
+    assert not alignment_of(frame, coarse, prof).ok
+    best, verdict = refine_quad(frame, coarse, prof)
+    assert verdict.ok, str(verdict)
+    assert np.abs(np.array(best) - np.array(TRUTH)).max() < 3.0
+
+
+def test_refine_quad_hands_back_the_coarse_quad_when_the_fit_fails():
+    """A caller must never have to guess which stage answered — the verdict describes what it got."""
+    prof = _profile()
+    blank = np.full((1200, 1400, 3), 128, np.uint8)
+    best, verdict = refine_quad(blank, TRUTH, prof)
+    assert best == TRUTH
+    assert not verdict.ok
+
+
+def test_the_pad_is_narrower_than_the_search_it_serves_is_wide():
+    """`warp_for_grid`'s pad has to hold the outer search window and stay off the label border."""
+    from chesslab.alignment import OUTER_SEARCH_FRAC
+
+    assert OUTER_SEARCH_FRAC < GRID_PAD_CELLS < 0.33
+    _warped, pad = warp_for_grid(_frame(), _profile(), TRUTH)
+    assert pad == int(round(GRID_PAD_CELLS * CELL))

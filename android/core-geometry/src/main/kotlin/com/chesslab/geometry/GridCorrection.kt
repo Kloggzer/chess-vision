@@ -7,8 +7,9 @@ import org.opencv.imgproc.Imgproc
 // Carrying a measured grid correction onto a quad that was derived without one.
 //
 // Kept apart from `Alignment.kt`, which MEASURES: this file never looks at a pixel. The split is
-// the point of the pair — measuring costs ~80 ms at boardSize 1600 and cannot run at the live
-// alignment cadence, while applying is four points through a 3x3 and can.
+// the point of the pair — measuring is tens of milliseconds (70-85 ms at boardSize 800 on a
+// desktop since specs/41 widened it to 8 bands over 18 lines; not measured on device) and cannot
+// run at the live alignment cadence, while applying is four points through a 3x3 and can.
 
 /**
  * The RECTIFIED-space correction a refinement implies, reusable on a later quad.

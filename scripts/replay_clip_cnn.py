@@ -135,7 +135,8 @@ class _Observer:
 
 def run(clip: str, corners, margin: float, cnn_run: str, obs_s: float = DEFAULT_OBS_S,
         tracker_kwargs: dict | None = None, board_size: int = 640,
-        start_fen: str | None = None, on_event=None) -> dict:
+        start_fen: str | None = None, on_event=None, start_frame: int = 0,
+        crop: dict | None = None) -> dict:
     """Replay `clip` with a real CNN attached. `commits` comes back as one `Commit` per PLY.
 
     `on_event(now, mt, frame, index)` fires once per decoded frame, after the engine has seen it.
@@ -143,6 +144,15 @@ def run(clip: str, corners, margin: float, cnn_run: str, obs_s: float = DEFAULT_
     a picture of a moment has to take it while the frame is in hand. Seeking back for it later is
     not equivalent — h.264 seeking by index is approximate, so a caller that seeks would hand its
     user a NEARBY frame while claiming it is the one.
+
+    `start_frame` DROPS the leading frames instead of seeking to them — the clock never sees them,
+    so the replay is exactly the replay of a trimmed clip and stays deterministic. It exists for
+    footage whose opening second is not yet the scene: the 2026-08-02 game changes illumination
+    locally over its first ~1 s (the a-file corner gains 32-38 % of its luma between frame 20 and
+    30 while h8 loses 20 %, with the whole-board mean unmoved), and the reference taken at frame 0
+    then reads a1/a2/b1 as permanently changed for the rest of the video. That is `cut the clip
+    where it happened` from `specs/40`, expressed as an argument. It is NOT a threshold override
+    and must never be used as one — nothing here touches what the tracker considers a change.
     """
     from chesslab.move_tracker import tracker as trk
 
@@ -156,6 +166,9 @@ def run(clip: str, corners, margin: float, cnn_run: str, obs_s: float = DEFAULT_
         "margin": margin,
         "tracker": tracker_kwargs or {},
         "start_fen": start_fen,
+        # The PROFILE's crop params, not `config.CROP`'s: see `ClipDriver.__enter__`. The
+        # CNN is served crops cut by these, so a default here is a silent domain shift.
+        "crop": crop,
     }
     clock = epf._VirtualClock()
     real_time, trk.time = trk.time, clock
@@ -173,6 +186,9 @@ def run(clip: str, corners, margin: float, cnn_run: str, obs_s: float = DEFAULT_
             observer = _Observer(mt, trk, clock, obs_s)
             n_plies = 0
             seen = 0
+            for _ in range(max(0, start_frame)):
+                if not cap.read()[0]:
+                    break
             while True:
                 ok, frame = cap.read()
                 if not ok:
@@ -196,7 +212,8 @@ def run(clip: str, corners, margin: float, cnn_run: str, obs_s: float = DEFAULT_
                     on_event(now, mt, frame, seen - 1)
             return {"commits": commits, "history": list(mt.status()["history"]),
                     "fen": mt.board.fen(), "note": mt.note,
-                    "observations": observer.count, "frames": seen}
+                    "observations": observer.count, "frames": seen,
+                    "start_frame": int(max(0, start_frame))}
     finally:
         trk.time = real_time
         cap.release()

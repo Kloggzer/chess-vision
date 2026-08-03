@@ -17,7 +17,6 @@ import java.util.Random
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.tan
 
@@ -43,37 +42,51 @@ class AlignmentTruthTest {
 
     private fun geometry() = BoardGeometry(boardSize = BS, margin = margins4(0.0))
 
-    /** A rectified board: alternating squares with a dark groove on every cell boundary. */
+    /**
+     * A rectified board with a [BORDER] px surround: alternating squares, a dark groove on every
+     * cell boundary, and the same groove on the playing-field boundary itself.
+     *
+     * The border is not decoration. Since 2026-08-03 `gridLines` MEASURES the two outer lines per
+     * axis instead of pinning them at 0 and `boardSize`, and a fixture without a surround would
+     * exercise a path no real frame takes — as well as making
+     * [aUniformScaleIsReportedAtItsTrueSize] impossible, which is the test that used to assert the
+     * blind spot instead of closing it.
+     */
     private fun board(): Mat {
-        val img = Mat(BS, BS, CvType.CV_8UC3, Scalar(LIGHT, LIGHT, LIGHT))
+        val n = BS + 2 * BORDER
+        val img = Mat(n, n, CvType.CV_8UC3, Scalar(SURROUND, SURROUND, SURROUND))
+        img.submat(BORDER, BORDER + BS, BORDER, BORDER + BS).setTo(Scalar(LIGHT, LIGHT, LIGHT))
         for (f in 0 until 8) {
             for (r in 0 until 8) {
                 if ((f + r) % 2 != 0) continue
-                val x = (f * CELL).toInt()
-                val y = (r * CELL).toInt()
+                val x = BORDER + (f * CELL).toInt()
+                val y = BORDER + (r * CELL).toInt()
                 img.submat(y, y + CELL.toInt(), x, x + CELL.toInt()).setTo(Scalar(DARK, DARK, DARK))
             }
         }
         for (k in 0..8) {
-            val p = Math.round(k * CELL).toInt()
-            val lo = max(0, p - GROOVE)
-            val hi = min(BS, p + GROOVE + 1)
-            img.rowRange(lo, hi).setTo(Scalar(GROOVE_V, GROOVE_V, GROOVE_V))
-            img.colRange(lo, hi).setTo(Scalar(GROOVE_V, GROOVE_V, GROOVE_V))
+            val p = BORDER + Math.round(k * CELL).toInt()
+            img.rowRange(p - GROOVE, p + GROOVE + 1).setTo(Scalar(GROOVE_V, GROOVE_V, GROOVE_V))
+            img.colRange(p - GROOVE, p + GROOVE + 1).setTo(Scalar(GROOVE_V, GROOVE_V, GROOVE_V))
         }
         Imgproc.GaussianBlur(img, img, Size(0.0, 0.0), 1.0)
         return img
     }
 
-    /** The rectified board displaced by [m], as the board image itself. */
+    /**
+     * The padded board displaced by [m], which keeps meaning what it means in RECTIFIED
+     * coordinates — the transform is conjugated by the pad shift, which is what `trueWorst`
+     * computes against.
+     */
     private fun displaced(m: DoubleArray): Mat {
+        val n = BS + 2 * BORDER
         val out = Mat()
-        val mat = mat3(m)
+        val mat = mat3(mul3(mul3(padShift(BORDER), m), padShift(-BORDER)))
         Imgproc.warpPerspective(
             board(),
             out,
             mat,
-            Size(BS.toDouble(), BS.toDouble()),
+            Size(n.toDouble(), n.toDouble()),
             Imgproc.INTER_LINEAR,
             Core.BORDER_REPLICATE,
             Scalar(0.0),
@@ -82,12 +95,14 @@ class AlignmentTruthTest {
         return out
     }
 
-    /** The synthetic board seen through [quad] in a camera frame. */
+    private fun padShift(px: Int) = doubleArrayOf(1.0, 0.0, px.toDouble(), 0.0, 1.0, px.toDouble(), 0.0, 0.0, 1.0)
+
+    /** The synthetic board, border and all, seen through [quad] in a camera frame. */
     private fun frame(quad: List<DoubleArray> = TRUTH): Mat {
         val h = homography(quad)
         val inv = inv3(h)!!
         val out = Mat()
-        val mat = mat3(inv)
+        val mat = mat3(mul3(inv, padShift(-BORDER)))
         Imgproc.warpPerspective(board(), out, mat, Size(FRAME_W.toDouble(), FRAME_H.toDouble()))
         mat.release()
         return out
@@ -170,7 +185,10 @@ class AlignmentTruthTest {
         for ((f, r) in cells) {
             Imgproc.circle(
                 out,
-                Point(((f + 0.5) * CELL).toInt().toDouble(), ((r + 0.5) * CELL).toInt().toDouble()),
+                Point(
+                    (BORDER + ((f + 0.5) * CELL).toInt()).toDouble(),
+                    (BORDER + ((r + 0.5) * CELL).toInt()).toDouble(),
+                ),
                 (CELL * 0.46).toInt(),
                 Scalar(PIECE, PIECE, PIECE),
                 -1,
@@ -190,35 +208,43 @@ class AlignmentTruthTest {
 
     // --- the measurement -----------------------------------------------------------------------
 
+    /** The whole point of the padded warp: index 0 and 8 are MEASURED, not put there. */
     @Test
-    fun linePositionsPinsTheEdgesAndFindsTheGrooves() {
-        val (xs, ys) = linePositions(board(), BS)
-        assertEquals(0.0, xs[0])
-        assertEquals(BS.toDouble(), xs[8])
-        assertEquals(0.0, ys[0])
-        assertEquals(BS.toDouble(), ys[8])
+    fun gridLinesMeasuresAllEighteenIncludingTheOuterOnes() {
+        val grid = gridLines(board(), BS, pad = BORDER)
+        assertEquals(0, grid.unread)
+        for (axis in 0..1) {
+            for (k in 0..8) {
+                val line = grid.at(axis, k)!!
+                assertTrue(
+                    abs(line.offset - (BORDER + k * CELL)) < 0.6,
+                    "axis $axis line $k at ${line.offset}, expected ${BORDER + k * CELL}",
+                )
+                assertTrue(abs(line.slope) < 0.004, "axis $axis line $k tilted ${line.slope}")
+            }
+        }
+    }
+
+    /** No surrounding board, no window to search in — reported missing, never assumed. */
+    @Test
+    fun gridLinesRefusesTheOuterOnesWithoutAPad() {
+        val full = board()
+        val inner = full.submat(BORDER, BORDER + BS, BORDER, BORDER + BS)
+        val grid = gridLines(inner, BS)
+        full.release()
+        assertNull(grid.at(0, 0))
+        assertNull(grid.at(0, 8))
+        assertNull(grid.at(1, 0))
+        assertNull(grid.at(1, 8))
         for (k in 1..7) {
-            assertTrue(abs(xs[k] - k * CELL) < 0.6, "vertical line $k at ${xs[k]}, expected ${k * CELL}")
-            assertTrue(abs(ys[k] - k * CELL) < 0.6, "horizontal line $k at ${ys[k]}, expected ${k * CELL}")
+            assertNotNull(grid.at(0, k))
+            assertNotNull(grid.at(1, k))
         }
     }
 
     @Test
-    fun theLatticeHasASamplePerLineAndBand() {
-        val lattice = boardLattice(board(), BS, bands = 4)
-        assertEquals(2 * 4 * 7, lattice.size)
-        assertEquals(lattice.size, lattice.dst.size)
-        assertEquals(lattice.size, lattice.samples.count { it.axis == 0 } + lattice.samples.count { it.axis == 1 })
-        val worst =
-            lattice.samples.maxOf { s ->
-                max(abs(s.src[0] - s.dst[0]), abs(s.src[1] - s.dst[1]))
-            }
-        assertTrue(worst < 1.0, "a truth board's lattice must already sit on the nominal grid, off by $worst")
-    }
-
-    @Test
     fun offsetsAreNearZeroOnTheTruthBoard() {
-        val result = squareOffsets(board(), BS)
+        val result = squareOffsets(board(), BS, BORDER)
         assertEquals(0, result.unread)
         assertEquals(64, result.offsets.size)
         assertTrue(result.worst < 1.5, "truth board reads ${result.worst}")
@@ -244,17 +270,21 @@ class AlignmentTruthTest {
                 "rotation 1.00 deg" to rot(1.00),
                 "shear 0.25 deg" to shear(0.25),
                 "shear 0.50 deg" to shear(0.50),
+                "scale 1.005" to scale(1.005),
+                "scale 0.990" to scale(0.990),
+                "perspective x" to persp(0.010, 0.0),
+                "perspective xy" to persp(0.006, -0.008),
             )
         for ((name, m) in cases) {
             val bare = displaced(m)
             val truth = trueWorst(m)
-            val reported = squareOffsets(bare, BS).worst
+            val reported = squareOffsets(bare, BS, BORDER).worst
             assertTrue(
                 abs(reported - truth) < 0.5,
                 "$name: reported $reported, truth $truth (bare board, bar 0.5 px)",
             )
             val cluttered = withPieces(bare)
-            val withPiecesReported = squareOffsets(cluttered, BS).worst
+            val withPiecesReported = squareOffsets(cluttered, BS, BORDER).worst
             assertTrue(
                 abs(withPiecesReported - truth) < 1.0,
                 "$name: reported $withPiecesReported, truth $truth (pieces on the grooves, bar 1.0 px)",
@@ -265,39 +295,84 @@ class AlignmentTruthTest {
     }
 
     /**
-     * The one known blind spot, recorded so it is not rediscovered as a bug.
+     * The blind spot that used to be recorded here as structural, closed by measuring the edges.
      *
-     * [linePositions] pins index 0 and 8 at 0 and `boardSize` because the warp puts them there by
-     * construction — they are not measurable. A scale error is largest at exactly those outer
-     * edges, so the metric sees only what is left at the innermost measurable lines and reports
-     * three quarters of it. Under-reporting, not silence, and the Python original does the same.
+     * `linePositions` pinned index 0 and 8 at 0 and `boardSize` because the warp puts them there by
+     * construction. A scale error is largest at exactly those outer edges, so the metric saw only
+     * what was left at the innermost measurable lines and reported three quarters of it — this test
+     * asserted `0.75 * truth` and passed. `gridLines` looks for those lines in a padded warp.
      */
     @Test
-    fun aUniformScaleIsUnderReportedAndThatIsStructural() {
-        val s = 1.005
-        val m = doubleArrayOf(s, 0.0, BS / 2.0 * (1 - s), 0.0, s, BS / 2.0 * (1 - s), 0.0, 0.0, 1.0)
+    fun aUniformScaleIsReportedAtItsTrueSize() {
+        val m = scale(1.005)
         val img = displaced(m)
-        val reported = squareOffsets(img, BS).worst
+        val reported = squareOffsets(img, BS, BORDER).worst
         img.release()
-        assertTrue(
-            abs(reported - 0.75 * trueWorst(m)) < 0.3,
-            "reported $reported against 3/4 of the true ${trueWorst(m)}",
-        )
+        assertTrue(trueWorst(m) > 1.9, "the fixture must carry a real error, not a rounding one")
+        assertTrue(abs(reported - trueWorst(m)) < 0.5, "reported $reported against ${trueWorst(m)}")
     }
 
     @Test
-    fun lineGeometryReportsTheTilt() {
+    fun gridLinesReportsTheTilt() {
         val geom = geometry()
         val f = frame()
-        val warped = warpFromCorners(f, geom, bend(TRUTH, shear(0.7)))
-        val measured = lineGeometry(warped, BS)
+        val (warped, pad) = warpForGrid(f, geom, bend(TRUTH, shear(0.7)))
+        val grid = gridLines(warped, BS, pad)
         warped.release()
         f.release()
         val expected = tan(Math.toRadians(0.7))
-        assertTrue(
-            abs(abs(measured.slopeX) - expected) < 0.004,
-            "slope ${measured.slopeX} against $expected",
-        )
+        val slope = grid.at(0, 1)!!.slope
+        assertTrue(abs(abs(slope) - expected) < 0.004, "slope $slope against $expected")
+    }
+
+    /** The verdict: absolute, and a FAILURE when a line could not be found. */
+    @Test
+    fun theVerdictPassesTheTruthAndFailsABentQuad() {
+        val geom = geometry()
+        val f = frame()
+        val good = alignmentOf(f, TRUTH, geom)
+        assertTrue(good.ok, "the truth quad read ${good.worst} / ${good.reason}")
+        assertEquals(0, good.unread)
+        val bad = alignmentOf(f, bend(TRUTH, shift(9.0, 0.0)), geom)
+        f.release()
+        assertTrue(!bad.ok && bad.worst > bad.limit, "a 9 px shift read ${bad.worst}")
+    }
+
+    @Test
+    fun theVerdictFailsWhenALineCouldNotBeFound() {
+        val geom = geometry()
+        val blank = Mat(FRAME_H, FRAME_W, CvType.CV_8UC3, Scalar(128.0, 128.0, 128.0))
+        val verdict = alignmentOf(blank, TRUTH, geom)
+        blank.release()
+        assertTrue(!verdict.ok, "a featureless frame must never pass")
+    }
+
+    /**
+     * A CONSISTENTLY wrong quad must fail. The script path's `quadSpread` scored exactly this case
+     * at p90 0.93 px, because every frame carries the same displacement and they all agree with
+     * each other. The verdict is not a measure of agreement.
+     */
+    @Test
+    fun theVerdictIsAbsoluteNotASpreadAboutItsOwnMedian() {
+        val geom = geometry()
+        val bent = bend(TRUTH, shift(9.0, 0.0))
+        repeat(3) {
+            val f = frame()
+            assertTrue(!alignmentOf(f, bent, geom).ok)
+            f.release()
+        }
+    }
+
+    /** `refineQuad` is the coarse-to-fine staging: a bad quad in, a passing verdict out. */
+    @Test
+    fun refineQuadTakesACoarseQuadToAPassingVerdict() {
+        val geom = geometry()
+        val f = frame()
+        val coarse = bend(TRUTH, mul3(shift(8.0, -6.0), shear(0.5)))
+        assertTrue(!alignmentOf(f, coarse, geom).ok, "the coarse quad must start out of tolerance")
+        val refined = refineQuad(f, coarse, geom)
+        f.release()
+        assertTrue(refined.alignment.ok, "refined to ${refined.alignment.worst} — ${refined.alignment.reason}")
     }
 
     // --- through a camera frame ----------------------------------------------------------------
@@ -334,6 +409,8 @@ class AlignmentTruthTest {
                 "shift" to shift(6.0, -4.0),
                 "shear" to shear(0.6),
                 "both" to mul3(shift(5.0, 5.0), shear(-0.5)),
+                "perspective" to persp(0.012, 0.004),
+                "perspective and shift" to mul3(persp(-0.010, 0.010), shift(4.0, -3.0)),
             )
         for ((name, m) in cases) {
             val bent = bend(TRUTH, m)
@@ -438,6 +515,25 @@ class AlignmentTruthTest {
         return centred(doubleArrayOf(cos(t), -sin(t), 0.0, sin(t), cos(t), 0.0, 0.0, 0.0, 1.0))
     }
 
+    private fun scale(s: Double) = centred(doubleArrayOf(s, 0.0, 0.0, 0.0, s, 0.0, 0.0, 0.0, 1.0))
+
+    /**
+     * A pure PROJECTIVE displacement — the family an affine correction cannot remove.
+     *
+     * A three-marker quad is `getAffineTransform`'s parallelogram standing in for a perspective
+     * view of a plane, so this is the shape of its error and the reason `ProjectiveFit.kt` replaced
+     * the affine one.
+     */
+    private fun persp(
+        kx: Double,
+        ky: Double,
+    ): DoubleArray {
+        val c = BS / 2.0
+        val k = 1.0 + (kx + ky) / 2.0
+        val m = doubleArrayOf(1.0, 0.0, c - k * c, 0.0, 1.0, c - k * c, kx / BS, ky / BS, 1.0)
+        return DoubleArray(9) { m[it] / m[8] }
+    }
+
     /** The same linear part, about the board's centre instead of its origin. */
     private fun centred(m: DoubleArray): DoubleArray {
         val c = BS / 2.0
@@ -497,6 +593,10 @@ class AlignmentTruthTest {
         const val FRAME_H = 1200
         const val LIGHT = 205.0
         const val DARK = 70.0
+        const val SURROUND = 175.0
+
+        /** Cells of board rendered outside the playing field, wider than `GRID_PAD_CELLS`. */
+        val BORDER = (0.8 * CELL).toInt()
         const val GROOVE_V = 20.0
         const val PIECE = 35.0
 

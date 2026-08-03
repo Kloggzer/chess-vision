@@ -37,9 +37,14 @@ live games without a CNN (frame diff + legality, optional CNN safeguard).
 
 ## Non-goals
 
-- No deep-learning board/corner detection as a hard dependency — ArUco markers
-  (per-frame self-calibration) are the primary geometry source; a line-based
-  markerless detector exists experimentally (`board_corners_from_lines`).
+- No deep-learning board/corner detection as a hard dependency. **ArUco markers are the COARSE
+  geometry source and the board's own grid is the fine one** (`alignment.refine_quad`): the markers
+  only have to bring the grooves inside a search window, and the grid fit supplies the accuracy.
+  Fully markerless cold start is NOT supported — `board_corners_from_lines` was deleted on
+  2026-08-03 after a month as dead code, because on the only real footage on record it returned
+  nothing on 4 of 6 frames and a quad **775-897 px** from the board on the other two (it locked
+  onto the desk and monitor edges). Lines also cannot tell 90° from 180°, so it never had an
+  orientation anchor. See `specs/41-the-board-is-its-own-ruler/`.
 - No reinforcement learning; piece recognition is supervised classification.
 
 ## Tech stack (binding)
@@ -179,10 +184,34 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
   a translation and **silent on rotation and shear** — 0.01 px reported for a 3.05 px shear. It
   passed every directional test ("the shear is visible") and certified 302 frames whose grid the eye
   can see is wrong. The band-wise version is calibrated to analytic truth in
-  `tests/test_alignment.py` (0.05 px mean error bare, 0.18 with pieces). Its one remaining blind
-  spot: a uniform SCALE error reads 25 % short, because `line_positions` pins index 0 and 8 at 0 and
-  `board_size` — the warp puts them there by construction, so the outer edges, where a scale error
-  is largest, are not measurable. Numbers recorded before that date are not comparable to later ones.
+  `tests/test_alignment.py` (and `AlignmentTruthTest.kt`), now including a pure SCALE and a pure
+  PERSPECTIVE row. ~~Its one remaining blind spot: a uniform SCALE error reads 25 % short, because
+  `line_positions` pins index 0 and 8 at 0 and `board_size`.~~ **Closed 2026-08-03:** `grid_lines`
+  measures all NINE lines per axis in a padded warp (`warp_for_grid`), so the outer edges are looked
+  for like every other line and a line that cannot be found is reported UNREAD rather than assumed.
+  Numbers recorded before either date are not comparable to later ones — the honest metric reads
+  HIGHER: the same eight re-aligned sessions that read 2.0-3.3 px median under the pinned version
+  read 3.0-5.8 px under this one.
+- **A quad's error is PROJECTIVE when a marker is missing, and an affine correction cannot remove
+  it.** `resolve_board_corners` degrades to `cv2.getAffineTransform` at three markers — a
+  parallelogram standing in for a perspective view of a plane. `alignment` fitted an affine
+  correction until 2026-08-03 on the reasoning that a nearly-right quad has no perspective error
+  left; that is true of a four-marker quad and false of a three-marker one. Measured on
+  `VID_20260802_222741.mp4`: input 24.0-37.2 px worst square offset, affine correction 6.8-17.8,
+  projective correction **1.86-2.10**. Over the whole video the median goes 29.6 → 2.0 px.
+- **`quad_spread` is a board-MOVEMENT check and must never be read as a correctness gate.** It
+  compares each frame's quad against the median of the SAME quads, so a consistently wrong quad
+  scores beautifully: the 2026-08-02 game read p90 0.93 rectified px with 98 % of frames under 2 px
+  while every quad in it was 27-33 px out. Precision reported as accuracy; it cost a day. The
+  absolute verdict is `alignment.alignment_of` — worst square offset against 4 % of a cell, plus all
+  18 grid lines read — and it is what every quad-producing path goes through.
+- **The clip replay harness cut the CNN's crops at the WRONG SIZE until 2026-08-03.**
+  `ClipDriver` built its profile with `CropParams.default`, i.e. `config.CROP.pad_side` = 0.10,
+  where the `phone` profile the models are trained and served against says 0.05 — a 120 px crop box
+  against 110. On the 2026-08-02 game that alone made the observation disagree with the UNTOUCHED
+  start position on a7/c7/b8/h8, which latched the illegal-move alarm three seconds in and blocked
+  every commit for the rest of the video. A clip entry now carries `crop`; the Blender clips carry
+  none and keep the defaults. **Any harness that invents profile fields is a silent domain shift.**
 - **3D pieces extend upward.** With a non-perpendicular camera the piece image
   overflows its base cell — square crops extend upward (`pad_up`).
 - **Class imbalance:** `empty` dominates massively; handled at split/dataset

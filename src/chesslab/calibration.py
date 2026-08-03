@@ -206,7 +206,8 @@ def profile_from_frame(frame, profile: str, *, board_size: int = 1000,
     res = resolve_board_corners(pts, board_size=board_size)
     if res is None:
         return None
-    corners, _n_used = res
+    corners, n_used = res
+    _warn_degraded(n_used)
     h, w = frame.shape[:2]
     prof = CalibrationProfile(
         profile=profile,
@@ -696,211 +697,6 @@ class MarkerTracker:
         return self.points()
 
 
-# =======================================================================================
-# Markerless board detection via board lines (Spec 11, chesscog-style, NO DL)
-# =======================================================================================
-
-def _cluster_two_angle_families(lines) -> tuple[list, list]:
-    """Split Hough lines (rho, theta) into two angle families (k-means on the
-    doubled angle, because theta and theta+pi are the same line direction)."""
-    import numpy as _np
-    pts = _np.array([[_np.cos(2 * t), _np.sin(2 * t)] for _r, t in lines], dtype=_np.float32)
-    crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-3)
-    _c, labels, _ctr = cv2.kmeans(pts, 2, None, crit, 5, cv2.KMEANS_PP_CENTERS)
-    fam = [[], []]
-    for (r, t), lab in zip(lines, labels.ravel(), strict=False):
-        fam[int(lab)].append((float(r), float(t)))
-    return fam[0], fam[1]
-
-
-def _family_positions(family) -> tuple[float, list[tuple[float, float, float]]]:
-    """Per family: mean angle + 1D position of each line along the family normal.
-    rho sign is normalized to the mean angle (theta vs. theta+pi)."""
-    import numpy as _np
-    ref = float(_np.arctan2(_np.mean([_np.sin(2 * t) for _r, t in family]),
-                            _np.mean([_np.cos(2 * t) for _r, t in family])) / 2.0) % _np.pi
-    out = []
-    for r, t in family:
-        # Normalize line to reference direction: |theta - ref| > pi/2 → flip line.
-        d = (t - ref + _np.pi / 2) % _np.pi - _np.pi / 2
-        rr = r if abs(d) <= _np.pi / 2 else -r
-        out.append((float(rr), r, t))
-    return ref, out
-
-
-def _merge_positions(pos_lines, tol: float) -> list[tuple[float, float, float]]:
-    """Merge nearly identical Hough lines (same board line hit multiple times) into one average."""
-    merged = []
-    for p, r, t in sorted(pos_lines):
-        if merged and abs(p - merged[-1][0]) <= tol:
-            mp, mr, mt, n = merged[-1]
-            merged[-1] = ((mp * n + p) / (n + 1), (mr * n + r) / (n + 1),
-                          (mt * n + t) / (n + 1), n + 1)
-        else:
-            merged.append((p, r, t, 1))
-    return [(p, r, t) for p, r, t, _n in merged]
-
-
-def _grid_progression(positions: list[float]) -> tuple[float, float] | None:
-    """RANSAC over line positions: find the 9-term arithmetic progression (board grid).
-
-    Counts DISTINCT slots (two lines in the same slot count once) and normalizes the
-    error to spacing — otherwise large spacings win automatically (large tolerance
-    catches everything). Spacing is limited to a plausible ratio of the position span
-    (at least 5 of 9 lines visible → span/8 ≤ s ≤ span/4).
-    Returns (first_position, spacing) of outer line slots 0 and 8, else None."""
-    n = len(positions)
-    if n < 6:                                    # at least 6 of the 9 grid lines needed
-        return None
-    best = None                                  # (slots, -error/s, base, s)
-    span = max(positions) - min(positions)
-    s_lo, s_hi = span / 9.0, span / 4.0
-    for i in range(n):
-        for j in range(i + 1, n):
-            gap = positions[j] - positions[i]
-            for k in range(1, 9):                # hypothesis: lines i,j are k slots apart
-                s = gap / k
-                if s <= 2 or not (s_lo <= s <= s_hi):
-                    continue
-                for shift in range(0, 9 - k):    # slot offset: line i onto slot `shift`
-                    base = positions[i] - shift * s
-                    slots: dict[int, float] = {}
-                    for q in positions:
-                        m = round((q - base) / s)
-                        e = abs(q - (base + m * s))
-                        if 0 <= m <= 8 and e <= s * 0.15:
-                            slots[m] = min(e, slots.get(m, 1e9))
-                    if len(slots) < 6:
-                        continue
-                    cand = (len(slots), -sum(slots.values()) / s, base, s)
-                    if best is None or cand > best:
-                        best = cand
-    if best is None:
-        return None
-    return best[2], best[3]
-
-
-def board_corners_from_lines(frame, profile: CalibrationProfile | None = None,
-                             work_width: int = 960) -> list[list[float]] | None:
-    """Estimate the 4 board corners WITHOUT markers from the board lines (Spec 11).
-
-    Classic pipeline: Canny → HoughLines → two angle families → per family the
-    9-term grid progression of line positions (RANSAC) → intersect outer lines = corners.
-    Works under moderate perspective (camera roughly above the board); the mapping to
-    (a8,h8,h1,a1) uses — where available — proximity to `profile.image_corners`, otherwise
-    the default reading direction. Returns None if no consistent grid is found."""
-    import numpy as _np
-
-    h, w = frame.shape[:2]
-    scale = min(1.0, work_width / float(w))
-    small = cv2.resize(frame, (int(w * scale), int(h * scale))) if scale < 1.0 else frame
-    gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-    gray = cv2.GaussianBlur(gray, (5, 5), 0)
-    edges = cv2.Canny(gray, 40, 120)
-    # Reduce Hough threshold adaptively until BOTH families carry enough grid lines —
-    # vertical board lines are often weaker (pieces interrupt them); too low
-    # thresholds flood with diagonal edges (clip02 empirical: 0.30 → B only 5 lines,
-    # 0.18 → 4400 lines clutter). The progression search itself is the quality filter.
-    quad = None
-    for thr_frac in (0.30, 0.24, 0.19):
-        raw = cv2.HoughLines(edges, 1, _np.pi / 360,
-                             threshold=int(min(small.shape[:2]) * thr_frac))
-        if raw is None or len(raw) < 12:
-            continue
-        lines = [(float(r), float(t)) for r, t in raw[:, 0, :]][:250]
-        quad = _quad_from_lines(lines)
-        if quad is not None:
-            break
-    if quad is None:
-        return None
-    quad = [[x / scale, y / scale] for x, y in quad]
-    return _finish_quad(quad, w, h, profile)
-
-
-def _quad_from_lines(lines) -> list[list[float]] | None:
-    """From Hough lines the 4 outer corners of the grid (in working resolution) or None."""
-    import numpy as _np
-
-    fam_a, fam_b = _cluster_two_angle_families(lines)
-    # Families must have clearly different directions (otherwise one is just clutter).
-    def _ref(fam):
-        return float(_np.arctan2(_np.mean([_np.sin(2 * t) for _r, t in fam]),
-                                 _np.mean([_np.cos(2 * t) for _r, t in fam])) / 2.0) % _np.pi
-    if len(fam_a) < 6 or len(fam_b) < 6:
-        return None
-    dref = abs(_ref(fam_a) - _ref(fam_b)) % _np.pi
-    if min(dref, _np.pi - dref) < _np.radians(35):
-        return None
-    borders = []
-    for fam in (fam_a, fam_b):
-        ref, pos_lines = _family_positions(fam)
-        span = max(p for p, _r, _t in pos_lines) - min(p for p, _r, _t in pos_lines)
-        merged = _merge_positions(pos_lines, tol=max(3.0, span / 40.0))
-        prog = _grid_progression([p for p, _r, _t in merged])
-        if prog is None:
-            return None
-        base, s = prog
-        # Outer lines: prefer real line near slot 0/8, otherwise extrapolate with the family angle
-        # (position p is by definition the rho of a line with theta=ref).
-        pair = []
-        for slot in (0, 8):
-            target = base + slot * s
-            near = min(merged, key=lambda m: abs(m[0] - target))
-            pair.append((near[1], near[2]) if abs(near[0] - target) <= s * 0.15
-                        else (target, ref))
-        borders.append(pair)
-
-    def _intersect(l1, l2):
-        r1, t1 = l1
-        r2, t2 = l2
-        a = _np.array([[_np.cos(t1), _np.sin(t1)], [_np.cos(t2), _np.sin(t2)]])
-        b = _np.array([r1, r2])
-        if abs(_np.linalg.det(a)) < 1e-9:
-            return None
-        x, y = _np.linalg.solve(a, b)
-        return [float(x), float(y)]
-
-    quad = []
-    for la in borders[0]:
-        for lb in borders[1]:
-            p = _intersect(la, lb)
-            if p is None:
-                return None
-            quad.append(p)
-    # quad = [A0B0, A0B8, A8B0, A8B8] → order as convex quad (angle around centroid).
-    cx = sum(p[0] for p in quad) / 4.0
-    cy = sum(p[1] for p in quad) / 4.0
-    quad.sort(key=lambda p: _np.arctan2(p[1] - cy, p[0] - cx))
-    return quad
-
-
-def _finish_quad(quad, w: int, h: int,
-                 profile: CalibrationProfile | None) -> list[list[float]] | None:
-    """Plausibility (inside image, minimum area) + mapping to (a8,h8,h1,a1): choose rotation
-    closest to the calibration corners — lines alone cannot distinguish 90°/180° rotations.
-    Without profile: order as sorted (user checks overlay)."""
-    for x, y in quad:
-        if not (-0.2 * w <= x <= 1.2 * w and -0.2 * h <= y <= 1.2 * h):
-            return None
-    area = 0.0
-    for i in range(4):
-        x1, y1 = quad[i]
-        x2, y2 = quad[(i + 1) % 4]
-        area += x1 * y2 - x2 * y1
-    if abs(area) / 2.0 < 0.05 * w * h:
-        return None
-    if profile is not None and profile.image_corners and len(profile.image_corners) >= 4:
-        ref = profile.image_corners
-        best_rot, best_cost = 0, None
-        for rot in range(4):
-            rq = quad[rot:] + quad[:rot]
-            cost = sum((rq[i][0] - ref[i][0]) ** 2 + (rq[i][1] - ref[i][1]) ** 2 for i in range(4))
-            if best_cost is None or cost < best_cost:
-                best_rot, best_cost = rot, cost
-        quad = quad[best_rot:] + quad[:best_rot]
-    return quad
-
-
 def make_tracker(profile: CalibrationProfile | None = None) -> MarkerTracker:
     """Create tracker, seeded from the profile's 4 corner points if available.
 
@@ -954,7 +750,40 @@ def board_corners_for_frame(frame, profile: CalibrationProfile, tracker: MarkerT
             pts[m] = [pts[prev_i][0] + pts[next_i][0] - pts[opp_i][0],
                       pts[prev_i][1] + pts[next_i][1] - pts[opp_i][1]]
     res = resolve_board_corners(pts, board_size=profile.board_size)
-    return res[0] if res is not None else None
+    if res is None:
+        return None
+    _warn_degraded(res[1])
+    return res[0]
+
+
+#: Marker counts already warned about, so a live tracker at three markers logs once rather than
+#: thirty times a second. Reset is not worth a mechanism: the set holds at most three ints.
+_DEGRADED_WARNED: set[int] = set()
+
+
+def _warn_degraded(n_used: int) -> None:
+    """Say LOUDLY, once per count, that this quad is a reconstruction and not a measurement.
+
+    `resolve_board_corners` answers from two markers up: four is an exact perspective transform,
+    three degrades to `cv2.getAffineTransform` — a PARALLELOGRAM standing in for a perspective view
+    of a plane, which cannot be right by construction — and two to a similarity that assumes the
+    board is square in the image. None of that failed anywhere, which is the problem: the
+    2026-08-02 game ran its whole length on three markers with 27-33 px of square-edge error on a
+    100 px cell, and every count downstream looked healthy.
+
+    A warning and not a refusal, because since 2026-08-03 a degraded quad is a usable COARSE seed —
+    `alignment.refine_quad` fits the board's own grid on top of it and takes the same footage to
+    2.0 px. What must never happen again is it passing silently.
+    """
+    if n_used >= 4 or n_used in _DEGRADED_WARNED:
+        return
+    _DEGRADED_WARNED.add(n_used)
+    shape = "an affine parallelogram" if n_used == 3 else "a similarity (square-board assumption)"
+    log.warning(
+        "only %d of 4 ArUco markers resolved — the corner quad is %s, not a measured perspective. "
+        "Expect tens of pixels of square-edge error until the board's grid corrects it "
+        "(alignment.refine_quad). Check that all four markers are fully inside the frame.",
+        n_used, shape)
 
 
 def warp_from_corners(frame, profile: CalibrationProfile, corners, target_size: int | None = None):
