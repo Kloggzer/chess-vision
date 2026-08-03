@@ -23,23 +23,36 @@ android {
         // because the desktop has no XNNPACK and therefore runs the convolutions badly.
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // Stockfish (phase 07c): built from the source submodule for the ABIs
-        // below. Filters apply APK-wide; 64-bit only (minSdk 29 hardware).
-        //
-        // arm64-v8a ONLY, deliberately. x86_64 served nothing but the emulator, and
-        // this app is a camera-driven board tracker: an emulator has no board to film
-        // and no Hexagon NPU, so the CNN would drop to CPU there anyway. The x86_64
-        // slice cost 99.7 MB of the APK (mostly a second copy of the embedded NNUE
-        // nets) and a second full Stockfish compile. src/main/cpp/CMakeLists.txt keeps
-        // its x86_64 flag branch, so re-enabling is a one-word revert.
-        ndk {
-            abiFilters += listOf("arm64-v8a")
-        }
+        // ABI selection belongs to the build types below. Keeping it out of defaultConfig
+        // lets the normal debug/release APKs stay arm64-only while the separate `emulator`
+        // build contains only x86_64. In particular, no APK pays for both embedded Stockfish
+        // NNUE networks.
     }
 
     buildTypes {
+        debug {
+            ndk {
+                abiFilters += listOf("arm64-v8a")
+            }
+        }
+        create("emulator") {
+            isDebuggable = true
+            isJniDebuggable = true
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("debug")
+            applicationIdSuffix = ".emulator"
+            versionNameSuffix = "-emulator"
+            ndk {
+                // OpenCV and ONNX Runtime both ship this slice; Stockfish's matching
+                // flags live in src/main/cpp/CMakeLists.txt.
+                abiFilters += listOf("x86_64")
+            }
+        }
         release {
             isMinifyEnabled = false
+            ndk {
+                abiFilters += listOf("arm64-v8a")
+            }
         }
     }
 

@@ -24,6 +24,8 @@ live games without a CNN (frame diff + legality, optional CNN safeguard).
   surprise people (train-only dedup, `unusable` not being retroactive, parking that does
   not prune the pool). Read this before touching anything under `data/`.
 - `docs/synth-pipeline.md` — synthetic data pipeline (Blender renders → ingest).
+- `docs/android-emulator.md` — canonical headful x86_64 AVD workflow, recorded-video
+  camera input and ADB controls for coding agents.
 - `docs/setup/` — PyTorch backends (ROCm / CUDA / CPU).
 - One CLI entry point: `chesslab <command>` (`src/chesslab/cli.py`, Typer).
 - **LENS vs BOARD calibration:** `chesslab lens` (`lens.py`) models the camera OPTICS
@@ -274,6 +276,13 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
 - Android: `gradlew.bat :app:ktlintCheck :app:detekt :core-engine:detekt`. Note detekt's unused rules
   (`UnusedPrivateMember`, `UnusedParameter`, `UnusedImports`) only see **private** scope — an
   `internal`/`public` function nobody calls is not detected by anything in this repo.
+- Android UI/camera: run
+  `.\scripts\android-emulator.ps1 -Avd Chesslab_Agent1 -Port 5554 -Clip blender-opening -RestartExisting`.
+  The `emulator` APK is x86_64-only and separate from the arm64 phone builds; the smoke test
+  must print `Camera feed confirmed`, not merely reach `Stop tracking`. Use
+  `scripts/android-ui.ps1` for text/semantics-first control. The AVD is headful by default;
+  `-Headless` is opt-in. Concurrent agents use distinct AVDs, even ports/ADB serials and Git
+  worktrees; artifacts are isolated under `tmp/android-emulator/<serial>/`.
 - **Gradle reports GREEN on stale tasks — pass `--rerun-tasks` when the gate is the point.**
   Up-to-date checks key on inputs Gradle knows about, and a test whose *assertion* you changed can
   sit `UP-TO-DATE` behind an unchanged classpath. Measured 2026-08-02: a plain
