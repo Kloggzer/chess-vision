@@ -58,6 +58,7 @@ What a reviewer can hold this to:
 3. **One filled button per screen**, and it is what the screen is for. Destructive is outlined, never filled.
 4. **Monospace is for figures that align.** Never a heading, never a label, never prose.
 5. **One quantity, one unit.** Win expectancy is per cent — beside the board, in the list, in the tracker. Pawns appear nowhere the user reads. (specs/47 §2.2 found three places; this closes it.)
+6. **Every irreversible action confirms.** Added by the user 2026-08-03. See below — it is a rule with a component, not a preference.
 
 ## The primitives, and what each is NOT for
 
@@ -87,6 +88,43 @@ twice in two shapes. Two carry rules worth restating:
 - **The banner is absent when no game runs** — never present-and-empty.
 - **A tab label is a label; a count is a separate node beside it.** `Moments · 25` inside one `Text`
   made the accessible name change while the analysis streamed and broke `tap-text` (`CLAUDE.md`).
+
+## Rule 6 — irreversible actions confirm
+
+The user, 2026-08-03: *"all irreversible actions need a confirmation dialog."*
+
+This project has earned that rule the hard way. On 2026-08-03 the phone's app data was destroyed
+twice — 16 recording sessions, 173 MB, never copied to the PC — and both times silently
+(`CLAUDE.md`). Those were developer actions, not UI ones, but the lesson is the same: **the app must
+not let a tap do something the user cannot get back.**
+
+**What is irreversible here**, and every one of these needs the dialog:
+
+| Action | What is actually lost |
+|---|---|
+| **Delete game** | the record, its PGN and its stored analysis |
+| **Reset game / Discard** | the moves committed so far — `GameSessionController.discard()` exists since specs/42 precisely because this used to reset the engine and leave the record |
+| **Reset all settings to defaults** | every tuned value, and a `CONFIG_SCHEMA_VERSION` bump does this silently already |
+| **Lowering the recording storage limit** | whatever gets pruned to fit |
+| **Recalibrate, mid-game** | the geometry the running game was tracked against |
+
+**What is NOT irreversible and must NOT grow a dialog:** Undo (it is itself the reversal), Stop
+tracking and End game (the game is saved), toggling a setting, switching a chip.
+
+### The panel — destructive confirmation
+
+A twelfth primitive, and the only one that may interrupt:
+
+- **The title names the thing, not the act.** "Delete this game?" — not "Are you sure?"
+- **The body says what is lost, in numbers.** "83 moves and its review. This cannot be undone." A
+  count is what makes the consequence real; an adjective does not.
+- **The confirm button carries the verb.** "Delete", not "OK". The cancel is the plain one.
+- **Destructive is outlined, never filled** (rule 3), including here — a filled red button is the
+  easiest thing on the screen to hit by accident.
+- **Cancel is the default focus**, and dismissing by tapping outside cancels.
+
+Where the loss is large and countable, say the number: "Lower the limit to 250 MB? 12 sessions,
+141 MB, will be deleted to fit."
 
 ## Pages and menu — four changes
 
