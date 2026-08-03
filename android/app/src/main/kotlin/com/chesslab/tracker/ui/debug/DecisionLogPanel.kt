@@ -24,6 +24,7 @@ import com.chesslab.engine.api.DebugDecision
 import com.chesslab.tracker.diagnostics.appVersionOf
 import com.chesslab.tracker.diagnostics.zipDiagnostics
 import com.chesslab.tracker.service.DebugState
+import com.chesslab.tracker.ui.Figure
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
@@ -99,8 +100,8 @@ private fun DecisionRow(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
             Text(fmt(row.tsS, 1), style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted)
             Text("#${row.ply}", style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted)
-            Text("${row.san ?: "-"} (${row.uci ?: "-"})", style = MaterialTheme.typography.labelMedium, color = tone)
-            Text(row.decider, style = MaterialTheme.typography.labelMedium, color = tone)
+            Figure("${row.san ?: "-"} (${row.uci ?: "-"})", tone)
+            Figure(row.decider, tone)
         }
         Text(
             "${row.reason}  ·  LL ${fmt(row.bestScore, 2)}/${fmt(row.secondScore, 2)} (Δ${fmt(row.margin, 2)})" +

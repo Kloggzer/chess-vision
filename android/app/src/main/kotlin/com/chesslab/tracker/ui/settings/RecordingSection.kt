@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -31,14 +30,20 @@ import com.chesslab.tracker.record.SessionInfo
 import com.chesslab.tracker.record.SessionStore
 import com.chesslab.tracker.record.formatBytes
 import com.chesslab.tracker.record.zipSession
+import com.chesslab.tracker.ui.Card
+import com.chesslab.tracker.ui.ChesslabChip
+import com.chesslab.tracker.ui.ConfirmDialog
+import com.chesslab.tracker.ui.TextAction
 import com.chesslab.tracker.ui.games.GameSessionHost
 import com.chesslab.tracker.ui.games.RecordingSettingsHost
 import com.chesslab.tracker.ui.games.sessionsDir
 import com.chesslab.tracker.ui.theme.Accent
+import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
+import com.chesslab.tracker.ui.theme.chesslabSwitchColors
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -131,7 +136,7 @@ fun RecordingSection() {
                 color = OnSurface,
                 modifier = Modifier.weight(1f).padding(end = Space.md),
             )
-            Switch(ui.prefs.enabled, { model.setPrefs(ui.prefs.copy(enabled = it)) })
+            Switch(ui.prefs.enabled, { model.setPrefs(ui.prefs.copy(enabled = it)) }, colors = chesslabSwitchColors())
         }
         Text(
             "Each committed move stores the raw camera frame with its FEN and board corners — exactly what " +
@@ -146,15 +151,25 @@ fun RecordingSection() {
             style = MaterialTheme.typography.bodySmall,
             color = OnSurfaceMuted,
         )
+        // The limit STOPS the recorder; it never prunes (`SessionCapture.capReached`). So lowering it
+        // below what is on disk is reversible — raise it and recording resumes — and it deliberately
+        // does NOT get the destructive confirmation, because a dialog promising a deletion that does
+        // not happen is worse than no dialog. What it does need is to say what it will do:
+        if (ui.prefs.capBytes in 1..<ui.sessionBytes) {
+            Text(
+                "Recording is stopped: what is on disk is already over this limit. Nothing is deleted — " +
+                    "raise the limit and it resumes.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Busy,
+            )
+        }
         // Real chips, not coloured text: as plain labels the four caps had no tappable affordance
         // and the selected one was distinguishable only by hue.
         FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
             CAPS.forEach { cap ->
-                FilterChip(
-                    selected = cap == ui.prefs.capBytes,
-                    onClick = { model.setPrefs(ui.prefs.copy(capBytes = cap)) },
-                    label = { Text(capLabel(cap), style = MaterialTheme.typography.labelMedium) },
-                )
+                ChesslabChip(capLabel(cap), cap == ui.prefs.capBytes) {
+                    model.setPrefs(ui.prefs.copy(capBytes = cap))
+                }
             }
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -164,11 +179,13 @@ fun RecordingSection() {
                 color = OnSurfaceMuted,
                 modifier = Modifier.weight(1f).padding(end = Space.md),
             )
-            Switch(ui.prefs.inventoryFilter, { model.setPrefs(ui.prefs.copy(inventoryFilter = it)) })
+            Switch(
+                ui.prefs.inventoryFilter,
+                { model.setPrefs(ui.prefs.copy(inventoryFilter = it)) },
+                colors = chesslabSwitchColors(),
+            )
         }
-        TextButton(onClick = { expanded = !expanded }) {
-            Text(if (expanded) "Hide recordings" else "Show recordings (${ui.sessions.size})", color = OnSurfaceMuted)
-        }
+        TextAction(if (expanded) "Hide recordings" else "Show recordings (${ui.sessions.size})", { expanded = !expanded })
         if (expanded) ui.sessions.forEach { SessionRow(it, model) }
     }
 }
@@ -210,6 +227,7 @@ private fun SessionRow(
             // SAF: the user picks the destination, so no storage permission is involved.
             context.contentResolver.openOutputStream(uri)?.use { zipSession(model.sessionDir(session.id), it) }
         }
+    var confirming by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(
             "${session.id} · ${session.frames} frames · ${formatBytes(session.bytes)}",
@@ -218,8 +236,23 @@ private fun SessionRow(
             modifier = Modifier.weight(1f).padding(end = Space.sm),
         )
         Row {
-            TextButton(onClick = { export.launch("${session.id}.zip") }) { Text("Export", color = Accent) }
-            TextButton(onClick = { model.deleteSession(session.id) }) { Text("Delete", color = Danger) }
+            TextAction("Export", { export.launch("${session.id}.zip") })
+            TextButton(onClick = { confirming = true }) { Text("Delete", color = Danger) }
         }
+    }
+    // The SEVENTH irreversible action, and not on the pack's list either. These frames are the only
+    // copy: nothing on the phone reads them back, so a deletion is discovered on the PC or not at all.
+    if (confirming) {
+        ConfirmDialog(
+            title = "Delete ${session.id}?",
+            body = "${session.frames} recorded frames, ${formatBytes(session.bytes)}. They exist nowhere else unless " +
+                "this session was exported. This cannot be undone.",
+            verb = "Delete",
+            onConfirm = {
+                model.deleteSession(session.id)
+                confirming = false
+            },
+            onDismiss = { confirming = false },
+        )
     }
 }

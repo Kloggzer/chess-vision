@@ -32,11 +32,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.chesslab.tracker.analysis.ReviewStore
 import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.games.GameSummary
 import com.chesslab.tracker.record.SessionStore
+import com.chesslab.tracker.ui.Card
 import com.chesslab.tracker.ui.ChesslabScaffold
-import com.chesslab.tracker.ui.settings.Card
+import com.chesslab.tracker.ui.ConfirmDialog
+import com.chesslab.tracker.ui.EmptyState
+import com.chesslab.tracker.ui.SectionHeading
+import com.chesslab.tracker.ui.StatTile
+import com.chesslab.tracker.ui.percent
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
@@ -51,20 +57,24 @@ fun GamesRoute(
     val scope = rememberCoroutineScope()
     val model =
         remember(context) {
-            GamesViewModel(games = GameStore(gamesDir(context)), sessions = SessionStore(sessionsDir(context)), scope = scope)
+            val dir = gamesDir(context)
+            GamesViewModel(GameStore(dir), ReviewStore(dir), SessionStore(sessionsDir(context)), scope)
         }
     LaunchedEffect(model) { model.refresh() }
     GamesScreen(model, onBack, onOpenGame)
 }
 
 /**
- * The library, and only the library.
+ * The library, its statistics, and nothing else.
  *
  * It used to open on "Record training frames" — a developer data-capture setting with a five-line
  * explanation, four size chips and a second toggle — which was by far the tallest element on the
  * screen that holds the games, with the single stored game below it. That panel is a SETTING and it
  * is in Settings › Recording. The running game is not here either: the in-progress banner every
  * screen wears is one row instead of a card, and it is on this screen too.
+ *
+ * The four tiles arrived from Home (specs/48): they are a summary of THIS list, and on Home they
+ * were four numbers about data that was one tap away, one of them duplicating the row beside it.
  */
 @Composable
 private fun GamesScreen(
@@ -81,13 +91,20 @@ private fun GamesScreen(
             Modifier.fillMaxSize().padding(bars),
             verticalArrangement = Arrangement.spacedBy(Space.sm),
         ) {
+            // The empty state REPLACES the grid — four tiles of zeroes are the thing it exists to
+            // prevent — and it is the whole screen, so nothing else renders behind it.
+            if (ui.loaded && ui.games.isEmpty()) {
+                item(key = "empty") {
+                    EmptyState("No games yet", "Track a game and it appears here with its review.")
+                }
+                return@LazyColumn
+            }
+            item(key = "stats") { LibraryGrid(ui.stats) }
+            item(key = "games-heading") { SectionHeading("Your games") }
             items(ui.games, key = { it.id }) { row ->
                 Card {
                     GameRow(row, onOpen = { onOpenGame(row.id) }, onRename = { renaming = row }, onDelete = { deleting = row })
                 }
-            }
-            if (ui.games.isEmpty()) {
-                item(key = "empty") { Text("No games yet.", color = OnSurfaceMuted) }
             }
         }
     }
@@ -105,6 +122,39 @@ private fun GamesScreen(
         }
     }
 }
+
+/** Four tiles, each stating its own denominator. See [LibraryStats] for where they came from. */
+@Composable
+private fun LibraryGrid(stats: LibraryStats) {
+    Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
+        SectionHeading("Your library")
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+            StatTile("Games", "${stats.games}", "${stats.moves} moves recorded", Modifier.weight(1f))
+            StatTile(
+                "Accuracy",
+                stats.accuracy?.let { percent(it) } ?: "—",
+                if (stats.reviewed == 0) "no game reviewed yet" else "both sides, over ${stats.reviewed} reviewed",
+                Modifier.weight(1f),
+            )
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+            StatTile(
+                "Clean records",
+                "${stats.clean} of ${stats.games}",
+                rebuiltNote(stats.games - stats.clean),
+                Modifier.weight(1f),
+            )
+            StatTile(
+                "With frames",
+                "${stats.recorded} of ${stats.games}",
+                "recorded for training",
+                Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+private fun rebuiltNote(rebuilt: Int): String = if (rebuilt == 0) "none rebuilt" else "$rebuilt rebuilt"
 
 /**
  * Three lines, not four. Rename and Delete used to be permanent buttons on every row — two controls
@@ -187,6 +237,7 @@ private fun RenameDialog(
     )
 }
 
+/** Irreversible: the record, its PGN and its stored analysis. The body says how much, in moves. */
 @Composable
 private fun DeleteDialog(
     row: GameSummary,
@@ -194,21 +245,18 @@ private fun DeleteDialog(
     onConfirm: (Boolean) -> Unit,
 ) {
     var withSession by remember { mutableStateOf(false) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Delete ${row.id}?") },
-        text = {
-            Column {
-                Text("The PGN and its provenance are removed.")
-                if (row.sessionId != null) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(withSession, { withSession = it })
-                        Text("Also delete the recorded frames (${row.sessionId})")
-                    }
-                }
+    ConfirmDialog(
+        title = "Delete ${row.id}?",
+        body = "${row.moveCount} moves, their PGN and any stored review. This cannot be undone.",
+        verb = "Delete",
+        onConfirm = { onConfirm(withSession) },
+        onDismiss = onDismiss,
+    ) {
+        row.sessionId?.let { session ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(withSession, { withSession = it })
+                Text("Also delete the recorded frames ($session)", color = OnSurfaceMuted)
             }
-        },
-        confirmButton = { TextButton(onClick = { onConfirm(withSession) }) { Text("Delete", color = Danger) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+        }
+    }
 }

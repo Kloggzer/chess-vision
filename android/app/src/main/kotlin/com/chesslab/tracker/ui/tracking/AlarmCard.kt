@@ -11,21 +11,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import com.chesslab.tracker.ui.FilledAction
+import com.chesslab.tracker.ui.OutlineAction
 import com.chesslab.tracker.ui.theme.Danger
-import com.chesslab.tracker.ui.theme.OnDanger
 import com.chesslab.tracker.ui.theme.Radius
 import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.theme.Stroke
-import com.chesslab.tracker.ui.theme.Touch
 
 private const val CONFLICTS_SHOWN = 8
 
@@ -101,19 +98,14 @@ fun AlarmCard(
             )
             AlarmFacts(alarm, lastCommit)
         }
-        // Primary action first and on its own line: it is the one that resolves the alarm.
-        Button(
-            onClick = onAcceptCnn,
-            colors = ButtonDefaults.buttonColors(containerColor = Danger, contentColor = OnDanger),
-            modifier = Modifier.fillMaxWidth().heightIn(min = Touch.min),
-        ) { Text("Accept CNN position", style = MaterialTheme.typography.labelLarge) }
+        // The action that resolves the alarm, first and on its own line. While the alarm is up this
+        // card IS what the screen is for, so this is the screen's one filled button — and it is the
+        // ACCENT, not the danger colour: danger is the state this card is reporting, and a state is
+        // not an accent (rule 2). The stripe and the headline carry the alarm.
+        FilledAction("Accept CNN position", onAcceptCnn, Modifier.fillMaxWidth())
         Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-            OutlinedButton(onClick = onUndo, modifier = Modifier.weight(1f).heightIn(min = Touch.min)) {
-                Text(undoLabel(lastCommit), style = MaterialTheme.typography.labelLarge)
-            }
-            OutlinedButton(onClick = onNewBaseline, modifier = Modifier.weight(1f).heightIn(min = Touch.min)) {
-                Text("New baseline", style = MaterialTheme.typography.labelLarge)
-            }
+            OutlineAction(undoLabel(lastCommit), onUndo, Modifier.weight(1f))
+            OutlineAction("New baseline", onNewBaseline, Modifier.weight(1f))
         }
     }
 }

@@ -13,9 +13,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.chesslab.tracker.analysis.AnalysisSettings
+import com.chesslab.tracker.ui.Figure
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.Space
+import com.chesslab.tracker.ui.theme.chesslabSwitchColors
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -73,7 +75,7 @@ private fun Toggle(
             color = OnSurface,
             modifier = Modifier.weight(1f).padding(end = Space.md),
         )
-        Switch(checked = checked, onCheckedChange = onChange)
+        Switch(checked = checked, onCheckedChange = onChange, colors = chesslabSwitchColors())
     }
 }
 
@@ -93,7 +95,7 @@ private fun Knob(
             color = OnSurface,
             modifier = Modifier.weight(1f).padding(end = Space.md),
         )
-        Text(value, style = MaterialTheme.typography.labelLarge, color = Accent)
+        Figure(value, Accent)
     }
     Slider(value = position, onValueChange = onChange, valueRange = min..max)
 }

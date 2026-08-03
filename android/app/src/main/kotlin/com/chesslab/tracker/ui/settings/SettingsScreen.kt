@@ -30,8 +30,13 @@ import com.chesslab.tracker.settings.AppSettings
 import com.chesslab.tracker.settings.SettingsHost
 import com.chesslab.tracker.speech.ui.SpeechSection
 import com.chesslab.tracker.ui.ChesslabScaffold
+import com.chesslab.tracker.ui.ConfirmDialog
+import com.chesslab.tracker.ui.DangerAction
 import com.chesslab.tracker.ui.DisclosureRow
+import com.chesslab.tracker.ui.FilledAction
+import com.chesslab.tracker.ui.OutlineAction
 import com.chesslab.tracker.ui.SectionHeading
+import com.chesslab.tracker.ui.TextAction
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
@@ -48,6 +53,7 @@ import com.chesslab.tracker.ui.theme.Space
 fun SettingsRoute(
     onBack: () -> Unit,
     onOpenDebug: () -> Unit,
+    onOpenCalibration: () -> Unit,
     onRestartTracker: (() -> Unit)? = null,
 ) {
     val repository by SettingsHost.repository.collectAsStateWithLifecycle()
@@ -55,10 +61,10 @@ fun SettingsRoute(
     if (bound == null) {
         Column(Modifier.fillMaxSize().padding(Space.lg), verticalArrangement = Arrangement.spacedBy(Space.md)) {
             Text("Reading the stored settings…", color = OnSurfaceMuted)
-            SectionButton("Back") { onBack() }
+            OutlineAction("Back", onBack)
         }
     } else {
-        SettingsScreen(remember(bound) { SettingsViewModel(bound) }, onBack, onOpenDebug, onRestartTracker)
+        SettingsScreen(remember(bound) { SettingsViewModel(bound) }, onBack, onOpenDebug, onOpenCalibration, onRestartTracker)
     }
 }
 
@@ -67,6 +73,7 @@ private fun SettingsScreen(
     viewModel: SettingsViewModel,
     onBack: () -> Unit,
     onOpenDebug: () -> Unit,
+    onOpenCalibration: () -> Unit,
     onRestartTracker: (() -> Unit)?,
 ) {
     val config by viewModel.config.collectAsStateWithLifecycle()
@@ -74,6 +81,7 @@ private fun SettingsScreen(
     val pending by viewModel.restartRequired.collectAsStateWithLifecycle()
     val note by viewModel.note.collectAsStateWithLifecycle()
     var confirmResetAll by remember { mutableStateOf(false) }
+    var resetGroup by remember { mutableStateOf<KnobGroup?>(null) }
     var place by remember { mutableStateOf<SettingsPlace>(SettingsPlace.Groups) }
     var query by remember { mutableStateOf("") }
 
@@ -100,8 +108,10 @@ private fun SettingsScreen(
                 place,
                 query,
                 onOpenDebug,
+                onOpenCalibration,
                 Modifier.weight(1f),
                 onOpenGroup = { place = it },
+                onResetGroup = { resetGroup = it },
                 onResetAll = { confirmResetAll = true },
             )
             if (pending.isNotEmpty()) RestartBar(pending, onRestartTracker, viewModel::onRestarted)
@@ -109,10 +119,26 @@ private fun SettingsScreen(
     }
 
     if (confirmResetAll) {
-        ConfirmResetAll(onConfirm = {
+        ConfirmResetAll(modifiedKnobs(config).size, onConfirm = {
             confirmResetAll = false
             viewModel.resetAll()
         }, onDismiss = { confirmResetAll = false })
+    }
+    // The SIXTH irreversible action, and the pack's list did not have it: resetting one group throws
+    // away exactly the same kind of tuning as resetting all of them, in one tap and with no dialog.
+    resetGroup?.let { group ->
+        ConfirmDialog(
+            title = "Reset ${group.title} to defaults?",
+            body =
+                "${modifiedCount(group, config)} of ${knobsIn(group).size} settings in this group are " +
+                    "away from the Python default and go back to it. This cannot be undone.",
+            verb = "Reset ${group.title}",
+            onConfirm = {
+                viewModel.resetGroup(group)
+                resetGroup = null
+            },
+            onDismiss = { resetGroup = null },
+        )
     }
 }
 
@@ -128,13 +154,7 @@ private fun SearchField(
         singleLine = true,
         modifier = Modifier.fillMaxWidth().padding(vertical = Space.sm),
         placeholder = { Text("Search settings — try \"shadow\", \"cnn\", \"timeout\"", color = OnSurfaceMuted) },
-        trailingIcon = {
-            if (query.isNotEmpty()) {
-                TextButton(onClick = { onQuery("") }) {
-                    Text("clear", style = MaterialTheme.typography.labelMedium, color = OnSurfaceMuted)
-                }
-            }
-        },
+        trailingIcon = { if (query.isNotEmpty()) TextAction("clear", { onQuery("") }) },
     )
 }
 
@@ -147,8 +167,10 @@ private fun SettingsList(
     place: SettingsPlace,
     query: String,
     onOpenDebug: () -> Unit,
+    onOpenCalibration: () -> Unit,
     modifier: Modifier = Modifier,
     onOpenGroup: (SettingsPlace) -> Unit,
+    onResetGroup: (KnobGroup) -> Unit,
     onResetAll: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -169,9 +191,7 @@ private fun SettingsList(
         }
         if (place is SettingsPlace.Group && query.isBlank()) {
             item(key = "resetGroup") {
-                Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-                    SectionButton("Reset ${place.group.title} to defaults") { viewModel.resetGroup(place.group) }
-                }
+                OutlineAction("Reset ${place.group.title} to defaults", { onResetGroup(place.group) })
             }
         }
         items(rows.size, key = { rows[it].key }) { index ->
@@ -185,7 +205,7 @@ private fun SettingsList(
             )
         }
         if (query.isBlank()) subpage(place, app, viewModel)
-        if (listing) landing(viewModel, config, app, context, onOpenGroup, onOpenDebug, onResetAll)
+        if (listing) landing(viewModel, config, app, context, onOpenGroup, onOpenDebug, onOpenCalibration, onResetAll)
     }
 }
 
@@ -218,6 +238,7 @@ private fun LazyListScope.landing(
     context: Context,
     onOpenGroup: (SettingsPlace) -> Unit,
     onOpenDebug: () -> Unit,
+    onOpenCalibration: () -> Unit,
     onResetAll: () -> Unit,
 ) {
     val changed = modifiedKnobs(config)
@@ -230,7 +251,13 @@ private fun LazyListScope.landing(
             }
         }
     }
-    item(key = "tracking-heading") { SectionHeading("TRACKING") }
+    // The SECOND door to calibration. It is a setup task that happens to need a live camera, so the
+    // tracker reaches it too — but somebody looking for setup looks in Settings, and two entrances
+    // to one room is not duplication as long as they are one route (`ROUTE_CAMERA`).
+    item(key = "calibration-row") {
+        DisclosureRow("Board calibration", "Point the camera at the board and fit the grid", onOpenCalibration)
+    }
+    item(key = "tracking-heading") { SectionHeading("Tracking") }
     items(KnobGroup.entries.size, key = { KnobGroup.entries[it].name }) { index ->
         val group = KnobGroup.entries[index]
         val n = modifiedCount(group, config)
@@ -239,7 +266,7 @@ private fun LazyListScope.landing(
             subtitle = "${knobsIn(group).size} settings" + if (n > 0) "  •$n modified" else "",
         ) { onOpenGroup(SettingsPlace.Group(group)) }
     }
-    item(key = "app-heading") { SectionHeading("APP") }
+    item(key = "app-heading") { SectionHeading("App") }
     item(key = "speech-row") {
         DisclosureRow("Spoken moves", "Announce moves and alarms, language, verbosity") {
             onOpenGroup(SettingsPlace.Speech)
@@ -260,14 +287,14 @@ private fun LazyListScope.landing(
             onOpenGroup(SettingsPlace.Device)
         }
     }
-    item(key = "diagnostics-heading") { SectionHeading("DIAGNOSTICS") }
+    item(key = "diagnostics-heading") { SectionHeading("Diagnostics") }
     item(key = "debug") {
         DebugRow(enabled = app.debugEnabled, onEnabled = viewModel::setDebugEnabled, onOpen = onOpenDebug)
     }
     item(key = "footer") {
         Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-            SectionButton("Export settings as JSON") { share(context, exportText(context, config, app)) }
-            SectionButton("Reset all to Python defaults") { onResetAll() }
+            OutlineAction("Export settings as JSON", { share(context, exportText(context, config, app)) })
+            DangerAction("Reset all to Python defaults", onResetAll)
         }
     }
 }
@@ -297,25 +324,31 @@ private fun RestartBar(
                 color = OnSurfaceMuted,
             )
         } else {
-            SectionButton("Apply & restart tracker") {
+            // The screen's ONE filled action, and it only exists while there is something to apply.
+            FilledAction("Apply & restart tracker", {
                 onRestartTracker()
                 onRestarted()
-            }
+            })
         }
     }
 }
 
+/** Irreversible: every value tuned for this board. The body counts how many are about to move. */
 @Composable
 private fun ConfirmResetAll(
+    modified: Int,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Reset all to Python defaults?") },
-        text = { Text("Every knob goes back to src/chesslab/config.py TRACK_DEFAULTS. Tuning done for this board is lost.") },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("Reset all") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    ConfirmDialog(
+        title = "Reset all to Python defaults?",
+        body =
+            "$modified ${if (modified == 1) "setting is" else "settings are"} away from " +
+                "src/chesslab/config.py TRACK_DEFAULTS and go back to it. Tuning done for this board " +
+                "is lost and cannot be undone.",
+        verb = "Reset all",
+        onConfirm = onConfirm,
+        onDismiss = onDismiss,
     )
 }
 

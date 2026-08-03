@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import com.chesslab.tracker.service.DebugState
 import com.chesslab.tracker.service.FRAME_BUDGET_MS
 import com.chesslab.tracker.service.StageStat
+import com.chesslab.tracker.ui.Figure
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.Danger
@@ -93,10 +94,8 @@ private fun StackedBar(
 private fun StageRow(stat: StageStat) {
     val tone = if (stat.stage == TOTAL) budgetTone(stat.last) else OnSurface
     Row(Modifier.fillMaxWidth().padding(vertical = Stroke.hairline)) {
-        Text(stat.stage, Modifier.weight(1.4f), style = MaterialTheme.typography.labelMedium, color = sliceColor(stat.stage))
-        listOf(stat.last, stat.median, stat.p95).forEach {
-            Text(fmt(it, 1), Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = tone)
-        }
+        Figure(stat.stage, sliceColor(stat.stage), Modifier.weight(1.4f))
+        listOf(stat.last, stat.median, stat.p95).forEach { Figure(fmt(it, 1), tone, Modifier.weight(1f)) }
     }
 }
 
