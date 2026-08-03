@@ -36,6 +36,12 @@ data class ReviewBudget(
     val movetimeMs: Long = REVIEW_MOVETIME_MS,
     val threads: Int = 2,
     val hashMb: Int = 64,
+    /**
+     * 1, because the review only ever reads the best line — the extra slots cost search depth in
+     * the same wall clock. It is settable so `ReviewDepthMeasurement` can reproduce the live eval
+     * bar's readout exactly (`movetime 400`, `multiPv 3`) and compare the two.
+     */
+    val multiPv: Int = 1,
 )
 
 /** One graded ply. [depth] is the depth actually reached, which is the weight of the grade. */
@@ -65,8 +71,7 @@ data class GameGrade(
     fun of(ply: Int): PlyGrade? = plies.getOrNull(ply - 1)?.takeIf { it.ply == ply }
 
     /** The plies worth opening the screen for, worst first. */
-    fun findings(): List<PlyGrade> =
-        plies.filter { it.quality == MoveQuality.BLUNDER || it.quality == MoveQuality.MISTAKE }
+    fun findings(): List<PlyGrade> = plies.filter { it.quality == MoveQuality.BLUNDER || it.quality == MoveQuality.MISTAKE }
 }
 
 /** How far a run has got, for a screen that must not look frozen for a minute. */
@@ -116,26 +121,33 @@ class GameReviewer(
         return grade(plies.map { it.ply }, startsWithBlack(game.startFen), scores, budget)
     }
 
-    /**
-     * A terminal position has no move to evaluate and no line to ask for; its score is the outcome
-     * itself. Asking the engine anyway returns an empty PV that would read as an even position.
-     */
     private fun scoreOf(
         engine: UciEngine,
         fen: String,
     ): Score {
         val board = runCatching { Board().apply { loadFromFen(fen) } }.getOrNull() ?: return Score(0, 0)
+        terminalScore(board)?.let { return it }
         val whiteToMove = board.sideToMove == Side.WHITE
-        if (board.isMated) return Score(if (whiteToMove) -MATE_CP else MATE_CP, 0)
-        if (board.isStaleMate || board.isDraw) return Score(0, 0)
         val best =
-            runCatching { engine.analyse(fen, budget.movetimeMs, multiPv = 1, depth = budget.depth) }
+            runCatching { engine.analyse(fen, budget.movetimeMs, budget.multiPv, depth = budget.depth) }
                 .getOrNull()
                 ?.firstOrNull()
                 ?.toWhitePov(whiteToMove)
         return Score(cpOf(best), best?.depth ?: 0)
     }
 }
+
+/**
+ * A terminal position has no move to evaluate and no line to ask for; its score is the outcome
+ * itself. Asking the engine anyway returns an empty PV, which would read as an even position — so
+ * a checkmate would grade the mating move as costing nothing.
+ */
+private fun terminalScore(board: Board): Score? =
+    when {
+        board.isMated -> Score(if (board.sideToMove == Side.WHITE) -MATE_CP else MATE_CP, 0)
+        board.isStaleMate || board.isDraw -> Score(0, 0)
+        else -> null
+    }
 
 /** One position's verdict in white-POV centipawns, and how deep the engine got to it. */
 internal data class Score(
