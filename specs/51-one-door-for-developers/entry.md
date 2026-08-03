@@ -54,10 +54,15 @@ Make it an ordinary single-line text field with a magnifier on the **right**. Th
 placeholder material; if they are worth keeping they belong in the empty result, where somebody who
 found nothing can use them.
 
-**And ask whether it survives this pack at all.** Search exists because the screen had 46 sliders.
-With the tuning knobs behind the developer door, Settings is three or four rows — and a search box
-above four rows is furniture. It may belong on the *developer* screen instead, which is where the
-long list now lives. Decide, and say which.
+**The reference is Android's own Settings app** — the user, asked what shape they meant: *"like
+android does it in the settings."* A single rounded bar across the top, one line, the placeholder a
+plain "Search settings", the magnifier as an icon in the bar. Match that, with the icon on the
+right as asked. It is a well-known shape and the point of naming it is that nothing needs inventing.
+
+**Where it lives is still a question.** Search exists because the screen had 46 sliders. With the
+tuning knobs behind the developer door, Settings is three or four rows, and a search bar above four
+rows is furniture — while the developer screen, which now holds the long list, is exactly where
+someone hunts for `censusThr`. Put it where the list is. If it earns a place on both, say why.
 
 ## Open, and decide it rather than asking
 
