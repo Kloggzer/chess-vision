@@ -28,7 +28,7 @@ import com.chesslab.tracker.geometry.withCropSizeOf
 import com.chesslab.tracker.pipeline.CameraRate
 import com.chesslab.tracker.pipeline.StageTimings
 import com.chesslab.tracker.settings.AppSettings
-import com.chesslab.tracker.settings.DataStoreConfigStore
+import com.chesslab.tracker.settings.SettingsHost
 import com.chesslab.tracker.settings.SettingsRepository
 import com.chesslab.tracker.settings.cameraLook
 import com.chesslab.tracker.speech.MoveAnnouncer
@@ -226,15 +226,27 @@ class TrackerService :
      * Release the camera FIRST and unconditionally: a bound UI client keeps the service alive past
      * `stopSelf`, so leaving the unbind to `onDestroy` would leave the green indicator lit for as
      * long as the activity happens to live.
+     *
+     * The game is saved HERE and not only in `onDestroy` for the same reason: a stop from the shade
+     * with the app in the background leaves the composition bound until it next resumes, and a game
+     * that only reaches disk on `onDestroy` is a game a process kill takes with it.
      */
     private fun endService() {
         camera.stop()
         cameraRunning.value = false
+        games.endAndSave()
+        // Clearing the run switch is what makes the composition let go: while it is bound with
+        // `BIND_AUTO_CREATE` the `stopSelf` below only queues the death.
+        TrackerRun.onStopped()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     override fun onDestroy() {
+        TrackerRun.onStopped()
+        // The repository outlives us; the lambda it holds captures this service, so leaving it in
+        // place is a leak of everything the service owns.
+        settings.submit = {}
         DebugSessionHost.publish(null)
         TrackerRestartHost.publish(null)
         GameSessionHost.publish(null)
@@ -257,11 +269,13 @@ class TrackerService :
         // Before the stack, which is wired to its sink at construction. Session-lived on purpose:
         // a tracker restart is a new run header in the same file, not a new file.
         diagnostics = DiagnosticsLog(diagnosticsDir(filesDir), lifecycleScope)
-        settings =
-            SettingsRepository(DataStoreConfigStore(this), lifecycleScope) {
-                // The config the ENGINE gets, never the stored one — see [onMeasuredBoard].
-                stacks.current?.host?.submit(EngineAction.UpdateConfig(onMeasuredBoard(settings.config.value, geometry)))
-            }
+        // The process's repository, not one of ours: it is read and written by the settings screen
+        // with no tracker running, and two over the same DataStore would be two truths.
+        settings = SettingsHost.get(this)
+        settings.submit = {
+            // The config the ENGINE gets, never the stored one — see [onMeasuredBoard].
+            stacks.current?.host?.submit(EngineAction.UpdateConfig(onMeasuredBoard(settings.config.value, geometry)))
+        }
         camera =
             TrackerCamera(this, cameraRequestFor(settings.appSettings.value.resolutionMode), { image, delivered ->
                 binder.deliveredSize = delivered
@@ -298,7 +312,7 @@ class TrackerService :
 
     /** Persisted truth first, then the stack, then the camera — a frame with no stack is wasted. */
     private suspend fun start() {
-        settings.load()
+        settings.awaitLoaded()
         // The saved picture, straight onto the camera. The port holds it as a WANT even before a
         // device is bound and re-asserts it on every rebind, so this is the only place the stored
         // value has to be handed over.
