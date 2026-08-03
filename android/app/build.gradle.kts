@@ -71,6 +71,12 @@ android {
             // from. A re-render (e.g. at phone resolution) lives in its own directory and is
             // selected here, so the fixtures are never overwritten; see SimClips.simClipDir.
             it.systemProperty("chesslab.sim.clips", providers.gradleProperty("chesslab.sim.clips").getOrElse(""))
+            // A real UCI engine for ReviewDepthMeasurementTest, which measures how many plies change
+            // class between the live eval bar's budget and the review pass's. Empty = skipped: the
+            // answer is a property of Stockfish on the machine it runs on, and a scripted process
+            // would fabricate it. `chesslab.uci.game` overrides the bundled move text with a file.
+            it.systemProperty("chesslab.uci", providers.gradleProperty("chesslab.uci").getOrElse(""))
+            it.systemProperty("chesslab.uci.game", providers.gradleProperty("chesslab.uci.game").getOrElse(""))
         }
     }
 

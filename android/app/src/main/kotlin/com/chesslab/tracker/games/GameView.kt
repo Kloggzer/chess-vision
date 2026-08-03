@@ -98,8 +98,7 @@ private fun GameSegment.replay(): ReviewSegment {
  * True when the first ply from [fen] belongs to Black — a game or a segment adopted mid-position.
  * An unreadable FEN reads as White, which only mis-pairs a score sheet nothing else could render.
  */
-fun startsWithBlack(fen: String): Boolean =
-    runCatching { Board().apply { loadFromFen(fen) }.sideToMove == Side.BLACK }.getOrDefault(false)
+fun startsWithBlack(fen: String): Boolean = runCatching { Board().apply { loadFromFen(fen) }.sideToMove == Side.BLACK }.getOrDefault(false)
 
 /** A numbered row of the score sheet. [black] is null on the half-open last row. */
 data class MoveRow(

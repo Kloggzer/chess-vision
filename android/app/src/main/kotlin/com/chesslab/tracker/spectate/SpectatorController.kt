@@ -91,7 +91,11 @@ class SpectatorController(
      * and there is nothing left here to get wrong.
      */
     private fun onStatus(status: TrackerStatus?) {
-        val game = GameSessionHost.controller.value?.state?.value?.game ?: GameView.NONE
+        val game =
+            GameSessionHost.controller.value
+                ?.state
+                ?.value
+                ?.game ?: GameView.NONE
         snapshot.value = gameSnapshot(status, game, System.currentTimeMillis())
     }
 

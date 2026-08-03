@@ -150,7 +150,7 @@ class GameSessionControllerTest {
         controller.discard()
 
         assertEquals(0, controller.state.value.moveCount)
-        assertTrue(controller.state.value.game.plies.isEmpty())
+        assertEquals(emptyList<ReviewPly>(), controller.state.value.game.plies)
         assertTrue(store.list().isEmpty(), "a discarded game is never stored")
 
         // And the next move starts a fresh record on its own line — no seam.
