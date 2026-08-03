@@ -15,13 +15,18 @@ import numpy as np
 import pytest
 
 from chesslab.alignment import (
+    DRIFT_EXPIRE_CELLS,
     GRID_PAD_CELLS,
     Alignment,
     alignment_of,
+    apply_grid_correction,
     correct_quad,
     frame_offsets,
+    grid_correction,
     grid_lines,
     improve_quad,
+    quad_drift_cells,
+    refine_quad,
     square_offsets,
     warp_for_grid,
     worst_offset,
@@ -349,6 +354,70 @@ def test_the_verdict_is_absolute_not_a_spread_about_its_own_median():
     bent = _bend(TRUTH, _shift(9.0, 0.0))
     for _ in range(3):
         assert not alignment_of(_frame(), bent, prof).ok
+
+
+def test_the_correction_reapplied_reproduces_the_refinement():
+    """The correction has to SURVIVE live alignment, or the refinement is decoration.
+
+    `board_corners_for_frame` re-derives the quad from the markers every `align_every` frames and
+    knows nothing about grooves, so a refined quad written into the tracker is overwritten within
+    ~0.2 s. Re-measuring at that cadence costs ~75 ms; re-applying is four points through a 3x3.
+    """
+    prof = _profile()
+    frame = _frame()
+    bent = _bend(TRUTH, _shear(0.6))
+    refined = correct_quad(frame, bent, prof)
+    assert refined is not None
+    correction = grid_correction(bent, refined, prof)
+    assert correction is not None
+    again = apply_grid_correction(correction, bent, prof)
+    assert again is not None
+    assert np.abs(np.array(again) - np.array(refined)).max() < 0.01
+
+
+def test_the_correction_transfers_to_a_quad_it_was_not_measured_on():
+    """The live case: the markers move a little between alignments, and the grid residual is a
+    property of the board and the lens rather than of where the quad currently sits."""
+    prof = _profile()
+    frame = _frame()
+    bent = _bend(TRUTH, _shear(0.6))
+    correction = grid_correction(bent, correct_quad(frame, bent, prof), prof)
+    nudged = [[x + 1.5, y - 1.0] for x, y in bent]
+    corrected = apply_grid_correction(correction, nudged, prof)
+    assert corrected is not None
+    assert worst_offset(frame, corrected, prof) < worst_offset(frame, nudged, prof)
+
+
+def test_quad_drift_is_measured_in_cells_and_notices_a_moved_pose():
+    """Cells, never raw pixels: 4 px is 4 % of a square at `board_size` 800 and 2 % at 1600.
+
+    Parity with `GridCorrection.kt::quadDriftCells`, whose threshold `LiveAlign` acts on.
+    """
+    assert quad_drift_cells(TRUTH, TRUTH, _profile()) == 0.0
+    moved = [[x + CELL, y] for x, y in TRUTH]
+    assert quad_drift_cells(TRUTH, moved, _profile()) == pytest.approx(1.0)
+    small = [[x + 1.0, y] for x, y in TRUTH]
+    assert quad_drift_cells(TRUTH, small, _profile()) < DRIFT_EXPIRE_CELLS
+
+
+def test_refine_quad_takes_a_coarse_quad_to_a_passing_verdict():
+    """The coarse-to-fine staging: a quad tens of pixels out goes in, a passing verdict comes out."""
+    prof = _profile()
+    frame = _frame()
+    coarse = _bend(TRUTH, _shift(8.0, -6.0) @ _shear(0.5))
+    assert not alignment_of(frame, coarse, prof).ok
+    best, verdict = refine_quad(frame, coarse, prof)
+    assert verdict.ok, str(verdict)
+    assert np.abs(np.array(best) - np.array(TRUTH)).max() < 3.0
+
+
+def test_refine_quad_hands_back_the_coarse_quad_when_the_fit_fails():
+    """A caller must never have to guess which stage answered — the verdict describes what it got."""
+    prof = _profile()
+    blank = np.full((1200, 1400, 3), 128, np.uint8)
+    best, verdict = refine_quad(blank, TRUTH, prof)
+    assert best == TRUTH
+    assert not verdict.ok
 
 
 def test_the_pad_is_narrower_than_the_search_it_serves_is_wide():
