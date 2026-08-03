@@ -40,7 +40,8 @@ private fun game(count: Int): GameView {
 private fun score(
     cp: Int,
     best: String? = null,
-) = Score(cp, 18, listOfNotNull(best))
+    mate: Int? = null,
+) = Score(cp, 18, listOfNotNull(best), mate)
 
 private fun grade(scores: List<Score?>) = grade(game(scores.size - 1), scores, BUDGET)
 
@@ -134,6 +135,49 @@ class GameReviewTest {
         assertEquals(listOf("d4", "e5"), broken.bestLine, "h1h8 is not legal there, and everything after it is fiction")
     }
 
+    @Test
+    fun aForcedMateLostByTheMoverIsNamedAndItsLineRemainsReplayable() {
+        val missed = grade(listOf(Score(10_000, 18, listOf("d2d4", "d7d5"), mate = 3), score(0))).of(1)!!
+        assertTrue(missed.mateBefore)
+        assertFalse(missed.mateAfter)
+        assertTrue(missed.missedMate)
+        assertEquals(listOf("d2d4", "d7d5"), missed.bestUciLine)
+
+        val frames = lineFrames(START, missed.bestUciLine)
+        assertEquals(3, frames.size)
+        assertNull(frames.first().lastMoveUci)
+        assertEquals("d7d5", frames.last().lastMoveUci)
+
+        val best = grade(listOf(Score(10_000, 18, listOf("e2e4"), mate = 3), score(0))).of(1)!!
+        assertTrue(best.playedBest)
+        assertFalse(best.missedMate, "a shallow follow-up search must not call the engine's own move a missed mate")
+    }
+
+    @Test
+    fun movesThatOnlyContinueTheSameForcedMateAreExcludedFromAccuracy() {
+        val graded = grade(listOf(score(10_000, mate = 3), score(10_000, mate = 2), score(10_000, mate = 1)))
+
+        assertTrue(graded.of(1)!!.forcedMateLine)
+        assertTrue(graded.of(2)!!.forcedMateLine)
+        assertEquals(2, graded.forcedMatePlies)
+        assertEquals(0, graded.white.scored)
+        assertEquals(0, graded.black.scored)
+    }
+
+    @Test
+    fun whitesForcedMateIsNeverChargedToBlackAsAMissedMate() {
+        val whiteKeepsMate = grade(listOf(score(0), score(10_000, mate = 3), score(10_000, mate = 2)))
+        val blackPly = whiteKeepsMate.of(2)!!
+
+        assertFalse(blackPly.mateBefore)
+        assertFalse(blackPly.missedMate)
+        assertEquals(0, whiteKeepsMate.missedMates(white = false))
+
+        val blackLosesOwnMate = grade(listOf(score(0), score(-10_000, mate = -3), score(0)))
+        assertTrue(blackLosesOwnMate.of(2)!!.missedMate)
+        assertEquals(1, blackLosesOwnMate.missedMates(white = false))
+    }
+
     /**
      * **A GAP in the record is the one thing that cannot be graded.**
      *
@@ -211,6 +255,8 @@ class GameReviewTest {
         assertEquals(listOf(1), graded.byPly.keys.toList(), "plies 2 and 3 each need the missing position")
         assertEquals(3, graded.scored)
         assertEquals(4, graded.positions)
+        assertEquals(listOf(0, -600, null, 0), graded.evalCp)
+        assertEquals(listOf(null, null, null, null), graded.evalMate)
         assertFalse(graded.complete)
         assertNotNull(graded.of(1))
     }

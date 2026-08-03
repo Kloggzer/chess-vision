@@ -117,7 +117,21 @@ data class PlyGrade(
      * denominator because of that.
      */
     val decided: Boolean,
+    /** The engine's continuation in UCI, kept beside [bestLine] so the UI can replay it on a board. */
+    val bestUciLine: List<String> = emptyList(),
+    /** The mover could force mate before this move. */
+    val mateBefore: Boolean = false,
+    /** The same mover can still force mate after this move. */
+    val mateAfter: Boolean = false,
+    /** True when the played UCI exactly matched the engine's first move before this ply. */
+    val playedBest: Boolean = false,
+    /** The move stayed inside the same already-forced mating sequence. */
+    val forcedMateLine: Boolean = false,
+    /** Exact mate distance available to the mover before this move. */
+    val mateInBefore: Int? = null,
 )
+
+val PlyGrade.missedMate: Boolean get() = mateBefore && !mateAfter && !playedBest
 
 /**
  * One side's report. [accuracy] is over the plies that are evidence about this player: everything
@@ -151,6 +165,10 @@ data class GameGrade(
      * being looked at, never the tracker's current position.
      */
     val winWhite: List<Double?>,
+    /** White-POV engine score per position, used for the score sheet's position trend. */
+    val evalCp: List<Int?>,
+    /** White-POV mate distance per position; magnitude is the remaining number of moves. */
+    val evalMate: List<Int?>,
     val white: SideSummary,
     val black: SideSummary,
     val budget: ReviewBudget,
@@ -165,8 +183,15 @@ data class GameGrade(
     /** The plies worth opening the screen for, worst first. */
     fun findings(): List<PlyGrade> =
         byPly.values
-            .filter { it.quality >= MoveQuality.INACCURACY }
-            .sortedByDescending { it.winBefore - it.winAfter }
+            .filter { it.missedMate || it.quality >= MoveQuality.INACCURACY }
+            .sortedWith(
+                compareByDescending<PlyGrade> { it.missedMate }
+                    .thenByDescending { it.winBefore - it.winAfter },
+            )
+
+    val forcedMatePlies: Int get() = byPly.values.count { it.forcedMateLine }
+
+    fun missedMates(white: Boolean): Int = byPly.values.count { it.missedMate && (it.ply % 2 == 1) == white }
 }
 
 /**
@@ -235,7 +260,7 @@ class GameReviewer(
                 .getOrNull()
                 ?.firstOrNull()
                 ?.toWhitePov(whiteToMove)
-        return Score(cpOf(best), best?.depth ?: 0, best?.pv.orEmpty())
+        return Score(cpOf(best), best?.depth ?: 0, best?.pv.orEmpty(), mate = best?.mate)
     }
 }
 
@@ -260,7 +285,7 @@ internal fun nextIndex(
  */
 private fun terminalScore(board: Board): Score? =
     when {
-        board.isMated -> Score(if (board.sideToMove == Side.WHITE) -MATE_CP else MATE_CP, 0)
+        board.isMated -> Score(if (board.sideToMove == Side.WHITE) -MATE_CP else MATE_CP, 0, mate = 0)
         board.isStaleMate || board.isDraw -> Score(0, 0)
         else -> null
     }
@@ -271,6 +296,8 @@ data class Score(
     val depth: Int,
     /** The engine's continuation from this position, in UCI. Empty for a terminal position. */
     val line: List<String> = emptyList(),
+    /** Stockfish's signed mate distance from White's point of view. */
+    val mate: Int? = null,
 ) {
     val bestUci: String? get() = line.firstOrNull()
 }
@@ -314,6 +341,8 @@ internal fun grade(
     return GameGrade(
         byPly = byPly,
         winWhite = scores.map { it?.let { score -> winChanceCeiled(score.cp) } },
+        evalCp = scores.map { it?.cp },
+        evalMate = scores.map { it?.mate },
         white = summarise(white),
         black = summarise(black),
         budget = budget,
@@ -343,16 +372,18 @@ private fun gradeOne(
     val winAfter = winFor(after.cp, whiteMoved)
     // Past the ceiling at both ends AND still the same side's game: a flip from won to lost is also
     // saturated at both ends and is the largest blunder there is, so the sign has to agree.
-    val decided = isDecided(before.cp) && isDecided(after.cp) && (before.cp > 0) == (after.cp > 0)
+    val forcedMateLine = mateWinnerWhite(before) != null && mateWinnerWhite(before) == mateWinnerWhite(after)
+    val decided = forcedMateLine || isDecided(before.cp) && isDecided(after.cp) && (before.cp > 0) == (after.cp > 0)
     // Floored at zero: a move that beats the engine's line at this depth is a NEGATIVE drop, and
     // letting it through would pay for a blunder elsewhere with a lucky best move.
     val drop = (winBefore - winAfter).coerceAtLeast(0.0)
     val bestUci = before.bestUci
+    val playedBest = bestUci != null && bestUci == ply.uci
     val bestLine = sansOf(fenBefore, before.line)
     return PlyGrade(
         ply = ply.ply,
         san = ply.san,
-        quality = classify(drop, playedEngineMove = bestUci != null && bestUci == ply.uci),
+        quality = classify(drop, playedEngineMove = playedBest),
         winBefore = winBefore,
         winAfter = winAfter,
         accuracy = accuracyPercent(drop),
@@ -361,8 +392,24 @@ private fun gradeOne(
         bestUci = bestUci,
         bestLine = bestLine,
         decided = decided,
+        bestUciLine = before.line,
+        mateBefore = moverMateIn(before, whiteMoved) != null,
+        mateAfter = moverMateIn(after, whiteMoved) != null,
+        playedBest = playedBest,
+        forcedMateLine = forcedMateLine,
+        mateInBefore = moverMateIn(before, whiteMoved),
     )
 }
+
+private fun moverMateIn(
+    score: Score,
+    whiteMoved: Boolean,
+): Int? {
+    val winnerWhite = mateWinnerWhite(score) ?: return null
+    return score.mate?.takeIf { winnerWhite == whiteMoved }?.let(::abs)
+}
+
+private fun mateWinnerWhite(score: Score): Boolean? = score.mate?.let { if (it == 0) score.cp > 0 else it > 0 }
 
 /** Win expectancy for the side that just moved, 0..100, through lichess' ceiling. */
 private fun winFor(
@@ -397,7 +444,7 @@ internal fun sanOf(
  * A whole UCI line as SAN, replayed from [fen]. Truncated at the first move chesslib will not play
  * rather than abandoned: half a line is still an idea, and an empty one is not.
  */
-private fun sansOf(
+internal fun sansOf(
     fen: String,
     line: List<String>,
 ): List<String> {
@@ -416,4 +463,29 @@ private fun sansOf(
         board.doMove(move)
     }
     return runCatching { moves.toSanArray().toList() }.getOrDefault(emptyList())
+}
+
+/** One step of an engine line, including the untouched starting position at index zero. */
+data class LineFrame(
+    val fen: String,
+    val lastMoveUci: String?,
+)
+
+/** Replay as much of an engine line as is legal, never fabricating positions after a broken move. */
+internal fun lineFrames(
+    startFen: String,
+    uciLine: List<String>,
+): List<LineFrame> {
+    val board = runCatching { Board().apply { loadFromFen(startFen) } }.getOrNull() ?: return emptyList()
+    val frames = mutableListOf(LineFrame(board.fen, null))
+    for (uci in uciLine) {
+        val move =
+            runCatching { Move(uci, board.sideToMove) }
+                .getOrNull()
+                ?.takeIf { candidate -> MoveGenerator.generateLegalMoves(board).any { it.toString() == candidate.toString() } }
+                ?: break
+        board.doMove(move)
+        frames += LineFrame(board.fen, uci)
+    }
+    return frames
 }

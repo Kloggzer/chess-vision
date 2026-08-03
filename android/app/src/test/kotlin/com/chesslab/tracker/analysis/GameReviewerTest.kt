@@ -110,6 +110,17 @@ class GameReviewerTest {
         assertEquals(Score(999, 12, listOf("a2a3")), last[0], "and they came back untouched")
     }
 
+    @Test
+    fun theReviewKeepsStockfishsMateDistanceForTheScoreSheet() {
+        val mateInfo = listOf("info depth 30 multipv 1 score mate 3 pv e2e4")
+        var startScore: Score? = null
+        runBlocking {
+            GameReviewer({ UciEngine("fake") { ScriptedEngineProcess(engineScript(mateInfo)) } })
+                .review(game(), focus = { 0 }) { scores -> startScore = scores.firstOrNull() ?: startScore }
+        }
+        assertEquals(3, startScore?.mate)
+    }
+
     /** No engine binary for this ABI is a `false`, never an exception on the review screen. */
     @Test
     fun aMissingEngineIsReportedRatherThanThrown() {
