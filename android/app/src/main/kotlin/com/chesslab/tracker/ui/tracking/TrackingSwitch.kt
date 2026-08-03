@@ -8,11 +8,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -22,10 +19,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.chesslab.tracker.service.TrackerRun
+import com.chesslab.tracker.ui.FilledAction
+import com.chesslab.tracker.ui.OutlineAction
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
-import com.chesslab.tracker.ui.theme.Touch
 
 /** Notifications are only needed for the foreground-service notification, and only from API 33. */
 private val REQUESTED_PERMISSIONS: Array<String>
@@ -61,22 +59,20 @@ fun TrackingSwitch(
             if (granted) TrackerRun.start()
         }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
-        OutlinedButton(
-            onClick = {
-                when {
-                    running -> TrackerRun.stop(context)
-                    hasCamera(context) -> TrackerRun.start()
-                    else -> request.launch(REQUESTED_PERMISSIONS)
-                }
-            },
-            modifier = Modifier.fillMaxWidth().heightIn(min = Touch.min),
-            contentPadding = PaddingValues(Space.xs),
-        ) {
-            Text(
-                if (running) "Stop tracking" else "Start tracking",
-                style = MaterialTheme.typography.labelLarge,
-                maxLines = 1,
-            )
+        val onClick = {
+            when {
+                running -> TrackerRun.stop(context)
+                hasCamera(context) -> TrackerRun.start()
+                else -> request.launch(REQUESTED_PERMISSIONS)
+            }
+        }
+        // Starting is what this screen is for, so it is the screen's ONE filled button. Stopping is
+        // not: while a game runs the screen is for the board, and the alarm card — when it exists —
+        // is then the one thing the screen is for. It gets no confirmation either; the game is saved.
+        if (running) {
+            OutlineAction("Stop tracking", onClick, Modifier.fillMaxWidth())
+        } else {
+            FilledAction("Start tracking", onClick, Modifier.fillMaxWidth())
         }
         if (denied) {
             Text(

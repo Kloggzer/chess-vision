@@ -1,18 +1,13 @@
 package com.chesslab.tracker.ui.settings
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -23,11 +18,13 @@ import com.chesslab.tracker.settings.AppSettings
 import com.chesslab.tracker.settings.BoardOrientation
 import com.chesslab.tracker.settings.EpRequest
 import com.chesslab.tracker.settings.ResolutionMode
+import com.chesslab.tracker.ui.Card
+import com.chesslab.tracker.ui.ChesslabChip
+import com.chesslab.tracker.ui.OutlineAction
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
-import com.chesslab.tracker.ui.theme.Radius
 import com.chesslab.tracker.ui.theme.Space
-import com.chesslab.tracker.ui.theme.SurfaceRaised
+import com.chesslab.tracker.ui.theme.chesslabSwitchColors
 
 /**
  * Only the FP32 graph, because only it can execute. This is the graph FILE inside the selected
@@ -111,7 +108,7 @@ fun DebugRow(
                 color = OnSurface,
                 modifier = Modifier.weight(1f).padding(end = Space.md),
             )
-            Switch(checked = enabled, onCheckedChange = onEnabled)
+            Switch(checked = enabled, onCheckedChange = onEnabled, colors = chesslabSwitchColors())
         }
         Text(
             "Timings, evidence heatmap, crops and the decision log. Off means the payload is not even " +
@@ -119,7 +116,7 @@ fun DebugRow(
             style = MaterialTheme.typography.bodySmall,
             color = OnSurfaceMuted,
         )
-        SectionButton("Open debug menu", enabled) { onOpen() }
+        OutlineAction("Open debug menu", onOpen, enabled = enabled)
     }
 }
 
@@ -138,6 +135,11 @@ private fun <T> Choice(
     }
 }
 
+/**
+ * **Primitive — chip group.** A choice among few, all visible at once.
+ *
+ * Selection is the furniture colour, so it never competes with the screen's one filled button.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun <T> Options(
@@ -147,34 +149,7 @@ private fun <T> Options(
 ) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
         options.forEach { (label, value) ->
-            FilterChip(
-                selected = value == selected,
-                onClick = { onSelect(value) },
-                label = { Text(label, style = MaterialTheme.typography.labelMedium) },
-            )
+            ChesslabChip(label, value == selected) { onSelect(value) }
         }
     }
-}
-
-@Composable
-fun SectionButton(
-    text: String,
-    enabled: Boolean = true,
-    onClick: () -> Unit,
-) {
-    OutlinedButton(onClick = onClick, enabled = enabled) {
-        Text(text, style = MaterialTheme.typography.labelMedium)
-    }
-}
-
-@Composable
-fun Card(content: @Composable ColumnScope.() -> Unit) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(SurfaceRaised, RoundedCornerShape(Radius.sm))
-            .padding(horizontal = Space.md, vertical = Space.sm),
-        verticalArrangement = Arrangement.spacedBy(Space.sm),
-        content = content,
-    )
 }

@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -27,6 +25,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.analysis.AnalysisResult
 import com.chesslab.tracker.analysis.AnalysisState
+import com.chesslab.tracker.ui.Figure
+import com.chesslab.tracker.ui.percent
 import com.chesslab.tracker.ui.theme.BoardDark
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.PieceWhite
@@ -35,7 +35,6 @@ import com.chesslab.tracker.ui.tracking.NoTrackerSession
 import com.chesslab.tracker.ui.tracking.TrackerSessionHost
 import kotlin.math.abs
 import kotlin.math.max
-import kotlin.math.roundToInt
 
 private const val NO_EVAL = "–"
 
@@ -45,13 +44,16 @@ internal val BAR_WIDTH = 18.dp
 private val BAR_CORNER = 3.dp
 
 /**
- * The slot is wider than the bar so `100%` and `-M3` fit on ONE line — at bar width the label
+ * The slot is wider than the bar so `100 %` and `-M3` fit on ONE line — at bar width the label
  * wrapped, which is not a number anybody can read at arm's length.
+ *
+ * It grew from 40 dp with specs/48: one quantity gets one PRESENTATION as well as one unit, and the
+ * app writes a percentage `53 %`. The space is a character and the widest label has to fit it.
  *
  * The width does not change when analysis is off: a 6dp hairline beside the board read as a
  * rendering artifact rather than a control.
  */
-internal val SLOT_WIDTH = 40.dp
+internal val SLOT_WIDTH = 52.dp
 
 /**
  * White's win expectancy as a percentage, or `M3` for a mate. Pure, so the convention is testable.
@@ -67,7 +69,7 @@ internal fun evalLabel(result: AnalysisResult?): String {
     return when {
         result == null || result.gameOver -> NO_EVAL
         mate != null -> (if (mate < 0) "-M" else "M") + abs(mate)
-        winWhite != null -> "${winWhite.roundToInt()}%"
+        winWhite != null -> percent(winWhite)
         else -> NO_EVAL
     }
 }
@@ -107,13 +109,7 @@ fun EvalBarSlot(modifier: Modifier = Modifier) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Space.hair),
     ) {
-        Text(
-            text = if (settings.enabled) evalLabel(result) else "eval",
-            style = MaterialTheme.typography.labelSmall,
-            color = OnSurfaceMuted,
-            maxLines = 1,
-            softWrap = false,
-        )
+        Figure(if (settings.enabled) evalLabel(result) else "eval", OnSurfaceMuted)
         // `weight`, not `fillMaxHeight`: with both children filling, the label and the bar each
         // claimed the whole column and the bar overflowed past the board it belongs beside.
         EvalFill(

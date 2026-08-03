@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -27,11 +26,13 @@ import com.chesslab.tracker.speech.MovePhrase
 import com.chesslab.tracker.speech.SpeechState
 import com.chesslab.tracker.speech.SpeechVerbosity
 import com.chesslab.tracker.speech.androidSpeechEngine
-import com.chesslab.tracker.ui.settings.Card
-import com.chesslab.tracker.ui.settings.SectionButton
+import com.chesslab.tracker.ui.Card
+import com.chesslab.tracker.ui.ChesslabChip
+import com.chesslab.tracker.ui.OutlineAction
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
+import com.chesslab.tracker.ui.theme.chesslabSwitchColors
 
 /** The languages with a hand-written vocabulary in `MovePhrase`; anything else speaks English. */
 private val LANGUAGES = listOf("English" to "en-US", "Deutsch" to "de-DE")
@@ -40,7 +41,7 @@ private val LANGUAGES = listOf("English" to "en-US", "Deutsch" to "de-DE")
  * Spoken moves — a Settings subpage since specs/47.
  *
  * Four settings held a sixth of the app's top-level surface as a "Speech" tab, and they were
- * already built out of Settings' own `Card` and `SectionButton`. Nothing about them changed; only
+ * already built out of the app's own `Card` and outline button. Nothing about them changed; only
  * where they are.
  *
  * Speech is off until the user turns it on here, and this is the only place that says a sentence on
@@ -70,11 +71,11 @@ fun SpeechSection() {
         (state as? SpeechState.LanguageMissing)?.let {
             Card {
                 Text("No voice data for ${it.locale} — speaking US English.", color = OnSurfaceMuted)
-                SectionButton("Install voice data") {
+                OutlineAction("Install voice data", {
                     context.startActivity(
                         Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                     )
-                }
+                })
             }
         }
     }
@@ -105,7 +106,11 @@ private fun Body(
                 color = OnSurface,
                 modifier = Modifier.weight(1f).padding(end = Space.md),
             )
-            Switch(checked = app.speechEnabled, onCheckedChange = { onChange(app.copy(speechEnabled = it)) })
+            Switch(
+                checked = app.speechEnabled,
+                onCheckedChange = { onChange(app.copy(speechEnabled = it)) },
+                colors = chesslabSwitchColors(),
+            )
         }
         Text(
             "Stays silent while the phone is on silent, vibrate or Do-Not-Disturb, and while the " +
@@ -122,7 +127,11 @@ private fun Body(
                 color = OnSurface,
                 modifier = Modifier.weight(1f).padding(end = Space.md),
             )
-            Switch(checked = app.speechAnnounceAlarms, onCheckedChange = { onChange(app.copy(speechAnnounceAlarms = it)) })
+            Switch(
+                checked = app.speechAnnounceAlarms,
+                onCheckedChange = { onChange(app.copy(speechAnnounceAlarms = it)) },
+                colors = chesslabSwitchColors(),
+            )
         }
     }
     Card {
@@ -135,7 +144,7 @@ private fun Body(
     }
     Card {
         Text(speechStateText(state), style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
-        SectionButton("Say a test move") { onTest() }
+        OutlineAction("Say a test move", onTest)
     }
 }
 
@@ -148,11 +157,7 @@ private fun <T> Chips(
 ) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
         options.forEach { (label, value) ->
-            FilterChip(
-                selected = value == selected,
-                onClick = { onSelect(value) },
-                label = { Text(label, style = MaterialTheme.typography.labelMedium) },
-            )
+            ChesslabChip(label, value == selected) { onSelect(value) }
         }
     }
 }

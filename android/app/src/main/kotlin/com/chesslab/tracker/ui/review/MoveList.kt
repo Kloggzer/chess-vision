@@ -2,6 +2,7 @@ package com.chesslab.tracker.ui.review
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,17 +38,20 @@ import com.chesslab.tracker.games.ReviewPly
 import com.chesslab.tracker.games.SeamOrigin
 import com.chesslab.tracker.games.moveRows
 import com.chesslab.tracker.games.startsWithBlack
+import com.chesslab.tracker.ui.Figure
+import com.chesslab.tracker.ui.percent
 import com.chesslab.tracker.ui.theme.BoardDark
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import com.chesslab.tracker.ui.theme.Outline
 import com.chesslab.tracker.ui.theme.PieceWhite
 import com.chesslab.tracker.ui.theme.Radius
 import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.theme.Stroke
+import com.chesslab.tracker.ui.theme.Surface
 import com.chesslab.tracker.ui.theme.SurfaceRaised
 import kotlin.math.abs
-import kotlin.math.roundToInt
 
 private val POSITION_COLUMN_WIDTH = 94.dp
 private val MOVE_ROW_HEIGHT = 52.dp
@@ -55,6 +59,9 @@ private val MOVE_NUMBER_WIDTH = 34.dp
 
 /** Level, as the win-expectancy curve means it. */
 private const val EVEN = 50.0
+
+/** Below this the cost rounds to zero, and `−0 %` is not a cost anybody should read. */
+private const val HALF_A_POINT = 0.5
 
 /**
  * The score sheet — live or archived, and the same list either way.
@@ -88,7 +95,12 @@ fun MoveList(
     LaunchedEffect(plyCount) {
         if (plyCount > 0) listState.animateScrollToItem(listState.layoutInfo.totalItemsCount)
     }
-    Box(modifier.clip(RoundedCornerShape(Radius.md)).background(SurfaceRaised)) {
+    Box(
+        modifier
+            .clip(RoundedCornerShape(Radius.md))
+            .background(Surface)
+            .border(Stroke.hairline, Outline, RoundedCornerShape(Radius.md)),
+    ) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().padding(horizontal = Space.md, vertical = Space.sm)) {
             moveListSection(game, grade = null, selected = 0, onSelect = null)
         }
@@ -203,12 +215,8 @@ private fun MoveRowLine(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Space.md),
     ) {
-        Text(
-            text = "${row.number}.",
-            style = MaterialTheme.typography.labelMedium,
-            color = OnSurfaceMuted,
-            modifier = Modifier.width(MOVE_NUMBER_WIDTH),
-        )
+        // A move number is a figure and the column only works if they line up.
+        Figure("${row.number}.", OnSurfaceMuted, Modifier.width(MOVE_NUMBER_WIDTH))
         MoveCell(row.white, grade, selected, onSelect, Modifier.weight(1f))
         MoveCell(row.black, grade, selected, onSelect, Modifier.weight(1f))
         grade?.let { PositionCell(row, it) }
@@ -237,12 +245,10 @@ private fun PositionCell(
                 .clip(RoundedCornerShape(Radius.sm)),
     ) {
         HorizontalPositionBackground(winWhite)
-        Text(
-            text = positionLeadLabel(winWhite, mate),
-            style = MaterialTheme.typography.labelSmall,
-            color = trendColor,
-            modifier = Modifier.align(Alignment.CenterStart).padding(horizontal = Space.sm),
-            maxLines = 2,
+        Figure(
+            positionLeadLabel(winWhite, mate),
+            trendColor,
+            Modifier.align(Alignment.CenterStart).padding(horizontal = Space.sm),
         )
     }
 }
@@ -292,7 +298,7 @@ internal fun positionLeadLabel(
         winWhite == null -> "—"
         mate == 0 -> "Checkmate"
         mate != null -> "Mate in ${abs(mate)}"
-        else -> "${winWhite.roundToInt()} %"
+        else -> percent(winWhite)
     }
 
 @Composable
@@ -340,14 +346,7 @@ private fun MoveCell(
                         )
                     }
                 }
-                impact?.let {
-                    Text(
-                        text = it,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                    )
-                }
+                impact?.let { Figure(it, MaterialTheme.colorScheme.onSurface) }
             }
         }
     }
@@ -363,9 +362,9 @@ private fun MoveCell(
  */
 internal fun moveImpactLabel(grade: PlyGrade?): String? {
     if (grade == null) return null
-    if (grade.quality == MoveQuality.BEST) return "0%"
-    val lost = (grade.winBefore - grade.winAfter).coerceAtLeast(0.0).roundToInt()
-    return if (lost == 0) "0%" else "−$lost%"
+    if (grade.quality == MoveQuality.BEST) return percent(0.0)
+    val lost = (grade.winBefore - grade.winAfter).coerceAtLeast(0.0)
+    return if (lost < HALF_A_POINT) percent(0.0) else "−${percent(lost)}"
 }
 
 /** Short enough to sit beside a SAN on a phone; the verdict above the list spells the band out. */
