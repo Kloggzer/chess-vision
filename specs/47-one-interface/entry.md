@@ -62,11 +62,29 @@ and they cost very different things:
    ist."* So the tracker needs to ask, once, at the start of a game, or offer it at the end. The
    model is ready; the capture is missing. Design where that question lives so it does not become a
    dialog in front of a person who wants to press one button and play.
-3. **Genuinely new machinery: the most-played opening.** The app cannot name an opening. It has no
-   opening book at all — which is also why `MoveQuality.BOOK` is unreachable and specs/42 recorded
-   it as a band nothing produces. **One opening book serves both**: the dashboard statistic and the
-   BOOK category the grading already has a slot for. That is a real argument for adding one, and it
-   is a piece of work, not a card.
+3. **New, but far cheaper than it looks: the most-played opening.** The app cannot name an opening.
+   It has no opening book at all — which is also why `MoveQuality.BOOK` is unreachable and specs/42
+   recorded it as a band nothing produces. **One book serves both**: the dashboard statistic and the
+   BOOK category the grading already has a slot for.
+
+   The user asked whether a library exists. There is one (`CompactChessOpenings`, Java 7+), and the
+   recommendation is **not** to take it. What is needed is a lookup TABLE, not an algorithm, and the
+   table exists as public-domain data: [`lichess-org/chess-openings`](https://github.com/lichess-org/chess-openings),
+   **CC0**, 3 704 openings, TSV per ECO volume, and the `dist/` rows carry `eco`, `name`, `pgn`,
+   `uci` and **`epd`**. A dependency for a `HashMap` lookup is a dependency for nothing, and
+   `chesslib` — already on the `:core-engine` classpath — does not do this at all; it is the board
+   and move library.
+
+   **And its key is already ours.** The repository describes its `epd` as *"EPD (FEN without move
+   numbers) of the opening position, en passant field only if legal"* — which is, word for word, the
+   cache key `specs/46` specifies for the analysis store, including the en-passant trap flagged
+   there. Lichess normalises the position the same way, independently. So **one normalisation
+   function serves both** the opening lookup and the position cache, and the two packs should share
+   it rather than each write their own.
+
+   CC0 also settles the licence question before it is asked: unlike chess.com's accuracy formula
+   (proprietary, approximable only), this is public-domain data that may simply be shipped, with
+   attribution as courtesy rather than obligation.
 
    *"mit Tutorial"* is a fourth thing again — teaching content, not code. Do not write chess
    instruction into this app. Either link an existing source or drop it; an invented explanation of
