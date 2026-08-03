@@ -49,11 +49,14 @@ class ReviewUiModelTest {
         val complete = gameGrade().copy(scored = 84, positions = 84)
 
         assertEquals(AnalysisPhase.NOT_STARTED, analysisPhase(ReviewUi()))
-        assertEquals(AnalysisPhase.RUNNING, analysisPhase(ReviewUi(running = true, grade = partial)))
         assertEquals(AnalysisPhase.PARTIAL, analysisPhase(ReviewUi(grade = partial)))
         assertEquals(AnalysisPhase.MISSING_ENGINE, analysisPhase(ReviewUi(engineMissing = true)))
         // A finished review has nothing left to say, so the card is absent rather than empty.
         assertNull(analysisPhase(ReviewUi(grade = complete)))
+        // And a run in flight is the BANNER's, not the screen's — two progress bars, one above the
+        // other, was what drawing it in both places produced.
+        assertNull(analysisPhase(ReviewUi(running = true, grade = partial)))
+        assertNull(analysisPhase(ReviewUi(running = true)))
     }
 
     /** A run that outlives the screen has to be legible from anywhere — see `AnalysisBanner`. */
@@ -63,8 +66,6 @@ class ReviewUiModelTest {
         assertEquals("Reviewing 2026-08-02_2159 · starting the engine", analysisLine("2026-08-02_2159", null, null))
         assertEquals("Reviewing 2026-08-02_2159 · starting the engine", analysisLine("2026-08-02_2159", 0, 0))
         assertEquals("Reviewing a game…", analysisLine(null, 1, 2))
-        assertEquals("Reading the game around the move you are on · 30 / 84", progressLine(30, 84))
-        assertEquals("Starting the engine…", progressLine(null, null))
     }
 
     @Test
