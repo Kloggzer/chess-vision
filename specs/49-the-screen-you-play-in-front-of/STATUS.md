@@ -68,8 +68,8 @@ rules only reach `private` scope (`CLAUDE.md`).
 
 ## What the pack got wrong once built
 
-- *"Keep it lean … this should not grow."* It did: `TrackingScreen.kt` **517 → 621**, the package
-  **2 221 → 2 245** (+24 net, and only because `PreviewOverlay.kt`'s 155 lines came out). A screen
+- *"Keep it lean … this should not grow."* It did: `TrackingScreen.kt` **517 → 625**, the package
+  **2 221 → 2 248** (+27 net, and only because `PreviewOverlay.kt`'s 155 lines came out). A screen
   with two layouts is more code than a screen with one; the pack's own §"The two layouts" describes
   content that did not previously exist (a camera view, a task-dependent primary). The honest
   framing is that the *package* barely moved because a real deletion paid for most of it.
