@@ -15,8 +15,26 @@ import kotlinx.coroutines.ensureActive
  */
 private const val MATE_CP = 10_000
 
+/**
+ * Per-move loss cap applied before AVERAGING, in centipawns. Classification never sees it.
+ *
+ * [MATE_CP] is 10 000 so the BANDS come out right: losing a forced mate must outrank every ordinary
+ * blunder, and mate-in-5 -> mate-in-9 must cost nothing because both ends of the subtraction are the
+ * same number. Feeding that straight into a mean is a different question, and it destroys it — over
+ * a 42-ply side one such ply contributes 238 cp on its own.
+ *
+ * Measured on the device, 2026-08-03, the real 83-ply game `2026-08-02_2159`: the card read
+ * **"White · 526 cp average loss over 42 plies · best 21"**, which is self-contradicting on its
+ * face. Seven mate-scored plies were the whole 526.
+ *
+ * Lichess caps per-move loss before averaging for exactly this reason and 1000 is its figure — a
+ * whole queen, past which "how much worse" has stopped measuring the move and started measuring the
+ * position. 1000 and 10 000 are both far inside BLUNDER, so no ply changes band.
+ */
+private const val CP_LOSS_CAP = 1_000
+
 /** How the review's engine budget differs from the live one — see [ReviewBudget]. */
-private const val REVIEW_DEPTH = 16
+private const val REVIEW_DEPTH = 30
 private const val REVIEW_MOVETIME_MS = 3_000L
 
 /**
@@ -24,12 +42,31 @@ private const val REVIEW_MOVETIME_MS = 3_000L
  *
  * The eval bar runs `movetime 400` because it must not cost the tracker a frame. A grade is a
  * different claim: "this move lost the game" read at whatever depth 400 ms happened to reach is a
- * statement about the depth as much as about the move.
+ * statement about the depth as much as about the move. **Measured on the device, 2026-08-03, over
+ * the real 83-ply game `2026-08-02_2159`: 14 plies — one in six — change class between the two.**
+ * Among them ply 57, which 400 ms called a BLUNDER at 9052 cp and a deeper search called an
+ * INACCURACY at 95 cp. So the live budget is emphatically not a verdict.
  *
- * So the review searches to a fixed DEPTH, capped by a movetime it may not exceed. Depth first
- * because a grade should not depend on how hot the phone is — two phones grading the same game
- * agree wherever both reach [depth]. The cap is what stops a hard position from running forever;
- * a ply graded at the cap reports the shallower depth it actually reached, and the UI shows it.
+ * **[movetimeMs] is the budget and [depth] is only an early-out. That is the second thing the same
+ * measurement decided, against the first design.** This started as `depth 16` capped at 3000 ms,
+ * on the argument that a depth bound makes a grade reproducible across devices where a time bound
+ * makes it a function of how hot the phone is. The run killed it twice over:
+ *
+ * - depth 16 cost **332 ms** per position against the live bar's 383, and reached a median depth of
+ *   16 against its 15. It was not a bigger budget at all — it was the same budget with the multiPv
+ *   slots spent differently, which is no basis for overruling it.
+ * - worse, it was sometimes SHALLOWER. In a sparse endgame 400 ms reaches depth 31, so a depth-16
+ *   bound stops early and throws the rest of the allowance away: at ply 68 the live readout was
+ *   BEST at depth 31 and the "deep" one BLUNDER at depth 16. Three of the fourteen disagreements
+ *   are this, not the reverse.
+ *
+ * A depth bound below what the live bar already reaches is a downgrade wearing the word "deep". So
+ * [depth] is set above anything 400 ms buys and the time cap does the real bounding; the early-out
+ * only saves the wall clock in positions the engine has genuinely exhausted. Cross-device
+ * reproducibility was the price, and it was worth less than not being shallower than the eval bar.
+ *
+ * A ply reports the depth it actually reached and the UI shows it, so a grade is never presented as
+ * more than the search behind it.
  */
 data class ReviewBudget(
     val depth: Int = REVIEW_DEPTH,
@@ -47,15 +84,28 @@ data class ReviewBudget(
 /** One graded ply. [depth] is the depth actually reached, which is the weight of the grade. */
 data class PlyGrade(
     val ply: Int,
+    /**
+     * The RAW loss, uncapped — a thrown-away mate really is [MATE_CP]. [SideSummary.averageCpLoss]
+     * is where the cap belongs; a number shown against one ply should not be quietly clipped.
+     */
     val cpLoss: Int,
     val quality: MoveQuality,
     val depth: Int,
+    /** Either end of this ply's subtraction was a forced mate, so [cpLoss] is not a pawn count. */
+    val mateScored: Boolean,
 )
 
 /** One side's report. Counts per band plus average centipawn loss — no invented accuracy formula. */
 data class SideSummary(
     val plies: Int,
+    /** Mean of the per-ply losses, each clamped to `0..`[CP_LOSS_CAP] first. */
     val averageCpLoss: Int,
+    /**
+     * How many of [plies] were scored against a forced mate. Reported because it is exactly where
+     * [averageCpLoss] means least: in a won endgame most plies are mate-scored, every one of them is
+     * clamped, and the mean stops being a centipawn measurement at all.
+     */
+    val mateScoredPlies: Int,
     val counts: Map<MoveQuality, Int>,
 ) {
     fun count(quality: MoveQuality): Int = counts[quality] ?: 0
@@ -153,7 +203,10 @@ private fun terminalScore(board: Board): Score? =
 internal data class Score(
     val cp: Int,
     val depth: Int,
-)
+) {
+    /** A forced mate either way. The score is a flag by then, not a pawn count. */
+    val mate: Boolean get() = cp == MATE_CP || cp == -MATE_CP
+}
 
 private fun cpOf(line: PvLine?): Int {
     val mate = line?.mate
@@ -180,7 +233,7 @@ internal fun grade(
             val before = scores[index]
             val after = scores[index + 1]
             val loss = cpLoss(before.cp, after.cp, whiteMoved = whiteMoved(index, startsWithBlack))
-            PlyGrade(ply, loss, classify(loss), minOf(before.depth, after.depth))
+            PlyGrade(ply, loss, classify(loss), minOf(before.depth, after.depth), before.mate || after.mate)
         }
     val byWhite = graded.filterIndexed { index, _ -> whiteMoved(index, startsWithBlack) }
     return GameGrade(
@@ -200,8 +253,11 @@ private fun whiteMoved(
 private fun summarise(plies: List<PlyGrade>): SideSummary =
     SideSummary(
         plies = plies.size,
-        // Only losses count toward ACPL. A move that beats the engine's line at this depth is a
-        // negative loss, and letting it subtract would pay for a blunder with a lucky best move.
-        averageCpLoss = if (plies.isEmpty()) 0 else plies.sumOf { maxOf(0, it.cpLoss) } / plies.size,
+        // Two clamps, for two different reasons. The floor: a move that beats the engine's line at
+        // this depth is a NEGATIVE loss, and letting it subtract would pay for a blunder with a
+        // lucky best move. The ceiling: see CP_LOSS_CAP — a mate is scored at 10 000 so the bands
+        // rank it correctly, and averaging that raw made the headline number meaningless.
+        averageCpLoss = if (plies.isEmpty()) 0 else plies.sumOf { it.cpLoss.coerceIn(0, CP_LOSS_CAP) } / plies.size,
+        mateScoredPlies = plies.count { it.mateScored },
         counts = plies.groupingBy { it.quality }.eachCount(),
     )

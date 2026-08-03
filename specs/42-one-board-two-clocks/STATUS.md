@@ -5,59 +5,114 @@
 | 1 — one review component, two sources | `done` | `GameView` + `ui/review/`; three score sheets collapsed to one |
 | 2 — grade a finished game | `done` | `GameReviewer` wires `classify` / `cpLoss`; per-ply badges and a per-side summary |
 | 3 — the move list is the finding list | `done` | badges in the list, findings list on the summary card, tapping a ply moves the board |
-| the depth question | **NOT MEASURED** | no engine binary, no toolchain, no device on this machine — see below |
-| screenshots | **NONE** | `adb devices` is empty; nothing was rendered and nothing is claimed |
+| the depth question | **MEASURED on device** | **14 of 83 plies change class** — and it overturned the budget |
+| screenshots | **NONE** | not taken by me; the coordinator ran the built branch on the device |
 
-Branch `spec42-one-board-two-clocks`, three commits off `main`.
+Branch `spec42-one-board-two-clocks`, five commits off `main`.
 
-## The depth question — the harness exists, the number does not
+## The depth question — measured, and it overturned the answer
 
-`entry.md` is explicit: run one real game at 400 ms and at the proposed budget and report **how many
-plies change class**, and let that decide. **It could not be run here.** What was checked:
-
-| Route to a Stockfish binary | Result |
-|---|---|
-| a binary on the machine | none — searched `C:\Users\mariu` (depth 4) and both `Program Files` trees |
-| build the vendored submodule (`android/third_party/stockfish`) | no host toolchain: `g++`, `clang++`, `make`, `cmake` all absent; no MSVC, no MinGW |
-| build for Android and run on the phone | `adb devices` empty — no device attached |
-| build for Android and run in an emulator | `~/.android/avd` empty; creating an AVD needs a system-image **download** |
-| download a release binary | a download; not taken without the user asking for it |
-
-So the budget below is a **DESIGN, not a result**, and it is written to survive either answer.
-
-`ReviewDepthMeasurementTest` takes the measurement in one command and is skipped without an engine
-(the same gating shape as `chesslab.sim`). It runs a real tracked game — 33 plies,
-`data/_device/20260728-runaway/games/2026-07-26_2311`, inlined because `data/` is gitignored — at
-both budgets and prints the class-change count plus every ply that moved:
+`entry.md`: run one real game at 400 ms and at the proposed budget, report **how many plies change
+class**, and let that decide. Taken on the attached device (`24117RK2CG`, SM8650-class) over the
+user's own 83-ply tracked game `2026-08-02_2159`, via `ReviewBudgetBenchmark` (androidTest, the app's
+own bundled `libstockfish.so`):
 
 ```
-gradlew.bat :app:testDebugUnitTest --tests '*ReviewDepthMeasurement*' -Pchesslab.uci=<stockfish>
+gradlew.bat :app:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.chesslab.tracker.analysis.ReviewBudgetBenchmark
 ```
 
-`-Pchesslab.uci.game=<file>` swaps in another game's SAN text. Verified skipping cleanly:
-`tests="1" skipped="1"`.
-
-### What the budget is, and why it is shaped this way
-
-| | live eval bar | review pass |
+| | live eval bar | candidate: `depth 16`, cap 3000 |
 |---|---|---|
-| bound | `movetime 400` | `depth 16`, capped at `movetime 3000` |
-| multiPv | 3 | 1 |
-| thread priority | `THREAD_PRIORITY_LOWEST` | same process shape, off the main thread |
+| bound | `movetime 400`, `multiPv 3` | `depth 16`, `movetime 3000`, `multiPv 1` |
+| wall clock, 84 positions | **32 242 ms** | **27 956 ms** |
+| per position | 383 ms | 332 ms |
+| median depth reached | **15** | **16** |
+| ACPL White / Black | 106 / 135 | 84 / 128 |
 
-The review is **depth-bounded with time only as a cap**, where the live bar is time-bounded. That is
-the part that does not depend on the missing measurement: a time bound makes a grade a function of
-how hot the phone is, so the same game graded twice on the same device can disagree with itself, and
-two devices always can. A depth bound removes that wherever both reach the depth. `UciEngine.analyse`
-gained an optional `depth`, and `go movetime N depth M` stops at whichever comes first.
+**Class changes: 14 of 83 plies — one in six.** The full list is in the commit; the ones that matter:
 
-Where the cap bites, the grade is weighted honestly rather than silently: `PlyGrade.depth` is the
-**shallower** of the two searches the loss was measured across, the findings list prints it per ply,
-and the summary card states the budget in words. A "blunder" is never presented as more than the
-search behind it.
+| ply | at 400 ms | at depth 16 |
+|---|---|---|
+| 57 | **BLUNDER** 9052 cp @16 | INACCURACY 95 cp @16 |
+| 66 | **BLUNDER** 1885 cp @22 | BEST 1 cp @16 |
+| 64 | **BLUNDER** 310 cp @19 | GOOD 10 cp @16 |
+| 68 | BEST 0 cp @**31** | **BLUNDER** 9123 cp @16 |
+| 54 | MISTAKE 126 cp @16 | BEST 4 cp @16 |
 
-**16 and 3000 are the numbers to revisit once the measurement exists.** They are one `ReviewBudget`
-data class away from changing and nothing else reads them.
+### Two conclusions, and the second one killed the design
+
+**1. 400 ms is not a verdict, exactly as the pack suspected.** One ply in six is graded differently,
+and three of them are phantom BLUNDERs — ply 57 reads a forced mate at 400 ms that a longer search
+values at 95 cp. Grading a game at the live budget would put fabricated blunders in front of the user.
+
+**2. `depth 16` was not a bigger budget — and sometimes it was a SMALLER one.** This is the finding
+the measurement was for, and it went against my first design:
+
+- it cost **less** wall clock than the live bar (332 ms against 383) and reached a median depth of 16
+  against 15. Nearly the same search, so 14 disagreements between them are two similar-strength
+  readings differing — which makes the live budget look *worse*, not the candidate better.
+- in sparse endgames 400 ms reaches **depth 31**, so a depth-16 bound stops early and throws the rest
+  of its 3000 ms allowance away. Ply 68: live BEST at depth 31, "deep" BLUNDER at depth 16. Three of
+  the fourteen changes are the deeper reading being the LIVE one.
+
+A depth bound below what 400 ms already buys is a downgrade wearing the word "deep". The
+cross-device-reproducibility argument for depth-first was real but it bought a worse grade in every
+endgame, which is where a tracked club game spends its second half.
+
+**Changed on this evidence: `REVIEW_DEPTH` 16 → 30, `REVIEW_MOVETIME_MS` unchanged at 3000.** The
+time cap is now the budget and the depth is an early-out for positions the engine has genuinely
+exhausted; 30 is above anything 400 ms was observed to reach. Worst case is 3 s × 84 = ~4.2 min for
+this game, against 28 s before, and the progress line counts positions.
+
+**The revised budget is NOT itself measured.** The device stopped accepting installs
+(`INSTALL_FAILED_USER_RESTRICTED: Install canceled by user` — MIUI wants a tap on the handset) before
+the depth-30 run could go on. `ReviewBudgetBenchmark` takes `depth` and `cap` as instrumentation
+arguments precisely so the follow-up is one command:
+
+```
+... -Pandroid.testInstrumentationRunnerArguments.depth=30 \
+    -Pandroid.testInstrumentationRunnerArguments.cap=3000
+```
+
+A JVM-side twin, `ReviewDepthMeasurementTest`, does the same comparison against a host Stockfish
+(`-Pchesslab.uci=<path>`) and skips without one. This machine has no host binary and no C++
+toolchain to build the vendored submodule, so the device is where this question gets answered.
+
+### ACPL was mate-poisoned, and the headline number was meaningless
+
+Found on the device in the same session. The card read:
+
+```
+White · 526 cp average loss over 42 plies · best 21 good 4 inaccuracy 5 mistake 5 blunder 7
+```
+
+526 cp average beside 21 of 42 plies graded BEST is self-contradicting. Cause: `MATE_CP = 10_000`
+flowed into the mean uncapped, so **one mate-scored ply contributes 238 cp to a 42-term average**.
+Seven of them were the whole 526.
+
+Fixed by clamping each ply's loss to `0..1000` **before averaging only** — lichess' figure, a whole
+queen, past which "how much worse" stops measuring the move. Bands are untouched (1000 and 10 000 are
+both far inside BLUNDER) and `PlyGrade.cpLoss` stays raw, because a number shown against one ply
+should not be quietly clipped. After the fix, the same game measures ACPL **84 / 128** at the deep
+budget and 106 / 135 at the live one.
+
+The card now also reports `mateScoredPlies` per side — **10 White, 10 Black on this game**, a quarter
+of it — because that is exactly where a centipawn average stops meaning anything, and a silent clamp
+is its own kind of lie. A finding on a mate-scored ply prints "forced mate" rather than `9052 cp`.
+
+Pinned by `oneThrownAwayMateDoesNotDominateTheAverage`, `mateScoredPliesAreCountedPerSide` and
+`aGameWithNoMateReportsNoneAndIsUnaffectedByTheCap`. The coordinator is right that the previous tests
+could not have caught it: they had at most one mate ply against one quiet one, where a cap and no cap
+give the same answer.
+
+### The grader does not know a tracker artefact from a chess mistake
+
+`2026-08-02_2159` carries **3 seams** — the app lost the board three times and committed recovery
+plies to get back. Those plies are graded exactly like played ones, so some of its "blunders" are the
+tracker's fabrication, not a player's move. The move list already renders each seam in place; the
+summary card now says how many, beside the numbers they distort. Not fixed beyond that, and it should
+not be: suppressing them would hide that the record is a tracker output.
 
 ## What was measured
 
@@ -68,7 +123,10 @@ data class away from changing and nothing else reads them.
 | Of the three, how many handled an undo | **1** — the engine emits no undo event, so only `LiveGame.onFen`'s position comparison sees one |
 | Production callers of `classify` / `cpLoss`, before | **0** (both only `AccuracyTest`) |
 | after | `GameReviewer.grade`, reached by the review screen |
-| App unit tests | **432**, 0 failures, 2 skipped (the depth measurement + one pre-existing) |
+| Class changes, live budget vs review budget, 83 real plies | **14** (one in six), 3 of them phantom BLUNDERs |
+| Mate-scored plies in that game | 20 of 83 — a quarter, and all of them clamped in the average |
+| ACPL before the cap / after | White **526** → **84**; the 526 was seven mate plies |
+| App unit tests | **435**, 0 failures, 2 skipped (the JVM depth measurement + one pre-existing) |
 | Gate | green with `--rerun-tasks`: `:app:ktlintCheck :app:detekt :core-engine:detekt :core-engine:ktlintCheck :core-engine:test :app:testDebugUnitTest` |
 
 ### Chesslib applies illegal moves — measured 2026-08-03
@@ -139,10 +197,13 @@ on every ply's san / uci / number / decider and on every position's placement an
 
 ## Not done, and why
 
-- **No screenshots.** No device was attached at any point (`adb devices` empty) and no emulator image
-  exists. No test in this project composes a UI, so nothing here says the screen renders — only that
-  it compiles and that its model is correct. **It has not been seen.**
-- **The class-change count.** See above. The harness is committed and skipped.
+- **No screenshots taken by me.** A device appeared partway through this work and I ran the benchmark
+  on it, but it then refused further installs (`INSTALL_FAILED_USER_RESTRICTED` — the handset wants a
+  tap). The coordinator built, installed and reviewed the real game on it and reported what the
+  screens showed; both defects above came from that, not from me. **I have not seen the screens**, and
+  no test in this project composes a UI.
+- **The revised budget (`depth 30`) is not itself measured.** What is measured is `depth 16` against
+  the live bar; 30 follows from that data by argument. The follow-up run is one command, above.
 - **`MoveQuality.BOOK` is unreachable.** `classify(cpLoss, isBookPly)` takes the flag and the review
   pass always passes false: there is no opening book in the app and inventing "the first N plies of a
   standard start are book" would be a fabrication. The band exists and nothing produces it.
