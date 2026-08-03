@@ -53,7 +53,7 @@ fun SettingsRoute(
     val bound = repository
     if (bound == null) {
         Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("The tracker service is not running yet.", color = OnSurfaceMuted)
+            Text("Reading the stored settings…", color = OnSurfaceMuted)
             SectionButton("Back") { onBack() }
         }
     } else {

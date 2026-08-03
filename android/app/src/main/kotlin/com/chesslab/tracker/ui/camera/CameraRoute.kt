@@ -121,7 +121,7 @@ private fun savedProfile(): CalibrationProfile? {
 private fun CameraUnbound(onBack: () -> Unit) {
     ChesslabScaffold("Camera", onBack) { bars ->
         Column(Modifier.fillMaxSize().padding(bars).padding(12.dp)) {
-            Text("The tracker service is not running yet.", color = OnSurfaceMuted)
+            Text("No camera is running. Start tracking on the Board tab.", color = OnSurfaceMuted)
         }
     }
 }

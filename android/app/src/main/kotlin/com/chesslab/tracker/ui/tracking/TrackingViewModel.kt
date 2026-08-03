@@ -57,6 +57,17 @@ class TrackingViewModel : ViewModel() {
     /** The service's answer, never a local guess: the UI asks for a change and waits for the flow. */
     val cameraOn: StateFlow<Boolean> = cameraOnState.asStateFlow()
 
+    /**
+     * The run switch (`TrackerRun`), which is NOT the same as holding a session: between the tap and
+     * the service's first callback tracking is on and nothing is bound, and a header that read "not
+     * tracking" through that window would be describing the wrong thing.
+     */
+    var tracking: Boolean = true
+        set(value) {
+            field = value
+            render()
+        }
+
     private val recalibrate = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
     /** Recalibration is NAVIGATION, not a tracker action — it must never share a handler with Reset game. */
@@ -74,9 +85,11 @@ class TrackingViewModel : ViewModel() {
         jobs +=
             viewModelScope.launch {
                 session.status.collect { published ->
-                    // Before the service's first sample there is no truth to render — the start
-                    // position stands in, and it is still the ONE source the board draws from.
-                    statusState.value = published ?: idleTrackerStatus()
+                    // Before the service's first sample there is no truth to render, and after a
+                    // stop there is none left: the position the board LAST had stands in, so a
+                    // stopped tracker shows the game that was there rather than snapping to the
+                    // start position. It is still the ONE source the board draws from.
+                    statusState.value = published ?: idleTrackerStatus(statusState.value.fen)
                     render()
                 }
             }
@@ -90,9 +103,9 @@ class TrackingViewModel : ViewModel() {
                 }.launchIn(viewModelScope)
     }
 
-    /** Two inputs, one header: the engine's status and whether a camera is feeding it at all. */
+    /** Three inputs, one header: the engine's status, whether a camera feeds it, whether it exists. */
     private fun render() {
-        uiState.value = trackingUiState(statusState.value, cameraOnState.value)
+        uiState.value = trackingUiState(statusState.value, cameraOnState.value, tracking)
     }
 
     /**
