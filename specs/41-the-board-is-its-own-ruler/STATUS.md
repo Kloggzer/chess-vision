@@ -70,9 +70,11 @@ Six frames of `VID_20260802_222741.mp4`, worst square offset in rectified px (ce
 |---|---|---|---|---|---|---|
 | input, 3-marker affine quad | 24.13 | 24.00 | 23.75 | 37.09 | 37.21 | 28.15 |
 | `alignment.correct_quad`, **affine** (before) | 12.06 | 6.76 | 17.82 | 12.44 | 8.60 | 12.36 |
-| **projective, 2D lattice, unpinned** | **1.89** | **2.10** | 2.04 ¹ | **1.87** | **1.86** | **1.91** |
+| **projective, 2D lattice, unpinned** | **1.89** | **2.10** | **2.04** | **1.87** | **1.86** | **1.91** |
 
-¹ f1800 measures 2.04 px but has one line unread, so the verdict is FAIL — a hand is over the board.
+All six read 18/18 lines and PASS. The input row is what the alignment gate says about the
+three-marker quad itself — phase 00's acceptance was that it must FAIL and say by how much, and it
+fails on every frame by 24-37 px against a 4 px limit.
 
 ### The whole video, sampled every 10th frame (958 of 9576)
 
