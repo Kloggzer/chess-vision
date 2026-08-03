@@ -6,6 +6,7 @@ import com.chesslab.tracker.games.startsWithBlack
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.Side
 import com.github.bhlangonijr.chesslib.move.Move
+import com.github.bhlangonijr.chesslib.move.MoveGenerator
 import com.github.bhlangonijr.chesslib.move.MoveList
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -23,26 +24,45 @@ import kotlin.math.abs
 private const val MATE_CP = 10_000
 
 /** How the review's engine budget differs from the live one — see [ReviewBudget]. */
-private const val REVIEW_DEPTH = 30
-private const val REVIEW_MOVETIME_MS = 3_000L
-
-/** Deciders that mean the app REBUILT the move instead of watching it happen — see [PlyGrade.played]. */
-private val REBUILT_DECIDERS = setOf("cnn_recovery", "cnn_resync")
+private const val REVIEW_NODES = 1_500_000L
+private const val REVIEW_CAP_MS = 3_000L
 
 private const val FULL_PERCENT = 100.0
 
 /**
- * The review pass's engine budget, and why it is not the live one.
+ * The review pass's engine budget: **[nodes], the way lichess does it**, with [capMs] only as a
+ * safety valve.
  *
- * The eval bar runs `movetime 400` because it must not cost the tracker a frame. A grade is a
- * different claim: "this move lost the game" read at whatever depth 400 ms happened to reach is a
- * statement about the depth as much as about the move. **Measured on the device, 2026-08-03, over
- * the real 83-ply game `2026-08-02_2159`: 14 plies — one in six — change class between the two.**
+ * Neither of the two obvious knobs works. A TIME budget is a property of the phone and its
+ * temperature, so the same game grades differently warm and cool. A DEPTH bound is an arbitrary edge
+ * that lands in a different place in every phase: measured on the real 83-ply game, a node budget
+ * reaching a MEDIAN depth of 16 ranges 0..245 across the game, because a swapped-off endgame is
+ * solved outright for the same effort a middlegame spends reaching 16. `depth 16` throws that away,
+ * and specs/42 measured the consequence — in a sparse endgame the live bar's `movetime 400` reaches
+ * depth 31, so the "deep" pass was the SHALLOWER of the two on three plies.
  *
- * **[movetimeMs] is the budget and [depth] is only an early-out.** A depth-16 bound was tried first
- * and was sometimes SHALLOWER than the live bar: in a sparse endgame 400 ms reaches depth 31, so the
- * bound stopped early and threw the allowance away. [depth] is therefore set above anything 400 ms
- * buys and the time cap does the real bounding.
+ * Nodes are neither. They are the same amount of WORK everywhere and on every device, they go as
+ * deep as a position cheaply allows, and they are what lichess' own analysis farm spends per move.
+ * 1 500 000 is their figure, taken as-is.
+ *
+ * **What it costs and what it buys**, measured over all 84 positions of `2026-08-02_2159` against a
+ * 6.8 M-node reference, classes counted with the shipped bands:
+ *
+ * | budget | median depth | class changes vs the deep read |
+ * |---|---|---|
+ * | `depth 16` | 16 | 17 of 83 |
+ * | 200 k nodes | 16 | 17 of 83 |
+ * | 500 k nodes | 18 | 14 of 83 |
+ * | **1.5 M nodes** | **21** | **10 of 83** |
+ *
+ * It also answers the objection that put it here — *"I can't see all solutions with depth 30"*
+ * (2026-08-03). A median of 21 is inside the band chess.com describes as where engine quality starts
+ * showing diminishing returns, and it is roughly what a strong club player sees in a sharp position.
+ * Grading a move by a refutation only a 6.8 M-node search finds teaches nobody anything.
+ *
+ * [capMs] is a SAFETY VALVE and not the budget: it stops one pathological position from parking the
+ * review, at the price of reproducibility in exactly that position. The per-ply depth is reported on
+ * screen either way, so a grade is never presented as more than the search behind it.
  *
  * It is `@Serializable` because it is the KEY of the stored analysis ([ReviewStore]), not a note
  * beside it: two budgets grade the same ply differently, so a cache that did not carry its budget
@@ -50,14 +70,14 @@ private const val FULL_PERCENT = 100.0
  */
 @Serializable
 data class ReviewBudget(
-    val depth: Int = REVIEW_DEPTH,
-    val movetimeMs: Long = REVIEW_MOVETIME_MS,
+    val nodes: Long = REVIEW_NODES,
+    val capMs: Long = REVIEW_CAP_MS,
     val threads: Int = 2,
     val hashMb: Int = 64,
     /**
      * 1, because the review only ever reads the best line — the extra slots cost search depth in
-     * the same wall clock. It is settable so `ReviewDepthMeasurement` can reproduce the live eval
-     * bar's readout exactly (`movetime 400`, `multiPv 3`) and compare the two.
+     * the same budget. It is settable so `ReviewDepthMeasurement` can reproduce the live eval bar's
+     * readout exactly (`movetime 400`, `multiPv 3`) and compare the two.
      */
     val multiPv: Int = 1,
 )
@@ -70,6 +90,8 @@ data class ReviewBudget(
  */
 data class PlyGrade(
     val ply: Int,
+    /** The move that was played, so a finding can name itself without the caller holding the game. */
+    val san: String,
     val quality: MoveQuality,
     /** The mover's winning chances before and after, 0..100. */
     val winBefore: Double,
@@ -81,14 +103,8 @@ data class PlyGrade(
     /** The engine's own move in the position before this ply. Null when the search returned no line. */
     val bestSan: String?,
     val bestUci: String?,
-    /**
-     * False when the tracker REBUILT this move instead of watching it (`cnn_recovery`).
-     *
-     * The one lie this project cannot afford: over half of `2026-08-02_2159` came through recovery,
-     * and five of its eight worst-looking plies are rebuilt ones. Grading those as the player's is
-     * inventing mistakes for a human out of the app's own.
-     */
-    val played: Boolean,
+    /** Its whole continuation from that position, in SAN — "what would have been better", spelled out. */
+    val bestLine: List<String>,
     /**
      * True when the position was already past lichess' ±1000 cp ceiling at BOTH ends — the game was
      * over and this move could not demonstrate anything.
@@ -104,8 +120,13 @@ data class PlyGrade(
 )
 
 /**
- * One side's report. [accuracy] is over the plies that are evidence about this player and no others:
- * not the ones the app rebuilt, and not the ones played after the game was decided.
+ * One side's report. [accuracy] is over the plies that are evidence about this player: everything
+ * except the ones played after the game was already decided, which score 100 % for free.
+ *
+ * A move the CNN RECOVERED is counted like any other, and that is a correction. The decider says how
+ * the app found out what was played, not whether it happened — recovery normally reconstructs the
+ * real move, and dropping half a game's plies on that basis was throwing away good evidence. What is
+ * genuinely not a record of play is a SEAM, and those plies are not graded at all (see [grade]).
  */
 data class SideSummary(
     val plies: Int,
@@ -124,6 +145,12 @@ data class SideSummary(
  */
 data class GameGrade(
     val byPly: Map<Int, PlyGrade>,
+    /**
+     * WHITE's win expectancy per POSITION — index 0 is the start, index n the position after ply n.
+     * Null where the engine has not been yet. This is what the bar beside the board reads: the ply
+     * being looked at, never the tracker's current position.
+     */
+    val winWhite: List<Double?>,
     val white: SideSummary,
     val black: SideSummary,
     val budget: ReviewBudget,
@@ -135,14 +162,11 @@ data class GameGrade(
 
     fun of(ply: Int): PlyGrade? = byPly[ply]
 
-    /** The plies worth opening the screen for, worst first — and never one the app rebuilt. */
+    /** The plies worth opening the screen for, worst first. */
     fun findings(): List<PlyGrade> =
         byPly.values
-            .filter { it.played && it.quality >= MoveQuality.INACCURACY }
+            .filter { it.quality >= MoveQuality.INACCURACY }
             .sortedByDescending { it.winBefore - it.winAfter }
-
-    /** What the app rebuilt and therefore refuses to grade against a player, in ply order. */
-    fun rebuilt(): List<PlyGrade> = byPly.values.filterNot { it.played }.sortedBy { it.ply }
 }
 
 /**
@@ -203,15 +227,15 @@ class GameReviewer(
         engine: UciEngine,
         fen: String,
     ): Score {
-        val board = runCatching { Board().apply { loadFromFen(fen) } }.getOrNull() ?: return Score(0, 0, null)
+        val board = runCatching { Board().apply { loadFromFen(fen) } }.getOrNull() ?: return Score(0, 0)
         terminalScore(board)?.let { return it }
         val whiteToMove = board.sideToMove == Side.WHITE
         val best =
-            runCatching { engine.analyse(fen, budget.movetimeMs, budget.multiPv, depth = budget.depth) }
+            runCatching { engine.analyse(fen, budget.capMs, budget.multiPv, nodes = budget.nodes) }
                 .getOrNull()
                 ?.firstOrNull()
-        val whitePov = best?.toWhitePov(whiteToMove)
-        return Score(cpOf(whitePov), whitePov?.depth ?: 0, best?.uci)
+                ?.toWhitePov(whiteToMove)
+        return Score(cpOf(best), best?.depth ?: 0, best?.pv.orEmpty())
     }
 }
 
@@ -236,17 +260,20 @@ internal fun nextIndex(
  */
 private fun terminalScore(board: Board): Score? =
     when {
-        board.isMated -> Score(if (board.sideToMove == Side.WHITE) -MATE_CP else MATE_CP, 0, null)
-        board.isStaleMate || board.isDraw -> Score(0, 0, null)
+        board.isMated -> Score(if (board.sideToMove == Side.WHITE) -MATE_CP else MATE_CP, 0)
+        board.isStaleMate || board.isDraw -> Score(0, 0)
         else -> null
     }
 
-/** One position's verdict in white-POV centipawns, how deep the engine got, and its own best move. */
+/** One position's verdict in white-POV centipawns, how deep the engine got, and the line it wants. */
 data class Score(
     val cp: Int,
     val depth: Int,
-    val bestUci: String?,
-)
+    /** The engine's continuation from this position, in UCI. Empty for a terminal position. */
+    val line: List<String> = emptyList(),
+) {
+    val bestUci: String? get() = line.firstOrNull()
+}
 
 private fun cpOf(line: PvLine?): Int {
     val mate = line?.mate
@@ -258,21 +285,25 @@ private fun cpOf(line: PvLine?): Int {
  * The pure half: [scores] holds one entry per position, null where the engine has not reached it, so
  * ply `i` is the step from `scores[i]` to `scores[i + 1]` and is graded only once both exist.
  *
- * Split out from the engine loop because this is the part worth testing, and it is now called after
- * every single search rather than once at the end.
+ * It takes the whole [game] because of SEAMS. A seam is a place where the app lost the board and
+ * picked it up again somewhere else, and the plies that got there appear in NO segment's move list.
+ * The first ply after one therefore does NOT follow from the position before it, and grading it would
+ * charge a player for whatever happened in the gap. Those plies are skipped — see [seamPlies].
  */
 internal fun grade(
-    plies: List<ReviewPly>,
-    startFen: String,
+    game: GameView,
     scores: List<Score?>,
     budget: ReviewBudget,
 ): GameGrade {
-    val whiteFirst = !startsWithBlack(startFen)
-    val fensBefore = listOf(startFen) + plies.map { it.fenAfter }
+    val plies = game.plies
+    val whiteFirst = !startsWithBlack(game.startFen)
+    val fensBefore = listOf(game.startFen) + plies.map { it.fenAfter }
+    val skip = seamPlies(game)
     val byPly = LinkedHashMap<Int, PlyGrade>()
     val white = ArrayList<PlyGrade>()
     val black = ArrayList<PlyGrade>()
     plies.forEachIndexed { index, ply ->
+        if (ply.ply in skip) return@forEachIndexed
         val before = scores.getOrNull(index) ?: return@forEachIndexed
         val after = scores.getOrNull(index + 1) ?: return@forEachIndexed
         val isWhite = (index % 2 == 0) == whiteFirst
@@ -282,6 +313,7 @@ internal fun grade(
     }
     return GameGrade(
         byPly = byPly,
+        winWhite = scores.map { it?.let { score -> winChanceCeiled(score.cp) } },
         white = summarise(white),
         black = summarise(black),
         budget = budget,
@@ -289,6 +321,16 @@ internal fun grade(
         positions = plies.size + 1,
     )
 }
+
+/**
+ * The first ply of every segment the app entered by a SEAM — the only plies in a tracked game whose
+ * "before" position is not the result of the move before them.
+ */
+internal fun seamPlies(game: GameView): Set<Int> =
+    game.segments
+        .filter { it.enteredBy != null }
+        .mapNotNull { it.plies.firstOrNull()?.ply }
+        .toSet()
 
 private fun gradeOne(
     ply: ReviewPly,
@@ -306,16 +348,18 @@ private fun gradeOne(
     // letting it through would pay for a blunder elsewhere with a lucky best move.
     val drop = (winBefore - winAfter).coerceAtLeast(0.0)
     val bestUci = before.bestUci
+    val bestLine = sansOf(fenBefore, before.line)
     return PlyGrade(
         ply = ply.ply,
+        san = ply.san,
         quality = classify(drop, playedEngineMove = bestUci != null && bestUci == ply.uci),
         winBefore = winBefore,
         winAfter = winAfter,
         accuracy = accuracyPercent(drop),
         depth = minOf(before.depth, after.depth),
-        bestSan = bestUci?.let { sanOf(fenBefore, it) },
+        bestSan = bestLine.firstOrNull() ?: bestUci,
         bestUci = bestUci,
-        played = ply.decider !in REBUILT_DECIDERS,
+        bestLine = bestLine,
         decided = decided,
     )
 }
@@ -327,7 +371,7 @@ private fun winFor(
 ): Double = winChanceCeiled(whitePovCp).let { if (whiteMoved) it else FULL_PERCENT - it }
 
 private fun summarise(plies: List<PlyGrade>): SideSummary {
-    val evidence = plies.filter { it.played && !it.decided }
+    val evidence = plies.filterNot { it.decided }
     return SideSummary(
         plies = plies.size,
         scored = evidence.size,
@@ -348,3 +392,28 @@ internal fun sanOf(
         val side = Board().apply { loadFromFen(fen) }.sideToMove
         MoveList(fen).apply { add(Move(uci, side)) }.toSanArray().first()
     }.getOrDefault(uci)
+
+/**
+ * A whole UCI line as SAN, replayed from [fen]. Truncated at the first move chesslib will not play
+ * rather than abandoned: half a line is still an idea, and an empty one is not.
+ */
+private fun sansOf(
+    fen: String,
+    line: List<String>,
+): List<String> {
+    if (line.isEmpty()) return emptyList()
+    val board = runCatching { Board().apply { loadFromFen(fen) } }.getOrNull() ?: return emptyList()
+    val moves = MoveList(fen)
+    for (uci in line) {
+        // The same generated-legality check `GameView.replay` needs: chesslib will happily apply an
+        // illegal move and every SAN after it would be a fabrication.
+        val move =
+            runCatching { Move(uci, board.sideToMove) }
+                .getOrNull()
+                ?.takeIf { candidate -> MoveGenerator.generateLegalMoves(board).any { it.toString() == candidate.toString() } }
+                ?: break
+        moves.add(move)
+        board.doMove(move)
+    }
+    return runCatching { moves.toSanArray().toList() }.getOrDefault(emptyList())
+}

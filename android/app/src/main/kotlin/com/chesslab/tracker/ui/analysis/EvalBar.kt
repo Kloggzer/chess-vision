@@ -38,7 +38,7 @@ import kotlin.math.max
 
 private const val NO_EVAL = "–"
 
-private val BAR_WIDTH = 18.dp
+internal val BAR_WIDTH = 18.dp
 
 /**
  * The slot is wider than the bar so `+0.3` and `-M3` fit on ONE line — at bar width the label
@@ -48,7 +48,7 @@ private val BAR_WIDTH = 18.dp
  * rendering artifact rather than a control, and this is still the ONLY way into the analysis
  * settings sheet, so it cannot shrink to nothing either.
  */
-private val SLOT_WIDTH = 40.dp
+internal val SLOT_WIDTH = 40.dp
 
 /** The centipawn score as pawns, or `M3` for a mate. Pure, so the sign convention is testable. */
 internal fun evalLabel(result: AnalysisResult?): String {
@@ -116,9 +116,15 @@ fun EvalBarSlot(modifier: Modifier = Modifier) {
     }
 }
 
-/** White fills from the BOTTOM — the same orientation as the board below it. */
+/**
+ * White fills from the BOTTOM — the same orientation as the board beside it.
+ *
+ * Shared with the review screen, which needs the same bar driven by the ply being READ rather than
+ * by the tracker's current position. One drawing, so the two can never disagree about which way up
+ * white goes.
+ */
 @Composable
-private fun EvalFill(
+internal fun EvalFill(
     winWhite: Double?,
     paused: Boolean,
     modifier: Modifier = Modifier,

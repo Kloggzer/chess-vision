@@ -45,7 +45,7 @@ class ReviewBudgetBenchmark {
         runBlocking {
             GameReviewer(stockfishEngineFactory(context), budget).review(game, focus = { focus }) { scores ->
                 searches++
-                val graded = grade(game.plies, game.startFen, scores, budget)
+                val graded = grade(game, scores, budget)
                 if (firstGrade == 0L && graded.byPly.isNotEmpty()) {
                     firstGrade = (System.nanoTime() - started) / MS
                     Log.i(TAG, "FIRST GRADE after $searches searches · $firstGrade ms · ply ${graded.byPly.keys.first()}")
@@ -59,7 +59,7 @@ class ReviewBudgetBenchmark {
         Log.i(TAG, "first grade $firstGrade ms · whole pass $total ms")
         Log.i(TAG, "accuracy W ${done.white.accuracy} over ${done.white.scored}/${done.white.plies}")
         Log.i(TAG, "accuracy B ${done.black.accuracy} over ${done.black.scored}/${done.black.plies}")
-        Log.i(TAG, "rebuilt ${done.rebuilt().size} · decided ${done.byPly.values.count { it.decided }}")
+        Log.i(TAG, "decided ${done.byPly.values.count { it.decided }} · seams ${seamPlies(game).size}")
         MoveQuality.entries.forEach { q ->
             Log.i(TAG, "  $q W ${done.white.count(q)} B ${done.black.count(q)}")
         }

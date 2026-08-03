@@ -61,7 +61,7 @@ class ReviewViewModel(
             val stale =
                 game?.let { view ->
                     withContext(Dispatchers.IO) { reviews.load(id, budget, view.plies.size + 1) }
-                        ?.let { grade(view.plies, view.startFen, it, budget) }
+                        ?.let { grade(view, it, budget) }
                 }
             mutable.value = ReviewUi(game = game, pgn = stored?.let { buildPgn(it) }.orEmpty(), grade = stale)
         }
@@ -83,7 +83,7 @@ class ReviewViewModel(
                 val started =
                     GameReviewer(engineFactory, budget).review(game, seed, { focus }) { scores ->
                         reviews.save(game.id, budget, scores)
-                        mutable.value = mutable.value.copy(grade = grade(game.plies, game.startFen, scores, budget))
+                        mutable.value = mutable.value.copy(grade = grade(game, scores, budget))
                     }
                 mutable.value =
                     mutable.value.copy(

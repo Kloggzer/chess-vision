@@ -1,6 +1,8 @@
 package com.chesslab.tracker.analysis
 
-import com.chesslab.tracker.games.MoveProvenance
+import com.chesslab.tracker.games.GameView
+import com.chesslab.tracker.games.ReviewSegment
+import com.chesslab.tracker.games.SeamOrigin
 import com.chesslab.tracker.games.StoredGame
 import com.chesslab.tracker.games.StoredMove
 import com.chesslab.tracker.games.reviewView
@@ -19,42 +21,28 @@ private const val START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 
 /** A real opening, so every ply carries a legal `fenAfter` and a SAN the grader can name. */
 private const val SANS = "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6"
 
-/**
- * The plies of [SANS], with [deciders] keyed by ply number. Anything absent is a WATCHED move — a
- * ply with no provenance at all is what a game stored before provenance existed looks like.
- */
-private fun plies(deciders: Map<Int, String> = emptyMap()) =
-    MoveList().apply { loadFromSan(SANS) }.let { moves ->
-        val sans = moves.toSanArray()
-        StoredGame(
-            id = "t",
-            startFen = START,
-            startedAtEpochMs = 0,
-            finishedAtEpochMs = 0,
-            profileName = "t",
-            result = "*",
-            moves =
-                moves.mapIndexed { index, move ->
-                    StoredMove(
-                        index + 1,
-                        sans[index],
-                        move.toString(),
-                        0L,
-                        deciders[index + 1]?.let { MoveProvenance(it, "", priorUsed = false) },
-                    )
-                },
-        ).reviewView()
-    }
+/** The first [count] plies of [SANS] as one continuous segment. */
+private fun game(count: Int): GameView {
+    val moves = MoveList().apply { loadFromSan(SANS) }
+    val sans = moves.toSanArray()
+    val stored = moves.take(count).mapIndexed { index, move -> StoredMove(index + 1, sans[index], move.toString(), 0L) }
+    return StoredGame(
+        id = "t",
+        startFen = START,
+        startedAtEpochMs = 0,
+        finishedAtEpochMs = 0,
+        profileName = "t",
+        result = "*",
+        moves = stored,
+    ).reviewView()
+}
 
 private fun score(
     cp: Int,
     best: String? = null,
-) = Score(cp, 18, best)
+) = Score(cp, 18, listOfNotNull(best))
 
-private fun grade(
-    scores: List<Score?>,
-    deciders: Map<Int, String> = emptyMap(),
-) = grade(plies(deciders).plies.take(scores.size - 1), START, scores, BUDGET)
+private fun grade(scores: List<Score?>) = grade(game(scores.size - 1), scores, BUDGET)
 
 class GameReviewTest {
     /**
@@ -126,6 +114,7 @@ class GameReviewTest {
         val played = grade(listOf(score(20, best = "e2e4"), score(20))).of(1)!!
         assertEquals(MoveQuality.BEST, played.quality)
         assertEquals("e4", played.bestSan)
+        assertEquals("e4", played.san, "and the ply names itself, so a finding needs nothing else")
 
         val other = grade(listOf(score(20, best = "d2d4"), score(20))).of(1)!!
         assertEquals(MoveQuality.GOOD, other.quality)
@@ -133,19 +122,59 @@ class GameReviewTest {
     }
 
     /**
-     * **The rule that cannot bend.** Over half of `2026-08-02_2159` came through `cnn_recovery`, and
-     * five of its eight worst-looking plies are rebuilt ones. Grading those against a player invents
-     * human mistakes out of the app's own.
+     * The whole continuation, not just its first move — the engine returned it and specs/42 read one
+     * token of it. An illegal tail truncates rather than losing the line: half an idea beats none.
      */
     @Test
-    fun aRebuiltMoveIsGradedButNeverCountedAgainstAPlayer() {
-        val graded = grade(listOf(score(0), score(-600), score(-600)), deciders = mapOf(1 to "cnn_recovery"))
-        assertFalse(graded.of(1)!!.played)
-        assertTrue(graded.of(2)!!.played, "a ply with no provenance at all is a watched one")
-        assertEquals(0, graded.white.scored, "White's only ply was rebuilt: there is nothing to score")
-        assertNull(graded.white.accuracy)
-        assertTrue(graded.findings().isEmpty(), "and it is never offered as something the player should learn from")
-        assertEquals(listOf(1), graded.rebuilt().map { it.ply })
+    fun theEnginesWholeLineIsNamedInSanAndStopsAtTheFirstMoveItCannotPlay() {
+        val line = grade(listOf(Score(20, 18, listOf("d2d4", "d7d5", "c2c4")), score(20))).of(1)!!
+        assertEquals(listOf("d4", "d5", "c4"), line.bestLine)
+
+        val broken = grade(listOf(Score(20, 18, listOf("d2d4", "e7e5", "h1h8")), score(20))).of(1)!!
+        assertEquals(listOf("d4", "e5"), broken.bestLine, "h1h8 is not legal there, and everything after it is fiction")
+    }
+
+    /**
+     * **A GAP in the record is the one thing that cannot be graded.**
+     *
+     * A seam is where the app lost the board and picked it up somewhere else; the plies that got
+     * there appear in no segment's move list. So the position before the first ply of the new segment
+     * is NOT the result of the move before it, and grading that ply charges a player for whatever
+     * happened in the gap.
+     *
+     * The `cnn_recovery` DECIDER is a different thing and is deliberately not consulted: it says how
+     * the app found out what was played, not whether it happened, and recovery normally reconstructs
+     * the real move. Dropping those was throwing away half a game's evidence.
+     */
+    @Test
+    fun theFirstPlyAfterASeamIsNotGraded() {
+        val whole = game(4)
+        val seamed =
+            whole.copy(
+                segments =
+                    listOf(
+                        whole.segments.first().copy(plies = whole.plies.take(2)),
+                        ReviewSegment(
+                            startFen = whole.plies[1].fenAfter,
+                            plies = whole.plies.drop(2),
+                            enteredBy = SeamOrigin(fenBefore = START, sans = listOf("??"), ucis = listOf("a1a2"), decider = "cnn_recovery"),
+                        ),
+                    ),
+            )
+        val graded = grade(seamed, List(5) { score(it * -300) }, BUDGET)
+        assertNull(graded.of(3), "ply 3 opens the new segment: its 'before' is on the far side of the gap")
+        assertNotNull(graded.of(2))
+        assertNotNull(graded.of(4))
+        assertEquals(setOf(3), seamPlies(seamed))
+    }
+
+    /** And with no seam, a recovered move is graded exactly like any other. */
+    @Test
+    fun aRecoveredMoveIsGradedLikeAnyOther() {
+        val graded = grade(listOf(score(0), score(-600), score(-600)))
+        assertEquals(1, graded.white.scored)
+        assertNotNull(graded.white.accuracy)
+        assertEquals(listOf(1), graded.findings().map { it.ply })
     }
 
     /**
@@ -168,8 +197,8 @@ class GameReviewTest {
      */
     @Test
     fun aPlyIsWeightedByTheShallowerOfItsTwoSearches() {
-        assertEquals(9, grade(listOf(Score(0, 20, null), Score(0, 9, null))).of(1)!!.depth)
-        assertEquals(9, grade(listOf(Score(0, 9, null), Score(0, 20, null))).of(1)!!.depth)
+        assertEquals(9, grade(listOf(Score(0, 20), Score(0, 9))).of(1)!!.depth)
+        assertEquals(9, grade(listOf(Score(0, 9), Score(0, 20))).of(1)!!.depth)
     }
 
     /**
