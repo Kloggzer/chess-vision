@@ -1,5 +1,6 @@
 package com.chesslab.tracker.analysis
 
+import com.chesslab.tracker.games.GAMES_JSON
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
@@ -16,7 +17,7 @@ class ReviewStoreTest {
     @Test
     fun aPartialRunIsStoredAndReloadedWithItsHoles() {
         val store = store()
-        val scores = listOf(Score(20, 30, "e2e4"), null, Score(-40, 28, null))
+        val scores = listOf(Score(20, 30, listOf("e2e4")), null, Score(-40, 28))
         store.save("g1", ReviewBudget(), scores)
         assertEquals(scores, store.load("g1", ReviewBudget(), positions = 3))
     }
@@ -29,18 +30,49 @@ class ReviewStoreTest {
     @Test
     fun aResultFromADifferentBudgetIsAMissAndNeverAMerge() {
         val store = store()
-        store.save("g1", ReviewBudget(depth = 16), listOf(Score(20, 16, null)))
-        assertNull(store.load("g1", ReviewBudget(depth = 30), positions = 1))
-        assertNull(store.load("g1", ReviewBudget(movetimeMs = 400), positions = 1))
-        assertEquals(1, store.load("g1", ReviewBudget(depth = 16), positions = 1)?.size)
+        store.save("g1", ReviewBudget(nodes = 200_000), listOf(Score(20, 16)))
+        assertNull(store.load("g1", ReviewBudget(nodes = 1_500_000), positions = 1))
+        assertNull(store.load("g1", ReviewBudget(capMs = 400), positions = 1))
+        assertEquals(1, store.load("g1", ReviewBudget(nodes = 200_000), positions = 1)?.size)
     }
 
     /** A game that grew or shrank under the same id is a different game, not a longer analysis. */
     @Test
     fun aLengthThatNoLongerMatchesTheGameIsAMiss() {
         val store = store()
-        store.save("g1", ReviewBudget(), listOf(Score(0, 30, null), Score(0, 30, null)))
+        store.save("g1", ReviewBudget(), listOf(Score(0, 30), Score(0, 30)))
         assertNull(store.load("g1", ReviewBudget(), positions = 5))
+    }
+
+    /**
+     * A file written before a stored score gained a field must be a MISS, not a silent downgrade —
+     * `ignoreUnknownKeys` plus a defaulted field would otherwise hand back a complete-looking
+     * analysis with the engine's advice missing from every ply.
+     */
+    @Test
+    fun aFileFromAnOlderStoreFormatIsAMiss() {
+        val store = store()
+        File(dir, "games").mkdirs()
+        val old = StoredAnalysis("g1", ReviewBudget(), listOf(StoredScore(20, 30)), version = 0)
+        File(dir, "games/g1.analysis.json").writeText(GAMES_JSON.encodeToString(StoredAnalysis.serializer(), old))
+        assertNull(store.load("g1", ReviewBudget(), positions = 1))
+    }
+
+    /**
+     * **The budget key cannot police a change to the budget's own shape**, and on the device it did
+     * not: the budget went from `depth`/`movetimeMs` to `nodes`/`capMs`, `ignoreUnknownKeys` dropped
+     * the two unrecognised keys, the two new ones took their defaults, and a depth-30 analysis
+     * compared equal to a node-budget one and was served as if it were current.
+     */
+    @Test
+    fun aBudgetWrittenWithDifferentFIELDNAMESIsAMiss() {
+        val store = store()
+        File(dir, "games").mkdirs()
+        File(dir, "games/g1.analysis.json").writeText(
+            """{"gameId":"g1","budget":{"depth":30,"movetimeMs":3000,"threads":2,"hashMb":64,"multiPv":1},""" +
+                """"scores":[{"cp":20,"depth":30}],"version":1}""",
+        )
+        assertNull(store.load("g1", ReviewBudget(), positions = 1))
     }
 
     @Test
@@ -55,7 +87,7 @@ class ReviewStoreTest {
     @Test
     fun discardingRemovesTheFileSoTheNextRunSearchesAgain() {
         val store = store()
-        store.save("g1", ReviewBudget(), listOf(Score(0, 30, null)))
+        store.save("g1", ReviewBudget(), listOf(Score(0, 30)))
         store.delete("g1")
         assertNull(store.load("g1", ReviewBudget(), positions = 1))
     }

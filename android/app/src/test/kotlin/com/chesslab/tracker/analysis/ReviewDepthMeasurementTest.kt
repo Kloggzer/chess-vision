@@ -43,8 +43,8 @@ class ReviewDepthMeasurementTest {
 
         val changed = live.byPly.filter { (ply, a) -> deep.of(ply)!!.quality != a.quality }
         println("plies ${live.byPly.size} · class changes ${changed.size}")
-        println("live  ${LIVE_BUDGET.movetimeMs} ms multiPv ${LIVE_BUDGET.multiPv} · median depth ${median(live)}")
-        println("deep  depth ${ReviewBudget().depth} cap ${ReviewBudget().movetimeMs} ms · median depth ${median(deep)}")
+        println("live  ${LIVE_BUDGET.capMs} ms multiPv ${LIVE_BUDGET.multiPv} · median depth ${median(live)}")
+        println("deep  nodes ${ReviewBudget().nodes} cap ${ReviewBudget().capMs} ms · median depth ${median(deep)}")
         println("accuracy live W ${live.white.accuracy} B ${live.black.accuracy}")
         println("accuracy deep W ${deep.white.accuracy} B ${deep.black.accuracy}")
         changed.forEach { (ply, a) ->
@@ -62,7 +62,7 @@ class ReviewDepthMeasurementTest {
             var last: List<Score?> = emptyList()
             val started = GameReviewer({ UciEngine(enginePath) }, budget).review(game) { last = it }
             if (!started) error("the engine produced no grade")
-            grade(game.plies, game.startFen, last, budget)
+            grade(game, last, budget)
         }
 
     private fun median(grade: GameGrade): Int {
@@ -88,7 +88,7 @@ class ReviewDepthMeasurementTest {
 
     private companion object {
         /** The live eval bar's own budget, verbatim from [AnalysisOptions]'s defaults. */
-        val LIVE_BUDGET = ReviewBudget(depth = 99, movetimeMs = 400, multiPv = 3)
+        val LIVE_BUDGET = ReviewBudget(nodes = Long.MAX_VALUE, capMs = 400, multiPv = 3)
 
         /**
          * A game the tracker really recorded — `data/_device/20260728-runaway/games/2026-07-26_2311`,
