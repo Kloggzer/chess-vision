@@ -283,6 +283,21 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
   `scripts/android-ui.ps1` for text/semantics-first control. The AVD is headful by default;
   `-Headless` is opt-in. Concurrent agents use distinct AVDs, even ports/ADB serials and Git
   worktrees; artifacts are isolated under `tmp/android-emulator/<serial>/`.
+- **Installing on the PHONE destroys its data, twice measured on 2026-08-03. Pull first, or use
+  the emulator.** The `emulator` flavour has its own application id (`com.chesslab.tracker.emulator`)
+  and therefore CANNOT touch the phone's storage — that is the reason to prefer it for anything a
+  gate can decide. On the phone: an `adb install -r` cycle wiped `files/` entirely (16 recording
+  sessions, 173 MB, never copied to the PC — gone), and **`gradlew :app:connectedDebugAndroidTest`
+  uninstalls the app on teardown**, which destroyed the stored games a second time. Both are silent.
+  Before any install or instrumentation run on a real device:
+  `adb exec-as run-as com.chesslab.tracker tar cf - files > <scratchpad>/files.tar`, and check
+  afterwards that `files/games/index.json` still reads what it did. The one game that survived did so
+  because an unrelated diagnostics file happened to be on disk and the move list could be rebuilt
+  from it.
+- **Text-first UI control means icon-only controls need a `contentDescription`.**
+  `scripts/android-ui.ps1 tap-text` / `tap-description` read Compose semantics, so a control with no
+  label and no description cannot be driven by any agent or smoke test. A visible label that changes
+  wording breaks the same way — keep it stable or add a dedicated UI test.
 - **Gradle reports GREEN on stale tasks — pass `--rerun-tasks` when the gate is the point.**
   Up-to-date checks key on inputs Gradle knows about, and a test whose *assertion* you changed can
   sit `UP-TO-DATE` behind an unchanged classpath. Measured 2026-08-02: a plain
