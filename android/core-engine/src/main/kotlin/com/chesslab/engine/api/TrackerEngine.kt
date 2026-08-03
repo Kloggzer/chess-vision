@@ -251,7 +251,6 @@ class TrackerEngine(
      * unchanged. The record is the only thing in the engine that remembers a human rejection.
      */
     fun undo(): List<TrackerEvent> {
-        val events = state.clearAlarm(ALARM_UNDONE).toMutableList()
         if (state.history.isNotEmpty()) {
             // Bounded by the history: a count left over from before a `setFen` must never pop past
             // the moves this board actually holds.
@@ -268,7 +267,12 @@ class TrackerEngine(
             state.pendingCapture = null
             state.note = undoneNote(plies)
         }
-        return events
+        // AFTER the trim, not before. The alarm's `decider = "user"` row is stamped with the
+        // current `history.size`, and the trim drops every row above the restored size — so
+        // written first, the one row that remembers a human rejection was deleted by the same
+        // call that wrote it, every time. Stamped after, its ply and `fenAfter` describe the
+        // position the user restored, which is what the row means.
+        return state.clearAlarm(ALARM_UNDONE)
     }
 
     /** `reset_to_start()` — start position plus "I just set up this position". */

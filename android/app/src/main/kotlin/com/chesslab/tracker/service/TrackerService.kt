@@ -368,7 +368,18 @@ class TrackerService :
                     // reports what the probe holds, nulls included.
                     withTimeoutOrNull(ATTACH_HEADER_WAIT_MS) { stack.observer.state.first { it !is CnnState.Attaching } }
                     diagnostics.runStart(
-                        runStartOf(settings.appSettings.value, settings.config.value, modelSpec, cnnProbe.info(), version),
+                        // The config the ENGINE was seeded with, not the stored one. The header's
+                        // whole job is to say what ran, and `boardSize` is the field where the two
+                        // diverge — the stored 1600 against a measured 504 is the divergence that
+                        // stopped detection for an evening while the file reported 1600 and agreed
+                        // with nothing. See [onMeasuredBoard].
+                        runStartOf(
+                            settings.appSettings.value,
+                            onMeasuredBoard(settings.config.value, geometry),
+                            modelSpec,
+                            cnnProbe.info(),
+                            version,
+                        ),
                     )
                 }
             }

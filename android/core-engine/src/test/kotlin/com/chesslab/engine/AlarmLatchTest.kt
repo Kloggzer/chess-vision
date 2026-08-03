@@ -203,6 +203,35 @@ class AlarmLatchTest {
         assertTrue(engine.state.decisionLog.any { it.reason == "illegal_move_undone" })
     }
 
+    /**
+     * The undo deleted the row the undo had just written.
+     *
+     * `clearAlarm` stamps its `decider = "user"` row with the CURRENT `history.size`, and the trim
+     * that ran right after it drops every row above the RESTORED size — so the one thing in the log
+     * that remembers a human rejection was removed by the same press that recorded it. It survived
+     * because [undoClearsAlarmLatch] runs on an engine with no history at all, where the whole
+     * pop-and-trim block is skipped and the row is never in the trim's way.
+     */
+    @Test
+    fun undoKeepsItsOwnUserRow() {
+        val engine = TrackerEngine(recoveryConfig(), STARTPOS)
+        val state = engine.state
+        state.commitMove(moveOf(state, "g1f3"), grayFrame(), null)
+        assertEquals(1, state.history.size, "precondition: there is a ply to take back")
+        state.armed()
+        engine.attachCnn(RecoveryEvaluator(conflicts = listOf("e1", "g1"), guess = "e1g1"))
+        val obs = obsForBoard(state.board, mapOf("e1" to LABEL_EMPTY, "g1" to "wK"))
+        for (seq in 1L..3L) engine.onCnnSnapshot(recoverySnap(state, obs, seq))
+        checkNotNull(state.alarm) { "precondition: the latch is set" }
+
+        engine.undo()
+
+        assertTrue(state.history.isEmpty(), "precondition: the ply was popped, so the trim ran")
+        val row = state.decisionLog.single { it.decider == DECIDER_USER }
+        assertEquals("illegal_move_undone", row.reason)
+        assertEquals(0, row.ply, "the row describes the position the user restored, not the one left")
+    }
+
     @Test
     fun baselineClearsAlarmLatch() {
         val engine = alarmedEngine()
