@@ -12,16 +12,15 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
-import com.chesslab.engine.api.STARTPOS
-import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
+import com.chesslab.tracker.games.GameView
 import com.chesslab.tracker.service.NOTIFICATION_CHANNEL_ID
 import com.chesslab.tracker.settings.SettingsHost
+import com.chesslab.tracker.ui.games.GameSessionHost
 import com.chesslab.tracker.ui.tracking.TrackerSessionHost
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,17 +43,6 @@ class SpectatorController(
 ) {
     private val app = context.applicationContext
 
-    /**
-     * The score sheet, under a lock.
-     *
-     * The note here used to say "touched only from [scope], which is single-dispatcher". [scope] is
-     * `Dispatchers.IO` — a thread POOL — and [followTracker] collects events and status in two
-     * separate coroutines, so `moves += …` genuinely runs concurrently with `moves.toList()` and
-     * `moves.clear()`. On an `ArrayList` that is a lost move on the spectator's score sheet at best
-     * and a `ConcurrentModificationException` inside the status collector at worst.
-     */
-    private val movesLock = Any()
-    private val moves = mutableListOf<PlayedMove>()
     private val snapshot = MutableStateFlow(GameSnapshot())
 
     private val server = SpectatorServer(wifi) { snapshot.value }
@@ -88,35 +76,23 @@ class SpectatorController(
 
     private suspend fun followTracker() {
         TrackerSessionHost.session.filterNotNull().collectLatest { session ->
-            coroutineScope {
-                launch { session.events.collect(::onEvent) }
-                session.status.collect(::onStatus)
-            }
-        }
-    }
-
-    private fun onEvent(event: TrackerEvent) {
-        synchronized(movesLock) {
-            when (event) {
-                is TrackerEvent.MoveCommitted -> moves += PlayedMove(event.san, event.uci)
-                is TrackerEvent.SequenceCommitted ->
-                    event.sans.forEachIndexed { i, san -> moves += PlayedMove(san, event.ucis.getOrElse(i) { "" }) }
-                else -> Unit
-            }
+            session.status.collect(::onStatus)
         }
     }
 
     /**
-     * The engine has no "game reset" event, and the score sheet must not survive one. Back at the
-     * start position there is provably no history to show — that covers both reset and undo-to-start.
+     * The score sheet is the service's ONE live game, never a second accumulator.
+     *
+     * This class used to build its own list off the event stream, under a lock, because [scope] is
+     * `Dispatchers.IO` — a thread POOL — and the event and status collectors genuinely ran
+     * concurrently on an `ArrayList`. It also never handled an undo (the engine emits no undo
+     * event), so a taken-back move stayed on the spectator's sheet for the rest of the game, and it
+     * cleared the whole sheet on any return to the start position. `LiveGame` answers all three,
+     * and there is nothing left here to get wrong.
      */
     private fun onStatus(status: TrackerStatus?) {
-        val played =
-            synchronized(movesLock) {
-                if (status?.fen == STARTPOS) moves.clear()
-                moves.toList()
-            }
-        snapshot.value = gameSnapshot(status, played, System.currentTimeMillis())
+        val game = GameSessionHost.controller.value?.state?.value?.game ?: GameView.NONE
+        snapshot.value = gameSnapshot(status, game, System.currentTimeMillis())
     }
 
     /** Wi-Fi came or went: reconcile against the toggle rather than guess. */

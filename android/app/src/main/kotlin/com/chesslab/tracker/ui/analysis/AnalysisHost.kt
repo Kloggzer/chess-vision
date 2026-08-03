@@ -139,6 +139,18 @@ class AndroidPowerProbe(
 }
 
 /**
+ * A fresh engine process, or null when no binary shipped for this ABI.
+ *
+ * The one place the binary is located. Both consumers — the live eval bar and the review pass —
+ * must self-disable on the same condition, and a second `File(nativeLibraryDir, …)` elsewhere is a
+ * second answer to "is analysis available here".
+ */
+fun stockfishEngineFactory(context: Context): () -> UciEngine? {
+    val path = File(context.applicationInfo.nativeLibraryDir, ENGINE_BINARY)
+    return { if (path.canExecute()) UciEngine(path.absolutePath) else null }
+}
+
+/**
  * The FEN comes straight off the published status: analysis is strictly read-only on the position
  * and must never hold a reference to the engine or the game.
  */
@@ -147,7 +159,6 @@ fun rememberAnalysisHost(): AnalysisHost {
     val context = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
     return remember(context) {
-        val path = File(context.applicationInfo.nativeLibraryDir, ENGINE_BINARY)
         AnalysisHost(
             analyzer =
                 StockfishAnalyzer(
@@ -157,7 +168,7 @@ fun rememberAnalysisHost(): AnalysisHost {
                             ?.value
                             ?.fen
                     },
-                    engineFactory = { if (path.canExecute()) UciEngine(path.absolutePath) else null },
+                    engineFactory = stockfishEngineFactory(context),
                     options = { AnalysisSettingsHost.settings.value.options },
                 ),
             probe = AndroidPowerProbe(context),

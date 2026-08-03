@@ -29,6 +29,9 @@ private const val AFTER_JUMP = "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1
 private const val AFTER_JUMP_NC6 = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
 private const val FOOLS_MATE = "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3"
 
+/** Placement and side to move — the two fields the board actually renders. */
+private fun position(fen: String) = fen.split(' ').take(2).joinToString(" ")
+
 private class Source : CaptureSource {
     override fun grab() =
         CaptureFrame(
@@ -97,6 +100,63 @@ class GameSessionControllerTest {
         assertEquals(listOf("e4", "e5"), game?.moves?.map { it.san })
         assertEquals("board-a", game?.profileName)
         assertEquals(STARTPOS, game?.startFen)
+    }
+
+    /**
+     * The LIVE source and the ARCHIVE source must project the same game.
+     *
+     * This is the whole claim of "one view, two sources": if `LiveGame.view()` and the same game
+     * replayed off disk ever disagreed about a ply, the spectator and the after-game review would be
+     * looking at different games again — which is the state this replaced.
+     */
+    @Test
+    fun theLiveViewAndTheStoredGamesViewAreTheSameProjection() {
+        val controller = controller()
+        controller.onIdle(STARTPOS, "board-a")
+        controller.onEvent(move("e2e4", "e4", AFTER_E4), null)
+        controller.onEvent(move("e7e5", "e5", AFTER_E5), null)
+        controller.onEvent(pair(), null)
+        val live = controller.state.value.game
+        assertTrue(live.live)
+
+        val saved = controller.endAndSave()!!
+        val archived = store.open(saved.id)!!.reviewView()
+        assertFalse(archived.live, "and that is the ONLY field that may differ")
+        assertEquals(live.plies.map { it.san }, archived.plies.map { it.san })
+        assertEquals(live.plies.map { it.uci }, archived.plies.map { it.uci })
+        assertEquals(live.plies.map { it.ply }, archived.plies.map { it.ply })
+        assertEquals(live.plies.map { it.decider }, archived.plies.map { it.decider })
+        // The positions too. Compared on placement + side to move, which is exactly what the board
+        // renders: the live source carries the ENGINE's FEN string and the archive replays it
+        // through chesslib, and the two legitimately differ in the halfmove/en-passant fields. A
+        // pair commit publishes only its FINAL fen, so this is where a lazy replay would show up.
+        assertEquals(live.plies.map { position(it.fenAfter) }, archived.plies.map { position(it.fenAfter) })
+        assertEquals(live.startFen, archived.startFen)
+    }
+
+    /**
+     * Discard must drop the RECORD, not only reset the engine.
+     *
+     * It used to do neither: "Reset game -> Discard" reset the tracker and left this record standing,
+     * so the next committed ply was illegal from it and opened a seam inside a game the user had
+     * already thrown away. Invisible while nothing read the record; the moment the live game became
+     * the score sheet on screen it was a discarded game still being shown.
+     */
+    @Test
+    fun discardDropsTheRunningGameWithoutStoringIt() {
+        val controller = controller()
+        controller.onIdle(STARTPOS, "board-a")
+        controller.onEvent(move("e2e4", "e4", AFTER_E4), null)
+        controller.discard()
+
+        assertEquals(0, controller.state.value.moveCount)
+        assertTrue(controller.state.value.game.plies.isEmpty())
+        assertTrue(store.list().isEmpty(), "a discarded game is never stored")
+
+        // And the next move starts a fresh record on its own line — no seam.
+        controller.onEvent(move("e2e4", "e4", AFTER_E4), null)
+        val saved = controller.endAndSave()!!
+        assertEquals(1, store.open(saved.id)!!.segments.size)
     }
 
     @Test

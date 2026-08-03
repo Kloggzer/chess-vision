@@ -32,9 +32,6 @@ class TrackingViewModel : ViewModel() {
     private val uiState = MutableStateFlow(trackingUiState(idleTrackerStatus()))
     val ui: StateFlow<TrackingUiState> = uiState.asStateFlow()
 
-    private val movesState = MutableStateFlow<List<MoveEntry>>(emptyList())
-    val moves: StateFlow<List<MoveEntry>> = movesState.asStateFlow()
-
     private val lastCommitState = MutableStateFlow<List<String>>(emptyList())
 
     /**
@@ -64,9 +61,6 @@ class TrackingViewModel : ViewModel() {
 
     /** Recalibration is NAVIGATION, not a tracker action — it must never share a handler with Reset game. */
     val recalibrateRequests: SharedFlow<Unit> = recalibrate.asSharedFlow()
-
-    /** The last committed ply's UCI — a two-square highlight hint, never a board source. */
-    val lastMoveUci: String? get() = movesState.value.lastOrNull()?.uci
 
     /**
      * Bind to the service's session. Re-attaching to the SAME session is a no-op, so a
@@ -101,12 +95,17 @@ class TrackingViewModel : ViewModel() {
         uiState.value = trackingUiState(statusState.value, cameraOnState.value)
     }
 
+    /**
+     * The score sheet is NOT built here. It is the service's live game (`GameSessionState.game`),
+     * which is also what the review screen and the LAN spectator read.
+     *
+     * This view model used to keep its own list off the same events, and it was the only one of the
+     * three that could not see an undo: the engine emits no undo event, so a taken-back move stayed
+     * on the tracking screen's move list for the rest of the game. `LiveGame.onFen` is the one place
+     * that detects it, off the published position.
+     */
     private fun onEvent(event: TrackerEvent) {
-        val committed = movesOf(event)
-        if (committed.isNotEmpty()) {
-            movesState.value = movesState.value + committed
-            lastCommitState.value = committed.map { it.san }
-        }
+        commitSans(event).takeIf { it.isNotEmpty() }?.let { lastCommitState.value = it }
         promotionState.value = promotionAfter(promotionState.value, event)
     }
 
@@ -116,7 +115,6 @@ class TrackingViewModel : ViewModel() {
     }
 
     fun onResetGame() {
-        movesState.value = emptyList()
         lastCommitState.value = emptyList()
         session.resetGame()
     }

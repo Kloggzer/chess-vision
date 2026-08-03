@@ -1,5 +1,6 @@
 package com.chesslab.tracker.ui.tracking
 
+import com.chesslab.engine.api.TrackerEvent
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
@@ -22,5 +23,20 @@ class UndoLabelTest {
         val bridge = listOf("Bxb5", "Kb8", "Bd4", "Nf3")
         assertEquals("Undo 4 moves", undoLabel(bridge))
         assertEquals("One press takes back: Bxb5 + Kb8 + Bd4 + Nf3", undoDetail(bridge))
+    }
+
+    /** What the label counts. Deliberately not a score sheet — that is `GameSessionState.game`. */
+    @Test
+    fun onlyCommitsCarrySans() {
+        assertEquals(
+            listOf("e4"),
+            commitSans(TrackerEvent.MoveCommitted("e2e4", "e4", "fen", "diff", false)),
+        )
+        assertEquals(
+            listOf("e4", "e5"),
+            commitSans(TrackerEvent.SequenceCommitted(listOf("e2e4", "e7e5"), listOf("e4", "e5"), "fen", "recovery")),
+        )
+        assertEquals(emptyList<String>(), commitSans(TrackerEvent.ReAnchored))
+        assertEquals(emptyList<String>(), commitSans(TrackerEvent.Note("x")))
     }
 }
