@@ -59,6 +59,25 @@ mate**, where a centipawn average measures nothing at all.
 
 Report what was read and what was rejected.
 
+## The licence question, settled — do not re-open it
+
+specs/42 refused the accuracy percentage for scope, NOT for licensing: *"Lichess' is a second
+fitted curve (103.1668 · exp(-0.04354 · Δwin) - 3.1669) and writing it would be new maths, which
+the pack rules out."* The user overruled the scope decision on 2026-08-03 and asked directly
+whether licences were the obstacle. They are not:
+
+- A mathematical formula is not itself copyrightable; a verbatim code port would be. Formula plus
+  attribution is the normal and clean route.
+- **The project already does exactly this.** `WinChance.kt` carries `WIN_CHANCE_K = 0.00368208`
+  with the comment "verbatim from `analysis.py`'s `win_chance_white`" — lichess' fitted logistic,
+  used and credited. Follow that pattern: cite the source in the KDoc, pin the constant in a test.
+- Even a genuine code port would be combinable. lichess (lila) is AGPL-3.0, chesslab is
+  GPL-3.0-or-later (python-chess is GPL), and GPLv3 §13 permits the combination; the AGPL portion
+  simply keeps its own obligation.
+- **chess.com is the one real limit.** Their accuracy formula is proprietary and unpublished — it
+  can be approximated from what they have published, never copied. Their *presentation* (the move
+  taxonomy, the shape of the review flow) is functionality and is free to learn from.
+
 ## Non-negotiable
 
 - **No invented chess authority.** If a formula is taken from lichess or chess.com, cite it and pin
