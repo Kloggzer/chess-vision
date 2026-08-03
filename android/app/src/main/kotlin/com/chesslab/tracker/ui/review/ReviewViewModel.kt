@@ -132,6 +132,16 @@ class ReviewViewModel(
         mutable.value = mutable.value.copy(running = false)
     }
 
+    /**
+     * The game is gone. Since the run outlives the screen, one still grading a DELETED record would
+     * go on writing `<id>.analysis.json` for a game that no longer exists.
+     */
+    fun forget(id: String) {
+        if (mutable.value.game?.id != id) return
+        stop()
+        mutable.value = ReviewUi()
+    }
+
     /** Throws the stored analysis away and starts again — the only way to re-search a graded game. */
     fun discard() {
         val game = mutable.value.game ?: return

@@ -5,6 +5,7 @@ import com.chesslab.tracker.analysis.ReviewStore
 import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.games.GameSummary
 import com.chesslab.tracker.record.SessionStore
+import com.chesslab.tracker.ui.review.ReviewHost
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -58,7 +59,12 @@ class GamesViewModel(
         withSession: Boolean,
     ) = io {
         val sessionId = games.list().firstOrNull { it.id == id }?.sessionId
+        // The confirmation says "the record, its PGN and its stored analysis" (specs/48 rule 6), and
+        // until specs/50 the analysis was the one of the three that survived — as an orphan file
+        // keyed to an id nothing lists. A run still grading it is stopped for the same reason.
+        ReviewHost.model.value?.forget(id)
         games.delete(id)
+        reviews.delete(id)
         if (withSession) sessionId?.let(sessions::delete)
         reload()
     }
