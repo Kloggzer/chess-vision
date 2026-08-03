@@ -31,6 +31,24 @@ val Figures =
         lineHeight = 18.sp,
     )
 
+/**
+ * A figure at the size a stat tile's or an accuracy block's own number wants.
+ *
+ * **Not monospace, and that is the point.** What a large number needs in order to line up with the
+ * one beside it is TABULAR figures — every digit on the same advance — and a monospace FACE gives
+ * that plus a typewriter's letter spacing. Tried on the emulator at 22 sp: `1 of 1` came out with
+ * the `of` floating between two wide gaps and `69 %` read as two separate words. `tnum` is the
+ * quantity the design actually asked for; the face stays the body face.
+ */
+val FiguresDisplay =
+    TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Bold,
+        fontSize = 22.sp,
+        lineHeight = 26.sp,
+        fontFeatureSettings = "tnum",
+    )
+
 val ChesslabTypography =
     Typography(
         displayMedium =

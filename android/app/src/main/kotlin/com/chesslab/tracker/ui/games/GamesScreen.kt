@@ -41,6 +41,7 @@ import com.chesslab.tracker.ui.ChesslabScaffold
 import com.chesslab.tracker.ui.ConfirmDialog
 import com.chesslab.tracker.ui.EmptyState
 import com.chesslab.tracker.ui.SectionHeading
+import com.chesslab.tracker.ui.StatRow
 import com.chesslab.tracker.ui.StatTile
 import com.chesslab.tracker.ui.percent
 import com.chesslab.tracker.ui.theme.Danger
@@ -128,28 +129,23 @@ private fun GamesScreen(
 private fun LibraryGrid(stats: LibraryStats) {
     Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
         SectionHeading("Your library")
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+        StatRow {
             StatTile("Games", "${stats.games}", "${stats.moves} moves recorded", Modifier.weight(1f))
             StatTile(
                 "Accuracy",
                 stats.accuracy?.let { percent(it) } ?: "—",
-                if (stats.reviewed == 0) "no game reviewed yet" else "both sides, over ${stats.reviewed} reviewed",
+                if (stats.reviewed == 0) "no game reviewed yet" else "both sides, ${stats.reviewed} reviewed",
                 Modifier.weight(1f),
             )
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+        StatRow {
             StatTile(
                 "Clean records",
                 "${stats.clean} of ${stats.games}",
                 rebuiltNote(stats.games - stats.clean),
                 Modifier.weight(1f),
             )
-            StatTile(
-                "With frames",
-                "${stats.recorded} of ${stats.games}",
-                "recorded for training",
-                Modifier.weight(1f),
-            )
+            StatTile("With frames", "${stats.recorded} of ${stats.games}", "for training", Modifier.weight(1f))
         }
     }
 }
