@@ -107,17 +107,52 @@ Named as candidates to EXAMINE, not as decisions:
   source — whether it deserves a top-level tab of its own is exactly the kind of question this pack
   exists to ask.
 
-## Known defects in the review view
+## What the review view already fixed, and what it did not
 
-Reported by the user on 2026-08-03 and, at the time of writing, being worked by another agent
-(Codex) on the review screen specifically. Recorded here because they are evidence about the whole,
-not only about that screen — and because if that work lands, these should be verifiably gone:
+Four defects were reported by the user on 2026-08-03 and worked by another agent (Codex), landing as
+`a5cdfd1`. Verified on 2026-08-03 in the emulator at the reference phone's geometry — **three and a
+half of the four are gone**:
 
-- The topmost card sits flush against the header, with no separation.
-- Too much on one screen.
-- The description under the board changes height between plies, which moves the navigation buttons
-  under the reader's thumb. A control that moves is worse than a control that is plain.
-- The review opens at the LAST ply. It should open at the beginning — that is where a reader starts.
+| Reported | State |
+|---|---|
+| The review opens at the LAST ply | **fixed** — it opens at "start" |
+| The topmost card sits flush against the header | **fixed** |
+| The description under the board changes height and moves the navigation buttons | **fixed** — the caption is a fixed-height container, and the nav row sits at the same y with a one-line and a three-line caption |
+| Too much on one screen | **partly** — split into Review / Moments / Moves tabs, and it fits one screen height |
+
+The denominator the user asked about is now on screen twice: "62/83 moves graded" on Review, and on
+Moments the reason — *"14 moves in the forced mate sequence excluded from accuracy."*
+
+## What is still wrong, measured in the emulator on 2026-08-03
+
+These are this pack's, not the review screen's — every one of them is a consistency question that
+only shows up when you look at the whole:
+
+1. **Two units on one screen.** The Moves table gives the move's cost in **per cent** and the
+   position beside it in **pawns** — "White +0.3", "White +2.9", "Black +0.5". Centipawns were
+   removed from the review because they need to be taught (specs/44), and they are back one tab
+   over. The same quantity is a percentage on Review and a pawn count on Moves.
+2. **"What decided the game" lists a moment that decided nothing.** *"29. Ra7+ · missed mate in 18 ·
+   98 % → 98 %"* sits among the top three. Missing a mate from a 98 % position and staying at 98 %
+   is a curiosity, not a turning point — the ranking currently mixes "a mate was missed" with "this
+   moved the game", and the heading promises the second.
+3. **"Analysis details" is a heading with nothing under it** at the bottom of Review. Either an empty
+   section or a collapsed one that does not look tappable.
+4. **"⚙: Nf3" is the least legible element on the screen** — a gear, a colon and a move — and it is
+   redundant exactly when the played move WAS the best one, because the card beside it already says
+   "Best move". Two cards of unequal content in equal-width boxes with different vertical alignment.
+5. **A tab label carries a live counter.** `Moments · 25` changes while the analysis streams, so no
+   agent or smoke test can tap it by text — the rule `CLAUDE.md` states, met in the wild for the
+   first time. Where a count belongs in a tab, the tappable label and the count need separating.
+6. **The light theme has never been reviewed.** Every screenshot on record until now was the phone in
+   dark mode; the emulator follows the system and renders light, and it reads as a different
+   application. "Is the UI identity consistent" has so far been asked of one of the two themes.
+
+**Measurement caveat for anyone repeating this.** The emulator was run at 1440x3200 @ 560 dpi. The
+reference phone (Poco F7 Pro, `24117RK2CG`) measures ~7 % denser — the same app bar is 240 px there
+against 224 px on the emulator, i.e. roughly 600 dpi and ~384 dp of width against 411. Layout
+verdicts are safe; anything decided on a few dp of margin is not. `adb shell wm size && adb shell
+wm density` settles it in two lines when the phone is attached.
 
 ## Non-negotiable
 

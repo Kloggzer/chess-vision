@@ -8,7 +8,16 @@ param(
     [switch]$NoSmoke,
     [switch]$Headless,
     [switch]$ColdBoot,
-    [switch]$RestartExisting
+    [switch]$RestartExisting,
+    # The screen defaults to the project's reference phone (6.67" WQHD+, 1440x3200, 526 ppi ->
+    # the 560 dpi bucket). A UI review on a different geometry reviews a different layout: the
+    # pixel_8 profile these AVDs are created from is 1080x2400 at 420 dpi, which is 411x914 dp
+    # against the phone's 411x914 -- close in dp but not in what fits, and nothing about a
+    # screenshot comparison is trustworthy when the two differ.
+    [int]$ScreenWidth = 1440,
+    [int]$ScreenHeight = 3200,
+    [int]$ScreenDensity = 560,
+    [switch]$KeepAvdScreen
 )
 
 Set-StrictMode -Version Latest
@@ -61,7 +70,7 @@ function Stop-Emulator([string]$Adb, [string]$Serial) {
     if ($stillPresent) { throw "Emulator $Serial did not stop within 30 seconds." }
 }
 
-function Wait-ForBoot([string]$Adb, [string]$Serial, [int]$TimeoutSeconds = 180) {
+function Wait-ForBoot([string]$Adb, [string]$Serial, [int]$TimeoutSeconds = 420) {
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     $previousPreference = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
@@ -75,6 +84,39 @@ function Wait-ForBoot([string]$Adb, [string]$Serial, [int]$TimeoutSeconds = 180)
         $ErrorActionPreference = $previousPreference
     }
     throw "Emulator $Serial did not finish booting within $TimeoutSeconds seconds."
+}
+
+function Set-AvdScreen([string]$AvdName, [int]$Width, [int]$Height, [int]$Density) {
+    # The AVD directory is NOT always <home>/.android/avd/<name>.avd -- the sibling .ini file
+    # carries a `path=` key precisely so it can live elsewhere. Read it rather than assuming.
+    $avdHome = if ($env:ANDROID_AVD_HOME) { $env:ANDROID_AVD_HOME } else { Join-Path $env:USERPROFILE ".android" | Join-Path -ChildPath "avd" }
+    $pointer = Join-Path $avdHome "$AvdName.ini"
+    if (-not (Test-Path $pointer)) { Write-Warning "No AVD pointer at $pointer; leaving the screen alone."; return }
+    $avdDir = (Get-Content $pointer | Where-Object { $_ -match "^path=" } | Select-Object -First 1) -replace "^path=", ""
+    if (-not $avdDir) { $avdDir = Join-Path $avdHome "$AvdName.avd" }
+    $config = Join-Path $avdDir "config.ini"
+    if (-not (Test-Path $config)) { Write-Warning "No config.ini at $config; leaving the screen alone."; return }
+
+    $wanted = [ordered]@{
+        "hw.lcd.width"   = "$Width"
+        "hw.lcd.height"  = "$Height"
+        "hw.lcd.density" = "$Density"
+    }
+    $lines = @(Get-Content $config)
+    $changed = $false
+    foreach ($key in $wanted.Keys) {
+        $value = $wanted[$key]
+        $index = [array]::FindIndex($lines, [Predicate[string]] { param($l) $l -like "$key=*" })
+        if ($index -ge 0) {
+            if ($lines[$index] -ne "$key=$value") { $lines[$index] = "$key=$value"; $changed = $true }
+        } else {
+            $lines += "$key=$value"; $changed = $true
+        }
+    }
+    if ($changed) {
+        Set-Content -Path $config -Value $lines -Encoding ascii
+        Write-Host "AVD '$AvdName' screen set to ${Width}x${Height} @ ${Density} dpi."
+    }
 }
 
 function Resolve-Clip([string]$Requested) {
@@ -167,6 +209,8 @@ if (-not $mustStart) {
     Write-Warning "Reusing $serial for AVD '$Avd'. Camera input is fixed at startup; use -RestartExisting to apply '$clipPath'."
 } else {
     $beforeSerials = @(Get-EmulatorDevices $adb | ForEach-Object { $_.Serial })
+
+    if (-not $KeepAvdScreen) { Set-AvdScreen $Avd $ScreenWidth $ScreenHeight $ScreenDensity }
 
     Write-Host "Starting AVD '$Avd' with camera clip '$clipPath'..."
     $emulatorArgs = @("-avd", $Avd, "-camera-back", "videofile:$clipPath", "-no-boot-anim")
