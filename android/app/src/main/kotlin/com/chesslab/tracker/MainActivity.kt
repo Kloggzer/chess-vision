@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import com.chesslab.tracker.settings.SettingsHost
 import com.chesslab.tracker.ui.BindTrackerService
 import com.chesslab.tracker.ui.ChesslabNavHost
 import com.chesslab.tracker.ui.theme.ChesslabTheme
@@ -37,6 +38,12 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
+        // The settings repository belongs to the PROCESS, and this is the process starting. Until
+        // specs/43 the only caller of `get` was `TrackerService`, which used to start on launch;
+        // once it stopped, nothing loaded the store and `SettingsHost.repository` stayed null
+        // forever — Settings, Spoken moves and the camera controls sat on "Reading the stored
+        // settings…" with no error and no crash. `get` is idempotent and returns the one instance.
+        SettingsHost.get(this)
         setContent {
             ChesslabTheme {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
