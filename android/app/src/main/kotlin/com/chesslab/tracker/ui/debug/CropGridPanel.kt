@@ -34,6 +34,8 @@ import com.chesslab.tracker.service.DebugCrops
 import com.chesslab.tracker.service.DebugState
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import com.chesslab.tracker.ui.theme.Space
+import com.chesslab.tracker.ui.theme.Stroke
 
 private const val GRID_N = 8
 private const val OPAQUE = 0xFF shl 24
@@ -70,7 +72,7 @@ fun CropGridPanel(
     }
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(Space.sm),
     ) {
         Text(
             "Model-input crops, all_squares() order — the parity reference against Python's crops.jpg.",
@@ -83,7 +85,7 @@ fun CropGridPanel(
         }
         // Row 0 is rank 1, exactly as Python tiles it.
         for (row in 0 until GRID_N) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.hair)) {
                 for (col in 0 until GRID_N) {
                     val tile = tiles[row * GRID_N + col]
                     CropTileView(tile, Modifier.weight(1f).clickable { zoomed = tile.square })
@@ -103,7 +105,7 @@ private fun CropTileView(
             tile.square,
             style = MaterialTheme.typography.labelSmall,
             color = OnSurface,
-            modifier = Modifier.fillMaxWidth().padding(bottom = 1.dp),
+            modifier = Modifier.fillMaxWidth().padding(bottom = Stroke.hairline),
         )
         Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
             Image(
@@ -128,7 +130,7 @@ private fun CropDetailDialog(
         onDismissRequest = onDismiss,
         title = { Text(tile.square, style = MaterialTheme.typography.titleLarge) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
                 Image(
                     bitmap = tile.image,
                     contentDescription = tile.square,

@@ -23,6 +23,9 @@ import com.chesslab.tracker.ui.theme.LocalChesslabPalette
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 
+/** Drawing weight on the camera image. Local, because `Stroke` here is the DrawScope one. */
+private val QUAD_STROKE = 3.dp
+
 private const val FILES = "abcdefgh"
 private const val N = 8
 private const val CORNER_FLOATS = 8
@@ -121,7 +124,7 @@ private fun DrawScope.drawQuad(
             quad.drop(1).forEach { lineTo(it.x, it.y) }
             close()
         }
-    drawPath(path, color = color, style = Stroke(width = 3.dp.toPx()))
+    drawPath(path, color = color, style = Stroke(width = QUAD_STROKE.toPx()))
 }
 
 private fun DrawScope.drawSquares(
@@ -147,6 +150,6 @@ private fun DrawScope.drawSquares(
                 ).forEach { lineTo(it.x, it.y) }
                 close()
             }
-        drawPath(path, color = color, style = Stroke(width = 3.dp.toPx()))
+        drawPath(path, color = color, style = Stroke(width = QUAD_STROKE.toPx()))
     }
 }

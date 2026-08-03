@@ -42,6 +42,7 @@ import com.chesslab.tracker.ui.SourceFramedPreview
 import com.chesslab.tracker.ui.calibration.CalibrationHost
 import com.chesslab.tracker.ui.calibration.LocalCalibrationHost
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.tracking.TrackerSessionHost
 
 /**
@@ -120,7 +121,7 @@ private fun savedProfile(): CalibrationProfile? {
 @Composable
 private fun CameraUnbound(onBack: () -> Unit) {
     ChesslabScaffold("Camera", onBack) { bars ->
-        Column(Modifier.fillMaxSize().padding(bars).padding(12.dp)) {
+        Column(Modifier.fillMaxSize().padding(bars).padding(Space.md)) {
             Text("No camera is running. Start tracking on the Board tab.", color = OnSurfaceMuted)
         }
     }
@@ -274,8 +275,8 @@ private fun CameraDeck(
     onLook: (CameraLook) -> Unit,
 ) {
     Column(
-        Modifier.fillMaxWidth().background(BottomFade).padding(horizontal = 8.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        Modifier.fillMaxWidth().background(BottomFade).padding(horizontal = Space.sm, vertical = Space.md),
+        verticalArrangement = Arrangement.spacedBy(Space.sm),
     ) {
         if (unsaved) UnsavedHint()
         // A magnified picture cannot be aimed by, and there is nothing on screen to notice that
@@ -303,7 +304,7 @@ private fun TileRow(
     onTorch: (Boolean) -> Unit,
     onLook: (CameraLook) -> Unit,
 ) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
         CameraAxis.entries.filter { it.availableOn(abilities) }.forEach { axis ->
             CameraTile(
                 label = axis.label,
@@ -354,8 +355,8 @@ private fun AxisPanel(
             .fillMaxWidth()
             .clip(RoundedCornerShape(PANEL_CORNER.dp))
             .background(ChromeScrim)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+            .padding(horizontal = Space.md, vertical = Space.sm),
+        verticalArrangement = Arrangement.spacedBy(Space.xs),
     ) {
         when (axis) {
             CameraAxis.FOCUS -> FocusPanel(look, abilities, onLook)

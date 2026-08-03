@@ -33,6 +33,8 @@ import com.chesslab.tracker.ui.theme.Outline
 import com.chesslab.tracker.ui.theme.OverlayChanged
 import com.chesslab.tracker.ui.theme.OverlayOcclusion
 import com.chesslab.tracker.ui.theme.OverlayShadow
+import com.chesslab.tracker.ui.theme.Space
+import com.chesslab.tracker.ui.theme.Stroke
 
 private const val BOARD_N = 8
 
@@ -49,9 +51,9 @@ fun EvidencePanel(state: DebugState) {
 
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(Space.sm),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
             EvidenceChannel.entries.forEach { entry ->
                 FilterChip(
                     selected = entry == channel,
@@ -108,12 +110,12 @@ private fun EvidenceSquare(
     val ramp = (cell.value / peak).coerceIn(0.0, 1.0).toFloat()
     Box(
         modifier
-            .padding(1.dp)
+            .padding(Stroke.hairline)
             .background(Color(0xFF0E4C36).copy(alpha = 0.15f + 0.85f * ramp))
             .then(if (cell.role == EvidenceRole.OCCLUSION) Modifier.background(OverlayOcclusion) else Modifier)
             .then(if (cell.role == EvidenceRole.SHADOW) Modifier.background(OverlayShadow.copy(alpha = 0.45f)) else Modifier)
             .border(
-                width = if (cell.role == EvidenceRole.CHANGED) 3.dp else 1.dp,
+                width = if (cell.role == EvidenceRole.CHANGED) Stroke.thick else Stroke.hairline,
                 color = if (cell.role == EvidenceRole.CHANGED) OverlayChanged else Outline,
             ),
         contentAlignment = Alignment.Center,
@@ -128,14 +130,14 @@ private fun EvidenceSquare(
             text = fmt(cell.value, 1),
             style = MaterialTheme.typography.labelSmall,
             color = OnSurfaceMuted,
-            modifier = Modifier.padding(top = 16.dp),
+            modifier = Modifier.padding(top = Space.lg),
         )
     }
 }
 
 @Composable
 private fun Legend() {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Space.hair)) {
         LegendRow(OverlayChanged, "changed — survived every veto, feeds the hypothesis")
         LegendRow(OverlayShadow, "shadow-vetoed — out of `changed`, z PRESERVED (vacate evidence)")
         LegendRow(OverlayOcclusion, "occlusion-vetoed — z ZEROED; `*` marks a latched taint")
@@ -148,10 +150,10 @@ private fun LegendRow(
     color: Color,
     text: String,
 ) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
         Box(
             Modifier
-                .padding(2.dp)
+                .padding(Space.hair)
                 .background(color)
                 .aspectRatio(1f)
                 .fillMaxWidth(0.03f),

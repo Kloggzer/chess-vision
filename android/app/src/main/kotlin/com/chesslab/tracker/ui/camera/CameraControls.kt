@@ -33,6 +33,7 @@ import com.chesslab.tracker.camera.CameraAbilities
 import com.chesslab.tracker.camera.CameraLook
 import com.chesslab.tracker.camera.WhiteBalance
 import kotlinx.coroutines.delay
+import com.chesslab.tracker.ui.theme.Space
 
 /**
  * How long a drag has to stand still before the camera is told.
@@ -121,7 +122,7 @@ fun CameraTile(
             .clip(RoundedCornerShape(TILE_CORNER.dp))
             .background(if (open) Chrome.selection else ChromeScrim)
             .clickable(onClick = onClick)
-            .padding(horizontal = 4.dp, vertical = 8.dp),
+            .padding(horizontal = Space.xs, vertical = Space.sm),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -221,7 +222,7 @@ fun <T> CameraChoice(
 ) {
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(Space.sm),
     ) {
         options.forEach { (text, value) ->
             FilterChip(

@@ -22,6 +22,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnDanger
+import com.chesslab.tracker.ui.theme.Radius
+import com.chesslab.tracker.ui.theme.Space
+import com.chesslab.tracker.ui.theme.Stroke
+import com.chesslab.tracker.ui.theme.Touch
 
 private const val CONFLICTS_SHOWN = 8
 
@@ -61,11 +65,11 @@ fun AlarmCard(
     Column(
         modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(Radius.md))
             .background(Danger.copy(alpha = 0.16f))
-            .border(2.dp, Danger, RoundedCornerShape(14.dp))
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .border(Stroke.thick, Danger, RoundedCornerShape(Radius.md))
+            .padding(Space.md),
+        verticalArrangement = Arrangement.spacedBy(Space.sm),
     ) {
         // The PROSE is bounded and scrolls; the buttons below never move.
         //
@@ -81,7 +85,7 @@ fun AlarmCard(
         // scrolling container above the list at all.
         Column(
             Modifier.heightIn(max = PROSE_MAX.dp).verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(Space.sm),
         ) {
             Text(
                 text = headlineFor(alarm.kind),
@@ -101,13 +105,13 @@ fun AlarmCard(
         Button(
             onClick = onAcceptCnn,
             colors = ButtonDefaults.buttonColors(containerColor = Danger, contentColor = OnDanger),
-            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = Touch.min),
         ) { Text("Accept CNN position", style = MaterialTheme.typography.labelLarge) }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onUndo, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+            OutlinedButton(onClick = onUndo, modifier = Modifier.weight(1f).heightIn(min = Touch.min)) {
                 Text(undoLabel(lastCommit), style = MaterialTheme.typography.labelLarge)
             }
-            OutlinedButton(onClick = onNewBaseline, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+            OutlinedButton(onClick = onNewBaseline, modifier = Modifier.weight(1f).heightIn(min = Touch.min)) {
                 Text("New baseline", style = MaterialTheme.typography.labelLarge)
             }
         }

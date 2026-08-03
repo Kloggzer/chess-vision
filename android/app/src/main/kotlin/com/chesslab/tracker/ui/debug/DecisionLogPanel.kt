@@ -29,6 +29,8 @@ import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import com.chesslab.tracker.ui.theme.Space
+import com.chesslab.tracker.ui.theme.Stroke
 
 /** The picker's suggested name; the user may change it, so nothing downstream may key on it. */
 private const val DIAGNOSTICS_FILE = "chesslab-diagnostics.zip"
@@ -55,14 +57,14 @@ fun DecisionLogPanel(
         }
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(Space.xs),
     ) {
         // Two exports, and they answer different questions. "Export as text" is the 64-row ring
         // this screen is showing, right now. "Export diagnostics" is the rotating file on disk:
         // every row since the app started, each file headed by the config and the model that were
         // in force — which is the thing nobody could see when `motionRecencyS` sat at 0.0 in the
         // DataStore and silently rejected every diff-path commit for an evening.
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
             TextButton(onClick = {
                 shareDecisionLog(
                     context,
@@ -94,8 +96,8 @@ private fun DecisionRow(
     onToggle: () -> Unit,
 ) {
     val tone = if (row.accepted) OnSurface else Danger
-    Column(Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = 2.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = Space.hair)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
             Text(fmt(row.tsS, 1), style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted)
             Text("#${row.ply}", style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted)
             Text("${row.san ?: "-"} (${row.uci ?: "-"})", style = MaterialTheme.typography.labelMedium, color = tone)
@@ -115,7 +117,7 @@ private fun DecisionRow(
 
 @Composable
 private fun Detail(row: DebugDecision) {
-    Column(Modifier.padding(start = 8.dp, top = 2.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+    Column(Modifier.padding(start = Space.sm, top = Space.hair), verticalArrangement = Arrangement.spacedBy(Stroke.hairline)) {
         StatRow("before", row.fenBefore ?: "-", OnSurfaceMuted)
         StatRow("after", row.fenAfter, OnSurfaceMuted)
         StatRow("changed", row.changedVals.joinToString(" ") { "${it.first}=${fmt(it.second, 1)}" }.ifEmpty { "-" })
