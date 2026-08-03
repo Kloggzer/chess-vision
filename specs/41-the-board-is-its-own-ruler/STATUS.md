@@ -9,8 +9,9 @@
 **The headline.** `data/testclip-raw/VID_20260802_222741.mp4` produced `moves: []`. It now produces
 a reviewable move list of 22 plies — 1.e4 e5 2.Nf3 Nf6 3.Nxe5 Nxe4 4.f3 Nf6 5.d4 d6 6.Ng4 d5
 7.Qe2+ Qe7 8.Bg5 h6 9.Bh4 g5 10.h3 Nc6 11.Nc3 Nxd4 — with no alarm latched, 95 review frames, and
-`confirmed: false`. Worst square offset over the whole video went from **median 29.61 px** to
-**median 2.00 px** on a 100 px cell. It took three separate fixes, only one of which was geometry.
+`confirmed: false`, **and with no special flags** — `label_real_game.py VIDEO --profile phone`.
+Worst square offset over the whole video went from **median 29.83 px** to **median 2.00 px** on a
+100 px cell. It took TWO fixes, only one of which was geometry.
 
 ---
 
@@ -80,15 +81,18 @@ fails on every frame by 24-37 px against a 4 px limit.
 
 | | median | p90 | max |
 |---|---|---|---|
-| worst square offset, ArUco alone | **29.61** | 36.34 | 38.35 |
-| worst square offset, after the grid fit | **2.00** | 2.43 | 5.31 |
+| worst square offset, ArUco alone | **29.83** | 36.50 | 38.35 |
+| worst square offset, after the grid fit | **2.00** | 2.45 | 23.82 |
 
 - Markers decoded per sampled frame: **3 in 940, 2 in 17, 1 in 1**. Never four.
-- **923 of 958 pass the absolute gate (96.3 %).**
-- The 35 failures: **34 are a hand over the board**, 1 sees a single marker. Rendered in
-  `data/realgames/game-2026-08-02/probes/probe_all_failures.png` — every tile is an arm.
-  Their worst offsets are still 1.6–5.3 px; what fails is `unread`, i.e. the honest refusal.
-- Per-frame max corner distance to the median quad, in IMAGE px: median 0.65, p90 1.22, max 4.67.
+- **939 of 958 pass the absolute gate (98.0 %).**
+- The 19 failures: **18 are a hand over the board**, 1 sees a single ArUco marker. Rendered in
+  `data/realgames/game-2026-08-02/probes/probe_all_failures.png` — every tile but one is an arm.
+  14 fail on `unread` (a line the hand covers), 4 on the offset with all 18 lines read, 1 because
+  the fit returned nothing. The `max 23.82` is one of those four: at frame 1400 a hand covers a
+  whole quadrant, the fit converges somewhere wrong, and the gate catches it on the offset rather
+  than on `unread`. Both failure modes are covered, which is the point of gating on both.
+- Per-frame max corner distance to the median quad, in IMAGE px: median 0.66, p90 1.27, max 6.44.
   One static quad does stand for this footage — once it is the right one.
 - Per-corner shift, median 3-marker quad → median measured quad, in IMAGE px:
   a8 4.6 · h8 4.0 · **h1 68.9** · a1 8.2. `h1` is id 2, the marker that never decodes — the affine
@@ -143,12 +147,12 @@ fit.
 
 ---
 
-## Two things that were NOT geometry, found because the geometry stopped hiding them
+## The thing that was NOT geometry, found because the geometry stopped hiding it
 
-The replay still committed **0 plies** after the geometry was correct. Both causes were measured
+The replay still committed **0 plies** after the geometry was correct. The cause was measured
 before anything was changed, and **no tracker threshold was touched** (specs/40's rule).
 
-### 1. The replay harness cut the CNN's crops at the wrong size
+### The replay harness cut the CNN's crops at the wrong size
 
 `ClipDriver` built its profile with `CropParams.default`, i.e. `config.CROP.pad_side` = **0.10**,
 where the `phone` profile the model is trained and served against says **0.05** — a 120 px crop box
@@ -164,7 +168,10 @@ escalated to the ILLEGAL MOVE alarm at t ≈ 2.9 s, after which nothing can comm
 entry now carries `crop`; the 20 Blender clips carry no `crop` key and keep the defaults, byte for
 byte.
 
-### 2. The footage's first second is not yet the scene
+### A finding that turned out NOT to be a blocker: the footage's first second
+
+This one was measured, a remedy was built for it, and then the remedy proved unnecessary. It is
+recorded because the measurement is real and the next person will meet it again.
 
 Per-square mean luma through the fixed quad:
 
@@ -177,9 +184,17 @@ Per-square mean luma through the fixed quad:
 
 The a-file corner gains **32–38 %** of its luma between frame 20 and 30 while h8 loses 20 % and the
 whole-board mean does not move — a local light change, not auto-exposure. A reference taken at
-frame 0 then reads **a1, a2, b1** as changed in 178 of the next 200 frames, forever. `--start-frame`
-drops leading frames; that is specs/40's "cut the clip where it happened" as an argument, not an
-override. See `probes/a1_corner_over_time.png`.
+frame 0 then reads **a1, a2, b1** as changed in 178 of the next 200 frames, forever, and the
+tracker sits in `no_legal_move` from frame 14.
+
+`--start-frame` was added for it — dropping leading frames is specs/40's "cut the clip where it
+happened" as an argument, not a threshold override. **Then it turned out not to be needed.**
+Replayed at `--start-frame 60` and at 0, the committed move list is byte-identical (all 22 plies,
+same order); only the decider mix moves (`cnn_recovery` 5 instead of 3, `cnn_occupancy` 11 instead
+of 13), which is exactly the tracker paying for the bad opening reference and then recovering from
+it. So the crop fix alone is sufficient and the shipped candidate is built with no flags at all.
+The flag stays, because a clip whose opening is genuinely unusable is a real case and there was no
+way to say so before. See `probes/a1_corner_over_time.png`.
 
 **What the diff detector was doing all along:** with the geometry right, its changed-square sets
 read `[e2,e4]` → `[e2,e4,e5,e7]` → `+[f3,g1]` → `+[f6,g8]`. That is 1.e4 e5 2.Nf3 Nf6, detected
@@ -237,6 +252,25 @@ is the **fine** one, and a fully markerless cold start is not supported.
 
 ---
 
+## Regression: nothing moved that should not have
+
+`pytest -m clips` — **22 passed, 0 failed** (19 min). The 18 Blender parity clips replay with zero
+divergence; they are structurally out of reach of the live-warp change (`ClipDriver` runs
+`live_align=False`, so `_on_grid` is never called) and carry no `crop` key, so `CropParams.default`
+still applies to them byte for byte. `test_a_real_candidate_indexes_pictures_that_exist` passes too
+— it asserts a candidate has moves and every ply has its picture, and was accurately RED while this
+video committed none.
+
+`pytest -q` — 819 passed, 1 skipped. `ruff check src tests synth` and `vulture` clean.
+
+Android with `--rerun-tasks`: `:app:ktlintCheck :app:detekt :core-engine:detekt
+:core-engine:ktlintCheck :core-geometry:detekt :core-geometry:ktlintCheck :core-engine:test
+:app:testDebugUnitTest :core-geometry:testDebugUnitTest` — BUILD SUCCESSFUL. app 418 tests,
+core-engine 367, core-geometry 81; 3 skipped, 0 failed. `AlignmentTruthTest` reads 17 tests and
+**0 skipped**, so its `@EnabledIf(OpenCvNatives#available)` pass is not vacuous.
+
+---
+
 ## Corrections to earlier records
 
 - **"0–8 of 14 grid lines located"** (`specs/40/STATUS.md`) is wrong for this board — the earlier
@@ -257,6 +291,12 @@ is the **fine** one, and a fully markerless cold start is not supported.
 
 ## What is NOT done, honestly
 
+- **The replay is NOT bit-deterministic across runs, and a fixture needs it to be.** Three runs of
+  the same video with the same arguments produced the same 22 SANs in the same order every time,
+  but a different DECIDER mix each time (`cnn_recovery` 3 / 5 / 6, `cnn_occupancy` 13 / 11 / 10).
+  The move list is stable; the path to it is not. `adopt_entry` writes `deterministic: true`, so
+  this has to be understood before this video can become a clip fixture — the likeliest suspect is
+  the ROCm CNN, not the geometry, and it is out of scope here.
 - **The replay commits 22 plies of a game that ran 83 plies live.** It is a reviewable move list,
   which is what phase 01 asked for, but it is not the whole game. After ply 22 (`Nxd4`) the tracker
   goes back to `too_many_changed` and does not recover. That is now a tracker/CNN question with the

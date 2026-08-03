@@ -158,7 +158,7 @@ private fun lattice(
  *
  * [quad] is whatever located the board at all: an ArUco quad from two, three or four markers, or the
  * previous frame's answer. It is explicitly allowed to be tens of pixels wrong — the 2026-08-02
- * video's three-marker quads read 29.6 px of square-edge error at the median on a 100 px cell —
+ * video's three-marker quads read ~30 px of square-edge error at the median on a 100 px cell —
  * because all it has to do is bring the grooves inside the first search window. The grid fit supplies
  * the accuracy, including the perspective the coarse stage could not have.
  *

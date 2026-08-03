@@ -1029,7 +1029,7 @@ class MoveTracker:
         Parity with Android's `LiveAlign.onGrid`, and until 2026-08-03 the Python tracker had no
         equivalent at all: `_warp` went through `board_corners_for_frame` and markers were the only
         geometry it ever saw. That is the gap this exists to close — markers alone reconstruct a
-        PARALLELOGRAM when one of the four does not decode, and the 2026-08-02 game measured 29.6 px
+        PARALLELOGRAM when one of the four does not decode, and the 2026-08-02 game measured ~30 px
         of square-edge error at the median on a 100 px cell that way, against 2.0 px once the grid
         is consulted.
 

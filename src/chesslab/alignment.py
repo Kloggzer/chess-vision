@@ -557,7 +557,7 @@ def refine_quad(frame, quad, profile, *, max_frac: float = MAX_OFFSET_FRAC):
 
     `quad` is whatever located the board at all: an ArUco quad from two, three or four markers, the
     previous frame's answer, or a stored profile. It is explicitly allowed to be tens of pixels
-    wrong — the whole-video median for a three-marker quad is 29.6 px of a 100 px cell — because
+    wrong — the whole-video median for a three-marker quad is ~30 px of a 100 px cell — because
     all it has to do is bring the grooves inside the first search window. The grid fit supplies the
     accuracy, including the perspective the coarse stage could not have.
 

@@ -20,7 +20,7 @@ for the footage.
 **Geometry is two stages.** ArUco is the coarse one — it only has to bring the board's grooves
 inside a search window — and the board's own grid is the fine one (`alignment.refine_quad`).
 Markers alone reconstruct a parallelogram whenever one of the four does not decode, which is the
-case in 940 of 958 sampled frames of the 2026-08-02 game: 29.6 px of median square-edge error on
+case in 940 of 958 sampled frames of the 2026-08-02 game: ~30 px of median square-edge error on
 a 100 px cell, against 2.0 px once the grid is consulted. See `specs/41-the-board-is-its-own-ruler/`.
 """
 
@@ -71,8 +71,8 @@ def scan_geometry(video: Path, profile, progress_every: int = 100, every: int = 
     ArUco quad only has to bring the grooves inside the first search window; `refine_quad` fits the
     board's 18 lines and supplies the accuracy, including the perspective a three-marker affine
     reconstruction cannot have. Measured over the whole video, worst square offset in rectified px
-    on a 100 px cell: ArUco alone median 29.6 / p90 36.3 / max 38.4, after the grid fit median
-    2.00 / p90 2.43 / max 5.31.
+    on a 100 px cell: ArUco alone median 29.8 / p90 36.5 / max 38.4, after the grid fit median
+    2.00 / p90 2.45, and 939 of 958 sampled frames pass the absolute gate.
 
     No `MarkerTracker`: its dead zone, EMA and seed fallback all assume a static board, and a game
     filmed over minutes is one where the board gets nudged. The tracker then lags by a different
@@ -134,7 +134,7 @@ def median_quad(quads) -> list[list[float]] | None:
     The four corners are taken independently — the result is not required to be one of the
     observed quads, only to be the central one.
 
-    Passing frames only, and that is not a detail: on the 2026-08-02 game 34 of 35 rejected frames
+    Passing frames only, and that is not a detail: on the 2026-08-02 game 18 of 19 rejected frames
     are a HAND over the board, where the grid fit is fitting to whatever grooves the hand left
     visible. Those frames have nothing to say about where the board is.
     """
@@ -222,12 +222,12 @@ QUAD_SPREAD_P90_MAX = 4.0
 #: Refuse a video where fewer than this fraction of sampled frames pass `alignment.alignment_of` —
 #: an ABSOLUTE verdict against the board's own grid, not against the other frames.
 #:
-#: Measured on the 2026-08-02 game (9576 frames, every 10th sampled, `phone` profile): 923 of 958
-#: pass, 96.3 %. Of the 35 that do not, 34 are a HAND over the board and one sees a single ArUco
-#: marker. So a hand is what failure looks like on good footage, and a game is roughly 4 % hands.
+#: Measured on the 2026-08-02 game (9576 frames, every 10th sampled, `phone` profile): 939 of 958
+#: pass, 98.0 %. Of the 19 that do not, 18 are a HAND over the board and one sees a single ArUco
+#: marker. So a hand is what failure looks like on good footage, and a game is roughly 2 % hands.
 #: 0.85 leaves room for a slower game with more hand time while still refusing footage where the
-#: grid genuinely cannot be found — at 0.85 this video would have to get four times handsier before
-#: it stopped qualifying.
+#: grid genuinely cannot be found — at 0.85 this video would have to get seven times handsier
+#: before it stopped qualifying.
 ALIGN_PASS_MIN = 0.85
 
 #: Refuse a video whose realised inter-frame interval strays from the nominal one by more than
