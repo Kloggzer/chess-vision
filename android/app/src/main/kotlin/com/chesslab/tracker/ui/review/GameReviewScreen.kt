@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -24,13 +26,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.analysis.GameGrade
 import com.chesslab.tracker.analysis.MoveQuality
 import com.chesslab.tracker.analysis.PlyGrade
+import com.chesslab.tracker.analysis.ReviewStore
+import com.chesslab.tracker.analysis.SideSummary
 import com.chesslab.tracker.games.GameSessionState
 import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.games.GameView
@@ -41,11 +47,13 @@ import com.chesslab.tracker.ui.games.GameSessionHost
 import com.chesslab.tracker.ui.games.gamesDir
 import com.chesslab.tracker.ui.settings.Card
 import com.chesslab.tracker.ui.theme.Accent
+import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.tracking.BoardCanvas
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlin.math.roundToInt
 
 /** The screen renders before the service is bound; an unbound live game is simply an empty one. */
 private val NO_LIVE_GAME = MutableStateFlow(GameSessionState())
@@ -64,6 +72,17 @@ fun LiveReviewRoute(onBack: () -> Unit) {
     GameReviewScreen(title = "Live game", game = live.game, onBack = onBack) { SpectatorShareCard() }
 }
 
+/** A screen with no engine review has nothing to seek to and nothing to report a focus for. */
+@Composable
+private fun GameReviewScreen(
+    title: String,
+    game: GameView,
+    onBack: () -> Unit,
+    extra: @Composable () -> Unit,
+) {
+    GameReviewScreen(title, game, onBack, grade = null, onFocus = {}) { extra() }
+}
+
 /** The ARCHIVE source. Same screen, same board, same list — a stored game instead of a running one. */
 @Composable
 fun ArchiveReviewRoute(
@@ -74,7 +93,8 @@ fun ArchiveReviewRoute(
     val scope = rememberCoroutineScope()
     val model =
         remember(context) {
-            ReviewViewModel(GameStore(gamesDir(context)), stockfishEngineFactory(context.applicationContext), scope)
+            val dir = gamesDir(context)
+            ReviewViewModel(GameStore(dir), ReviewStore(dir), stockfishEngineFactory(context.applicationContext), scope)
         }
     LaunchedEffect(id) { model.load(id) }
     val ui by model.ui.collectAsStateWithLifecycle()
@@ -83,18 +103,20 @@ fun ArchiveReviewRoute(
         ChesslabScaffold(id, onBack) { bars -> Text("Game not found.", Modifier.padding(bars), color = OnSurfaceMuted) }
         return
     }
-    GameReviewScreen(title = game.id, game = game, grade = ui.grade, onBack = onBack) {
-        ReviewCard(ui, seams = game.segments.count { it.enteredBy != null }, onReview = model::review)
+    GameReviewScreen(title = game.id, game = game, grade = ui.grade, onBack = onBack, onFocus = model::focus) { seek ->
+        ReviewCard(ui, onReview = model::review, onDiscard = model::discard, onSeek = seek)
         PgnRow(ui.pgn, game.id)
     }
 }
 
 /**
- * ONE board, ONE move list, ONE evaluation. Live or archived is [GameView.live] and nothing else —
- * a reader can see that from this signature, which is the point of the merge.
+ * ONE board, ONE move list, ONE evaluation. Live or archived is [GameView.live] and nothing else.
  *
  * [extra] is the only difference the two callers get: the Wi-Fi share card while the game runs, the
- * engine review and the PGN once it is over.
+ * engine review and the PGN once it is over. It is handed the board's own seek so a tapped finding
+ * moves THIS board — there is no second ply number anywhere.
+ *
+ * [onFocus] reports where the reader is, so the engine can grade outward from it.
  *
  * A `Column`, never `verticalScroll`: the move list below is a `LazyColumn`, and a lazy list inside
  * a scrolling parent throws at runtime (it happened, and it crashed the app).
@@ -104,14 +126,16 @@ private fun GameReviewScreen(
     title: String,
     game: GameView,
     onBack: () -> Unit,
-    grade: GameGrade? = null,
-    extra: @Composable () -> Unit,
+    grade: GameGrade?,
+    onFocus: (Int) -> Unit,
+    extra: @Composable ((Int) -> Unit) -> Unit,
 ) {
     // The live board follows the game; the archived one follows the finger. Both are a PLY NUMBER,
     // so the two modes differ in where that number comes from and in nothing else.
     var seek by remember(game.id) { mutableIntStateOf(game.plies.size) }
     val selected = if (game.live) game.plies.size else seek
-    val fen = game.fenAt(selected)
+    LaunchedEffect(selected) { onFocus(selected) }
+    val ply = grade?.of(selected)
 
     ChesslabScaffold(title, onBack) { bars ->
         Column(
@@ -127,15 +151,21 @@ private fun GameReviewScreen(
             // an intrinsic the row claims the whole column and the move list collapses to zero.
             Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 // The live board gets the running eval bar. An archived game's evaluation is the
-                // grade below, not a bar fed by the tracker's current position.
+                // verdict below, not a bar fed by the tracker's current position.
                 if (game.live) EvalBarSlot()
                 BoardCanvas(
-                    fen = fen,
+                    fen = game.fenAt(selected),
                     modifier = Modifier.weight(1f),
                     lastMoveUci = game.plies.getOrNull(selected - 1)?.uci,
+                    // Only where it is advice. On a move the player already found, an arrow over
+                    // their own move says nothing and clutters the position they are reading.
+                    suggestedUci = ply?.takeIf { it.quality != MoveQuality.BEST }?.bestUci,
                 )
             }
-            if (!game.live) PlyNav(selected, game.plies.size) { seek = it }
+            if (!game.live) {
+                PlyVerdict(ply, game.plies.getOrNull(selected - 1)?.san, selected, grade)
+                PlyNav(selected, game.plies.size) { seek = it }
+            }
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 MoveList(
                     game = game,
@@ -146,8 +176,65 @@ private fun GameReviewScreen(
                     follow = game.live,
                 )
             }
-            extra()
+            extra { seek = it }
         }
+    }
+}
+
+/**
+ * The one ply the user is looking at, in words rather than in units.
+ *
+ * This is the answer to "it requires too much knowledge": a win-expectancy pair is a sentence
+ * anybody can read, and the engine's own move is the only "what would have been better" that costs
+ * nothing — `multiPv` already computed it and specs/42 threw it away.
+ */
+@Composable
+private fun PlyVerdict(
+    ply: PlyGrade?,
+    san: String?,
+    selected: Int,
+    grade: GameGrade?,
+) {
+    if (selected == 0 || san == null) {
+        Text("Starting position.", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceMuted)
+        return
+    }
+    if (ply == null) {
+        val waiting = if (grade == null) "Not reviewed yet." else "Working on this move…"
+        Text("$san · $waiting", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceMuted)
+        return
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
+            Text(san, style = MaterialTheme.typography.titleMedium, color = OnSurface, fontWeight = FontWeight.Bold)
+            Text(label(ply.quality), style = MaterialTheme.typography.titleMedium, color = badgeColor(ply.quality))
+        }
+        if (!ply.played) {
+            // The rule this project cannot bend: the tracker's own mistakes are not the player's.
+            Text(
+                "The app lost the board here and rebuilt this move — it may not be what was played, " +
+                    "so it is not counted against anyone.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Danger,
+            )
+        }
+        Text(
+            "Winning chances ${percent(ply.winBefore)} → ${percent(ply.winAfter)} for the player who moved.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = OnSurface,
+        )
+        ply.bestSan?.takeIf { ply.quality != MoveQuality.BEST }?.let {
+            Text("The engine would have played $it (arrow).", style = MaterialTheme.typography.bodyMedium, color = Accent)
+        }
+        if (ply.quality == MoveQuality.BEST) {
+            Text("This was the engine's own move.", style = MaterialTheme.typography.bodyMedium, color = Accent)
+        }
+        Text(
+            "Searched to depth ${ply.depth}." +
+                if (ply.decided) " The game was already decided here, so this move is not counted." else "",
+            style = MaterialTheme.typography.labelSmall,
+            color = OnSurfaceMuted,
+        )
     }
 }
 
@@ -212,114 +299,154 @@ private fun copy(
 @Composable
 private fun ReviewCard(
     ui: ReviewUi,
-    seams: Int,
     onReview: () -> Unit,
+    onDiscard: () -> Unit,
+    onSeek: (Int) -> Unit,
 ) {
-    var open by remember { mutableStateOf(false) }
     Card {
-        val progress = ui.progress
         val grade = ui.grade
         when {
             ui.engineMissing -> Text("No engine on this device.", style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
-            progress != null -> ReviewProgressLine(progress.done, progress.total)
-            grade != null -> GradeSummary(grade, seams, open) { open = !open }
+            grade != null -> GradeSummary(grade, ui.running, onDiscard, onSeek)
+            ui.running -> Text("Starting the engine…", style = MaterialTheme.typography.bodyMedium, color = OnSurface)
             else -> TextButton(onClick = onReview) { Text("Review with engine", color = Accent) }
         }
     }
 }
 
-@Composable
-private fun ReviewProgressLine(
-    done: Int,
-    total: Int,
-) {
-    Text("Reviewing… $done / $total positions", style = MaterialTheme.typography.bodyMedium, color = OnSurface)
-    Text(
-        // Up to 3 s a position, so a long game is minutes. Measured on the device: 84 positions in
-        // 28 s at the old depth-16 budget, and this one is allowed considerably more per position.
-        "Up to a few seconds per position. The engine runs at lowest priority; tracking still has the camera.",
-        style = MaterialTheme.typography.bodySmall,
-        color = OnSurfaceMuted,
-    )
-}
-
 /**
- * The summary states its own BUDGET, and that is not decoration.
+ * Accuracy first and everything else behind a tap.
  *
- * A grade is a claim about a move only as far as the search behind it went. Naming the depth is what
- * stops "blunder" from reading as a verdict when it is a depth-9 opinion.
+ * The card this replaced led with `84 cp average loss over 42 plies · best 26 good 2 inaccuracy 3
+ * mistake 6 blunder 5`, which is a unit and a histogram. A percentage is the thing a weak player can
+ * act on, and the bands are still one tap away for anyone who wants them.
  */
 @Composable
 private fun GradeSummary(
     grade: GameGrade,
-    seams: Int,
-    open: Boolean,
-    onToggle: () -> Unit,
+    running: Boolean,
+    onDiscard: () -> Unit,
+    onSeek: (Int) -> Unit,
 ) {
-    Text("Accuracy", style = MaterialTheme.typography.titleMedium, color = OnSurface)
-    SideLine("White", grade, white = true)
-    SideLine("Black", grade, white = false)
-    Text(
-        "Up to ${grade.budget.movetimeMs} ms per position, stopping early at depth ${grade.budget.depth}. " +
-            "The live evaluation gets 400 ms, and one ply in six is graded differently at that budget — " +
-            "each finding below names the depth it was actually read at.",
-        style = MaterialTheme.typography.bodySmall,
-        color = OnSurfaceMuted,
-    )
-    // A tracked game is not a score sheet somebody wrote down: where the app lost the board it
-    // invented the moves that got it back, and those plies are graded here exactly like played ones.
-    // The move list shows each seam in place; this says how many, beside the numbers they distort.
-    if (seams > 0) {
+    var open by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        AccuracyBlock("White", grade.white)
+        AccuracyBlock("Black", grade.black)
+    }
+    if (running) {
+        // Not a spinner over an empty screen: what is already graded stays readable underneath, and
+        // this only says how much more is coming.
+        LinearProgressIndicator({ grade.scored.toFloat() / grade.positions }, Modifier.fillMaxWidth(), color = Accent)
         Text(
-            "The app rebuilt the board $seams× in this game. The plies it committed to recover are " +
-                "graded here like any other — a blunder around a rebuild may be the tracker's, not a player's.",
+            "Reading the game around the move you are on · ${grade.scored} / ${grade.positions} positions",
             style = MaterialTheme.typography.bodySmall,
-            color = Danger,
+            color = OnSurfaceMuted,
         )
     }
     val findings = grade.findings()
-    TextButton(onClick = onToggle) {
-        Text(if (open) "Hide findings" else "Findings (${findings.size})", color = Accent)
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        TextButton(onClick = { open = !open }) {
+            Text(if (open) "Hide details" else "Key moments (${findings.size})", color = Accent)
+        }
+        if (grade.complete) TextButton(onClick = onDiscard) { Text("Re-analyse", color = OnSurfaceMuted) }
     }
-    if (open) findings.forEach { FindingLine(it) }
+    if (open) Details(grade, findings, onSeek)
 }
 
 @Composable
-private fun FindingLine(finding: PlyGrade) {
-    Text(
-        // A mate-scored ply never shows its centipawns: 10 000 is a flag meaning "forced mate",
-        // and printing it as a pawn count is the same confusion the average used to have.
-        "ply ${finding.ply} · ${finding.quality.name.lowercase()} · " +
-            (if (finding.mateScored) "forced mate" else "${finding.cpLoss} cp") +
-            " at depth ${finding.depth}",
-        style = MaterialTheme.typography.bodySmall,
-        color = OnSurfaceMuted,
-    )
-}
-
-@Composable
-private fun SideLine(
+private fun AccuracyBlock(
     label: String,
-    grade: GameGrade,
-    white: Boolean,
+    side: SideSummary,
 ) {
-    val side = if (white) grade.white else grade.black
-    val bands =
-        MoveQuality.entries
-            .filter { side.count(it) > 0 }
-            .joinToString(" ") { "${it.name.lowercase()} ${side.count(it)}" }
-    Text(
-        "$label · ${side.averageCpLoss} cp average loss over ${side.plies} plies · $bands",
-        style = MaterialTheme.typography.bodySmall,
-        color = OnSurfaceMuted,
-    )
-    // Where the average means least, and on a won endgame that is most of it.
-    if (side.mateScoredPlies > 0) {
+    Column {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
         Text(
-            "  ${side.mateScoredPlies} of those were scored against a forced mate, where a centipawn " +
-                "average stops measuring anything.",
+            side.accuracy?.let { "${it.roundToInt()}%" } ?: "—",
+            style = MaterialTheme.typography.headlineMedium,
+            // Lichess' own accuracy bands, from `roundTraining.ts`: >=85 good, >=70 inaccuracy,
+            // >=55 mistake, else blunder. A number nobody can place is a number nobody can use.
+            color = side.accuracy?.let { accuracyColor(it) } ?: OnSurfaceMuted,
+        )
+        Text(
+            // Never silently: the denominator is the honest half of this number.
+            "over ${side.scored} of ${side.plies} moves",
             style = MaterialTheme.typography.labelSmall,
             color = OnSurfaceMuted,
         )
     }
 }
+
+@Composable
+private fun Details(
+    grade: GameGrade,
+    findings: List<PlyGrade>,
+    onSeek: (Int) -> Unit,
+) {
+    findings.forEach { FindingLine(it, onSeek) }
+    if (findings.isEmpty()) {
+        Text("Nothing worse than a good move so far.", style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
+    }
+    val rebuilt = grade.rebuilt().size
+    if (rebuilt > 0) {
+        Text(
+            "$rebuilt of the ${grade.byPly.size} graded moves were rebuilt by the app after it lost the board. " +
+                "They are shown but never counted — a blunder there may be the tracker's, not a player's.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Danger,
+        )
+    }
+    Text(
+        "Each move is scored by how much winning chance it gave away — lichess' formula, and their " +
+            "bands for inaccuracy, mistake and blunder. Combining them into one number is ours: a harmonic " +
+            "mean, so one bad move is not averaged away. Moves played after the game was already decided " +
+            "score nothing and are left out. Up to ${grade.budget.movetimeMs} ms of engine per position, " +
+            "stopping early at depth ${grade.budget.depth}.",
+        style = MaterialTheme.typography.labelSmall,
+        color = OnSurfaceMuted,
+    )
+}
+
+/** Lichess' accuracy colour bands, from `ui/analyse/src/view/roundTraining.ts`. */
+@Composable
+private fun accuracyColor(accuracy: Double) =
+    when {
+        accuracy >= 85 -> Accent
+        accuracy >= 70 -> OnSurface
+        accuracy >= 55 -> Busy
+        else -> Danger
+    }
+
+/** A tapped finding puts the board on that ply — this list is the reason the screen is open. */
+@Composable
+private fun FindingLine(
+    finding: PlyGrade,
+    onSeek: (Int) -> Unit,
+) {
+    Text(
+        "ply ${finding.ply} · ${label(finding.quality)} · ${percent(finding.winBefore)} → ${percent(finding.winAfter)}" +
+            (finding.bestSan?.let { " · better: $it" } ?: ""),
+        style = MaterialTheme.typography.bodySmall,
+        color = badgeColor(finding.quality),
+        modifier = Modifier.fillMaxWidth().clickable { onSeek(finding.ply) }.padding(vertical = 2.dp),
+    )
+}
+
+private fun percent(value: Double): String = "${value.roundToInt()}%"
+
+internal fun label(quality: MoveQuality): String =
+    when (quality) {
+        MoveQuality.BEST -> "Best move"
+        MoveQuality.GOOD -> "Good"
+        MoveQuality.INACCURACY -> "Inaccuracy"
+        MoveQuality.MISTAKE -> "Mistake"
+        MoveQuality.BLUNDER -> "Blunder"
+    }
+
+@Composable
+internal fun badgeColor(quality: MoveQuality) =
+    when (quality) {
+        MoveQuality.BLUNDER, MoveQuality.MISTAKE -> Danger
+        MoveQuality.INACCURACY -> Busy
+        MoveQuality.BEST -> Accent
+        else -> OnSurfaceMuted
+    }

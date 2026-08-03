@@ -10,6 +10,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -81,6 +83,10 @@ private fun glyph(piece: Char): String =
  * drifts from the engine's truth silently, and the user would be looking at a position the tracker
  * does not believe in. [lastMoveUci] only tints two squares.
  *
+ * [suggestedUci] draws an arrow and nothing else. It is the review's "what you could have played
+ * instead", and it must be visibly a SUGGESTION rather than a move that happened — so it never
+ * touches a piece and never tints a square, both of which mean "this was played".
+ *
  * [alarmed] paints the whole board with the danger scrim — while the alarm is latched the engine
  * blocks every commit (invariant 9), so this position is provably NOT what is on the table.
  */
@@ -89,6 +95,7 @@ fun BoardCanvas(
     fen: String,
     modifier: Modifier = Modifier,
     lastMoveUci: String? = null,
+    suggestedUci: String? = null,
     alarmed: Boolean = false,
     whitePov: Boolean = true,
 ) {
@@ -122,8 +129,52 @@ fun BoardCanvas(
                 drawGlyph(palette, paint, piece, topLeft, cell)
             }
         }
+        suggestedUci?.let { drawSuggestion(palette.accent, it, cell, whitePov) }
         if (alarmed) drawAlarm(palette.danger, cell)
     }
+}
+
+private const val ARROW_STROKE = 0.13f
+private const val ARROW_HEAD = 0.34f
+
+/** The engine's move as an arrow from square centre to square centre. */
+private fun DrawScope.drawSuggestion(
+    accent: Color,
+    uci: String,
+    cell: Float,
+    whitePov: Boolean,
+) {
+    val squares = lastMoveSquares(uci).toList()
+    val from = squares.getOrNull(0)?.let { squareCentre(it, cell, whitePov) }
+    val to = squares.getOrNull(1)?.let { squareCentre(it, cell, whitePov) }
+    if (from == null || to == null) return
+    val along = to - from
+    val length = along.getDistance()
+    if (length <= 0f) return
+    val unit = along / length
+    val head = cell * ARROW_HEAD
+    // The shaft stops where the head begins, so the two do not overlap into a blob at short range.
+    drawLine(accent, from, to - unit * head, strokeWidth = cell * ARROW_STROKE, cap = StrokeCap.Round)
+    val side = Offset(-unit.y, unit.x) * (head / 2f)
+    drawPath(
+        Path().apply {
+            moveTo(to.x, to.y)
+            lineTo(to.x - unit.x * head + side.x, to.y - unit.y * head + side.y)
+            lineTo(to.x - unit.x * head - side.x, to.y - unit.y * head - side.y)
+            close()
+        },
+        accent,
+    )
+}
+
+private fun squareCentre(
+    square: String,
+    cell: Float,
+    whitePov: Boolean,
+): Offset? {
+    val file = FILES.indexOf(square[0]).takeIf { it >= 0 } ?: return null
+    val rank = square[1].digitToIntOrNull()?.minus(1)?.takeIf { it in 0 until RANKS } ?: return null
+    return squareOrigin(file, rank, cell, whitePov) + Offset(cell / 2f, cell / 2f)
 }
 
 /**

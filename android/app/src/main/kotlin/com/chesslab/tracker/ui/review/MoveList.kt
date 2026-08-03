@@ -32,8 +32,6 @@ import com.chesslab.tracker.games.ReviewPly
 import com.chesslab.tracker.games.SeamOrigin
 import com.chesslab.tracker.games.moveRows
 import com.chesslab.tracker.games.startsWithBlack
-import com.chesslab.tracker.ui.theme.Accent
-import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.SurfaceRaised
@@ -152,7 +150,10 @@ private fun MoveCell(
         Box(modifier)
         return
     }
-    val quality = grade?.of(ply.ply)?.quality
+    val graded = grade?.of(ply.ply)
+    // A rebuilt move never wears a quality badge. `??` beside a move the app invented reads as the
+    // player's blunder, which is the one thing this screen must not say.
+    val quality = graded?.takeIf { it.played }?.quality
     val row = if (onSelect == null) modifier else modifier.clickable { onSelect(ply.ply) }
     Row(row, verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
@@ -168,12 +169,18 @@ private fun MoveCell(
         )
         Text(
             // The grade wins the slot when there is one: after the game the decider is trivia and
-            // "which move lost it" is the reason this screen is open at all.
+            // "which move lost it" is the reason this screen is open at all. A rebuilt move keeps
+            // its decider forever, because that IS its grade.
             text = quality?.let(::badge) ?: ply.decider.orEmpty(),
             style = MaterialTheme.typography.labelMedium,
             // Not `quality?.let(::badgeColor)`: the palette is read through composable getters, and
             // a @Composable function reference cannot be passed to `let`.
-            color = if (quality == null) OnSurfaceMuted else badgeColor(quality),
+            color =
+                when {
+                    quality != null -> badgeColor(quality)
+                    graded != null -> Danger
+                    else -> OnSurfaceMuted
+                },
             // Half a phone width holds two of these cells, and `cnn_occupancy` does not fit one.
             // Unbounded it wrapped mid-word — `Nc6 cnn_occupanc` / `y` — and pushed the row to two
             // lines. `fill = false` so a short label does not stretch the cell.
@@ -184,22 +191,12 @@ private fun MoveCell(
     }
 }
 
-/** Short enough to sit beside a SAN on a phone; the summary card spells the bands out. */
+/** Short enough to sit beside a SAN on a phone; the verdict above the list spells the band out. */
 private fun badge(quality: MoveQuality): String =
     when (quality) {
-        MoveQuality.BOOK -> "book"
         MoveQuality.BEST -> "best"
         MoveQuality.GOOD -> ""
         MoveQuality.INACCURACY -> "?!"
         MoveQuality.MISTAKE -> "?"
         MoveQuality.BLUNDER -> "??"
-    }
-
-@Composable
-private fun badgeColor(quality: MoveQuality) =
-    when (quality) {
-        MoveQuality.BLUNDER, MoveQuality.MISTAKE -> Danger
-        MoveQuality.INACCURACY -> Busy
-        MoveQuality.BEST -> Accent
-        else -> OnSurfaceMuted
     }
