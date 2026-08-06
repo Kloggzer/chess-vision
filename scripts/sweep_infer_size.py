@@ -28,7 +28,11 @@ Usage:
     .venv/Scripts/python.exe scripts/sweep_infer_size.py
         [--runs occ-v4-f3e20,occ-r3s-f3] [--splits test,val] [--sizes 48,64,80,96,112,128,160]
         [--paths ab] [--device cuda|cpu] [--num-workers 2] [--batch-size 256]
-        [--miss-target 43] [--log data/_perf/sweep_infer_size.log]
+        [--miss-target 43] [--pad-side 0.05,0.10] [--log data/_perf/sweep_infer_size.log]
+
+`--pad-side` sweeps what the crop CONTAINS instead of what it is scaled to (specs/45); path A is
+repeated per value and every row is labelled `<run>@pad<value>`. Both rows have to come from one
+invocation — a path-A number is cut through the current profile and an older row is not comparable.
 
 Evaluation only: no training, no export, no rendering. One process — two concurrent DataLoader
 sweeps have deadlocked this machine before.
@@ -263,11 +267,19 @@ def session_index(groups: list[tuple[str, str, dict[str, str]]]) -> np.ndarray:
 
 
 def sweep_path_a(runs: dict[str, tuple], rows: list[dict], sizes: tuple[int, ...],
-                 device: str, log: Log) -> dict[tuple[str, int], tuple[np.ndarray, np.ndarray, np.ndarray]]:
+                 device: str, log: Log,
+                 pad_side: float | None = None,
+                 ) -> dict[tuple[str, int], tuple[np.ndarray, np.ndarray, np.ndarray]]:
     """Cut the crops out of the session frames at every size and predict — the serving path.
 
     Frames are decoded ONCE and re-cropped per size (the warp is size-independent, only
     `crop_square`'s resize is not), so the sweep costs one PNG decode per frame, not seven.
+
+    `pad_side` overrides what the crops CONTAIN, for the one question `--infer-size` cannot ask:
+    a crop is `board_size / 8 * (1 + 2 * pad_side)` px of board scaled to the model's input, so
+    the pad decides the picture and the size only decides its resolution. It outranks the run's
+    own declaration (specs/45) — that is the point of the flag, and the reason the run's declared
+    value is printed beside it. None = every path cuts what its model declares.
     """
     from chesslab import serving
 
@@ -282,6 +294,13 @@ def sweep_path_a(runs: dict[str, tuple], rows: list[dict], sizes: tuple[int, ...
         logs[sid] = {Path(e["frame"]).stem: e for e in labeling.read_log(config.DATA.sessions / sid)}
 
     specs = {name: serving.run_spec(run_dir) for name, (run_dir, _, _) in runs.items()}
+    if pad_side is not None:
+        import dataclasses
+        for name, spec in specs.items():
+            log(f"[pad] {name}: cutting at pad_side={pad_side:g} "
+                f"(the run declares {spec.pad_side}, its profile says "
+                f"{profiles[sessions[0]].crop.pad_side})")
+            specs[name] = dataclasses.replace(spec, pad_side=pad_side, pad_up=spec.pad_up or 0.0)
     acc: dict[tuple[str, int], tuple[list[bool], list[bool], list[float]]] = {
         (name, s): ([], [], []) for name in runs for s in sizes
     }
@@ -445,9 +464,14 @@ def main() -> None:
                     help="evaluate on THIS dataset's split instead of the one the runs were "
                          "trained on (e.g. occ-real6, which extends occ-real5nd by a held-out "
                          "phone session and keeps train/val identical)")
+    ap.add_argument("--pad-side", default="",
+                    help="comma-separated pad_side values to measure path A at, e.g. '0.05,0.10'. "
+                         "Empty (default) = every run cuts what its own config declares. Both rows "
+                         "must come from ONE invocation: a path-A number moves with the profile.")
     ap.add_argument("--log", default="data/_perf/sweep_infer_size.log")
     args = ap.parse_args()
 
+    pads: list[float | None] = [float(p) for p in args.pad_side.split(",") if p.strip()] or [None]
     sizes = tuple(int(s) for s in args.sizes.split(","))
     run_names = [r for r in args.runs.split(",") if r]
     splits = [s for s in args.splits.split(",") if s]
@@ -457,7 +481,7 @@ def main() -> None:
 
     device = args.device or str(get_device(require_gpu=False))
     log(f"device={device} sizes={sizes} runs={run_names} splits={splits} "
-        f"paths={args.paths} miss_target={args.miss_target}")
+        f"paths={args.paths} miss_target={args.miss_target} pad_side={pads}")
 
     runs: dict[str, tuple] = {}
     for name in run_names:
@@ -507,15 +531,24 @@ def main() -> None:
                 f"warped to {warp_px_per_square(prof):.1f} px/square "
                 f"(profile '{prof.profile}', board_size={prof.board_size})")
 
-        a_all = (sweep_path_a(runs, rows, sizes, device, log) if "a" in args.paths else {})
-        for name, (run_dir, model, cfg) in runs.items():
-            a = {s: a_all[(name, s)] for s in sizes} if a_all else {}
-            b = (sweep_path_b(run_dir, model, cfg, rows, sizes, device, args.batch_size,
-                              args.num_workers, log) if "b" in args.paths else {})
-            verdict[(name, split_name)] = report(log, name, split_name, sizes, a, b,
-                                                 args.miss_target)
-            if a:
-                report_by_session(log, name, sizes, a, session_index(frames_for_split(rows)))
+        # Path B does not see the pad at all (it resizes the crops on disk), so it runs ONCE
+        # however many pads path A is asked for.
+        b_all = ({name: sweep_path_b(run_dir, model, cfg, rows, sizes, device, args.batch_size,
+                                     args.num_workers, log)
+                  for name, (run_dir, model, cfg) in runs.items()}
+                 if "b" in args.paths else {})
+        for pad in pads:
+            a_all = (sweep_path_a(runs, rows, sizes, device, log, pad_side=pad)
+                     if "a" in args.paths else {})
+            for name in runs:
+                # One label per (run, pad): the pads have to be compared inside ONE run, because a
+                # path-A number is only valid against the profile it was measured with.
+                label = name if pad is None else f"{name}@pad{pad:g}"
+                a = {s: a_all[(name, s)] for s in sizes} if a_all else {}
+                verdict[(label, split_name)] = report(log, label, split_name, sizes, a,
+                                                      b_all.get(name, {}), args.miss_target)
+                if a:
+                    report_by_session(log, label, sizes, a, session_index(frames_for_split(rows)))
 
     log("")
     log("best(split) summary — path A is authoritative:")
