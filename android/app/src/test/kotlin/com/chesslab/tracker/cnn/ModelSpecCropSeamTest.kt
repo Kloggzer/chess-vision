@@ -6,7 +6,7 @@ import com.chesslab.engine.api.GrayImage
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.allSquares
 import com.chesslab.geometry.warpBoardForCrops
-import com.chesslab.tracker.geometry.withCropSizeOf
+import com.chesslab.tracker.geometry.withCropOf
 import com.chesslab.tracker.pipeline.CropFrameStore
 import com.chesslab.tracker.service.cropFrameSource
 import org.bytedeco.javacpp.Loader
@@ -29,15 +29,15 @@ import kotlin.math.abs
  * size. That is not enough to ship: nothing there cuts a crop, and `preprocessInto` does not
  * resize — it REQUIRES `crop.width == outW`. So a model whose graph and config agree perfectly on
  * 96 px still dies on the first observation unless the CROP PIPELINE also produces 96 px, which is
- * what specs/23 phase 01 wired (`BoardGeometry.withCropSizeOf`).
+ * what specs/23 phase 01 wired (`BoardGeometry.withCropOf`).
  *
  * This test runs the whole chain on one set of pixels: the bundled `config.json` -> [ModelSpec] ->
- * [withCropSizeOf] -> the real bordered warp -> `cropFrameSource` (the adapter the CNN observer
+ * [withCropOf] -> the real bordered warp -> `cropFrameSource` (the adapter the CNN observer
  * pulls from) -> [OnnxSquareClassifier.open] on the real staged asset -> 64 rows of probabilities.
  * No fake sits anywhere in it.
  *
  * The pixel tests need the OpenCV natives and are gated on them, exactly as
- * `com.chesslab.tracker.geometry.ModelCropSizeTest` is.
+ * `com.chesslab.tracker.geometry.ModelCropTest` is.
  */
 class ModelSpecCropSeamTest {
     @Test
@@ -54,7 +54,7 @@ class ModelSpecCropSeamTest {
      * And the same for the models the user can SWITCH to, which is the point of bundling three.
      *
      * The switch is only real if the crop size follows it: the selected model's `config.json` is
-     * what `TrackerService` re-reads into `withCropSizeOf` on every geometry write, so picking the
+     * what `TrackerService` re-reads into `withCropOf` on every geometry write, so picking the
      * 80 px model and keeping 96 px crops would kill the first observation after the restart. Three
      * models at three sizes cannot all pass against a constant anywhere in the chain.
      */
@@ -75,7 +75,7 @@ class ModelSpecCropSeamTest {
     }
 
     /**
-     * One model, whole chain, no fake: its `config.json` -> [ModelSpec] -> [withCropSizeOf] -> the
+     * One model, whole chain, no fake: its `config.json` -> [ModelSpec] -> [withCropOf] -> the
      * real bordered warp -> `cropFrameSource` -> its own staged graph -> 64 rows of probabilities.
      *
      * @return the square input size the model declares and the crops came out at.
@@ -87,7 +87,7 @@ class ModelSpecCropSeamTest {
         val spec = ModelSpec.parse(File(dir, MODEL_CONFIG_FILE).readText())
         assertEquals(spec.outWidth, spec.outHeight, "${dir.name}: this test only covers square inputs")
 
-        val crops = cropsAsHandedToTheClassifier(liveGeometry().withCropSizeOf(spec))
+        val crops = cropsAsHandedToTheClassifier(liveGeometry().withCropOf(spec))
         assertEquals(ALL_SQUARES.size, crops.size)
         for ((index, crop) in crops.withIndex()) {
             assertEquals(spec.outWidth, crop.width, "${dir.name}: crop $index (${allSquares()[index]}) width")
@@ -173,7 +173,7 @@ private fun stagedModelIn(
 /**
  * A calibrated board geometry. `boardSize` is the board's OWN pixel size, measured from the corner
  * quad on the device (`CalibrationStore.measuredBoardSize`, clamped to 320..1280) — never the model's
- * business, and untouched by [withCropSizeOf]. 640 keeps it inside the synthetic frame.
+ * business, and untouched by [withCropOf]. 640 keeps it inside the synthetic frame.
  */
 private fun liveGeometry(): BoardGeometry = BoardGeometry(boardSize = 640)
 

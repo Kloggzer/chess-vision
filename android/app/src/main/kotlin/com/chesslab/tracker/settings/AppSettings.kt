@@ -71,9 +71,10 @@ data class AppSettings(
      * WHICH bundled model — a directory under `assets/cnn_model/`, one of `BUNDLED_MODELS`.
      *
      * Orthogonal to [modelAsset], which picks a graph FILE inside it (fp32 vs the INT8/QDQ graph the
-     * NPU needs). The three bundled models declare different inference sizes, so this knob also
-     * decides the size the crops are cut to — `TrackerService` re-reads the selected model's
-     * `config.json` and applies `withCropSizeOf` on every geometry write.
+     * NPU needs). The bundled models declare different inference sizes and crop paddings, so this
+     * knob decides both the size the crops are cut to and the box they are cut from —
+     * `TrackerService` re-reads the selected model's `config.json` and applies `withCropOf` at its
+     * one geometry writer.
      */
     val modelDir: String = DEFAULT_MODEL,
     val modelAsset: String = "model.onnx",

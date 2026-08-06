@@ -110,6 +110,9 @@ def ingest_feedback(*, assume_ghost: bool = True, visualize: bool = False,
                 "square_color": square_color(square),
                 "fen": r["fen_before"],
                 "out_size": [out_size[0], out_size[1]],
+                # The crop's composition, exactly as `slice` records it (specs/45).
+                "pad_side": float(prof.crop.pad_side),
+                "pad_up": float(prof.crop.pad_up),
                 "geometry": "warp",
                 "photometry": "none",
                 "source": "track-feedback",     # provenance: undo=bad hard negative

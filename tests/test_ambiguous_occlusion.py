@@ -2,6 +2,11 @@
 import json
 
 from chesslab import synth_build
+from chesslab.calibration import CropParams
+
+# The crop the rows describe (specs/45); irrelevant to what these tests assert, but the rows
+# must state one, so it is the same defaults the pixel pass would use.
+_CROP = CropParams(cell=4.0, pad_up=0.0, pad_side=0.05, out_size=(32, 32))
 
 
 def _entry(**over):
@@ -13,17 +18,17 @@ def _entry(**over):
 
 
 def test_ambiguous_squares_produce_no_row():
-    full = synth_build._rows_for_entry("d", "s", _entry(), (32, 32))
+    full = synth_build._rows_for_entry("d", "s", _entry(), _CROP)
     assert len(full) == 64
 
     dropped = synth_build._rows_for_entry("d", "s", _entry(ambiguous_squares=["e2", "d7"]),
-                                          (32, 32))
+                                          _CROP)
     assert len(dropped) == 62
     assert not [r for r in dropped if r["path"].endswith(("_e2.png", "_d7.png"))]
 
 
 def test_occluded_still_overrides_and_is_kept():
-    rows = synth_build._rows_for_entry("d", "s", _entry(occluded_squares=["e2"]), (32, 32))
+    rows = synth_build._rows_for_entry("d", "s", _entry(occluded_squares=["e2"]), _CROP)
     assert len(rows) == 64
     e2 = [r for r in rows if r["path"].endswith("_e2.png")][0]
     assert e2["label"] == "occluded"
@@ -32,7 +37,7 @@ def test_occluded_still_overrides_and_is_kept():
 def test_a_square_cannot_be_both_and_ambiguous_wins():
     """Overlap would mean the renderer emitted nonsense; dropping is the safe reading."""
     rows = synth_build._rows_for_entry(
-        "d", "s", _entry(occluded_squares=["e2"], ambiguous_squares=["e2"]), (32, 32))
+        "d", "s", _entry(occluded_squares=["e2"], ambiguous_squares=["e2"]), _CROP)
     assert len(rows) == 63
     assert not [r for r in rows if r["path"].endswith("_e2.png")]
 

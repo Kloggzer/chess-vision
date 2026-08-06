@@ -221,7 +221,10 @@ def read_log(session_dir: Path) -> list[dict]:
     return read_jsonl(p)
 
 
-def _effective_profile(profile: CalibrationProfile, pad_up, pad_side) -> CalibrationProfile:
+def effective_profile(profile: CalibrationProfile, pad_up, pad_side) -> CalibrationProfile:
+    """A COPY of `profile` with the pads overridden — the one way to cut at a box the profile
+    does not hold. Used by `slice --pad-side` and by serving, where the pads belong to the MODEL
+    (`serving.crops_for_model`, specs/45)."""
     prof = copy.deepcopy(profile)
     if pad_up is not None:
         prof.crop.pad_up = float(pad_up)
@@ -302,7 +305,7 @@ def slice_session(
     session_id = meta["session_id"]
     log = read_log(session_dir)
 
-    prof = _effective_profile(profile, pad_up, pad_side)
+    prof = effective_profile(profile, pad_up, pad_side)
     out = tuple(out_size) if out_size else tuple(prof.crop.out_size)
     box3d = geometry_mode == "box3d"
 
@@ -371,6 +374,13 @@ def slice_session(
                 "square_color": square_color(square),
                 "fen": entry["fen"],
                 "out_size": [out[0], out[1]],
+                # WHAT IS IN THE PICTURE, not just how large it is. `out_size` says the crop is
+                # 128 px; only the pads say whether those 128 px hold 1.10 or 1.20 of a cell —
+                # i.e. whether a model trained on this row may be served that box. A row that
+                # does not carry them cannot be reconciled with anything later: the profile it
+                # was cut with is mutable and is not stamped anywhere else (specs/45).
+                "pad_side": float(prof.crop.pad_side),
+                "pad_up": float(prof.crop.pad_up),
                 "geometry": geometry_mode,
                 "photometry": photometry,
                 "ts": datetime.now(UTC).isoformat(),

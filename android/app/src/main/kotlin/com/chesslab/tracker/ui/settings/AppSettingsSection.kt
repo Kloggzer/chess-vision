@@ -41,7 +41,7 @@ fun AppSettingsSection(
         )
         ValuePreference(
             title = "CNN model",
-            summary = "Bundled square classifier",
+            summary = "Bundled square classifier · declares its input size and crop padding; one that declares none is served the profile's and marked LEGACY",
             options = BUNDLED_MODELS.map { it to it },
             selected = app.modelDir,
             onSelect = { onChange(app.copy(modelDir = it)) },

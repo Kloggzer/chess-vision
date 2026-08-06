@@ -95,11 +95,21 @@ class CropDefaults:
                              # exactly the board-shortcut we fight (Grad-CAM then lands on the board, not
                              # the piece). Raise it per `slice` only for a strongly oblique camera where
                              # tall pieces genuinely clip at the cell's top edge.
-    pad_side: float = 0.10   # symmetric expansion in ALL 4 directions, * cell (10% MORE than the strict
+    pad_side: float = 0.05   # symmetric expansion in ALL 4 directions, * cell (5% MORE than the strict
                              # cell border on every side). Symmetric → the box stays SQUARE (no aspect
                              # distortion); gives margin so the piece isn't cut off hard at the square
-                             # border while still centred on its own cell. Inference crops read the same
-                             # profile.crop params, so live square crops match training 1:1 (parity).
+                             # border while still centred on its own cell.
+                             #
+                             # 0.05, not the 0.10 this held until 2026-08-06: the pad decides what a
+                             # training example LOOKS like, and every crop this project has ever
+                             # trained on was cut at 0.05 (all 23 real sessions, profiles `default`
+                             # and `phone`). A default no corpus uses is a trap for whatever is built
+                             # next — a freshly auto-created profile (`ensure_profile`) or a synth
+                             # ingest would have cut 1.20 cells against the corpus's 1.10, a 9 %
+                             # scale shift with nothing to report it. specs/18's DATA-QUALITY note
+                             # named the same mismatch and proposed closing it the other way round;
+                             # the corpus and every shipped model went 0.05, so the default follows
+                             # them. See specs/45-the-crop-belongs-to-the-model/.
     out_w: int = 128
     out_h: int = 128         # SQUARE — matches the square (pad_up=0) box aspect, so the piece fills the
                              # crop with no letterboxing and no neighbour-rank context. Raise out_h with

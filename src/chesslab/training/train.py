@@ -12,6 +12,7 @@ from pathlib import Path
 from .. import config, doctor
 from .data import (
     checkpoint_score,
+    crop_of_rows,
     filter_rows_by_split,
     load_manifest,
     load_split,
@@ -405,6 +406,15 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "photometry": first_row.get("photometry", "none"),
         "piece_height_cells": float(first_row.get("piece_height_cells", config.EXP_PIECE_HEIGHT_CELLS)),
     }
+    # The crop's COMPOSITION, from ALL rows and not just the first: the pads decide what the
+    # examples contain, and serving has to reproduce them (specs/45). Absent = this dataset
+    # cannot say, which every consumer must then treat as legacy rather than guess at.
+    crop = crop_of_rows(manifest)
+    if crop is None:
+        print(f"[crop] dataset {dataset!r} does not record pad_side/pad_up on every row — the "
+              "run will declare no crop and every consumer keeps its own profile's pads.")
+    else:
+        print(f"[crop] pad_side={crop[0]:g} pad_up={crop[1]:g} — declared by this run")
 
     run_dir = Path(out) if out else config.DATA.models / f"run-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -418,6 +428,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "aug_jitter_translate": policy.jitter_translate,
         "seed": seed, "amp": amp, "norm": norm_eff, "classes": classes, "out_size": list(out_size),
         "dataset": dataset, "resumed_from": resumed_from, "head": head,
+        **({} if crop is None else {"pad_side": crop[0], "pad_up": crop[1]}),
         # What SERVING must reproduce. `normalize.mode` "per_crop" ignores mean/std entirely, and
         # `input_repr` decides both the channel stack AND the stem's fan-in — a consumer that gets
         # either wrong feeds the model something it has never seen, silently.
