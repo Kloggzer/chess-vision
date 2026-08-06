@@ -43,6 +43,8 @@ data class GameView(
     val segments: List<ReviewSegment>,
     val white: String = UNKNOWN,
     val black: String = UNKNOWN,
+    val event: String = "chesslab",
+    val startedAtEpochMs: Long = 0L,
 ) {
     /** Every ply in order, across segments — the flat list every reader wants. */
     val plies: List<ReviewPly> = segments.flatMap { it.plies }
@@ -66,6 +68,8 @@ fun StoredGame.reviewView(): GameView =
         segments = segmentsOrOne().map { it.replay() },
         white = white,
         black = black,
+        event = event,
+        startedAtEpochMs = startedAtEpochMs,
     )
 
 /**
