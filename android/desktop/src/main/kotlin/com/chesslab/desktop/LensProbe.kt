@@ -4,6 +4,7 @@ import com.chesslab.geometry.GridSample
 import com.chesslab.geometry.LensFit
 import com.chesslab.geometry.cornersFromFlat
 import com.chesslab.geometry.gridSamples
+import com.chesslab.geometry.warpFromCorners
 import org.opencv.core.Core
 import org.opencv.core.Mat
 import org.opencv.core.Point
@@ -87,3 +88,56 @@ private const val LABEL_Y = 80.0
 private const val LABEL_SCALE = 2.0
 private const val LABEL_THICK = 4
 private const val PROBE_SCALE = 0.4
+
+/**
+ * The board as the tracker sees it, with the nominal grid drawn on top.
+ *
+ * This is the picture that answers the only question that matters for cutting crops: does the line
+ * the engine believes is the edge of a square lie on the groove that actually is? Left is the raw
+ * ArUco quad, right the same frame after `improveQuad` has moved the quad onto the board's own grid.
+ * Where the green lines run beside the grooves rather than along them, every crop cut there is
+ * offset by that much.
+ */
+fun writeQuadProbe(
+    frame: Mat,
+    rawQuad: FloatArray,
+    out: File,
+): File? {
+    val refined = refinedQuad(frame, rawQuad)
+    // ONE board size for both panels. Each quad measures its own (1248 against 1264 on the rig), and
+    // rectifying them at different scales would put the two grids at different pixel pitches — the
+    // comparison would then partly be of the scale rather than of the fit.
+    val size = boardGeometryFor(rawQuad).boardSize
+    val left = rectifiedWithGrid(frame, rawQuad, size, "raw quad — worst ${"%.2f".format(squareOffsetOf(frame, rawQuad))} px")
+    val right = rectifiedWithGrid(frame, refined, size, "improveQuad — worst ${"%.2f".format(squareOffsetOf(frame, refined))} px")
+    val canvas = Mat()
+    Core.hconcat(listOf(left, right), canvas)
+    out.parentFile?.mkdirs()
+    Imgcodecs.imwrite(out.absolutePath, canvas)
+    listOf(left, right, canvas).forEach { it.release() }
+    return out
+}
+
+/** The rectified board at its measured size, with the nominal eighths drawn where the engine puts them. */
+private fun rectifiedWithGrid(
+    frame: Mat,
+    quad: FloatArray,
+    size: Int,
+    label: String,
+): Mat {
+    val geometry = boardGeometryFor(quad)
+    val warped = warpFromCorners(frame, geometry, cornersFromFlat(quad), size)
+    val cell = size / BOARD_SIDE.toDouble()
+    for (k in 0..BOARD_SIDE) {
+        val at = k * cell
+        Imgproc.line(warped, Point(at, 0.0), Point(at, size.toDouble()), GRID, GRID_THICK)
+        Imgproc.line(warped, Point(0.0, at), Point(size.toDouble(), at), GRID, GRID_THICK)
+    }
+    Imgproc.putText(warped, label, Point(LABEL_X, LABEL_Y), Imgproc.FONT_HERSHEY_SIMPLEX, GRID_LABEL_SCALE, WHITE, LABEL_THICK)
+    return warped
+}
+
+private val GRID = Scalar(0.0, 255.0, 0.0)
+private const val GRID_THICK = 1
+private const val GRID_LABEL_SCALE = 1.0
+private const val BOARD_SIDE = 8

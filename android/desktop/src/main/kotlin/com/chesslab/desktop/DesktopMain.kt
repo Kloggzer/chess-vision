@@ -99,7 +99,10 @@ private fun locateBoard(
  * smoothing is for a running tracker, and a calibration search must judge each candidate on its
  * own frame rather than on a blend of the ones before it.
  */
-internal fun quadOf(frame: Mat): FloatArray? =
+internal fun quadOf(frame: Mat): FloatArray? = rawQuadOf(frame)?.let { refinedQuad(frame, it) }
+
+/** The markers alone, before the grid has had a say — what the probe compares against. */
+internal fun rawQuadOf(frame: Mat): FloatArray? =
     boardCornersForFrame(frame, BoardGeometry(boardSize = PROBE_BOARD_SIZE), MarkerTracker())
         ?.let { cornersToFlat(it) }
 
@@ -160,6 +163,11 @@ private fun measureAlignment(
             "max ${"%.2f".format(sorted.last())} px",
     )
     println("grid lines that could not be located: $unread over ${read * GRID_LINES_PER_FRAME}")
+    source.next()?.let { frame ->
+        rawQuadOf(frame)?.let { raw ->
+            writeQuadProbe(frame, raw, File(QUAD_PROBE_PATH))?.let { println("probe: ${it.absolutePath}") }
+        }
+    }
 }
 
 /** The rig's optics, as `chesslab lens` measured them. Absent is reported, never assumed away. */
@@ -356,3 +364,6 @@ private const val P90_DEN = 10
 
 /** Where the visual proof lands. Under tmp/, which is not the corpus. */
 private const val PROBE_PATH = "../../tmp/lens-probe.png"
+
+/** Where the quad comparison lands. */
+private const val QUAD_PROBE_PATH = "../../tmp/quad-probe.png"
