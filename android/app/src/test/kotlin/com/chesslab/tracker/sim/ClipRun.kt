@@ -4,14 +4,16 @@ import com.chesslab.cnn.SquareClassifier
 import com.chesslab.cnn.observationFromProbs
 import com.chesslab.engine.api.CnnEvaluator
 import com.chesslab.engine.api.CnnSnapshot
+import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEngine
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.cnn.ModelSpec
 import org.opencv.core.Mat
+import java.io.File
 
-// One clip, end to end: mp4 -> warp -> (crops -> real ONNX -> CnnRecovery) -> TrackerEngine.
+// One video, end to end: mp4 -> warp -> (crops -> real ONNX -> CnnRecovery) -> TrackerEngine.
 //
 // The engine is driven through its PUBLIC seam only (`onFrame`, `onCnnSnapshot`, `attachCnn`,
 // `choosePromotion`, `status`); nothing here reaches into `EngineState`.
@@ -20,6 +22,35 @@ import org.opencv.core.Mat
 private const val VCLOCK_START = 1_700_000_000.0
 
 private const val MS_PER_S = 1000.0
+
+/**
+ * What ONE replay needs: a video, the geometry to warp it with, and the config to run it under.
+ *
+ * The two callers differ only in what they know about the OUTCOME — a `SimClip` has a `labels.json`
+ * of ground truth, a `RealGameSource` has none — so this is the whole of what [replayVideo] is
+ * allowed to see, and neither caller can quietly grow a second replay around it.
+ */
+internal interface SimSource {
+    val video: File
+    val fps: Double
+    val config: TrackerConfig
+
+    /** `[a8, h8, h1, a1]` in FRAME pixels. */
+    val corners: List<DoubleArray>
+    val geometry: BoardGeometry
+    val startFen: String
+
+    /** The answer the promotion dialog would get; `q` when nothing is known to promote. */
+    val promotionPiece: Char get() = 'q'
+
+    /**
+     * Per decoded frame, the true FEN where one is known.
+     *
+     * Empty for footage nobody has labelled, which is what keeps [ObsAudit] silent there: an audit
+     * needs an answer to compare against, and inventing one is worse than reporting none.
+     */
+    val truthFens: List<String?> get() = emptyList()
+}
 
 /** The CNN half of a run: the classifier that produces observations and the evaluator the engine gets. */
 internal class SimCnn(
@@ -74,25 +105,41 @@ internal class SimResult(
     }
 }
 
+/** What one replay leaves behind, whatever its caller knows about the moves. */
+internal class SimReplay(
+    val log: SimEventLog,
+    val timings: SimTimings,
+    val audit: ObsAudit,
+    val finalNote: String?,
+)
+
 /**
- * Replays [clip] at FULL frame rate. [cnn] null = the diff-only baseline (what every committed
+ * Replays [source] at FULL frame rate. [cnn] null = the diff-only baseline (what every committed
  * parity fixture exercises); non-null = the same run with the real model attached.
+ *
+ * [onFrame] fires once per decoded frame, after the engine has seen it, WITH the index that decoded
+ * it. The two travel together and are never stored apart: the decode happens once, in order, so
+ * anything that wants a picture of a moment has to take it while the frame is in hand. Seeking back
+ * for it later is not equivalent — h.264 seeking by index is approximate, so a caller that seeks
+ * hands its user a NEARBY frame while claiming it is the one, and a writer that pairs the current
+ * frame with a stale index does the same thing without even seeking.
  */
-internal fun runClip(
-    clip: SimClip,
+internal fun replayVideo(
+    source: SimSource,
     cnn: SimCnn?,
-): SimResult {
-    val engine = TrackerEngine(clip.config, clip.truth.startFen)
-    engine.setFen(clip.truth.startFen)
+    onFrame: (Int, Mat) -> Unit,
+): SimReplay {
+    val engine = TrackerEngine(source.config, source.startFen)
+    engine.setFen(source.startFen)
     engine.attachCnn(cnn?.evaluator)
     val timings = SimTimings()
     val audit = ObsAudit()
-    val pipeline = ClipPipeline(clip, timings, cnn?.spec)
-    val observer = cnn?.let { SimObserver(it, pipeline, timings, clip, audit) }
-    val log = SimEventLog(engine, clip.truth.promotionPiece)
+    val pipeline = ClipPipeline(source, timings, cnn?.spec)
+    val observer = cnn?.let { SimObserver(it, pipeline, timings, source, audit) }
+    val log = SimEventLog(engine, source.promotionPiece)
     try {
-        forEachFrame(clip.video) { index, frame ->
-            val nowS = VCLOCK_START + (index + 1) / clip.fps
+        forEachFrame(source.video) { index, frame ->
+            val nowS = VCLOCK_START + (index + 1) / source.fps
             observer?.deliver(nowS)?.let { log.record(index, engine.onCnnSnapshot(it)) }
             log.pollStatus(index)
             val input = pipeline.input(frame, index + 1L, Math.round(nowS * MS_PER_S))
@@ -103,18 +150,34 @@ internal fun runClip(
             log.record(index, events)
             val status = log.pollStatus(index)
             observer?.spawn(frame, index, input.seq, input.timestampMs, nowS, status.fen)
+            onFrame(index, frame)
         }
     } finally {
         pipeline.close()
     }
+    return SimReplay(log, timings, audit, engine.status().note)
+}
+
+/**
+ * One clip against its ground truth.
+ *
+ * A thin caller of [replayVideo] and nothing else: the 18 committed parity clips are the only
+ * evidence that this harness still runs what the phone runs, and a second copy of the loop would
+ * turn them into evidence about a loop nobody drives.
+ */
+internal fun runClip(
+    clip: SimClip,
+    cnn: SimCnn?,
+): SimResult {
+    val replay = replayVideo(clip, cnn) { _, _ -> }
     return SimResult(
         clip = clip.name,
         cnnOn = cnn != null,
         expected = clip.truth.sans,
-        commits = log.commits,
-        trace = SimTrace(log.alarms, log.stuck, log.notes, engine.status().note),
-        timings = timings,
-        audit = audit,
+        commits = replay.log.commits,
+        trace = SimTrace(replay.log.alarms, replay.log.stuck, replay.log.notes, replay.finalNote),
+        timings = replay.timings,
+        audit = replay.audit,
     )
 }
 
@@ -133,7 +196,7 @@ private class SimObserver(
     private val cnn: SimCnn,
     private val pipeline: ClipPipeline,
     private val timings: SimTimings,
-    private val clip: SimClip,
+    private val source: SimSource,
     private val audit: ObsAudit,
 ) {
     private var pending: CnnSnapshot? = null
@@ -163,9 +226,9 @@ private class SimObserver(
         timings.inferMs += inferMs
         timings.observations += 1
         val observation = observationFromProbs(probs, cnn.classifier.classes)
-        clip.truth.fenPerFrame
+        source.truthFens
             .getOrNull(index)
-            ?.let { audit.add(observation, it, clip.config.cnnConfThr) }
+            ?.let { audit.add(observation, it, source.config.cnnConfThr) }
         pending =
             CnnSnapshot(
                 obs = observation,
@@ -182,11 +245,19 @@ private class SimObserver(
 }
 
 /** Collects what the engine emitted, and answers the promotion dialog the way the UI would. */
-private class SimEventLog(
+internal class SimEventLog(
     private val engine: TrackerEngine,
     private val promotionPiece: Char,
 ) {
     val commits = mutableListOf<SimCommit>()
+
+    /**
+     * The same commits as [commits], un-flattened: one entry per COMMIT rather than per ply.
+     *
+     * A recovery bridge arrives as ONE `SequenceCommitted` and [commits] loses that grouping —
+     * which is exactly what a per-ply FEN needs back (`realGamePlies`).
+     */
+    val batches = mutableListOf<SimBatch>()
     val alarms = mutableListOf<String>()
     val stuck = mutableListOf<String>()
 
@@ -217,8 +288,14 @@ private class SimEventLog(
         var promotion = false
         for (event in events) {
             when (event) {
-                is TrackerEvent.MoveCommitted -> commits += SimCommit(frame, event.san, event.decider)
-                is TrackerEvent.SequenceCommitted -> event.sans.forEach { commits += SimCommit(frame, it, event.decider) }
+                is TrackerEvent.MoveCommitted -> {
+                    commits += SimCommit(frame, event.san, event.decider)
+                    batches += batch(frame, listOf(event.uci), listOf(event.san), event.decider, event.fenAfter)
+                }
+                is TrackerEvent.SequenceCommitted -> {
+                    event.sans.forEach { commits += SimCommit(frame, it, event.decider) }
+                    batches += batch(frame, event.ucis, event.sans, event.decider, event.fenAfter)
+                }
                 is TrackerEvent.Alarm -> alarms += "f$frame ${event.kind} conflicts=${event.conflicts} guess=${event.guessSan}"
                 is TrackerEvent.Stuck -> stuck += "f$frame ${event.reason}"
                 is TrackerEvent.PromotionPending -> promotion = true
@@ -228,4 +305,19 @@ private class SimEventLog(
         // Recursive by design: the promotion commit can itself emit events worth recording.
         if (promotion) record(frame, engine.choosePromotion(promotionPiece))
     }
+
+    /**
+     * The alarm is read from `status()` HERE, at the commit, because nothing else can tell it.
+     *
+     * `status()` is a pure function of the engine's state, so asking costs the run nothing — but
+     * asking LATER is a different question: the latch clears, and a ply that committed under a
+     * standing alarm would then read clean.
+     */
+    private fun batch(
+        frame: Int,
+        ucis: List<String>,
+        sans: List<String>,
+        decider: String,
+        fenAfter: String,
+    ): SimBatch = SimBatch(frame, ucis, sans, decider, engine.status().alarm != null, fenAfter)
 }
