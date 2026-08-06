@@ -205,9 +205,6 @@ class ModelSpecTest {
     }
 }
 
-/** The class list the bundled `config.json` literally declares. */
-internal fun assetClasses(): List<String> = rawClasses(File(assetDir(), MODEL_CONFIG_FILE).readText())
-
 private fun rawClasses(json: String): List<String> =
     Json
         .parseToJsonElement(json)
@@ -227,24 +224,6 @@ private fun rawInts(
         .getValue(key)
         .jsonArray
         .map { it.jsonPrimitive.content.toInt() }
-
-/** The `android/` gradle root, found from wherever the test JVM was started. */
-internal fun androidRoot(): File {
-    var dir = File(System.getProperty("user.dir")!!).absoluteFile
-    while (!File(dir, "app/src/main/assets/cnn_model").isDirectory) {
-        dir = dir.parentFile ?: error("cnn_model assets not found above ${System.getProperty("user.dir")}")
-    }
-    return dir
-}
-
-/** `app/src/main/assets/cnn_model/<model>` — a committed model directory, read from the source tree. */
-internal fun assetDirOf(model: String): File = File(androidRoot(), "app/src/main/assets/cnn_model/$model")
-
-/**
- * The model an install runs until the user picks another one, and what every test that only needs
- * *a* real model uses. The set is [bundledAssetDirs].
- */
-internal fun assetDir(): File = assetDirOf(DEFAULT_MODEL)
 
 /**
  * Every bundled model directory, in [BUNDLED_MODELS] order — asserted to exist rather than

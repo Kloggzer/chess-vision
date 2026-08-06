@@ -3,6 +3,7 @@ package com.chesslab.tracker.cnn
 import com.chesslab.cnn.ALL_SQUARES
 import com.chesslab.cnn.EXPECTED_CLASSES
 import com.chesslab.engine.api.BgrImage
+import com.chesslab.tracker.log.RecordingLog
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue

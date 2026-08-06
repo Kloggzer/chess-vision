@@ -1,6 +1,8 @@
 plugins {
     id("java-library")
+    id("java-test-fixtures")
     alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ktlint)
     alias(libs.plugins.detekt)
 }
@@ -28,10 +30,25 @@ dependencies {
     api(project(":core-geometry"))
     api(project(":core-cnn"))
     compileOnly(libs.bytedeco.opencv)
+    // Same rule as OpenCV, same reason: the `ai.onnxruntime` API is identical in both artifacts,
+    // so this module compiles against one and each runtime brings its own — `:app` the Android AAR
+    // with the device's execution providers, a desktop the JVM build with host natives.
+    compileOnly(libs.onnxruntime.jvm)
+    api(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.chesslib)
 
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.bytedeco.opencv)
+    testImplementation(libs.onnxruntime.jvm)
+    testImplementation(libs.kotlinx.coroutines.test)
+
+    // Fakes both modules' tests need. `:app` consumes them with
+    // `testImplementation(testFixtures(project(":tracker-runtime")))` — one fake, not a copy per
+    // module, which is the same rule this whole restructuring exists to enforce for production code.
+    testFixturesImplementation(libs.kotlinx.coroutines.core)
+    testFixturesImplementation(libs.kotlinx.serialization.json)
 }
 
 tasks.withType<Test>().configureEach {

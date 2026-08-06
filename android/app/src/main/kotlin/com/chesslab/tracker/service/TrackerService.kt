@@ -15,9 +15,9 @@ import com.chesslab.tracker.camera.DeliveredSize
 import com.chesslab.tracker.camera.TrackerCamera
 import com.chesslab.tracker.camera.cameraRequestFor
 import com.chesslab.tracker.cnn.Attached
-import com.chesslab.tracker.cnn.CnnModelAssets
 import com.chesslab.tracker.cnn.CnnState
 import com.chesslab.tracker.cnn.ModelSpec
+import com.chesslab.tracker.cnn.cnnAssetsFrom
 import com.chesslab.tracker.diagnostics.DiagnosticsLog
 import com.chesslab.tracker.diagnostics.androidHostIdentity
 import com.chesslab.tracker.diagnostics.diagnosticsDir
@@ -103,7 +103,7 @@ class TrackerService :
         // The app's binding: assets come out of the APK, and everything downstream takes
         // them as given rather than reaching for a Context of its own.
         val app = settings.appSettings.value
-        openClassifier(CnnModelAssets.fromAssets(this, app.modelDir, app.modelAsset), app, cnnProbe)
+        openClassifier(cnnAssetsFrom(this, app.modelDir, app.modelAsset), app, cnnProbe)
     }
 
     // The factory is inline because it has exactly one call site and `StackSwitch` already says
@@ -518,6 +518,6 @@ private suspend fun declaredModelSpec(
 ): ModelSpec? =
     withContext(Dispatchers.IO) {
         runCatching {
-            ModelSpec.parse(CnnModelAssets.fromAssets(context, app.modelDir, app.modelAsset).stage().configJson)
+            ModelSpec.parse(cnnAssetsFrom(context, app.modelDir, app.modelAsset).stage().configJson)
         }.getOrNull()
     }

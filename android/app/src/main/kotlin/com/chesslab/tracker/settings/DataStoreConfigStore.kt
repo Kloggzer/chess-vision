@@ -10,25 +10,7 @@ import kotlinx.coroutines.flow.first
 
 private val Context.trackerDataStore: DataStore<Preferences> by preferencesDataStore(name = "chesslab-tracker")
 
-/** The `TrackerConfig` slot — the parity seam's knobs. */
-const val SLOT_CONFIG = "tracker_config_json"
-
-/** The app-level slot: resolution, orientation, model, EP, debug. Never mixed into the config. */
-const val SLOT_APP = "app_settings_json"
-
-/**
- * Where the settings live. Behind an interface so [SettingsRepository]'s decisions are testable
- * on the desktop JVM — DataStore needs a `Context` and a real file, and neither exists there.
- */
-interface ConfigStore {
-    suspend fun read(slot: String): String?
-
-    suspend fun write(
-        slot: String,
-        text: String,
-    )
-}
-
+/** The Android half of [ConfigStore]: a DataStore keyed by the slot names the interface defines. */
 class DataStoreConfigStore(
     context: Context,
 ) : ConfigStore {

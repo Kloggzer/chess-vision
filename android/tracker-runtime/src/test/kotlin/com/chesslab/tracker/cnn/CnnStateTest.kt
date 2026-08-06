@@ -1,40 +1,12 @@
 package com.chesslab.tracker.cnn
 
+import com.chesslab.tracker.log.RecordingLog
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-
-internal class RecordingLog : CnnLog {
-    val debugs = mutableListOf<String>()
-    val infos = mutableListOf<String>()
-    val warnings = mutableListOf<String>()
-    val errors = mutableListOf<Pair<String, Throwable?>>()
-
-    override fun debug(message: String) {
-        debugs += message
-    }
-
-    override fun info(message: String) {
-        infos += message
-    }
-
-    override fun warn(
-        message: String,
-        error: Throwable?,
-    ) {
-        warnings += message
-    }
-
-    override fun error(
-        message: String,
-        error: Throwable?,
-    ) {
-        errors += message to error
-    }
-}
 
 /**
  * MEMORY `android-live-bringup-2607`: the attach failed silently and the tracker ran diff-only
