@@ -94,9 +94,9 @@ class ReviewStoreTest {
 
     @Test
     fun aCompletedMateLineIsSharedByPositionAcrossGamesAndRestarts() {
-        val fenAtMove12 = "7k/8/8/8/8/8/6Q1/6K1 w - - 0 12"
-        val samePositionAtMove40 = "7k/8/8/8/8/8/6Q1/6K1 w - - 0 40"
-        val resolved = ResolvedMateLine(listOf("g2g7"), listOf("Qg7#"), complete = true)
+        val fenAtMove12 = "8/8/7R/6Q1/kp6/8/PPP5/2K5 w - - 3 12"
+        val samePositionAtMove40 = "8/8/7R/6Q1/kp6/8/PPP5/2K5 w - - 3 40"
+        val resolved = ResolvedMateLine(listOf("h6a6"), listOf("Ra6#"), complete = true)
 
         store().saveMateLine(fenAtMove12, ReviewBudget(), resolved)
 
@@ -104,16 +104,64 @@ class ReviewStoreTest {
     }
 
     @Test
-    fun anIncompleteOrDifferentBudgetMateLineIsNeverServedAsComplete() {
+    fun anEngineScoreIsSharedByPositionAcrossGamesAndFullmoveNumbers() {
+        val fenAtMove12 = "7k/8/8/8/8/8/6Q1/6K1 w - - 0 12"
+        val samePositionAtMove40 = "7k/8/8/8/8/8/6Q1/6K1 w - - 0 40"
+        val score = Score(10_000, 24, listOf("g2g7"), mate = 1)
+        val store = store()
+
+        store.savePosition(fenAtMove12, ReviewBudget(), score)
+
+        assertEquals(listOf(score), store.loadCached("another-game", ReviewBudget(), listOf(samePositionAtMove40)))
+        assertNull(store.loadCached("another-game", ReviewBudget(nodes = 20), listOf(samePositionAtMove40)))
+    }
+
+    @Test
+    fun deletingOneGameDoesNotForgetTheExtendedPositionLibrary() {
         val fen = "7k/8/8/8/8/8/6Q1/6K1 w - - 0 12"
-        val incomplete = ResolvedMateLine(listOf("g2g7"), listOf("Qg7+"), complete = false)
+        val score = Score(10_000, 24, listOf("g2g7"), mate = 1)
+        val store = store()
+        store.savePosition(fen, ReviewBudget(), score)
+        store.save("old-game", ReviewBudget(), listOf(score))
+
+        store.delete("old-game")
+
+        assertEquals(score, store.loadPosition(fen, ReviewBudget()))
+    }
+
+    @Test
+    fun anOldGameSnapshotLazilyPopulatesTheSharedPositionCache() {
+        val fen = "7k/8/8/8/8/8/6Q1/6K1 w - - 0 12"
+        val score = Score(42, 18, listOf("g2g7"))
+        val store = store()
+        store.save("old-game", ReviewBudget(), listOf(score))
+
+        assertEquals(listOf(score), store.loadCached("old-game", ReviewBudget(), listOf(fen)))
+        assertEquals(listOf(score), store.loadCached("new-game", ReviewBudget(), listOf(fen)))
+    }
+
+    @Test
+    fun anIncompleteOrDifferentBudgetMateLineIsNeverServedAsComplete() {
+        val fen = "8/8/7R/6Q1/kp6/8/PPP5/2K5 w - - 3 12"
+        val incomplete = ResolvedMateLine(listOf("h6h5"), listOf("Rh5"), complete = false)
         val store = store()
 
         store.saveMateLine(fen, ReviewBudget(), incomplete)
         assertNull(store.loadMateLine(fen, ReviewBudget()))
 
-        val complete = ResolvedMateLine(listOf("g2g7"), listOf("Qg7#"), complete = true)
+        val complete = ResolvedMateLine(listOf("h6a6"), listOf("Ra6#"), complete = true)
         store.saveMateLine(fen, ReviewBudget(nodes = 20), complete)
         assertNull(store.loadMateLine(fen, ReviewBudget(nodes = 30)))
+    }
+
+    @Test
+    fun aLineMarkedCompleteButEndingBeforeMateIsRejected() {
+        val fen = "8/8/7R/6Q1/kp6/8/PPP5/2K5 w - - 3 12"
+        val truncated = ResolvedMateLine(listOf("h6h5"), listOf("Rh5"), complete = true)
+        val store = store()
+
+        store.saveMateLine(fen, ReviewBudget(), truncated)
+
+        assertNull(store.loadMateLine(fen, ReviewBudget()))
     }
 }

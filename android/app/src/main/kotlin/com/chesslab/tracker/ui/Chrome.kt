@@ -238,7 +238,12 @@ private fun AnalysisBanner() {
         ) {
             Spacer(Modifier.size(Space.sm).clip(CircleShape).background(Accent))
             Text(
-                text = analysisLine(ui.game?.id, ui.grade?.scored, ui.grade?.positions),
+                text =
+                    if (ui.warmingLibrary) {
+                        "Extending analysis library · ${ui.libraryCached} / ${ui.libraryTotal}"
+                    } else {
+                        analysisLine(ui.game?.id, ui.grade?.scored, ui.grade?.positions)
+                    },
                 style = MaterialTheme.typography.bodyMedium,
                 color = OnSurface,
                 maxLines = 1,
@@ -248,8 +253,8 @@ private fun AnalysisBanner() {
             TextAction("Stop", review::stop)
         }
         // Determinate, because a review is minutes and the one thing worth knowing is how much more.
-        val done = ui.grade?.scored ?: 0
-        val total = ui.grade?.positions ?: 0
+        val done = if (ui.warmingLibrary) ui.libraryCached else ui.grade?.scored ?: 0
+        val total = if (ui.warmingLibrary) ui.libraryTotal else ui.grade?.positions ?: 0
         if (total > 0) {
             LinearProgressIndicator(
                 { done.toFloat() / total },

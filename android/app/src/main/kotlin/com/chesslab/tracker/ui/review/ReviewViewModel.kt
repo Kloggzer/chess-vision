@@ -3,6 +3,9 @@ package com.chesslab.tracker.ui.review
 import com.chesslab.tracker.analysis.GameGrade
 import com.chesslab.tracker.analysis.GameReviewer
 import com.chesslab.tracker.analysis.MateLineResolver
+import com.chesslab.tracker.analysis.OpeningBook
+import com.chesslab.tracker.analysis.OpeningSummary
+import com.chesslab.tracker.analysis.PositionLibraryWarmer
 import com.chesslab.tracker.analysis.ResolvedMateLine
 import com.chesslab.tracker.analysis.ReviewBudget
 import com.chesslab.tracker.analysis.ReviewStore
@@ -12,37 +15,40 @@ import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.games.GameView
 import com.chesslab.tracker.games.buildPgn
 import com.chesslab.tracker.games.reviewView
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.IOException
+import java.util.concurrent.atomic.AtomicLong
 
-/** Everything the ARCHIVE side of the review screen shows. The live side needs no model at all. */
+/** Everything the archived review screen can render. */
 data class ReviewUi(
     val game: GameView? = null,
     val pgn: String = "",
     val grade: GameGrade? = null,
-    /** True while the engine is working. The grade fills in underneath it. */
+    val opening: OpeningSummary? = null,
     val running: Boolean = false,
-    /** True once a run found no engine binary — the button disappears rather than failing again. */
+    /** True after the game itself is complete while nearby book continuations are being cached. */
+    val warmingLibrary: Boolean = false,
+    val libraryCached: Int = 0,
+    val libraryTotal: Int = 0,
     val engineMissing: Boolean = false,
+    /** Prevents a route change from flashing the previous game or a false "not found" state. */
+    val loading: Boolean = false,
+    /** Retryable failures are visible and, unlike a fake zero score, are never cached. */
+    val error: String? = null,
 )
 
 /**
- * The archive source and the grading run behind it.
- *
- * Not an `androidx.lifecycle.ViewModel`, for the same reason `GamesViewModel` is not: the durable
- * state is the file store. It used to say "this survives nothing", and that was the complaint —
- * every second of engine time died with the screen. It now survives in [ReviewStore], keyed by the
- * budget that produced it, and a re-opened game is graded from disk in one read.
- *
- * Since specs/50 the RUN survives too, because the scope is the process ([ReviewHost]) and not the
- * composition. Which is why [load] is a no-op for the game already open: it is called from a
- * `LaunchedEffect` every time the screen is entered, and a reload would have thrown away the run it
- * came back to watch.
+ * Process-owned review state. A monotonically increasing generation fences every asynchronous
+ * writer: once a game is changed, stopped, discarded or deleted, an older callback cannot touch
+ * either the UI or the analysis files.
  */
 class ReviewViewModel(
     private val store: GameStore,
@@ -50,43 +56,91 @@ class ReviewViewModel(
     private val engineFactory: () -> UciEngine?,
     private val scope: CoroutineScope,
     private val budget: ReviewBudget = ReviewBudget(),
+    private val openingBook: () -> OpeningBook = { OpeningBook.EMPTY },
 ) {
     private val mutable = MutableStateFlow(ReviewUi())
     val ui: StateFlow<ReviewUi> = mutable
 
-    private var running: Job? = null
+    @Volatile private var running: Job? = null
 
-    /**
-     * The ply the user is looking at. The engine grades outward from here — see [GameReviewer].
-     * A review opens at the START, so that is where the first searches go.
-     */
+    @Volatile private var loading: Job? = null
+    private val generation = AtomicLong()
+
+    @Volatile private var requestedId: String? = null
+
+    @Volatile private var forceFresh = false
+
     @Volatile
     private var focus: Int = 0
 
+    @Synchronized
     fun load(id: String) {
-        if (mutable.value.game?.id == id) return
-        // A different game: one review at a time, and the positions already scored are on disk.
+        if (requestedId == id && (loading?.isActive == true || mutable.value.game?.id == id)) return
+        val token = generation.incrementAndGet()
+        requestedId = id
+        forceFresh = false
         running?.cancel()
+        loading?.cancel()
         running = null
-        scope.launch {
-            val stored = withContext(Dispatchers.IO) { store.open(id) }
-            val game = stored?.reviewView()
-            focus = 0
-            val stale =
-                game?.let { view ->
-                    withContext(Dispatchers.IO) { reviews.load(id, budget, view.plies.size + 1) }
-                        ?.let { grade(view, it, budget) }
+        mutable.value = ReviewUi(loading = true)
+        loading =
+            scope.launch {
+                try {
+                    val stored = withContext(Dispatchers.IO) { store.open(id) }
+                    val game = stored?.reviewView()
+                    val opening = game?.let { view -> runCatching { openingBook().identify(view) }.getOrNull() }
+                    focus = 0
+                    val stale =
+                        game?.let { view ->
+                            withContext(Dispatchers.IO) { reviews.loadCached(id, budget, positions(view)) }
+                                ?.let { scores -> grade(view, scores, budget) }
+                        }
+                    if (owns(token, id)) {
+                        mutable.value =
+                            ReviewUi(
+                                game = game,
+                                pgn = stored?.let { buildPgn(it) }.orEmpty(),
+                                grade = stale,
+                                opening = opening,
+                            )
+                    }
+                } catch (_: CancellationException) {
+                    // A newer route owns the state.
+                } catch (failure: IOException) {
+                    if (owns(token, id)) mutable.value = ReviewUi(error = failure.userMessage())
+                } finally {
+                    synchronized(this@ReviewViewModel) {
+                        if (generation.get() == token) loading = null
+                    }
                 }
-            mutable.value = ReviewUi(game = game, pgn = stored?.let { buildPgn(it) }.orEmpty(), grade = stale)
-        }
+            }
     }
 
-    /** Called as the user seeks; the next search goes to whatever is nearest this ply. */
     fun focus(ply: Int) {
         focus = ply
     }
 
-    /** Loads a completed position-hash line, or resolves and persists it once if this is a miss. */
+    /** Updates PGN metadata without throwing away the already loaded analysis or board position. */
+    fun editGameDetails(
+        white: String,
+        black: String,
+        event: String,
+    ) {
+        val game = mutable.value.game ?: return
+        val token = generation.get()
+        scope.launch(Dispatchers.IO) {
+            store.rename(game.id, white, black, event)
+            val stored = store.open(game.id) ?: return@launch
+            if (owns(token, game.id)) {
+                mutable.value =
+                    mutable.value.copy(
+                        game = stored.reviewView(),
+                        pgn = buildPgn(stored),
+                    )
+            }
+        }
+    }
+
     suspend fun resolveMateLine(
         startFen: String,
         seed: List<String>,
@@ -98,56 +152,152 @@ class ReviewViewModel(
             }
         }
 
-    /** Idempotent while a run is in flight: a second tap must not start a second engine. */
+    @Synchronized
     fun review() {
         val game = mutable.value.game ?: return
         if (running?.isActive == true) return
-        mutable.value = mutable.value.copy(running = true)
+        val token = generation.incrementAndGet()
+        val fresh = forceFresh
+        forceFresh = false
+        val positions = positions(game)
+        mutable.value =
+            mutable.value.copy(
+                running = true,
+                warmingLibrary = false,
+                libraryCached = 0,
+                libraryTotal = 0,
+                engineMissing = false,
+                error = null,
+            )
         running =
             scope.launch(Dispatchers.IO) {
-                val seed = reviews.load(game.id, budget, game.plies.size + 1).orEmpty()
-                val started =
-                    GameReviewer(engineFactory, budget).review(game, seed, { focus }) { scores ->
-                        reviews.save(game.id, budget, scores)
-                        mutable.value = mutable.value.copy(grade = grade(game, scores, budget))
+                try {
+                    val seed = if (fresh) emptyList() else reviews.loadCached(game.id, budget, positions).orEmpty()
+                    val persisted = BooleanArray(positions.size) { seed.getOrNull(it) != null }
+                    val started =
+                        GameReviewer(engineFactory, budget).review(game, seed, { focus }) onScored@{ scores ->
+                            if (!owns(token, game.id)) return@onScored
+                            scores.forEachIndexed { index, score ->
+                                if (score != null && !persisted[index]) {
+                                    reviews.savePosition(positions[index], budget, score)
+                                    persisted[index] = true
+                                }
+                            }
+                            reviews.save(game.id, budget, scores)
+                            if (owns(token, game.id)) {
+                                mutable.value = mutable.value.copy(grade = grade(game, scores, budget))
+                            }
+                        }
+                    finishRun(started, token, game)
+                } catch (_: CancellationException) {
+                    // Stop, delete and route changes already published their replacement state.
+                } catch (failure: IOException) {
+                    if (owns(token, game.id)) {
+                        mutable.value = mutable.value.copy(running = false, warmingLibrary = false, error = failure.userMessage())
                     }
-                mutable.value =
-                    mutable.value.copy(
-                        running = false,
-                        // A move-less game also produces no grade, and that is not a missing engine.
-                        engineMissing = !started && game.plies.isNotEmpty(),
-                    )
+                } finally {
+                    synchronized(this@ReviewViewModel) {
+                        if (generation.get() == token) running = null
+                    }
+                }
             }
     }
 
-    /**
-     * Stops the run and keeps what it scored — the counterpart of the run outliving the screen.
-     *
-     * Every scored position is already on disk, so this loses at most the search in flight and
-     * `Continue review` picks the rest up.
-     */
+    @Synchronized
     fun stop() {
+        generation.incrementAndGet()
         running?.cancel()
         running = null
-        mutable.value = mutable.value.copy(running = false)
+        mutable.value = mutable.value.copy(running = false, warmingLibrary = false)
     }
 
-    /**
-     * The game is gone. Since the run outlives the screen, one still grading a DELETED record would
-     * go on writing `<id>.analysis.json` for a game that no longer exists.
-     */
-    fun forget(id: String) {
-        if (mutable.value.game?.id != id) return
-        stop()
-        mutable.value = ReviewUi()
+    /** Cancels and joins before the caller deletes files, so a late search cannot resurrect them. */
+    suspend fun forget(id: String) {
+        val jobs =
+            synchronized(this) {
+                if (requestedId != id) return
+                generation.incrementAndGet()
+                requestedId = null
+                val owned = listOfNotNull(running, loading)
+                owned.forEach(Job::cancel)
+                running = null
+                loading = null
+                mutable.value = ReviewUi()
+                owned
+            }
+        jobs.forEach { it.cancelAndJoin() }
     }
 
-    /** Throws the stored analysis away and starts again — the only way to re-search a graded game. */
+    /** Deletes the game snapshot and makes the next tap bypass the shared position cache once. */
+    @Synchronized
     fun discard() {
         val game = mutable.value.game ?: return
-        running?.cancel()
-        running = null
-        scope.launch(Dispatchers.IO) { reviews.delete(game.id) }
-        mutable.value = mutable.value.copy(grade = null, running = false)
+        val token = generation.incrementAndGet()
+        val old = running
+        old?.cancel()
+        forceFresh = true
+        mutable.value = mutable.value.copy(grade = null, running = false, warmingLibrary = false, error = null)
+        running =
+            scope.launch(Dispatchers.IO) {
+                old?.cancelAndJoin()
+                reviews.delete(game.id)
+                synchronized(this@ReviewViewModel) {
+                    if (generation.get() == token) running = null
+                }
+            }
     }
+
+    private fun owns(
+        token: Long,
+        id: String,
+    ): Boolean = generation.get() == token && requestedId == id
+
+    /** Best-effort idle work: a failure here must not turn a completed game review into an error. */
+    private suspend fun warmLibrary(
+        token: Long,
+        game: GameView,
+    ) {
+        val candidates = runCatching { openingBook().likelyContinuationFens(game) }.getOrDefault(emptyList())
+        val missing = candidates.distinct().filter { reviews.loadPosition(it, budget) == null }
+        if (missing.isEmpty() || !owns(token, game.id)) return
+        mutable.value =
+            mutable.value.copy(
+                warmingLibrary = true,
+                libraryCached = 0,
+                libraryTotal = missing.size,
+            )
+        try {
+            PositionLibraryWarmer(engineFactory, reviews, budget).warm(missing) { done, total ->
+                if (owns(token, game.id)) {
+                    mutable.value = mutable.value.copy(libraryCached = done, libraryTotal = total)
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: IOException) {
+            // The played game is already complete and saved; future reviews can retry warming.
+        } finally {
+            if (owns(token, game.id)) mutable.value = mutable.value.copy(warmingLibrary = false)
+        }
+    }
+
+    private suspend fun finishRun(
+        started: Boolean,
+        token: Long,
+        game: GameView,
+    ) {
+        if (started && owns(token, game.id)) warmLibrary(token, game)
+        if (owns(token, game.id)) {
+            mutable.value =
+                mutable.value.copy(
+                    running = false,
+                    warmingLibrary = false,
+                    engineMissing = !started && game.plies.isNotEmpty(),
+                )
+        }
+    }
+
+    private fun positions(game: GameView): List<String> = listOf(game.startFen) + game.plies.map { it.fenAfter }
+
+    private fun IOException.userMessage(): String = message?.takeIf(String::isNotBlank) ?: "Analysis failed"
 }
