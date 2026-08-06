@@ -24,7 +24,8 @@ import com.chesslab.tracker.diagnostics.diagnosticsDir
 import com.chesslab.tracker.diagnostics.runStartOf
 import com.chesslab.tracker.games.GameSessionController
 import com.chesslab.tracker.geometry.calibrationStore
-import com.chesslab.tracker.geometry.withCropSizeOf
+import com.chesslab.tracker.geometry.cropLine
+import com.chesslab.tracker.geometry.withCropOf
 import com.chesslab.tracker.pipeline.CameraRate
 import com.chesslab.tracker.pipeline.StageTimings
 import com.chesslab.tracker.settings.AppSettings
@@ -135,20 +136,26 @@ class TrackerService :
 
     /**
      * The tracker's live geometry: the calibration profile contributes the board, the loaded model
-     * contributes the crop size.
+     * contributes the crop.
      *
-     * **Every write goes through `withCropSizeOf(modelSpec)`** — there are exactly three, and
-     * `git grep withCropSizeOf` finds all of them. The stored profile carries a crop size of its own
-     * (`CropParams`) and the live path must not use it: the size that has to be right is the one the
-     * ONNX graph takes, and `preprocessInto` requires the crops to already BE that size.
+     * **Assignment applies the model's crop** — the setter, not the three call sites, so forgetting
+     * it is not expressible. That matters because forgetting is invisible: the crops keep coming,
+     * cut from a slightly different box than the model was trained on. The stored profile carries a
+     * crop of its own (`CropParams`) and the live path must not use it: the size that has to be
+     * right is the one the ONNX graph takes (`preprocessInto` requires the crops to already BE that
+     * size), and the pads that have to be right are the ones the model was trained on (specs/45).
      */
     @Volatile
     private var geometry = BoardGeometry()
+        set(value) {
+            field = value.withCropOf(modelSpec)
+        }
 
     /**
-     * What the model declares it takes (`infer_size`, specs/22), or null while nothing could be read.
+     * What the model declares it takes (`infer_size` since specs/22, `pad_side`/`pad_up` since
+     * specs/45), or null while nothing could be read.
      *
-     * Null keeps [BoardGeometry]'s 128 defaults — calibration runs long before a classifier attaches
+     * Null keeps [BoardGeometry]'s defaults — calibration runs long before a classifier attaches
      * and must never depend on one.
      */
     @Volatile
@@ -306,6 +313,9 @@ class TrackerService :
         // until an announcement is actually due, so it costs nothing while disabled.
         speech = MoveAnnouncer(lifecycleScope, androidSpeechEngine(this), settings).also { it.attach(publisher.events) }
         cnnProbe.observations = { stacks.current?.observations ?: 0L }
+        // Pulled like the other two: the geometry moves on every calibration and the panel must
+        // show the box the crops are being cut with NOW, not the one they were cut with at wiring.
+        cnnProbe.crop = { cropLine(modelSpec, geometry) }
         // 08a's recorder, in the SESSION half: it must outlive both the UI and a tracker restart.
         games = wireGameSession(this, lifecycleScope, frames, publisher, calibration)
     }
@@ -319,7 +329,7 @@ class TrackerService :
         camera.look.setLook(settings.appSettings.value.cameraLook())
         // Before the geometry, because the geometry follows it.
         modelSpec = declaredModelSpec(this, settings.appSettings.value)
-        geometry = adoptStoredOrientation(calibration, settings).withCropSizeOf(modelSpec)
+        geometry = adoptStoredOrientation(calibration, settings)
         swapStack()
         // Before the bind, so the FIRST binding already asks for the persisted mode instead of
         // binding at the default and immediately rebinding.
@@ -340,15 +350,12 @@ class TrackerService :
      */
     override fun restartTracker() {
         lifecycleScope.launch {
-            // `modelDir`/`modelAsset` are restart-required knobs, so the size the model declares is
+            // `modelDir`/`modelAsset` are restart-required knobs, so the crop the model declares is
             // re-read here for the same reason the camera request is: the next stack must crop for
             // the next model. Switching from the 96 px model to the 80 px one and keeping 96 px
             // crops would kill the first observation of the new stack.
             modelSpec = declaredModelSpec(this@TrackerService, settings.appSettings.value)
-            geometry =
-                calibration
-                    .applyOrientation(settings.appSettings.value.orientation.whitePov)
-                    .withCropSizeOf(modelSpec)
+            geometry = calibration.applyOrientation(settings.appSettings.value.orientation.whitePov)
             swapStack()
             camera.retarget(cameraRequestFor(settings.appSettings.value.resolutionMode))
         }
@@ -391,6 +398,9 @@ class TrackerService :
                             settings.appSettings.value,
                             onMeasuredBoard(settings.config.value, geometry),
                             modelSpec,
+                            // The pads the crops are REALLY cut at, so a legacy model shows up as a
+                            // profile value nobody chose rather than as an absent field (specs/45).
+                            cropLine(modelSpec, geometry),
                             cnnProbe.info(),
                             version,
                         ),
@@ -437,7 +447,7 @@ class TrackerService :
         pts: FloatArray,
         profileName: String,
     ) {
-        geometry = geom.withCropSizeOf(modelSpec)
+        geometry = geom
         corners = pts
         // ONE owner for the board size. The calibration profile measures it; `TrackerConfig` is
         // where the engine reads it, and nothing used to carry it across — they agreed only because

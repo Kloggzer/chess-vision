@@ -57,6 +57,12 @@ class RunSpec:
     geometry: str               # "warp" | "box3d"
     photometry: str             # "none" | "clahe" | "grayworld" | "gamma"
     piece_height_cells: float
+    #: What the crop CONTAINS, in cells around the square — a MODEL property (specs/45), and the
+    #: reason `infer_size` alone is not enough: 128 px of a 1.10-cell box and 128 px of a 1.20-cell
+    #: box are different photographs of the same square. None = the run predates the key and the
+    #: caller's profile decides, which is legacy and must be reported as such.
+    pad_side: float | None = None
+    pad_up: float | None = None
 
 
 def run_spec(run_dir: Path) -> RunSpec:
@@ -82,6 +88,9 @@ def run_spec(run_dir: Path) -> RunSpec:
 
     infer_size = infer_size_of({**cfg, "out_size": out_size})
 
+    pad_side = None if cfg.get("pad_side") is None else float(cfg["pad_side"])
+    pad_up = None if cfg.get("pad_up") is None else float(cfg["pad_up"])
+
     variant = cfg.get("variant")
     if variant and isinstance(variant, dict):
         return RunSpec(
@@ -92,6 +101,8 @@ def run_spec(run_dir: Path) -> RunSpec:
             geometry=variant.get("geometry", "warp"),
             photometry=variant.get("photometry", "none"),
             piece_height_cells=float(variant.get("piece_height_cells", config.EXP_PIECE_HEIGHT_CELLS)),
+            pad_side=pad_side,
+            pad_up=pad_up,
         )
 
     # Fallback 1: Manifest scan
@@ -113,6 +124,8 @@ def run_spec(run_dir: Path) -> RunSpec:
         geometry=geometry,
         photometry=photometry,
         piece_height_cells=float(piece_height_cells),
+        pad_side=pad_side,
+        pad_up=pad_up,
     )
 
 
@@ -221,9 +234,16 @@ def crops_for_model(frame: np.ndarray, corners, profile, spec: RunSpec) -> list[
     crops on disk were built at. The square is cut out of the warped board straight at that size,
     so there is no intermediate 128 px step and nothing is resampled twice (specs/22).
 
+    The BOX is the model's too, when it declares one (`spec.pad_side`/`pad_up`, specs/45): the
+    profile says where the board is, the model says how much around each square its examples
+    carried. A run that declares nothing keeps the profile's pads — legacy, and the caller is the
+    one that has to say so.
+
     Thin wrapper around `labeling.crops_for_frame` — the geometry implementation
     stays there (single source of truth).
     """
+    if spec.pad_side is not None or spec.pad_up is not None:
+        profile = labeling.effective_profile(profile, spec.pad_up, spec.pad_side)
     return labeling.crops_for_frame(
         frame, corners, profile,
         geometry=spec.geometry,

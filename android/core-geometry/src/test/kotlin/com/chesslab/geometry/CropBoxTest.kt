@@ -78,12 +78,15 @@ class CropBoxTest {
     fun `default geometry crop boxes`() {
         val geom = BoardGeometry()
         assertEquals(200.0, geom.cell)
-        assertArrayEquals(intArrayOf(-20, -20, 220, 220), squareToCropBox("a8", geom, clamp = false))
-        assertArrayEquals(intArrayOf(0, 0, 220, 220), squareToCropBox("a8", geom, clamp = true))
-        assertEquals(1620, squareToCropBox("h1", geom, clamp = false)[2])
+        // `padSide` 0.05 since specs/45 (it was 0.10, which no profile in the corpus ever used):
+        // 0.05 * 200 = 10 px around a 200 px cell.
+        assertArrayEquals(intArrayOf(-10, -10, 210, 210), squareToCropBox("a8", geom, clamp = false))
+        assertArrayEquals(intArrayOf(0, 0, 210, 210), squareToCropBox("a8", geom, clamp = true))
+        assertEquals(1610, squareToCropBox("h1", geom, clamp = false)[2])
         assertEquals(1600, squareToCropBox("h1", geom, clamp = true)[2])
-        // max(0.1, padSide, padUp) * cell = 0.10 * 200 = 20 (the phase file's "200" is an
-        // arithmetic slip; `_geometry/meta.json -> cropBoxes` agrees with 20).
+        // max(0.1, padSide, padUp) * cell, and the 0.1 FLOOR is what decides here — the border did
+        // not move with the pad (the phase file's "200" is an arithmetic slip; `_geometry/meta.json
+        // -> cropBoxes` agrees with 20).
         assertEquals(20, cropBorderPx(geom))
     }
 

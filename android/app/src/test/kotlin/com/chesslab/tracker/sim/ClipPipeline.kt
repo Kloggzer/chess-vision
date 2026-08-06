@@ -13,7 +13,7 @@ import com.chesslab.geometry.toGrayImage
 import com.chesslab.geometry.warpBoardForCrops
 import com.chesslab.geometry.warpFromCorners
 import com.chesslab.tracker.cnn.ModelSpec
-import com.chesslab.tracker.geometry.withCropSizeOf
+import com.chesslab.tracker.geometry.withCropOf
 import com.chesslab.tracker.pipeline.RoiMotion
 import org.opencv.core.Core
 import org.opencv.core.Mat
@@ -64,7 +64,12 @@ internal class ClipPipeline(
     // `BoardGeometry(boardSize = clip.boardSize)`, which left `margin` at `margins4(0.0)` —
     // right for the Blender renders and 6-8 % too large for any quad detected from ArUco, whose
     // markers sit in the label border. `warpFromCorners` computes the homography from it.
-    private val geometry = clip.geometry.withCropSizeOf(spec)
+    //
+    // The CROP, though, is the model's (specs/45): a run declaring `pad_side` gets the box it was
+    // trained on even here, which is the same reason `emit_parity_fixtures` grew a per-clip `crop`
+    // — a harness that invents the box measures its own invention. The detection warp is untouched
+    // by it, so the committed parity fixtures (diff path, `cnn_run=None`) cannot move.
+    private val geometry = clip.geometry.withCropOf(spec)
     private val gray = GrayPipeline(config.diffClaheClip)
     private val roi = RoiMotion(config.motionMargin, config.motionPxThr)
     private val warpDet = Mat()

@@ -57,6 +57,19 @@ data class ModelIdentity(
     val loadedAsset: String?,
     /** `infer_size` the loaded run declares, e.g. `"80x80"` — a per-model key, not a constant. */
     val inferSize: String?,
+    /**
+     * `pad_side`/`pad_up` the run declares, e.g. `"0.05/0.0"` — null when it declares NONE.
+     *
+     * A null here is the whole point of the field: the crops are then cut at whatever the
+     * calibration profile says, a box no model ever asked for. [servedPads] says which box that
+     * was, so the two together answer "what was this model shown, and did it choose it?".
+     *
+     * PADS, never crops — `noPixelsReachTheFile` forbids the word for good reason, and two floats
+     * describing a box are the opposite of the payload it guards against.
+     */
+    val declaredPads: String?,
+    /** The pads the crops were REALLY cut at, profile fallback included. */
+    val servedPads: String?,
     val classes: Int?,
     val requestedEp: String?,
     /** What the runtime SELECTED. A request is not a delivery; the fall-through is silent. */
@@ -180,6 +193,8 @@ fun runStartOf(
     app: AppSettings,
     config: TrackerConfig,
     spec: ModelSpec?,
+    /** `geometry.cropLine(spec, geometry)` — the pads the crops are cut at, from the live geometry. */
+    servedPads: String?,
     cnn: CnnRuntimeInfo,
     version: AppVersion,
     now: () -> String = { Instant.now().toString() },
@@ -197,6 +212,8 @@ fun runStartOf(
                 loadedDir = cnn.modelDir,
                 loadedAsset = cnn.model,
                 inferSize = spec?.let { "${it.outWidth}x${it.outHeight}" },
+                declaredPads = spec?.takeIf { it.declaresCrop }?.let { "${it.padSide}/${it.padUp}" },
+                servedPads = servedPads,
                 classes = spec?.classes?.size,
                 requestedEp = cnn.requestedEp ?: app.epRequest.name,
                 actualEp = cnn.actualEp,
