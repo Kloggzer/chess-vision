@@ -30,9 +30,9 @@ class ModelSpecTest {
         // bundled run is a 14-class model or the 2-class occupancy one (specs/18) depending on
         // what was staged, and `requireExpectedClasses` is what pins the accepted orders.
         assertEquals(rawClasses(json), spec.classes)
-        // The same rule for the input size, and on the shipped asset it is no longer the trivial
-        // case: `occ-v4-f3e20` (specs/23 phase 02) declares `infer_size` 96 while its crops on disk
-        // were built at 128, so this asserts the reader picked the right KEY on the file that
+        // The same rule for the input size, and on the default asset it is no longer the trivial
+        // case: `id35-80` declares `infer_size` 80 while its crops on disk were built at 128, so
+        // this asserts the reader picked the right KEY on the file that
         // actually ships — which the old `assertEquals(128, …)` could not have noticed.
         val declared = rawInts(json, "infer_size")
         assertEquals(declared, listOf(spec.outWidth, spec.outHeight))

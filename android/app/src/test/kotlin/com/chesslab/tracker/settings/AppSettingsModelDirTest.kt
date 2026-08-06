@@ -14,9 +14,23 @@ import org.junit.jupiter.api.Test
  */
 class AppSettingsModelDirTest {
     @Test
-    fun aFreshInstallRunsTheModelThatWasAlreadyShipping() {
+    fun aFreshInstallRunsTheHardNegativeTrainedBatchNormModel() {
+        assertEquals("id35-80", DEFAULT_MODEL)
         assertEquals(DEFAULT_MODEL, AppSettings().modelDir)
         assertEquals(DEFAULT_MODEL, decodeAppSettings(null).modelDir)
+    }
+
+    @Test
+    fun previousDefaultsMoveForwardOnce() {
+        val old = """{"modelDir":"shipped","modelAsset":"model.onnx"}"""
+        assertEquals(DEFAULT_MODEL, decodeAppSettings(old).modelDir)
+        val briefBn100Default = """{"modelRelease":2,"modelDir":"bn100-80","modelAsset":"model.onnx"}"""
+        assertEquals(DEFAULT_MODEL, decodeAppSettings(briefBn100Default).modelDir)
+
+        listOf("shipped", "bn100-80").forEach { model ->
+            val explicitCurrentChoice = AppSettings(modelDir = model)
+            assertEquals(explicitCurrentChoice, decodeAppSettings(encodeAppSettings(explicitCurrentChoice)))
+        }
     }
 
     @Test

@@ -51,10 +51,10 @@ private const val ASSET_ROOT = "cnn_model"
  * 2-class full-width champion at a third of its width, with piece identity at 0.882 (specs/29,
  * 2026-08-01).
  */
-val BUNDLED_MODELS = listOf("shipped", "v6-80", "v4-128", "bn35-80", "bn50-80", "bn100-80", "id35-80")
+const val DEFAULT_MODEL = "id35-80"
 
-/** What an install runs until someone picks otherwise: the model that was already shipping. */
-val DEFAULT_MODEL: String = BUNDLED_MODELS.first()
+/** Default first, so Settings presents the model a fresh install actually runs at the top. */
+val BUNDLED_MODELS = listOf(DEFAULT_MODEL, "bn100-80", "bn50-80", "bn35-80", "v6-80", "v4-128", "shipped")
 
 /**
  * [name] when the APK really bundles it, else [DEFAULT_MODEL].

@@ -110,14 +110,13 @@ class ModelSpecGraphSeamTest {
 }
 
 /**
- * The inference size the shipped model is served at — **96 px**, chosen by specs/23 phase 00 on the
- * `occ-real3` test split: `occ-v4-f3e20` reads 28 occupied squares as empty and invents none at the
- * app's warp, against 44 / 0 at 128 px and the previous asset's 99 / 146.
+ * The inference size the default model is served at — **80 px**, the trained deployment size of
+ * `id35-80`. This is the hard-negative-finetuned width-0.35 BatchNorm model measured at 0 phantoms
+ * / 3 misses on the difficult warm-light holdout, with piece identity as an additional output.
  *
  * A literal on purpose, and the only one. `config.json` remains the single source the CODE reads
  * (`ModelSpec.parse`); this is a tripwire on the DECISION, so that re-exporting the asset at another
  * size has to be a deliberate act with this line edited rather than a graph that quietly changes
- * shape. Untrained sizes fail silently — 80 px costs this run 133 misses against 96 px's 19 — so
- * "the config and the graph agree" is not on its own enough to ship.
+ * shape. "The config and the graph agree" is not on its own enough to ship.
  */
-internal const val SHIPPED_INPUT_SIZE = 96
+internal const val SHIPPED_INPUT_SIZE = 80

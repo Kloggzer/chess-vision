@@ -87,10 +87,10 @@ the DataStore, and which model was really loaded — were both invisible from th
 Format and a parsing snippet: [`docs/diagnostics.md`](docs/diagnostics.md).
 
 **Models.** Seven CNNs are bundled under `android/app/src/main/assets/cnn_model/`, switchable
-in Settings (restart required). A fresh install runs `shipped`: 2-class occupancy,
-GroupNorm, `mobilenetv4_conv_small_035`, 96 px. Also bundled are three BatchNorm occupancy
-variants (`bn35-80`, `bn50-80`, `bn100-80`) and `id35-80`, a 13-class *identity* model —
-BatchNorm, width 0.35, 80 px — which reads piece type as well as occupancy. `id35-80` is
+in Settings (restart required). A fresh install runs `id35-80`: the hard-negative-finetuned
+BatchNorm model, width 0.35 at 80 px, measured at 0 phantoms / 3 misses on the difficult warm-light
+holdout. Existing installs on older defaults migrate to it once. It is a 13-class *identity* model
+which reads piece type as well as occupancy. `id35-80` is
 what `CLAUDE.md` records at **16 ms median for 64 crops** on an SM8650 over 534 live
 observations; that figure belongs to that model on that phone and to nothing else.
 
