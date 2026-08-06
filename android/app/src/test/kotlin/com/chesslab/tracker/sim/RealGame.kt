@@ -6,6 +6,7 @@ import com.chesslab.geometry.margins4
 import com.chesslab.tracker.geometry.CropParams
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.move.Move
+import org.opencv.core.Mat
 import java.io.File
 
 // The phone's engine over FILMED footage — the same seam `runClip` drives, minus the answer key.
@@ -21,15 +22,15 @@ import java.io.File
  * that owns `:core-geometry`; this type only refuses to guess any of them.
  */
 internal data class RealGameSource(
-    val video: File,
-    val config: TrackerConfig,
-    val startFen: String,
+    override val video: File,
+    override val config: TrackerConfig,
+    override val startFen: String,
     /** `[a8, h8, h1, a1]` in FRAME pixels — the corner order every geometry call in this repo takes. */
-    val corners: List<DoubleArray>,
+    override val corners: List<DoubleArray>,
     /** The fraction by which [corners] lie OUTSIDE the playing field, because the markers are glued in the label border. */
     val margin: Double,
     val boardSize: Int,
-    val fps: Double,
+    override val fps: Double,
     /**
      * The crop box the model is served — deliberately WITHOUT a default value.
      *
@@ -41,7 +42,7 @@ internal data class RealGameSource(
      * declaration; until that branch merges the caller passes the profile's.
      */
     val cropParams: CropParams,
-) {
+) : SimSource {
     /**
      * The board geometry of this footage — the ONE place the crop reaches the warp.
      *
@@ -49,7 +50,7 @@ internal data class RealGameSource(
      * overrides them with the size that model's graph takes (`withCropSizeOf`). `padSide`/`padUp`
      * are the box itself and are never overridden by anything.
      */
-    val geometry: BoardGeometry
+    override val geometry: BoardGeometry
         get() =
             BoardGeometry(
                 boardSize = boardSize,
@@ -152,6 +153,28 @@ internal fun realGamePlies(
         board.loadFromFen(batch.fenAfter)
     }
     return plies
+}
+
+/**
+ * Drives the phone's engine over [source] and reports what it committed — the real-game twin of
+ * `runClip`, and the same runner underneath.
+ *
+ * [onFrame] is handed each decoded frame together with the index that decoded it, once, in decode
+ * order; see [replayVideo]. Everything this returns is the engine's own opinion: nothing here
+ * scores it, because there is nothing to score it against.
+ */
+internal fun runRealGame(
+    source: RealGameSource,
+    cnn: SimCnn?,
+    onFrame: (index: Int, mat: Mat) -> Unit = { _, _ -> },
+): RealGameResult {
+    val replay = replayVideo(source, cnn, onFrame)
+    return RealGameResult(
+        plies = realGamePlies(replay.log.batches, source.startFen, source.fps),
+        observations = replay.timings.observations,
+        frames = replay.timings.frames,
+        finalNote = replay.finalNote,
+    )
 }
 
 /** `Game.fen()`'s spelling, so a replayed FEN is comparable string-for-string with the engine's. */

@@ -112,8 +112,8 @@ internal class SimTruth(
 /** One simulated clip: the video, its geometry, its fixture config and its ground truth. */
 internal class SimClip(
     val name: String,
-    val video: File,
-    val corners: List<DoubleArray>,
+    override val video: File,
+    override val corners: List<DoubleArray>,
     /**
      * Board size AND the margin by which [corners] lie outside the playing field.
      *
@@ -127,11 +127,17 @@ internal class SimClip(
      * commits, and fixed there in `721901a`; `ClipPipeline` had always had `margin` in its
      * geometry and had never been given one.
      */
-    val geometry: BoardGeometry,
-    val fps: Double,
-    val config: TrackerConfig,
+    override val geometry: BoardGeometry,
+    override val fps: Double,
+    override val config: TrackerConfig,
     val truth: SimTruth,
-)
+) : SimSource {
+    // What the clip knows and filmed footage does not. `truth` stays the one place ground truth
+    // lives; these only hand it to the replay through the seam both sources share.
+    override val startFen: String get() = truth.startFen
+    override val promotionPiece: Char get() = truth.promotionPiece
+    override val truthFens: List<String?> get() = truth.fenPerFrame
+}
 
 /**
  * Every clip that has a committed parity fixture, in index order.

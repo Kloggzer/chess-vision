@@ -46,7 +46,7 @@ internal class SimTimings {
 
 /** Stateful — every `Mat` is reused across frames, exactly like the analyzer-thread original. */
 internal class ClipPipeline(
-    clip: SimClip,
+    source: SimSource,
     private val timings: SimTimings,
     /**
      * The model whose crops this run feeds, or null for the diff-only baseline.
@@ -57,14 +57,14 @@ internal class ClipPipeline(
      */
     spec: ModelSpec? = null,
 ) {
-    private val config = clip.config
-    private val corners = clip.corners
+    private val config = source.config
+    private val corners = source.corners
 
     // The clip's OWN geometry, margin included. This used to be
     // `BoardGeometry(boardSize = clip.boardSize)`, which left `margin` at `margins4(0.0)` —
     // right for the Blender renders and 6-8 % too large for any quad detected from ArUco, whose
     // markers sit in the label border. `warpFromCorners` computes the homography from it.
-    private val geometry = clip.geometry.withCropSizeOf(spec)
+    private val geometry = source.geometry.withCropSizeOf(spec)
     private val gray = GrayPipeline(config.diffClaheClip)
     private val roi = RoiMotion(config.motionMargin, config.motionPxThr)
     private val warpDet = Mat()
