@@ -61,6 +61,12 @@ data class CnnRuntimeInfo(
     /** Which graph file inside it. */
     val model: String?,
     val inputShape: String?,
+    /**
+     * The crop box the pixels are cut with, and whether the MODEL asked for it — `cropLine`
+     * (specs/45). A model that declares no crop is served the calibration profile's pads, which
+     * is a picture nobody chose; this is where that is visible without a diagnostics file.
+     */
+    val crop: String?,
     val lastRunMs: Double,
     val observations: Long,
 )
@@ -89,6 +95,10 @@ class CnnRuntimeProbe {
     @Volatile
     var inputShape: String? = null
 
+    /** Pulled, like the two below: the geometry moves with every calibration. */
+    @Volatile
+    var crop: () -> String? = { null }
+
     /** Pure session time of the last batch — `CnnSnapshot.inferMs` also counts preprocessing. */
     @Volatile
     var lastRunMs: () -> Double = { 0.0 }
@@ -97,5 +107,5 @@ class CnnRuntimeProbe {
     @Volatile
     var observations: () -> Long = { 0L }
 
-    fun info(): CnnRuntimeInfo = CnnRuntimeInfo(requestedEp, actualEp, modelDir, model, inputShape, lastRunMs(), observations())
+    fun info(): CnnRuntimeInfo = CnnRuntimeInfo(requestedEp, actualEp, modelDir, model, inputShape, crop(), lastRunMs(), observations())
 }

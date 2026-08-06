@@ -10,7 +10,9 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -148,19 +150,58 @@ class ModelSpecTest {
         assertThrows<IllegalArgumentException> { ModelSpec.parse(config(inputRepr = "edges")) }
     }
 
+    /**
+     * specs/45 — the pads are a model property, and the app must be able to tell a model that
+     * DECLARES 0.05 from one that says nothing and is served 0.05 by its calibration profile.
+     */
+    @Test
+    fun readsTheDeclaredCropAndTreatsAnAbsentOneAsLegacy() {
+        val declared = ModelSpec.parse(config(padSide = 0.05, padUp = 0.0))
+        assertEquals(0.05, declared.padSide)
+        assertEquals(0.0, declared.padUp)
+        assertTrue(declared.declaresCrop)
+
+        val legacy = ModelSpec.parse(config())
+        assertNull(legacy.padSide)
+        assertNull(legacy.padUp)
+        assertFalse(legacy.declaresCrop, "an absent crop must never read as a default")
+
+        // Half a declaration is not one: the missing half would come from the profile, composing
+        // a box nobody chose.
+        assertThrows<IllegalArgumentException> { ModelSpec.parse(config(padSide = 0.05)) }
+        assertThrows<IllegalArgumentException> { ModelSpec.parse(config(padUp = 0.0)) }
+    }
+
+    /**
+     * Every model that SHIPS declares its crop. Not the value — that is a property of the corpus
+     * and may move — but that the shipped configs answer the question at all: a bundled model
+     * whose pads are unknown is served the device's calibration profile, which is the failure the
+     * pack is about and which nothing on the device would report as unusual.
+     */
+    @Test
+    fun everyBundledModelDeclaresItsCrop() {
+        for (dir in bundledAssetDirs()) {
+            val spec = ModelSpec.parse(File(dir, MODEL_CONFIG_FILE).readText())
+            assertTrue(spec.declaresCrop, "${dir.name} declares no crop — mark it legacy or back-fill it")
+        }
+    }
+
     private fun config(
         classes: List<String> = EXPECTED_CLASSES,
         outSize: List<Int> = listOf(128, 128),
         mean: List<Float>? = listOf(0.485f, 0.456f, 0.406f),
         inputRepr: String? = null,
         inferSize: List<Int>? = null,
+        padSide: Double? = null,
+        padUp: Double? = null,
     ): String {
         val normalize =
             mean?.let { ", \"normalize\": {\"mean\": ${it.joinToString(",", "[", "]")}, \"std\": [0.229, 0.224, 0.225]}" }.orEmpty()
         val repr = inputRepr?.let { ", \"input_repr\": \"$it\"" }.orEmpty()
         val infer = inferSize?.let { ", \"infer_size\": ${it.joinToString(",", "[", "]")}" }.orEmpty()
+        val crop = (padSide?.let { ", \"pad_side\": $it" }.orEmpty()) + (padUp?.let { ", \"pad_up\": $it" }.orEmpty())
         return """{"backbone": "x", "classes": ${classes.joinToString(",", "[", "]") { "\"$it\"" }},""" +
-            """ "out_size": ${outSize.joinToString(",", "[", "]")}$infer$normalize$repr}"""
+            """ "out_size": ${outSize.joinToString(",", "[", "]")}$infer$crop$normalize$repr}"""
     }
 }
 
