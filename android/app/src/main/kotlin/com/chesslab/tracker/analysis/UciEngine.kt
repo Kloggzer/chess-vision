@@ -4,6 +4,7 @@ import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.Closeable
 import java.io.IOException
+import java.util.concurrent.CancellationException
 import java.util.concurrent.TimeUnit
 
 /** How long the `uci`/`isready` handshake may take before the engine counts as wedged. */
@@ -63,6 +64,7 @@ class UciEngine(
         movetimeMs: Long,
         multiPv: Int,
         nodes: Long? = null,
+        cancelled: () -> Boolean = { false },
     ): List<PvLine> {
         send("setoption name MultiPV value $multiPv")
         send("position fen $fen")
@@ -70,7 +72,7 @@ class UciEngine(
         val best = sortedMapOf<Int, PvLine>()
         val deadlineNs = System.nanoTime() + (movetimeMs + ANALYSE_GRACE_MS) * NS_PER_MS
         while (true) {
-            val line = readLine(deadlineNs)
+            val line = readLine(deadlineNs, cancelled)
             parseUciInfo(line)?.let { best[it.multiPv] = it.line }
             if (isBestMoveLine(line)) return best.values.toList()
         }
@@ -104,8 +106,12 @@ class UciEngine(
      * Polls instead of blocking on `readLine`: a wedged engine must surface as an exception the
      * analyzer can recover from, not as a thread parked forever holding the process.
      */
-    private fun readLine(deadlineNs: Long): String {
+    private fun readLine(
+        deadlineNs: Long,
+        cancelled: () -> Boolean = { false },
+    ): String {
         while (System.nanoTime() < deadlineNs) {
+            if (cancelled()) throw CancellationException("UCI search cancelled")
             val input = reader ?: fail("UCI engine not started")
             if (input.ready()) return input.readLine() ?: fail("UCI engine closed its output")
             if (process?.isAlive != true) fail("UCI engine terminated")

@@ -2,6 +2,7 @@ package com.chesslab.tracker.analysis
 
 import com.chesslab.tracker.games.GAMES_JSON
 import com.chesslab.tracker.games.writeAtomic
+import com.github.bhlangonijr.chesslib.Board
 import kotlinx.serialization.Serializable
 import java.io.File
 import java.security.MessageDigest
@@ -61,6 +62,7 @@ data class StoredAnalysis(
  */
 private const val STORE_VERSION = 3
 private const val MATE_LINE_VERSION = 1
+private const val POSITION_SCORE_VERSION = 1
 private const val FEN_POSITION_FIELDS = 5
 
 @Serializable
@@ -71,6 +73,15 @@ private data class StoredMateLine(
     val sanLine: List<String>,
     val complete: Boolean,
     val version: Int = MATE_LINE_VERSION,
+)
+
+/** One reusable engine result, independent of the game that first asked for the position. */
+@Serializable
+private data class StoredPositionScore(
+    val position: String,
+    val budget: ReviewBudget,
+    val score: StoredScore,
+    val version: Int = POSITION_SCORE_VERSION,
 )
 
 /**
@@ -109,17 +120,75 @@ class ReviewStore(
         writeAtomic(file(gameId), GAMES_JSON.encodeToString(StoredAnalysis.serializer(), stored))
     }
 
+    /**
+     * Completes a game's dense score array from the process-wide position cache.
+     *
+     * Existing game files remain the fast progress snapshot. Scores found there are also promoted
+     * into the position cache, which migrates old installs lazily without a separate startup pass.
+     */
+    fun loadCached(
+        gameId: String,
+        budget: ReviewBudget,
+        positions: List<String>,
+    ): List<Score?>? {
+        val gameScores = load(gameId, budget, positions.size)
+        val merged = MutableList<Score?>(positions.size) { index -> gameScores?.getOrNull(index) }
+        positions.forEachIndexed { index, fen ->
+            val fromGame = merged[index]
+            if (fromGame != null) {
+                savePositionIfMissing(fen, budget, fromGame)
+            } else {
+                merged[index] = loadPosition(fen, budget)
+            }
+        }
+        return merged.takeIf { scores -> scores.any { it != null } }
+    }
+
+    /** Persists one successful search so another game can reuse it immediately. */
+    fun savePosition(
+        fen: String,
+        budget: ReviewBudget,
+        score: Score,
+    ) {
+        val position = canonicalEnginePosition(fen)
+        val stored = StoredPositionScore(position, budget, score.stored(), POSITION_SCORE_VERSION)
+        positionDir().mkdirs()
+        writeAtomic(positionFile(position, budget), GAMES_JSON.encodeToString(StoredPositionScore.serializer(), stored))
+    }
+
+    private fun savePositionIfMissing(
+        fen: String,
+        budget: ReviewBudget,
+        score: Score,
+    ) {
+        val position = canonicalEnginePosition(fen)
+        if (!positionFile(position, budget).exists()) savePosition(fen, budget, score)
+    }
+
+    fun loadPosition(
+        fen: String,
+        budget: ReviewBudget,
+    ): Score? {
+        val position = canonicalEnginePosition(fen)
+        val stored =
+            runCatching {
+                GAMES_JSON.decodeFromString(StoredPositionScore.serializer(), positionFile(position, budget).readText())
+            }.getOrNull() ?: return null
+        if (stored.version != POSITION_SCORE_VERSION || stored.position != position || stored.budget != budget) return null
+        return stored.score.score()
+    }
+
     /** Returns a previously completed mate line for this exact chess position and review budget. */
     fun loadMateLine(
         fen: String,
         budget: ReviewBudget,
     ): ResolvedMateLine? {
-        val position = canonicalPosition(fen)
+        val position = canonicalEnginePosition(fen)
         val stored =
-            runCatching { GAMES_JSON.decodeFromString(StoredMateLine.serializer(), mateLineFile(position).readText()) }
+            runCatching { GAMES_JSON.decodeFromString(StoredMateLine.serializer(), mateLineFile(position, budget).readText()) }
                 .getOrNull() ?: return null
         if (!stored.matches(position, budget)) return null
-        return ResolvedMateLine(stored.uciLine, stored.sanLine, complete = true)
+        return verifiedMateLine(fen, stored.uciLine)
     }
 
     /** Persists only verified lines: an interrupted or inconclusive search must be retryable. */
@@ -128,11 +197,11 @@ class ReviewStore(
         budget: ReviewBudget,
         line: ResolvedMateLine,
     ) {
-        if (!line.complete) return
-        val position = canonicalPosition(fen)
-        val stored = StoredMateLine(position, budget, line.uciLine, line.sanLine, complete = true)
+        val verified = line.takeIf { it.complete }?.let { verifiedMateLine(fen, it.uciLine) } ?: return
+        val position = canonicalEnginePosition(fen)
+        val stored = StoredMateLine(position, budget, verified.uciLine, verified.sanLine, complete = true)
         mateLineDir().mkdirs()
-        writeAtomic(mateLineFile(position), GAMES_JSON.encodeToString(StoredMateLine.serializer(), stored))
+        writeAtomic(mateLineFile(position, budget), GAMES_JSON.encodeToString(StoredMateLine.serializer(), stored))
     }
 
     fun delete(gameId: String) {
@@ -143,11 +212,42 @@ class ReviewStore(
 
     private fun mateLineDir() = File(root, ".analysis-cache")
 
-    private fun mateLineFile(position: String) = File(mateLineDir(), "${positionHash(position)}.mate.json")
+    private fun mateLineFile(
+        position: String,
+        budget: ReviewBudget,
+    ) = File(mateLineDir(), "${positionHash(cacheIdentity(position, budget))}.mate.json")
+
+    private fun positionDir() = File(root, ".analysis-cache/positions")
+
+    private fun positionFile(
+        position: String,
+        budget: ReviewBudget,
+    ) = File(positionDir(), "${positionHash(cacheIdentity(position, budget))}.json")
 }
 
+/** A cache flag is not proof: replay every move and require the resulting board to be checkmate. */
+private fun verifiedMateLine(
+    startFen: String,
+    uciLine: List<String>,
+): ResolvedMateLine? {
+    val frames = lineFrames(startFen, uciLine)
+    if (frames.size != uciLine.size + 1) return null
+    val checkmate = runCatching { Board().apply { loadFromFen(frames.last().fen) }.isMated }.getOrDefault(false)
+    if (!checkmate) return null
+    return ResolvedMateLine(uciLine, sansOf(startFen, uciLine), complete = true)
+}
+
+private fun Score.stored() = StoredScore(cp, depth, line, mate)
+
+private fun StoredScore.score() = Score(cp, depth, line, mate)
+
+private fun cacheIdentity(
+    position: String,
+    budget: ReviewBudget,
+): String = "$position|${budget.nodes}|${budget.capMs}|${budget.threads}|${budget.hashMb}|${budget.multiPv}"
+
 /** Fullmove number cannot change engine advice; the fifty-move clock remains part of the position. */
-private fun canonicalPosition(fen: String): String =
+internal fun canonicalEnginePosition(fen: String): String =
     fen.trim().split(Regex("\\s+")).let { fields ->
         if (fields.size >= FEN_POSITION_FIELDS) fields.take(FEN_POSITION_FIELDS).joinToString(" ") else fen.trim()
     }

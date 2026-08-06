@@ -1,6 +1,7 @@
 package com.chesslab.tracker.ui.review
 
 import android.content.Context
+import com.chesslab.tracker.analysis.OpeningBook
 import com.chesslab.tracker.analysis.ReviewStore
 import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.ui.analysis.stockfishEngineFactory
@@ -46,6 +47,20 @@ object ReviewHost {
 
     private fun build(context: Context): ReviewViewModel {
         val dir = gamesDir(context)
-        return ReviewViewModel(GameStore(dir), ReviewStore(dir), stockfishEngineFactory(context), scope)
+        val openingBook =
+            lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+                context.assets.open("openings/openings.tsv").use { openings ->
+                    context.assets.open("openings/continuations.tsv").use { continuations ->
+                        OpeningBook.load(openings, continuations)
+                    }
+                }
+            }
+        return ReviewViewModel(
+            GameStore(dir),
+            ReviewStore(dir),
+            stockfishEngineFactory(context),
+            scope,
+            openingBook = { openingBook.value },
+        )
     }
 }

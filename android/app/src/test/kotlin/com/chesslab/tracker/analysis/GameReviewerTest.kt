@@ -7,8 +7,10 @@ import com.github.bhlangonijr.chesslib.move.MoveList
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.io.IOException
 
 private const val START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
@@ -127,6 +129,19 @@ class GameReviewerTest {
         var emissions = 0
         val started = runBlocking { GameReviewer({ null }).review(game()) { emissions++ } }
         assertFalse(started)
+        assertEquals(0, emissions)
+    }
+
+    @Test
+    fun anEngineCrashIsNotTurnedIntoAndPersistedAsAnEqualPosition() {
+        val process = ScriptedEngineProcess(engineScript(INFO)).apply { dieOn = "go movetime 3000 nodes 1500000" }
+        var emissions = 0
+
+        assertThrows(IOException::class.java) {
+            runBlocking {
+                GameReviewer({ UciEngine("fake") { process } }).review(game()) { emissions++ }
+            }
+        }
         assertEquals(0, emissions)
     }
 }

@@ -10,6 +10,7 @@ import com.github.bhlangonijr.chesslib.move.MoveGenerator
 import com.github.bhlangonijr.chesslib.move.MoveList
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.serialization.Serializable
 import kotlin.math.abs
 
@@ -28,6 +29,7 @@ private const val REVIEW_NODES = 1_500_000L
 private const val REVIEW_CAP_MS = 3_000L
 
 private const val FULL_PERCENT = 100.0
+private const val FEN_FULLMOVE_INDEX = 5
 
 /**
  * The review pass's engine budget: **[nodes], the way lichess does it**, with [capMs] only as a
@@ -92,6 +94,10 @@ data class PlyGrade(
     val ply: Int,
     /** The move that was played, so a finding can name itself without the caller holding the game. */
     val san: String,
+    /** Explicit identity from the position before the move; parity is wrong for imported FENs. */
+    val whiteMoved: Boolean = ply % 2 == 1,
+    /** FEN fullmove number, so an imported game does not restart its labels at move one. */
+    val moveNumber: Int = (ply + 1) / 2,
     val quality: MoveQuality,
     /** The mover's winning chances before and after, 0..100. */
     val winBefore: Double,
@@ -129,6 +135,10 @@ data class PlyGrade(
     val forcedMateLine: Boolean = false,
     /** Exact mate distance available to the mover before this move. */
     val mateInBefore: Int? = null,
+    /** Absolute engine mate distance before this move, regardless of which side is winning. */
+    val mateDistanceBefore: Int? = null,
+    /** Absolute engine mate distance after this move, regardless of which side is winning. */
+    val mateDistanceAfter: Int? = null,
 )
 
 val PlyGrade.missedMate: Boolean get() = mateBefore && !mateAfter && !playedBest
@@ -203,7 +213,7 @@ data class GameGrade(
 
     val forcedMatePlies: Int get() = byPly.values.count { it.forcedMateLine }
 
-    fun missedMates(white: Boolean): Int = byPly.values.count { it.missedMate && (it.ply % 2 == 1) == white }
+    fun missedMates(white: Boolean): Int = byPly.values.count { it.missedMate && it.whiteMoved == white }
 }
 
 /**
@@ -249,9 +259,11 @@ class GameReviewer(
         try {
             engine.start(budget.threads, budget.hashMb)
             while (true) {
-                currentCoroutineContext().ensureActive()
+                val context = currentCoroutineContext()
+                context.ensureActive()
                 val next = nextIndex(scores, focus()) ?: break
-                scores[next] = scoreOf(engine, positions[next])
+                scores[next] = scoreOf(engine, positions[next]) { !context.isActive }
+                context.ensureActive()
                 onScored(scores.toList())
             }
         } finally {
@@ -263,17 +275,8 @@ class GameReviewer(
     private fun scoreOf(
         engine: UciEngine,
         fen: String,
-    ): Score {
-        val board = runCatching { Board().apply { loadFromFen(fen) } }.getOrNull() ?: return Score(0, 0)
-        terminalScore(board)?.let { return it }
-        val whiteToMove = board.sideToMove == Side.WHITE
-        val best =
-            runCatching { engine.analyse(fen, budget.capMs, budget.multiPv, nodes = budget.nodes) }
-                .getOrNull()
-                ?.firstOrNull()
-                ?.toWhitePov(whiteToMove)
-        return Score(cpOf(best), best?.depth ?: 0, best?.pv.orEmpty(), mate = best?.mate)
-    }
+        cancelled: () -> Boolean,
+    ): Score = analyseReviewPosition(engine, fen, budget, cancelled)
 }
 
 /**
@@ -295,7 +298,7 @@ internal fun nextIndex(
  * itself. Asking the engine anyway returns an empty PV, which would read as an even position — so
  * a checkmate would grade the mating move as costing nothing.
  */
-private fun terminalScore(board: Board): Score? =
+internal fun terminalScore(board: Board): Score? =
     when {
         board.isMated -> Score(if (board.sideToMove == Side.WHITE) -MATE_CP else MATE_CP, 0, mate = 0)
         board.isStaleMate || board.isDraw -> Score(0, 0)
@@ -314,7 +317,7 @@ data class Score(
     val bestUci: String? get() = line.firstOrNull()
 }
 
-private fun cpOf(line: PvLine?): Int {
+internal fun cpOf(line: PvLine?): Int {
     val mate = line?.mate
     if (mate != null) return if (mate > 0) MATE_CP else -MATE_CP
     return line?.cp ?: 0
@@ -395,6 +398,8 @@ private fun gradeOne(
     return PlyGrade(
         ply = ply.ply,
         san = ply.san,
+        whiteMoved = whiteMoved,
+        moveNumber = fenBefore.fullmoveNumberOr(ply.ply),
         quality = classify(drop, playedEngineMove = playedBest),
         winBefore = winBefore,
         winAfter = winAfter,
@@ -410,8 +415,13 @@ private fun gradeOne(
         playedBest = playedBest,
         forcedMateLine = forcedMateLine,
         mateInBefore = moverMateIn(before, whiteMoved),
+        mateDistanceBefore = before.mate?.let(::abs),
+        mateDistanceAfter = after.mate?.let(::abs),
     )
 }
+
+private fun String.fullmoveNumberOr(ply: Int): Int =
+    trim().split(Regex("\\s+")).getOrNull(FEN_FULLMOVE_INDEX)?.toIntOrNull() ?: (ply + 1) / 2
 
 private fun moverMateIn(
     score: Score,

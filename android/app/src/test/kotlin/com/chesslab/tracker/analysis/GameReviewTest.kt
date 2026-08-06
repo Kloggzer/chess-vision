@@ -46,6 +46,26 @@ private fun score(
 private fun grade(scores: List<Score?>) = grade(game(scores.size - 1), scores, BUDGET)
 
 class GameReviewTest {
+    @Test
+    fun anImportedBlackToMoveFenCarriesTheRealSideAndMoveNumberIntoTheGrade() {
+        val blackToMove = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 42"
+        val imported =
+            StoredGame(
+                id = "black-start",
+                startFen = blackToMove,
+                startedAtEpochMs = 0,
+                finishedAtEpochMs = 1,
+                profileName = "test",
+                result = "*",
+                moves = listOf(StoredMove(1, "e5", "e7e5", 0)),
+            ).reviewView()
+
+        val ply = grade(imported, listOf(score(20), score(20)), BUDGET).of(1)!!
+
+        assertFalse(ply.whiteMoved)
+        assertEquals(42, ply.moveNumber)
+    }
+
     /**
      * The sign flip is the classic bug: a losing move by Black moves the WHITE-POV score UP. Read as
      * win expectancy it is the same flip, and the MOVER's own chances are what the screen prints.
