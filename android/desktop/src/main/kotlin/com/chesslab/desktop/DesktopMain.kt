@@ -4,9 +4,13 @@ import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.MarkerTracker
+import com.chesslab.geometry.alignmentOf
 import com.chesslab.geometry.boardCornersForFrame
+import com.chesslab.geometry.cornersFromFlat
 import com.chesslab.geometry.cornersToFlat
+import com.chesslab.geometry.margins4
 import com.chesslab.tracker.camera.CameraHealth
+import com.chesslab.tracker.geometry.DEFAULT_MARKER_MARGIN
 import com.chesslab.tracker.geometry.measuredBoardSize
 import com.chesslab.tracker.log.TrackerLog
 import com.chesslab.tracker.log.TrackerLogs
@@ -48,9 +52,16 @@ fun main(args: Array<String>) {
             check(video.isFile) { "no such video: ${video.absolutePath}" }
             replay(VideoFileSource(video), video.name)
         }
+        "align" -> {
+            val index = args.getOrNull(1)?.toIntOrNull() ?: usage()
+            // `align 0 raw` measures WITHOUT the lens, which is the comparison that says whether
+            // the distortion or the board geometry is the error.
+            val lens = if (args.getOrNull(2) == "raw") null else lens()
+            WebcamSource(index, lens = lens).use { measureAlignment(it) }
+        }
         "track" -> {
             val index = args.getOrNull(1)?.toIntOrNull() ?: usage()
-            replay(WebcamSource(index), "camera $index")
+            replay(WebcamSource(index, lens = lens()), "camera $index")
         }
         else -> usage()
     }
@@ -78,8 +89,75 @@ private fun locateBoard(
     return null
 }
 
+/**
+ * What the STORED marker margin costs on this board, measured against the board's own grid.
+ *
+ * `margin` says how far outside the playing field the markers sit, and it is a constant today:
+ * `DEFAULT_MARKER_MARGIN` = 0.045, one value assumed for all four corners. The markers are glued on
+ * by hand. So this asks the only question that decides whether that constant is good enough here —
+ * `alignmentOf`, which is absolute rather than self-referential: it fits the board's own nine lines
+ * per axis and reports the worst square offset against 4 % of a cell, counting any line it could
+ * NOT locate as unread rather than assuming it.
+ *
+ * It changes nothing. A margin measured per corner is only worth building if this says the constant
+ * is wrong, and by how much.
+ */
+private fun measureAlignment(
+    source: FrameSource,
+    frames: Int = ALIGN_FRAMES,
+) {
+    val quad =
+        locateBoard(source) ?: run {
+            println("no board found: the markers never decoded")
+            return
+        }
+    val geometry =
+        BoardGeometry(
+            boardSize = measuredBoardSize(quad),
+            // NOT BoardGeometry's default. It defaults to margins4(0.0), which is right for a
+            // Blender render whose corners ARE the playing field and 6-8 % too large for any quad
+            // detected from ArUco, whose markers sit in the label border — the very defect
+            // `ClipPipeline`'s comment records. Measured on the rig with 0.0: 64 of 64 squares cut
+            // off their grid, worst offset 35.8 px against a 6.2 px limit.
+            margin = margins4(DEFAULT_MARKER_MARGIN),
+        )
+    val corners = cornersFromFlat(quad)
+    println("board ${geometry.boardSize} px, margin ${geometry.margin.joinToString { "%.3f".format(it) }} (the stored constant)")
+    val worst = mutableListOf<Double>()
+    var unread = 0
+    var read = 0
+    repeat(frames) {
+        val frame = source.next() ?: return@repeat
+        val verdict = alignmentOf(frame, corners, geometry)
+        if (verdict.worst.isFinite()) worst += verdict.worst
+        unread += verdict.unread
+        read += 1
+        if (read == 1) println("first verdict: ${verdict.reason} (limit ${"%.2f".format(verdict.limit)} px)")
+    }
+    if (worst.isEmpty()) {
+        println("no frame could be measured at all")
+        return
+    }
+    val sorted = worst.sorted()
+    println(
+        "worst square offset over $read frames: " +
+            "median ${"%.2f".format(sorted[sorted.size / 2])} px, " +
+            "p90 ${"%.2f".format(sorted[(sorted.size * 9) / 10])} px, " +
+            "max ${"%.2f".format(sorted.last())} px",
+    )
+    println("grid lines that could not be located: $unread over ${read * 18}")
+}
+
+/** The rig's optics, as `chesslab lens` measured them. Absent is reported, never assumed away. */
+private fun lens(): LensCalibration? =
+    LensCalibration
+        .load(File(LENS_CALIBRATION))
+        .onSuccess { println("lens: ${it.width}x${it.height}, rms ${"%.2f".format(it.rms)} px") }
+        .onFailure { println("no lens applied — ${it.message ?: it::class.simpleName} at $LENS_CALIBRATION") }
+        .getOrNull()
+
 private fun usage(): Nothing {
-    println("usage: chesslab-desktop cameras | replay <video.mp4> | track <camera-index>")
+    println("usage: chesslab-desktop cameras | align <camera-index> [raw] | replay <video.mp4> | track <camera-index>")
     exitProcess(2)
 }
 
@@ -104,7 +182,16 @@ private fun replay(
             println("no board found: the markers never decoded")
             return
         }
-        val geometry = BoardGeometry(boardSize = measuredBoardSize(quad))
+        val geometry =
+            BoardGeometry(
+                boardSize = measuredBoardSize(quad),
+                // NOT BoardGeometry's default. It defaults to margins4(0.0), which is right for a
+                // Blender render whose corners ARE the playing field and 6-8 % too large for any quad
+                // detected from ArUco, whose markers sit in the label border — the very defect
+                // `ClipPipeline`'s comment records. Measured on the rig with 0.0: 64 of 64 squares cut
+                // off their grid, worst offset 35.8 px against a 6.2 px limit.
+                margin = margins4(DEFAULT_MARKER_MARGIN),
+            )
         val config = TrackerConfig().copy(boardSize = geometry.boardSize)
         println("board located from its markers: ${geometry.boardSize} px warp")
         val stack =
@@ -176,3 +263,9 @@ private const val LOCATE_ATTEMPTS = 60
 
 /** Only the homography's scale; the returned points are in frame space either way. */
 private const val PROBE_BOARD_SIZE = 800
+
+/** Frames to judge the alignment over. Two seconds is enough to see a jitter that matters. */
+private const val ALIGN_FRAMES = 60
+
+/** Written by `chesslab lens calibrate`, exported to JSON because Kotlin does not read npz. */
+private const val LENS_CALIBRATION = "../../data/lens/calib.json"

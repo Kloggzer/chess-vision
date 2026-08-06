@@ -34,6 +34,7 @@ dependencies {
     implementation(libs.javacv)
     implementation(libs.onnxruntime.jvm)
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.serialization.json)
 
     runtimeOnly(variantOf(libs.bytedeco.opencv) { classifier(bytedecoClassifier) })
     runtimeOnly(variantOf(libs.bytedeco.ffmpeg) { classifier(bytedecoClassifier) })
