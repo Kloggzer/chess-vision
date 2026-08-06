@@ -7,6 +7,9 @@ import com.chesslab.tracker.cnn.bundledModelOrDefault
 import com.chesslab.tracker.speech.SpeechVerbosity
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 // App-level settings: the knobs that are NOT `TrackerConfig` fields. They belong to the Android
 // host (which camera mode, which graph, which execution provider, which way the board faces) and
@@ -48,8 +51,13 @@ enum class BoardOrientation(
     BLACK_BOTTOM("Black plays from the bottom", false),
 }
 
+private const val CURRENT_MODEL_RELEASE = 3
+private val LEGACY_DEFAULT_MODELS = setOf("shipped", "bn100-80")
+
 @Serializable
 data class AppSettings(
+    /** Lets a new APK migrate an old default once without overriding later explicit choices. */
+    val modelRelease: Int = CURRENT_MODEL_RELEASE,
     /**
      * 1440p, not AUTO/1080p. The board fills roughly a third of the frame's width from a normal
      * seated position — 630 px of 1920, i.e. 79 px per square — and the CNN wants 128. At 2560
@@ -145,5 +153,24 @@ fun decodeAppSettings(text: String?): AppSettings {
     if (text.isNullOrBlank()) return AppSettings()
     val decoded = runCatching { json.decodeFromString(AppSettings.serializer(), text) }.getOrElse { AppSettings() }
     val model = if (decoded.modelAsset == QNN_ASSET) AppSettings().modelAsset else decoded.modelAsset
-    return decoded.copy(modelAsset = model, modelDir = bundledModelOrDefault(decoded.modelDir))
+    val storedModelRelease =
+        runCatching {
+            json
+                .parseToJsonElement(text)
+                .jsonObject["modelRelease"]
+                ?.jsonPrimitive
+                ?.intOrNull ?: 0
+        }.getOrDefault(0)
+    val selected = bundledModelOrDefault(decoded.modelDir)
+    val modelDir =
+        if (storedModelRelease < CURRENT_MODEL_RELEASE && selected in LEGACY_DEFAULT_MODELS) {
+            DEFAULT_MODEL
+        } else {
+            selected
+        }
+    return decoded.copy(
+        modelRelease = CURRENT_MODEL_RELEASE,
+        modelAsset = model,
+        modelDir = modelDir,
+    )
 }
