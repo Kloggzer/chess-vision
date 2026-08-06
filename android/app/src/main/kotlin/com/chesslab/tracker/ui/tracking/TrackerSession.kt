@@ -27,7 +27,7 @@ interface TrackerSession {
     val events: Flow<TrackerEvent>
     val rawPreview: StateFlow<Bitmap?>
 
-    /** Display-only turn for [rawPreview]; see `CalibrationFrames.previewRotation`. */
+    /** Display-only turn for [rawPreview]; see `CalibrationFrames<Bitmap>.previewRotation`. */
     val previewRotation: StateFlow<Int>
 
     /**

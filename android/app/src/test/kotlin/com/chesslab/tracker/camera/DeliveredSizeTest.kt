@@ -21,7 +21,7 @@ class DeliveredSizeTest {
     @Test
     fun deliveredSizeIsReadFromTheImageNeverFromTheRequest() {
         val request = CameraRequest(width = 1280, height = 720)
-        val delivered = DeliveredSize.of(FakeImageProxy(width = 1280, height = 960, rotation = 90))
+        val delivered = deliveredSizeOf(FakeImageProxy(width = 1280, height = 960, rotation = 90))
 
         assertEquals(1280, delivered.width)
         assertEquals(960, delivered.height)

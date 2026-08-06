@@ -1,6 +1,5 @@
 package com.chesslab.tracker.service
 
-import androidx.camera.core.ImageProxy
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.MarkerTracker
@@ -11,7 +10,6 @@ import com.chesslab.geometry.gridCorrection
 import com.chesslab.geometry.improveQuad
 import com.chesslab.geometry.quadDriftCells
 import com.chesslab.tracker.camera.DeliveredSize
-import com.chesslab.tracker.camera.FrameSink
 import com.chesslab.tracker.cnn.CnnObserver
 import com.chesslab.tracker.log.NoopTrackerLog
 import com.chesslab.tracker.log.TrackerLog
@@ -32,15 +30,15 @@ import java.util.concurrent.atomic.AtomicReference
  * Nothing here blocks — no `runBlocking`, no `await`, no disk, no ArUco, no inference. The
  * legacy 970-LOC service did all of that inline and held the loop at 100-150 ms (commit 4a7609e).
  */
-class TrackerCoordinator(
-    private val pipeline: FramePipeline<ImageProxy>,
+class TrackerCoordinator<T>(
+    private val pipeline: FramePipeline<T>,
     private val host: EngineHost,
     private val publisher: StatusPublisher,
-    private val bus: CameraFrameBus,
+    private val bus: CameraFrameBus<*>,
     private val observer: CnnObserver,
     private val align: LiveAlign,
     private val timings: StageTimings,
-) : FrameSink {
+) {
     /**
      * The frame clock spans this WHOLE method.
      *
@@ -49,8 +47,8 @@ class TrackerCoordinator(
      * and live-align clone after it. That is why `total + engine` read ~65 ms against an observed
      * ~90 ms frame period — the gap was real work, not measurement noise.
      */
-    override fun onFrame(
-        image: ImageProxy,
+    fun onFrame(
+        image: T,
         delivered: DeliveredSize,
     ) {
         timings.begin()
@@ -59,7 +57,7 @@ class TrackerCoordinator(
         bus.noteRotation(delivered.rotationDegrees)
         // The preview bus is fed from INSIDE the pipeline now (`FrameStages.publishFrame`), off the
         // frame the convert already produced — see `CameraFrameBus.offer`.
-        val result = pipeline.onFrame(image, image.width, image.height, System.currentTimeMillis())
+        val result = pipeline.onFrame(image, delivered.width, delivered.height, System.currentTimeMillis())
         val events = host.tick((result as? FrameResult.Ready)?.input)
         // The engine runs HERE, on the analyzer thread, and it is part of the frame budget.
         timings.mark(Stage.ENGINE)
@@ -160,7 +158,7 @@ class LiveAlign(
     private var inFlight = false
 
     fun maybeAlign(
-        source: CalibrationFrames,
+        source: CalibrationFrames<*>,
         delivered: DeliveredSize,
     ) {
         frames += 1

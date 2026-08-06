@@ -6,23 +6,8 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import com.chesslab.tracker.settings.ResolutionMode
 
-/**
- * The size the camera REALLY delivers, built only from the [ImageProxy].
- *
- * Never from the request: commit `a7dab73` — the app asked for 1280x720, the device delivered
- * 4:3 1280x960, the requested numbers were passed on as truth, and corners were rescaled with
- * sy = 720/960 while x stayed untouched. Live-align then EMA-mixed corners across two coordinate
- * spaces and the warp drifted ~2.3 ranks. The request is a wish; the ImageProxy is the fact.
- */
-data class DeliveredSize(
-    val width: Int,
-    val height: Int,
-    val rotationDegrees: Int,
-) {
-    companion object {
-        fun of(image: ImageProxy): DeliveredSize = DeliveredSize(image.width, image.height, image.imageInfo.rotationDegrees)
-    }
-}
+/** The CameraX fact behind [DeliveredSize]: read off the ImageProxy, never off the request. */
+fun deliveredSizeOf(image: ImageProxy): DeliveredSize = DeliveredSize(image.width, image.height, image.imageInfo.rotationDegrees)
 
 /**
  * Analyzer seam.
@@ -38,22 +23,6 @@ fun interface FrameSink {
         image: ImageProxy,
         delivered: DeliveredSize,
     )
-}
-
-/** Camera-device status. Down is a STATUS, not a freeze — 06c maps it into `TrackerStatus.note`. */
-sealed interface CameraHealth {
-    data object Up : CameraHealth
-
-    /**
-     * Released because the user said so. Distinct from [Down] on purpose: [Down] promises a retry
-     * and this one must never advertise one — nothing but an explicit resume brings the camera back.
-     */
-    data object Off : CameraHealth
-
-    data class Down(
-        val reason: String,
-        val retryInS: Int,
-    ) : CameraHealth
 }
 
 /** What we ask the device for. A wish — see [DeliveredSize]. */

@@ -16,7 +16,7 @@ import org.opencv.core.Mat
 
 /**
  * What the calibration screen needs from the tracker service. A value of lambdas rather than an
- * interface, so it is built FROM 06c's `TrackerBinder` (`CalibrationFrames` + `applyCalibration`)
+ * interface, so it is built FROM 06c's `TrackerBinder` (`CalibrationFrames<Bitmap>` + `applyCalibration`)
  * without either phase having to implement the other's type.
  */
 class CalibrationHost(

@@ -3,6 +3,7 @@ package com.chesslab.tracker.service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.Bitmap
 import android.os.IBinder
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
@@ -31,6 +32,7 @@ import com.chesslab.tracker.log.androidTrackerLogs
 import com.chesslab.tracker.pipeline.CameraRate
 import com.chesslab.tracker.pipeline.PERF_TAG
 import com.chesslab.tracker.pipeline.StageTimings
+import com.chesslab.tracker.pipeline.cameraStages
 import com.chesslab.tracker.runtime.AppPaths
 import com.chesslab.tracker.settings.AppSettings
 import com.chesslab.tracker.settings.SettingsHost
@@ -81,7 +83,7 @@ class TrackerService :
     private lateinit var settings: SettingsRepository
     private lateinit var publisher: StatusPublisher
     private lateinit var camera: TrackerCamera
-    private lateinit var frames: CameraFrameBus
+    private lateinit var frames: CameraFrameBus<Bitmap>
     private lateinit var binder: TrackerBinder
     private lateinit var notification: TrackerNotification
     private lateinit var speech: MoveAnnouncer
@@ -118,6 +120,7 @@ class TrackerService :
                     publisher.lastFen ?: STARTPOS,
                     diagnostics::offer,
                     androidTrackerLogs,
+                    ::cameraStages,
                 ),
                 settings,
                 publisher,
@@ -307,7 +310,12 @@ class TrackerService :
                 stacks.current?.coordinator?.onFrame(image, delivered)
             })
         frames =
-            CameraFrameBus(camera.cameraState, lifecycleScope, { bgrToBitmap(it, PREVIEW_MAX_SIDE) }, AndroidTrackerLog("chesslabFrames"))
+            CameraFrameBus<Bitmap>(
+                camera.cameraState,
+                lifecycleScope,
+                { bgrToBitmap(it, PREVIEW_MAX_SIDE) },
+                AndroidTrackerLog("chesslabFrames"),
+            )
         binder =
             TrackerBinder(publisher, frames, settings, cnn, { stacks.current?.host?.submit(it) }, this, torch)
         DebugSessionHost.publish(

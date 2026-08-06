@@ -286,7 +286,7 @@ class TrackerCamera(
 
     private fun deliver(image: ImageProxy) {
         try {
-            val delivered = DeliveredSize.of(image)
+            val delivered = deliveredSizeOf(image)
             deliveredSize = delivered
             noteSensorRate(image)
             mismatch.report(target.width, target.height, delivered)

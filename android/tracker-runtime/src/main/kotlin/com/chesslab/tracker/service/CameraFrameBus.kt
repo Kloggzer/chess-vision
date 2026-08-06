@@ -1,6 +1,5 @@
 package com.chesslab.tracker.service
 
-import android.graphics.Bitmap
 import com.chesslab.tracker.camera.CameraHealth
 import com.chesslab.tracker.log.NoopTrackerLog
 import com.chesslab.tracker.log.TrackerLog
@@ -9,10 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import org.opencv.android.Utils
 import org.opencv.core.Mat
-import org.opencv.core.Size
-import org.opencv.imgproc.Imgproc
 
 /** ~5 fps. A preview and a calibration tap need freshness, not frame rate. */
 private const val PUBLISH_INTERVAL_MS = 200L
@@ -49,25 +45,25 @@ class InFlightGate {
  * Both outputs are throttled to [PUBLISH_INTERVAL_MS], so the conversion cost lands on one frame
  * in six rather than on every one.
  */
-class CameraFrameBus(
+class CameraFrameBus<B>(
     override val cameraHealth: StateFlow<CameraHealth>,
     private val scope: CoroutineScope,
-    private val toBitmap: (Mat) -> Bitmap?,
+    private val toPreview: (Mat) -> B?,
     private val log: TrackerLog = NoopTrackerLog,
     private val nowMs: () -> Long = System::currentTimeMillis,
-) : CalibrationFrames,
+) : CalibrationFrames<B>,
     AutoCloseable {
     private val gate = InFlightGate()
     private val boardGate = InFlightGate()
-    private val preview = MutableStateFlow<Bitmap?>(null)
-    private val board = MutableStateFlow<Bitmap?>(null)
+    private val preview = MutableStateFlow<B?>(null)
+    private val board = MutableStateFlow<B?>(null)
     private val rotation = MutableStateFlow(0)
     private val lock = Any()
     private var latest: Mat? = null
     private var lastMs = 0L
     private var lastBoardMs = 0L
 
-    override val rawPreview: StateFlow<Bitmap?> = preview.asStateFlow()
+    override val rawPreview: StateFlow<B?> = preview.asStateFlow()
 
     override val previewRotation: StateFlow<Int> = rotation.asStateFlow()
 
@@ -92,7 +88,7 @@ class CameraFrameBus(
      * top-left, so the evidence grid is exactly the image divided by eight and there is nothing
      * left to get wrong.
      */
-    override val boardPreview: StateFlow<Bitmap?> = board.asStateFlow()
+    override val boardPreview: StateFlow<B?> = board.asStateFlow()
 
     /**
      * Analyzer thread, with the frame the pipeline just converted.
@@ -128,7 +124,7 @@ class CameraFrameBus(
         if (!boardGate.tryEnter()) return
         val frame = warp.clone()
         scope.launch {
-            runCatching { board.value = toBitmap(frame) }
+            runCatching { board.value = toPreview(frame) }
                 .onFailure { log.warn("board preview conversion failed", it) }
             frame.release()
             boardGate.leave()
@@ -153,7 +149,7 @@ class CameraFrameBus(
                 return
             }
         scope.launch {
-            runCatching { preview.value = toBitmap(frame) }
+            runCatching { preview.value = toPreview(frame) }
                 .onFailure { log.warn("preview conversion failed", it) }
             frame.release()
             gate.leave()
@@ -161,32 +157,11 @@ class CameraFrameBus(
     }
 }
 
-/**
- * BGR `Mat` -> `Bitmap`, downscaled so the UI never uploads a 1080p texture at 5 fps.
- *
- * Runs off the analyzer thread (see [CameraFrameBus.publishPreview]); it is the one place that
- * touches Android graphics, which is also why it is untestable on the desktop JVM.
- */
-fun bgrToBitmap(
-    bgr: Mat,
-    maxSide: Int,
-): Bitmap? {
-    val side = maxOf(bgr.cols(), bgr.rows())
-    val scale = if (side > maxSide) maxSide.toDouble() / side else 1.0
-    val rgba = Mat()
-    Imgproc.cvtColor(bgr, rgba, Imgproc.COLOR_BGR2RGBA)
-    if (scale < 1.0) Imgproc.resize(rgba, rgba, Size(), scale, scale, Imgproc.INTER_AREA)
-    val bitmap = Bitmap.createBitmap(rgba.cols(), rgba.rows(), Bitmap.Config.ARGB_8888)
-    Utils.matToBitmap(rgba, bitmap)
-    rgba.release()
-    return bitmap
-}
-
 /** The seam 06a consumes. Pinned across both phases; 06a may not widen it. */
-interface CalibrationFrames {
+interface CalibrationFrames<B> {
     fun latestCalibrationFrame(): Mat?
 
-    val rawPreview: StateFlow<Bitmap?>
+    val rawPreview: StateFlow<B?>
 
     /**
      * Degrees to rotate [rawPreview] CLOCKWISE for it to sit upright on the screen — 90 on a
@@ -205,7 +180,7 @@ interface CalibrationFrames {
     val previewRotation: StateFlow<Int>
 
     /** The rectified board; null until the first frame is warped. See [CameraFrameBus.boardPreview]. */
-    val boardPreview: StateFlow<Bitmap?>
+    val boardPreview: StateFlow<B?>
 
     val cameraHealth: StateFlow<CameraHealth>
 }
