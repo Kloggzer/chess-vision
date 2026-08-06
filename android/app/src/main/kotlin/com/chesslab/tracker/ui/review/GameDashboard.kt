@@ -1,32 +1,7 @@
 package com.chesslab.tracker.ui.review
 
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
 import com.chesslab.tracker.analysis.GameGrade
-import com.chesslab.tracker.ui.Card
-import com.chesslab.tracker.ui.theme.OnSurface
-import com.chesslab.tracker.ui.theme.OnSurfaceMuted
-
-/**
- * The mates in this game — and NOT the result again.
- *
- * It opened with [resultHeadline] until specs/50, which was fine while the rating card was on
- * another tab. specs/48 moved them together and the Moments tab then read "White wins" twice, in two
- * stacked cards.
- */
-@Composable
-internal fun MateStoryCard(grade: GameGrade) {
-    Card {
-        Text("Mating chances", style = MaterialTheme.typography.titleMedium, color = OnSurface)
-        Text(mateStory(grade), style = MaterialTheme.typography.bodyMedium, color = OnSurface)
-        Text(
-            forcedMateStory(grade.forcedMatePlies),
-            style = MaterialTheme.typography.bodySmall,
-            color = OnSurfaceMuted,
-        )
-    }
-}
+import com.chesslab.tracker.analysis.PlyGrade
 
 internal fun resultHeadline(result: String): String =
     when (result) {
@@ -57,21 +32,14 @@ internal fun followedMateStory(grade: GameGrade): String? {
             .takeWhile { it.forcedMateLine }
             .asReversed()
     val first = finalLine.firstOrNull { it.mateBefore && it.mateAfter } ?: return null
-    return "${movingSide(first.ply)} · forced mate"
+    return "${movingSide(first)} · forced mate"
 }
 
 private fun chances(count: Int): String = "$count mating ${if (count == 1) "chance" else "chances"}"
-
-private fun forcedMateStory(count: Int): String =
-    if (count == 0) {
-        "No played forced-mate sequence was found."
-    } else {
-        "$count ${if (count == 1) "move" else "moves"} in the forced mate sequence excluded from accuracy."
-    }
 
 internal fun accuracyDenominator(
     graded: Int,
     moves: Int,
 ): String = "$graded/$moves moves graded"
 
-internal fun movingSide(ply: Int): String = if (ply % 2 == 1) "White" else "Black"
+internal fun movingSide(ply: PlyGrade): String = if (ply.whiteMoved) "White" else "Black"
