@@ -17,6 +17,26 @@ import org.junit.jupiter.api.Test
  */
 class SettingsNavTest {
     @Test
+    fun developerKeysGetReadablePrimaryLabels() {
+        assertEquals("Motion threshold", knobTitle("motionThr"))
+        assertEquals("Motion pixel threshold", knobTitle("motionPxThr"))
+        assertEquals("CNN IoU threshold", knobTitle("cnnIouThr"))
+    }
+
+    @Test
+    fun tuningValuesNameTheirHumanUnit() {
+        fun shown(key: String): String {
+            val knob = KNOB_CATALOG.first { it.key == key }
+            return knobDisplayValue(knob, knob.pythonDefault)
+        }
+
+        assertEquals("0.25 %", shown("motionThr"))
+        assertEquals("20 / 255", shown("motionPxThr"))
+        assertEquals("10 %", shown("motionMargin"))
+        assertEquals("0.2 s", shown("motionHoldS"))
+    }
+
+    @Test
     fun everyKnobIsReachableFromExactlyOneGroup() {
         val viaGroups = KnobGroup.entries.flatMap { knobsIn(it) }
         assertEquals(KNOB_CATALOG.size, viaGroups.size, "a knob is in two groups or in none")

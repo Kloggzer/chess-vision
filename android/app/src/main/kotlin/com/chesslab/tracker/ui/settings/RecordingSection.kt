@@ -2,14 +2,11 @@ package com.chesslab.tracker.ui.settings
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -30,20 +27,15 @@ import com.chesslab.tracker.record.SessionInfo
 import com.chesslab.tracker.record.SessionStore
 import com.chesslab.tracker.record.formatBytes
 import com.chesslab.tracker.record.zipSession
-import com.chesslab.tracker.ui.Card
-import com.chesslab.tracker.ui.ChesslabChip
 import com.chesslab.tracker.ui.ConfirmDialog
 import com.chesslab.tracker.ui.TextAction
 import com.chesslab.tracker.ui.games.GameSessionHost
 import com.chesslab.tracker.ui.games.RecordingSettingsHost
 import com.chesslab.tracker.ui.games.sessionsDir
-import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.Danger
-import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
-import com.chesslab.tracker.ui.theme.chesslabSwitchColors
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -112,7 +104,6 @@ class RecordingViewModel(
  * hundreds of megabytes of its own storage, and the payoff (auto-labeled training data for
  * `chesslab slice`) is invisible on the device itself.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RecordingSection() {
     val context = LocalContext.current
@@ -127,77 +118,42 @@ fun RecordingSection() {
     val live by (controller?.state ?: NO_LIVE_GAME).collectAsStateWithLifecycle()
     var expanded by remember { mutableStateOf(false) }
 
-    Card {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            // `weight` on the text, not a fixed width: measured first it claims the whole row and
-            // wraps its next line under the Switch, which holds its minimum size regardless.
-            Text(
-                text = "Record training frames",
-                style = MaterialTheme.typography.titleMedium,
-                color = OnSurface,
-                modifier = Modifier.weight(1f).padding(end = Space.md),
-            )
-            Switch(ui.prefs.enabled, { model.setPrefs(ui.prefs.copy(enabled = it)) }, colors = chesslabSwitchColors())
-        }
-        Text(
-            "Each committed move stores the raw camera frame with its FEN and board corners — exactly what " +
-                "`chesslab slice` turns into 64 labeled crops. It costs storage (a game is tens of megabytes) " +
-                "and nothing on the phone reads it back, so it is off unless you want the data.",
-            style = MaterialTheme.typography.bodySmall,
-            color = OnSurfaceMuted,
+    Column {
+        SwitchPreference(
+            title = "Record training frames",
+            summary = "Save one camera frame and board position for every committed move",
+            checked = ui.prefs.enabled,
+            onCheckedChange = { model.setPrefs(ui.prefs.copy(enabled = it)) },
         )
-        LiveRecordingLine(live)
-        Text(
-            "On disk: ${formatBytes(ui.sessionBytes)} in ${ui.sessions.size} sessions · limit ${capLabel(ui.prefs.capBytes)}",
-            style = MaterialTheme.typography.bodySmall,
-            color = OnSurfaceMuted,
+        PreferenceRow("Recording status", recordingStatus(live))
+        live.recordingReason?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Danger) }
+        ValuePreference(
+            title = "Storage limit",
+            summary = "${formatBytes(ui.sessionBytes)} in ${ui.sessions.size} sessions",
+            options = CAPS.map { capLabel(it) to it },
+            selected = ui.prefs.capBytes,
+            onSelect = { model.setPrefs(ui.prefs.copy(capBytes = it)) },
         )
-        StorageLimit(ui.prefs.capBytes, ui.sessionBytes) { model.setPrefs(ui.prefs.copy(capBytes = it)) }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        if (ui.prefs.capBytes in 1..<ui.sessionBytes) {
             Text(
-                text = "Skip physically impossible positions",
+                "Recording is paused because the existing data exceeds this limit. Nothing was deleted.",
                 style = MaterialTheme.typography.bodySmall,
-                color = OnSurfaceMuted,
-                modifier = Modifier.weight(1f).padding(end = Space.md),
-            )
-            Switch(
-                ui.prefs.inventoryFilter,
-                { model.setPrefs(ui.prefs.copy(inventoryFilter = it)) },
-                colors = chesslabSwitchColors(),
+                color = Busy,
             )
         }
-        TextAction(if (expanded) "Hide recordings" else "Show recordings (${ui.sessions.size})", { expanded = !expanded })
-        if (expanded) ui.sessions.forEach { SessionRow(it, model) }
-    }
-}
-
-/**
- * The cap, and what it does when it is already exceeded.
- *
- * The limit **STOPS** the recorder; it never prunes (`SessionCapture.capReached`). So lowering it
- * below what is on disk is reversible — raise it and recording resumes — and it deliberately does
- * NOT get the destructive confirmation the pack's rule 6 asks for: a dialog promising a deletion
- * that does not happen is worse than no dialog. What it does need is to say what it will do.
- */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun StorageLimit(
-    cap: Long,
-    onDisk: Long,
-    onCap: (Long) -> Unit,
-) {
-    if (cap in 1..<onDisk) {
-        Text(
-            "Recording is stopped: what is on disk is already over this limit. Nothing is deleted — " +
-                "raise the limit and it resumes.",
-            style = MaterialTheme.typography.bodySmall,
-            color = Busy,
+        SwitchPreference(
+            title = "Reject impossible positions",
+            summary = "Skip frames whose piece inventory cannot occur in a legal game",
+            checked = ui.prefs.inventoryFilter,
+            onCheckedChange = { model.setPrefs(ui.prefs.copy(inventoryFilter = it)) },
         )
-    }
-    // Real chips, not coloured text: as plain labels the four caps had no tappable affordance and
-    // the selected one was distinguishable only by hue.
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-        CAPS.forEach { ChesslabChip(capLabel(it), it == cap) { onCap(it) } }
+        PreferenceRow(
+            title = "Stored recordings",
+            summary = "${ui.sessions.size} sessions · ${formatBytes(ui.sessionBytes)}",
+            value = if (expanded) "Hide" else "Show",
+            onClick = { expanded = !expanded },
+        )
+        if (expanded) ui.sessions.forEach { SessionRow(it, model) }
     }
 }
 
@@ -209,20 +165,11 @@ private fun StorageLimit(
  * that would not encode — was indistinguishable from one that was working, which is why the only
  * report this feature ever got was "recording doesn't work well".
  */
-@Composable
-private fun LiveRecordingLine(live: GameSessionState) {
+private fun recordingStatus(live: GameSessionState): String {
     val session = live.recordingSessionId
-    Text(
-        text =
-            when {
-                session != null -> "Recording $session · ${live.recordedFrames} frames written"
-                else -> "Nothing recording yet — the first committed move starts a session"
-            },
-        style = MaterialTheme.typography.bodySmall,
-        color = if (session != null) Accent else OnSurfaceMuted,
-    )
-    live.recordingReason?.let {
-        Text(it, style = MaterialTheme.typography.bodySmall, color = Danger)
+    return when {
+        session != null -> "Recording $session · ${live.recordedFrames} frames written"
+        else -> "The first committed move starts a session"
     }
 }
 

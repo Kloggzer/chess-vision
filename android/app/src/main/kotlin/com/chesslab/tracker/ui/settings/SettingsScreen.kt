@@ -16,12 +16,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -102,45 +105,42 @@ private fun SettingsScreen(
     val app by viewModel.app.collectAsStateWithLifecycle()
     val pending by viewModel.restartRequired.collectAsStateWithLifecycle()
     val note by viewModel.note.collectAsStateWithLifecycle()
-    var confirmResetAll by remember { mutableStateOf(false) }
-    var resetGroup by remember { mutableStateOf<KnobGroup?>(null) }
-    var place by remember { mutableStateOf<SettingsPlace>(SettingsPlace.Groups) }
-    var query by remember { mutableStateOf("") }
+    val screen = remember { SettingsUiState() }
 
-    // The search box lives with the LIST, and after specs/51 the list is on the developer page:
-    // searching four rows is furniture, while `censusThr` is exactly what somebody hunts for.
-    val searching = place is SettingsPlace.Developer && query.isNotBlank()
-    val title = if (searching) "Search" else settingsTitle(place)
-    // One back affordance, one meaning, and the arrow and the SYSTEM button call the same lambda so
-    // the two can never diverge. [parentOf] is what makes a tuning group return to Developer rather
-    // than to the player's landing page two levels up.
-    val up: () -> Unit = {
-        if (searching) {
-            query = ""
-        } else {
-            val parent = parentOf(place)
-            if (parent == null) onBack() else place = parent
-        }
-    }
-    BackHandler(enabled = place !is SettingsPlace.Groups, onBack = up)
+    // Search belongs to the developer list, where raw keys are useful.
+    val title = if (screen.searchOpen) "Search" else settingsTitle(screen.place)
+    // The app-bar arrow and system Back share this parent traversal.
+    val up: () -> Unit = { screen.up(onBack) }
+    BackHandler(enabled = screen.place !is SettingsPlace.Groups || screen.searchOpen, onBack = up)
 
-    ChesslabScaffold(title, up) { bars ->
+    ChesslabScaffold(
+        title = title,
+        onBack = up,
+        actions = {
+            SettingsActions(
+                place = screen.place,
+                searchOpen = screen.searchOpen,
+                onSearch = { screen.searchOpen = true },
+                onReset = { screen.resetGroup = it },
+            )
+        },
+    ) { bars ->
         Column(Modifier.fillMaxSize().padding(bars)) {
             note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Accent) }
-            if (place is SettingsPlace.Developer) SearchField(query) { query = it }
+            if (screen.place is SettingsPlace.Developer && screen.searchOpen) SearchField(screen.query) { screen.query = it }
             SettingsList(
                 viewModel,
                 config,
                 app,
                 pending,
-                place,
-                query,
+                screen.place,
+                screen.query,
                 SettingsNav(
-                    openGroup = { place = it },
+                    openGroup = { screen.place = it },
                     openDebug = onOpenDebug,
                     openCalibration = onOpenCalibration,
-                    resetGroup = { resetGroup = it },
-                    resetAll = { confirmResetAll = true },
+                    resetGroup = { screen.resetGroup = it },
+                    resetAll = { screen.confirmResetAll = true },
                 ),
                 Modifier.weight(1f),
             )
@@ -148,17 +148,91 @@ private fun SettingsScreen(
         }
     }
 
+    SettingsResetDialogs(
+        confirmResetAll = screen.confirmResetAll,
+        resetGroup = screen.resetGroup,
+        config = config,
+        viewModel = viewModel,
+        dismissAll = { screen.confirmResetAll = false },
+        dismissGroup = { screen.resetGroup = null },
+    )
+}
+
+private class SettingsUiState {
+    var confirmResetAll by mutableStateOf(false)
+    var resetGroup by mutableStateOf<KnobGroup?>(null)
+    var place by mutableStateOf<SettingsPlace>(SettingsPlace.Groups)
+    var query by mutableStateOf("")
+    var searchOpen by mutableStateOf(false)
+
+    fun up(onBack: () -> Unit) {
+        if (searchOpen) {
+            query = ""
+            searchOpen = false
+            return
+        }
+        val parent = parentOf(place)
+        if (parent == null) onBack() else place = parent
+    }
+}
+
+@Composable
+private fun SettingsResetDialogs(
+    confirmResetAll: Boolean,
+    resetGroup: KnobGroup?,
+    config: TrackerConfig,
+    viewModel: SettingsViewModel,
+    dismissAll: () -> Unit,
+    dismissGroup: () -> Unit,
+) {
     if (confirmResetAll) {
-        ConfirmResetAll(modifiedKnobs(config).size, onConfirm = {
-            confirmResetAll = false
-            viewModel.resetAll()
-        }, onDismiss = { confirmResetAll = false })
+        ConfirmResetAll(
+            modifiedKnobs(config).size,
+            onConfirm = {
+                dismissAll()
+                viewModel.resetAll()
+            },
+            onDismiss = dismissAll,
+        )
     }
     resetGroup?.let { group ->
-        ConfirmResetGroup(group, config, onConfirm = {
-            viewModel.resetGroup(group)
-            resetGroup = null
-        }, onDismiss = { resetGroup = null })
+        ConfirmResetGroup(
+            group,
+            config,
+            onConfirm = {
+                viewModel.resetGroup(group)
+                dismissGroup()
+            },
+            onDismiss = dismissGroup,
+        )
+    }
+}
+
+@Composable
+private fun SettingsActions(
+    place: SettingsPlace,
+    searchOpen: Boolean,
+    onSearch: () -> Unit,
+    onReset: (KnobGroup) -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    if (place is SettingsPlace.Developer && !searchOpen) {
+        IconButton(onClick = onSearch) {
+            Icon(Icons.Filled.Search, contentDescription = "Search settings")
+        }
+    }
+    val group = place as? SettingsPlace.Group ?: return
+    IconButton(onClick = { menuOpen = true }) {
+        Icon(Icons.Filled.MoreVert, contentDescription = "Section options")
+    }
+    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+        DropdownMenuItem(
+            text = { Text("Reset ${group.group.title} to defaults") },
+            onClick = {
+                menuOpen = false
+                onReset(group.group)
+            },
+        )
     }
 }
 
@@ -254,14 +328,9 @@ private fun SettingsList(
             else -> emptyList()
         }
 
-    LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(Space.sm)) {
+    LazyColumn(modifier, verticalArrangement = Arrangement.Top) {
         if (searching && rows.isEmpty()) {
             item(key = "empty") { NoMatch(query) }
-        }
-        if (place is SettingsPlace.Group) {
-            item(key = "resetGroup") {
-                OutlineAction("Reset ${place.group.title} to defaults", { nav.resetGroup(place.group) })
-            }
         }
         items(rows.size, key = { rows[it].key }) { index ->
             val knob = rows[index]
