@@ -2,14 +2,55 @@
 
 | Phase | State | Note |
 |---|---|---|
-| 00 — a candidate the machine cannot vouch for | `done` | the candidate it writes for the real game has **zero moves**; that is the headline result |
-| 01 — the game you review | `done` | built and tested; **never exercised by a human on real data**, because 00 produced nothing to review |
-| 02 — the clip the harnesses run | `partial` | `--adopt` + the Kotlin margin defect are done; excerpts and the real manifest entry are **blocked** — there is no confirmable candidate |
+| 00 — a candidate the machine cannot vouch for | `done` | wrote **zero moves** when this was written; writes **22** since `specs/41` — see the 2026-08-06 correction |
+| 01 — the game you review | `done` | built and tested; **still never exercised by a human on real data**, but no longer for want of a candidate |
+| 02 — the clip the harnesses run | `partial` | `--adopt` + the Kotlin margin defect are done. The excerpts and the manifest entry are **no longer blocked** — they are unstarted, and gated on a human confirming the candidate |
 
-> **Read the 2026-08-03 section first.** The headline below is correct that the replay commits
-> nothing, and WRONG about why: it blames `SquareNoise` and clears the quad. Both were re-measured
-> on 2026-08-03 — 0 of 64 squares are stuck at the noise init, and the quad was never measured at
-> all, because only three of the four markers decode on this video. Kept for its numbers.
+> **Read the 2026-08-06 correction first, then the 2026-08-03 section.** Everything below describing
+> a replay that commits nothing is history: it was true, it was traced twice, and `specs/41` fixed
+> it. The 2026-08-03 section is also right that the *first* trace blamed the wrong thing.
+
+## Correction, 2026-08-06 — the candidate exists, and phase 02 is not blocked
+
+`specs/41-the-board-is-its-own-ruler` shipped all three of its phases and the headline result of this
+pack is void. Verified on disk today, not taken from that pack's word:
+
+| `data/realgames/game-2026-08-02/candidate.json` | |
+|---|---|
+| written | 2026-08-03T09:53:48Z, from `testclip-raw/VID_20260802_222741.mp4` — the same video that produced `moves: []` |
+| moves | **22**, `1.e4 e5 2.Nf3 Nf6 3.Nxe5 Nxe4 4.f3 Nf6 5.d4 d6 6.Ng4 d5 7.Qe2+ Qe7 8.Bg5 h6 9.Bh4 g5 10.h3 Nc6 11.Nc3 Nxd4` |
+| deciders | `cnn_occupancy` 10 · `cnn_pair` 6 · **`cnn_recovery` 6** |
+| alarms | 0 |
+| `confirmed` | **false** — as designed; only the confirm route flips it and only `--adopt` reads it |
+| geometry | margin 0.05, board_size 800, quad spread median 0.646 / p90 1.206 / max 5.794 rectified px |
+| clock | 30 fps, inter-frame error median 0.0 / max 33.333 ms — one dropped frame in 9576 |
+
+**Why it was zero.** Two causes, neither of them the ones this pack's first trace named: only **three
+of the four ArUco markers ever decode** (id 2, the `h1` corner, is clipped by the right image border
+at 1080 wide), and `resolve_board_corners` was standing `cv2.getAffineTransform` — a parallelogram —
+in for a perspective view of a plane. The error a missing marker produces is **projective**, and an
+affine correction cannot remove it: 24.0–37.2 px worst square offset in, 6.8–17.8 px after the affine
+correction, **1.86–2.10 px** after a projective one. Over the whole video the median went 29.6 → 2.0 px
+on a 100 px cell.
+
+**What this does and does not unblock.**
+
+- **Unblocked:** the lead-in measurement, the excerpt size against the 11 MB budget, and the manifest
+  entry. All three were "blocked, no committed move to cut around". There are 22 now.
+- **Still required, and unchanged:** a human must open `chesslab web` → Dataset → Sessions → Real
+  games and confirm the plies. `--adopt` refuses while `confirmed` is false, and that refusal is
+  tested. Phase 01 has still never been exercised by a person on real data — that is now the only
+  thing standing between this pack and a real manifest entry.
+- **An honest limit on the candidate:** 22 plies of a game that ran **83 plies live**. It is a
+  reviewable prefix, not the whole game, and an excerpt cut from it inherits that.
+- **Not re-measured here:** the second finding below — that the reference is only re-anchored on a
+  commit, so a run which never commits never recovers — did not reproduce on this video once commits
+  started happening. Whether it still stands as an independent defect is untested, and it was always
+  described as worth its own fix regardless of this video.
+- **A latent conflict the first real entry will hit:** a `tracker: {}` manifest entry and the recorded
+  `effectiveConfig` disagree about `settle/avg/confirm_frames` — the Python harness builds with
+  `cnn_run=None` (4/3/2) while the candidate records the CNN-attached 3/2/1. Nothing depends on it
+  yet.
 
 ## The headline measurement, and it is not the one the pack expected
 
@@ -68,8 +109,8 @@ Video `data/testclip-raw/VID_20260802_222741.mp4`, 1080×1920, 30 fps, 9576 fram
 | Refusal threshold for quad spread | chosen from the above | **p90 ≤ 4.0 rectified px** (4× the measured p90; under the 3.2-6.5 px band `data-pipeline` §12 calls damaging) |
 | Refusal threshold for fps jitter | chosen from the above | **p90 ≤ 10 % of a frame period** (3.33 ms at 30 fps) |
 | Replay's `decider` tally vs live 55-of-91 | phase 00 acceptance | **0 commits of any decider**; 958 CNN observations, 0 alarms |
-| Lead-in frames an excerpt needs | phase 02 | **not measured — blocked**, no committed move to cut around |
-| Real excerpt size against the 11 MB budget | phase 02 | **not measured — blocked**, same reason |
+| Lead-in frames an excerpt needs | phase 02 | ~~**not measured — blocked**, no committed move to cut around~~ → **unblocked 2026-08-06, still unmeasured**; there are 22 plies to cut around |
+| Real excerpt size against the 11 MB budget | phase 02 | ~~**not measured — blocked**, same reason~~ → **unblocked, still unmeasured** |
 
 Both thresholds are gated at **p90 and not at max**, deliberately. The quad's 41 px worst frame is
 one of 137 in short runs where a hand covers a marker, and the fixture warps every frame through
