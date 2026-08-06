@@ -1,34 +1,18 @@
 plugins {
-    alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
+    id("java-library")
+    alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.ktlint)
     alias(libs.plugins.detekt)
 }
 
-// com.android.library because it consumes :core-geometry (an AAR). SquareClassifier is
-// an interface here - the ONNX Runtime implementation lives in :app (phase 05c).
-// Unit tests run on the host JVM: :core-cnn:testDebugUnitTest.
-android {
-    namespace = "com.chesslab.cnn"
-    compileSdk = 35
+// A plain JVM module. It was `com.android.library` only because it consumes `:core-geometry`,
+// which was an AAR; that cascade is gone. This module names no `org.opencv` symbol at all —
+// `Preprocess` works on `com.chesslab.engine.api.BgrImage`, a plain ByteArray holder — and
+// `SquareClassifier` is an interface here, with the ONNX Runtime implementation in `:app`.
 
-    defaultConfig {
-        minSdk = 29
-    }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
-    testOptions {
-        unitTests.all {
-            it.useJUnitPlatform()
-        }
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
     }
 }
 
@@ -39,4 +23,8 @@ dependencies {
 
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
+}
+
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
 }

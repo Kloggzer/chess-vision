@@ -126,6 +126,29 @@ configurations.matching { it.name.contains("UnitTest") }.configureEach {
     exclude(group = "com.microsoft.onnxruntime", module = "onnxruntime-android")
 }
 
+// The shared modules take `org.bytedeco:opencv` `compileOnly` so exactly ONE implementation of the
+// `org.opencv.*` API reaches any runtime: the AAR here, the classified bytedeco jars on the desktop.
+// Downgrading that to `implementation` in any module would dex those 342 classes a second time, and
+// the winner might be the copy whose `System.loadLibrary` never ran — an UnsatisfiedLinkError inside
+// a warp, on a device, never on the desk. A comment cannot prevent that; this can.
+val assertNoBytedecoInApk by tasks.registering {
+    val runtimeClasspaths = listOf("debugRuntimeClasspath", "releaseRuntimeClasspath").map(configurations::getByName)
+    doLast {
+        runtimeClasspaths.forEach { classpath ->
+            val leaked =
+                classpath.incoming.artifacts.artifacts
+                    .map { it.variant.owner.displayName }
+                    .filter { "org.bytedeco" in it }
+            check(leaked.isEmpty()) {
+                "org.bytedeco leaked into ${classpath.name}: the APK would carry org.opencv twice. " +
+                    leaked.joinToString(", ")
+            }
+        }
+    }
+}
+
+tasks.named("preBuild") { dependsOn(assertNoBytedecoInApk) }
+
 dependencies {
     implementation(project(":core-engine"))
     implementation(project(":core-geometry"))

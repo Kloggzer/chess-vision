@@ -273,7 +273,11 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
 - Frontend changes: `cd src/chesslab/web/frontend && npm run build` (output is
   committed under `web/static/`); `npm run lint` must not add new errors; `npm run knip` —
   dead files, exports and dependencies — must stay silent.
-- Android: `gradlew.bat :app:ktlintCheck :app:detekt :core-engine:detekt`. Note detekt's unused rules
+- Android: `gradlew.bat :app:ktlintCheck :app:detekt :core-engine:detekt :core-geometry:detekt`
+  `:core-cnn:detekt :core-engine:test :core-geometry:test :core-cnn:test :app:testDebugUnitTest`.
+  **`:core-geometry` and `:core-cnn` are plain `java-library` modules since 2026-08-06**, so their
+  task is `:core-geometry:test`, not `:testDebugUnitTest` — older packs name the AGP task and are
+  historical. Note detekt's unused rules
   (`UnusedPrivateMember`, `UnusedParameter`, `UnusedImports`) only see **private** scope — an
   `internal`/`public` function nobody calls is not detected by anything in this repo.
 - Android UI/camera: run
