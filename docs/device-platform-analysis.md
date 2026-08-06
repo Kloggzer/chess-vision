@@ -52,25 +52,34 @@ shape that was reviewed and killed as `f00bf0e`. §4 answers that head-on rather
 
 ## 3. The stack
 
+TypeScript throughout, because that is the language this is going to be maintained in. Seven
+containers were sketched first; the survey in §3.2 removed three of them and Better Auth removed a
+fourth.
+
 ```
 docker compose (dev PC)                                phone (com.chesslab.tracker)
 ┌──────────────────────────────────────────────┐
-│ caddy      :443  TLS, internal CA, one entry │◀──── LinkClient
-│ link       FastAPI + Pydantic v2 (our code)  │      ktor-client-cio + WorkManager
-│ keycloak   OIDC: phone, admin UI, Grafana    │      OIDC device flow
-│ postgres   link state + keycloak's own DB    │      health state + notifications
-│ mongo      raw decision / observation rows   │
-│ loki       diagnostics as log lines          │      SpectatorServer :8420 untouched
-│ grafana    dashboards, SSO via keycloak      │
+│ caddy     :443  TLS, internal CA, one entry  │◀──── LinkClient
+│ app       Next.js — admin UI, phone-facing   │      tus-android-client (official)
+│                 API, Better Auth as the OIDC │      OIDC device flow, WorkManager
+│                 provider incl. device flow   │      health state + notifications
+│ worker    Node — @tus/server ingest          │
+│                 + pg-boss jobs               │      SpectatorServer :8420 untouched
+│ postgres  ledger · JSONB decision rows ·     │
+│                 auth · job queue             │
+│ (grafana) dashboards, reading Postgres       │
 └──────────────────────────────────────────────┘
    bind mounts   data/incoming  rw   ← the ONLY writable path into the corpus
                  data/models    ro
-   volumes       link-state, keycloak-data, pg-data, mongo-data, caddy-data
+   volumes       tus-data, pg-data, caddy-data
 ```
 
-**`link` must not import `chesslab`.** The package pulls torch and OpenCV; an image carrying them is
-gigabytes for a service whose job is to write files into a mounted directory and rows into Postgres.
-It lives in its own top-level directory with its own `pyproject.toml` and `Dockerfile`.
+Four containers, plus Grafana when there is something to chart. No JVM, no Redis, no second database,
+no log store. Nothing in it is ours to maintain except `app` and `worker`.
+
+**Nothing here imports `chesslab`.** The Python package pulls torch and OpenCV; this service's job is
+to write files into a mounted directory and rows into Postgres. It lives in its own top-level
+directory with its own `package.json` and `Dockerfile`, and the Python side keeps the corpus.
 
 **`link` never runs `slice`.** Slicing mutates `data/manifests/squares.jsonl` — the corpus every
 trained model is measured against. Automating it means a network-facing process can change what "the
@@ -83,32 +92,61 @@ the human takes it from there, in the web UI, where `POST /api/sessions/{sid}/sl
 of truth — no database, nothing to migrate". Sessions, crops, datasets and manifests do not move into
 a database as a side effect of building an uploader. The databases serve the **link service only**.
 
-| Store | Owns | Why it and not the other |
-|---|---|---|
-| **Postgres** | devices, grants, the upload ledger (artifact, device, path, sha256, bytes, state, timestamps), model publications, the audit trail, and Keycloak's own schema | needs consistency and joins; it is what an admin UI lists, filters and paginates |
-| **Mongo** | raw `decision` / `run_start` rows, and the observation rows `specs/39` will add | the schema drifts **by design** — `39` adds `repeats` and a `user` decider — and its five queries ("how long do standoffs run", "was a recovery bridge true") are ad-hoc analytics that LogQL is poor at. Loki keeps the dashboards; Mongo keeps the corpus answerable. |
+**One store: Postgres.** It holds the upload ledger (artifact, device, path, sha256, bytes, state,
+timestamps), devices and grants, model publications, the audit trail, Better Auth's tables, pg-boss's
+queue, and the raw `decision` / `run_start` rows as **JSONB**. The rows' schema drifts by design —
+`specs/39` adds `repeats` and a `user` decider — and that drift lives inside the JSONB column instead
+of in migrations, with a GIN index for the five queries that pack wants to ask.
 
-The honest alternative to Mongo is Postgres **JSONB**: document-shaped data with real indexes, one
-query language, one backup story, one container fewer. Recorded here so the choice is revisitable
-rather than inherited.
+Mongo and Loki were both in the first sketch and both came out. The volume does not justify either:
+diagnostics rotate at 4 × 512 kB per run (`DiagnosticsLog.kt:26-28`), so a *year* of games is a few
+hundred megabytes — a size at which a second document store buys nothing but a second backup story,
+and a log-shipping stack buys nothing but LogQL, which is worse than SQL for the questions being
+asked. Grafana reads Postgres natively.
+
+### 3.2 The Node ecosystem this leans on, and why each was chosen
+
+| Job | Choice | Why it, and what it replaces |
+|---|---|---|
+| resumable upload | **tus** — `@tus/server` in `worker`, `tus-android-client` on the phone | The protocol is the standard for exactly this problem and both ends are official implementations. It deletes a hand-rolled manifest/offset/resume protocol — the riskiest code in the first draft. `tusd` (the Go reference server) is the zero-code alternative if the ingest should not be ours at all. |
+| authn | **Better Auth**, OIDC-provider plugin + device-authorization plugin | RFC 8628 device flow — the phone shows a code, you approve it in a browser — from a library in the app, against the same Postgres. **This is what removes Keycloak**: no JVM, no realm config, no separate admin console, ~500 MB less. The Auth.js team joined Better Auth in September 2025 and it is the default recommendation for new self-hosted Next projects. |
+| the phone's bearer token | **`jose`** — `createRemoteJWKSet` + `jwtVerify` | Ten lines, framework-independent, and it is the whole verification story on the ingest path. |
+| jobs | **pg-boss** | Hash verification, filing into `data/incoming`, model publication. Postgres-backed, so **no Redis container**. `graphile-worker` tops out around 100–200 jobs/s, which is three orders of magnitude more than this needs; BullMQ's throughput would buy a Redis dependency and nothing else. |
+| schema | **Drizzle** | Closer to SQL than Prisma, which matters precisely where the work is: JSONB predicates and GIN indexes for `specs/39`'s queries. Better Auth has a Drizzle adapter. |
+| admin UI | **plain Next App Router + Drizzle first** | Four entities — devices, uploads, models, audit. Server components reading Drizzle are less work than adopting an admin framework. **Refine** (headless React, MIT, v5 on React 19) is the escape hatch if it sprawls; **Payload CMS 3** is Next-native and excellent, but it wants to own the schema and this is telemetry, not content. |
+
+**Ingest does not run inside Next**, and that is deliberate. App Router route handlers cannot
+configure a body-size limit, the proxy default is 10 MB, and every published answer is "disable the
+body parser and stream it yourself". Sessions here reach 1.6 GB. Next also assumes a single instance
+and writes its cache to the filesystem. So `worker` owns the pipe and the jobs; `app` owns the API
+surface, the auth and the screens.
 
 ## 4. Identity — OIDC removes the credential that was killed
 
-`f00bf0e` (`34-telemetry-uplink`) was reviewed and cut for three specific defects. Keycloak and the
-protocol below answer each by removing its premise, not by mitigating it.
+`f00bf0e` (`34-telemetry-uplink`) was reviewed and cut for three specific defects. The protocol below
+answers each by removing its premise, not by mitigating it.
 
 **"The token was published by `/img`."** The pack stored its ingest token at `data/ingest_token.txt`;
 `web/app.py:32` mounts the entire `data/` tree, unauthenticated, at `/img`, and there is no `Depends`,
 no middleware and no auth anywhere in `src/chesslab/web/`. So the read path of the server published the
 secret protecting its write path.
-→ **There is no token of ours.** The phone runs the OIDC **device authorization grant** (RFC 8628): it
-displays a user code, you approve it in a browser, it receives a short-lived access JWT and a refresh
-token. `link` validates signatures against Keycloak's JWKS and checks issuer, audience and scope; it
-holds **no secret at rest**. Revocation is a click in Keycloak, not a file to find. This is also
-`specs/38`'s own stated principle — *"we define no token and store no secret"* — applied to the write
-path instead of only to the log path. The refresh token lives on the phone in
-`EncryptedSharedPreferences` behind the Android Keystore, never in `AppSettings`, which is serialised
-whole into the diagnostics `run_start` row.
+→ **There is no long-lived shared secret, and nothing a credential lives in is under `data/`.** The
+phone runs the OIDC **device authorization grant** (RFC 8628) against Better Auth: it displays a user
+code, you approve it in a browser, and it receives a short-lived access JWT plus a refresh token. The
+ingest path verifies signatures against the provider's JWKS with `jose` and checks issuer, audience
+and scope. Signing keys and grants live in Postgres, in a named volume; revocation is a row, not a
+file to find, and a leaked access token expires on its own.
+
+Be precise about what this does and does not buy. Because Better Auth is a library inside `app`, **we
+now run the issuer** — a bug in that surface is an authentication bug, which is exactly what Keycloak
+exists to prevent you from writing. What is genuinely gone is the shape that killed the predecessor: a
+static bearer token, minted once, written to a path the same host published. Nothing here is minted
+once, and nothing is written where `/img` can reach it. Keycloak remains the answer if this ever
+serves more than one household; it is dropped here for ~500 MB and a realm configuration that one
+device does not need.
+
+The refresh token lives on the phone in `EncryptedSharedPreferences` behind the Android Keystore,
+never in `AppSettings`, which is serialised whole into the diagnostics `run_start` row.
 
 **"mDNS auto-adoption."** The pack promoted a discovered endpoint after N failures and validated it
 with a `hello` any LAN host can answer — so blackholing the real server was enough to *trigger* the
@@ -170,17 +208,26 @@ from the server side. An ack is a per-file sha256 match, not a 200.
 
 ### 6.1 Upload
 
-Per-file under a manifest, **not a ZIP**. `SessionExporter.zipSession` streams and would be convenient,
-but a ZIP is not resumable, not per-file idempotent, and hides integrity behind one blob. Measured on
-the current corpus, a session runs from **13 MB to 1.6 GB**; a drop at 90 % must not cost the whole
-transfer.
+**Use tus; do not invent this.** The first draft of this document specified a per-file manifest with
+sha256, offsets and resume rules. That is the tus protocol with fewer eyes on it. Measured on the
+current corpus a session runs from **13 MB to 1.6 GB**, so resumption is not optional — and a drop at
+90 % must not cost the whole transfer.
 
-- `GET /api/artifacts` — what exists, and what has been acked.
-- `GET /api/artifacts/{kind}/{id}/manifest` — files with bytes and sha256, cached beside the session
-  and invalidated by mtime.
-- Upload per file; skip any whose sha256 the ledger already holds. Server-side paths are validated
-  **against the manifest's own list** — a whitelist, not a sanitiser, which is strictly stronger than
-  the `_safe_id` pattern in `sessions.py:30`.
+- **The unit is still per file, not a ZIP.** `SessionExporter.zipSession` streams and would be
+  convenient, but a ZIP is not resumable, not per-file idempotent, and hides integrity behind one
+  blob.
+- `@tus/server` in `worker` owns offsets, partial state, concurrency and resume across process death.
+  `tus-android-client` (official, on top of `tus-java-client`) owns the same on the phone and is built
+  for exactly the "resume after the app was killed" case that WorkManager schedules.
+- **`pre-create` is the authorization point:** the hook sees the request headers, so the Better Auth
+  JWT is verified before a byte is written. **`post-finish` is the filing point:** it enqueues a
+  pg-boss job that verifies the sha256 the client declared in the upload metadata and moves the file
+  into `data/incoming/<device>/<sid>/`.
+- The upload's declared relative path is validated against the session manifest the phone sent at
+  creation — a whitelist, not a sanitiser, which is strictly stronger than the `_safe_id` pattern in
+  `sessions.py:30`.
+- `GET /api/artifacts` still exists, but only to answer "what does the phone have, and what has been
+  acked" for the health surface. It is not the transfer mechanism.
 - Land as `<sid>-<device8>`. `generate_session_id()` is `%Y%m%d-%H%M%S` on both platforms
   (`collect.py:38`, `record/SessionStore.kt:32`) and `data/sessions/` is flat, so two devices — or a
   phone and `chesslab track` — collide on a coin flip. The directory name is the corpus key
@@ -225,10 +272,10 @@ per-release mistake into a per-push one.
 | **A** | runtime + loud allowlist; tracker/analysis notifications; the cap warning; two `adb run-as` scripts | none | …two weeks pass and nothing hurts. `adb push` into `filesDir/cnn_model/<name>/` deploys a model the moment the allowlist is runtime; the models are ~2.5 MB. |
 | **B** | `specs/45` steps 1–5 | none | …0.05 vs 0.10 measures as free — itself a result worth having |
 | **C** | `/img`, `_safe_id`, eviction (§9) | none | never optional before anything binds a LAN address |
-| **D** | compose skeleton: caddy + keycloak + postgres + a `link` health endpoint; CA into the debug APK | 4 | …you want to judge the stack before building on it |
-| **E** | phone OIDC device flow, uploads, ledger, health notifications | +0 | D and E are worth nothing apart |
+| **D** | compose skeleton: caddy + `app` + `worker` + postgres, a health endpoint, Better Auth; CA into the debug APK | 4 | …you want to judge the stack before building on it |
+| **E** | phone device flow, tus uploads, ledger, health notifications | +0 | D and E are worth nothing apart |
 | **F** | model publish → offer → install → rollback | +0 | needs B for correctness |
-| **G** | mongo + loki + grafana, SSO, dashboards, `specs/39`'s five queries | +3 | `39` answerable without exporting a ZIP by hand |
+| **G** | grafana over Postgres; `specs/39`'s five queries as SQL | +1 | `39` answerable without exporting a ZIP by hand |
 | **H** | admin UI: devices, uploads, models, audit | +0 | — |
 
 `{A, B, C}` are independent and parallelisable — disjoint files (`cnn/` + `scripts/`;
@@ -241,12 +288,16 @@ training and the user's games. It belongs behind `docker compose up` on demand, 
 
 ## 8. What this changes in `specs/38`
 
-`38` chose Loki and Grafana as **native Windows binaries**, explicitly no Docker, because "ingest,
+`38` chose **Loki and Grafana as native Windows binaries**, explicitly no Docker, because "ingest,
 storage, schema, query and auth are all somebody else's software" and nothing should be ours to run.
-Moving them into the compose stack keeps that principle — they are still not our code — and trades two
-manually-managed Windows services for one versioned compose file. It is a deliberate override of a
-written decision and should be recorded in `specs/38/STATUS.md` rather than left for a future reader to
-discover as a contradiction.
+Two things change. Grafana moves into the compose stack, which keeps that principle intact and trades a
+manually-managed Windows service for a versioned compose file. **Loki is dropped entirely**: once the
+rows are already in Postgres as JSONB, Loki is a second store for the same data, and the questions
+`specs/39` asks are SQL questions. The pack's wire format survives the change — the phone still pushes
+whole rotated NDJSON files and never the file it is appending to — but it pushes them to `worker`, not
+to `/loki/api/v1/push`, and the five low-cardinality labels become five columns.
+
+Recorded in `specs/38/STATUS.md` rather than left for a future reader to discover as a contradiction.
 
 Two of `38`'s own details need correcting when it is next touched: it is **no longer blocked** on
 `specs/34`, and its `kind: perf` stream has no producer in the tree.
