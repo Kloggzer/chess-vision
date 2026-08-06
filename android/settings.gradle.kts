@@ -21,4 +21,5 @@ dependencyResolutionManagement {
 include(":core-engine")
 include(":core-geometry")
 include(":core-cnn")
+include(":tracker-runtime")
 include(":app")

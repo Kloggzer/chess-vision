@@ -153,6 +153,7 @@ dependencies {
     implementation(project(":core-engine"))
     implementation(project(":core-geometry"))
     implementation(project(":core-cnn"))
+    implementation(project(":tracker-runtime"))
 
     // Compose
     implementation(platform(libs.compose.bom))
