@@ -23,3 +23,21 @@ subprojects {
         }
     }
 }
+
+// The bytedeco natives are published per OS+arch as classified jars. Hardcoding one classifier
+// makes the build silently Windows-only, which is fine for a unit test on this machine and wrong
+// for anything that ships. Resolved once here so every module asks the same question.
+val bytedecoClassifier: String by extra(
+    run {
+        val os = System.getProperty("os.name").lowercase()
+        val arch = System.getProperty("os.arch").lowercase()
+        val platform =
+            when {
+                os.startsWith("windows") -> "windows"
+                os.startsWith("mac") -> "macosx"
+                else -> "linux"
+            }
+        val cpu = if (arch in setOf("aarch64", "arm64")) "arm64" else "x86_64"
+        "$platform-$cpu"
+    },
+)
