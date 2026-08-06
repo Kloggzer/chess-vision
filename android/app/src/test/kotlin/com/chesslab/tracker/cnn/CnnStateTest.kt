@@ -8,9 +8,14 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 internal class RecordingLog : CnnLog {
+    val debugs = mutableListOf<String>()
     val infos = mutableListOf<String>()
     val warnings = mutableListOf<String>()
     val errors = mutableListOf<Pair<String, Throwable?>>()
+
+    override fun debug(message: String) {
+        debugs += message
+    }
 
     override fun info(message: String) {
         infos += message

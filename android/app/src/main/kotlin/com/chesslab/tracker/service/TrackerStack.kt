@@ -7,6 +7,8 @@ import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.cnn.Attached
 import com.chesslab.tracker.cnn.CnnObserver
+import com.chesslab.tracker.log.NoTrackerLogs
+import com.chesslab.tracker.log.TrackerLogs
 import com.chesslab.tracker.pipeline.CameraStages
 import com.chesslab.tracker.pipeline.CropFrameStore
 import com.chesslab.tracker.pipeline.FramePipeline
@@ -44,6 +46,12 @@ class TrackerSeed(
      * matters is always the one nobody noticed the gap in.
      */
     val onDecision: (DebugDecision) -> Unit,
+    /**
+     * How the stack reaches a log. Seeded rather than constructed for the same reason [onDecision]
+     * is: the host owns the platform, the stack owns the CHANNEL NAMES — and those names are what
+     * `adb logcat -s` is pointed at, so they are behaviour, not decoration.
+     */
+    val logs: TrackerLogs = NoTrackerLogs,
 )
 
 /**
@@ -85,6 +93,9 @@ class TrackerStack(
             CnnRecovery(cnnConfig(seed.config)),
             seed.startFen,
             seed.onDecision,
+            // Its own channel, not `chesslabTracker`: `adb logcat -s chesslabDecision` then gives the
+            // move-by-move provenance with nothing else in it, which is the form these lines get read in.
+            log = seed.logs("chesslabDecision"),
         ) { pipeline.onConfigChanged(it) }
 
     /** 07b's crop tap. Inert until the debug switch arms it; the service re-arms it after a restart. */
@@ -103,6 +114,7 @@ class TrackerStack(
                 observed.incrementAndGet()
                 host.submit(it)
             },
+            log = seed.logs("chesslabCnn"),
         )
 
     val coordinator =
@@ -112,7 +124,7 @@ class TrackerStack(
             publisher,
             frames,
             observer,
-            LiveAlign(scope, seed.geometry, settings.config::value) { pipeline.corners = it },
+            LiveAlign(scope, seed.geometry, settings.config::value, { pipeline.corners = it }, seed.logs("chesslabTracker")),
             timings,
         )
 

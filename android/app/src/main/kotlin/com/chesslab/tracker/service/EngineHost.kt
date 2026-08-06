@@ -1,6 +1,5 @@
 package com.chesslab.tracker.service
 
-import android.util.Log
 import com.chesslab.engine.api.CnnEvaluator
 import com.chesslab.engine.api.CnnSnapshot
 import com.chesslab.engine.api.DebugDecision
@@ -10,14 +9,10 @@ import com.chesslab.engine.api.TrackerEngine
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
 import com.chesslab.engine.toLogLine
+import com.chesslab.tracker.log.NoopTrackerLog
+import com.chesslab.tracker.log.TrackerLog
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.BlockingQueue
-
-/**
- * Its own tag, not `chesslabTracker`: `adb logcat -s chesslabDecision` then gives the move-by-move
- * provenance with nothing else in it, which is the form these lines get read in.
- */
-private const val DECISION_TAG = "chesslabDecision"
 
 /** Deep enough to survive a burst of taps; shallow enough that a stalled drain is visible. */
 private const val ACTION_CAPACITY = 32
@@ -166,6 +161,7 @@ fun engineHost(
     cnn: CnnEvaluator?,
     startFen: String,
     onDecision: (DebugDecision) -> Unit,
+    log: TrackerLog = NoopTrackerLog,
     onConfigApplied: (TrackerConfig) -> Unit,
 ): EngineHost {
     // Not gated on the debug switch. A decision row is written at most once per committed or
@@ -177,7 +173,7 @@ fun engineHost(
     // stays because it is what makes a live look possible over adb, with nothing to export first.
     val engine =
         TrackerEngine(config, startFen) {
-            Log.i(DECISION_TAG, it.toLogLine())
+            log.info(it.toLogLine())
             onDecision(it)
         }
     engine.attachCnn(cnn)

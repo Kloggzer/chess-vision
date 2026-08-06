@@ -2,12 +2,12 @@ package com.chesslab.tracker.service
 
 import android.content.Context
 import com.chesslab.geometry.BoardGeometry
-import com.chesslab.tracker.cnn.AndroidCnnLog
 import com.chesslab.tracker.cnn.Attached
 import com.chesslab.tracker.cnn.CnnModelAssets
 import com.chesslab.tracker.cnn.OnnxSquareClassifier
 import com.chesslab.tracker.cnn.requestedBackend
 import com.chesslab.tracker.geometry.CalibrationStore
+import com.chesslab.tracker.log.AndroidTrackerLog
 import com.chesslab.tracker.settings.AppSettings
 import com.chesslab.tracker.settings.BoardOrientation
 import com.chesslab.tracker.settings.SettingsRepository
@@ -27,13 +27,15 @@ import com.chesslab.tracker.settings.SettingsRepository
  * model that was really staged for the same reason — with three bundled models an A/B is worthless
  * if the panel echoes the request back instead of naming what ran.
  */
+private const val CNN_TAG = "chesslabCnn"
+
 fun openClassifier(
     context: Context,
     app: AppSettings,
     probe: CnnRuntimeProbe,
 ): Attached {
     val staged = CnnModelAssets.fromAssets(context, app.modelDir, app.modelAsset).stage()
-    val classifier = OnnxSquareClassifier.open(staged, AndroidCnnLog, app.epRequest)
+    val classifier = OnnxSquareClassifier.open(staged, AndroidTrackerLog(CNN_TAG), app.epRequest)
     probe.requestedEp = requestedBackend(staged, app.epRequest)
     probe.actualEp = classifier.backend
     probe.modelDir = staged.dir.name

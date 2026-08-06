@@ -1,6 +1,5 @@
 package com.chesslab.tracker.service
 
-import android.util.Log
 import androidx.camera.core.ImageProxy
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
@@ -14,6 +13,8 @@ import com.chesslab.geometry.quadDriftCells
 import com.chesslab.tracker.camera.DeliveredSize
 import com.chesslab.tracker.camera.FrameSink
 import com.chesslab.tracker.cnn.CnnObserver
+import com.chesslab.tracker.log.NoopTrackerLog
+import com.chesslab.tracker.log.TrackerLog
 import com.chesslab.tracker.pipeline.FramePipeline
 import com.chesslab.tracker.pipeline.FrameResult
 import com.chesslab.tracker.pipeline.Stage
@@ -22,8 +23,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.opencv.core.Mat
 import java.util.concurrent.atomic.AtomicReference
-
-private const val TAG = "chesslabTracker"
 
 /**
  * The analyzer-thread loop. Everything expensive is somewhere else.
@@ -129,6 +128,7 @@ class LiveAlign(
     private val geometry: () -> BoardGeometry,
     private val config: () -> TrackerConfig,
     private val onCorners: (FloatArray) -> Unit,
+    private val log: TrackerLog = NoopTrackerLog,
 ) {
     private var tracker = MarkerTracker()
     private var frames = 0L
@@ -169,7 +169,7 @@ class LiveAlign(
         if (size != delivered) {
             size = delivered
             tracker = MarkerTracker()
-            Log.i(TAG, "frame size is now ${delivered.width}x${delivered.height} — re-seeding the corner smoother")
+            log.info("frame size is now ${delivered.width}x${delivered.height} — re-seeding the corner smoother")
         }
         if (frames % cfg.alignEvery != 0L) return
         val frame = source.latestCalibrationFrame() ?: return
@@ -178,7 +178,7 @@ class LiveAlign(
         scope.launch {
             runCatching { boardCornersForFrame(frame, geometry(), current, detectScale = cfg.alignScale) }
                 .onSuccess { corners -> corners?.let { onCorners(cornersToFlat(onGrid(frame, it))) } }
-                .onFailure { Log.w(TAG, "live align failed", it) }
+                .onFailure { log.warn("live align failed", it) }
             frame.release()
             inFlight = false
         }
@@ -219,8 +219,7 @@ class LiveAlign(
             val fixed = improveQuad(frame, corners, geom).quad
             correction = fixed?.let { gridCorrection(corners, it, geom) }
             fittedAt = cornersToFlat(corners)
-            Log.i(
-                TAG,
+            log.info(
                 if (correction == null) {
                     "grid correction: none — the board's grid is already on the squares, or unreadable"
                 } else {
@@ -245,7 +244,7 @@ class LiveAlign(
         val fitted = fittedAt ?: return
         val drift = quadDriftCells(current, fitted, geom)
         if (drift <= DRIFT_REFIT_CELLS) return
-        Log.i(TAG, "board moved ${"%.2f".format(drift)} cells since the grid fit — re-measuring the correction")
+        log.info("board moved ${"%.2f".format(drift)} cells since the grid fit — re-measuring the correction")
         correction = null
         correctionTried = false
         fittedAt = null

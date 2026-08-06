@@ -1,6 +1,5 @@
 package com.chesslab.tracker.pipeline
 
-import android.util.Log
 import java.util.Locale
 
 // Per-stage frame timings for `TrackerStatus.stageTimingsMs`.
@@ -47,7 +46,7 @@ enum class Stage { PUBLISH, CONVERT, WARP, GRAY, MOTION, GRID, TOTAL, ENGINE, PO
  */
 class StageTimings(
     private val nowNs: () -> Long = System::nanoTime,
-    private val logLine: (String) -> Unit = { Log.d(PERF_TAG, it) },
+    private val logLine: (String) -> Unit = {},
 ) {
     private val ms = DoubleArray(Stage.entries.size)
     private val ran = BooleanArray(Stage.entries.size)

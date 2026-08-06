@@ -26,7 +26,10 @@ import com.chesslab.tracker.games.GameSessionController
 import com.chesslab.tracker.geometry.calibrationStore
 import com.chesslab.tracker.geometry.cropLine
 import com.chesslab.tracker.geometry.withCropOf
+import com.chesslab.tracker.log.AndroidTrackerLog
+import com.chesslab.tracker.log.androidTrackerLogs
 import com.chesslab.tracker.pipeline.CameraRate
+import com.chesslab.tracker.pipeline.PERF_TAG
 import com.chesslab.tracker.pipeline.StageTimings
 import com.chesslab.tracker.settings.AppSettings
 import com.chesslab.tracker.settings.SettingsHost
@@ -89,7 +92,7 @@ class TrackerService :
     private val calibration by lazy { calibrationStore(this) }
 
     private val cameraRate = CameraRate()
-    private val timings = StageTimings()
+    private val timings = StageTimings(logLine = AndroidTrackerLog(PERF_TAG)::debug)
     private val cnnProbe = CnnRuntimeProbe()
 
     /** Re-read on every attach, so a changed model or EP lands on the next stack (D07a-3). */
@@ -106,6 +109,7 @@ class TrackerService :
                     corners,
                     publisher.lastFen ?: STARTPOS,
                     diagnostics::offer,
+                    androidTrackerLogs,
                 ),
                 settings,
                 publisher,
@@ -294,7 +298,8 @@ class TrackerService :
                 // before it closes, so this is the window in which there is nothing to run.
                 stacks.current?.coordinator?.onFrame(image, delivered)
             })
-        frames = CameraFrameBus(camera.cameraState, lifecycleScope, { bgrToBitmap(it, PREVIEW_MAX_SIDE) })
+        frames =
+            CameraFrameBus(camera.cameraState, lifecycleScope, { bgrToBitmap(it, PREVIEW_MAX_SIDE) }, AndroidTrackerLog("chesslabFrames"))
         binder =
             TrackerBinder(publisher, frames, settings, cnn, { stacks.current?.host?.submit(it) }, this, torch)
         DebugSessionHost.publish(

@@ -5,6 +5,7 @@ import com.chesslab.cnn.observationFromProbs
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.CnnSnapshot
 import com.chesslab.engine.api.GrayImage
+import com.chesslab.tracker.log.NoopTrackerLog
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
@@ -57,7 +58,7 @@ class CnnObserver(
     private val source: CnnFrameSource,
     private val fen: () -> String?,
     private val onSnapshot: (CnnSnapshot) -> Unit,
-    private val log: CnnLog = AndroidCnnLog,
+    private val log: CnnLog = NoopTrackerLog,
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val dispatcher: CoroutineDispatcher =
         Executors.newSingleThreadExecutor { Thread(it, "chesslab-cnn") }.asCoroutineDispatcher(),

@@ -1,8 +1,9 @@
 package com.chesslab.tracker.service
 
 import android.graphics.Bitmap
-import android.util.Log
 import com.chesslab.tracker.camera.CameraHealth
+import com.chesslab.tracker.log.NoopTrackerLog
+import com.chesslab.tracker.log.TrackerLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -12,8 +13,6 @@ import org.opencv.android.Utils
 import org.opencv.core.Mat
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
-
-private const val TAG = "chesslabFrames"
 
 /** ~5 fps. A preview and a calibration tap need freshness, not frame rate. */
 private const val PUBLISH_INTERVAL_MS = 200L
@@ -54,6 +53,7 @@ class CameraFrameBus(
     override val cameraHealth: StateFlow<CameraHealth>,
     private val scope: CoroutineScope,
     private val toBitmap: (Mat) -> Bitmap?,
+    private val log: TrackerLog = NoopTrackerLog,
     private val nowMs: () -> Long = System::currentTimeMillis,
 ) : CalibrationFrames,
     AutoCloseable {
@@ -129,7 +129,7 @@ class CameraFrameBus(
         val frame = warp.clone()
         scope.launch {
             runCatching { board.value = toBitmap(frame) }
-                .onFailure { Log.w(TAG, "board preview conversion failed", it) }
+                .onFailure { log.warn("board preview conversion failed", it) }
             frame.release()
             boardGate.leave()
         }
@@ -154,7 +154,7 @@ class CameraFrameBus(
             }
         scope.launch {
             runCatching { preview.value = toBitmap(frame) }
-                .onFailure { Log.w(TAG, "preview conversion failed", it) }
+                .onFailure { log.warn("preview conversion failed", it) }
             frame.release()
             gate.leave()
         }
