@@ -11,16 +11,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -111,7 +108,12 @@ private fun GamesScreen(
     }
 
     renaming?.let { row ->
-        RenameDialog(row, onDismiss = { renaming = null }) { white, black, event ->
+        GameDetailsDialog(
+            initialWhite = row.white,
+            initialBlack = row.black,
+            initialEvent = row.event,
+            onDismiss = { renaming = null },
+        ) { white, black, event ->
             model.rename(row.id, white, black, event)
             renaming = null
         }
@@ -198,7 +200,7 @@ private fun RowMenu(
         Icon(Icons.Filled.MoreVert, contentDescription = "Game options")
     }
     DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-        DropdownMenuItem(text = { Text("Rename") }, onClick = {
+        DropdownMenuItem(text = { Text("Edit game details") }, onClick = {
             open = false
             onRename()
         })
@@ -207,30 +209,6 @@ private fun RowMenu(
             onDelete()
         })
     }
-}
-
-@Composable
-private fun RenameDialog(
-    row: GameSummary,
-    onDismiss: () -> Unit,
-    onConfirm: (String, String, String) -> Unit,
-) {
-    var white by remember { mutableStateOf(row.white) }
-    var black by remember { mutableStateOf(row.black) }
-    var event by remember { mutableStateOf("chesslab") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Rename game") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
-                OutlinedTextField(white, { white = it }, label = { Text("White") })
-                OutlinedTextField(black, { black = it }, label = { Text("Black") })
-                OutlinedTextField(event, { event = it }, label = { Text("Event") })
-            }
-        },
-        confirmButton = { TextButton(onClick = { onConfirm(white, black, event) }) { Text("Save") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
 }
 
 /** Irreversible: the record, its PGN and its stored analysis. The body says how much, in moves. */

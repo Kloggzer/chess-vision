@@ -56,7 +56,13 @@ class GameStore(
         white: String,
         black: String,
         event: String,
-    ): GameSummary? = open(id)?.copy(white = white, black = black, event = event)?.let(::save)
+    ): GameSummary? =
+        open(id)
+            ?.copy(
+                white = white.trim().ifBlank { UNKNOWN },
+                black = black.trim().ifBlank { UNKNOWN },
+                event = event.trim().ifBlank { "chesslab" },
+            )?.let(::save)
 
     fun delete(id: String) {
         File(root, "$id.json").delete()

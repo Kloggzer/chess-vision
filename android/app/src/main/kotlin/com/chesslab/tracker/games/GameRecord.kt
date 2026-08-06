@@ -159,12 +159,24 @@ data class GameSummary(
      * cleanly, and the library listing must not have to open the game to say so.
      */
     val seams: Int = 0,
+    /** Included in the index so editing details never silently resets a custom PGN event. */
+    val event: String = "chesslab",
 )
 
 const val UNKNOWN: String = "?"
 
 fun StoredGame.summary(): GameSummary =
-    GameSummary(id, startedAtEpochMs, moves.size, result, white, black, sessionId, segmentsOrOne().count { it.enteredBy != null })
+    GameSummary(
+        id = id,
+        startedAtEpochMs = startedAtEpochMs,
+        moveCount = moves.size,
+        result = result,
+        white = white,
+        black = black,
+        sessionId = sessionId,
+        seams = segmentsOrOne().count { it.enteredBy != null },
+        event = event,
+    )
 
 /**
  * The segments as every reader wants them: never empty. A [StoredGame] built directly (tests, an
