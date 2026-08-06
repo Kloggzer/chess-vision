@@ -46,7 +46,7 @@ internal class SimTimings {
 
 /** Stateful — every `Mat` is reused across frames, exactly like the analyzer-thread original. */
 internal class ClipPipeline(
-    clip: SimClip,
+    source: SimSource,
     private val timings: SimTimings,
     /**
      * The model whose crops this run feeds, or null for the diff-only baseline.
@@ -57,8 +57,8 @@ internal class ClipPipeline(
      */
     spec: ModelSpec? = null,
 ) {
-    private val config = clip.config
-    private val corners = clip.corners
+    private val config = source.config
+    private val corners = source.corners
 
     // The clip's OWN geometry, margin included. This used to be
     // `BoardGeometry(boardSize = clip.boardSize)`, which left `margin` at `margins4(0.0)` —
@@ -69,7 +69,7 @@ internal class ClipPipeline(
     // trained on even here, which is the same reason `emit_parity_fixtures` grew a per-clip `crop`
     // — a harness that invents the box measures its own invention. The detection warp is untouched
     // by it, so the committed parity fixtures (diff path, `cnn_run=None`) cannot move.
-    private val geometry = clip.geometry.withCropOf(spec)
+    private val geometry = source.geometry.withCropOf(spec)
     private val gray = GrayPipeline(config.diffClaheClip)
     private val roi = RoiMotion(config.motionMargin, config.motionPxThr)
     private val warpDet = Mat()
