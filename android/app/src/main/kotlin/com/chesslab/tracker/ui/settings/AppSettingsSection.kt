@@ -82,9 +82,12 @@ fun AppSettingsSection(
         Choice(
             title = "CNN model",
             help =
-                "Which bundled model reads the squares. Each declares its own input size and the crops " +
-                    "follow it, so switching changes what the camera feed is scaled to. The debug " +
-                    "screen's CNN panel names the model that actually attached, and at what size.",
+                "Which bundled model reads the squares. Each declares its own input size AND its crop " +
+                    "padding, and the crops follow both, so switching changes what the camera feed is " +
+                    "scaled to and how much of each square's surroundings it carries. The debug screen's " +
+                    "CNN panel names the model that actually attached, at what size and with which crop " +
+                    "— a model that declares no crop is served the calibration profile's padding and the " +
+                    "panel marks it LEGACY.",
             options = BUNDLED_MODELS.map { it to it },
             selected = app.modelDir,
             onSelect = { onChange(app.copy(modelDir = it)) },

@@ -152,6 +152,10 @@ class DiagnosticsLogTest {
             val model = row.obj("model")
             assertEquals("occ-v6-f5nd", model.str("loadedDir"))
             assertEquals("80x80", model.str("inferSize"))
+            // Both halves of the crop question: what the model asked for, and what it got. A run
+            // whose `declaredPads` is null was served a box nobody chose (specs/45).
+            assertEquals("0.05/0.0", model.str("declaredPads"))
+            assertEquals("side=0.050 up=0.000", model.str("servedPads"))
             assertEquals("XNNPACK", model.str("actualEp"))
         }
 
@@ -238,8 +242,18 @@ private fun runStart() =
     runStartOf(
         app = AppSettings(),
         config = TrackerConfig(),
-        spec = ModelSpec(classes = listOf("empty", "piece"), outWidth = 80, outHeight = 80, mean = listOf(0f), std = listOf(1f)),
-        cnn = CnnRuntimeInfo("QNN-HTP(NPU)", "XNNPACK", "occ-v6-f5nd", "model.onnx", "64x3x80x80", 9.0, 3),
+        spec =
+            ModelSpec(
+                classes = listOf("empty", "piece"),
+                outWidth = 80,
+                outHeight = 80,
+                padSide = 0.05,
+                padUp = 0.0,
+                mean = listOf(0f),
+                std = listOf(1f),
+            ),
+        servedPads = "side=0.050 up=0.000",
+        cnn = CnnRuntimeInfo("QNN-HTP(NPU)", "XNNPACK", "occ-v6-f5nd", "model.onnx", "64x3x80x80", "side=0.050 up=0.000", 9.0, 3),
         version = AppVersion("0.1.0", 1L),
         now = { "2026-08-02T12:00:00Z" },
     )

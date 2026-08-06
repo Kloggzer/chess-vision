@@ -62,12 +62,15 @@ internal fun epLine(runtime: CnnRuntimeInfo): String {
 internal fun epFellBack(runtime: CnnRuntimeInfo): Boolean = runtime.actualEp != null && runtime.requestedEp != runtime.actualEp
 
 /**
- * `v6-80 @ 80x80` — which bundled model attached, and the size it is being fed.
+ * `v6-80 @ 80x80 · crop side=0.050 up=0.000` — which bundled model attached, the size it is fed,
+ * and the box those pixels were cut out of.
  *
- * Both halves are what the app MEASURED, never what the settings asked for: the name is the
- * directory that was really staged and the size is the tensor built from that model's own
- * `config.json`. An A/B on a real board is worth nothing if the panel cannot attribute what was
- * just seen to a model, and the input size is the difference the three of them are here to test.
+ * All three are what the app MEASURED, never what the settings asked for: the name is the
+ * directory that was really staged, the size is the tensor built from that model's own
+ * `config.json`, and the crop is the live geometry's. An A/B on a real board is worth nothing if
+ * the panel cannot attribute what was just seen to a model — and since specs/45 that attribution
+ * includes the box, because a model served pads it never declared is being shown a different
+ * photograph of every square (the crop then reads `(LEGACY: the model declares no crop)`).
  */
 internal fun modelLine(runtime: CnnRuntimeInfo): String {
     val name = runtime.modelDir ?: "-"
@@ -76,7 +79,8 @@ internal fun modelLine(runtime: CnnRuntimeInfo): String {
             ?.split("x")
             ?.takeLast(2)
             ?.joinToString("x")
-    return if (size == null) name else "$name @ $size"
+    val head = if (size == null) name else "$name @ $size"
+    return if (runtime.crop == null) head else "$head · crop ${runtime.crop}"
 }
 
 @androidx.compose.runtime.Composable

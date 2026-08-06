@@ -61,8 +61,15 @@ data class BoardGeometry(
     val whitePov: Boolean = true,
     /** `config.CROP.pad_up` (config.py:48) — additional upward extension, * cell. */
     val padUp: Double = 0.0,
-    /** `config.CROP.pad_side` (config.py:54) — symmetric expansion in all 4 directions, * cell. */
-    val padSide: Double = 0.10,
+    /**
+     * `config.CROP.pad_side` — symmetric expansion in all 4 directions, * cell.
+     *
+     * 0.05 since specs/45, following Python: every crop the models were trained on was cut at
+     * 0.05, and a default of 0.10 meant a freshly calibrated device served 1.20-cell boxes to a
+     * model trained on 1.10-cell ones. It is only the fallback — the loaded model's own
+     * declaration wins (`withCropOf`), which is what also fixes profiles stored before that.
+     */
+    val padSide: Double = 0.05,
     /** `config.CROP.out_w` (config.py:59). */
     val outW: Int = 128,
     /** `config.CROP.out_h` (config.py:60). */
