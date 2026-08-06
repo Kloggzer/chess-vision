@@ -9,11 +9,11 @@ import com.chesslab.tracker.cnn.Attached
 import com.chesslab.tracker.cnn.CnnObserver
 import com.chesslab.tracker.log.NoTrackerLogs
 import com.chesslab.tracker.log.TrackerLogs
-import com.chesslab.tracker.pipeline.CameraStages
 import com.chesslab.tracker.pipeline.CropFrameStore
 import com.chesslab.tracker.pipeline.FramePipeline
 import com.chesslab.tracker.pipeline.FrameSizeGuard
 import com.chesslab.tracker.pipeline.StageTimings
+import com.chesslab.tracker.pipeline.cameraStages
 import com.chesslab.tracker.settings.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -81,7 +81,7 @@ class TrackerStack(
     private val pipeline =
         FramePipeline(
             seed.config,
-            CameraStages(seed.geometry(), seed.config, cropStore, frames::offer, frames::offerBoard),
+            cameraStages(seed.geometry(), seed.config, cropStore, frames::offer, frames::offerBoard),
             cropStore,
             guard,
             timings,

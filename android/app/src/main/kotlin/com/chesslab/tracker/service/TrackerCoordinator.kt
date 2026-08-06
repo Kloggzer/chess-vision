@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicReference
  * legacy 970-LOC service did all of that inline and held the loop at 100-150 ms (commit 4a7609e).
  */
 class TrackerCoordinator(
-    private val pipeline: FramePipeline,
+    private val pipeline: FramePipeline<ImageProxy>,
     private val host: EngineHost,
     private val publisher: StatusPublisher,
     private val bus: CameraFrameBus,
@@ -59,7 +59,7 @@ class TrackerCoordinator(
         bus.noteRotation(delivered.rotationDegrees)
         // The preview bus is fed from INSIDE the pipeline now (`FrameStages.publishFrame`), off the
         // frame the convert already produced — see `CameraFrameBus.offer`.
-        val result = pipeline.onFrame(image, System.currentTimeMillis())
+        val result = pipeline.onFrame(image, image.width, image.height, System.currentTimeMillis())
         val events = host.tick((result as? FrameResult.Ready)?.input)
         // The engine runs HERE, on the analyzer thread, and it is part of the frame budget.
         timings.mark(Stage.ENGINE)

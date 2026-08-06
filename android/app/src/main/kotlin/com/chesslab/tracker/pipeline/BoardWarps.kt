@@ -1,6 +1,5 @@
 package com.chesslab.tracker.pipeline
 
-import androidx.camera.core.ImageProxy
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerConfig
@@ -94,7 +93,11 @@ class CropFrameStore {
  * them, so the whole per-frame path allocates nothing but the two seam byte arrays. Calling the
  * stages out of order reads the previous frame's pixels.
  */
-class CameraStages(
+class OpenCvStages<T>(
+    /** How this host turns its frame into BGR. The phone converts YUV; a file source hands a Mat. */
+    private val toBgr: (T) -> Mat?,
+    /** Released with the stages: a converter may own reusable buffers, and YuvToBgr does. */
+    private val closeConverter: () -> Unit = {},
     private var geometry: BoardGeometry,
     private var config: TrackerConfig,
     private val cropStore: CropFrameStore,
@@ -102,8 +105,7 @@ class CameraStages(
     private val frameBus: (Mat) -> Unit = {},
     /** Where the tracking screen receives the rectified board. Same contract as [frameBus]. */
     private val boardBus: (Mat) -> Unit = {},
-) : FrameStages {
-    private val yuv = YuvToBgr()
+) : FrameStages<T> {
     private val gray = GrayPipeline(config.diffClaheClip)
     private val grid = GridCoverage()
     private val motion = RoiMotion(config.motionMargin, config.motionPxThr)
@@ -124,8 +126,8 @@ class CameraStages(
     private val detSize: Int
         get() = if (config.detectScale < 1.0) (geometry.boardSize * config.detectScale).toInt() else geometry.boardSize
 
-    override fun convert(image: ImageProxy) {
-        frame = yuv.convert(image)
+    override fun convert(image: T) {
+        frame = toBgr(image)
     }
 
     override fun publishFrame() {
@@ -221,7 +223,7 @@ class CameraStages(
     }
 
     override fun close() {
-        yuv.close()
+        closeConverter()
         gray.close()
         grid.close()
         motion.close()

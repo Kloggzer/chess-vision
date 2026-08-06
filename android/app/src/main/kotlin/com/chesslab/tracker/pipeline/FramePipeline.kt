@@ -1,6 +1,5 @@
 package com.chesslab.tracker.pipeline
 
-import androidx.camera.core.ImageProxy
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.FrameInput
 import com.chesslab.engine.api.GrayImage
@@ -33,11 +32,17 @@ sealed interface FrameResult {
 }
 
 /**
- * The OpenCV-backed steps, behind a seam so the ORDER above can be tested with fakes on a
- * plain JVM. Stateful: each stage reads what the previous one wrote (see [CameraStages]).
+ * The OpenCV-backed steps, behind a seam so the ORDER above can be tested with fakes on a plain
+ * JVM. Stateful: each stage reads what the previous one wrote (see [OpenCvStages]).
+ *
+ * Generic in whatever a host calls a frame, because exactly ONE method here ever named
+ * `ImageProxy` and everything below it already worked on `Mat`. That is how a desktop twin of this
+ * pipeline could exist at all — and why it had to copy the stage ORDER by hand, which its own
+ * header called out as behaviour. With the frame type as a parameter, the order lives here once,
+ * for both hosts.
  */
-interface FrameStages {
-    fun convert(image: ImageProxy)
+interface FrameStages<T> {
+    fun convert(image: T)
 
     /**
      * Hand the just-converted BGR frame to the preview/calibration bus, if it is due one.
@@ -86,15 +91,15 @@ interface FrameStages {
 }
 
 /**
- * Turns `ImageProxy` frames into `FrameInput`s on the analyzer thread.
+ * Turns host frames into `FrameInput`s on the analyzer thread.
  *
  * It NEVER blocks on the CNN and never runs marker detection: the corners are whatever the
  * service last published into [corners] (commit 4a7609e — ArUco on the frame thread cost
  * 44-87 ms every 300 ms), and the CNN gets a crop frame only when [CropFrameStore] asks for one.
  */
-class FramePipeline(
+class FramePipeline<T>(
     private var config: TrackerConfig,
-    private val stages: FrameStages,
+    private val stages: FrameStages<T>,
     private val cropStore: CropFrameStore,
     private val sizeGuard: FrameSizeGuard,
     private val timings: StageTimings = StageTimings(),
@@ -131,11 +136,16 @@ class FramePipeline(
      * the previous frame's pipeline cost.
      */
     fun onFrame(
-        image: ImageProxy,
+        image: T,
+        width: Int,
+        height: Int,
         timestampMs: Long,
     ): FrameResult {
-        // The delivered size is the only trustworthy one; a change invalidates the profile.
-        sizeGuard.note(image.width, image.height)
+        // The delivered size is the only trustworthy one; a change invalidates the profile. Read it
+        // off the frame that ARRIVED, never off what was requested (commit a7dab73): a camera that
+        // hands back something other than what was asked for poisons every warp until the next
+        // calibration, and it does so silently.
+        sizeGuard.note(width, height)
         val note = readFrame(image)
         val result = if (note != null) FrameResult.Skipped(note) else emit(timestampMs)
         timings.mark(Stage.TOTAL)
@@ -163,7 +173,7 @@ class FramePipeline(
      * detection, but there is still a calibration screen that needs pixels, and it is the corners
      * that are missing precisely while the user is calibrating.
      */
-    private fun readFrame(image: ImageProxy): String? {
+    private fun readFrame(image: T): String? {
         stages.convert(image)
         timings.mark(Stage.CONVERT)
         stages.publishFrame()
