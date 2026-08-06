@@ -5,6 +5,7 @@ import org.bytedeco.ffmpeg.global.avutil
 import org.bytedeco.javacv.FFmpegFrameGrabber
 import org.opencv.core.CvType
 import org.opencv.core.Mat
+import org.opencv.core.Size
 import org.opencv.videoio.VideoCapture
 import org.opencv.videoio.Videoio
 import java.io.File
@@ -102,6 +103,11 @@ class WebcamSource(
     index: Int,
     width: Int = 0,
     height: Int = 0,
+    /**
+     * The lens, applied before anything measures the board. Null means "raw", which is honest for a
+     * lens without distortion and wrong for one with it — see [Undistorter].
+     */
+    private val lens: LensCalibration? = null,
 ) : FrameSource {
     private val capture =
         VideoCapture(index).apply {
@@ -121,9 +127,16 @@ class WebcamSource(
             DeliveredSize(mat.cols(), mat.rows(), 0)
         }
 
-    override fun next(): Mat? = if (capture.read(mat) && !mat.empty()) mat else null
+    private val undistorter =
+        lens?.let { Undistorter(it, Size(delivered.width.toDouble(), delivered.height.toDouble())) }
+
+    override fun next(): Mat? {
+        if (!capture.read(mat) || mat.empty()) return null
+        return undistorter?.apply(mat) ?: mat
+    }
 
     override fun close() {
+        undistorter?.close()
         mat.release()
         capture.release()
     }
