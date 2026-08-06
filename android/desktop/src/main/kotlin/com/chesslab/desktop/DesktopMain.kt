@@ -3,6 +3,7 @@ package com.chesslab.desktop
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
+import com.chesslab.geometry.LensFit
 import com.chesslab.geometry.MarkerTracker
 import com.chesslab.geometry.alignmentOf
 import com.chesslab.geometry.boardCornersForFrame
@@ -28,6 +29,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.opencv.core.Mat
+import org.opencv.core.Size
 import java.io.File
 import kotlin.system.exitProcess
 
@@ -51,6 +53,10 @@ fun main(args: Array<String>) {
             val video = File(args.getOrNull(1) ?: usage())
             check(video.isFile) { "no such video: ${video.absolutePath}" }
             replay(VideoFileSource(video), video.name)
+        }
+        "calibrate" -> {
+            val index = args.getOrNull(1)?.toIntOrNull() ?: usage()
+            WebcamSource(index).use { calibrate(it) }
         }
         "align" -> {
             val index = args.getOrNull(1)?.toIntOrNull() ?: usage()
@@ -78,16 +84,24 @@ private fun locateBoard(
     source: FrameSource,
     attempts: Int = LOCATE_ATTEMPTS,
 ): FloatArray? {
-    val tracker = MarkerTracker()
-    // Any board size will do for the DETECTION: `boardCornersForFrame` returns frame-space points,
-    // and the size only scales the homography it fits them through.
-    val probe = BoardGeometry(boardSize = PROBE_BOARD_SIZE)
     repeat(attempts) {
         val frame = source.next() ?: return null
-        boardCornersForFrame(frame, probe, tracker)?.let { return cornersToFlat(it) }
+        quadOf(frame)?.let { return it }
     }
     return null
 }
+
+/**
+ * The board's markers in THIS frame, as a flat quad.
+ *
+ * Any board size will do: `boardCornersForFrame` returns frame-space points, and the size only
+ * scales the homography it fits them through. A fresh [MarkerTracker] per call on purpose — its
+ * smoothing is for a running tracker, and a calibration search must judge each candidate on its
+ * own frame rather than on a blend of the ones before it.
+ */
+internal fun quadOf(frame: Mat): FloatArray? =
+    boardCornersForFrame(frame, BoardGeometry(boardSize = PROBE_BOARD_SIZE), MarkerTracker())
+        ?.let { cornersToFlat(it) }
 
 /**
  * What the STORED marker margin costs on this board, measured against the board's own grid.
@@ -156,8 +170,71 @@ private fun lens(): LensCalibration? =
         .onFailure { println("no lens applied — ${it.message ?: it::class.simpleName} at $LENS_CALIBRATION") }
         .getOrNull()
 
+/**
+ * Calibrate the lens from the board, and say plainly whether it worked.
+ *
+ * Writes nothing on its own: a calibration that does not bring the board under the limit is a
+ * finding, not a file. The stored one that made this rig worse is exactly what happens when that
+ * distinction is skipped.
+ */
+private fun calibrate(source: FrameSource) {
+    val fit = calibrateFromBoard(source) { println("  $it") }
+    when {
+        fit == null -> println("no board found: the markers never decoded")
+        fit.rejected != null -> println("evidence: ${fit.evidence} — refused: ${fit.rejected}")
+        else -> report(source, fit)
+    }
+}
+
+private fun report(
+    source: FrameSource,
+    fit: LensFit,
+) {
+    println("evidence: ${fit.evidence}")
+    println(
+        "bow ${"%.5f".format(fit.bowBefore)} → ${"%.5f".format(fit.bowAfter)}  " +
+            "k1=${"%.4f".format(fit.k1)} k2=${"%.4f".format(fit.k2)} " +
+            "centre=(${"%.0f".format(fit.cx)}, ${"%.0f".format(fit.cy)})",
+    )
+    if (!fit.ok) {
+        println("not accepted: the bow did not improve by the required margin")
+        return
+    }
+    // The verdict the fit does not control. A model that flattens its own objective and leaves the
+    // squares where they were has explained nothing — which is a finding, not a calibration.
+    val size = source.delivered
+    val calibration =
+        LensCalibration(
+            cameraMatrix = listOf(fit.focal, 0.0, fit.cx, 0.0, fit.focal, fit.cy, 0.0, 0.0, 1.0),
+            distCoeffs = listOf(fit.k1, fit.k2, 0.0, 0.0, 0.0),
+            width = size.width,
+            height = size.height,
+            rms = fit.bowAfter,
+        )
+    val raw = source.next()?.let { frame -> quadOf(frame)?.let { squareOffsetOf(frame, it) } }
+    val corrected =
+        Undistorter(calibration, Size(size.width.toDouble(), size.height.toDouble())).use { undistorter ->
+            source.next()?.let { frame ->
+                val fixed = undistorter.apply(frame)
+                quadOf(fixed)?.let { squareOffsetOf(fixed, it) }
+            }
+        }
+    println(
+        "worst square offset: ${raw?.let { "%.2f".format(it) } ?: "unmeasurable"} px raw → " +
+            "${corrected?.let { "%.2f".format(it) } ?: "unmeasurable"} px corrected",
+    )
+    writeLensProbe(source, fit, File(PROBE_PATH))?.let { println("probe: ${it.absolutePath}") }
+}
+
 private fun usage(): Nothing {
-    println("usage: chesslab-desktop cameras | align <camera-index> [raw] | replay <video.mp4> | track <camera-index>")
+    listOf(
+        "usage: chesslab-desktop <command>",
+        "  cameras                    what is attached, as the driver reports it",
+        "  calibrate <camera-index>   fit the lens from the board's own grid lines",
+        "  align <camera-index> [raw] measure the board against its grid; 'raw' skips the lens",
+        "  replay <video.mp4>         drive a recorded clip through the shipping tracker",
+        "  track <camera-index>       the same, live",
+    ).forEach(::println)
     exitProcess(2)
 }
 
@@ -276,3 +353,6 @@ private const val GRID_LINES_PER_FRAME = 18
 private const val P90_NUM = 9
 
 private const val P90_DEN = 10
+
+/** Where the visual proof lands. Under tmp/, which is not the corpus. */
+private const val PROBE_PATH = "../../tmp/lens-probe.png"

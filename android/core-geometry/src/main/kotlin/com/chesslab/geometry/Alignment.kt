@@ -26,7 +26,7 @@ import kotlin.math.max
 // rather than assumed.
 
 /** How far either side of an expected INTERIOR line to look, as a fraction of a cell. */
-private const val SEARCH_FRAC: Double = 0.25
+internal const val SEARCH_FRAC: Double = 0.25
 
 /**
  * The same for the two OUTER lines, and deliberately tighter: the reference board carries a printed
@@ -126,7 +126,7 @@ class Alignment(
 )
 
 /** Search windows and centroid width, derived once per measurement from the cell size. */
-private class ProfileParams(
+internal class ProfileParams(
     val cell: Double,
     val span: Int,
     val outerSpan: Int,
@@ -185,7 +185,7 @@ fun gridLines(
 }
 
 /** `(k, lever, position)` for every groove one axis contributed, over all its bands. */
-private fun axisSamples(
+internal fun axisSamples(
     g: BoardGray,
     axis: Int,
     bands: Int,
