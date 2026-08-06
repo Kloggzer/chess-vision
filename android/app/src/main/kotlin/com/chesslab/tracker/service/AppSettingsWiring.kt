@@ -1,6 +1,5 @@
 package com.chesslab.tracker.service
 
-import android.content.Context
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.cnn.Attached
 import com.chesslab.tracker.cnn.CnnModelAssets
@@ -30,11 +29,11 @@ import com.chesslab.tracker.settings.SettingsRepository
 private const val CNN_TAG = "chesslabCnn"
 
 fun openClassifier(
-    context: Context,
+    assets: CnnModelAssets,
     app: AppSettings,
     probe: CnnRuntimeProbe,
 ): Attached {
-    val staged = CnnModelAssets.fromAssets(context, app.modelDir, app.modelAsset).stage()
+    val staged = assets.stage()
     val classifier = OnnxSquareClassifier.open(staged, AndroidTrackerLog(CNN_TAG), app.epRequest)
     probe.requestedEp = requestedBackend(staged, app.epRequest)
     probe.actualEp = classifier.backend

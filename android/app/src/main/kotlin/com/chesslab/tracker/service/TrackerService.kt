@@ -19,7 +19,7 @@ import com.chesslab.tracker.cnn.CnnModelAssets
 import com.chesslab.tracker.cnn.CnnState
 import com.chesslab.tracker.cnn.ModelSpec
 import com.chesslab.tracker.diagnostics.DiagnosticsLog
-import com.chesslab.tracker.diagnostics.appVersionOf
+import com.chesslab.tracker.diagnostics.androidHostIdentity
 import com.chesslab.tracker.diagnostics.diagnosticsDir
 import com.chesslab.tracker.diagnostics.runStartOf
 import com.chesslab.tracker.games.GameSessionController
@@ -31,6 +31,7 @@ import com.chesslab.tracker.log.androidTrackerLogs
 import com.chesslab.tracker.pipeline.CameraRate
 import com.chesslab.tracker.pipeline.PERF_TAG
 import com.chesslab.tracker.pipeline.StageTimings
+import com.chesslab.tracker.runtime.AppPaths
 import com.chesslab.tracker.settings.AppSettings
 import com.chesslab.tracker.settings.SettingsHost
 import com.chesslab.tracker.settings.SettingsRepository
@@ -40,6 +41,7 @@ import com.chesslab.tracker.speech.androidSpeechEngine
 import com.chesslab.tracker.ui.debug.DebugSessionHost
 import com.chesslab.tracker.ui.debug.debugSession
 import com.chesslab.tracker.ui.games.GameSessionHost
+import com.chesslab.tracker.ui.games.RecordingSettingsHost
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -87,7 +89,7 @@ class TrackerService :
     private lateinit var diagnostics: DiagnosticsLog
 
     /** Read once: `PackageManager` is a binder call and the answer cannot change under us. */
-    private val version by lazy { appVersionOf(this) }
+    private val host by lazy { androidHostIdentity(this) }
 
     private val calibration by lazy { calibrationStore(this) }
 
@@ -96,7 +98,13 @@ class TrackerService :
     private val cnnProbe = CnnRuntimeProbe()
 
     /** Re-read on every attach, so a changed model or EP lands on the next stack (D07a-3). */
-    private val attachCnn: () -> Attached = { openClassifier(this, settings.appSettings.value, cnnProbe) }
+
+    private val attachCnn: () -> Attached = {
+        // The app's binding: assets come out of the APK, and everything downstream takes
+        // them as given rather than reaching for a Context of its own.
+        val app = settings.appSettings.value
+        openClassifier(CnnModelAssets.fromAssets(this, app.modelDir, app.modelAsset), app, cnnProbe)
+    }
 
     // The factory is inline because it has exactly one call site and `StackSwitch` already says
     // what it is for; the lambda is lazy, so the `lateinit` session parts are wired by then.
@@ -322,7 +330,7 @@ class TrackerService :
         // show the box the crops are being cut with NOW, not the one they were cut with at wiring.
         cnnProbe.crop = { cropLine(modelSpec, geometry) }
         // 08a's recorder, in the SESSION half: it must outlive both the UI and a tracker restart.
-        games = wireGameSession(this, lifecycleScope, frames, publisher, calibration)
+        games = wireGameSession(AppPaths(filesDir), RecordingSettingsHost.get(this), lifecycleScope, frames, publisher, calibration)
     }
 
     /** Persisted truth first, then the stack, then the camera — a frame with no stack is wasted. */
@@ -407,7 +415,7 @@ class TrackerService :
                             // profile value nobody chose rather than as an absent field (specs/45).
                             cropLine(modelSpec, geometry),
                             cnnProbe.info(),
-                            version,
+                            host,
                         ),
                     )
                 }

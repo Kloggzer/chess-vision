@@ -21,7 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.chesslab.engine.api.DebugDecision
-import com.chesslab.tracker.diagnostics.appVersionOf
+import com.chesslab.tracker.diagnostics.androidHostIdentity
 import com.chesslab.tracker.diagnostics.zipDiagnostics
 import com.chesslab.tracker.service.DebugState
 import com.chesslab.tracker.ui.Figure
@@ -72,7 +72,7 @@ fun DecisionLogPanel(
                         state.payload.decisions,
                         viewModel.config,
                         viewModel.runtime.value,
-                        appVersionOf(context).name,
+                        androidHostIdentity(context).version.name,
                     ),
                 )
             }) {
