@@ -5,8 +5,10 @@ import com.chesslab.geometry.GridSample
 import com.chesslab.geometry.LensFit
 import com.chesslab.geometry.alignmentOf
 import com.chesslab.geometry.cornersFromFlat
+import com.chesslab.geometry.cornersToFlat
 import com.chesslab.geometry.fitLens
 import com.chesslab.geometry.gridSamples
+import com.chesslab.geometry.improveQuad
 import com.chesslab.geometry.margins4
 import com.chesslab.tracker.geometry.DEFAULT_MARKER_MARGIN
 import com.chesslab.tracker.geometry.measuredBoardSize
@@ -52,6 +54,29 @@ fun calibrateFromBoard(
 /** The board's geometry for a quad: measured size, the marker outset the profile records. */
 fun boardGeometryFor(quad: FloatArray): BoardGeometry =
     BoardGeometry(boardSize = measuredBoardSize(quad), margin = margins4(DEFAULT_MARKER_MARGIN))
+
+/**
+ * The quad the markers give, corrected by the board's own grid.
+ *
+ * The ArUco quad carries whatever the marker outset is wrong by — the margin is a single constant
+ * for four markers glued on by hand. `improveQuad` measures the grid and moves the quad onto it,
+ * which absorbs that error without anyone having to estimate it, and it is the machinery specs/41
+ * took a real video from a median 29.6 px offset to 2.0 with. It never returns a worse quad.
+ *
+ * Reading the outset directly from the outer grid lines would be the other route, and it is the
+ * brittle one: those two lines are exactly the ones the detector is least sure of — the search
+ * window for them is deliberately tighter (0.15 of a cell against 0.25) because the board's printed
+ * label border sits about a third of a cell outside them. A fit over eighteen lines survives an
+ * outlier; a reading off two does not.
+ */
+fun refinedQuad(
+    frame: Mat,
+    quad: FloatArray,
+): FloatArray {
+    val geometry = boardGeometryFor(quad)
+    val improved = improveQuad(frame, cornersFromFlat(quad), geometry).quad ?: return quad
+    return cornersToFlat(improved)
+}
 
 /**
  * The independent verdict.
