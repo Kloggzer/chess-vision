@@ -644,8 +644,12 @@ and it depends only on the profile, never on the camera. The two values that are
 | where | `board_size` | `pad_side` | cell | crop box | vs. a 128 px input |
 |---|---:|---:|---:|---:|---|
 | rig profile `data/calibration/phone.yaml` | 800 | 0.05 | 100 | **110 px** | **upsamples** 1.16× |
-| `config.DEFAULT_BOARD_SIZE` = the `BoardGeometry` / `TrackerConfig` default | 1600 | 0.10 | 200 | **240 px** | **downsamples** 1.9× |
-| Android, **calibrated** — `measuredBoardSize` | 320…1280 | 0.10 | 40…160 | **48…192 px** | either way |
+| `config.DEFAULT_BOARD_SIZE` = the `BoardGeometry` / `TrackerConfig` default | 1600 | 0.05 | 200 | **220 px** | **downsamples** 1.7× |
+| Android, **calibrated** — `measuredBoardSize` | 320…1280 | 0.05 | 40…160 | **44…176 px** | either way |
+
+The `pad_side` column read **0.10** in the last two rows until 2026-08-06 while no profile in the
+corpus had ever used it; §11.4 says what changed and why the model's own declaration is the part
+that actually settles it.
 
 ⚠ **The 1600 row is the default, not what the running app uses.** `measuredBoardSize`
 (`android/app/src/main/kotlin/com/chesslab/tracker/geometry/CalibrationStore.kt:133`) derives
@@ -737,6 +741,26 @@ Two keys in a run's `config.json`, deliberately not one (`specs/22-inference-res
 
 Changing a model's serving resolution is therefore: edit that model's `infer_size`, re-export,
 ship. Not a flag at a call site, and not a constant in the app.
+
+Since **2026-08-06** (`specs/45-the-crop-belongs-to-the-model/`) two more keys sit beside them:
+
+- **`pad_side` / `pad_up`** — what the crop CONTAINS, in cells around the square. `infer_size`
+  says the picture is 80 px; the pads say whether those 80 px hold 1.10 or 1.20 of a cell, which
+  is a different photograph of the same square. Written by `train` from the dataset's rows (all of
+  them — a dataset whose sessions disagree declares nothing) and by `run_export` for older runs;
+  read by `serving.run_spec` → `crops_for_model` and by the app's `ModelSpec` → `withCropOf`.
+- Absence means **legacy**, never a default: the consumer keeps its own profile's pads and has to
+  say so (`[LEGACY]` from the exporter, `declaredPads: null` in the device's `run_start` row,
+  `(LEGACY: the model declares no crop)` on the debug screen).
+
+The row a crop is written with now carries the pads too, next to `out_size` — before that the
+composition of a crop was recoverable only from a calibration profile that had already changed
+under it.
+
+⚠ The table above still shows the historical divergence that motivated this: 0.05 in the corpus,
+0.10 as everybody's default. `config.CROP.pad_side` and the two Android mirrors are **0.05** since
+the same date, so a freshly created profile now agrees with the corpus — but a profile STORED
+before it still says 0.10, and only the model's declaration overrides that.
 
 ### 11.5 An untrained input size fails silently — pick one of the run's `scales`
 
