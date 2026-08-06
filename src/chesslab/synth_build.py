@@ -40,8 +40,12 @@ def _virtual_path(name: str, sid: str, frame: str, square: str) -> str:
     return f"mm://{name}/{sid}/{frame}_{square}.png"
 
 
-def _rows_for_entry(name: str, sid: str, entry: dict, out_size: tuple[int, int]) -> list[dict]:
-    """64 metadata rows for one frame: label per square from the FEN (+ occluded override)."""
+def _rows_for_entry(name: str, sid: str, entry: dict, crop) -> list[dict]:
+    """64 metadata rows for one frame: label per square from the FEN (+ occluded override).
+
+    `crop` is the `CropParams` the pixel pass cuts with — the rows say what the picture holds
+    (`pad_side`/`pad_up`), not only how large it is (specs/45).
+    """
     from .labeling import square_color
     from .state import GameState
 
@@ -65,7 +69,9 @@ def _rows_for_entry(name: str, sid: str, entry: dict, out_size: tuple[int, int])
                 "square": sq,
                 "square_color": square_color(sq),
                 "fen": entry["fen"],
-                "out_size": [int(out_size[0]), int(out_size[1])],
+                "out_size": [int(crop.out_size[0]), int(crop.out_size[1])],
+                "pad_side": float(crop.pad_side),
+                "pad_up": float(crop.pad_up),
                 "geometry": "warp",
                 "photometry": "none",
                 "ts": entry.get("ts") or datetime.now(UTC).isoformat(),
@@ -155,7 +161,10 @@ def build_synth_dataset(
     paths = paths or config.DATA
     per_cell_cap = config.DEDUP.per_cell_cap if per_cell_cap is None else per_cell_cap
     from .calibration import CropParams
-    out_size = tuple(CropParams.default(board_size).out_size)
+    # The SAME defaults the pixel pass cuts with (`ingestion_profile` -> `CropParams.default`),
+    # so the rows describe the crops that are actually packed.
+    crop = CropParams.default(board_size)
+    out_size = tuple(crop.out_size)
 
     items = list(iter_items(Path(renders_root)))
     if not items:
@@ -179,7 +188,7 @@ def build_synth_dataset(
         entry = {"frame": str(it.image_path), "fen": to_full_fen(it.fen), "ply": ply,
                  "occluded_squares": (it.meta or {}).get("occluded_squares") or [],
                  "ambiguous_squares": (it.meta or {}).get("ambiguous_squares") or []}
-        rows.extend(_rows_for_entry(name, sid, entry, out_size))
+        rows.extend(_rows_for_entry(name, sid, entry, crop))
     n_raw = len(rows)
     n_sessions = len({r["session_id"] for r in rows})
     print(f"[fuse] {len(items)} frames -> {n_sessions} sessions, {n_raw} candidate crops",
