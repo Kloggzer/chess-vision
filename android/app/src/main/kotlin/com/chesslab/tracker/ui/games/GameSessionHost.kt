@@ -7,9 +7,6 @@ import com.chesslab.tracker.settings.DataStoreConfigStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
  * Where the games screen picks the running game up; `null` while the service is not running.
@@ -43,6 +40,3 @@ object RecordingSettingsHost {
 fun gamesDir(context: Context): File = File(context.filesDir, "games")
 
 fun sessionsDir(context: Context): File = File(context.filesDir, "sessions")
-
-/** `2026-07-24_1822` — sorts chronologically as a string and is a legal file stem. */
-fun gameId(epochMs: Long): String = SimpleDateFormat("yyyy-MM-dd_HHmm", Locale.US).format(Date(epochMs))

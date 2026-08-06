@@ -24,7 +24,7 @@ import org.opencv.core.Mat
  */
 class TrackerBinder(
     private val publisher: StatusPublisher,
-    private val frames: CalibrationFrames,
+    private val frames: CalibrationFrames<Bitmap>,
     private val settings: SettingsRepository,
     private val cnn: StateFlow<CnnState>,
     private val queue: (EngineAction) -> Unit,
@@ -36,7 +36,7 @@ class TrackerBinder(
     // members on the service for no gain.
     torch: TorchControl,
 ) : Binder(),
-    CalibrationFrames,
+    CalibrationFrames<Bitmap>,
     TrackerControls by controls,
     TorchControl by torch {
     val status: StateFlow<TrackerStatus?> get() = publisher.status

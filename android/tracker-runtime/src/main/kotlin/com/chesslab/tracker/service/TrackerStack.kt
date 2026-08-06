@@ -12,8 +12,8 @@ import com.chesslab.tracker.log.TrackerLogs
 import com.chesslab.tracker.pipeline.CropFrameStore
 import com.chesslab.tracker.pipeline.FramePipeline
 import com.chesslab.tracker.pipeline.FrameSizeGuard
+import com.chesslab.tracker.pipeline.FrameStages
 import com.chesslab.tracker.pipeline.StageTimings
-import com.chesslab.tracker.pipeline.cameraStages
 import com.chesslab.tracker.settings.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -22,7 +22,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import org.opencv.core.Mat
 import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * How this host turns its frames into stages. The phone binds CameraX; a video source binds a Mat
+ * straight through. The stack owns the crop store and the preview buses it passes in, so it hands
+ * them over rather than letting the host invent its own.
+ */
+typealias StagesFactory<T> = (BoardGeometry, TrackerConfig, CropFrameStore, (Mat) -> Unit, (Mat) -> Unit) -> FrameStages<T>
 
 /**
  * What a rebuilt tracker must NOT forget.
@@ -32,7 +40,7 @@ import java.util.concurrent.atomic.AtomicLong
  * new stack. Move HISTORY is not carried: `TrackerEngine` is seeded with a FEN, so undo starts
  * empty after a restart (STATUS D07x-3).
  */
-class TrackerSeed(
+class TrackerSeed<T>(
     val config: TrackerConfig,
     /** The LIVE geometry holder — calibration outlives a restart, and live-align reads it per tick. */
     val geometry: () -> BoardGeometry,
@@ -52,6 +60,8 @@ class TrackerSeed(
      * `adb logcat -s` is pointed at, so they are behaviour, not decoration.
      */
     val logs: TrackerLogs = NoTrackerLogs,
+    /** See [StagesFactory]: the one thing about a frame this stack cannot know by itself. */
+    val stages: StagesFactory<T>,
 )
 
 /**
@@ -59,16 +69,16 @@ class TrackerSeed(
  *
  * NOT here, on purpose: the [com.chesslab.tracker.camera.TrackerCamera] (exactly ONE
  * `ProcessCameraProvider` binding may exist app-wide — MEMORY `android-single-camera-owner`; a
- * restart retargets it instead), the [CameraFrameBus], the [StatusPublisher] and the
+ * restart retargets it instead), the [CameraFrameBus<*>], the [StatusPublisher] and the
  * [SettingsRepository]. The last three because the UI already collects their `StateFlow`s: a
  * swapped flow instance is a screen that silently stops updating, which is the failure mode this
  * whole pack exists to avoid.
  */
-class TrackerStack(
-    seed: TrackerSeed,
+class TrackerStack<T>(
+    seed: TrackerSeed<T>,
     settings: SettingsRepository,
     publisher: StatusPublisher,
-    frames: CameraFrameBus,
+    frames: CameraFrameBus<*>,
     timings: StageTimings,
     parent: CoroutineScope,
     openClassifier: () -> Attached,
@@ -81,7 +91,7 @@ class TrackerStack(
     private val pipeline =
         FramePipeline(
             seed.config,
-            cameraStages(seed.geometry(), seed.config, cropStore, frames::offer, frames::offerBoard),
+            seed.stages(seed.geometry(), seed.config, cropStore, frames::offer, frames::offerBoard),
             cropStore,
             guard,
             timings,

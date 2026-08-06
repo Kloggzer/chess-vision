@@ -4,6 +4,7 @@ import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
 import com.chesslab.tracker.games.GameSessionController
 import com.chesslab.tracker.games.GameStore
+import com.chesslab.tracker.games.gameId
 import com.chesslab.tracker.geometry.CalibrationProfile
 import com.chesslab.tracker.geometry.CalibrationStore
 import com.chesslab.tracker.geometry.ProfileLoad
@@ -15,8 +16,6 @@ import com.chesslab.tracker.record.SessionMeta
 import com.chesslab.tracker.record.SessionRecorder
 import com.chesslab.tracker.record.SessionStore
 import com.chesslab.tracker.runtime.AppPaths
-import com.chesslab.tracker.ui.games.GameSessionHost
-import com.chesslab.tracker.ui.games.gameId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,7 +46,7 @@ fun wireGameSession(
     paths: AppPaths,
     settings: RecordingSettings,
     scope: CoroutineScope,
-    frames: CalibrationFrames,
+    frames: CalibrationFrames<*>,
     publisher: StatusPublisher,
     calibration: CalibrationStore,
 ): GameSessionController {
@@ -61,7 +60,6 @@ fun wireGameSession(
             publisher.status.value?.corners
         }
     attachGameSession(scope, controller, publisher.events, publisher.status) { profile()?.name ?: DEFAULT_PROFILE }
-    GameSessionHost.publish(controller)
     return controller
 }
 
