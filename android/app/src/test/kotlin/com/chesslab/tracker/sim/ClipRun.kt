@@ -142,14 +142,18 @@ internal fun replayVideo(
             val nowS = VCLOCK_START + (index + 1) / source.fps
             observer?.deliver(nowS)?.let { log.record(index, engine.onCnnSnapshot(it)) }
             log.pollStatus(index)
-            val input = pipeline.input(frame, index + 1L, Math.round(nowS * MS_PER_S))
+            // Ask BEFORE the frame is processed, exactly as `CnnObserver` does on the phone: the
+            // pipeline answers one request with one crop warp, cut from the frame it just warped.
+            // Asking afterwards would hand the observer the NEXT frame's pixels.
+            if (observer?.idle() == true) pipeline.requestCrops()
+            val input = pipeline.input(frame, Math.round(nowS * MS_PER_S))
             val mark = System.nanoTime()
             val events = engine.onFrame(input)
             timings.engineMs += elapsed(mark)
             timings.frames += 1
             log.record(index, events)
             val status = log.pollStatus(index)
-            observer?.spawn(frame, index, input.seq, input.timestampMs, nowS, status.fen)
+            observer?.spawn(index, input.seq, input.timestampMs, nowS, status.fen)
             onFrame(index, frame)
         }
     } finally {
@@ -210,8 +214,10 @@ private class SimObserver(
         return snap
     }
 
+    /** True when no inference is in flight, so this frame's crops are worth warping. */
+    fun idle(): Boolean = pending == null
+
     fun spawn(
-        frame: Mat,
         index: Int,
         seq: Long,
         timestampMs: Long,
@@ -219,7 +225,7 @@ private class SimObserver(
         fen: String,
     ) {
         if (pending != null) return
-        val crops = pipeline.crops(frame)
+        val crops = pipeline.crops() ?: return
         val mark = System.nanoTime()
         val probs = cnn.classifier.classify(crops)
         val inferMs = elapsed(mark)
