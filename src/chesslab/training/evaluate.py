@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from .. import config
-from .data import filter_rows_by_split, load_manifest, load_split
+from .data import crop_of_rows, filter_rows_by_split, load_manifest, load_split
 from .model import stock_batchnorm
 
 
@@ -158,6 +158,20 @@ def untrained_size_error(cfg: dict, w: int, h: int) -> str | None:
     return None
 
 
+def crop_of_dataset(name: str, paths: config.Paths | None = None) -> tuple[float, float] | None:
+    """[crop_of_rows][chesslab.training.data.crop_of_rows] for a dataset by name.
+
+    A dataset that is not on this machine any more reads as legacy rather than raising — an
+    export must stay possible without the corpus that produced it.
+    """
+    from ..dataset_build import dataset_dir
+
+    manifest = dataset_dir(name, paths) / "manifest.jsonl" if name else None
+    if manifest is None or not manifest.exists():
+        return None
+    return crop_of_rows(load_manifest(manifest))
+
+
 def run_export(run: str, fmt: str = "torchscript",
                infer_size: tuple[int, int] | None = None) -> int:
     """Export a run at the inference size ITS OWN config declares (specs/22).
@@ -165,6 +179,12 @@ def run_export(run: str, fmt: str = "torchscript",
     `infer_size` is the convenience writer for that key: it is stored in the run's `config.json`
     and then read straight back through `infer_size_of`, so the exported graph is always what the
     config says and never a value that existed only in this argument.
+
+    The crop's COMPOSITION (`pad_side`/`pad_up`) is written the same way and for the same reason
+    (specs/45): it decides what the 64 crops contain, the consumer has to reproduce it, and only
+    the dataset knows it. A run whose dataset cannot say declares nothing and is reported LOUDLY
+    as legacy — the serving path then keeps the calibration profile's values, which is the very
+    mismatch this key exists to end.
     """
     import torch
 
@@ -190,9 +210,20 @@ def run_export(run: str, fmt: str = "torchscript",
     if err:
         print(f"[FAIL] {err}")
         return 1
-    if infer_size is not None:
+    crop = crop_of_dataset(str(cfg.get("dataset") or ""))
+    if crop is not None:
+        cfg["pad_side"], cfg["pad_up"] = crop
+    elif "pad_side" not in cfg:
+        # Never removes a declaration already in the file: a value established by hand from the
+        # session profiles (which is how the bundled models got theirs) outranks a dataset that
+        # has since been rebuilt or moved away.
+        print(f"[LEGACY] {run_dir.name} declares NO crop: dataset {cfg.get('dataset')!r} does "
+              "not record `pad_side`/`pad_up` for all its rows. Every consumer will keep its own "
+              "calibration profile's pads, which is the silent domain shift specs/45 is about — "
+              "re-slice the sessions to fix it.")
+    if infer_size is not None or crop is not None:
         # Write it before tracing: the graph must be what the config declares, and the config is
-        # what every consumer resizes its crops to.
+        # what every consumer resizes and pads its crops to.
         (run_dir / "config.json").write_text(json.dumps(cfg, indent=2, ensure_ascii=False),
                                              encoding="utf-8")
 
