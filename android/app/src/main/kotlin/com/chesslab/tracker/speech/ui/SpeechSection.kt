@@ -4,19 +4,12 @@ import android.content.Intent
 import android.speech.tts.TextToSpeech
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -27,12 +20,12 @@ import com.chesslab.tracker.speech.SpeechState
 import com.chesslab.tracker.speech.SpeechVerbosity
 import com.chesslab.tracker.speech.androidSpeechEngine
 import com.chesslab.tracker.ui.Card
-import com.chesslab.tracker.ui.ChesslabChip
 import com.chesslab.tracker.ui.OutlineAction
-import com.chesslab.tracker.ui.theme.OnSurface
+import com.chesslab.tracker.ui.settings.PreferenceRow
+import com.chesslab.tracker.ui.settings.SwitchPreference
+import com.chesslab.tracker.ui.settings.ValuePreference
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
-import com.chesslab.tracker.ui.theme.chesslabSwitchColors
 
 /**
  * The languages with a hand-written vocabulary in `MovePhrase`; anything else speaks English.
@@ -102,67 +95,33 @@ private fun Body(
     onChange: (AppSettings) -> Unit,
     onTest: () -> Unit,
 ) {
-    Card {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            // `weight` on the label so a long or translated one wraps beside the Switch, not under it.
-            Text(
-                text = "Announce moves",
-                style = MaterialTheme.typography.labelLarge,
-                color = OnSurface,
-                modifier = Modifier.weight(1f).padding(end = Space.md),
-            )
-            Switch(
-                checked = app.speechEnabled,
-                onCheckedChange = { onChange(app.copy(speechEnabled = it)) },
-                colors = chesslabSwitchColors(),
-            )
-        }
-        Text(
-            "Stays silent while the phone is on silent, vibrate or Do-Not-Disturb, and while the " +
-                "illegal-move alarm is latched — a tracker that narrates a board it no longer believes is worse than a quiet one.",
-            style = MaterialTheme.typography.bodySmall,
-            color = OnSurfaceMuted,
-        )
-    }
-    Card {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "Announce alarms",
-                style = MaterialTheme.typography.labelLarge,
-                color = OnSurface,
-                modifier = Modifier.weight(1f).padding(end = Space.md),
-            )
-            Switch(
-                checked = app.speechAnnounceAlarms,
-                onCheckedChange = { onChange(app.copy(speechAnnounceAlarms = it)) },
-                colors = chesslabSwitchColors(),
-            )
-        }
-    }
-    Card {
-        Text("Language", style = MaterialTheme.typography.labelLarge, color = OnSurface)
-        Chips(SPEECH_LANGUAGES, app.speechLanguage) { onChange(app.copy(speechLanguage = it)) }
-    }
-    Card {
-        Text("Verbosity", style = MaterialTheme.typography.labelLarge, color = OnSurface)
-        Chips(SpeechVerbosity.entries.map { it.label to it }, app.speechVerbosity) { onChange(app.copy(speechVerbosity = it)) }
-    }
-    Card {
-        Text(speechStateText(state), style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
-        OutlineAction("Say a test move", onTest)
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun <T> Chips(
-    options: List<Pair<String, T>>,
-    selected: T,
-    onSelect: (T) -> Unit,
-) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-        options.forEach { (label, value) ->
-            ChesslabChip(label, value == selected) { onSelect(value) }
-        }
-    }
+    SwitchPreference(
+        title = "Announce moves",
+        summary = "Respects silent mode, Do Not Disturb and tracker alarms",
+        checked = app.speechEnabled,
+        onCheckedChange = { onChange(app.copy(speechEnabled = it)) },
+    )
+    SwitchPreference(
+        title = "Announce alarms",
+        summary = "Speak when the observed board needs attention",
+        checked = app.speechAnnounceAlarms,
+        onCheckedChange = { onChange(app.copy(speechAnnounceAlarms = it)) },
+    )
+    ValuePreference(
+        title = "Language",
+        options = SPEECH_LANGUAGES,
+        selected = app.speechLanguage,
+        onSelect = { onChange(app.copy(speechLanguage = it)) },
+    )
+    ValuePreference(
+        title = "Detail",
+        options = SpeechVerbosity.entries.map { it.label to it },
+        selected = app.speechVerbosity,
+        onSelect = { onChange(app.copy(speechVerbosity = it)) },
+    )
+    PreferenceRow(
+        title = "Test voice",
+        summary = speechStateText(state),
+        onClick = onTest,
+    )
 }

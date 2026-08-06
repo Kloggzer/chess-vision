@@ -111,7 +111,7 @@ val KNOB_CATALOG: List<KnobUi> =
             0.5,
             0.01,
             "How far past the board edge a hand is watched for. Raise it if reaching in is missed, lower it if" +
-                "people walking past the table count as motion.",
+                " people walking past the table count as motion.",
         ),
         row(
             "motionHoldS",
@@ -120,7 +120,7 @@ val KNOB_CATALOG: List<KnobUi> =
             3.0,
             0.05,
             "How long the board must be still before the move is read. Half the delay between letting go of a" +
-                "piece and hearing it announced; raise it if moves commit while your hand is still over the board.",
+                " piece and hearing it announced; raise it if moves commit while your hand is still over the board.",
         ),
         flag("requireMotionForMove", MOTION, "Only commit a move if a hand entered since the last reference (drift guard)."),
         row(
@@ -149,7 +149,7 @@ val KNOB_CATALOG: List<KnobUi> =
             10.0,
             0.1,
             "How much a square must change to count as touched. Raise it if the tracker invents moves as the" +
-                "light shifts; lower it if real moves between same-coloured squares go unnoticed.",
+                " light shifts; lower it if real moves between same-coloured squares go unnoticed.",
         ),
         row(
             "censusThr",
@@ -177,7 +177,7 @@ val KNOB_CATALOG: List<KnobUi> =
             1.0,
             0.05,
             "How far a piece leans out of its own square toward the back rank. Raise it for a low camera where" +
-                "tall pieces cover the square behind them.",
+                " tall pieces cover the square behind them.",
         ),
         row("diffClaheClip", EVIDENCE, 0.0, 8.0, 0.1, "CLAHE contrast boost on the diff image (0=off; ~2-3 lifts dark moves)."),
         count("maxChanged", VETOES, 1.0, 20.0, "Occlusion gate: more changed squares than this and the frame is a hand, not a move."),
@@ -207,7 +207,7 @@ val KNOB_CATALOG: List<KnobUi> =
             1.0,
             0.05,
             "How much of the board grid must stay visible for the frame to be used at all. Raise it to pause" +
-                "harder while an arm is across the board; 0 turns the check off.",
+                " harder while an arm is across the board; 0 turns the check off.",
         ),
         row(
             "cornerJumpPx",
@@ -216,7 +216,7 @@ val KNOB_CATALOG: List<KnobUi> =
             40.0,
             0.5,
             "How far a board corner may shift before the tracker throws away what it was comparing against and" +
-                "re-reads the board. Lower it if a knocked table leaves phantom moves behind.",
+                " re-reads the board. Lower it if a knocked table leaves phantom moves behind.",
         ),
         row(
             "ambiguityMarginLl",
@@ -225,7 +225,7 @@ val KNOB_CATALOG: List<KnobUi> =
             10.0,
             0.1,
             "How far ahead the best explanation must be before it is committed. Raise it if the wrong one of two" +
-                "similar moves gets announced; the cost is more moves that need the tie-break below.",
+                " similar moves gets announced; the cost is more moves that need the tie-break below.",
         ),
         row(
             "commitLlFloor",
@@ -241,7 +241,7 @@ val KNOB_CATALOG: List<KnobUi> =
             "usePrior",
             SCORING,
             "When two moves fit equally well, prefer the more chess-like one (a capture, a check, a move" +
-                "forward). The announcement then says it was decided by the prior.",
+                " forward). The announcement then says it was decided by the prior.",
         ),
         row(
             "nudgeTimeoutS",
@@ -314,7 +314,7 @@ val KNOB_CATALOG: List<KnobUi> =
             1.0,
             0.01,
             "How much of the board the model must agree with before it is allowed to overrule or confirm a move." +
-                "Lower it and one misread square stops blocking; lower it too far and it invents positions.",
+                " Lower it and one misread square stops blocking; lower it too far and it invents positions.",
         ),
         count(
             "recoveryMaxPlies",
@@ -376,7 +376,7 @@ val KNOB_CATALOG: List<KnobUi> =
             "liveAlign",
             CAMERA,
             "Keep following the markers during a game. Off freezes the board outline where calibration left it," +
-                "which is right only if nothing can move.",
+                " which is right only if nothing can move.",
         ),
     )
 
