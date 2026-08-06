@@ -2,15 +2,65 @@ package com.chesslab.tracker.ui.review
 
 import com.chesslab.tracker.analysis.GameGrade
 import com.chesslab.tracker.analysis.MoveQuality
+import com.chesslab.tracker.analysis.OpeningSummary
 import com.chesslab.tracker.analysis.PlyGrade
 import com.chesslab.tracker.analysis.ReviewBudget
 import com.chesslab.tracker.analysis.SideSummary
+import com.chesslab.tracker.games.GameView
 import com.chesslab.tracker.ui.analysisLine
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class ReviewUiModelTest {
+    @Test
+    fun openingDurationUsesNormalMoveNotationInsteadOfHalfMoves() {
+        assertEquals("Theory through 6.", openingTheoryLabel(OpeningSummary("C60", "Ruy Lopez", 11, false)))
+        assertEquals("In theory through 6...", openingTheoryLabel(OpeningSummary("C60", "Ruy Lopez", 12, true)))
+    }
+
+    @Test
+    fun openingContinuationMakesSideToMoveAndMoveNumbersExplicit() {
+        assertEquals(
+            "3… a6 4. Ba4 Nf6",
+            openingContinuationLabel(OpeningSummary("C60", "Ruy Lopez", 5, false, listOf("a6", "Ba4", "Nf6"))),
+        )
+        assertEquals(
+            "4. Ba4 Nf6 5. O-O",
+            openingContinuationLabel(OpeningSummary("C60", "Ruy Lopez", 6, false, listOf("Ba4", "Nf6", "O-O"))),
+        )
+        assertEquals(
+            "4… Nf6",
+            openingMoveLabel(OpeningSummary("C60", "Ruy Lopez", 5, false, listOf("a6", "Ba4", "Nf6")), 2),
+        )
+    }
+
+    @Test
+    fun reviewHeaderUsesPlayersAndNavigationUsesChessTerms() {
+        val game =
+            GameView(
+                id = "2026-08-02_2159",
+                live = false,
+                startFen = "",
+                result = "1-0",
+                segments = emptyList(),
+                white = "Alice",
+                black = "Bob",
+            )
+
+        assertEquals("Alice – Bob", reviewTitle(game))
+        assertEquals("Alice · White", playerAndSide(game, plyGrade(MoveQuality.MISTAKE, 60.0, 45.0)))
+        assertEquals(
+            "Bob · Black",
+            playerAndSide(game, plyGrade(MoveQuality.MISTAKE, 60.0, 45.0).copy(whiteMoved = false)),
+        )
+        assertEquals("Start", reviewPositionLabel(0, 83))
+        assertEquals("1. White · 1/83", reviewPositionLabel(1, 83))
+        assertEquals("1… Black · 2/83", reviewPositionLabel(2, 83))
+    }
+
     @Test
     fun scoreSheetShowsWinningChancesLostByTheMove() {
         assertEquals("−35 %", moveImpactLabel(plyGrade(MoveQuality.BLUNDER, before = 47.0, after = 12.0)))
@@ -51,6 +101,7 @@ class ReviewUiModelTest {
         assertEquals(AnalysisPhase.NOT_STARTED, analysisPhase(ReviewUi()))
         assertEquals(AnalysisPhase.PARTIAL, analysisPhase(ReviewUi(grade = partial)))
         assertEquals(AnalysisPhase.MISSING_ENGINE, analysisPhase(ReviewUi(engineMissing = true)))
+        assertEquals(AnalysisPhase.ERROR, analysisPhase(ReviewUi(error = "Stockfish stopped")))
         // A finished review has nothing left to say, so the card is absent rather than empty.
         assertNull(analysisPhase(ReviewUi(grade = complete)))
         // And a run in flight is the BANNER's, not the screen's — two progress bars, one above the
@@ -71,7 +122,7 @@ class ReviewUiModelTest {
     @Test
     fun theDashboardNamesMissedMatesAndTheForcedFinish() {
         val whiteMiss = plyGrade(MoveQuality.GOOD, 100.0, 70.0).copy(mateBefore = true, mateInBefore = 3)
-        val blackMiss = whiteMiss.copy(ply = 2, san = "Kh7", mateInBefore = 2)
+        val blackMiss = whiteMiss.copy(ply = 2, san = "Kh7", whiteMoved = false, mateInBefore = 2)
         val forced = whiteMiss.copy(ply = 3, mateBefore = false, mateInBefore = null, forcedMateLine = true)
         val grade = gameGrade(whiteMiss, blackMiss, forced)
 
@@ -101,6 +152,75 @@ class ReviewUiModelTest {
         val grade = gameGrade(whiteFollow, blackReply).copy(evalMate = listOf(2, 1, 0))
 
         assertEquals("White · forced mate", followedMateStory(grade))
+    }
+
+    @Test
+    fun importedBlackToMovePositionsKeepTheirSideAndFullmoveNumber() {
+        val blackMiss =
+            plyGrade(MoveQuality.BLUNDER, 90.0, 30.0).copy(
+                whiteMoved = false,
+                moveNumber = 42,
+                mateBefore = true,
+                mateAfter = false,
+                mateInBefore = 2,
+            )
+
+        assertEquals("Black · 42... e4 · missed mate in 2", findingTitle(blackMiss))
+        assertEquals("Black missed 1 mating chance.", mateStory(gameGrade(blackMiss)))
+    }
+
+    @Test
+    fun aForcedMateGradesTheDefenseInsteadOfCallingEveryReplyGood() {
+        val defender =
+            plyGrade(MoveQuality.GOOD, 2.0, 2.0).copy(
+                whiteMoved = false,
+                forcedMateLine = true,
+                mateDistanceBefore = 3,
+                mateDistanceAfter = 2,
+            )
+
+        assertEquals("Mate sooner", verdictLabel(defender))
+        assertEquals("Mate in 3 → 2", verdictDetail(defender))
+        assertEquals("Best defense", verdictLabel(defender.copy(playedBest = true, mateDistanceAfter = 3)))
+        assertEquals("Mate stays in 3", verdictDetail(defender.copy(playedBest = true, mateDistanceAfter = 3)))
+    }
+
+    @Test
+    fun aNonBestMoveCanKeepTheForcedMateWithoutBeingCalledGood() {
+        val continuation =
+            plyGrade(MoveQuality.GOOD, 98.0, 98.0).copy(
+                forcedMateLine = true,
+                mateBefore = true,
+                mateAfter = true,
+                mateInBefore = 4,
+                mateDistanceBefore = 4,
+                mateDistanceAfter = 3,
+                playedBest = false,
+            )
+
+        assertEquals("Mate kept", verdictLabel(continuation))
+        assertEquals("Still mate in 3", verdictDetail(continuation))
+    }
+
+    @Test
+    fun checkmateIsTerminalAndTheMateExplanationNamesTheWinner() {
+        assertTrue(isCheckmatePosition("8/8/8/8/8/5K2/6Q1/7k b - - 0 1"))
+        assertFalse(isCheckmatePosition("8/8/8/8/8/5K2/6Q1/7k w - - 0 1"))
+        assertEquals(
+            "White can force checkmate in 4. Any reply loses.",
+            mateExplanation(
+                MateLineRequest(
+                    ply = 1,
+                    side = "White",
+                    startFen = "",
+                    uciLine = emptyList(),
+                    sanLine = emptyList(),
+                    missed = false,
+                    mateIn = 4,
+                    bestSan = "Qg7+",
+                ),
+            ),
+        )
     }
 
     private fun plyGrade(

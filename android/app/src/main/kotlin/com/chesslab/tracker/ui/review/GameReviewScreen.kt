@@ -10,11 +10,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,7 +24,15 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -40,14 +46,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.analysis.GameGrade
 import com.chesslab.tracker.analysis.MoveQuality
+import com.chesslab.tracker.analysis.OpeningSummary
 import com.chesslab.tracker.analysis.PlyGrade
 import com.chesslab.tracker.analysis.ResolvedMateLine
 import com.chesslab.tracker.analysis.SideSummary
@@ -56,28 +66,31 @@ import com.chesslab.tracker.analysis.missedMate
 import com.chesslab.tracker.games.GameView
 import com.chesslab.tracker.ui.Card
 import com.chesslab.tracker.ui.ChesslabScaffold
-import com.chesslab.tracker.ui.DisclosureRow
 import com.chesslab.tracker.ui.Figure
 import com.chesslab.tracker.ui.FilledAction
 import com.chesslab.tracker.ui.OutlineAction
 import com.chesslab.tracker.ui.SeverityStripe
 import com.chesslab.tracker.ui.TextAction
-import com.chesslab.tracker.ui.analysis.BAR_WIDTH
-import com.chesslab.tracker.ui.analysis.EvalFill
-import com.chesslab.tracker.ui.analysis.SLOT_WIDTH
+import com.chesslab.tracker.ui.games.GameDetailsDialog
 import com.chesslab.tracker.ui.percent
 import com.chesslab.tracker.ui.theme.Accent
+import com.chesslab.tracker.ui.theme.BoardDark
 import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.Danger
-import com.chesslab.tracker.ui.theme.FiguresDisplay
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Outline
+import com.chesslab.tracker.ui.theme.PieceWhite
 import com.chesslab.tracker.ui.theme.Radius
 import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.theme.Stroke
 import com.chesslab.tracker.ui.theme.SurfaceRaised
 import com.chesslab.tracker.ui.tracking.BoardCanvas
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+import kotlin.math.max
 
 /**
  * Order is the order of the tab row, and **Moments is first** (specs/48).
@@ -130,7 +143,13 @@ fun ArchiveReviewRoute(
     val ui by model.ui.collectAsStateWithLifecycle()
     val game = ui.game
     if (game == null) {
-        ChesslabScaffold(id, onBack) { bars -> Text("Game not found.", Modifier.padding(bars), color = OnSurfaceMuted) }
+        val message =
+            when {
+                ui.loading -> "Loading gameâ€¦"
+                ui.error != null -> ui.error.orEmpty()
+                else -> "Game not found."
+            }
+        ChesslabScaffold(id, onBack) { bars -> Text(message, Modifier.padding(bars), color = OnSurfaceMuted) }
         return
     }
     GameReviewScreen(ui, game, onBack, model)
@@ -144,14 +163,18 @@ private fun GameReviewScreen(
     model: ReviewViewModel,
 ) {
     var seek by remember(game.id) { mutableIntStateOf(0) }
-    var section by remember(game.id) { mutableStateOf(ReviewSection.MOMENTS) }
+    var section by remember(game.id) { mutableStateOf(ReviewSection.REVIEW) }
     var allMoves by remember(game.id) { mutableStateOf(false) }
-    var mateLine by remember(game.id) { mutableStateOf<MateLineRequest?>(null) }
+    val overlays = remember(game.id) { ReviewOverlayState() }
     val grade = ui.grade
     val review = reviewSelection(game, grade, seek)
     val listState = rememberReviewListState(game, section, review.selected, model::focus)
 
-    ChesslabScaffold(game.id, onBack) { bars ->
+    ChesslabScaffold(
+        title = reviewTitle(game),
+        onBack = onBack,
+        actions = { ReviewActions({ overlays.editingDetails = true }, { overlays.showingAnalysisDetails = true }) },
+    ) { bars ->
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize().padding(bars),
@@ -173,20 +196,23 @@ private fun GameReviewScreen(
             // tapped a text link in a section they could not see and nothing appeared to happen:
             // "clicking the review button does not give me an indicator whatsoever" (2026-08-04).
             analysisPhase(ui)?.let { phase ->
-                item(key = "analysis") { AnalysisState(phase, grade, model::review) }
+                item(key = "analysis") { AnalysisState(phase, grade, ui.error, model::review) }
             }
             when (section) {
                 ReviewSection.REVIEW -> {
                     item(key = "board") { ReviewBoard(game, review.selected, grade, review.fromHere) }
-                    item(key = "verdict") { ReviewVerdict(review, game, grade) { mateLine = it } }
+                    item(key = "verdict") { ReviewVerdict(review, game, grade) { overlays.mateLine = it } }
                     item(key = "nav") { PlyNav(review.selected, game.plies.size) { seek = it } }
-                    item(key = "details") { Details(ui, game, review.selected, onDiscard = model::discard) }
                 }
                 // The rating leads on the tab the screen opens on: it is the answer to "how did I
                 // do" and the one thing the user asked for by name. STARTING the engine is not here
                 // any more — that is the whole screen's business and it is above this `when`.
                 ReviewSection.MOMENTS -> {
-                    grade?.let { item(key = "summary") { AccuracyRow(it, game) } }
+                    if (grade != null || ui.opening != null) {
+                        item(key = "summary") {
+                            MomentsSummary(grade, ui.opening) { overlays.openingLine = openingLineRequest(game, it) }
+                        }
+                    }
                     item(key = "moments") {
                         KeyMoments(grade) {
                             seek = it
@@ -202,8 +228,94 @@ private fun GameReviewScreen(
             }
         }
     }
-    mateLine?.let { MateLineExplorer(it, model::resolveMateLine) { mateLine = null } }
+    ReviewOverlays(ui, game, review.selected, model, overlays)
 }
+
+private class ReviewOverlayState {
+    var mateLine by mutableStateOf<MateLineRequest?>(null)
+    var openingLine by mutableStateOf<OpeningLineRequest?>(null)
+    var editingDetails by mutableStateOf(false)
+    var showingAnalysisDetails by mutableStateOf(false)
+}
+
+@Composable
+private fun ReviewOverlays(
+    ui: ReviewUi,
+    game: GameView,
+    selected: Int,
+    model: ReviewViewModel,
+    overlays: ReviewOverlayState,
+) {
+    overlays.mateLine?.let { MateLineExplorer(it, model::resolveMateLine) { overlays.mateLine = null } }
+    overlays.openingLine?.let { OpeningLineExplorer(it) { overlays.openingLine = null } }
+    ReviewDetailsEditor(game, overlays.editingDetails, model, onDismiss = { overlays.editingDetails = false })
+    AnalysisDetailsDialog(
+        ui = ui,
+        game = game,
+        selected = selected,
+        visible = overlays.showingAnalysisDetails,
+        onDiscard = {
+            overlays.showingAnalysisDetails = false
+            model.discard()
+        },
+        onDismiss = { overlays.showingAnalysisDetails = false },
+    )
+}
+
+@Composable
+private fun ReviewActions(
+    onEdit: () -> Unit,
+    onAnalysisDetails: () -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    IconButton(onClick = { open = true }) {
+        Icon(Icons.Filled.MoreVert, contentDescription = "Review options")
+    }
+    DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        DropdownMenuItem(text = { Text("Edit game details") }, onClick = {
+            open = false
+            onEdit()
+        })
+        DropdownMenuItem(text = { Text("Analysis details") }, onClick = {
+            open = false
+            onAnalysisDetails()
+        })
+    }
+}
+
+@Composable
+private fun ReviewDetailsEditor(
+    game: GameView,
+    visible: Boolean,
+    model: ReviewViewModel,
+    onDismiss: () -> Unit,
+) {
+    if (!visible) return
+    GameDetailsDialog(
+        initialWhite = game.white,
+        initialBlack = game.black,
+        initialEvent = game.event,
+        onDismiss = onDismiss,
+    ) { white, black, event ->
+        model.editGameDetails(white, black, event)
+        onDismiss()
+    }
+}
+
+/** Player names are the identity of a game; the timestamp is only the fallback file identity. */
+internal fun reviewTitle(game: GameView): String {
+    val named = game.white != "?" || game.black != "?"
+    if (named) return "${game.white} – ${game.black}"
+    val date =
+        game.startedAtEpochMs
+            .takeIf { it > 0L }
+            ?.let {
+                REVIEW_DATE_FORMAT.format(Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()))
+            } ?: game.id.replace('_', ' ')
+    return "$date · ${resultHeadline(game.result)}"
+}
+
+private val REVIEW_DATE_FORMAT = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH)
 
 @Composable
 private fun rememberReviewListState(
@@ -223,6 +335,7 @@ private data class ReviewSelection(
     val ply: PlyGrade?,
     val fromHere: PlyGrade?,
     val mateHint: MateLineRequest?,
+    val checkmate: Boolean,
 )
 
 @Composable
@@ -233,13 +346,25 @@ private fun ReviewVerdict(
     onExploreMate: (MateLineRequest) -> Unit,
 ) {
     PlyVerdict(
-        review.ply,
-        game.plies.getOrNull(review.selected - 1)?.san,
-        review.selected,
-        grade,
-        review.fromHere,
-        review.mateHint,
+        ply = review.ply,
+        san = game.plies.getOrNull(review.selected - 1)?.san,
+        selected = review.selected,
+        grade = grade,
+        playedBy = review.ply?.let { playerAndSide(game, it) },
+        engineMove = review.ply?.bestSan ?: grade?.of(review.selected + 1)?.bestSan,
+        mateHint = review.mateHint,
+        checkmate = review.checkmate,
     ) { review.mateHint?.let(onExploreMate) }
+}
+
+/** The colour is always present; a saved name adds identity without replacing the chess side. */
+internal fun playerAndSide(
+    game: GameView,
+    ply: PlyGrade,
+): String {
+    val side = movingSide(ply)
+    val player = if (ply.whiteMoved) game.white else game.black
+    return if (player == "?") side else "$player · $side"
 }
 
 private fun reviewSelection(
@@ -249,15 +374,25 @@ private fun reviewSelection(
 ): ReviewSelection {
     val ply = grade?.of(selected)
     val next = grade?.of(selected + 1)
+    val checkmate = isCheckmatePosition(game.fenAt(selected))
     return ReviewSelection(
         selected = selected,
         ply = ply,
         fromHere = next?.takeIf { it.quality != MoveQuality.BEST },
-        mateHint = mateLineRequest(game, selected, ply),
+        // A finding opens the position before its move, so the mate belongs to `next` there.
+        // Stepping normally still shows the same hint on the move after it was played.
+        mateHint =
+            if (checkmate) {
+                null
+            } else {
+                next?.takeIf { it.missedMate }?.let { mateLineRequest(game, it) }
+                    ?: ply?.let { mateLineRequest(game, it) }
+            },
+        checkmate = checkmate,
     )
 }
 
-private data class MateLineRequest(
+internal data class MateLineRequest(
     val ply: Int,
     val side: String,
     val startFen: String,
@@ -265,12 +400,12 @@ private data class MateLineRequest(
     val sanLine: List<String>,
     val missed: Boolean,
     val mateIn: Int?,
+    val bestSan: String?,
 )
 
-private fun mateLineRequest(
+internal fun mateLineRequest(
     game: GameView,
-    selected: Int,
-    current: PlyGrade?,
+    current: PlyGrade,
 ): MateLineRequest? {
     val grade =
         current?.takeIf { ply ->
@@ -278,12 +413,13 @@ private fun mateLineRequest(
         } ?: return null
     return MateLineRequest(
         ply = grade.ply,
-        side = movingSide(grade.ply),
-        startFen = game.fenAt(selected - 1),
+        side = movingSide(grade),
+        startFen = game.fenAt(grade.ply - 1),
         uciLine = grade.bestUciLine,
         sanLine = grade.bestLine,
         missed = grade.missedMate,
         mateIn = grade.mateInBefore,
+        bestSan = grade.bestSan,
     )
 }
 
@@ -321,7 +457,7 @@ private fun MateLineExplorer(
             Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
                 BoardCanvas(fen = frame.fen, lastMoveUci = frame.lastMoveUci)
                 Text(
-                    "Any reply loses.",
+                    mateExplanation(request),
                     style = MaterialTheme.typography.labelSmall,
                     color = OnSurfaceMuted,
                 )
@@ -335,8 +471,12 @@ private fun MateLineExplorer(
                 )
                 MateResolutionStatus(resolving, resolved.complete)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    TextAction("Previous", { step = (step - 1).coerceAtLeast(0) }, enabled = step > 0)
-                    TextAction("Next", { step = (step + 1).coerceAtMost(frames.lastIndex) }, enabled = step < frames.lastIndex)
+                    TextAction("Previous", { step = (step - 1).coerceAtLeast(0) }, enabled = !resolving && step > 0)
+                    TextAction(
+                        "Next",
+                        { step = (step + 1).coerceAtMost(frames.lastIndex) },
+                        enabled = !resolving && step < frames.lastIndex,
+                    )
                 }
             }
         },
@@ -361,6 +501,7 @@ private fun MateResolutionStatus(
     complete: Boolean,
 ) {
     if (resolving) {
+        Text("Completing the sequence…", style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted)
         LinearProgressIndicator(Modifier.fillMaxWidth(), color = Accent)
     } else if (!complete) {
         Text(
@@ -408,10 +549,8 @@ private fun ReviewBoard(
     grade: GameGrade?,
     fromHere: PlyGrade?,
 ) {
-    // `IntrinsicSize.Min` is load-bearing: the bar fills the row's height, so without an intrinsic
-    // it has no height to fill at all inside a lazy item.
-    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-        ReviewEvalBar(grade?.winWhite?.getOrNull(selected))
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+        ReviewWinBar(grade?.winWhite?.getOrNull(selected))
         // The advice on the BOARD has to be a move from the position the board is showing. A ply's
         // own `bestUci` is the engine's move in the position BEFORE it, so drawing that here would
         // put an arrow for one position on top of another — it did, and `e4-e5` was rendered over a
@@ -419,7 +558,6 @@ private fun ReviewBoard(
         // ply's, and the verdict card names exactly this move.
         BoardCanvas(
             fen = game.fenAt(selected),
-            modifier = Modifier.weight(1f),
             lastMoveUci = game.plies.getOrNull(selected - 1)?.uci,
             suggestedUci = fromHere?.bestUci,
         )
@@ -458,6 +596,10 @@ private fun ReviewTabs(
  * labels did not line up with each other or with the underline. What is centred is the LABEL.
  */
 private val TAB_COUNT_SLOT = 32.dp
+private val REVIEW_BAR_HEIGHT = 10.dp
+private val REVIEW_BAR_RADIUS = 3.dp
+private val REVIEW_VERDICT_HEIGHT = 64.dp
+private const val REVIEW_BAR_MIN_WEIGHT = 0.001f
 
 @Composable
 private fun ReviewTab(
@@ -540,7 +682,7 @@ private const val ACCURACY_INFO =
         "count under the number is how many moves it is based on."
 
 private const val WIN_BAR_INFO =
-    "How good the position is, as a share out of 100 for White. 50 % is level.\n\nIt is not your " +
+    "How good the position is, split between White and Black. 50 % each is level.\n\nIt is not your " +
         "chance of winning THIS game against THIS opponent — it is what the position is worth " +
         "between evenly matched players. A 90 % position is still lost if you then blunder."
 
@@ -551,37 +693,53 @@ private const val QUALITY_INFO =
         "Inaccuracy — gave away a little.\n" +
         "Mistake — gave away a lot.\n" +
         "Blunder — gave away most of what you had.\n\n" +
+        "During a forced mate, the losing side instead shows whether its move held out or made the " +
+        "mate arrive sooner. Those moves do not inflate the accuracy score.\n\n" +
         "The engine searches each position for a few seconds. A move it only refutes after a very " +
         "deep search is not one a human could have been expected to find, so the search is kept " +
         "close to what a strong club player would see."
 
 /**
- * Win expectancy for the position ON SCREEN, as a bar beside the board.
- *
- * The number is White's share, so the label reads the same way round as the fill: white grows from
- * the bottom. A percentage rather than a pawn count, because that is the unit the rest of this
- * screen speaks — and, since specs/47, the unit the LIVE bar beside the tracker's board speaks too.
+ * Win expectancy for the position ON SCREEN. Both names and values stay visible, so a number can
+ * never be mistaken for the side that happens to have moved last.
  */
 @Composable
-private fun ReviewEvalBar(winWhite: Double?) {
+private fun ReviewWinBar(winWhite: Double?) {
+    val white = winWhite?.coerceIn(0.0, 100.0)
+    val black = white?.let { 100.0 - it }
     Column(
-        Modifier.fillMaxHeight().width(SLOT_WIDTH),
-        horizontalAlignment = Alignment.CenterHorizontally,
+        Modifier.fillMaxWidth().semantics {
+            contentDescription =
+                if (white == null) "Position not analysed" else "White ${percent(white)}, Black ${percent(black!!)}"
+        },
         verticalArrangement = Arrangement.spacedBy(Space.hair),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = winWhite?.let { percent(it) } ?: "–",
-                style = MaterialTheme.typography.labelSmall,
-                color = OnSurfaceMuted,
-                maxLines = 1,
-                softWrap = false,
-            )
-            Info("The bar", WIN_BAR_INFO)
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Figure("White ${white?.let(::percent) ?: "–"}", OnSurface)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Figure("Black ${black?.let(::percent) ?: "–"}", OnSurface)
+                Info("The bar", WIN_BAR_INFO)
+            }
         }
-        // Greyed until the engine has been to this position, so an unanalysed ply cannot be read as
-        // a level one — 50 % is a claim, and "not looked at yet" is not.
-        EvalFill(winWhite, paused = winWhite == null, modifier = Modifier.width(BAR_WIDTH).weight(1f))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(REVIEW_BAR_HEIGHT)
+                .clip(RoundedCornerShape(REVIEW_BAR_RADIUS))
+                .border(Stroke.hairline, Outline, RoundedCornerShape(REVIEW_BAR_RADIUS))
+                .background(BoardDark),
+        ) {
+            if (white == null) {
+                Box(Modifier.fillMaxWidth().height(REVIEW_BAR_HEIGHT).background(OnSurfaceMuted))
+            } else {
+                Box(Modifier.weight(max(REVIEW_BAR_MIN_WEIGHT, white.toFloat())).height(REVIEW_BAR_HEIGHT).background(PieceWhite))
+                Box(Modifier.weight(max(REVIEW_BAR_MIN_WEIGHT, black!!.toFloat())).height(REVIEW_BAR_HEIGHT).background(BoardDark))
+            }
+        }
     }
 }
 
@@ -595,6 +753,7 @@ private fun ReviewEvalBar(winWhite: Double?) {
  */
 internal enum class AnalysisPhase {
     MISSING_ENGINE,
+    ERROR,
     NOT_STARTED,
 
     /** Scored, but not to the end — a run was stopped, or the screen was left before specs/50. */
@@ -605,6 +764,7 @@ internal fun analysisPhase(ui: ReviewUi): AnalysisPhase? {
     val grade = ui.grade
     return when {
         ui.engineMissing -> AnalysisPhase.MISSING_ENGINE
+        ui.error != null -> AnalysisPhase.ERROR
         ui.running -> null
         grade == null -> AnalysisPhase.NOT_STARTED
         !grade.complete -> AnalysisPhase.PARTIAL
@@ -622,25 +782,51 @@ internal fun analysisPhase(ui: ReviewUi): AnalysisPhase? {
 private fun AnalysisState(
     phase: AnalysisPhase,
     grade: GameGrade?,
+    error: String?,
     onReview: () -> Unit,
 ) {
     Card {
         when (phase) {
             AnalysisPhase.MISSING_ENGINE ->
                 Text("No engine on this device.", style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
+            AnalysisPhase.ERROR -> {
+                Text(error ?: "Analysis failed.", style = MaterialTheme.typography.bodySmall, color = Danger)
+                OutlineAction("Try again", onReview)
+            }
             AnalysisPhase.NOT_STARTED -> {
-                Text("Not reviewed yet.", style = MaterialTheme.typography.bodyMedium, color = OnSurface)
-                FilledAction("Review this game", onReview)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(Space.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Not reviewed yet", style = MaterialTheme.typography.bodyMedium, color = OnSurface, modifier = Modifier.weight(1f))
+                    FilledAction("Start review", onReview)
+                }
             }
             // A partial review must never look like a finished one. It is the state a stopped run
             // leaves, and before specs/50 it was also what leaving the screen left, silently.
             AnalysisPhase.PARTIAL -> {
-                Text(
-                    "Partial review · ${grade?.scored} of ${grade?.positions} positions graded.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = OnSurface,
-                )
-                OutlineAction("Continue review", onReview)
+                val done = grade?.scored ?: 0
+                val total = grade?.positions ?: 0
+                val remaining = (total - done).coerceAtLeast(0)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(Space.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+                        Text("Review $done/$total", style = MaterialTheme.typography.bodyMedium, color = OnSurface)
+                        Text("$remaining positions left", style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted)
+                        if (total > 0) {
+                            LinearProgressIndicator(
+                                { done.toFloat() / total },
+                                Modifier.fillMaxWidth().height(Stroke.thick),
+                                color = Accent,
+                            )
+                        }
+                    }
+                    FilledAction("Continue", onReview)
+                }
             }
         }
     }
@@ -653,26 +839,50 @@ private fun AnalysisState(
  * app actually watched, in a position that was not already decided.
  */
 @Composable
-private fun AccuracyRow(
-    grade: GameGrade,
-    game: GameView,
+private fun MomentsSummary(
+    grade: GameGrade?,
+    opening: OpeningSummary?,
+    onExploreOpening: (OpeningSummary) -> Unit,
 ) {
     Card {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(resultHeadline(game.result), style = MaterialTheme.typography.titleMedium, color = OnSurface)
-            Info("Accuracy", ACCURACY_INFO)
+        if (grade != null) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Accuracy", style = MaterialTheme.typography.titleMedium, color = OnSurface)
+                Info("Accuracy", ACCURACY_INFO)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+                AccuracyBlock("White", grade.white, Modifier.weight(1f))
+                AccuracyBlock("Black", grade.black, Modifier.weight(1f))
+            }
+            Text(
+                accuracyDenominator(grade.white.scored + grade.black.scored, grade.white.plies + grade.black.plies),
+                style = MaterialTheme.typography.labelSmall,
+                color = OnSurfaceMuted,
+                maxLines = 1,
+            )
+            Text(mateStory(grade), style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted)
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-            AccuracyBlock("White", grade.white, Modifier.weight(1f))
-            AccuracyBlock("Black", grade.black, Modifier.weight(1f))
+        if (opening != null) {
+            Column(Modifier.padding(top = if (grade == null) 0.dp else Space.xs)) {
+                Text("Opening", style = MaterialTheme.typography.labelMedium, color = OnSurfaceMuted)
+                Text(opening.name, style = MaterialTheme.typography.bodyMedium, color = OnSurface, maxLines = 2)
+                Text(
+                    "${opening.eco} · ${openingTheoryLabel(opening)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = OnSurfaceMuted,
+                )
+                if (opening.continuationUci.isNotEmpty()) {
+                    TheoryContinuationAction(opening) { onExploreOpening(opening) }
+                }
+            }
         }
-        Text(
-            accuracyDenominator(grade.white.scored + grade.black.scored, grade.white.plies + grade.black.plies),
-            style = MaterialTheme.typography.labelSmall,
-            color = OnSurfaceMuted,
-            maxLines = 1,
-        )
     }
+}
+
+internal fun openingTheoryLabel(opening: OpeningSummary): String {
+    val number = (opening.theoryPlies + 1) / 2
+    val move = if (opening.theoryPlies % 2 == 0) "$number..." else "$number."
+    return if (opening.gameEndedInTheory) "In theory through $move" else "Theory through $move"
 }
 
 @Composable
@@ -681,25 +891,19 @@ private fun AccuracyBlock(
     side: SideSummary,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        // A rule, not a fill: this tile sits ON a card, and a fill of the card's own colour is
-        // invisible while a lighter one is elevation by fill.
-        modifier
-            .border(Stroke.hairline, Outline, RoundedCornerShape(Radius.sm))
-            .padding(horizontal = Space.md, vertical = Space.sm),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
+    Column(modifier.padding(vertical = Space.xs)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(label, style = MaterialTheme.typography.labelMedium, color = OnSurface)
-            Figure("${side.scored}/${side.plies} graded", OnSurfaceMuted)
+            Spacer(Modifier.weight(1f))
+            Text(
+                side.accuracy?.let { percent(it) } ?: "—",
+                style = MaterialTheme.typography.titleLarge,
+                // Lichess' own accuracy bands, from `roundTraining.ts`: >=85 good, >=70 inaccuracy,
+                // >=55 mistake, else blunder. A number nobody can place is a number nobody can use.
+                color = side.accuracy?.let { accuracyColor(it) } ?: OnSurfaceMuted,
+            )
         }
-        Text(
-            side.accuracy?.let { percent(it) } ?: "—",
-            style = FiguresDisplay,
-            // Lichess' own accuracy bands, from `roundTraining.ts`: >=85 good, >=70 inaccuracy,
-            // >=55 mistake, else blunder. A number nobody can place is a number nobody can use.
-            color = side.accuracy?.let { accuracyColor(it) } ?: OnSurfaceMuted,
-        )
+        Figure("${side.scored}/${side.plies} graded", OnSurfaceMuted)
     }
 }
 
@@ -714,16 +918,6 @@ private fun accuracyColor(accuracy: Double) =
     }
 
 /**
- * The height the caption is ALWAYS drawn at, and the reason it is a constant.
- *
- * The navigation row sits directly under this card and is pressed repeatedly. A card that grows from
- * one line ("Starting position") to four (move, cost, the engine's reply, a mate link) moves the
- * arrows under the reader's thumb between one ply and the next — *"mega nervig"*, and *"das ui
- * springt hin und her"* when a later rewrite dropped the fixed box `a5cdfd1` had put here.
- */
-private val VERDICT_HEIGHT = 72.dp
-
-/**
  * The one ply the user is looking at — TWO columns, and each column is one position.
  *
  * *"die zweispaltigkeit war besser"* (2026-08-04). It was two columns at `a5cdfd1` and became one
@@ -731,10 +925,8 @@ private val VERDICT_HEIGHT = 72.dp
  *
  * The split is not cosmetic. **Left is the position BEFORE this ply**: the move that was played,
  * what it is called, what it cost, and — where there is one — the forced mate that ran from there.
- * **Right is the position ON SCREEN**: [fromHere], the engine's move from the board the reader is
- * looking at, and the same move its arrow draws. The removed `ReviewContextChip` put a move for one
- * of those positions beside a board drawn from the other (specs/44); keeping the two questions in
- * two columns is what stops that from coming back.
+ * **Right answers the question the verdict creates**: what the engine would have played instead.
+ * The board remains after the played move so its last-move highlight and the verdict agree.
  */
 @Composable
 private fun PlyVerdict(
@@ -742,81 +934,145 @@ private fun PlyVerdict(
     san: String?,
     selected: Int,
     grade: GameGrade?,
-    fromHere: PlyGrade?,
+    playedBy: String?,
+    engineMove: String?,
     mateHint: MateLineRequest?,
+    checkmate: Boolean,
     onExploreMate: () -> Unit,
 ) {
     Card {
-        // The HEIGHT is on the column, so the mate link takes its band out of the two columns above
-        // rather than adding to them. The card is the same height at every ply either way.
-        Column(Modifier.fillMaxWidth().height(VERDICT_HEIGHT)) {
-            Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.hair)) {
-                    when {
-                        selected == 0 || san == null ->
-                            Text("Starting position", style = MaterialTheme.typography.bodyMedium, color = OnSurface)
-                        ply == null ->
-                            Text(
-                                "$san · ${if (grade == null) "not reviewed" else "analysing…"}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = OnSurfaceMuted,
-                            )
-                        else -> Verdict(ply, san)
-                    }
+        Row(
+            Modifier.fillMaxWidth().height(REVIEW_VERDICT_HEIGHT),
+            horizontalArrangement = Arrangement.spacedBy(Space.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.hair)) {
+                when {
+                    selected == 0 || san == null ->
+                        Text("Starting position", style = MaterialTheme.typography.bodyMedium, color = OnSurface)
+                    ply == null ->
+                        Text(
+                            "$san · ${if (grade == null) "not reviewed" else "analysing…"}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = OnSurfaceMuted,
+                        )
+                    else -> Verdict(ply, san, playedBy.orEmpty())
                 }
-                EngineColumn(fromHere?.bestSan, Modifier.weight(1f))
             }
-            // Full width, under both columns: at half a card "Missed mate in 6 — see the line" was
-            // cut off after "see the".
-            mateHint?.let { MateLink(it, onExploreMate) }
+            if (checkmate) {
+                CheckmateColumn(Modifier.weight(1f))
+            } else if (mateHint != null) {
+                MateAction(mateHint, onExploreMate, Modifier.weight(1f))
+            } else {
+                EngineColumn(engineMove, Modifier.weight(1f))
+            }
         }
     }
 }
 
-/** The engine's move from the position on screen, and nothing from any other position. */
+@Composable
+private fun CheckmateColumn(modifier: Modifier = Modifier) {
+    Column(
+        modifier
+            .fillMaxWidth()
+            .height(REVIEW_VERDICT_HEIGHT)
+            .border(Stroke.hairline, Outline, RoundedCornerShape(Radius.sm))
+            .padding(horizontal = Space.sm, vertical = Space.xs),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text("Position", style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted)
+        Text("Checkmate", style = MaterialTheme.typography.titleMedium, color = Accent)
+    }
+}
+
+/** The engine's answer to the played move shown in the left column. */
 @Composable
 private fun EngineColumn(
     bestSan: String?,
     modifier: Modifier = Modifier,
 ) {
-    // Only when the game did NOT continue with the engine's own move: where it did, the next row of
-    // the score sheet already is the advice and a line repeating it says nothing.
     if (bestSan == null) {
         Box(modifier)
         return
     }
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(Space.hair)) {
-        Text("The engine plays", style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted)
-        Text(bestSan, style = MaterialTheme.typography.titleMedium, color = Accent, maxLines = 1)
+    Column(
+        modifier.padding(horizontal = Space.sm, vertical = Space.xs),
+        verticalArrangement = Arrangement.spacedBy(Space.hair),
+    ) {
+        Text("Engine move", style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted)
+        Text("♟  $bestSan", style = MaterialTheme.typography.titleMedium, color = Accent, maxLines = 1)
     }
 }
 
 @Composable
-private fun MateLink(
+private fun MateAction(
     hint: MateLineRequest,
     onExploreMate: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val distance = hint.mateIn?.let { " in $it" }.orEmpty()
-    Text(
-        text = if (hint.missed) "Missed mate$distance — see the line" else "${hint.side} · forced mate — see the line",
-        style = MaterialTheme.typography.bodySmall,
-        color = if (hint.missed) Danger else Accent,
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onExploreMate).padding(vertical = Space.xs),
-    )
+    val shape = RoundedCornerShape(Radius.sm)
+    Row(
+        modifier
+            .fillMaxWidth()
+            .height(REVIEW_VERDICT_HEIGHT)
+            .clip(shape)
+            .background(Accent.copy(alpha = 0.12f))
+            .border(Stroke.hairline, Accent, shape)
+            .clickable(role = Role.Button, onClick = onExploreMate)
+            .padding(horizontal = Space.sm, vertical = Space.xs),
+        horizontalArrangement = Arrangement.spacedBy(Space.xs),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+            Text(
+                if (hint.missed) "Missed mate" else "Mate",
+                style = MaterialTheme.typography.labelMedium,
+                color = if (hint.missed) Danger else Accent,
+                maxLines = 1,
+            )
+            Text(
+                hint.mateIn?.let { "in $it  ›" } ?: "Explore  ›",
+                style = MaterialTheme.typography.titleMedium,
+                color = if (hint.missed) Danger else Accent,
+                maxLines = 1,
+            )
+        }
+        hint.bestSan?.let { bestSan ->
+            Row(
+                Modifier.weight(1f),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("♟", style = MaterialTheme.typography.headlineSmall, color = Accent)
+                Text(bestSan, style = MaterialTheme.typography.titleMedium, color = Accent, maxLines = 1)
+            }
+        }
+    }
 }
 
 @Composable
 private fun Verdict(
     ply: PlyGrade,
     san: String,
+    playedBy: String,
 ) {
+    Text("$playedBy played", style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted)
     Row(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalAlignment = Alignment.Bottom) {
         Text(san, style = MaterialTheme.typography.titleMedium, color = OnSurface, fontWeight = FontWeight.Bold)
-        Text(label(ply.quality), style = MaterialTheme.typography.titleMedium, color = badgeColor(ply.quality))
+        Text(verdictLabel(ply), style = MaterialTheme.typography.titleMedium, color = verdictColor(ply))
     }
     // A figure, because stepping ply by ply is exactly when two numbers must not dance in place.
-    Figure("${percent(ply.winBefore)} → ${percent(ply.winAfter)}", OnSurfaceMuted)
+    Figure(verdictDetail(ply), OnSurfaceMuted)
 }
+
+@Composable
+private fun verdictColor(ply: PlyGrade): Color =
+    when {
+        ply.shortenedForcedMate -> Busy
+        ply.defendsForcedMate && ply.playedBest -> Accent
+        ply.defendsForcedMate -> OnSurfaceMuted
+        else -> badgeColor(ply.quality)
+    }
 
 /**
  * The moves that decided the game, and — separately — the mates nobody took.
@@ -839,14 +1095,13 @@ private fun KeyMoments(
     val findings = grade.findings()
     val missed = grade.missedChances()
     Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
-        MateStoryCard(grade)
         Card {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("What decided the game", style = MaterialTheme.typography.titleSmall, color = OnSurface)
                 Info("How moves are judged", QUALITY_INFO)
             }
             followedMateStory(grade)?.let { story ->
-                Text(story, style = MaterialTheme.typography.bodyMedium, color = Accent)
+                Text("Finish · ${story.replace(" · ", " ")}", style = MaterialTheme.typography.labelMedium, color = Accent)
             }
             if (findings.isEmpty()) {
                 Text(
@@ -871,7 +1126,7 @@ private fun KeyMoments(
 }
 
 /**
- * One finding: what was played, what it is called, one sentence, the numbers, and the engine's line.
+ * One finding: what was played, what it is called, the numbers, and the engine's first choice.
  *
  * Tapping it seeks to the ply BEFORE the move — the position where the better move was still
  * available, and the one the board's arrow belongs to. Landing on the mistake itself only shows the
@@ -882,62 +1137,51 @@ private fun FindingCard(
     finding: PlyGrade,
     onSeek: (Int) -> Unit,
 ) {
-    var open by remember(finding.ply) { mutableStateOf(false) }
     val severity = if (finding.missedMate) Danger else badgeColor(finding.quality)
-    SeverityStripe(severity, Modifier.clickable { onSeek(finding.ply - 1) }.padding(vertical = Space.xs)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(findingTitle(finding), style = MaterialTheme.typography.bodyMedium, color = severity)
-            // The numbers that justify the verdict, in the one style figures are set in.
-            Figure("${percent(finding.winBefore)} → ${percent(finding.winAfter)}", OnSurfaceMuted)
-        }
-        Text(sentence(finding), style = MaterialTheme.typography.bodySmall, color = OnSurface)
-        finding.bestSan?.let { Text("Better: $it.", style = MaterialTheme.typography.bodySmall, color = Accent) }
-        if (finding.bestLine.size > 1) {
+    val verdict = if (finding.missedMate) "Missed mate" else label(finding.quality)
+    SeverityStripe(severity, Modifier.padding(vertical = Space.xs)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Space.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
-                if (open) finding.bestLine.joinToString(" ") else "Show the line",
-                style = MaterialTheme.typography.labelSmall,
-                color = Accent,
-                modifier = Modifier.clickable { open = !open },
+                "${moveNumber(finding)} ${finding.san}",
+                style = MaterialTheme.typography.titleMedium,
+                color = OnSurface,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
             )
+            Text(verdict, style = MaterialTheme.typography.labelMedium, color = severity)
+        }
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Space.md),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // The side is part of the figure: 48 → 13 without “Black” made the numbers ambiguous.
+            Figure("${movingSide(finding)} ${percent(finding.winBefore)} → ${percent(finding.winAfter)}", OnSurfaceMuted)
+            Spacer(Modifier.weight(1f))
+            finding.bestSan?.let {
+                Text("Engine  ♟  $it", style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted)
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.md)) {
+            TextAction("Open position", { onSeek(finding.ply - 1) })
         }
     }
 }
 
 internal fun findingTitle(finding: PlyGrade): String =
     if (finding.missedMate) {
-        "${movingSide(finding.ply)} · ${moveNumber(finding.ply)} ${finding.san} · missed mate" +
+        "${movingSide(finding)} · ${moveNumber(finding)} ${finding.san} · missed mate" +
             finding.mateInBefore?.let { " in $it" }.orEmpty()
     } else {
-        "${movingSide(finding.ply)} · ${moveNumber(finding.ply)} ${finding.san} · ${label(finding.quality)}"
+        "${movingSide(finding)} · ${moveNumber(finding)} ${finding.san} · ${label(finding.quality)}"
     }
-
-/**
- * The plain sentence, and every branch of it is a RESTATEMENT of the two numbers already on the card.
- *
- * chess.com writes things like "you could have taken this piece" — that needs tactical detection
- * nobody here has built, and inventing it would be fabrication. What can be said honestly is what the
- * win expectancy did, in words.
- */
-private fun sentence(finding: PlyGrade): String {
-    val winning = finding.winBefore >= WINNING
-    val lost = finding.winAfter <= LOSING
-    return when {
-        finding.missedMate -> "A forced mate was available here, and this move let it go."
-        winning && lost -> "You were winning here, and this gave the game away."
-        winning -> "You were winning here, and this gave most of it back."
-        lost -> "This turned a playable position into a lost one."
-        finding.quality == MoveQuality.BLUNDER -> "This handed over most of your winning chances."
-        finding.quality == MoveQuality.MISTAKE -> "This cost a large part of your winning chances."
-        else -> "A better move was available."
-    }
-}
-
-/** "You were winning" and "this is lost" as this screen means them — our words, our thresholds. */
-private const val WINNING = 75.0
-private const val LOSING = 20.0
 
 /** Ply 17 is White's move 9; ply 18 is Black's, written `9...`. */
-private fun moveNumber(ply: Int): String = "${(ply + 1) / 2}." + if (ply % 2 == 0) ".." else ""
+private fun moveNumber(ply: PlyGrade): String = "${ply.moveNumber}." + if (ply.whiteMoved) "" else ".."
 
 internal fun label(quality: MoveQuality): String =
     when (quality) {
@@ -968,59 +1212,86 @@ private fun PlyNav(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TextAction("|<", { onSeek(0) }, enabled = selected > 0)
-        TextAction("<", { onSeek((selected - 1).coerceAtLeast(0)) }, enabled = selected > 0)
-        // A position in a game is a figure: it has to hold still while the two arrows either side
-        // of it are pressed.
-        Figure(if (selected == 0) "start" else "ply $selected / $plies", OnSurfaceMuted)
-        TextAction(">", { onSeek((selected + 1).coerceAtMost(plies)) }, enabled = selected < plies)
-        TextAction(">|", { onSeek(plies) }, enabled = selected < plies)
+        TextAction("Start", { onSeek(0) }, enabled = selected > 0)
+        ReviewNavButton(Icons.AutoMirrored.Filled.ArrowBack, "Previous move", selected > 0) {
+            onSeek((selected - 1).coerceAtLeast(0))
+        }
+        Figure(reviewPositionLabel(selected, plies), OnSurfaceMuted)
+        ReviewNavButton(Icons.AutoMirrored.Filled.ArrowForward, "Next move", selected < plies) {
+            onSeek((selected + 1).coerceAtMost(plies))
+        }
+        TextAction("End", { onSeek(plies) }, enabled = selected < plies)
     }
 }
+
+@Composable
+private fun ReviewNavButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    IconButton(onClick = onClick, enabled = enabled) {
+        Icon(icon, contentDescription = description)
+    }
+}
+
+/** Chess move notation without exposing the implementation's “ply” vocabulary. */
+internal fun reviewPositionLabel(
+    selected: Int,
+    plies: Int,
+): String =
+    when {
+        selected == 0 -> "Start"
+        selected % 2 == 1 -> "${(selected + 1) / 2}. White · $selected/$plies"
+        else -> "${selected / 2}… Black · $selected/$plies"
+    }
 
 /**
  * Everything that is not the review: how the numbers were produced, where a move came from, and the
  * PGN.
  *
- * All of it was on the primary view and none of it earns a place there — "they can put it somewhere
- * in a secondary menu" (2026-08-03). It then became a bare muted `TextButton` on an empty
- * background, indistinguishable from the headings above it, which is content nobody would find. It
- * is the app's one disclosure row now, the same one Settings uses eleven times.
+ * It lives behind the review overflow: reachable from every tab without taking height away from the
+ * board and navigation.
  */
 @Composable
-private fun Details(
+private fun AnalysisDetailsDialog(
     ui: ReviewUi,
     game: GameView,
     selected: Int,
+    visible: Boolean,
     onDiscard: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
-    var open by remember { mutableStateOf(false) }
-    DisclosureRow("Analysis details", "How this was graded, the PGN, and where each move came from") {
-        open = !open
-    }
-    if (!open) return
-    Card {
-        game.plies.getOrNull(selected - 1)?.let { ply ->
-            Text(
-                "Move $selected (${ply.san}) was recorded by the tracker as: ${ply.decider ?: "unknown"}.",
-                style = MaterialTheme.typography.labelSmall,
-                color = OnSurfaceMuted,
-            )
-        }
-        ui.grade?.let {
-            Text(
-                "Each move is scored by how much winning chance it gave away — lichess' formula, and their bands " +
-                    "for inaccuracy, mistake and blunder. Combining them into one number is ours: a harmonic mean, " +
-                    "so one bad move is not averaged away. Moves played after the game was already decided score " +
-                    "nothing and are left out. The engine spends ${it.budget.nodes} positions of search per move — the " +
-                    "same budget lichess spends, and about what a strong club player sees — capped at ${it.budget.capMs} ms.",
-                style = MaterialTheme.typography.labelSmall,
-                color = OnSurfaceMuted,
-            )
-        }
-        PgnRow(ui.pgn, game.id)
-        if (ui.grade?.complete == true) TextAction("Analyse again", onDiscard)
-    }
+    if (!visible) return
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close", color = Accent) } },
+        title = { Text("Analysis details", color = OnSurface) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
+                game.plies.getOrNull(selected - 1)?.let { ply ->
+                    Text(
+                        "Move $selected (${ply.san}) was recorded by the tracker as: ${ply.decider ?: "unknown"}.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = OnSurfaceMuted,
+                    )
+                }
+                ui.grade?.let {
+                    Text(
+                        "Moves are scored by the winning chance they gave away. The game score uses a harmonic mean, " +
+                            "so one bad move is not averaged away. Moves after the result was already forced are left " +
+                            "out. The engine searches ${it.budget.nodes} positions per move, capped at ${it.budget.capMs} ms.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = OnSurfaceMuted,
+                    )
+                }
+                PgnRow(ui.pgn, game.id)
+                if (ui.grade?.complete == true) TextAction("Analyse again", onDiscard)
+            }
+        },
+        containerColor = SurfaceRaised,
+    )
 }
 
 @Composable
