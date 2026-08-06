@@ -14,6 +14,8 @@
     128,
     128
   ],
+  "pad_side": 0.05,
+  "pad_up": 0.0,
   "dataset": "occ-real3",
   "resumed_from": "occ-v4-p2e20",
   "head": "combined",

@@ -16,6 +16,8 @@
     128,
     128
   ],
+  "pad_side": 0.05,
+  "pad_up": 0.0,
   "dataset": "occ-warm",
   "resumed_from": null,
   "head": "combined",

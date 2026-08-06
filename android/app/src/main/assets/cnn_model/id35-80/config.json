@@ -28,6 +28,8 @@
     128,
     128
   ],
+  "pad_side": 0.05,
+  "pad_up": 0.0,
   "dataset": "occ-warm-13c-hn",
   "resumed_from": "occ-v10bn35-13c",
   "head": "combined",

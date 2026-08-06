@@ -14,6 +14,8 @@
     128,
     128
   ],
+  "pad_side": 0.05,
+  "pad_up": 0.0,
   "dataset": "occ-real5nd",
   "resumed_from": "occ-v6-p2",
   "head": "combined",
