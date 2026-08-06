@@ -67,15 +67,14 @@ docker compose (dev PC)                                phone (com.chesslab.track
 │                 + pg-boss jobs               │      SpectatorServer :8420 untouched
 │ postgres  ledger · JSONB decision rows ·     │
 │                 auth · job queue             │
-│ (grafana) dashboards, reading Postgres       │
 └──────────────────────────────────────────────┘
    bind mounts   data/incoming  rw   ← the ONLY writable path into the corpus
                  data/models    ro
    volumes       tus-data, pg-data, caddy-data
 ```
 
-Four containers, plus Grafana when there is something to chart. No JVM, no Redis, no second database,
-no log store. Nothing in it is ours to maintain except `app` and `worker`.
+Four containers. No JVM, no Redis, no second database, no log store, **no Grafana** (§3.3). Nothing in
+it is ours to maintain except `app` and `worker`.
 
 **Nothing here imports `chesslab`.** The Python package pulls torch and OpenCV; this service's job is
 to write files into a mounted directory and rows into Postgres. It lives in its own top-level
@@ -115,7 +114,28 @@ asked. Grafana reads Postgres natively.
 | schema | **Drizzle** | Closer to SQL than Prisma, which matters precisely where the work is: JSONB predicates and GIN indexes for `specs/39`'s queries. Better Auth has a Drizzle adapter. |
 | admin UI | **plain Next App Router + Drizzle first** | Four entities — devices, uploads, models, audit. Server components reading Drizzle are less work than adopting an admin framework. **Refine** (headless React, MIT, v5 on React 19) is the escape hatch if it sprawls; **Payload CMS 3** is Next-native and excellent, but it wants to own the schema and this is telemetry, not content. |
 
-**Ingest does not run inside Next**, and that is deliberate. App Router route handlers cannot
+### 3.3 Why there is no Grafana
+
+It was in the first sketch because `specs/38` put it there, and the reasons do not survive the rest of
+this document.
+
+- **The dashboards it was for have no data.** `38`'s pitch is frame ms / CNN ms / fps / thermal
+  derived from log lines — all from a `kind: perf` stream that has **no producer anywhere in the
+  tree**. Something has to write perf rows before there is anything to chart beyond decisions.
+- **`specs/39`'s five queries are one-off questions**, not a wall display. "How long do standoffs run"
+  is asked once, to replace a knob whose value was chosen for its order of magnitude. That is a SQL
+  query, not a dashboard to maintain and log into.
+- **The admin UI exists anyway.** Pending bytes over time, uploads per day, decisions by decider —
+  three or four fixed panels in the Next app, with no container, no datasource wiring and no second
+  identity integration.
+
+What Grafana genuinely buys is ad-hoc exploration with no code, and alerting for free. **The trigger
+for adding it: the third one-off SQL query, or the first real perf producer.** Until then `psql` and
+Drizzle Studio cover it, and the container is not earned.
+
+### 3.4 Ingest does not run inside Next
+
+That is deliberate. App Router route handlers cannot
 configure a body-size limit, the proxy default is 10 MB, and every published answer is "disable the
 body parser and stream it yourself". Sessions here reach 1.6 GB. Next also assumes a single instance
 and writes its cache to the filesystem. So `worker` owns the pipe and the jobs; `app` owns the API
@@ -275,7 +295,7 @@ per-release mistake into a per-push one.
 | **D** | compose skeleton: caddy + `app` + `worker` + postgres, a health endpoint, Better Auth; CA into the debug APK | 4 | …you want to judge the stack before building on it |
 | **E** | phone device flow, tus uploads, ledger, health notifications | +0 | D and E are worth nothing apart |
 | **F** | model publish → offer → install → rollback | +0 | needs B for correctness |
-| **G** | grafana over Postgres; `specs/39`'s five queries as SQL | +1 | `39` answerable without exporting a ZIP by hand |
+| **G** | `specs/39`'s five queries as SQL against the JSONB rows; a few fixed panels in the admin UI | +0 | `39` answerable without exporting a ZIP by hand. Grafana only on the trigger in §3.3 |
 | **H** | admin UI: devices, uploads, models, audit | +0 | — |
 
 `{A, B, C}` are independent and parallelisable — disjoint files (`cnn/` + `scripts/`;
@@ -290,12 +310,14 @@ training and the user's games. It belongs behind `docker compose up` on demand, 
 
 `38` chose **Loki and Grafana as native Windows binaries**, explicitly no Docker, because "ingest,
 storage, schema, query and auth are all somebody else's software" and nothing should be ours to run.
-Two things change. Grafana moves into the compose stack, which keeps that principle intact and trades a
-manually-managed Windows service for a versioned compose file. **Loki is dropped entirely**: once the
-rows are already in Postgres as JSONB, Loki is a second store for the same data, and the questions
-`specs/39` asks are SQL questions. The pack's wire format survives the change — the phone still pushes
-whole rotated NDJSON files and never the file it is appending to — but it pushes them to `worker`, not
-to `/loki/api/v1/push`, and the five low-cardinality labels become five columns.
+**Both halves are dropped, for different reasons.** Loki, because once the rows are in Postgres as
+JSONB it is a second store for the same data and the questions `specs/39` asks are SQL questions.
+Grafana, because the dashboards it was brought in for read a `perf` stream nobody writes (§3.3).
+
+What survives is the part that mattered: the phone still pushes **whole rotated NDJSON files** and
+never the file it is appending to, and the five low-cardinality labels still travel — they become
+columns instead of stream labels. The endpoint changes from `/loki/api/v1/push` to `worker`, and the
+"established tools, no homebrew" principle is served by Postgres rather than by Loki.
 
 Recorded in `specs/38/STATUS.md` rather than left for a future reader to discover as a contradiction.
 

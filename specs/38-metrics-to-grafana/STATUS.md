@@ -29,14 +29,20 @@ passes to notice that "necessary" had not been checked.
   `perf` kind anywhere in the tree — `34` built exactly two (`DiagnosticsRecords.kt:26,28`). So the
   claim that Grafana derives frame ms / CNN ms / fps / thermal "with no second system" rests on rows
   nobody writes. Either this pack emits two streams, or something has to write perf rows first.
-- **Deployment changed, and Loki is dropped**, by the user's decisions on 2026-08-06. A Docker compose
-  stack replaces the two native Windows binaries: caddy, a Next.js service, a Node ingest worker and
-  Postgres, with Grafana reading Postgres directly. The rows land as **JSONB** in the database the
-  device link needs anyway, so a second store for the same data buys only LogQL — and `specs/39`'s
-  five questions are SQL questions. **The wire format survives**: whole rotated NDJSON files, never
-  the file being appended to, with the five low-cardinality labels becoming columns. What changes is
-  the endpoint. Rationale, the identity model that replaces this pack's pass-through token, and the
+- **Both Loki and Grafana are dropped**, by the user's decisions on 2026-08-06, and the two native
+  Windows binaries become a four-container compose stack: caddy, a Next.js service, a Node ingest
+  worker and Postgres. Loki goes because the rows land as **JSONB** in the database the device link
+  needs anyway, so a second store for the same data buys only LogQL — and this pack's own five
+  questions are SQL questions. Grafana goes because the dashboards it was for read the `perf` stream
+  named above, which nothing writes; the trigger for bringing it back is the third one-off query or
+  the first real perf producer. **The wire format survives**: whole rotated NDJSON files, never the
+  file being appended to, and the five low-cardinality labels become columns. What changes is the
+  endpoint. Rationale, the identity model that replaces this pack's pass-through token, and the
   phasing: [`docs/device-platform-analysis.md`](../../docs/device-platform-analysis.md).
+
+  The pack's title is now wrong. Renaming it is not this note's job, but a future reader should know
+  the destination changed and the *requirement* — "the logs reach a server, and I can ask them
+  questions" — did not.
 
 ## Open
 
