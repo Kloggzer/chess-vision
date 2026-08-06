@@ -1,7 +1,5 @@
 package com.chesslab.tracker.diagnostics
 
-import android.content.Context
-import android.os.Build
 import com.chesslab.engine.api.DebugDecision
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.tracker.cnn.ModelSpec
@@ -176,11 +174,18 @@ data class AppVersion(
     val code: Long,
 )
 
-fun appVersionOf(context: Context): AppVersion =
-    runCatching {
-        val info = context.packageManager.getPackageInfo(context.packageName, 0)
-        AppVersion(info.versionName ?: "?", info.longVersionCode)
-    }.getOrDefault(AppVersion("?", 0L))
+/**
+ * Who wrote this file, as the host alone can answer it.
+ *
+ * `Build.MANUFACTURER`/`Build.MODEL`/`SDK_INT` were read here, which made the run header — the one
+ * record that says what was actually running — the reason this whole file needed Android. The host
+ * supplies the answers instead; a desktop run says so honestly rather than reporting a phone.
+ */
+data class HostIdentity(
+    val version: AppVersion,
+    val device: String,
+    val sdk: Int,
+)
 
 /**
  * Everything the run header can know at the moment the CNN attach resolves.
@@ -196,15 +201,15 @@ fun runStartOf(
     /** `geometry.cropLine(spec, geometry)` — the pads the crops are cut at, from the live geometry. */
     servedPads: String?,
     cnn: CnnRuntimeInfo,
-    version: AppVersion,
+    host: HostIdentity,
     now: () -> String = { Instant.now().toString() },
 ): RunStart =
     RunStart(
         ts = now(),
-        appVersionName = version.name,
-        appVersionCode = version.code,
-        device = "${Build.MANUFACTURER} ${Build.MODEL}",
-        androidSdk = Build.VERSION.SDK_INT,
+        appVersionName = host.version.name,
+        appVersionCode = host.version.code,
+        device = host.device,
+        androidSdk = host.sdk,
         model =
             ModelIdentity(
                 requestedDir = app.modelDir,

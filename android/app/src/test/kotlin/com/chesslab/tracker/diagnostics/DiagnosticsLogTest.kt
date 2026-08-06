@@ -254,6 +254,6 @@ private fun runStart() =
             ),
         servedPads = "side=0.050 up=0.000",
         cnn = CnnRuntimeInfo("QNN-HTP(NPU)", "XNNPACK", "occ-v6-f5nd", "model.onnx", "64x3x80x80", "side=0.050 up=0.000", 9.0, 3),
-        version = AppVersion("0.1.0", 1L),
+        host = HostIdentity(AppVersion("0.1.0", 1L), "samsung SM-S921B", 35),
         now = { "2026-08-02T12:00:00Z" },
     )

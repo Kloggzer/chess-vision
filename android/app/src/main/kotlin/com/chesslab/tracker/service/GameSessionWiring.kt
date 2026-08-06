@@ -1,6 +1,5 @@
 package com.chesslab.tracker.service
 
-import android.content.Context
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
 import com.chesslab.tracker.games.GameSessionController
@@ -15,11 +14,9 @@ import com.chesslab.tracker.record.SessionCaptureController
 import com.chesslab.tracker.record.SessionMeta
 import com.chesslab.tracker.record.SessionRecorder
 import com.chesslab.tracker.record.SessionStore
+import com.chesslab.tracker.runtime.AppPaths
 import com.chesslab.tracker.ui.games.GameSessionHost
-import com.chesslab.tracker.ui.games.RecordingSettingsHost
 import com.chesslab.tracker.ui.games.gameId
-import com.chesslab.tracker.ui.games.gamesDir
-import com.chesslab.tracker.ui.games.sessionsDir
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,20 +44,20 @@ private const val DEFAULT_PROFILE = "default"
  * the engine, but the game the user is playing is not a config knob (see [TrackerStack]).
  */
 fun wireGameSession(
-    context: Context,
+    paths: AppPaths,
+    settings: RecordingSettings,
     scope: CoroutineScope,
     frames: CalibrationFrames,
     publisher: StatusPublisher,
     calibration: CalibrationStore,
 ): GameSessionController {
-    val settings = RecordingSettingsHost.get(context)
     scope.launch { settings.load() }
     // A recalibration replaces the profile under a running game; the capture path reads the latest.
     val latest = MutableStateFlow<CalibrationProfile?>(null)
     calibration.profile.onEach { latest.value = (it as? ProfileLoad.Ok)?.profile }.launchIn(scope)
     val profile = latest::value
     val controller =
-        buildController(context, settings, profile, frames::latestCalibrationFrame) {
+        buildController(paths, settings, profile, frames::latestCalibrationFrame) {
             publisher.status.value?.corners
         }
     attachGameSession(scope, controller, publisher.events, publisher.status) { profile()?.name ?: DEFAULT_PROFILE }
@@ -93,13 +90,13 @@ fun attachGameSession(
 }
 
 private fun buildController(
-    context: Context,
+    paths: AppPaths,
     settings: RecordingSettings,
     profile: () -> CalibrationProfile?,
     frame: () -> Mat?,
     corners: () -> FloatArray?,
 ): GameSessionController {
-    val sessions = SessionStore(sessionsDir(context))
+    val sessions = SessionStore(paths.sessions)
     val source = LiveCaptureSource(frame, corners) { profile()?.let { it.sourceWidth to it.sourceHeight } }
     // Snapshotted here and never on the capture path: it is a directory walk.
     val baseline = sessions.totalBytes()
@@ -111,7 +108,7 @@ private fun buildController(
             prefs = { settings.prefs.value },
             existingBytes = { baseline },
         )
-    return GameSessionController(GameStore(gamesDir(context)), capture, System::currentTimeMillis, ::gameId)
+    return GameSessionController(GameStore(paths.games), capture, System::currentTimeMillis, ::gameId)
 }
 
 private fun openRecorder(
