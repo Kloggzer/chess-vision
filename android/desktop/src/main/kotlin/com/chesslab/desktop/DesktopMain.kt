@@ -3,7 +3,11 @@ package com.chesslab.desktop
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
+import com.chesslab.geometry.MarkerTracker
+import com.chesslab.geometry.boardCornersForFrame
+import com.chesslab.geometry.cornersToFlat
 import com.chesslab.tracker.camera.CameraHealth
+import com.chesslab.tracker.geometry.measuredBoardSize
 import com.chesslab.tracker.log.TrackerLog
 import com.chesslab.tracker.log.TrackerLogs
 import com.chesslab.tracker.pipeline.OpenCvStages
@@ -36,25 +40,73 @@ import kotlin.system.exitProcess
  * worth setting.
  */
 fun main(args: Array<String>) {
-    if (args.size < 2 || args[0] != "replay") {
-        println("usage: chesslab-desktop replay <video.mp4>")
-        exitProcess(2)
-    }
     NativeCv.require()
-    val video = File(args[1])
-    check(video.isFile) { "no such video: ${video.absolutePath}" }
-    replay(video)
+    when (args.firstOrNull()) {
+        "cameras" -> probeCameras().ifEmpty { listOf("no camera answered on indices 0..3") }.forEach(::println)
+        "replay" -> {
+            val video = File(args.getOrNull(1) ?: usage())
+            check(video.isFile) { "no such video: ${video.absolutePath}" }
+            replay(VideoFileSource(video), video.name)
+        }
+        "track" -> {
+            val index = args.getOrNull(1)?.toIntOrNull() ?: usage()
+            replay(WebcamSource(index), "camera $index")
+        }
+        else -> usage()
+    }
 }
 
-private fun replay(video: File) {
+/**
+ * The board's own markers, before anything else is built.
+ *
+ * A first pass rather than a stage in the loop: the quad decides the board SIZE, which decides the
+ * warp the engine indexes its squares against — so it has to be known before the stack exists. On
+ * the phone the same thing happens, spread over a calibration screen.
+ */
+private fun locateBoard(
+    source: FrameSource,
+    attempts: Int = LOCATE_ATTEMPTS,
+): FloatArray? {
+    val tracker = MarkerTracker()
+    // Any board size will do for the DETECTION: `boardCornersForFrame` returns frame-space points,
+    // and the size only scales the homography it fits them through.
+    val probe = BoardGeometry(boardSize = PROBE_BOARD_SIZE)
+    repeat(attempts) {
+        val frame = source.next() ?: return null
+        boardCornersForFrame(frame, probe, tracker)?.let { return cornersToFlat(it) }
+    }
+    return null
+}
+
+private fun usage(): Nothing {
+    println("usage: chesslab-desktop cameras | replay <video.mp4> | track <camera-index>")
+    exitProcess(2)
+}
+
+private fun replay(
+    source: FrameSource,
+    name: String,
+) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val console: TrackerLogs = { tag -> ConsoleLog(tag) }
-    VideoFileSource(video).use { source ->
-        val config = TrackerConfig()
-        val geometry = BoardGeometry(boardSize = source.delivered.width.coerceAtMost(source.delivered.height))
-        // Without a calibration there are no corners, and without corners the pipeline waits for
-        // markers — exactly as the phone does before its first calibration. Detection comes with
-        // the ArUco pass; this entry point exists to prove the graph runs, and it says so.
+    source.use { source ->
+        // The board size is MEASURED from the detected quad and then copied into the config, exactly
+        // as the phone does. `TrackerConfig.boardSize`'s own comment says why it is neither a
+        // preference nor a real default: `measuredBoardSize` clamps to 320..1280, so a config still
+        // carrying the 1600 placeholder disagrees with every plane the warp produces and
+        // `FrameLoop.step` refuses them — "one silently dropped frame at a time".
+        //
+        // It does NOT come from the model. The model owns the crop composition (specs/45: pad_side,
+        // pad_up, infer_size); this is the resolution the DIFF path works in
+        // (`detSize = boardSize * detectScale`), and the recognizer has no business setting that.
+        val quad = locateBoard(source)
+        if (quad == null) {
+            println("no board found: the markers never decoded")
+            return
+        }
+        val geometry = BoardGeometry(boardSize = measuredBoardSize(quad))
+        val config = TrackerConfig().copy(boardSize = geometry.boardSize)
+        println("board located from its markers: ${geometry.boardSize} px warp")
         val stack =
             TrackerStack(
                 TrackerSeed<Mat>(
@@ -73,13 +125,14 @@ private fun replay(video: File) {
                 scope,
                 { error("no classifier on the desktop yet — the diff path runs without one") },
             )
+        stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
         var frames = 0
         while (true) {
             val frame = source.next() ?: break
             stack.coordinator.onFrame(frame, source.delivered)
             frames += 1
         }
-        println("replayed $frames frames of ${video.name} at ${"%.2f".format(source.fps)} fps")
+        println("tracked $frames frames of $name at ${"%.2f".format(source.fps)} fps")
         stack.close()
     }
     scope.cancel()
@@ -117,3 +170,9 @@ private object MemoryConfigStore : ConfigStore {
         slots[slot] = text
     }
 }
+
+/** Frames to spend looking for the markers before giving up. At 30 fps this is two seconds. */
+private const val LOCATE_ATTEMPTS = 60
+
+/** Only the homography's scale; the returned points are in frame space either way. */
+private const val PROBE_BOARD_SIZE = 800
