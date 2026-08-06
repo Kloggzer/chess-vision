@@ -142,10 +142,10 @@ private fun measureAlignment(
     println(
         "worst square offset over $read frames: " +
             "median ${"%.2f".format(sorted[sorted.size / 2])} px, " +
-            "p90 ${"%.2f".format(sorted[(sorted.size * 9) / 10])} px, " +
+            "p90 ${"%.2f".format(sorted[(sorted.size * P90_NUM) / P90_DEN])} px, " +
             "max ${"%.2f".format(sorted.last())} px",
     )
-    println("grid lines that could not be located: $unread over ${read * 18}")
+    println("grid lines that could not be located: $unread over ${read * GRID_LINES_PER_FRAME}")
 }
 
 /** The rig's optics, as `chesslab lens` measured them. Absent is reported, never assumed away. */
@@ -269,3 +269,10 @@ private const val ALIGN_FRAMES = 60
 
 /** Written by `chesslab lens calibrate`, exported to JSON because Kotlin does not read npz. */
 private const val LENS_CALIBRATION = "../../data/lens/calib.json"
+
+/** Nine lines per axis, both axes — what `gridLines` reports on every frame. */
+private const val GRID_LINES_PER_FRAME = 18
+
+private const val P90_NUM = 9
+
+private const val P90_DEN = 10

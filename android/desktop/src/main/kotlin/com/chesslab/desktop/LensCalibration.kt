@@ -70,8 +70,8 @@ class Undistorter(
             "lens calibration is for ${calibration.width}x${calibration.height}, " +
                 "the camera delivers ${delivered.width.toInt()}x${delivered.height.toInt()} — recalibrate at this size"
         }
-        val k = Mat(3, 3, CvType.CV_64F).apply { put(0, 0, *calibration.cameraMatrix.toDoubleArray()) }
-        val d = Mat(1, calibration.distCoeffs.size, CvType.CV_64F).apply { put(0, 0, *calibration.distCoeffs.toDoubleArray()) }
+        val k = matOf(K_ROWS, K_ROWS, calibration.cameraMatrix)
+        val d = matOf(1, calibration.distCoeffs.size, calibration.distCoeffs)
         // The same K for the destination: no rescaling, no cropping. Undistortion moves pixels, it
         // does not reframe the board — a changed field of view would invalidate every stored quad.
         Calib3d.initUndistortRectifyMap(k, d, Mat(), k, delivered, CvType.CV_32FC1, mapX, mapY)
@@ -88,3 +88,19 @@ class Undistorter(
         listOf(mapX, mapY, out).forEach { it.release() }
     }
 }
+
+/** OpenCV wants a `Mat`; the calibration is a list of doubles. One conversion, named once. */
+private fun matOf(
+    rows: Int,
+    cols: Int,
+    values: List<Double>,
+): Mat =
+    Mat(rows, cols, CvType.CV_64F).apply {
+        // Element by element: OpenCV's `put(row, col, double...)` is varargs, so handing it an
+        // array needs a spread, and a spread copies. Nine doubles once at startup either way — but
+        // this version says what it does without a lint exception.
+        values.forEachIndexed { i, value -> put(i / cols, i % cols, value) }
+    }
+
+/** A camera matrix is 3x3. */
+private const val K_ROWS = 3
