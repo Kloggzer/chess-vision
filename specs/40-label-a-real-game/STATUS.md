@@ -43,10 +43,13 @@ on a 100 px cell.
   thing standing between this pack and a real manifest entry.
 - **An honest limit on the candidate:** 22 plies of a game that ran **83 plies live**. It is a
   reviewable prefix, not the whole game, and an excerpt cut from it inherits that.
-- **Not re-measured here:** the second finding below — that the reference is only re-anchored on a
-  commit, so a run which never commits never recovers — did not reproduce on this video once commits
-  started happening. Whether it still stands as an independent defect is untested, and it was always
-  described as worth its own fix regardless of this video.
+- **The second finding below is NOT fixed — it moved.** The reference is only re-anchored on a commit,
+  so once the diff path jams it never recovers. It used to jam at ply 0; it now jams at **ply 22**.
+  The candidate's own `note` records the terminal state: *"Much change (18 squares + 0 occluded) —
+  occluded/unstable, no move committed (base truth unchanged)"*, and the last commit is at
+  **t = 130.37 s of a 319 s video**. So 22 plies of 83 is not "the CNN got 22 and the rest were hard"
+  — it is the same deadlock, entered later. An earlier draft of this correction said it did not
+  reproduce; that was wrong, and the `note` was sitting in the file the whole time.
 - **A latent conflict the first real entry will hit:** a `tracker: {}` manifest entry and the recorded
   `effectiveConfig` disagree about `settle/avg/confirm_frames` — the Python harness builds with
   `cnn_run=None` (4/3/2) while the candidate records the CNN-attached 3/2/1. Nothing depends on it
