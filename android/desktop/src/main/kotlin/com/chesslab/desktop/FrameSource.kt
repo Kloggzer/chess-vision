@@ -5,6 +5,8 @@ import org.bytedeco.ffmpeg.global.avutil
 import org.bytedeco.javacv.FFmpegFrameGrabber
 import org.opencv.core.CvType
 import org.opencv.core.Mat
+import org.opencv.videoio.VideoCapture
+import org.opencv.videoio.Videoio
 import java.io.File
 import java.nio.ByteBuffer
 
@@ -83,3 +85,69 @@ class VideoFileSource(
 }
 
 private const val BGR_CHANNELS = 3
+
+/**
+ * A camera attached to this PC, through OpenCV's `videoio`.
+ *
+ * `VideoCapture` ships in the bytedeco jar this module already depends on, so a webcam costs no new
+ * dependency. Two things this project learned the hard way and that are encoded here:
+ *
+ *  - **The delivered size is read back, never assumed.** `set(FRAME_WIDTH)` is a request; a camera
+ *    is free to hand back something else, and passing the request on as truth is what desynced the
+ *    warp on Android (a7dab73).
+ *  - **Resolution BEFORE codec.** Setting `FOURCC` first is what stops MJPG from ever engaging on
+ *    this stack — the usual advice has it backwards for OpenCV 4.x (opencv#7013).
+ */
+class WebcamSource(
+    index: Int,
+    width: Int = 0,
+    height: Int = 0,
+) : FrameSource {
+    private val capture =
+        VideoCapture(index).apply {
+            check(isOpened) { "camera $index could not be opened" }
+            if (width > 0 && height > 0) {
+                set(Videoio.CAP_PROP_FRAME_WIDTH, width.toDouble())
+                set(Videoio.CAP_PROP_FRAME_HEIGHT, height.toDouble())
+            }
+        }
+    private val mat = Mat()
+
+    override val fps: Double = capture.get(Videoio.CAP_PROP_FPS).takeIf { it > 1.0 } ?: DEFAULT_FPS
+
+    override val delivered: DeliveredSize =
+        run {
+            check(capture.read(mat) && !mat.empty()) { "camera $index opened but delivered no frame" }
+            DeliveredSize(mat.cols(), mat.rows(), 0)
+        }
+
+    override fun next(): Mat? = if (capture.read(mat) && !mat.empty()) mat else null
+
+    override fun close() {
+        mat.release()
+        capture.release()
+    }
+}
+
+/** What is attached, as the driver reports it. Opening is the only honest way to ask. */
+fun probeCameras(upTo: Int = 4): List<String> =
+    (0 until upTo).mapNotNull { index ->
+        val capture = VideoCapture(index)
+        try {
+            if (!capture.isOpened) return@mapNotNull null
+            val frame = Mat()
+            val ok = capture.read(frame) && !frame.empty()
+            val line =
+                if (ok) {
+                    "camera $index: ${frame.cols()}x${frame.rows()} @ ${capture.get(Videoio.CAP_PROP_FPS)} fps"
+                } else {
+                    "camera $index: opens but delivers no frame"
+                }
+            frame.release()
+            line
+        } finally {
+            capture.release()
+        }
+    }
+
+private const val DEFAULT_FPS = 30.0
