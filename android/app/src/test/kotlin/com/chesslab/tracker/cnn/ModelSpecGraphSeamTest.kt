@@ -4,6 +4,7 @@ import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.TensorInfo
 import com.chesslab.cnn.ALL_SQUARES
 import com.chesslab.engine.api.BgrImage
+import com.chesslab.tracker.log.RecordingLog
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test

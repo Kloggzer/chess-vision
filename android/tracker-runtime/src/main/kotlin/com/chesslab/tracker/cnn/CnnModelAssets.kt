@@ -1,6 +1,5 @@
 package com.chesslab.tracker.cnn
 
-import android.content.Context
 import java.io.File
 import java.io.InputStream
 
@@ -19,7 +18,8 @@ const val MODEL_CONFIG_FILE = "config.json"
  */
 const val MODEL_QNN_CTX_FILE = "model.qnn_ctx.onnx"
 
-private const val ASSET_ROOT = "cnn_model"
+/** The directory name under the APK's assets AND under `filesDir`; the app binding reads it. */
+const val ASSET_ROOT_DIR = "cnn_model"
 
 /**
  * The model directories bundled under `assets/cnn_model/`. **The string IS the directory name**,
@@ -76,7 +76,7 @@ class StagedModel(
 
 /**
  * Copies the bundled model assets to a real directory once. Takes an opener instead of a
- * [Context] so the staging rule is testable on the desktop JVM; [fromAssets] is the Android
+ * a supplier so the staging rule is testable on the desktop JVM; `fromAssets` is the Android
  * binding.
  */
 class CnnModelAssets(
@@ -110,29 +110,5 @@ class CnnModelAssets(
             }
             target
         }
-    }
-
-    companion object {
-        /**
-         * One staged directory PER model, mirroring the asset layout.
-         *
-         * They cannot share a directory: [stageFile] recognises an already-staged file by its
-         * LENGTH, and two models of the same architecture produce graphs within bytes of each
-         * other — a shared directory would occasionally decide the wrong graph was already there.
-         * Separate directories also keep each model's compiled QNN context ([MODEL_QNN_CTX_FILE])
-         * with the graph it was compiled from, and make switching back a no-copy operation.
-         */
-        fun fromAssets(
-            context: Context,
-            model: String = DEFAULT_MODEL,
-            graph: String = MODEL_FP32_FILE,
-        ): CnnModelAssets =
-            bundledModelOrDefault(model).let { dir ->
-                CnnModelAssets(
-                    open = { name -> runCatching { context.assets.open("$ASSET_ROOT/$dir/$name") }.getOrNull() },
-                    dir = File(File(context.filesDir, ASSET_ROOT), dir),
-                    graph = graph,
-                )
-            }
     }
 }

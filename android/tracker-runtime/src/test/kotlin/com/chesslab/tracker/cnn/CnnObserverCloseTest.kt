@@ -4,6 +4,7 @@ import com.chesslab.cnn.ALL_SQUARES
 import com.chesslab.cnn.EXPECTED_CLASSES
 import com.chesslab.cnn.SquareClassifier
 import com.chesslab.engine.api.BgrImage
+import com.chesslab.tracker.log.RecordingLog
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler

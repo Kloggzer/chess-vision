@@ -1,5 +1,6 @@
 package com.chesslab.tracker.cnn
 
+import com.chesslab.tracker.log.RecordingLog
 import com.chesslab.tracker.settings.EpRequest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals

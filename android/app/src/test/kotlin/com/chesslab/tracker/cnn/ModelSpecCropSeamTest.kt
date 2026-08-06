@@ -7,6 +7,7 @@ import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.allSquares
 import com.chesslab.geometry.warpBoardForCrops
 import com.chesslab.tracker.geometry.withCropOf
+import com.chesslab.tracker.log.RecordingLog
 import com.chesslab.tracker.pipeline.CropFrameStore
 import com.chesslab.tracker.service.cropFrameSource
 import org.bytedeco.javacpp.Loader

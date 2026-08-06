@@ -210,6 +210,7 @@ dependencies {
     // JVM unit tests swap in the desktop artifact (same ai.onnxruntime API, host natives).
     implementation(libs.onnxruntime.android)
     testImplementation(libs.onnxruntime.jvm)
+    testImplementation(testFixtures(project(":tracker-runtime")))
 
     // Host-only natives for the opt-in clip simulation (`com.chesslab.tracker.sim`). Same set
     // :core-geometry already uses: JavaCV's FFmpeg decodes tests/data/testclips/*.mp4 and the

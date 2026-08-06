@@ -5,7 +5,7 @@ import com.chesslab.cnn.CnnRecovery
 import com.chesslab.tracker.cnn.CnnModelAssets
 import com.chesslab.tracker.cnn.ModelSpec
 import com.chesslab.tracker.cnn.OnnxSquareClassifier
-import com.chesslab.tracker.cnn.RecordingLog
+import com.chesslab.tracker.log.RecordingLog
 import org.bytedeco.javacpp.Loader
 import org.bytedeco.opencv.opencv_java
 import org.junit.jupiter.api.Assertions.assertEquals
