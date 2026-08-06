@@ -29,12 +29,14 @@ passes to notice that "necessary" had not been checked.
   `perf` kind anywhere in the tree — `34` built exactly two (`DiagnosticsRecords.kt:26,28`). So the
   claim that Grafana derives frame ms / CNN ms / fps / thermal "with no second system" rests on rows
   nobody writes. Either this pack emits two streams, or something has to write perf rows first.
-- **Deployment changed: Loki and Grafana move into a Docker compose stack**, by the user's decision
-  on 2026-08-06, alongside a device-link service, Keycloak, Postgres and Mongo. The principle this
-  pack argued for is untouched — ingest, storage, schema, query and auth remain somebody else's
-  software — but "two native Windows binaries, no Docker" is superseded. Rationale, the identity
-  model that replaces this pack's pass-through token, and the phasing:
-  [`docs/device-platform-analysis.md`](../../docs/device-platform-analysis.md).
+- **Deployment changed, and Loki is dropped**, by the user's decisions on 2026-08-06. A Docker compose
+  stack replaces the two native Windows binaries: caddy, a Next.js service, a Node ingest worker and
+  Postgres, with Grafana reading Postgres directly. The rows land as **JSONB** in the database the
+  device link needs anyway, so a second store for the same data buys only LogQL — and `specs/39`'s
+  five questions are SQL questions. **The wire format survives**: whole rotated NDJSON files, never
+  the file being appended to, with the five low-cardinality labels becoming columns. What changes is
+  the endpoint. Rationale, the identity model that replaces this pack's pass-through token, and the
+  phasing: [`docs/device-platform-analysis.md`](../../docs/device-platform-analysis.md).
 
 ## Open
 
