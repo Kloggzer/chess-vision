@@ -1,11 +1,9 @@
 package com.chesslab.tracker.cnn
 
-import android.util.Log
+import com.chesslab.tracker.log.TrackerLog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-
-private const val TAG = "chesslabCnn"
 
 /**
  * Whether the CNN safeguard is actually running. MEMORY `android-live-bringup-2607`: the
@@ -29,40 +27,11 @@ sealed interface CnnState {
     ) : CnnState
 }
 
-/** Injectable so the state machine is assertable on the desktop JVM (`android.util.Log` is stubbed there). */
-interface CnnLog {
-    fun info(message: String)
-
-    fun warn(
-        message: String,
-        error: Throwable?,
-    )
-
-    fun error(
-        message: String,
-        error: Throwable?,
-    )
-}
-
-object AndroidCnnLog : CnnLog {
-    override fun info(message: String) {
-        Log.i(TAG, message)
-    }
-
-    override fun warn(
-        message: String,
-        error: Throwable?,
-    ) {
-        Log.w(TAG, message, error)
-    }
-
-    override fun error(
-        message: String,
-        error: Throwable?,
-    ) {
-        Log.e(TAG, message, error)
-    }
-}
+/**
+ * Kept as a name because the CNN's call sites read better for it; it IS the general seam.
+ * The Android implementation lives in `log/AndroidTrackerLog.kt` so this file names no platform.
+ */
+typealias CnnLog = TrackerLog
 
 /**
  * The single owner of [CnnState]. Every transition logs at its level; [Failed] is **sticky**
