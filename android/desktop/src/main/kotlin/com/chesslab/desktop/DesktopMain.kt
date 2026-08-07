@@ -3,6 +3,7 @@ package com.chesslab.desktop
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.LensFit
+import com.chesslab.geometry.LensModel
 import com.chesslab.geometry.Undistorter
 import com.chesslab.geometry.alignmentOf
 import com.chesslab.geometry.cornersFromFlat
@@ -59,10 +60,16 @@ fun main(args: Array<String>) {
             val video = File(args.getOrNull(1) ?: usage())
             check(video.isFile) { "no such video: ${video.absolutePath}" }
             val mode = args.getOrNull(2)
+            // Fitted from the board in THIS video, not loaded from a file. A stored calibration
+            // assumes the optics did not move since it was taken; a fit from the footage cannot be
+            // stale, and on the rig it beat the stored one by 1.2 px (see `BoardLens`). It goes
+            // through `Stage.LENS` like every other correction — the frame source never undistorts.
+            val fitted = if (args.contains("lens")) fitLensFrom(video) else null
             replay(
                 VideoFileSource(video),
                 video.name,
                 watch = mode != "quiet" && mode != "dump",
+                lens = fitted,
                 dumpEvery = if (mode == "dump") DUMP_EVERY else 0,
             )
         }
@@ -141,6 +148,43 @@ private fun locateBoard(
         return cost.of("grid refit") { refinedQuad(frame, markers) }
     }
     return null
+}
+
+/**
+ * The lens, measured from the board this video is of.
+ *
+ * Its own pass over the file's first frames, and its own source: a `VideoFileSource` decodes
+ * forward and cannot rewind, and the fit has to see the footage the run will. Twenty frames is
+ * enough — the camera and the board are fixed, so they are twenty samples of one geometry, and a
+ * groove hidden by a piece in one frame is visible in the next.
+ *
+ * Null when the board cannot be found or the fit does not beat an uncorrected picture by the
+ * required margin. That gate is `LensFit.ok` and it is deliberately NOT the proof: the bow is
+ * what the fit minimises, so only the square offset says whether it helped.
+ */
+private fun fitLensFrom(video: File): LensModel? {
+    VideoFileSource(video).use { probe ->
+        val size = probe.delivered
+        val fit =
+            calibrateFromBoard(
+                { use -> probe.next()?.also(use) != null },
+                size.width,
+                size.height,
+            ) { println("  $it") }
+        if (fit == null) {
+            println("no lens: the board's markers never decoded in the first frames")
+            return null
+        }
+        println(
+            "lens from the board: ${fit.evidence}; bow ${"%.5f".format(fit.bowBefore)} → " +
+                "${"%.5f".format(fit.bowAfter)}, k1=${"%.4f".format(fit.k1)} k2=${"%.4f".format(fit.k2)}",
+        )
+        if (fit.rejected != null || !fit.ok) {
+            println("no lens: ${fit.rejected ?: "the bow did not improve by the required margin"}")
+            return null
+        }
+        return fit.toModel()
+    }
 }
 
 /**
@@ -323,7 +367,8 @@ private fun usage(): Nothing {
         "  cameras                    what is attached, as the driver reports it",
         "  calibrate <camera-index>   fit the lens from the board's own grid lines",
         "  align <camera-index> [raw] measure the board against its grid; 'raw' skips the lens",
-        "  replay <video.mp4> [quiet|dump]  drive a recorded clip through the shipping tracker",
+        "  replay <video.mp4> [quiet|dump] [lens]   drive a recorded clip through the tracker",
+        "                             add 'lens' to fit the optics from the board first",
         "  track <camera-index> [quiet]  the same, live",
         "",
         "  The board view opens unless 'quiet' is given: it shows the rectified warp the engine",
@@ -339,6 +384,7 @@ private fun replay(
     camera: String? = null,
     watch: Boolean = true,
     dumpEvery: Int = 0,
+    lens: LensModel? = null,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val console: TrackerLogs = { tag -> ConsoleLog(tag) }
@@ -356,7 +402,9 @@ private fun replay(
         // Built once and handed to the stages, which own it and close it. The board is located on
         // the SAME pixels the tracker will see — locating it on raw frames and then tracking on
         // corrected ones would seed the stack with a quad measured in the other space.
-        val optics = camera?.let { openLens(source, it, wanted = true) }
+        val optics =
+            lens?.let { Undistorter(it, source.delivered.width, source.delivered.height) }
+                ?: camera?.let { openLens(source, it, wanted = true) }
         val corrected = { source.next()?.let { frame -> optics?.apply(frame) ?: frame } }
         val quad = locateBoard(corrected)
         if (quad == null) {
