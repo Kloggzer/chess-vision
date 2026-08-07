@@ -17,6 +17,7 @@ import com.chesslab.tracker.geometry.lensFor
 import com.chesslab.tracker.geometry.model
 import com.chesslab.tracker.geometry.quadOf
 import com.chesslab.tracker.geometry.rawQuadOf
+import com.chesslab.tracker.geometry.refinedQuad
 import com.chesslab.tracker.geometry.squareOffsetOf
 import com.chesslab.tracker.log.TrackerLog
 import com.chesslab.tracker.log.TrackerLogs
@@ -85,13 +86,26 @@ private fun alignCamera(
     index: Int,
     raw: Boolean,
 ) {
+    val cost = Cost()
     WebcamSource(index).use { source ->
         openLens(source, cameraToken(index), wanted = !raw).use { optics ->
-            val corrected = { source.next()?.let { frame -> optics?.apply(frame) ?: frame } }
-            measureAlignment(corrected)
+            measureAlignment(timedFrames(source, optics, cost), cost)
         }
     }
+    cost.report("what each frame cost:")
 }
+
+/** The camera's frames, corrected if a lens is in play, with both halves on the clock. */
+private fun timedFrames(
+    source: FrameSource,
+    optics: Undistorter?,
+    cost: Cost,
+): () -> Mat? =
+    {
+        cost.of("camera grab") { source.next() }?.let { frame ->
+            if (optics == null) frame else cost.of("lens remap") { optics.apply(frame) }
+        }
+    }
 
 /**
  * The board's own markers, before anything else is built.
@@ -102,11 +116,17 @@ private fun alignCamera(
  */
 private fun locateBoard(
     next: () -> Mat?,
+    cost: Cost = Cost(),
     attempts: Int = LOCATE_ATTEMPTS,
 ): FloatArray? {
     repeat(attempts) {
         val frame = next() ?: return null
-        quadOf(frame)?.let { return it }
+        // The two halves of `quadOf`, called separately so each can be timed. The split is the
+        // point: ArUco carries a "44-87 ms" claim from commit 4a7609e and `improveQuad` a
+        // "70-85 ms at boardSize 800" one that its own KDoc declines to stand behind, and a single
+        // combined number could not have checked either.
+        val markers = cost.of("aruco") { rawQuadOf(frame) } ?: return@repeat
+        return cost.of("grid refit") { refinedQuad(frame, markers) }
     }
     return null
 }
@@ -171,10 +191,11 @@ private fun cameraToken(index: Int): String = "webcam:$index"
  */
 private fun measureAlignment(
     next: () -> Mat?,
+    cost: Cost = Cost(),
     frames: Int = ALIGN_FRAMES,
 ) {
     val quad =
-        locateBoard(next) ?: run {
+        locateBoard(next, cost) ?: run {
             println("no board found: the markers never decoded")
             return
         }
@@ -186,7 +207,7 @@ private fun measureAlignment(
     var read = 0
     repeat(frames) {
         val frame = next() ?: return@repeat
-        val verdict = alignmentOf(frame, corners, geometry)
+        val verdict = cost.of("alignmentOf") { alignmentOf(frame, corners, geometry) }
         if (verdict.worst.isFinite()) worst += verdict.worst
         unread += verdict.unread
         read += 1
@@ -345,7 +366,7 @@ private fun replay(
                 SettingsRepository(MemoryConfigStore, scope),
                 StatusPublisher(scope),
                 CameraFrameBus<ByteArray>(MutableStateFlow(CameraHealth.Up), scope, { null }),
-                StageTimings(),
+                StageTimings(logLine = { println("chesslabPerf: $it") }),
                 scope,
                 { error("no classifier on the desktop yet — the diff path runs without one") },
             )

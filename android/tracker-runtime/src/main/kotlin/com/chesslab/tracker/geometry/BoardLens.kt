@@ -88,26 +88,37 @@ fun squareOffsetOf(
  * to trust a file.
  *
  * ~~The stored one measurably makes it WORSE: 15.1 px worst square offset raw against 21.7 px with
- * `calib.npz`.~~ **Overturned 2026-08-07, and the missing variable was [refinedQuad].** Those
- * numbers (2026-07-21) were taken on the bare ArUco quad, before the grid refit was in this path.
- * With it, on the rig at `boardSize` 1248 (limit 6.24 px), every figure a 60-frame median:
+ * `calib.npz`.~~ Those numbers (2026-07-21) were taken on the bare ArUco quad, before [refinedQuad]
+ * was in this path, so they measured the two errors together. Re-measured 2026-08-07 with the grid
+ * refit in place, on the rig at `boardSize` 1248 (limit 6.24 px), every figure a 60-frame median:
  *
- * | worst square offset | |
- * |---|---|
- * | raw | 4.92 - 4.97 px |
- * | stored `calib.json` | 4.47 px |
- * | **fitted from the board, here** | **3.91 px** |
+ * | worst square offset | sitting A | sitting B, ~1 h later |
+ * |---|---|---|
+ * | raw | 4.91 · 4.93 · 5.46 | 4.68 · 4.86 · 5.14 |
+ * | stored `calib.json` | 4.43 · 4.47 · 4.50 | 4.98 · 5.26 · 5.28 |
+ * | **fitted from the board** | **3.91** | **3.54** |
  *
- * Within a condition the run-to-run spread is <= 0.07 px, so the ordering is not noise; it held in
- * three of three paired runs, and the fit reproduced k1 to 0.013 across two calibrations
- * (-0.2622, -0.2657) from 18 of 18 lines and ~2875 points. The board PASSES raw — this buys about
- * 20 %, not correctness.
+ * **The stored calibration's sign FLIPS between sittings — and that is the whole argument for this
+ * function.** Within a sitting it is consistent (3 of 3 each way, spread <= 0.07 px) and between
+ * them it reverses, while the raw column barely moves. The mechanism is visible in the fit itself:
+ * k1 read -0.2622 and -0.2657 in sitting A and -0.2223 in sitting B. Nobody touched the camera. A
+ * varifocal lens refocusing is a ~15 % change in distortion, so a stored file describes an optical
+ * state that no longer exists, and whether it helps or hurts is a coin toss on when it was written.
+ *
+ * A fit taken from the board in the same minute wins BOTH times, by 1.2 px, because it cannot be
+ * stale. That is the case for calibrating here rather than loading a file — not the earlier claim
+ * that a stored lens is simply worse, which was one sitting's luck read as a property.
  *
  * The reconciliation with `specs/30` and `specs/41`, which both measured a stored lens making
  * things worse, is that the projective grid fit absorbs most of the distortion on its own: specs/41
  * took a real video from a median 29.83 px offset to 2.00 with no lens at all. What is left for the
- * optics to explain is small — which is why it needs a spread this tight to see, and why measuring
- * it before the quad was refit found the opposite sign.
+ * optics to explain is ~1 px — small enough that measuring it before the quad was refit found the
+ * opposite sign, and small enough that the board PASSES raw. This buys margin, not correctness.
+ *
+ * Costs, medians over 20 frames on the dev machine at `boardSize` 1248: `quadOf` **625 ms**
+ * (dominated by the grid refit), groove sampling 88 ms, [fitLens] over 2874 points 152 ms. A
+ * calibration is therefore ~15 s of wall clock, which a host needs to know before it decides
+ * whether to show a spinner.
  *
  * Frames are pooled because the camera and the board are fixed: samples from twenty frames are
  * samples of the same geometry, and the pieces that hide a groove in one frame have moved by the
@@ -127,12 +138,17 @@ fun calibrateFromBoard(
     onProgress: (String) -> Unit = {},
 ): LensFit? {
     val samples = mutableListOf<GridSample>()
+    val quadMs = mutableListOf<Double>()
+    val grooveMs = mutableListOf<Double>()
     var seen = 0
     repeat(frames) {
         val more =
             borrowFrame { frame ->
-                val quad = quadOf(frame)
-                val found = if (quad == null) emptyList() else gridSamples(frame, boardGeometryFor(quad), cornersFromFlat(quad))
+                val quad = timed(quadMs) { quadOf(frame) }
+                val found =
+                    timed(grooveMs) {
+                        if (quad == null) emptyList() else gridSamples(frame, boardGeometryFor(quad), cornersFromFlat(quad))
+                    }
                 samples += found
                 seen += 1
                 if (found.isNotEmpty()) onProgress("frame $seen: ${found.size} groove samples")
@@ -140,8 +156,35 @@ fun calibrateFromBoard(
         if (!more) return@repeat
     }
     if (samples.isEmpty()) return null
-    return fitLens(samples, width, height)
+    onProgress("per frame: quad ${ms(quadMs)}, grooves ${ms(grooveMs)}  (medians over $seen)")
+    val fitMs = mutableListOf<Double>()
+    val fit = timed(fitMs) { fitLens(samples, width, height) }
+    onProgress("fit over ${samples.size} points: ${ms(fitMs)}")
+    return fit
 }
+
+/**
+ * Run [body], recording how long it took.
+ *
+ * The costs go out through [calibrateFromBoard]'s existing progress channel rather than through a
+ * new parameter, because a caller that wants to know how it is going wants this too — a phone
+ * deciding whether a calibration needs a progress indicator has exactly the same question as a CLI
+ * printing a line. Nothing here is host-shaped.
+ */
+private inline fun <T> timed(
+    into: MutableList<Double>,
+    body: () -> T,
+): T {
+    val started = System.nanoTime()
+    val out = body()
+    into += (System.nanoTime() - started) / NANOS_PER_MS
+    return out
+}
+
+/** Median, because a first call carries JIT and must not become the number people plan against. */
+private fun ms(values: List<Double>): String = if (values.isEmpty()) "-" else "%.1f ms".format(values.sorted()[values.size / 2])
+
+private const val NANOS_PER_MS = 1_000_000.0
 
 /** Only the homography's scale; the returned points are in frame space either way. */
 private const val PROBE_BOARD_SIZE = 800
