@@ -83,9 +83,31 @@ fun squareOffsetOf(
 /**
  * The lens, from lines that are straight in the world.
  *
- * A stored calibration assumes the optics do not move. The rig's do — a varifocal lens changes the
- * barrel effect with zoom and focus — and the stored one measurably makes it WORSE: 15.1 px worst
- * square offset raw against 21.7 px with `calib.npz` (2026-07-21, rms 5.46).
+ * A stored calibration assumes the optics do not move, and the rig's do — a varifocal lens changes
+ * the barrel effect with zoom and focus. That is still the reason to fit from the board rather than
+ * to trust a file.
+ *
+ * ~~The stored one measurably makes it WORSE: 15.1 px worst square offset raw against 21.7 px with
+ * `calib.npz`.~~ **Overturned 2026-08-07, and the missing variable was [refinedQuad].** Those
+ * numbers (2026-07-21) were taken on the bare ArUco quad, before the grid refit was in this path.
+ * With it, on the rig at `boardSize` 1248 (limit 6.24 px), every figure a 60-frame median:
+ *
+ * | worst square offset | |
+ * |---|---|
+ * | raw | 4.92 - 4.97 px |
+ * | stored `calib.json` | 4.47 px |
+ * | **fitted from the board, here** | **3.91 px** |
+ *
+ * Within a condition the run-to-run spread is <= 0.07 px, so the ordering is not noise; it held in
+ * three of three paired runs, and the fit reproduced k1 to 0.013 across two calibrations
+ * (-0.2622, -0.2657) from 18 of 18 lines and ~2875 points. The board PASSES raw — this buys about
+ * 20 %, not correctness.
+ *
+ * The reconciliation with `specs/30` and `specs/41`, which both measured a stored lens making
+ * things worse, is that the projective grid fit absorbs most of the distortion on its own: specs/41
+ * took a real video from a median 29.83 px offset to 2.00 with no lens at all. What is left for the
+ * optics to explain is small — which is why it needs a spread this tight to see, and why measuring
+ * it before the quad was refit found the opposite sign.
  *
  * Frames are pooled because the camera and the board are fixed: samples from twenty frames are
  * samples of the same geometry, and the pieces that hide a groove in one frame have moved by the
