@@ -137,8 +137,6 @@ private val json =
         ignoreUnknownKeys = true
     }
 
-fun encodeLens(calibration: LensCalibration): String = json.encodeToString(LensCalibration.serializer(), calibration)
-
 /** Decodes a stored calibration. Unreadable is a REASON, never an absence — they send you elsewhere. */
 fun decodeLens(text: String?): LensLoad {
     if (text.isNullOrBlank()) return LensLoad.Absent

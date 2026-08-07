@@ -190,9 +190,6 @@ val Accent: Color
     get() = LocalChesslabPalette.current.accent
 
 /** Furniture, never a call to action — see [ChesslabPalette.primary]. */
-val Primary: Color
-    @Composable @ReadOnlyComposable
-    get() = LocalChesslabPalette.current.primary
 val Busy: Color
     @Composable @ReadOnlyComposable
     get() = LocalChesslabPalette.current.busy
@@ -205,9 +202,6 @@ val OnAccent: Color
 val OnDanger: Color
     @Composable @ReadOnlyComposable
     get() = LocalChesslabPalette.current.onDanger
-val BoardLight: Color
-    @Composable @ReadOnlyComposable
-    get() = LocalChesslabPalette.current.boardLight
 val BoardDark: Color
     @Composable @ReadOnlyComposable
     get() = LocalChesslabPalette.current.boardDark

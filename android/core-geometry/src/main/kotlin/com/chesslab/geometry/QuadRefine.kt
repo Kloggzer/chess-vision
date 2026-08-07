@@ -26,12 +26,6 @@ private const val OUTER_LOCK_FRAC: Double = 0.5 * OUTER_SEARCH_FRAC
 /** Denominators below this mean the two lines are parallel in the warp. */
 private const val MIN_DENOM: Double = 1e-9
 
-/** [refineQuad]'s answer: the best quad available for this frame, and what it measures. */
-class RefinedQuad(
-    val quad: List<DoubleArray>,
-    val alignment: Alignment,
-)
-
 /** [improveQuad]'s answer: the corrected quad (or null), and the offset before and after. */
 class QuadImprovement(
     val quad: List<DoubleArray>?,
@@ -151,27 +145,6 @@ private fun lattice(
         }
     }
     return src to dst
-}
-
-/**
- * `(best quad, verdict)` — the COARSE-to-FINE staging, in one call.
- *
- * [quad] is whatever located the board at all: an ArUco quad from two, three or four markers, or the
- * previous frame's answer. It is explicitly allowed to be tens of pixels wrong — the 2026-08-02
- * video's three-marker quads read ~30 px of square-edge error at the median on a 100 px cell —
- * because all it has to do is bring the grooves inside the first search window. The grid fit supplies
- * the accuracy, including the perspective the coarse stage could not have.
- *
- * The verdict describes the quad that comes BACK, so a caller never has to guess which stage
- * answered.
- */
-fun refineQuad(
-    frame: Mat,
-    quad: List<DoubleArray>,
-    geom: BoardGeometry,
-): RefinedQuad {
-    val best = correctQuad(frame, quad, geom) ?: quad
-    return RefinedQuad(best, alignmentOf(frame, best, geom))
 }
 
 /**

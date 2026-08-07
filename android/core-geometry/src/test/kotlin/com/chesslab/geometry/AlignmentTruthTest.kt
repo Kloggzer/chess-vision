@@ -363,18 +363,6 @@ class AlignmentTruthTest {
         }
     }
 
-    /** `refineQuad` is the coarse-to-fine staging: a bad quad in, a passing verdict out. */
-    @Test
-    fun refineQuadTakesACoarseQuadToAPassingVerdict() {
-        val geom = geometry()
-        val f = frame()
-        val coarse = bend(TRUTH, mul3(shift(8.0, -6.0), shear(0.5)))
-        assertTrue(!alignmentOf(f, coarse, geom).ok, "the coarse quad must start out of tolerance")
-        val refined = refineQuad(f, coarse, geom)
-        f.release()
-        assertTrue(refined.alignment.ok, "refined to ${refined.alignment.worst} — ${refined.alignment.reason}")
-    }
-
     // --- through a camera frame ----------------------------------------------------------------
 
     @Test

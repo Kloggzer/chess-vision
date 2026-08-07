@@ -2,9 +2,7 @@ package com.chesslab.tracker.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SelectableChipColors
 import androidx.compose.material3.SwitchColors
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.darkColorScheme
@@ -105,17 +103,5 @@ fun chesslabSwitchColors(): SwitchColors {
         uncheckedTrackColor = palette.surface,
         uncheckedThumbColor = palette.onSurfaceMuted,
         uncheckedBorderColor = palette.outline,
-    )
-}
-
-/** A chosen chip, in the furniture colour, so it never competes with the screen's filled button. */
-@Composable
-fun chesslabChipColors(): SelectableChipColors {
-    val palette = LocalChesslabPalette.current
-    return FilterChipDefaults.filterChipColors(
-        containerColor = Color.Transparent,
-        labelColor = palette.onSurfaceMuted,
-        selectedContainerColor = palette.selection,
-        selectedLabelColor = palette.onSurface,
     )
 }

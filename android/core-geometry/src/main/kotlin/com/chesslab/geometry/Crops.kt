@@ -9,11 +9,14 @@ import org.opencv.imgproc.Imgproc
 import kotlin.math.max
 import kotlin.math.min
 
-// The 64 CNN crops. Ports of `labeling.py:102 all_squares`, `:112 crop_square`,
-// `:137 crops_for_frame` (geometry="warp", photometry="none" path only) and
+// The 64 CNN crops. Ports of `labeling.py:102 all_squares`, `:112 crop_square` and
 // `imgops.py:14 resize_keep_aspect`.
 //
-// This file is the ONLY caller of `warpBoardForCrops` (entry.md invariant 1).
+// `crops_for_frame` itself is NOT ported any more: the phone cuts its crops in
+// `OpenCvStages.updateCropFrame`, which calls `warpBoardForCrops` once and `cropSquare` per square
+// so the bordered warp is reused rather than re-cut. The port sat here with no caller on either
+// host. (The comment this replaces said this file was the only caller of `warpBoardForCrops`,
+// which stopped being true the moment the pipeline called it.)
 
 /**
  * Crop order — `a1,b1,..,h1,a2,..,h8`, rank-major from rank 1 (`labeling.py:102`).
@@ -86,20 +89,4 @@ fun cropSquare(
         region = bordered
     }
     return resizeKeepAspect(region, geom.outW, geom.outH)
-}
-
-/**
- * The 64 crops of ONE frame in `allSquares()` order — identical to the training slice.
- * Port of `labeling.py:137 crops_for_frame`, reduced to `geometry="warp"`,
- * `photometry="none"` (box3d and the photometric variants are Python-only).
- *
- * Output crops are BGR uint8 at `outW x outH` — the input contract of `:core-cnn`.
- */
-fun cropsForFrame(
-    frame: Mat,
-    corners: List<DoubleArray>,
-    geom: BoardGeometry,
-): List<Mat> {
-    val warped = warpBoardForCrops(frame, geom, corners)
-    return allSquares().map { cropSquare(warped, it, geom) }
 }

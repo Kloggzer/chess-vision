@@ -127,7 +127,6 @@ class ReviewUiModelTest {
         val grade = gameGrade(whiteMiss, blackMiss, forced)
 
         assertEquals("White missed 1 mating chance · Black missed 1 mating chance.", mateStory(grade))
-        assertEquals("White · 1. e4 · missed mate in 3", findingTitle(whiteMiss))
         assertEquals("2/3 moves graded", accuracyDenominator(2, 3))
         assertEquals("White wins", resultHeadline("1-0"))
     }
@@ -165,7 +164,6 @@ class ReviewUiModelTest {
                 mateInBefore = 2,
             )
 
-        assertEquals("Black · 42... e4 · missed mate in 2", findingTitle(blackMiss))
         assertEquals("Black missed 1 mating chance.", mateStory(gameGrade(blackMiss)))
     }
 

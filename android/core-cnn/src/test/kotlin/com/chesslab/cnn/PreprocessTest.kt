@@ -30,6 +30,24 @@ private fun allocatedBytes(body: () -> Unit): Long {
     return counter.invoke(bean) as Long - before
 }
 
+/**
+ * The allocating call these tests want, which production does not.
+ *
+ * It used to be `preprocess` in `:core-cnn`, a three-line wrapper over [preprocessInto] that no
+ * host called: the phone observes several times a second and always into a reused buffer. Keeping
+ * a convenience overload in a shipped module so tests read more nicely is how an API grows a
+ * surface nobody serves — the convenience belongs here, where it is used.
+ */
+private fun preprocess(
+    crops: List<BgrImage>,
+    outW: Int,
+    outH: Int,
+    repr: InputRepr = InputRepr.RGB,
+    perCrop: Boolean = false,
+): FloatArray =
+    FloatArray(crops.size * repr.channels * outW * outH)
+        .also { preprocessInto(crops, outW, outH, it, perCrop = perCrop, repr = repr) }
+
 class PreprocessTest {
     @Test
     fun `a 2x2 BGR crop becomes the expected NCHW float sequence`() {
@@ -49,8 +67,8 @@ class PreprocessTest {
                 100,
                 50,
             )
-        val out = preprocess(listOf(BgrImage(2, 2, bytes)), 2, 2)
-        assertEquals(12, out.size, "1 * 3 * 2 * 2")
+        val out = FloatArray(12)
+        preprocessInto(listOf(BgrImage(2, 2, bytes)), 2, 2, out)
         val blue = intArrayOf(0, 255, 10, 200)
         val green = intArrayOf(0, 255, 20, 100)
         val red = intArrayOf(0, 255, 30, 50)
@@ -61,20 +79,27 @@ class PreprocessTest {
         }
     }
 
+    /**
+     * The reason this variant exists: 64 x 3 x 128 x 128 floats is 12.6 MB, and the live path
+     * observes several times a second next to a 15 fps camera loop.
+     *
+     * This used to compare against an allocating twin, `preprocess`, which nothing on the phone
+     * called — so the twin was deleted and the assertion that mattered kept. It is also the
+     * stronger half: "writes the same values as the other implementation" only holds two things
+     * equal, while "allocates nothing" is the claim the design rests on.
+     */
     @Test
-    fun `preprocessInto writes exactly what preprocess returns, and allocates nothing`() {
+    fun `preprocessInto reuses its buffer and allocates nothing`() {
         val crops = List(BATCH) { BgrImage(SIDE, SIDE, ByteArray(SIDE * SIDE * 3) { (it % 251).toByte() }) }
-        val expected = preprocess(crops, SIDE, SIDE)
-        val reused = FloatArray(expected.size)
-        // Warm up: the first call loads classes and resizes nothing afterwards.
+        val reused = FloatArray(BATCH * 3 * SIDE * SIDE)
+        // Warm up: the first call loads classes.
         preprocessInto(crops, SIDE, SIDE, reused)
+        val first = reused.copyOf()
 
-        val allocating = allocatedBytes { preprocess(crops, SIDE, SIDE) }
         val reusing = allocatedBytes { preprocessInto(crops, SIDE, SIDE, reused) }
-        println("preprocess allocates $allocating B, preprocessInto allocates $reusing B")
+        println("preprocessInto allocates $reusing B for ${reused.size * 4L} B of output")
 
-        assertArrayEquals(expected, reused, 0.0f)
-        assertTrue(allocating > expected.size * 4L * 0.9, "preprocess should allocate the whole buffer: $allocating B")
+        assertArrayEquals(first, reused, 0.0f, "the same input must write the same buffer twice")
         assertTrue(reusing < ALLOC_NOISE_B, "preprocessInto should allocate ~nothing, allocated $reusing B")
     }
 
@@ -88,7 +113,7 @@ class PreprocessTest {
     @Test
     fun `a wrong-sized crop is a programming error`() {
         assertThrows<IllegalArgumentException> {
-            preprocess(listOf(BgrImage(2, 2, ByteArray(12))), 4, 4)
+            preprocessInto(listOf(BgrImage(2, 2, ByteArray(12))), 4, 4, FloatArray(4 * 4 * 3))
         }
     }
 

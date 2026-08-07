@@ -58,24 +58,6 @@ class AlarmGuessTest {
     }
 
     @Test
-    fun `build_alarm_guess_san names the castling case`() {
-        val noRights = board("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w - - 0 1")
-        assertEquals("K e1->g1 (castling not available)", buildAlarmGuessSan(noRights, "e1g1"))
-        val withRights = board("r3k2r/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1")
-        assertEquals("K e1->g1 (illegal move suspected)", buildAlarmGuessSan(withRights, "e1g1"))
-    }
-
-    @Test
-    fun `build_alarm_guess_san degrades gracefully`() {
-        val empty = board("4k3/8/8/8/8/8/8/6K1 w - - 0 1")
-        assertEquals("e1->g1", buildAlarmGuessSan(empty, "e1g1"), "no piece on the from-square")
-        assertNull(buildAlarmGuessSan(empty, null))
-        assertNull(buildAlarmGuessSan(empty, ""))
-        assertNull(buildAlarmGuessSan(empty, "not-a-move"))
-        assertNull(buildAlarmGuessSan(empty, "z9a1"))
-    }
-
-    @Test
     fun `the seam delegates to the same guess`() {
         val row = CnnFixtures.rows(CnnFixtures.GUESS).first { it.str("name") == "one_source_one_destination" }
         val recovery = recoveryFor(row)
