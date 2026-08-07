@@ -135,6 +135,12 @@ class TrackerStack<T>(
                 host.submit(it)
             },
             log = seed.logs("chesslabCnn"),
+            // The ENGINE's clock, not the wall clock. On the phone the two are the same thing; in
+            // a replay the engine runs on the video's virtual clock, and an observer pacing itself
+            // on the wall clock is a second clock in one machine — its cadence then depends on how
+            // fast THIS host decodes, which is how the same file produced 23 committed plies on
+            // one run and 25 on the next. Live behaviour is ONE clock; this is that clock.
+            nowMs = seed.nowMs,
         )
 
     val coordinator =
