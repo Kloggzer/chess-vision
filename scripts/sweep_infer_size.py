@@ -60,7 +60,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from chesslab import config, labeling  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
-from chesslab.move_tracker.cnn_recovery import classes_have_identity  # noqa: E402
+from chesslab.serving import classes_have_identity  # noqa: E402
 from chesslab.training.data import (  # noqa: E402
     filter_rows_by_split,
     load_manifest,

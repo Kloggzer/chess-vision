@@ -53,7 +53,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from chesslab import config  # noqa: E402
 from chesslab.dataset import load_manifest  # noqa: E402
-from chesslab.move_tracker.cnn_recovery import observation_from_probs  # noqa: E402
+from chesslab.serving import observation_from_probs  # noqa: E402
 
 # Real capture sessions are timestamped `YYYYMMDD-HHMMSS`. Everything else in the crop
 # manifest (e.g. `pretrain-synth__synth-004`) is a classic-ingested SYNTHETIC pool whose

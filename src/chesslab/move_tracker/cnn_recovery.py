@@ -13,7 +13,6 @@ logic is created here. torch stays unimported until actually observed.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from pathlib import Path
 
 import chess
@@ -26,78 +25,14 @@ _FILES = "abcdefgh"
 _ALL = [f"{f}{r}" for r in range(1, 9) for f in _FILES]
 
 
-@dataclass(frozen=True)
-class OccupancyObservation:
-    """CNN view of the board. Carries occupancy (p_occupied/empty/occluded) AND — when
-    available — the full piece identity per square (`label` = predicted class,
-    `conf` = top-class confidence). Occupancy is derived from identity; identity
-    makes it possible to distinguish captures/promotions/"which piece moved" and to
-    reliably separate shadows (identity unchanged) from real moves."""
-
-    p_occ: dict[str, float]
-    p_empty: dict[str, float]
-    p_occluded: dict[str, float]
-    label: dict[str, str] | None = None       # predicted class per square (e.g. 'wP','bK','empty')
-    conf: dict[str, float] | None = None       # top-class confidence per square
-
-    def occupied(self, sq: str) -> bool:
-        return self.p_occ[sq] > self.p_empty[sq]
-
-    def confident(self, thr: float) -> dict[str, bool]:
-        """Squares whose occupancy statement is reliable. IMPORTANT: occluded-dominant squares
-        are NEVER confident and NEVER count as occupied — a hand over the board must neither
-        trigger recovery nor "occupy" squares."""
-        return {sq: (max(self.p_occ[sq], self.p_empty[sq]) >= thr
-                     and self.p_occluded[sq] < (1.0 - thr))
-                for sq in self.p_occ}
-
-    def label_confident(self, thr: float) -> dict[str, bool]:
-        """Squares whose IDENTITY statement is reliable: top confidence ≥ thr and not
-        `occluded` (hand/covering). Empty when the run provides no identity."""
-        if self.label is None or self.conf is None:
-            return dict.fromkeys(self.p_occ, False)
-        return {sq: (self.conf[sq] >= thr and self.label[sq] != "occluded")
-                for sq in self.label}
-
-
-def classes_have_identity(classes: list[str]) -> bool:
-    """True when the run's class list can name a PIECE.
-
-    A 2-class occupancy run (`config.OCCUPANCY_CLASSES`) answers only empty-vs-occupied, so its
-    argmax label (`"occupied"`) is not an identity — feeding it into the identity path would make
-    `board_matches_identity` compare `"occupied"` against `"wP"` and disagree on every occupied
-    square. `has_identity` (tracker.py:1961) keys off `obs.label is None`, so a 2-class run must
-    produce `label=None`; the occupancy-only path is already the tested fallback.
-    """
-    return any(c not in ("empty", "occluded", "occupied") for c in classes)
-
-
-def observation_from_probs(per_square_probs: dict[str, list[float]],
-                           classes: list[str]) -> OccupancyObservation:
-    """Full softmax per square → occupancy + identity. Class indices ALWAYS derived from the
-    `classes` list of the run config (2-, 13- and 14-class runs, never guess positions).
-
-    A 2-class occupancy run yields `label=None`/`conf=None`: it has occupancy, not identity."""
-    i_empty = classes.index("empty")
-    i_occl = classes.index("occluded") if "occluded" in classes else None
-    p_occ: dict[str, float] = {}
-    p_empty: dict[str, float] = {}
-    p_occluded: dict[str, float] = {}
-    label: dict[str, str] = {}
-    conf: dict[str, float] = {}
-    for sq, probs in per_square_probs.items():
-        pe = float(probs[i_empty])
-        po = float(probs[i_occl]) if i_occl is not None else 0.0
-        p_empty[sq] = pe
-        p_occluded[sq] = po
-        p_occ[sq] = max(0.0, 1.0 - pe - po)     # sum of the 12 piece classes
-        top = max(range(len(probs)), key=lambda i: probs[i])   # identity = argmax class
-        label[sq] = classes[top]
-        conf[sq] = float(probs[top])
-    if not classes_have_identity(classes):
-        return OccupancyObservation(p_occ=p_occ, p_empty=p_empty, p_occluded=p_occluded)
-    return OccupancyObservation(p_occ=p_occ, p_empty=p_empty, p_occluded=p_occluded,
-                                label=label, conf=conf)
+# The observation type and its two readers moved to `chesslab.serving` on 2026-08-07, because
+# `scripts/mine_hard_empty.py` and `scripts/sweep_infer_size.py` need them and are training
+# tools, not tracker tools. Re-exported here so this module's own callers are unchanged.
+from ..serving import (  # noqa: E402, F401  -- deliberate re-export, see above
+    OccupancyObservation,
+    classes_have_identity,
+    observation_from_probs,
+)
 
 
 def _move_touched_squares(board: chess.Board, move: chess.Move) -> set[str]:

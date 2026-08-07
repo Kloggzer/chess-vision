@@ -1,7 +1,7 @@
 """Canonical inference entry point: run specification, loading, crops & prediction.
 
 This is the **only** supported public facade for model inference.
-Consumers (web inference, CNN recovery in move_tracker, CLI evaluation)
+Consumers (CLI evaluation, the training sweeps, anything that reads a model)
 use exclusively this module. It ensures that the **same** crop/photometry
 pipeline is used as during training — thus train/serve parity is guaranteed.
 
@@ -495,3 +495,91 @@ def predict_frame(run_dir: Path, frame: np.ndarray, corners, profile,
     preds = predict_arrays(run_dir, crops, device=device, return_probs=return_probs)
     squares = labeling.all_squares()
     return [{"square": sq, **p} for sq, p in zip(squares, preds, strict=False)]
+
+
+# ---------------------------------------------------------------------------
+# Reading a model's output as a statement about the board
+#
+# Between `predict_arrays` (probabilities) and anything that decides (mining hard negatives,
+# sweeping an inference size, a tracker verifying a move) sits one question: what does this
+# softmax say about occupancy, and can it name a piece at all? That is the same question for
+# every consumer, so it is answered once, here.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class OccupancyObservation:
+    """A model's view of the board.
+
+    Carries occupancy (`p_occ`/`p_empty`/`p_occluded`) and — when the run has an identity axis —
+    the predicted class and its confidence per square. Occupancy is DERIVED from identity;
+    identity is what makes captures, promotions and "which piece moved" separable, and what
+    tells a shadow (identity unchanged) from a real move.
+    """
+
+    p_occ: dict[str, float]
+    p_empty: dict[str, float]
+    p_occluded: dict[str, float]
+    label: dict[str, str] | None = None
+    conf: dict[str, float] | None = None
+
+    def occupied(self, sq: str) -> bool:
+        return self.p_occ[sq] > self.p_empty[sq]
+
+    def confident(self, thr: float) -> dict[str, bool]:
+        """Squares whose OCCUPANCY statement is reliable.
+
+        An occluded-dominant square is never confident and never counts as occupied: a hand over
+        the board must neither trigger recovery nor occupy squares.
+        """
+        return {sq: (max(self.p_occ[sq], self.p_empty[sq]) >= thr
+                     and self.p_occluded[sq] < (1.0 - thr))
+                for sq in self.p_occ}
+
+    def label_confident(self, thr: float) -> dict[str, bool]:
+        """Squares whose IDENTITY statement is reliable. Empty when the run has no identity."""
+        if self.label is None or self.conf is None:
+            return dict.fromkeys(self.p_occ, False)
+        return {sq: (self.conf[sq] >= thr and self.label[sq] != "occluded")
+                for sq in self.label}
+
+
+def classes_have_identity(classes: list[str]) -> bool:
+    """True when the run's class list can name a PIECE.
+
+    A 2-class occupancy run (`config.OCCUPANCY_CLASSES`) answers only empty-vs-occupied, so its
+    argmax label (`"occupied"`) is not an identity — treating it as one would compare
+    `"occupied"` against `"wP"` and disagree on every occupied square. Such a run must therefore
+    produce `label=None`, and the occupancy-only path is the tested fallback.
+    """
+    return any(c not in ("empty", "occluded", "occupied") for c in classes)
+
+
+def observation_from_probs(per_square_probs: dict[str, list[float]],
+                           classes: list[str]) -> OccupancyObservation:
+    """Full softmax per square to occupancy plus identity.
+
+    Class indices are ALWAYS derived from the run's own `classes` list — 2-, 13- and 14-class
+    runs all exist and their positions differ, so a guessed index is a silently transposed
+    reading. A 2-class run yields `label=None`/`conf=None`: it has occupancy, not identity.
+    """
+    i_empty = classes.index("empty")
+    i_occl = classes.index("occluded") if "occluded" in classes else None
+    p_occ: dict[str, float] = {}
+    p_empty: dict[str, float] = {}
+    p_occluded: dict[str, float] = {}
+    label: dict[str, str] = {}
+    conf: dict[str, float] = {}
+    for sq, probs in per_square_probs.items():
+        pe = float(probs[i_empty])
+        po = float(probs[i_occl]) if i_occl is not None else 0.0
+        p_empty[sq] = pe
+        p_occluded[sq] = po
+        p_occ[sq] = max(0.0, 1.0 - pe - po)                     # sum of the 12 piece classes
+        top = max(range(len(probs)), key=lambda i: probs[i])    # identity = argmax class
+        label[sq] = classes[top]
+        conf[sq] = float(probs[top])
+    if not classes_have_identity(classes):
+        return OccupancyObservation(p_occ=p_occ, p_empty=p_empty, p_occluded=p_occluded)
+    return OccupancyObservation(p_occ=p_occ, p_empty=p_empty, p_occluded=p_occluded,
+                                label=label, conf=conf)
