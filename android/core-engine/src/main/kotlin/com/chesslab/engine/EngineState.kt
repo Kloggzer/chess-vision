@@ -363,6 +363,23 @@ internal class EngineState(
     var cnnReadsTaken: Long = 0L
 
     var cnnReadsStale: Long = 0L
+
+    /**
+     * Where every CNN snapshot went, because `cnnReads=0` has four possible causes.
+     *
+     * A snapshot only reaches [cnnTick] if the observer produced one at all; a pending candidate
+     * routes it to `VerifySingle` instead; then `cnn == null` and `evaluationDue()` each turn it
+     * away. Four gates in front of one number, and knowing which one closed is the difference
+     * between "the observer is not running", "the verify ladder is eating them", "the evaluator
+     * was never attached" and "the schedule says not yet".
+     */
+    var cnnSnapsSeen: Long = 0L
+
+    var cnnSnapsToVerify: Long = 0L
+
+    var cnnSnapsNoEvaluator: Long = 0L
+
+    var cnnSnapsNotDue: Long = 0L
     var cnnBestMove: String? = null // `_cnn_best_move`
 
     /** `_alarm` — the latch. Non-null freezes noise learning and blocks every commit (invariant 9). */
@@ -482,6 +499,10 @@ internal data class DecisionRecord(
     /** Carried through to `DebugDecision`, where the reason they exist is written down. */
     val cnnReadsTaken: Long,
     val cnnReadsStale: Long,
+    val cnnSnaps: Long,
+    val cnnSnapsToVerify: Long,
+    val cnnSnapsNoEvaluator: Long,
+    val cnnSnapsNotDue: Long,
     val cnnBestMove: String?,
     // Provenance the debug screen needs and Python does not record. Defaulted, so the existing
     // construction sites keep their exact shape; `accepted = false` marks a REJECTED candidate,

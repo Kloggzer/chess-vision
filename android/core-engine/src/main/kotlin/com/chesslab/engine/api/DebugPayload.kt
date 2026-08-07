@@ -79,6 +79,11 @@ data class DebugDecision(
      */
     val cnnReadsTaken: Long = 0L,
     val cnnReadsStale: Long = 0L,
+    /** Snapshots seen, and where they went: to verify, to no evaluator, to a closed gate. */
+    val cnnSnaps: Long = 0L,
+    val cnnSnapsToVerify: Long = 0L,
+    val cnnSnapsNoEvaluator: Long = 0L,
+    val cnnSnapsNotDue: Long = 0L,
     val cnnBestMove: String?,
     val stuckReason: String?,
     // the multi-glance vote outcome that led here (entry.md invariant 13)

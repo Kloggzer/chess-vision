@@ -107,6 +107,9 @@ fun DebugDecision.toLogLine(): String {
         append(" cnn=${if (cnnRun) "run" else "off"} cnnAgree=${pyFixed(cnnAgreement, AGREEMENT_DP)}")
         // Without these, `cnnAgree=0.000` cannot be told from "never asked" — see `EngineState`.
         append(" cnnReads=$cnnReadsTaken/$cnnReadsStale")
+        // Snapshots seen, then where they went — verify ladder / no evaluator / gate
+        // closed. `cnnReads=0` has four causes and this says which.
+        append(" cnnSnaps=$cnnSnaps/$cnnSnapsToVerify/$cnnSnapsNoEvaluator/$cnnSnapsNotDue")
         cnnBestMove?.let { append(" cnnMove=$it") }
         stuckReason?.let { append(" stuck=$it") }
         verifyOutcome?.let { append(" verify=$it") }
@@ -166,6 +169,10 @@ internal fun EngineState.recordRejection(
             cnnAgreement = cnnAgreement,
             cnnReadsTaken = cnnReadsTaken,
             cnnReadsStale = cnnReadsStale,
+            cnnSnaps = cnnSnapsSeen,
+            cnnSnapsToVerify = cnnSnapsToVerify,
+            cnnSnapsNoEvaluator = cnnSnapsNoEvaluator,
+            cnnSnapsNotDue = cnnSnapsNotDue,
             cnnBestMove = cnnBestMove,
             stuckReason = stuckReason,
             verifyOutcome = pending?.voteOutcome,
@@ -256,6 +263,10 @@ internal fun DecisionRecord.toDebugDecision(): DebugDecision =
         cnnAgreement = cnnAgreement,
         cnnReadsTaken = cnnReadsTaken,
         cnnReadsStale = cnnReadsStale,
+        cnnSnaps = cnnSnaps,
+        cnnSnapsToVerify = cnnSnapsToVerify,
+        cnnSnapsNoEvaluator = cnnSnapsNoEvaluator,
+        cnnSnapsNotDue = cnnSnapsNotDue,
         cnnBestMove = cnnBestMove,
         stuckReason = stuckReason,
         verifyOutcome = verifyOutcome,

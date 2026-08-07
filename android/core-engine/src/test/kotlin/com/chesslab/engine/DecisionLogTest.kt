@@ -51,6 +51,10 @@ class DecisionLogTest {
             cnnAgreement = 0.0,
             cnnReadsTaken = 0L,
             cnnReadsStale = 0L,
+            cnnSnaps = 0L,
+            cnnSnapsToVerify = 0L,
+            cnnSnapsNoEvaluator = 0L,
+            cnnSnapsNotDue = 0L,
             cnnBestMove = null,
         )
 

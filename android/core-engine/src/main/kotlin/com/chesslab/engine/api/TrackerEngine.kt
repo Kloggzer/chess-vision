@@ -195,7 +195,9 @@ class TrackerEngine(
      */
     fun onCnnSnapshot(snap: CnnSnapshot): List<TrackerEvent> {
         state.cnnSnap = snap
+        state.cnnSnapsSeen += 1
         return if (state.pending != null) {
+            state.cnnSnapsToVerify += 1
             VerifySingle.tick(state, cnn, snap)
         } else {
             state.cnnTick(cnn, snap)
@@ -772,6 +774,10 @@ internal fun EngineState.clearAlarm(logReason: String?): List<TrackerEvent> {
             cnnAgreement = cnnAgreement,
             cnnReadsTaken = cnnReadsTaken,
             cnnReadsStale = cnnReadsStale,
+            cnnSnaps = cnnSnapsSeen,
+            cnnSnapsToVerify = cnnSnapsToVerify,
+            cnnSnapsNoEvaluator = cnnSnapsNoEvaluator,
+            cnnSnapsNotDue = cnnSnapsNotDue,
             cnnBestMove = cnnBestMove,
         ),
     )

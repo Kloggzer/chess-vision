@@ -39,10 +39,24 @@ internal fun EngineState.cnnTick(
     cnn: CnnEvaluator?,
     snap: CnnSnapshot,
 ): List<TrackerEvent> {
-    if (cnn == null || !evaluationDue()) return emptyList()
+    // One exit, two reasons, and the evaluator carried OUT of the check so it stays non-null:
+    // which gate closed is the whole point of the counters, and `evaluationDue` must be asked
+    // once — it reads the clock and the frame buffer, so a second call is a second answer.
+    val model =
+        when {
+            cnn == null -> {
+                cnnSnapsNoEvaluator += 1
+                null
+            }
+            !evaluationDue() -> {
+                cnnSnapsNotDue += 1
+                null
+            }
+            else -> cnn
+        } ?: return emptyList()
     val obs = snap.obs
     val hasIdentity = Squares.ALL.any { obs.label(it) != null }
-    val read = if (hasIdentity) identityRead(cnn, obs) else occupancyRead(cnn, obs)
+    val read = if (hasIdentity) identityRead(model, obs) else occupancyRead(model, obs)
     lastCnnTs = nowS
     cnnReadsTaken += 1
     if (board.fen() != snap.fen) {
@@ -53,7 +67,7 @@ internal fun EngineState.cnnTick(
     }
     cnnAgreement = read.agreement
     cnnBestMove = read.moves.takeIf { it.isNotEmpty() }?.joinToString(" ")
-    return applyRead(cnn, snap, read, hasIdentity)
+    return applyRead(model, snap, read, hasIdentity)
 }
 
 /**
