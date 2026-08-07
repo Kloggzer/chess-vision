@@ -274,7 +274,11 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
   committed under `web/static/`); `npm run lint` must not add new errors; `npm run knip` —
   dead files, exports and dependencies — must stay silent.
 - Android: `gradlew.bat :app:ktlintCheck :app:detekt :core-engine:detekt :core-geometry:detekt`
-  `:core-cnn:detekt :core-engine:test :core-geometry:test :core-cnn:test :app:testDebugUnitTest`.
+  `:core-cnn:detekt :tracker-runtime:detekt :tracker-runtime:ktlintCheck :desktop:detekt`
+  `:desktop:ktlintCheck :core-engine:test :core-geometry:test :core-cnn:test :tracker-runtime:test`
+  `:app:testDebugUnitTest`. **`:tracker-runtime` and `:desktop` were missing from this line until
+  2026-08-07**, which is the whole shared runtime and the JVM host — by this file's own rule below,
+  a module outside the gate is one whose findings are invisible, not absent.
   **`:core-geometry` and `:core-cnn` are plain `java-library` modules since 2026-08-06**, so their
   task is `:core-geometry:test`, not `:testDebugUnitTest` — older packs name the AGP task and are
   historical. Note detekt's unused rules
@@ -321,8 +325,10 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
   `gradlew.bat :app:ktlintCheck :app:detekt :core-engine:test :app:testDebugUnitTest` reported
   BUILD SUCCESSFUL while `ModelSpecTest` was in fact red; the failure only surfaced with
   `--rerun-tasks`. Use it for the final gate of a change, not for the inner loop.
-- **The Android gate now covers `:core-engine:detekt`** — it was excluded while two `MagicNumber`
-  hits sat in `DecisionLog.toLogLine`, which is precisely why nobody noticed them. Fixed 2026-08-03
-  by naming them; run `:core-engine:detekt` with the rest. A module left out of the gate is a module
-  whose lint findings are invisible, not absent.
+- **A module left out of the gate is a module whose lint findings are invisible, not absent** — and
+  it has happened twice. `:core-engine:detekt` was excluded while two `MagicNumber` hits sat in
+  `DecisionLog.toLogLine` (fixed 2026-08-03 by naming them). Then the module split of 2026-08-06
+  moved the entire shared runtime into `:tracker-runtime` and the JVM host into `:desktop`, and the
+  gate line was not updated with it — so from that day until 2026-08-07 the gate lint-checked
+  neither the frame pipeline nor the coordinator. When a module appears, it goes on the line.
 - Do not commit `data/`, `scans/`, `synth_pieces/`, `wheels/` (gitignored).
