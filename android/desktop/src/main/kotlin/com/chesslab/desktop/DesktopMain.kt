@@ -2,20 +2,16 @@ package com.chesslab.desktop
 
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerConfig
+import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.LensFit
-import com.chesslab.geometry.LensModel
 import com.chesslab.geometry.Undistorter
 import com.chesslab.geometry.alignmentOf
 import com.chesslab.geometry.cornersFromFlat
 import com.chesslab.geometry.toModel
 import com.chesslab.tracker.camera.CameraHealth
-import com.chesslab.tracker.cnn.DEFAULT_MODEL
-import com.chesslab.tracker.geometry.LensLoad
-import com.chesslab.tracker.geometry.LensMode
+import com.chesslab.tracker.cnn.Attached
 import com.chesslab.tracker.geometry.boardGeometryFor
 import com.chesslab.tracker.geometry.calibrateFromBoard
-import com.chesslab.tracker.geometry.decodeLens
-import com.chesslab.tracker.geometry.lensFor
 import com.chesslab.tracker.geometry.model
 import com.chesslab.tracker.geometry.quadOf
 import com.chesslab.tracker.geometry.rawQuadOf
@@ -60,21 +56,7 @@ fun main(args: Array<String>) {
         "replay" -> {
             val video = File(args.getOrNull(1) ?: usage())
             check(video.isFile) { "no such video: ${video.absolutePath}" }
-            val mode = args.getOrNull(2)
-            // Fitted from the board in THIS video, not loaded from a file. A stored calibration
-            // assumes the optics did not move since it was taken; a fit from the footage cannot be
-            // stale, and on the rig it beat the stored one by 1.2 px (see `BoardLens`). It goes
-            // through `Stage.LENS` like every other correction — the frame source never undistorts.
-            val fitted = if (args.contains("lens")) fitLensFrom(video) else null
-            replay(
-                VideoFileSource(video),
-                video.name,
-                watch = mode != "quiet" && mode != "dump",
-                lens = fitted,
-                withCnn = !args.contains("nocnn"),
-                model = modelArg(args),
-                dumpEvery = if (mode == "dump") DUMP_EVERY else 0,
-            )
+            replay(VideoFileSource(video), video.name, ReplayOptions.parse(args.drop(2)))
         }
         "calibrate" -> {
             val index = args.getOrNull(1)?.toIntOrNull() ?: usage()
@@ -83,12 +65,7 @@ fun main(args: Array<String>) {
         "align" -> alignCamera(args.getOrNull(1)?.toIntOrNull() ?: usage(), raw = args.getOrNull(2) == "raw")
         "track" -> {
             val index = args.getOrNull(1)?.toIntOrNull() ?: usage()
-            replay(
-                WebcamSource(index),
-                "camera $index",
-                cameraToken(index),
-                watch = args.getOrNull(2) != "quiet",
-            )
+            replay(WebcamSource(index), "camera $index", ReplayOptions.parse(args.drop(2)), cameraToken(index))
         }
         else -> usage()
     }
@@ -152,91 +129,6 @@ private fun locateBoard(
     }
     return null
 }
-
-/** `model=<name>` picks one of the bundled graphs; the default is what the phone ships. */
-private fun modelArg(args: Array<String>): String = args.firstOrNull { it.startsWith("model=") }?.removePrefix("model=") ?: DEFAULT_MODEL
-
-/**
- * The lens, measured from the board this video is of.
- *
- * Its own pass over the file's first frames, and its own source: a `VideoFileSource` decodes
- * forward and cannot rewind, and the fit has to see the footage the run will. Twenty frames is
- * enough — the camera and the board are fixed, so they are twenty samples of one geometry, and a
- * groove hidden by a piece in one frame is visible in the next.
- *
- * Null when the board cannot be found or the fit does not beat an uncorrected picture by the
- * required margin. That gate is `LensFit.ok` and it is deliberately NOT the proof: the bow is
- * what the fit minimises, so only the square offset says whether it helped.
- */
-private fun fitLensFrom(video: File): LensModel? {
-    VideoFileSource(video).use { probe ->
-        val size = probe.delivered
-        val fit =
-            calibrateFromBoard(
-                { use -> probe.next()?.also(use) != null },
-                size.width,
-                size.height,
-            ) { println("  $it") }
-        if (fit == null) {
-            println("no lens: the board's markers never decoded in the first frames")
-            return null
-        }
-        println(
-            "lens from the board: ${fit.evidence}; bow ${"%.5f".format(fit.bowBefore)} → " +
-                "${"%.5f".format(fit.bowAfter)}, k1=${"%.4f".format(fit.k1)} k2=${"%.4f".format(fit.k2)}",
-        )
-        if (fit.rejected != null || !fit.ok) {
-            println("no lens: ${fit.rejected ?: "the bow did not improve by the required margin"}")
-            return null
-        }
-        return fit.toModel()
-    }
-}
-
-/**
- * The rig's optics if they may be applied here, and the REASON printed when they may not.
- *
- * Everything the decision needs sits in one place on purpose: the stored file, the delivered size
- * and the camera it is being asked about. `Undistorter` deliberately has no checks of its own — a
- * `require` on the frame path turns a configuration mistake into a dead tracker — so this is the
- * only gate, and it must never fail quietly.
- *
- * `LensMode.ON` rather than AUTO because the user typed the command. `data/lens/calib.json` was
- * written before a calibration recorded which camera it came from, so its `camera` is empty; AUTO
- * refuses that on principle and ON accepts it, treating the human as the identity check. A file
- * naming a DIFFERENT camera is refused either way.
- */
-private fun openLens(
-    source: FrameSource,
-    camera: String,
-    wanted: Boolean,
-): Undistorter? {
-    val size = source.delivered
-    val stored =
-        when (val read = decodeLens(File(LENS_CALIBRATION).takeIf { it.isFile }?.readText())) {
-            is LensLoad.Ok -> read.calibration
-            is LensLoad.Refused -> return refuse(read.reason)
-            LensLoad.Absent -> null
-        }
-    val mode = if (wanted) LensMode.ON else LensMode.OFF
-    return when (val verdict = lensFor(stored, mode, camera, size.width, size.height)) {
-        is LensLoad.Ok -> {
-            val cal = verdict.calibration
-            println("lens: ${cal.width}x${cal.height}, rms ${"%.2f".format(cal.rms)} px")
-            Undistorter(cal.model(), size.width, size.height)
-        }
-        is LensLoad.Refused -> refuse(verdict.reason)
-        LensLoad.Absent -> refuse("none stored at $LENS_CALIBRATION")
-    }
-}
-
-private fun refuse(reason: String): Undistorter? {
-    println("no lens applied — $reason")
-    return null
-}
-
-/** What a stored calibration has to name to be reusable here. Size is not identity; this is. */
-private fun cameraToken(index: Int): String = "webcam:$index"
 
 /**
  * What the STORED marker margin costs on this board, measured against the board's own grid.
@@ -373,14 +265,18 @@ private fun usage(): Nothing {
         "  cameras                    what is attached, as the driver reports it",
         "  calibrate <camera-index>   fit the lens from the board's own grid lines",
         "  align <camera-index> [raw] measure the board against its grid; 'raw' skips the lens",
-        "  replay <video.mp4> [quiet|dump] [lens] [nocnn] [model=<name>]",
-        "                             drive a recorded clip through the shipping tracker",
-        "                             add 'lens' to fit the optics from the board first",
-        "  track <camera-index> [quiet]  the same, live",
+        "  replay <video.mp4> [options]  drive a recorded clip through the shipping tracker",
+        "  track <camera-index> [options]  the same, live",
         "",
-        "  The board view opens unless 'quiet' is given: it shows the rectified warp the engine",
+        "  options (order-free): quiet  no window, for scripted runs",
+        "                        dump   write the annotated board every 150 frames to tmp/",
+        "                        lens   fit the optics from the board in the footage first",
+        "                        nocnn  run the engine's no-observation occlusion fallback",
+        "                        model=<name>  one of the bundled graphs",
+        "",
+        "  The board view opens unless 'quiet' or 'dump': it shows the rectified warp the engine",
         "  reasons about with its per-square verdicts, and STOPS when the engine gets stuck",
-        "  (space steps, c continues, s disarms). 'quiet' is for scripted runs.",
+        "  (space steps, c continues, s disarms).",
     ).forEach(::println)
     exitProcess(2)
 }
@@ -388,12 +284,8 @@ private fun usage(): Nothing {
 private fun replay(
     source: FrameSource,
     name: String,
+    options: ReplayOptions,
     camera: String? = null,
-    watch: Boolean = true,
-    dumpEvery: Int = 0,
-    lens: LensModel? = null,
-    withCnn: Boolean = true,
-    model: String = DEFAULT_MODEL,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val console: TrackerLogs = { tag -> ConsoleLog(tag) }
@@ -411,8 +303,12 @@ private fun replay(
         // Built once and handed to the stages, which own it and close it. The board is located on
         // the SAME pixels the tracker will see — locating it on raw frames and then tracking on
         // corrected ones would seed the stack with a quad measured in the other space.
+        // Fitted from the board in THIS footage, not loaded from a file: a stored calibration
+        // assumes the optics have not moved since, and on this rig a fit from the footage beat the
+        // stored one by 1.2 px. It goes through `Stage.LENS` — the frame source never undistorts.
         val optics =
-            lens?.let { Undistorter(it, source.delivered.width, source.delivered.height) }
+            (if (options.lens) fitLensFrom(source) else null)
+                ?.let { Undistorter(it, source.delivered.width, source.delivered.height) }
                 ?: camera?.let { openLens(source, it, wanted = true) }
         val corrected = { source.next()?.let { frame -> optics?.apply(frame) ?: frame } }
         val quad = locateBoard(corrected)
@@ -424,10 +320,10 @@ private fun replay(
         }
         val geometry = boardGeometryFor(quad)
         val config = TrackerConfig().copy(boardSize = geometry.boardSize)
-        println("board located from its markers: ${geometry.boardSize} px warp")
+        println("board located from its markers: ${geometry.boardSize} px warp  ·  $options")
         val publisher = StatusPublisher(scope)
-        val cnn = if (withCnn) openDesktopCnn(model, console("chesslabCnn")) else null
-        if (!withCnn) println("cnn: off — the engine will use its no-observation occlusion fallback")
+        val cnn = if (options.cnn) openDesktopCnn(options.model, console("chesslabCnn")) else null
+        if (!options.cnn) println("cnn: off — the engine uses its no-observation occlusion fallback")
         val frameClock = FrameClock(source.fps, live = camera != null)
         // Held here rather than read back off the stack: `TrackerStack` takes the bus as a
         // constructor argument and does not expose it, and widening a shared seam for one host's
@@ -436,48 +332,58 @@ private fun replay(
         // `quiet` is what makes this scriptable. With a window open, break-on-stuck is right —
         // a human is watching and wants it to stop — but that same default turns a batch replay
         // into a process waiting forever for a key nobody will press.
-        val view = if (watch) TrackerView.openOrNull("chesslab — $name") else null
-        if (watch && view == null) println("no display: running without the board view")
-        val stack =
-            TrackerStack(
-                TrackerSeed<Mat>(
-                    config = config,
-                    geometry = { geometry },
-                    corners = null,
-                    startFen = STARTPOS,
-                    onDecision = { println("decision: ply=${it.ply} ${it.san ?: "-"} decider=${it.decider}") },
-                    logs = console,
-                    stages = { geo, cfg, store, frameBus, boardBus ->
-                        OpenCvStages({ it }, {}, geo, cfg, store, frameBus, boardBus, optics)
-                    },
-                    // The VIDEO's clock, not this machine's. A replay decodes as fast as it can,
-                    // so wall time says how long the decode took and nothing about when a frame
-                    // was taken — and the engine ages several of its gates against exactly that.
-                    // For a live camera `frameClock` returns the wall clock and this is a no-op.
-                    nowMs = frameClock::now,
-                ),
-                SettingsRepository(MemoryConfigStore, scope),
-                publisher,
-                // A real converter, where this used to pass `{ null }`: the bus was built,
-                // throttled and then handed nothing, so `boardPreview` was permanently empty
-                // and the rectified board the engine reasons about was unobservable.
-                bus,
-                StageTimings(logLine = { println("chesslabPerf: $it") }),
-                scope,
-                // With a CNN the engine arbitrates occlusion per square; without one
-                // `Taint.cnnOcclusionFilter` falls back to ">2 changed squares = a hand", which is
-                // a different tracker. `nocnn` runs that fallback ON PURPOSE, so the two can be
-                // compared instead of one being mistaken for the other.
-                cnn ?: { error("running without a CNN — the engine uses its occlusion fallback") },
-            )
+        val view = if (options.watch) TrackerView.openOrNull("chesslab — $name") else null
+        if (options.watch && view == null) println("no display: running without the board view")
+        val stack = buildStack(geometry, frameClock, optics, bus, publisher, cnn, console, scope)
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
-        val frames = drive(source, stack, bus, publisher, view, frameClock, dumpEvery)
+        val frames = drive(source, stack, bus, publisher, view, frameClock, options.dumpEvery)
         println("tracked $frames frames of $name at ${"%.2f".format(source.fps)} fps")
         stack.close()
         view?.close()
     }
     scope.cancel()
 }
+
+/** The object graph the phone builds too, with this host's frame type and this run's optics. */
+@Suppress("LongParameterList")
+private fun buildStack(
+    geometry: BoardGeometry,
+    clock: FrameClock,
+    optics: Undistorter?,
+    bus: CameraFrameBus<BufferedImage>,
+    publisher: StatusPublisher,
+    cnn: (() -> Attached)?,
+    logs: TrackerLogs,
+    scope: CoroutineScope,
+): TrackerStack<Mat> =
+    TrackerStack(
+        TrackerSeed<Mat>(
+            // NOT a preference and not a real default: `measuredBoardSize` clamps to 320..1280, so
+            // a config still carrying the 1600 placeholder disagrees with every plane the warp
+            // produces and `FrameLoop.step` refuses them, one silently dropped frame at a time.
+            config = TrackerConfig().copy(boardSize = geometry.boardSize),
+            geometry = { geometry },
+            corners = null,
+            startFen = STARTPOS,
+            onDecision = { println("decision: ply=${it.ply} ${it.san ?: "-"} decider=${it.decider}") },
+            logs = logs,
+            stages = { geo, cfg, store, frameBus, boardBus ->
+                OpenCvStages({ it }, {}, geo, cfg, store, frameBus, boardBus, optics)
+            },
+            // The VIDEO's clock, not this machine's — see `FrameClock`.
+            nowMs = clock::now,
+        ),
+        SettingsRepository(MemoryConfigStore, scope),
+        publisher,
+        bus,
+        StageTimings(logLine = { println("chesslabPerf: $it") }),
+        scope,
+        // With a CNN the engine arbitrates occlusion per square; without one
+        // `Taint.cnnOcclusionFilter` falls back to ">2 changed squares = a hand", which is a
+        // different tracker. `nocnn` runs that fallback ON PURPOSE, so the two can be compared
+        // instead of one being mistaken for the other.
+        cnn ?: { error("running without a CNN — the engine uses its occlusion fallback") },
+    )
 
 /**
  * Frames in, until the source runs dry or the viewer's window is closed.
@@ -574,9 +480,6 @@ private const val LOCATE_ATTEMPTS = 60
 /** Frames to judge the alignment over. Two seconds is enough to see a jitter that matters. */
 private const val ALIGN_FRAMES = 60
 
-/** Written by `chesslab lens calibrate`, exported to JSON because Kotlin does not read npz. */
-private const val LENS_CALIBRATION = "../../data/lens/calib.json"
-
 /** Nine lines per axis, both axes — what `gridLines` reports on every frame. */
 private const val GRID_LINES_PER_FRAME = 18
 
@@ -588,6 +491,4 @@ private const val P90_DEN = 10
 private const val PROBE_PATH = "../../tmp/lens-probe.png"
 
 /** Where the quad comparison lands. */
-private const val DUMP_EVERY = 150
-
 private const val QUAD_PROBE_PATH = "../../tmp/quad-probe.png"
