@@ -19,15 +19,6 @@ internal const val HALF: Double = 0.5
 /** File letters, index = column in the rectified image when `whitePov`. */
 internal const val FILES: String = "abcdefgh"
 
-/**
- * Corner order for EVERY geometry operation in this module: `a8, h8, h1, a1`.
- *
- * `calibration.py:482 _ARUCO_LABELS` — ArUco ids 0,1,2,3 in exactly that order.
- * NOT the crop order: crops run in `allSquares()` order (`a1,b1,..,h1,a2,..,h8`,
- * `labeling.py:102`). Mixing the two silently transposes the board — entry.md invariant 11.
- */
-val CORNER_ORDER: List<String> = listOf("a8", "h8", "h1", "a1")
-
 /** Number of board corners. */
 internal const val CORNER_COUNT: Int = 4
 

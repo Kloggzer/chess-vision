@@ -7,15 +7,6 @@ const val SLOT_CONFIG = "tracker_config_json"
 const val SLOT_APP = "app_settings_json"
 
 /**
- * The camera's measured optics — see `geometry/LensCalibration.kt`.
- *
- * Its own slot, and on the phone that slot is DataStore. That is what makes "a rig calibration
- * lands on a phone" unreachable rather than merely guarded: the phone never reads a file path, so
- * nothing can put `data/lens/calib.json` where it would be found.
- */
-const val SLOT_LENS = "lens_calibration_json"
-
-/**
  * Where the settings live. Behind an interface so [SettingsRepository]'s decisions are testable
  * on the desktop JVM — DataStore needs a `Context` and a real file, and neither exists there.
  *

@@ -104,27 +104,12 @@ fun requireExpectedClasses(classes: List<String>): List<String> {
 }
 
 /**
- * Contract from `serving.py:318-400 predict_arrays` (the `all_at_size` fast path, which is
- * the live path): BGR uint8 HWC -> BGR->RGB flip -> `/255` -> `(x - mean) / std` -> NCHW
- * float32, N first, then the R, G and B planes.
+ * Contract from `serving.py:318-400 predict_arrays` (the `all_at_size` fast path, which is the live
+ * path): BGR uint8 HWC -> BGR->RGB flip -> `/255` -> `(x - mean) / std` -> NCHW float32, N first,
+ * then the R, G and B planes. Into a **caller-owned** buffer.
  *
- * Crops arrive already at `outW x outH` from `Crops.cropsForFrame` (02b). A differently
- * sized crop is a programming error — this function does NOT resize, colour-correct or CLAHE.
- */
-fun preprocess(
-    crops: List<BgrImage>,
-    outW: Int,
-    outH: Int,
-    mean: List<Float> = IMAGENET_MEAN,
-    std: List<Float> = IMAGENET_STD,
-    perCrop: Boolean = false,
-    repr: InputRepr = InputRepr.RGB,
-): FloatArray =
-    FloatArray(crops.size * repr.channels * outW * outH)
-        .also { preprocessInto(crops, outW, outH, it, mean, std, perCrop, repr) }
-
-/**
- * [preprocess] into a **caller-owned** buffer — same arithmetic, same layout, no allocation.
+ * Crops arrive already at `outW x outH`. A differently sized crop is a programming error — this
+ * does NOT resize, colour-correct or CLAHE.
  *
  * The live path observes a few times per second with `64 * 3 * 128 * 128` floats = 12.6 MB per
  * call, which is sustained GC pressure next to a 15 fps camera loop. [out] must hold exactly

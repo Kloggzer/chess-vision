@@ -1172,14 +1172,6 @@ private fun FindingCard(
     }
 }
 
-internal fun findingTitle(finding: PlyGrade): String =
-    if (finding.missedMate) {
-        "${movingSide(finding)} · ${moveNumber(finding)} ${finding.san} · missed mate" +
-            finding.mateInBefore?.let { " in $it" }.orEmpty()
-    } else {
-        "${movingSide(finding)} · ${moveNumber(finding)} ${finding.san} · ${label(finding.quality)}"
-    }
-
 /** Ply 17 is White's move 9; ply 18 is Black's, written `9...`. */
 private fun moveNumber(ply: PlyGrade): String = "${ply.moveNumber}." + if (ply.whiteMoved) "" else ".."
 

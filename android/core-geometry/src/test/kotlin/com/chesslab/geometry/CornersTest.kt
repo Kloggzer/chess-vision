@@ -47,13 +47,6 @@ class CornersTest {
     }
 
     @Test
-    fun `corner order is a8 h8 h1 a1 and differs from the crop order`() {
-        assertEquals(listOf("a8", "h8", "h1", "a1"), CORNER_ORDER)
-        // entry.md invariant 11: never reuse the corner order for crops.
-        assertEquals(false, allSquares().take(4) == CORNER_ORDER)
-    }
-
-    @Test
     fun `flat float array round trips through the corner list`() {
         val flat = floatArrayOf(10f, 20f, 630f, 25f, 640f, 610f, 5f, 600f)
         val corners = cornersFromFlat(flat)

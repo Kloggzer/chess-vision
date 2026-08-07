@@ -29,7 +29,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -64,13 +63,11 @@ import com.chesslab.tracker.ui.theme.OnAccent
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Outline
-import com.chesslab.tracker.ui.theme.Primary
 import com.chesslab.tracker.ui.theme.Radius
 import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.theme.Stroke
 import com.chesslab.tracker.ui.theme.Surface
 import com.chesslab.tracker.ui.theme.Touch
-import com.chesslab.tracker.ui.theme.chesslabChipColors
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.roundToInt
 
@@ -512,21 +509,6 @@ private val ACTION_PADDING = PaddingValues(horizontal = Space.sm, vertical = Spa
  * already on screen, and it must not compete with the one filled button that leaves the screen.
  */
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ChesslabChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        label = { Text(label, style = MaterialTheme.typography.labelMedium) },
-        colors = chesslabChipColors(),
-        border = BorderStroke(Stroke.hairline, if (selected) Primary else Outline),
-    )
-}
-
 /**
  * **Primitive — severity stripe.** State encoded in FORM as well as colour: a 3 px edge survives a
  * glance and a colour-vision deficiency where a tinted word does not.

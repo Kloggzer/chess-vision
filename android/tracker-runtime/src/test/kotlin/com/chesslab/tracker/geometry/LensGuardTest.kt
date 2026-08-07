@@ -104,8 +104,21 @@ class LensGuardTest {
         assertEquals(LensLoad.Absent, decodeLens(null))
         assertEquals(LensLoad.Absent, decodeLens("   "))
         assertInstanceOf(LensLoad.Refused::class.java, decodeLens("{ not json"))
-        val round = decodeLens(encodeLens(RIG))
-        assertEquals(RIG, assertInstanceOf(LensLoad.Ok::class.java, round).calibration)
+        // A literal rather than a round-trip through the encoder: this file is written by Python's
+        // `chesslab lens` export, so what has to hold is that THIS shape decodes — including the
+        // `createdAt` the exporter adds and this build does not model. A round-trip would only have
+        // tested the serializer against itself, and would have passed while the real file failed.
+        val stored =
+            """
+            {"cameraMatrix":[2000.0,0.0,1280.0,0.0,2000.0,720.0,0.0,0.0,1.0],
+             "distCoeffs":[-0.675,2.078,0.025,0.0132,-7.131],
+             "width":2560,"height":1440,"rms":5.4636,
+             "createdAt":"2026-07-21T17:37:00"}
+            """
+        val lens = assertInstanceOf(LensLoad.Ok::class.java, decodeLens(stored)).calibration
+        assertEquals(WIDTH, lens.width)
+        assertEquals("", lens.camera, "a file that names no camera must decode as unidentified, not fail")
+        assertEquals(LENS_SCHEMA_VERSION, lens.version)
     }
 
     private companion object {
