@@ -1,6 +1,5 @@
 package com.chesslab.desktop
 
-import com.chesslab.geometry.Undistorter
 import com.chesslab.tracker.camera.DeliveredSize
 import org.bytedeco.ffmpeg.global.avutil
 import org.bytedeco.javacv.FFmpegFrameGrabber
@@ -98,16 +97,15 @@ private const val BGR_CHANNELS = 3
  *    warp on Android (a7dab73).
  *  - **Resolution BEFORE codec.** Setting `FOURCC` first is what stops MJPG from ever engaging on
  *    this stack — the usual advice has it backwards for OpenCV 4.x (opencv#7013).
+ *  - **It does not undistort.** It used to, which put a transform in front of every consumer that
+ *    none of them could see or switch off, and gave the PC a correction the phone had no way to
+ *    get. The lens is `Stage.LENS` in the shared pipeline now; a measurement tool that wants one
+ *    opens it explicitly at its own call site.
  */
 class WebcamSource(
     index: Int,
     width: Int = 0,
     height: Int = 0,
-    /**
-     * The lens, applied before anything measures the board. Null means "raw", which is honest for a
-     * lens without distortion and wrong for one with it — see [Undistorter].
-     */
-    private val lens: LensCalibration? = null,
 ) : FrameSource {
     private val capture =
         VideoCapture(index).apply {
@@ -127,16 +125,12 @@ class WebcamSource(
             DeliveredSize(mat.cols(), mat.rows(), 0)
         }
 
-    private val undistorter =
-        lens?.let { Undistorter(it.model(), delivered.width, delivered.height) }
-
     override fun next(): Mat? {
         if (!capture.read(mat) || mat.empty()) return null
-        return undistorter?.apply(mat) ?: mat
+        return mat
     }
 
     override fun close() {
-        undistorter?.close()
         mat.release()
         capture.release()
     }

@@ -9,7 +9,7 @@ import com.chesslab.geometry.BoardGeometry
 // One camera frame -> one `FrameInput`. Port of the per-frame order in `tracker.py::_loop`,
 // between `_note_frame_size` and the detection state machine. THE ORDER IS BEHAVIOUR:
 //
-//   size guard -> YUV->BGR -> detection warp -> dark gate -> gray -> ROI motion -> grid -> emit
+//   size guard -> YUV->BGR -> lens -> detection warp -> dark gate -> gray -> ROI motion -> grid -> emit
 //
 // The dark gate sits BEFORE `_gray` because it must read the luma the sensor delivered: CLAHE
 // turns near-black noise into phantom changed squares, so a post-CLAHE measurement gates nothing.
@@ -43,6 +43,26 @@ sealed interface FrameResult {
  */
 interface FrameStages<T> {
     fun convert(image: T)
+
+    /**
+     * Undistort the just-converted frame in place, and say whether anything was done.
+     *
+     * Here, and not folded into the warps, because of WHERE it sits: everything downstream of
+     * [convert] reads one frame — the preview and calibration bus, and through it the ArUco
+     * re-detection and the once-per-pose grid fit, plus [roiMotion], both warps and the overlay the
+     * corners are drawn against. Correcting the pixels at this one point keeps all of them in ONE
+     * coordinate space. Composing the lens into the warp maps instead would cost nothing per frame
+     * and would split that space in two: the quad would have to be undistorted while `roiMotion`
+     * and the preview still read raw pixels.
+     *
+     * It also puts the lens before the board, which is the order `CLAUDE.md` fixes and the reason
+     * it gives: a homography is projective and cannot represent a barrel arc, so a grid fit run on
+     * a distorted frame absorbs lens error into board geometry.
+     *
+     * Returns false when no lens is configured — the default, and the only state with any evidence
+     * behind it. The boolean is what lets `Stage.LENS` report "did not run" instead of a zero.
+     */
+    fun undistort(): Boolean = false
 
     /**
      * Hand the just-converted BGR frame to the preview/calibration bus, if it is due one.
@@ -167,7 +187,8 @@ class FramePipeline<T>(
     }
 
     /**
-     * Steps 1-5: convert, publish, warp, dark gate. Returns the skip note, or null when usable.
+     * Steps 1-5: convert, undistort, publish, warp, dark gate. Returns the skip note, or null when
+     * usable.
      *
      * The convert runs BEFORE the corners check now. It has to: without corners there is no
      * detection, but there is still a calibration screen that needs pixels, and it is the corners
@@ -176,6 +197,7 @@ class FramePipeline<T>(
     private fun readFrame(image: T): String? {
         stages.convert(image)
         timings.mark(Stage.CONVERT)
+        if (stages.undistort()) timings.mark(Stage.LENS)
         stages.publishFrame()
         timings.mark(Stage.PUBLISH)
         val pts = corners ?: return NOTE_WAITING_MARKERS
