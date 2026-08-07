@@ -6,7 +6,6 @@ import com.chesslab.tracker.geometry.CalibrationProfile
 import com.chesslab.tracker.geometry.CalibrationResult
 import com.chesslab.tracker.geometry.CalibrationStore
 import com.chesslab.tracker.geometry.FakeProfileBacking
-import com.chesslab.tracker.geometry.QuadRefinement
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelChildren
@@ -36,8 +35,6 @@ private class FakeDetector(
         gate?.await()
         return result
     }
-
-    override suspend fun refine(corners: FloatArray): QuadRefinement? = null
 
     override suspend fun warp(
         corners: FloatArray,
