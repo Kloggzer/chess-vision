@@ -1,10 +1,5 @@
 package com.chesslab.geometry
 
-import org.opencv.calib3d.Calib3d
-import org.opencv.core.CvType
-import org.opencv.core.Mat
-import org.opencv.core.MatOfPoint2f
-import org.opencv.core.Point
 import kotlin.math.abs
 import kotlin.math.hypot
 
@@ -204,12 +199,7 @@ private fun totalBow(
     return bows.sorted()[bows.size / 2]
 }
 
-/**
- * The candidate model applied to POINTS, never to the image.
- *
- * `undistortPoints` does the iterative inverse of the Brown model; remapping a 2560x1440 frame per
- * candidate would make this search minutes instead of milliseconds.
- */
+/** The candidate model applied to POINTS — see [undistortPoints], which this shares with the stage. */
 private fun undistort(
     points: List<DoubleArray>,
     k1: Double,
@@ -218,18 +208,13 @@ private fun undistort(
     focal: Double,
 ): List<DoubleArray> {
     if (k1 == 0.0 && k2 == 0.0) return points
-    val k = Mat(3, 3, CvType.CV_64F)
-    listOf(focal, 0.0, centre[0], 0.0, focal, centre[1], 0.0, 0.0, 1.0)
-        .forEachIndexed { i, v -> k.put(i / K_ROWS, i % K_ROWS, v) }
-    val d = Mat(1, DIST_COEFFS, CvType.CV_64F)
-    listOf(k1, k2, 0.0, 0.0, 0.0).forEachIndexed { i, v -> d.put(0, i, v) }
-    val src = MatOfPoint2f()
-    src.fromList(points.map { Point(it[0], it[1]) })
-    val dst = MatOfPoint2f()
-    Calib3d.undistortPoints(src, dst, k, d, Mat(), k)
-    val out = dst.toArray().map { doubleArrayOf(it.x, it.y) }
-    listOf(k, d, src, dst).forEach { it.release() }
-    return out
+    return undistortPoints(
+        LensModel(
+            cameraMatrix = doubleArrayOf(focal, 0.0, centre[0], 0.0, focal, centre[1], 0.0, 0.0, 1.0),
+            distCoeffs = doubleArrayOf(k1, k2, 0.0, 0.0, 0.0),
+        ),
+        points,
+    )
 }
 
 private const val MIN_BOW_POINTS = 4
@@ -253,5 +238,3 @@ private const val CENTRE_SPAN_FRAC = 0.15
 private const val CENTRE_MARGIN = 0.9
 private const val SEARCH_STEPS = 24
 private const val GOLDEN = 1.6180339887
-private const val K_ROWS = 3
-private const val DIST_COEFFS = 5

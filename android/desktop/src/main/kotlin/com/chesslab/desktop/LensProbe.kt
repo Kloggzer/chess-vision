@@ -2,9 +2,15 @@ package com.chesslab.desktop
 
 import com.chesslab.geometry.GridSample
 import com.chesslab.geometry.LensFit
+import com.chesslab.geometry.Undistorter
 import com.chesslab.geometry.cornersFromFlat
 import com.chesslab.geometry.gridSamples
+import com.chesslab.geometry.toModel
 import com.chesslab.geometry.warpFromCorners
+import com.chesslab.tracker.geometry.boardGeometryFor
+import com.chesslab.tracker.geometry.quadOf
+import com.chesslab.tracker.geometry.refinedQuad
+import com.chesslab.tracker.geometry.squareOffsetOf
 import org.opencv.core.Core
 import org.opencv.core.Mat
 import org.opencv.core.Point
@@ -29,15 +35,9 @@ fun writeLensProbe(
     out: File,
 ): File? {
     val frame = source.next() ?: return null
-    val size = Size(source.delivered.width.toDouble(), source.delivered.height.toDouble())
-    val calibration =
-        LensCalibration(
-            cameraMatrix = listOf(fit.focal, 0.0, fit.cx, 0.0, fit.focal, fit.cy, 0.0, 0.0, 1.0),
-            distCoeffs = listOf(fit.k1, fit.k2, 0.0, 0.0, 0.0),
-            width = source.delivered.width,
-            height = source.delivered.height,
-        )
-    val corrected = Undistorter(calibration, size).use { it.apply(frame).clone() }
+    val corrected =
+        Undistorter(fit.toModel(), source.delivered.width, source.delivered.height)
+            .use { it.apply(frame).clone() }
     val left = annotate(frame, "raw")
     val right = annotate(corrected, "corrected  k1=${"%.3f".format(fit.k1)} k2=${"%.3f".format(fit.k2)}")
     val canvas = Mat()

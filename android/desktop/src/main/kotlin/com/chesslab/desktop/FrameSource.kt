@@ -1,11 +1,11 @@
 package com.chesslab.desktop
 
+import com.chesslab.geometry.Undistorter
 import com.chesslab.tracker.camera.DeliveredSize
 import org.bytedeco.ffmpeg.global.avutil
 import org.bytedeco.javacv.FFmpegFrameGrabber
 import org.opencv.core.CvType
 import org.opencv.core.Mat
-import org.opencv.core.Size
 import org.opencv.videoio.VideoCapture
 import org.opencv.videoio.Videoio
 import java.io.File
@@ -128,7 +128,7 @@ class WebcamSource(
         }
 
     private val undistorter =
-        lens?.let { Undistorter(it, Size(delivered.width.toDouble(), delivered.height.toDouble())) }
+        lens?.let { Undistorter(it.model(), delivered.width, delivered.height) }
 
     override fun next(): Mat? {
         if (!capture.read(mat) || mat.empty()) return null

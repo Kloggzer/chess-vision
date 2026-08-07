@@ -2,17 +2,17 @@ package com.chesslab.desktop
 
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerConfig
-import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.LensFit
-import com.chesslab.geometry.MarkerTracker
+import com.chesslab.geometry.Undistorter
 import com.chesslab.geometry.alignmentOf
-import com.chesslab.geometry.boardCornersForFrame
 import com.chesslab.geometry.cornersFromFlat
-import com.chesslab.geometry.cornersToFlat
-import com.chesslab.geometry.margins4
+import com.chesslab.geometry.toModel
 import com.chesslab.tracker.camera.CameraHealth
-import com.chesslab.tracker.geometry.DEFAULT_MARKER_MARGIN
-import com.chesslab.tracker.geometry.measuredBoardSize
+import com.chesslab.tracker.geometry.boardGeometryFor
+import com.chesslab.tracker.geometry.calibrateFromBoard
+import com.chesslab.tracker.geometry.quadOf
+import com.chesslab.tracker.geometry.rawQuadOf
+import com.chesslab.tracker.geometry.squareOffsetOf
 import com.chesslab.tracker.log.TrackerLog
 import com.chesslab.tracker.log.TrackerLogs
 import com.chesslab.tracker.pipeline.OpenCvStages
@@ -29,7 +29,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.opencv.core.Mat
-import org.opencv.core.Size
 import java.io.File
 import kotlin.system.exitProcess
 
@@ -92,21 +91,6 @@ private fun locateBoard(
 }
 
 /**
- * The board's markers in THIS frame, as a flat quad.
- *
- * Any board size will do: `boardCornersForFrame` returns frame-space points, and the size only
- * scales the homography it fits them through. A fresh [MarkerTracker] per call on purpose — its
- * smoothing is for a running tracker, and a calibration search must judge each candidate on its
- * own frame rather than on a blend of the ones before it.
- */
-internal fun quadOf(frame: Mat): FloatArray? = rawQuadOf(frame)?.let { refinedQuad(frame, it) }
-
-/** The markers alone, before the grid has had a say — what the probe compares against. */
-internal fun rawQuadOf(frame: Mat): FloatArray? =
-    boardCornersForFrame(frame, BoardGeometry(boardSize = PROBE_BOARD_SIZE), MarkerTracker())
-        ?.let { cornersToFlat(it) }
-
-/**
  * What the STORED marker margin costs on this board, measured against the board's own grid.
  *
  * `margin` says how far outside the playing field the markers sit, and it is a constant today:
@@ -128,16 +112,7 @@ private fun measureAlignment(
             println("no board found: the markers never decoded")
             return
         }
-    val geometry =
-        BoardGeometry(
-            boardSize = measuredBoardSize(quad),
-            // NOT BoardGeometry's default. It defaults to margins4(0.0), which is right for a
-            // Blender render whose corners ARE the playing field and 6-8 % too large for any quad
-            // detected from ArUco, whose markers sit in the label border — the very defect
-            // `ClipPipeline`'s comment records. Measured on the rig with 0.0: 64 of 64 squares cut
-            // off their grid, worst offset 35.8 px against a 6.2 px limit.
-            margin = margins4(DEFAULT_MARKER_MARGIN),
-        )
+    val geometry = boardGeometryFor(quad)
     val corners = cornersFromFlat(quad)
     println("board ${geometry.boardSize} px, margin ${geometry.margin.joinToString { "%.3f".format(it) }} (the stored constant)")
     val worst = mutableListOf<Double>()
@@ -186,7 +161,15 @@ private fun lens(): LensCalibration? =
  * distinction is skipped.
  */
 private fun calibrate(source: FrameSource) {
-    val fit = calibrateFromBoard(source) { println("  $it") }
+    // A LOAN, not a getter: `next()` hands back a Mat the source still owns and will overwrite.
+    // The phone's `latestCalibrationFrame()` hands back a clone the caller must release, so the
+    // seam is shaped to let each host keep its own rule instead of one of them being quietly wrong.
+    val fit =
+        calibrateFromBoard(
+            { use -> source.next()?.also(use) != null },
+            source.delivered.width,
+            source.delivered.height,
+        ) { println("  $it") }
     when {
         fit == null -> println("no board found: the markers never decoded")
         fit.rejected != null -> println("evidence: ${fit.evidence} — refused: ${fit.rejected}")
@@ -211,17 +194,9 @@ private fun report(
     // The verdict the fit does not control. A model that flattens its own objective and leaves the
     // squares where they were has explained nothing — which is a finding, not a calibration.
     val size = source.delivered
-    val calibration =
-        LensCalibration(
-            cameraMatrix = listOf(fit.focal, 0.0, fit.cx, 0.0, fit.focal, fit.cy, 0.0, 0.0, 1.0),
-            distCoeffs = listOf(fit.k1, fit.k2, 0.0, 0.0, 0.0),
-            width = size.width,
-            height = size.height,
-            rms = fit.bowAfter,
-        )
     val raw = source.next()?.let { frame -> quadOf(frame)?.let { squareOffsetOf(frame, it) } }
     val corrected =
-        Undistorter(calibration, Size(size.width.toDouble(), size.height.toDouble())).use { undistorter ->
+        Undistorter(fit.toModel(), size.width, size.height).use { undistorter ->
             source.next()?.let { frame ->
                 val fixed = undistorter.apply(frame)
                 quadOf(fixed)?.let { squareOffsetOf(fixed, it) }
@@ -267,16 +242,7 @@ private fun replay(
             println("no board found: the markers never decoded")
             return
         }
-        val geometry =
-            BoardGeometry(
-                boardSize = measuredBoardSize(quad),
-                // NOT BoardGeometry's default. It defaults to margins4(0.0), which is right for a
-                // Blender render whose corners ARE the playing field and 6-8 % too large for any quad
-                // detected from ArUco, whose markers sit in the label border — the very defect
-                // `ClipPipeline`'s comment records. Measured on the rig with 0.0: 64 of 64 squares cut
-                // off their grid, worst offset 35.8 px against a 6.2 px limit.
-                margin = margins4(DEFAULT_MARKER_MARGIN),
-            )
+        val geometry = boardGeometryFor(quad)
         val config = TrackerConfig().copy(boardSize = geometry.boardSize)
         println("board located from its markers: ${geometry.boardSize} px warp")
         val stack =
@@ -345,9 +311,6 @@ private object MemoryConfigStore : ConfigStore {
 
 /** Frames to spend looking for the markers before giving up. At 30 fps this is two seconds. */
 private const val LOCATE_ATTEMPTS = 60
-
-/** Only the homography's scale; the returned points are in frame space either way. */
-private const val PROBE_BOARD_SIZE = 800
 
 /** Frames to judge the alignment over. Two seconds is enough to see a jitter that matters. */
 private const val ALIGN_FRAMES = 60
