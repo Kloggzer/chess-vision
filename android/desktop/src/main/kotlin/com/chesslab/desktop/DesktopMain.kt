@@ -252,19 +252,36 @@ private fun report(
     // The verdict the fit does not control. A model that flattens its own objective and leaves the
     // squares where they were has explained nothing — which is a finding, not a calibration.
     val size = source.delivered
-    val raw = source.next()?.let { frame -> quadOf(frame)?.let { squareOffsetOf(frame, it) } }
+    val raw = medianOffset(source::next)
     val corrected =
         Undistorter(fit.toModel(), size.width, size.height).use { undistorter ->
-            source.next()?.let { frame ->
-                val fixed = undistorter.apply(frame)
-                quadOf(fixed)?.let { squareOffsetOf(fixed, it) }
-            }
+            medianOffset(next = { source.next()?.let(undistorter::apply) })
         }
     println(
         "worst square offset: ${raw?.let { "%.2f".format(it) } ?: "unmeasurable"} px raw → " +
             "${corrected?.let { "%.2f".format(it) } ?: "unmeasurable"} px corrected",
     )
     writeLensProbe(source, fit, File(PROBE_PATH))?.let { println("probe: ${it.absolutePath}") }
+}
+
+/**
+ * Median worst square offset over [frames], which is the only form these numbers may be compared in.
+ *
+ * This measured ONE frame each until 2026-08-07, while `align` measured sixty — so a calibration was
+ * being judged against a number taken a different way from the one it would be compared to. The
+ * per-run spread turns out to be tiny (<= 0.07 px over sixty frames), but that is a thing you learn
+ * by measuring the spread, not a thing you may assume while skipping it.
+ */
+private fun medianOffset(
+    next: () -> Mat?,
+    frames: Int = ALIGN_FRAMES,
+): Double? {
+    val seen = mutableListOf<Double>()
+    repeat(frames) {
+        val frame = next() ?: return@repeat
+        quadOf(frame)?.let { quad -> squareOffsetOf(frame, quad).takeIf { it.isFinite() }?.let(seen::add) }
+    }
+    return seen.sorted().getOrNull(seen.size / 2)
 }
 
 private fun usage(): Nothing {
