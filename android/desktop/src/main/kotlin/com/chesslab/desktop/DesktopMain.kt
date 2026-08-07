@@ -350,6 +350,13 @@ private fun replay(
         val geometry = boardGeometryFor(quad)
         val config = TrackerConfig().copy(boardSize = geometry.boardSize)
         println("board located from its markers: ${geometry.boardSize} px warp")
+        val publisher = StatusPublisher(scope)
+        // Held here rather than read back off the stack: `TrackerStack` takes the bus as a
+        // constructor argument and does not expose it, and widening a shared seam for one host's
+        // debugging window would be the wrong trade.
+        val bus = CameraFrameBus(MutableStateFlow(CameraHealth.Up), scope, ::matToImage)
+        val view = TrackerView.openOrNull("chesslab — $name")
+        if (view == null) println("no display: running without the board view")
         val stack =
             TrackerStack(
                 TrackerSeed<Mat>(
@@ -364,8 +371,11 @@ private fun replay(
                     },
                 ),
                 SettingsRepository(MemoryConfigStore, scope),
-                StatusPublisher(scope),
-                CameraFrameBus<ByteArray>(MutableStateFlow(CameraHealth.Up), scope, { null }),
+                publisher,
+                // A real converter, where this used to pass `{ null }`: the bus was built,
+                // throttled and then handed nothing, so `boardPreview` was permanently empty
+                // and the rectified board the engine reasons about was unobservable.
+                bus,
                 StageTimings(logLine = { println("chesslabPerf: $it") }),
                 scope,
                 { error("no classifier on the desktop yet — the diff path runs without one") },
@@ -373,12 +383,19 @@ private fun replay(
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
         var frames = 0
         while (true) {
-            val frame = source.next() ?: break
+            // The view is consulted BEFORE the next frame is pulled, not after: when it stops on
+            // a stuck engine, what is on screen has to be the state that caused the stop. It
+            // returns false once its window is gone, which is the other way this loop ends.
+            val open = view?.awaitStep(publisher.status.value) ?: true
+            val frame = if (open) source.next() else null
+            if (frame == null) break
             stack.coordinator.onFrame(frame, source.delivered)
             frames += 1
+            view?.show(bus.boardPreview.value, publisher.status.value)
         }
         println("tracked $frames frames of $name at ${"%.2f".format(source.fps)} fps")
         stack.close()
+        view?.close()
     }
     scope.cancel()
 }
