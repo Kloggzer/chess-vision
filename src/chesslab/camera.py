@@ -576,7 +576,9 @@ class Camera:
     def __enter__(self) -> Camera:
         return self
 
-    def __exit__(self, *exc) -> None:
+    # `*_exc` and not `*exc`: the three arguments are required by the context-manager protocol
+    # and deliberately unused, which vulture cannot tell from a leftover.
+    def __exit__(self, *_exc) -> None:
         self.release()
 
     # -- capture pass-through --

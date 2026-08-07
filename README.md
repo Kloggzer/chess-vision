@@ -8,7 +8,8 @@ Two things live here and they feed each other:
 - a **data pipeline** that builds an auto-labeled per-square image dataset and trains a
   small CNN on it. Nothing is annotated by hand — labels are derived from the known game
   state (FEN, via `python-chess`), so one photo of a position yields 64 labeled examples;
-- **move trackers** that digitize a live game, one on the desktop (`chesslab track`) and one
+- **a move tracker** that digitizes a live game, on the phone and — through the same shared
+  modules — on a PC (`:desktop`), and
   on Android (`android/`). Both decide moves from frame differencing plus legality; the CNN
   is a safeguard on that decision, not the primary reader. That is why the pipeline above
   trains such a small model, and why occupancy — is this square empty? — matters more than
@@ -21,7 +22,6 @@ Two things live here and they feed each other:
 | run the Android tracker | [The Android tracker](#the-android-tracker) below; [emulator workflow](docs/android-emulator.md) |
 | build a dataset from your own camera | [`docs/data-pipeline.md`](docs/data-pipeline.md) — read before touching `data/` |
 | train or export a model | [Train, evaluate, export](#train-evaluate-export) below, then [`docs/setup/`](docs/setup/README.md) |
-| understand the desktop tracker's logic | [`docs/move-tracker-flow.md`](docs/move-tracker-flow.md), [`src/chesslab/move_tracker/README.md`](src/chesslab/move_tracker/README.md) |
 | render synthetic training data | [`docs/synth-pipeline.md`](docs/synth-pipeline.md), [`synth/README.md`](synth/README.md) |
 | read what the phone decided and why | [`docs/diagnostics.md`](docs/diagnostics.md) |
 | see the component map | [`docs/architecture-review/`](docs/architecture-review/) |
@@ -251,46 +251,32 @@ in reverse.
 
 ## The web UI
 
-```powershell
-uv run chesslab web            # -> http://127.0.0.1:8000
-```
+Being rebuilt. The FastAPI + React UI was deleted on 2026-08-07 together with the Python
+tracker: everything it could still do that the CLI could not is now a command
+(`chesslab session scan | autofix | adopt | flag | review | archive | restore | trim`),
+except placing board corners by hand, which needs an image to click on and comes back with the
+new one.
 
-Four tabs over the same pipeline, and much nicer than the OpenCV windows: **Collect**
-(camera capture with the strategy selector, live overlay, sessions sliced on finish),
-**Scan** (turntable capture and mesh workshop for the synthetic-piece pipeline),
-**Datasets** (sessions as raw material — slice, re-slice, archive — and curated datasets
-built from any selection of them, plus stats), **Training** (dataset + hyperparameters,
-progress, metric curves, eval and confusion matrix, and warm-starting a new run from an
-older one).
+## Sessions: geometry repair before slicing
 
-Every view has a URL, so F5 and browser-back work. The front end is React + Tailwind +
-TanStack Query (source in `src/chesslab/web/frontend/`), built into
-`src/chesslab/web/static/`, and the build output is committed — rebuild it after any change:
+`slice` warps every crop through the `corners` of its log row, so a session whose geometry is
+off produces crops that straddle their grooves — the error that cost this corpus 5.5x its
+empty-crop margin (`docs/data-pipeline.md` §12).
 
 ```bash
-cd src/chesslab/web/frontend && npm install && npm run build
+uv run chesslab session list
+uv run chesslab session scan 20260731-102458      # worst square offset per frame
+uv run chesslab session autofix 20260731-102458   # re-fit the frames that are off
+uv run chesslab session adopt <sid>               # copy a detected quad into rows without one
+uv run chesslab session flag <sid> 42             # exclude one frame from slicing
 ```
 
-## The desktop move tracker
+`scan` measures, `autofix` repairs. Both refuse to touch a frame that is already within
+tolerance — inside the noise band the fit chases its own noise — and `autofix` discards any
+correction that does not improve its own frame. Repaired rows are marked `auto-corrected`, so
+measured and computed geometry stay distinguishable afterwards.
 
-```bash
-uv run chesslab track --source 0        # or an IP-cam URL; -> http://127.0.0.1:8001
-```
-
-Warp the board per frame, gate on motion, difference each square against a reference image,
-and pick the **legal** move that best explains what changed — castling, en passant and
-captures included. The CNN verifies; it does not lead. `GET /crops.jpg` renders the exact 64
-crops the CNN is being fed, straight from the live inference path with no display overlays,
-and is the first stop for any misread. While the illegal-move alarm is up, tracking is hard
-latched — no commits, no reference pull, no noise learning — until you undo, accept the
-CNN's position, or re-baseline.
-
-720p is enough here: ArUco detects reliably at half resolution and the detection warp runs at
-`detect_scale=0.5` anyway. Higher resolution pays off for collection, where crop quality
-feeds the CNN. Parameters and their live-tuned values:
-[`src/chesslab/move_tracker/README.md`](src/chesslab/move_tracker/README.md).
-
-`chesslab track-feedback ingest` turns the tracker's "undo = that was wrong" feedback into
+`chesslab track-feedback ingest` turns the phone tracker's "undo = that was wrong" feedback into
 hard-negative crops appended to the squares manifest.
 
 ## Development

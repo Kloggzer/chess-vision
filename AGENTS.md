@@ -18,12 +18,17 @@ live games without a CNN (frame diff + legality, optional CNN safeguard).
 
 - `README.md` — user-facing overview, all CLI commands per stage.
 - `docs/architecture-review/architecture-overview.md` — component map (Mermaid).
-- `docs/move-tracker-flow.md` — tracker detection flow (Mermaid).
 - `docs/synth-pipeline.md` — synthetic data pipeline (Blender renders → ingest).
 - `docs/android-emulator.md` — canonical headful x86_64 AVD workflow, recorded-video
   camera input and ADB controls for coding agents.
 - `docs/setup/` — PyTorch backends (ROCm / CUDA / CPU).
-- One CLI entry point: `chesslab <command>` (`src/chesslab/cli.py`, Typer).
+- One CLI entry point: `chesslab <command>` (`src/chesslab/cli.py`, Typer). **Python is dataset
+  building and training only since 2026-08-07** — the move tracker and the FastAPI/React web UI
+  were deleted (35,694 lines; the tracker is reachable at the `python-tracker-final` tag). The
+  tracker lives in `android/` and runs on the phone and, through `:desktop`, on the PC.
+- `chesslab session scan|autofix|adopt|flag` repairs a session's geometry before slicing — it
+  was web-UI-only until the deletion, which is why `docs/data-pipeline.md` §12 reads as a
+  browser session.
 
 ## Non-goals
 
@@ -50,8 +55,9 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
   `config.py`/YAML. The canonical class list exists in exactly one place
   (`config.CLASSES`).
 - **Classes (14):** `empty`, `wP wN wB wR wQ wK`, `bP bN bB bR bQ bK`,
-  `occluded` (never from FEN, only from manual labels; `empty`/`occluded` are
-  "may be missing" classes).
+  `occluded` (never from FEN — it comes from the synth occluder footprint,
+  `docs/synth-pipeline.md`, or from manual corrections, whose write path currently has
+  no producer; `empty`/`occluded` are "may be missing" classes).
 - **Squares** are referenced as `a1`..`h8`; corner order is `[a8, h8, h1, a1]`.
 - **Calibration profiles** are geometry config (board size, orientation, crop
   params), not stored positions — corners are detected per frame from ArUco.

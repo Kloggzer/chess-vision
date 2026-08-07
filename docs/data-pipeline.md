@@ -16,7 +16,6 @@ flowchart TD
     C["chesslab collect<br/>(camera + FEN)"] --> S["data/sessions/&lt;id&gt;/<br/>frames/*.png + log.jsonl + session.yaml"]
     S --> SL["chesslab slice<br/>(labeling.slice_session)"]
     CAL["data/calibration/&lt;profile&gt;.yaml<br/>+ per-frame ArUco corners in log.jsonl"] --> SL
-    COR["data/manifests/corrections.jsonl<br/>(human relabels)"] -.-> SL
     SL --> SQ["data/squares/&lt;label&gt;/&lt;sid&gt;_&lt;frame&gt;_&lt;sq&gt;.png<br/>64 PNGs per usable frame"]
     SL --> MF["data/manifests/squares.jsonl<br/>THE GLOBAL CROP POOL — one row per crop"]
     SYN["chesslab synth render<br/>→ chesslab dataset build-synth"] --> DS
@@ -205,7 +204,7 @@ never by its row count or its size on disk.
 
 There are two parking mechanisms and only one of them is complete:
 
-- `sessions.archive_session` (web UI → `POST /api/sessions/{sid}/archive`) moves the directory to
+- `sessions.archive_session` (`chesslab session archive <sid> --reason ...`) moves the directory to
   `data/sessions_archive/` **and** purges the session's crops and manifest rows. Reversible via
   `restore_session` + re-slice. This is the intended mechanism, and since 2026-07-27 it
   **requires a reason** (§5.8).
@@ -228,7 +227,7 @@ If you park by hand, either re-slice afterwards or state in the README that the 
 ### 5.7 Two files named `split.json` mean different things
 
 - `data/manifests/split.json` — the **legacy global** split over the whole pool. Written only by
-  `chesslab split` / `POST /api/split`. Read by legacy (`--dataset`-less) training, `eval`,
+  `chesslab split`. Read by legacy (`--dataset`-less) training, `eval`,
   `quantize`, `gradcam` and `dataset verify`.
 - `data/datasets/<name>/split.json` — the **per-dataset** split, written by every dataset build.
   This is what `chesslab train --dataset <name>` uses.
@@ -258,8 +257,8 @@ Write the reason a stranger can act on — the measurement, not the verdict. "bl
 "59 px/square against the device's 119, superseded by the 21.07 captures" is a decision someone
 can re-check and reverse.
 
-The web UI's archive button has no free-text field yet, so it sends the fixed reason
-`"archived from the web UI"` (`web/routers/sessions.py`). Prefer the API or a script when you have
+`chesslab session archive` REQUIRES `--reason`, so a parked session always carries its motive.
+Prefer a specific one when you have
 something to say; if you used the button, edit the `session.yaml` afterwards.
 
 Two guarantees the implementation makes, both regression-tested in
@@ -321,8 +320,8 @@ Two traps that follow from "the session list is not derived":
   `manifest.jsonl`. Only a rebuild drops them.
 - **`--sessions` is the whole selection, not a delta.** Omitting a session removes it. There is no
   "add to dataset" command, and no CLI that lists sessions — assemble the list from the previous
-  `dataset.yaml`'s `session_ids` plus whatever `data/sessions/` has gained since (the web UI's
-  session page, `chesslab web`, is the readable view).
+  `dataset.yaml`'s `session_ids` plus whatever `data/sessions/` has gained since
+  (`chesslab session list` is the readable view).
 
 ### 5.10 `per_cell_cap`, not phash, is what decides how much data you get
 
@@ -368,7 +367,7 @@ Everything below is preserved, nothing here is deleted.
 
 | # | Location | Created by | Prunes `squares.jsonl`? | README? |
 |---|---|---|---|---|
-| 1 | `data/sessions_archive/<sid>/` | `archive_session` (web UI) | **yes** | n/a — carries its own reason in `session.yaml` + `index.jsonl` (§5.8) |
+| 1 | `data/sessions_archive/<sid>/` | `chesslab session archive` | **yes** | n/a — carries its own reason in `session.yaml` + `index.jsonl` (§5.8) |
 | 2 | `data/session_rejects/<sid>/` | `trim_session` (cut tails) | yes, for the cut frames | n/a (code-supported, does not exist yet) |
 | 3 | `data/_parked/<date>-<reason>/` | by hand | **no** | yes, all three |
 | 4 | `C:/Users/mariu/project/chesslab-parked-20260725/` | by hand, **outside the repo** | n/a (took the pool with it) | added 2026-07-27 |
@@ -426,7 +425,7 @@ Traced across `src/`, `scripts/`, `tests/`, `synth/`, the FastAPI backend and th
 | `data/manifests/squares.jsonl.bak` | **no code** — created by hand 26.07 | nothing | orphan. Nothing in the repo creates or cleans `*.jsonl.bak`; the only `.bak` writer is `CalibrationProfile.save`, for YAML profiles. |
 | `data/manifests/split.json` (02.07) | `dataset.run_split` | legacy training / `eval` / `quantize` / `gradcam` / `dataset verify` | **live code path, stale content.** It names sessions that no longer exist (`20260630-083659`, `-010216`, `-014453`) and predates every current dataset. Harmless while everything runs `--dataset`, misleading the moment someone does not. |
 | `data/manifests/augment.yaml` (02.07) | `dataset.write_augment_yaml`, as a side effect of every `run_split` | **nothing** | documentation artifact by design — its own header says "generated from `config.AUGMENT` — edit the dataclass, not this file". The on-disk copy is stale w.r.t. the current dataclass (it lacks `noise_std`, `erase_*`, `bg_*`). |
-| `corrections.jsonl` | `upsert_corrections` — **no production caller**, only `tests/test_web.py`; plus pruning in `delete_session` / `trim_session` | `run_slice` → `label_overrides`, `experiment.slice_variant` | read path is live, write path is not wired to any UI or CLI. Human relabels currently cannot be recorded. Note `archive_session` prunes the manifest but *not* corrections — an asymmetry vs `delete_session`. |
+| `corrections.jsonl` | **no writer at all** since the relabel tab went in `f31d933`; `upsert_corrections` was deleted with the web tests on 2026-08-07. Pruning in `delete_session` / `trim_session` remains | `run_slice` → `label_overrides`, `experiment.slice_variant` | read path is live, write path is not wired to any UI or CLI. Human relabels currently cannot be recorded. Note `archive_session` prunes the manifest but *not* corrections — an asymmetry vs `delete_session`. |
 | `hard_empty.jsonl` | `scripts/mine_hard_empty.py` | `dataset_build.build_dataset` → `priority_paths` (protects mined hard empties from the `empty` cap) | live and useful. Not honoured by the legacy `run_split` (§5.7). |
 | `hard_empty.synthetic.jsonl` | `scripts/mine_hard_empty.py` (quarantine dump for legacy non-camera rows) | **nothing** | pure quarantine; never consumed. |
 | `hard_empty.jsonl.bak` (parked tree) | by hand | nothing | orphan, same as above. |
