@@ -78,6 +78,27 @@ internal fun EngineState.desyncEvidence(
         note = alarmNote(raised)
         return listOf(raised)
     }
+    // The standoff bound (specs/39 phase 01). A conflict set that has survived
+    // `desyncStandoffObsN` distinct observations is not a transient: that is a board the engine
+    // cannot reconcile and cannot escalate, because `guessIllegalMove` only names a MOVE-shaped
+    // contradiction — exactly one vacated and one received square — and a castling (2-and-2, the
+    // rec-20260807 ending) or a single disagreeing square (1-and-0, S17-SIM-2) never has that
+    // shape. It latches the same alarm with no guess; `alarmNote` falls back to the conflict list.
+    //
+    // Identity-gated, and that is not a detail: `resolvesAlarmConflicts` returns false outright
+    // when the observation carries no labels, so latching on a 2-class run would block the ONE
+    // automatic way out — a recovery that explains every conflict square. On an identity run the
+    // alarm is a stop sign; on an occupancy-only run it would be a trap. No labels, no latch.
+    val standoffDue =
+        alarm == null &&
+            config.desyncStandoffObsN > 0 &&
+            desyncObs >= config.desyncStandoffObsN &&
+            Squares.ALL.any { snap.obs.label(it) != null }
+    if (standoffDue) {
+        val raised = latchAlarm(conflicts, guess = null)
+        note = alarmNote(raised)
+        return listOf(raised)
+    }
     val listed = conflicts.take(CONFLICTS_SHOWN).joinToString(", ")
     note =
         "quiet board but CNN disagrees on $listed — holding reference for " +

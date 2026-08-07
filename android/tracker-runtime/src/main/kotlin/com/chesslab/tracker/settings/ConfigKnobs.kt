@@ -90,6 +90,7 @@ val KNOBS: List<Knob> =
         Knob("commitLlFloor", DOUBLE, { it.commitLlFloor }, { c, v -> c.copy(commitLlFloor = v) }),
         Knob("detectScale", DOUBLE, { it.detectScale }, { c, v -> c.copy(detectScale = v) }),
         Knob("desyncObsN", INT, { it.desyncObsN.toDouble() }, { c, v -> c.copy(desyncObsN = v.toInt()) }),
+        Knob("desyncStandoffObsN", INT, { it.desyncStandoffObsN.toDouble() }, { c, v -> c.copy(desyncStandoffObsN = v.toInt()) }),
         Knob("verifyObsVotes", INT, { it.verifyObsVotes.toDouble() }, { c, v -> c.copy(verifyObsVotes = v.toInt()) }),
         Knob("observerIntervalS", DOUBLE, { it.observerIntervalS }, { c, v -> c.copy(observerIntervalS = v) }),
         Knob("darkLumaThr", DOUBLE, { it.darkLumaThr }, { c, v -> c.copy(darkLumaThr = v) }),

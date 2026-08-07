@@ -102,6 +102,19 @@ data class TrackerConfig(
     val commitLlFloor: Double = 2.0,
     val detectScale: Double = 0.5,
     val desyncObsN: Int = 3,
+    /**
+     * Distinct desync observations after which an unreconcilable conflict set raises the alarm
+     * even without a move-shaped guess. `0` = off, the way 0 means off for every other knob in
+     * the catalog.
+     *
+     * A castling is the everyday case (`rec-20260807`, 2026-08-08): it vacates TWO squares and
+     * fills TWO, so `guessIllegalMove`'s 1-and-1 shape can never name it and the engine held a
+     * silent standoff to the end of the video. 12 is a placeholder chosen for its ORDER of
+     * magnitude, not measured — at `cnnCheckIntervalS = 3.0` it is under a minute of standoff.
+     * specs/39 phase 00's query 3 is what sets it; until that data exists this number is a guess
+     * and must be labelled as one wherever it is quoted.
+     */
+    val desyncStandoffObsN: Int = 12,
     val verifyObsVotes: Int = 2,
     val observerIntervalS: Double = 0.0,
     // constructor-only in Python (no CLI flag, not in TRACK_DEFAULTS):

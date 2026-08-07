@@ -15,6 +15,81 @@ import org.junit.jupiter.api.Test
  * healed when it should not have.
  */
 class AlarmLatchTest {
+    /**
+     * specs/39 phase 01. A castling vacates two squares and fills two, a single chronic misread
+     * vacates one and fills none — `guessIllegalMove`'s 1-and-1 shape can never name either, and
+     * until this bound the engine held such a standoff silently forever (the 2026-08-02 endgame,
+     * and the rec-20260807 video's illegal white castling after Qh4).
+     */
+    @Test
+    fun aStandoffOnOneSquareEventuallyAlarms() {
+        val state = recoveryState(NF3_NO_CASTLING)
+        val cnn = RecoveryEvaluator()
+        val obs = obsForBoard(state.board, mapOf("g1" to LABEL_EMPTY))
+        val bound = state.config.desyncStandoffObsN.toLong()
+        for (seq in 1L until bound) {
+            val events = state.desyncEvidence(cnn, recoverySnap(state, obs, seq), listOf("g1"))
+            assertTrue(events.isEmpty(), "no alarm before the bound (observation $seq)")
+            assertNull(state.alarm)
+        }
+        val events = state.desyncEvidence(cnn, recoverySnap(state, obs, bound), listOf("g1"))
+        val raised = events.filterIsInstance<TrackerEvent.Alarm>().single()
+        assertNull(raised.guess, "there is no move-shaped guess — the standoff bound latched without one")
+        assertTrue("g1" in raised.conflicts)
+        assertNotNull(state.alarm)
+        assertTrue(state.note!!.contains("ILLEGAL MOVE?"), state.note!!)
+    }
+
+    /** No labels, no latch: on an occupancy-only run the alarm would be a trap, not a stop sign. */
+    @Test
+    fun anOccupancyOnlyRunNeverStandoffAlarms() {
+        val state = recoveryState(NF3_NO_CASTLING)
+        val cnn = RecoveryEvaluator()
+        val obs = obsForBoard(state.board, mapOf("g1" to LABEL_EMPTY), identity = false)
+        for (seq in 1L..STANDOFF_SOAK) {
+            state.desyncEvidence(cnn, recoverySnap(state, obs, seq), listOf("g1"))
+            assertNull(state.alarm, "an observation with no identity axis must never standoff-latch (observation $seq)")
+        }
+    }
+
+    @Test
+    fun anUnstableConflictSetNeverReachesTheThreshold() {
+        val state = recoveryState(NF3_NO_CASTLING)
+        val cnn = RecoveryEvaluator()
+        for (seq in 1L..STANDOFF_SOAK) {
+            val square = if (seq % 2L == 0L) "g1" else "e4"
+            val obs = obsForBoard(state.board, mapOf(square to LABEL_EMPTY))
+            state.desyncEvidence(cnn, recoverySnap(state, obs, seq), listOf(square))
+            assertNull(state.alarm, "an alternating conflict set restarts the streak at 1 (observation $seq)")
+        }
+    }
+
+    @Test
+    fun zeroDisablesTheStandoffBound() {
+        val state = EngineState(recoveryConfig().copy(desyncStandoffObsN = 0), NF3_NO_CASTLING, whitePov = true).armed()
+        val cnn = RecoveryEvaluator()
+        val obs = obsForBoard(state.board, mapOf("g1" to LABEL_EMPTY))
+        for (seq in 1L..STANDOFF_SOAK) {
+            state.desyncEvidence(cnn, recoverySnap(state, obs, seq), listOf("g1"))
+            assertNull(state.alarm, "0 means off, the way 0 means off for every knob (observation $seq)")
+        }
+    }
+
+    /** The move-shaped guess is stronger evidence and must keep latching at `desyncObsN`, not 12. */
+    @Test
+    fun theMoveShapedGuessStillWinsFirst() {
+        val state = recoveryState(NF3_NO_CASTLING)
+        val cnn = RecoveryEvaluator(guess = "e1g1")
+        val obs = obsForBoard(state.board, mapOf("e1" to LABEL_EMPTY, "g1" to "wK"))
+        val conflicts = listOf("e1", "g1")
+        state.desyncEvidence(cnn, recoverySnap(state, obs, seq = 1), conflicts)
+        state.desyncEvidence(cnn, recoverySnap(state, obs, seq = 2), conflicts)
+        assertNull(state.alarm)
+        val events = state.desyncEvidence(cnn, recoverySnap(state, obs, seq = 3), conflicts)
+        val raised = events.filterIsInstance<TrackerEvent.Alarm>().single()
+        assertEquals("e1g1", raised.guess, "a 1-and-1 contradiction still alarms at desyncObsN with its guess")
+    }
+
     @Test
     fun alarmTriggersAfterNStableMismatches() {
         // `test_alarm_triggers_after_n_stable_mismatches`: e1/g1 stable over three glances.
@@ -320,3 +395,6 @@ class AlarmLatchTest {
         return engine
     }
 }
+
+/** Far past every threshold: long enough that "never" means never, cheap enough to soak. */
+private const val STANDOFF_SOAK = 50L

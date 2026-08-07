@@ -348,6 +348,15 @@ val KNOB_CATALOG: List<KnobUi> =
             "How many times running the model must disagree with the game before the alarm is raised. Lower it" +
                 "to be told sooner, at the cost of alarms on a board that is only briefly obscured.",
         ),
+        count(
+            "desyncStandoffObsN",
+            CNN,
+            0.0,
+            50.0,
+            "How many disagreeing observations a standoff may hold before the alarm is raised even when the" +
+                "contradiction is not shaped like one move — a castling, for example. 0 switches the bound off." +
+                "The default is an unmeasured order-of-magnitude guess (specs/39).",
+        ),
         count("verifyObsVotes", CNN, 1.0, 5.0, "Consecutive same-outcome CNN observations per verify decision (never act on one glance)."),
         row(
             "observerIntervalS",
