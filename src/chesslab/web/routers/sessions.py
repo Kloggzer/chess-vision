@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import os
 from pathlib import Path
 from urllib.parse import quote
 
@@ -20,86 +18,52 @@ def _crop_count(sid: str) -> int:
     return session_crop_count(config.DATA.manifests / "squares.jsonl", sid)
 
 
-def _review_session_dir(sid: str) -> tuple[Path, bool]:
-    from ... import config
-    from ... import sessions as sessions_mod
+def _http(fn, *args, **kwargs):
+    """Translate the domain errors `chesslab.sessions` raises into HTTP ones.
+
+    The core is deliberately HTTP-free — it is driven by `chesslab session *` too — so the
+    mapping lives here, at the one boundary that knows about status codes.
+    """
+    from ...sessions import NothingToDo
 
     try:
-        safe_sid = sessions_mod._safe_id(sid)
+        return fn(*args, **kwargs)
+    except NothingToDo as e:
+        raise HTTPException(409, str(e)) from e
     except ValueError as e:
-        raise HTTPException(400, str(e))
-    active = config.DATA.sessions / safe_sid
-    if active.exists():
-        return active, False
-    archived = config.DATA.sessions_archive / safe_sid
-    if archived.exists():
-        return archived, True
-    raise HTTPException(404, f"Session '{safe_sid}' not found.")
+        raise HTTPException(400, str(e)) from e
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+
+
+def _review_session_dir(sid: str) -> tuple[Path, bool]:
+    from ... import sessions as sessions_mod
+
+    return _http(sessions_mod.session_dir, sid)
 
 
 def _review_log(sdir: Path) -> list[dict]:
-    log_path = sdir / "log.jsonl"
-    if not log_path.exists():
-        raise HTTPException(404, f"Session '{sdir.name}' has no log.jsonl.")
-    rows: list[dict] = []
-    for line in log_path.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            rows.append(json.loads(line))
-    if not rows:
-        raise HTTPException(404, f"Session '{sdir.name}' has no captured frames.")
-    return rows
+    from ... import sessions as sessions_mod
+
+    return _http(sessions_mod.read_log, sdir)
 
 
 def _review_entry(sid: str, idx: int) -> tuple[Path, bool, list[dict], int, dict]:
-    sdir, archived = _review_session_dir(sid)
-    rows = _review_log(sdir)
-    clamped = max(0, min(idx, len(rows) - 1))
-    return sdir, archived, rows, clamped, rows[clamped]
+    from ... import sessions as sessions_mod
+
+    return _http(sessions_mod.log_entry, sid, idx)
 
 
 def _frame_path(sdir: Path, entry: dict) -> Path:
-    rel = str(entry.get("frame") or "")
-    if not rel:
-        raise HTTPException(404, "Log entry has no frame path.")
-    path = (sdir / rel).resolve()
-    root = sdir.resolve()
-    if root not in path.parents and path != root:
-        raise HTTPException(400, "Invalid frame path in session log.")
-    if not path.exists():
-        raise HTTPException(404, f"Frame '{rel}' not found.")
-    return path
+    from ... import sessions as sessions_mod
+
+    return _http(sessions_mod.frame_path, sdir, entry)
 
 
 def _review_profile(sdir: Path):
-    import yaml
+    from ... import sessions as sessions_mod
 
-    from ... import calibration, config
-
-    meta_path = sdir / "session.yaml"
-    meta = yaml.safe_load(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
-    profile_name = (meta or {}).get("profile")
-    if profile_name:
-        try:
-            return calibration.load_profile(profile_name)
-        except FileNotFoundError:
-            pass
-    return calibration.CalibrationProfile(
-        profile=profile_name or "review",
-        camera_index=-1,
-        frame_size=(0, 0),
-        board_size=config.DEFAULT_BOARD_SIZE,
-        image_corners=[[0.0, 0.0], [float(config.DEFAULT_BOARD_SIZE), 0.0],
-                       [float(config.DEFAULT_BOARD_SIZE), float(config.DEFAULT_BOARD_SIZE)],
-                       [0.0, float(config.DEFAULT_BOARD_SIZE)]],
-        homography=calibration.compute_homography(
-            [[0.0, 0.0], [float(config.DEFAULT_BOARD_SIZE), 0.0],
-             [float(config.DEFAULT_BOARD_SIZE), float(config.DEFAULT_BOARD_SIZE)],
-             [0.0, float(config.DEFAULT_BOARD_SIZE)]],
-            config.DEFAULT_BOARD_SIZE,
-        ),
-        white_pov=True,
-        crop=calibration.CropParams.default(config.DEFAULT_BOARD_SIZE),
-    )
+    return sessions_mod.session_profile(sdir)
 
 
 def _draw_orientation_labels(img, prof) -> None:
@@ -307,105 +271,29 @@ def _validate_quad(quad, size: tuple[int, int], claimed_size=None) -> None:
 
 
 def _backup_log(log_path: Path) -> str:
-    """Copy `log.jsonl` aside before rewriting it. `data/` is gitignored and unrecoverable;
-    the project rule is park, never delete — so a backup is never overwritten either."""
-    import shutil
-    from datetime import datetime
+    from ... import sessions as sessions_mod
 
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    dest = log_path.with_name(f"{log_path.name}.bak.{stamp}")
-    n = 1
-    while dest.exists():
-        dest = log_path.with_name(f"{log_path.name}.bak.{stamp}-{n}")
-        n += 1
-    shutil.copy2(log_path, dest)
-    return dest.name
+    return sessions_mod.backup_log(log_path)
 
 
 def _write_corner_rows(sdir: Path, rows: list[dict], indices: list[int], quad, *,
                        source: str, from_index: int | None) -> dict:
-    """Write `quad` into the given rows and record HOW it got there.
+    from ... import sessions as sessions_mod
 
-    Provenance is the point: `corners_source` says `hand` or `adopted` (absent = detected by
-    the capture pipeline, which is what every existing row is), `corners_from` names the row
-    the quad came from, `corners_set_at` when. Analysis later has to be able to exclude
-    hand-set geometry, and this session corpus already had one unanswerable question of
-    exactly this kind (which camera took it) because nobody wrote it down.
-    """
-    from datetime import UTC, datetime
-
-    log_path = sdir / "log.jsonl"
-    backup = _backup_log(log_path)
-    stamp = datetime.now(UTC).isoformat()
-    for i in indices:
-        # Keep what is being replaced: it is what a before/after view compares against, and
-        # without it the previous geometry only survives in a backup file nobody reads.
-        if rows[i].get("corners"):
-            rows[i]["corners_prev"] = rows[i]["corners"]
-        rows[i]["corners"] = [[float(x), float(y)] for x, y in quad]
-        rows[i]["corners_source"] = source
-        rows[i]["corners_set_at"] = stamp
-        if from_index is not None:
-            rows[i]["corners_from"] = int(from_index)
-        else:
-            rows[i].pop("corners_from", None)
-    tmp = log_path.with_suffix(".jsonl.tmp")
-    tmp.write_text("".join(json.dumps(r, ensure_ascii=False, default=str) + "\n" for r in rows),
-                   encoding="utf-8")
-    os.replace(tmp, log_path)
-    return {"ok": True, "changed": len(indices), "indices": indices, "backup": backup,
-            "corners_source": source, "from_index": from_index,
-            "corners": [[float(x), float(y)] for x, y in quad]}
+    return sessions_mod.write_corner_rows(sdir, rows, indices, quad,
+                                          source=source, from_index=from_index)
 
 
 def _corner_targets(rows: list[dict], scope: str, index: int, overwrite: bool) -> list[int]:
-    """Which rows a write applies to — always an explicit, countable set.
+    from ... import sessions as sessions_mod
 
-    `frame` = this row only, `missing` = every row without corners, `all` = every row. A row
-    that ALREADY has detected corners is only touched with `overwrite`, because a session like
-    20260730-131607 has 7 good rows and 1 bad one and the 7 must stay measured."""
-    if scope == "frame":
-        candidates = [index]
-    elif scope == "missing":
-        candidates = [i for i, r in enumerate(rows) if not r.get("corners")]
-    elif scope == "all":
-        candidates = list(range(len(rows)))
-    else:
-        raise HTTPException(400, f"Unknown scope {scope!r} (frame | missing | all).")
-    if not candidates:
-        raise HTTPException(409, "Every row in this session already has corners — nothing to "
-                                 "repair. Use scope=all with overwrite=true to replace them.")
-    targets = [i for i in candidates if overwrite or not rows[i].get("corners")]
-    if not targets:
-        blocked = [i for i in candidates if rows[i].get("corners")]
-        raise HTTPException(409, f"Rows {blocked} already have corners — nothing to write. "
-                                 "Send overwrite=true to replace measured geometry.")
-    return targets
-
-
-_ADOPT_TOL_PX = 2.0     # ArUco centres of a tripod-static board scatter well under a pixel
+    return _http(sessions_mod.corner_targets, rows, scope, index, overwrite)
 
 
 def _adopt_candidate(rows: list[dict]) -> dict | None:
-    """The quad to adopt: the one the MOST other rows agree with (within `_ADOPT_TOL_PX`),
-    earliest row wins a tie.
+    from ... import sessions as sessions_mod
 
-    Most-agreed rather than nearest, so a single outlier row — a board that got bumped in one
-    frame — cannot become the template for a whole session. `n_same` is what the UI shows, so
-    it has to mean something: exact equality would split rows that differ by 0.05 px."""
-    have = [(i, r["corners"]) for i, r in enumerate(rows)
-            if r.get("corners") and len(r["corners"]) == 4]
-    if not have:
-        return None
-
-    def close(a, b) -> bool:
-        return all(abs(float(pa[k]) - float(pb[k])) <= _ADOPT_TOL_PX
-                   for pa, pb in zip(a, b, strict=True) for k in (0, 1))
-
-    counts = [(sum(1 for _j, q in have if close(c, q)), -i, i, c) for i, c in have]
-    n_same, _neg, idx, quad = max(counts)
-    return {"from_index": idx, "corners": quad, "n_same": n_same,
-            "source_row_source": rows[idx].get("corners_source", "detected")}
+    return sessions_mod.adopt_candidate(rows)
 
 
 @router.get("/api/sessions/{sid}/corners")
@@ -541,17 +429,9 @@ def session_set_corners(sid: str, points: list = Body(...), index: int = Body(0)
 
 
 def _autofix_one(sdir: Path, entry: dict):
-    """(corrected quad or None, offset before, offset after) for one row."""
-    import cv2
+    from ... import sessions as sessions_mod
 
-    from ...alignment import improve_quad
-
-    if not entry.get("corners"):
-        return None, float("nan"), float("nan")
-    frame = cv2.imread(str(_frame_path(sdir, entry)))
-    if frame is None:
-        return None, float("nan"), float("nan")
-    return improve_quad(frame, entry["corners"], _review_profile(sdir))
+    return sessions_mod.autofix_one(sdir, entry)
 
 
 @router.get("/api/sessions/{sid}/corners/autofix/{idx}")
@@ -573,97 +453,26 @@ def session_autofix_preview(sid: str, idx: int):
 def session_autofix_session(sid: str, max_off: float = Body(9.0, embed=True)):
     """Re-fit every frame whose worst square sits further than `max_off` px off the grid.
 
-    Two rules keep this from doing harm, both in `alignment.improve_quad` and here: frames already
-    within tolerance are NOT touched, because inside the noise band the fit chases measurement
-    noise and makes them worse; and a correction that does not improve its own frame is discarded.
-    `log.jsonl` is backed up before anything is written, and the rows are marked
-    `corners_source: "auto-corrected"` so the review UI keeps showing what was measured and what
-    was computed.
+    Also `chesslab session autofix`. The two rules that keep this from doing harm live with the
+    implementation in `chesslab.sessions`: frames already within tolerance are not touched, and
+    a correction that does not improve its own frame is discarded.
     """
-    import cv2
+    from ... import sessions as sessions_mod
 
-    from ...alignment import worst_offset
-
-    sdir, _archived, rows, _clamped, _entry = _review_entry(sid, 0)
-    prof = _review_profile(sdir)
-    targets = []
-    for i, r in enumerate(rows):
-        if not r.get("corners"):
-            continue
-        frame = cv2.imread(str(_frame_path(sdir, r)))
-        if frame is None:
-            continue
-        w = worst_offset(frame, r["corners"], prof)
-        if w == w and w > max_off:
-            targets.append(i)
-    changed, refused, gains = [], 0, []
-    for i in targets:
-        quad, before, after = _autofix_one(sdir, rows[i])
-        if quad is None:
-            refused += 1
-            continue
-        rows[i]["corners_prev"] = rows[i]["corners"]
-        rows[i]["corners"] = quad
-        rows[i]["corners_source"] = "auto-corrected"
-        changed.append(i)
-        gains.append((round(before, 1), round(after, 1)))
-    if not changed:
-        return {"session_id": sid, "checked": len(rows), "over_threshold": len(targets),
-                "changed": 0, "refused": refused, "backup": None}
-    from datetime import UTC, datetime
-
-    log_path = sdir / "log.jsonl"
-    backup = _backup_log(log_path)
-    stamp = datetime.now(UTC).isoformat()
-    for i in changed:
-        rows[i]["corners_set_at"] = stamp
-    tmp = log_path.with_suffix(".jsonl.tmp")
-    tmp.write_text("".join(json.dumps(r, ensure_ascii=False, default=str) + "\n" for r in rows),
-                   encoding="utf-8")
-    os.replace(tmp, log_path)
-    return {"session_id": sid, "checked": len(rows), "over_threshold": len(targets),
-            "changed": len(changed), "refused": refused, "indices": changed,
-            "gains": gains, "backup": Path(backup).name, "max_off": max_off}
+    return _http(sessions_mod.autofix_corners, sid, max_off)
 
 
 @router.post("/api/sessions/{sid}/corners/scan")
 def session_scan_alignment(sid: str):
     """Measure every frame's worst square offset once and store it as `align_worst_px`.
 
-    Stored rather than computed on demand because measuring one frame costs a warp plus two Sobel
-    passes — fine for a single review step, 40 s for a 534-frame session, which no UI can do on a
-    click. Written into `log.jsonl` (backed up first) so the badge, the flagged count and any later
-    analysis all read the same number, and so a session carries its own geometry verdict.
+    Also `chesslab session scan`. Stored rather than computed on demand because measuring one
+    frame costs a warp plus two Sobel passes — 40 s for a 534-frame session, which no UI can do
+    on a click.
     """
-    import cv2
+    from ... import sessions as sessions_mod
 
-    from ...alignment import worst_offset
-
-    sdir, _archived, rows, _clamped, _entry = _review_entry(sid, 0)
-    prof = _review_profile(sdir)
-    measured = 0
-    for r in rows:
-        if not r.get("corners"):
-            r.pop("align_worst_px", None)
-            continue
-        frame = cv2.imread(str(_frame_path(sdir, r)))
-        if frame is None:
-            continue
-        w = worst_offset(frame, r["corners"], prof)
-        if w == w:
-            r["align_worst_px"] = round(float(w), 2)
-            measured += 1
-    log_path = sdir / "log.jsonl"
-    backup = _backup_log(log_path)
-    tmp = log_path.with_suffix(".jsonl.tmp")
-    tmp.write_text("".join(json.dumps(r, ensure_ascii=False, default=str) + "\n" for r in rows),
-                   encoding="utf-8")
-    os.replace(tmp, log_path)
-    vals = sorted(r["align_worst_px"] for r in rows if r.get("align_worst_px") is not None)
-    med = vals[len(vals) // 2] if vals else None
-    return {"session_id": sid, "measured": measured, "of": len(rows),
-            "median": med, "max": (vals[-1] if vals else None),
-            "backup": Path(backup).name}
+    return _http(sessions_mod.scan_alignment, sid)
 
 
 @router.get("/api/sessions/{sid}/corners/zoom/{idx}")
@@ -807,29 +616,13 @@ def session_adopt_corners(sid: str, from_index: int | None = Body(None),
                           scope: str = Body("missing"), overwrite: bool = Body(False)):
     """Copy a quad that WAS detected in this session into the rows that have none.
 
-    The common repair: one frame in a static sweep lost a marker while the other seven kept
-    it. No clicking, and the geometry stays measured — but the rows say `adopted`, not
-    `detected`, and name the row it came from."""
-    sdir, _archived = _review_session_dir(sid)
-    rows = _review_log(sdir)
-    if from_index is None:
-        cand = _adopt_candidate(rows)
-        if cand is None:
-            raise HTTPException(400, "No row in this session has corners — there is nothing to "
-                                     "adopt. Place the box by hand instead.")
-        src_idx, quad = cand["from_index"], cand["corners"]
-    else:
-        src_idx = max(0, min(int(from_index), len(rows) - 1))
-        quad = rows[src_idx].get("corners")
-        if not quad:
-            raise HTTPException(400, f"Row {src_idx} has no corners to adopt.")
-    targets = _corner_targets(rows, scope, src_idx, overwrite)
-    targets = [i for i in targets if i != src_idx]
-    if not targets:
-        raise HTTPException(409, "Only the source row itself would change — nothing to do.")
-    res = _write_corner_rows(sdir, rows, targets, quad, source="adopted", from_index=src_idx)
-    res.update(session_id=sid, scope=scope)
-    return res
+    Also `chesslab session adopt`. The common repair: one frame in a static sweep lost a marker
+    while the other seven kept it. No clicking, and the geometry stays measured — but the rows
+    say `adopted`, not `detected`, and name the row it came from.
+    """
+    from ... import sessions as sessions_mod
+
+    return _http(sessions_mod.adopt_corners, sid, from_index, scope, overwrite)
 
 
 @router.get("/api/sessions")
@@ -851,20 +644,9 @@ def sessions_manage():
 
 
 def _geometry_version(sdir: Path) -> int:
-    """A token that changes whenever the session's geometry could have changed.
+    from ... import sessions as sessions_mod
 
-    The overlay is served with `Cache-Control: max-age=300` because a frame's pixels never
-    change — but the overlay is a RENDER of pixels plus corners, and writing corners changes it
-    while the URL stays identical. The browser then keeps showing the pre-write image: after
-    "adopt to all", the row that happened to be on screen (and its preloaded neighbours) still
-    looked uncorrected, which reads as "the write skipped this row". Session-level on purpose —
-    every corner write rewrites `log.jsonl`, so one token invalidates exactly the rows a write
-    could have touched, and leaves everything else cacheable.
-    """
-    try:
-        return (sdir / "log.jsonl").stat().st_mtime_ns
-    except OSError:
-        return 0
+    return sessions_mod.geometry_version(sdir)
 
 
 @router.get("/api/sessions/{sid}/review")
@@ -1019,25 +801,13 @@ def session_trim(sid: str, keep_frames: int = Body(..., embed=True)):
 
 @router.post("/api/sessions/{sid}/flag/{idx}")
 def session_flag_unusable(sid: str, idx: int, unusable: bool = Body(..., embed=True)):
-    """Toggle the 'unusable' flag on a single frame in the session log."""
-    sdir, _archived = _review_session_dir(sid)
-    log_path = sdir / "log.jsonl"
-    if not log_path.exists():
-        raise HTTPException(404, f"Session '{sid}' has no log.jsonl.")
-    lines = log_path.read_text(encoding="utf-8").splitlines()
-    if idx < 0 or idx >= len(lines):
-        raise HTTPException(400, f"Index {idx} out of range (0–{len(lines) - 1}).")
-    entry = json.loads(lines[idx])
-    entry["unusable"] = unusable
-    lines[idx] = json.dumps(entry, ensure_ascii=False, default=str)
-    # Atomic replace: a crash mid-write must never leave a truncated log. NOTE this is still a
-    # read-modify-write — flagging is a REVIEW action; doing it while the same session is being
-    # actively recorded could drop a concurrently appended line. The UI only offers review on
-    # non-live sessions, so we accept that instead of introducing file locking here.
-    tmp = log_path.with_suffix(".jsonl.tmp")
-    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    os.replace(tmp, log_path)
-    return {"ok": True, "session_id": sid, "index": idx, "unusable": unusable}
+    """Toggle the 'unusable' flag on a single frame; `slice` skips flagged frames.
+
+    Also `chesslab session flag`.
+    """
+    from ... import sessions as sessions_mod
+
+    return {"ok": True, **_http(sessions_mod.flag_frame, sid, idx, unusable)}
 
 
 @router.post("/api/sessions/{sid}/slice")

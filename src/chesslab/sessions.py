@@ -8,6 +8,9 @@ lines from them. These functions keep these three locations consistent:
   and moves the session directory to `data/sessions_archive/<id>`. Reversible:
   `restore` + re-slice. Corrections are preserved.
 - **delete** permanently removes directory, crops, manifest and correction lines.
+- **geometry repair** (`scan_alignment`, `autofix_corners`, `adopt_corners`, `flag_frame`)
+  rewrites the `corners` and `unusable` fields in `log.jsonl`, which `labeling.slice_session`
+  reads to warp every crop.
 
 Headless and testable: all functions accept a `paths` object (default `config.DATA`).
 """
@@ -16,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
@@ -364,3 +368,371 @@ def trim_session(session_id: str, keep_frames: int, paths: config.Paths = config
         "removed_manifest_rows": removed_manifest_rows,
         "removed_corrections": removed_corrections,
     }
+
+
+# ---------------------------------------------------------------------------
+# Geometry repair: reading and rewriting a session's `corners` / `unusable`
+#
+# `labeling.slice_session` warps every crop through the `corners` of its log row, so these
+# fields decide whether a crop sits on its square or straddles the groove. Two rules run
+# through everything below, and both exist because breaking them does damage:
+#
+#   - a frame already inside tolerance is NEVER touched — inside the noise band the fit
+#     chases measurement noise and makes it worse;
+#   - a correction that does not improve its own frame is discarded (`alignment.improve_quad`
+#     enforces this itself and returns None).
+#
+# Every write backs up `log.jsonl` first and records HOW the geometry got there
+# (`corners_source`), because analysis later has to be able to tell computed geometry from
+# measured geometry.
+#
+# This lived in the web router until the web UI was retired. It is the machinery that fixed
+# the corpus-wide geometry error in `docs/data-pipeline.md` §12 — the one that had been
+# holding the empty-crop margin for months — and it had no CLI.
+# ---------------------------------------------------------------------------
+
+
+class NothingToDo(ValueError):
+    """The request is well formed, but nothing would change.
+
+    Distinct from a plain `ValueError` because the two deserve different answers: a bad scope is
+    a mistake, while "every row already has corners" is a no-op the caller may well have meant.
+    The web router maps this to 409 and everything else to 400.
+    """
+
+
+def session_dir(session_id: str) -> tuple[Path, bool]:
+    """`(directory, archived)` for an active or archived session."""
+    safe_sid = _safe_id(session_id)
+    active = config.DATA.sessions / safe_sid
+    if active.exists():
+        return active, False
+    archived = config.DATA.sessions_archive / safe_sid
+    if archived.exists():
+        return archived, True
+    raise FileNotFoundError(f"Session '{safe_sid}' not found.")
+
+
+def read_log(sdir: Path) -> list[dict]:
+    """Every row of `log.jsonl`, in order."""
+    log_path = sdir / "log.jsonl"
+    if not log_path.exists():
+        raise FileNotFoundError(f"Session '{sdir.name}' has no log.jsonl.")
+    rows = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()]
+    if not rows:
+        raise FileNotFoundError(f"Session '{sdir.name}' has no captured frames.")
+    return rows
+
+
+def log_entry(session_id: str, idx: int) -> tuple[Path, bool, list[dict], int, dict]:
+    """One row of a session's log, with the index CLAMPED into range."""
+    sdir, archived = session_dir(session_id)
+    rows = read_log(sdir)
+    clamped = max(0, min(idx, len(rows) - 1))
+    return sdir, archived, rows, clamped, rows[clamped]
+
+
+def frame_path(sdir: Path, entry: dict) -> Path:
+    """The image a log row points at, refusing anything outside the session directory."""
+    rel = str(entry.get("frame") or "")
+    if not rel:
+        raise FileNotFoundError("Log entry has no frame path.")
+    path = (sdir / rel).resolve()
+    root = sdir.resolve()
+    if root not in path.parents and path != root:
+        raise ValueError("Invalid frame path in session log.")
+    if not path.exists():
+        raise FileNotFoundError(f"Frame '{rel}' not found.")
+    return path
+
+
+def session_profile(sdir: Path):
+    """The calibration profile a session was captured against, or a neutral stand-in.
+
+    The stand-in matters: a session whose profile file is gone must still be reviewable, and a
+    board-sized identity quad makes the geometry maths well defined without pretending to be a
+    measurement.
+    """
+    from . import calibration
+
+    meta_path = sdir / "session.yaml"
+    meta = yaml.safe_load(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+    profile_name = (meta or {}).get("profile")
+    if profile_name:
+        try:
+            return calibration.load_profile(profile_name)
+        except FileNotFoundError:
+            pass
+    side = float(config.DEFAULT_BOARD_SIZE)
+    corners = [[0.0, 0.0], [side, 0.0], [side, side], [0.0, side]]
+    return calibration.CalibrationProfile(
+        profile=profile_name or "review",
+        camera_index=-1,
+        frame_size=(0, 0),
+        board_size=config.DEFAULT_BOARD_SIZE,
+        image_corners=corners,
+        homography=calibration.compute_homography(corners, config.DEFAULT_BOARD_SIZE),
+        white_pov=True,
+        crop=calibration.CropParams.default(config.DEFAULT_BOARD_SIZE),
+    )
+
+
+def backup_log(log_path: Path) -> str:
+    """Copy `log.jsonl` aside before rewriting it.
+
+    `data/` is gitignored and unrecoverable; the project rule is park, never delete — so a
+    backup is never overwritten either.
+    """
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    dest = log_path.with_name(f"{log_path.name}.bak.{stamp}")
+    n = 1
+    while dest.exists():
+        dest = log_path.with_name(f"{log_path.name}.bak.{stamp}-{n}")
+        n += 1
+    shutil.copy2(log_path, dest)
+    return dest.name
+
+
+def _write_log(sdir: Path, rows: list[dict]) -> None:
+    """Atomic replace: a crash mid-write must never leave a truncated log."""
+    log_path = sdir / "log.jsonl"
+    tmp = log_path.with_suffix(".jsonl.tmp")
+    tmp.write_text("".join(json.dumps(r, ensure_ascii=False, default=str) + "\n" for r in rows),
+                   encoding="utf-8")
+    os.replace(tmp, log_path)
+
+
+def write_corner_rows(sdir: Path, rows: list[dict], indices: list[int], quad, *,
+                      source: str, from_index: int | None) -> dict:
+    """Write `quad` into the given rows and record HOW it got there.
+
+    Provenance is the point: `corners_source` says `hand`, `adopted` or `auto-corrected`
+    (absent = detected by the capture pipeline, which is what every original row is),
+    `corners_from` names the row the quad came from, `corners_set_at` when. Analysis later has
+    to be able to exclude computed geometry, and this session corpus already had one
+    unanswerable question of exactly this kind (which camera took it) because nobody wrote it
+    down.
+    """
+    log_path = sdir / "log.jsonl"
+    backup = backup_log(log_path)
+    stamp = datetime.now(UTC).isoformat()
+    for i in indices:
+        # Keep what is being replaced: it is what a before/after view compares against, and
+        # without it the previous geometry only survives in a backup file nobody reads.
+        if rows[i].get("corners"):
+            rows[i]["corners_prev"] = rows[i]["corners"]
+        rows[i]["corners"] = [[float(x), float(y)] for x, y in quad]
+        rows[i]["corners_source"] = source
+        rows[i]["corners_set_at"] = stamp
+        if from_index is not None:
+            rows[i]["corners_from"] = int(from_index)
+        else:
+            rows[i].pop("corners_from", None)
+    _write_log(sdir, rows)
+    return {"ok": True, "changed": len(indices), "indices": indices, "backup": backup,
+            "corners_source": source, "from_index": from_index,
+            "corners": [[float(x), float(y)] for x, y in quad]}
+
+
+def corner_targets(rows: list[dict], scope: str, index: int, overwrite: bool) -> list[int]:
+    """Which rows a write applies to — always an explicit, countable set.
+
+    `frame` = this row only, `missing` = every row without corners, `all` = every row. A row
+    that ALREADY has corners is only touched with `overwrite`, because a session like
+    20260730-131607 has 7 good rows and 1 bad one and the 7 must stay measured.
+    """
+    if scope == "frame":
+        candidates = [index]
+    elif scope == "missing":
+        candidates = [i for i, r in enumerate(rows) if not r.get("corners")]
+    elif scope == "all":
+        candidates = list(range(len(rows)))
+    else:
+        raise ValueError(f"Unknown scope {scope!r} (frame | missing | all).")
+    if not candidates:
+        raise NothingToDo("Every row in this session already has corners — nothing to "
+                          "repair. Use scope=all with overwrite=true to replace them.")
+    targets = [i for i in candidates if overwrite or not rows[i].get("corners")]
+    if not targets:
+        blocked = [i for i in candidates if rows[i].get("corners")]
+        raise NothingToDo(f"Rows {blocked} already have corners — nothing to write. "
+                          "Send overwrite=true (CLI: --overwrite) to replace measured "
+                          "geometry.")
+    return targets
+
+
+ADOPT_TOL_PX = 2.0
+"""ArUco centres of a tripod-static board scatter well under a pixel."""
+
+
+def adopt_candidate(rows: list[dict]) -> dict | None:
+    """The quad to adopt: the one the MOST other rows agree with, earliest row wins a tie.
+
+    Most-agreed rather than nearest, so a single outlier row — a board that got bumped in one
+    frame — cannot become the template for a whole session. `n_same` has to mean something, so
+    agreement is within [ADOPT_TOL_PX] rather than exact: equality would split rows that differ
+    by 0.05 px.
+    """
+    have = [(i, r["corners"]) for i, r in enumerate(rows)
+            if r.get("corners") and len(r["corners"]) == 4]
+    if not have:
+        return None
+
+    def close(a, b) -> bool:
+        return all(abs(float(pa[k]) - float(pb[k])) <= ADOPT_TOL_PX
+                   for pa, pb in zip(a, b, strict=True) for k in (0, 1))
+
+    counts = [(sum(1 for _j, q in have if close(c, q)), -i, i, c) for i, c in have]
+    n_same, _neg, idx, quad = max(counts)
+    return {"from_index": idx, "corners": quad, "n_same": n_same,
+            "source_row_source": rows[idx].get("corners_source", "detected")}
+
+
+def geometry_version(sdir: Path) -> int:
+    """A token that changes whenever the session's geometry could have changed."""
+    try:
+        return (sdir / "log.jsonl").stat().st_mtime_ns
+    except OSError:
+        return 0
+
+
+def autofix_one(sdir: Path, entry: dict):
+    """`(corrected quad or None, offset before, offset after)` for one row."""
+    import cv2
+
+    from .alignment import improve_quad
+
+    if not entry.get("corners"):
+        return None, float("nan"), float("nan")
+    frame = cv2.imread(str(frame_path(sdir, entry)))
+    if frame is None:
+        return None, float("nan"), float("nan")
+    return improve_quad(frame, entry["corners"], session_profile(sdir))
+
+
+def scan_alignment(session_id: str) -> dict:
+    """Measure every frame's worst square offset once and store it as `align_worst_px`.
+
+    Stored rather than computed on demand because measuring one frame costs a warp plus two
+    Sobel passes — fine for a single review step, 40 s for a 534-frame session. Written into
+    `log.jsonl` so the count, any badge and any later analysis all read the same number, and so
+    a session carries its own geometry verdict.
+    """
+    import cv2
+
+    from .alignment import worst_offset
+
+    sdir, _archived = session_dir(session_id)
+    rows = read_log(sdir)
+    prof = session_profile(sdir)
+    measured = 0
+    for r in rows:
+        if not r.get("corners"):
+            r.pop("align_worst_px", None)
+            continue
+        frame = cv2.imread(str(frame_path(sdir, r)))
+        if frame is None:
+            continue
+        w = worst_offset(frame, r["corners"], prof)
+        if w == w:
+            r["align_worst_px"] = round(float(w), 2)
+            measured += 1
+    backup = backup_log(sdir / "log.jsonl")
+    _write_log(sdir, rows)
+    vals = sorted(r["align_worst_px"] for r in rows if r.get("align_worst_px") is not None)
+    return {"session_id": session_id, "measured": measured, "of": len(rows),
+            "median": vals[len(vals) // 2] if vals else None,
+            "max": vals[-1] if vals else None, "backup": backup}
+
+
+def autofix_corners(session_id: str, max_off: float = 9.0) -> dict:
+    """Re-fit every frame whose worst square sits further than `max_off` px off the grid.
+
+    Frames already within tolerance are NOT touched, and a correction that does not improve its
+    own frame is discarded — see this section's header for why both matter. Changed rows are
+    marked `corners_source: "auto-corrected"` so measured and computed stay distinguishable.
+    """
+    import cv2
+
+    from .alignment import worst_offset
+
+    sdir, _archived = session_dir(session_id)
+    rows = read_log(sdir)
+    prof = session_profile(sdir)
+    targets = []
+    for i, r in enumerate(rows):
+        if not r.get("corners"):
+            continue
+        frame = cv2.imread(str(frame_path(sdir, r)))
+        if frame is None:
+            continue
+        w = worst_offset(frame, r["corners"], prof)
+        if w == w and w > max_off:
+            targets.append(i)
+    changed, refused, gains = [], 0, []
+    for i in targets:
+        quad, before, after = autofix_one(sdir, rows[i])
+        if quad is None:
+            refused += 1
+            continue
+        rows[i]["corners_prev"] = rows[i]["corners"]
+        rows[i]["corners"] = quad
+        rows[i]["corners_source"] = "auto-corrected"
+        changed.append(i)
+        gains.append((round(before, 1), round(after, 1)))
+    if not changed:
+        return {"session_id": session_id, "checked": len(rows), "over_threshold": len(targets),
+                "changed": 0, "refused": refused, "backup": None}
+    backup = backup_log(sdir / "log.jsonl")
+    stamp = datetime.now(UTC).isoformat()
+    for i in changed:
+        rows[i]["corners_set_at"] = stamp
+    _write_log(sdir, rows)
+    return {"session_id": session_id, "checked": len(rows), "over_threshold": len(targets),
+            "changed": len(changed), "refused": refused, "indices": changed,
+            "gains": gains, "backup": backup, "max_off": max_off}
+
+
+def adopt_corners(session_id: str, from_index: int | None = None, scope: str = "missing",
+                  overwrite: bool = False) -> dict:
+    """Copy a quad that WAS detected in this session into the rows that have none.
+
+    The common repair: one frame in a static sweep lost a marker while the other seven kept it.
+    No clicking, and the geometry stays measured — but the rows say `adopted`, not `detected`,
+    and name the row it came from.
+    """
+    sdir, _archived = session_dir(session_id)
+    rows = read_log(sdir)
+    if from_index is None:
+        cand = adopt_candidate(rows)
+        if cand is None:
+            raise ValueError("No row in this session has corners — there is nothing to adopt. "
+                             "Place the box by hand instead.")
+        src_idx, quad = cand["from_index"], cand["corners"]
+    else:
+        src_idx = max(0, min(int(from_index), len(rows) - 1))
+        quad = rows[src_idx].get("corners")
+        if not quad:
+            raise ValueError(f"Row {src_idx} has no corners to adopt.")
+    targets = [i for i in corner_targets(rows, scope, src_idx, overwrite) if i != src_idx]
+    if not targets:
+        raise NothingToDo("Only the source row itself would change — nothing to do.")
+    res = write_corner_rows(sdir, rows, targets, quad, source="adopted", from_index=src_idx)
+    res.update(session_id=session_id, scope=scope)
+    return res
+
+
+def flag_frame(session_id: str, idx: int, unusable: bool) -> dict:
+    """Set or clear the `unusable` flag on one frame; `slice` skips flagged frames.
+
+    A REVIEW action: this is a read-modify-write of the whole log, so doing it while the same
+    session is actively being recorded could drop a concurrently appended line.
+    """
+    sdir, _archived = session_dir(session_id)
+    rows = read_log(sdir)
+    if idx < 0 or idx >= len(rows):
+        raise ValueError(f"Index {idx} out of range (0-{len(rows) - 1}).")
+    rows[idx]["unusable"] = bool(unusable)
+    _write_log(sdir, rows)
+    return {"session_id": session_id, "index": idx, "unusable": bool(unusable)}
