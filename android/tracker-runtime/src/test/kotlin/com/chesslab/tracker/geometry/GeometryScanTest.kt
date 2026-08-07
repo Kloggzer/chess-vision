@@ -1,0 +1,114 @@
+package com.chesslab.tracker.geometry
+
+import org.bytedeco.javacpp.Loader
+import org.bytedeco.opencv.opencv_java
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeAll
+import org.junit.jupiter.api.Test
+
+/**
+ * The measurement pieces against synthetic truth — the specs/41 trap encoded as tests: quad
+ * spread is a MOVEMENT check that scores a consistently wrong quad beautifully, so nothing here
+ * may read it as correctness, and the refusal gates must key on the absolute verdict.
+ */
+class GeometryScanTest {
+    @Test
+    fun aStaticQuadHasNoSpreadButCanStillBeWrong() {
+        // Identical quads — wherever they sit, the spread about their median is zero. This is
+        // exactly why spread must never be a correctness gate: these corners are nowhere near a
+        // real board and the number is perfect.
+        val quad = floatArrayOf(10f, 900f, 20f, 40f, 950f, 60f, 930f, 940f)
+        val quads = List(5) { quad.copyOf() }
+        val spread = quadSpreadRectified(quads, medianQuadOf(quads), boardSize = 800)
+        assertEquals(5, spread.size)
+        assertTrue(spread.all { it < 1e-6 }) { "identical quads must have zero spread, got $spread" }
+    }
+
+    @Test
+    fun theMedianQuadIsTakenPerCornerAcrossSampledFrames() {
+        val steady = floatArrayOf(0f, 0f, 100f, 0f, 100f, 100f, 0f, 100f)
+        val outlier = floatArrayOf(500f, 700f, 600f, 700f, 600f, 800f, 500f, 800f)
+        val quads = List(4) { steady.copyOf() } + listOf(outlier)
+        val median = medianQuadOf(quads)
+        assertTrue(steady.toList() == median.toList()) {
+            "one mis-resolved frame must not move the median: expected ${steady.toList()}, got ${median.toList()}"
+        }
+    }
+
+    @Test
+    fun aMovedBoardShowsUpAsSpread() {
+        val before = floatArrayOf(0f, 0f, 800f, 0f, 800f, 800f, 0f, 800f)
+        val after = FloatArray(8) { before[it] + 40f }
+        val quads = List(3) { before.copyOf() } + List(3) { after.copyOf() }
+        val spread = quadSpreadRectified(quads, medianQuadOf(quads), boardSize = 800)
+        assertTrue(spread.max() > QUAD_SPREAD_P90_MAX) {
+            "a 40 px nudge must exceed the $QUAD_SPREAD_P90_MAX px gate, got max ${spread.max()}"
+        }
+    }
+
+    @Test
+    fun refusalsKeyOnTheAbsoluteGateAndTheClock() {
+        val ok = scanned(alignPassRate = 0.98, aligned = 939, spreadP90 = 0.9, clockP90 = 0.0)
+        assertTrue(geometryRefusals(ok).isEmpty())
+
+        val handsy = scanned(alignPassRate = 0.5, aligned = 100, spreadP90 = 0.9, clockP90 = 0.0)
+        assertTrue(geometryRefusals(handsy).single().contains("align to the board's own grid"))
+
+        val nudged = scanned(alignPassRate = 0.98, aligned = 939, spreadP90 = 9.0, clockP90 = 0.0)
+        assertTrue(geometryRefusals(nudged).single().contains("Did the board move?"))
+
+        val vfr = scanned(alignPassRate = 0.98, aligned = 939, spreadP90 = 0.9, clockP90 = 20.0)
+        val reason = geometryRefusals(vfr).single()
+        assertTrue(reason.contains("not constant-rate")) { reason }
+    }
+
+    @Test
+    fun variableRateFootageGetsAReEncodeHint() {
+        val hint = ffmpegCfrHint("data/testclip-raw/some game.mp4", 30.0)
+        assertTrue(hint.startsWith("ffmpeg")) { hint }
+        assertTrue(hint.contains("-vsync cfr")) { hint }
+        assertTrue(hint.contains("some game-cfr.mp4")) { hint }
+    }
+
+    @Test
+    fun anEmptyDistributionIsNullsNotZeros() {
+        val d = distributionOf(emptyList())
+        assertNull(d.median)
+        assertNull(d.p90)
+        assertNull(d.max)
+    }
+
+    private fun scanned(
+        alignPassRate: Double,
+        aligned: Int,
+        spreadP90: Double,
+        clockP90: Double,
+    ): ScannedGeometry =
+        ScannedGeometry(
+            corners = listOf(doubleArrayOf(0.0, 0.0), doubleArrayOf(800.0, 0.0), doubleArrayOf(800.0, 800.0), doubleArrayOf(0.0, 800.0)),
+            boardSize = 800,
+            margin = DEFAULT_MARKER_MARGIN,
+            frameWidth = 1080,
+            frameHeight = 1920,
+            fps = 30.0,
+            alignPassRate = alignPassRate,
+            aligned = aligned,
+            sampled = 958,
+            frames = 9576,
+            sampleEvery = 10,
+            markersSeen = mapOf(3 to 940, 2 to 17, 1 to 1),
+            worstOffsetPx = Distribution(2.0, 2.4, 23.8),
+            quadSpreadPx = Distribution(spreadP90 / 2, spreadP90, spreadP90 * 2),
+            clockErrorMs = Distribution(0.0, clockP90, clockP90 * 2),
+        )
+
+    companion object {
+        @JvmStatic
+        @BeforeAll
+        fun loadOpenCv() {
+            Loader.load(opencv_java::class.java)
+        }
+    }
+}

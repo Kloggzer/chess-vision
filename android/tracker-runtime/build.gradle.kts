@@ -25,6 +25,8 @@ java {
     }
 }
 
+val bytedecoClassifier: String by rootProject.extra
+
 dependencies {
     api(project(":core-engine"))
     api(project(":core-geometry"))
@@ -43,6 +45,10 @@ dependencies {
     testImplementation(libs.bytedeco.opencv)
     testImplementation(libs.onnxruntime.jvm)
     testImplementation(libs.kotlinx.coroutines.test)
+    // Host natives for tests that touch real OpenCV (GeometryScanTest's homography) — the same
+    // pattern `:core-geometry` uses; the API jar alone carries no `opencv_java` to load.
+    testRuntimeOnly(variantOf(libs.bytedeco.opencv) { classifier(bytedecoClassifier) })
+    testRuntimeOnly(variantOf(libs.bytedeco.openblas) { classifier(bytedecoClassifier) })
 
     // Fakes both modules' tests need. `:app` consumes them with
     // `testImplementation(testFixtures(project(":tracker-runtime")))` — one fake, not a copy per
