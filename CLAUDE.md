@@ -18,6 +18,8 @@ live games without a CNN (frame diff + legality, optional CNN safeguard).
 
 - `README.md` — user-facing overview, all CLI commands per stage.
 - `docs/architecture-review/architecture-overview.md` — component map (Mermaid).
+- `docs/tracker-flow.md` — camera frame to committed move, and where the CNN path currently
+  breaks (measured: zero snapshots reach the engine).
 - `docs/data-pipeline.md` — **the real-camera data path** (sessions → slice → crop pool →
   dataset → train): what feeds what, what is parked and why, and the behaviours that
   surprise people (train-only dedup, `unusable` not being retroactive, parking that does
