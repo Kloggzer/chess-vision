@@ -7,8 +7,8 @@ package com.chesslab.engine
  */
 internal const val OBS_MAX_AGE_S: Double = 3.0
 
-/** `p > 0.5` — the observer's `occluded` class dominates. */
-private const val P_OCCLUDED_THR: Double = 0.5
+/** `p > 0.5` — the observer's `occluded` class dominates. Shared with the recovery clean gate. */
+internal const val P_OCCLUDED_THR: Double = 0.5
 
 /** `len(squares) > 2` — the no-CNN hand heuristic. */
 private const val HAND_HEURISTIC_LIMIT: Int = 2

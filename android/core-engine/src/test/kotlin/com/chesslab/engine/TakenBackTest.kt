@@ -30,7 +30,10 @@ class TakenBackTest {
 
     private fun TrackerEngine.observe(seq: Long) {
         state.armed()
-        onCnnSnapshot(recoverySnap(state, obsForBoard(state.board), seq, gray = grayFrame()))
+        // Two distinct snapshots per "look at the board": a bridge needs RECOVERY_MIN_VOTES
+        // agreeing glances since specs/39 phase 02, and one snapshot is one vote.
+        onCnnSnapshot(recoverySnap(state, obsForBoard(state.board), seq * 2, gray = grayFrame()))
+        onCnnSnapshot(recoverySnap(state, obsForBoard(state.board), seq * 2 + 1, gray = grayFrame()))
     }
 
     @Test

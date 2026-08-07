@@ -197,7 +197,7 @@ class CnnTickTest {
         val observed = grayFrame(listOf("e4"))
         state.lastCur = grayFrame(listOf("d4"))
         val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.99)
-        val events = state.cnnTick(cnn, recoverySnap(state, obsForBoard(state.board), 1, observed))
+        val events = state.recoveryGlances(cnn, obsForBoard(state.board), gray = observed)
         assertEquals(listOf("e4"), state.history)
         assertSame(observed, state.refGray)
         assertEquals(state.board.fen(), state.refFen)
@@ -218,7 +218,7 @@ class CnnTickTest {
         state.motionSinceRef = false
         state.lastMotionTs = 0.0
         val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.99)
-        state.cnnTick(cnn, recoverySnap(state, obsForBoard(state.board), 1, grayFrame()))
+        state.recoveryGlances(cnn, obsForBoard(state.board), gray = grayFrame())
         assertTrue(state.motionSinceRef, "setRef cleared it — the grant must come afterwards")
         assertEquals(state.nowS, state.lastMotionTs)
     }
@@ -227,7 +227,7 @@ class CnnTickTest {
     fun recoveryCommitsASequenceAtomically() {
         val state = recoveryState()
         val cnn = RecoveryEvaluator(moves = listOf("e2e4", "e7e5"), agreement = 0.95)
-        val events = state.cnnTick(cnn, recoverySnap(state, obsForBoard(state.board), 1, grayFrame()))
+        val events = state.recoveryGlances(cnn, obsForBoard(state.board), gray = grayFrame())
         assertEquals(listOf("e4", "e5"), state.history)
         assertEquals("e7e5", state.lastMove)
         // COMMIT rows, not every row: `markStuck` now writes its own provenance line on the
@@ -245,7 +245,7 @@ class CnnTickTest {
     fun everyMoveOfARecoveryGetsItsOwnRow() {
         val state = recoveryState()
         val cnn = RecoveryEvaluator(moves = listOf("e2e4", "e7e5", "g1f3"), agreement = 0.95)
-        state.cnnTick(cnn, recoverySnap(state, obsForBoard(state.board), 1, grayFrame()))
+        state.recoveryGlances(cnn, obsForBoard(state.board), gray = grayFrame())
 
         val rows = state.decisionLog.filter { it.accepted }
         assertEquals(listOf("e4", "e5", "Nf3"), rows.map { it.san })
@@ -264,7 +264,7 @@ class CnnTickTest {
     fun aOneMoveRecoveryStillWritesExactlyOneUnchangedRow() {
         val state = recoveryState()
         val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.99)
-        state.cnnTick(cnn, recoverySnap(state, obsForBoard(state.board), 1, grayFrame()))
+        state.recoveryGlances(cnn, obsForBoard(state.board), gray = grayFrame())
 
         val row = state.decisionLog.single { it.accepted }
         assertEquals(1, row.ply)
@@ -282,7 +282,7 @@ class CnnTickTest {
     fun theRowsOfOneBridgeCarryTheirPositionInItAndItsKey() {
         val state = recoveryState()
         val cnn = RecoveryEvaluator(moves = listOf("e2e4", "e7e5", "g1f3"), agreement = 0.95)
-        state.cnnTick(cnn, recoverySnap(state, obsForBoard(state.board), 1, grayFrame()))
+        state.recoveryGlances(cnn, obsForBoard(state.board), gray = grayFrame())
 
         val rows = state.decisionLog.filter { it.accepted }
         val key = "e2e4 e7e5 g1f3"
@@ -300,7 +300,7 @@ class CnnTickTest {
     fun recoveryDropsAnUnplayableSequence() {
         val state = recoveryState()
         val cnn = RecoveryEvaluator(moves = listOf("e2e4", "e2e4"), agreement = 0.95)
-        state.cnnTick(cnn, recoverySnap(state, obsForBoard(state.board), 1, grayFrame()))
+        state.recoveryGlances(cnn, obsForBoard(state.board), gray = grayFrame())
         assertEquals(emptyList<String>(), state.history)
     }
 
@@ -312,7 +312,7 @@ class CnnTickTest {
         state.refGray = grayFrame()
         state.refFen = state.board.fen()
         val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.99)
-        state.cnnTick(cnn, recoverySnap(state, obsForBoard(state.board), seq = 1))
+        state.recoveryGlances(cnn, obsForBoard(state.board))
         assertEquals(listOf("e4"), state.history)
         assertNull(state.refGray)
         assertNull(state.refFen)
@@ -339,7 +339,7 @@ class CnnTickTest {
                 resyncAgreement = 0.99
             }
         val obs = obsForBoard(state.board, emptyMap(), identity = false)
-        state.cnnTick(cnn, recoverySnap(state, obs, seq = 1, gray = grayFrame()))
+        state.recoveryGlances(cnn, obs, gray = grayFrame())
         assertEquals(listOf("e4"), state.history, "resync named one move; the deep search must not run")
         assertEquals(0.99, state.cnnAgreement, 1e-9, "and its agreement is the one reported")
     }
@@ -350,9 +350,68 @@ class CnnTickTest {
         val state = recoveryState(confirmFrames = 1)
         val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.98)
         val obs = obsForBoard(state.board, emptyMap(), identity = false)
-        state.cnnTick(cnn, recoverySnap(state, obs, seq = 1, gray = grayFrame()))
+        state.recoveryGlances(cnn, obs, gray = grayFrame())
         assertEquals(listOf("e4"), state.history)
         assertEquals(0.98, state.cnnAgreement, 1e-9)
+    }
+
+    /**
+     * specs/39 phase 02, the case the two-vote floor actually defends: a beam search whose answer
+     * CHANGES between two glances used to commit whichever answer arrived first. Alternating
+     * derivations must never reach the board — the confirmer's streak restarts on every new key.
+     */
+    @Test
+    fun aBridgeThatChangesBetweenGlancesNeverCommits() {
+        val state = recoveryState()
+        val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.99)
+        val obs = obsForBoard(state.board)
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 1, gray = grayFrame()))
+        cnn.moves = listOf("d2d4")
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 2, gray = grayFrame()))
+        cnn.moves = listOf("e2e4")
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 3, gray = grayFrame()))
+        cnn.moves = listOf("d2d4")
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 4, gray = grayFrame()))
+        assertEquals(emptyList<String>(), state.history, "an unstable derivation must never commit")
+    }
+
+    /**
+     * The observer is not motion-gated and the stuck arm needs no stable board, so the ONLY thing
+     * keeping a mid-move glance out of a bridge is the clean-board gate: a snapshot with a hand in
+     * it may not vote, and it resets the streak — two CLEAN agreeing looks or nothing.
+     */
+    @Test
+    fun aGlanceWithAHandInItBlocksTheVoteAndResetsTheStreak() {
+        val state = recoveryState()
+        val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.99)
+        val clean = obsForBoard(state.board)
+        val hand = RecoveryObs(Squares.ALL.associateWith { state.board.labelAt(it) }, occluded = setOf("h4"))
+
+        state.cnnTick(cnn, recoverySnap(state, clean, seq = 1, gray = grayFrame()))
+        assertTrue(state.note!!.contains("(1/2)"), state.note!!)
+
+        state.cnnTick(cnn, recoverySnap(state, hand, seq = 2, gray = grayFrame()))
+        assertEquals(emptyList<String>(), state.history, "a hand in the glance must not complete the vote")
+        assertTrue(state.note!!.contains("waiting for a clean board"), state.note!!)
+
+        state.cnnTick(cnn, recoverySnap(state, clean, seq = 3, gray = grayFrame()))
+        assertEquals(emptyList<String>(), state.history, "the streak was reset — this is vote 1, not 2")
+        assertTrue(state.note!!.contains("(1/2)"), state.note!!)
+
+        state.cnnTick(cnn, recoverySnap(state, clean, seq = 4, gray = grayFrame()))
+        assertEquals(listOf("e4"), state.history, "two clean agreeing glances commit")
+    }
+
+    /** One snapshot, one vote: re-feeding the same `seq` must not count the second time. */
+    @Test
+    fun oneSnapshotCannotVoteTwice() {
+        val state = recoveryState()
+        val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.99)
+        val obs = obsForBoard(state.board)
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 1, gray = grayFrame()))
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 1, gray = grayFrame()))
+        assertEquals(emptyList<String>(), state.history, "the same observation must not confirm itself")
+        assertEquals(1, state.recoveryConfirmer.count)
     }
 
     @Test

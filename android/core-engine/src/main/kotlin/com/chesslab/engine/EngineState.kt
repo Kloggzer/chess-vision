@@ -302,8 +302,18 @@ internal class EngineState(
     /** `_confirmer`. Python builds it with the resolved `confirm_frames` at construction time. */
     var confirmer: Confirmer = Confirmer(confirmWindow)
 
-    /** `_recovery_confirmer` — the recovery-commit voting confirmer (phase 04c). */
-    var recoveryConfirmer: Confirmer = Confirmer(confirmWindow)
+    /** `_recovery_confirmer` — the recovery-commit voting confirmer (phase 04c + specs/39 02). */
+    var recoveryConfirmer: Confirmer = Confirmer(maxOf(RECOVERY_MIN_VOTES, confirmWindow))
+
+    /** The threshold [recoveryConfirmer] is built for, so the status note prints the right one. */
+    val recoveryVotes: Int get() = maxOf(RECOVERY_MIN_VOTES, confirmFrames)
+
+    /**
+     * The `seq` of the last snapshot the recovery confirmer counted — one snapshot, one vote.
+     * Distinct arrivals carry distinct seqs by construction, but the vote is a defence and a
+     * defence does not get to assume its input discipline.
+     */
+    var lastRecoveryVoteSeq: Long = -1L
 
     /**
      * Rebuild both confirmers when [confirmFrames] moved — a config change, a CNN attach, or the
@@ -318,7 +328,7 @@ internal class EngineState(
         if (want == confirmWindow) return
         confirmWindow = want
         confirmer = Confirmer(want)
-        recoveryConfirmer = Confirmer(want)
+        recoveryConfirmer = Confirmer(maxOf(RECOVERY_MIN_VOTES, want))
     }
 
     // -- stuck / anomaly -------------------------------------------------------------------------------
@@ -427,6 +437,18 @@ internal class EngineState(
 
     val detSize: Int get() = config.detSize
 }
+
+/**
+ * The recovery confirmer needs at least this many observations, whatever `confirmFrames` says.
+ *
+ * `confirmFrames(cnnOn = true)` is 1, so the confirmer `CnnTick` documents as "what makes it
+ * multi-observation evidence" confirmed on the FIRST glance in every shipped configuration — a
+ * four-ply rewrite of the game on one look at the board. The diff channel's 1 is correct for what
+ * it gates (a candidate that already survived the LL floor, the ambiguity margin and the motion
+ * gate); a recovery has survived none of those, because being stuck is its trigger.
+ * specs/39 phase 02.
+ */
+private const val RECOVERY_MIN_VOTES = 2
 
 /** `state` values of the tracker; `"move"` and `"occluded"` are the two that suppress detection. */
 internal const val STATE_WAITING = "waiting"

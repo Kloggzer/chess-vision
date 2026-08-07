@@ -108,7 +108,12 @@ class EngineStateBuffersTest {
         assertEquals(CONFIRM_FRAMES_CNN, state.confirmFrames, "attaching flips the gate")
         assertEquals(0, state.confirmer.count, "and the confirmer was rebuilt — the old streak counted to a different threshold")
         assertTrue(state.confirmer.feed("e2e4"), "one vote is now enough")
-        assertTrue(state.recoveryConfirmer.feed("e2e4"), "the recovery confirmer moves with it")
+        // Inverted on 2026-08-07 (specs/39 phase 02): this line used to assert the single-shot
+        // behaviour — one feed, true — which meant a four-ply rewrite committed on one glance.
+        // The recovery confirmer now has its own floor, whatever `confirmFrames` says.
+        assertFalse(state.recoveryConfirmer.feed("e2e4"), "the recovery confirmer does NOT move with it")
+        assertTrue(state.recoveryConfirmer.feed("e2e4"), "two agreeing glances are its floor")
+        assertEquals(2, state.recoveryVotes)
     }
 
     /** The same flip through `cnnVerify`, which the old comparison could not see. */

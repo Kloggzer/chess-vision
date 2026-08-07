@@ -174,6 +174,7 @@ class AlarmLatchTest {
         val fenBefore = state.board.fen()
         cnn.moves = listOf("g8f6")
         state.cnnTick(cnn, recoverySnap(state, obs, seq = 4))
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 5))
         assertEquals(fenBefore, state.board.fen(), "committed despite the alarm")
         assertNotNull(state.alarm, "alarm cleared despite an unresolved conflict")
         assertTrue(state.note!!.contains("withholding"), state.note!!)

@@ -244,18 +244,7 @@ private fun EngineState.onRecovery(
         note = "$NOTE_TAKEN_BACK_PREFIX ($key) $NOTE_TAKEN_BACK_WAY_OUT"
         return emptyList()
     }
-    // This is the ONLY thing between a derived sequence and the board, and with the CNN attached
-    // it does not stop anything: the confirmer is built from `confirmFrames`, which is 1 whenever
-    // `cnnOn`, and a `Confirmer(1)` confirms on the first key it ever sees — so the branch below
-    // is unreachable in every configuration that can reach this function through an attached
-    // evaluator, and a four-ply rewrite of the game commits on one glance. The comment here used
-    // to claim the opposite ("voting, not single-shot", specs/12 D6); that is true only of the
-    // without-CNN window (2). Giving the recovery its own floor is specs/39 phase 02 — it is a
-    // threshold change that costs one `cnnCooldownS` on every bridge, so it is not made here.
-    if (!recoveryConfirmer.feed(key)) {
-        note = "CNN recovery checks $key… (${recoveryConfirmer.count}/$confirmFrames)"
-        return emptyList()
-    }
+    if (!recoveryVoteConfirmed(snap, key)) return emptyList()
     val moves = board.resolveSequence(read.moves)
     return when {
         moves == null -> emptyList()
@@ -365,6 +354,50 @@ private fun EngineState.pushRecovery(moves: List<Move>): List<String> {
     }
     return sans
 }
+
+/**
+ * The two clean agreeing glances a bridge demands; `false` while the vote is still open.
+ *
+ * A rewrite of history demands a board with no hand in it. The observer is deliberately not
+ * motion-gated (`wantsFrame`) and the stuck arm deliberately needs no stable board
+ * (`evaluationDue`), so the ONLY thing keeping a mid-move glance out of a bridge is the first
+ * branch: any square the observer itself reads as occluded blocks the vote AND resets the
+ * streak, exactly as an inconclusive read does. The diff path's `OCCLUDED_CORE_LIMIT` (2)
+ * tolerates more because it gates a single-move detection; a bridge rewrites up to four plies.
+ *
+ * Voting, not single-shot — TRUE since 2026-08-07 (specs/39 phase 02). The confirmer used to be
+ * built from `confirmFrames`, which is 1 whenever `cnnOn`, so it confirmed on the first key it
+ * ever saw and a four-ply rewrite committed on one glance. The floor is now `RECOVERY_MIN_VOTES`
+ * agreeing looks from DISTINCT snapshots (one snapshot, one vote — the seq guard), at the cost
+ * of one `cnnCooldownS` per bridge.
+ */
+private fun EngineState.recoveryVoteConfirmed(
+    snap: CnnSnapshot,
+    key: String,
+): Boolean {
+    val occludedSquares = Squares.ALL.count { snap.obs.pOccluded(it) > P_OCCLUDED_THR }
+    return when {
+        occludedSquares > RECOVERY_OCCLUDED_LIMIT -> {
+            recoveryConfirmer.reset()
+            note = "CNN recovery: $occludedSquares square(s) read occluded — waiting for a clean board"
+            false
+        }
+        snap.seq == lastRecoveryVoteSeq -> false
+        else -> {
+            lastRecoveryVoteSeq = snap.seq
+            val confirmed = recoveryConfirmer.feed(key)
+            if (!confirmed) note = "CNN recovery checks $key… (${recoveryConfirmer.count}/$recoveryVotes)"
+            confirmed
+        }
+    }
+}
+
+/**
+ * Squares the observer may read as occluded before a recovery vote is refused: none. A finger
+ * that covers part of one square is exactly how a misread next to it becomes a fabricated
+ * bridge (the win-20260807 video's `Na3/Bxa3/Bf8`).
+ */
+private const val RECOVERY_OCCLUDED_LIMIT = 0
 
 /** entry.md invariant 5 — `lastCur` is the fallback ONLY when the snapshot carries no usable warp. */
 private fun EngineState.recoveryAnchor(snap: CnnSnapshot): CommitAnchor? =

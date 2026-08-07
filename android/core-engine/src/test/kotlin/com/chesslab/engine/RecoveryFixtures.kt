@@ -24,6 +24,8 @@ internal class RecoveryObs(
     private val labels: Map<String, String>,
     private val identity: Boolean = true,
     private val confidence: Double = 0.99,
+    /** Squares whose `occluded` class dominates — a hand, as the observer itself reports it. */
+    private val occluded: Set<String> = emptySet(),
 ) : CnnObservation {
     override fun occupied(square: String): Boolean = labelOf(square) != LABEL_EMPTY
 
@@ -41,9 +43,9 @@ internal class RecoveryObs(
 
     override fun conf(square: String): Double = confidence
 
-    override fun pOccluded(square: String): Double = 0.0
+    override fun pOccluded(square: String): Double = if (square in occluded) 1.0 else 0.0
 
-    override fun occupancyOnly(): CnnObservation = RecoveryObs(labels, identity = false, confidence)
+    override fun occupancyOnly(): CnnObservation = RecoveryObs(labels, identity = false, confidence, occluded)
 
     private fun labelOf(square: String): String = labels[square] ?: LABEL_EMPTY
 }
@@ -156,6 +158,25 @@ internal fun recoverySnap(
     fen: String = state.board.fen(),
     warped: BgrImage? = null,
 ): CnnSnapshot = CnnSnapshot(obs, seq, 0L, 0.0, warped, gray, fen)
+
+/** Monotonic snapshot seqs for [recoveryGlances] — far above the hand-numbered ones in tests. */
+private var glanceSeq = 9000L
+
+/**
+ * The two agreeing clean glances a bridge demands since specs/39 phase 02 — one snapshot, one
+ * vote, so a single `cnnTick` no longer commits a recovery anywhere. Tests that assert what a
+ * COMMITTED bridge does drive it through this; tests about the voting itself tick by hand.
+ * The anchor-carrying snapshot is the SECOND one, because that is the glance that commits.
+ */
+internal fun EngineState.recoveryGlances(
+    cnn: CnnEvaluator,
+    obs: CnnObservation,
+    gray: GrayImage? = null,
+    warped: BgrImage? = null,
+): List<com.chesslab.engine.api.TrackerEvent> {
+    cnnTick(cnn, recoverySnap(this, obs, seq = ++glanceSeq))
+    return cnnTick(cnn, recoverySnap(this, obs, seq = ++glanceSeq, gray = gray, warped = warped))
+}
 
 /** Latch the alarm the way `_alarmed_tracker` does: three distinct stable mismatching glances. */
 internal fun alarmedState(): Pair<EngineState, RecoveryEvaluator> {

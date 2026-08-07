@@ -135,7 +135,7 @@ class CommitTest {
 
         val recovered = recoveryState()
         val cnn = RecoveryEvaluator(moves = listOf("e2e4", "e7e5", "g1f3"), agreement = 0.95)
-        recovered.cnnTick(cnn, recoverySnap(recovered, obsForBoard(recovered.board), 1, grayFrame()))
+        recovered.recoveryGlances(cnn, obsForBoard(recovered.board), gray = grayFrame())
         assertEquals(3, recovered.lastCommitSize)
     }
 
@@ -168,6 +168,7 @@ class CommitTest {
         val fenBefore = state.board.fen()
         engine.attachCnn(RecoveryEvaluator(moves = listOf("e2e4", "e7e5", "g1f3", "b8c6"), agreement = 0.95))
         engine.onCnnSnapshot(recoverySnap(state, obsForBoard(state.board), seq = 1, gray = grayFrame()))
+        engine.onCnnSnapshot(recoverySnap(state, obsForBoard(state.board), seq = 2, gray = grayFrame()))
         assertEquals(4, state.history.size, "precondition: the bridge committed four plies")
 
         engine.undo()
@@ -208,6 +209,7 @@ class CommitTest {
         state.armed()
         engine.attachCnn(RecoveryEvaluator(moves = listOf("d7d5", "c2c4"), agreement = 0.95))
         engine.onCnnSnapshot(recoverySnap(state, obsForBoard(state.board), seq = 1, gray = grayFrame()))
+        engine.onCnnSnapshot(recoverySnap(state, obsForBoard(state.board), seq = 2, gray = grayFrame()))
         assertEquals(3, state.history.size)
 
         engine.undo()
@@ -231,6 +233,7 @@ class CommitTest {
         val state = engine.state.armed()
         engine.attachCnn(RecoveryEvaluator(moves = listOf("e2e4", "e7e5", "g1f3", "b8c6"), agreement = 0.95))
         engine.onCnnSnapshot(recoverySnap(state, obsForBoard(state.board), seq = 1, gray = grayFrame()))
+        engine.onCnnSnapshot(recoverySnap(state, obsForBoard(state.board), seq = 2, gray = grayFrame()))
         // Latched AFTER the commit: a recovery clears the alarm itself (defect 2, not this pack's).
         state.alarm = TrackerEvent.Alarm("illegal_move", listOf("e4"), null, null)
 
