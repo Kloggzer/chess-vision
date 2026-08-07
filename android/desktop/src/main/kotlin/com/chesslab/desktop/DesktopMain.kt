@@ -8,8 +8,13 @@ import com.chesslab.geometry.alignmentOf
 import com.chesslab.geometry.cornersFromFlat
 import com.chesslab.geometry.toModel
 import com.chesslab.tracker.camera.CameraHealth
+import com.chesslab.tracker.geometry.LensLoad
+import com.chesslab.tracker.geometry.LensMode
 import com.chesslab.tracker.geometry.boardGeometryFor
 import com.chesslab.tracker.geometry.calibrateFromBoard
+import com.chesslab.tracker.geometry.decodeLens
+import com.chesslab.tracker.geometry.lensFor
+import com.chesslab.tracker.geometry.model
 import com.chesslab.tracker.geometry.quadOf
 import com.chesslab.tracker.geometry.rawQuadOf
 import com.chesslab.tracker.geometry.squareOffsetOf
@@ -60,7 +65,7 @@ fun main(args: Array<String>) {
         "align" -> alignCamera(args.getOrNull(1)?.toIntOrNull() ?: usage(), raw = args.getOrNull(2) == "raw")
         "track" -> {
             val index = args.getOrNull(1)?.toIntOrNull() ?: usage()
-            replay(WebcamSource(index), "camera $index", lens())
+            replay(WebcamSource(index), "camera $index", cameraToken(index))
         }
         else -> usage()
     }
@@ -80,9 +85,8 @@ private fun alignCamera(
     index: Int,
     raw: Boolean,
 ) {
-    val wanted = if (raw) null else lens()
     WebcamSource(index).use { source ->
-        undistorterFor(wanted, source).use { optics ->
+        openLens(source, cameraToken(index), wanted = !raw).use { optics ->
             val corrected = { source.next()?.let { frame -> optics?.apply(frame) ?: frame } }
             measureAlignment(corrected)
         }
@@ -108,27 +112,49 @@ private fun locateBoard(
 }
 
 /**
- * The stored optics for this source, or null.
+ * The rig's optics if they may be applied here, and the REASON printed when they may not.
  *
- * The size check lives HERE and nowhere else. `Undistorter` deliberately has none — a `require` on
- * the frame path turns a configuration mistake into a dead tracker — so the one place that has both
- * the calibration and the delivered size is the one place that can refuse, and it says why.
+ * Everything the decision needs sits in one place on purpose: the stored file, the delivered size
+ * and the camera it is being asked about. `Undistorter` deliberately has no checks of its own — a
+ * `require` on the frame path turns a configuration mistake into a dead tracker — so this is the
+ * only gate, and it must never fail quietly.
+ *
+ * `LensMode.ON` rather than AUTO because the user typed the command. `data/lens/calib.json` was
+ * written before a calibration recorded which camera it came from, so its `camera` is empty; AUTO
+ * refuses that on principle and ON accepts it, treating the human as the identity check. A file
+ * naming a DIFFERENT camera is refused either way.
  */
-private fun undistorterFor(
-    calibration: LensCalibration?,
+private fun openLens(
     source: FrameSource,
+    camera: String,
+    wanted: Boolean,
 ): Undistorter? {
-    val cal = calibration ?: return null
     val size = source.delivered
-    if (cal.width != size.width || cal.height != size.height) {
-        println(
-            "no lens applied — it was measured at ${cal.width}x${cal.height}, " +
-                "the camera delivers ${size.width}x${size.height}",
-        )
-        return null
+    val stored =
+        when (val read = decodeLens(File(LENS_CALIBRATION).takeIf { it.isFile }?.readText())) {
+            is LensLoad.Ok -> read.calibration
+            is LensLoad.Refused -> return refuse(read.reason)
+            LensLoad.Absent -> null
+        }
+    val mode = if (wanted) LensMode.ON else LensMode.OFF
+    return when (val verdict = lensFor(stored, mode, camera, size.width, size.height)) {
+        is LensLoad.Ok -> {
+            val cal = verdict.calibration
+            println("lens: ${cal.width}x${cal.height}, rms ${"%.2f".format(cal.rms)} px")
+            Undistorter(cal.model(), size.width, size.height)
+        }
+        is LensLoad.Refused -> refuse(verdict.reason)
+        LensLoad.Absent -> refuse("none stored at $LENS_CALIBRATION")
     }
-    return Undistorter(cal.model(), size.width, size.height)
 }
+
+private fun refuse(reason: String): Undistorter? {
+    println("no lens applied — $reason")
+    return null
+}
+
+/** What a stored calibration has to name to be reusable here. Size is not identity; this is. */
+private fun cameraToken(index: Int): String = "webcam:$index"
 
 /**
  * What the STORED marker margin costs on this board, measured against the board's own grid.
@@ -184,14 +210,6 @@ private fun measureAlignment(
         }
     }
 }
-
-/** The rig's optics, as `chesslab lens` measured them. Absent is reported, never assumed away. */
-private fun lens(): LensCalibration? =
-    LensCalibration
-        .load(File(LENS_CALIBRATION))
-        .onSuccess { println("lens: ${it.width}x${it.height}, rms ${"%.2f".format(it.rms)} px") }
-        .onFailure { println("no lens applied — ${it.message ?: it::class.simpleName} at $LENS_CALIBRATION") }
-        .getOrNull()
 
 /**
  * Calibrate the lens from the board, and say plainly whether it worked.
@@ -264,7 +282,7 @@ private fun usage(): Nothing {
 private fun replay(
     source: FrameSource,
     name: String,
-    lens: LensCalibration? = null,
+    camera: String? = null,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val console: TrackerLogs = { tag -> ConsoleLog(tag) }
@@ -282,7 +300,7 @@ private fun replay(
         // Built once and handed to the stages, which own it and close it. The board is located on
         // the SAME pixels the tracker will see — locating it on raw frames and then tracking on
         // corrected ones would seed the stack with a quad measured in the other space.
-        val optics = undistorterFor(lens, source)
+        val optics = camera?.let { openLens(source, it, wanted = true) }
         val corrected = { source.next()?.let { frame -> optics?.apply(frame) ?: frame } }
         val quad = locateBoard(corrected)
         if (quad == null) {
