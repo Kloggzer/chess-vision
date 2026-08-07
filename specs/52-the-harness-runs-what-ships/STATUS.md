@@ -3,12 +3,111 @@
 | Phase | State | Note |
 |---|---|---|
 | 00 — a clip without ground truth | `done` | types + runner + invocation on the branch; 01-03 compile against them |
-| 01 — geometry measured by the shipping code | `todo` | after 00 |
-| 02 — the candidate file | `todo` | after 01; owns the `candidate.json` schema |
-| 03 — adopt, and retire the Python | `todo` | after 02; deletes `scripts/label_real_game.py` |
-| 04 — what the shipping engine does | `todo` | last; **measurement only, forbidden from fixing** |
+| 01 — geometry measured by the shipping code | `done` | 2026-08-07; `GeometryScan` in `:tracker-runtime` (NOT the spec's `sim/RealGameGeometry.kt` — see log), consumed by BOTH the `:app` harness and `:desktop` |
+| 02 — the candidate file | `done` | 2026-08-07; as the `:desktop replay <video> label` verb, not a sim extension — the review UI died with the web UI, so the desktop CLI is where a human is. Schema key-for-key against the Python file |
+| 03 — adopt, and retire the Python | `mostly moot` | the Python tracker was deleted wholesale on 2026-08-07 (`python-tracker-final` tag); `--adopt` into the clip manifest remains unbuilt |
+| 04 — what the shipping engine does | `done` | 2026-08-07; table below. **Measurement only — nothing was fixed** |
 
 Branch: `specs-52-harness-runs-what-ships`. Sequential — 00 must be committed before 01 starts.
+
+## 2026-08-07 — phases 01/02/04, and the first defaults measurement
+
+### What landed
+
+- **`-Pchesslab.sim.defaults=true`** — the 18-clip suite can finally judge the SHIPPED
+  `TrackerConfig()` instead of each clip's recorded `effectiveConfig` (report-only, never a gate;
+  `SimClips.usingShippedDefaults`). First numbers: parity mode diff-only **18/18** (unchanged),
+  defaults mode diff-only **16/18** (blender-castle commits a WRONG second ply — Nc6 as
+  `diff_pair` — and blender-phantom never commits e5), cnn-on **7/18** with nine clips committing
+  nothing at all. Effectiveness proven the way `TrackerConfig.kt:8` proved the old blindness:
+  `motionHoldS = 5.00` moves the defaults run 16/18 → **5/18** while the parity run was
+  byte-identical under the same edit on 2026-08-02.
+- **`GeometryScan`** (`tracker-runtime/.../geometry/GeometryScan.kt`) — the Python labeler's
+  `scan_geometry`/`median_quad`/`quad_spread`/`clock_error`/`refuse_reasons` ported onto
+  `rawQuadOf` → `refinedQuad` → `alignmentOf`. Placed in `:tracker-runtime` rather than the spec's
+  `sim/RealGameGeometry.kt` so `:desktop` and the `:app` harness run ONE implementation — the
+  spec predates the module rework that made that possible. Unit tests encode the specs/41 trap
+  (identical-but-wrong quads spread 0), the median's outlier immunity, and the three refusal gates.
+- **`:desktop replay <video> label`** — measures first (refuses footage that cannot carry a label,
+  with the ffmpeg CFR hint), replays through the per-corner MEDIAN quad of aligned samples, writes
+  `data/realgames/<name>/candidate.json` + review JPEGs. Schema verified key-for-key against
+  `game-2026-08-02/candidate.json` (top level, `geometry`, `moves[]`; `reviewed_plies`/
+  `confirmed_at` are review-added and correctly absent). `confirmed` is hardcoded false in
+  `writeCandidate`. The review-frame writer stores defensive copies and never separates an index
+  from its picture (the 2026-08-06 defect, not reproduced). Inside `effective_config` two Python
+  keys are deliberately absent: `llK` (a `Scoring.kt` constant, not config) and `reconnectGraceS`
+  (host-side here).
+- **`:desktop replay <video> score`** — LCS over SANs against a candidate: found / missed /
+  invented, each with frame indices, never merged into one accuracy. Replays through the LABEL's
+  stored quad so the comparison shares the label's geometry. The `LabelRealGameTest` harness lost
+  its corner/margin/boardSize/fps/pad scaffolding properties — geometry is measured, crop comes
+  from the shipped model's declaration.
+
+### Phase 04 — Python against Kotlin, `VID_20260802_222741.mp4`
+
+| | Python (on record) | Kotlin label (own measured quad, 960 px) | Kotlin score run (Python's quad, 800 px) |
+|---|---|---|---|
+| plies committed | 22 | **26** | 20 |
+| last commit frame / t | 3910 / 130.4 s | **4208 / 140.3 s** | — |
+| deciders | occ 10 · pair 6 · recovery 6 | occ 9 · recovery 17 | — |
+| vs the 22-ply label | — | first 22 identical | found 17 · missed 5 · **invented 3** |
+| alarms | 0 | 0 | 0 |
+| terminal note | `Much change (18 squares…)` | `Position lost — tracking paused` | same |
+| observations | 958 (paced 0.3 s) | 3161 (self-paced) | — |
+| markers seen | 3:940 · 2:17 · 1:1 | 3:937 · 2:20 · 1:1 | — |
+| worst offset (median/p90/max, % of a cell) | 2.0/2.4/23.8 px @100 = 2.0/2.4 % | 2.37/2.88/4.76 px @120 = **2.0/2.4 %** | — |
+
+**Verdict on the two competing explanations: A (lag), with a geometry rider.** The Kotlin engine
+on the same footage commits MORE (26 > 22) and gets further (140.3 s > 130.4 s), so the Python
+result was not a harness artefact in the frame-feed sense (B) — the two agree ply for ply as far
+as Python got. But both die the same death well before the live game's 83 plies: recovery-decider
+share 65 % (17/26), terminal state "position lost", exactly specs/40's "the reference is only
+re-anchored on a commit". The rider: **the quad is worth six plies.** The same Kotlin engine on
+the same video commits 26 through its own measured median quad and 20 through the Python
+profile's quad — with three PHANTOMS (a fabricated `Bxh6/Bg7/Rh6` bridge at frames 2593-2616)
+that the better geometry does not produce. Every earlier "the tracker only gets N moves" number
+conflated these two variables.
+
+### The other two videos (labels written, `confirmed: false`, awaiting human review)
+
+| video | geometry (pass rate · worst offset median, % of cell · markers 4/3) | plies | terminal |
+|---|---|---|---|
+| `rec-20260807-135238` (30 fps) | 94.8 % · 3.14 px @116 = 2.7 % · 813/70 | **23** (was 6 through the first-frame quad, with a wrong `Bd6`) | position lost at frame ~8100 |
+| `win-20260807-125257` (60 fps) | 96.5 % · 3.94 px @156 = 2.5 % · 1148/127 | **7** — commits stop at frame 1748 of 12747 (14 %) | position lost |
+
+`rec`'s jump 6 → 23 has ONE changed variable: the quad (first-frame `locateBoard` vs the scan's
+median over 837 aligned samples). `win` is the open case the corpus now has a label slot for:
+geometry and clock both pass their gates, the game dies at 14 % with `e5 Nf3 Nf6` then three
+recovery bridges (`Na3 Bxa3 … Bf8`) that look fabricated — 60 fps is the obvious suspect
+(`motionThr` is per frame-pair and nothing normalises by dt), but that is a hypothesis for the
+NEXT measurement, not a finding of this one. Nothing was tuned or fixed in this pack.
+
+### Findings from the first labeling days (2026-08-08)
+
+- **`ALIGN_PASS_MIN` (0.85) measures playing speed, not footage quality.** A briskly replayed
+  game (`rec-20260808-003957`: famous-game reenactment, ~10 s/move) reads 82.5 % align-pass with
+  FLAWLESS geometry (worst offset median 2.9 px @116, spread quiet, clock exact, 4 markers on
+  847/1014 samples) — the failing samples are hands, and hands say nothing about the board. The
+  0.85 was calibrated on a ~2 %-hands live game and its own comment says "seven times handsier"
+  would break it; fast replaying is exactly that. Changing the threshold stays a separate
+  evidenced decision (this pack's phase 01 forbids it in passing); until then such videos get
+  `quiet frames` runs but no candidate.
+- **Night-lighting identity domain gap, measured through the observer's own crops** (onnxruntime
+  over the exact 80 px crops, `id35-80`): on the 00:39 recording the model reads the never-moved
+  c3 KNIGHT as `wP` at 0.951, the c1 rook as `wB` 0.816, the e8 rook as `bB` 0.804 — while
+  reading the actual event perfectly (`c2 empty 1.000`, `e2 wQ 0.951` after Qxe2). Consequence
+  chain: diff path loses Qxe2 to neighbour-bleed (`too_many_changed`), the chronic c3 conflict
+  feeds the desync streak, the alarm latches with c3 in its conflict set, and
+  `resolvesAlarmConflicts` then rightly refuses every bridge — no legal sequence turns a knight
+  into a pawn. The engine's conservatism worked; the finding is TRAINING DATA (these evening
+  videos are the corpus gap), not logic.
+
+### Session log
+
+Gates: `:tracker-runtime:test` (new `GeometryScanTest`), `:desktop:test` (new
+`RealGameScoreTest`, incl. label-scored-against-itself = all found), ktlint/detekt on
+`:desktop`/`:tracker-runtime`/`:app`/`:core-engine`, and the full line with `--rerun-tasks` at
+the end of the session. The two sim runs and the `motionHoldS` proof are recorded above.
 
 ## Measured before the pack was written (2026-08-06)
 
