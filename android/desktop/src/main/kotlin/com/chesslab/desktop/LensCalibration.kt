@@ -1,12 +1,8 @@
 package com.chesslab.desktop
 
+import com.chesslab.geometry.LensModel
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import org.opencv.calib3d.Calib3d
-import org.opencv.core.CvType
-import org.opencv.core.Mat
-import org.opencv.core.Size
-import org.opencv.imgproc.Imgproc
 import java.io.File
 
 /**
@@ -18,8 +14,8 @@ import java.io.File
  * is projective — it cannot represent that. Fitting the board without undistorting first therefore
  * absorbs lens error into board geometry, which looks measured and is a confusion of causes.
  *
- * Python applies this in `camera.open_capture`; nothing in the Kotlin tree did, because the phone's
- * lens does not need it. A USB rig camera does.
+ * Python applies this in `camera.open_capture`. This is the STORED form only — the optics
+ * themselves are `LensModel` in `:core-geometry`, shared by both hosts.
  */
 @Serializable
 class LensCalibration(
@@ -48,59 +44,5 @@ class LensCalibration(
     }
 }
 
-/**
- * Undistorts frames in place, using precomputed maps.
- *
- * `initUndistortRectifyMap` once and `remap` per frame, rather than `undistort` per frame: the
- * latter rebuilds the maps every call, which at 30 fps is the whole budget.
- *
- * The calibration is bound to the resolution it was measured at. A frame of another size is NOT
- * silently rescaled — the intrinsics would be wrong in a way nothing downstream could see.
- */
-class Undistorter(
-    calibration: LensCalibration,
-    delivered: Size,
-) : AutoCloseable {
-    private val mapX = Mat()
-    private val mapY = Mat()
-    private val out = Mat()
-
-    init {
-        require(delivered.width.toInt() == calibration.width && delivered.height.toInt() == calibration.height) {
-            "lens calibration is for ${calibration.width}x${calibration.height}, " +
-                "the camera delivers ${delivered.width.toInt()}x${delivered.height.toInt()} — recalibrate at this size"
-        }
-        val k = matOf(K_ROWS, K_ROWS, calibration.cameraMatrix)
-        val d = matOf(1, calibration.distCoeffs.size, calibration.distCoeffs)
-        // The same K for the destination: no rescaling, no cropping. Undistortion moves pixels, it
-        // does not reframe the board — a changed field of view would invalidate every stored quad.
-        Calib3d.initUndistortRectifyMap(k, d, Mat(), k, delivered, CvType.CV_32FC1, mapX, mapY)
-        k.release()
-        d.release()
-    }
-
-    fun apply(frame: Mat): Mat {
-        Imgproc.remap(frame, out, mapX, mapY, Imgproc.INTER_LINEAR)
-        return out
-    }
-
-    override fun close() {
-        listOf(mapX, mapY, out).forEach { it.release() }
-    }
-}
-
-/** OpenCV wants a `Mat`; the calibration is a list of doubles. One conversion, named once. */
-private fun matOf(
-    rows: Int,
-    cols: Int,
-    values: List<Double>,
-): Mat =
-    Mat(rows, cols, CvType.CV_64F).apply {
-        // Element by element: OpenCV's `put(row, col, double...)` is varargs, so handing it an
-        // array needs a spread, and a spread copies. Nine doubles once at startup either way — but
-        // this version says what it does without a lint exception.
-        values.forEachIndexed { i, value -> put(i / cols, i % cols, value) }
-    }
-
-/** A camera matrix is 3x3. */
-private const val K_ROWS = 3
+/** The stored form as the optical model the shared [com.chesslab.geometry.Undistorter] takes. */
+fun LensCalibration.model(): LensModel = LensModel(cameraMatrix.toDoubleArray(), distCoeffs.toDoubleArray())
