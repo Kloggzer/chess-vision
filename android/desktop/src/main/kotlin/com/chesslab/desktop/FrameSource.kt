@@ -50,6 +50,13 @@ class VideoFileSource(
 
     override val delivered: DeliveredSize = DeliveredSize(grabber.imageWidth, grabber.imageHeight, 0)
 
+    /**
+     * Presentation timestamp of the frame the last [next] returned, in ms of VIDEO time.
+     * The geometry scan's clock check reads this per frame — a variable-rate source makes every
+     * wall-clock knob mean a different number of seconds in every second of the video.
+     */
+    val timestampMs: Double get() = grabber.timestamp / MICROS_PER_MS
+
     override fun next(): Mat? {
         val frame = generateSequence { grabber.grabImage() }.firstOrNull() ?: return null
         val out = mat ?: Mat(frame.imageHeight, frame.imageWidth, CvType.CV_8UC3).also { mat = it }
@@ -85,6 +92,8 @@ class VideoFileSource(
 }
 
 private const val BGR_CHANNELS = 3
+
+private const val MICROS_PER_MS = 1000.0
 
 /**
  * A camera attached to this PC, through OpenCV's `videoio`.

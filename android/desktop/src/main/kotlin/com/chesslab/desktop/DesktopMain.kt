@@ -58,7 +58,7 @@ fun main(args: Array<String>) {
         "replay" -> {
             val video = File(args.getOrNull(1) ?: usage())
             check(video.isFile) { "no such video: ${video.absolutePath}" }
-            replay(VideoFileSource(video), video.name, ReplayOptions.parse(args.drop(2)))
+            replay(VideoFileSource(video), video.name, ReplayOptions.parse(args.drop(2)), video = video)
         }
         "calibrate" -> {
             val index = args.getOrNull(1)?.toIntOrNull() ?: usage()
@@ -274,6 +274,13 @@ private fun usage(): Nothing {
         "                        dump   write the annotated board every 150 frames to tmp/",
         "                        lens   fit the optics from the board in the footage first",
         "                        nocnn  run the engine's no-observation occlusion fallback",
+        "                        label  measure the geometry, replay, and write the tracker's",
+        "                               PROPOSAL to data/realgames/<name>/candidate.json",
+        "                        score  compare a run against an existing candidate.json:",
+        "                               found / missed / invented, never one merged accuracy",
+        "                        frames write the DECISIVE frames (every decision row, ±2) as the",
+        "                               normalised labeled board to data/realgames/<name>/frames-decisive/",
+        "                        name=<x>  the candidate's directory name (default: video stem)",
         "                        model=<name>  one of the bundled graphs",
         "",
         "  The board view opens unless 'quiet' or 'dump': it shows the rectified warp the engine",
@@ -288,9 +295,14 @@ private fun replay(
     name: String,
     options: ReplayOptions,
     camera: String? = null,
+    video: File? = null,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val console: TrackerLogs = { tag -> ConsoleLog(tag) }
+    // `label` measures the footage FIRST and refuses footage that cannot carry one — a label on
+    // crooked geometry is worse than none. `score` replays through the LABEL's stored quad, so
+    // the comparison and the label share their geometry by construction.
+    val plan = replayPlanFor(options, video)
     source.use { source ->
         // The board size is MEASURED from the detected quad and then copied into the config, exactly
         // as the phone does. `TrackerConfig.boardSize`'s own comment says why it is neither a
@@ -313,7 +325,7 @@ private fun replay(
                 ?.let { Undistorter(it, source.delivered.width, source.delivered.height) }
                 ?: camera?.let { openLens(source, it, wanted = true) }
         val corrected = { source.next()?.let { frame -> optics?.apply(frame) ?: frame } }
-        val quad = locateBoard(corrected)
+        val quad = plan?.quad() ?: locateBoard(corrected)
         if (quad == null) {
             println("no board found: the markers never decoded")
             // Nothing takes ownership on this path, because the stages that would are never built.
@@ -327,40 +339,56 @@ private fun replay(
         // the geometry — two runs differing in one flag have to differ in one thing.
         val spec = desktopModelSpec(options.model)
         val geometry = boardGeometryFor(quad).withCropOf(spec)
-        val config = TrackerConfig().copy(boardSize = geometry.boardSize)
+        val config = TrackerConfig().copy(boardSize = geometry.boardSize, requireMotionForMove = options.motionGate)
         println("board located from its markers: ${geometry.boardSize} px warp  ·  $options")
         println("crops: ${cropLine(spec, geometry)}")
         val publisher = StatusPublisher(scope)
         val cnn = if (options.cnn) openDesktopCnn(options.model, console("chesslabCnn")) else null
         if (!options.cnn) println("cnn: off — the engine uses its no-observation occlusion fallback")
         val frameClock = FrameClock(source.fps, live = camera != null)
+        // The label's plies and the score's run come off the decision sink — streaming, one row
+        // per move (a recovery bridge writes per-move rows), so collecting rows collects plies.
+        val session = plan?.session(quad, geometry.boardSize, source.fps) { publisher.status.value }
         // Held here rather than read back off the stack: `TrackerStack` takes the bus as a
         // constructor argument and does not expose it, and widening a shared seam for one host's
         // debugging window would be the wrong trade.
         val bus = CameraFrameBus(MutableStateFlow(CameraHealth.Up), scope, ::matToImage)
-        // `quiet` is what makes this scriptable. With a window open, break-on-stuck is right —
-        // a human is watching and wants it to stop — but that same default turns a batch replay
-        // into a process waiting forever for a key nobody will press.
-        val view = if (options.watch) TrackerView.openOrNull("chesslab — $name") else null
-        if (options.watch && view == null) println("no display: running without the board view")
-        val stack = buildStack(geometry, options, frameClock, optics, bus, publisher, cnn, console, scope)
+        val view = openView(options, name)
+        val stack = buildStack(config, geometry, frameClock, optics, bus, publisher, cnn, console, scope, session?.collector)
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
-        val frames = drive(source, stack, bus, publisher, view, frameClock, options.dumpEvery)
+        val frames = drive(source, stack, bus, publisher, view, frameClock, options.dumpEvery, session?.frameHook)
         println("tracked $frames frames of $name at ${"%.2f".format(source.fps)} fps")
         // Where the CNN chain stopped. `observations` counts snapshots the observer EMITTED;
         // the engine's own `cnnSnaps` counts what arrived. Two numbers, one seam between them.
         println("cnn: state=${stack.observer.state.value} observations=${stack.observations} ${stack.observer.counters}")
+        session?.finish(video, options, config, geometry, publisher.status.value?.note, stack.observations.toInt(), frames)
         stack.close()
         view?.close()
     }
     scope.cancel()
 }
 
+/**
+ * The board view, unless the run is scripted. `quiet` is what makes a replay scriptable: with a
+ * window open, break-on-stuck is right — a human is watching and wants it to stop — but that same
+ * default turns a batch replay into a process waiting forever for a key nobody will press.
+ */
+private fun openView(
+    options: ReplayOptions,
+    name: String,
+): TrackerView? {
+    val view = if (options.watch) TrackerView.openOrNull("chesslab — $name") else null
+    if (options.watch && view == null) println("no display: running without the board view")
+    return view
+}
+
 /** The object graph the phone builds too, with this host's frame type and this run's optics. */
 @Suppress("LongParameterList")
 private fun buildStack(
+    // Built by the caller and passed whole, because a label records it as `effective_config` —
+    // the config the engine RAN, and two constructions drift (that is how ClipDriver desynced).
+    config: TrackerConfig,
     geometry: BoardGeometry,
-    options: ReplayOptions,
     clock: FrameClock,
     optics: Undistorter?,
     bus: CameraFrameBus<BufferedImage>,
@@ -368,21 +396,21 @@ private fun buildStack(
     cnn: (() -> Attached)?,
     logs: TrackerLogs,
     scope: CoroutineScope,
+    collector: DecisionCollector? = null,
 ): TrackerStack<Mat> =
     TrackerStack(
         TrackerSeed<Mat>(
             // NOT a preference and not a real default: `measuredBoardSize` clamps to 320..1280, so
             // a config still carrying the 1600 placeholder disagrees with every plane the warp
             // produces and `FrameLoop.step` refuses them, one silently dropped frame at a time.
-            config =
-                TrackerConfig().copy(
-                    boardSize = geometry.boardSize,
-                    requireMotionForMove = options.motionGate,
-                ),
+            config = config,
             geometry = { geometry },
             corners = null,
             startFen = STARTPOS,
-            onDecision = { println("decision: ply=${it.ply} ${it.san ?: "-"} decider=${it.decider}") },
+            onDecision = {
+                println("decision: ply=${it.ply} ${it.san ?: "-"} decider=${it.decider}")
+                collector?.offer(it)
+            },
             logs = logs,
             stages = { geo, cfg, store, frameBus, boardBus ->
                 OpenCvStages({ it }, {}, geo, cfg, store, frameBus, boardBus, optics)
@@ -408,6 +436,7 @@ private fun buildStack(
  * The view is consulted BEFORE the next frame is pulled, not after: when it stops on a stuck
  * engine, what is on screen has to be the state that caused the stop rather than the one after it.
  */
+@Suppress("LongParameterList")
 private fun drive(
     source: FrameSource,
     stack: TrackerStack<Mat>,
@@ -416,6 +445,9 @@ private fun drive(
     view: TrackerView?,
     clock: FrameClock,
     dumpEvery: Int = 0,
+    // Fired AFTER the engine saw the frame, with the 0-based index that decoded it. The index and
+    // the picture travel in one call — the review-frame writer's whole correctness rests on that.
+    frameHook: ((Int, Mat) -> Unit)? = null,
 ): Int {
     var frames = 0
     while (true) {
@@ -424,6 +456,7 @@ private fun drive(
         if (frame == null) return frames
         clock.tick()
         stack.coordinator.onFrame(frame, source.delivered)
+        frameHook?.invoke(frames, frame)
         frames += 1
         view?.show(bus.boardPreview.value, publisher.status.value)
         if (dumpEvery > 0 && frames % dumpEvery == 0) {

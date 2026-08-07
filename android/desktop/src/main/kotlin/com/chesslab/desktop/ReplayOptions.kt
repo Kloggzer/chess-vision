@@ -15,7 +15,7 @@ import com.chesslab.tracker.cnn.DEFAULT_MODEL
  * ignored — a typo'd `nocnn` that silently ran with the CNN would produce a measurement that
  * quietly answers a different question.
  */
-class ReplayOptions(
+data class ReplayOptions(
     /** The board view, which also arms break-on-stuck. Off for a scripted run. */
     val watch: Boolean = true,
     /** Write the annotated board every N frames, or 0. */
@@ -43,50 +43,79 @@ class ReplayOptions(
      * with nothing to say, which is why this needs to be switchable to be ruled in or out.
      */
     val motionGate: Boolean = true,
+    /**
+     * Write `data/realgames/<name>/candidate.json` plus review JPEGs — the tracker's PROPOSAL,
+     * `confirmed: false` always; only a human review may flip that. Measures the footage's
+     * geometry first and refuses footage that cannot carry a label (specs/52 phase 02).
+     */
+    val label: Boolean = false,
+    /**
+     * Score this run against an existing `candidate.json`: found / missed / invented, each with
+     * frame indices, never combined into one accuracy — phantoms are the veto, misses are
+     * negotiable (specs/52 phase 04: measurement only, forbidden from fixing).
+     */
+    val score: Boolean = false,
+    /** The candidate's directory name under `data/realgames/`. Default: the video's stem. */
+    val name: String? = null,
+    /**
+     * Write the DECISIVE frames — every decision row, rejections included, ±2 frames — as the
+     * normalised, labeled board (the rectified warp with verdicts and the believed position),
+     * to `data/realgames/<name>/frames-decisive/`. Never the raw camera frames.
+     */
+    val frames: Boolean = false,
 ) {
     companion object {
+        /** The plain flag words, each one field. Assignments (`x=`) live in [assigned]. */
+        private val FLAGS: Map<String, (ReplayOptions) -> ReplayOptions> =
+            mapOf(
+                "quiet" to { it.copy(watch = false) },
+                "dump" to { it.copy(watch = false, dumpEvery = DUMP_EVERY) },
+                "lens" to { it.copy(lens = true) },
+                "nocnn" to { it.copy(cnn = false) },
+                "nomotion" to { it.copy(motionGate = false) },
+                "label" to { it.copy(watch = false, label = true) },
+                "score" to { it.copy(watch = false, score = true) },
+                "frames" to { it.copy(frames = true) },
+            )
+
         /** Every word after the verb and its subject. Unknown words are an error, not a shrug. */
         fun parse(words: List<String>): ReplayOptions {
             var options = ReplayOptions()
             for (word in words) {
                 options =
-                    when {
-                        word == "quiet" -> options.copy(watch = false)
-                        word == "dump" -> options.copy(watch = false, dumpEvery = DUMP_EVERY)
-                        word.startsWith("dump=") ->
-                            options.copy(
-                                watch = false,
-                                dumpEvery =
-                                    word.removePrefix("dump=").toIntOrNull()
-                                        ?: error("dump= wants a frame count, got '$word'"),
-                            )
-                        word == "lens" -> options.copy(lens = true)
-                        word == "nocnn" -> options.copy(cnn = false)
-                        word == "nomotion" -> options.copy(motionGate = false)
-                        word.startsWith("model=") -> options.copy(model = word.removePrefix("model="))
-                        else ->
-                            error(
-                                "unknown option '$word' " +
-                                    "(quiet | dump | dump=<n> | lens | nocnn | nomotion | model=<name>)",
-                            )
-                    }
+                    FLAGS[word]?.invoke(options) ?: assigned(options, word)
+                        ?: error(
+                            "unknown option '$word' (${FLAGS.keys.joinToString(" | ")} " +
+                                "| dump=<n> | name=<x> | model=<name>)",
+                        )
             }
             return options
         }
-    }
 
-    private fun copy(
-        watch: Boolean = this.watch,
-        dumpEvery: Int = this.dumpEvery,
-        lens: Boolean = this.lens,
-        cnn: Boolean = this.cnn,
-        model: String = this.model,
-        motionGate: Boolean = this.motionGate,
-    ) = ReplayOptions(watch, dumpEvery, lens, cnn, model, motionGate)
+        private fun assigned(
+            options: ReplayOptions,
+            word: String,
+        ): ReplayOptions? =
+            when {
+                word.startsWith("dump=") ->
+                    options.copy(
+                        watch = false,
+                        dumpEvery =
+                            word.removePrefix("dump=").toIntOrNull()
+                                ?: error("dump= wants a frame count, got '$word'"),
+                    )
+                word.startsWith("name=") -> options.copy(name = word.removePrefix("name=").ifEmpty { null })
+                word.startsWith("model=") -> options.copy(model = word.removePrefix("model="))
+                else -> null
+            }
+    }
 
     override fun toString(): String =
         "watch=$watch dump=${if (dumpEvery > 0) dumpEvery else "off"} " +
-            "lens=$lens cnn=${if (cnn) model else "off"} motionGate=$motionGate"
+            "lens=$lens cnn=${if (cnn) model else "off"} motionGate=$motionGate" +
+            (if (label) " label" else "") + (if (score) " score" else "") +
+            (if (frames) " frames" else "") +
+            (name?.let { " name=$it" } ?: "")
 }
 
 /**

@@ -171,7 +171,39 @@ private class BoardCanvas : JPanel() {
         }
         g2.drawImage(img, 0, 0, side, side, null)
         status?.let { drawEvidence(g2, it, side) }
+        status?.let { drawBelief(g2, it, side) }
         drawStatusLine(g2, status, side)
+    }
+
+    /**
+     * The BELIEVED piece on every occupied square, from the engine's own FEN — "what the system
+     * thinks stands on the board", drawn on the board it thinks it about. White pieces write
+     * bright on a dark plate, black ones dark on a bright plate, so the colour survives any
+     * square underneath.
+     */
+    private fun drawBelief(
+        g2: Graphics2D,
+        st: TrackerStatus,
+        side: Int,
+    ) {
+        val cell = side / BOARD_SIDE.toDouble()
+        g2.font = PIECE_FONT
+        for ((square, piece) in piecesOf(st.fen)) {
+            val (col, row) = runCatching { squareToColRow(square, true) }.getOrNull() ?: continue
+            val x = (col * cell).toInt()
+            val y = (row * cell).toInt()
+            val w = ((col + 1) * cell).toInt() - x
+            val h = ((row + 1) * cell).toInt() - y
+            val white = piece.isUpperCase()
+            val text = (if (white) "w" else "b") + piece.uppercaseChar()
+            val tw = g2.fontMetrics.stringWidth(text)
+            val tx = x + (w - tw) / 2
+            val ty = y + h - PIECE_INSET
+            g2.color = if (white) PIECE_PLATE_DARK else PIECE_PLATE_LIGHT
+            g2.fillRoundRect(tx - PIECE_PAD, ty - PIECE_FONT.size, tw + 2 * PIECE_PAD, PIECE_FONT.size + PIECE_PAD, PIECE_PAD, PIECE_PAD)
+            g2.color = if (white) Color.WHITE else Color.BLACK
+            g2.drawString(text, tx, ty)
+        }
     }
 
     /** One tint per square, chosen by what the engine decided rather than by how loud it was. */
@@ -284,6 +316,49 @@ fun matToImage(mat: Mat): BufferedImage? {
     return img
 }
 
+/** `{square: fen piece char}` out of a FEN's placement field. Bad input is an empty belief. */
+private fun piecesOf(fen: String): Map<String, Char> {
+    val out = mutableMapOf<String, Char>()
+    val ranks = fen.substringBefore(' ').split('/')
+    if (ranks.size != BOARD_SIDE) return emptyMap()
+    for ((r, rank) in ranks.withIndex()) {
+        var col = 0
+        for (c in rank) {
+            when {
+                c.isDigit() -> col += c.digitToInt()
+                col < BOARD_SIDE -> {
+                    out["${'a' + col}${BOARD_SIDE - r}"] = c
+                    col += 1
+                }
+            }
+        }
+    }
+    return out
+}
+
+/**
+ * The rectified board with everything the window would draw on it, as one image.
+ *
+ * Rendered through the SAME canvas the window paints, off-screen. Extracting the drawing into
+ * a shared function would have done as well; letting the component paint itself into an image
+ * makes it impossible for the two to drift, which is the property that matters — a debugging
+ * view that disagrees with the file you study afterwards is worse than either alone.
+ */
+fun renderBoardShot(
+    board: BufferedImage,
+    status: TrackerStatus?,
+): BufferedImage {
+    val canvas = BoardCanvas()
+    canvas.board = board
+    canvas.status = status
+    canvas.setSize(canvas.preferredSize)
+    val shot = BufferedImage(canvas.width, canvas.height, BufferedImage.TYPE_INT_RGB)
+    val g2 = shot.createGraphics()
+    canvas.paint(g2)
+    g2.dispose()
+    return shot
+}
+
 /**
  * The rectified board, as a file, with what the engine believed about it beside it.
  *
@@ -298,19 +373,7 @@ fun dumpBoard(
 ) {
     val img = board ?: return
     val dir = File(DUMP_DIR).apply { mkdirs() }
-    // Rendered through the SAME canvas the window paints, off-screen. Extracting the drawing into
-    // a shared function would have done as well; letting the component paint itself into an image
-    // makes it impossible for the two to drift, which is the property that matters — a debugging
-    // view that disagrees with the file you study afterwards is worse than either alone.
-    val canvas = BoardCanvas()
-    canvas.board = img
-    canvas.status = status
-    canvas.setSize(canvas.preferredSize)
-    val shot = BufferedImage(canvas.width, canvas.height, BufferedImage.TYPE_INT_RGB)
-    val g2 = shot.createGraphics()
-    canvas.paint(g2)
-    g2.dispose()
-    ImageIO.write(shot, "png", File(dir, "board-%06d.png".format(frame)))
+    ImageIO.write(renderBoardShot(img, status), "png", File(dir, "board-%06d.png".format(frame)))
     File(dir, "board-%06d.txt".format(frame)).writeText(
         buildString {
             appendLine("frame=$frame")
@@ -370,3 +433,10 @@ private val MUTED_TEXT = Color(150, 150, 160)
 
 private val LABEL_FONT = Font(Font.SANS_SERIF, Font.BOLD, 11)
 private val STATUS_FONT = Font(Font.MONOSPACED, Font.PLAIN, 13)
+
+private val PIECE_FONT = Font(Font.SANS_SERIF, Font.BOLD, 13)
+private const val PIECE_INSET = 5
+private const val PIECE_PAD = 3
+private const val PLATE_ALPHA = 160
+private val PIECE_PLATE_DARK = Color(0, 0, 0, PLATE_ALPHA)
+private val PIECE_PLATE_LIGHT = Color(255, 255, 255, PLATE_ALPHA)
