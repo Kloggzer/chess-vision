@@ -80,7 +80,7 @@ class StageTimingsTest {
         timings.mark(Stage.TOTAL)
         val snap = timings.snapshot()
         assertEquals(
-            setOf("publish", "convert", "warp", "gray", "motion", "grid", "total", "engine", "post", "frame"),
+            setOf("publish", "convert", "lens", "warp", "gray", "motion", "grid", "total", "engine", "post", "frame"),
             snap.keys,
         )
         assertEquals(3.0, snap.getValue("convert"))

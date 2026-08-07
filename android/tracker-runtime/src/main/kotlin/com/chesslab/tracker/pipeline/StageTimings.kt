@@ -31,12 +31,16 @@ const val PERF_TAG = "chesslabPerf"
  * frame period; everything else is a slice of it. [TOTAL] ends where the `FrameInput` is ready, so
  * `TOTAL + ENGINE + POST == FRAME` up to rounding.
  *
+ * [LENS] is its own stage rather than part of [CONVERT] because there is no measurement of a
+ * full-frame `remap` on a phone anywhere in this repo, and a cost folded into another stage is a
+ * cost nobody can decide about. It reads `-` whenever no lens is configured, which is the default.
+ *
  * [PUBLISH] and [POST] exist because they were previously measured by nothing at all: the
  * coordinator ran the preview bus BEFORE the timer started and the status publish, observer poke
  * and live-align clone AFTER the last mark, which is why `total + engine` never added up to the
  * observed period.
  */
-enum class Stage { PUBLISH, CONVERT, WARP, GRAY, MOTION, GRID, TOTAL, ENGINE, POST, FRAME }
+enum class Stage { PUBLISH, CONVERT, LENS, WARP, GRAY, MOTION, GRID, TOTAL, ENGINE, POST, FRAME }
 
 /**
  * Accumulates one frame's stage durations and emits at most one `chesslabPerf` line per second.

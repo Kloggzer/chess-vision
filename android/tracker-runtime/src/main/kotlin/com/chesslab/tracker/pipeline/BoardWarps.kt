@@ -5,6 +5,7 @@ import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.GridCoverage
+import com.chesslab.geometry.Undistorter
 import com.chesslab.geometry.cornersFromFlat
 import com.chesslab.geometry.toBgrImage
 import com.chesslab.geometry.toGrayImage
@@ -92,7 +93,16 @@ class CropFrameStore {
  * Stateful by design: each stage writes into this object's reused `Mat`s and the next stage reads
  * them, so the whole per-frame path allocates nothing but the two seam byte arrays. Calling the
  * stages out of order reads the previous frame's pixels.
+ *
+ * Both suppressions are about detekt measuring the wrong thing here, and neither is a licence to
+ * grow. `TooManyFunctions` counts the [FrameStages] interface — every one of these methods is a
+ * STAGE, and the count is the pipeline's length, so the only way to lower it is to shorten the
+ * pipeline. `LongParameterList` counts the HOST seam: each parameter is one thing a host must
+ * supply and no two of them belong together, so the holder object detekt is asking for would exist
+ * only to satisfy detekt (the same reasoning `preprocessInto` records in `:core-cnn`). The next
+ * parameter after this one deserves an argument, not another line in this comment.
  */
+@Suppress("LongParameterList", "TooManyFunctions")
 class OpenCvStages<T>(
     /** How this host turns its frame into BGR. The phone converts YUV; a file source hands a Mat. */
     private val toBgr: (T) -> Mat?,
@@ -105,6 +115,14 @@ class OpenCvStages<T>(
     private val frameBus: (Mat) -> Unit = {},
     /** Where the tracking screen receives the rectified board. Same contract as [frameBus]. */
     private val boardBus: (Mat) -> Unit = {},
+    /**
+     * The camera's optics, or null for raw pixels — the default, and what every host does today.
+     *
+     * Trailing and defaulted so the clip harness and the desktop, which have no lens, construct
+     * these exactly as before. Whether one belongs here is not this class's decision: the host that
+     * knows which camera this is decides, and hands over a built one or nothing.
+     */
+    private val lens: Undistorter? = null,
 ) : FrameStages<T> {
     private val gray = GrayPipeline(config.diffClaheClip)
     private val grid = GridCoverage()
@@ -128,6 +146,12 @@ class OpenCvStages<T>(
 
     override fun convert(image: T) {
         frame = toBgr(image)
+    }
+
+    override fun undistort(): Boolean {
+        val optics = lens ?: return false
+        frame = frame?.let(optics::apply)
+        return true
     }
 
     override fun publishFrame() {
@@ -224,6 +248,9 @@ class OpenCvStages<T>(
 
     override fun close() {
         closeConverter()
+        // After `undistort` ran, `frame` aliases the undistorter's own output Mat rather than the
+        // converter's — so both owners have to be closed, and neither of them is this class.
+        lens?.close()
         gray.close()
         grid.close()
         motion.close()

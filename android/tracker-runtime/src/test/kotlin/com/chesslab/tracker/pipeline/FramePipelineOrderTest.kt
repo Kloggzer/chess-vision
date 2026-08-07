@@ -96,6 +96,28 @@ class FramePipelineOrderTest {
         assertEquals(GRID_GATE_OFF, input.gridLineCoverage)
     }
 
+    /**
+     * The lens sits between the convert and the publish, and that placement IS the design.
+     *
+     * `publishFrame` feeds `CameraFrameBus`, and through it `latestCalibrationFrame()` — which is
+     * what ArUco re-detection and the once-per-pose grid fit read. A lens applied after it would
+     * correct the pixels the warps sample and leave the pixels the board geometry is measured from
+     * uncorrected, which is a split coordinate space wearing the costume of a working feature.
+     */
+    @Test
+    fun `the lens runs after the convert and before anything reads the frame`() {
+        pipeline.onFrame(FakeImage(), 1280, 720, 1_000L)
+        assertEquals(listOf("convert", "undistort", "publishFrame", "warpDetection"), stages.calls.take(4))
+    }
+
+    /** Same on the dark-frame exit: the gate must judge corrected pixels, not raw ones. */
+    @Test
+    fun `a dark frame still went through the lens`() {
+        stages.luma = 12.0
+        pipeline.onFrame(FakeImage(), 1280, 720, 1_000L)
+        assertTrue(stages.calls.indexOf("undistort") < stages.calls.indexOf("lumaPreClahe"), "${stages.calls}")
+    }
+
     private fun skipNote(result: FrameResult) = assertInstanceOf(FrameResult.Skipped::class.java, result).note
 
     private fun ready(result: FrameResult) = assertInstanceOf(FrameResult.Ready::class.java, result).input
@@ -115,21 +137,38 @@ private class FakeStages : FrameStages<FakeImage> {
     var cropWarps = 0
     val cropSeqs = mutableListOf<Long>()
 
+    /** Every stage in the order it was called: what makes the ORDER itself assertable. */
+    val calls = mutableListOf<String>()
+
     override fun convert(image: FakeImage) {
+        calls += "convert"
         convertCalls += 1
     }
 
+    override fun undistort(): Boolean {
+        calls += "undistort"
+        return true
+    }
+
     override fun publishFrame() {
+        calls += "publishFrame"
         publishCalls += 1
     }
 
     override fun publishBoard() {
+        calls += "publishBoard"
         boardPublishCalls += 1
     }
 
-    override fun warpDetection(corners: FloatArray): Boolean = warpOk
+    override fun warpDetection(corners: FloatArray): Boolean {
+        calls += "warpDetection"
+        return warpOk
+    }
 
-    override fun lumaPreClahe(): Double = luma
+    override fun lumaPreClahe(): Double {
+        calls += "lumaPreClahe"
+        return luma
+    }
 
     override fun grayDet(): GrayImage {
         grayCalls += 1
