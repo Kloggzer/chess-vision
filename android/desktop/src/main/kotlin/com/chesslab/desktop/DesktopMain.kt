@@ -12,11 +12,13 @@ import com.chesslab.tracker.camera.CameraHealth
 import com.chesslab.tracker.cnn.Attached
 import com.chesslab.tracker.geometry.boardGeometryFor
 import com.chesslab.tracker.geometry.calibrateFromBoard
+import com.chesslab.tracker.geometry.cropLine
 import com.chesslab.tracker.geometry.model
 import com.chesslab.tracker.geometry.quadOf
 import com.chesslab.tracker.geometry.rawQuadOf
 import com.chesslab.tracker.geometry.refinedQuad
 import com.chesslab.tracker.geometry.squareOffsetOf
+import com.chesslab.tracker.geometry.withCropOf
 import com.chesslab.tracker.log.TrackerLog
 import com.chesslab.tracker.log.TrackerLogs
 import com.chesslab.tracker.pipeline.OpenCvStages
@@ -318,9 +320,16 @@ private fun replay(
             optics?.close()
             return
         }
-        val geometry = boardGeometryFor(quad)
+        // The MODEL owns the crop composition (specs/45), and the desktop was not asking it: crops
+        // were cut at `BoardGeometry`'s 128x128 while `id35-80` takes 80x80, so every observation
+        // threw inside `CnnObserver` and was swallowed as a warning while the run reported
+        // `cnn=run`. Read whether or not the CNN is on, so `nocnn` isolates the classifier and not
+        // the geometry — two runs differing in one flag have to differ in one thing.
+        val spec = desktopModelSpec(options.model)
+        val geometry = boardGeometryFor(quad).withCropOf(spec)
         val config = TrackerConfig().copy(boardSize = geometry.boardSize)
         println("board located from its markers: ${geometry.boardSize} px warp  ·  $options")
+        println("crops: ${cropLine(spec, geometry)}")
         val publisher = StatusPublisher(scope)
         val cnn = if (options.cnn) openDesktopCnn(options.model, console("chesslabCnn")) else null
         if (!options.cnn) println("cnn: off — the engine uses its no-observation occlusion fallback")
@@ -338,6 +347,9 @@ private fun replay(
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
         val frames = drive(source, stack, bus, publisher, view, frameClock, options.dumpEvery)
         println("tracked $frames frames of $name at ${"%.2f".format(source.fps)} fps")
+        // Where the CNN chain stopped. `observations` counts snapshots the observer EMITTED;
+        // the engine's own `cnnSnaps` counts what arrived. Two numbers, one seam between them.
+        println("cnn: state=${stack.observer.state.value} observations=${stack.observations} ${stack.observer.counters}")
         stack.close()
         view?.close()
     }

@@ -86,6 +86,22 @@ class CnnObserver(
     /** Observer thread only — [logObservation] is the sole reader and writer. */
     private var lastObservationLogMs = 0L
 
+    /**
+     * Why an observation did not produce a snapshot.
+     *
+     * `observations = 0` has three causes that look identical from outside: the observer was
+     * never asked, it was asked and had no classifier, or it was asked and the crop store never
+     * handed it pixels. The third is normal ONCE per request and pathological if it is all that
+     * ever happens.
+     */
+    val counters: String
+        get() = "attempts=$attempts noClassifier=$noClassifier noCrops=$noCrops emitted=$emitted"
+
+    private var attempts = 0L
+    private var noClassifier = 0L
+    private var noCrops = 0L
+    private var emitted = 0L
+
     /** `_observer_due`. Also drives 05b's `CropFrameStore.wantsFrame()` — no crop warp while busy. */
     fun wantsFrame(): Boolean = enabled && state.value is CnnState.Ready && !busy && nowMs() - startedMs >= intervalMs
 
@@ -182,13 +198,27 @@ class CnnObserver(
     }
 
     private fun runObservation(startFen: String?) {
-        val cnn = classifier ?: return
-        val frame = source.take() ?: return
+        attempts += 1
+        val cnn =
+            classifier ?: run {
+                noClassifier += 1
+                return
+            }
+        val frame =
+            source.take() ?: run {
+                // NOT a failure: `cropFrameSource` answers the first ask with null and requests a
+                // warp, so the next attempt is the one that gets pixels. Counted because a run
+                // where this is the ONLY thing that ever happens looks identical from outside to
+                // a run where the observer never started.
+                noCrops += 1
+                return
+            }
         val started = nowMs()
         val probs = cnn.classify(frame.crops)
         val obs = observationFromProbs(probs, cnn.classes)
         val inferMs = (nowMs() - started).toDouble()
         logObservation(cnn, inferMs, frame.crops.size)
+        emitted += 1
         onSnapshot(
             CnnSnapshot(
                 obs = obs,

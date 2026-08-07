@@ -5,6 +5,7 @@ import com.chesslab.tracker.cnn.Attached
 import com.chesslab.tracker.cnn.CnnModelAssets
 import com.chesslab.tracker.cnn.DEFAULT_MODEL
 import com.chesslab.tracker.cnn.MODEL_FP32_FILE
+import com.chesslab.tracker.cnn.ModelSpec
 import com.chesslab.tracker.log.TrackerLog
 import com.chesslab.tracker.service.CnnRuntimeProbe
 import com.chesslab.tracker.service.openClassifier
@@ -69,3 +70,20 @@ private const val ASSET_SOURCE = "../app/src/main/assets/$ASSET_ROOT_DIR"
 
 /** Staged copies. Under tmp/, which is not the corpus. */
 private const val STAGING = "../../tmp/cnn-staging"
+
+/**
+ * What the chosen model declares its crops must be, or null when it cannot be read.
+ *
+ * The phone applies this through `BoardGeometry.withCropOf` and the desktop did not, so every
+ * crop here was cut at `BoardGeometry`'s own 128x128 while `id35-80` takes 80x80 — the classifier
+ * threw on all 127 observations it was handed, `CnnObserver` caught it, and the run reported
+ * `cnn=run` with zero snapshots. `CLAUDE.md` names this exact failure for the clip harness:
+ * a harness that invents profile fields is a silent domain shift.
+ *
+ * Read whether or not the CNN is switched on, so that `nocnn` isolates the classifier and not the
+ * geometry: two runs that differ in one flag have to differ in one thing.
+ */
+fun desktopModelSpec(model: String): ModelSpec? =
+    runCatching { ModelSpec.parse(desktopCnnAssets(model).stage().configJson) }
+        .onFailure { println("no model spec for '$model' — crops keep the geometry's defaults (${it.message})") }
+        .getOrNull()
