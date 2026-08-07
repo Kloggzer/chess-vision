@@ -199,10 +199,17 @@ private class BoardCanvas : JPanel() {
             }
             g2.color = GRID
             g2.drawRect(x, y, w, h)
-            if (verdict != null) {
+            if (verdict != null || abs(z) > Z_FULL) {
+                // The number, not just the tint: "this square is red" and "this square reads 18.5
+                // where the moved one reads 7.6" are different findings, and only the second one
+                // points anywhere.
                 g2.color = Color.WHITE
                 g2.font = LABEL_FONT
-                g2.drawString(square, x + LABEL_INSET, y + LABEL_FONT.size + LABEL_INSET)
+                g2.drawString(
+                    "$square ${"%.0f".format(abs(z))}",
+                    x + LABEL_INSET,
+                    y + LABEL_FONT.size + LABEL_INSET,
+                )
             }
         }
     }
@@ -291,7 +298,19 @@ fun dumpBoard(
 ) {
     val img = board ?: return
     val dir = File(DUMP_DIR).apply { mkdirs() }
-    ImageIO.write(img, "png", File(dir, "board-%06d.png".format(frame)))
+    // Rendered through the SAME canvas the window paints, off-screen. Extracting the drawing into
+    // a shared function would have done as well; letting the component paint itself into an image
+    // makes it impossible for the two to drift, which is the property that matters — a debugging
+    // view that disagrees with the file you study afterwards is worse than either alone.
+    val canvas = BoardCanvas()
+    canvas.board = img
+    canvas.status = status
+    canvas.setSize(canvas.preferredSize)
+    val shot = BufferedImage(canvas.width, canvas.height, BufferedImage.TYPE_INT_RGB)
+    val g2 = shot.createGraphics()
+    canvas.paint(g2)
+    g2.dispose()
+    ImageIO.write(shot, "png", File(dir, "board-%06d.png".format(frame)))
     File(dir, "board-%06d.txt".format(frame)).writeText(
         buildString {
             appendLine("frame=$frame")
