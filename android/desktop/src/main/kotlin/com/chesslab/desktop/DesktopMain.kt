@@ -35,6 +35,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.opencv.core.Mat
+import java.awt.image.BufferedImage
 import java.io.File
 import kotlin.system.exitProcess
 
@@ -57,7 +58,7 @@ fun main(args: Array<String>) {
         "replay" -> {
             val video = File(args.getOrNull(1) ?: usage())
             check(video.isFile) { "no such video: ${video.absolutePath}" }
-            replay(VideoFileSource(video), video.name)
+            replay(VideoFileSource(video), video.name, watch = args.getOrNull(2) != "quiet")
         }
         "calibrate" -> {
             val index = args.getOrNull(1)?.toIntOrNull() ?: usage()
@@ -66,7 +67,12 @@ fun main(args: Array<String>) {
         "align" -> alignCamera(args.getOrNull(1)?.toIntOrNull() ?: usage(), raw = args.getOrNull(2) == "raw")
         "track" -> {
             val index = args.getOrNull(1)?.toIntOrNull() ?: usage()
-            replay(WebcamSource(index), "camera $index", cameraToken(index))
+            replay(
+                WebcamSource(index),
+                "camera $index",
+                cameraToken(index),
+                watch = args.getOrNull(2) != "quiet",
+            )
         }
         else -> usage()
     }
@@ -311,8 +317,12 @@ private fun usage(): Nothing {
         "  cameras                    what is attached, as the driver reports it",
         "  calibrate <camera-index>   fit the lens from the board's own grid lines",
         "  align <camera-index> [raw] measure the board against its grid; 'raw' skips the lens",
-        "  replay <video.mp4>         drive a recorded clip through the shipping tracker",
-        "  track <camera-index>       the same, live",
+        "  replay <video.mp4> [quiet] drive a recorded clip through the shipping tracker",
+        "  track <camera-index> [quiet]  the same, live",
+        "",
+        "  The board view opens unless 'quiet' is given: it shows the rectified warp the engine",
+        "  reasons about with its per-square verdicts, and STOPS when the engine gets stuck",
+        "  (space steps, c continues, s disarms). 'quiet' is for scripted runs.",
     ).forEach(::println)
     exitProcess(2)
 }
@@ -321,6 +331,7 @@ private fun replay(
     source: FrameSource,
     name: String,
     camera: String? = null,
+    watch: Boolean = true,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val console: TrackerLogs = { tag -> ConsoleLog(tag) }
@@ -355,8 +366,11 @@ private fun replay(
         // constructor argument and does not expose it, and widening a shared seam for one host's
         // debugging window would be the wrong trade.
         val bus = CameraFrameBus(MutableStateFlow(CameraHealth.Up), scope, ::matToImage)
-        val view = TrackerView.openOrNull("chesslab — $name")
-        if (view == null) println("no display: running without the board view")
+        // `quiet` is what makes this scriptable. With a window open, break-on-stuck is right —
+        // a human is watching and wants it to stop — but that same default turns a batch replay
+        // into a process waiting forever for a key nobody will press.
+        val view = if (watch) TrackerView.openOrNull("chesslab — $name") else null
+        if (watch && view == null) println("no display: running without the board view")
         val stack =
             TrackerStack(
                 TrackerSeed<Mat>(
@@ -381,23 +395,36 @@ private fun replay(
                 { error("no classifier on the desktop yet — the diff path runs without one") },
             )
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
-        var frames = 0
-        while (true) {
-            // The view is consulted BEFORE the next frame is pulled, not after: when it stops on
-            // a stuck engine, what is on screen has to be the state that caused the stop. It
-            // returns false once its window is gone, which is the other way this loop ends.
-            val open = view?.awaitStep(publisher.status.value) ?: true
-            val frame = if (open) source.next() else null
-            if (frame == null) break
-            stack.coordinator.onFrame(frame, source.delivered)
-            frames += 1
-            view?.show(bus.boardPreview.value, publisher.status.value)
-        }
+        val frames = drive(source, stack, bus, publisher, view)
         println("tracked $frames frames of $name at ${"%.2f".format(source.fps)} fps")
         stack.close()
         view?.close()
     }
     scope.cancel()
+}
+
+/**
+ * Frames in, until the source runs dry or the viewer's window is closed.
+ *
+ * The view is consulted BEFORE the next frame is pulled, not after: when it stops on a stuck
+ * engine, what is on screen has to be the state that caused the stop rather than the one after it.
+ */
+private fun drive(
+    source: FrameSource,
+    stack: TrackerStack<Mat>,
+    bus: CameraFrameBus<BufferedImage>,
+    publisher: StatusPublisher,
+    view: TrackerView?,
+): Int {
+    var frames = 0
+    while (true) {
+        val open = view?.awaitStep(publisher.status.value) ?: true
+        val frame = if (open) source.next() else null
+        if (frame == null) return frames
+        stack.coordinator.onFrame(frame, source.delivered)
+        frames += 1
+        view?.show(bus.boardPreview.value, publisher.status.value)
+    }
 }
 
 /** stdout is this host's logcat. The channel names are the shared code's, unchanged. */
