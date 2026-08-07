@@ -425,13 +425,6 @@ def read_log(sdir: Path) -> list[dict]:
     return rows
 
 
-def log_entry(session_id: str, idx: int) -> tuple[Path, bool, list[dict], int, dict]:
-    """One row of a session's log, with the index CLAMPED into range."""
-    sdir, archived = session_dir(session_id)
-    rows = read_log(sdir)
-    clamped = max(0, min(idx, len(rows) - 1))
-    return sdir, archived, rows, clamped, rows[clamped]
-
 
 def frame_path(sdir: Path, entry: dict) -> Path:
     """The image a log row points at, refusing anything outside the session directory."""
@@ -588,13 +581,6 @@ def adopt_candidate(rows: list[dict]) -> dict | None:
     return {"from_index": idx, "corners": quad, "n_same": n_same,
             "source_row_source": rows[idx].get("corners_source", "detected")}
 
-
-def geometry_version(sdir: Path) -> int:
-    """A token that changes whenever the session's geometry could have changed."""
-    try:
-        return (sdir / "log.jsonl").stat().st_mtime_ns
-    except OSError:
-        return 0
 
 
 def autofix_one(sdir: Path, entry: dict):

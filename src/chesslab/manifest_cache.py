@@ -74,8 +74,3 @@ def session_crop_count(path: Path, session_id: str) -> int:
 def stats_rows(path: Path) -> list[dict]:
     """Lightweight rows (label/square_color/session_id) — enough for compute_stats()."""
     return manifest_stats(path)["stats_rows"]
-
-
-def rows_for_label(path: Path, label: str) -> list[dict]:
-    """Rows of one class (path/session/frame/square) for the crop browser."""
-    return manifest_stats(path)["by_label"].get(label, [])

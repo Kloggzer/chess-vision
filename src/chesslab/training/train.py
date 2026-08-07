@@ -445,7 +445,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     metrics_path = run_dir / "metrics.jsonl"
 
         # Checkpoint/early-stopping via occupancy-first score: occ_board_acc (all 64 squares
-    # empty/occupied correct) is the signal the move_tracker primarily needs — more robust
+    # empty/occupied correct) is the signal the tracker primarily needs — more robust
     # than full board accuracy with little val data. occ_acc + macro_recall as tiebreaker.
     best_score = (-1.0, -1.0, -1.0)   # (occ_board_acc, occ_acc, macro_recall)
     epochs_no_improve = 0

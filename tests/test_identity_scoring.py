@@ -16,7 +16,7 @@ import pytest
 
 from chesslab import config
 from chesslab.dataset_build import class_list_for, collapse_labels
-from chesslab.move_tracker.cnn_recovery import observation_from_probs
+from chesslab.serving import observation_from_probs
 
 _ROOT = Path(__file__).resolve().parent.parent
 

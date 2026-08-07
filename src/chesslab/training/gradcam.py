@@ -153,64 +153,6 @@ def overlay(pil_img: Image.Image, cam: np.ndarray, out_size: tuple[int, int]) ->
     return Image.fromarray(blended)
 
 
-def gradcam_for_run(run_dir: Path, split: str = "test", per_class: int = 1,
-                    force_class: str | None = None, seed: int = 42) -> list[dict]:
-    """Generate Grad-CAM overlays for sample crops of a trained run.
-
-    Picks up to ``per_class`` crops for each true class from the run's ``split`` (the
-    dataset recorded in the run config), saves ``original`` + ``overlay`` PNGs under
-    ``run_dir/gradcam/`` and returns a list of dicts describing each example.
-    """
-    from .. import config
-    from .data import filter_rows_by_split, load_manifest, load_split
-    from .evaluate import load_run
-    from .torch_data import build_transform
-
-    model, cfg = load_run(run_dir)
-    model.eval()
-    classes = cfg["classes"]
-    out_size = tuple(cfg["out_size"])                      # (w, h)
-    tf = build_transform(out_size, train=False)
-    layer = last_conv(model)
-    forced = classes.index(force_class) if force_class else None
-
-    ds_name = cfg.get("dataset")
-    if ds_name:
-        from ..dataset_build import dataset_dir
-        dd = dataset_dir(ds_name)
-        manifest_path, split_path = dd / "manifest.jsonl", dd / "split.json"
-    else:
-        manifest_path = config.DATA.manifests / "squares.jsonl"
-        split_path = config.DATA.manifests / "split.json"
-    manifest = load_manifest(manifest_path)
-    split_data = load_split(split_path)
-    rows = filter_rows_by_split(manifest, split_data, split)
-
-    # up to `per_class` rows per true label, in class order — diversity-aware, seeded
-    picked: list[dict] = []
-    for c in classes:
-        hits = _diverse_sample([r for r in rows if r["label"] == c], per_class, seed=seed)
-        picked.extend(hits)
-
-    out_dir = run_dir / "gradcam"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    read_crop = _crop_reader(ds_name)
-    results: list[dict] = []
-    for i, r in enumerate(picked):
-        img = read_crop(r)
-        x = tf(img).unsqueeze(0)
-        cam, idx, prob = compute_cam(model, x, layer, forced)
-        stem = f"{i:02d}_{r['label']}"
-        orig_p = out_dir / f"{stem}_orig.png"
-        over_p = out_dir / f"{stem}_cam.png"
-        img.resize(out_size).save(orig_p)
-        overlay(img, cam, out_size).save(over_p)
-        results.append({
-            "true": r["label"], "pred": classes[idx], "prob": round(prob, 3),
-            "orig": orig_p, "overlay": over_p,
-        })
-    return results
-
 
 def _center_mask(h: int, w: int, frac: float) -> torch.Tensor:
     """Boolean [h,w] mask, True inside the centered box covering `frac` of each dimension."""

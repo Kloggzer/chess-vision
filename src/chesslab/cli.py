@@ -375,6 +375,22 @@ def session_flag(
           f"unusable={'yes' if r['unusable'] else 'no'}")
 
 
+@session_app.command("review")
+def session_review(
+    session: str = typer.Argument(..., help="Session ID."),
+    undo: bool = typer.Option(False, "--undo", help="Mark it unreviewed again."),
+) -> None:
+    """Mark a session as reviewed — the flag `session list` shows.
+
+    It had no writer outside the web UI, and a field that is read but cannot be set is worse
+    than no field: `list` would have shown "-" forever with no way to change it.
+    """
+    from . import sessions as sessions_mod
+
+    _session_call(sessions_mod.set_session_reviewed, session, not undo)
+    print(f"[OK] {session}: reviewed={'no' if undo else 'yes'}")
+
+
 @session_app.command("archive")
 def session_archive(
     session: str = typer.Argument(..., help="Session ID."),
@@ -909,174 +925,6 @@ def quantize_cmd(
 
     raise typer.Exit(run_quantize(run=run, limit=limit, activation_type=activation,
                                   weight_type=weight, per_channel=per_channel))
-
-
-@app.command("web")
-def web_cmd(
-    host: str = typer.Option(config.DEFAULT_WEB_HOST, "--host"),
-    port: int = typer.Option(config.DEFAULT_WEB_PORT, "--port"),
-    source: str | None = typer.Option(
-        None, "--source",
-        help="Camera source as URL instead of local index (e.g. IP/phone cam "
-             "https://host:4444/video/m.jpeg). Overrides the UI index for ALL camera paths. "
-             "Use the MJPEG stream for smooth preview."),
-    capture_source: str | None = typer.Option(
-        None, "--capture-source",
-        help="Optional HIGH-RESOLUTION snapshot URL for saving (e.g. "
-             "https://host:4444/video/snapshot). Preview stays on the smooth --source stream, "
-             "saved frames come sharp from the snapshot (corners re-detected on it)."),
-) -> None:
-    """Local web UI: browse dataset, relabel, control training (requires `--extra web`)."""
-    import os
-
-    from .web.camera import CAMERA_CAPTURE_ENV, CAMERA_SOURCE_ENV
-
-    if source:
-        os.environ[CAMERA_SOURCE_ENV] = source   # read by web camera path (effective_source)
-        print(f"Camera source (preview): {source}")
-    if capture_source:
-        os.environ[CAMERA_CAPTURE_ENV] = capture_source
-        print(f"Capture source (save, high-resolution): {capture_source}")
-
-    from .web.app import run as run_web
-
-    raise typer.Exit(run_web(host=host, port=port))
-
-
-@app.command("track")
-def track_cmd(
-    profile: str = typer.Option("phone", "--profile", help="chesslab calibration profile."),
-    source: str = typer.Option("0", "--source", help="Camera: 0=Webcam, URL=IP-Cam."),
-    res: str = typer.Option(config.DEFAULT_CAMERA_MODE, "--res",
-                            help="Capture mode: "
-                                 f"{'|'.join(config.CAMERA_MODES)} (the camera may ignore it)."),
-    host: str = typer.Option(config.DEFAULT_TRACK_HOST, "--host"),
-    port: int = typer.Option(config.DEFAULT_TRACK_PORT, "--port"),
-    motion_thr: float = typer.Option(config.TRACK_DEFAULTS["motion_thr"], "--motion-thr",
-                                     help="Motion gate: percent of strongly-changed pixels."),
-    motion_px_thr: float = typer.Option(config.TRACK_DEFAULTS["motion_px_thr"], "--motion-px-thr",
-                                        help="Per-pixel brightness delta that counts as motion "
-                                             "(ignores desk-wobble/jitter sub-threshold shifts)."),
-    z_thr: float = typer.Option(config.TRACK_DEFAULTS["z_thr"], "--z-thr",
-                                help="z-score threshold above which a square counts as changed."),
-    ambiguity_margin_ll: float = typer.Option(config.TRACK_DEFAULTS["ambiguity_margin_ll"],
-                                              "--ambiguity-margin",
-                                              help="Minimum distance best−second (LL units)."),
-    reanchor_ll_floor: float = typer.Option(config.TRACK_DEFAULTS["reanchor_ll_floor"],
-                                            "--reanchor-floor",
-                                            help="Re-anchor only when best move LL is below it."),
-    nudge_timeout_s: float = typer.Option(config.TRACK_DEFAULTS["nudge_timeout_s"], "--nudge-timeout",
-                                          help="Seconds until nudge reference patch (without CNN)."),
-    drift_window_s: float = typer.Option(config.TRACK_DEFAULTS["drift_window_s"], "--drift-window",
-                                         help="Seconds until drift patch of empty squares (without CNN)."),
-    no_prior: bool = typer.Option(False, "--no-prior",
-                                  help="Disable heuristic prior as ambiguity tie-break."),
-    change_thr: float | None = typer.Option(None, "--change-thr", hidden=True,
-                                            help="DEPRECATED: replaced by --z-thr."),
-    confirm_frames: int | None = typer.Option(None, "--confirm-frames",
-                                              help="Confirmation frames per move (default: 1 with CNN, otherwise 2)."),
-    settle_frames: int | None = typer.Option(None, "--settle-frames",
-                                             help="Settle frames before detection (default: 3 with CNN, otherwise 4)."),
-    max_changed: int = typer.Option(config.TRACK_DEFAULTS["max_changed"], "--max-changed",
-                                    help="Maximum changed squares (gate)."),
-    avg_frames: int | None = typer.Option(None, "--avg-frames",
-                                          help="Moving average over N quiet frames (default: 2 with CNN, otherwise 3)."),
-    no_live_align: bool = typer.Option(False, "--no-live-align", help="Disable marker tracking."),
-    motion_margin: float = typer.Option(config.TRACK_DEFAULTS["motion_margin"], "--motion-margin",
-                                        help="Motion ROI beyond board edge (fraction of board edge)."),
-    overhang: float = typer.Option(config.TRACK_DEFAULTS["overhang"], "--overhang",
-                                   help="Extend diff cells toward back rank (fraction of cell)."),
-    motion_hold_s: float = typer.Option(config.TRACK_DEFAULTS["motion_hold_s"], "--motion-hold",
-                                        help="Seconds the board must be motion-free before detection resumes."),
-    occlusion_color_thr: float = typer.Option(config.TRACK_DEFAULTS["occlusion_color_thr"],
-                                              "--occlusion-color-thr",
-                                              help="Color-outlier occlusion veto: Mahalanobis sigma vs board gamut (0=off)."),
-    min_grid_line_coverage: float = typer.Option(config.TRACK_DEFAULTS["min_grid_line_coverage"],
-                                                 "--min-grid-line-coverage",
-                                                 help="Grid-line occlusion gate: min visible-line fraction 0..1 (0=off)."),
-    reconnect_grace_s: float = typer.Option(config.TRACK_DEFAULTS["reconnect_grace_s"],
-                                            "--reconnect-grace",
-                                            help="Auto-reattach the camera after this many seconds of no frames (0=off)."),
-    diff_clahe_clip: float = typer.Option(config.TRACK_DEFAULTS["diff_clahe_clip"],
-                                          "--diff-clahe-clip",
-                                          help="CLAHE contrast boost on the diff image for low-contrast moves (0=off, try 2-3)."),
-    require_motion_for_move: bool = typer.Option(config.TRACK_DEFAULTS["require_motion_for_move"],
-                                                 "--require-motion/--no-require-motion",
-                                                 help="Only commit a move if a hand entered since the last reference (suppresses drift/light 'moves')."),
-    motion_recency_s: float = typer.Option(config.TRACK_DEFAULTS["motion_recency_s"], "--motion-recency",
-                                           help="Commit only within N seconds of the last motion (drift at high stable count is not a move)."),
-    cnn_run: str = typer.Option(config.default_tracker_run() or "", "--cnn-run",
-                                help="Model run for CNN verification/recovery ('' = off)."),
-    detect_scale: float = typer.Option(config.TRACK_DEFAULTS["detect_scale"], "--detect-scale",
-                                       help="Detection runs on a downscaled board warp (0.5 = half-res; 1.0 = off)."),
-    cnn_conf_thr: float = typer.Option(config.TRACK_DEFAULTS["cnn_conf_thr"], "--cnn-conf-thr",
-                                       help="Confidence threshold above which a CNN square counts as reliable."),
-    census_thr: float = typer.Option(config.TRACK_DEFAULTS["census_thr"], "--census-thr",
-                                     help="Threshold for STRUCTURAL change (census); < = shadow candidate."),
-    census_z_weight: float = typer.Option(config.TRACK_DEFAULTS["census_z_weight"],
-                                          "--census-z-weight",
-                                          help="Structural evidence fusion weight: z_eff = max(z_gray, w*z_census); lifts dark-on-dark moves (0=off)."),
-    occl_census_thr: float = typer.Option(config.TRACK_DEFAULTS["occl_census_thr"],
-                                          "--occl-census-thr",
-                                          help="Baseline occlusion needs census structure above this; flat darkening = shadow, not hand (0=legacy)."),
-    cnn_verify: bool = typer.Option(True, "--cnn-verify/--no-cnn-verify",
-                                    help="Verify each move via CNN identity (default on, non-blocking)."),
-    verify_window: int = typer.Option(config.TRACK_DEFAULTS["verify_window"], "--verify-window",
-                                      help="Max CNN frames per pre-commit verify."),
-    cnn_min_agreement: float = typer.Option(config.TRACK_DEFAULTS["cnn_min_agreement"],
-                                            "--cnn-min-agreement",
-                                            help="Agreement threshold for recovery/verify."),
-    cnn_margin_squares: int = typer.Option(config.TRACK_DEFAULTS["cnn_margin_squares"],
-                                           "--cnn-margin-squares",
-                                           help="Recovery margin in squares."),
-    recovery_max_plies: int = typer.Option(config.TRACK_DEFAULTS["recovery_max_plies"],
-                                           "--recovery-max-plies",
-                                           help="CNN deep recovery: max half-moves the conflict-guided search may bridge."),
-    min_confident_board: int = typer.Option(config.TRACK_DEFAULTS["min_confident_board"],
-                                            "--min-confident-board",
-                                            help="Reliable squares for whole-board match."),
-    min_confident_recovery: int = typer.Option(config.TRACK_DEFAULTS["min_confident_recovery"],
-                                               "--min-confident-recovery",
-                                               help="Reliable squares for recovery."),
-    cnn_cooldown_s: float = typer.Option(config.TRACK_DEFAULTS["cnn_cooldown_s"], "--cnn-cooldown",
-                                         help="Minimum interval (s) between recovery observations."),
-    cnn_check_interval_s: float = typer.Option(config.TRACK_DEFAULTS["cnn_check_interval_s"],
-                                               "--cnn-check-interval",
-                                               help="Interval (s) of periodic CNN check."),
-    device: str = typer.Option("auto", "--device", help="Torch device for the CNN: auto|cpu|cuda."),
-) -> None:
-    """Move tracker: board digitization via frame differencing + CNN verification (web UI)."""
-    from .move_tracker.app import run as run_track
-
-    if change_thr is not None:
-        print("Note: --change-thr is deprecated (Spec 10) — please use --z-thr.")
-    tracker_kwargs = {
-        "motion_thr": motion_thr, "motion_px_thr": motion_px_thr, "z_thr": z_thr,
-        "ambiguity_margin_ll": ambiguity_margin_ll, "reanchor_ll_floor": reanchor_ll_floor,
-        "nudge_timeout_s": nudge_timeout_s, "drift_window_s": drift_window_s,
-        "use_prior": not no_prior,
-        "confirm_frames": confirm_frames, "settle_frames": settle_frames,
-        "max_changed": max_changed, "avg_frames": avg_frames,
-        "live_align": not no_live_align,
-        "motion_margin": motion_margin, "overhang": overhang,
-        "motion_hold_s": motion_hold_s,
-        "occlusion_color_thr": occlusion_color_thr,
-        "min_grid_line_coverage": min_grid_line_coverage,
-        "reconnect_grace_s": reconnect_grace_s,
-        "diff_clahe_clip": diff_clahe_clip,
-        "require_motion_for_move": require_motion_for_move, "motion_recency_s": motion_recency_s,
-        "detect_scale": detect_scale,
-        "cnn_run": (cnn_run or None),   # '' or missing run on disk -> feature silently off
-        "cnn_conf_thr": cnn_conf_thr, "device": device, "census_thr": census_thr,
-        "census_z_weight": census_z_weight, "occl_census_thr": occl_census_thr,
-        "cnn_verify": cnn_verify, "verify_window": verify_window,
-        "cnn_min_agreement": cnn_min_agreement, "cnn_margin_squares": cnn_margin_squares, "recovery_max_plies": recovery_max_plies,
-        "min_confident_board": min_confident_board, "min_confident_recovery": min_confident_recovery,
-        "cnn_cooldown_s": cnn_cooldown_s, "cnn_check_interval_s": cnn_check_interval_s,
-        "res": res,
-    }
-    raise typer.Exit(run_track(host=host, port=port, default_profile=profile,
-                               default_source=source, tracker_kwargs=tracker_kwargs))
 
 
 @feedback_app.command("ingest")

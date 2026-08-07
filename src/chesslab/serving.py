@@ -8,7 +8,6 @@ pipeline is used as during training — thus train/serve parity is guaranteed.
 Rules:
 - torch/PIL only lazy-imported in function bodies (ROCm-Windows: CLI/web must start
   without GPU stack).
-- Never imports `chesslab.web` (no circular import).
 - Geometry implementation stays in `labeling` (no copy).
 """
 
@@ -445,56 +444,6 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
     return results
 
 
-def predict_rows(run_dir: Path, rows: list[dict], device: str = "cpu",
-                 batch_size: int = 64) -> list[dict]:
-    """For each manifest row: {'pred_label', 'confidence'} (order matches `rows`)."""
-    if not rows:
-        return []
-    import torch
-    from torch.utils.data import DataLoader
-
-    from .training.torch_data import SquareDataset, build_transform, infer_size_of
-
-    model, cfg = load_run(run_dir, device)
-    classes = cfg["classes"]
-    # Inference, not evaluation: the crops on disk are at `out_size`, the model wants `infer_size`
-    # (specs/22). `chesslab eval` is the path that deliberately stays at the built size.
-    infer_size = infer_size_of(cfg)
-    # Fused datasets (mm:// rows) have no crop files — route through the packed memmap.
-    if rows and str(rows[0].get("path", "")).startswith("mm://"):
-        from .training.pack import load_packed
-        packed = load_packed(cfg.get("dataset")) if cfg.get("dataset") else None
-        if packed is None:
-            raise ValueError("fused dataset without a valid packed memmap — re-run "
-                             "`chesslab dataset build-synth`.")
-        from .training.torch_data import PackedSquareDataset
-        ds = PackedSquareDataset(rows, classes, build_transform(infer_size, train=False), packed)
-    else:
-        ds = SquareDataset(rows, classes, build_transform(infer_size, train=False))
-    loader = DataLoader(ds, batch_size=batch_size, shuffle=False)
-
-    results: list[dict] = []
-    with torch.no_grad():
-        for x, _ in loader:
-            x = x.to(device)
-            probs = torch.softmax(model(x), dim=1)
-            conf, idx = probs.max(dim=1)
-            for c, i in zip(conf.tolist(), idx.tolist(), strict=False):
-                results.append({"pred_label": classes[int(i)], "confidence": round(float(c), 4)})
-    return results
-
-
-def predict_frame(run_dir: Path, frame: np.ndarray, corners, profile,
-                  device: str = "cpu", return_probs: bool = False) -> list[dict]:
-    """Full pipeline for one frame: run_spec + crops_for_model + predict_arrays.
-
-    Result per square: {"square": "a8", "pred_label": ..., "confidence": ...[, "probs": ...]}.
-    """
-    spec = run_spec(run_dir)
-    crops = crops_for_model(frame, corners, profile, spec)
-    preds = predict_arrays(run_dir, crops, device=device, return_probs=return_probs)
-    squares = labeling.all_squares()
-    return [{"square": sq, **p} for sq, p in zip(squares, preds, strict=False)]
 
 
 # ---------------------------------------------------------------------------

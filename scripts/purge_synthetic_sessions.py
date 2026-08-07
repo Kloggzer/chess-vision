@@ -3,7 +3,7 @@
 Headless clip-replay / test runs used to construct a MoveTracker with the default
 `auto_record=True`, which auto-wrote real capture sessions into `config.DATA.sessions` under
 ephemeral profiles. Those are never real captures and pollute the dataset. The leak itself is
-fixed in `scripts/replay_clip.py` (auto_record forced off); this script removes the sessions
+fixed before the Python tracker was deleted (auto_record forced off); this removes the sessions
 already on disk.
 
 A session is considered synthetic when EITHER:

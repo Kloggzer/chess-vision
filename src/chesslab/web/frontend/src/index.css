@@ -1,8 +1,0 @@
-@import "tailwindcss";
-
-:root { color-scheme: dark; }
-html, body, #root { height: 100%; }
-body { background: #09090b; color: #e4e4e7; }
-
-/* thin scrollbars */
-* { scrollbar-width: thin; scrollbar-color: #3f3f46 transparent; }
