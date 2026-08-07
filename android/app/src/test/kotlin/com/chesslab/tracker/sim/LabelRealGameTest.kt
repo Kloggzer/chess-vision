@@ -2,6 +2,8 @@ package com.chesslab.tracker.sim
 
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerConfig
+import com.chesslab.tracker.cnn.DEFAULT_MODEL
+import com.chesslab.tracker.cnn.ModelSpec
 import com.chesslab.tracker.geometry.CropParams
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.move.Move
@@ -19,17 +21,14 @@ import java.io.File
 /**
  * **The real-game harness, invoked the way the clip harness already is: system properties.**
  *
- * `scripts/label_real_game.py` turns filmed footage into a reviewable move list by driving the
+ * `scripts/label_real_game.py` turned filmed footage into a reviewable move list by driving the
  * PYTHON tracker. The phone runs `:core-engine`, so the one artefact whose whole purpose is "what
- * does the tracker do on real footage" has never been produced by the tracker that ships. This
- * class is where that changes.
+ * does the tracker do on real footage" had never been produced by the tracker that ships. This
+ * class is where that changed.
  *
  * ```
  * gradlew.bat :app:testDebugUnitTest --tests "*LabelRealGameTest*" \
- *   -Dchesslab.realgame.video=data/testclip-raw/VID_20260802_222741.mp4 \
- *   -Dchesslab.realgame.corners=85.1,1157.2,97.2,231.1,1056.9,246.4,987.7,1208.2 \
- *   -Dchesslab.realgame.margin=0.05 -Dchesslab.realgame.boardSize=800 \
- *   -Dchesslab.realgame.fps=30 -Dchesslab.realgame.padSide=0.05 -Dchesslab.realgame.padUp=0.0
+ *   -Dchesslab.realgame.video=data/testclip-raw/VID_20260802_222741.mp4
  * ```
  *
  * Without `chesslab.realgame.video` the run is SKIPPED, not failed, so a normal
@@ -37,10 +36,14 @@ import java.io.File
  * unit-test classpath is what carries the AARs, and a second invocation path is a second thing to
  * keep working.
  *
- * The geometry properties are scaffolding for THIS phase, which takes the quad as an input; the
- * phase that owns `:core-geometry` measures it from the footage instead. None of them has a
- * default, because each one is a profile field and a harness that quietly defaults one cuts at a
- * size nobody chose — that is how the CNN desynced three seconds into the 2026-08-02 game.
+ * **The geometry is MEASURED, not typed** (specs/52 phase 01): the quad comes from the shipping
+ * stack — `rawQuadOf` → `refinedQuad` per sampled frame, judged absolutely by `alignmentOf`, the
+ * per-corner median over passing frames — and footage that cannot come under the limit is REFUSED
+ * rather than labeled, because a label on crooked geometry is worse than none. `fps` is read from
+ * the container, and the crop comes from the shipped model's own declaration (`withCropOf`'s
+ * source), never from a default a harness invented — that is how the CNN desynced three seconds
+ * into the 2026-08-02 game (specs/41). The corner/margin/boardSize/fps/pad properties phase 00
+ * took as scaffolding are gone with it.
  */
 class LabelRealGameTest {
     @Test
@@ -144,8 +147,6 @@ private const val BRIDGE_FRAME = 119
 
 private const val FPS = 30.0
 
-private const val CORNER_NUMBERS = 8
-
 private fun property(name: String): String? =
     System
         .getProperty("chesslab.realgame.$name")
@@ -153,35 +154,38 @@ private fun property(name: String): String? =
         .trim()
         .ifEmpty { null }
 
-private fun required(name: String): String =
-    requireNotNull(property(name)) {
-        "-Dchesslab.realgame.$name is required and has no default: it is a profile field, and a " +
-            "harness that defaults one cuts at a size nobody chose (specs/41)"
-    }
-
 private fun realGameVideo(): File? = property("video")?.let { File(it) }
 
-private fun realGameSource(): RealGameSource =
-    RealGameSource(
-        video = requireNotNull(realGameVideo()) { "-D$VIDEO_PROPERTY=<mp4> is what starts a run" },
+private fun realGameSource(): RealGameSource {
+    val video = requireNotNull(realGameVideo()) { "-D$VIDEO_PROPERTY=<mp4> is what starts a run" }
+    val scan = measuredGeometryOf(video)
+    val spec = shippedModelSpec()
+    return RealGameSource(
+        video = video,
         // The app's shipping defaults, which is what the phone runs. Whether a recorded
         // `effective_config` should win instead is an open question of this pack's, not a decision
         // to make silently here.
         config = TrackerConfig(),
         startFen = property("startFen") ?: STARTPOS,
-        corners = cornersOf(required("corners")),
-        margin = required("margin").toDouble(),
-        boardSize = required("boardSize").toInt(),
-        fps = required("fps").toDouble(),
-        cropParams = CropParams(padUp = required("padUp").toDouble(), padSide = required("padSide").toDouble()),
+        corners = scan.corners,
+        margin = scan.margin,
+        boardSize = scan.boardSize,
+        fps = scan.fps,
+        // The MODEL's declaration, the same source `withCropOf` serves the live tracker from —
+        // never a harness default (specs/41). A model that declares no crop cannot be labeled
+        // against filmed footage, because the pixels it would be served are pixels nobody chose.
+        cropParams =
+            CropParams(
+                padUp = requireNotNull(spec.padUp) { "model '$DEFAULT_MODEL' declares no crop — label with one that does" },
+                padSide = requireNotNull(spec.padSide) { "model '$DEFAULT_MODEL' declares no crop — label with one that does" },
+            ),
     )
+}
 
-private fun cornersOf(spec: String): List<DoubleArray> {
-    val numbers = spec.split(",").map { it.trim().toDouble() }
-    require(numbers.size == CORNER_NUMBERS) {
-        "corners wants $CORNER_NUMBERS numbers — a8x,a8y,h8x,h8y,h1x,h1y,a1x,a1y — got ${numbers.size}"
-    }
-    return numbers.chunked(2) { doubleArrayOf(it[0], it[1]) }
+/** The shipped default model's own `config.json`, read from the committed app assets. */
+private fun shippedModelSpec(): ModelSpec {
+    val config = File(repoRoot(), "android/app/src/main/assets/cnn_model/$DEFAULT_MODEL/config.json")
+    return ModelSpec.parse(config.readText())
 }
 
 /** A committed clip, driven as if nobody knew its moves. */

@@ -24,6 +24,16 @@ private const val BGR_CHANNELS = 3
 internal fun forEachFrame(
     video: File,
     body: (Int, Mat) -> Unit,
+): Int = forEachFrameTimed(video) { index, mat, _ -> body(index, mat) }
+
+/**
+ * [forEachFrame] plus each frame's presentation timestamp in ms of VIDEO time — what the
+ * geometry scan's clock check consumes (a variable-rate source makes every wall-clock knob mean
+ * a different number of seconds in every second of the video).
+ */
+internal fun forEachFrameTimed(
+    video: File,
+    body: (Int, Mat, Double) -> Unit,
 ): Int {
     val grabber = FFmpegFrameGrabber(video)
     // Asked for explicitly: the default depends on the stream, and every consumer below (warp,
@@ -36,8 +46,9 @@ internal fun forEachFrame(
     try {
         while (true) {
             val frame = grabber.grabImage() ?: break
+            val timestampMs = grabber.timestamp / MICROS_PER_MS
             buffer = copyInto(frame, mat, buffer)
-            body(index, mat)
+            body(index, mat, timestampMs)
             index += 1
         }
     } finally {
@@ -47,6 +58,18 @@ internal fun forEachFrame(
     }
     return index
 }
+
+/** The container's frame rate — the virtual clock every replay timestamp is derived from. */
+internal fun videoFps(video: File): Double {
+    val grabber = FFmpegFrameGrabber(video)
+    grabber.start()
+    val fps = grabber.frameRate
+    grabber.stop()
+    grabber.release()
+    return fps
+}
+
+private const val MICROS_PER_MS = 1000.0
 
 /**
  * FFmpeg's row-padded plane -> a tightly packed [Mat]. `imageStride` is in bytes for BGR24 and is
