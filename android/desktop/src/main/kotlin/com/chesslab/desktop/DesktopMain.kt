@@ -9,6 +9,7 @@ import com.chesslab.geometry.alignmentOf
 import com.chesslab.geometry.cornersFromFlat
 import com.chesslab.geometry.toModel
 import com.chesslab.tracker.camera.CameraHealth
+import com.chesslab.tracker.cnn.DEFAULT_MODEL
 import com.chesslab.tracker.geometry.LensLoad
 import com.chesslab.tracker.geometry.LensMode
 import com.chesslab.tracker.geometry.boardGeometryFor
@@ -70,6 +71,8 @@ fun main(args: Array<String>) {
                 video.name,
                 watch = mode != "quiet" && mode != "dump",
                 lens = fitted,
+                withCnn = !args.contains("nocnn"),
+                model = modelArg(args),
                 dumpEvery = if (mode == "dump") DUMP_EVERY else 0,
             )
         }
@@ -149,6 +152,9 @@ private fun locateBoard(
     }
     return null
 }
+
+/** `model=<name>` picks one of the bundled graphs; the default is what the phone ships. */
+private fun modelArg(args: Array<String>): String = args.firstOrNull { it.startsWith("model=") }?.removePrefix("model=") ?: DEFAULT_MODEL
 
 /**
  * The lens, measured from the board this video is of.
@@ -367,7 +373,8 @@ private fun usage(): Nothing {
         "  cameras                    what is attached, as the driver reports it",
         "  calibrate <camera-index>   fit the lens from the board's own grid lines",
         "  align <camera-index> [raw] measure the board against its grid; 'raw' skips the lens",
-        "  replay <video.mp4> [quiet|dump] [lens]   drive a recorded clip through the tracker",
+        "  replay <video.mp4> [quiet|dump] [lens] [nocnn] [model=<name>]",
+        "                             drive a recorded clip through the shipping tracker",
         "                             add 'lens' to fit the optics from the board first",
         "  track <camera-index> [quiet]  the same, live",
         "",
@@ -385,6 +392,8 @@ private fun replay(
     watch: Boolean = true,
     dumpEvery: Int = 0,
     lens: LensModel? = null,
+    withCnn: Boolean = true,
+    model: String = DEFAULT_MODEL,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val console: TrackerLogs = { tag -> ConsoleLog(tag) }
@@ -417,6 +426,8 @@ private fun replay(
         val config = TrackerConfig().copy(boardSize = geometry.boardSize)
         println("board located from its markers: ${geometry.boardSize} px warp")
         val publisher = StatusPublisher(scope)
+        val cnn = if (withCnn) openDesktopCnn(model, console("chesslabCnn")) else null
+        if (!withCnn) println("cnn: off — the engine will use its no-observation occlusion fallback")
         val frameClock = FrameClock(source.fps, live = camera != null)
         // Held here rather than read back off the stack: `TrackerStack` takes the bus as a
         // constructor argument and does not expose it, and widening a shared seam for one host's
@@ -453,7 +464,11 @@ private fun replay(
                 bus,
                 StageTimings(logLine = { println("chesslabPerf: $it") }),
                 scope,
-                { error("no classifier on the desktop yet — the diff path runs without one") },
+                // With a CNN the engine arbitrates occlusion per square; without one
+                // `Taint.cnnOcclusionFilter` falls back to ">2 changed squares = a hand", which is
+                // a different tracker. `nocnn` runs that fallback ON PURPOSE, so the two can be
+                // compared instead of one being mistaken for the other.
+                cnn ?: { error("running without a CNN — the engine uses its occlusion fallback") },
             )
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
         val frames = drive(source, stack, bus, publisher, view, frameClock, dumpEvery)
