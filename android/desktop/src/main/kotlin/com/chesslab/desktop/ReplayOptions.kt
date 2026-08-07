@@ -33,6 +33,16 @@ class ReplayOptions(
     val cnn: Boolean = true,
     /** Which bundled graph, when [cnn] is on. */
     val model: String = DEFAULT_MODEL,
+    /**
+     * Drop `requireMotionForMove`.
+     *
+     * That gate refuses any candidate unless ROI motion was seen since the last reference —
+     * "drift/light, not a real move". It has silenced a whole session before: `TrackerEngine`
+     * records finding it live on 2026-08-01 with the deterministic channel committing nothing all
+     * session. It rejects WITHOUT setting a stuck reason, so a run blocked by it looks like a run
+     * with nothing to say, which is why this needs to be switchable to be ruled in or out.
+     */
+    val motionGate: Boolean = true,
 ) {
     companion object {
         /** Every word after the verb and its subject. Unknown words are an error, not a shrug. */
@@ -43,10 +53,22 @@ class ReplayOptions(
                     when {
                         word == "quiet" -> options.copy(watch = false)
                         word == "dump" -> options.copy(watch = false, dumpEvery = DUMP_EVERY)
+                        word.startsWith("dump=") ->
+                            options.copy(
+                                watch = false,
+                                dumpEvery =
+                                    word.removePrefix("dump=").toIntOrNull()
+                                        ?: error("dump= wants a frame count, got '$word'"),
+                            )
                         word == "lens" -> options.copy(lens = true)
                         word == "nocnn" -> options.copy(cnn = false)
+                        word == "nomotion" -> options.copy(motionGate = false)
                         word.startsWith("model=") -> options.copy(model = word.removePrefix("model="))
-                        else -> error("unknown option '$word' (quiet | dump | lens | nocnn | model=<name>)")
+                        else ->
+                            error(
+                                "unknown option '$word' " +
+                                    "(quiet | dump | dump=<n> | lens | nocnn | nomotion | model=<name>)",
+                            )
                     }
             }
             return options
@@ -59,12 +81,19 @@ class ReplayOptions(
         lens: Boolean = this.lens,
         cnn: Boolean = this.cnn,
         model: String = this.model,
-    ) = ReplayOptions(watch, dumpEvery, lens, cnn, model)
+        motionGate: Boolean = this.motionGate,
+    ) = ReplayOptions(watch, dumpEvery, lens, cnn, model, motionGate)
 
     override fun toString(): String =
         "watch=$watch dump=${if (dumpEvery > 0) dumpEvery else "off"} " +
-            "lens=$lens cnn=${if (cnn) model else "off"}"
+            "lens=$lens cnn=${if (cnn) model else "off"} motionGate=$motionGate"
 }
 
-/** Frames between dumps. Every 150 is ~5 s at 30 fps and ~2.5 s at 60 — enough to follow a move. */
+/**
+ * Frames between dumps by default.
+ *
+ * 150 is ~5 s at 30 fps, which follows a game and is useless for a move: the run that mattered
+ * had a perfect read of `e2e4` at frame 150 and six changed squares by 300, so whatever went
+ * wrong went wrong inside one interval. `dump=<n>` is for looking there.
+ */
 private const val DUMP_EVERY = 150

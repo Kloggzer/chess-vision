@@ -334,7 +334,7 @@ private fun replay(
         // into a process waiting forever for a key nobody will press.
         val view = if (options.watch) TrackerView.openOrNull("chesslab — $name") else null
         if (options.watch && view == null) println("no display: running without the board view")
-        val stack = buildStack(geometry, frameClock, optics, bus, publisher, cnn, console, scope)
+        val stack = buildStack(geometry, options, frameClock, optics, bus, publisher, cnn, console, scope)
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
         val frames = drive(source, stack, bus, publisher, view, frameClock, options.dumpEvery)
         println("tracked $frames frames of $name at ${"%.2f".format(source.fps)} fps")
@@ -348,6 +348,7 @@ private fun replay(
 @Suppress("LongParameterList")
 private fun buildStack(
     geometry: BoardGeometry,
+    options: ReplayOptions,
     clock: FrameClock,
     optics: Undistorter?,
     bus: CameraFrameBus<BufferedImage>,
@@ -361,7 +362,11 @@ private fun buildStack(
             // NOT a preference and not a real default: `measuredBoardSize` clamps to 320..1280, so
             // a config still carrying the 1600 placeholder disagrees with every plane the warp
             // produces and `FrameLoop.step` refuses them, one silently dropped frame at a time.
-            config = TrackerConfig().copy(boardSize = geometry.boardSize),
+            config =
+                TrackerConfig().copy(
+                    boardSize = geometry.boardSize,
+                    requireMotionForMove = options.motionGate,
+                ),
             geometry = { geometry },
             corners = null,
             startFen = STARTPOS,
