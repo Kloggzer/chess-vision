@@ -105,6 +105,8 @@ fun DebugDecision.toLogLine(): String {
         if (occludedVetoed.isNotEmpty()) append(" occlVeto=${occludedVetoed.joinToString(",")}")
         append(" motion=${pyFixed(motion, MOTION_DP)} grid=${pyFixed(gridCoverage, 2)}")
         append(" cnn=${if (cnnRun) "run" else "off"} cnnAgree=${pyFixed(cnnAgreement, AGREEMENT_DP)}")
+        // Without these, `cnnAgree=0.000` cannot be told from "never asked" — see `EngineState`.
+        append(" cnnReads=$cnnReadsTaken/$cnnReadsStale")
         cnnBestMove?.let { append(" cnnMove=$it") }
         stuckReason?.let { append(" stuck=$it") }
         verifyOutcome?.let { append(" verify=$it") }
@@ -162,6 +164,8 @@ internal fun EngineState.recordRejection(
             motion = motion,
             cnnRun = cnnRun,
             cnnAgreement = cnnAgreement,
+            cnnReadsTaken = cnnReadsTaken,
+            cnnReadsStale = cnnReadsStale,
             cnnBestMove = cnnBestMove,
             stuckReason = stuckReason,
             verifyOutcome = pending?.voteOutcome,
@@ -250,6 +254,8 @@ internal fun DecisionRecord.toDebugDecision(): DebugDecision =
         motion = motion,
         cnnRun = cnnRun,
         cnnAgreement = cnnAgreement,
+        cnnReadsTaken = cnnReadsTaken,
+        cnnReadsStale = cnnReadsStale,
         cnnBestMove = cnnBestMove,
         stuckReason = stuckReason,
         verifyOutcome = verifyOutcome,

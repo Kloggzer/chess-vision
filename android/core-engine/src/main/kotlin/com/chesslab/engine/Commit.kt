@@ -237,6 +237,8 @@ internal fun EngineState.recordDecision(
             motion = roundTo(motion, ROUND_2),
             cnnRun = cnnRun,
             cnnAgreement = roundTo(cnnAgreement, ROUND_3),
+            cnnReadsTaken = cnnReadsTaken,
+            cnnReadsStale = cnnReadsStale,
             cnnBestMove = cnnBestMove,
             // Captured HERE, not read off the state when the debug screen renders: by then the
             // commit has cleared both and every historic row would show the newest values.

@@ -131,6 +131,9 @@ data class DecisionRow(
     val motion: Double,
     val cnnRun: Boolean,
     val cnnAgreement: Double,
+    /** See `DebugDecision`: without these, `cnnAgreement = 0.0` is three faults with one number. */
+    val cnnReadsTaken: Long,
+    val cnnReadsStale: Long,
     val cnnBestMove: String?,
     val stuckReason: String?,
     val verifyOutcome: String?,
@@ -162,6 +165,8 @@ internal fun DebugDecision.toRow(seq: Long): DecisionRow =
         motion = motion,
         cnnRun = cnnRun,
         cnnAgreement = cnnAgreement,
+        cnnReadsTaken = cnnReadsTaken,
+        cnnReadsStale = cnnReadsStale,
         cnnBestMove = cnnBestMove,
         stuckReason = stuckReason,
         verifyOutcome = verifyOutcome,

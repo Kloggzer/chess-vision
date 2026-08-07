@@ -347,6 +347,22 @@ internal class EngineState(
     var cnnStatus: String? = null // `cnn_status`: null | "ok" | "mismatch"
     var cnnConflicts: List<String> = emptyList() // `cnn_conflicts`
     var cnnAgreement: Double = 0.0 // `_cnn_agreement`
+
+    /**
+     * How many CNN reads have been taken, and how many were thrown away as stale.
+     *
+     * [cnnAgreement] alone cannot be read: 0.0 means "the model disagreed on every square",
+     * "the model was never asked", and "it was asked but the board moved on before the answer
+     * could be stored" — three different faults with one number. `DebugPayload` records that
+     * ambiguity for the `cnnRun` flag and it is just as true here. A run that commits nothing
+     * with `cnnAgree=0.000` is a different investigation depending on which of the three it is.
+     *
+     * Counted at the point the read EXISTS, before the freshness check, so `taken` is the model's
+     * work and `stale` is how much of it arrived too late to be used.
+     */
+    var cnnReadsTaken: Long = 0L
+
+    var cnnReadsStale: Long = 0L
     var cnnBestMove: String? = null // `_cnn_best_move`
 
     /** `_alarm` — the latch. Non-null freezes noise learning and blocks every commit (invariant 9). */
@@ -463,6 +479,9 @@ internal data class DecisionRecord(
     val motion: Double,
     val cnnRun: Boolean,
     val cnnAgreement: Double,
+    /** Carried through to `DebugDecision`, where the reason they exist is written down. */
+    val cnnReadsTaken: Long,
+    val cnnReadsStale: Long,
     val cnnBestMove: String?,
     // Provenance the debug screen needs and Python does not record. Defaulted, so the existing
     // construction sites keep their exact shape; `accepted = false` marks a REJECTED candidate,

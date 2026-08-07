@@ -770,6 +770,8 @@ internal fun EngineState.clearAlarm(logReason: String?): List<TrackerEvent> {
             motion = motion,
             cnnRun = cnnRun,
             cnnAgreement = cnnAgreement,
+            cnnReadsTaken = cnnReadsTaken,
+            cnnReadsStale = cnnReadsStale,
             cnnBestMove = cnnBestMove,
         ),
     )

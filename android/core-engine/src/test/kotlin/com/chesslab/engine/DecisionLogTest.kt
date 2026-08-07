@@ -49,8 +49,27 @@ class DecisionLogTest {
             motion = 0.0,
             cnnRun = false,
             cnnAgreement = 0.0,
+            cnnReadsTaken = 0L,
+            cnnReadsStale = 0L,
             cnnBestMove = null,
         )
+
+    /**
+     * `cnnAgree=0.000` alone is three different faults — disagreed everywhere, never asked, or
+     * asked too late. The line has to carry which, or a run that commits nothing sends the reader
+     * in three directions at once.
+     */
+    @Test
+    fun theLogLineSeparatesAModelThatDisagreedFromOneThatWasNeverAsked() {
+        val neverAsked = record(0).toDebugDecision().copy(cnnAgreement = 0.0, cnnReadsTaken = 0L)
+        val disagreed = record(0).toDebugDecision().copy(cnnAgreement = 0.0, cnnReadsTaken = 57L, cnnReadsStale = 3L)
+        assertTrue("cnnReads=0/0" in neverAsked.toLogLine(), neverAsked.toLogLine())
+        assertTrue("cnnReads=57/3" in disagreed.toLogLine(), disagreed.toLogLine())
+        assertTrue(
+            neverAsked.toLogLine() != disagreed.toLogLine(),
+            "two different faults must not render identically",
+        )
+    }
 
     @Test
     fun decisionLogIsRingCappedAt64() {

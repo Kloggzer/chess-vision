@@ -67,6 +67,18 @@ data class DebugDecision(
     // `cnnAgreement = 0.0` reads the same whether the model disagreed or was never attached.
     val cnnRun: Boolean,
     val cnnAgreement: Double,
+    /**
+     * Reads taken and reads discarded as stale — what makes [cnnAgreement] readable at all.
+     *
+     * `cnnAgreement = 0.0` means three different things: the model disagreed everywhere, it was
+     * never asked, or it was asked and the board moved on before the answer could be stored. One
+     * number for three faults sends an investigation in three directions; a run that commits
+     * nothing at `cnnAgree=0.000` is a different problem in each case. Counted where the read
+     * exists, before the freshness check, so `taken` is the model's work and `stale` is how much
+     * of it arrived too late to use.
+     */
+    val cnnReadsTaken: Long = 0L,
+    val cnnReadsStale: Long = 0L,
     val cnnBestMove: String?,
     val stuckReason: String?,
     // the multi-glance vote outcome that led here (entry.md invariant 13)

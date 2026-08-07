@@ -44,8 +44,10 @@ internal fun EngineState.cnnTick(
     val hasIdentity = Squares.ALL.any { obs.label(it) != null }
     val read = if (hasIdentity) identityRead(cnn, obs) else occupancyRead(cnn, obs)
     lastCnnTs = nowS
+    cnnReadsTaken += 1
     if (board.fen() != snap.fen) {
         // The state moved on while we looked — the reading describes a position we no longer hold.
+        cnnReadsStale += 1
         recoveryConfirmer.reset()
         return emptyList()
     }
