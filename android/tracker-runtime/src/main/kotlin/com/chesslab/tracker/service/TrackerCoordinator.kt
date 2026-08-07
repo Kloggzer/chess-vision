@@ -207,11 +207,16 @@ class LiveAlign(
      * Measuring here rather than carrying the value from the calibration screen also means it is
      * re-established after an app restart, where the screen never runs.
      *
-     * The cost is NOT the ~80 ms this KDoc used to quote: that was the 4-band, 14-line, affine
-     * version. specs/41 took it to 8 bands over 18 lines with 4 iterations and a projective fit,
-     * which measures 70-85 ms at boardSize 800 on a desktop and has NOT been measured on device.
-     * Whatever it is, it is a once-per-pose cost on a background dispatcher; do not quote a number
-     * here that nobody took.
+     * **It costs ~500 ms, and that is measured.** On the dev machine at boardSize 1248, `improveQuad`
+     * alone reads 412-432 ms and the whole `quadOf` around it 625 ms (medians, 2026-08-07). This
+     * KDoc previously said "70-85 ms at boardSize 800", which even scaled by area would be ~200 ms
+     * — the real figure is roughly triple. It has still NOT been measured on device, where it will
+     * be slower.
+     *
+     * Half a second is why the dispatcher on this class is a parameter: for months this ran on the
+     * phone's UI thread, because `TrackerStack` inherited `lifecycleScope`'s `Main.immediate` and
+     * only the desktop passed anything else. A once-per-pose cost on a background dispatcher is
+     * fine; the same cost on the main thread is a visible freeze that nothing reported.
      *
      * The correction lives in rectified space, which is what lets it transfer to a quad it was not
      * measured on — the whole live case, since the markers move a little between detections.
