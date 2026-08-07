@@ -84,6 +84,11 @@ android {
             // from. A re-render (e.g. at phone resolution) lives in its own directory and is
             // selected here, so the fixtures are never overwritten; see SimClips.simClipDir.
             it.systemProperty("chesslab.sim.clips", providers.gradleProperty("chesslab.sim.clips").getOrElse(""))
+            // Run the 18 clips with the SHIPPED TrackerConfig() instead of each clip's recorded
+            // effectiveConfig. A second judgment, not a replacement: the default mode checks the
+            // port against Python, this one measures the values we actually ship (which nothing
+            // evaluated before — see TrackerConfig.kt's header). Report-only, never a gate.
+            it.systemProperty("chesslab.sim.defaults", providers.gradleProperty("chesslab.sim.defaults").getOrElse("false"))
             // A real UCI engine for ReviewDepthMeasurementTest, which measures how many plies change
             // class between the live eval bar's budget and the review pass's. Empty = skipped: the
             // answer is a property of Stockfish on the machine it runs on, and a scripted process

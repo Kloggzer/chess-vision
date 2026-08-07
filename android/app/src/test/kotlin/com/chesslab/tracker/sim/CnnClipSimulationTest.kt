@@ -39,6 +39,9 @@ import java.io.File
  * `-Pchesslab.sim.models=data/models/tiny-p3,data/models/tiny-light` compares several runs in one
  * pass (default: the bundled assets). The diff-only baseline is model-independent and is replayed
  * ONCE, so every model is scored against the identical reference.
+ *
+ * `-Pchesslab.sim.defaults=true` swaps each clip's recorded `effectiveConfig` for the shipped
+ * `TrackerConfig()` — the run that measures the defaults instead of the port. Report-only.
  */
 @EnabledIfSystemProperty(named = "chesslab.sim", matches = "true")
 class CnnClipSimulationTest {
@@ -176,11 +179,16 @@ private fun assertHarnessRan(results: List<Pair<SimResult, SimResult>>) {
  * (`-Pchesslab.sim.clips=…`) has no Python reference, so its diff-only rate is a MEASUREMENT of the
  * new pixels and is reported instead of asserted. Failing there would only mean "these clips are
  * not those clips".
+ *
+ * The same holds for `-Pchesslab.sim.defaults=true`: the Python full-rate premise is a property of
+ * the recorded `effectiveConfig`, so a run under the shipped defaults has no reference either — its
+ * rate is the measurement the mode exists to produce (see [usingShippedDefaults]).
  */
 private fun assertBaselineReproducesGroundTruth(baselines: List<SimResult>) {
     val failed = baselines.filterNot { it.ok }
-    if (!usingDefaultClips()) {
-        println("\ndiff-only baseline on the alternate clip set: ${baselines.size - failed.size}/${baselines.size}")
+    if (!usingDefaultClips() || usingShippedDefaults()) {
+        val judged = if (usingShippedDefaults()) "under shipped TrackerConfig() defaults" else "on the alternate clip set"
+        println("\ndiff-only baseline $judged: ${baselines.size - failed.size}/${baselines.size}")
         failed.forEach { println("    baseline FAIL ${it.clip}: ${it.firstDivergence()}") }
         return
     }

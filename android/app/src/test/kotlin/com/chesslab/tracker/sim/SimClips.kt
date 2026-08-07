@@ -58,6 +58,25 @@ internal fun simClipDir(root: File): File {
 /** True when the run reads the committed fixture clips — the only set with a proven Python baseline. */
 internal fun usingDefaultClips(): Boolean = clipDirProperty().isEmpty()
 
+/**
+ * `-Pchesslab.sim.defaults=true` — run the catalogue with the SHIPPED `TrackerConfig()` instead of
+ * each clip's recorded `effectiveConfig`.
+ *
+ * The two modes answer different questions and neither replaces the other: the default mode asks
+ * "does the port run like Python" (only meaningful against `effectiveConfig` — see the note on
+ * [simClipDir]), this one asks "are the values we ship any good". Until it existed, no shipped
+ * default was evaluated by anything (`TrackerConfig.kt`'s header proves it with `motionHoldS =
+ * 5.00`); a green suite said nothing about e.g. `occlusionColorThr` 3.0 shipped vs 1.5 in every
+ * fixture. Under this flag the run is a MEASUREMENT, not a gate — the baseline assertion is
+ * replaced by a report, because a divergence here is a statement about the defaults, not a port
+ * bug.
+ */
+internal fun usingShippedDefaults(): Boolean =
+    System
+        .getProperty("chesslab.sim.defaults")
+        .orEmpty()
+        .trim() == "true"
+
 private fun clipDirProperty(): String =
     System
         .getProperty("chesslab.sim.clips")
@@ -153,6 +172,7 @@ internal fun simClips(): List<SimClip> {
     return index.getValue("clips").jsonArray.map { it.jsonPrimitive.content }.map { name ->
         val labels = Json.parseToJsonElement(File(clipDir, "$name.labels.json").readText()).jsonObject
         val meta = Json.parseToJsonElement(File(parity, "$name/meta.json").readText()).jsonObject
+        val boardSize = labels.getValue("board_size").jsonPrimitive.int
         SimClip(
             name = name,
             video = File(clipDir, "$name.mp4"),
@@ -163,13 +183,22 @@ internal fun simClips(): List<SimClip> {
                 },
             geometry =
                 BoardGeometry(
-                    boardSize = labels.getValue("board_size").jsonPrimitive.int,
+                    boardSize = boardSize,
                     // A Blender clip has no `margin` key and must keep reading 0.0; a real clip's
                     // entry carries the profile's value, which is what makes its warp right.
                     margin = margins4(labels["margin"]?.jsonPrimitive?.double ?: 0.0),
                 ),
             fps = meta.getValue("fps").jsonPrimitive.double,
-            config = trackerConfigOf(meta.getValue("effectiveConfig").jsonObject),
+            config =
+                if (usingShippedDefaults()) {
+                    // `boardSize` is the one field the clip keeps even here: it is measured
+                    // geometry, not a preference — the app copies the calibration's value in the
+                    // same way, and `FrameLoop.step` refuses a plane whose size disagrees with its
+                    // boxes (see TrackerConfig.kt on the 1600 placeholder).
+                    TrackerConfig(boardSize = boardSize)
+                } else {
+                    trackerConfigOf(meta.getValue("effectiveConfig").jsonObject)
+                },
             truth =
                 SimTruth(
                     sans = labels.getValue("san").jsonArray.map { it.jsonPrimitive.content },

@@ -5,14 +5,17 @@ package com.chesslab.engine.api
 // from the tracker.py constructor signature, which disagrees on occlusionColorThr
 // (constructor 1.5, TRACK_DEFAULTS 3.0). TRACK_DEFAULTS WINS.
 //
-// **No default here is measured by `:app:testDebugUnitTest -Pchesslab.sim=true`.** The 18-clip
-// simulation builds its config field-for-field out of each clip's recorded `effectiveConfig`
-// (`sim/SimClips.kt`), and all 18 fixtures still record the values Python ran with — motionHoldS
-// 0.34, cnnCooldownS 2.0, cnnCheckIntervalS 10.0. Proven on 2026-08-02 by setting `motionHoldS`
-// to 5.00, a value that would freeze the tracker for longer than most clips run, and re-running:
-// the 18 diff-only baselines and all six CNN-arm divergences came back byte-identical. So a green
-// suite is not evidence for a default, it is evidence that the default was never in play. Retune
-// against the live device or against a physical argument, and say which in the comment.
+// **No default here is measured by a plain `:app:testDebugUnitTest -Pchesslab.sim=true`.** The
+// 18-clip simulation builds its config field-for-field out of each clip's recorded
+// `effectiveConfig` (`sim/SimClips.kt`), and all 18 fixtures still record the values Python ran
+// with — motionHoldS 0.34, cnnCooldownS 2.0, cnnCheckIntervalS 10.0. Proven on 2026-08-02 by
+// setting `motionHoldS` to 5.00, a value that would freeze the tracker for longer than most clips
+// run, and re-running: the 18 diff-only baselines and all six CNN-arm divergences came back
+// byte-identical. So a green suite is not evidence for a default, it is evidence that the default
+// was never in play. Since 2026-08-07 adding `-Pchesslab.sim.defaults=true` runs the same clips
+// WITH these defaults (report-only, no gate) — that run is the one that puts a value here in
+// play. Retune against that measurement, the live device, or a physical argument, and say which
+// in the comment.
 data class TrackerConfig(
     val motionThr: Double = 0.25,
     val motionPxThr: Double = 20.0,
