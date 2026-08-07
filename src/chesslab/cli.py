@@ -32,6 +32,11 @@ app.add_typer(lens_app, name="lens")
 collect_app = typer.Typer(help="Stage 3 — Capture positions (raw frame + FEN into session log).", no_args_is_help=True)
 app.add_typer(collect_app, name="collect")
 
+session_app = typer.Typer(
+    help="Recorded sessions: geometry repair, frame flagging, lifecycle.",
+    no_args_is_help=True)
+app.add_typer(session_app, name="session")
+
 dataset_app = typer.Typer(help="Stage 4 — Dataset consistency.", no_args_is_help=True)
 app.add_typer(dataset_app, name="dataset")
 
@@ -257,6 +262,177 @@ def ui_cmd(
     from .collect_ui import run_ui
 
     raise typer.Exit(run_ui(sessions_dir=sessions, manifest=manifest, target_per_class=target))
+
+
+# `session` — everything that edits a recorded session before it is sliced.
+#
+# `slice` warps every crop through the `corners` of its log row, so these commands decide where
+# the 64 crops of a frame actually get cut. They lived only in the web UI until 2026-08-07, which
+# is why `docs/data-pipeline.md` §12 — the corpus-wide geometry repair that moved the empty-crop
+# margin 5.5x — reads as a browser session rather than a command.
+#
+# Placing corners BY HAND is deliberately absent: it needs an image to click on, and it comes
+# back with the new web UI. `adopt` covers the common case (one frame of a static sweep lost a
+# marker while the others kept it) and `autofix` the next one.
+
+
+@session_app.command("list")
+def session_list() -> None:
+    """Active and archived sessions: frames, crops, mode, review state."""
+    from . import sessions as sessions_mod
+
+    rows = sessions_mod.list_sessions()
+    if not rows:
+        print("No sessions.")
+        return
+    print(f"{'session':24} {'frames':>7} {'crops':>7}  {'mode':10} {'state'}")
+    for r in rows:
+        state = "archived" if r["archived"] else ("reviewed" if r["reviewed"] else "-")
+        variant = f" [{r['variant']}]" if r.get("variant") else ""
+        print(f"{r['session_id']:24} {r['n_frames']:>7} {r['n_crops']:>7}  "
+              f"{str(r['mode'] or '-'):10} {state}{variant}")
+
+
+@session_app.command("scan")
+def session_scan(
+    session: str = typer.Argument(..., help="Session ID."),
+) -> None:
+    """Measure every frame's worst square offset and store it as `align_worst_px`.
+
+    The verdict is absolute, not self-referential: it fits the board's own nine grid lines per
+    axis and reports how far the worst square edge sits from its groove. Run this before
+    `autofix` to see whether a session needs repairing at all.
+    """
+    from . import sessions as sessions_mod
+
+    r = _session_call(sessions_mod.scan_alignment, session)
+    med, mx = r["median"], r["max"]
+    print(f"[OK] {r['measured']}/{r['of']} frames measured — "
+          f"median {med if med is not None else '-'} px, max {mx if mx is not None else '-'} px")
+    print(f"     backup: {r['backup']}")
+
+
+@session_app.command("autofix")
+def session_autofix(
+    session: str = typer.Argument(..., help="Session ID."),
+    max_off: float = typer.Option(9.0, "--max-off",
+                                  help="Only re-fit frames worse than this, in rectified px."),
+) -> None:
+    """Pull every badly aligned frame's quad back onto the board's own grid.
+
+    Two rules keep this from doing harm. A frame already within `--max-off` is NOT touched:
+    inside the noise band the fit chases measurement noise and makes it worse. And a correction
+    that does not improve its own frame is discarded rather than written. Repaired rows are
+    marked `corners_source: auto-corrected`, so measured and computed geometry stay
+    distinguishable afterwards.
+    """
+    from . import sessions as sessions_mod
+
+    r = _session_call(sessions_mod.autofix_corners, session, max_off)
+    print(f"[OK] {r['checked']} frames checked, {r['over_threshold']} over {r['max_off']} px, "
+          f"{r['changed']} corrected, {r['refused']} refused")
+    for i, (before, after) in zip(r.get("indices", []), r.get("gains", []), strict=True):
+        print(f"     frame {i}: {before} → {after} px")
+    if r["backup"]:
+        print(f"     backup: {r['backup']}")
+
+
+@session_app.command("adopt")
+def session_adopt(
+    session: str = typer.Argument(..., help="Session ID."),
+    from_index: int = typer.Option(None, "--from",
+                                   help="Row to copy the quad from (default: the most agreed one)."),
+    scope: str = typer.Option("missing", "--scope", help="missing | all | frame"),
+    overwrite: bool = typer.Option(False, "--overwrite",
+                                   help="Replace corners that were already measured."),
+) -> None:
+    """Copy a quad that WAS detected in this session into the rows that have none.
+
+    The default source is the quad the most other rows agree with, not the nearest one — a
+    single bumped frame must not become the template for a whole session. Written rows say
+    `adopted` and name the row it came from.
+    """
+    from . import sessions as sessions_mod
+
+    r = _session_call(sessions_mod.adopt_corners, session, from_index, scope, overwrite)
+    print(f"[OK] {r['changed']} rows adopted the quad from row {r['from_index']} "
+          f"(scope={r['scope']})")
+    print(f"     backup: {r['backup']}")
+
+
+@session_app.command("flag")
+def session_flag(
+    session: str = typer.Argument(..., help="Session ID."),
+    index: int = typer.Argument(..., help="Frame index in log.jsonl."),
+    usable: bool = typer.Option(False, "--usable/--unusable",
+                                help="Clear the flag instead of setting it."),
+) -> None:
+    """Mark one frame unusable (or usable again). `slice` skips flagged frames."""
+    from . import sessions as sessions_mod
+
+    r = _session_call(sessions_mod.flag_frame, session, index, not usable)
+    print(f"[OK] {r['session_id']} frame {r['index']}: "
+          f"unusable={'yes' if r['unusable'] else 'no'}")
+
+
+@session_app.command("archive")
+def session_archive(
+    session: str = typer.Argument(..., help="Session ID."),
+    reason: str = typer.Option(..., "--reason",
+                               help="Why it is being parked. Recorded beside the session."),
+) -> None:
+    """Park a session: its crops and manifest rows leave the pool, the frames stay.
+
+    Reversible with `restore` plus a re-slice. The reason is required because `data/` is
+    gitignored and a parked session with no recorded motive is a question nobody can answer
+    later.
+    """
+    from . import sessions as sessions_mod
+
+    r = _session_call(sessions_mod.archive_session, session, reason)
+    print(f"[OK] archived {session} — {r.get('removed_crops', 0)} crops left the pool")
+
+
+@session_app.command("restore")
+def session_restore(
+    session: str = typer.Argument(..., help="Session ID."),
+) -> None:
+    """Bring an archived session back. Re-slice afterwards to put its crops in the pool."""
+    from . import sessions as sessions_mod
+
+    _session_call(sessions_mod.restore_session, session)
+    print(f"[OK] restored {session} — run `chesslab slice --session {session}` to re-slice")
+
+
+@session_app.command("trim")
+def session_trim(
+    session: str = typer.Argument(..., help="Session ID."),
+    keep: int = typer.Option(..., "--keep", help="Number of frames to keep, from the start."),
+) -> None:
+    """Drop the tail of a session, with its crops and manifest rows."""
+    from . import sessions as sessions_mod
+
+    r = _session_call(sessions_mod.trim_session, session, keep)
+    print(f"[OK] {session} trimmed to {keep} frames — "
+          f"{r.get('removed_frames', 0)} frames, {r.get('removed_crops', 0)} crops removed")
+
+
+def _session_call(fn, *args):
+    """Run a `sessions` operation, turning its errors into a message and an exit code.
+
+    `NothingToDo` is separated from the rest on purpose: "every row already has corners" is not
+    a mistake, it is an answer, and it should not read like a crash.
+    """
+    from .sessions import NothingToDo
+
+    try:
+        return fn(*args)
+    except NothingToDo as e:
+        print(f"[--] {e}")
+        raise typer.Exit(0) from e
+    except (ValueError, FileNotFoundError) as e:
+        print(f"[ERR] {e}")
+        raise typer.Exit(1) from e
 
 
 @app.command("slice")

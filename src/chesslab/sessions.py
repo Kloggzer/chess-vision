@@ -681,14 +681,16 @@ def autofix_corners(session_id: str, max_off: float = 9.0) -> dict:
         rows[i]["corners_source"] = "auto-corrected"
         changed.append(i)
         gains.append((round(before, 1), round(after, 1)))
-    if not changed:
-        return {"session_id": session_id, "checked": len(rows), "over_threshold": len(targets),
-                "changed": 0, "refused": refused, "backup": None}
-    backup = backup_log(sdir / "log.jsonl")
-    stamp = datetime.now(UTC).isoformat()
-    for i in changed:
-        rows[i]["corners_set_at"] = stamp
-    _write_log(sdir, rows)
+    # ONE shape, whatever happened. The router version returned a shorter dict when nothing
+    # changed, which no caller noticed because the UI read it defensively — and which broke the
+    # first CLI call that trusted the keys to be there.
+    backup = None
+    if changed:
+        backup = backup_log(sdir / "log.jsonl")
+        stamp = datetime.now(UTC).isoformat()
+        for i in changed:
+            rows[i]["corners_set_at"] = stamp
+        _write_log(sdir, rows)
     return {"session_id": session_id, "checked": len(rows), "over_threshold": len(targets),
             "changed": len(changed), "refused": refused, "indices": changed,
             "gains": gains, "backup": backup, "max_off": max_off}
