@@ -17,7 +17,9 @@ import com.chesslab.tracker.pipeline.FramePipeline
 import com.chesslab.tracker.pipeline.FrameResult
 import com.chesslab.tracker.pipeline.Stage
 import com.chesslab.tracker.pipeline.StageTimings
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.opencv.core.Mat
 import java.util.concurrent.atomic.AtomicReference
@@ -114,8 +116,17 @@ class TrackerCoordinator<T>(
  * ArUco re-detection, off the frame thread.
  *
  * Commit 4a7609e measured it at 44-87 ms every 300 ms *on the analyzer thread* — the "recorder
- * spikes" that were blamed on recording for weeks. Here it runs on a background dispatcher with
- * at most one detection in flight, and the corners it produces are picked up by the NEXT frame.
+ * spikes" that were blamed on recording for weeks. Here it runs on [dispatcher] with at most one
+ * detection in flight, and the corners it produces are picked up by the NEXT frame.
+ *
+ * [dispatcher] is a parameter and not [scope]'s context because for a long time this KDoc said
+ * "a background dispatcher" and the phone did not have one. `TrackerService` is a `LifecycleService`
+ * and passes `lifecycleScope`; `TrackerStack` builds its scope as `parent.coroutineContext +
+ * SupervisorJob()`, which inherits `Dispatchers.Main.immediate`. So ArUco AND the once-per-pose
+ * [onGrid] fit ran on the UI THREAD on the one host where that matters, while the desktop passed
+ * `Dispatchers.Default` and looked fine. Naming the dispatcher here makes the sentence above true
+ * on every host instead of true wherever the caller happened to get it right — [scope] keeps the
+ * parent's context, which the settings and observer collectors on it legitimately want.
  *
  * On a delivered-size change the marker tracker is REPLACED, never rescaled (commit a7dab73): its
  * smoothed points are pixel coordinates, and EMA-blending two coordinate spaces drifted the warp
@@ -127,6 +138,7 @@ class LiveAlign(
     private val config: () -> TrackerConfig,
     private val onCorners: (FloatArray) -> Unit,
     private val log: TrackerLog = NoopTrackerLog,
+    private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
     private var tracker = MarkerTracker()
     private var frames = 0L
@@ -173,7 +185,7 @@ class LiveAlign(
         val frame = source.latestCalibrationFrame() ?: return
         inFlight = true
         val current = tracker
-        scope.launch {
+        scope.launch(dispatcher) {
             runCatching { boardCornersForFrame(frame, geometry(), current, detectScale = cfg.alignScale) }
                 .onSuccess { corners -> corners?.let { onCorners(cornersToFlat(onGrid(frame, it))) } }
                 .onFailure { log.warn("live align failed", it) }
