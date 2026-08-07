@@ -58,7 +58,13 @@ fun main(args: Array<String>) {
         "replay" -> {
             val video = File(args.getOrNull(1) ?: usage())
             check(video.isFile) { "no such video: ${video.absolutePath}" }
-            replay(VideoFileSource(video), video.name, watch = args.getOrNull(2) != "quiet")
+            val mode = args.getOrNull(2)
+            replay(
+                VideoFileSource(video),
+                video.name,
+                watch = mode != "quiet" && mode != "dump",
+                dumpEvery = if (mode == "dump") DUMP_EVERY else 0,
+            )
         }
         "calibrate" -> {
             val index = args.getOrNull(1)?.toIntOrNull() ?: usage()
@@ -317,7 +323,7 @@ private fun usage(): Nothing {
         "  cameras                    what is attached, as the driver reports it",
         "  calibrate <camera-index>   fit the lens from the board's own grid lines",
         "  align <camera-index> [raw] measure the board against its grid; 'raw' skips the lens",
-        "  replay <video.mp4> [quiet] drive a recorded clip through the shipping tracker",
+        "  replay <video.mp4> [quiet|dump]  drive a recorded clip through the shipping tracker",
         "  track <camera-index> [quiet]  the same, live",
         "",
         "  The board view opens unless 'quiet' is given: it shows the rectified warp the engine",
@@ -332,6 +338,7 @@ private fun replay(
     name: String,
     camera: String? = null,
     watch: Boolean = true,
+    dumpEvery: Int = 0,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val console: TrackerLogs = { tag -> ConsoleLog(tag) }
@@ -362,6 +369,7 @@ private fun replay(
         val config = TrackerConfig().copy(boardSize = geometry.boardSize)
         println("board located from its markers: ${geometry.boardSize} px warp")
         val publisher = StatusPublisher(scope)
+        val frameClock = FrameClock(source.fps, live = camera != null)
         // Held here rather than read back off the stack: `TrackerStack` takes the bus as a
         // constructor argument and does not expose it, and widening a shared seam for one host's
         // debugging window would be the wrong trade.
@@ -383,6 +391,11 @@ private fun replay(
                     stages = { geo, cfg, store, frameBus, boardBus ->
                         OpenCvStages({ it }, {}, geo, cfg, store, frameBus, boardBus, optics)
                     },
+                    // The VIDEO's clock, not this machine's. A replay decodes as fast as it can,
+                    // so wall time says how long the decode took and nothing about when a frame
+                    // was taken — and the engine ages several of its gates against exactly that.
+                    // For a live camera `frameClock` returns the wall clock and this is a no-op.
+                    nowMs = frameClock::now,
                 ),
                 SettingsRepository(MemoryConfigStore, scope),
                 publisher,
@@ -395,7 +408,7 @@ private fun replay(
                 { error("no classifier on the desktop yet — the diff path runs without one") },
             )
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
-        val frames = drive(source, stack, bus, publisher, view)
+        val frames = drive(source, stack, bus, publisher, view, frameClock, dumpEvery)
         println("tracked $frames frames of $name at ${"%.2f".format(source.fps)} fps")
         stack.close()
         view?.close()
@@ -415,17 +428,49 @@ private fun drive(
     bus: CameraFrameBus<BufferedImage>,
     publisher: StatusPublisher,
     view: TrackerView?,
+    clock: FrameClock,
+    dumpEvery: Int = 0,
 ): Int {
     var frames = 0
     while (true) {
         val open = view?.awaitStep(publisher.status.value) ?: true
         val frame = if (open) source.next() else null
         if (frame == null) return frames
+        clock.tick()
         stack.coordinator.onFrame(frame, source.delivered)
         frames += 1
         view?.show(bus.boardPreview.value, publisher.status.value)
+        if (dumpEvery > 0 && frames % dumpEvery == 0) {
+            dumpBoard(frames, bus.boardPreview.value, publisher.status.value)
+        }
     }
 }
+
+/**
+ * The clock the engine runs on.
+ *
+ * A camera's frames arrive when they arrive, so [live] hands back the wall clock unchanged. A
+ * recorded file has its own time base — frame N was taken at `N / fps` seconds — and that is the
+ * only clock under which a replay means anything: decode speed is a property of this machine, and
+ * the engine ages its motion window, its anomaly latch and its CNN cooldowns against whatever it
+ * is given. It also makes a replay reproducible, which `EngineState` calls binding and which the
+ * wall clock cannot be.
+ */
+private class FrameClock(
+    fps: Double,
+    private val live: Boolean,
+) {
+    private val periodMs = if (fps > 0) MS_PER_SECOND / fps else 0.0
+    private var frames = 0L
+
+    fun tick() {
+        frames += 1
+    }
+
+    fun now(): Long = if (live) System.currentTimeMillis() else (frames * periodMs).toLong()
+}
+
+private const val MS_PER_SECOND = 1000.0
 
 /** stdout is this host's logcat. The channel names are the shared code's, unchanged. */
 private class ConsoleLog(
@@ -480,4 +525,6 @@ private const val P90_DEN = 10
 private const val PROBE_PATH = "../../tmp/lens-probe.png"
 
 /** Where the quad comparison lands. */
+private const val DUMP_EVERY = 150
+
 private const val QUAD_PROBE_PATH = "../../tmp/quad-probe.png"

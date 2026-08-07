@@ -39,7 +39,12 @@ typealias StagesFactory<T> = (BoardGeometry, TrackerConfig, CropFrameStore, (Mat
  * calibration and the corner alignment are the user's, not the config's, so they are handed to the
  * new stack. Move HISTORY is not carried: `TrackerEngine` is seeded with a FEN, so undo starts
  * empty after a restart (STATUS D07x-3).
+ *
+ * `LongParameterList` is suppressed because this IS the holder object detekt's rule exists to
+ * ask for — the thing that keeps `TrackerStack`'s own parameter list short. Counting its fields
+ * against the same threshold penalises the fix for the problem.
  */
+@Suppress("LongParameterList")
 class TrackerSeed<T>(
     val config: TrackerConfig,
     /** The LIVE geometry holder — calibration outlives a restart, and live-align reads it per tick. */
@@ -62,6 +67,11 @@ class TrackerSeed<T>(
     val logs: TrackerLogs = NoTrackerLogs,
     /** See [StagesFactory]: the one thing about a frame this stack cannot know by itself. */
     val stages: StagesFactory<T>,
+    /**
+     * What the engine calls now. The wall clock for a camera; the VIDEO's clock for a replay,
+     * where wall time has nothing to do with when a frame was taken — see `TrackerCoordinator`.
+     */
+    val nowMs: () -> Long = System::currentTimeMillis,
 )
 
 /**
@@ -136,6 +146,7 @@ class TrackerStack<T>(
             observer,
             LiveAlign(scope, seed.geometry, settings.config::value, { pipeline.corners = it }, seed.logs("chesslabTracker")),
             timings,
+            seed.nowMs,
         )
 
     init {

@@ -31,7 +31,13 @@ import java.util.concurrent.atomic.AtomicReference
  * observations, run the engine, publish the result, offer the CNN a frame, maybe re-align.
  * Nothing here blocks — no `runBlocking`, no `await`, no disk, no ArUco, no inference. The
  * legacy 970-LOC service did all of that inline and held the loop at 100-150 ms (commit 4a7609e).
+ *
+ * `LongParameterList` is suppressed because the list IS the seam: every parameter is one
+ * collaborator a host must supply, and no two of them belong together. The holder object detekt
+ * asks for would exist only to satisfy detekt — the same reasoning `preprocessInto` records in
+ * `:core-cnn` and `OpenCvStages` in this module. The next parameter deserves an argument.
  */
+@Suppress("LongParameterList")
 class TrackerCoordinator<T>(
     private val pipeline: FramePipeline<T>,
     private val host: EngineHost,
@@ -40,6 +46,21 @@ class TrackerCoordinator<T>(
     private val observer: CnnObserver,
     private val align: LiveAlign,
     private val timings: StageTimings,
+    /**
+     * The engine's clock, and the reason it is a parameter.
+     *
+     * `EngineState` calls determinism BINDING: `nowS` is set once per frame from
+     * `FrameInput.timestampMs`, and several gates are ages against it — the motion recency check
+     * under `requireMotionForMove`, the anomaly latch, the CNN cooldowns. Feeding the WALL clock
+     * is correct for a camera, where a frame really does arrive when it arrives, and wrong for a
+     * replay, which decodes as fast as it can: a 319-second video pushed through in 200 seconds
+     * makes every one of those windows 1.6x too short, and two runs of the same file disagree.
+     *
+     * The clip simulation never had this problem because it bypasses this class and passes its
+     * own timestamp straight to `FramePipeline.onFrame`. That is why 18 clips are green while a
+     * real video committed nothing.
+     */
+    private val nowMs: () -> Long = System::currentTimeMillis,
 ) {
     /**
      * The frame clock spans this WHOLE method.
@@ -59,7 +80,7 @@ class TrackerCoordinator<T>(
         bus.noteRotation(delivered.rotationDegrees)
         // The preview bus is fed from INSIDE the pipeline now (`FrameStages.publishFrame`), off the
         // frame the convert already produced — see `CameraFrameBus.offer`.
-        val result = pipeline.onFrame(image, delivered.width, delivered.height, System.currentTimeMillis())
+        val result = pipeline.onFrame(image, delivered.width, delivered.height, nowMs())
         val events = host.tick((result as? FrameResult.Ready)?.input)
         // The engine runs HERE, on the analyzer thread, and it is part of the frame budget.
         timings.mark(Stage.ENGINE)

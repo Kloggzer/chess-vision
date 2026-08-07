@@ -16,6 +16,8 @@ import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.awt.image.BufferedImage
 import java.awt.image.DataBufferByte
+import java.io.File
+import javax.imageio.ImageIO
 import javax.swing.JFrame
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
@@ -274,6 +276,46 @@ fun matToImage(mat: Mat): BufferedImage? {
     mat.get(0, 0, target)
     return img
 }
+
+/**
+ * The rectified board, as a file, with what the engine believed about it beside it.
+ *
+ * The window shows this already — but a window is only useful to whoever is sitting in front of
+ * it. When the question is "why did this video commit nothing", the answer is in the picture the
+ * engine reasons about, and that picture has to survive the run to be looked at.
+ */
+fun dumpBoard(
+    frame: Int,
+    board: BufferedImage?,
+    status: TrackerStatus?,
+) {
+    val img = board ?: return
+    val dir = File(DUMP_DIR).apply { mkdirs() }
+    ImageIO.write(img, "png", File(dir, "board-%06d.png".format(frame)))
+    File(dir, "board-%06d.txt".format(frame)).writeText(
+        buildString {
+            appendLine("frame=$frame")
+            val st = status ?: return@buildString
+            appendLine("state=${st.state} stuck=${st.stuckReason} best=${st.bestUci}")
+            appendLine("fen=${st.fen}")
+            appendLine("changed=${st.changed.sorted()}")
+            appendLine("shadowVetoed=${st.shadowVetoed.sorted()}")
+            appendLine("occlusionVetoed=${st.occlusionVetoed.sorted()}")
+            appendLine(
+                "z=" +
+                    st.z.entries
+                        .sortedByDescending { it.value }
+                        .take(DUMP_TOP_Z)
+                        .joinToString { "${it.key}=${"%.2f".format(it.value)}" },
+            )
+        },
+    )
+}
+
+/** Where a `dump` run writes the board it reasoned about. Under tmp/, which is not the corpus. */
+private const val DUMP_DIR = "../../tmp/board-dump"
+
+private const val DUMP_TOP_Z = 8
 
 private const val BOARD_SIDE = 8
 private const val PANEL_SIDE = 720
