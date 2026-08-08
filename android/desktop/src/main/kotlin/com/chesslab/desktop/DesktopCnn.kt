@@ -65,14 +65,29 @@ fun openDesktopCnn(
         .getOrNull()
         // ONE intra-op thread, always, on this host: parallel float reductions are not bit-exact
         // and a wobbling logit flips thresholded decisions — the desktop exists to make runs that
-        // REPEAT. 47 ms against 19 per observation, a fraction of the replay cadence.
-        ?.let { assets -> { openClassifier(assets, AppSettings(), CnnRuntimeProbe(), log, intraOpThreads = 1) } }
+        // REPEAT. 47 ms against 19 per observation, a fraction of the replay cadence. The cache
+        // in front remembers what this model said about pixels it has seen (keyed by the crops
+        // themselves, per model) — deterministic replays cut identical crops, so every re-run of
+        // a known video answers from disk instead of the graph.
+        ?.let { assets ->
+            {
+                val attached = openClassifier(assets, AppSettings(), CnnRuntimeProbe(), log, intraOpThreads = 1)
+                Attached(
+                    CachingClassifier(attached.classifier, File(OBS_CACHE, model)),
+                    attached.backend,
+                    attached.model,
+                )
+            }
+        }
 
 /** The app's bundled models, read where they live. `:desktop`'s working directory is `android/desktop`. */
 private const val ASSET_SOURCE = "../app/src/main/assets/$ASSET_ROOT_DIR"
 
 /** Staged copies. Under tmp/, which is not the corpus. */
 private const val STAGING = "../../tmp/cnn-staging"
+
+/** What the model said about crops it has seen, per model. Under tmp/, which is not the corpus. */
+private const val OBS_CACHE = "../../tmp/obs-cache"
 
 /**
  * What the chosen model declares its crops must be, or null when it cannot be read.
