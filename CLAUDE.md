@@ -87,6 +87,16 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
 
 ## Known pitfalls (still true)
 
+- **`pOccluded` is identically 0.0 under every 13-class model — five safeguards silently
+  disarm.** The shipped `id35-80` has no `occluded` class, and `observationFromProbs`
+  (`core-cnn/.../Observations.kt`) fills 0.0 for a class list without it. Consequently the
+  resting-hand veto, the recovery clean-board gate (specs/39-02), the count-discount's
+  occluded exclusion, `cleanCommitsOnly`'s snapshot arm and the `chesslabObs` ledger's `occl=`
+  field all read "no hand", unconditionally. They arm only when a served model's class list
+  contains `occluded` — no bundled model's does. Found 2026-08-08 (specs/53); every measurement
+  of those gates up to that date exercised only their engine-taint arms, and a ledger `occl=0`
+  line means "sensor blind", not "clean window".
+
 - **BatchNorm works, and the learning rate is why. A normalizer is never measured at ONE rate.**
   BatchNorm ships: four of the seven bundled models are `"norm": "batchnorm"` (`bn35-80`,
   `bn50-80`, `bn100-80`, and `id35-80`, the 13-class one the device runs) — check with

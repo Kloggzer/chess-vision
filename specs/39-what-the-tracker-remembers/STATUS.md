@@ -142,6 +142,11 @@ stable board, so nothing kept a mid-move glance out of a bridge):
   inconclusive read does. This is the half that addresses the finger-in-frame commit; the vote
   floor alone would not have (a stable wrong read votes the same twice — the phase text says so
   itself under "What this does NOT fix").
+  **Correction 2026-08-08 (specs/53): this gate is a NO-OP on every bundled model.** `id35-80`
+  ships 13 classes without `occluded`, and `observationFromProbs` then fills `pOccluded ≡ 0.0`
+  — so the gate has never refused a vote from a CNN read; the finger-in-frame defence rests
+  entirely on the two-vote floor until a 14-class model is served. The gate's logic is correct
+  and tested; its INPUT does not exist yet.
 
 **The inverted test, as the phase demands it be recorded:** `EngineStateBuffersTest.kt:111`
 asserted the single-shot behaviour in so many words ("the recovery confirmer moves with it") and
