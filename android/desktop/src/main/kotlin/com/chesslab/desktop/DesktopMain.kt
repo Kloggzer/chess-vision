@@ -281,6 +281,7 @@ private fun usage(): Nothing {
         "                        frames write the DECISIVE frames (every decision row, ±2) as the",
         "                               normalised labeled board to data/realgames/<name>/frames-decisive/",
         "                        name=<x>  the candidate's directory name (default: video stem)",
+        "                        cleanonly  EXPERIMENT: commit and vote only on a hand-free board",
         "                        model=<name>  one of the bundled graphs",
         "",
         "  The board view opens unless 'quiet' or 'dump': it shows the rectified warp the engine",
@@ -339,9 +340,22 @@ private fun replay(
         // the geometry — two runs differing in one flag have to differ in one thing.
         val spec = desktopModelSpec(options.model)
         val geometry = boardGeometryFor(quad).withCropOf(spec)
-        val config = TrackerConfig().copy(boardSize = geometry.boardSize, requireMotionForMove = options.motionGate)
+        // A REPLAY paces the observer on a fixed VIDEO-time cadence and runs its inference
+        // inline (see TrackerSeed.observerDispatcher): the free-running default observes whenever
+        // the wall clock lets it, which made the same file commit 54 plies on one run and 39 on
+        // the next — a single shifted snapshot cascades through votes and the alarm. The cadence
+        // approximates the live self-pacing (SM8650: 16-100 ms per observation) and is recorded
+        // in `effective_config` like every other knob.
+        val config =
+            TrackerConfig().copy(
+                boardSize = geometry.boardSize,
+                requireMotionForMove = options.motionGate,
+                cleanCommitsOnly = options.cleanOnly,
+                observerIntervalS = if (camera == null) REPLAY_OBSERVER_INTERVAL_S else TrackerConfig().observerIntervalS,
+            )
         println("board located from its markers: ${geometry.boardSize} px warp  ·  $options")
         println("crops: ${cropLine(spec, geometry)}")
+        if (camera == null) println("observer: synchronous, every ${REPLAY_OBSERVER_INTERVAL_S}s of video time — runs repeat")
         val publisher = StatusPublisher(scope)
         val cnn = if (options.cnn) openDesktopCnn(options.model, console("chesslabCnn")) else null
         if (!options.cnn) println("cnn: off — the engine uses its no-observation occlusion fallback")
@@ -354,7 +368,20 @@ private fun replay(
         // debugging window would be the wrong trade.
         val bus = CameraFrameBus(MutableStateFlow(CameraHealth.Up), scope, ::matToImage)
         val view = openView(options, name)
-        val stack = buildStack(config, geometry, frameClock, optics, bus, publisher, cnn, console, scope, session?.collector)
+        val stack =
+            buildStack(
+                config,
+                geometry,
+                frameClock,
+                optics,
+                bus,
+                publisher,
+                cnn,
+                console,
+                scope,
+                session?.collector,
+                live = camera != null,
+            )
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
         val frames = drive(source, stack, bus, publisher, view, frameClock, options.dumpEvery, session?.frameHook)
         println("tracked $frames frames of $name at ${"%.2f".format(source.fps)} fps")
@@ -397,6 +424,7 @@ private fun buildStack(
     logs: TrackerLogs,
     scope: CoroutineScope,
     collector: DecisionCollector? = null,
+    live: Boolean = false,
 ): TrackerStack<Mat> =
     TrackerStack(
         TrackerSeed<Mat>(
@@ -417,6 +445,10 @@ private fun buildStack(
             },
             // The VIDEO's clock, not this machine's — see `FrameClock`.
             nowMs = clock::now,
+            // A replay runs its inference inline so the snapshot lands before the next frame is
+            // decoded — the last wall-clock dependence, and the source of 54-vs-39-ply runs of
+            // one unchanged file. Live keeps the phone's shape: a dedicated observer thread.
+            observerDispatcher = if (live) null else Dispatchers.Unconfined,
         ),
         SettingsRepository(MemoryConfigStore, scope),
         publisher,
@@ -523,6 +555,13 @@ private object MemoryConfigStore : ConfigStore {
         slots[slot] = text
     }
 }
+
+/**
+ * The replay observer's fixed VIDEO-time cadence. Approximates the live self-pacing (the phone
+ * observes about as often as one observation takes: 16-100 ms on the SM8650) without paying
+ * synchronous inference on every decoded frame. Recorded in `effective_config` like every knob.
+ */
+private const val REPLAY_OBSERVER_INTERVAL_S = 0.15
 
 /** Frames to spend looking for the markers before giving up. At 30 fps this is two seconds. */
 private const val LOCATE_ATTEMPTS = 60

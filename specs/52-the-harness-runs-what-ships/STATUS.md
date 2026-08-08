@@ -122,6 +122,41 @@ Measured, same day:
 | VID_20260802 vs Python 22-ply label | 20 / 2 / 0 | 20 / 2 / **10** — but every one of the 10 sits AFTER the label's last frame (4214-9473 vs 3910), all `cnn_occupancy`, ending **Qxd7# at frame 9473 of 9576**: the first full-video run to the mate. A label shorter than the run reads as "invented"; human review decides the tail |
 | rec-20260808 (the Qxe2 video) | 44 plies, dies at Qxe2 | **54 plies, Qxe2 committed as cnn_occupancy** |
 
+### 2026-08-08 — a replay is a repeatable experiment, and the clean-commits question is answered
+
+**Determinism.** The one-clock fix was necessary but not sufficient: the same file still ran 54
+plies once and 39 the next, because (a) WHEN an async inference lands relative to the frames is
+wall-clock, and (b) 4 intra-op ONNX threads make parallel float reductions non-bit-exact — a
+logit wobbling in its last digits flipped a thresholded decision at ply 26 of VID. Fixed for
+replays only: the observer runs its inference INLINE (`TrackerSeed.observerDispatcher`,
+`Dispatchers.Unconfined` on the desktop) on a fixed video-time cadence
+(`REPLAY_OBSERVER_INTERVAL_S = 0.15`, recorded in `effective_config`), and the desktop opens the
+classifier with ONE intra-op thread (47 ms vs 19 per observation — a fraction of the cadence).
+Proof: rec-20260808 3× byte-identical at **67 plies** (up from 39-54 — the fixed cadence also
+simply observes better), VID identical across warm runs. One residue, named and deliberately
+left (user call): the settings flow applies `observerIntervalS` asynchronously, so a COLD first
+run can shift the first observations by a few frames. Two-line fix (set interval synchronously
+before attach); becomes mandatory the day the observation cache lands, since cached
+observations are keyed to the cadence.
+
+**The clean-commits experiment** (user question: what does it cost/buy to commit only on a
+hand-free board?). `cleanCommitsOnly` (default false): `commitGates` refuses candidates and the
+verify ladder refuses votes while anything reads as a hand (`handInFrame`: engine latches OR any
+occluded-reading square in a fresh snapshot). Measured A/B on one binary:
+
+| video | default | cleanonly | hand-gate fired |
+|---|---|---|---|
+| rec-20260807 (score) | 25 / 0 / 0 | 25 / 0 / 0 | 0× |
+| VID_20260802 (score vs Python label) | 20 / 2 / 10* | 20 / 2 / 11* | 0× |
+| rec-20260808 (plies · alarms) | 67 · 1 | 67 · 1 | 0× |
+
+*post-label tail to the mate; the ±1 there is the cold-start residue above.
+
+**The strict gate never fired.** By the time a candidate exists, the existing layers (motion
+settle, occluded-core skip, taints, verify votes, the recovery clean gate) have already outlasted
+the hand — the tolerant default commits nothing the strict mode would have stopped. The knob
+stays in the catalog as an instrument; the default stays off.
+
 ### Session log
 
 Gates: `:tracker-runtime:test` (new `GeometryScanTest`), `:desktop:test` (new
