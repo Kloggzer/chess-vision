@@ -13,6 +13,7 @@ import com.chesslab.tracker.log.NoopTrackerLog
 import com.chesslab.tracker.log.TrackerLog
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.BlockingQueue
+import java.util.concurrent.atomic.AtomicLong
 
 /** Deep enough to survive a burst of taps; shallow enough that a stalled drain is visible. */
 private const val ACTION_CAPACITY = 32
@@ -93,11 +94,24 @@ class EngineHost(
     @Volatile
     private var owner: Thread? = null
 
+    private val droppedActions = AtomicLong()
+    private val droppedSnapshots = AtomicLong()
+
+    /** Oldest entries displaced from the action queue since start — dropped, and now COUNTED. */
+    val actionsDropped: Long get() = droppedActions.get()
+
+    /** Snapshots displaced from the depth-4 queue — each one an observation the engine never saw. */
+    val snapshotsDropped: Long get() = droppedSnapshots.get()
+
     /** From any thread. Never blocks: a full queue drops its OLDEST entry, it does not wait. */
-    fun submit(action: EngineAction) = offerDroppingOldest(actions, action)
+    fun submit(action: EngineAction) {
+        if (offerDroppingOldest(actions, action)) droppedActions.incrementAndGet()
+    }
 
     /** From the CNN observer thread. Same contract — a stale observation is worthless anyway. */
-    fun submit(snap: CnnSnapshot) = offerDroppingOldest(snapshots, snap)
+    fun submit(snap: CnnSnapshot) {
+        if (offerDroppingOldest(snapshots, snap)) droppedSnapshots.incrementAndGet()
+    }
 
     /**
      * One tick: queued actions, then queued observations, then the frame.
@@ -180,11 +194,15 @@ fun engineHost(
     return EngineHost(TrackerEngineOps(engine, onConfigApplied))
 }
 
+/** True when at least one older entry had to be displaced to make room. */
 private fun <T> offerDroppingOldest(
     queue: BlockingQueue<T>,
     item: T,
-) {
+): Boolean {
+    var dropped = false
     while (!queue.offer(item)) {
-        if (queue.poll() == null) return
+        if (queue.poll() == null) return dropped
+        dropped = true
     }
+    return dropped
 }

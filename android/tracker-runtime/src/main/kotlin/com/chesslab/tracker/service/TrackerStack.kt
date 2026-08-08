@@ -2,9 +2,11 @@ package com.chesslab.tracker.service
 
 import com.chesslab.cnn.CnnConfig
 import com.chesslab.cnn.CnnRecovery
+import com.chesslab.engine.api.CnnSnapshot
 import com.chesslab.engine.api.DebugDecision
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
+import com.chesslab.geometry.allSquares
 import com.chesslab.tracker.cnn.Attached
 import com.chesslab.tracker.cnn.CnnObserver
 import com.chesslab.tracker.log.NoTrackerLogs
@@ -25,6 +27,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import org.opencv.core.Mat
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -100,7 +103,7 @@ class TrackerStack<T>(
     settings: SettingsRepository,
     publisher: StatusPublisher,
     frames: CameraFrameBus<*>,
-    timings: StageTimings,
+    private val timings: StageTimings,
     parent: CoroutineScope,
     openClassifier: () -> Attached,
 ) : AutoCloseable {
@@ -137,15 +140,40 @@ class TrackerStack<T>(
     /** Successful glances of THIS stack — a restart legitimately restarts the count. */
     val observations: Long get() = observed.get()
 
+    /**
+     * Everything this stack DID NOT process, counted by reason and readable in one line — the
+     * cadence regression of 2026-08-08 (67 -> 26 plies) was invisible precisely because every one
+     * of these paths dropped silently. Appended to the per-second perf line on both hosts and
+     * printed in the desktop run summary.
+     */
+    fun dropLine(): String =
+        "dropped[markers=${pipeline.skippedWaitingMarkers} dark=${pipeline.skippedDark} " +
+            "obsOff=${observer.gateOff} obsBusy=${observer.gateBusy} obsInterval=${observer.gateInterval} " +
+            "cropOverwritten=${cropStore.overwritten} snapQueue=${host.snapshotsDropped} actionQueue=${host.actionsDropped}]"
+
+    /** The ledger channel: one line per emitted observation, `adb logcat -s chesslabObs`-able. */
+    private val obsLog = seed.logs("chesslabObs")
+
+    /**
+     * The observation LEDGER, one line per emitted snapshot: which frame the CNN looked at, at
+     * what video time, and whether its own read saw a hand. The engine's staleness guard
+     * (`CnnTick`: discard when `snap.fen` moved on) already keeps the book — this makes it
+     * VISIBLE, and it is the number Hebel 2 gates on: a missed move whose window contains
+     * `occl=0` lines had a clean look and wasted it; one without never had a chance.
+     */
+    private fun submitObserved(snap: CnnSnapshot) {
+        observed.incrementAndGet()
+        val occluded = allSquares().count { snap.obs.pOccluded(it) > LEDGER_OCCLUDED_THR }
+        obsLog.info("obs frame=${snap.seq} t=${"%.2f".format(Locale.US, snap.tsMs / MS_PER_S_D)} occl=$occluded")
+        host.submit(snap)
+    }
+
     val observer =
         if (seed.observerDispatcher == null) {
             CnnObserver(
                 source = cropTap,
                 fen = { publisher.lastFen },
-                onSnapshot = {
-                    observed.incrementAndGet()
-                    host.submit(it)
-                },
+                onSnapshot = ::submitObserved,
                 log = seed.logs("chesslabCnn"),
                 // The ENGINE's clock, not the wall clock. On the phone the two are the same thing;
                 // in a replay the engine runs on the video's virtual clock, and an observer pacing
@@ -158,10 +186,7 @@ class TrackerStack<T>(
             CnnObserver(
                 source = cropTap,
                 fen = { publisher.lastFen },
-                onSnapshot = {
-                    observed.incrementAndGet()
-                    host.submit(it)
-                },
+                onSnapshot = ::submitObserved,
                 log = seed.logs("chesslabCnn"),
                 nowMs = seed.nowMs,
                 dispatcher = seed.observerDispatcher,
@@ -196,6 +221,8 @@ class TrackerStack<T>(
 
     init {
         pipeline.corners = seed.corners
+        // The perf line is the one log line both hosts share; from here on it carries the drops.
+        timings.extras = ::dropLine
         // The seed's own values FIRST, synchronously: until the settings flow below delivers, the
         // observer would run with its constructor defaults — and WHEN that coroutine fires is wall
         // clock, so a cold first replay observed on a different cadence than a warm one and
@@ -222,11 +249,22 @@ class TrackerStack<T>(
      * and the whole point of rebuilding it is that its thread claim goes with it.
      */
     override fun close() {
+        // The timings object outlives the stack on the phone (the service owns it across
+        // restarts); a closed stack's counters must not keep writing onto the next one's line.
+        timings.extras = null
         scope.cancel()
         observer.close()
         pipeline.close()
     }
 }
+
+/**
+ * The ledger's hand test, numerically the engine's own (`Taint.P_OCCLUDED_THR`, internal there):
+ * a square whose `occluded` class dominates is a hand in the observer's OWN reading.
+ */
+private const val LEDGER_OCCLUDED_THR = 0.5
+
+private const val MS_PER_S_D = 1000.0
 
 /**
  * Owns the one live [TrackerStack] and performs the swap. Generic over [T] only so the ORDER can

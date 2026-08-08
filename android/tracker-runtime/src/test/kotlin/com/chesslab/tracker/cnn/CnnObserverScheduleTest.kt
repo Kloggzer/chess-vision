@@ -132,6 +132,28 @@ class CnnObserverScheduleTest {
     }
 
     @Test
+    fun refusedFramesAreCountedByTheGateThatRefusedThem() {
+        val observer = observer()
+        observer.setIntervalS(2.0)
+        now = 5_000
+        observer.onFrameAvailable()
+        // Still in flight — the dispatcher has not run the observation yet.
+        observer.onFrameAvailable()
+        observer.onFrameAvailable()
+        scheduler.runCurrent()
+        assertEquals(2L, observer.gateBusy)
+
+        now = 6_000
+        observer.onFrameAvailable()
+        assertEquals(1L, observer.gateInterval)
+
+        observer.setEnabled(false)
+        observer.onFrameAvailable()
+        assertEquals(1L, observer.gateOff)
+        assertEquals(1L, observer.gateInterval, "the off refusal must not double-count as interval")
+    }
+
+    @Test
     fun snapshotCarriesTheObservedSeqAndTheFenCapturedAtStart() {
         val observer = observer()
         seq = 42

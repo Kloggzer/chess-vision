@@ -95,19 +95,40 @@ class CnnObserver(
      * ever happens.
      */
     val counters: String
-        get() = "attempts=$attempts noClassifier=$noClassifier noCrops=$noCrops emitted=$emitted"
+        get() =
+            "attempts=$attempts noClassifier=$noClassifier noCrops=$noCrops emitted=$emitted " +
+                "gateOff=$gateOff gateBusy=$gateBusy gateInterval=$gateInterval"
 
     private var attempts = 0L
     private var noClassifier = 0L
     private var noCrops = 0L
     private var emitted = 0L
 
+    /**
+     * Frames the observer declined, by gate — the largest UNCOUNTED drop in the CNN path until
+     * 2026-08-08, and the invisible variable behind the 67-vs-26-plies cadence regression: the
+     * throttle refused frames and nothing anywhere said so. Analyzer thread only, like [attempts].
+     */
+    var gateOff = 0L
+        private set
+    var gateBusy = 0L
+        private set
+    var gateInterval = 0L
+        private set
+
     /** `_observer_due`. Also drives 05b's `CropFrameStore.wantsFrame()` — no crop warp while busy. */
     fun wantsFrame(): Boolean = enabled && state.value is CnnState.Ready && !busy && nowMs() - startedMs >= intervalMs
 
     /** Called per frame from the analyzer thread; returns immediately. */
     fun onFrameAvailable() {
-        if (!wantsFrame()) return
+        if (!wantsFrame()) {
+            when {
+                !enabled || state.value !is CnnState.Ready -> gateOff += 1
+                busy -> gateBusy += 1
+                else -> gateInterval += 1
+            }
+            return
+        }
         // Captured HERE, not inside the coroutine: a FEN that changes mid-inference must not
         // overwrite the snapshot's discard-on-change guard.
         val startFen = fen()

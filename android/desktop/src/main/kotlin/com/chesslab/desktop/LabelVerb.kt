@@ -185,12 +185,18 @@ internal class LabelSession(
         options: ReplayOptions,
         config: TrackerConfig,
         geometry: BoardGeometry,
-        note: String?,
-        observations: Int,
-        frames: Int,
+        totals: RunTotals,
     ) {
         if (labelRun != null && review != null) {
-            val outcome = LabelOutcome(collector.plies, note, observations, frames, review.count)
+            val outcome =
+                LabelOutcome(
+                    collector.plies,
+                    totals.note,
+                    totals.observations,
+                    totals.frames,
+                    review.count,
+                    totals.drops,
+                )
             writeLabel(labelRun, options, requireNotNull(video) { "label needs a video file" }, config, geometry, outcome)
             review.close()
         }
@@ -203,6 +209,14 @@ internal class LabelSession(
         }
     }
 }
+
+/** What one finished run measured about itself — the four values travel together into the label. */
+internal class RunTotals(
+    val note: String?,
+    val observations: Int,
+    val frames: Int,
+    val drops: String,
+)
 
 private fun writeLabel(
     run: LabelRun,

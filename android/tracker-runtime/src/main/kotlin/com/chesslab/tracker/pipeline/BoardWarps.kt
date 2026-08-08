@@ -50,6 +50,11 @@ class CropFrameStore {
 
     private var pending: Pending? = null
 
+    /** Warps built for the observer that it never took — overwritten by a newer one, counted. */
+    @Volatile
+    var overwritten = 0L
+        private set
+
     @Volatile
     private var wanted = false
 
@@ -67,7 +72,10 @@ class CropFrameStore {
 
     @Synchronized
     fun update(frame: Pending) {
-        pending?.cropWarp?.release()
+        pending?.cropWarp?.also {
+            it.release()
+            overwritten += 1
+        }
         pending = frame
     }
 

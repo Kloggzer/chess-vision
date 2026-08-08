@@ -112,6 +112,19 @@ class EngineActionQueueTest {
     }
 
     @Test
+    fun displacedEntriesAreCountedPerQueue() {
+        val ops = RecordingOps()
+        val host = EngineHost(ops)
+        // Snapshot queue depth is 4: five submits displace exactly one.
+        repeat(5) { host.submit(snapshot(it.toLong())) }
+        assertEquals(1L, host.snapshotsDropped)
+        assertEquals(0L, host.actionsDropped, "the two queues must count independently")
+        repeat(100) { host.submit(EngineAction.SetFen("fen$it")) }
+        assertTrue(host.actionsDropped > 0L)
+        assertEquals(1L, host.snapshotsDropped)
+    }
+
+    @Test
     fun configUpdateReachesTheEngineExactlyOncePerChange() {
         val ops = RecordingOps()
         val host = EngineHost(ops)

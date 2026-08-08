@@ -388,7 +388,9 @@ private fun replay(
         // Where the CNN chain stopped. `observations` counts snapshots the observer EMITTED;
         // the engine's own `cnnSnaps` counts what arrived. Two numbers, one seam between them.
         println("cnn: state=${stack.observer.state.value} observations=${stack.observations} ${stack.observer.counters}")
-        session?.finish(video, options, config, geometry, publisher.status.value?.note, stack.observations.toInt(), frames)
+        println(stack.dropLine())
+        val totals = RunTotals(publisher.status.value?.note, stack.observations.toInt(), frames, stack.dropLine())
+        session?.finish(video, options, config, geometry, totals)
         stack.close()
         view?.close()
     }

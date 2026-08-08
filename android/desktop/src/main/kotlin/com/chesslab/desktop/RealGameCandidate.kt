@@ -171,6 +171,8 @@ internal data class LabelOutcome(
     val observations: Int,
     val frames: Int,
     val framesWritten: Int,
+    /** The stack's drop line — what this run did NOT process, by reason (`TrackerStack.dropLine`). */
+    val drops: String,
 )
 
 /**
@@ -208,6 +210,7 @@ internal fun candidateJson(
         put("observations", outcome.observations)
         put("frames", outcome.frames)
         put("frames_written", outcome.framesWritten)
+        put("drops", outcome.drops)
     }
 
 private fun geometryJson(scan: com.chesslab.tracker.geometry.ScannedGeometry): JsonObject =

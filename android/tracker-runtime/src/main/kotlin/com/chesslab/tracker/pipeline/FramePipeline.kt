@@ -167,10 +167,19 @@ class FramePipeline<T>(
         // calibration, and it does so silently.
         sizeGuard.note(width, height)
         val note = readFrame(image)
+        if (note != null) {
+            if (note == NOTE_WAITING_MARKERS) skippedWaitingMarkers += 1 else skippedDark += 1
+        }
         val result = if (note != null) FrameResult.Skipped(note) else emit(timestampMs)
         timings.mark(Stage.TOTAL)
         return result
     }
+
+    /** Frames that never reached the engine, by reason — until now only a note string per frame. */
+    var skippedWaitingMarkers = 0L
+        private set
+    var skippedDark = 0L
+        private set
 
     fun onConfigChanged(newConfig: TrackerConfig) {
         config = newConfig

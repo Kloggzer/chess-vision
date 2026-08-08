@@ -52,6 +52,14 @@ class StageTimings(
     private val nowNs: () -> Long = System::nanoTime,
     private val logLine: (String) -> Unit = {},
 ) {
+    /**
+     * Appended to each perf line. The stack wires its drop counters here, so the one log line
+     * that exists on BOTH hosts carries what was thrown away — the cadence regression of
+     * 2026-08-08 was invisible precisely because nothing on this line counted refusals.
+     */
+    @Volatile
+    var extras: (() -> String)? = null
+
     private val ms = DoubleArray(Stage.entries.size)
     private val ran = BooleanArray(Stage.entries.size)
     private var frameStart = 0L
@@ -147,7 +155,8 @@ class StageTimings(
             // string and one double per second.
             val why = if (skipNote != null) " skip=$skipNote" else " skip=-"
             val lum = if (luma >= 0) " luma=${format(luma)}" else ""
-            logLine("$stages fps=${format(fps)} idle=${format(idle)}$why$lum")
+            val extra = extras?.invoke()?.let { " $it" }.orEmpty()
+            logLine("$stages fps=${format(fps)} idle=${format(idle)}$why$lum$extra")
         }
     }
 
