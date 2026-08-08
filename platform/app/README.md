@@ -9,3 +9,6 @@ the file formats are the only bridge.
    `src/chesslab/realgames.py:lcs_report`) and shows the unmatched plies with their review frame.
 4. Confirm writes `confirmed` / `confirmed_at` / `reviewed_plies` into `candidate.json` — atomically,
    touching nothing else. `npm run lint`, `npx tsc --noEmit`, `npm test` are the gate.
+
+Note for agents: Next 16 has breaking changes against most training data - read the guides
+in node_modules/next/dist/docs before writing code here.
