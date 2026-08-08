@@ -102,6 +102,26 @@ NEXT measurement, not a finding of this one. Nothing was tuned or fixed in this 
   into a pawn. The engine's conservatism worked; the finding is TRAINING DATA (these evening
   videos are the corpus gap), not logic.
 
+### 2026-08-08 — the count gate stops counting evidence the CNN already contradicted
+
+`tooMuchChangeGate` counted every changed/tainted square equally against `maxChanged = 6`; the
+Qxe2 frame showed it refusing on 8 squares of which the observer read the 6-square bleed cloud
+as `empty 1.000`. Now squares a FRESH (age ≤ 3 s AND `snap.fen == board.fen()`), CONFIDENT,
+non-occluded-reading observation confirms unchanged against the reference stop COUNTING —
+counting only, z and `changed` untouched, hand rule on the raw tainted count, occluded-reading
+squares excluded from the discount (a resting hand cannot talk itself out of the ceiling), no-op
+without a snapshot (parity-safe by construction).
+
+Measured, same day:
+
+| run | before | after |
+|---|---|---|
+| 18-clip parity diff-only | 18/18 | **18/18** (cnn-arm report 11→10, experiment arm) |
+| rec-20260807 vs 25-ply label | 24 / 1 / 0 | **25 / 0 / 0** |
+| win-20260807 vs 7-ply label | 4 / 3 / 0 | 4 / 3 / 0 (misses = the fabricated bridge, correct) |
+| VID_20260802 vs Python 22-ply label | 20 / 2 / 0 | 20 / 2 / **10** — but every one of the 10 sits AFTER the label's last frame (4214-9473 vs 3910), all `cnn_occupancy`, ending **Qxd7# at frame 9473 of 9576**: the first full-video run to the mate. A label shorter than the run reads as "invented"; human review decides the tail |
+| rec-20260808 (the Qxe2 video) | 44 plies, dies at Qxe2 | **54 plies, Qxe2 committed as cnn_occupancy** |
+
 ### Session log
 
 Gates: `:tracker-runtime:test` (new `GeometryScanTest`), `:desktop:test` (new

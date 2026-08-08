@@ -135,9 +135,18 @@ private fun EngineState.tooMuchChangeGate(
 ): Outcome? {
     val changedN = changed.countOneBits()
     val blockedN = tainted.countOneBits()
+    // Squares a fresh, position-matched, confident observation reads as UNCHANGED stop counting
+    // toward the ceiling — the gate was refusing on evidence the CNN had already contradicted
+    // (Qxe2: one true move plus a bleed cloud of 7 read as 8 changed while the observer read the
+    // cloud `empty 1.000`). Counting only: z and `changed` are untouched, and the hand rule below
+    // stays on the RAW tainted count — `cnnConfirmedUnchanged` refuses occluded-reading squares,
+    // so a resting hand cannot talk itself out of the ceiling.
+    val confirmed = cnnConfirmedUnchanged(changed or tainted)
+    val changedEff = changed.without(confirmed).countOneBits()
+    val blockedEff = tainted.without(confirmed).countOneBits()
     var out: Outcome? = null
-    if (changedN + blockedN > config.maxChanged) {
-        if (blockedN == 0 && changedN <= config.maxChanged + 2) {
+    if (changedEff + blockedEff > config.maxChanged) {
+        if (blockedN == 0 && changedEff <= config.maxChanged + 2) {
             pairCandidate(z, moves.best)?.let { out = Outcome(it) }
         }
         if (out == null) {
@@ -146,9 +155,13 @@ private fun EngineState.tooMuchChangeGate(
             markStuck(STUCK_TOO_MANY_CHANGED)
             maybePatchAnomaly(moves.best, cur, curBgr)
             if (stuckReason != null) {
+                // The suffix appears ONLY when the discount was live: the base string is asserted
+                // byte-for-byte against Python by the parity replay, which never has a snapshot.
+                val discounted = confirmed.countOneBits()
                 note =
                     "Much change ($changedN squares + $blockedN occluded) — " +
-                    "occluded/unstable, no move committed (base truth unchanged)"
+                    "occluded/unstable, no move committed (base truth unchanged)" +
+                    if (discounted > 0) " ($discounted CNN-confirmed unchanged)" else ""
             }
             out = Outcome(null)
         }

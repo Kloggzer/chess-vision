@@ -170,6 +170,144 @@ class HypothesisTest {
         assertEquals(STUCK_TOO_MANY_CHANGED, state.stuckReason)
     }
 
+    // -- step 6: the CNN-confirmed-unchanged discount ---------------------------------------------
+
+    /**
+     * The Qxe2 frame of rec-20260808-003957 (@~6800): one true move plus a crown-overhang bleed
+     * cloud read as 8 changed squares while the observer read the cloud as unchanged at full
+     * confidence — the gate refused on evidence the CNN had already contradicted. Confirmed
+     * squares stop COUNTING; z and `changed` stay, and every later gate still stands.
+     */
+    @Test
+    fun cnnConfirmedUnchangedSquaresStopCounting() {
+        val state = hypothesisState()
+        state.cnnRun = true
+        val z = zOf("e2" to HOT, "e4" to HOT)
+        val moves = state.scoreViableMoves(z)
+        state.armDetection(changed = setOf("e2", "e4", "d1", "e1", "b2", "d2", "f1", "c3"))
+        // The observation contradicts the BLEED cloud only: the move squares read as moved
+        // (e2 empty, e4 occupied — disagreeing with the still-unmoved board), the cloud matches.
+        val obs = obsForBoard(state.board, mapOf("e2" to LABEL_EMPTY, "e4" to "wP"))
+        state.cnnSnap = recoverySnap(state, obs, seq = 1)
+
+        val cand = state.generateHypothesis(z, moves, DUMMY_GRAY, null)
+
+        assertEquals(listOf("e2e4"), cand?.moves?.map { uciOf(it) })
+        assertNull(state.stuckReason, "six cloud squares are CNN-confirmed unchanged — 2 count, the gate stays open")
+    }
+
+    /** A square can read confident AND occluded; a resting hand must not unlock the ceiling. */
+    @Test
+    fun aRestingHandCannotTalkItselfOutOfTheCeiling() {
+        val state = hypothesisState()
+        state.cnnRun = true
+        val z = zOf("e2" to HOT, "e4" to HOT)
+        val moves = state.scoreViableMoves(z)
+        val cloud = setOf("d1", "e1", "b2", "d2", "f1", "c3")
+        state.armDetection(changed = setOf("e2", "e4", "a6") + cloud)
+        // The cloud MATCHES the board (a hand over undisturbed squares) but reads occluded; the
+        // three genuinely-moved squares disagree, so nothing outside the hand can be discounted.
+        val labels =
+            Squares.ALL.associateWith { state.board.labelAt(it) } +
+                mapOf("e2" to LABEL_EMPTY, "e4" to "wP", "a6" to "bP")
+        state.cnnSnap = recoverySnap(state, RecoveryObs(labels, occluded = cloud), seq = 1)
+
+        assertNull(state.generateHypothesis(z, moves, DUMMY_GRAY, null))
+        assertEquals(STUCK_TOO_MANY_CHANGED, state.stuckReason)
+        assertEquals(
+            "Much change (9 squares + 0 occluded) — occluded/unstable, no move committed " +
+                "(base truth unchanged)",
+            state.note,
+            "occluded-reading squares are refused by the discount — no suffix, nothing discounted",
+        )
+    }
+
+    /** Squares the observation reads as CHANGED keep counting — a board that is really behind stays stuck. */
+    @Test
+    fun squaresTheCnnReadsAsChangedKeepCounting() {
+        val state = hypothesisState()
+        state.cnnRun = true
+        val z = zOf("e2" to HOT, "e4" to HOT)
+        val moves = state.scoreViableMoves(z)
+        // The observation agrees the whole set changed: occupied squares read empty and vice versa.
+        val flips =
+            mapOf(
+                "e2" to LABEL_EMPTY, "e4" to "wP", "d1" to LABEL_EMPTY, "e1" to LABEL_EMPTY,
+                "b2" to LABEL_EMPTY, "d2" to LABEL_EMPTY, "f1" to LABEL_EMPTY, "c3" to "wN",
+            )
+        state.armDetection(changed = flips.keys)
+        state.cnnSnap = recoverySnap(state, obsForBoard(state.board, flips), seq = 1)
+
+        assertNull(state.generateHypothesis(z, moves, DUMMY_GRAY, null))
+        assertEquals(STUCK_TOO_MANY_CHANGED, state.stuckReason)
+        assertEquals(
+            "Much change (8 squares + 0 occluded) — occluded/unstable, no move committed " +
+                "(base truth unchanged)",
+            state.note,
+            "the observation confirms the change — nothing to discount, the old note byte for byte",
+        )
+    }
+
+    /** A discount that is too small to open the gate is still visible in the note. */
+    @Test
+    fun aPartialDiscountIsVisibleInTheNote() {
+        val state = hypothesisState()
+        state.cnnRun = true
+        val z = zOf("e2" to HOT, "e4" to HOT)
+        val moves = state.scoreViableMoves(z)
+        // 9 changed; only d1/e1 match the board in the observation -> 2 discounted, 7 still count.
+        val flips =
+            mapOf(
+                "e2" to LABEL_EMPTY, "e4" to "wP", "b2" to LABEL_EMPTY, "d2" to LABEL_EMPTY,
+                "f1" to LABEL_EMPTY, "c3" to "wN", "a6" to "bP",
+            )
+        state.armDetection(changed = flips.keys + setOf("d1", "e1"))
+        state.cnnSnap = recoverySnap(state, obsForBoard(state.board, flips), seq = 1)
+
+        assertNull(state.generateHypothesis(z, moves, DUMMY_GRAY, null))
+        assertEquals(STUCK_TOO_MANY_CHANGED, state.stuckReason)
+        assertEquals(
+            "Much change (9 squares + 0 occluded) — occluded/unstable, no move committed " +
+                "(base truth unchanged) (2 CNN-confirmed unchanged)",
+            state.note,
+        )
+    }
+
+    /** A snapshot of ANOTHER position must not vouch for this one (the `cnnDesync` pattern). */
+    @Test
+    fun aSnapshotOfAnotherPositionDiscountsNothing() {
+        val state = hypothesisState()
+        state.cnnRun = true
+        val z = zOf("e2" to HOT, "e4" to HOT)
+        val moves = state.scoreViableMoves(z)
+        state.armDetection(changed = setOf("e2", "e4", "d1", "e1", "b2", "d2", "f1", "c3"))
+        state.cnnSnap = recoverySnap(state, obsForBoard(state.board), seq = 1, fen = NF3_NO_CASTLING)
+
+        assertNull(state.generateHypothesis(z, moves, DUMMY_GRAY, null))
+        assertEquals(STUCK_TOO_MANY_CHANGED, state.stuckReason)
+        assertEquals(
+            "Much change (8 squares + 0 occluded) — occluded/unstable, no move committed " +
+                "(base truth unchanged)",
+            state.note,
+            "a position-mismatched snapshot is no evidence — the old note, byte for byte",
+        )
+    }
+
+    /** Same for a snapshot older than the freshness bound. */
+    @Test
+    fun aStaleSnapshotDiscountsNothing() {
+        val state = hypothesisState()
+        state.cnnRun = true
+        state.nowS = OBS_MAX_AGE_S + 1.0
+        val z = zOf("e2" to HOT, "e4" to HOT)
+        val moves = state.scoreViableMoves(z)
+        state.armDetection(changed = setOf("e2", "e4", "d1", "e1", "b2", "d2", "f1", "c3"))
+        state.cnnSnap = recoverySnap(state, obsForBoard(state.board), seq = 1)
+
+        assertNull(state.generateHypothesis(z, moves, DUMMY_GRAY, null))
+        assertEquals(STUCK_TOO_MANY_CHANGED, state.stuckReason)
+    }
+
     // -- step 6: the CNN-conditional order -------------------------------------------------------
 
     /** The load-bearing ordering: pair BEFORE single with CNN, single first without. */
