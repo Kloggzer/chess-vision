@@ -181,6 +181,12 @@ class TrackerStack<T>(
 
     init {
         pipeline.corners = seed.corners
+        // The seed's own values FIRST, synchronously: until the settings flow below delivers, the
+        // observer would run with its constructor defaults — and WHEN that coroutine fires is wall
+        // clock, so a cold first replay observed on a different cadence than a warm one and
+        // diverged at ply 0. The flow still owns every LATER change.
+        observer.setIntervalS(seed.config.observerIntervalS)
+        observer.setEnabled(seed.config.cnnVerify)
         // Attaching is asynchronous and LOUD on failure: a silent one once let the tracker run
         // diff-only for a whole session (MEMORY android-live-bringup-2607).
         observer.attach(openClassifier)
