@@ -1,0 +1,73 @@
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { expect, test } from "vitest";
+import { loadProposals, splitStreams } from "@/lib/proposals";
+
+/** The pinned schema of specs/53-cnn-headroom/entry.md, header line included. */
+const LINES = [
+  '{"_thresholds": {"hi": 0.8, "lo": 0.2}}',
+  '{"session_id": "rg-g", "frame": "000100", "square": "e2", "fen_label": "wQ", "proposed": "occluded", "score": 0.91}',
+  '{"session_id": "rg-g", "frame": "000100", "square": "e3", "fen_label": "empty", "proposed": "occluded", "score": 0.55}',
+  '{"session_id": "rg-g", "frame": "000200", "square": "a1", "fen_label": "wR", "proposed": "wR", "score": 0.04}',
+];
+
+async function withFile(lines: string[]) {
+  const root = await mkdtemp(path.join(tmpdir(), "chesslab-proposals-"));
+  await mkdir(path.join(root, "realgames", "g"), { recursive: true });
+  await writeFile(
+    path.join(root, "realgames", "g", "occluded-proposals.jsonl"),
+    lines.join("\n") + "\n",
+    "utf8",
+  );
+  process.env.CHESSLAB_DATA_DIR = root;
+  return loadProposals("g");
+}
+
+test("header, rows and the three streams", async () => {
+  const { rows, thresholds, source } = await withFile(LINES);
+  expect(source).toBe("pack");
+  expect(thresholds).toEqual({ hi: 0.8, lo: 0.2, declared: true });
+  expect(rows.map((r) => r.score)).toEqual([0.91, 0.55, 0.04]); // score descending
+
+  const { confirm, tinder, control } = splitStreams(rows, thresholds);
+  expect(confirm.map((r) => r.square)).toEqual(["e2"]);
+  expect(tinder.map((r) => r.square)).toEqual(["e3"]);
+  expect(control.map((r) => r.square)).toEqual(["a1"]);
+});
+
+test("a file without a header falls back to defaults and SAYS so", async () => {
+  const { thresholds } = await withFile(LINES.slice(1));
+  expect(thresholds).toEqual({ hi: 0.7, lo: 0.3, declared: false });
+});
+
+test("no artifact and no fixture is empty, not an error", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "chesslab-proposals-"));
+  await mkdir(path.join(root, "realgames", "g"), { recursive: true });
+  process.env.CHESSLAB_DATA_DIR = root;
+  expect(await loadProposals("g")).toMatchObject({ rows: [], source: "none" });
+});
+
+test("the hand-written fixture parses exactly like the real artifact", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "chesslab-proposals-"));
+  await mkdir(path.join(root, "realgames", "rec-20260808-003957"), { recursive: true });
+  process.env.CHESSLAB_DATA_DIR = root;
+  const { rows, thresholds, source } = await loadProposals("rec-20260808-003957");
+  expect(source).toBe("fixture");
+  expect(thresholds).toEqual({ hi: 0.7, lo: 0.3, declared: true });
+  expect(rows.length).toBeGreaterThan(60);
+  for (const row of rows) {
+    expect(Object.keys(row).sort()).toEqual([
+      "fen_label",
+      "frame",
+      "proposed",
+      "score",
+      "session_id",
+      "square",
+    ]);
+  }
+  const streams = splitStreams(rows, thresholds);
+  expect(streams.confirm.length).toBeGreaterThan(60); // a full page plus exceptions
+  expect(streams.tinder.length).toBeGreaterThan(0);
+  expect(streams.control.length).toBeGreaterThan(0);
+});
