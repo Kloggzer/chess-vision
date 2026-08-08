@@ -2,7 +2,7 @@
 
 | Phase | State | Note |
 |---|---|---|
-| 00 — confirm | `todo` | lands alone; both reference.pgn are in the repo |
+| 00 — confirm | `done` | 2026-08-08, `620aa97` (Opus agent, supervised); confirm runs on the real candidates still owed — see log |
 | 01 — export-session | `todo` | after 00; owns `data/sessions/rg-<name>/` |
 | 02 — occluded proposals | `todo` | after 01; ∥ 03; owns the proposal schema (pinned in entry.md) |
 | 03 — relabel MVP | `todo` | after 01; ∥ 02; `platform/app/`, codes against the pinned schema |
@@ -22,4 +22,23 @@ the pack wins (known: `game.pgn` → `reference.pgn`).
 
 ## Session log
 
-*(empty — no phase has run)*
+### 2026-08-08 — phase 00 implemented (`620aa97`, merged `62b325b`)
+
+`src/chesslab/realgames.py` (159 lines, eight flat functions, no classes), `realgames_app` in
+`cli.py`, three targeted tests. Full gate: 450 passed, ruff clean. LCS is a verbatim port of
+`RealGameScore.scoreMoves` including the tie-break (truth advances → out-of-order commits read
+as invented). One signature deviation, deliberate: `confirm(name, *, yes, ask=None)` — `ask` is
+a plain callable so the prompt-free decision logic stays pure; the CLI passes a
+`typer.confirm` closure.
+
+**Spec discrepancy found by the implementing agent (the pack's 00 file was wrong):** the
+acceptance note "85/87 and 229/229 LCS are on record" conflates specs/52 REPLAY results with
+the candidates ON DISK, which hold 42 and 72 plies. Dry-run against the real files:
+- `rec-20260808-003957`: 42 plies vs 67 truth — matched 38, invented 4 (all the tail from
+  frame 005421 on: the recording ends before the game), missed 29. `--yes` is correct here.
+- `rec-20260808-115912`: 72 plies vs 237 — matched 65, invented 7, and several of the seven
+  (`Nxb8`, `Rxb8`, `Rb4`) also appear as missed truth plies — the resync-era duplicate case
+  the interactive gate exists for. This one wants the human pass, not `--yes`.
+
+Still owed for the phase's acceptance: the two real confirm runs (003957 via `--yes`,
+115912 interactively with the user).
