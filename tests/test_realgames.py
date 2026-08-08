@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from chesslab import config
+from chesslab.occluded import interval_reference, score_cells, write_proposals
 from chesslab.realgames import (
     confirm,
     ensure_export_profile,
@@ -178,3 +179,83 @@ def test_slice_runs_unmodified(tmp_path, monkeypatch):
     assert len(manifest) == 192
     first = json.loads(manifest[0])
     assert first["session_id"] == "rg-g" and first["frame"] == rows[0]["frame"][7:13]
+
+
+# --- propose-occluded (specs/53-02) -----------------------------------------------------------
+
+E4 = 28  # `all_squares()` is a1..h1, a2..h2, ...
+
+
+def _cells(seed, n, e4_seed=0):
+    """`n` frames of ONE fixed 64-cell board plus sensor noise; `e4_seed` decides what is on e4."""
+    base = np.random.default_rng(1000).integers(150, 255, (64, 32, 32, 3)).astype(float)
+    if e4_seed:
+        base[E4] = np.random.default_rng(e4_seed).integers(150, 255, (32, 32, 3))
+    rng = np.random.default_rng(seed)
+    return [
+        [np.clip(c + rng.normal(0, 1.0, c.shape), 0, 255).astype(np.uint8) for c in base]
+        for _ in range(n)
+    ]
+
+
+def _reference(frames):
+    return interval_reference(frames, [[True] * 64] * len(frames))
+
+
+def test_median_is_per_interval_not_global():
+    """e4's new occupant is normal against ITS interval and an intruder against the previous one.
+
+    A reference shared across intervals is the failure this guards: it would carry whatever piece
+    stood on e4 before, and every square the game touched would read as occluded ever after.
+    """
+    first, second = _cells(1, 4, e4_seed=11), _cells(2, 4, e4_seed=22)
+    dirty = _cells(3, 1, e4_seed=22)[0]
+
+    own = score_cells(_reference(second), dirty)
+    stale = score_cells(_reference(first), dirty)
+
+    assert own[E4] < 0.3, "e4 is this interval's own normal"
+    assert stale[E4] > 0.7, "against the previous interval's reference it is a change"
+    assert max(v for i, v in enumerate(stale) if i != E4) < 0.3, "only e4 differs between them"
+
+
+def test_a_replaced_cell_scores_high_a_darkened_cell_scores_low():
+    """The phase's contract: an occluder replaces content, a shadow only darkens it."""
+    clean = _cells(1, 4)
+    reference = _reference(clean)
+    replaced, shadow = _cells(5, 1)[0], _cells(6, 1)[0]
+    replaced[E4] = _cells(7, 1, e4_seed=77)[0][E4]  # something else entirely
+    shadow[E4] = (shadow[E4] * 0.5).astype(np.uint8)  # the same thing, in shade
+
+    assert score_cells(reference, replaced)[E4] > 0.7
+    assert score_cells(reference, shadow)[E4] < 0.3
+
+    # RED against the naive scorer: absolute difference ranks the two the wrong way round, so any
+    # threshold on it that catches the replacement catches the shadow first.
+    ref = clean[0][E4].astype(int)
+    naive_replaced = float(np.abs(replaced[E4].astype(int) - ref).mean())
+    naive_shadow = float(np.abs(shadow[E4].astype(int) - ref).mean())
+    assert naive_shadow > naive_replaced
+
+
+def test_proposals_conform_to_the_pinned_schema(tmp_path):
+    rows = [
+        {
+            "session_id": "rg-g",
+            "frame": "004211",
+            "square": "e2",
+            "fen_label": "wQ",
+            "proposed": "occluded",
+            "score": 0.83,
+        }
+    ]
+
+    path = write_proposals(tmp_path / "occluded-proposals.jsonl", rows, hi=0.7, lo=0.3)
+
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert json.loads(lines[0]) == {"_thresholds": {"hi": 0.7, "lo": 0.3}}
+    row = json.loads(lines[1])
+    assert list(row) == ["session_id", "frame", "square", "fen_label", "proposed", "score"]
+    assert row["frame"] == "004211" and "/" not in row["frame"] and ".png" not in row["frame"]
+    assert row["proposed"] in ("occluded", "keep") and 0.0 <= row["score"] <= 1.0
+    assert isinstance(row["score"], float) and isinstance(row["fen_label"], str)
