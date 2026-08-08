@@ -92,23 +92,6 @@ private fun EngineState.occupancyAgreesWithBoard(
 ): Boolean = (board.pieceCharAt(Squares.ALL[i]) != null) == obs.occupied(Squares.ALL[i])
 
 /**
- * The subset of [candidates] a FRESH, position-matched, CONFIDENT snapshot confirms UNCHANGED
- * against the reference — evidence the count gate may stop counting.
- *
- * The motivating frame (Qxe2, rec-20260808-003957 @6800): one true move plus a crown-overhang
- * bleed cloud read as 8 changed squares while the observer read d1/e1/b2/d2 as `empty 1.000` —
- * the gate counted evidence the CNN had already contradicted. Discounting is COUNTING only: the
- * squares stay in `changed`, their z stays for scoring, and every commit gate and the verify
- * ladder still stand behind whatever candidate the unlocked path produces.
- *
- * Three deliberate hardenings over [cnnOcclusionFilter]'s freshness:
- * - `snap.fen == board.fen()` (the `cnnDesync` pattern): a snapshot of a DIFFERENT position must
- *   not vouch for this one.
- * - `pOccluded <= P_OCCLUDED_THR`: a square can read confident AND occluded; without this a
- *   resting hand over empty squares would unlock the gate — invariant 4 stays load-bearing.
- * - `cnnOn`, not merely `cnnRun`: `cnnVerify = false` means the operator turned the CNN's say off.
- */
-/**
  * True while ANYTHING reads as a hand: an engine-side occlusion latch, this frame's occlusion
  * veto set, or an occluded-reading square in a fresh observation. The `cleanCommitsOnly`
  * experiment's one predicate — deliberately the union of every hand signal the engine has,
@@ -127,9 +110,25 @@ internal fun CnnObservation.readsOccludedAnywhere(): Boolean {
     return false
 }
 
+/**
+ * The subset of [candidates] a FRESH, position-matched, CONFIDENT snapshot confirms UNCHANGED
+ * against the reference — evidence the count gate may stop counting.
+ *
+ * The motivating frame (Qxe2, rec-20260808-003957 @6800): one true move plus a crown-overhang
+ * bleed cloud read as 8 changed squares while the observer read d1/e1/b2/d2 as `empty 1.000` —
+ * the gate counted evidence the CNN had already contradicted. Discounting is COUNTING only: the
+ * squares stay in `changed`, their z stays for scoring, and every commit gate and the verify
+ * ladder still stand behind whatever candidate the unlocked path produces.
+ *
+ * Three deliberate hardenings over [cnnOcclusionFilter]'s freshness:
+ * - `snap.fen == board.fen()` (the `cnnDesync` pattern): a snapshot of a DIFFERENT position must
+ *   not vouch for this one.
+ * - `pOccluded <= P_OCCLUDED_THR`: a square can read confident AND occluded; without this a
+ *   resting hand over empty squares would unlock the gate — invariant 4 stays load-bearing.
+ * - `cnnOn`, not merely `cnnRun`: `cnnVerify = false` means the operator turned the CNN's say off.
+ */
 internal fun EngineState.cnnConfirmedUnchanged(candidates: Long): Long {
-    if (!cnnOn) return 0L
-    val snap = freshSnapshot() ?: return 0L
+    val snap = (if (cnnOn) freshSnapshot() else null) ?: return 0L
     if (snap.fen != board.fen()) return 0L
     val obs = snap.obs
     val thr = config.cnnConfThr

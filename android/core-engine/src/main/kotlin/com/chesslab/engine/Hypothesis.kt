@@ -144,29 +144,35 @@ private fun EngineState.tooMuchChangeGate(
     val confirmed = cnnConfirmedUnchanged(changed or tainted)
     val changedEff = changed.without(confirmed).countOneBits()
     val blockedEff = tainted.without(confirmed).countOneBits()
-    var out: Outcome? = null
-    if (changedEff + blockedEff > config.maxChanged) {
-        if (blockedN == 0 && changedEff <= config.maxChanged + 2) {
-            pairCandidate(z, moves.best)?.let { out = Outcome(it) }
-        }
-        if (out == null) {
-            confirmer.reset()
-            // Spec 09: the stuck marker is the recovery trigger via `_cnn_tick`.
-            markStuck(STUCK_TOO_MANY_CHANGED)
-            maybePatchAnomaly(moves.best, cur, curBgr)
-            if (stuckReason != null) {
-                // The suffix appears ONLY when the discount was live: the base string is asserted
-                // byte-for-byte against Python by the parity replay, which never has a snapshot.
-                val discounted = confirmed.countOneBits()
-                note =
-                    "Much change ($changedN squares + $blockedN occluded) — " +
-                    "occluded/unstable, no move committed (base truth unchanged)" +
-                    if (discounted > 0) " ($discounted CNN-confirmed unchanged)" else ""
-            }
-            out = Outcome(null)
-        }
+    if (changedEff + blockedEff <= config.maxChanged) return null
+    if (blockedN == 0 && changedEff <= config.maxChanged + 2) {
+        pairCandidate(z, moves.best)?.let { return Outcome(it) }
     }
-    return out
+    refuseTooMuchChange(changedN, blockedN, confirmed.countOneBits(), moves, cur, curBgr)
+    return Outcome(null)
+}
+
+/** The refusal arm of [tooMuchChangeGate]: mark stuck, try the anomaly patch, say why. */
+private fun EngineState.refuseTooMuchChange(
+    changedN: Int,
+    blockedN: Int,
+    discounted: Int,
+    moves: ViableMoves,
+    cur: GrayImage,
+    curBgr: BgrImage?,
+) {
+    confirmer.reset()
+    // Spec 09: the stuck marker is the recovery trigger via `_cnn_tick`.
+    markStuck(STUCK_TOO_MANY_CHANGED)
+    maybePatchAnomaly(moves.best, cur, curBgr)
+    if (stuckReason != null) {
+        // The suffix appears ONLY when the discount was live: the base string is asserted
+        // byte-for-byte against Python by the parity replay, which never has a snapshot.
+        note =
+            "Much change ($changedN squares + $blockedN occluded) — " +
+            "occluded/unstable, no move committed (base truth unchanged)" +
+            if (discounted > 0) " ($discounted CNN-confirmed unchanged)" else ""
+    }
 }
 
 /** The pair is tried BEFORE the single, with CNN verify only. */

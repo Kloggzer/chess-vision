@@ -1,7 +1,6 @@
 package com.chesslab.engine.api
 
 import com.chesslab.engine.ALARM_BOARD_RESTORED
-import com.chesslab.engine.Candidate
 import com.chesslab.engine.DECIDER_USER
 import com.chesslab.engine.DecisionRecord
 import com.chesslab.engine.EngineState
@@ -26,13 +25,10 @@ import com.chesslab.engine.detectGuards
 import com.chesslab.engine.dispatch
 import com.chesslab.engine.flushSessionCapture
 import com.chesslab.engine.generateHypothesis
-import com.chesslab.engine.handInFrame
 import com.chesslab.engine.learnNoise
 import com.chesslab.engine.legalMoveFor
 import com.chesslab.engine.markStuck
 import com.chesslab.engine.moveTouchedMask
-import com.chesslab.engine.pyFixed
-import com.chesslab.engine.recordRejection
 import com.chesslab.engine.san
 import com.chesslab.engine.scoreViableMoves
 import com.chesslab.engine.setRef
@@ -40,7 +36,6 @@ import com.chesslab.engine.sortedSquareNames
 import com.chesslab.engine.squareNames
 import com.chesslab.engine.takeBack
 import com.chesslab.engine.topChangedVals
-import com.chesslab.engine.uciOf
 import com.chesslab.engine.with
 
 /** Standard chess starting position (FEN). */
@@ -532,67 +527,6 @@ private class Desync(
     val snap: CnnSnapshot,
     val conflicts: List<String>,
 )
-
-/**
- * Steps 6b, 7 and 8 — the three gates between a candidate and dispatch. `true` = commit it.
- *
- * - **6b, absolute LL floor**: a sole-viable candidate has an infinite margin, so a weak phantom
- *   (`f6h5 @ 0.44` swallowed a live castle) sails through every margin check. Endpoint candidates
- *   (`vote = false`) stay exempt — they are CNN-verified by design.
- * - **7, motion gate**: a real move is always preceded by a hand, and it becomes visible within
- *   seconds of the hand leaving. BOTH conditions are needed — `motionSinceRef` alone was armed
- *   forever by a single wobble spike.
- * - **8, confirmer**: the same candidate over N stable frames. The endpoint candidate skips the
- *   vote; the CNN verify IS its multi-frame confirmation.
- */
-internal fun EngineState.commitGates(cand: Candidate): Boolean {
-    val sans = board.sanSequence(cand.moves).joinToString(" + ")
-    val key = cand.moves.joinToString(" ") { uciOf(it) }
-    var pass = true
-    // The `cleanCommitsOnly` EXPERIMENT: no candidate advances while anything reads as a hand.
-    // Sits before the confirmer so a hand does not burn votes; the reset keeps the semantics of
-    // every other refusal in this funnel.
-    if (config.cleanCommitsOnly && handInFrame()) {
-        confirmer.reset()
-        note = "$sans? hand in frame — clean commits only (experiment)"
-        recordRejection(key, note.orEmpty())
-        pass = false
-    }
-    if (pass && cand.vote && config.commitLlFloor > 0 && bestScore < config.commitLlFloor) {
-        confirmer.reset()
-        note =
-            "$sans? evidence too weak (${pyFixed(bestScore, 2)} < ${pyFixed(config.commitLlFloor, 1)}) — " +
-            "not committing"
-        recordRejection(key, note.orEmpty())
-        pass = false
-    }
-    if (pass && config.requireMotionForMove) {
-        val age = nowS - lastMotionTs
-        // `motionRecencyS <= 0` is OFF — no recency limit — the way 0 means off for every other
-        // knob in the catalog (`censusZWeight`, `minGridLineCoverage`, `occlusionColorThr`,
-        // `commitLlFloor`, `observerIntervalS`). Read literally it meant `age > 0`, i.e. reject
-        // EVERY candidate: by the time one exists the hand is long gone (settle frames plus
-        // `motionHoldS`), so the age is never zero. Found live on 2026-08-01 — the device had it at
-        // 0.0 and the deterministic channel had not committed a single move in the whole session,
-        // every one of them waiting out the 10 s CNN recovery poll instead.
-        val stale = config.motionRecencyS > 0.0 && age > config.motionRecencyS
-        if (!motionSinceRef || stale) {
-            confirmer.reset()
-            val why = if (!motionSinceRef) "no motion since last move" else "last motion ${pyFixed(age, 0)}s ago"
-            note = "$sans? ignored — $why (drift/light, not a real move)"
-            recordRejection(key, note.orEmpty())
-            pass = false
-        }
-    }
-    if (pass) {
-        candidateUci = key
-        if (cand.vote && !confirmer.feed(key)) {
-            note = "detecting $sans… (${confirmer.count}/$confirmFrames)"
-            pass = false
-        }
-    }
-    return pass
-}
 
 /**
  * The immutable UI snapshot (`status()`), a pure function of the state. This is the ONE place that
