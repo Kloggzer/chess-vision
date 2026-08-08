@@ -454,6 +454,33 @@ def realgames_export_session(
           f"(margin {r['margin_frames']} frames) — {where}")
 
 
+@realgames_app.command("propose-occluded")
+def realgames_propose_occluded(
+    name: str = typer.Argument(..., help="Real-game name under data/realgames/."),
+    hi: float = typer.Option(0.7, "--hi", help="Score above which a cell is PROPOSED occluded."),
+    lo: float = typer.Option(0.3, "--lo",
+                             help="Lower band edge — the review UI's boundary, not the producer's."),
+) -> None:
+    """Score every dirty cell of the exported session against its interval's clean median.
+
+    The `occluded` class has no honest producer: the model's own reads are circular and the
+    ledger's `occl=` field is structurally 0.0 under every 13-class model. Inside a confirmed
+    interval the position IS known, so a census mismatch plus a colour-gamut escape against that
+    interval's own quiet frames separates "something replaced the content" from "a shadow fell on
+    it". This proposes; a human decides (specs/53-02/03).
+    """
+    from . import occluded as occluded_mod
+
+    try:
+        r = occluded_mod.propose_occluded(name, hi=hi, lo=lo)
+    except (FileNotFoundError, ValueError, KeyError) as e:
+        print(f"[ERR] {e}")
+        raise typer.Exit(1) from e
+    skipped = f", {len(r['skipped_plies'])} plies without a reference" if r["skipped_plies"] else ""
+    print(f"[OK] {len(r['rows'])} proposals ({r['occluded']} occluded at hi={hi}){skipped} "
+          f"-> {r['path']}")
+
+
 @session_app.command("archive")
 def session_archive(
     session: str = typer.Argument(..., help="Session ID."),
