@@ -343,7 +343,7 @@ private fun replay(
         val config = options.trackerConfig(geometry, live = camera != null)
         println("board located from its markers: ${geometry.boardSize} px warp  ·  $options")
         println("crops: ${cropLine(spec, geometry)}")
-        if (camera == null) println("observer: synchronous, every ${REPLAY_OBSERVER_INTERVAL_S}s of video time — runs repeat")
+        if (camera == null) println("observer: synchronous and free-running on video time — runs repeat")
         val publisher = StatusPublisher(scope)
         val cnn = if (options.cnn) openDesktopCnn(options.model, console("chesslabCnn")) else null
         if (!options.cnn) println("cnn: off — the engine uses its no-observation occlusion fallback")
@@ -356,6 +356,13 @@ private fun replay(
         // debugging window would be the wrong trade.
         val bus = CameraFrameBus(MutableStateFlow(CameraHealth.Up), scope, ::matToImage)
         val view = openView(options, name)
+        // NOT seeded with this run's config, deliberately. Seeding it (`settings.update(config)`)
+        // was tried on 2026-08-08 and collapsed rec-20260808 from 67 plies to 26 with a phantom on
+        // rec-20260807 — through a path the A/B tests could not pin (liveAlign off and a faster
+        // cadence both failed to heal it). Every good measurement on record ran with the
+        // repository at codec defaults; that state is now declared rather than accidental, and
+        // the one knob where the two sources disagreed (observerIntervalS) is 0.0 in both.
+        val settings = SettingsRepository(MemoryConfigStore, scope)
         val stack =
             buildStack(
                 config,
@@ -367,6 +374,7 @@ private fun replay(
                 cnn,
                 console,
                 scope,
+                settings,
                 session?.collector,
                 live = camera != null,
             )
@@ -411,6 +419,7 @@ private fun buildStack(
     cnn: (() -> Attached)?,
     logs: TrackerLogs,
     scope: CoroutineScope,
+    settings: SettingsRepository,
     collector: DecisionCollector? = null,
     live: Boolean = false,
 ): TrackerStack<Mat> =
@@ -438,7 +447,7 @@ private fun buildStack(
             // one unchanged file. Live keeps the phone's shape: a dedicated observer thread.
             observerDispatcher = if (live) null else Dispatchers.Unconfined,
         ),
-        SettingsRepository(MemoryConfigStore, scope),
+        settings,
         publisher,
         bus,
         StageTimings(logLine = { println("chesslabPerf: $it") }),

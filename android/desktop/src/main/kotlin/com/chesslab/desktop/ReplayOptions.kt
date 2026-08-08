@@ -179,11 +179,14 @@ private fun TrackerConfig.withOverrides(overrides: Map<String, Double>): Tracker
     }
 
 /**
- * The replay observer's fixed VIDEO-time cadence. Approximates the live self-pacing (the phone
- * observes about as often as one observation takes: 16-100 ms on the SM8650) without paying
- * synchronous inference on every decoded frame. Recorded in `effective_config` like every knob.
+ * The replay observer's cadence: FREE-RUNNING, like the phone's self-pacing default. With the
+ * synchronous replay observer that means one observation whenever the previous one is done —
+ * every 1-2 frames — which is what every good measurement on record ran at: throttling to a
+ * "modelled live rate" of 0.15 s was tried on 2026-08-08 and starved verify votes and recovery
+ * glances (rec-20260808: 67 plies -> 26). The observation cache is what makes the dense cadence
+ * affordable on re-runs.
  */
-internal const val REPLAY_OBSERVER_INTERVAL_S = 0.15
+internal const val REPLAY_OBSERVER_INTERVAL_S = 0.0
 
 /**
  * Frames between dumps by default.
