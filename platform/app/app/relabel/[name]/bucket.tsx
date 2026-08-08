@@ -20,6 +20,8 @@ export type BucketProps = {
   onException: (cells: Proposal[]) => void;
   onWritten: (n: number) => void;
   onError: (error: unknown) => void;
+  /** Fired once when the LAST page is confirmed — the session-done banner listens. */
+  onDone?: () => void;
 };
 
 /**
@@ -69,11 +71,12 @@ export function BucketGrid(props: BucketProps) {
       );
       setMarked(new Set());
       setCursor(0);
+      if (page + 1 >= pages) props.onDone?.();
       setPage((p) => Math.min(p + 1, pages - 1));
     } catch (error) {
       onError(error);
     }
-  }, [slice, marked, kind, sessionId, page, pages, onException, onWritten, onError]);
+  }, [slice, marked, kind, sessionId, page, pages, onException, onWritten, onError, props]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {

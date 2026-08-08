@@ -1,9 +1,26 @@
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { decidedKeys } from "@/lib/corrections";
+import { listGames } from "@/lib/data";
 import { loadProposals, proposalKey, splitStreams } from "@/lib/proposals";
 import { loadSession, sessionId } from "@/lib/session";
 import { Streams } from "./streams";
+
+/** The next session with undecided proposals, or null — the done banner's forward link. */
+async function nextOpenSession(current: string): Promise<string | null> {
+  for (const other of await listGames()) {
+    if (other === current) continue;
+    try {
+      const { rows } = await loadProposals(other);
+      if (rows.length === 0) continue;
+      const done = await decidedKeys(sessionId(other));
+      if (rows.some((r) => !done.has(proposalKey(r)))) return other;
+    } catch {
+      /* no proposals for this one */
+    }
+  }
+  return null;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +76,7 @@ export default async function RelabelPage({ params }: PageProps<"/relabel/[name]
           decided={Object.fromEntries(decided)}
           frames={frames}
           name={name}
+          next={await nextOpenSession(name)}
           sessionId={session.sessionId}
           streams={streams}
         />

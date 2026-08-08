@@ -22,6 +22,8 @@ export type TinderProps = {
   cells: Proposal[];
   onWritten: (n: number) => void;
   onError: (error: unknown) => void;
+  /** Fired when the band runs empty — the session-done banner listens. */
+  onDone?: () => void;
 };
 
 /** What the last decision did, so `z` can put it back — a superseding row, last line wins. */
@@ -32,11 +34,18 @@ type Done = { cell: Proposal; label: string | null };
  * exception the grid threw out. Keep writes NOTHING: the FEN already says that, and a row that
  * repeats the FEN is noise in a global training input.
  */
-export function TinderBand({ name, sessionId, cells, onWritten, onError }: TinderProps) {
+export function TinderBand({ name, sessionId, cells, onWritten, onError, onDone }: TinderProps) {
   const [index, setIndex] = useState(0);
   const [stack, setStack] = useState<Done[]>([]);
   const cell = cells[index];
   const swipe = useRef<number | null>(null);
+
+  // The band ran empty — tell the session-done banner. Keyed on the boolean, so late-arriving
+  // bucket exceptions (cells grows, cell exists again) legitimately un-fire and re-fire it.
+  const empty = cells.length > 0 && !cell;
+  useEffect(() => {
+    if (empty) onDone?.();
+  }, [empty, onDone]);
 
   const decide = useCallback(
     async (label: string | null) => {
