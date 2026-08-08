@@ -2,10 +2,11 @@
 
 | Phase | State | Note |
 |---|---|---|
-| 00 — confirm | `done` | 2026-08-08, `620aa97` (Opus agent, supervised); confirm runs on the real candidates still owed — see log |
-| 01 — export-session | `todo` | after 00; owns `data/sessions/rg-<name>/` |
-| 02 — occluded proposals | `todo` | after 01; ∥ 03; owns the proposal schema (pinned in entry.md) |
-| 03 — relabel MVP | `todo` | after 01; ∥ 02; `platform/app/`, codes against the pinned schema |
+| 00 — confirm | `done` | 2026-08-08, `620aa97`; 003957 confirmed via `--yes` (38 reviewed); 115912 waits for the VIEW |
+| 01 — export-session | `done` | 2026-08-08, `82b7d0b`+`8d87f49`; real export ran: 1 729 frames → 110 656 crops, slice untouched and green, yield 488 @cap4 vs 504 estimated |
+| 02 — occluded proposals | `todo` | after 01; ∥ 03b; owns the proposal schema (pinned in entry.md) |
+| 03a — scaffold + confirm view | `done` | 2026-08-08, `e21b656`+`aba57a3`; shadcn per user, 461 own lines, byte-preserving three-key write, server recomputes reviewed_plies |
+| 03b — relabel streams | `todo` | after 01+03a; ∥ 02 |
 | 04 — 14-class experiment | `todo` | last; success bar = dense-evaluation table in entry.md |
 
 Branch: `specs-53-<phase>` per phase, off `main`. DIRECTION.md remains the investigation of
@@ -42,3 +43,27 @@ the candidates ON DISK, which hold 42 and 72 plies. Dry-run against the real fil
 
 Still owed for the phase's acceptance: the two real confirm runs (003957 via `--yes`,
 115912 interactively with the user).
+
+### 2026-08-08 — phases 01 and 03a in parallel (merged `ae9401f`)
+
+Two Opus agents, one supervisor, disjoint file scopes — but ONE shared checkout, so the 03a
+commits stacked onto `specs-53-01` (content unharmed; future parallel agents get worktrees).
+Orchestrator gate on the merged stack: 454 Python tests + ruff clean, eslint + tsc + 2 route
+tests green.
+
+**01 (exporter):** `chesslab realgames export-session` + `--report-only`. Real run: 5 419
+frames decoded strictly forward in 2 m 07 s, 1 729 PNGs, slice `[OK] … 110 656 crops` with
+`git diff labeling.py` EMPTY. Yield 488 @cap4 / 1 952 @cap16 (DIRECTION estimated 504/2 016 on
+42 plies; 38 are reviewed — the caps key on (session, square, label) and are NOT additive
+across quiet/dirty). Notable deviations, all sound: a `desktop` calibration profile is created
+FROM the candidate (never invented — the ClipDriver lesson; `out_size` 128 = the pool's unit,
+cell 116 px so ~1:1); intervals end at the next commit even if unreviewed; frames before ply 1
+are not exported. Flag for the orchestrator: the static median quad reads 34/44 alignment pass
+(77 %), worst max 5.61 px vs the 4.64 gate — the open Hebel-3 quad question, not this phase's.
+
+**03a (confirm view):** Next.js MVP under `platform/app/` (shadcn per user amendment — three
+components, no kitchen sink). `/confirm/<name>` renders the 7 unmatched 115912 plies with
+review PNGs and duplicate badges; POST recomputes `reviewed_plies` server-side from the file
+and writes the three confirmation keys byte-preservingly (`JSON.rawJSON` reviver keeps `0.0`
+as `0.0`; tmp+rename). chess.js SANs verified 237/237 identical to python-chess on the real
+PGN. Smoke against the real data: 200, 7 cards, 3 duplicate badges, candidate md5 unchanged.
