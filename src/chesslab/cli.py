@@ -423,6 +423,37 @@ def realgames_confirm(
           f"({len(r['kept'])} unmatched kept)")
 
 
+@realgames_app.command("export-session")
+def realgames_export_session(
+    name: str = typer.Argument(..., help="Real-game name under data/realgames/."),
+    quiet_margin_s: float = typer.Option(1.0, "--quiet-margin-s",
+                                         help="Declared hand margin around each commit."),
+    dirty: bool = typer.Option(True, "--dirty/--no-dirty",
+                               help="Also export the commit windows, flagged `dirty: true`."),
+    every: int = typer.Option(3, "--every", help="Sample every Nth source frame."),
+    report_only: bool = typer.Option(False, "--report-only",
+                                     help="Compute the yield table, write nothing."),
+) -> None:
+    """Turn a CONFIRMED real-game candidate into `data/sessions/rg-<name>/` for `chesslab slice`.
+
+    The night-light domain and every occlusion window exist only in the recorded videos, and
+    nothing extracted them. A reviewed ply's `fen_after` is the known position from its commit
+    to the next one; the margin cuts the hand out of that interval, and `--dirty` keeps those
+    cut-out windows as flagged rows for the occluded-class work (specs/53-02/03).
+    """
+    from . import realgames as realgames_mod
+
+    try:
+        r = realgames_mod.export_session(name, quiet_margin_s=quiet_margin_s, every=every,
+                                         dirty=dirty, report_only=report_only)
+    except (FileNotFoundError, ValueError, KeyError) as e:
+        print(f"[ERR] {e}")
+        raise typer.Exit(1) from e
+    where = "report only, nothing written" if r["report_only"] else str(r["session_dir"])
+    print(f"[OK] {len(r['rows'])} rows over {r['segments']} reviewed intervals "
+          f"(margin {r['margin_frames']} frames) — {where}")
+
+
 @session_app.command("archive")
 def session_archive(
     session: str = typer.Argument(..., help="Session ID."),

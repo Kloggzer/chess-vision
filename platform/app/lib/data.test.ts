@@ -1,0 +1,72 @@
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { beforeEach, expect, test } from "vitest";
+import { lcsReport } from "@/lib/lcs";
+
+/** Same fixture as `tests/test_realgames.py::_candidate`. */
+const PGN = '[Event "t"]\n\n1. e4 e5 2. Nf3 Nc6 *\n';
+/** Written as TEXT, not as an object: `0.0` is exactly the byte the writer must not round off. */
+const CANDIDATE = JSON.stringify(
+  {
+    name: "g",
+    confirmed: false,
+    geometry: { board_size: 928, margin: "@0.0@" },
+    moves: ["e4", "d4", "Nf3", "Nc6"].map((san, i) => ({
+      ply: i + 1,
+      san,
+      frame: 100 * (i + 1),
+      decider: "cnn_occupancy",
+    })),
+  },
+  null,
+  2,
+).replace('"@0.0@"', "0.0");
+
+let file: string;
+
+beforeEach(async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "chesslab-app-"));
+  const dir = path.join(root, "realgames", "g");
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(dir, "reference.pgn"), PGN, "utf8");
+  file = path.join(dir, "candidate.json");
+  await writeFile(file, CANDIDATE + "\n", "utf8");
+  process.env.CHESSLAB_DATA_DIR = root;
+});
+
+test("lcs mirrors the python/kotlin semantics", () => {
+  const { matched, invented, missed } = lcsReport(["a", "b", "c", "d"], ["a", "x", "c"]);
+  expect(matched.length).toBe(2);
+  expect(invented).toEqual([1]);
+  expect(missed).toEqual([1, 3]);
+});
+
+test("the confirm POST writes only the three keys", async () => {
+  const before = JSON.parse(await readFile(file, "utf8"));
+  const { POST } = await import("@/app/api/confirm/[name]/route");
+
+  const response = await POST(
+    new Request("http://localhost/api/confirm/g", {
+      method: "POST",
+      body: JSON.stringify({ kept: [] }),
+    }),
+    { params: Promise.resolve({ name: "g" }) },
+  );
+  expect(response.status).toBe(200);
+
+  const text = await readFile(file, "utf8");
+  const after = JSON.parse(text);
+  // The key-set diff of tests/test_realgames.py::test_confirm_writes_only_the_three_keys.
+  const added = Object.keys(after).filter((k) => !(k in before));
+  expect(new Set(added)).toEqual(new Set(["confirmed_at", "reviewed_plies"]));
+  expect(before.confirmed).toBe(false);
+  expect(after.confirmed).toBe(true);
+  expect(after.confirmed_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+  for (const key of Object.keys(before).filter((k) => k !== "confirmed")) {
+    expect(after[key], key).toEqual(before[key]);
+  }
+  expect(after.reviewed_plies).toEqual([1, 3, 4]); // "d4" is invented and was not kept
+  expect(text.endsWith("\n")).toBe(true);
+  expect(text).toContain('"margin": 0.0'); // untouched keys keep their bytes, not just their value
+});
