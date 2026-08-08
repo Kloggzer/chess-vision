@@ -4,7 +4,7 @@
 |---|---|---|
 | 00 — a recovery shows its work | `done` | one row per move, stamped `[move i/N of recovery <ucis>]` |
 | 01 — undo takes back what was committed | `done` | one press unwinds the last commit; the control says its size |
-| 02 — re-anchor without inventing history | `todo` | independent of 01 |
+| 02 — re-anchor without inventing history | `engine done` | 2026-08-08: `resyncToBoard()` + `EngineAction.ResyncToBoard` + an auto arm the spec did not have (`autoResyncObsN`, replay instrument, 0 = off; user-approved deviation from "do not auto-resync" — measured in specs/52 STATUS: 61→87 plies on rec-20260808-115912, 85/87 real vs PGN, guards clean). The phone UI door (spec step 3, show-then-press) is still `todo` |
 | 03 — an undo the recovery can hear | `done` | added 2026-08-02 from the loop below; `undo` vetoes the line it took back |
 
 ## What the two landed phases changed, and what they found wrong in the spec

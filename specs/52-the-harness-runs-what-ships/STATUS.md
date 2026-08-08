@@ -296,6 +296,36 @@ inter-frame delta doubles and `motionThr` bites harder, which is confounded into
   only together with retraining on undistorted crops (specs/53's exporter is the place), never
   as an inference-side switch.
 
+### 2026-08-08 — the way back, measured: ResyncToBoard's auto arm (specs/37-02, Hebel 1)
+
+`ResyncToBoard` landed (engine action + `autoResyncObsN`, 0 = off everywhere; the phone keeps
+the door). Three measured iterations to make the auto arm FIRE, each disproving a design guess:
+
+1. **n=12 never fired** — zero votes on the whole dead phase of rec-20260808-115912. Counters
+   said why: 2 914 of 3 069 snapshots discarded as not-due (evaluations run every 0.7-3 s, not
+   at observation rate), and 12 consecutive anything does not exist at blitz pace.
+2. **n=3 never fired either** — the gate failed BINARILY. An instrumented run showed: of 699
+   alarmed evaluations, 222 were hand-free, but **221 of those failed the kings guard**
+   (`cnnAdoptedFen` = minimal edit: deep in the drift the believed king square confidently reads
+   empty while the king's real square is not confidently a king → kingless → null). Exactly ONE
+   clean adoptable read existed, early, near the divergence point — carrying the true position.
+   Consequence one: hand reads now PAUSE the streak instead of resetting it (a covered board is
+   a non-observation). Consequence two: the auto arm can only fire NEAR the divergence point;
+   deep-drift adoption needs composite reads (a follow-up, not this pack).
+3. **n=1 fires, and it is the largest single gain since the cadence:** rec-20260808-115912
+   **61 -> 87 plies**, 13 alarms each RESOLVED by a resync instead of killing the rest of the
+   game, coverage to true ply ~159 of 237 (move ~80 of 119, was: death at move 31). Verified
+   against the reference PGN by LCS: **85 of 87 committed plies are the real game**, the two
+   unmatched are king moves the real game played in that phase (LCS order artifacts around
+   resync gaps), zero fabrications-from-nothing. Guards: rec-20260807 score stays **25/0/0**,
+   rec-20260808-003957 stays 67 plies (no alarm there, no resync fired — the arm is inert where
+   it is not needed).
+
+n=1 under the standing gates (standoff/illegal alarm + full identity axis + hand-free +
+kings-guarded minimal edit + position ≠ believed) is the working replay setting. It is NOT the
+phone default (0 stays: specs/37-02's door). The `verifyObsVotes`-class question — whether n=1
+adopts too eagerly on other footage — travels with every future batch via the rec-0807 guard.
+
 ### 2026-08-08 — the label gate asks for evidence, not a pass rate (the reserved decision)
 
 The finding above ("`ALIGN_PASS_MIN` measures playing speed") reserved the threshold change as a
