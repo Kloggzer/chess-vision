@@ -207,10 +207,10 @@ fun geometryRefusals(g: ScannedGeometry): List<String> {
     val out = mutableListOf<String>()
     if (g.aligned == 0) {
         out += "no sampled frame's grid could be measured — is the board in shot?"
-    } else if (g.alignPassRate < ALIGN_PASS_MIN) {
-        out += "only ${"%.1f".format(HUNDRED * g.alignPassRate)} % of sampled frames align to the board's own grid " +
-            "(need ${"%.0f".format(HUNDRED * ALIGN_PASS_MIN)} %). Hands over the board are the normal cause; " +
-            "a rate this low means the grid itself is not being found."
+    } else if (g.aligned < MIN_ALIGNED_SAMPLES) {
+        out += "only ${g.aligned} sampled frames align to the board's own grid " +
+            "(need $MIN_ALIGNED_SAMPLES for a median quad to stand on). Is the board mostly out of " +
+            "shot, or the footage very short?"
     }
     val spreadP90 = g.quadSpreadPx.p90
     if (spreadP90 != null && spreadP90 > QUAD_SPREAD_P90_MAX) {
@@ -245,8 +245,8 @@ fun geometryReport(g: ScannedGeometry): String {
             "  worst square offset (rectified px, one square = ${"%.0f".format(cell)} px): ${g.worstOffsetPx.line()}",
         )
         appendLine(
-            "  PASSED the absolute gate: ${g.aligned} of ${g.sampled} (${"%.1f".format(HUNDRED * g.alignPassRate)} %, " +
-                "gate >= ${"%.0f".format(HUNDRED * ALIGN_PASS_MIN)} %)",
+            "  PASSED the absolute gate: ${g.aligned} of ${g.sampled} sampled (${"%.1f".format(HUNDRED * g.alignPassRate)} % — " +
+                "the rate measures playing speed, not footage quality; the gate is >= $MIN_ALIGNED_SAMPLES aligned samples)",
         )
         appendLine("  quad spread about the median quad (BOARD-MOVEMENT check, not correctness): ${g.quadSpreadPx.line()}")
         append("  clock |realised - nominal| ms: ${g.clockErrorMs.line()}")
@@ -262,7 +262,19 @@ private fun Distribution.line(): String =
 
 /** See the Python originals for the measurements behind each threshold (specs/40, specs/52). */
 const val QUAD_SPREAD_P90_MAX = 4.0
-const val ALIGN_PASS_MIN = 0.85
+
+/**
+ * The label gate asks for absolute EVIDENCE, not a pass RATE — the evidenced decision the
+ * 2026-08-08 finding reserved. The old `ALIGN_PASS_MIN = 0.85` measured playing speed: a briskly
+ * replayed game (`rec-20260808-003957`, ~3 s/move) read 82.5 % with FLAWLESS geometry — 837
+ * aligned samples, 4 markers on 847/1014, clock exact — because the failing samples are hands,
+ * and hands say nothing about where the board is. What the median quad actually needs is enough
+ * quality-checked samples: every aligned sample already passed `alignmentOf` (worst offset
+ * within 4 % of a cell AND all 18 grid lines read), a nudged board is `QUAD_SPREAD_P90_MAX`'s
+ * job, and 100 samples is ~33 s of board-visible footage at the scan's stride — an order of
+ * magnitude above where a per-corner median stops moving.
+ */
+const val MIN_ALIGNED_SAMPLES = 100
 const val CLOCK_P90_PERIOD_FRAC = 0.10
 
 private const val SAMPLE_EVERY = 10

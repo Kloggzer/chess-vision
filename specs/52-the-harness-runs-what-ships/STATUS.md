@@ -245,6 +245,26 @@ cold and warm **byte-identical**):
 mate, shorter than the pre-fix tail of 10-11 because aligns now land at video times; zero
 phantoms inside the labeled range.
 
+### 2026-08-08 — the label gate asks for evidence, not a pass rate (the reserved decision)
+
+The finding above ("`ALIGN_PASS_MIN` measures playing speed") reserved the threshold change as a
+separate evidenced decision; the user looking for the new recordings' candidates forced it.
+`geometryRefusals` now refuses on **`aligned < MIN_ALIGNED_SAMPLES` (100)** instead of a pass
+rate: every aligned sample already passed `alignmentOf`'s per-frame gate (worst offset within
+4 % of a cell AND all 18 grid lines), a nudged board is the spread gate's job, and what a
+median quad needs is enough of them — not a statement about how often a hand was in frame.
+The rate stays in the report and `candidate.json`, labeled as a playing-speed number.
+
+| video | rate (old gate) | aligned samples | label |
+|---|---|---|---|
+| rec-20260808-003957 | 82.5 % → REFUSED | 837 | **42 plies, 200 review frames** |
+| rec-20260808-115912 | 82.4 % → REFUSED | 1 765 | **72 plies, 325 review frames** |
+
+Both candidates written, `confirmed: false`, awaiting human review. Note the label replays
+through the scan's static median quad, so its ply count differs from the live-align quiet runs
+(003957: 42 vs 67 — worse; 115912: 72 vs 61 — better); the label is the review PROPOSAL, and
+the quad difference is the same two-variable story phase 04 measured on VID.
+
 ### Session log
 
 Gates: `:tracker-runtime:test` (new `GeometryScanTest`), `:desktop:test` (new

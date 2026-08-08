@@ -53,8 +53,15 @@ class GeometryScanTest {
         val ok = scanned(alignPassRate = 0.98, aligned = 939, spreadP90 = 0.9, clockP90 = 0.0)
         assertTrue(geometryRefusals(ok).isEmpty())
 
-        val handsy = scanned(alignPassRate = 0.5, aligned = 100, spreadP90 = 0.9, clockP90 = 0.0)
-        assertTrue(geometryRefusals(handsy).single().contains("align to the board's own grid"))
+        // The decision of 2026-08-08: a HANDSY video with plenty of aligned evidence is labelable
+        // — the pass rate measures playing speed, and rec-20260808-003957 (82.5 %, 837 aligned,
+        // flawless geometry) is exactly this row. Only a video without ENOUGH aligned samples
+        // (board out of shot, footage too short) is refused.
+        val handsyButEvidenced = scanned(alignPassRate = 0.5, aligned = 500, spreadP90 = 0.9, clockP90 = 0.0)
+        assertTrue(geometryRefusals(handsyButEvidenced).isEmpty())
+
+        val sparse = scanned(alignPassRate = 0.5, aligned = 40, spreadP90 = 0.9, clockP90 = 0.0)
+        assertTrue(geometryRefusals(sparse).single().contains("align to the board's own grid"))
 
         val nudged = scanned(alignPassRate = 0.98, aligned = 939, spreadP90 = 9.0, clockP90 = 0.0)
         assertTrue(geometryRefusals(nudged).single().contains("Did the board move?"))
