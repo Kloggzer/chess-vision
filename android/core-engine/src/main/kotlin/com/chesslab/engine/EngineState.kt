@@ -315,6 +315,13 @@ internal class EngineState(
      */
     var lastRecoveryVoteSeq: Long = -1L
 
+    /** specs/37-02 auto-resync: the candidate FEN the consecutive looks agree on, and how many. */
+    var resyncFen: String? = null
+    var resyncVotes: Int = 0
+
+    /** One snapshot, one resync vote — the [lastRecoveryVoteSeq] pattern, its own ledger. */
+    var lastResyncVoteSeq: Long = -1L
+
     /**
      * Rebuild both confirmers when [confirmFrames] moved — a config change, a CNN attach, or the
      * CNN failing mid-game.

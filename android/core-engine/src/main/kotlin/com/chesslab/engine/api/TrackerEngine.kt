@@ -29,6 +29,7 @@ import com.chesslab.engine.learnNoise
 import com.chesslab.engine.legalMoveFor
 import com.chesslab.engine.markStuck
 import com.chesslab.engine.moveTouchedMask
+import com.chesslab.engine.performResync
 import com.chesslab.engine.san
 import com.chesslab.engine.scoreViableMoves
 import com.chesslab.engine.setRef
@@ -371,6 +372,25 @@ class TrackerEngine(
     }
 
     /**
+     * `ResyncToBoard` — specs/37 phase 02, the honest door: adopt the observed position, KEEP
+     * the history, append nothing. Where [acceptCnnPosition] declares game continuity broken and
+     * clears the record, this one records the discontinuity (one `cnn_resync` decision row,
+     * abandoned FEN -> adopted FEN) and continues — the absence of the bridging moves is the
+     * feature. Same source and same guards as accept: the minimal-edit reading
+     * ([cnnAdoptedFen]), unavailable without an identity axis, kingless reads refused.
+     */
+    fun resyncToBoard(): List<TrackerEvent> {
+        val obs = state.cnnSnap?.obs?.takeIf { o -> Squares.ALL.any { o.label(it) != null } }
+        val fen = obs?.let { state.cnnAdoptedFen(it, cnn?.confThr ?: state.config.cnnConfThr) }
+        if (fen == null) {
+            val why = if (obs == null) NOTE_NO_CNN_IDENTITY else NOTE_CNN_KINGS
+            state.note = why
+            return listOf(TrackerEvent.Note(why))
+        }
+        return state.performResync(fen, how = "user")
+    }
+
+    /**
      * Live tuning. Mirrors `app.py`'s `_live_tuning_kwargs` side effects: the averaging buffers and
      * the confirmers are rebuilt when their length changed, and the cached square boxes follow
      * `detSize` / `overhang`. It must NOT touch the reference.
@@ -596,7 +616,7 @@ internal fun EngineState.clearReferenceState() {
  * The FEN of the position `accept_cnn_position` would adopt, or `null` when the result has no
  * clean pair of kings. Nothing is mutated here — the caller decides whether to adopt it.
  */
-private fun EngineState.cnnAdoptedFen(
+internal fun EngineState.cnnAdoptedFen(
     obs: CnnObservation,
     thr: Double,
 ): String? {

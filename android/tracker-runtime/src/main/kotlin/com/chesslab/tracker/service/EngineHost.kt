@@ -65,6 +65,7 @@ class TrackerEngineOps(
             is EngineAction.CaptureBaseline -> engine.captureBaseline()
             is EngineAction.ChoosePromotion -> engine.choosePromotion(action.piece)
             is EngineAction.AcceptCnnPosition -> engine.acceptCnnPosition()
+            is EngineAction.ResyncToBoard -> engine.resyncToBoard()
             is EngineAction.SetDebugEnabled -> {
                 engine.setDebugEnabled(action.on)
                 emptyList()

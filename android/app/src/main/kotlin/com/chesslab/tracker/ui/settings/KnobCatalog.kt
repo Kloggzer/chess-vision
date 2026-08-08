@@ -59,6 +59,9 @@ val NOT_A_SETTING: Map<String, String> =
         "confirmFramesOverride" to
             "As settleFramesOverride. Its shipped value is also an open judgement call recorded in " +
             "specs/39-what-the-tracker-remembers, which is a human's to make and not a slider's.",
+        "autoResyncObsN" to
+            "A replay-harness instrument (specs/37-02). On the phone the resync is a DOOR the user presses " +
+            "after seeing the position — automating it on device is exactly what that spec forbids.",
     )
 
 private fun row(

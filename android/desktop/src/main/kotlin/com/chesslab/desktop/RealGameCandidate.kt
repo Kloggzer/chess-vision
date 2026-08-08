@@ -121,6 +121,7 @@ internal fun effectiveConfigJson(
         put("detectScale", config.detectScale)
         put("desyncObsN", config.desyncObsN)
         put("desyncStandoffObsN", config.desyncStandoffObsN)
+        put("autoResyncObsN", config.autoResyncObsN)
         put("verifyObsVotes", config.verifyObsVotes)
         put("observerIntervalS", config.observerIntervalS)
         put("darkLumaThr", config.darkLumaThr)

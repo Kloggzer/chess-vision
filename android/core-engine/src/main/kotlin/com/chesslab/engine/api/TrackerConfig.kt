@@ -124,6 +124,16 @@ data class TrackerConfig(
      * and must be labelled as one wherever it is quoted.
      */
     val desyncStandoffObsN: Int = 12,
+    /**
+     * Auto-resync after this many CONSECUTIVE consistent looks — 0 (the default, and the
+     * phone's) is OFF: specs/37-02 built the resync as a door, and on a device it stays one.
+     * A REPLAY may open the auto arm (`set:autoResyncObsN=<n>`): with the alarm latched, n
+     * consecutive identity observations that carry no engine-side hand signal and agree on the
+     * SAME adopted position resync the engine — the path stays unknown, one `cnn_resync` row
+     * records the discontinuity, the history is kept. A legal recovery bridge always wins over
+     * a resync when both are reachable in the same window.
+     */
+    val autoResyncObsN: Int = 0,
     val verifyObsVotes: Int = 2,
     val observerIntervalS: Double = 0.0,
     // constructor-only in Python (no CLI flag, not in TRACK_DEFAULTS):

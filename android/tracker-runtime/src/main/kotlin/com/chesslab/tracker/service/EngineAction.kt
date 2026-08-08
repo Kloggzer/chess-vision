@@ -26,6 +26,9 @@ sealed interface EngineAction {
 
     data object AcceptCnnPosition : EngineAction
 
+    /** specs/37-02: adopt the observed position, keep the history, record the gap. */
+    data object ResyncToBoard : EngineAction
+
     data class UpdateConfig(
         val config: TrackerConfig,
     ) : EngineAction

@@ -124,6 +124,9 @@ internal fun EngineState.clearDesyncStreak() {
     desyncObs = 0
     desyncConflicts = 0L
     desyncLastSeq = null
+    // The resync candidate rides the same fact: a matching or inconclusive observation is
+    // evidence the board is NOT consistently elsewhere, so the consecutive-looks streak restarts.
+    resetResyncVotes()
 }
 
 /**

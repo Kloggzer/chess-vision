@@ -223,10 +223,16 @@ private fun EngineState.onMismatch(
 ): List<TrackerEvent> {
     cnnStatus = CNN_STATUS_MISMATCH
     cnnConflicts = read.conflicts
-    if (read.moves.isNotEmpty()) return onRecovery(snap, read, hasIdentity)
+    if (read.moves.isNotEmpty()) {
+        val events = onRecovery(snap, read, hasIdentity)
+        // A legal bridge that explains the conflicts is HISTORY and always preferred; the resync
+        // vote counts only while recovery keeps producing nothing (specs/37-02's auto arm).
+        if (events.any { it is TrackerEvent.MoveCommitted || it is TrackerEvent.SequenceCommitted }) return events
+        return events + maybeAutoResync(snap, cnn.confThr)
+    }
     val events = onStableMismatch(cnn, snap.obs, snap, read.conflicts)
     recoveryConfirmer.reset()
-    return events
+    return events + maybeAutoResync(snap, cnn.confThr)
 }
 
 private fun EngineState.onRecovery(
