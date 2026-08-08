@@ -23,10 +23,19 @@ export type Candidate = {
   reviewed_plies?: number[];
   start_fen?: string;
   moves: Move[];
+  /** Board geometry of the recording — the cell crops are cut through it (`lib/warp.ts`). */
+  geometry?: { corners?: number[][]; margin?: number | number[]; board_size?: number };
+  source?: { crop?: { pad_up?: number; pad_side?: number; out_size?: number[] } };
 };
 
 /** `..` and separators would let a URL segment walk out of the data dir. */
 const NAME = /^[A-Za-z0-9._-]+$/;
+
+/** Every URL segment that becomes a path component goes through here. */
+export function checkName(value: string, what = "name"): string {
+  if (!NAME.test(value) || value === "." || value === "..") throw new Error(`bad ${what}: ${value}`);
+  return value;
+}
 
 export function dataDir(): string {
   const dir = process.env.CHESSLAB_DATA_DIR;
@@ -35,8 +44,7 @@ export function dataDir(): string {
 }
 
 export function gameDir(name: string): string {
-  if (!NAME.test(name) || name === "." || name === "..") throw new Error(`bad game name: ${name}`);
-  return path.join(dataDir(), "realgames", name);
+  return path.join(dataDir(), "realgames", checkName(name, "game name"));
 }
 
 export async function listGames(): Promise<string[]> {
@@ -74,8 +82,7 @@ export async function reviewFrame(name: string, frame: number): Promise<string |
 }
 
 export async function framePng(name: string, stem: string): Promise<Buffer> {
-  if (!NAME.test(stem)) throw new Error(`bad frame: ${stem}`);
-  return readFile(path.join(gameDir(name), "frames", `${stem}.png`));
+  return readFile(path.join(gameDir(name), "frames", `${checkName(stem, "frame")}.png`));
 }
 
 /**
