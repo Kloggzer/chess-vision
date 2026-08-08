@@ -340,19 +340,7 @@ private fun replay(
         // the geometry — two runs differing in one flag have to differ in one thing.
         val spec = desktopModelSpec(options.model)
         val geometry = boardGeometryFor(quad).withCropOf(spec)
-        // A REPLAY paces the observer on a fixed VIDEO-time cadence and runs its inference
-        // inline (see TrackerSeed.observerDispatcher): the free-running default observes whenever
-        // the wall clock lets it, which made the same file commit 54 plies on one run and 39 on
-        // the next — a single shifted snapshot cascades through votes and the alarm. The cadence
-        // approximates the live self-pacing (SM8650: 16-100 ms per observation) and is recorded
-        // in `effective_config` like every other knob.
-        val config =
-            TrackerConfig().copy(
-                boardSize = geometry.boardSize,
-                requireMotionForMove = options.motionGate,
-                cleanCommitsOnly = options.cleanOnly,
-                observerIntervalS = if (camera == null) REPLAY_OBSERVER_INTERVAL_S else TrackerConfig().observerIntervalS,
-            )
+        val config = options.trackerConfig(geometry, live = camera != null)
         println("board located from its markers: ${geometry.boardSize} px warp  ·  $options")
         println("crops: ${cropLine(spec, geometry)}")
         if (camera == null) println("observer: synchronous, every ${REPLAY_OBSERVER_INTERVAL_S}s of video time — runs repeat")
@@ -555,13 +543,6 @@ private object MemoryConfigStore : ConfigStore {
         slots[slot] = text
     }
 }
-
-/**
- * The replay observer's fixed VIDEO-time cadence. Approximates the live self-pacing (the phone
- * observes about as often as one observation takes: 16-100 ms on the SM8650) without paying
- * synchronous inference on every decoded frame. Recorded in `effective_config` like every knob.
- */
-private const val REPLAY_OBSERVER_INTERVAL_S = 0.15
 
 /** Frames to spend looking for the markers before giving up. At 30 fps this is two seconds. */
 private const val LOCATE_ATTEMPTS = 60

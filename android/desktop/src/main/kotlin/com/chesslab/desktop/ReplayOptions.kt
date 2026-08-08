@@ -1,6 +1,9 @@
 package com.chesslab.desktop
 
+import com.chesslab.engine.api.TrackerConfig
+import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.cnn.DEFAULT_MODEL
+import com.chesslab.tracker.settings.KNOBS
 
 /**
  * How one run is configured, parsed once.
@@ -65,6 +68,12 @@ data class ReplayOptions(
     val frames: Boolean = false,
     /** `cleanCommitsOnly` — the strict-hand experiment arm. See the knob's KDoc. */
     val cleanOnly: Boolean = false,
+    /**
+     * `set:<knob>=<value>` overrides, applied through `ConfigKnobs.KNOBS` — the generic
+     * experiment instrument, so a one-knob A/B never needs a new CLI word again. Booleans as
+     * true/false; recorded in `effective_config` like everything else the engine ran.
+     */
+    val overrides: Map<String, Double> = emptyMap(),
 ) {
     companion object {
         /** The plain flag words, each one field. Assignments (`x=`) live in [assigned]. */
@@ -109,8 +118,23 @@ data class ReplayOptions(
                     )
                 word.startsWith("name=") -> options.copy(name = word.removePrefix("name=").ifEmpty { null })
                 word.startsWith("model=") -> options.copy(model = word.removePrefix("model="))
+                word.startsWith("set:") -> options.copy(overrides = options.overrides + knobOverride(word))
                 else -> null
             }
+
+        /** `set:recoveryMaxPlies=6`, `set:cnnVerify=false` — validated against the catalog at apply time. */
+        private fun knobOverride(word: String): Pair<String, Double> {
+            val assignment = word.removePrefix("set:")
+            val key = assignment.substringBefore('=')
+            val raw = assignment.substringAfter('=', missingDelimiterValue = "")
+            val value =
+                when (raw) {
+                    "true" -> 1.0
+                    "false" -> 0.0
+                    else -> raw.toDoubleOrNull() ?: error("set: wants <knob>=<number|true|false>, got '$word'")
+                }
+            return key to value
+        }
     }
 
     override fun toString(): String =
@@ -119,8 +143,47 @@ data class ReplayOptions(
             (if (label) " label" else "") + (if (score) " score" else "") +
             (if (frames) " frames" else "") +
             (if (cleanOnly) " cleanonly" else "") +
-            (name?.let { " name=$it" } ?: "")
+            (name?.let { " name=$it" } ?: "") +
+            overrides.entries.joinToString("") { " set:${it.key}=${it.value}" }
 }
+
+/**
+ * The config a replay runs — measured board size, the CLI's experiment arms, and for file
+ * replays the fixed VIDEO-time observer cadence: the free-running default observes whenever the
+ * wall clock lets it, which made the same file commit 54 plies on one run and 39 on the next.
+ * The cadence approximates the live self-pacing (SM8650: 16-100 ms per observation) and is
+ * recorded in `effective_config` like every other knob.
+ */
+internal fun ReplayOptions.trackerConfig(
+    geometry: BoardGeometry,
+    live: Boolean,
+): TrackerConfig =
+    TrackerConfig()
+        .copy(
+            boardSize = geometry.boardSize,
+            requireMotionForMove = motionGate,
+            cleanCommitsOnly = cleanOnly,
+            observerIntervalS = if (live) TrackerConfig().observerIntervalS else REPLAY_OBSERVER_INTERVAL_S,
+        ).withOverrides(overrides)
+
+/**
+ * `set:<knob>=<value>` words applied through the settings catalog — the generic one-knob
+ * experiment instrument. Refusing an unknown key loudly is the point: a typo that silently ran
+ * the defaults would be a measurement of nothing.
+ */
+private fun TrackerConfig.withOverrides(overrides: Map<String, Double>): TrackerConfig =
+    overrides.entries.fold(this) { config, (key, value) ->
+        val knob = KNOBS.firstOrNull { it.key == key } ?: error("set: unknown knob '$key' — see ConfigKnobs.KNOBS")
+        println("override: $key=$value")
+        knob.set(config, value)
+    }
+
+/**
+ * The replay observer's fixed VIDEO-time cadence. Approximates the live self-pacing (the phone
+ * observes about as often as one observation takes: 16-100 ms on the SM8650) without paying
+ * synchronous inference on every decoded frame. Recorded in `effective_config` like every knob.
+ */
+internal const val REPLAY_OBSERVER_INTERVAL_S = 0.15
 
 /**
  * Frames between dumps by default.
