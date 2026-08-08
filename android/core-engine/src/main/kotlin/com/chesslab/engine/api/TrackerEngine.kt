@@ -26,6 +26,7 @@ import com.chesslab.engine.detectGuards
 import com.chesslab.engine.dispatch
 import com.chesslab.engine.flushSessionCapture
 import com.chesslab.engine.generateHypothesis
+import com.chesslab.engine.handInFrame
 import com.chesslab.engine.learnNoise
 import com.chesslab.engine.legalMoveFor
 import com.chesslab.engine.markStuck
@@ -548,7 +549,16 @@ internal fun EngineState.commitGates(cand: Candidate): Boolean {
     val sans = board.sanSequence(cand.moves).joinToString(" + ")
     val key = cand.moves.joinToString(" ") { uciOf(it) }
     var pass = true
-    if (cand.vote && config.commitLlFloor > 0 && bestScore < config.commitLlFloor) {
+    // The `cleanCommitsOnly` EXPERIMENT: no candidate advances while anything reads as a hand.
+    // Sits before the confirmer so a hand does not burn votes; the reset keeps the semantics of
+    // every other refusal in this funnel.
+    if (config.cleanCommitsOnly && handInFrame()) {
+        confirmer.reset()
+        note = "$sans? hand in frame — clean commits only (experiment)"
+        recordRejection(key, note.orEmpty())
+        pass = false
+    }
+    if (pass && cand.vote && config.commitLlFloor > 0 && bestScore < config.commitLlFloor) {
         confirmer.reset()
         note =
             "$sans? evidence too weak (${pyFixed(bestScore, 2)} < ${pyFixed(config.commitLlFloor, 1)}) — " +

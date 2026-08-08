@@ -75,6 +75,14 @@ internal object VerifySingle {
                 state.pending = pend.copy(lastTickS = state.nowS)
                 emptyList()
             }
+            // The `cleanCommitsOnly` experiment: a glance with a hand in it may neither confirm
+            // nor reject — no vote, no verdict, for the single AND the pair ladder (the pair is
+            // only reached through `evaluate`). Alive though: the liveness clock advances exactly
+            // like the too-old case above, so a covered board does not read as a dead observer.
+            state.config.cleanCommitsOnly && snap.obs.readsOccludedAnywhere() -> {
+                state.pending = pend.copy(lastTickS = state.nowS)
+                emptyList()
+            }
             else -> state.evaluate(cnn, snap, pend)
         }
     }

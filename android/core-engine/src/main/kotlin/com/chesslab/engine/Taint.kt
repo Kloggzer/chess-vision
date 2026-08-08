@@ -108,6 +108,25 @@ private fun EngineState.occupancyAgreesWithBoard(
  *   resting hand over empty squares would unlock the gate — invariant 4 stays load-bearing.
  * - `cnnOn`, not merely `cnnRun`: `cnnVerify = false` means the operator turned the CNN's say off.
  */
+/**
+ * True while ANYTHING reads as a hand: an engine-side occlusion latch, this frame's occlusion
+ * veto set, or an occluded-reading square in a fresh observation. The `cleanCommitsOnly`
+ * experiment's one predicate — deliberately the union of every hand signal the engine has,
+ * because the experiment's question is "what does strictness cost", not "which signal is best".
+ */
+internal fun EngineState.handInFrame(): Boolean {
+    if (tainted != 0L || occludedVetoed != 0L) return true
+    return freshSnapshot()?.obs?.readsOccludedAnywhere() ?: false
+}
+
+/** Any square whose `occluded` class dominates — the observer's own hand report. */
+internal fun CnnObservation.readsOccludedAnywhere(): Boolean {
+    for (i in 0 until Squares.COUNT) {
+        if (pOccluded(Squares.ALL[i]) > P_OCCLUDED_THR) return true
+    }
+    return false
+}
+
 internal fun EngineState.cnnConfirmedUnchanged(candidates: Long): Long {
     if (!cnnOn) return 0L
     val snap = freshSnapshot() ?: return 0L

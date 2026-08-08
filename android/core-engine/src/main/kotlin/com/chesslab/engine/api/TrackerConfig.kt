@@ -103,6 +103,15 @@ data class TrackerConfig(
     val detectScale: Double = 0.5,
     val desyncObsN: Int = 3,
     /**
+     * EXPERIMENT (2026-08-08, unmeasured until the A/B run that motivates it): commits and
+     * verify votes only while NOTHING reads as a hand — no engine-side occlusion latch and no
+     * occluded-reading square in a fresh observation. The shipped behaviour (false) tolerates a
+     * hand and blocks only the covered squares, which has worked well live; this knob exists to
+     * MEASURE that judgement instead of asserting it. Expected costs when on: commit latency and
+     * lost moves under continuous fast play; expected gain: no commit ever lands mid-reach.
+     */
+    val cleanCommitsOnly: Boolean = false,
+    /**
      * Distinct desync observations after which an unreconcilable conflict set raises the alarm
      * even without a move-shaped guess. `0` = off, the way 0 means off for every other knob in
      * the catalog.

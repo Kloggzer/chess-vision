@@ -348,6 +348,13 @@ val KNOB_CATALOG: List<KnobUi> =
             "How many times running the model must disagree with the game before the alarm is raised. Lower it" +
                 "to be told sooner, at the cost of alarms on a board that is only briefly obscured.",
         ),
+        flag(
+            "cleanCommitsOnly",
+            CNN,
+            "EXPERIMENT: commit and vote only while nothing reads as a hand — no occlusion latch, no" +
+                "occluded-reading square. Stricter and slower than the shipped behaviour; exists to be measured," +
+                "not believed (specs/52 findings, 2026-08-08).",
+        ),
         count(
             "desyncStandoffObsN",
             CNN,

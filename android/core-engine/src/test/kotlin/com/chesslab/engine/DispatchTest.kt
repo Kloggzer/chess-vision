@@ -11,6 +11,7 @@ import com.chesslab.engine.api.tryDetect
 import com.github.bhlangonijr.chesslib.move.Move
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -274,6 +275,58 @@ class DispatchTest {
         assertEquals(listOf("e4"), state.history)
         // `_set_ref` cleared it: the NEXT move needs a new hand.
         assertFalse(state.motionSinceRef)
+    }
+
+    // -- the cleanCommitsOnly experiment ---------------------------------------------------------
+
+    /** The strict arm: NO candidate advances while anything reads as a hand — either signal. */
+    @Test
+    fun cleanCommitsOnlyBlocksWhileAnythingReadsAsAHand() {
+        val state = detectState(detectConfig().copy(cleanCommitsOnly = true))
+        state.bestScore = 10.0
+        val cand = Candidate(listOf(moveOf(state, "e2e4")), priorUsed = false, vote = true)
+
+        state.tainted = ofSquares("a4")
+        assertFalse(state.commitGates(cand), "an engine-side occlusion latch is a hand")
+        assertTrue(state.note.orEmpty().contains("hand in frame"), "note was '${state.note}'")
+
+        state.tainted = 0L
+        state.cnnRun = true
+        val labels = Squares.ALL.associateWith { state.board.labelAt(it) }
+        state.cnnSnap = recoverySnap(state, RecoveryObs(labels, occluded = setOf("h4")), seq = 1)
+        assertFalse(state.commitGates(cand), "one occluded-reading square in a fresh glance is a hand")
+
+        state.cnnSnap = recoverySnap(state, RecoveryObs(labels), seq = 2)
+        assertTrue(state.commitGates(cand), "clean everywhere — the funnel opens")
+    }
+
+    /** Off (the default) is byte-identical: a latch blocks squares, never the whole funnel. */
+    @Test
+    fun cleanCommitsOnlyOffLeavesTheFunnelAlone() {
+        val state = detectState()
+        state.bestScore = 10.0
+        state.tainted = ofSquares("a4")
+        assertTrue(
+            state.commitGates(Candidate(listOf(moveOf(state, "e2e4")), priorUsed = false, vote = true)),
+            "the shipped behaviour tolerates a hand at the funnel",
+        )
+    }
+
+    /** A hand-glance may neither confirm nor reject a pending — alive, but silent. */
+    @Test
+    fun cleanCommitsOnlyHandGlanceDoesNotVote() {
+        val state = pendingState()
+        state.config = state.config.copy(cleanCommitsOnly = true)
+        state.nowS = 5.0
+        val labels = Squares.ALL.associateWith { state.board.labelAt(it) }
+        val hand = RecoveryObs(labels, occluded = setOf("h4"))
+
+        val events = VerifySingle.tick(state, VerifyEvaluator(), snapOf(state, hand, seq = 1))
+
+        assertTrue(events.isEmpty())
+        assertNotNull(state.pending, "the candidate survives — nothing was decided")
+        assertEquals(0, state.pending!!.voteCount, "a covered glance is not a vote")
+        assertEquals(5.0, state.pending!!.lastTickS, "but the observer is ALIVE — no stall expiry")
     }
 
     @Test

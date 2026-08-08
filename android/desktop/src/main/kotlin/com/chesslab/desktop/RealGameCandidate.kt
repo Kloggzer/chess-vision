@@ -115,6 +115,7 @@ internal fun effectiveConfigJson(
         put("minGridLineCoverage", config.minGridLineCoverage)
         put("diffClaheClip", config.diffClaheClip)
         put("requireMotionForMove", config.requireMotionForMove)
+        put("cleanCommitsOnly", config.cleanCommitsOnly)
         put("motionRecencyS", config.motionRecencyS)
         put("commitLlFloor", config.commitLlFloor)
         put("detectScale", config.detectScale)

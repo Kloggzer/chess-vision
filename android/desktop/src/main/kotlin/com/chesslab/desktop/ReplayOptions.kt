@@ -63,6 +63,8 @@ data class ReplayOptions(
      * to `data/realgames/<name>/frames-decisive/`. Never the raw camera frames.
      */
     val frames: Boolean = false,
+    /** `cleanCommitsOnly` — the strict-hand experiment arm. See the knob's KDoc. */
+    val cleanOnly: Boolean = false,
 ) {
     companion object {
         /** The plain flag words, each one field. Assignments (`x=`) live in [assigned]. */
@@ -76,6 +78,7 @@ data class ReplayOptions(
                 "label" to { it.copy(watch = false, label = true) },
                 "score" to { it.copy(watch = false, score = true) },
                 "frames" to { it.copy(frames = true) },
+                "cleanonly" to { it.copy(cleanOnly = true) },
             )
 
         /** Every word after the verb and its subject. Unknown words are an error, not a shrug. */
@@ -115,6 +118,7 @@ data class ReplayOptions(
             "lens=$lens cnn=${if (cnn) model else "off"} motionGate=$motionGate" +
             (if (label) " label" else "") + (if (score) " score" else "") +
             (if (frames) " frames" else "") +
+            (if (cleanOnly) " cleanonly" else "") +
             (name?.let { " name=$it" } ?: "")
 }
 
