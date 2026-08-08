@@ -326,6 +326,31 @@ kings-guarded minimal edit + position ≠ believed) is the working replay settin
 phone default (0 stays: specs/37-02's door). The `verifyObsVotes`-class question — whether n=1
 adopts too eagerly on other footage — travels with every future batch via the rec-0807 guard.
 
+### 2026-08-08 — dense evaluation: 229/229 real plies on one video, vetoed by phantoms on another
+
+The user's follow-up lever on top of the n=1 resync: evaluate observations densely
+(`set:cnnCheckIntervalS=0.15 set:cnnCooldownS=0.07` — the engine's evaluation cadence, not the
+observer's). The result is the sharpest split measurement this pack has produced:
+
+| video | n=1 alone | n=1 + dense evaluation |
+|---|---|---|
+| rec-20260808-115912 (blitz, 237 plies) | 87 plies, 85 real | **229 plies, 229 real (LCS vs PGN), 0 invented, 4 alarms** |
+| rec-20260807 (calm) | 25 / 0 / 0 | **14 / 11 / 6 — SIX phantoms, 9 alarms: VETO** |
+| rec-20260808-003957 (night) | 67 plies | 33 plies, 34 alarms |
+
+Reading: dense evaluation samples exactly the mid-hand moments the sparse cadence used to skip.
+With `pOccluded ≡ 0.0` on every bundled model (the specs/53 finding), those reads are
+indistinguishable from clean ones until an engine taint latches — so on the calm video they
+manufacture false mismatches -> false alarms -> n=1 adopts hand-distorted positions -> phantoms.
+On the blitz video the same density makes the alarm->resync cycle nearly instantaneous and the
+tracker follows 96 % of a 119-move game with zero fabrications. On the night video the chronic
+identity gap floods the denser sampling (34 alarms).
+
+Consequences: dense evaluation is NOT a default (phantoms are the veto). It is the measured
+price tag of the missing `occluded` class: an observation that could say "this read contains a
+hand" would gate exactly the reads that break the calm video, and 229/229 is what is waiting on
+the other side. specs/53's occluded producer and this lever unlock each other.
+
 ### 2026-08-08 — the label gate asks for evidence, not a pass rate (the reserved decision)
 
 The finding above ("`ALIGN_PASS_MIN` measures playing speed") reserved the threshold change as a
