@@ -24,6 +24,15 @@ java {
 
 application {
     mainClass = "com.chesslab.desktop.DesktopMainKt"
+    // The heap is CAPPED because the default (a quarter of physical RAM, per JVM, each unaware of
+    // the others) is what filled a 32 GB machine on 2026-08-08: three parallel batch replays ran
+    // 6 GB private each and one ballooned to 27 GB — under CPU contention the GC starves while the
+    // per-frame churn (BufferedImage previews, seam byte arrays) keeps allocating, and an
+    // unbounded heap simply absorbs it. Measured with the cap: identical results, identical
+    // runtime (rec-20260807 score, 25/0/0, 2m05s both ways). Native memory (OpenCV, ONNX) is not
+    // governed by this flag; every Mat on the replay path is released explicitly and single-run
+    // private memory is flat over the full video.
+    applicationDefaultJvmArgs = listOf("-Xmx2g")
 }
 
 val bytedecoClassifier: String by rootProject.extra

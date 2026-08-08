@@ -354,7 +354,11 @@ private fun replay(
         // Held here rather than read back off the stack: `TrackerStack` takes the bus as a
         // constructor argument and does not expose it, and widening a shared seam for one host's
         // debugging window would be the wrong trade.
-        val bus = CameraFrameBus(MutableStateFlow(CameraHealth.Up), scope, ::matToImage)
+        // On the engine's clock, like everything else in a replay: the bus throttles its preview
+        // and calibration tap to 200 ms — measured on the WALL by default, which made the frame
+        // LiveAlign detects on depend on how fast this host decodes. Video time makes it the same
+        // frame on every run (and live, FrameClock IS the wall clock).
+        val bus = CameraFrameBus(MutableStateFlow(CameraHealth.Up), scope, ::matToImage, nowMs = frameClock::now)
         val view = openView(options, name)
         // NOT seeded with this run's config, deliberately. Seeding it (`settings.update(config)`)
         // was tried on 2026-08-08 and collapsed rec-20260808 from 67 plies to 26 with a phantom on

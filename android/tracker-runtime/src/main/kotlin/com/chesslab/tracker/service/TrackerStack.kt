@@ -17,6 +17,7 @@ import com.chesslab.tracker.pipeline.StageTimings
 import com.chesslab.tracker.settings.SettingsRepository
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -174,7 +175,21 @@ class TrackerStack<T>(
             publisher,
             frames,
             observer,
-            LiveAlign(scope, seed.geometry, settings.config::value, { pipeline.corners = it }, seed.logs("chesslabTracker")),
+            // The align detection shares the observer's dispatcher choice: inline for replays,
+            // its own worker live. Inline is not only determinism (an align lands at a video
+            // time, not a wall time) — it is what makes the desktop SINGLE-THREADED through
+            // OpenCV: with the drive thread's stages and ArUco running concurrently, the 4.10
+            // Windows build's `detectMarkers` committed a single ~53 GB native buffer on a
+            // motion-blur frame (specs/52 STATUS, 2026-08-08), and `Core.setNumThreads(1)`
+            // alone only made the balloon rarer, not impossible.
+            LiveAlign(
+                scope,
+                seed.geometry,
+                settings.config::value,
+                { pipeline.corners = it },
+                seed.logs("chesslabTracker"),
+                dispatcher = seed.observerDispatcher ?: Dispatchers.Default,
+            ),
             timings,
             seed.nowMs,
         )
