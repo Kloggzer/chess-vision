@@ -37,6 +37,11 @@ session_app = typer.Typer(
     no_args_is_help=True)
 app.add_typer(session_app, name="session")
 
+realgames_app = typer.Typer(
+    help="Real games recorded by the tracker: confirm a candidate against the game that was played.",
+    no_args_is_help=True)
+app.add_typer(realgames_app, name="realgames")
+
 dataset_app = typer.Typer(help="Stage 4 — Dataset consistency.", no_args_is_help=True)
 app.add_typer(dataset_app, name="dataset")
 
@@ -389,6 +394,33 @@ def session_review(
 
     _session_call(sessions_mod.set_session_reviewed, session, not undo)
     print(f"[OK] {session}: reviewed={'no' if undo else 'yes'}")
+
+
+@realgames_app.command("confirm")
+def realgames_confirm(
+    name: str = typer.Argument(..., help="Real-game name under data/realgames/."),
+    yes: bool = typer.Option(False, "--yes",
+                             help="Unprompted: keep every matched ply, drop every unmatched one."),
+) -> None:
+    """Check a candidate's move list against its `reference.pgn` and record the human's verdict.
+
+    The tracker cannot vouch for its own move list — the Kotlin writer stamps `confirmed: false`
+    — and every crop label downstream rests on it. The LCS does the mechanical part; the human
+    only decides the candidate-only plies, each printed with the review PNG that shows the
+    board at that frame.
+    """
+    from . import realgames as realgames_mod
+
+    def ask(move: dict) -> bool:
+        return typer.confirm(f"  keep candidate ply {move['ply']} {move['san']}?", default=False)
+
+    try:
+        r = realgames_mod.confirm(name, yes=yes, ask=None if yes else ask)
+    except (FileNotFoundError, ValueError, KeyError) as e:
+        print(f"[ERR] {e}")
+        raise typer.Exit(1) from e
+    print(f"[OK] {r['path']} — confirmed, {len(r['reviewed'])} reviewed plies "
+          f"({len(r['kept'])} unmatched kept)")
 
 
 @session_app.command("archive")
