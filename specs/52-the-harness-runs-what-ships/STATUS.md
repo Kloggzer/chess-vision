@@ -130,7 +130,8 @@ wall-clock, and (b) 4 intra-op ONNX threads make parallel float reductions non-b
 logit wobbling in its last digits flipped a thresholded decision at ply 26 of VID. Fixed for
 replays only: the observer runs its inference INLINE (`TrackerSeed.observerDispatcher`,
 `Dispatchers.Unconfined` on the desktop) on a fixed video-time cadence
-(`REPLAY_OBSERVER_INTERVAL_S = 0.15`, recorded in `effective_config`), and the desktop opens the
+(`REPLAY_OBSERVER_INTERVAL_S = 0.15` — **superseded the same day: 0.15 starves the ladder, the
+constant is now 0.0; see the cadence section below**), and the desktop opens the
 classifier with ONE intra-op thread (47 ms vs 19 per observation — a fraction of the cadence).
 Proof: rec-20260808 3× byte-identical at **67 plies** (up from 39-54 — the fixed cadence also
 simply observes better), VID identical across warm runs. One residue, named and deliberately
@@ -156,6 +157,93 @@ occluded-reading square in a fresh snapshot). Measured A/B on one binary:
 settle, occluded-core skip, taints, verify votes, the recovery clean gate) have already outlasted
 the hand — the tolerant default commits nothing the strict mode would have stopped. The knob
 stays in the catalog as an instrument; the default stays off.
+
+### 2026-08-08 — the cadence was load-bearing, and the "cold-start residue" fix made it worse
+
+The determinism section above left one residue: the settings flow applied `observerIntervalS`
+asynchronously, and the prediction was that seeding the repository (`settings.update(config)`)
+becomes mandatory once the observation cache lands. **Measured: the opposite.** With the seeding
+in place the flow no longer stomped the replay cadence to its codec default of 0.0 — the honest
+0.15 s was applied for the first time, and the results collapsed: rec-20260808 **67 → 26 plies**,
+rec-20260807 **25/0/0 → 23/2/1** (a phantom — the veto). Every "good" run on record had in fact
+observed FREE (rec-0808: 5 069 observations against 1 013 throttled), because the async default
+overwrote the intended throttle within the first frames.
+
+Two hypotheses died by A/B on one binary before the cause was accepted:
+`set:liveAlign=false` (the seeded flow's other new consumer) → still 26; a faster throttle
+`set:observerIntervalS=0.07` → still 26. What restores 67/67 and 25/0/0 is the free cadence
+itself — the verify ladder and recovery voting are tuned to observations arriving every 1-2
+frames, and a 0.15 s video-time throttle starves votes out of their windows.
+
+Resolution, committed: `REPLAY_OBSERVER_INTERVAL_S = 0.0` — free-running is now DECLARED rather
+than the accident of a race; the repository stays unseeded (KDoc in `DesktopMain.replay` records
+why), and the one genuinely mandatory piece landed separately: `TrackerStack.init` applies the
+seed's interval/enabled synchronously BEFORE attach, so cold and warm runs start on the same
+cadence. Verified: rec-0808 67 plies ending `Nxc7+` (the PGN's last move), rec-0807 25/0/0.
+
+**Batch runner + observation cache** (the "faster iteration" ask): `scripts/replay-batch.ps1`
+runs the four-video regression set on one `installDist`, 3-parallel, with a parsed summary
+table. `CachingClassifier` remembers what a model said about crop pixels it has seen (key =
+MD5 over the crop batch, per-model directory under `tmp/obs-cache/` — self-validating, only
+sound because replays are deterministic). Cold set 368 s, warm 251 s with hit rates at
+99-100 % on unchanged videos; a binary change re-runs `installDist` but inference answers
+from disk.
+
+### 2026-08-08 — the 53 GB balloon: OpenCV's parallel ArUco under concurrent load
+
+The user's machine (32 GB) filled during batch runs. Measured, not guessed: single replay
+processes were FLAT (~5.7 GB private — native-library baseline plus the capped heap) over full
+videos, but specific runs committed **58.8 GB**, working set ~1 GB, stable for minutes. A
+VirtualQueryEx region scan of a live balloon showed **ONE private allocation of 53 044 MB**
+(momentarily 112 GB during a copy) — not heap (jcmd: 235 MB), not thread stacks, not allocator
+churn. One native buffer.
+
+Isolated by bisection on one binary, one video (`rec-20260808-003957`, deterministic at ~frame
+7146 — a motion-blurred hand sweeping the board):
+
+| arm | balloon? |
+|---|---|
+| full replay, liveAlign on | **yes** (58.8 GB, reproduced 4×) |
+| grid correction disabled, marker detection on | **yes** |
+| `set:liveAlign=false` | no |
+| the same frames 7100-7150 through the identical decode path + `ArucoDetector`, isolated | no (16-22 ms each) |
+| full replay with `Core.setNumThreads(1)` | **no** (max 7.6 GB, 67 plies unchanged) |
+
+So: `ArucoDetector.detectMarkers` (bytedeco OpenCV **4.10**, Windows) commits the buffer only
+when OUR two threads are inside OpenCV at once — the drive thread's per-frame stages and
+LiveAlign's detection on a worker. The same frames are clean in isolation; Python cv2 4.13 is
+clean too.
+
+**`Core.setNumThreads(1)` alone was NOT sufficient** — one clean verification run, then 25-28 GB
+transients in the very next batch. The fix that holds is structural: **LiveAlign shares the
+observer's dispatcher choice** (`seed.observerDispatcher` — inline for replays, its own worker
+live), so a desktop replay is single-threaded through OpenCV by construction, and an align lands
+at a VIDEO time instead of a wall time. The bus's 200 ms preview throttle moved onto the same
+clock (`CameraFrameBus(nowMs = frameClock::now)`) — it decided which frame LiveAlign detects on,
+and it was the last wall-clock input to the replay. `setNumThreads(1)` stays as defence in depth
+on the measurement host (per-stage cost ~1 ms: `chesslabPerf` warp 0.9, gray 1.1 at 1080p).
+The phone is a different build (pthreads backend), has never shown the balloon, and keeps its
+worker: nothing shared changed behaviour on Android.
+
+Two guards landed with it: the desktop distribution caps its heap (`-Xmx2g`,
+`desktop/build.gradle.kts` — the default is a quarter of physical RAM per JVM, which is how
+three parallel batch replays plus daemons filled the machine even before the balloon), and
+`replay-batch.ps1` defaults to `MaxParallel = 2` (~6 GB native baseline per process is real
+even when healthy).
+
+Final batch on the complete fix (cold then warm, 2-parallel, RAM watch silent throughout;
+cold and warm **byte-identical**):
+
+| video | result | cold | warm (cache 100 %) |
+|---|---|---|---|
+| rec-20260807 (score) | 25 / 0 / 0 · 1 alarm | 309 s | 249 s |
+| rec-20260808-003957 | 67 plies · 0 alarms | 357 s | 274 s |
+| rec-20260808-115912 | 61 plies · 2 alarms | 732 s | 554 s |
+| VID_20260802 (score) | 20 / 2 / 5* · 2 alarms | 295 s | 222 s |
+
+*all five sit AFTER the label's last frame (4211-7425 vs 3910) — the post-label tail toward the
+mate, shorter than the pre-fix tail of 10-11 because aligns now land at video times; zero
+phantoms inside the labeled range.
 
 ### Session log
 
