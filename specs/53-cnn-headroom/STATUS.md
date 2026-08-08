@@ -6,7 +6,7 @@
 | 01 — export-session | `done` | 2026-08-08, `82b7d0b`+`8d87f49`; real export ran: 1 729 frames → 110 656 crops, slice untouched and green, yield 488 @cap4 vs 504 estimated |
 | 02 — occluded proposals | `done` | 2026-08-09, `d764837`; 126 720 proposals over both sessions, 1 410 at `hi 0.7`; hand-checked precision **12/12** on a stratified 30-cell draw |
 | 03a — scaffold + confirm view | `done` | 2026-08-08, `e21b656`+`aba57a3`; shadcn per user, 461 own lines, byte-preserving three-key write, server recomputes reviewed_plies |
-| 03b — relabel streams | `todo` | after 01+03a; ∥ 02 |
+| 03b — relabel streams | `done` | 2026-08-09, three commits merged `ee62a78`; bucket/tinder/drilldown WITH the brush; crops via homography from raw frames (`sharp`, review-PNG coverage only 3.5 %); one Enter = 60 rows proven |
 | 04 — 14-class experiment | `todo` | last; success bar = dense-evaluation table in entry.md |
 
 Branch: `specs-53-<phase>` per phase, off `main`. DIRECTION.md remains the investigation of
@@ -115,6 +115,25 @@ work and phase 04 should not expect the `hi` set alone to be the class. **No `sh
 appeared at all** in 30 draws — the named false-positive class did not materialise, so the census
 channel's shadow-invariance is untested by this table and only by `tests/test_realgames.py`'s
 synthetic contract.
+
+### 2026-08-09 — phase 03b: the streams, and the brush (merged `ee62a78`)
+
+Built in its own worktree in parallel with 02, against the pinned schema — and finished against
+02's REAL artifact when it landed mid-task: 48 640 proposals of 003957 → confirm stream 828,
+control 180, tinder 6 955, 760 drilldown frames. Cell crops are cut from the RAW session frames
+through the candidate's homography (`lib/warp.ts`, round-trips against the stored calibration
+matrix to 1e-3 px) — the review PNGs cover only 3.5 % of proposal frames and were measured out.
+One dependency added: `sharp` (exact pin; already in the lockfile via next) for PNG codec only;
+a 60-crop page is 2.05 s cold / 0.56 s warm. Corrections writer validates every row (14-class
+whitelist, square regex, path guards) and appends; one `Enter` on a clean bucket page wrote 60
+schema-valid rows (the acceptance bar), and the agent parked its 64 smoke rows to
+`data/_parked/2026-08-08-specs53-03b-smoke/`. Orchestrator gate on the merged main: 457 Python
+tests + ruff clean; eslint, tsc, 12 vitest tests green.
+
+Open UX question for the first real pass: band B holds ~7 000 cells across both sessions and is
+8/9 occluder by the calibration draw — the bucket grid can serve it (human catches the ~1/9
+exceptions), but phase 04 may not need the whole band labeled; decide against the dataset's
+class-balance needs, not completionism.
 
 #### What had to be corrected, both found by measuring
 
