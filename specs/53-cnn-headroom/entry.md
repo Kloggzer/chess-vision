@@ -20,9 +20,10 @@ auto-proposed, cheaply human-checked — and ships a 14-class model only if the 
 | Phase | Concern | Depends on | Parallel? |
 |---|---|---|---|
 | 00 | `chesslab realgames confirm` — the label is confirmed or it is nothing | — | lands alone |
-| 01 | `chesslab realgames export-session` — a video becomes a session | 00 | alone (owns the session artifact) |
-| 02 | occluded PROPOSALS from pixel truth | 01 | ∥ 03 |
-| 03 | the relabel MVP (`platform/app/`, Next.js) | 01 (data), schema below | ∥ 02 |
+| 03a | MVP scaffold + confirm VIEW (`platform/app/`) | 00 (format), candidates on disk | may land before 01 (user amendment) |
+| 01 | `chesslab realgames export-session` — a video becomes a session | 00 (a confirmed candidate) | alone (owns the session artifact) |
+| 02 | occluded PROPOSALS from pixel truth | 01 | ∥ 03b |
+| 03b | the three relabel streams | 01 (data), 03a, schema below | ∥ 02 |
 | 04 | the 14-class experiment, gated by the dense-evaluation bar | 01+02+03 outputs | last |
 
 DIRECTION.md's night fine-tune (its phase 02) and tail re-mine (its 04) are NOT in this pack —

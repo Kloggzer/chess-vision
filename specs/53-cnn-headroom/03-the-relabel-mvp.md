@@ -1,9 +1,36 @@
 # Phase 03 — The relabel MVP (`platform/app/`)
 
 > Owns `platform/app/**` (new, top-level — "Nothing here imports chesslab",
-> docs/device-platform-analysis.md). Depends on 01 for data on disk; codes against the
-> proposal schema PINNED in entry.md, not against phase 02's code (02 ∥ 03). This is the seed
-> of the planned platform's `app` container — local MVP: no auth, no Docker, no Postgres.
+> docs/device-platform-analysis.md). Split into **03a (scaffold + confirm view)**, which
+> depends on NOTHING but the candidates already on disk and may land before 01 — and
+> **03b (the three relabel streams)**, which depends on 01 for data and codes against the
+> proposal schema PINNED in entry.md, not against phase 02's code (02 ∥ 03b). This is the
+> seed of the planned platform's `app` container — local MVP: no auth, no Docker, no Postgres.
+
+## 03a — the confirm view (user amendment 2026-08-08: "the plan was Next.js, put it in there")
+
+Phase 00's CLI prints review-PNG paths; a terminal cannot show them, and the 115912 confirm
+needs eyes (7 unmatched plies, several resync-era duplicates). The FIRST view of the MVP is
+therefore the confirm screen:
+
+- Route `/confirm/<name>`: runs the SAME comparison phase 00 does — but in Node, against
+  `candidate.json` + `reference.pgn` (LCS over SANs, ~25 lines, mirror
+  `src/chesslab/realgames.py:lcs_report` including the tie-break; python-chess is not
+  available, so derive truth SANs with a JS chess lib pinned exact, e.g. `chess.js`, fed the
+  PGN mainline).
+- Cards for the unmatched candidate plies: ply, SAN, frame, the review PNG
+  (`data/realgames/<name>/frames/%06d.png`, nearest-existing within ±2 — the writer bursts),
+  and a badge when the same SAN also appears in the missed-truth list (the duplicate hint).
+  Keep/drop toggle per card, matched count shown, missed list collapsible.
+- Confirm button writes `confirmed`, `confirmed_at` (ISO-UTC `%Y-%m-%dT%H:%M:%SZ`),
+  `reviewed_plies` into `candidate.json` — atomically (tmp + rename), touching NOTHING else
+  (the phase-00 test `confirm_writes_only_the_three_keys` is the contract; a Node route test
+  asserts the same).
+- The Python `chesslab realgames confirm` stays — CLI and view are two front-ends to one
+  file format; neither owns the other.
+
+03a's acceptance replaces the interactive half of phase 00's acceptance: 115912 gets
+confirmed IN THE VIEW.
 
 ## Why
 
