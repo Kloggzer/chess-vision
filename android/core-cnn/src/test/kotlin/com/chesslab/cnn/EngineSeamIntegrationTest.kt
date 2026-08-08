@@ -54,7 +54,9 @@ class EngineSeamIntegrationTest {
         val rig = Rig()
         rig.captureReference()
 
-        val events = rig.observe(observationOf(fenAfter("e2e4")))
+        val obs = observationOf(fenAfter("e2e4"))
+        assertTrue(rig.observe(obs).isEmpty(), "specs/39 phase 02: one glance never bridges")
+        val events = rig.observe(obs)
 
         val committed = events.filterIsInstance<TrackerEvent.MoveCommitted>().single()
         assertEquals("e2e4", committed.uci)
