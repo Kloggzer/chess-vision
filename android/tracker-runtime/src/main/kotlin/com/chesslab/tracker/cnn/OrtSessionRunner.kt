@@ -46,10 +46,13 @@ internal object SessionTuning {
      */
     val EXECUTION_MODE: OrtSession.SessionOptions.ExecutionMode = OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL
 
-    fun applyTo(opts: OrtSession.SessionOptions) {
+    fun applyTo(
+        opts: OrtSession.SessionOptions,
+        threads: Int = THREADS,
+    ) {
         opts.setOptimizationLevel(OPT_LEVEL)
         opts.setExecutionMode(EXECUTION_MODE)
-        opts.setIntraOpNumThreads(THREADS)
+        opts.setIntraOpNumThreads(threads)
     }
 }
 
@@ -77,6 +80,13 @@ internal class OrtSessionRunner(
      * model a measurement of the profiler as much as of the graph.
      */
     private val profile: Boolean = false,
+    /**
+     * [SessionTuning.THREADS] on the phone. A REPLAY passes 1: parallel float reductions are not
+     * bit-exact, and a logit that wobbles in its last digits flips a thresholded decision — the
+     * same file diverged at ply 26 on one of three otherwise-identical runs. Determinism costs
+     * 47 ms against 19 per observation on the desktop, a fraction of the replay cadence.
+     */
+    private val intraOpThreads: Int = SessionTuning.THREADS,
 ) : SessionRunner {
     /** The file that was really loaded — never the one 07a asked for. */
     override val model: String = modelFile.name
@@ -127,7 +137,7 @@ internal class OrtSessionRunner(
         profileDir: File,
     ): OrtSession.SessionOptions {
         val opts = OrtSession.SessionOptions()
-        SessionTuning.applyTo(opts)
+        SessionTuning.applyTo(opts, intraOpThreads)
         if (profile) opts.enableProfiling(File(profileDir, PROFILE_PREFIX).absolutePath)
         when (choice) {
             // epChain only offers QNN when model.qnn.onnx was staged, and `modelFor` hands it
@@ -139,7 +149,7 @@ internal class OrtSessionRunner(
             Ep.NNAPI -> opts.addNnapi(EnumSet.of(NNAPIFlags.USE_FP16))
             // XNNPACK runs its own pool, so it is told the same big-core budget. Whatever it does
             // not implement (all 46 InstanceNormalization blocks here) stays on the CPU EP.
-            Ep.XNNPACK -> opts.addXnnpack(mapOf("intra_op_num_threads" to SessionTuning.THREADS.toString()))
+            Ep.XNNPACK -> opts.addXnnpack(mapOf("intra_op_num_threads" to intraOpThreads.toString()))
             Ep.CPU -> Unit
         }
         return opts

@@ -260,9 +260,10 @@ class OnnxSquareClassifier internal constructor(
             staged: StagedModel,
             log: CnnLog,
             request: EpRequest = EpRequest.AUTO,
+            intraOpThreads: Int = SessionTuning.THREADS,
         ): OnnxSquareClassifier {
             val chain = epChain(staged.qnn != null, request)
-            val attempts = EpAttempts(ModelSpec.parse(staged.configJson), staged, log)
+            val attempts = EpAttempts(ModelSpec.parse(staged.configJson), staged, log, intraOpThreads)
             val opened = chain.withIndex().firstNotNullOfOrNull { (i, ep) -> attempts.open(ep, isLastResort = i == chain.lastIndex) }
             return opened ?: throw IllegalStateException("no ONNX execution provider could load ${staged.dir}", attempts.last)
         }
@@ -274,6 +275,7 @@ private class EpAttempts(
     private val spec: ModelSpec,
     private val staged: StagedModel,
     private val log: CnnLog,
+    private val intraOpThreads: Int = SessionTuning.THREADS,
 ) {
     private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
     var last: Throwable? = null
@@ -293,7 +295,7 @@ private class EpAttempts(
             runCatching {
                 // The ONLY session built with profiling armed: `verify` needs the trace, and
                 // nothing else in the app does.
-                val runner = OrtSessionRunner(env, model, choice, staged.dir, compileTo, profile = true)
+                val runner = OrtSessionRunner(env, model, choice, staged.dir, compileTo, profile = true, intraOpThreads = intraOpThreads)
                 val cnn = OnnxSquareClassifier(spec, runner)
                 cnn to cnn.verify()
             }.onFailure {

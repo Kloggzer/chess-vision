@@ -4,6 +4,7 @@ import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.cnn.Attached
 import com.chesslab.tracker.cnn.CnnModelAssets
 import com.chesslab.tracker.cnn.OnnxSquareClassifier
+import com.chesslab.tracker.cnn.SessionTuning
 import com.chesslab.tracker.cnn.requestedBackend
 import com.chesslab.tracker.geometry.CalibrationStore
 import com.chesslab.tracker.log.NoopTrackerLog
@@ -32,9 +33,11 @@ fun openClassifier(
     app: AppSettings,
     probe: CnnRuntimeProbe,
     log: TrackerLog = NoopTrackerLog,
+    /** [SessionTuning.THREADS] on the phone; a replay passes 1 for bit-exact runs (see OrtSessionRunner). */
+    intraOpThreads: Int = SessionTuning.THREADS,
 ): Attached {
     val staged = assets.stage()
-    val classifier = OnnxSquareClassifier.open(staged, log, app.epRequest)
+    val classifier = OnnxSquareClassifier.open(staged, log, app.epRequest, intraOpThreads)
     probe.requestedEp = requestedBackend(staged, app.epRequest)
     probe.actualEp = classifier.backend
     probe.modelDir = staged.dir.name

@@ -15,6 +15,7 @@ import com.chesslab.tracker.pipeline.FrameSizeGuard
 import com.chesslab.tracker.pipeline.FrameStages
 import com.chesslab.tracker.pipeline.StageTimings
 import com.chesslab.tracker.settings.SettingsRepository
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -72,6 +73,15 @@ class TrackerSeed<T>(
      * where wall time has nothing to do with when a frame was taken — see `TrackerCoordinator`.
      */
     val nowMs: () -> Long = System::currentTimeMillis,
+    /**
+     * Where the observer's inference runs. `null` — the default, and what the phone uses — is a
+     * dedicated thread: live frames must keep flowing while the model thinks. A REPLAY passes a
+     * direct dispatcher instead, so the observation completes inline before the next frame is
+     * decoded: when a snapshot lands relative to the frames then depends on nothing but the video,
+     * which is what makes two runs of the same file the same run. The cadence knob for that mode
+     * is `observerIntervalS` — synchronous at 0 would mean inference on every frame.
+     */
+    val observerDispatcher: CoroutineDispatcher? = null,
 )
 
 /**
@@ -127,21 +137,35 @@ class TrackerStack<T>(
     val observations: Long get() = observed.get()
 
     val observer =
-        CnnObserver(
-            source = cropTap,
-            fen = { publisher.lastFen },
-            onSnapshot = {
-                observed.incrementAndGet()
-                host.submit(it)
-            },
-            log = seed.logs("chesslabCnn"),
-            // The ENGINE's clock, not the wall clock. On the phone the two are the same thing; in
-            // a replay the engine runs on the video's virtual clock, and an observer pacing itself
-            // on the wall clock is a second clock in one machine — its cadence then depends on how
-            // fast THIS host decodes, which is how the same file produced 23 committed plies on
-            // one run and 25 on the next. Live behaviour is ONE clock; this is that clock.
-            nowMs = seed.nowMs,
-        )
+        if (seed.observerDispatcher == null) {
+            CnnObserver(
+                source = cropTap,
+                fen = { publisher.lastFen },
+                onSnapshot = {
+                    observed.incrementAndGet()
+                    host.submit(it)
+                },
+                log = seed.logs("chesslabCnn"),
+                // The ENGINE's clock, not the wall clock. On the phone the two are the same thing;
+                // in a replay the engine runs on the video's virtual clock, and an observer pacing
+                // itself on the wall clock is a second clock in one machine — its cadence then
+                // depends on how fast THIS host decodes, which is how the same file produced 23
+                // committed plies on one run and 25 on the next. ONE clock; this is that clock.
+                nowMs = seed.nowMs,
+            )
+        } else {
+            CnnObserver(
+                source = cropTap,
+                fen = { publisher.lastFen },
+                onSnapshot = {
+                    observed.incrementAndGet()
+                    host.submit(it)
+                },
+                log = seed.logs("chesslabCnn"),
+                nowMs = seed.nowMs,
+                dispatcher = seed.observerDispatcher,
+            )
+        }
 
     val coordinator =
         TrackerCoordinator(

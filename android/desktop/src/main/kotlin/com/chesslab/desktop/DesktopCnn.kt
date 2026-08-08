@@ -63,7 +63,10 @@ fun openDesktopCnn(
     runCatching { desktopCnnAssets(model) }
         .onFailure { println("no CNN: ${it.message}") }
         .getOrNull()
-        ?.let { assets -> { openClassifier(assets, AppSettings(), CnnRuntimeProbe(), log) } }
+        // ONE intra-op thread, always, on this host: parallel float reductions are not bit-exact
+        // and a wobbling logit flips thresholded decisions — the desktop exists to make runs that
+        // REPEAT. 47 ms against 19 per observation, a fraction of the replay cadence.
+        ?.let { assets -> { openClassifier(assets, AppSettings(), CnnRuntimeProbe(), log, intraOpThreads = 1) } }
 
 /** The app's bundled models, read where they live. `:desktop`'s working directory is `android/desktop`. */
 private const val ASSET_SOURCE = "../app/src/main/assets/$ASSET_ROOT_DIR"
