@@ -278,6 +278,24 @@ observation-rate levers (specs/26's 4-crop verify) matter MORE than the desktop 
 Hebel 4 (dt-normalised motion) now has a clean instrument to measure against — at stride 2 the
 inter-frame delta doubles and `motionThr` bites harder, which is confounded into these numbers.
 
+### 2026-08-08 — geometry A/B, first pass: LiveAlign is a no-op, lens-only is a trap
+
+- **`set:liveAlign=false` is byte-identical to the default on all four videos** — same scores,
+  same plies, and 100 % observation-cache hits, i.e. bit-identical crops. On a board that never
+  moves, the marker tracker's dead zone holds the seeded quad exactly; live alignment neither
+  helps nor hurts a replay. The ±6-25-ply geometry sensitivity therefore lives entirely in the
+  INITIAL quad source (first-frame detection vs the scan's median), whose direction is
+  inconsistent by plies (003957: first-frame 67 vs median 42; 115912: median 72 vs first-frame
+  61) — deciding it needs `alignment_of` over the run as the arbiter, not ply counts.
+- **Undistorting at inference alone makes things worse.** `lens` (optics fitted from the
+  footage) on the hard videos: 003957 **67 -> 15 plies**, 115912 61 -> 61; on rec-0807 25/0/0
+  unchanged. The barrel curvature the user spotted in the review frames is real — but it is
+  baked into every training crop too, so model and pipeline are CONSISTENTLY distorted, and a
+  lens-corrected inference is a domain shift the model never saw (worst on the night video,
+  where the from-footage fit is least reliable). The lens lever is COUPLED to data: it pays
+  only together with retraining on undistorted crops (specs/53's exporter is the place), never
+  as an inference-side switch.
+
 ### 2026-08-08 — the label gate asks for evidence, not a pass rate (the reserved decision)
 
 The finding above ("`ALIGN_PASS_MIN` measures playing speed") reserved the threshold change as a
