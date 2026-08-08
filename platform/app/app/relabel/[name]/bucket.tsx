@@ -24,19 +24,39 @@ export type BucketProps = {
   onDone?: () => void;
 };
 
+const keyOf = (c: Proposal) => `${c.frame}|${c.square}`;
+
 /**
  * Verification labeling: one page, one pre-label, ONE keypress. Clicks are for exceptions —
  * they leave the page for the tinder band, where they get looked at one at a time.
+ *
+ * The bucket EMPTIES: decided cells (earlier sessions via corrections.jsonl, this session via
+ * page confirms) leave the grid, so "am I done?" is answered by the grid itself. Control-page
+ * confirms write nothing by design, so they re-appear after a reload — session-local only.
  */
 export function BucketGrid(props: BucketProps) {
-  const { name, sessionId, cells, kind, decided, onException, onWritten, onError } = props;
+  const { name, sessionId, cells, kind, decided, onException, onWritten, onError, onDone } = props;
   const [page, setPage] = useState(0);
   const [cursor, setCursor] = useState(0);
   const [marked, setMarked] = useState<Set<number>>(new Set());
+  const [handled, setHandled] = useState<Set<string>>(new Set());
   const [note, setNote] = useState("");
 
-  const pages = Math.max(1, Math.ceil(cells.length / PAGE));
-  const slice = useMemo(() => cells.slice(page * PAGE, page * PAGE + PAGE), [cells, page]);
+  const remaining = useMemo(
+    () => cells.filter((c) => !decided[keyOf(c)] && !handled.has(keyOf(c))),
+    [cells, decided, handled],
+  );
+  const pages = Math.max(1, Math.ceil(remaining.length / PAGE));
+  const safePage = Math.min(page, pages - 1);
+  const slice = useMemo(
+    () => remaining.slice(safePage * PAGE, safePage * PAGE + PAGE),
+    [remaining, safePage],
+  );
+
+  const emptied = cells.length > 0 && remaining.length === 0;
+  useEffect(() => {
+    if (emptied) onDone?.();
+  }, [emptied, onDone]);
 
   const toggle = useCallback((i: number) => {
     setMarked((m) => {
@@ -65,18 +85,18 @@ export function BucketGrid(props: BucketProps) {
       onException(exceptions);
       setNote(
         kind === "confirm"
-          ? `page ${page + 1}: ${written} rows written, ${exceptions.length} to the tinder band`
-          : `page ${page + 1}: control stream — the FEN already labels these, nothing written; ` +
+          ? `${written} rows written, ${exceptions.length} to the tinder band`
+          : `control page checked — the FEN already labels these, nothing written; ` +
             `${exceptions.length} to the tinder band`,
       );
+      // The whole page leaves the bucket — accepted as decided, exceptions to the tinder band.
+      setHandled((h) => new Set([...h, ...slice.map(keyOf)]));
       setMarked(new Set());
       setCursor(0);
-      if (page + 1 >= pages) props.onDone?.();
-      setPage((p) => Math.min(p + 1, pages - 1));
     } catch (error) {
       onError(error);
     }
-  }, [slice, marked, kind, sessionId, page, pages, onException, onWritten, onError, props]);
+  }, [slice, marked, kind, sessionId, onException, onWritten, onError]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -92,6 +112,15 @@ export function BucketGrid(props: BucketProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, [confirmPage, cursor, slice.length, toggle]);
 
+  if (emptied) {
+    return (
+      <div className="rounded-lg border border-green-600 bg-green-950/40 p-4 text-sm">
+        <strong>Bucket leer ✓</strong> — alle {cells.length} Zellen entschieden
+        {kind === "control" ? " (control schreibt nichts und beginnt nach einem Reload neu)" : ""}.
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3">
       <div className="border-border bg-muted/30 flex flex-wrap items-center gap-3 rounded-lg border p-3 text-sm">
@@ -99,8 +128,9 @@ export function BucketGrid(props: BucketProps) {
           {kind === "confirm" ? "pre-label: occluded" : "pre-label: keep the FEN label"}
         </strong>
         <span className="text-muted-foreground">
-          page {page + 1}/{pages} · {slice.length} crops · {marked.size} exceptions ·{" "}
-          <kbd>Enter</kbd> confirms the page, <kbd>Space</kbd>/click marks an exception, arrows move
+          {remaining.length} offen von {cells.length} · page {safePage + 1}/{pages} ·{" "}
+          {marked.size} exceptions · <kbd>Enter</kbd> confirms the page, <kbd>Space</kbd>/click
+          marks an exception, arrows move
         </span>
         <Button className="ml-auto" onClick={() => void confirmPage()} size="sm">
           {kind === "confirm" ? `confirm ${slice.length - marked.size} as occluded` : "checked"}
@@ -109,44 +139,45 @@ export function BucketGrid(props: BucketProps) {
       {note ? <p className="text-muted-foreground text-sm">{note}</p> : null}
 
       <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))` }}>
-        {slice.map((cell, i) => {
-          const key = `${cell.frame}|${cell.square}`;
-          return (
-            <div
-              className={`relative cursor-pointer overflow-hidden rounded border-2 ${
-                marked.has(i) ? "border-amber-500" : "border-transparent"
-              } ${i === cursor ? "ring-primary ring-2" : ""}`}
-              key={key}
-              onClick={() => {
-                setCursor(i);
-                toggle(i);
-              }}
-              role="button"
-              tabIndex={-1}
-            >
-              <Image
-                alt={`${cell.square} @ ${cell.frame}`}
-                height={CROP}
-                src={`/api/cell/${name}/${cell.frame}/${cell.square}?size=${CROP}`}
-                unoptimized
-                width={CROP}
-              />
-              <span className="bg-background/70 absolute bottom-0 left-0 px-1 font-mono text-[10px]">
-                {cell.square} {cell.score.toFixed(2)}
-                {decided[key] ? " ✓" : ""}
-              </span>
-            </div>
-          );
-        })}
+        {slice.map((cell, i) => (
+          <div
+            className={`relative cursor-pointer overflow-hidden rounded border-2 ${
+              marked.has(i) ? "border-amber-500" : "border-transparent"
+            } ${i === cursor ? "ring-primary ring-2" : ""}`}
+            key={keyOf(cell)}
+            onClick={() => {
+              setCursor(i);
+              toggle(i);
+            }}
+            role="button"
+            tabIndex={-1}
+          >
+            <Image
+              alt={`${cell.square} @ ${cell.frame}`}
+              height={CROP}
+              src={`/api/cell/${name}/${cell.frame}/${cell.square}?size=${CROP}`}
+              unoptimized
+              width={CROP}
+            />
+            <span className="bg-background/70 absolute bottom-0 left-0 px-1 font-mono text-[10px]">
+              {cell.square} {cell.score.toFixed(2)}
+            </span>
+          </div>
+        ))}
       </div>
 
       <div className="flex gap-2">
-        <Button disabled={page === 0} onClick={() => setPage((p) => p - 1)} size="sm" variant="outline">
+        <Button
+          disabled={safePage === 0}
+          onClick={() => setPage(Math.max(0, safePage - 1))}
+          size="sm"
+          variant="outline"
+        >
           previous page
         </Button>
         <Button
-          disabled={page + 1 >= pages}
-          onClick={() => setPage((p) => p + 1)}
+          disabled={safePage + 1 >= pages}
+          onClick={() => setPage(safePage + 1)}
           size="sm"
           variant="outline"
         >
