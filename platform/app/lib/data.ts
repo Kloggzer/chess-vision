@@ -8,12 +8,20 @@ import path from "node:path";
 import { Chess } from "chess.js";
 import { lcsReport, reviewedPlies } from "@/lib/lcs";
 
-export type Move = { ply: number; san: string; frame: number; t?: number; decider?: string };
+export type Move = {
+  ply: number;
+  san: string;
+  frame: number;
+  t?: number;
+  decider?: string;
+  fen_after?: string;
+};
 export type Candidate = {
   name: string;
   confirmed?: boolean;
   confirmed_at?: string;
   reviewed_plies?: number[];
+  start_fen?: string;
   moves: Move[];
 };
 

@@ -13,11 +13,77 @@ export type UnmatchedCard = {
   frame: number;
   stem: string | null;
   duplicate: boolean;
+  squares: { from: string; to: string } | null;
 };
+
+/**
+ * The claimed move, drawn ONTO the rectified board so the human answers yes/no by looking.
+ * The review PNG is 720x816 with the board as the top 720x720 and a8 at the top-left, so a
+ * square is a plain 90 px grid cell; the SVG shares the image's viewBox and scales with it.
+ */
+function MoveOverlay({ squares }: { squares: { from: string; to: string } | null }) {
+  if (!squares) return null;
+  const cell = 90;
+  const pos = (sq: string) => ({
+    x: (sq.charCodeAt(0) - 97) * cell,
+    y: (8 - Number(sq[1])) * cell,
+  });
+  const f = pos(squares.from);
+  const t = pos(squares.to);
+  const markerId = `arrow-${squares.from}${squares.to}`;
+  return (
+    <svg
+      aria-hidden
+      className="pointer-events-none absolute inset-0 h-full w-full"
+      viewBox="0 0 720 816"
+    >
+      <defs>
+        <marker
+          id={markerId}
+          markerHeight="7"
+          markerWidth="7"
+          orient="auto-start-reverse"
+          refX="6"
+          refY="3.5"
+        >
+          <path d="M0,0 L7,3.5 L0,7 z" fill="#f59e0b" />
+        </marker>
+      </defs>
+      <rect
+        fill="none"
+        height={cell}
+        stroke="#eab308"
+        strokeWidth="6"
+        width={cell}
+        x={f.x}
+        y={f.y}
+      />
+      <rect
+        fill="none"
+        height={cell}
+        stroke="#22c55e"
+        strokeWidth="6"
+        width={cell}
+        x={t.x}
+        y={t.y}
+      />
+      <line
+        markerEnd={`url(#${markerId})`}
+        stroke="#f59e0b"
+        strokeLinecap="round"
+        strokeWidth="8"
+        x1={f.x + cell / 2}
+        x2={t.x + cell / 2}
+        y1={f.y + cell / 2}
+        y2={t.y + cell / 2}
+      />
+    </svg>
+  );
+}
 
 export function UnmatchedCards({ name, cards }: { name: string; cards: UnmatchedCard[] }) {
   const [kept, setKept] = useState<Record<number, boolean>>({});
-  const [zoom, setZoom] = useState<string | null>(null);
+  const [zoom, setZoom] = useState<{ stem: string; squares: UnmatchedCard["squares"] } | null>(null);
   const [state, setState] = useState<"idle" | "writing" | string>("idle");
 
   async function confirm() {
@@ -39,17 +105,21 @@ export function UnmatchedCards({ name, cards }: { name: string; cards: Unmatched
         <p className="font-medium">Your call, one move at a time:</p>
         <p className="text-muted-foreground">
           The tracker committed these {cards.length} moves, but they do not line up with the
-          reference game. Look at each board picture (click it to enlarge — the labels on the
-          squares are what the tracker believed). Press{" "}
-          <strong className="text-foreground">KEEP</strong> if the position really shows this
-          move was played — it then enters the label timeline. Press{" "}
-          <strong className="text-foreground">DROP</strong> if it is wrong. Everything starts as
-          DROP; when you are done, press Confirm below.
+          reference game. The claimed move is DRAWN on each board: yellow = from, green arrow →
+          to. One question per card:{" "}
+          <strong className="text-foreground">
+            does the photo show the position right AFTER this move?
+          </strong>{" "}
+          Yes → KEEP (it enters the label timeline). No → DROP. Everything starts as DROP; the
+          square labels on the picture are only the tracker&apos;s belief — trust the wooden
+          pieces, not the text. Click any picture to enlarge.
         </p>
         <p className="text-muted-foreground">
-          <Badge variant="secondary">also missed in PGN</Badge> means the same move also appears
-          as missing from the reference — typically the real move committed LATE after a resync.
-          If the picture matches the move, KEEP is usually right.
+          <Badge variant="secondary">also missed in PGN</Badge>: the same move also appears as
+          missing from the reference — usually a real move committed LATE after a resync. Late
+          means the board has already moved on, so the photo will NOT match and DROP is
+          typically right. When in doubt, drop: a dropped ply costs a few crops, a wrongly kept
+          one mislabels a whole interval.
         </p>
       </div>
 
@@ -64,6 +134,11 @@ export function UnmatchedCards({ name, cards }: { name: string; cards: Unmatched
               <CardHeader>
                 <CardTitle className="flex flex-wrap items-center gap-2 font-mono text-base">
                   ply {card.ply} {card.san}
+                  {card.squares ? (
+                    <span className="text-muted-foreground text-xs">
+                      {card.squares.from} → {card.squares.to}
+                    </span>
+                  ) : null}
                   <span className="text-muted-foreground text-xs">@frame {card.frame}</span>
                   {card.duplicate ? <Badge variant="secondary">also missed in PGN</Badge> : null}
                   <Badge variant={isKept ? "default" : "outline"}>
@@ -75,7 +150,7 @@ export function UnmatchedCards({ name, cards }: { name: string; cards: Unmatched
                 {card.stem ? (
                   <button
                     className="border-border relative block w-full cursor-zoom-in overflow-hidden rounded border"
-                    onClick={() => setZoom(card.stem)}
+                    onClick={() => card.stem && setZoom({ stem: card.stem, squares: card.squares })}
                     style={{ aspectRatio: "720 / 816" }}
                     title="click to enlarge"
                     type="button"
@@ -88,6 +163,7 @@ export function UnmatchedCards({ name, cards }: { name: string; cards: Unmatched
                       src={`/api/frame/${name}/${card.stem}`}
                       unoptimized
                     />
+                    <MoveOverlay squares={card.squares} />
                   </button>
                 ) : (
                   <p className="text-muted-foreground text-sm">no frame within ±2</p>
@@ -127,18 +203,21 @@ export function UnmatchedCards({ name, cards }: { name: string; cards: Unmatched
 
       {zoom ? (
         <button
-          className="fixed inset-0 z-50 cursor-zoom-out bg-black/90 p-4"
+          className="fixed inset-0 z-50 cursor-zoom-out bg-black/90"
           onClick={() => setZoom(null)}
           type="button"
         >
-          <Image
-            alt={`frame ${zoom} enlarged`}
-            className="object-contain"
-            fill
-            sizes="100vw"
-            src={`/api/frame/${name}/${zoom}`}
-            unoptimized
-          />
+          <span className="relative mx-auto block h-full" style={{ aspectRatio: "720 / 816" }}>
+            <Image
+              alt={`frame ${zoom.stem} enlarged`}
+              className="object-contain"
+              fill
+              sizes="100vw"
+              src={`/api/frame/${name}/${zoom.stem}`}
+              unoptimized
+            />
+            <MoveOverlay squares={zoom.squares} />
+          </span>
         </button>
       ) : null}
     </section>

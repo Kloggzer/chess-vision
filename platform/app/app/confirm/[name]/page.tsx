@@ -1,7 +1,21 @@
+import { Chess } from "chess.js";
 import { Badge } from "@/components/ui/badge";
 import { loadCandidate, reviewFrame, truthSans } from "@/lib/data";
 import { lcsReport } from "@/lib/lcs";
 import { UnmatchedCards } from "./cards";
+
+/** From/to squares of a SAN, replayed from the TRACKER's own position chain (the ply may be
+ *  illegal against the reference game, but it was legal against the tracker's board). */
+function moveSquares(fenBefore: string | undefined, san: string): { from: string; to: string } | null {
+  if (!fenBefore) return null;
+  try {
+    const chess = new Chess(fenBefore);
+    const move = chess.move(san);
+    return { from: move.from, to: move.to };
+  } catch {
+    return null;
+  }
+}
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +30,7 @@ export default async function ConfirmPage({ params }: PageProps<"/confirm/[name]
   const cards = await Promise.all(
     invented.map(async (index) => {
       const move = moves[index];
+      const fenBefore = index === 0 ? candidate.start_fen : moves[index - 1].fen_after;
       return {
         index,
         ply: move.ply,
@@ -23,6 +38,7 @@ export default async function ConfirmPage({ params }: PageProps<"/confirm/[name]
         frame: move.frame,
         stem: await reviewFrame(name, move.frame),
         duplicate: missedSans.has(move.san),
+        squares: moveSquares(fenBefore, move.san),
       };
     }),
   );
