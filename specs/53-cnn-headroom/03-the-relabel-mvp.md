@@ -66,6 +66,11 @@ No other coupling to the Python side.
    correct). Touch: swipe left/right mirrors ←/→.
 3. **Board drilldown**: pick a frame, see the rectified frame with an 8×8 overlay, click a
    cell to cycle `fen_label → occluded → empty → fen_label`; writes on navigate-away.
+   **Paint mode (user amendment 2026-08-08):** an occluder covers a CONTIGUOUS swath, so the
+   primary gesture is a brush — pointer-down and drag marks every entered cell `occluded`
+   (tinted live); dragging with the eraser toggle (or right button) clears back to the FEN
+   label. Single-click keeps the cycle behaviour. Touch: same, one finger paints. This is
+   pointer-enter bookkeeping over the existing 8×8 overlay, not a canvas — no drawing library.
 
 Progress bar per stream (done/remaining), thresholds visible in the header. Crops are cut
 server-side from the session frame PNGs using `geometry.corners` homography per cell — reuse
