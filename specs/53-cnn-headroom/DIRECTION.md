@@ -4,6 +4,19 @@
 > Every number is tagged **MEASURED** (verified today against the tree or by counting),
 > **ESTIMATED** (arithmetic on measured inputs, assumptions named), or **HYPOTHESIS**.
 
+> **User amendment, 2026-08-08 (changes the yield math below):** do not export only the QUIET
+> frames — export the DIRTY ones too, labeled per cell. Inside a confirmed-FEN interval every
+> frame is labelable: a shadow over a piece is still that piece (a harder, more valuable
+> positive), and a square under a hand or object is `occluded` — the label the corpus has never
+> had from real footage. The per-cell decision "shadow (keep the FEN label) vs occluder (label
+> occluded)" does not need a human: the engine's own shadow-vs-occlusion machinery (HSV gamut +
+> census, `BaselineOcclusion`/the shadow veto) can run OFFLINE against the interval's clean
+> median frame, with the review JPEGs as the spot check. This multiplies the usable rows well
+> beyond the quiet-frame count in "What the new videos are worth" — the ~30 s quiet windows
+> bound only the CLEAN positives, not the shadowed positives and not the occluded class. Both
+> reference PGNs are now in the repo (`data/realgames/rec-20260808-003957/reference.pgn`,
+> `data/realgames/rec-20260808-115912/reference.pgn`).
+
 ## The thesis
 
 **The user's version:** "Most of the recognition is now carried by the CNN. Do we still have
