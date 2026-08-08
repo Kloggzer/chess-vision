@@ -283,6 +283,8 @@ private fun usage(): Nothing {
         "                        name=<x>  the candidate's directory name (default: video stem)",
         "                        cleanonly  EXPERIMENT: commit and vote only on a hand-free board",
         "                        model=<name>  one of the bundled graphs",
+        "                        fps=<n>  process every k-th frame (realtime emulation, counted",
+        "                               as dropped(stride); the clock still ticks every frame)",
         "",
         "  The board view opens unless 'quiet' or 'dump': it shows the rectified warp the engine",
         "  reasons about with its per-square verdicts, and STOPS when the engine gets stuck",
@@ -383,7 +385,8 @@ private fun replay(
                 live = camera != null,
             )
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
-        val frames = drive(source, stack, bus, publisher, view, frameClock, options.dumpEvery, session?.frameHook)
+        val stride = strideOf(options.fps, source.fps, live = camera != null)
+        val frames = drive(source, stack, bus, publisher, view, frameClock, options.dumpEvery, session?.frameHook, stride)
         println("tracked $frames frames of $name at ${"%.2f".format(source.fps)} fps")
         // Where the CNN chain stopped. `observations` counts snapshots the observer EMITTED;
         // the engine's own `cnnSnaps` counts what arrived. Two numbers, one seam between them.
@@ -483,13 +486,26 @@ private fun drive(
     // Fired AFTER the engine saw the frame, with the 0-based index that decoded it. The index and
     // the picture travel in one call — the review-frame writer's whole correctness rests on that.
     frameHook: ((Int, Mat) -> Unit)? = null,
+    // Process every stride-th decoded frame — `ReplayOptions.fps`'s realtime emulation. The clock
+    // ticks for EVERY decoded frame either way, so skipping changes what the tracker SEES, never
+    // what time it is.
+    stride: Int = 1,
 ): Int {
     var frames = 0
+    var strideDropped = 0
     while (true) {
         val open = view?.awaitStep(publisher.status.value) ?: true
         val frame = if (open) source.next() else null
-        if (frame == null) return frames
+        if (frame == null) {
+            if (strideDropped > 0) println("stride $stride: dropped $strideDropped of $frames decoded frames, by design")
+            return frames
+        }
         clock.tick()
+        if (frames % stride != 0) {
+            strideDropped += 1
+            frames += 1
+            continue
+        }
         stack.coordinator.onFrame(frame, source.delivered)
         frameHook?.invoke(frames, frame)
         frames += 1
@@ -498,6 +514,22 @@ private fun drive(
             dumpBoard(frames, bus.boardPreview.value, publisher.status.value)
         }
     }
+}
+
+/**
+ * `fps=<n>` -> the frame stride, announced. Refused live: a camera already drops what the
+ * pipeline cannot take — the stride exists to give a replay that same reality, deterministically.
+ */
+private fun strideOf(
+    targetFps: Double?,
+    sourceFps: Double,
+    live: Boolean,
+): Int {
+    if (targetFps == null) return 1
+    require(!live) { "fps= is a replay instrument — a live camera already drops what it cannot take" }
+    val stride = Math.round(sourceFps / targetFps).toInt().coerceAtLeast(1)
+    println("stride: every $stride. frame -> ${"%.1f".format(sourceFps / stride)} of ${"%.1f".format(sourceFps)} fps")
+    return stride
 }
 
 /**

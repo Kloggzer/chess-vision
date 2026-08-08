@@ -245,6 +245,39 @@ cold and warm **byte-identical**):
 mate, shorter than the pre-fix tail of 10-11 because aligns now land at video times; zero
 phantoms inside the labeled range.
 
+### 2026-08-08 — the instrument: drops counted, observations ledgered, realtime emulated
+
+Approved as "Zahlen messbar machen" step 1-3 of the levers plan. Landed:
+
+- **Drop counters** on every silent refusal path (observer gate off/busy/interval, crop-store
+  overwrite, snapshot/action queue displacement, pipeline skips by reason), aggregated in
+  `TrackerStack.dropLine()` — on the per-second `chesslabPerf` line on BOTH hosts, in the
+  desktop summary, and in `candidate.json` (`drops`). On an inline desktop replay everything
+  reads zero, correctly: the counters exist for the phone and for throttled runs.
+- **Observation ledger** (`chesslabObs`): one line per emitted snapshot — frame, video time,
+  occluded-square count from the observer's own read. This is Hebel 2's gate: a missed move
+  whose window contains `occl=0` lines had a clean look and wasted it.
+- **`fps=<n>` stride**: deterministic realtime emulation — process every k-th decoded frame,
+  clock ticks for all of them, skipped ones counted as `dropped(stride)`. Two `fps=15` runs of
+  rec-20260808-003957: decision rows byte-identical.
+
+**First measurement — 30 fps replays OVERSTATE live behaviour.** The phone sees 15-20 fps
+(KEEP_ONLY_LATEST); at `fps=15` the observation count exactly halves and the fast-played
+videos pay heavily:
+
+| video | 30 fps | 15 fps |
+|---|---|---|
+| rec-20260807 (score) | 25 / 0 / 0 | **25 / 0 / 0** |
+| rec-20260808-003957 | 67 plies | **42 plies** |
+| rec-20260808-115912 | 61 plies | **58 plies** |
+| VID_20260802 (score) | 20 / 2 / 5* | **18 / 4 / 10*** |
+
+Observation density is frame-rate-bound (the inline observer sees only processed frames), so
+every desktop number on record is an upper bound on the phone's. Consequences: the
+observation-rate levers (specs/26's 4-crop verify) matter MORE than the desktop suggested, and
+Hebel 4 (dt-normalised motion) now has a clean instrument to measure against — at stride 2 the
+inter-frame delta doubles and `motionThr` bites harder, which is confounded into these numbers.
+
 ### 2026-08-08 — the label gate asks for evidence, not a pass rate (the reserved decision)
 
 The finding above ("`ALIGN_PASS_MIN` measures playing speed") reserved the threshold change as a

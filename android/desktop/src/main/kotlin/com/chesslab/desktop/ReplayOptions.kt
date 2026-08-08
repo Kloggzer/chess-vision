@@ -74,6 +74,20 @@ data class ReplayOptions(
      * true/false; recorded in `effective_config` like everything else the engine ran.
      */
     val overrides: Map<String, Double> = emptyMap(),
+    /**
+     * `fps=<n>` — process every k-th decoded frame (`k = round(videoFps / n)`), the DETERMINISTIC
+     * realtime emulation: the phone sees 15-20 fps of a 30 fps world because CameraX drops what
+     * the analyzer cannot take, and this is that drop made exact and countable. The clock still
+     * ticks for EVERY decoded frame, so video time stays true; skipped frames reach neither the
+     * pipeline nor the engine and are counted as `dropped(stride)`.
+     *
+     * A measurement instrument, not a default. Skipping doubles the inter-frame delta, so the
+     * same physical hand speed scores a higher motion z (`motionThr` bites harder), and
+     * `settleFrames`/`avgFrames` are frame counts that then span twice the wall time. Engine-side
+     * it is SAFE: `seq` must only increase, references are stored planes, and every time window
+     * runs on `nowS`.
+     */
+    val fps: Double? = null,
 ) {
     companion object {
         /** The plain flag words, each one field. Assignments (`x=`) live in [assigned]. */
@@ -98,7 +112,7 @@ data class ReplayOptions(
                     FLAGS[word]?.invoke(options) ?: assigned(options, word)
                         ?: error(
                             "unknown option '$word' (${FLAGS.keys.joinToString(" | ")} " +
-                                "| dump=<n> | name=<x> | model=<name>)",
+                                "| dump=<n> | name=<x> | model=<name> | fps=<n>)",
                         )
             }
             return options
@@ -117,6 +131,12 @@ data class ReplayOptions(
                                 ?: error("dump= wants a frame count, got '$word'"),
                     )
                 word.startsWith("name=") -> options.copy(name = word.removePrefix("name=").ifEmpty { null })
+                word.startsWith("fps=") ->
+                    options.copy(
+                        fps =
+                            word.removePrefix("fps=").toDoubleOrNull()?.takeIf { it > 0 }
+                                ?: error("fps= wants a positive frame rate, got '$word'"),
+                    )
                 word.startsWith("model=") -> options.copy(model = word.removePrefix("model="))
                 word.startsWith("set:") -> options.copy(overrides = options.overrides + knobOverride(word))
                 else -> null
@@ -144,6 +164,7 @@ data class ReplayOptions(
             (if (frames) " frames" else "") +
             (if (cleanOnly) " cleanonly" else "") +
             (name?.let { " name=$it" } ?: "") +
+            (fps?.let { " fps=$it" } ?: "") +
             overrides.entries.joinToString("") { " set:${it.key}=${it.value}" }
 }
 
