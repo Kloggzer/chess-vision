@@ -34,11 +34,18 @@ export default async function RelabelPage({ params }: PageProps<"/relabel/[name]
 
   // The drilldown needs the FEN of every frame a proposal points at — nothing more of the log.
   const stems = [...new Set(rows.map((r) => r.frame))].sort();
-  const frames = stems.map((stem) => ({
-    stem,
-    ply: session.byStem.get(stem)?.ply ?? 0,
-    fen: session.byStem.get(stem)?.fen ?? "8/8/8/8/8/8/8/8 w - - 0 1",
-  }));
+  const frames = stems.map((stem) => {
+    const row = session.byStem.get(stem);
+    return {
+      stem,
+      ply: row?.ply ?? 0,
+      fen: row?.fen ?? "8/8/8/8/8/8/8/8 w - - 0 1",
+      phase: row?.phase,
+      sinceS: row?.sinceS,
+      toS: row?.toS,
+      unknown: row?.unknown,
+    };
+  });
   const done = rows.filter((r) => decided.has(proposalKey(r))).length;
 
   return (

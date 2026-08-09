@@ -17,6 +17,16 @@ export type FilterProps = {
 /** Steps a human actually asks for. 0.1 is the "show me anything at all" end. */
 const STEPS = [0.05, 0.1, 0.25, 0.5, 0.75, 0.9];
 const DISAGREE = "disagree";
+/**
+ * Which side of the interval a frame sits on (`lib/session.ts` `FramePhase`). Worth its own
+ * control because the two are different work: after the commit the FEN is true and only the
+ * occluders are in question, before the next one the piece may already have moved.
+ */
+const PHASES: [string, string][] = [
+  ["any", "either"],
+  ["after", "after the move"],
+  ["before", "before the next"],
+];
 export const DEFAULT_CLASS = "occluded";
 export const DEFAULT_MIN = 0.1;
 
@@ -32,17 +42,19 @@ export const DEFAULT_MIN = 0.1;
 export function FilterBar({ name, initial, onQueue }: FilterProps) {
   const [klass, setKlass] = useState(DEFAULT_CLASS);
   const [min, setMin] = useState(DEFAULT_MIN);
+  const [phase, setPhase] = useState("any");
   const [answer, setAnswer] = useState(initial);
   const [note, setNote] = useState("");
 
   // Re-queried from event handlers only. The default query is answered on the server, so there
   // is no effect here to fire on mount — which is also what keeps
   // `react-hooks/set-state-in-effect` satisfied instead of suppressed.
-  async function run(nextClass: string, nextMin: number) {
+  async function run(nextClass: string, nextMin: number, nextPhase = phase) {
     setKlass(nextClass);
     setMin(nextMin);
+    setPhase(nextPhase);
     try {
-      const res = await fetch(`/api/filter/${name}?class=${nextClass}&min=${nextMin}`);
+      const res = await fetch(`/api/filter/${name}?class=${nextClass}&min=${nextMin}&phase=${nextPhase}`);
       const body = await res.json();
       if (!res.ok) throw new Error(body.error);
       setAnswer(body);
@@ -54,7 +66,8 @@ export function FilterBar({ name, initial, onQueue }: FilterProps) {
 
   const { classes, frames: hits, cells } = answer;
 
-  const label = klass === DISAGREE ? `model ≠ FEN (≥ ${min})` : `${klass} ≥ ${min}`;
+  const base = klass === DISAGREE ? `model ≠ FEN (≥ ${min})` : `${klass} ≥ ${min}`;
+  const label = phase === "any" ? base : `${base} · ${phase} the move`;
 
   return (
     <div className="space-y-3">
@@ -77,6 +90,19 @@ export function FilterBar({ name, initial, onQueue }: FilterProps) {
           {STEPS.map((s) => (
             <Button key={s} onClick={() => void run(klass, s)} size="sm" variant={min === s ? "default" : "outline"}>
               {s}
+            </Button>
+          ))}
+        </span>
+        <span className="flex items-center gap-1">
+          <span>and the frame is</span>
+          {PHASES.map(([value, text]) => (
+            <Button
+              key={value}
+              onClick={() => void run(klass, min, value)}
+              size="sm"
+              variant={phase === value ? "default" : "outline"}
+            >
+              {text}
             </Button>
           ))}
         </span>

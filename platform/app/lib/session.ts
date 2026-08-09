@@ -10,7 +10,38 @@ import path from "node:path";
 import { checkName, dataDir, loadCandidate } from "@/lib/data";
 import type { CropParams } from "@/lib/warp";
 
-export type SessionRow = { stem: string; ply: number; fen: string; corners: number[][] };
+/**
+ * Where a frame sits between the two commits that bound its interval — the labeling context.
+ *
+ * "die stillen fens sind alle akurat die nerven nur" (2026-08-09): the FEN is not equally
+ * trustworthy across an interval, and a labeler needs to know WHICH side of it a frame is on.
+ * `after` is the hand withdrawing from the move that just landed — the FEN is true and the
+ * occluders are real. `before` is the next move being played: the piece may ALREADY have moved
+ * while the interval FEN has not caught up, which is why the exporter marks `unknown_squares`
+ * there and nowhere else. `settled` is the quiet middle, clear of both hands.
+ *
+ * Whether a hand is in the frame is the EXPORTER's word (`dirty`, written from the quiet margin);
+ * only which SIDE is derived here, from the commit frames in `candidate.json` and the ply on the
+ * row — so this needs no re-export. Checked against 3 772 real rows: `unknown_squares`, which the
+ * exporter writes on the trailing window alone, lands on a `before` frame every single time.
+ * Distances are reported raw (frames and seconds) so the phase never has to be taken on faith.
+ */
+export type FramePhase = "settled" | "after" | "before";
+export type SessionRow = {
+  stem: string;
+  ply: number;
+  fen: string;
+  corners: number[][];
+  phase: FramePhase;
+  /** Frames since the commit that established this FEN, and until the next commit. */
+  since: number;
+  to: number;
+  /** Seconds, at the recording's own frame rate — what a human reasons in. */
+  sinceS: number;
+  toS: number;
+  /** Squares the exporter refuses to vouch for on this frame (the next move's footprint). */
+  unknown: string[];
+};
 export type Session = {
   name: string;
   sessionId: string;
@@ -41,21 +72,48 @@ const cache = new Map<string, { key: number; value: Session }>();
 export async function loadSession(name: string): Promise<Session> {
   const log = path.join(sessionDir(name), "log.jsonl");
   const key = (await stat(log)).mtimeMs;
-  const hit = cache.get(name);
+  // Keyed by the PATH, not the bare name: `CHESSLAB_DATA_DIR` is a variable, and two roots
+  // holding a session of the same name would otherwise share an entry whenever their logs
+  // happened to land in the same millisecond.
+  const hit = cache.get(log);
   if (hit?.key === key) return hit.value;
+
+  const candidate = await loadCandidate(name);
+  // The frame each ply was committed at, and the frame the NEXT commit closes it at. A ply with
+  // no successor has no known end; its interval is left open and every frame in it reads `after`.
+  const commit = new Map(candidate.moves.map((m) => [m.ply, m.frame]));
+  const closes = new Map(candidate.moves.map((m, i) => [m.ply, candidate.moves[i + 1]?.frame]));
+  const fps = candidate.clock?.fps ?? 30;
 
   const rows: SessionRow[] = [];
   for (const line of (await readFile(log, "utf8")).split("\n")) {
     if (!line.trim()) continue;
-    const row = JSON.parse(line) as { frame: string; ply: number; fen: string; corners: number[][] };
+    const row = JSON.parse(line) as {
+      frame: string;
+      ply: number;
+      fen: string;
+      corners: number[][];
+      dirty?: boolean;
+      unknown_squares?: string[];
+    };
+    const stem = path.basename(row.frame, ".png");
+    const at = Number(stem);
+    const since = at - (commit.get(row.ply) ?? at);
+    const end = closes.get(row.ply);
+    const to = end === undefined ? Number.POSITIVE_INFINITY : end - at;
     rows.push({
-      stem: path.basename(row.frame, ".png"),
+      stem,
       ply: row.ply,
       fen: row.fen,
       corners: row.corners,
+      phase: !row.dirty ? "settled" : since <= to ? "after" : "before",
+      since,
+      to,
+      sinceS: since / fps,
+      toS: to / fps,
+      unknown: row.unknown_squares ?? [],
     });
   }
-  const candidate = await loadCandidate(name);
   const geometry = candidate.geometry ?? {};
   const source = candidate.source ?? {};
   const value: Session = {
@@ -69,7 +127,7 @@ export async function loadSession(name: string): Promise<Session> {
     crop: { pad_up: source.crop?.pad_up ?? 0, pad_side: source.crop?.pad_side ?? 0.05 },
     whitePov: true,
   };
-  cache.set(name, { key, value });
+  cache.set(log, { key, value });
   return value;
 }
 

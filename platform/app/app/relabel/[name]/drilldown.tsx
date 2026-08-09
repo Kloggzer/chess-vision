@@ -7,7 +7,17 @@ import type { Correction } from "@/lib/corrections";
 import { FILES, fenLabels } from "@/lib/fen";
 import { writeRows } from "./write";
 
-export type FrameInfo = { stem: string; ply: number; fen: string };
+export type FrameInfo = {
+  stem: string;
+  ply: number;
+  fen: string;
+  /** Where in the interval this frame sits — see `lib/session.ts` `FramePhase`. Absent on a
+   *  frame the queue synthesized without a log row. */
+  phase?: "settled" | "after" | "before";
+  sinceS?: number;
+  toS?: number;
+  unknown?: string[];
+};
 export type DrilldownProps = {
   name: string;
   sessionId: string;
@@ -171,6 +181,7 @@ export function Drilldown(props: DrilldownProps) {
           frame {stem} · ply {frame.ply} · {at + 1}/{frames.length}
           {queueNote ? ` · ${queueNote}` : ""}
         </span>
+        <PhaseChip frame={frame} />
         <Button disabled={at === 0} onClick={() => void go(-1)} size="sm" variant="outline">
           previous
         </Button>
@@ -297,5 +308,44 @@ export function Drilldown(props: DrilldownProps) {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * What the frame is a picture OF: the hand leaving the move that just landed, or the next move
+ * arriving. A labeler asked for this because the two need different scepticism — after a commit
+ * the FEN is true and only the occluders are in question, while before the next one the piece may
+ * already sit on its destination with the FEN still describing the position it left.
+ */
+function PhaseChip({ frame }: { frame: FrameInfo }) {
+  if (!frame.phase) return null;
+  const after = frame.phase === "after";
+  const seconds = after ? frame.sinceS : frame.toS;
+  const gap = seconds === undefined || !Number.isFinite(seconds) ? "" : ` ${seconds.toFixed(1)} s`;
+  const [tone, text, why] =
+    frame.phase === "settled"
+      ? ["bg-muted text-muted-foreground", "settled — no hand", "clear of both commits; the FEN is simply true"]
+      : after
+        ? [
+            "bg-emerald-950 text-emerald-300",
+            `${gap} after the move`,
+            "the hand is leaving the move that just landed — the FEN is true here",
+          ]
+        : [
+            "bg-amber-950 text-amber-300",
+            `${gap} before the next move`,
+            "the next move is arriving — a piece may already have moved while the FEN has not",
+          ];
+  return (
+    <span className="flex items-center gap-2">
+      <span className={`rounded px-2 py-0.5 text-xs font-medium ${tone}`} title={why}>
+        {text}
+      </span>
+      {frame.unknown?.length ? (
+        <span className="text-muted-foreground text-xs" title="the exporter vouches for no label here">
+          FEN unknown on {frame.unknown.join(" ")}
+        </span>
+      ) : null}
+    </span>
   );
 }

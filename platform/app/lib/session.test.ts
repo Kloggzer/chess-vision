@@ -1,0 +1,89 @@
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { beforeEach, expect, test } from "vitest";
+import { loadSession } from "@/lib/session";
+
+/** Two plies, committed at frames 100 and 200 — one interval, 100 frames wide, at 25 fps. */
+const CANDIDATE = JSON.stringify({
+  name: "g",
+  clock: { fps: 25 },
+  geometry: { board_size: 928 },
+  moves: [
+    { ply: 1, san: "e4", frame: 100, fen_after: "x" },
+    { ply: 2, san: "e5", frame: 200, fen_after: "y" },
+  ],
+});
+
+/** One row per frame of interest: right after the commit, right before the next, and the middle. */
+function log(...rows: object[]): string {
+  return rows.map((r) => JSON.stringify(r)).join("\n") + "\n";
+}
+
+let root: string;
+
+beforeEach(async () => {
+  root = await mkdtemp(path.join(tmpdir(), "chesslab-session-"));
+  await mkdir(path.join(root, "realgames", "g"), { recursive: true });
+  await mkdir(path.join(root, "sessions", "rg-g"), { recursive: true });
+  await writeFile(path.join(root, "realgames", "g", "candidate.json"), CANDIDATE, "utf8");
+  process.env.CHESSLAB_DATA_DIR = root;
+});
+
+async function write(text: string) {
+  await writeFile(path.join(root, "sessions", "rg-g", "log.jsonl"), text, "utf8");
+}
+
+/** Dirty by default — a frame with no hand in it is the `settled` case, tested on its own. */
+const row = (frame: number, extra: object = {}) => ({
+  frame: `frames/${String(frame).padStart(6, "0")}.png`,
+  ply: 1,
+  fen: "x",
+  corners: [],
+  dirty: true,
+  ...extra,
+});
+
+test("a frame is placed by which commit it is nearer, in frames and seconds", async () => {
+  await write(log(row(110), row(190)));
+  const { byStem } = await loadSession("g");
+
+  const after = byStem.get("000110")!;
+  expect(after.phase).toBe("after");
+  expect(after.since).toBe(10);
+  expect(after.to).toBe(90);
+  // 25 fps: ten frames is 0.4 s, and the chip prints seconds, not frames.
+  expect(after.sinceS).toBeCloseTo(0.4);
+
+  const before = byStem.get("000190")!;
+  expect(before.phase).toBe("before");
+  expect(before.to).toBe(10);
+});
+
+test("a quiet row is `settled` wherever it sits — the exporter's word, not the arithmetic", async () => {
+  // Nearer the NEXT commit, so the side arithmetic would say `before`; without a hand in the
+  // frame there is no side to be on.
+  await write(log(row(195, { dirty: false })));
+  expect((await loadSession("g")).byStem.get("000195")!.phase).toBe("settled");
+});
+
+test("the boundary belongs to `after` — a tie is not the arriving move", async () => {
+  await write(log(row(150)));
+  expect((await loadSession("g")).byStem.get("000150")!.phase).toBe("after");
+});
+
+test("unknown_squares travel with the row", async () => {
+  await write(log(row(195, { unknown_squares: ["e7", "e5"] }), row(105)));
+  const { byStem } = await loadSession("g");
+  expect(byStem.get("000195")!.unknown).toEqual(["e7", "e5"]);
+  expect(byStem.get("000105")!.unknown).toEqual([]);
+});
+
+test("the last ply has no closing commit, so its interval never reads `before`", async () => {
+  await write(log(row(9000, { ply: 2 })));
+  const last = (await loadSession("g")).byStem.get("009000")!;
+  expect(last.phase).toBe("after");
+  expect(last.to).toBe(Number.POSITIVE_INFINITY);
+  // An open interval must not print "Infinity s" at the labeler.
+  expect(Number.isFinite(last.toS)).toBe(false);
+});

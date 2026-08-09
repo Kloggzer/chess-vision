@@ -25,6 +25,8 @@ export type Candidate = {
   moves: Move[];
   /** Board geometry of the recording — the cell crops are cut through it (`lib/warp.ts`). */
   geometry?: { corners?: number[][]; margin?: number | number[]; board_size?: number };
+  /** The recording's own frame rate — commit distances are reported in seconds off it. */
+  clock?: { fps?: number };
   source?: { crop?: { pad_up?: number; pad_side?: number; out_size?: number[] } };
 };
 
