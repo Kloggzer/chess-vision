@@ -23,6 +23,7 @@ from chesslab.realgames import (
     export_session,
     lcs_report,
     plan_rows,
+    unknown_for,
     write_session,
 )
 
@@ -393,3 +394,38 @@ def test_decode_refuses_to_mix_raw_frames_into_an_undistorted_set(tmp_path):
 
     # With nothing missing there is nothing to refuse.
     assert decode_frames(tmp_path / "no-such.mp4", {30}, frames) == {30}
+
+
+def _seg(ply=1, start=100, end=400, touches=("e5", "e7")):
+    return {"ply": ply, "fen": AFTER_1, "start": start, "end": end, "next_touches": list(touches)}
+
+
+def test_a_measured_settle_protects_earlier_than_the_margin(tmp_path):
+    """The correction of 2026-08-09: the engine commits on QUIET, not on arrival.
+
+    Measured on VID_20260726_233432: 5 of 15 changed squares were visibly moved for longer than
+    the 1 s margin before their commit, `Nxe5`/f3 by 4.6 s. A constant margin cannot cover a
+    number that varies by an order of magnitude per move, so the settle frame is measured and
+    each square is unknown from ITS OWN.
+    """
+    seg = _seg(end=400)
+    settle = {2: {"e5": 250, "e7": 380}}  # e5 changed 150 frames before the commit, e7 only 20
+
+    # Well before the fixed window (which starts at 370) — the old rule named nothing here.
+    assert unknown_for(seg, 300, margin_frames=30, settle=settle) == ["e5"]
+    assert unknown_for(seg, 200, margin_frames=30, settle=settle) == []
+    assert unknown_for(seg, 385, margin_frames=30, settle=settle) == ["e5", "e7"]
+
+
+def test_without_a_measurement_the_fixed_window_still_applies(tmp_path):
+    """A square whose before and after look alike yields no settle point. It must not fall through
+    to 'vouched for' — the old rule is the floor, not a fallback nobody reaches."""
+    seg = _seg(end=400)
+
+    assert unknown_for(seg, 300, margin_frames=30, settle=None) == []
+    assert unknown_for(seg, 375, margin_frames=30, settle=None) == ["e5", "e7"]
+    assert unknown_for(seg, 375, margin_frames=30, settle={}) == ["e5", "e7"]
+
+
+def test_a_segment_with_no_next_move_vouches_for_everything():
+    assert unknown_for(_seg(touches=()), 399, margin_frames=30, settle={2: {"e5": 1}}) == []

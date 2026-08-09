@@ -19,6 +19,8 @@ import cv2
 import yaml
 
 from . import config
+from .calibration import load_profile
+from .labeling import all_squares, crops_for_frame
 from .state import GameState
 
 
@@ -228,7 +230,8 @@ def changed_squares(before: str | None, after: str | None) -> list[str]:
     return sorted(sq for sq in a if a[sq] != b.get(sq))
 
 
-def plan_rows(candidate: dict, *, margin_frames: int, every: int, dirty: bool) -> list[dict]:
+def plan_rows(candidate: dict, *, margin_frames: int, every: int, dirty: bool,
+              settle: dict | None = None) -> list[dict]:
     """Every log row the export will write, in frame order — the whole interval model.
 
     Quiet rows sit `margin_frames` clear of both commits, so no hand is declared to be in them.
@@ -272,10 +275,13 @@ def plan_rows(candidate: dict, *, margin_frames: int, every: int, dirty: bool) -
                 }
                 if is_dirty:
                     row["dirty"] = True
-                    # Only the TRAILING window is short-labeled: the leading one sits after its
-                    # own commit, where the FEN is already true.
-                    if lo == q1 and seg["next_touches"]:
-                        row["unknown_squares"] = seg["next_touches"]
+                # NOT inside the `dirty` branch, and that is the whole correction: a piece can be
+                # placed seconds before the hand leaves, so a QUIET row can carry a stale FEN too.
+                # Measured 2026-08-09: 5 of 15 changed squares were visible more than the 1 s
+                # margin before their commit, one of them by 4.6 s.
+                unknown = unknown_for(seg, idx, margin_frames, settle)
+                if unknown:
+                    row["unknown_squares"] = unknown
                 rows.append(row)
     rows.sort(key=lambda r: r["frame"])
     return rows
@@ -472,6 +478,7 @@ def export_session(
     quiet_margin_s: float = 1.0,
     every: int = 3,
     dirty: bool = True,
+    measure: bool = True,
     report_only: bool = False,
 ) -> dict:
     """A confirmed candidate becomes `data/sessions/rg-<name>/`, and reports what it is worth."""
@@ -479,7 +486,13 @@ def export_session(
     if not candidate.get("confirmed"):
         raise ValueError(f"{name}: not confirmed — run `chesslab realgames confirm {name}` first")
     margin_frames = int(round(quiet_margin_s * video_fps(candidate)))
-    rows = plan_rows(candidate, margin_frames=margin_frames, every=every, dirty=dirty)
+    settle = None
+    if measure and not report_only:
+        ensure_export_profile(EXPORT_PROFILE, candidate)
+        settle = measure_settle(video_path(name, candidate), candidate, load_profile(EXPORT_PROFILE))
+        found = sum(len(v) for v in settle.values())
+        print(f"  settle measured for {found} squares over {len(settle)} plies")
+    rows = plan_rows(candidate, margin_frames=margin_frames, every=every, dirty=dirty, settle=settle)
     if not rows:
         raise ValueError(f"{name}: no reviewed interval survives a {quiet_margin_s}s margin")
     session_dir = config.DATA.sessions / f"rg-{name}"
@@ -491,9 +504,20 @@ def export_session(
             session_dir / "frames",
         )
         rows = [r for r in rows if int(Path(r["frame"]).stem) in arrived]
-        carried = carry_repaired_geometry(session_dir, rows)
-        if carried:
-            print(f"  kept the repaired geometry of {carried} frames (`session scan|autofix`)")
+        if (session_dir / "frames" / "lens.json").is_file():
+            # Undistorting MOVES the board in the image, so a quad measured on the raw frames — and
+            # any repair fitted to them — describes a picture that no longer exists. Re-measure on
+            # the frames that are actually there, and do NOT carry the old geometry over.
+            quad = static_quad(sorted((session_dir / "frames").glob("[0-9]*.png")),
+                               load_profile(EXPORT_PROFILE))
+            for row in rows:
+                row["corners"] = quad
+                row["corners_source"] = "undistorted-remeasure"
+            print("  geometry re-measured on the UNDISTORTED frames (the raw-frame repair is void)")
+        else:
+            carried = carry_repaired_geometry(session_dir, rows)
+            if carried:
+                print(f"  kept the repaired geometry of {carried} frames (`session scan|autofix`)")
         write_session(session_dir, name, candidate, rows)
     for line in yield_lines(rows):
         print(line)
@@ -677,3 +701,85 @@ def export_static(
                      "created_at": base.isoformat()}
         write_session(session_dir, name, candidate, rows)
     return {"session_dir": session_dir, "rows": rows, "profile": prof_path, "quiet": quiet}
+
+
+#: How far back a commit's settle point is looked for, and how far ahead the "after" anchor sits.
+SETTLE_BACK, SETTLE_AHEAD = 180, 40
+#: Below this mean absolute difference the two anchors are the same picture — the square carries no
+#: visible change and no settle point can be found for it.
+SETTLE_MIN_DELTA = 8.0
+
+
+def measure_settle(video: Path, candidate: dict, profile) -> dict[int, dict[str, int]]:
+    """`ply -> {square: the frame from which the image already shows the move}`.
+
+    The engine commits on QUIET, not on arrival: a piece that is placed while the hand lingers is
+    visible for as long as the hand stays. Measured on VID_20260726_233432 (2026-08-09): the image
+    leads the commit by a median of well under a second but by **1.8 s at p90 and 4.6 s at worst**,
+    and 5 of 15 changed squares lead it by more than the 1 s the fixed margin protects. A constant
+    margin is therefore the wrong instrument — the number differs per move by an order of magnitude,
+    so it gets measured per move.
+
+    Nearest-neighbour against two anchors (one clearly before, one clearly after), which needs no
+    threshold: one of the two is always closer. A square whose anchors look alike is reported NOT AT
+    ALL rather than guessed, and the caller falls back to the fixed window for it.
+    """
+    import numpy as np
+
+    quad = candidate["geometry"]["corners"]
+    squares = all_squares()
+    moves = candidate["moves"]
+    cap = cv2.VideoCapture(str(video))
+    if not cap.isOpened():
+        raise FileNotFoundError(f"cannot open video: {video}")
+    out: dict[int, dict[str, int]] = {}
+    try:
+        for i, move in enumerate(moves):
+            before = moves[i - 1].get("fen_after") if i else candidate.get("start_fen")
+            touched = changed_squares(before, move.get("fen_after"))
+            commit = int(move["frame"])
+            if not touched or commit < SETTLE_BACK:
+                continue
+            lo, hi = commit - SETTLE_BACK, commit + SETTLE_AHEAD
+            cap.set(cv2.CAP_PROP_POS_FRAMES, lo)
+            cells, idx = {}, lo
+            while idx <= hi:
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                crops = crops_for_frame(frame, quad, profile, out_size=(48, 48))
+                cells[idx] = {sq: crops[squares.index(sq)].astype(np.int16) for sq in touched}
+                idx += 1
+            if lo not in cells or hi not in cells:
+                continue
+            for sq in touched:
+                pre, post = cells[lo][sq], cells[hi][sq]
+                if float(np.abs(pre - post).mean()) < SETTLE_MIN_DELTA:
+                    continue
+                for f in range(hi, lo - 1, -1):
+                    cell = cells.get(f)
+                    if cell is None:
+                        continue
+                    if float(np.abs(cell[sq] - pre).mean()) < float(np.abs(cell[sq] - post).mean()):
+                        out.setdefault(int(move["ply"]), {})[sq] = min(f + 1, commit)
+                        break
+    finally:
+        cap.release()
+    return out
+
+
+def unknown_for(seg: dict, index: int, margin_frames: int, settle: dict | None) -> list[str]:
+    """Squares this frame cannot vouch for: the NEXT move's, from when they visibly changed.
+
+    With a measurement, a square is unknown from its own settle frame — which can lie well before
+    the quiet margin, so a QUIET row is protectable too, and that is the poison case the fixed
+    window missed entirely. Without one, the old rule stands: the whole trailing window.
+    """
+    touches = seg.get("next_touches") or []
+    if not touches:
+        return []
+    measured = (settle or {}).get(seg["ply"] + 1) or {}
+    if measured:
+        named = sorted(sq for sq in touches if index >= measured.get(sq, seg["end"] - margin_frames))
+        return named
+    return sorted(touches) if index >= seg["end"] - margin_frames else []
