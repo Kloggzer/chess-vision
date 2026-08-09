@@ -269,6 +269,7 @@ export function Drilldown(props: DrilldownProps) {
           <strong className="text-foreground">bright</strong> = you judged it, dim = FEN&apos;s word,
           nobody looked ({judged.size}/64 judged here)
         </span>
+        <Legend />
         <Button
           className="ml-auto"
           disabled={pending.length === 0}
@@ -427,6 +428,31 @@ function PhaseChip({ frame }: { frame: FrameInfo }) {
           FEN unknown on {frame.unknown.join(" ")}
         </span>
       ) : null}
+    </span>
+  );
+}
+
+
+/**
+ * What the four states on the board mean. It was asked ("was bedeutet das blaue Kästchen?",
+ * 2026-08-09) because the header explained bright-vs-dim and said nothing about the colours —
+ * a tint that needs a person to explain it is not a tint, it is a puzzle.
+ */
+function Legend() {
+  const items: [string, string, string][] = [
+    ["bg-amber-500/45", "occluded", "the cell is marked as covered"],
+    ["bg-sky-500/40", "differs from FEN", "some other label than the game says here"],
+    ["bg-transparent border border-white/25", "as the FEN says", "nothing was changed"],
+    ["outline outline-2 -outline-offset-2 outline-fuchsia-400", "filter hit", "the cell your query found"],
+  ];
+  return (
+    <span className="flex flex-wrap items-center gap-3 text-xs">
+      {items.map(([swatch, label, why]) => (
+        <span className="flex items-center gap-1" key={label} title={why}>
+          <span className={`inline-block h-3 w-3 rounded-sm ${swatch}`} />
+          <span className="text-muted-foreground">{label}</span>
+        </span>
+      ))}
     </span>
   );
 }
