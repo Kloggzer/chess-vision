@@ -6,6 +6,9 @@
 
 ## Next up (agreed, not started)
 
+- **The static takes still miss the gap they were filmed for.** Take 1 covers a1-e4 — White's
+  half again, mostly empty squares. The corpus is already 57 % "occluded over empty" with 8
+  examples of a covered black king. The next takes have to reach over ranks 7 and 8.
 - **Mobile bucket sort** — a page that shows ONE crop big and a few large buckets underneath
   (occluded / empty / FEN is right / wrong → piece palette). Tap or swipe throws the crop in,
   the next appears. Meant for the phone, for volume; the brush stays the desktop tool.
@@ -33,15 +36,18 @@
 
 ## Open questions the measurements left behind
 
-- **Falschmeldungen der statischen Aufnahme:** Reihe 8/7 lesen 0,91-1,00 ohne Hand
-  (`rg-hand-static-20260809`, Frame 000354). Bei einer Partie schützt der Label-Abgleich `keep`
-  gegen eine verseuchte Referenz — bei stehender Stellung sind alle Labels gleich, also schützt er
-  nicht. Die Referenz muss aus der gemessenen Ruhe kommen; der globale 35-%-Schnitt reicht nicht.
 - **First-frame quad vs scan median** — worth ±6-25 plies and the direction is inconsistent per
   video (specs/52, "geometry A/B"). `alignment_of` over the run is the arbiter, not ply counts.
   The only one of the four still open.
 
 ### Answered on 2026-08-09 — what they measured
+
+- **The static recording's "false positives on rank 8" were my overlay, not the producer.**
+  `all_squares()` counts from rank 1 up while the warp puts rank 8 at the TOP, so the probe drew
+  every score one board-flip away from the cell it belonged to. Redrawn with the square names in
+  it: the cells over 0.7 are exactly a1-e1, a2-e2, a3-e3, a4-e4, b5-d5 and b6-c6 — the hand — and
+  the untouched ranks 7 and 8 read 0.02-0.19. The separation is clean. **A cell overlay without
+  the square name in it is not checkable**, which is why the probe now carries it.
 
 - **The 12 phantoms of the dense arm are ALL `cnn_recovery`**, none from the resync (7 of those
   ran and invented nothing) and none from the verify ladder. They arrive in bursts at one frame —
