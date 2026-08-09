@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { decidedKeys } from "@/lib/corrections";
+import { judgedKeys } from "@/lib/corrections";
 import { listGames } from "@/lib/data";
 import { classesSeen, framesMatching, loadProposals, proposalKey, splitStreams } from "@/lib/proposals";
 import { DEFAULT_CLASS, DEFAULT_MIN } from "./filter";
@@ -14,7 +14,7 @@ async function nextOpenSession(current: string): Promise<string | null> {
     try {
       const { rows } = await loadProposals(other);
       if (rows.length === 0) continue;
-      const done = await decidedKeys(sessionId(other));
+      const done = await judgedKeys(sessionId(other));
       if (rows.some((r) => !done.has(proposalKey(r)))) return other;
     } catch {
       /* no proposals for this one */
@@ -29,7 +29,9 @@ export default async function RelabelPage({ params }: PageProps<"/relabel/[name]
   const { name } = await params;
   const { rows, thresholds, source } = await loadProposals(name);
   const session = await loadSession(name);
-  const decided = await decidedKeys(sessionId(name));
+  // Both ledgers: a cell the human confirmed as "the FEN is right" must not be asked again
+  // either, even though it wrote no training row.
+  const decided = await judgedKeys(sessionId(name));
   const streams = splitStreams(rows, thresholds);
 
   // The drilldown needs the FEN of every frame a proposal points at — nothing more of the log.

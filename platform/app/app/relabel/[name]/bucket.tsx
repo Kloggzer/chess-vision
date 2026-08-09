@@ -30,9 +30,9 @@ const keyOf = (c: Proposal) => `${c.frame}|${c.square}`;
  * Verification labeling: one page, one pre-label, ONE keypress. Clicks are for exceptions —
  * they leave the page for the tinder band, where they get looked at one at a time.
  *
- * The bucket EMPTIES: decided cells (earlier sessions via corrections.jsonl, this session via
- * page confirms) leave the grid, so "am I done?" is answered by the grid itself. Control-page
- * confirms write nothing by design, so they re-appear after a reload — session-local only.
+ * The bucket EMPTIES, and it stays emptied across a reload: both kinds record what was decided,
+ * `confirm` into corrections.jsonl and `control` into reviewed.jsonl (see `lib/corrections.ts` for
+ * why those are two files). "Am I done?" is answered by the grid itself.
  */
 export function BucketGrid(props: BucketProps) {
   const { name, sessionId, cells, kind, decided, onException, onWritten, onError, onDone } = props;
@@ -70,24 +70,24 @@ export function BucketGrid(props: BucketProps) {
     const exceptions = slice.filter((_, i) => marked.has(i));
     const accepted = slice.filter((_, i) => !marked.has(i));
     try {
-      const written =
-        kind === "confirm"
-          ? await writeRows(
-              accepted.map((c) => ({
-                session_id: sessionId,
-                frame: c.frame,
-                square: c.square,
-                label: "occluded",
-              })),
-            )
-          : 0;
+      // Both kinds write; they write to different LEDGERS. `confirm` states a new label and
+      // belongs in the training input; `control` states that the FEN was already right, which
+      // teaches a slice nothing and belongs in the review record — but it is still work, and
+      // recording it is what stops the same page coming back after every reload.
+      const rows = accepted.map((c) => ({
+        session_id: sessionId,
+        frame: c.frame,
+        square: c.square,
+        label: kind === "confirm" ? "occluded" : c.fen_label,
+      }));
+      const written = await writeRows(rows, kind === "confirm" ? "corrections" : "reviewed");
       onWritten(written);
       onException(exceptions);
       setNote(
         kind === "confirm"
           ? `${written} rows written, ${exceptions.length} to the tinder band`
-          : `control page checked — the FEN already labels these, nothing written; ` +
-            `${exceptions.length} to the tinder band`,
+          : `${written} cells recorded as reviewed (not a training row — the FEN was already ` +
+            `right); ${exceptions.length} to the tinder band`,
       );
       // The whole page leaves the bucket — accepted as decided, exceptions to the tinder band.
       setHandled((h) => new Set([...h, ...slice.map(keyOf)]));
@@ -116,7 +116,7 @@ export function BucketGrid(props: BucketProps) {
     return (
       <div className="rounded-lg border border-green-600 bg-green-950/40 p-4 text-sm">
         <strong>Bucket leer ✓</strong> — alle {cells.length} Zellen entschieden
-        {kind === "control" ? " (control schreibt nichts und beginnt nach einem Reload neu)" : ""}.
+.
       </div>
     );
   }

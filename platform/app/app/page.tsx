@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { decidedKeys } from "@/lib/corrections";
+import { judgedKeys } from "@/lib/corrections";
 import { listGames } from "@/lib/data";
 import { loadProposals, proposalKey } from "@/lib/proposals";
 import { sessionId } from "@/lib/session";
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 async function progress(name: string) {
   const { rows, source } = await loadProposals(name);
   if (rows.length === 0) return { total: 0, done: 0, source };
-  const decided = await decidedKeys(sessionId(name));
+  const decided = await judgedKeys(sessionId(name));
   return { total: rows.length, done: rows.filter((r) => decided.has(proposalKey(r))).length, source };
 }
 

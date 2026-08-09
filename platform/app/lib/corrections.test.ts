@@ -2,6 +2,7 @@ import { mkdtemp, readFile, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
+import { appendCorrections, correctionsPath, decidedKeys, judgedKeys } from "@/lib/corrections";
 
 /** A row a previous session wrote — the writer must never touch it. */
 const EXISTING =
@@ -70,4 +71,22 @@ test("an undo is a superseding row, because load_corrections is last-line-wins",
   await post([{ session_id: "rg-rec-1", frame: "004211", square: "e2", label: "wQ" }]);
   const { decidedKeys } = await import("@/lib/corrections");
   expect((await decidedKeys("rg-rec-1")).get("004211|e2")).toBe("wQ");
+});
+
+test("a review row is recorded, but never in the training input", async () => {
+  await appendCorrections([{ session_id: "rg-g", frame: "000030", square: "e4", label: "wP" }], "reviewed");
+
+  // The file that feeds `chesslab slice` must be byte-for-byte what it was.
+  expect(await readFile(correctionsPath(), "utf8")).toBe(EXISTING);
+  expect(await decidedKeys("rg-g")).toEqual(new Map());
+  // But the work is on the record, and the views read both.
+  expect(await decidedKeys("rg-g", "reviewed")).toEqual(new Map([["000030|e4", "wP"]]));
+  expect(await judgedKeys("rg-g")).toEqual(new Map([["000030|e4", "wP"]]));
+});
+
+test("a correction outranks an older review of the same cell", async () => {
+  await appendCorrections([{ session_id: "rg-g", frame: "000030", square: "e4", label: "wP" }], "reviewed");
+  await appendCorrections([{ session_id: "rg-g", frame: "000030", square: "e4", label: "occluded" }]);
+
+  expect((await judgedKeys("rg-g")).get("000030|e4")).toBe("occluded");
 });
