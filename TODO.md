@@ -20,8 +20,23 @@
   needs its own ledger next to `corrections.jsonl` — the user's point of 2026-08-09: "nur weil
   ich occluded anmale heißt das nicht, dass alle Bauern richtig sind".
 
+- **Python zurückbauen, Kotlin als einzige Implementierung** (2026-08-09: *"python soweit
+  rauszunehmen wie es geht ... da es auch die engine am gerät ist"*). Reihenfolge nach Schaden bei
+  Drift, und jeder Schritt erst als PARITÄTSTEST, dann als Umzug:
+  1. **Crops/Warp** — dieselbe Konstruktion liegt dreimal vor (`calibration.crops_for_frame`,
+     `core-geometry/Crops.kt`, `platform/app/lib/warp.ts`). Trifft Gerät *und* Training, also der
+     teuerste Drift; genau hier war der `ClipDriver`-Vorfall.
+  2. **Brettgeometrie** — ArUco, Quad-Auflösung, `alignment_of`.
+  3. Der TypeScript-Warp der Weboberfläche, sobald 1 steht.
+  Nicht bewegbar: PyTorch-Training und der Datensatzbau. Ein `throw` in `chesslab slice` schaltet
+  den Datensatzbau ab — der Umzug braucht vorher einen Kotlin-Weg, der die Crops liefert.
+
 ## Open questions the measurements left behind
 
+- **Falschmeldungen der statischen Aufnahme:** Reihe 8/7 lesen 0,91-1,00 ohne Hand
+  (`rg-hand-static-20260809`, Frame 000354). Bei einer Partie schützt der Label-Abgleich `keep`
+  gegen eine verseuchte Referenz — bei stehender Stellung sind alle Labels gleich, also schützt er
+  nicht. Die Referenz muss aus der gemessenen Ruhe kommen; der globale 35-%-Schnitt reicht nicht.
 - **First-frame quad vs scan median** — worth ±6-25 plies and the direction is inconsistent per
   video (specs/52, "geometry A/B"). `alignment_of` over the run is the arbiter, not ply counts.
   The only one of the four still open.
