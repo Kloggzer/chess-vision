@@ -16,6 +16,7 @@ import pytest
 from chesslab import config
 from chesslab.occluded import interval_reference, score_cells, write_proposals
 from chesslab.realgames import (
+    carry_repaired_geometry,
     confirm,
     decode_frames,
     ensure_export_profile,
@@ -318,3 +319,57 @@ def test_decode_frames_treats_an_empty_file_as_absent(tmp_path):
 
     with pytest.raises(FileNotFoundError):
         decode_frames(tmp_path / "no-such.mp4", {30}, frames)
+
+
+def _log(tmp_path, *rows):
+    (tmp_path / "log.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8"
+    )
+    return tmp_path
+
+
+def test_re_export_keeps_a_repaired_quad(tmp_path):
+    """`session autofix` re-fits per frame; the exporter only knows the candidate's median.
+
+    Measured 2026-08-09: a plain re-export put the median back over 11 fitted quads, moving
+    corners by up to 16 px — a seventh of a cell, past the 4 % criterion.
+    """
+    fitted = [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]]
+    _log(
+        tmp_path,
+        {
+            "frame": "frames/000030.png",
+            "corners": fitted,
+            "corners_source": "auto-corrected",
+            "align_worst_px": 2.1,
+        },
+    )
+    planned = [{"frame": "frames/000030.png", "corners": [[0, 0]], "corners_source": "realgame-export"}]
+
+    assert carry_repaired_geometry(tmp_path, planned) == 1
+    assert planned[0]["corners"] == fitted
+    assert planned[0]["corners_source"] == "auto-corrected"
+    assert planned[0]["align_worst_px"] == 2.1
+
+
+def test_a_measured_offset_is_carried_even_without_a_refit(tmp_path):
+    """`scan` writes the verdict WITHOUT touching `corners_source` — keying on the source alone
+    would silently drop every measurement it made."""
+    _log(
+        tmp_path,
+        {"frame": "frames/000030.png", "corners": [[9, 9]], "corners_source": "realgame-export", "align_worst_px": 3.9},
+    )
+    planned = [{"frame": "frames/000030.png", "corners": [[0, 0]], "corners_source": "realgame-export"}]
+
+    assert carry_repaired_geometry(tmp_path, planned) == 1
+    assert planned[0]["align_worst_px"] == 3.9
+
+
+def test_a_pristine_export_is_left_alone_so_new_candidate_geometry_flows_through(tmp_path):
+    """Nothing was repaired, so the freshly planned quad wins — otherwise a re-measured candidate
+    would be masked by its own earlier export."""
+    _log(tmp_path, {"frame": "frames/000030.png", "corners": [[9, 9]], "corners_source": "realgame-export"})
+    planned = [{"frame": "frames/000030.png", "corners": [[0, 0]], "corners_source": "realgame-export"}]
+
+    assert carry_repaired_geometry(tmp_path, planned) == 0
+    assert planned[0]["corners"] == [[0, 0]]

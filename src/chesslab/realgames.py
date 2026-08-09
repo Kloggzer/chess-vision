@@ -364,6 +364,46 @@ def decode_frames(video: Path, wanted: set[int], out_dir: Path) -> set[int]:
     return arrived
 
 
+"""Per-row geometry a REPAIR step owns, which the exporter must never write back over.
+
+`chesslab session scan|autofix` re-fits each frame's quad against the board's own grid and
+records the verdict; the exporter only ever knew the candidate's single median quad. Measured on
+the two exported sessions (2026-08-09): the repair had turned 1 quad into 11 and 7, moving corners
+by up to 16 px — about a seventh of a cell, well past the 4 % criterion — and a plain re-export
+silently put the median back. Since re-running the export is now the way to pick up a planner fix,
+it has to be non-destructive, so these keys are carried over per frame from the log on disk.
+"""
+REPAIRED_KEYS = ("corners", "corners_source", "corners_prev", "corners_set_at", "align_worst_px")
+
+
+def carry_repaired_geometry(session_dir: Path, rows: list[dict]) -> int:
+    """Copy the repair's per-frame geometry onto freshly planned rows. Returns rows carried."""
+    log = session_dir / "log.jsonl"
+    if not log.is_file():
+        return 0
+    old = {}
+    for line in log.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            row = json.loads(line)
+            old[Path(row["frame"]).stem] = row
+    carried = 0
+    for row in rows:
+        previous = old.get(Path(row["frame"]).stem)
+        if previous is None:
+            continue
+        # Evidence of repair is a re-fitted quad OR a measured offset — `scan` records the verdict
+        # without touching `corners_source`, so keying on the source alone would drop its numbers.
+        # A pristine row carries neither, and is left alone so a re-measured CANDIDATE still flows
+        # through instead of being masked by its own earlier export.
+        if previous.get("corners_source") == "realgame-export" and previous.get("align_worst_px") is None:
+            continue
+        for key in REPAIRED_KEYS:
+            if key in previous:
+                row[key] = previous[key]
+        carried += 1
+    return carried
+
+
 def write_session(session_dir: Path, name: str, candidate: dict, rows: list[dict]) -> Path:
     """`session.yaml` + `log.jsonl` in the §2 shape of `docs/data-pipeline.md`, nothing else."""
     meta = {
@@ -439,6 +479,9 @@ def export_session(
             session_dir / "frames",
         )
         rows = [r for r in rows if int(Path(r["frame"]).stem) in arrived]
+        carried = carry_repaired_geometry(session_dir, rows)
+        if carried:
+            print(f"  kept the repaired geometry of {carried} frames (`session scan|autofix`)")
         write_session(session_dir, name, candidate, rows)
     for line in yield_lines(rows):
         print(line)
