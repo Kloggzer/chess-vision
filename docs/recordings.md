@@ -46,7 +46,7 @@ otherwise decide is the same one the labels are meant to train.
 | `2026-08-09 20-48-50.mp4` | start position | turntable | ? | 1080p, 296 s, varying light. Two blackouts, measured: frames **4551-4633** and **8420-8434** (98 frames, 1.1 %). |
 | `2026-08-09 19-16-08.mp4` | start position | fixed | yes | Hand (and a bottle) moved over a standing position, filmed for the `occluded` class. Covers a1-e4 only — White's half. |
 | `VID_20260802_222741.mp4` | game | fixed | yes | = `game-2026-08-02`, the 20/2/5 clip of the regression set. **"die beiden waren gestern echt gut"** (user, 2026-08-09). |
-| `VID_20260802_222203.mp4` | game | fixed | yes | Its sibling, same session. Same verdict from the user. Note the quad drifts 179 px over the take — neither still nor a turntable. |
+| `VID_20260802_222203.mp4` | game | fixed | yes | Its sibling, same session. Same verdict from the user. Camera FIXED: Kotlin's scan over 769 sampled frames reads quad spread median 1.05 px, p90 1.78 px. |
 | `2026-08-07 13-52-38.mp4` | game | fixed | yes | = `rec-20260807-135238`, the 25-ply scored clip. |
 | `2026-08-08 00-39-57.mp4` | game | fixed | yes | = `rec-20260808-003957`. |
 | `2026-08-08 11-59-12.mp4` | game | fixed | yes | = `rec-20260808-115912`. |
@@ -83,6 +83,14 @@ Four and not three, because a three-marker quad degrades to an affine fit and it
 PROJECTIVE (CLAUDE.md) — no later correction removes it. On a take with thousands of frames and a
 need for maybe two thousand, 15 % is a cheap price for an exact quad.
 
+## The four-marker rule is for turntables, not for everything
+
+`VID_20260802_222741` is one of the two good takes, and the scan sees only THREE markers in **937
+of 958** sampled frames. The four-marker gate would discard almost the whole recording. It earns
+its keep where frames are abundant and the board keeps turning; on a fixed camera with one marker
+permanently out of view it throws away the take. Read `markers_seen` in the candidate's geometry
+block before applying it.
+
 ## Do not rebuild the board geometry in Python
 
 Measured the hard way on 2026-08-09: four separate Python reconstructions of the warp were written
@@ -94,3 +102,9 @@ runs.
 
 A picture of a board with labels on it is not a debug aid, it is the thing every label rests on. It
 comes from `:desktop`, or it does not come.
+
+The same holds for the NUMBERS. `data/realgames/<name>/candidate.json` already carries a full
+geometry scan — `quad_spread_px`, `worst_offset_px`, `align_pass_rate`, `markers_seen`, all over
+hundreds of sampled frames. A ten-sample Python probe against the FIRST frame reported "the quad
+drifts 179 px" for a camera that does not move; the scan says p90 1.78 px and calls the 203 px a
+single outlier. Read the scan.
