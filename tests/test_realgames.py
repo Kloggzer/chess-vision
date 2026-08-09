@@ -373,3 +373,23 @@ def test_a_pristine_export_is_left_alone_so_new_candidate_geometry_flows_through
 
     assert carry_repaired_geometry(tmp_path, planned) == 0
     assert planned[0]["corners"] == [[0, 0]]
+
+
+def test_decode_refuses_to_mix_raw_frames_into_an_undistorted_set(tmp_path):
+    """A PNG does not say whether the barrel was taken out of it.
+
+    Adding one raw frame to a set written by `:desktop undistort` yields a silently MIXED session
+    — the failure specs/52 measured from the other side (lens-corrected inference against a
+    distorted corpus took 003957 from 67 plies to 15).
+    """
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    cv2.imwrite(str(frames / "000030.png"), np.zeros((4, 4, 3), np.uint8))
+    (frames / "lens.json").write_text('{"undistorted": true}', encoding="utf-8")
+
+    # 30 is present, 33 is not — the missing one is what must not be decoded raw.
+    with pytest.raises(ValueError, match="undistorted"):
+        decode_frames(tmp_path / "no-such.mp4", {30, 33}, frames)
+
+    # With nothing missing there is nothing to refuse.
+    assert decode_frames(tmp_path / "no-such.mp4", {30}, frames) == {30}

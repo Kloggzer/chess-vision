@@ -232,6 +232,19 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
   start position on a7/c7/b8/h8, which latched the illegal-move alarm three seconds in and blocked
   every commit for the rest of the video. A clip entry now carries `crop`; the Blender clips carry
   none and keep the defaults. **Any harness that invents profile fields is a silent domain shift.**
+- **Undistortion belongs to Kotlin, and to the WHOLE recording or none of it.** `:desktop
+  undistort <video> <outDir> [every=N]` fits the optics FROM the recording — the board's grooves
+  are straight in the world, so their bow is the objective, and a fit that does not flatten it by
+  a real margin is refused and writes nothing. Measured on `hand-static-20260809`: 18 lines, 2 767
+  points, coverage 0.67, bow **0.00452 -> 0.00167**, k1 -0.4672. Do NOT use `data/lens/calib.npz`
+  for this: it was fitted at 2560x1440 with **RMS 5.46 px** (usable is under 1) while the camera
+  delivers 1920x1080, so it injects error rather than removing it. The verb leaves `lens.json`
+  beside the frames, and `realgames.decode_frames` REFUSES to decode raw frames into a directory
+  carrying it — nothing in a PNG says whether the barrel was taken out, and one raw frame makes a
+  silently mixed session. That mix is the failure specs/52 measured from the other side:
+  lens-corrected inference against a distorted corpus took 003957 from 67 plies to 15. The lever
+  is coupled to the DATA; a session is undistorted end to end, or not at all, and a model is only
+  comparable to another trained on the same choice.
 - **3D pieces extend upward.** With a non-perpendicular camera the piece image
   overflows its base cell — square crops extend upward (`pad_up`).
 - **Class imbalance:** `empty` dominates massively; handled at split/dataset

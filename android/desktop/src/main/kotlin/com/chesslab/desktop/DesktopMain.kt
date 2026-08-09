@@ -64,6 +64,7 @@ fun main(args: Array<String>) {
             val index = args.getOrNull(1)?.toIntOrNull() ?: usage()
             WebcamSource(index).use { calibrate(it) }
         }
+        "undistort" -> undistortVideo(args.drop(1))
         "align" -> alignCamera(args.getOrNull(1)?.toIntOrNull() ?: usage(), raw = args.getOrNull(2) == "raw")
         "track" -> {
             val index = args.getOrNull(1)?.toIntOrNull() ?: usage()
@@ -267,6 +268,7 @@ private fun usage(): Nothing {
         "  cameras                    what is attached, as the driver reports it",
         "  calibrate <camera-index>   fit the lens from the board's own grid lines",
         "  align <camera-index> [raw] measure the board against its grid; 'raw' skips the lens",
+        "  undistort <video> <outDir> [every=N]  write the frames with the barrel taken out",
         "  replay <video.mp4> [options]  drive a recorded clip through the shipping tracker",
         "  track <camera-index> [options]  the same, live",
         "",

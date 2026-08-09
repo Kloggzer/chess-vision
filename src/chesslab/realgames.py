@@ -341,6 +341,18 @@ def decode_frames(video: Path, wanted: set[int], out_dir: Path) -> set[int]:
         print(f"  {len(have)} frames already on disk, {len(todo)} to decode")
     if not todo:
         return have
+    # Nothing in a PNG says whether the barrel was taken out of it, so a set written by
+    # `:desktop undistort` carries a receipt — and decoding one raw frame into it would make a
+    # silently MIXED session, which is the exact failure mode specs/52 measured from the other
+    # side (lens-corrected inference against a distorted corpus: 003957 67 -> 15 plies). Refuse,
+    # and name the command that fills the gap properly.
+    marker = out_dir / "lens.json"
+    if marker.is_file():
+        raise ValueError(
+            f"{out_dir} holds undistorted frames ({marker.name}) and {len(todo)} planned frames "
+            f"are missing. Re-run `:desktop undistort <video> {out_dir} every=<n>` with an "
+            f"`every` that covers them — never decode raw frames into an undistorted set."
+        )
     cap = cv2.VideoCapture(str(video))
     if not cap.isOpened():
         raise FileNotFoundError(f"cannot open video: {video}")
@@ -492,3 +504,170 @@ def export_session(
         "segments": len(known_segments(candidate)),
         "report_only": report_only,
     }
+
+
+#: The position a hand-only recording is filmed in unless another one is given.
+START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+#: Pseudo-interval length for a static recording, in seconds. The producer's `quiet_pool` reaches
+#: SPAN intervals either way, so this only has to be short enough that a hand does not fill one.
+STATIC_INTERVAL_S = 2.0
+#: Static recordings get their own profile — their quad is measured, not taken from a candidate.
+STATIC_PROFILE = "static"
+
+
+def frame_activity(frames: list[Path], *, width: int = 240) -> dict[int, float]:
+    """Per frame: how far it sits from the recording's own pixel-wise median, mean absolute.
+
+    On a board that never changes, the median IS the clean board — a hand covers a minority of the
+    pixels in a minority of the frames, and the median ignores both. That makes "is a hand in this
+    frame" a MEASUREMENT rather than a declaration, which is the whole advantage of a static
+    recording over a game: no margin around a commit has to stand in for it.
+    """
+    import numpy as np
+
+    small = []
+    for path in frames:
+        img = cv2.imread(str(path))
+        if img is None:
+            raise FileNotFoundError(f"frame not readable: {path}")
+        height = max(1, round(width * img.shape[0] / img.shape[1]))
+        small.append(cv2.resize(img, (width, height)).astype(np.int16))
+    stack = np.stack(small)
+    deviation = np.abs(stack - np.median(stack, axis=0)).mean(axis=(1, 2, 3))
+    return {int(p.stem): float(d) for p, d in zip(frames, deviation, strict=True)}
+
+
+def static_quad(frames: list[Path], profile) -> list[list[float]]:
+    """The board quad of a static recording: the per-corner MEDIAN over the frames.
+
+    A single frame's quad is hostage to whichever marker the hand happens to cover; the median over
+    the whole recording is not. Measured on the FRAMES, never on the source video — they are
+    undistorted and the video is not, and a quad fitted through the barrel does not fit without it.
+    """
+    import numpy as np
+
+    from .calibration import MarkerTracker, board_corners_for_frame
+
+    tracker = MarkerTracker()
+    seen = []
+    for path in frames:
+        img = cv2.imread(str(path))
+        if img is None:
+            continue
+        quad = board_corners_for_frame(img, profile, tracker)
+        if quad is not None:
+            seen.append(quad)
+    if not seen:
+        raise ValueError("no frame yielded a board quad — are the markers visible?")
+    median = np.median(np.array(seen, dtype=float), axis=0)
+    print(f"  quad from {len(seen)}/{len(frames)} frames (per-corner median)")
+    return [[float(x), float(y)] for x, y in median]
+
+
+def ensure_static_profile(profile: str, quad: list[list[float]], frame_size, board_size: int) -> Path:
+    """The profile a static recording's crops are cut through — same shape as the game exporter's.
+
+    `pad_side` and `out_size` are the crop pool's, not `CropParams.default`'s: these crops JOIN the
+    pool, and a harness that invents profile fields is a silent domain shift (CLAUDE.md, the
+    `ClipDriver` incident).
+    """
+    from .calibration import CalibrationProfile, CropParams, compute_homography, profile_path
+
+    path = profile_path(profile)
+    if path.exists():
+        return path
+    prof = CalibrationProfile(
+        profile=profile,
+        camera_index=-1,
+        frame_size=(int(frame_size[0]), int(frame_size[1])),
+        board_size=board_size,
+        image_corners=[[float(x), float(y)] for x, y in quad],
+        homography=compute_homography(quad, board_size, 0.0),
+        white_pov=True,
+        crop=CropParams(
+            cell=board_size / 8.0,
+            pad_up=0.0,
+            pad_side=config.CROP.pad_side,
+            out_size=(config.CROP.out_w, config.CROP.out_h),
+        ),
+        margin=0.0,
+        source=f"static:{profile}",
+    )
+    print(f"[OK] calibration profile '{profile}' created from the measured quad ({path})")
+    return prof.save(path)
+
+
+def _detect_profile(frame_size, board_size: int):
+    """An in-memory profile for MARKER DETECTION only — never saved, never used for a warp."""
+    from .calibration import CalibrationProfile, CropParams, compute_homography
+
+    unit = [[0.0, 0.0], [float(frame_size[0]), 0.0],
+            [float(frame_size[0]), float(frame_size[1])], [0.0, float(frame_size[1])]]
+    return CalibrationProfile(
+        profile="__detect__", camera_index=-1,
+        frame_size=(int(frame_size[0]), int(frame_size[1])), board_size=board_size,
+        image_corners=unit, homography=compute_homography(unit, board_size, 0.0),
+        white_pov=True, crop=CropParams(cell=board_size / 8.0, pad_up=0.0,
+                                        pad_side=config.CROP.pad_side,
+                                        out_size=(config.CROP.out_w, config.CROP.out_h)),
+        margin=0.0, source="detect-only",
+    )
+
+
+def export_static(
+    name: str, *, fen: str = START_FEN, fps: float = 30.0, quiet_frac: float = 0.35,
+    board_size: int = 928, report_only: bool = False,
+) -> dict:
+    """A hand-over-a-standing-position recording becomes a session, with no game to confirm.
+
+    The position never changes, so every square's label is known for every frame — no PGN, no
+    commit timeline, and none of the pre-commit doubt `unknown_squares` exists for. What DOES have
+    to be found is where the hand is, and on a static board that is measurable: `frame_activity`
+    against the recording's own pixel median. The calm frames become the producer's quiet pool, the
+    rest its dirty rows, and pseudo-intervals of [STATIC_INTERVAL_S] give `quiet_pool` the
+    neighbours it reaches for.
+
+    Frames must already be on disk and UNDISTORTED (`:desktop undistort`), which is why nothing
+    here opens the video.
+    """
+    import numpy as np
+
+    session_dir = config.DATA.sessions / f"rg-{name}"
+    frames_dir = session_dir / "frames"
+    frames = sorted(frames_dir.glob("[0-9]*.png"))
+    if not frames:
+        raise FileNotFoundError(f"no frames in {frames_dir} — run `:desktop undistort` first")
+    if not (frames_dir / "lens.json").is_file():
+        raise ValueError(f"{frames_dir} carries no lens.json — these frames were not undistorted")
+    first = cv2.imread(str(frames[0]))
+    frame_size = (first.shape[1], first.shape[0])
+
+    # Measure FIRST, save SECOND. The detector needs a profile for the marker dictionary and the
+    # board size only, so it gets a throwaway one; saving a profile before the quad is known would
+    # persist a placeholder homography that every later `load_profile` would believe.
+    quad = static_quad(frames, _detect_profile(frame_size, board_size))
+    prof_path = ensure_static_profile(STATIC_PROFILE, quad, frame_size, board_size)
+    activity = frame_activity(frames)
+    cut = float(np.quantile(list(activity.values()), quiet_frac))
+    span = max(1, int(round(STATIC_INTERVAL_S * fps)))
+    base = datetime.now(UTC)
+    rows = [
+        {
+            "frame": f"frames/{p.name}",
+            "ply": int(p.stem) // span,
+            "fen": fen,
+            "ts": (base + timedelta(seconds=int(p.stem) / fps)).isoformat(),
+            "corners": quad,
+            "corners_source": "static-export",
+            **({} if activity[int(p.stem)] <= cut else {"dirty": True}),
+        }
+        for p in frames
+    ]
+    quiet = sum(1 for r in rows if not r.get("dirty"))
+    print(f"  {len(rows)} rows over {1 + max(r['ply'] for r in rows)} pseudo-intervals: "
+          f"{quiet} quiet (activity <= {cut:.1f}), {len(rows) - quiet} dirty")
+    if not report_only:
+        candidate = {"geometry": {"frame_size": list(frame_size)}, "video": f"static/{name}",
+                     "created_at": base.isoformat()}
+        write_session(session_dir, name, candidate, rows)
+    return {"session_dir": session_dir, "rows": rows, "profile": prof_path, "quiet": quiet}
