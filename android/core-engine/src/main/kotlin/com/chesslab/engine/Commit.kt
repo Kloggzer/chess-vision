@@ -154,16 +154,31 @@ internal fun EngineState.commitSequence(
     curBgr: BgrImage?,
     decider: String = DECIDER_DIFF_PAIR,
 ): TrackerEvent {
-    val fenBefore = board.fen()
     val sans = ArrayList<String>(moves.size)
-    for (move in moves) {
-        sans.add(board.san(move))
+    // ONE row per move, exactly as `pushRecovery` does. Both call sites once wrote a single row on
+    // `moves.last()` with the `fenBefore` from before the FIRST move; that was repaired for the
+    // recovery bridge on 2026-08-02 and left standing here, so a pair kept costing its first move.
+    //
+    // Found by the user on 2026-08-09 in the confirm view of VID_20260802_222741: ply 25 read
+    // `Nxf3+` with Black not to move. Three of that candidate's 25 rows were pairs (plies 1, 16,
+    // 25), and in each the first half-move existed nowhere — the move list did not replay past
+    // ply 1, and the LCS against the reference counted three moves as MISSED that the tracker had
+    // in fact seen. The FEN timeline was right the whole time, which is why the export never
+    // noticed and the labels were never wrong.
+    val key = if (moves.size == 1) null else moves.joinToString(" ") { uciOf(it) }
+    for ((i, move) in moves.withIndex()) {
+        val fenBefore = board.fen()
+        val san = board.san(move)
+        sans.add(san)
         board.push(move)
+        // Per move, not one `addAll` at the end: `recordDecision` reads `history.size` as the
+        // row's ply, so the rows number themselves only if the history grows with them.
+        history.add(san)
+        val stamp = if (key == null) "" else " [move ${i + 1}/${moves.size} of pair $key]"
+        recordDecision(move, san, fenBefore, decider, priorUsed = false, reasonSuffix = stamp)
     }
-    history.addAll(sans)
     lastMove = uciOf(moves.last())
     lastCommitSize = moves.size
-    recordDecision(moves.last(), sans.last(), fenBefore, decider, priorUsed = false)
     queueSessionCapture(sans.last())
     finishCommit(cur, curBgr)
     priorLast = false

@@ -43,8 +43,21 @@ class CommitTest {
         assertEquals(listOf("e4", "e5"), state.history)
         assertEquals("e7e5", state.lastMove)
         assertEquals(DECIDER_DIFF_PAIR, state.decisionLog.last().decider)
-        assertEquals(1, state.decisionLog.size, "provenance is recorded ONCE, on the last move")
         assertTrue(event is TrackerEvent.SequenceCommitted)
+
+        // This used to assert ONE row, "on the last move". That was wrong for the same reason it
+        // was wrong for the recovery bridge, repaired there on 2026-08-02 and left standing here:
+        // a pair's FIRST move then existed nowhere in the log. Found in the wild by the user on
+        // 2026-08-09 — VID_20260802_222741 read `Nxf3+` at ply 25 with Black not to move, because
+        // the white half of the pair had never been written. Three of its 25 rows were pairs, the
+        // move list did not replay past ply 1, and the LCS against the reference counted three
+        // moves as missed that the tracker had actually seen.
+        assertEquals(2, state.decisionLog.size, "a pair is TWO moves and therefore two rows")
+        val (a, b) = state.decisionLog.takeLast(2)
+        assertEquals(listOf("e4", "e5"), listOf(a.san, b.san))
+        assertEquals(listOf(1, 2), listOf(a.ply, b.ply), "each row numbers itself by the history")
+        assertTrue("1/2 of pair" in a.reason && "2/2 of pair" in b.reason, "${a.reason} | ${b.reason}")
+        assertEquals(state.board.fen(), b.fenAfter)
     }
 
     @Test
