@@ -208,6 +208,9 @@ def test_slice_runs_unmodified(tmp_path, monkeypatch):
         "overrides": 0,
         "skipped": 0,
         "unusable": 0,
+        # Zero here on purpose: this export names no `unknown_squares`, so the gate keeps proving
+        # that a plain session still yields all 64 crops per frame (see tests/test_labeling_unknown).
+        "unknown_dropped": 0,
         "fallback": 0,
     }
     manifest = (tmp_path / "squares.jsonl").read_text(encoding="utf-8").splitlines()

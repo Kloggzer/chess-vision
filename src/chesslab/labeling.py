@@ -313,6 +313,8 @@ def slice_session(
     n_crops = 0
     n_overrides = 0
     n_skipped = 0
+    #: Cells dropped because the FEN lags there and no human ruled on them (`unknown_squares`).
+    n_unknown = 0
     n_unusable = 0
     n_fallback = 0   # box3d: squares that fell back to warp (pose/projection failed)
     tracker = make_tracker(prof)   # per session: seeded from profile, markers held per frame
@@ -346,19 +348,35 @@ def slice_session(
         occluded_set = set(entry.get("occluded_squares") or ())
         # Neither label is true for these, so no crop is written at all.
         ambiguous_set = set(entry.get("ambiguous_squares") or ())
+        # The FEN LAGS on these: the exporter measured that the piece had visibly moved before its
+        # commit, so this row's `fen` describes a position the pixels have already left (measured
+        # 2026-08-09 on VID_20260726_233432: up to 4.6 s, a third of changed squares beyond the
+        # quiet margin). Until 2026-08-09 nothing here read the field and every one of those crops
+        # went into training under the stale label — silently, and always the same wrong label on
+        # the same square, which is the shape a model learns rather than averages away.
+        #
+        # A HUMAN correction outranks the doubt: the between-commit window is exactly where the
+        # hands are, so it is the richest `occluded` material there is, and a person saying
+        # "occluded" (or naming the piece) knows something the FEN does not. Only the cells nobody
+        # ruled on are dropped.
+        unknown_set = set(entry.get("unknown_squares") or ())
         frame_stem = Path(entry["frame"]).stem  # '0007'
         squares = all_squares()
         for i, square in enumerate(squares):
             if square in ambiguous_set:
                 continue
+            corrected = (
+                label_overrides.get((session_id, frame_stem, square)) if label_overrides else None
+            )
+            if square in unknown_set and corrected is None:
+                n_unknown += 1
+                continue
             label = explicit.get(square, "empty") if explicit else gs.label_for(square)
             if square in occluded_set:
                 label = "occluded"
-            if label_overrides:
-                corrected = label_overrides.get((session_id, frame_stem, square))
-                if corrected is not None and corrected != label:
-                    label = corrected
-                    n_overrides += 1
+            if corrected is not None and corrected != label:
+                label = corrected
+                n_overrides += 1
             crop = crops[i]
             out_dir = squares_root / label
             out_dir.mkdir(parents=True, exist_ok=True)
@@ -394,6 +412,7 @@ def slice_session(
     _replace_session_in_manifest(manifest_path, session_id, new_lines)
     return {"session_id": session_id, "frames": len(log), "crops": n_crops,
             "overrides": n_overrides, "skipped": n_skipped, "unusable": n_unusable,
+            "unknown_dropped": n_unknown,
             "fallback": n_fallback}
 
 
