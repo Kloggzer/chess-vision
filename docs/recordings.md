@@ -111,3 +111,39 @@ geometry scan — `quad_spread_px`, `worst_offset_px`, `align_pass_rate`, `marke
 hundreds of sampled frames. A ten-sample Python probe against the FIRST frame reported "the quad
 drifts 179 px" for a camera that does not move; the scan says p90 1.78 px and calls the 203 px a
 single outlier. Read the scan.
+
+## Geometry health, all 18 recordings (`:desktop rectify`, 2026-08-09)
+
+Every recording in `data/videos/`, sampled every 400th frame, quad detected and grid-refined per
+frame by the code the device runs. **Not one problem take**: every sample yielded a board, and the
+mean worst square offset stays between 2.06 and 3.69 px against a 4 %-of-a-cell criterion.
+
+| recording | boards | missed | mean worst square offset |
+|---|---|---|---|
+| `2026-08-07-13-52-38` | 23 | 0 | 3.31 px |
+| `2026-08-08-00-39-57` | 26 | 0 | 3.17 px |
+| `2026-08-08-11-53-53` | 2 | 0 | 2.68 px |
+| `2026-08-08-11-55-19` | 5 | 0 | 2.64 px |
+| `2026-08-08-11-57-07` | 2 | 0 | 2.94 px |
+| `2026-08-08-11-59-12` | 54 | 0 | 2.93 px |
+| `2026-08-09-19-16-08` | 3 | 0 | 2.46 px |
+| `2026-08-09-20-48-50` | 23 | 0 | 2.06 px |
+| `VID_20260726_155132` | 5 | 0 | 2.10 px |
+| `VID_20260726_233432` | 8 | 0 | 2.25 px |
+| `VID_20260727_124440` | 3 | 0 | 2.08 px |
+| `VID_20260727_233929` | 7 | 0 | 2.43 px |
+| `VID_20260731_092133` | 9 | 0 | 2.95 px |
+| `VID_20260731_222043` | 3 | 0 | 3.69 px |
+| `VID_20260731_222131` | 3 | 0 | 3.63 px |
+| `VID_20260731_222320` | 3 | 0 | 2.54 px |
+| `VID_20260802_222203` | 20 | 0 | 2.42 px |
+| `VID_20260802_222741` | 24 | 0 | 2.55 px |
+
+Two things worth reading off it. The three 4K portrait turntables sit at the top of the range
+(2.54-3.69 px), which is what a board that turns between frames costs — each frame gets its own
+quad instead of a settled one, and it is still well inside the criterion. And
+`VID_20260802_222741` returns 24 of 24 boards at 2.55 px while the scan sees only three markers in
+937 of 958 frames: the tracker carries the fourth corner, and the result beats takes that decode
+all four.
+
+**The geometry is not the open question for any recording.** What is on them is.
