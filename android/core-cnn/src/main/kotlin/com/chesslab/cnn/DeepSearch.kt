@@ -52,17 +52,25 @@ fun CnnRecovery.deriveMovesDeepFull(
         if (next.isEmpty()) break
         states = next.sortedWith(compareBy({ it.conflicts.size }, { it.seq.size })).take(beam)
     }
-    val byHitsThenLength = compareByDescending<Pair<Int, List<Move>>> { it.first }.thenBy { it.second.size }
-    val ranked = finals.values.sortedWith(byHitsThenLength)
+    // Length is PRICED, not free (`plyCostSquares`). Ranking on raw hits with length as a mere
+    // tiebreak let a 4-ply fabrication win on one misread square; the score a candidate is ranked
+    // and gated by is therefore its hits minus what its plies cost. At the default 0 this is the
+    // old comparator exactly.
+    val cost = config.plyCostSquares
+    val score = { c: Pair<Int, List<Move>> -> c.first - cost * c.second.size }
+    val byScoreThenLength = compareByDescending(score).thenBy { c: Pair<Int, List<Move>> -> c.second.size }
+    val ranked = finals.values.sortedWith(byScoreThenLength)
     val bestHits = ranked.first().first
     val bestSeq = ranked.first().second
     val secondHits = if (ranked.size > 1) ranked[1].first else NO_HITS
     val best = bestHits.toDouble() / n
     val second = max(NO_AGREEMENT, secondHits.toDouble() / n)
+    // The margin compares the SCORES, so a rival is beaten on the same terms it was ranked on.
+    val rivalScore = if (ranked.size > 1) score(ranked[1]) else NO_HITS
     val accepted =
         bestSeq.isNotEmpty() &&
             best >= config.minAgreement &&
-            (bestHits - max(secondHits, 0)) >= config.marginSquares
+            (score(ranked.first()) - max(rivalScore, 0)) >= config.marginSquares
     return DerivedMoves(if (accepted) bestSeq else emptyList(), best, second)
 }
 

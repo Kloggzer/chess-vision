@@ -23,7 +23,10 @@ internal fun doubles(value: Any?): DoubleArray {
     return DoubleArray(list.size) { (list[it] as Number).toDouble() }
 }
 
-internal fun recoveryFor(row: FixtureRow): CnnRecovery = CnnRecovery(CnnConfig(confThr = row.num("confThr")))
+internal fun recoveryFor(
+    row: FixtureRow,
+    plyCost: Int = 0,
+): CnnRecovery = CnnRecovery(CnnConfig(confThr = row.num("confThr"), plyCostSquares = plyCost))
 
 internal fun assertClose(
     expected: Double,

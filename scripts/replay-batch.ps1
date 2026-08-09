@@ -39,16 +39,36 @@ Push-Location (Join-Path $root "android")
 if ($LASTEXITCODE -ne 0) { Pop-Location; throw "installDist failed" }
 Pop-Location
 
-$pending = @()
+$parsed = @()
 foreach ($entry in $Runs) {
     $parts = $entry -split "::", 2
     $video = Join-Path $root "data\testclip-raw\$($parts[0])"
     if (-not (Test-Path $video)) { throw "no such video: $video" }
     $options = if ($parts.Count -gt 1) { $parts[1] } else { "quiet" }
+    $parsed += [pscustomobject]@{
+        Stem = [IO.Path]::GetFileNameWithoutExtension($parts[0])
+        Video = $video
+        Words = @($options -split " " | Where-Object { $_ })
+    }
+}
+
+# An A/B over ONE video is the normal case (three ply-cost arms of the same recording), and the
+# log name used to be the video's alone — so the arms overwrote each other's log and the summary
+# read one arm three times. A repeated stem therefore earns a suffix built from exactly the words
+# that DISTINGUISH it: the tokens this arm does not share with every other arm.
+$shared = @($parsed[0].Words | Where-Object { $w = $_; ($parsed | Where-Object { $_.Words -contains $w }).Count -eq $parsed.Count })
+$pending = @()
+foreach ($run in $parsed) {
+    $name = $run.Stem
+    if (($parsed | Where-Object { $_.Stem -eq $run.Stem }).Count -gt 1) {
+        $tag = (@($run.Words | Where-Object { $shared -notcontains $_ }) -join "-") -replace "[^A-Za-z0-9.=-]", ""
+        if (-not $tag) { $tag = "arm$($pending.Count + 1)" }
+        $name = "$($run.Stem)--$tag"
+    }
     $pending += [pscustomobject]@{
-        Name = [IO.Path]::GetFileNameWithoutExtension($parts[0])
-        Args = @("replay", $video) + ($options -split " " | Where-Object { $_ })
-        Log = Join-Path $logDir "$([IO.Path]::GetFileNameWithoutExtension($parts[0])).log"
+        Name = $name
+        Args = @("replay", $run.Video) + $run.Words
+        Log = Join-Path $logDir "$name.log"
     }
 }
 

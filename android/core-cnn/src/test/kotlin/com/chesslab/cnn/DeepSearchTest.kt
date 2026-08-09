@@ -56,6 +56,40 @@ class DeepSearchTest {
         assertEquals(listOf("e2e4", "e7e5"), derived.moves.map { uciOf(it) })
     }
 
+    /**
+     * The knob exists because length used to be FREE: ranking was hits-first with length as a mere
+     * tiebreak, so a fabrication needed exactly one more explained square than the truth to win —
+     * and the identity head's B<->R confusion supplies one. Measured on rec-20260807-135238 under
+     * dense evaluation: 12 phantoms at cost 0, 1 at cost 1, 0 at cost 2 (where recovery commits
+     * nothing at all, which is why 2 is not automatically the answer).
+     *
+     * A price that also kills GENUINE deep recoveries would be no defence, so both directions are
+     * pinned: the four-ply desync explains eight squares and must still pay for itself at 1.
+     */
+    @Test
+    fun `a genuine four-ply recovery still pays for its length at cost 1`() {
+        val row = deepRow("deep_four_ply")
+        val priced = recoveryFor(row, plyCost = 1).deriveMovesDeepFull(row.board(), row.observation(), 4, 8)
+        assertSequenceEquivalent(
+            listOf("g1f3", "b8c6", "e2e4", "e7e5"),
+            priced.moves.map { uciOf(it) },
+            row.board(),
+            "deep_four_ply at cost 1",
+        )
+    }
+
+    @Test
+    fun `a price above what the plies explain rejects the sequence`() {
+        val row = deepRow("deep_four_ply")
+        val overpriced = recoveryFor(row, plyCost = 3).deriveMovesDeepFull(row.board(), row.observation(), 4, 8)
+        assertTrue(overpriced.moves.isEmpty(), "4 plies explaining 8 squares must not survive a 12-square bill")
+    }
+
+    @Test
+    fun `the default is the historical behaviour`() {
+        assertEquals(0, CnnConfig().plyCostSquares, "length stays free unless a measurement says otherwise")
+    }
+
     @Test
     fun `a matching board has nothing to recover`() {
         val row = deepRow("deep_already_matching")

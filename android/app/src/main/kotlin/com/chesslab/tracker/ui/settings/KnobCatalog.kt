@@ -59,6 +59,11 @@ val NOT_A_SETTING: Map<String, String> =
         "confirmFramesOverride" to
             "As settleFramesOverride. Its shipped value is also an open judgement call recorded in " +
             "specs/39-what-the-tracker-remembers, which is a human's to make and not a slider's.",
+        "cnnPlyCostSquares" to
+            "What one extra half-move costs the deep recovery search, in explained squares. A measuring " +
+            "instrument, not a preference: at 1 the dense arm of rec-20260807 goes from 12 phantoms to 1, and " +
+            "at 2 recovery stops committing at all (rec-20260808-003957 falls 67 plies to 14). Shipped at 0 " +
+            "because the served configuration has no phantoms to buy back and one video loses 10 plies.",
         "autoResyncObsN" to
             "A replay-harness instrument (specs/37-02). On the phone the resync is a DOOR the user presses " +
             "after seeing the position — automating it on device is exactly what that spec forbids.",

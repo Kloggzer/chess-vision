@@ -73,6 +73,7 @@ val KNOBS: List<Knob> =
         Knob("verifyTimeoutS", DOUBLE, { it.verifyTimeoutS }, { c, v -> c.copy(verifyTimeoutS = v) }),
         Knob("cnnMinAgreement", DOUBLE, { it.cnnMinAgreement }, { c, v -> c.copy(cnnMinAgreement = v) }),
         Knob("cnnMarginSquares", INT, { it.cnnMarginSquares.toDouble() }, { c, v -> c.copy(cnnMarginSquares = v.toInt()) }),
+        Knob("cnnPlyCostSquares", INT, { it.cnnPlyCostSquares.toDouble() }, { c, v -> c.copy(cnnPlyCostSquares = v.toInt()) }),
         Knob("recoveryMaxPlies", INT, { it.recoveryMaxPlies.toDouble() }, { c, v -> c.copy(recoveryMaxPlies = v.toInt()) }),
         Knob("minConfidentBoard", INT, { it.minConfidentBoard.toDouble() }, { c, v -> c.copy(minConfidentBoard = v.toInt()) }),
         Knob("minConfidentRecovery", INT, { it.minConfidentRecovery.toDouble() }, { c, v -> c.copy(minConfidentRecovery = v.toInt()) }),

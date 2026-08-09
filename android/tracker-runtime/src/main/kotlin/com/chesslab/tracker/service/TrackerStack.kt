@@ -323,6 +323,7 @@ private fun cnnConfig(config: TrackerConfig) =
         confThr = config.cnnConfThr,
         minAgreement = config.cnnMinAgreement,
         marginSquares = config.cnnMarginSquares,
+        plyCostSquares = config.cnnPlyCostSquares,
         minConfidentBoard = config.minConfidentBoard,
         minConfidentRecovery = config.minConfidentRecovery,
         recoveryMaxPlies = config.recoveryMaxPlies,

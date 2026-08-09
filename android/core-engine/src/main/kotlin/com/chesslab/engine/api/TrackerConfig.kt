@@ -66,6 +66,9 @@ data class TrackerConfig(
     val verifyTimeoutS: Double = 1.5,
     val cnnMinAgreement: Double = 0.97,
     val cnnMarginSquares: Int = 1,
+    // What one extra half-move costs the deep recovery search, in explained squares — see
+    // `CnnConfig.plyCostSquares`. 0 is the historical behaviour (length free).
+    val cnnPlyCostSquares: Int = 0,
     val recoveryMaxPlies: Int = 4,
     val minConfidentBoard: Int = 32,
     val minConfidentRecovery: Int = 8,
