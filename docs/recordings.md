@@ -45,13 +45,15 @@ otherwise decide is the same one the labels are meant to train.
 | `VID_20260731_092133.mp4` | start position | turntable | ? | 4K landscape, 107 s. Quad moves ~1 556 px, so the board really turns. |
 | `2026-08-09 20-48-50.mp4` | start position | turntable | ? | 1080p, 296 s, varying light. Two blackouts, measured: frames **4551-4633** and **8420-8434** (98 frames, 1.1 %). |
 | `2026-08-09 19-16-08.mp4` | start position | fixed | yes | Hand (and a bottle) moved over a standing position, filmed for the `occluded` class. Covers a1-e4 only — White's half. |
+| `VID_20260802_222741.mp4` | game | fixed | yes | = `game-2026-08-02`, the 20/2/5 clip of the regression set. **"die beiden waren gestern echt gut"** (user, 2026-08-09). |
+| `VID_20260802_222203.mp4` | game | fixed | yes | Its sibling, same session. Same verdict from the user. Note the quad drifts 179 px over the take — neither still nor a turntable. |
 | `2026-08-07 13-52-38.mp4` | game | fixed | yes | = `rec-20260807-135238`, the 25-ply scored clip. |
 | `2026-08-08 00-39-57.mp4` | game | fixed | yes | = `rec-20260808-003957`. |
 | `2026-08-08 11-59-12.mp4` | game | fixed | yes | = `rec-20260808-115912`. |
 
 Unclassified, measured but not yet confirmed by a human: `2026-08-08 11-53-53`, `11-55-19`,
 `11-57-07`, `VID_20260726_155132`, `VID_20260726_233432`, `VID_20260727_124440`,
-`VID_20260727_233929`, `VID_20260802_222203`, `VID_20260802_222741`. The user's own summary of
+`VID_20260727_233929`. The user's own summary of
 this group (2026-08-09): *"manche davon sind dreckig, d.h. da sind hände im bild und die positonen
 sind ggf illegal"*.
 
@@ -80,3 +82,15 @@ table still spins too fast for the detector. Brightness cannot see that; the mar
 Four and not three, because a three-marker quad degrades to an affine fit and its error is
 PROJECTIVE (CLAUDE.md) — no later correction removes it. On a take with thousands of frames and a
 need for maybe two thousand, 15 % is a cheap price for an exact quad.
+
+## Do not rebuild the board geometry in Python
+
+Measured the hard way on 2026-08-09: four separate Python reconstructions of the warp were written
+that day (the static export, two probes, an inventory) and **all four framed the board wrongly** —
+twice by leaving `margin` at 0, once by omitting the model's own normalisation, and once by using a
+stored median quad where the recording needs a per-frame one. The Kotlin renderer got the same
+recording right every time, because it detects the corners per frame through the code the device
+runs.
+
+A picture of a board with labels on it is not a debug aid, it is the thing every label rests on. It
+comes from `:desktop`, or it does not come.
