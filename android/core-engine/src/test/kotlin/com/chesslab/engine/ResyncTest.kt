@@ -98,6 +98,43 @@ class ResyncTest {
     }
 
     @Test
+    fun aPositionWithTheOpponentInCheckIsNeverAdopted() {
+        // The 2026-08-09 crash, reproduced as a unit: white to move, BLACK already in check —
+        // no game reaches this. `legalMoves()` on it works, so the old guard passed it; the deep
+        // search then captures the exposed king and the NEXT generateLegalMoves dies with
+        // `Index 64` (Square.NONE) four layers away from the adoption.
+        val state = recoveryState("4k3/8/8/8/8/8/8/4K2R w - - 0 1")
+        val obs = obsForBoard(state.board, mapOf("e7" to "wR"))
+        assertNull(
+            state.cnnAdoptedFen(obs, state.config.cnnConfThr),
+            "the side not to move must not be in check — that board is unreachable",
+        )
+    }
+
+    @Test
+    fun whateverIsAdoptedCanBePlayed() {
+        // The 2026-08-09 crash: a minimal edit produced a placement chesslib ACCEPTS as a FEN
+        // and then throws on from the move generator plies later (`Index 64` = a king it can no
+        // longer find), so the replay died at ply 70 with nothing pointing at the adoption that
+        // caused it. Two kings is not the same as a legal board; the contract is that anything
+        // returned here can generate moves. Asserted over a spread of readings rather than one
+        // synthetic position — the exact crashing board came out of a real video, and pinning
+        // this to one chesslib quirk would test the quirk instead of the guarantee.
+        val state = recoveryState(NF3_NO_CASTLING)
+        val readings =
+            listOf(
+                mapOf("e1" to LABEL_EMPTY, "g1" to "wK"),
+                mapOf("e8" to LABEL_EMPTY, "a8" to "bK", "e2" to "wQ"),
+                mapOf("d1" to "wK", "e1" to LABEL_EMPTY, "d8" to "bK", "e8" to LABEL_EMPTY),
+                mapOf("h1" to "wK", "e1" to LABEL_EMPTY, "h8" to "bK", "e8" to LABEL_EMPTY),
+            )
+        for (overrides in readings) {
+            val fen = state.cnnAdoptedFen(obsForBoard(state.board, overrides), state.config.cnnConfThr)
+            if (fen != null) Game(fen).legalMoves() // must not throw — that is the whole guard
+        }
+    }
+
+    @Test
     fun zeroKeepsTheDoorShut() {
         val state = recoveryState(NF3_NO_CASTLING)
         val cnn = RecoveryEvaluator(conflicts = listOf("e1", "g1"), guess = "e1g1")

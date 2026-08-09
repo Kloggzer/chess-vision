@@ -633,8 +633,32 @@ internal fun EngineState.cnnAdoptedFen(
     // adopted position has no move that could have created it.
     val fields = board.fen().split(' ')
     val clocks = "${fields[FEN_HALFMOVE]} ${fields[FEN_FULLMOVE]}"
-    return "${placementOf(pieces)} ${fields[1]} ${castlingOf(pieces, fields[2])} - $clocks"
+    val fen = "${placementOf(pieces)} ${fields[1]} ${castlingOf(pieces, fields[2])} - $clocks"
+    return fen.takeIf { reachable(it) }
 }
+
+/**
+ * Is this position REACHABLE — i.e. is the side that just moved not leaving its own king en
+ * prise? Two kings and a working move generator are not enough.
+ *
+ * The crash of 2026-08-09, traced end to end: an auto-resync adopted a placement where the side
+ * NOT to move stood in check. `legalMoves()` on it works fine, so the position looks healthy —
+ * but the very first thing the deep search does is capture that exposed king (a legal move on an
+ * illegal board), and the NEXT `legalMoves()` on the kingless result dies inside
+ * `generateCastleMoves` -> `isKingAttacked` -> `getPawnAttacks(Square.NONE)` with
+ * `ArrayIndexOutOfBoundsException: Index 64`. The replay died at ply 70, four call layers away
+ * from the adoption that caused it.
+ *
+ * The test is therefore not "can it generate moves" but "would the opponent be in check" —
+ * asked by flipping the side to move on a probe board. A refused resync is a state the tracker
+ * knows how to be in; a kingless board is not.
+ */
+private fun reachable(fen: String): Boolean =
+    runCatching {
+        val fields = fen.split(' ')
+        val flipped = fields.toMutableList().also { it[1] = if (it[1] == "w") "b" else "w" }
+        !Game(flipped.joinToString(" ")).result().inCheck && Game(fen).legalMoves().isNotEmpty()
+    }.getOrDefault(false)
 
 /** `config.label_from_piece` inverted; `"empty"` and `"occluded"` are not pieces. */
 private fun pieceCharOf(label: String): Char? {
