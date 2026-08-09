@@ -42,8 +42,16 @@ export function BucketGrid(props: BucketProps) {
   const [handled, setHandled] = useState<Set<string>>(new Set());
   const [note, setNote] = useState("");
 
+  // Grouped BY SQUARE, not by score. 406 proposals on this session stand on 63 distinct squares
+  // and 810 on 61 — score order scatters a square's six crops across six pages, so the grid felt
+  // like it kept showing the same pictures ("ich sehe immer noch alte Bilder und wiederholende
+  // Bilder", 2026-08-09). Contiguous, a page is a handful of squares seen at a few moments each,
+  // which is one judgement per group instead of six identical-looking ones far apart.
   const remaining = useMemo(
-    () => cells.filter((c) => !decided[keyOf(c)] && !handled.has(keyOf(c))),
+    () =>
+      cells
+        .filter((c) => !decided[keyOf(c)] && !handled.has(keyOf(c)))
+        .sort((a, b) => a.square.localeCompare(b.square) || a.frame.localeCompare(b.frame)),
     [cells, decided, handled],
   );
   const pages = Math.max(1, Math.ceil(remaining.length / PAGE));

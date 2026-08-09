@@ -62,7 +62,22 @@ type ByFrame = Record<string, Record<string, string>>;
  */
 export function Drilldown(props: DrilldownProps) {
   const { name, sessionId, frames, decided, onWritten, onError, hits, reads, accepts, queueNote } = props;
-  const [at, setAt] = useState(0);
+  /**
+   * A board still worth stopping at: one with a matched cell nobody has ruled on. Boards whose
+   * every hit is already decided are behind you, and the queue used to reopen at index 0 on every
+   * mount and reload — so a session that was half done looked untouched ("board queue lässt mich
+   * immer von vorne anfangen", 2026-08-09). Without a filter queue every board qualifies, which
+   * is the old behaviour for the unfiltered drilldown.
+   */
+  const open = useCallback(
+    (f: FrameInfo) => {
+      const cells = accepts?.[f.stem];
+      if (!cells) return true;
+      return Object.keys(cells).some((sq) => decided[`${f.stem}|${sq}`] === undefined);
+    },
+    [accepts, decided],
+  );
+  const [at, setAt] = useState(() => Math.max(0, frames.findIndex(open)));
   const [eraser, setEraser] = useState(false);
   /** What the brush lays down. `occluded` is the common case, not the only one. */
   const [brush, setBrush] = useState("occluded");
@@ -184,6 +199,12 @@ export function Drilldown(props: DrilldownProps) {
     setAt((i) => Math.max(0, Math.min(frames.length - 1, i + delta)));
   }
 
+  /** The next board still worth stopping at, or the last one if the queue is worked through. */
+  const nextOpen = (from: number) => {
+    for (let i = from; i < frames.length; i++) if (open(frames[i])) return i;
+    return frames.length - 1;
+  };
+
   /**
    * "Yes, the filter is right here" — write the answer for the MATCHED cells only, then move on.
    *
@@ -194,6 +215,8 @@ export function Drilldown(props: DrilldownProps) {
    * at. A cell whose accepted label already matches what is on file writes no row.
    */
   const accept = accepts?.[stem] ?? {};
+  /** So a half-worked queue does not look untouched — the count is the honest progress bar. */
+  const stillOpen = accepts ? frames.filter(open).length : frames.length;
   const acceptCells = Object.keys(accept);
   const acceptLabels = [...new Set(Object.values(accept))];
   const acceptable = Object.entries(accept).filter(([sq, label]) => (saved[stem]?.[sq] ?? base[sq]) !== label);
@@ -209,7 +232,7 @@ export function Drilldown(props: DrilldownProps) {
     ];
     setEdits((e) => ({ ...e, [stem]: { ...e[stem], ...accept } }));
     await flush(rows);
-    setAt((i) => Math.min(frames.length - 1, i + 1));
+    setAt((i) => nextOpen(i + 1));
   }
 
   if (!frame) return <p className="text-muted-foreground text-sm">No proposal frames.</p>;
@@ -219,6 +242,7 @@ export function Drilldown(props: DrilldownProps) {
       <div className="border-border bg-muted/30 flex flex-wrap items-center gap-3 rounded-lg border p-3 text-sm">
         <span className="font-mono">
           frame {stem} · ply {frame.ply} · {at + 1}/{frames.length}
+          {accepts ? ` · ${stillOpen} open` : ""}
           {queueNote ? ` · ${queueNote}` : ""}
         </span>
         <PhaseChip frame={frame} />
