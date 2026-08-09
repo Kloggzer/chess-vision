@@ -7,7 +7,7 @@
 | 02 — occluded proposals | `done` | 2026-08-09, `d764837`; 126 720 proposals over both sessions, 1 410 at `hi 0.7`; hand-checked precision **12/12** on a stratified 30-cell draw |
 | 03a — scaffold + confirm view | `done` | 2026-08-08, `e21b656`+`aba57a3`; shadcn per user, 461 own lines, byte-preserving three-key write, server recomputes reviewed_plies |
 | 03b — relabel streams | `done` | 2026-08-09, three commits merged `ee62a78`; bucket/tinder/drilldown WITH the brush; crops via homography from raw frames (`sharp`, review-PNG coverage only 3.5 %); one Enter = 60 rows proven |
-| 04 — 14-class experiment | `todo` | last; success bar = dense-evaluation table in entry.md |
+| 04 — 14-class experiment | `measured, does not ship` | 2026-08-09 overnight; the class WORKS (path A: 0 phantoms, margin 2.3x better than the champion; `pOccluded` non-zero for the first time) but it does NOT buy dense evaluation — see the session log |
 
 Branch: `specs-53-<phase>` per phase, off `main`. DIRECTION.md remains the investigation of
 2026-08-08 (with the user's dirty-frames amendment); where DIRECTION and this pack disagree,
@@ -67,6 +67,91 @@ review PNGs and duplicate badges; POST recomputes `reviewed_plies` server-side f
 and writes the three confirmation keys byte-preservingly (`JSON.rawJSON` reviver keeps `0.0`
 as `0.0`; tmp+rename). chess.js SANs verified 237/237 identical to python-chess on the real
 PGN. Smoke against the real data: 200, 7 cards, 3 duplicate badges, candidate md5 unchanged.
+
+### 2026-08-09 (overnight, unattended) — phase 04: the class exists and works; the bar still stands
+
+The user labeled 2 114 occluded cells through the MVP (473 on 003957, 1 641 on 115912;
+3 199 raw rows, last-line-wins nets to 2 114 — 2 111 `occluded` plus 3 piece corrections). Both
+sessions re-sliced with the corrections applied (`(473 corrections)` / `(1641 corrections)`),
+so `occluded` exists in the crop pool for the first time.
+
+#### Four training rounds, and what each one measured
+
+| # | train corpus | occluded | path-A misses | path-A phantoms | margin p99.9/max |
+|---|---|---|---|---|---|
+| 1 | donor + rg (50 % rg), 14c, from SCRATCH | 2 114 | — | — | val_acc 0.08, unusable |
+| 2 | donor + rg (50 % rg), 14c, warm start, lr 1e-3 / 3e-4 | 2 114 | 0 / 0 | **133 / 105** | 0.64 / 0.52 |
+| 3 | donor + rg (50 % rg), **13c** control | dropped | **165** | 0 | 0.39 |
+| 4 | donor + rg capped to 5.3 % | 2 114 | 1 | **2** | 0.155 |
+| 5 | donor + **occluded rows only** (1.8 %) | 2 114 | 8 | **0** | **0.028 / 0.087** |
+| — | champion `occ-v10bn35-13c-hn` (reference, same run) | — | 3 | 0 | 0.065 / 0.328 |
+
+Three findings, each measured, not reasoned:
+
+1. **A 14-class head does not train from scratch in 15 epochs** (val_acc 0.08). `--resume` from
+   the champion is mandatory — the resume path already handles the class-count change by design
+   (276 tensors adopted, 2 skipped).
+2. **The export DROWNED the corpus.** The two exported sessions contributed 63 354 of 127 162
+   train rows — **50 %**, each 2-3x the largest donor session. Round 3 isolates the variable: at
+   13 classes the same corpus produces 165 misses and no phantoms, at 14 classes 105-133
+   phantoms. So the collapse is the DOMAIN DOMINANCE, not the new class. Capping the rg
+   contribution to 5.3 % took phantoms 105 → 2; contributing **only** the occluded rows (1.8 %)
+   took them to **zero, with the best margin any model has scored here** (0.028/0.087 against
+   the champion's 0.065/0.328). Rule for every future export: the new session is a SUPPLEMENT,
+   and `--source-manifest` with a per-cell pre-cap is how you make it one.
+   A geometry hypothesis was tested first and REFUTED: `session scan` reads 3.16 / 2.97 px
+   median after `autofix`, inside the 3.0-5.8 px band CLAUDE.md records for the good corpus.
+3. **`pOccluded` is alive.** With `occl14-80` served, the ledger prints `occl=` non-zero **772
+   times** on rec-20260807 — the first time the five safeguards have had a sensor at all.
+
+#### Judge 2, the replay A/B — and the honest failure
+
+| video / arm | blind 13c (today's record) | 14c `occl14-80` |
+|---|---|---|
+| rec-20260807, baseline | 25 / 0 / 0 | **24 / 1 / 0** |
+| rec-20260807, dense eval + resync | 14 / 11 / 6 | **17 / 8 / 12** |
+| rec-20260808-115912, dense eval + resync | 229 plies, 0 invented | **106 plies** |
+
+The baseline arm is a wash (one miss, no phantoms — acceptable). The dense arm is **worse on
+both videos**: on the calm one the class finds three more plies and invents six more, on the
+blitz one it reaches 106 of the blind model's 229. So the missing `occluded` sensor was NOT the
+thing that made dense evaluation unsafe — the specs/52 hypothesis ("an observation that could
+say 'this read contains a hand' would gate exactly the reads that break the calm video") is
+**refuted as stated**. The safeguards fire (772 and 2 789 non-zero `occl=` reads); the phantoms
+come anyway.
+
+#### A crash the new model exposed — fixed, and the fix is the interesting part
+
+The blitz run died at ply 70: `MoveGeneratorException … ArrayIndexOutOfBoundsException: Index 64`
+out of `DeepSearch.expand` → `legalMoves` → `generateCastleMoves` → `isKingAttacked` →
+`getPawnAttacks(Square.NONE)`. Traced end to end: **an auto-resync had adopted a position where
+the side NOT to move stood in check.** `cnnAdoptedFen` only counted kings, and such a board
+generates moves perfectly well — so the guard passed it, the deep search then captured the
+exposed king with a legal move, and the NEXT generator call on the kingless result threw, four
+call layers and dozens of plies away from the adoption that caused it.
+
+The guard is now REACHABILITY, not playability: flip the side to move on a probe board and
+refuse the adoption if the opponent is in check (`TrackerEngine.reachable`, plus
+`ResyncTest.aPositionWithTheOpponentInCheckIsNeverAdopted` which reproduces the exact board).
+With it the blitz run completes clean — 106 plies, zero exceptions. Note the ordering: the
+first guard I wrote (“can it generate moves”) passed the crashing position, and only writing
+the failing test proved it. This defect predates the 14-class model — nothing about it is
+occluded-specific — it needed a model that steered the search there.
+
+**The model does not ship**, per the pack's own criterion (rec-20260807 must hold 25/0/0 under
+dense evaluation). It is kept as `data/models/occ-14c-occl-lre3` and staged as
+`android/app/src/main/assets/cnn_model/occl14-80` for the follow-up, NOT wired as a default.
+
+#### What the next session should look at, in order
+
+- **Where do the 12 phantoms come from?** The decisive frames are written; the question is
+  whether they are resync adoptions of hand-distorted positions (then `autoResyncObsN` needs
+  the occluded gate the resync path does NOT currently apply) or verify-ladder commits.
+- **`P_OCCLUDED_THR = 0.5` against a head trained on 2 114 crops** is very likely too strict;
+  the ledger's per-read distribution is on disk and would answer it in minutes.
+- **2 114 crops from 2 sessions is a thin class** — the user's remaining tinder band (~7 000
+  cells) and every future video widen it. This round is a floor, not a verdict on the class.
+- The pack's other phases are unaffected and stand.
 
 ### 2026-08-09 — phase 02: the shadow/occluder boundary, measured (`d764837`)
 

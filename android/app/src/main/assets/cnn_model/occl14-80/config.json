@@ -1,0 +1,88 @@
+{
+  "backbone": "mobilenetv4_conv_small_035",
+  "epochs": 15,
+  "batch_size": 256,
+  "lr": 0.0003,
+  "sched": "cosine",
+  "sched_t_max": 15,
+  "aug_jitter_translate": 0.03,
+  "seed": 42,
+  "amp": true,
+  "norm": "batchnorm",
+  "classes": [
+    "empty",
+    "wP",
+    "wN",
+    "wB",
+    "wR",
+    "wQ",
+    "wK",
+    "bP",
+    "bN",
+    "bB",
+    "bR",
+    "bQ",
+    "bK",
+    "occluded"
+  ],
+  "out_size": [
+    128,
+    128
+  ],
+  "dataset": "occ-14c-occl",
+  "resumed_from": "occ-v10bn35-13c-hn",
+  "head": "combined",
+  "normalize": {
+    "mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "std": [
+      0.229,
+      0.224,
+      0.225
+    ],
+    "mode": "fixed"
+  },
+  "input_repr": "rgb",
+  "in_chans": 3,
+  "variant": {
+    "geometry": "warp",
+    "photometry": "none",
+    "piece_height_cells": 1.6
+  },
+  "scales": [
+    48,
+    64,
+    80,
+    96
+  ],
+  "aug": {
+    "erase_p": 0.25,
+    "bg_p": 0.6
+  },
+  "loss": "ce",
+  "focal_gamma": null,
+  "class_weight_override": {},
+  "effective_class_weights": {
+    "empty": 0.17880000174045563,
+    "wP": 0.536300003528595,
+    "wN": 2.1914000511169434,
+    "wB": 2.112799882888794,
+    "wR": 2.0676000118255615,
+    "wQ": 4.225599765777588,
+    "wK": 4.117700099945068,
+    "bP": 0.5364999771118164,
+    "bN": 2.1466000080108643,
+    "bB": 2.101799964904785,
+    "bR": 2.071199893951416,
+    "bQ": 4.117700099945068,
+    "bK": 4.117700099945068,
+    "occluded": 1.143399953842163
+  },
+  "infer_size": [
+    80,
+    80
+  ]
+}
