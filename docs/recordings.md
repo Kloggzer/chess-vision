@@ -79,17 +79,20 @@ Requiring all four markers rejects **every** dark frame without a brightness rul
 LIT frames a brightness rule would have passed — they sit at the start (frames 40-270), where the
 table still spins too fast for the detector. Brightness cannot see that; the markers can.
 
-Four and not three, because a three-marker quad degrades to an affine fit and its error is
-PROJECTIVE (CLAUDE.md) — no later correction removes it. On a take with thousands of frames and a
-need for maybe two thousand, 15 % is a cheap price for an exact quad.
+Scope: this is a FRAME-SELECTION rule for a take with blackouts and frames to spare, not a
+statement about how many markers tracking needs. See the section above for why three is fine.
 
-## The four-marker rule is for turntables, not for everything
+## The four-marker rule answers DARKNESS, not tracking
 
-`VID_20260802_222741` is one of the two good takes, and the scan sees only THREE markers in **937
-of 958** sampled frames. The four-marker gate would discard almost the whole recording. It earns
-its keep where frames are abundant and the board keeps turning; on a fixed camera with one marker
-permanently out of view it throws away the take. Read `markers_seen` in the candidate's geometry
-block before applying it.
+It was proposed for one job — telling a blackout frame from a usable one — and it does that job
+perfectly (0 of 98 dark frames decode four markers). It is **not** a quality bar for tracking, and
+reading it as one is wrong: `MarkerTracker` exists precisely to carry a missing corner through, with
+a dead zone, EMA smoothing, outlier rejection that only accepts a jump after it holds, aging, and a
+seed from the profile.
+
+`VID_20260802_222741` is the proof. One of the two good takes, and the scan sees only THREE markers
+in **937 of 958** sampled frames — yet its worst square offset sits at a median of 2.37 px, better
+than recordings that decode all four. A four-marker gate would have discarded the whole recording.
 
 ## Do not rebuild the board geometry in Python
 
