@@ -74,26 +74,35 @@ private fun writeFrames(
     outDir: File,
     model: LensModel,
     every: Int,
+): Pair<Int, Int> =
+    // `use` on BOTH, nested: an earlier revision of this function unrolled them into try/finally to
+    // flatten the nesting detekt complains about, and thereby leaked the video source whenever the
+    // Undistorter's constructor threw. The loop is what moves out, not the closing.
+    VideoFileSource(video).use { source ->
+        val size = source.delivered
+        Undistorter(model, size.width, size.height).use { undistorter ->
+            writeEach(source, undistorter, outDir, every)
+        }
+    }
+
+/** The loop alone, so both `use` blocks above stay one statement each. */
+private fun writeEach(
+    source: VideoFileSource,
+    undistorter: Undistorter,
+    outDir: File,
+    every: Int,
 ): Pair<Int, Int> {
     var index = 0
     var written = 0
-    val source = VideoFileSource(video)
-    val size = source.delivered
-    val undistorter = Undistorter(model, size.width, size.height)
-    try {
-        while (true) {
-            val frame = source.next() ?: break
-            val at = index
-            index += 1
-            if (at % every == 0) {
-                val name = at.toString().padStart(STEM_DIGITS, '0')
-                Imgcodecs.imwrite(File(outDir, "$name.png").path, undistorter.apply(frame))
-                written += 1
-            }
+    while (true) {
+        val frame = source.next() ?: break
+        val at = index
+        index += 1
+        if (at % every == 0) {
+            val name = at.toString().padStart(STEM_DIGITS, '0')
+            Imgcodecs.imwrite(File(outDir, "$name.png").path, undistorter.apply(frame))
+            written += 1
         }
-    } finally {
-        undistorter.close()
-        source.close()
     }
     return index to written
 }

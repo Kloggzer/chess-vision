@@ -513,6 +513,11 @@ START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 STATIC_INTERVAL_S = 2.0
 #: Static recordings get their own profile — their quad is measured, not taken from a candidate.
 STATIC_PROFILE = "static"
+#: Marker centres are NOT the playing field's corners — the printed border with the rank and file
+#: labels sits between them. Every real-game candidate from this rig records 0.045, and 0.0 puts
+#: that border inside the 64 cells: the crops then straddle the edge and the outer rank reads the
+#: letters. Found by the user on the first static probe (2026-08-09).
+STATIC_MARGIN = 0.045
 
 
 def frame_activity(frames: list[Path], *, width: int = 240) -> dict[int, float]:
@@ -564,7 +569,8 @@ def static_quad(frames: list[Path], profile) -> list[list[float]]:
     return [[float(x), float(y)] for x, y in median]
 
 
-def ensure_static_profile(profile: str, quad: list[list[float]], frame_size, board_size: int) -> Path:
+def ensure_static_profile(profile: str, quad: list[list[float]], frame_size, board_size: int,
+                          margin: float) -> Path:
     """The profile a static recording's crops are cut through — same shape as the game exporter's.
 
     `pad_side` and `out_size` are the crop pool's, not `CropParams.default`'s: these crops JOIN the
@@ -582,7 +588,7 @@ def ensure_static_profile(profile: str, quad: list[list[float]], frame_size, boa
         frame_size=(int(frame_size[0]), int(frame_size[1])),
         board_size=board_size,
         image_corners=[[float(x), float(y)] for x, y in quad],
-        homography=compute_homography(quad, board_size, 0.0),
+        homography=compute_homography(quad, board_size, margin),
         white_pov=True,
         crop=CropParams(
             cell=board_size / 8.0,
@@ -590,7 +596,7 @@ def ensure_static_profile(profile: str, quad: list[list[float]], frame_size, boa
             pad_side=config.CROP.pad_side,
             out_size=(config.CROP.out_w, config.CROP.out_h),
         ),
-        margin=0.0,
+        margin=margin,
         source=f"static:{profile}",
     )
     print(f"[OK] calibration profile '{profile}' created from the measured quad ({path})")
@@ -616,7 +622,7 @@ def _detect_profile(frame_size, board_size: int):
 
 def export_static(
     name: str, *, fen: str = START_FEN, fps: float = 30.0, quiet_frac: float = 0.35,
-    board_size: int = 928, report_only: bool = False,
+    board_size: int = 928, margin: float = STATIC_MARGIN, report_only: bool = False,
 ) -> dict:
     """A hand-over-a-standing-position recording becomes a session, with no game to confirm.
 
@@ -646,7 +652,7 @@ def export_static(
     # board size only, so it gets a throwaway one; saving a profile before the quad is known would
     # persist a placeholder homography that every later `load_profile` would believe.
     quad = static_quad(frames, _detect_profile(frame_size, board_size))
-    prof_path = ensure_static_profile(STATIC_PROFILE, quad, frame_size, board_size)
+    prof_path = ensure_static_profile(STATIC_PROFILE, quad, frame_size, board_size, margin)
     activity = frame_activity(frames)
     cut = float(np.quantile(list(activity.values()), quiet_frac))
     span = max(1, int(round(STATIC_INTERVAL_S * fps)))
