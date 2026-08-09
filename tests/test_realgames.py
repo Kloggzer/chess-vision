@@ -17,6 +17,7 @@ from chesslab import config
 from chesslab.occluded import interval_reference, score_cells, write_proposals
 from chesslab.realgames import (
     confirm,
+    decode_frames,
     ensure_export_profile,
     export_session,
     lcs_report,
@@ -291,3 +292,29 @@ def test_proposals_conform_to_the_pinned_schema(tmp_path):
     assert row["frame"] == "004211" and "/" not in row["frame"] and ".png" not in row["frame"]
     assert row["proposed"] in ("occluded", "keep") and 0.0 <= row["score"] <= 1.0
     assert isinstance(row["score"], float) and isinstance(row["fen_label"], str)
+
+
+def test_decode_frames_keeps_what_is_already_on_disk(tmp_path):
+    """A re-export must not pay for pixels that cannot have changed.
+
+    The video path here does NOT exist: if the decoder were entered at all it would raise, so
+    returning the frames proves it was skipped. This is what makes re-running the export the way
+    to pick up an exporter fix — two sessions sat on a pre-`unknown_squares` log because it was
+    not (found 2026-08-09).
+    """
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    for i in (30, 60):
+        cv2.imwrite(str(frames / f"{i:06d}.png"), np.zeros((4, 4, 3), np.uint8))
+
+    assert decode_frames(tmp_path / "no-such.mp4", {30, 60}, frames) == {30, 60}
+
+
+def test_decode_frames_treats_an_empty_file_as_absent(tmp_path):
+    """A truncated write must still repair — otherwise a half-written frame is permanent."""
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    (frames / "000030.png").write_bytes(b"")
+
+    with pytest.raises(FileNotFoundError):
+        decode_frames(tmp_path / "no-such.mp4", {30}, frames)

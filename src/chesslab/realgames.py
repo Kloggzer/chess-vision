@@ -325,28 +325,43 @@ def decode_frames(video: Path, wanted: set[int], out_dir: Path) -> set[int]:
     Never `CAP_PROP_POS_FRAMES`: seeking a long clip lands next to the requested index (the
     2026-08-06 stale-index defect class), and an index that is off by one here is a wrong LABEL,
     not a blurry picture. Returns the indices that actually arrived.
+
+    **Frames already on disk are kept, not decoded again.** A re-export is otherwise a full
+    forward decode of the whole video for pixels that cannot have changed, which made re-running
+    the export unaffordable in practice — and that is how two sessions came to sit on a log
+    written before `unknown_squares` existed while the code that writes it was already in the
+    tree (found 2026-08-09: 760 of 760 dirty rows unprotected). The plan is a pure function of
+    the candidate, so re-running it is the intended way to pick up an exporter fix; only the
+    decode was in the way. An empty file counts as absent so a truncated write still repairs.
     """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    have = {i for i in wanted if (f := out_dir / f"{i:06d}.png").is_file() and f.stat().st_size > 0}
+    todo = wanted - have
+    if have:
+        print(f"  {len(have)} frames already on disk, {len(todo)} to decode")
+    if not todo:
+        return have
     cap = cv2.VideoCapture(str(video))
     if not cap.isOpened():
         raise FileNotFoundError(f"cannot open video: {video}")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    last, written, idx = max(wanted), set(), 0
+    last, decoded, idx = max(todo), set(), 0
     try:
         while idx <= last:
             ok, frame = cap.read()
             if not ok:
                 break
-            if idx in wanted:
+            if idx in todo:
                 cv2.imwrite(str(out_dir / f"{idx:06d}.png"), frame)
-                written.add(idx)
+                decoded.add(idx)
             idx += 1
             if idx % 1000 == 0:
-                print(f"  decoded {idx}/{last + 1} frames, {len(written)} written")
+                print(f"  decoded {idx}/{last + 1} frames, {len(decoded)} written")
     finally:
         cap.release()
-    if len(written) < len(wanted):
-        print(f"[WARN] {len(wanted) - len(written)} planned frames never arrived from {video}")
-    return written
+    arrived = have | decoded
+    if len(arrived) < len(wanted):
+        print(f"[WARN] {len(wanted) - len(arrived)} planned frames never arrived from {video}")
+    return arrived
 
 
 def write_session(session_dir: Path, name: str, candidate: dict, rows: list[dict]) -> Path:
