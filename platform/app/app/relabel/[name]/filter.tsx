@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { DISAGREE } from "@/lib/proposals";
+import { DISAGREE } from "@/lib/query";
 
 export type FilterHit = {
   stem: string;
