@@ -25,6 +25,7 @@ entry when the file arrives, not when someone needs it.
 | `VID_20260731_222131.mp4` | `rnbkqbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBKQBNR` | turntable | ? | Same swap. 4K portrait. **All four markers decoded in 0 of 11 samples** — usually two. Needs denser sampling or it is unusable. |
 | `VID_20260731_222320.mp4` | `rnbkqbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBKQBNR` | turntable | ? | Same swap. 4K portrait. |
 | `VID_20260731_092133.mp4` | start position | turntable | ? | 4K landscape, 107 s. Quad moves ~1 556 px, so the board really turns. |
+| `2026-08-09 20-48-50.mp4` | start position | turntable | ? | 1080p, 296 s, varying light. Two blackouts, measured: frames **4551-4633** and **8420-8434** (98 frames, 1.1 %). |
 | `2026-08-09 19-16-08.mp4` | start position | fixed | yes | Hand (and a bottle) moved over a standing position, filmed for the `occluded` class. Covers a1-e4 only — White's half. |
 | `2026-08-07 13-52-38.mp4` | game | fixed | yes | = `rec-20260807-135238`, the 25-ply scored clip. |
 | `2026-08-08 00-39-57.mp4` | game | fixed | yes | = `rec-20260808-003957`. |
@@ -44,3 +45,20 @@ PIECE labels when those labels would come from a game's move list — here they 
 saying what stands where, and that statement can describe any placement. The king/queen swap above
 is exactly this case: perfectly usable, and silently four wrong labels per frame if nobody records
 it.
+
+## The frame gate for a turntable take: four markers, not brightness
+
+Suggested by the user and then measured on `2026-08-09 20-48-50` (975 frames sampled):
+
+| frames | >= 3 markers | all 4 |
+|---|---|---|
+| 98 dark (blackout) | 2 % | **0 %** |
+| 877 lit | 98 % | 85 % |
+
+Requiring all four markers rejects **every** dark frame without a brightness rule, and rejects 19
+LIT frames a brightness rule would have passed — they sit at the start (frames 40-270), where the
+table still spins too fast for the detector. Brightness cannot see that; the markers can.
+
+Four and not three, because a three-marker quad degrades to an affine fit and its error is
+PROJECTIVE (CLAUDE.md) — no later correction removes it. On a take with thousands of frames and a
+need for maybe two thousand, 15 % is a cheap price for an exact quad.
