@@ -67,8 +67,10 @@ data class TrackerConfig(
     val cnnMinAgreement: Double = 0.97,
     val cnnMarginSquares: Int = 1,
     // What one extra half-move costs the deep recovery search, in explained squares — see
-    // `CnnConfig.plyCostSquares`. 0 is the historical behaviour (length free).
-    val cnnPlyCostSquares: Int = 0,
+    // `CnnConfig.plyCostSquares` for the full record. 0 was the historical behaviour (length
+    // free); 1 since 2026-08-09, after 003957's reference confirm caught the served config
+    // fabricating a 3-ply bridge.
+    val cnnPlyCostSquares: Int = 1,
     val recoveryMaxPlies: Int = 4,
     val minConfidentBoard: Int = 32,
     val minConfidentRecovery: Int = 8,
@@ -114,6 +116,16 @@ data class TrackerConfig(
      * lost moves under continuous fast play; expected gain: no commit ever lands mid-reach.
      */
     val cleanCommitsOnly: Boolean = false,
+    /**
+     * The MODEL-FREE hand veto (2026-08-09): while the observed frame's own grid grooves read a
+     * locally erased cluster (`CnnSnapshot.gridOccluded`), verify votes are skipped, recovery
+     * votes are refused and `handInFrame` reads true. It exists because `pOccluded` is identically
+     * 0.0 under every 13-class model (CLAUDE.md pitfall) — 003957's fabricated `g4` committed
+     * through a resting hand that the coverage gate, the census core and the model all missed,
+     * while the groove read shows an 11-of-144 cluster exactly where the hand lay. On by default;
+     * the off position exists so a replay can A/B the gate, not because off is a candidate.
+     */
+    val gridHandGate: Boolean = true,
     /**
      * Distinct desync observations after which an unreconcilable conflict set raises the alarm
      * even without a move-shaped guess. `0` = off, the way 0 means off for every other knob in

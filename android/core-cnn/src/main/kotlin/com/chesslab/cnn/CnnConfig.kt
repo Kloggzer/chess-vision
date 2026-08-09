@@ -17,7 +17,15 @@ data class CnnConfig(
     // evaluation: all 12 phantoms were `cnn_recovery`, two bursts sitting ON a missed real ply
     // (Bd7 at 4770 -> Rc7/Kd1/Rd7/Ke1 at 4767; Qb4 at 6635 -> b4/Qxb4+ at 6641) — the same board
     // difference explained by a LONGER sequence, padded with a king round trip to fix parity.
-    val plyCostSquares: Int = 0,
+    //
+    // Default 1 since 2026-08-09. It shipped at 0 on "the served configuration has no phantoms to
+    // buy back" (specs/53 table) — refuted the same day by the first reference-PGN confirm:
+    // 003957's served replay fabricated a 3-ply bridge at ply 39 (g4/Bxg4/Kg3, frame 005489, truth
+    // Kxf3) and never found back, losing the remaining 29 plies. At 1, every extra half-move must
+    // pay for itself in explained squares: parity filler loses, a genuine pair recovery (2 plies,
+    // 4 squares) still wins. NOT 2 — at 2 recovery commits nothing at all (0 of 17 deciders,
+    // 003957 collapses 67 -> 14 plies).
+    val plyCostSquares: Int = 1,
     val minConfidentBoard: Int = 32,
     val minConfidentRecovery: Int = 8,
     val recoveryMaxPlies: Int = 4,

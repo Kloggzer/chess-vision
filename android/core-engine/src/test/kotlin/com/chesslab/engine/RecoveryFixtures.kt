@@ -157,7 +157,8 @@ internal fun recoverySnap(
     gray: GrayImage? = null,
     fen: String = state.board.fen(),
     warped: BgrImage? = null,
-): CnnSnapshot = CnnSnapshot(obs, seq, 0L, 0.0, warped, gray, fen)
+    gridOccluded: Long = 0L,
+): CnnSnapshot = CnnSnapshot(obs, seq, 0L, 0.0, warped, gray, fen, gridOccluded)
 
 /** Monotonic snapshot seqs for [recoveryGlances] — far above the hand-numbered ones in tests. */
 private var glanceSeq = 9000L

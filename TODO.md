@@ -42,6 +42,16 @@
 
 ### Answered on 2026-08-09 — what they measured
 
+- **003957 reads 67/67 with the grid hand veto + the ply price — from 38/67 with 4 invented.**
+  The break at ply 39 was a resting hand: `pOccluded` ≡ 0.0 under `id35-80`, the coverage gate
+  cannot see a corner hand (whole-line, 50 % hit fraction), the census core read `occluded 0` —
+  so the verify confirm rung read the hand on g4 as "arrived" and committed a fabricated `g4`,
+  and the deep search bridged 3 more plies onto the wrong position. Two levers, attributed by
+  A/B: `cnnPlyCostSquares=1` alone kills the bridge (1 invented instead of 4) but not the entry;
+  `gridHandGate` (band-wise groove read of the crop warp, `GridOcclusion.kt`) also kills the
+  entry — 67/67, all `cnn_occupancy`, despite the sensor reading a hand on ~39 % of frames in
+  this blitz-paced video. Every eyeballed "false positive" was a real hand.
+
 - **The static recording's "false positives on rank 8" were my overlay, not the producer.**
   `all_squares()` counts from rank 1 up while the warp puts rank 8 at the TOP, so the probe drew
   every score one board-flip away from the cell it belonged to. Redrawn with the square names in

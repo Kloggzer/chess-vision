@@ -99,7 +99,10 @@ private fun EngineState.occupancyAgreesWithBoard(
  */
 internal fun EngineState.handInFrame(): Boolean {
     if (tainted != 0L || occludedVetoed != 0L) return true
-    return freshSnapshot()?.obs?.readsOccludedAnywhere() ?: false
+    val snap = freshSnapshot() ?: return false
+    // The grid arm is the model-free half of the snapshot signal: `readsOccludedAnywhere` is
+    // identically false under every 13-class model (CLAUDE.md pitfall), the groove read is not.
+    return snap.obs.readsOccludedAnywhere() || (config.gridHandGate && snap.gridOccluded != 0L)
 }
 
 /** Any square whose `occluded` class dominates — the observer's own hand report. */

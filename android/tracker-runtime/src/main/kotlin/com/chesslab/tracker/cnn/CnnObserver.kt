@@ -34,6 +34,8 @@ class CnnFrame(
     val tsMs: Long,
     val warped: BgrImage?,
     val gray: GrayImage?,
+    /** Grid-groove hand map of the same frame, cut with the crops (`gridOccludedSquares`). */
+    val gridOccluded: Long = 0L,
 )
 
 fun interface CnnFrameSource {
@@ -249,6 +251,7 @@ class CnnObserver(
                 warped = frame.warped,
                 gray = frame.gray,
                 fen = startFen,
+                gridOccluded = frame.gridOccluded,
             ),
         )
     }

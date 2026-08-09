@@ -210,6 +210,26 @@ class CnnTickTest {
         assertTrue(state.note!!.contains("CNN recovery"), state.note!!)
     }
 
+    /**
+     * A bridge rewrites history, and the only thing keeping a mid-move glance out of it is the
+     * occluded check of `recoveryVoteConfirmed` — whose model arm is blind on 13-class models.
+     * The grid-groove arm (`CnnSnapshot.gridOccluded`) must refuse the vote on its own.
+     */
+    @Test
+    fun aGridOccludedGlanceRefusesTheRecoveryVote() {
+        val state = recoveryState()
+        val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.99)
+        val obs = obsForBoard(state.board)
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 21, gridOccluded = 1L))
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 22, gridOccluded = 1L))
+        assertEquals(emptyList<String>(), state.history)
+        assertTrue(state.note!!.contains("occluded"), state.note!!)
+
+        // The same evaluator with clean glances commits — the grid arm alone held the vote.
+        state.recoveryGlances(cnn, obs, gray = grayFrame())
+        assertEquals(listOf("e4"), state.history)
+    }
+
     @Test
     fun recoveryCommitGrantsOneMotionWindow() {
         // Recovery means we WERE behind: a reply played during the recovery window is already

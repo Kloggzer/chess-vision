@@ -95,7 +95,15 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
   field all read "no hand", unconditionally. They arm only when a served model's class list
   contains `occluded` — no bundled model's does. Found 2026-08-08 (specs/53); every measurement
   of those gates up to that date exercised only their engine-taint arms, and a ledger `occl=0`
-  line means "sensor blind", not "clean window".
+  line means "sensor blind", not "clean window". **Since 2026-08-09 the engine carries a
+  MODEL-FREE hand arm beside the blind one:** `CnnSnapshot.gridOccluded` (geometry
+  `gridOccludedSquares` — the alignment fit's band-wise groove read, kept per segment, cut from
+  the FULL-resolution crop warp; at detSize the noise floor drowns it). Behind `gridHandGate`
+  (default on) it blocks verify votes, recovery votes and feeds `handInFrame`. Measured on
+  003957's reference confirm: 38/67 plies with 4 invented → **67/67 with 0**, attributed by A/B
+  (`cnnPlyCostSquares=1` alone kills the fabricated bridge, the grid arm also kills the
+  hand-committed entry). The count-discount and the ledger's `occl=` field still read only the
+  model — the pitfall stands for them.
 
 - **BatchNorm works, and the learning rate is why. A normalizer is never measured at ONE rate.**
   BatchNorm ships: four of the seven bundled models are `"norm": "batchnorm"` (`bn35-80`,

@@ -294,11 +294,19 @@ forearm, not a jittery threshold. Do not spend a round retuning it.
 | 003957 | default | 67 plies | 67 plies | **14** plies |
 | 115912 | default | 61 plies | **51** plies | **51** plies |
 
-`cnnPlyCostSquares` **ships at 0** — behaviour unchanged. Cost 2 is phantom-free for a bad reason:
-it commits no recovery at all (0 of 17 deciders), and 003957 collapses. Cost 1 removes 11 of the 12
-dense phantoms but buys nothing in the served configuration, which has none, while 115912 loses 10
-plies whose correctness no reference can settle. **It is the setting for dense evaluation, not for
-the phone.**
+~~`cnnPlyCostSquares` **ships at 0** — behaviour unchanged.~~ Cost 2 is phantom-free for a bad
+reason: it commits no recovery at all (0 of 17 deciders), and 003957 collapses. Cost 1 removes 11
+of the 12 dense phantoms but buys nothing in the served configuration, which has none, while
+115912 loses 10 plies whose correctness no reference can settle. ~~**It is the setting for dense
+evaluation, not for the phone.**~~
+
+**Overturned 2026-08-09, same day, default is now 1.** The "served configuration has no phantoms"
+premise did not survive the first reference-PGN confirm: 003957's served replay fabricated a
+3-ply bridge at ply 39 — `g4/Bxg4/Kg3` in one burst at frame 005489, then `Bf3`, against the
+played `Kxf3` — and never re-anchored, losing the remaining 29 of 67 plies. A fabricated bridge
+is exactly the failure this price exists for, and unlike 115912's 10 plies this one IS settled by
+a reference. The known cost stands as measured above: 115912 keeps 51 instead of 61 plies, and
+one single-ply phantom (`Qg5`, frame 4103) is out of any length price's reach.
 
 #### What is still open
 
@@ -330,3 +338,40 @@ showing `unknown_squares` as the only difference.
 **Consequence for phase 02:** the proposals on disk predate this and hold 790 + 1 280 cells (1.6 %)
 on squares the exporter now refuses to vouch for, 198 of them proposed `occluded`. Regenerate
 before the next labeling pass.
+
+## 2026-08-09, evening — the grid grooves as the model-free hand sensor, and 003957 read in full
+
+The ply-39 break of 003957's reference confirm, dissected on the run's own overlay frames:
+
+- Frame 5421 (`g4`, decider `cnn_occupancy`): a resting hand over f2..h5, engine `waiting` —
+  `motionHoldS` expired (a resting hand makes no motion), the grid COVERAGE gate did not trip
+  (whole-line binary at 50 % hit fraction: a corner hand erases a third of three lines, coverage
+  stays ~1.0), the census core read `occluded 0`, and `pOccluded` ≡ 0.0 under `id35-80`. The
+  verify confirm rung read g4 "confidently occupied" — hand pixels under the 1−P(empty) reader —
+  and committed the fabricated move through the hand.
+- Frame 5489 (the 3-ply bridge, `cnn_recovery`): board already CLEAN — the bridge ran on the
+  stuck arm against a position that was wrong for two seconds. No hand gate can catch it; the
+  ply price can.
+
+**The sensor** (`core-geometry/GridOcclusion.kt`): the alignment fit's band-wise groove read,
+kept per segment instead of collapsed into lines — 2 axes × 9 lines × 8 bands = one segment per
+cell edge, a square reads occluded at ≥ 2 missing edges. Resolution is load-bearing: full-res
+crop warp 2 / 11 / 2 missing segments on clean / hand / clean frames (the 11 clustered exactly
+under the hand); at detSize 30-40 of 144 and the signal drowns. Stamped onto `CnnSnapshot` where
+the crops are cut (observer thread, once per observation), consumed by the verify ladder (no
+vote under a hand), the recovery vote and `handInFrame()`, behind `gridHandGate` (default on).
+
+**Measured, replay of 003957 against its 67-ply reference PGN (`id35-80`):**
+
+| run | config | matched | invented | missed |
+|---|---|---|---|---|
+| baseline (confirmed 2026-08-09) | cost 0, no gate | 38/67 | 4 (`g4` + bridge) | 29 |
+| `set:gridHandGate=false` | cost 1 | 38/67 | 1 (`g4`) | 29 |
+| default | cost 1 + gate | **67/67** | **0** | **0** |
+
+The attribution is clean: the ply price kills the bridge (no `cnn_recovery` decider left), the
+grid arm kills the hand-committed entry, and with both the tracker reads the whole game through
+the diff+verify path. The sensor reads a hand on ~39 % of this blitz-paced video's frames and
+cost zero real moves — a verify vote just waits for the first clean glance after the hand
+leaves. Every eyeballed "far from any commit" flag was a real hand (the game outlived the
+tracker's old break, so hands continue after the last baseline commit).

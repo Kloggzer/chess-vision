@@ -367,9 +367,11 @@ private fun EngineState.pushRecovery(moves: List<Move>): List<String> {
  * A rewrite of history demands a board with no hand in it. The observer is deliberately not
  * motion-gated (`wantsFrame`) and the stuck arm deliberately needs no stable board
  * (`evaluationDue`), so the ONLY thing keeping a mid-move glance out of a bridge is the first
- * branch: any square the observer itself reads as occluded blocks the vote AND resets the
- * streak, exactly as an inconclusive read does. The diff path's `OCCLUDED_CORE_LIMIT` (2)
- * tolerates more because it gates a single-move detection; a bridge rewrites up to four plies.
+ * branch: any square the observer itself reads as occluded — by the model's occluded head OR by
+ * the model-free grid-groove read (`gridOccluded`, since 2026-08-09; the head alone is blind on
+ * every 13-class model) — blocks the vote AND resets the streak, exactly as an inconclusive read
+ * does. The diff path's `OCCLUDED_CORE_LIMIT` (2) tolerates more because it gates a single-move
+ * detection; a bridge rewrites up to four plies.
  *
  * Voting, not single-shot — TRUE since 2026-08-07 (specs/39 phase 02). The confirmer used to be
  * built from `confirmFrames`, which is 1 whenever `cnnOn`, so it confirmed on the first key it
@@ -381,7 +383,11 @@ private fun EngineState.recoveryVoteConfirmed(
     snap: CnnSnapshot,
     key: String,
 ): Boolean {
-    val occludedSquares = Squares.ALL.count { snap.obs.pOccluded(it) > P_OCCLUDED_THR }
+    // Two arms, deliberately summed: the model's own occluded head (blind on 13-class models)
+    // and the grid-groove read of the same frame (model-free, `CnnSnapshot.gridOccluded`).
+    val occludedSquares =
+        Squares.ALL.count { snap.obs.pOccluded(it) > P_OCCLUDED_THR } +
+            (if (config.gridHandGate) snap.gridOccluded.countOneBits() else 0)
     return when {
         occludedSquares > RECOVERY_OCCLUDED_LIMIT -> {
             recoveryConfirmer.reset()

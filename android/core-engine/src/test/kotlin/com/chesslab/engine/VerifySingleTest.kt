@@ -55,6 +55,31 @@ class VerifySingleTest {
      * diff already carried through `confirmFrames`, the ambiguity margin and `commitLlFloor`, so it
      * acts on the first. Contradicting rungs still need `verifyObsVotes`.
      */
+    /**
+     * The 003957 ply-39 incident (2026-08-09): a resting hand over the destination read
+     * "confidently occupied" — `pOccluded` is identically 0.0 under a 13-class model — and the
+     * confirm rung committed a fabricated `g4` through it. The grid-groove read of the observed
+     * frame is the model-free witness, and while it reports ANY square, the glance may neither
+     * confirm nor reject: no vote, no verdict, liveness advances.
+     */
+    @Test
+    fun aGridOccludedGlanceNeitherConfirmsNorRejects() {
+        val state = pendingState()
+        val wouldCommit = VerifyEvaluator(occAgree = 1.0, occN = 2)
+        val events = VerifySingle.tick(state, wouldCommit, snapOf(state, VerifyObs(), gridOccluded = 1L))
+
+        assertTrue(events.isEmpty())
+        assertEquals(emptyList<String>(), state.history)
+        assertNotNull(state.pending)
+        assertEquals(0, state.pending!!.frames, "not a vote, not a window tick")
+        assertEquals(state.nowS, state.pending!!.lastTickS, "alive — a covered board is not a dead observer")
+
+        // The A/B door: with the gate off the same glance commits, exactly as before the sensor.
+        state.config = state.config.copy(gridHandGate = false)
+        VerifySingle.tick(state, wouldCommit, snapOf(state, VerifyObs(), gridOccluded = 1L))
+        assertEquals(listOf("e4"), state.history)
+    }
+
     @Test
     fun confirmActsOnOneGlanceContradictionStillNeedsTwo() {
         val state = pendingState()

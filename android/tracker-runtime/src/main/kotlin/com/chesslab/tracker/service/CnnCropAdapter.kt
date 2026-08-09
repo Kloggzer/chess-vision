@@ -2,7 +2,9 @@ package com.chesslab.tracker.service
 
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.allSquares
+import com.chesslab.geometry.cropBorderPx
 import com.chesslab.geometry.cropSquare
+import com.chesslab.geometry.gridOccludedSquares
 import com.chesslab.geometry.toBgrImage
 import com.chesslab.tracker.cnn.CnnFrame
 import com.chesslab.tracker.cnn.CnnFrameSource
@@ -36,7 +38,10 @@ fun cropFrameSource(
                     crop.release()
                     image
                 }
+            // The model-free hand read, on the SAME full-resolution warp the crops came from —
+            // at detSize the grooves are 1-2 px and the read drowns in noise (GridOcclusion.kt).
+            val gridOccluded = gridOccludedSquares(pending.cropWarp, geom, cropBorderPx(geom))
             pending.cropWarp.release()
-            CnnFrame(crops, pending.seq, pending.tsMs, pending.bgrDet, pending.grayDet)
+            CnnFrame(crops, pending.seq, pending.tsMs, pending.bgrDet, pending.grayDet, gridOccluded)
         }
     }

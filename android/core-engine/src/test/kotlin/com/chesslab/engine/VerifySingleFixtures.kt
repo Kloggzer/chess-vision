@@ -131,6 +131,7 @@ internal fun snapOf(
     state: EngineState,
     obs: CnnObservation,
     seq: Long = 0,
+    gridOccluded: Long = 0L,
 ): CnnSnapshot =
     CnnSnapshot(
         obs = obs,
@@ -140,4 +141,5 @@ internal fun snapOf(
         warped = null,
         gray = null,
         fen = state.board.fen(),
+        gridOccluded = gridOccluded,
     )

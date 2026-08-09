@@ -85,9 +85,14 @@ class DeepSearchTest {
         assertTrue(overpriced.moves.isEmpty(), "4 plies explaining 8 squares must not survive a 12-square bill")
     }
 
+    /**
+     * Default 1 since 2026-08-09: free length let the served config fabricate a 3-ply bridge in
+     * 003957's reference confirm (ply 39, `g4/Bxg4/Kg3` against the played `Kxf3`) and lose the
+     * remaining 29 plies. Not 2 — at 2 recovery commits nothing at all (specs/53 table).
+     */
     @Test
-    fun `the default is the historical behaviour`() {
-        assertEquals(0, CnnConfig().plyCostSquares, "length stays free unless a measurement says otherwise")
+    fun `the default prices length at one square per half-move`() {
+        assertEquals(1, CnnConfig().plyCostSquares, "0 fabricates bridges, 2 kills recovery — see specs/53")
     }
 
     @Test

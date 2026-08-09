@@ -13,4 +13,8 @@ data class CnnSnapshot(
     val gray: GrayImage?,
     // game FEN at observation start (discard-on-change guard)
     val fen: String?,
+    // Model-free hand map of the OBSERVED frame: squares whose grid grooves are locally erased,
+    // read from the full-resolution crop warp (geometry `gridOccludedSquares`). Bit i is
+    // `Squares.ALL[i]`. 0L = clean, and the default so sources without the sensor stay honest.
+    val gridOccluded: Long = 0L,
 )

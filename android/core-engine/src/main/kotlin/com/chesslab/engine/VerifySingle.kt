@@ -83,6 +83,16 @@ internal object VerifySingle {
                 state.pending = pend.copy(lastTickS = state.nowS)
                 emptyList()
             }
+            // The model-free arm of the same guard, and ON by default: the observed frame's own
+            // grid grooves read a hand (`CnnSnapshot.gridOccluded`, cut with the crops at full
+            // resolution). It exists because `pOccluded` is identically 0.0 under every 13-class
+            // model — 003957's fabricated `g4` committed at rung 2 through a resting hand whose
+            // pixels read "confidently occupied" on the destination square. Same contract as the
+            // arm above: no vote, no verdict, liveness advances.
+            state.config.gridHandGate && snap.gridOccluded != 0L -> {
+                state.pending = pend.copy(lastTickS = state.nowS)
+                emptyList()
+            }
             else -> state.evaluate(cnn, snap, pend)
         }
     }
