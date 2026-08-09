@@ -1,5 +1,5 @@
 import { loadProposals } from "@/lib/proposals";
-import { classesSeen, framesMatching, type Filter } from "@/lib/proposals";
+import { classesSeen, framesMatching, topRead, type Filter } from "@/lib/proposals";
 
 /**
  * The BOARDS a filter hits — computed here, not in the browser: a session is ~48 000 proposal
@@ -18,6 +18,13 @@ export async function GET(request: Request, ctx: { params: Promise<{ name: strin
     const frames = framesMatching(rows, filter).map((f) => ({
       stem: f.stem,
       squares: f.cells.map((c) => c.square),
+      // What the model actually reads there, so the board can SAY it instead of only tinting.
+      reads: Object.fromEntries(
+        f.cells.map((c) => {
+          const t = topRead(c);
+          return [c.square, t ? `${t.label} ${t.p.toFixed(2)}` : ""];
+        }),
+      ),
     }));
     return Response.json({
       classes: classesSeen(rows),

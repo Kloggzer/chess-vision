@@ -17,11 +17,26 @@ export type DrilldownProps = {
   onError: (error: unknown) => void;
   /** Squares the active filter hit on each frame — outlined, so the eye starts where the work is. */
   hits?: Record<string, string[]>;
+  /** `{stem: {square: "wP 0.87"}}` — what the model reads there, printed in the cell. */
+  reads?: Record<string, Record<string, string>>;
   /** Where the queue came from, for the header line. */
   queueNote?: string;
 };
 
 const SQUARES = Array.from({ length: 64 }, (_, i) => `${FILES[i % 8]}${8 - Math.floor(i / 8)}`);
+
+/**
+ * What the brush can be loaded with, and the key that loads it.
+ *
+ * FEN's own convention, so the keys are the ones a chess player already knows: digits are the
+ * white pieces in FEN order, the lower-case letter is the black twin. `o` and `x` are the two
+ * that are not pieces at all.
+ */
+const PALETTE: [string, string][] = [
+  ["o", "occluded"], ["x", "empty"],
+  ["1", "wP"], ["2", "wN"], ["3", "wB"], ["4", "wR"], ["5", "wQ"], ["6", "wK"],
+  ["p", "bP"], ["n", "bN"], ["b", "bB"], ["r", "bR"], ["q", "bQ"], ["k", "bK"],
+];
 /** `{stem: {square: label}}` — per frame, so stepping to the next one resets nothing. */
 type ByFrame = Record<string, Record<string, string>>;
 
@@ -33,9 +48,11 @@ type ByFrame = Record<string, Record<string, string>>;
  * Pointer-enter bookkeeping over plain divs — one entered cell is one state update, no canvas.
  */
 export function Drilldown(props: DrilldownProps) {
-  const { name, sessionId, frames, decided, onWritten, onError, hits, queueNote } = props;
+  const { name, sessionId, frames, decided, onWritten, onError, hits, reads, queueNote } = props;
   const [at, setAt] = useState(0);
   const [eraser, setEraser] = useState(false);
+  /** What the brush lays down. `occluded` is the common case, not the only one. */
+  const [brush, setBrush] = useState("occluded");
   const [edits, setEdits] = useState<ByFrame>({});
   /** What already left through the writer — the baseline the unsaved diff is measured against. */
   const [saved, setSaved] = useState<ByFrame>({});
@@ -50,6 +67,18 @@ export function Drilldown(props: DrilldownProps) {
   }, [decided, fen, stem]);
 
   const labels = useMemo(() => ({ ...base, ...edits[stem] }), [base, edits, stem]);
+  /**
+   * Squares a HUMAN has ruled on — this session's edits plus what corrections.jsonl already
+   * holds. Everything else carries the FEN's word, which is a good label and NOT a verdict:
+   * "I painted occluded on e5" says nothing about the pawn on d4 except that nobody looked.
+   */
+  const judged = useMemo(
+    () =>
+      new Set(
+        SQUARES.filter((sq) => decided[`${stem}|${sq}`] !== undefined || edits[stem]?.[sq] !== undefined),
+      ),
+    [decided, edits, stem],
+  );
   const pending: Correction[] = useMemo(
     () =>
       SQUARES.filter((sq) => labels[sq] !== (saved[stem]?.[sq] ?? base[sq])).map((sq) => ({
@@ -85,12 +114,27 @@ export function Drilldown(props: DrilldownProps) {
   }, [pending, flush]);
   useEffect(() => () => void flushRef.current(latest.current), []);
 
+  // One key, one brush — the same letters the tinder band uses, so the two views are one habit.
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      const hit = PALETTE.find(([k]) => k === event.key);
+      if (!hit) return;
+      event.preventDefault();
+      setBrush(hit[1]);
+      setEraser(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const set = (square: string, label: string) =>
     setEdits((e) => ({ ...e, [stem]: { ...e[stem], [square]: label } }));
 
-  const paint = (square: string, erase: boolean) => set(square, erase ? fen[square] : "occluded");
+  const paint = (square: string, erase: boolean) => set(square, erase ? fen[square] : brush);
   const cycle = (square: string) => {
-    const order = [fen[square], "occluded", "empty"];
+    // The cycle offers what this square could plausibly be: what the FEN says, what the brush is
+    // loaded with, and empty — deduplicated, so a brush set to `empty` does not stall the cycle.
+    const order = [...new Set([fen[square], brush, "empty"])];
     set(square, order[(order.indexOf(labels[square]) + 1) % order.length]);
   };
 
@@ -143,10 +187,12 @@ export function Drilldown(props: DrilldownProps) {
           size="sm"
           variant={eraser ? "default" : "outline"}
         >
-          {eraser ? "eraser ON" : "brush (paints occluded)"}
+          {eraser ? "eraser ON" : `brush: ${brush}`}
         </Button>
         <span className="text-muted-foreground">
-          drag paints · right button erases · click cycles FEN → occluded → empty
+          drag paints · right button erases · click cycles · keys pick the brush ·{" "}
+          <strong className="text-foreground">bright</strong> = you judged it, dim = FEN&apos;s word,
+          nobody looked ({judged.size}/64 judged here)
         </span>
         <Button
           className="ml-auto"
@@ -156,6 +202,24 @@ export function Drilldown(props: DrilldownProps) {
         >
           write {pending.length} cells
         </Button>
+      </div>
+
+      <div className="flex flex-wrap gap-1">
+        {PALETTE.map(([key, label]) => (
+          <Button
+            key={label}
+            onClick={(event) => {
+              event.currentTarget.blur();
+              setBrush(label);
+              setEraser(false);
+            }}
+            size="sm"
+            variant={brush === label && !eraser ? "default" : "outline"}
+          >
+            <span className="text-muted-foreground mr-1 font-mono">{key}</span>
+            {label}
+          </Button>
+        ))}
       </div>
 
       <div
@@ -195,9 +259,10 @@ export function Drilldown(props: DrilldownProps) {
             const flagged = hits?.[stem]?.includes(sq)
               ? "outline outline-2 -outline-offset-2 outline-fuchsia-400"
               : "";
+            const read = reads?.[stem]?.[sq];
             return (
               <div
-                className={`border border-white/10 ${tint} ${flagged}`}
+                className={`relative border border-white/10 ${tint} ${flagged}`}
                 key={sq}
                 onPointerDown={(event) => {
                   painting.current = {
@@ -207,7 +272,26 @@ export function Drilldown(props: DrilldownProps) {
                   };
                 }}
                 onPointerEnter={() => enter(sq)}
-              />
+              >
+                {/* What will be WRITTEN, always — colour alone does not say `wP` from `bP`.
+                    BRIGHT means a human decided it; DIM means the FEN says so and nobody has
+                    looked. Painting occluded on one square says nothing about the other 63, and
+                    the board must not imply otherwise. */}
+                <span className="pointer-events-none absolute inset-x-0 bottom-0 text-center font-mono text-[10px] leading-tight">
+                  <span
+                    className={`bg-background/75 rounded px-0.5 ${
+                      judged.has(sq) ? "font-bold text-white" : "text-white/45"
+                    }`}
+                  >
+                    {labels[sq]}
+                  </span>
+                  {read ? (
+                    <span className="block text-fuchsia-300">
+                      <span className="bg-background/75 rounded px-0.5">{read}</span>
+                    </span>
+                  ) : null}
+                </span>
+              </div>
             );
           })}
         </div>

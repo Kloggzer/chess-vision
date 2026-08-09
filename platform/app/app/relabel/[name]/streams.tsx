@@ -63,6 +63,7 @@ export function Streams({ name, sessionId, streams, decided, frames, next, filte
     .map((h) => byStem.get(h.stem) ?? { stem: h.stem, ply: 0, fen: "" })
     .filter((f) => f.fen !== "");
   const hits = Object.fromEntries((boardQueue?.hits ?? []).map((h) => [h.stem, h.squares]));
+  const reads = Object.fromEntries((boardQueue?.hits ?? []).map((h) => [h.stem, h.reads ?? {}]));
 
   return (
     <section className="space-y-4">
@@ -121,6 +122,7 @@ export function Streams({ name, sessionId, streams, decided, frames, next, filte
       {tab === "tinder" ? (
         <TinderBand
           cells={[...queue, ...streams.tinder]}
+          decided={decided}
           name={name}
           onDone={markDone("tinder")}
           onError={failed}
@@ -143,6 +145,7 @@ export function Streams({ name, sessionId, streams, decided, frames, next, filte
             decided={decided}
             frames={boardQueue ? queued : frames}
             hits={boardQueue ? hits : undefined}
+            reads={boardQueue ? reads : undefined}
             key={boardQueue?.label ?? "all"}
             name={name}
             onError={failed}

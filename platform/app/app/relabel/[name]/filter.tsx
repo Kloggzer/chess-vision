@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-export type FilterHit = { stem: string; squares: string[] };
+export type FilterHit = { stem: string; squares: string[]; reads?: Record<string, string> };
 export type FilterAnswer = { classes: string[]; frames: FilterHit[]; cells: number };
 export type FilterProps = {
   name: string;

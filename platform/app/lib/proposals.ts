@@ -38,6 +38,14 @@ export function matches(row: Proposal, f: Filter): boolean {
   return p >= f.min && top !== row.fen_label && top !== "occluded";
 }
 
+/** The model's own verdict for a cell: its best class and how sure it is. */
+export function topRead(row: Proposal): { label: string; p: number } | null {
+  const probs = row.probs;
+  if (!probs) return null;
+  const [label, p] = Object.entries(probs).reduce((a, b) => (b[1] > a[1] ? b : a), ["", 0]);
+  return label ? { label, p } : null;
+}
+
 /** The BOARDS a filter hits: one entry per frame, with the cells that matched on it. */
 export function framesMatching(rows: Proposal[], f: Filter): { stem: string; cells: Proposal[] }[] {
   const byFrame = new Map<string, Proposal[]>();

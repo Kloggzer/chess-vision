@@ -27,6 +27,8 @@ export type TinderProps = {
   name: string;
   sessionId: string;
   cells: Proposal[];
+  /** Cells already in corrections.jsonl — skipped, because deciding twice is deciding once. */
+  decided: Record<string, string>;
   onWritten: (n: number) => void;
   onError: (error: unknown) => void;
   /** Fired when the band runs empty — the session-done banner listens. */
@@ -36,14 +38,22 @@ export type TinderProps = {
 /** One decision (single card or a whole group), so `z` can put ALL of it back. */
 type Done = { cells: Proposal[]; label: string | null; at: number };
 
-const keyOf = (c: Proposal) => `${c.frame}:${c.square}`;
+const keyOf = (c: Proposal) => `${c.frame}|${c.square}`;
 
 /**
  * One card at a time for the band the producer is unsure about (lo ≤ score ≤ hi) and for every
  * exception the grid threw out. Keep writes NOTHING: the FEN already says that, and a row that
  * repeats the FEN is noise in a global training input.
  */
-export function TinderBand({ name, sessionId, cells, onWritten, onError, onDone }: TinderProps) {
+export function TinderBand(props: TinderProps) {
+  const { name, sessionId, cells: all, decided, onWritten, onError, onDone } = props;
+  const [showDone, setShowDone] = useState(false);
+  // Work already done does not come back. `showDone` is the "except when I ask for it" half.
+  const cells = useMemo(
+    () => (showDone ? all : all.filter((c) => !decided[keyOf(c)])),
+    [all, decided, showDone],
+  );
+  const hidden = all.length - cells.length;
   const [index, setIndex] = useState(0);
   const [stack, setStack] = useState<Done[]>([]);
   const [handled, setHandled] = useState<Set<string>>(new Set());
@@ -166,6 +176,11 @@ export function TinderBand({ name, sessionId, cells, onWritten, onError, onDone 
         <Badge variant="outline">
           {done} done · {cells.length - done} left
         </Badge>
+        {hidden > 0 || showDone ? (
+          <Button onClick={() => setShowDone((s) => !s)} size="sm" variant="outline">
+            {showDone ? "hide already labeled" : `show ${hidden} already labeled`}
+          </Button>
+        ) : null}
         <span className="font-mono">
           {cell.square} @ {cell.frame} · FEN says {cell.fen_label} · score {cell.score.toFixed(2)}
         </span>
