@@ -17,6 +17,24 @@ entry when the file arrives, not when someone needs it.
 - **hands** — whether hands enter the frame. Not a defect: it is the entire point of the
   `occluded` class, and a recording that is otherwise unusable can still carry it.
 
+## How `data/videos/` is laid out
+
+Four folders, and the split is by **how the pipeline has to treat the recording**, not by subject.
+Files keep their original names — the name is the only link back to the camera roll, and renaming
+it would break the one thing that survives outside this repo.
+
+| folder | the position | the geometry | the path through the pipeline |
+|---|---|---|---|
+| `game/` | changes move by move | one quad, camera still | `:desktop replay <v> label` -> `realgames confirm` -> `export-session` |
+| `standing-fixed/` | constant | one quad, camera still | `:desktop undistort` -> `export_static` with the FEN stated below |
+| `standing-turntable/` | constant | **a quad per frame** — the board rotates, a median quad is meaningless | as above, but the per-frame quad is mandatory |
+| `unsorted/` | unknown | unknown | nothing runs on it until a human fills in its row here |
+
+`unsorted/` is not a dumping ground, it is a QUEUE: a recording sits there exactly as long as
+nobody has said what is on it. Measurement can narrow it down — piece count, whether the position
+changes, whether the board moves — but the last word is a human's, because the model that would
+otherwise decide is the same one the labels are meant to train.
+
 ## Recordings
 
 | file | position | board | hands | notes |
