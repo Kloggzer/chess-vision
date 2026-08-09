@@ -384,10 +384,11 @@ private fun EngineState.recoveryVoteConfirmed(
     key: String,
 ): Boolean {
     // Two arms, deliberately summed: the model's own occluded head (blind on 13-class models)
-    // and the grid-groove read of the same frame (model-free, `CnnSnapshot.gridOccluded`).
+    // and the grid-groove read of the same frame — hand-shaped clusters only (`gridHandSquares`;
+    // a lone standing flag is a leaning piece and would refuse every vote for minutes).
     val occludedSquares =
         Squares.ALL.count { snap.obs.pOccluded(it) > P_OCCLUDED_THR } +
-            (if (config.gridHandGate) snap.gridOccluded.countOneBits() else 0)
+            gridHandSquares(snap).countOneBits()
     return when {
         occludedSquares > RECOVERY_OCCLUDED_LIMIT -> {
             recoveryConfirmer.reset()

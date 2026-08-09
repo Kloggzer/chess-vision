@@ -35,6 +35,7 @@ import cv2
 import numpy as np
 
 from . import config
+from . import grid_occlusion as grid
 from .calibration import load_profile
 from .labeling import all_squares, crops_for_frame, read_log, read_session_meta
 from .state import GameState
@@ -56,6 +57,16 @@ MIN_GAMUT_SQUARES = 8  # `Gamut.kt` MIN_USABLE_SQUARES
 SAMPLES = 3  # Quiet frames drawn per interval; `quiet_pool` spans 2*SPAN+1 of them, so K <= 21.
 SPAN = 3
 FULL = 2.0  # A channel saturates at FULL x the cell's own worst quiet excursion above its floor.
+
+# The grid channel (grid_occlusion.py). Scores by missing-edge count: the hand's CORE erases all
+# four grooves of a square, its rim two — the same staffelung the tracker's veto measured. The
+# +-DEADZONE_FRAMES fringe inherits the nearest hand frame's squares at DEADZONE_SCORE: the
+# sensor is blind to the motion-blurred entry/exit (measured on 003957 ply 8: 1 frame in, 2 out),
+# so those cells sit between `lo` and `hi` — never auto-occluded, never silently clean, a human
+# decides (the user's call, 2026-08-10).
+GRID_SCORE_BY_EDGES = {2: 0.5, 3: 0.7, 4: 0.85}
+DEADZONE_FRAMES = 3
+DEADZONE_SCORE = 0.35
 
 # Row-major 3x3 scan skipping the centre — `Census.kt`'s bit order.
 _OFFSETS = ((-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1))
@@ -194,6 +205,47 @@ def score_cells(reference: dict, cells: list[np.ndarray]) -> list[float]:
     return out
 
 
+def grid_channel(session_dir: Path, intervals: dict, profile) -> dict[str, dict[str, float]]:
+    """Per dirty frame stem: the grid-groove channel's per-square scores.
+
+    A hand frame (adjacent-pair rule, `grid_occlusion.hand_squares`) scores its flagged squares
+    by missing-edge count; the +-DEADZONE_FRAMES fringe inherits the nearest hand frame's squares
+    at DEADZONE_SCORE. Only dirty rows are read — the blurred entry/exit is motion-dirty by
+    construction, so the fringe never hides inside a quiet interval.
+    """
+    dirty = sorted(
+        (r for b in intervals.values() for r in b["dirty"]),
+        key=lambda r: int(Path(r["frame"]).stem),
+    )
+    pad = grid.crop_border_px(profile)
+    hands: dict[int, dict[str, int]] = {}
+    for row in dirty:
+        frame = cv2.imread(str(session_dir / row["frame"]))
+        if frame is None:
+            continue
+        warped = grid.warp_padded(frame, row["corners"], profile, pad)
+        gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        edges = grid.missing_edges(gray, profile.board_size, pad, white_pov=profile.white_pov)
+        squares = grid.hand_squares(edges)
+        if squares:
+            hands[int(Path(row["frame"]).stem)] = {s: edges[s] for s in squares}
+    scores: dict[str, dict[str, float]] = {}
+    for row in dirty:
+        n = int(Path(row["frame"]).stem)
+        if n in hands:
+            scores[Path(row["frame"]).stem] = {
+                s: GRID_SCORE_BY_EDGES[min(e, 4)] for s, e in hands[n].items()
+            }
+            continue
+        near = next(
+            (hands[m] for d in range(1, DEADZONE_FRAMES + 1) for m in (n - d, n + d) if m in hands),
+            None,
+        )
+        if near is not None:
+            scores[Path(row["frame"]).stem] = dict.fromkeys(near, DEADZONE_SCORE)
+    return scores
+
+
 def rows_by_interval(log: list[dict]) -> dict[int, dict[str, list[dict]]]:
     """`ply -> {"quiet": [...], "dirty": [...]}` — the intervals the exporter wrote."""
     out: dict[int, dict[str, list[dict]]] = {}
@@ -230,20 +282,29 @@ def quiet_pool(intervals: dict, ply: int) -> list[dict]:
 
 
 def proposal_rows(
-    session_dir: Path, *, hi: float, progress: bool = True, model_dir: Path | None = None
+    session_dir: Path,
+    *,
+    hi: float,
+    progress: bool = True,
+    model_dir: Path | None = None,
+    grid_on: bool = True,
 ) -> tuple[list[dict], list[int]]:
     """Every dirty cell of a session as a proposal row, plus the plies that had no reference.
 
     With [model_dir] a trained model scores the same cells as a SECOND proposer
     (`occluded_model.py` — suggestions for a human, refused on its own training sessions). The
-    two channels stay in their own columns and `score` is their MAX: either channel seeing an
-    occluder is evidence, and a disagreement must stay readable in the file. The model's
-    threshold is the same `hi`, which is a judgement — a softmax probability and a pixel
-    mismatch are not the same scale — and the calibration table is the way to settle it.
+    channels stay in their own columns and `score` is their MAX: any channel seeing an occluder
+    is evidence, and a disagreement must stay readable in the file. The model's threshold is the
+    same `hi`, which is a judgement — a softmax probability and a pixel mismatch are not the same
+    scale — and the calibration table is the way to settle it.
+
+    [grid_on] adds the THIRD channel: the grid-groove hand read (`grid_occlusion.py`), including
+    the +-3-frame low-confidence deadzone around each hand.
     """
     meta = read_session_meta(session_dir)
     profile = load_profile(meta["profile"])
     intervals = rows_by_interval(read_log(session_dir))
+    grid_scores = grid_channel(session_dir, intervals, profile) if grid_on else {}
     squares = all_squares()
     rows: list[dict] = []
     skipped: list[int] = []
@@ -270,8 +331,9 @@ def proposal_rows(
             # and the interval FEN has not caught up. No proposal is made about them: the human
             # would be asked "keep empty?" about a square that plainly holds a pawn.
             unknown = set(row.get("unknown_squares") or ())
+            gcell = grid_scores.get(stem, {})
             rows += [
-                _proposal(meta["session_id"], stem, sq, labels[sq], s, p, hi)
+                _proposal(meta["session_id"], stem, sq, labels[sq], s, p, hi, gcell.get(sq, 0.0))
                 for sq, s, p in zip(squares, scores, probs, strict=True)
                 if sq not in unknown
             ]
@@ -298,16 +360,18 @@ def _proposal(
     pixel: float,
     probs: dict[str, float],
     hi: float,
+    grid_score: float = 0.0,
 ) -> dict:
-    """One row. `score` is the max of the two channels; both stay readable next to it.
+    """One row. `score` is the max of the channels; each stays readable next to it.
 
     `probs` is what makes the relabel UI's filter possible ("every board with a cell the model
     reads occluded > 0.1", "every board where the model disagrees with the FEN") — the producer
     cannot know which question a human will ask, so it ships the distribution instead of one
-    more threshold. Sparse: classes under `PROB_FLOOR` are omitted.
+    more threshold. Sparse: classes under `PROB_FLOOR` are omitted. `grid_score` is the groove
+    read's say — DEADZONE_SCORE marks the blur fringe, deliberately between `lo` and `hi`.
     """
     model = probs.get("occluded", 0.0)
-    score = max(pixel, model)
+    score = max(pixel, model, grid_score)
     row = {
         "session_id": session_id,
         "frame": stem,
@@ -319,6 +383,8 @@ def _proposal(
     if probs:
         row["pixel_score"] = round(pixel, 4)
         row["probs"] = probs
+    if grid_score > 0.0:
+        row["grid_score"] = round(grid_score, 4)
     return row
 
 
@@ -333,13 +399,18 @@ def write_proposals(path: Path, rows: list[dict], *, hi: float, lo: float) -> Pa
 
 
 def propose_occluded(
-    name: str, *, hi: float = 0.7, lo: float = 0.3, model_dir: Path | None = None
+    name: str,
+    *,
+    hi: float = 0.7,
+    lo: float = 0.3,
+    model_dir: Path | None = None,
+    grid_on: bool = True,
 ) -> dict:
     """Score every dirty cell of `data/sessions/rg-<name>/` into `occluded-proposals.jsonl`."""
     session_dir = config.DATA.sessions / f"rg-{name}"
     if not (session_dir / "log.jsonl").exists():
         raise FileNotFoundError(f"{name}: no exported session at {session_dir}")
-    rows, skipped = proposal_rows(session_dir, hi=hi, model_dir=model_dir)
+    rows, skipped = proposal_rows(session_dir, hi=hi, model_dir=model_dir, grid_on=grid_on)
     path = write_proposals(
         config.DATA.root / "realgames" / name / "occluded-proposals.jsonl", rows, hi=hi, lo=lo
     )

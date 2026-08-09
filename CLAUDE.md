@@ -99,9 +99,14 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
   MODEL-FREE hand arm beside the blind one:** `CnnSnapshot.gridOccluded` (geometry
   `gridOccludedSquares` — the alignment fit's band-wise groove read, kept per segment, cut from
   the FULL-resolution crop warp; at detSize the noise floor drowns it). Behind `gridHandGate`
-  (default on) it blocks verify votes, recovery votes and feeds `handInFrame`. Measured on
-  003957's reference confirm: 38/67 plies with 4 invented → **67/67 with 0**, attributed by A/B
-  (`cnnPlyCostSquares=1` alone kills the fabricated bridge, the grid arm also kills the
+  (default on) it blocks verify votes, recovery votes and feeds `handInFrame` — but only when
+  the flags are HAND-SHAPED: at least one pair of orthogonally adjacent flagged squares
+  (`gridHandSquares`). Both alternatives are measured failures: counting any flag, a single
+  leaning piece (c8, flagged on 73 % of 222741's frames) blanks a whole replay to zero plies;
+  a count threshold of 3 lets the leaving hand's 2-flag tail (always neighbours) commit the
+  fabrication it exists to stop. Measured on 003957's reference confirm: 38/67 plies with 4
+  invented → **67/67 with 0** (raw map) / **67 plies, LCS 65/67** (adjacency rule), attributed
+  by A/B (`cnnPlyCostSquares=1` alone kills the fabricated bridge, the grid arm also kills the
   hand-committed entry). The count-discount and the ledger's `occl=` field still read only the
   model — the pitfall stands for them.
 

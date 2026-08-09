@@ -126,6 +126,12 @@ internal fun pendingState(
     return state
 }
 
+/** a1+a2+a3 — adjacent flags, the shape a hand leaves ([gridHandSquares]). */
+internal const val HAND_CLUSTER = 0b111L
+
+/** a1+h8 — two flags with no adjacency: a leaning piece plus noise, never a hand. */
+internal const val SCATTERED_FLAGS = (1L shl 0) or (1L shl 63)
+
 /** `_mk_snap` — a seq-tagged snapshot as the free-running observer would deliver it. */
 internal fun snapOf(
     state: EngineState,

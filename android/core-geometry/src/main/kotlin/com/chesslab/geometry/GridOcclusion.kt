@@ -69,16 +69,18 @@ private fun gridSegments(
                 BooleanArray(BOARD_SIDE) { !readOuter && (k == 0 || k == BOARD_SIDE) }
             }
         }
-    for (axis in 0..1) {
-        for (b in 0 until BOARD_SIDE) {
-            val s0 = pyRound(pad + b * bh)
-            val s1 = pyRound(pad + (b + 1) * bh)
-            if (s1 <= s0) continue
-            val prof = if (axis == 0) g.columnMedians(s0, s1) else g.rowMedians(s0, s1)
-            val pos = profileLines(prof, p.cell, p.span, p.csp, pad.toDouble(), if (readOuter) p.outerSpan else 0)
-            for (k in 0 until LINES_PER_AXIS) {
-                if (!pos[k].isNaN()) found[axis][k][b] = true
-            }
+    // One flat loop over axis x band, not two nested ones — the slot arithmetic is the whole
+    // difference and it keeps the groove-marking loop inside detekt's depth budget.
+    for (slot in 0 until 2 * BOARD_SIDE) {
+        val axis = slot / BOARD_SIDE
+        val b = slot % BOARD_SIDE
+        val s0 = pyRound(pad + b * bh)
+        val s1 = pyRound(pad + (b + 1) * bh)
+        if (s1 <= s0) continue
+        val prof = if (axis == 0) g.columnMedians(s0, s1) else g.rowMedians(s0, s1)
+        val pos = profileLines(prof, p.cell, p.span, p.csp, pad.toDouble(), if (readOuter) p.outerSpan else 0)
+        for (k in 0 until LINES_PER_AXIS) {
+            if (!pos[k].isNaN()) found[axis][k][b] = true
         }
     }
     return found

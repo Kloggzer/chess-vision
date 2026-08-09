@@ -59,14 +59,15 @@ class VerifySingleTest {
      * The 003957 ply-39 incident (2026-08-09): a resting hand over the destination read
      * "confidently occupied" — `pOccluded` is identically 0.0 under a 13-class model — and the
      * confirm rung committed a fabricated `g4` through it. The grid-groove read of the observed
-     * frame is the model-free witness, and while it reports ANY square, the glance may neither
-     * confirm nor reject: no vote, no verdict, liveness advances.
+     * frame is the model-free witness, and while it reports a HAND-SHAPED cluster
+     * (`GRID_HAND_MIN_SQUARES`), the glance may neither confirm nor reject: no vote, no verdict,
+     * liveness advances.
      */
     @Test
     fun aGridOccludedGlanceNeitherConfirmsNorRejects() {
         val state = pendingState()
         val wouldCommit = VerifyEvaluator(occAgree = 1.0, occN = 2)
-        val events = VerifySingle.tick(state, wouldCommit, snapOf(state, VerifyObs(), gridOccluded = 1L))
+        val events = VerifySingle.tick(state, wouldCommit, snapOf(state, VerifyObs(), gridOccluded = HAND_CLUSTER))
 
         assertTrue(events.isEmpty())
         assertEquals(emptyList<String>(), state.history)
@@ -76,8 +77,28 @@ class VerifySingleTest {
 
         // The A/B door: with the gate off the same glance commits, exactly as before the sensor.
         state.config = state.config.copy(gridHandGate = false)
-        VerifySingle.tick(state, wouldCommit, snapOf(state, VerifyObs(), gridOccluded = 1L))
+        VerifySingle.tick(state, wouldCommit, snapOf(state, VerifyObs(), gridOccluded = HAND_CLUSTER))
         assertEquals(listOf("e4"), state.history)
+    }
+
+    /**
+     * The c8 lesson of VID_20260802_222741: ONE square flagged on 73 % of all frames — a piece
+     * leaning over its own grooves, standing for minutes — and gating on the raw map blanked the
+     * whole replay to zero plies. A lone flag is furniture, not a hand; it must not block. Nor
+     * may two flags WITHOUT adjacency — that is the leaning piece plus scattered noise, and a
+     * count threshold that blocked on it is how c8 kept blanking frames. A hand always leaves
+     * neighbouring flags (its trailing edge is h3+h2 — a pair), which is the whole rule.
+     */
+    @Test
+    fun flagsWithoutAdjacencyAreNotAHand() {
+        val state = pendingState()
+        val wouldCommit = VerifyEvaluator(occAgree = 1.0, occN = 2)
+        VerifySingle.tick(state, wouldCommit, snapOf(state, VerifyObs(), gridOccluded = 1L))
+        assertEquals(listOf("e4"), state.history, "a single flagged square must not hold the commit")
+
+        val scattered = pendingState()
+        VerifySingle.tick(scattered, wouldCommit, snapOf(scattered, VerifyObs(), gridOccluded = SCATTERED_FLAGS))
+        assertEquals(listOf("e4"), scattered.history, "two non-adjacent flags must not hold the commit")
     }
 
     @Test

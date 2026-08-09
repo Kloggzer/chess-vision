@@ -375,3 +375,36 @@ the diff+verify path. The sensor reads a hand on ~39 % of this blitz-paced video
 cost zero real moves — a verify vote just waits for the first clean glance after the hand
 leaves. Every eyeballed "far from any commit" flag was a real hand (the game outlived the
 tracker's old break, so hands continue after the last baseline commit).
+
+### 2026-08-10, night — the hand is an ADJACENT PAIR, and the grid read becomes a labeling channel
+
+The full-frame sweep of both recordings exposed the raw map's standing false positive: on
+VID_20260802_222741 ONE square (c8, a piece leaning over its own grooves) reads flagged on
+**73 % of all frames**, for minutes at a time — and the raw-map gate blanked that entire replay
+to ZERO plies. A count threshold of 3 heals 222741 and breaks 003957 the other way: the LEAVING
+hand trails off through 2-flag frames (h3+h2 — always neighbours) and the fabricated `g4`
+confirmed through exactly that tail. The rule that separates both measured failure modes is
+SPATIAL, per observation, with no temporal state (the user's call): **a hand is at least one
+pair of orthogonally adjacent flagged squares** (`gridHandSquares`, `SQ_NEIGHBOURS`).
+
+| gate rule | 003957 (67-ply reference) | 222741 (no reference; nogate = 28) |
+|---|---|---|
+| any flag (raw map) | **67/67, 0 invented** | **0 plies** — c8 blanks the replay |
+| count >= 3 | 39 plies (g4 through the 2-flag tail) | 28 |
+| adjacent pair | **67 plies, LCS 65/67** — one 2-ply transposition via an honest recovery bridge, same final position | **28** |
+
+**The labeling side** (the user's design, 2026-08-10): the tracker gets NO temporal extension;
+the ±3-frame deadzone lives in the exporter's proposal channel only. `propose-occluded` grew a
+third channel (`grid_occlusion.py`, the Python mirror of `GridOcclusion.kt`, pinned by
+`tests/test_grid_occlusion.py`): hand frames score flagged squares by missing-edge count
+(2 → 0.5, 3 → 0.7, 4 → 0.85), and the ±3-frame blur fringe — measured 1 frame on entry, 2 on
+exit — inherits the nearest hand's squares at 0.35, between `lo` and `hi`: never auto-occluded,
+never silently clean. Regenerated on rg-2026-08-08-00-39-57: 48 089 proposals, 705 occluded at
+hi 0.7, **297 of them from the grid channel alone**; stratified eyeball draw 15/15 correct in
+the auto bands (0.5–0.85: skin fills, sleeves, a watch over a pawn), the 0.35 band mixed by
+design.
+
+False-positive verdict of the sweeps: on 003957 every checked flag was a real hand (the 26
+"far from any commit" groups all end 2–3.5 s before the next commit — the reaching hand; the
+post-ply-42 flags are the game outliving the old tracker). On 222741 the raw map's only
+systematic false positive is the standing c8 flag, which the adjacency rule removes.

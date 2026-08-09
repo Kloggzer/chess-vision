@@ -464,6 +464,9 @@ def realgames_propose_occluded(
                                      help="Run dir of a 14-class model that PROPOSES too "
                                           "(e.g. data/models/occ-14c-occl-lre3). Refused on a "
                                           "session the model was trained on."),
+    grid: bool = typer.Option(True, "--grid/--no-grid",
+                              help="The grid-groove hand read as a third channel, including the "
+                                   "+-3-frame low-confidence deadzone around each hand."),
 ) -> None:
     """Score every dirty cell of the exported session against its interval's clean median.
 
@@ -471,13 +474,14 @@ def realgames_propose_occluded(
     ledger's `occl=` field is structurally 0.0 under every 13-class model. Inside a confirmed
     interval the position IS known, so a census mismatch plus a colour-gamut escape against that
     interval's own quiet frames separates "something replaced the content" from "a shadow fell on
-    it". This proposes; a human decides (specs/53-02/03).
+    it" — and the board's own grid grooves say WHERE a hand lies, model-free
+    (`grid_occlusion.py`). This proposes; a human decides (specs/53-02/03).
     """
     from . import occluded as occluded_mod
 
     try:
         r = occluded_mod.propose_occluded(
-            name, hi=hi, lo=lo, model_dir=Path(model) if model else None)
+            name, hi=hi, lo=lo, model_dir=Path(model) if model else None, grid_on=grid)
     except (FileNotFoundError, ValueError, KeyError) as e:
         print(f"[ERR] {e}")
         raise typer.Exit(1) from e

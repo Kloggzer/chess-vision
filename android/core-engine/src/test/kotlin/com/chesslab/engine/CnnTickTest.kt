@@ -220,8 +220,8 @@ class CnnTickTest {
         val state = recoveryState()
         val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.99)
         val obs = obsForBoard(state.board)
-        state.cnnTick(cnn, recoverySnap(state, obs, seq = 21, gridOccluded = 1L))
-        state.cnnTick(cnn, recoverySnap(state, obs, seq = 22, gridOccluded = 1L))
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 21, gridOccluded = HAND_CLUSTER))
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 22, gridOccluded = HAND_CLUSTER))
         assertEquals(emptyList<String>(), state.history)
         assertTrue(state.note!!.contains("occluded"), state.note!!)
 

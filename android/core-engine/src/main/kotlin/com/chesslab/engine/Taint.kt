@@ -1,6 +1,7 @@
 package com.chesslab.engine
 
 import com.chesslab.engine.api.CnnObservation
+import com.chesslab.engine.api.CnnSnapshot
 
 /**
  * Maximum age of a CNN snapshot that may still arbitrate an occlusion (`_OBS_MAX_AGE_S`). Older
@@ -102,7 +103,28 @@ internal fun EngineState.handInFrame(): Boolean {
     val snap = freshSnapshot() ?: return false
     // The grid arm is the model-free half of the snapshot signal: `readsOccludedAnywhere` is
     // identically false under every 13-class model (CLAUDE.md pitfall), the groove read is not.
-    return snap.obs.readsOccludedAnywhere() || (config.gridHandGate && snap.gridOccluded != 0L)
+    return snap.obs.readsOccludedAnywhere() || gridHandSquares(snap) != 0L
+}
+
+/**
+ * The grid-groove map, but only when it is shaped like a HAND: at least one PAIR of orthogonally
+ * ADJACENT flagged squares. Purely spatial and per observation, deliberately — the tracker gets
+ * no temporal extension (the user's call of 2026-08-10; the labeling deadzone is the exporter's
+ * business, not this gate's).
+ *
+ * Both rejected alternatives are measured, on opposite videos. Counting ANY flag: one square
+ * (c8, a piece leaning over its own grooves) reads flagged on 73 % of VID_20260802_222741's
+ * frames and blanked that whole replay to ZERO plies. A plain count threshold of 3: the LEAVING
+ * hand of 003957's ply-39 incident trails off through 2-flag frames — h3+h2, always neighbours —
+ * and the fabricated `g4` confirmed through exactly that tail (67/67 fell back to 39). Every
+ * measured hand frame carries an adjacent pair; a leaning piece plus scattered noise never does.
+ */
+internal fun EngineState.gridHandSquares(snap: CnnSnapshot): Long {
+    if (!config.gridHandGate) return 0L
+    val squares = snap.gridOccluded
+    var paired = false
+    squares.forEachSquare { if ((SQ_NEIGHBOURS[it] and squares) != 0L) paired = true }
+    return if (paired) squares else 0L
 }
 
 /** Any square whose `occluded` class dominates — the observer's own hand report. */
