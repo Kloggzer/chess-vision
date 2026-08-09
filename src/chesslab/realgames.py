@@ -204,8 +204,28 @@ def known_segments(candidate: dict) -> list[dict]:
         start, end = int(move["frame"]), int(moves[i + 1]["frame"])
         if int(move["ply"]) not in reviewed or end <= start:
             continue
-        out.append({"ply": int(move["ply"]), "fen": move["fen_after"], "start": start, "end": end})
+        out.append(
+            {
+                "ply": int(move["ply"]),
+                "fen": move["fen_after"],
+                "start": start,
+                "end": end,
+                "next_touches": changed_squares(move["fen_after"], moves[i + 1].get("fen_after")),
+            }
+        )
     return out
+
+
+def changed_squares(before: str | None, after: str | None) -> list[str]:
+    """Squares whose occupant differs between two FENs — the next move's footprint.
+
+    Derived from the two positions rather than from the SAN so castling, captures and
+    en-passant need no special case: whatever changed, changed.
+    """
+    if not before or not after:
+        return []
+    a, b = GameState(before).labels(), GameState(after).labels()
+    return sorted(sq for sq in a if a[sq] != b.get(sq))
 
 
 def plan_rows(candidate: dict, *, margin_frames: int, every: int, dirty: bool) -> list[dict]:
@@ -216,6 +236,15 @@ def plan_rows(candidate: dict, *, margin_frames: int, every: int, dirty: bool) -
     `dirty: true`: a shadowed piece is still that piece, and which square is actually under an
     occluder is phase 02's proposal, never the exporter's guess. Sampling is a global stride over
     the source index, so a frame's stem does not depend on which window it fell into.
+
+    **The window BEFORE a commit is labeled short, and `unknown` is the honest word for it.** A
+    commit lands after the move is physically over — settle frames, then the confirmer — so the
+    trailing window holds frames where the piece has ALREADY moved while the interval's FEN still
+    describes the position before it. Found by the user while labeling (2026-08-09, frame 000813:
+    a pawn plainly on e5, FEN saying empty, commit `e5` 18 frames later). Only the squares the
+    NEXT move touches are in doubt, so only those are named — the other 60-odd cells of the same
+    frame are unaffected and stay labelable. `unknown_squares` travels with the row; `slice` does
+    not read it, phase 02 skips those cells, and no crop of them is ever built.
     """
     corners = [[float(x), float(y)] for x, y in candidate["geometry"]["corners"]]
     base, fps = base_time(candidate), video_fps(candidate)
@@ -243,6 +272,10 @@ def plan_rows(candidate: dict, *, margin_frames: int, every: int, dirty: bool) -
                 }
                 if is_dirty:
                     row["dirty"] = True
+                    # Only the TRAILING window is short-labeled: the leading one sits after its
+                    # own commit, where the FEN is already true.
+                    if lo == q1 and seg["next_touches"]:
+                        row["unknown_squares"] = seg["next_touches"]
                 rows.append(row)
     rows.sort(key=lambda r: r["frame"])
     return rows

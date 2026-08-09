@@ -15,6 +15,10 @@ export type DrilldownProps = {
   decided: Record<string, string>;
   onWritten: (n: number) => void;
   onError: (error: unknown) => void;
+  /** Squares the active filter hit on each frame — outlined, so the eye starts where the work is. */
+  hits?: Record<string, string[]>;
+  /** Where the queue came from, for the header line. */
+  queueNote?: string;
 };
 
 const SQUARES = Array.from({ length: 64 }, (_, i) => `${FILES[i % 8]}${8 - Math.floor(i / 8)}`);
@@ -28,7 +32,8 @@ type ByFrame = Record<string, Record<string, string>>;
  *
  * Pointer-enter bookkeeping over plain divs — one entered cell is one state update, no canvas.
  */
-export function Drilldown({ name, sessionId, frames, decided, onWritten, onError }: DrilldownProps) {
+export function Drilldown(props: DrilldownProps) {
+  const { name, sessionId, frames, decided, onWritten, onError, hits, queueNote } = props;
   const [at, setAt] = useState(0);
   const [eraser, setEraser] = useState(false);
   const [edits, setEdits] = useState<ByFrame>({});
@@ -120,6 +125,7 @@ export function Drilldown({ name, sessionId, frames, decided, onWritten, onError
       <div className="border-border bg-muted/30 flex flex-wrap items-center gap-3 rounded-lg border p-3 text-sm">
         <span className="font-mono">
           frame {stem} · ply {frame.ply} · {at + 1}/{frames.length}
+          {queueNote ? ` · ${queueNote}` : ""}
         </span>
         <Button disabled={at === 0} onClick={() => void go(-1)} size="sm" variant="outline">
           previous
@@ -184,9 +190,14 @@ export function Drilldown({ name, sessionId, frames, decided, onWritten, onError
                 : label !== fen[sq]
                   ? "bg-sky-500/40"
                   : "hover:bg-white/10";
+            // What the filter flagged, before you touch anything — an outline, never a label:
+            // the model asks the question, the brush answers it.
+            const flagged = hits?.[stem]?.includes(sq)
+              ? "outline outline-2 -outline-offset-2 outline-fuchsia-400"
+              : "";
             return (
               <div
-                className={`border border-white/10 ${tint}`}
+                className={`border border-white/10 ${tint} ${flagged}`}
                 key={sq}
                 onPointerDown={(event) => {
                   painting.current = {

@@ -460,6 +460,10 @@ def realgames_propose_occluded(
     hi: float = typer.Option(0.7, "--hi", help="Score above which a cell is PROPOSED occluded."),
     lo: float = typer.Option(0.3, "--lo",
                              help="Lower band edge — the review UI's boundary, not the producer's."),
+    model: str | None = typer.Option(None, "--model",
+                                     help="Run dir of a 14-class model that PROPOSES too "
+                                          "(e.g. data/models/occ-14c-occl-lre3). Refused on a "
+                                          "session the model was trained on."),
 ) -> None:
     """Score every dirty cell of the exported session against its interval's clean median.
 
@@ -472,7 +476,8 @@ def realgames_propose_occluded(
     from . import occluded as occluded_mod
 
     try:
-        r = occluded_mod.propose_occluded(name, hi=hi, lo=lo)
+        r = occluded_mod.propose_occluded(
+            name, hi=hi, lo=lo, model_dir=Path(model) if model else None)
     except (FileNotFoundError, ValueError, KeyError) as e:
         print(f"[ERR] {e}")
         raise typer.Exit(1) from e

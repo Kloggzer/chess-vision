@@ -24,8 +24,12 @@ export default async function ConfirmPage({ params }: PageProps<"/confirm/[name]
   const candidate = await loadCandidate(name);
   const truth = await truthSans(name);
   const moves = candidate.moves;
-  const { matched, invented, missed } = lcsReport(truth, moves.map((m) => m.san));
-  const missedSans = new Set(missed.map((i) => truth[i]));
+  // Without a `reference.pgn` there is nothing to match against, so EVERY ply is the human's to
+  // judge — the same review, minus the machine narrowing it down first.
+  const { matched, invented, missed } = truth
+    ? lcsReport(truth, moves.map((m) => m.san))
+    : { matched: [] as [number, number][], invented: moves.map((_, i) => i), missed: [] };
+  const missedSans = new Set(missed.map((i) => truth?.[i] ?? ""));
 
   const cards = await Promise.all(
     invented.map(async (index) => {
@@ -48,9 +52,20 @@ export default async function ConfirmPage({ params }: PageProps<"/confirm/[name]
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold">{name}</h1>
         <p className="text-muted-foreground text-sm">
-          {moves.length} candidate plies vs {truth.length} in reference.pgn — matched{" "}
-          <strong className="text-foreground">{matched.length}</strong>, unmatched{" "}
-          <strong className="text-foreground">{invented.length}</strong>, missed {missed.length}
+          {truth ? (
+            <>
+              {moves.length} candidate plies vs {truth.length} in reference.pgn — matched{" "}
+              <strong className="text-foreground">{matched.length}</strong>, unmatched{" "}
+              <strong className="text-foreground">{invented.length}</strong>, missed {missed.length}
+            </>
+          ) : (
+            <>
+              {moves.length} candidate plies · <strong className="text-foreground">no
+              reference.pgn</strong> — nothing to compare against, so every ply is yours to judge.
+              Drop a PGN at <code>data/realgames/{name}/reference.pgn</code> and reload to get the
+              automatic comparison instead.
+            </>
+          )}
           {candidate.confirmed ? (
             <Badge className="ml-2" variant="secondary">
               already confirmed {candidate.confirmed_at}
@@ -68,7 +83,7 @@ export default async function ConfirmPage({ params }: PageProps<"/confirm/[name]
         <ul className="text-muted-foreground mt-3 grid grid-cols-4 gap-x-4 gap-y-1 font-mono text-xs sm:grid-cols-6">
           {missed.map((i) => (
             <li key={i}>
-              {i + 1} {truth[i]}
+              {i + 1} {truth?.[i]}
             </li>
           ))}
         </ul>

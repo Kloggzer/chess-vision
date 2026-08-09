@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import type { Proposal, Streams as StreamSets } from "@/lib/proposals";
 import { BucketGrid } from "./bucket";
 import { Drilldown, type FrameInfo } from "./drilldown";
+import { FilterBar, type FilterAnswer, type FilterHit } from "./filter";
 import { TinderBand } from "./tinder";
 
 export type StreamProps = {
@@ -16,20 +17,24 @@ export type StreamProps = {
   frames: FrameInfo[];
   /** The next session with open proposals, or null — the done banner links to it. */
   next: string | null;
+  /** The default filter query, answered on the server (see `FilterBar.initial`). */
+  filter: FilterAnswer;
 };
 
-type Tab = "confirm" | "control" | "tinder" | "board";
+type Tab = "confirm" | "control" | "tinder" | "board" | "filter";
 
 /**
  * The three streams share two things and nothing else: the queue an exception falls into, and
  * the count of rows this session has written. Everything else lives in the stream that owns it.
  */
-export function Streams({ name, sessionId, streams, decided, frames, next }: StreamProps) {
+export function Streams({ name, sessionId, streams, decided, frames, next, filter }: StreamProps) {
   const [tab, setTab] = useState<Tab>("confirm");
   const [queue, setQueue] = useState<Proposal[]>([]);
   const [written, setWritten] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [doneTabs, setDoneTabs] = useState<Set<Tab>>(new Set());
+  /** A filter's answer, standing in for the full frame list until it is cleared. */
+  const [boardQueue, setBoardQueue] = useState<{ hits: FilterHit[]; label: string } | null>(null);
 
   const wrote = (n: number) => setWritten((w) => w + n);
   const failed = (e: unknown) => setError(String(e));
@@ -47,8 +52,17 @@ export function Streams({ name, sessionId, streams, decided, frames, next }: Str
     ["confirm", `bucket · occluded ${streams.confirm.length}`],
     ["control", `bucket · control ${streams.control.length}`],
     ["tinder", `tinder ${streams.tinder.length + queue.length}`],
-    ["board", `board drilldown ${frames.length}`],
+    ["board", boardQueue ? `board queue ${boardQueue.hits.length}` : `board drilldown ${frames.length}`],
+    ["filter", "filter by class"],
   ];
+
+  // The filter's boards, in its order, as the drilldown's queue — and the matched squares per
+  // frame so the brush starts where the model is suspicious instead of on an empty board.
+  const byStem = new Map(frames.map((f) => [f.stem, f]));
+  const queued: FrameInfo[] = (boardQueue?.hits ?? [])
+    .map((h) => byStem.get(h.stem) ?? { stem: h.stem, ply: 0, fen: "" })
+    .filter((f) => f.fen !== "");
+  const hits = Object.fromEntries((boardQueue?.hits ?? []).map((h) => [h.stem, h.squares]));
 
   return (
     <section className="space-y-4">
@@ -116,13 +130,37 @@ export function Streams({ name, sessionId, streams, decided, frames, next }: Str
       ) : null}
 
       {tab === "board" ? (
-        <Drilldown
-          decided={decided}
-          frames={frames}
+        <>
+          {boardQueue ? (
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <Badge variant="secondary">queue: {boardQueue.label}</Badge>
+              <Button onClick={() => setBoardQueue(null)} size="sm" variant="outline">
+                clear queue — back to all {frames.length} boards
+              </Button>
+            </div>
+          ) : null}
+          <Drilldown
+            decided={decided}
+            frames={boardQueue ? queued : frames}
+            hits={boardQueue ? hits : undefined}
+            key={boardQueue?.label ?? "all"}
+            name={name}
+            onError={failed}
+            onWritten={wrote}
+            queueNote={boardQueue?.label}
+            sessionId={sessionId}
+          />
+        </>
+      ) : null}
+
+      {tab === "filter" ? (
+        <FilterBar
+          initial={filter}
           name={name}
-          onError={failed}
-          onWritten={wrote}
-          sessionId={sessionId}
+          onQueue={(hits, label) => {
+            setBoardQueue({ hits, label });
+            setTab("board");
+          }}
         />
       ) : null}
     </section>

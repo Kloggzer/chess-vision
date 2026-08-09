@@ -7,6 +7,7 @@ record of what happened, not of what a human thought about it.
 """
 
 import json
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -113,6 +114,37 @@ def _export_candidate(tmp_path, monkeypatch, *, confirmed=True, frames=(100, 400
     }
     (d / "candidate.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return payload
+
+
+def test_the_pre_commit_window_names_what_it_cannot_vouch_for():
+    """The user's find of 2026-08-09: a pawn plainly on e5 while the FEN still said empty.
+
+    A commit lands after the move is physically over, so the window BEFORE it holds frames where
+    the next move has already happened. Only that move's squares are in doubt — they are named
+    `unknown_squares`, the rest of the board stays labelable, and the window AFTER a commit
+    names nothing because its FEN is already true.
+    """
+    start = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    after_e4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
+    after_e5 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
+    candidate = {
+        "geometry": {"corners": [[0, 0], [1, 0], [1, 1], [0, 1]]},
+        "clock": {"fps": 30.0},
+        "created_at": "2026-08-09T00:00:00Z",
+        "start_fen": start,
+        "reviewed_plies": [1, 2],
+        "moves": [
+            {"ply": 1, "san": "e4", "frame": 0, "fen_after": after_e4},
+            {"ply": 2, "san": "e5", "frame": 300, "fen_after": after_e5},
+        ],
+    }
+    rows = plan_rows(candidate, margin_frames=30, every=10, dirty=True)
+    trailing = [r for r in rows if 270 <= int(Path(r["frame"]).stem) < 300]
+    leading = [r for r in rows if int(Path(r["frame"]).stem) < 30]
+    assert trailing, "the pre-commit window must exist"
+    assert all(r["unknown_squares"] == ["e5", "e7"] for r in trailing), trailing[0]
+    assert all("unknown_squares" not in r for r in leading), "after a commit the FEN is true"
+    assert all("unknown_squares" not in r for r in rows if not r.get("dirty"))
 
 
 def test_export_refuses_unconfirmed(tmp_path, monkeypatch):

@@ -17,7 +17,47 @@ export type Proposal = {
   fen_label: string;
   proposed: string;
   score: number;
+  /** Pixel channel alone, present only when a model also scored the cell. */
+  pixel_score?: number;
+  /** The model's sparse per-class softmax (classes under 1 % omitted) — the filter's input. */
+  probs?: Record<string, number>;
 };
+
+export type Filter = {
+  /** A class name, or `disagree` = the model's argmax contradicts the FEN label. */
+  klass: string;
+  min: number;
+};
+
+/** Cells a filter selects. `disagree` needs no threshold beyond the model's own confidence. */
+export function matches(row: Proposal, f: Filter): boolean {
+  const probs = row.probs;
+  if (!probs) return false;
+  if (f.klass !== "disagree") return (probs[f.klass] ?? 0) >= f.min;
+  const [top, p] = Object.entries(probs).reduce((a, b) => (b[1] > a[1] ? b : a), ["", 0]);
+  return p >= f.min && top !== row.fen_label && top !== "occluded";
+}
+
+/** The BOARDS a filter hits: one entry per frame, with the cells that matched on it. */
+export function framesMatching(rows: Proposal[], f: Filter): { stem: string; cells: Proposal[] }[] {
+  const byFrame = new Map<string, Proposal[]>();
+  for (const row of rows) {
+    if (!matches(row, f)) continue;
+    const list = byFrame.get(row.frame);
+    if (list) list.push(row);
+    else byFrame.set(row.frame, [row]);
+  }
+  return [...byFrame.entries()]
+    .map(([stem, cells]) => ({ stem, cells }))
+    .sort((a, b) => b.cells.length - a.cells.length || a.stem.localeCompare(b.stem));
+}
+
+/** Every class the model actually emitted, so the filter offers real options only. */
+export function classesSeen(rows: Proposal[]): string[] {
+  const seen = new Set<string>();
+  for (const row of rows) for (const k of Object.keys(row.probs ?? {})) seen.add(k);
+  return [...seen].sort();
+}
 export type Thresholds = { hi: number; lo: number; declared: boolean };
 export type Proposals = {
   rows: Proposal[];

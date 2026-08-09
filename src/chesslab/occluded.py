@@ -230,15 +230,27 @@ def quiet_pool(intervals: dict, ply: int) -> list[dict]:
 
 
 def proposal_rows(
-    session_dir: Path, *, hi: float, progress: bool = True
+    session_dir: Path, *, hi: float, progress: bool = True, model_dir: Path | None = None
 ) -> tuple[list[dict], list[int]]:
-    """Every dirty cell of a session as a proposal row, plus the plies that had no reference."""
+    """Every dirty cell of a session as a proposal row, plus the plies that had no reference.
+
+    With [model_dir] a trained model scores the same cells as a SECOND proposer
+    (`occluded_model.py` — suggestions for a human, refused on its own training sessions). The
+    two channels stay in their own columns and `score` is their MAX: either channel seeing an
+    occluder is evidence, and a disagreement must stay readable in the file. The model's
+    threshold is the same `hi`, which is a judgement — a softmax probability and a pixel
+    mismatch are not the same scale — and the calibration table is the way to settle it.
+    """
     meta = read_session_meta(session_dir)
     profile = load_profile(meta["profile"])
     intervals = rows_by_interval(read_log(session_dir))
     squares = all_squares()
     rows: list[dict] = []
     skipped: list[int] = []
+    if model_dir is not None:
+        from .occluded_model import check_not_circular
+
+        check_not_circular(model_dir, meta["session_id"])
     for n, (ply, bucket) in enumerate(sorted(intervals.items()), 1):
         pool, dirty = quiet_pool(intervals, ply), bucket["dirty"]
         # Below three samples there is no leave-one-out second-smallest, i.e. no floor at all.
@@ -249,22 +261,65 @@ def proposal_rows(
         keep = [[GameState(r["fen"]).labels()[s] == labels[s] for s in squares] for r in pool]
         reference = interval_reference([frame_cells(session_dir, r, profile) for r in pool], keep)
         for row in dirty:
-            scores = score_cells(reference, frame_cells(session_dir, row, profile))
+            cells = frame_cells(session_dir, row, profile)
+            scores = score_cells(reference, cells)
+            probs = _model_probs(model_dir, cells)
             stem = Path(row["frame"]).stem
+            # The exporter marks the squares whose label this frame cannot vouch for — the next
+            # move's footprint inside the pre-commit window, where the piece has already moved
+            # and the interval FEN has not caught up. No proposal is made about them: the human
+            # would be asked "keep empty?" about a square that plainly holds a pawn.
+            unknown = set(row.get("unknown_squares") or ())
             rows += [
-                {
-                    "session_id": meta["session_id"],
-                    "frame": stem,
-                    "square": sq,
-                    "fen_label": labels[sq],
-                    "proposed": "occluded" if s > hi else "keep",
-                    "score": round(s, 4),
-                }
-                for sq, s in zip(squares, scores, strict=True)
+                _proposal(meta["session_id"], stem, sq, labels[sq], s, p, hi)
+                for sq, s, p in zip(squares, scores, probs, strict=True)
+                if sq not in unknown
             ]
         if progress:
             print(f"  ply {ply} ({n}/{len(intervals)}): +{64 * len(dirty)} rows")
     return rows, skipped
+
+
+def _model_probs(model_dir: Path | None, cells: list) -> list[dict[str, float]]:
+    """Sparse per-class probabilities per cell, or empty dicts when no model was given."""
+    if model_dir is None:
+        return [{} for _ in cells]
+    from .occluded_model import all_probs, model_classes, sparse
+
+    classes = model_classes(model_dir)
+    return [sparse(p, classes) for p in all_probs(model_dir, cells)]
+
+
+def _proposal(
+    session_id: str,
+    stem: str,
+    square: str,
+    fen_label: str,
+    pixel: float,
+    probs: dict[str, float],
+    hi: float,
+) -> dict:
+    """One row. `score` is the max of the two channels; both stay readable next to it.
+
+    `probs` is what makes the relabel UI's filter possible ("every board with a cell the model
+    reads occluded > 0.1", "every board where the model disagrees with the FEN") — the producer
+    cannot know which question a human will ask, so it ships the distribution instead of one
+    more threshold. Sparse: classes under `PROB_FLOOR` are omitted.
+    """
+    model = probs.get("occluded", 0.0)
+    score = max(pixel, model)
+    row = {
+        "session_id": session_id,
+        "frame": stem,
+        "square": square,
+        "fen_label": fen_label,
+        "proposed": "occluded" if score > hi else "keep",
+        "score": round(score, 4),
+    }
+    if probs:
+        row["pixel_score"] = round(pixel, 4)
+        row["probs"] = probs
+    return row
 
 
 def write_proposals(path: Path, rows: list[dict], *, hi: float, lo: float) -> Path:
@@ -277,12 +332,14 @@ def write_proposals(path: Path, rows: list[dict], *, hi: float, lo: float) -> Pa
     return path
 
 
-def propose_occluded(name: str, *, hi: float = 0.7, lo: float = 0.3) -> dict:
+def propose_occluded(
+    name: str, *, hi: float = 0.7, lo: float = 0.3, model_dir: Path | None = None
+) -> dict:
     """Score every dirty cell of `data/sessions/rg-<name>/` into `occluded-proposals.jsonl`."""
     session_dir = config.DATA.sessions / f"rg-{name}"
     if not (session_dir / "log.jsonl").exists():
         raise FileNotFoundError(f"{name}: no exported session at {session_dir}")
-    rows, skipped = proposal_rows(session_dir, hi=hi)
+    rows, skipped = proposal_rows(session_dir, hi=hi, model_dir=model_dir)
     path = write_proposals(
         config.DATA.root / "realgames" / name / "occluded-proposals.jsonl", rows, hi=hi, lo=lo
     )

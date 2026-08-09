@@ -60,10 +60,23 @@ export async function loadCandidate(name: string): Promise<Candidate> {
   return JSON.parse(await readFile(path.join(gameDir(name), "candidate.json"), "utf8"));
 }
 
-/** SANs of `reference.pgn`'s mainline — verified identical to python-chess on this corpus. */
-export async function truthSans(name: string): Promise<string[]> {
+/**
+ * SANs of `reference.pgn`'s mainline, or NULL when the game has no reference on disk.
+ *
+ * Absence is a legitimate state, not an error: a video can be tracked and labeled long before
+ * anyone types its PGN, and several already are. Null means "nothing to compare against", and
+ * the confirm view then puts every ply in front of the human instead of only the disagreeing
+ * ones — which is the same review, just without the machine narrowing it down first.
+ */
+export async function truthSans(name: string): Promise<string[] | null> {
+  let pgn: string;
+  try {
+    pgn = await readFile(path.join(gameDir(name), "reference.pgn"), "utf8");
+  } catch {
+    return null;
+  }
   const chess = new Chess();
-  chess.loadPgn(await readFile(path.join(gameDir(name), "reference.pgn"), "utf8"));
+  chess.loadPgn(pgn);
   return chess.history();
 }
 
@@ -103,7 +116,12 @@ export async function writeConfirmation(name: string, kept: number[]): Promise<n
 
   const candidate = JSON.parse(text) as Candidate;
   const truth = await truthSans(name);
-  const { matched, invented } = lcsReport(truth, candidate.moves.map((m) => m.san));
+  // No reference game: nothing is "matched", so the human's keeps ARE the reviewed plies. With
+  // one, the client may only decide the unmatched ones — the matched set is not its to change.
+  const all = candidate.moves.map((_, i) => i);
+  const { matched, invented } = truth
+    ? lcsReport(truth, candidate.moves.map((m) => m.san))
+    : { matched: [] as [number, number][], invented: all };
   const inventedSet = new Set(invented);
   const plies = reviewedPlies(candidate.moves, matched, kept.filter((j) => inventedSet.has(j)));
 

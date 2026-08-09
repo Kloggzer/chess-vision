@@ -2,7 +2,8 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { decidedKeys } from "@/lib/corrections";
 import { listGames } from "@/lib/data";
-import { loadProposals, proposalKey, splitStreams } from "@/lib/proposals";
+import { classesSeen, framesMatching, loadProposals, proposalKey, splitStreams } from "@/lib/proposals";
+import { DEFAULT_CLASS, DEFAULT_MIN } from "./filter";
 import { loadSession, sessionId } from "@/lib/session";
 import { Streams } from "./streams";
 
@@ -74,6 +75,14 @@ export default async function RelabelPage({ params }: PageProps<"/relabel/[name]
       ) : (
         <Streams
           decided={Object.fromEntries(decided)}
+          filter={{
+            classes: classesSeen(rows),
+            frames: framesMatching(rows, { klass: DEFAULT_CLASS, min: DEFAULT_MIN }).map((f) => ({
+              stem: f.stem,
+              squares: f.cells.map((c) => c.square),
+            })),
+            cells: 0,
+          }}
           frames={frames}
           name={name}
           next={await nextOpenSession(name)}
