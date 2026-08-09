@@ -23,8 +23,11 @@ export type Proposal = {
   probs?: Record<string, number>;
 };
 
+/** The one query that is not a class: the model's argmax contradicts the FEN label. */
+export const DISAGREE = "disagree";
+
 export type Filter = {
-  /** A class name, or `disagree` = the model's argmax contradicts the FEN label. */
+  /** A class name, or [DISAGREE]. */
   klass: string;
   min: number;
 };
@@ -33,7 +36,7 @@ export type Filter = {
 export function matches(row: Proposal, f: Filter): boolean {
   const probs = row.probs;
   if (!probs) return false;
-  if (f.klass !== "disagree") return (probs[f.klass] ?? 0) >= f.min;
+  if (f.klass !== DISAGREE) return (probs[f.klass] ?? 0) >= f.min;
   const [top, p] = Object.entries(probs).reduce((a, b) => (b[1] > a[1] ? b : a), ["", 0]);
   return p >= f.min && top !== row.fen_label && top !== "occluded";
 }
@@ -44,6 +47,19 @@ export function topRead(row: Proposal): { label: string; p: number } | null {
   if (!probs) return null;
   const [label, p] = Object.entries(probs).reduce((a, b) => (b[1] > a[1] ? b : a), ["", 0]);
   return label ? { label, p } : null;
+}
+
+/**
+ * What "yes, correct" WRITES for a matched cell — only the query knows what it asked.
+ *
+ * A threshold query is answered by its own class: "occluded >= 0.5" means the human confirms
+ * OCCLUDED, even where the model's argmax is something else, because a threshold question is not
+ * an argmax question. The disagree query has no class of its own, so there the answer is the
+ * model's top read, and a cell with no reading at all cannot be confirmed.
+ */
+export function acceptLabel(row: Proposal, f: Filter): string | null {
+  if (f.klass !== DISAGREE) return f.klass;
+  return topRead(row)?.label ?? null;
 }
 
 /** The BOARDS a filter hits: one entry per frame, with the cells that matched on it. */

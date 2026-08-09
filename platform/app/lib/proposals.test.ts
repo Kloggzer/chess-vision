@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "vitest";
-import { loadProposals, splitStreams } from "@/lib/proposals";
+import { acceptLabel, DISAGREE, loadProposals, splitStreams } from "@/lib/proposals";
 
 /** The pinned schema of specs/53-cnn-headroom/entry.md, header line included. */
 const LINES = [
@@ -70,4 +70,23 @@ test("the hand-written fixture parses exactly like the real artifact", async () 
   expect(streams.confirm.length).toBeGreaterThan(60); // a full page plus exceptions
   expect(streams.tinder.length).toBeGreaterThan(0);
   expect(streams.control.length).toBeGreaterThan(0);
+});
+
+test("confirming a threshold query writes its class, not the model's argmax", () => {
+  // The cell reads wP most strongly but carries enough occluded mass to match the query. The
+  // human answered the question that was ASKED — "is this occluded" — so `occluded` is written.
+  const row = { frame: "1", square: "e4", fen_label: "empty", proposed: "occluded", score: 0.6,
+                session_id: "s", probs: { wP: 0.55, occluded: 0.4 } };
+  expect(acceptLabel(row, { klass: "occluded", min: 0.3 })).toBe("occluded");
+});
+
+test("confirming a disagree query writes the model's own reading", () => {
+  const row = { frame: "1", square: "e4", fen_label: "empty", proposed: "keep", score: 0.2,
+                session_id: "s", probs: { wP: 0.8, empty: 0.1 } };
+  expect(acceptLabel(row, { klass: DISAGREE, min: 0.3 })).toBe("wP");
+});
+
+test("a cell the model never read cannot be confirmed by a disagree query", () => {
+  const row = { frame: "1", square: "e4", fen_label: "empty", proposed: "keep", score: 0.2, session_id: "s" };
+  expect(acceptLabel(row, { klass: DISAGREE, min: 0.3 })).toBeNull();
 });

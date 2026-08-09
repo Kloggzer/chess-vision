@@ -3,8 +3,15 @@
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DISAGREE } from "@/lib/proposals";
 
-export type FilterHit = { stem: string; squares: string[]; reads?: Record<string, string> };
+export type FilterHit = {
+  stem: string;
+  squares: string[];
+  reads?: Record<string, string>;
+  /** What "yes, correct" writes per matched cell — the server's answer to the query it was asked. */
+  accept?: Record<string, string>;
+};
 export type FilterAnswer = { classes: string[]; frames: FilterHit[]; cells: number };
 export type FilterProps = {
   name: string;
@@ -16,7 +23,6 @@ export type FilterProps = {
 
 /** Steps a human actually asks for. 0.1 is the "show me anything at all" end. */
 const STEPS = [0.05, 0.1, 0.25, 0.5, 0.75, 0.9];
-const DISAGREE = "disagree";
 /**
  * Which side of the interval a frame sits on (`lib/session.ts` `FramePhase`). Worth its own
  * control because the two are different work: after the commit the FEN is true and only the

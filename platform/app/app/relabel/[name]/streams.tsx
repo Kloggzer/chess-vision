@@ -64,6 +64,7 @@ export function Streams({ name, sessionId, streams, decided, frames, next, filte
     .filter((f) => f.fen !== "");
   const hits = Object.fromEntries((boardQueue?.hits ?? []).map((h) => [h.stem, h.squares]));
   const reads = Object.fromEntries((boardQueue?.hits ?? []).map((h) => [h.stem, h.reads ?? {}]));
+  const accepts = Object.fromEntries((boardQueue?.hits ?? []).map((h) => [h.stem, h.accept ?? {}]));
 
   return (
     <section className="space-y-4">
@@ -142,6 +143,7 @@ export function Streams({ name, sessionId, streams, decided, frames, next, filte
             </div>
           ) : null}
           <Drilldown
+            accepts={boardQueue ? accepts : undefined}
             decided={decided}
             frames={boardQueue ? queued : frames}
             hits={boardQueue ? hits : undefined}

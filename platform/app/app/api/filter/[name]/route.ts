@@ -1,5 +1,5 @@
 import { loadProposals } from "@/lib/proposals";
-import { classesSeen, framesMatching, topRead, type Filter } from "@/lib/proposals";
+import { acceptLabel, classesSeen, framesMatching, topRead, type Filter } from "@/lib/proposals";
 import { loadSession } from "@/lib/session";
 
 /**
@@ -30,6 +30,13 @@ export async function GET(request: Request, ctx: { params: Promise<{ name: strin
           f.cells.map((c) => {
             const t = topRead(c);
             return [c.square, t ? `${t.label} ${t.p.toFixed(2)}` : ""];
+          }),
+        ),
+        // What "yes, correct" writes per cell (`acceptLabel` — the rule, and its reasoning).
+        accept: Object.fromEntries(
+          f.cells.flatMap((c) => {
+            const label = acceptLabel(c, filter);
+            return label ? [[c.square, label]] : [];
           }),
         ),
       }));

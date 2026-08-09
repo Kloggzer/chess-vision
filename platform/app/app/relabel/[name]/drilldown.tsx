@@ -29,6 +29,9 @@ export type DrilldownProps = {
   hits?: Record<string, string[]>;
   /** `{stem: {square: "wP 0.87"}}` — what the model reads there, printed in the cell. */
   reads?: Record<string, Record<string, string>>;
+  /** `{stem: {square: label}}` — what "yes, correct" writes per matched cell. The API decides it,
+   *  because only the query knows what it asked (see the filter route). */
+  accepts?: Record<string, Record<string, string>>;
   /** Where the queue came from, for the header line. */
   queueNote?: string;
 };
@@ -58,7 +61,7 @@ type ByFrame = Record<string, Record<string, string>>;
  * Pointer-enter bookkeeping over plain divs — one entered cell is one state update, no canvas.
  */
 export function Drilldown(props: DrilldownProps) {
-  const { name, sessionId, frames, decided, onWritten, onError, hits, reads, queueNote } = props;
+  const { name, sessionId, frames, decided, onWritten, onError, hits, reads, accepts, queueNote } = props;
   const [at, setAt] = useState(0);
   const [eraser, setEraser] = useState(false);
   /** What the brush lays down. `occluded` is the common case, not the only one. */
@@ -118,15 +121,24 @@ export function Drilldown(props: DrilldownProps) {
   // so the two moving parts are mirrored into refs from an effect (never during render).
   const latest = useRef<Correction[]>([]);
   const flushRef = useRef(flush);
+  // Enter confirms the queue's answer, like the bucket grid's page — mirrored for the same reason:
+  // the key listener is subscribed once and must still call the CURRENT closure.
+  const confirmRef = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
     latest.current = pending;
     flushRef.current = flush;
-  }, [pending, flush]);
+    confirmRef.current = confirmQueue;
+  });
   useEffect(() => () => void flushRef.current(latest.current), []);
 
   // One key, one brush — the same letters the tinder band uses, so the two views are one habit.
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        void confirmRef.current();
+        return;
+      }
       const hit = PALETTE.find(([k]) => k === event.key);
       if (!hit) return;
       event.preventDefault();
@@ -172,6 +184,34 @@ export function Drilldown(props: DrilldownProps) {
     setAt((i) => Math.max(0, Math.min(frames.length - 1, i + delta)));
   }
 
+  /**
+   * "Yes, the filter is right here" — write the answer for the MATCHED cells only, then move on.
+   *
+   * The point of a filtered queue is that you are not reviewing 64 squares, you are answering one
+   * question about a handful ("nicht immer alles kontrollieren, sondern nur das, wonach ich
+   * gefiltert habe", 2026-08-09). So this touches nothing outside `accept`: the other cells keep
+   * the FEN's word and stay unjudged, which is the honest record of what a human actually looked
+   * at. A cell whose accepted label already matches what is on file writes no row.
+   */
+  const accept = accepts?.[stem] ?? {};
+  const acceptCells = Object.keys(accept);
+  const acceptLabels = [...new Set(Object.values(accept))];
+  const acceptable = Object.entries(accept).filter(([sq, label]) => (saved[stem]?.[sq] ?? base[sq]) !== label);
+
+  async function confirmQueue() {
+    // Anything hand-painted on this board wins over the filter's answer for the same square.
+    const painted = new Set(pending.map((r) => r.square));
+    const rows: Correction[] = [
+      ...pending,
+      ...acceptable
+        .filter(([sq]) => !painted.has(sq))
+        .map(([square, label]) => ({ session_id: sessionId, frame: stem, square, label })),
+    ];
+    setEdits((e) => ({ ...e, [stem]: { ...e[stem], ...accept } }));
+    await flush(rows);
+    setAt((i) => Math.min(frames.length - 1, i + 1));
+  }
+
   if (!frame) return <p className="text-muted-foreground text-sm">No proposal frames.</p>;
 
   return (
@@ -214,6 +254,23 @@ export function Drilldown(props: DrilldownProps) {
           write {pending.length} cells
         </Button>
       </div>
+
+      {Object.keys(accept).length > 0 ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-sky-800 bg-sky-950/40 p-3 text-sm">
+          <Button autoFocus={false} onClick={() => void confirmQueue()} size="sm">
+            ✓ confirm {acceptCells.length} {acceptCells.length === 1 ? "cell" : "cells"}
+            {acceptLabels.length === 1 ? ` as ${acceptLabels[0]}` : ""} → next board
+          </Button>
+          <span className="text-muted-foreground">
+            <kbd className="text-foreground">Enter</kbd> does the same. Only the outlined cells are
+            written — the other {64 - Object.keys(accept).length} keep the FEN&apos;s word and stay
+            unjudged, because you did not look at them.
+          </span>
+          <Button className="ml-auto" onClick={() => void go(1)} size="sm" variant="outline">
+            skip this board →
+          </Button>
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap gap-1">
         {PALETTE.map(([key, label]) => (
