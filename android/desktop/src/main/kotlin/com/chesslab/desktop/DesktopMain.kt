@@ -54,6 +54,7 @@ import kotlin.system.exitProcess
 fun main(args: Array<String>) {
     NativeCv.require()
     when (args.firstOrNull()) {
+        in FILE_TOOLS -> FILE_TOOLS.getValue(args.first())(args.drop(1))
         "cameras" -> probeCameras().ifEmpty { listOf("no camera answered on indices 0..3") }.forEach(::println)
         "replay" -> {
             val video = File(args.getOrNull(1) ?: usage())
@@ -64,8 +65,6 @@ fun main(args: Array<String>) {
             val index = args.getOrNull(1)?.toIntOrNull() ?: usage()
             WebcamSource(index).use { calibrate(it) }
         }
-        "undistort" -> undistortVideo(args.drop(1))
-        "rectify" -> rectifyVideo(args.drop(1))
         "align" -> alignCamera(args.getOrNull(1)?.toIntOrNull() ?: usage(), raw = args.getOrNull(2) == "raw")
         "track" -> {
             val index = args.getOrNull(1)?.toIntOrNull() ?: usage()
@@ -271,6 +270,7 @@ private fun usage(): Nothing {
         "  align <camera-index> [raw] measure the board against its grid; 'raw' skips the lens",
         "  undistort <video> <outDir> [every=N]  write the frames with the barrel taken out",
         "  rectify <video> <outDir> [frames=<f>|every=N] [size=N]  the straightened board, per frame",
+        "  crops <video> <outDir> [frames=<f>|every=N] [out=WxH]  the 64 square crops, as the device cuts them",
         "  replay <video.mp4> [options]  drive a recorded clip through the shipping tracker",
         "  track <camera-index> [options]  the same, live",
         "",
@@ -613,3 +613,14 @@ private const val PROBE_PATH = "../../tmp/lens-probe.png"
 
 /** Where the quad comparison lands. */
 private const val QUAD_PROBE_PATH = "../../tmp/quad-probe.png"
+
+/**
+ * The verbs that take a FILE and write files — grouped so `main` stays under detekt's complexity
+ * cap as they grow. They share a shape the camera verbs do not: no window, no engine, no clock.
+ */
+private val FILE_TOOLS: Map<String, (List<String>) -> Unit> =
+    mapOf(
+        "undistort" to ::undistortVideo,
+        "rectify" to ::rectifyVideo,
+        "crops" to ::cropsOfVideo,
+    )
