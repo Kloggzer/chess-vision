@@ -249,3 +249,84 @@ class-balance needs, not completionism.
   a framework), caching crops across intervals (would have cut ~40 % of the runtime and added a
   lifetime to reason about), and a `--span`/`--samples` CLI knob (two constants nobody has
   measured a second value for yet — a knob would invite tuning without a table).
+
+### 2026-08-09 — the dense arm's phantoms, named and priced (`5d6d26a`)
+
+Phase 04 left the dense-evaluation bar unmet with **12 phantoms** on rec-20260807-135238 and two
+named suspects: resync adoptions of hand-distorted positions, or verify-ladder commits. **Both are
+wrong.** All 12 are `cnn_recovery`. The 7 resyncs that ran in the same pass invented nothing, and
+the ladder contributed none.
+
+#### What they are — MEASURED
+
+They arrive in bursts at one frame (4103 two, 4519 one, 4767 four, 6641 two, 8437 three), and two
+bursts sit **on** a missed real ply:
+
+| missed, label frame | invented, run frame |
+|---|---|
+| `Bd7` 4770 | `Rc7 Kd1 Rd7 Ke1` 4767 |
+| `Qb4` 6635 | `b4 Qxb4+` 6641 |
+
+The same board difference explained by a LONGER sequence. `Kd1` followed by `Ke1` is a round trip
+that changes nothing — it is parity filler, because the observation demands two BLACK moves and
+those cannot be consecutive. The placement-keyed dedup in `_note` cannot collapse it: there is no
+shorter legal path to that placement.
+
+The mechanism is the ranking in `deriveMovesDeepFull`: hits first, length only as a tiebreak, with
+`marginSquares = 1`. One extra explained square bought four plies — and B↔R is the identity head's
+documented top confusion, so that square is exactly what a misread supplies.
+
+#### The occluded threshold is NOT involved — MEASURED, hypothesis refuted
+
+`P_OCCLUDED_THR = 0.5` was the other open question. At four of the five phantom frames the head
+reads `occl=0` across the eight preceding observations; at 4767 a hand of 20-21 cells had just
+cleared. **No lower threshold prevents any of the 12.** The per-observation distribution is sharply
+bimodal — 3 638 of 4 410 at zero, then a broad hump at 13-20 cells, max 27 — which is a hand and
+forearm, not a jittery threshold. Do not spend a round retuning it.
+
+#### The price, over the whole regression set (one observation cache, `tmp/batch/20260809-100544`)
+
+| video | mode | cost 0 | cost 1 | cost 2 |
+|---|---|---|---|---|
+| rec-0807 | dense | 17/8/**12** | 15/10/**1** | 10/15/**0** |
+| rec-0807 | default | 25/0/**0** | 25/0/**0** | 25/0/**0** |
+| VID_20260802 | default | 20/2/**5** | 20/2/**5** | 20/2/**5** |
+| 003957 | default | 67 plies | 67 plies | **14** plies |
+| 115912 | default | 61 plies | **51** plies | **51** plies |
+
+`cnnPlyCostSquares` **ships at 0** — behaviour unchanged. Cost 2 is phantom-free for a bad reason:
+it commits no recovery at all (0 of 17 deciders), and 003957 collapses. Cost 1 removes 11 of the 12
+dense phantoms but buys nothing in the served configuration, which has none, while 115912 loses 10
+plies whose correctness no reference can settle. **It is the setting for dense evaluation, not for
+the phone.**
+
+#### What is still open
+
+- **The dense bar is still unmet**: 15/10/1 is not 25/0/0. One `Qg5` recovery phantom survives at
+  cost 1, at frame 4103 — a SINGLE-ply bridge, which no length price touches.
+- **VID_20260802's 5 phantoms do not move at any cost.** They are not bridges and remain unexplained.
+- Ply count on a video with no reference PGN (003957, 115912) is not accuracy. The 10 plies cost 1
+  loses on 115912 could be real moves or phantoms; nothing on disk decides it.
+
+#### A defect found on the way, and the one it caused
+
+Chasing the `disagree` filter's 26-cell board (frame 004266 of 003957) refuted both guesses — every
+one of the 8 neighbour offsets scores worse than 0/0, and no position in the game matches the
+reading better than the labeled one (best rival 40/64 against 38/64). It is simply a badly read
+frame. But it surfaced this: **760 of 760 dirty rows carried no `unknown_squares`**, though all 38
+segments had a non-empty `next_touches`. The exporter fix of the same morning had never reached the
+data, because re-running the export meant decoding the whole video again. `decode_frames` now keeps
+frames already on disk (`1ef855b`).
+
+That made re-export cheap, and the first cheap re-export **overwrote the geometry repair**: 11
+fitted quads (and 7 on the other session) replaced by the candidate's median, corners moving up to
+16 px — a seventh of a cell, past alignment's 4 % criterion, silently. Rolled back from the
+pre-export copy and fixed properly: repaired per-frame geometry is carried over, keyed on evidence
+of repair rather than on `corners_source` alone, because `scan` writes its verdict without touching
+that field (`d35ce69`). Both sessions now hold the repair (11 and 7 quads, align medians 3.16 and
+2.97 px) AND the protection (380 and 610 rows), with a key-by-key diff against the pre-export logs
+showing `unknown_squares` as the only difference.
+
+**Consequence for phase 02:** the proposals on disk predate this and hold 790 + 1 280 cells (1.6 %)
+on squares the exporter now refuses to vouch for, 198 of them proposed `occluded`. Regenerate
+before the next labeling pass.
