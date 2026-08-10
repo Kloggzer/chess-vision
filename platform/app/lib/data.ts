@@ -20,6 +20,7 @@ export type Candidate = {
   name: string;
   confirmed?: boolean;
   confirmed_at?: string;
+  created_at?: string;
   reviewed_plies?: number[];
   start_fen?: string;
   moves: Move[];

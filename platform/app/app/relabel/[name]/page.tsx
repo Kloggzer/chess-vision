@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { judgedKeys } from "@/lib/corrections";
 import { listGames } from "@/lib/data";
+import { loadMeta } from "@/lib/meta";
 import { classesSeen, framesMatching, loadProposals, proposalKey, splitStreams } from "@/lib/proposals";
 import { DEFAULT_CLASS, DEFAULT_MIN } from "./filter";
 import { loadSession, sessionId } from "@/lib/session";
@@ -11,6 +12,8 @@ import { Streams } from "./streams";
 async function nextOpenSession(current: string): Promise<string | null> {
   for (const other of await listGames()) {
     if (other === current) continue;
+    // An archived game asks for no work — the forward link must not resurrect it.
+    if ((await loadMeta(other)).archived) continue;
     try {
       const { rows } = await loadProposals(other);
       if (rows.length === 0) continue;

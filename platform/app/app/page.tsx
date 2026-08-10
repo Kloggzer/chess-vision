@@ -1,14 +1,13 @@
-import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
 import { judgedKeys } from "@/lib/corrections";
-import { listGames } from "@/lib/data";
+import { listGames, loadCandidate, truthSans } from "@/lib/data";
+import { loadMeta } from "@/lib/meta";
 import { loadProposals, proposalKey } from "@/lib/proposals";
 import { sessionId } from "@/lib/session";
+import { GameCard, type GameInfo } from "./cards";
 
 export const dynamic = "force-dynamic";
 
-/** Decided = the proposal has a row in corrections.jsonl. A KEEP writes nothing by design
- *  (specs/53-03: no rows for confirmations that only repeat the FEN), so it cannot count here. */
+/** Decided = the proposal has a row in one of the two ledgers (corrections OR reviewed). */
 async function progress(name: string) {
   const { rows, source } = await loadProposals(name);
   if (rows.length === 0) return { total: 0, done: 0, source };
@@ -16,41 +15,49 @@ async function progress(name: string) {
   return { total: rows.length, done: rows.filter((r) => decided.has(proposalKey(r))).length, source };
 }
 
+async function gameInfo(name: string): Promise<GameInfo> {
+  const meta = await loadMeta(name);
+  const candidate = await loadCandidate(name).catch(() => null);
+  const pgn = await truthSans(name).catch(() => null);
+  return {
+    name,
+    title: meta.title ?? null,
+    archived: meta.archived ?? false,
+    createdAt: candidate?.created_at ?? null,
+    confirmed: candidate?.confirmed ?? false,
+    confirmedAt: candidate?.confirmed_at ?? null,
+    plies: candidate?.moves.length ?? 0,
+    reviewed: candidate?.reviewed_plies?.length ?? 0,
+    pgnPlies: pgn ? pgn.length : null,
+    ...(await progress(name)),
+  };
+}
+
 export default async function Home() {
-  const games = await listGames();
-  const rows = await Promise.all(games.map(async (name) => ({ name, ...(await progress(name)) })));
+  const games = await Promise.all((await listGames()).map(gameInfo));
+  const active = games.filter((g) => !g.archived);
+  const archived = games.filter((g) => g.archived);
 
   return (
     <main className="space-y-4">
       <h1 className="text-2xl font-semibold">Real-game candidates</h1>
       <ul className="space-y-2">
-        {rows.map((row) => (
-          <li className="border-border flex flex-wrap items-center gap-3 rounded-lg border p-3" key={row.name}>
-            <Link className="font-medium underline underline-offset-4" href={`/confirm/${row.name}`}>
-              {row.name}
-            </Link>
-            {row.total === 0 ? (
-              <span className="text-muted-foreground text-sm">no occluded proposals yet</span>
-            ) : (
-              <>
-                <Link className="text-sm underline underline-offset-4" href={`/relabel/${row.name}`}>
-                  relabel
-                </Link>
-                <span className="text-muted-foreground text-sm">
-                  {row.done} of {row.total} proposals decided
-                </span>
-                <span className="bg-muted h-2 w-40 overflow-hidden rounded">
-                  <span
-                    className="bg-primary block h-full"
-                    style={{ width: `${Math.round((row.done / row.total) * 100)}%` }}
-                  />
-                </span>
-                {row.source === "fixture" ? <Badge variant="destructive">fixture</Badge> : null}
-              </>
-            )}
-          </li>
+        {active.map((game) => (
+          <GameCard game={game} key={game.name} />
         ))}
       </ul>
+      {archived.length > 0 ? (
+        <details>
+          <summary className="text-muted-foreground cursor-pointer text-sm">
+            archiviert ({archived.length})
+          </summary>
+          <ul className="mt-2 space-y-2">
+            {archived.map((game) => (
+              <GameCard game={game} key={game.name} />
+            ))}
+          </ul>
+        </details>
+      ) : null}
       {games.length === 0 && (
         <p className="text-muted-foreground text-sm">
           Nothing under <code>$CHESSLAB_DATA_DIR/realgames</code>. Check <code>.env.local</code>.
