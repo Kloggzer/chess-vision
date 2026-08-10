@@ -50,11 +50,19 @@ export default async function RelabelPage({ params }: PageProps<"/relabel/[name]
   });
   const done = rows.filter((r) => decided.has(proposalKey(r))).length;
 
-  // The hand-painting queue: every board with occlusion suspicion above `lo`, CHRONOLOGICAL —
-  // a hand moves gradually, so painting in time order is one continuous gesture per hand, not a
-  // shuffle. `accept` is `occluded` for every suspect square: that is the question this queue
-  // asks. The read printed in the cell names the channel that raised it.
+  // The hand-painting queue: every board with HAND-SHAPED suspicion, CHRONOLOGICAL — a hand
+  // moves gradually, so painting in time order is one continuous gesture per hand, not a
+  // shuffle. Hand-shaped means the grid channel saw it (any grid_score, deadzone included) or
+  // the merged score clears `hi`; weak census-only cells stay in the unsure bucket — queueing
+  // them here put boards with no visible occlusion in front of the painter ("hat keine
+  // occlusion", 2026-08-10, frame 000342). `accept` is `occluded` for every suspect square,
+  // and the read printed in the cell names the channel that raised it.
   const hands = framesMatching(rows, { klass: "occluded", min: thresholds.lo })
+    .map((f) => ({
+      ...f,
+      cells: f.cells.filter((c) => (c.grid_score ?? 0) > 0 || c.score > thresholds.hi),
+    }))
+    .filter((f) => f.cells.length > 0)
     .sort((a, b) => a.stem.localeCompare(b.stem))
     .map((f) => ({
       stem: f.stem,

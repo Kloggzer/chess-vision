@@ -341,17 +341,21 @@ export function Drilldown(props: DrilldownProps) {
         <div className="absolute inset-0 grid grid-cols-8">
           {SQUARES.map((sq) => {
             const label = labels[sq];
+            // What the filter flagged, before you touch anything — an outline, never a label:
+            // the model asks the question, the brush answers it. 4 px and a fill on untouched
+            // cells, because 2 px next to the cell borders was invisible on a real board
+            // ("ich sehe nicht was da markiert ist", 2026-08-10). A painted cell keeps its
+            // paint colour; the outline alone says the flag.
+            const isFlagged = hits?.[stem]?.includes(sq) ?? false;
+            const flagged = isFlagged ? "outline outline-4 -outline-offset-4 outline-fuchsia-500" : "";
             const tint =
               label === "occluded"
                 ? "bg-amber-500/45"
                 : label !== fen[sq]
                   ? "bg-sky-500/40"
-                  : "hover:bg-white/10";
-            // What the filter flagged, before you touch anything — an outline, never a label:
-            // the model asks the question, the brush answers it.
-            const flagged = hits?.[stem]?.includes(sq)
-              ? "outline outline-2 -outline-offset-2 outline-fuchsia-400"
-              : "";
+                  : isFlagged
+                    ? "bg-fuchsia-500/15"
+                    : "hover:bg-white/10";
             const read = reads?.[stem]?.[sq];
             return (
               <div
