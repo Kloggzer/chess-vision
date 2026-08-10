@@ -136,13 +136,15 @@ export function Drilldown(props: DrilldownProps) {
   // so the two moving parts are mirrored into refs from an effect (never during render).
   const latest = useRef<Correction[]>([]);
   const flushRef = useRef(flush);
-  // Enter confirms the queue's answer, like the bucket grid's page — mirrored for the same reason:
+  // Enter confirms the queue's answer, Backspace rejects it — mirrored for the same reason:
   // the key listener is subscribed once and must still call the CURRENT closure.
   const confirmRef = useRef<() => Promise<void>>(async () => {});
+  const rejectRef = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
     latest.current = pending;
     flushRef.current = flush;
     confirmRef.current = confirmQueue;
+    rejectRef.current = rejectQueue;
   });
   useEffect(() => () => void flushRef.current(latest.current), []);
 
@@ -152,6 +154,11 @@ export function Drilldown(props: DrilldownProps) {
       if (event.key === "Enter") {
         event.preventDefault();
         void confirmRef.current();
+        return;
+      }
+      if (event.key === "Backspace") {
+        event.preventDefault();
+        void rejectRef.current();
         return;
       }
       const hit = PALETTE.find(([k]) => k === event.key);
@@ -235,6 +242,33 @@ export function Drilldown(props: DrilldownProps) {
     setAt((i) => nextOpen(i + 1));
   }
 
+  /**
+   * The OTHER answer to a flagged board: "not occluded — the FEN is right" ("wie de-occlude ich
+   * was? die fens stimmen", 2026-08-10). The unpainted flagged cells go to the REVIEW ledger with
+   * their standing label — looked at, correct, not a training row (the control bucket's rule) —
+   * so the flag never comes back; anything painted still leaves as a correction first.
+   */
+  async function rejectQueue() {
+    const painted = new Set(pending.map((r) => r.square));
+    const keep = acceptCells.filter((sq) => !painted.has(sq));
+    try {
+      await flush(pending);
+      onWritten(
+        await writeRows(
+          keep.map((square) => ({ session_id: sessionId, frame: stem, square, label: base[square] })),
+          "reviewed",
+        ),
+      );
+      setEdits((e) => ({
+        ...e,
+        [stem]: { ...e[stem], ...Object.fromEntries(keep.map((sq) => [sq, base[sq]])) },
+      }));
+      setAt((i) => nextOpen(i + 1));
+    } catch (error) {
+      onError(error);
+    }
+  }
+
   if (!frame) return <p className="text-muted-foreground text-sm">No proposal frames.</p>;
 
   return (
@@ -286,10 +320,13 @@ export function Drilldown(props: DrilldownProps) {
             ✓ confirm {acceptCells.length} {acceptCells.length === 1 ? "cell" : "cells"}
             {acceptLabels.length === 1 ? ` as ${acceptLabels[0]}` : ""} → next board
           </Button>
+          <Button onClick={() => void rejectQueue()} size="sm" variant="secondary">
+            ✗ nichts verdeckt — FEN stimmt → next board
+          </Button>
           <span className="text-muted-foreground">
-            <kbd className="text-foreground">Enter</kbd> does the same. Only the outlined cells are
-            written — the other {64 - Object.keys(accept).length} keep the FEN&apos;s word and stay
-            unjudged, because you did not look at them.
+            <kbd className="text-foreground">Enter</kbd> confirms, <kbd className="text-foreground">⌫</kbd>{" "}
+            rejects (recorded as reviewed, not a training row). Painted cells win either way; the
+            other {64 - Object.keys(accept).length} keep the FEN&apos;s word and stay unjudged.
           </span>
           <Button className="ml-auto" onClick={() => void go(1)} size="sm" variant="outline">
             skip this board →
