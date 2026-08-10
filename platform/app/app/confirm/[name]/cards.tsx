@@ -11,7 +11,10 @@ export type UnmatchedCard = {
   ply: number;
   san: string;
   frame: number;
-  stem: string | null;
+  /** The review frames on disk between this commit and the next, chronological. */
+  stems: string[];
+  /** Index into [stems] nearest the commit — where the card opens. */
+  start: number;
   duplicate: boolean;
   squares: { from: string; to: string } | null;
 };
@@ -85,6 +88,8 @@ export function UnmatchedCards({ name, cards }: { name: string; cards: Unmatched
   const [kept, setKept] = useState<Record<number, boolean>>({});
   const [zoom, setZoom] = useState<{ stem: string; squares: UnmatchedCard["squares"] } | null>(null);
   const [state, setState] = useState<"idle" | "writing" | string>("idle");
+  /** Which of a card's stems is showing — a commit can anchor mid-hand, so one frame is not enough. */
+  const [frameAt, setFrameAt] = useState<Record<number, number>>({});
 
   async function confirm() {
     setState("writing");
@@ -126,6 +131,14 @@ export function UnmatchedCards({ name, cards }: { name: string; cards: Unmatched
       <div className="grid gap-4 md:grid-cols-2">
         {cards.map((card) => {
           const isKept = !!kept[card.index];
+          const at = frameAt[card.index] ?? card.start;
+          const stem = card.stems[at] ?? null;
+          const offset = stem !== null ? Number(stem) - card.frame : 0;
+          const step = (delta: number) =>
+            setFrameAt((f) => ({
+              ...f,
+              [card.index]: Math.max(0, Math.min(card.stems.length - 1, at + delta)),
+            }));
           return (
             <Card
               key={card.index}
@@ -147,26 +160,48 @@ export function UnmatchedCards({ name, cards }: { name: string; cards: Unmatched
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {card.stem ? (
-                  <button
-                    className="border-border relative block w-full cursor-zoom-in overflow-hidden rounded border"
-                    onClick={() => card.stem && setZoom({ stem: card.stem, squares: card.squares })}
-                    style={{ aspectRatio: "720 / 816" }}
-                    title="click to enlarge"
-                    type="button"
-                  >
-                    <Image
-                      alt={`frame ${card.stem}`}
-                      className="object-contain"
-                      fill
-                      sizes="(min-width: 768px) 45vw, 90vw"
-                      src={`/api/frame/${name}/${card.stem}`}
-                      unoptimized
-                    />
-                    <MoveOverlay squares={card.squares} />
-                  </button>
+                {stem ? (
+                  <>
+                    <button
+                      className="border-border relative block w-full cursor-zoom-in overflow-hidden rounded border"
+                      onClick={() => setZoom({ stem, squares: card.squares })}
+                      style={{ aspectRatio: "720 / 816" }}
+                      title="click to enlarge"
+                      type="button"
+                    >
+                      <Image
+                        alt={`frame ${stem}`}
+                        className="object-contain"
+                        fill
+                        sizes="(min-width: 768px) 45vw, 90vw"
+                        src={`/api/frame/${name}/${stem}`}
+                        unoptimized
+                      />
+                      <MoveOverlay squares={card.squares} />
+                    </button>
+                    {card.stems.length > 1 ? (
+                      <div className="text-muted-foreground flex items-center gap-2 text-xs">
+                        <Button disabled={at === 0} onClick={() => step(-1)} size="sm" variant="outline">
+                          ◀
+                        </Button>
+                        <Button
+                          disabled={at + 1 >= card.stems.length}
+                          onClick={() => step(1)}
+                          size="sm"
+                          variant="outline"
+                        >
+                          ▶
+                        </Button>
+                        <span className="font-mono">
+                          frame {stem} ({offset >= 0 ? "+" : ""}
+                          {offset}) · {at + 1}/{card.stems.length}
+                        </span>
+                        <span>Hand im Bild? Weiterblättern — jedes Bild zeigt dieselbe Stellung.</span>
+                      </div>
+                    ) : null}
+                  </>
                 ) : (
-                  <p className="text-muted-foreground text-sm">no frame within ±2</p>
+                  <p className="text-muted-foreground text-sm">no frame on disk for this window</p>
                 )}
                 <div className="flex gap-2">
                   <Button

@@ -1,6 +1,6 @@
 import { Chess } from "chess.js";
 import { Badge } from "@/components/ui/badge";
-import { loadCandidate, reviewFrame, truthSans } from "@/lib/data";
+import { listFrameStems, loadCandidate, truthSans } from "@/lib/data";
 import { lcsReport } from "@/lib/lcs";
 import { UnmatchedCards } from "./cards";
 
@@ -31,21 +31,36 @@ export default async function ConfirmPage({ params }: PageProps<"/confirm/[name]
     : { matched: [] as [number, number][], invented: moves.map((_, i) => i), missed: [] };
   const missedSans = new Set(missed.map((i) => truth?.[i] ?? ""));
 
-  const cards = await Promise.all(
-    invented.map(async (index) => {
-      const move = moves[index];
-      const fenBefore = index === 0 ? candidate.start_fen : moves[index - 1].fen_after;
-      return {
-        index,
-        ply: move.ply,
-        san: move.san,
-        frame: move.frame,
-        stem: await reviewFrame(name, move.frame),
-        duplicate: missedSans.has(move.san),
-        squares: moveSquares(fenBefore, move.san),
-      };
-    }),
-  );
+  // Every stem on disk once, then per card the window [commit-2, next commit) — the frames that
+  // can show the position AFTER this ply. A commit can anchor mid-hand (a verify or pair commit,
+  // or a blitz reply already arriving), so ONE picture is sometimes a hand and nothing else; the
+  // card lets the human step through what exists instead of judging a covered board.
+  const stems = await listFrameStems(name);
+  const cards = invented.map((index) => {
+    const move = moves[index];
+    const fenBefore = index === 0 ? candidate.start_fen : moves[index - 1].fen_after;
+    const until = moves[index + 1]?.frame ?? move.frame + 90;
+    const window = stems.filter((s) => {
+      const n = Number(s);
+      return n >= move.frame - 2 && n < Math.max(until, move.frame + 3);
+    });
+    // Start on the stem nearest the commit — the old single-frame behaviour, now a position.
+    const start = window.reduce(
+      (best, s, i) =>
+        Math.abs(Number(s) - move.frame) < Math.abs(Number(window[best]) - move.frame) ? i : best,
+      0,
+    );
+    return {
+      index,
+      ply: move.ply,
+      san: move.san,
+      frame: move.frame,
+      stems: window,
+      start,
+      duplicate: missedSans.has(move.san),
+      squares: moveSquares(fenBefore, move.san),
+    };
+  });
 
   return (
     <main className="space-y-6">

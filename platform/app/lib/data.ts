@@ -97,6 +97,19 @@ export async function reviewFrame(name: string, frame: number): Promise<string |
   return null;
 }
 
+/** Every review-frame stem on disk, numerically sorted — one readdir instead of a probe per card. */
+export async function listFrameStems(name: string): Promise<string[]> {
+  try {
+    const entries = await readdir(path.join(gameDir(name), "frames"));
+    return entries
+      .filter((e) => /^\d+\.png$/.test(e))
+      .map((e) => e.replace(/\.png$/, ""))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
 export async function framePng(name: string, stem: string): Promise<Buffer> {
   return readFile(path.join(gameDir(name), "frames", `${checkName(stem, "frame")}.png`));
 }
