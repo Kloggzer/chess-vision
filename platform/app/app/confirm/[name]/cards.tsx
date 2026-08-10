@@ -17,6 +17,12 @@ export type UnmatchedCard = {
   stems: FrameStem[];
   /** Index into [stems] nearest the commit — where the card opens. */
   start: number;
+  /** SANs of every ply committed on this frame, when there is more than one (a pair/bridge). */
+  group: string[];
+  /** Only the last ply of a same-frame group owns an interval; the others contribute no frames. */
+  lastOfGroup: boolean;
+  /** Pre-fix pair row: ONE entry holding several halves — the picture shows the position after ALL. */
+  collapsed: boolean;
   duplicate: boolean;
   squares: { from: string; to: string } | null;
 };
@@ -168,6 +174,27 @@ export function UnmatchedCards({ name, cards }: { name: string; cards: Unmatched
                     </span>
                   ) : null}
                   <span className="text-muted-foreground text-xs">@frame {card.frame}</span>
+                  {card.group.length > 0 ? (
+                    <Badge
+                      title={
+                        card.lastOfGroup
+                          ? "Mehrere Halbzüge auf einem Frame — KEEP verbürgt die Stellung nach ALLEN."
+                          : "Nur der letzte Ply der Gruppe besitzt ein Intervall; dieser trägt 0 Frames bei."
+                      }
+                      variant="secondary"
+                    >
+                      {card.group.length} Halbzüge @{card.frame}: {card.group.join(" + ")}
+                      {card.lastOfGroup ? "" : " · trägt 0 Frames bei"}
+                    </Badge>
+                  ) : null}
+                  {card.collapsed ? (
+                    <Badge
+                      title="Ein Eintrag aus der Zeit vor dem Pair-Fix: er enthält mehrere Halbzüge in einer Zeile. Das Bild zeigt die Stellung nach ALLEN — genau die vermerkt KEEP."
+                      variant="secondary"
+                    >
+                      Mehrfach-Commit — Bild zeigt Stellung nach allen Halbzügen
+                    </Badge>
+                  ) : null}
                   {card.duplicate ? <Badge variant="secondary">also missed in PGN</Badge> : null}
                   <Badge variant={isKept ? "default" : "outline"}>
                     {isKept ? "will be KEPT" : "will be dropped"}

@@ -52,6 +52,11 @@ export default async function ConfirmPage({ params }: PageProps<"/confirm/[name]
           : best,
       0,
     );
+    // Multi-half commits, both eras. Since the pair fix a group is SEVERAL rows on one frame;
+    // before it a pair was ONE row whose san cannot be replayed from the previous fen (the
+    // collapsed halves) — `moveSquares` failing on a pair/recovery decider is that signature.
+    const group = moves.filter((m) => m.frame === move.frame).map((m) => m.san);
+    const squares = moveSquares(fenBefore, move.san);
     return {
       index,
       ply: move.ply,
@@ -59,8 +64,11 @@ export default async function ConfirmPage({ params }: PageProps<"/confirm/[name]
       frame: move.frame,
       stems: window,
       start,
+      group: group.length > 1 ? group : [],
+      lastOfGroup: moves.findLast((m) => m.frame === move.frame) === move,
+      collapsed: squares === null && ["cnn_pair", "cnn_recovery"].includes(move.decider ?? ""),
       duplicate: missedSans.has(move.san),
-      squares: moveSquares(fenBefore, move.san),
+      squares,
     };
   });
 
