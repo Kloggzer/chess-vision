@@ -83,20 +83,6 @@ export async function truthSans(name: string): Promise<string[] | null> {
   return chess.history();
 }
 
-/** The frame writer bursts around the commit, so the exact stem may be one or two off. */
-export async function reviewFrame(name: string, frame: number): Promise<string | null> {
-  for (const d of [0, -1, 1, -2, 2]) {
-    const stem = String(frame + d).padStart(6, "0");
-    try {
-      await readFile(path.join(gameDir(name), "frames", `${stem}.png`), { flag: "r" });
-      return stem;
-    } catch {
-      /* the burst did not reach this offset */
-    }
-  }
-  return null;
-}
-
 /** Every review-frame stem on disk, numerically sorted — one readdir instead of a probe per card. */
 export async function listFrameStems(name: string): Promise<string[]> {
   try {
