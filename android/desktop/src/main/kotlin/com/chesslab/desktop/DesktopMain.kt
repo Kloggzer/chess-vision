@@ -269,7 +269,7 @@ private fun usage(): Nothing {
         "  calibrate <camera-index>   fit the lens from the board's own grid lines",
         "  align <camera-index> [raw] measure the board against its grid; 'raw' skips the lens",
         "  undistort <video> <outDir> [every=N]  write the frames with the barrel taken out",
-        "  rectify <video> <outDir> [frames=<f>|every=N] [size=N]  the straightened board, per frame",
+        "  rectify <video> <outDir> [frames=<f>|every=N] [size=N] [lens]  the straightened board, per frame",
         "  crops <video> <outDir> [frames=<f>|every=N] [out=WxH]  the 64 square crops, as the device cuts them",
         "  replay <video.mp4> [options]  drive a recorded clip through the shipping tracker",
         "  track <camera-index> [options]  the same, live",

@@ -1,5 +1,6 @@
 package com.chesslab.desktop
 
+import com.chesslab.geometry.Undistorter
 import com.chesslab.geometry.cornersFromFlat
 import com.chesslab.geometry.warpFromCorners
 import com.chesslab.tracker.geometry.boardGeometryFor
@@ -26,17 +27,40 @@ import java.io.File
  * worse than a missing one, because only the missing one is visible.
  */
 fun rectifyVideo(args: List<String>) {
-    val video = File(args.getOrNull(0) ?: error("usage: rectify <video> <outDir> [frames=<f>] [every=N] [size=N]"))
-    val outDir = File(args.getOrNull(1) ?: error("usage: rectify <video> <outDir> [frames=<f>] [every=N] [size=N]"))
+    val video = File(args.getOrNull(0) ?: error("usage: rectify <video> <outDir> [frames=<f>] [every=N] [size=N] [lens]"))
+    val outDir = File(args.getOrNull(1) ?: error("usage: rectify <video> <outDir> [frames=<f>] [every=N] [size=N] [lens]"))
     val rest = args.drop(2)
     val every = rest.firstOrNull { it.startsWith("every=") }?.removePrefix("every=")?.toIntOrNull() ?: DEFAULT_EVERY
     val size = rest.firstOrNull { it.startsWith("size=") }?.removePrefix("size=")?.toIntOrNull()
     val wanted = frameList(rest)
     check(video.isFile) { "no such video: ${video.absolutePath}" }
     require(every >= 1) { "every= must be at least 1, got $every" }
+
+    // `lens` — take the barrel out BEFORE the quad and the warp, exactly like the replay's
+    // option. Without it the corners land right (ArUco + grid refinement) while the content
+    // between them stays bowed, which is plainly visible on a straightened full board
+    // ("da ist ein barrel effekt drauf", 2026-08-10). Same contract as `undistort`: a fit the
+    // grid does not accept aborts loudly rather than silently delivering raw boards.
+    val model =
+        if ("lens" in rest) {
+            VideoFileSource(video).use { fitLensFrom(it) }
+                ?: error("no accepted lens fit for ${video.name} — rerun without `lens` for raw boards")
+        } else {
+            null
+        }
     outDir.mkdirs()
 
-    val r = VideoFileSource(video).use { rectifyEach(it, outDir, every, wanted, size) }
+    val r =
+        VideoFileSource(video).use { source ->
+            if (model == null) {
+                rectifyEach(source, outDir, every, wanted, size)
+            } else {
+                val delivered = source.delivered
+                Undistorter(model, delivered.width, delivered.height).use { undistorter ->
+                    rectifyEach(source, outDir, every, wanted, size, undistorter)
+                }
+            }
+        }
     val index = r.read
     val written = r.written
     val missed = r.missed
@@ -47,6 +71,7 @@ fun rectifyVideo(args: List<String>) {
         {
           "rectified": true,
           "source": "${video.name}",
+          "lens": ${model != null},
           "size": ${size ?: 0},
           "written": ${written.size},
           "missed": ${missed.size},
@@ -76,16 +101,18 @@ private fun rectifyEach(
     every: Int,
     wanted: Set<Int>?,
     size: Int?,
+    undistorter: Undistorter? = null,
 ): Rectified {
     var index = 0
     val written = ArrayList<Int>()
     val missed = ArrayList<Int>()
     var offsetSum = 0.0
     while (true) {
-        val frame = source.next() ?: break
+        val raw = source.next() ?: break
         val at = index
         index += 1
         if (if (wanted != null) at in wanted else at % every == 0) {
+            val frame = undistorter?.apply(raw) ?: raw
             val quad = quadOf(frame)
             if (quad == null) {
                 missed += at
