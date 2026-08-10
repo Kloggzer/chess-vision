@@ -212,10 +212,23 @@ def known_segments(candidate: dict) -> list[dict]:
                 "fen": move["fen_after"],
                 "start": start,
                 "end": end,
-                "next_touches": changed_squares(move["fen_after"], moves[i + 1].get("fen_after")),
+                # Against the LAST move sharing the next commit's frame, not the first: a pair
+                # commit lands two plies on one frame, and the hand window before it contains
+                # BOTH moves' physical motion. Computed against only the first, the second pair
+                # move's squares (e7/e5 of an e4+e5 pair) went unmarked while the frames already
+                # showed them moved — exactly the mislabel `unknown_squares` exists to stop.
+                "next_touches": changed_squares(move["fen_after"], group_end_fen(moves, i + 1)),
             }
         )
     return out
+
+
+def group_end_fen(moves: list[dict], j: int) -> str | None:
+    """`fen_after` of the last move committed on the same frame as `moves[j]` — the position the
+    board actually shows once that frame's hand window is over."""
+    while j + 1 < len(moves) and moves[j + 1]["frame"] == moves[j]["frame"]:
+        j += 1
+    return moves[j].get("fen_after")
 
 
 def changed_squares(before: str | None, after: str | None) -> list[str]:

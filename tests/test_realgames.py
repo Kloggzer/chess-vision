@@ -150,6 +150,37 @@ def test_the_pre_commit_window_names_what_it_cannot_vouch_for():
     assert all("unknown_squares" not in r for r in rows if not r.get("dirty"))
 
 
+def test_a_pair_commit_marks_both_moves_squares_unknown():
+    """The user's find of 2026-08-10: e4 and e5 committed on the SAME frame (a pair).
+
+    The intermediate position never existed quietly — its zero-length segment is dropped — and
+    the hand window BEFORE the pair contains BOTH moves' motion, so the previous segment's
+    `unknown_squares` must span the whole same-frame group, not just its first move.
+    """
+    start = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    after_e4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
+    after_e5 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
+    after_nf3 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
+    candidate = {
+        "geometry": {"corners": [[0, 0], [1, 0], [1, 1], [0, 1]]},
+        "clock": {"fps": 30.0},
+        "created_at": "2026-08-10T00:00:00Z",
+        "start_fen": start,
+        "reviewed_plies": [1, 2, 3],
+        "moves": [
+            {"ply": 1, "san": "e4", "frame": 0, "fen_after": after_e4},
+            {"ply": 2, "san": "e5", "frame": 300, "fen_after": after_e5},
+            {"ply": 3, "san": "Nf3", "frame": 300, "fen_after": after_nf3},
+        ],
+    }
+    rows = plan_rows(candidate, margin_frames=30, every=10, dirty=True)
+    assert {r["ply"] for r in rows} == {1}, "the zero-length pair segment contributes nothing"
+    trailing = [r for r in rows if 270 <= int(Path(r["frame"]).stem) < 300]
+    assert trailing and all(r["unknown_squares"] == ["e5", "e7", "f3", "g1"] for r in trailing), (
+        "the window before a pair is in doubt about BOTH moves' squares"
+    )
+
+
 def test_export_refuses_unconfirmed(tmp_path, monkeypatch):
     _export_candidate(tmp_path, monkeypatch, confirmed=False)
     with pytest.raises(ValueError, match="not confirmed"):
