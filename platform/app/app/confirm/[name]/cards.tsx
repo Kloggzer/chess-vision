@@ -6,13 +6,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
+import type { FrameStem } from "@/lib/data";
+
 export type UnmatchedCard = {
   index: number;
   ply: number;
   san: string;
   frame: number;
   /** The review frames on disk between this commit and the next, chronological. */
-  stems: string[];
+  stems: FrameStem[];
   /** Index into [stems] nearest the commit — where the card opens. */
   start: number;
   duplicate: boolean;
@@ -24,7 +26,14 @@ export type UnmatchedCard = {
  * The review PNG is 720x816 with the board as the top 720x720 and a8 at the top-left, so a
  * square is a plain 90 px grid cell; the SVG shares the image's viewBox and scales with it.
  */
-function MoveOverlay({ squares }: { squares: { from: string; to: string } | null }) {
+function MoveOverlay({
+  squares,
+  height = 816,
+}: {
+  squares: { from: string; to: string } | null;
+  /** 816 for the labeled burst PNGs (board + strip), 720 for a plain rectified board. */
+  height?: number;
+}) {
   if (!squares) return null;
   const cell = 90;
   const pos = (sq: string) => ({
@@ -38,7 +47,7 @@ function MoveOverlay({ squares }: { squares: { from: string; to: string } | null
     <svg
       aria-hidden
       className="pointer-events-none absolute inset-0 h-full w-full"
-      viewBox="0 0 720 816"
+      viewBox={`0 0 720 ${height}`}
     >
       <defs>
         <marker
@@ -86,7 +95,11 @@ function MoveOverlay({ squares }: { squares: { from: string; to: string } | null
 
 export function UnmatchedCards({ name, cards }: { name: string; cards: UnmatchedCard[] }) {
   const [kept, setKept] = useState<Record<number, boolean>>({});
-  const [zoom, setZoom] = useState<{ stem: string; squares: UnmatchedCard["squares"] } | null>(null);
+  const [zoom, setZoom] = useState<{
+    stem: string;
+    height: number;
+    squares: UnmatchedCard["squares"];
+  } | null>(null);
   const [state, setState] = useState<"idle" | "writing" | string>("idle");
   /** Which of a card's stems is showing — a commit can anchor mid-hand, so one frame is not enough. */
   const [frameAt, setFrameAt] = useState<Record<number, number>>({});
@@ -132,7 +145,9 @@ export function UnmatchedCards({ name, cards }: { name: string; cards: Unmatched
         {cards.map((card) => {
           const isKept = !!kept[card.index];
           const at = frameAt[card.index] ?? card.start;
-          const stem = card.stems[at] ?? null;
+          const entry = card.stems[at] ?? null;
+          const stem = entry?.stem ?? null;
+          const height = entry?.kind === "plain" ? 720 : 816;
           const offset = stem !== null ? Number(stem) - card.frame : 0;
           const step = (delta: number) =>
             setFrameAt((f) => ({
@@ -164,8 +179,8 @@ export function UnmatchedCards({ name, cards }: { name: string; cards: Unmatched
                   <>
                     <button
                       className="border-border relative block w-full cursor-zoom-in overflow-hidden rounded border"
-                      onClick={() => setZoom({ stem, squares: card.squares })}
-                      style={{ aspectRatio: "720 / 816" }}
+                      onClick={() => setZoom({ stem, height, squares: card.squares })}
+                      style={{ aspectRatio: `720 / ${height}` }}
                       title="click to enlarge"
                       type="button"
                     >
@@ -177,7 +192,7 @@ export function UnmatchedCards({ name, cards }: { name: string; cards: Unmatched
                         src={`/api/frame/${name}/${stem}`}
                         unoptimized
                       />
-                      <MoveOverlay squares={card.squares} />
+                      <MoveOverlay height={height} squares={card.squares} />
                     </button>
                     {card.stems.length > 1 ? (
                       <div className="text-muted-foreground flex items-center gap-2 text-xs">
@@ -242,7 +257,10 @@ export function UnmatchedCards({ name, cards }: { name: string; cards: Unmatched
           onClick={() => setZoom(null)}
           type="button"
         >
-          <span className="relative mx-auto block h-full" style={{ aspectRatio: "720 / 816" }}>
+          <span
+            className="relative mx-auto block h-full"
+            style={{ aspectRatio: `720 / ${zoom.height}` }}
+          >
             <Image
               alt={`frame ${zoom.stem} enlarged`}
               className="object-contain"
@@ -251,7 +269,7 @@ export function UnmatchedCards({ name, cards }: { name: string; cards: Unmatched
               src={`/api/frame/${name}/${zoom.stem}`}
               unoptimized
             />
-            <MoveOverlay squares={zoom.squares} />
+            <MoveOverlay height={zoom.height} squares={zoom.squares} />
           </span>
         </button>
       ) : null}

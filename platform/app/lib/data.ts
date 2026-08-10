@@ -83,21 +83,39 @@ export async function truthSans(name: string): Promise<string[] | null> {
   return chess.history();
 }
 
-/** Every review-frame stem on disk, numerically sorted — one readdir instead of a probe per card. */
-export async function listFrameStems(name: string): Promise<string[]> {
-  try {
-    const entries = await readdir(path.join(gameDir(name), "frames"));
-    return entries
-      .filter((e) => /^\d+\.png$/.test(e))
-      .map((e) => e.replace(/\.png$/, ""))
-      .sort();
-  } catch {
-    return [];
+/**
+ * `labeled` = the decisive burst the label verb writes (720x816, the tracker's belief drawn on),
+ * `plain` = a `:desktop rectify` board under `frames-extra/` (square playing field, no strip) —
+ * the dense windows a human asked for when every burst frame held a hand.
+ */
+export type FrameStem = { stem: string; kind: "labeled" | "plain" };
+
+/** Every review-frame stem on disk, both sources, numerically sorted; `labeled` wins a tie. */
+export async function listFrameStems(name: string): Promise<FrameStem[]> {
+  const stemsOf = async (dir: string) => {
+    try {
+      const entries = await readdir(path.join(gameDir(name), dir));
+      return entries.filter((e) => /^\d+\.png$/.test(e)).map((e) => e.replace(/\.png$/, ""));
+    } catch {
+      return [];
+    }
+  };
+  const labeled = await stemsOf("frames");
+  const seen = new Set(labeled);
+  const out: FrameStem[] = labeled.map((stem) => ({ stem, kind: "labeled" as const }));
+  for (const stem of await stemsOf("frames-extra")) {
+    if (!seen.has(stem)) out.push({ stem, kind: "plain" });
   }
+  return out.sort((a, b) => a.stem.localeCompare(b.stem));
 }
 
 export async function framePng(name: string, stem: string): Promise<Buffer> {
-  return readFile(path.join(gameDir(name), "frames", `${checkName(stem, "frame")}.png`));
+  const file = `${checkName(stem, "frame")}.png`;
+  try {
+    return await readFile(path.join(gameDir(name), "frames", file));
+  } catch {
+    return readFile(path.join(gameDir(name), "frames-extra", file));
+  }
 }
 
 /**

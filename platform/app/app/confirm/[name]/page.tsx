@@ -41,13 +41,15 @@ export default async function ConfirmPage({ params }: PageProps<"/confirm/[name]
     const fenBefore = index === 0 ? candidate.start_fen : moves[index - 1].fen_after;
     const until = moves[index + 1]?.frame ?? move.frame + 90;
     const window = stems.filter((s) => {
-      const n = Number(s);
+      const n = Number(s.stem);
       return n >= move.frame - 2 && n < Math.max(until, move.frame + 3);
     });
     // Start on the stem nearest the commit — the old single-frame behaviour, now a position.
     const start = window.reduce(
       (best, s, i) =>
-        Math.abs(Number(s) - move.frame) < Math.abs(Number(window[best]) - move.frame) ? i : best,
+        Math.abs(Number(s.stem) - move.frame) < Math.abs(Number(window[best].stem) - move.frame)
+          ? i
+          : best,
       0,
     );
     return {
