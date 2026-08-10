@@ -50,6 +50,24 @@ export default async function RelabelPage({ params }: PageProps<"/relabel/[name]
   });
   const done = rows.filter((r) => decided.has(proposalKey(r))).length;
 
+  // The hand-painting queue: every board with occlusion suspicion above `lo`, CHRONOLOGICAL —
+  // a hand moves gradually, so painting in time order is one continuous gesture per hand, not a
+  // shuffle. `accept` is `occluded` for every suspect square: that is the question this queue
+  // asks. The read printed in the cell names the channel that raised it.
+  const hands = framesMatching(rows, { klass: "occluded", min: thresholds.lo })
+    .sort((a, b) => a.stem.localeCompare(b.stem))
+    .map((f) => ({
+      stem: f.stem,
+      squares: f.cells.map((c) => c.square),
+      reads: Object.fromEntries(
+        f.cells.map((c) => [
+          c.square,
+          c.grid_score ? `grid ${c.grid_score.toFixed(2)}` : `score ${c.score.toFixed(2)}`,
+        ]),
+      ),
+      accept: Object.fromEntries(f.cells.map((c) => [c.square, "occluded"])),
+    }));
+
   return (
     <main className="space-y-5">
       <header className="space-y-2">
@@ -93,6 +111,7 @@ export default async function RelabelPage({ params }: PageProps<"/relabel/[name]
             cells: 0,
           }}
           frames={frames}
+          hands={hands}
           name={name}
           next={await nextOpenSession(name)}
           sessionId={session.sessionId}

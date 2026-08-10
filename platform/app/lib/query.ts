@@ -16,6 +16,8 @@ export type Proposal = {
   score: number;
   /** Pixel channel alone, present only when a model also scored the cell. */
   pixel_score?: number;
+  /** The grid-groove hand read (0.35 = blur fringe, 0.5/0.7/0.85 = 2/3/4 missing edges). */
+  grid_score?: number;
   /** The model's sparse per-class softmax (classes under 1 % omitted) — the filter's input. */
   probs?: Record<string, number>;
 };
@@ -31,6 +33,11 @@ export type Filter = {
 
 /** Cells a filter selects. `disagree` needs no threshold beyond the model's own confidence. */
 export function matches(row: Proposal, f: Filter): boolean {
+  // The occluded question is answered by EVERY channel the producer has, not only a model's
+  // softmax: `score` is already the max of pixel, model and grid. Requiring `probs` here meant a
+  // session proposed without --model answered "nothing" to "show me occlusion" — the filter that
+  // could not be run at all (2026-08-10).
+  if (f.klass === "occluded") return Math.max(row.score, row.probs?.occluded ?? 0) >= f.min;
   const probs = row.probs;
   if (!probs) return false;
   if (f.klass !== DISAGREE) return (probs[f.klass] ?? 0) >= f.min;

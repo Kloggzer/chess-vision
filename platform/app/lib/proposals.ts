@@ -88,13 +88,16 @@ export async function loadProposals(name: string): Promise<Proposals> {
   return value;
 }
 
-export type Streams = { confirm: Proposal[]; control: Proposal[]; tinder: Proposal[] };
+export type Streams = { confirm: Proposal[]; control: Proposal[]; unsure: Proposal[] };
 
-/** The three streams of the spec: confirm by the page, check one by one, sample the bottom. */
+/**
+ * The three streams: confirm by the page, the unsure mid-band (also by the page — the one-at-a-
+ * time tinder view is gone, "tinder nervt", 2026-08-10), and a sample of the bottom as control.
+ */
 export function splitStreams(rows: Proposal[], t: Thresholds): Streams {
   const confirm = rows.filter((r) => r.score > t.hi && r.proposed === "occluded");
-  const tinder = rows.filter((r) => r.score >= t.lo && r.score <= t.hi);
+  const unsure = rows.filter((r) => r.score >= t.lo && r.score <= t.hi);
   const below = rows.filter((r) => r.score < t.lo);
   const step = Math.max(1, Math.ceil(below.length / CONTROL_MAX));
-  return { confirm, control: below.filter((_, i) => i % step === 0), tinder };
+  return { confirm, control: below.filter((_, i) => i % step === 0), unsure };
 }

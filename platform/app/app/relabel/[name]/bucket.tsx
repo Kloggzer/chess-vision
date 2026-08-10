@@ -28,7 +28,7 @@ const keyOf = (c: Proposal) => `${c.frame}|${c.square}`;
 
 /**
  * Verification labeling: one page, one pre-label, ONE keypress. Clicks are for exceptions —
- * they leave the page for the tinder band, where they get looked at one at a time.
+ * they leave the page for the hand-painting queue, where they get ruled on with the brush.
  *
  * The bucket EMPTIES, and it stays emptied across a reload: both kinds record what was decided,
  * `confirm` into corrections.jsonl and `control` into reviewed.jsonl (see `lib/corrections.ts` for
@@ -93,11 +93,11 @@ export function BucketGrid(props: BucketProps) {
       onException(exceptions);
       setNote(
         kind === "confirm"
-          ? `${written} rows written, ${exceptions.length} to the tinder band`
+          ? `${written} rows written, ${exceptions.length} to the painting queue`
           : `${written} cells recorded as reviewed (not a training row — the FEN was already ` +
-            `right); ${exceptions.length} to the tinder band`,
+            `right); ${exceptions.length} to the painting queue`,
       );
-      // The whole page leaves the bucket — accepted as decided, exceptions to the tinder band.
+      // The whole page leaves the bucket — accepted as decided, exceptions to the painting queue.
       setHandled((h) => new Set([...h, ...slice.map(keyOf)]));
       setMarked(new Set());
       setCursor(0);

@@ -1,13 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { Proposal, Streams as StreamSets } from "@/lib/proposals";
 import { BucketGrid } from "./bucket";
 import { Drilldown, type FrameInfo } from "./drilldown";
 import { FilterBar, type FilterAnswer, type FilterHit } from "./filter";
-import { TinderBand } from "./tinder";
 
 export type StreamProps = {
   name: string;
@@ -19,17 +18,20 @@ export type StreamProps = {
   next: string | null;
   /** The default filter query, answered on the server (see `FilterBar.initial`). */
   filter: FilterAnswer;
+  /** Every board with occlusion suspicion, chronological — the hand-painting queue. */
+  hands: FilterHit[];
 };
 
-type Tab = "confirm" | "control" | "tinder" | "board" | "filter";
+type Tab = "hands" | "confirm" | "unsure" | "control" | "board" | "filter";
 
 /**
- * The three streams share two things and nothing else: the queue an exception falls into, and
- * the count of rows this session has written. Everything else lives in the stream that owns it.
+ * The views share two things and nothing else: the queue an exception falls into (the
+ * hand-painting board queue, since the tinder band left), and the count of rows this session has
+ * written. Everything else lives in the view that owns it.
  */
-export function Streams({ name, sessionId, streams, decided, frames, next, filter }: StreamProps) {
-  const [tab, setTab] = useState<Tab>("confirm");
-  const [queue, setQueue] = useState<Proposal[]>([]);
+export function Streams({ name, sessionId, streams, decided, frames, next, filter, hands }: StreamProps) {
+  const [tab, setTab] = useState<Tab>("hands");
+  const [exceptions, setExceptions] = useState<Proposal[]>([]);
   const [written, setWritten] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [doneTabs, setDoneTabs] = useState<Set<Tab>>(new Set());
@@ -38,33 +40,52 @@ export function Streams({ name, sessionId, streams, decided, frames, next, filte
 
   const wrote = (n: number) => setWritten((w) => w + n);
   const failed = (e: unknown) => setError(String(e));
-  const markDone = (key: Tab) => () => setDoneTabs((d) => new Set(d).add(key));
-  // The board drilldown is the optional precision pass — three streams decide "done".
-  const allDone = (["confirm", "control", "tinder"] as Tab[]).every(
-    (key) =>
-      doneTabs.has(key) ||
-      (key === "confirm" && streams.confirm.length === 0) ||
-      (key === "control" && streams.control.length === 0) ||
-      (key === "tinder" && streams.tinder.length + queue.length === 0),
-  );
+  // Bail out when nothing changes: this fires from a bucket's `useEffect`, and returning a fresh
+  // Set for an already-done tab re-rendered forever ("Maximum update depth exceeded", 2026-08-10).
+  const markDone = (key: Tab) => () => setDoneTabs((d) => (d.has(key) ? d : new Set(d).add(key)));
+  // The painting queue and the drilldown are open-ended touch-up work; the buckets decide "done".
+  const buckets: [Tab, Proposal[]][] = [
+    ["confirm", streams.confirm],
+    ["unsure", streams.unsure],
+    ["control", streams.control],
+  ];
+  const allDone = buckets.every(([key, cells]) => doneTabs.has(key) || cells.length === 0);
+
+  // Exceptions thrown out of a bucket page land on the painting queue: their frames join the
+  // hand boards, the thrown squares outlined, so the human RULES on them with the brush instead
+  // of swiping crops one by one.
+  const handHits: FilterHit[] = useMemo(() => {
+    const byStem = new Map(hands.map((h) => [h.stem, { ...h, squares: [...h.squares] }]));
+    for (const cell of exceptions) {
+      const hit = byStem.get(cell.frame) ?? { stem: cell.frame, squares: [] };
+      if (!hit.squares.includes(cell.square)) hit.squares.push(cell.square);
+      hit.accept = { ...hit.accept, [cell.square]: "occluded" };
+      byStem.set(cell.frame, hit);
+    }
+    return [...byStem.values()].sort((a, b) => a.stem.localeCompare(b.stem));
+  }, [hands, exceptions]);
 
   const tabs: [Tab, string][] = [
+    ["hands", `hände einzeichnen ${handHits.length}`],
     ["confirm", `bucket · occluded ${streams.confirm.length}`],
+    ["unsure", `bucket · unsicher ${streams.unsure.length}`],
     ["control", `bucket · control ${streams.control.length}`],
-    ["tinder", `tinder ${streams.tinder.length + queue.length}`],
     ["board", boardQueue ? `board queue ${boardQueue.hits.length}` : `board drilldown ${frames.length}`],
     ["filter", "filter by class"],
   ];
 
-  // The filter's boards, in its order, as the drilldown's queue — and the matched squares per
-  // frame so the brush starts where the model is suspicious instead of on an empty board.
+  // A queue's boards, in its order, as the drilldown's queue — and the matched squares per
+  // frame so the brush starts where the suspicion is instead of on an empty board.
   const byStem = new Map(frames.map((f) => [f.stem, f]));
-  const queued: FrameInfo[] = (boardQueue?.hits ?? [])
-    .map((h) => byStem.get(h.stem) ?? { stem: h.stem, ply: 0, fen: "" })
-    .filter((f) => f.fen !== "");
-  const hits = Object.fromEntries((boardQueue?.hits ?? []).map((h) => [h.stem, h.squares]));
-  const reads = Object.fromEntries((boardQueue?.hits ?? []).map((h) => [h.stem, h.reads ?? {}]));
-  const accepts = Object.fromEntries((boardQueue?.hits ?? []).map((h) => [h.stem, h.accept ?? {}]));
+  const queueFrames = (hits: FilterHit[]): FrameInfo[] =>
+    hits.map((h) => byStem.get(h.stem) ?? { stem: h.stem, ply: 0, fen: "" }).filter((f) => f.fen !== "");
+  const asRecords = (hits: FilterHit[]) => ({
+    hits: Object.fromEntries(hits.map((h) => [h.stem, h.squares])),
+    reads: Object.fromEntries(hits.map((h) => [h.stem, h.reads ?? {}])),
+    accepts: Object.fromEntries(hits.map((h) => [h.stem, h.accept ?? {}])),
+  });
+  const hand = asRecords(handHits);
+  const queued = asRecords(boardQueue?.hits ?? []);
 
   return (
     <section className="space-y-4">
@@ -72,7 +93,7 @@ export function Streams({ name, sessionId, streams, decided, frames, next, filte
         <div className="flex flex-wrap items-center gap-4 rounded-lg border border-green-600 bg-green-950/40 p-4">
           <span className="text-lg font-semibold">Session fertig ✓</span>
           <span className="text-muted-foreground text-sm">
-            {written} rows written · board drilldown stays open for touch-ups
+            {written} rows written · Hände-Ansicht und Drilldown bleiben für Nacharbeit offen
           </span>
           {next ? (
             <Button asChild size="lg">
@@ -105,27 +126,31 @@ export function Streams({ name, sessionId, streams, decided, frames, next, filte
         {error ? <Badge variant="destructive">{error}</Badge> : null}
       </div>
 
-      {tab === "confirm" || tab === "control" ? (
-        <BucketGrid
-          key={tab}
-          cells={tab === "confirm" ? streams.confirm : streams.control}
+      {tab === "hands" ? (
+        <Drilldown
+          accepts={hand.accepts}
           decided={decided}
-          kind={tab}
+          frames={queueFrames(handHits)}
+          hits={hand.hits}
+          key={`hands-${handHits.length}`}
           name={name}
-          onDone={markDone(tab)}
-          onException={(cells) => setQueue((q) => [...q, ...cells])}
           onError={failed}
           onWritten={wrote}
+          queueNote="Hände einzeichnen — jedes Brett mit Okklusionsverdacht, chronologisch"
+          reads={hand.reads}
           sessionId={sessionId}
         />
       ) : null}
 
-      {tab === "tinder" ? (
-        <TinderBand
-          cells={[...queue, ...streams.tinder]}
+      {tab === "confirm" || tab === "unsure" || tab === "control" ? (
+        <BucketGrid
+          key={tab}
+          cells={buckets.find(([key]) => key === tab)![1]}
           decided={decided}
+          kind={tab === "control" ? "control" : "confirm"}
           name={name}
-          onDone={markDone("tinder")}
+          onDone={markDone(tab)}
+          onException={(cells) => setExceptions((q) => [...q, ...cells])}
           onError={failed}
           onWritten={wrote}
           sessionId={sessionId}
@@ -143,11 +168,11 @@ export function Streams({ name, sessionId, streams, decided, frames, next, filte
             </div>
           ) : null}
           <Drilldown
-            accepts={boardQueue ? accepts : undefined}
+            accepts={boardQueue ? queued.accepts : undefined}
             decided={decided}
-            frames={boardQueue ? queued : frames}
-            hits={boardQueue ? hits : undefined}
-            reads={boardQueue ? reads : undefined}
+            frames={boardQueue ? queueFrames(boardQueue.hits) : frames}
+            hits={boardQueue ? queued.hits : undefined}
+            reads={boardQueue ? queued.reads : undefined}
             key={boardQueue?.label ?? "all"}
             name={name}
             onError={failed}
