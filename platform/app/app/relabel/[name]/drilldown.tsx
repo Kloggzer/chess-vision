@@ -140,11 +140,13 @@ export function Drilldown(props: DrilldownProps) {
   // the key listener is subscribed once and must still call the CURRENT closure.
   const confirmRef = useRef<() => Promise<void>>(async () => {});
   const rejectRef = useRef<() => Promise<void>>(async () => {});
+  const floodRef = useRef<() => void>(() => {});
   useEffect(() => {
     latest.current = pending;
     flushRef.current = flush;
     confirmRef.current = confirmQueue;
     rejectRef.current = rejectQueue;
+    floodRef.current = flood;
   });
   useEffect(() => () => void flushRef.current(latest.current), []);
 
@@ -161,6 +163,11 @@ export function Drilldown(props: DrilldownProps) {
         void rejectRef.current();
         return;
       }
+      if (event.key === "a") {
+        event.preventDefault();
+        floodRef.current();
+        return;
+      }
       const hit = PALETTE.find(([k]) => k === event.key);
       if (!hit) return;
       event.preventDefault();
@@ -173,6 +180,17 @@ export function Drilldown(props: DrilldownProps) {
 
   const set = (square: string, label: string) =>
     setEdits((e) => ({ ...e, [stem]: { ...e[stem], [square]: label } }));
+
+  /**
+   * The inverted gesture ("alle außer die sind nicht occluded", 2026-08-10): on a board mostly
+   * under a hand the few CLEAN cells are the work, not the many covered ones. Flood every cell
+   * occluded, arm the eraser, and freeing what is visibly clean is the whole remaining job —
+   * erased cells return to the FEN's word and write nothing.
+   */
+  const flood = () => {
+    setEdits((e) => ({ ...e, [stem]: Object.fromEntries(SQUARES.map((sq) => [sq, "occluded"])) }));
+    setEraser(true);
+  };
 
   const paint = (square: string, erase: boolean) => set(square, erase ? fen[square] : brush);
   const cycle = (square: string) => {
@@ -229,16 +247,15 @@ export function Drilldown(props: DrilldownProps) {
   const acceptable = Object.entries(accept).filter(([sq, label]) => (saved[stem]?.[sq] ?? base[sq]) !== label);
 
   async function confirmQueue() {
-    // Anything hand-painted on this board wins over the filter's answer for the same square.
-    const painted = new Set(pending.map((r) => r.square));
-    const rows: Correction[] = [
-      ...pending,
-      ...acceptable
-        .filter(([sq]) => !painted.has(sq))
-        .map(([square, label]) => ({ session_id: sessionId, frame: stem, square, label })),
-    ];
+    // "ich markiere, bestätige das und nächste Seite" (2026-08-10): once the human painted, the
+    // painting IS the whole answer — their cells are corrections, and the flags they left
+    // unpainted were looked at and found clean. Only on an untouched board does confirm mean
+    // "the flags are right as proposed".
+    if (pending.length > 0) return rejectQueue();
     setEdits((e) => ({ ...e, [stem]: { ...e[stem], ...accept } }));
-    await flush(rows);
+    await flush(
+      acceptable.map(([square, label]) => ({ session_id: sessionId, frame: stem, square, label })),
+    );
     setAt((i) => nextOpen(i + 1));
   }
 
@@ -298,6 +315,18 @@ export function Drilldown(props: DrilldownProps) {
         >
           {eraser ? "eraser ON" : `brush: ${brush}`}
         </Button>
+        <Button
+          onClick={(event) => {
+            event.currentTarget.blur();
+            flood();
+          }}
+          size="sm"
+          title="alles occluded, Radierer an — dann die sichtbaren Zellen freiradieren"
+          variant="outline"
+        >
+          <span className="text-muted-foreground mr-1 font-mono">a</span>
+          alles occluded
+        </Button>
         <span className="text-muted-foreground">
           drag paints · right button erases · click cycles · keys pick the brush ·{" "}
           <strong className="text-foreground">bright</strong> = you judged it, dim = FEN&apos;s word,
@@ -317,16 +346,26 @@ export function Drilldown(props: DrilldownProps) {
       {Object.keys(accept).length > 0 ? (
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-sky-800 bg-sky-950/40 p-3 text-sm">
           <Button autoFocus={false} onClick={() => void confirmQueue()} size="sm">
-            ✓ confirm {acceptCells.length} {acceptCells.length === 1 ? "cell" : "cells"}
-            {acceptLabels.length === 1 ? ` as ${acceptLabels[0]}` : ""} → next board
+            {pending.length > 0
+              ? `✓ ${pending.length} gemalte Zellen schreiben, übrige Flags = sauber → next board`
+              : `✓ confirm ${acceptCells.length} ${acceptCells.length === 1 ? "cell" : "cells"}` +
+                `${acceptLabels.length === 1 ? ` as ${acceptLabels[0]}` : ""} → next board`}
           </Button>
-          <Button onClick={() => void rejectQueue()} size="sm" variant="secondary">
-            ✗ nichts verdeckt — FEN stimmt → next board
-          </Button>
+          {pending.length === 0 ? (
+            <Button onClick={() => void rejectQueue()} size="sm" variant="secondary">
+              ✗ nichts verdeckt — FEN stimmt → next board
+            </Button>
+          ) : null}
           <span className="text-muted-foreground">
-            <kbd className="text-foreground">Enter</kbd> confirms, <kbd className="text-foreground">⌫</kbd>{" "}
-            rejects (recorded as reviewed, not a training row). Painted cells win either way; the
-            other {64 - Object.keys(accept).length} keep the FEN&apos;s word and stay unjudged.
+            <kbd className="text-foreground">Enter</kbd> confirms
+            {pending.length === 0 ? (
+              <>
+                , <kbd className="text-foreground">⌫</kbd> rejects (reviewed, not a training row)
+              </>
+            ) : (
+              " your painting"
+            )}
+            . Unflagged cells keep the FEN&apos;s word and stay unjudged.
           </span>
           <Button className="ml-auto" onClick={() => void go(1)} size="sm" variant="outline">
             skip this board →
