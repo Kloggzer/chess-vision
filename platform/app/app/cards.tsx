@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 
 export type GameInfo = {
   name: string;
@@ -57,79 +56,66 @@ export function GameCard({ game }: { game: GameInfo }) {
 
   return (
     <li
-      className={`border-border space-y-2 rounded-lg border p-3 ${game.archived ? "opacity-60" : ""}`}
+      className={`border-border flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-1.5 text-sm ${
+        game.archived ? "opacity-60" : ""
+      }`}
     >
-      <div className="flex flex-wrap items-center gap-3">
-        <input
-          className="border-border bg-background min-w-56 rounded border px-2 py-1 font-medium"
-          defaultValue={game.title ?? ""}
-          onBlur={(e) => {
-            if ((game.title ?? "") !== e.target.value.trim()) saveTitle(e.target.value);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur();
-          }}
-          placeholder={game.name}
-          title="Anzeigename — leer lassen für den Verzeichnisnamen"
-        />
-        <span className="text-muted-foreground font-mono text-xs">{game.name}</span>
-        {game.archived ? <Badge variant="secondary">archiviert</Badge> : null}
-        {game.source === "fixture" ? <Badge variant="destructive">fixture</Badge> : null}
-        <Button
-          className="ml-auto"
-          onClick={act(() =>
-            post(`/api/meta/${game.name}`, JSON.stringify({ archived: !game.archived })),
-          )}
-          size="sm"
-          variant="outline"
-        >
-          {game.archived ? "wiederherstellen" : "archivieren"}
-        </Button>
-      </div>
-
-      <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-        {game.createdAt ? <span>aufgenommen {when(game.createdAt)}</span> : null}
-        <span>{game.plies} plies</span>
-        <span>
-          {game.confirmed
-            ? `bestätigt ${when(game.confirmedAt) ?? ""} · ${game.reviewed} reviewed`
-            : "unbestätigt"}
-        </span>
-        {game.pgnPlies !== null ? (
-          <span className="text-foreground">PGN ✓ {game.pgnPlies} Züge</span>
-        ) : (
-          <span>kein PGN</span>
-        )}
+      <input
+        className="hover:border-border focus:border-border w-52 border-b border-transparent bg-transparent font-medium outline-none"
+        defaultValue={game.title ?? ""}
+        onBlur={(e) => {
+          if ((game.title ?? "") !== e.target.value.trim()) saveTitle(e.target.value);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
+        placeholder={game.name}
+        title="Anzeigename — leer lassen für den Verzeichnisnamen"
+      />
+      {game.title ? <span className="text-muted-foreground font-mono text-xs">{game.name}</span> : null}
+      <Link className="underline underline-offset-4" href={`/confirm/${game.name}`}>
+        confirm
+      </Link>
+      {game.total > 0 ? (
+        <Link className="underline underline-offset-4" href={`/relabel/${game.name}`}>
+          relabel
+        </Link>
+      ) : null}
+      <span className="text-muted-foreground">
+        {when(game.createdAt) ?? "?"} · {game.plies} plies ·{" "}
+        {game.confirmed ? `bestätigt (${game.reviewed} reviewed)` : "unbestätigt"} ·{" "}
+        {game.pgnPlies !== null ? `PGN ✓ ${game.pgnPlies}` : "kein PGN"}
+      </span>
+      {game.total > 0 ? (
+        <>
+          <span className="text-muted-foreground">
+            {game.done}/{game.total}
+          </span>
+          <span className="bg-muted h-1.5 w-28 overflow-hidden rounded">
+            <span
+              className="bg-primary block h-full"
+              style={{ width: `${Math.round((game.done / game.total) * 100)}%` }}
+            />
+          </span>
+        </>
+      ) : null}
+      {game.source === "fixture" ? <Badge variant="destructive">fixture</Badge> : null}
+      {note ? <Badge variant="destructive">{note}</Badge> : null}
+      <span className="text-muted-foreground ml-auto flex items-center gap-3 text-xs">
         <label className="cursor-pointer underline underline-offset-4">
           {game.pgnPlies !== null ? "PGN ersetzen…" : "PGN hochladen…"}
           <input accept=".pgn,.txt" className="hidden" onChange={uploadPgn} type="file" />
         </label>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3 text-sm">
-        <Link className="underline underline-offset-4" href={`/confirm/${game.name}`}>
-          confirm
-        </Link>
-        {game.total > 0 ? (
-          <>
-            <Link className="underline underline-offset-4" href={`/relabel/${game.name}`}>
-              relabel
-            </Link>
-            <span className="text-muted-foreground">
-              {game.done} von {game.total} proposals entschieden
-            </span>
-            <span className="bg-muted h-2 w-40 overflow-hidden rounded">
-              <span
-                className="bg-primary block h-full"
-                style={{ width: `${Math.round((game.done / game.total) * 100)}%` }}
-              />
-            </span>
-          </>
-        ) : (
-          <span className="text-muted-foreground">keine occluded proposals</span>
-        )}
-        {note ? <Badge variant="destructive">{note}</Badge> : null}
-      </div>
+        <button
+          className="cursor-pointer underline underline-offset-4"
+          onClick={act(() =>
+            post(`/api/meta/${game.name}`, JSON.stringify({ archived: !game.archived })),
+          )}
+          type="button"
+        >
+          {game.archived ? "wiederherstellen" : "archivieren"}
+        </button>
+      </span>
     </li>
   );
 }
