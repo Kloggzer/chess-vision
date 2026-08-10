@@ -338,12 +338,85 @@ def ensure_export_profile(profile: str, candidate: dict) -> Path:
     return prof.save(path)
 
 
-def decode_frames(video: Path, wanted: set[int], out_dir: Path) -> set[int]:
+#: Grid lines (of 18) a rotation probe may leave unread and still win — pieces hide a couple.
+ROTATION_UNREAD_SLACK = 2
+
+#: Probe frames tried before the rotation chooser gives up (a probe can land under a hand).
+ROTATION_PROBES = 5
+
+
+def _unread_grid_lines(frame, geometry: dict) -> int:
+    """Unread grid lines after warping [frame] with the CANDIDATE's stored corners — 0 says the
+    decoded orientation is the one the geometry was measured in."""
+    import numpy as np
+
+    from .alignment import GRID_PAD_CELLS, grid_lines
+    from .calibration import compute_homography
+
+    bs = int(geometry["board_size"])
+    pad = int(round(GRID_PAD_CELLS * bs / 8.0))
+    h = np.array(compute_homography(geometry["corners"], bs, geometry.get("margin", 0.0)), np.float64)
+    t = np.array([[1.0, 0.0, pad], [0.0, 1.0, pad], [0.0, 0.0, 1.0]])
+    warped = cv2.warpPerspective(frame, t @ h, (bs + 2 * pad, bs + 2 * pad))
+    lines = grid_lines(warped, bs, pad=pad)
+    return sum(1 for axis in lines for line in axis if line is None)
+
+
+def detect_rotation(video: Path, candidate: dict, wanted: set[int]) -> int | None:
+    """The `cv2.ROTATE_*` the decode needs so Python sees the frames the Kotlin side measured.
+
+    cv2 does not reliably honour a phone recording's rotation metadata (measured 2026-08-10:
+    portrait 1080x1920 delivered for a landscape-measured candidate, and one video needing 180°
+    despite `CAP_PROP_ORIENTATION_AUTO`), while the candidate's corners live in the Kotlin
+    reader's view. The judge is the board's own grid through the STORED corners: the right
+    orientation reads all 18 lines, a wrong one almost none. An as-is read that passes is never
+    overridden — for a centred board a 180° flip also aligns the (symmetric) lines, and flipping
+    a good session would transpose a1<->h8 in every label.
+    """
+    want_w, want_h = (int(v) for v in candidate["geometry"]["frame_size"])
+    cap = cv2.VideoCapture(str(video))
+    if not cap.isOpened():
+        raise FileNotFoundError(f"cannot open video: {video}")
+    probes, idx = sorted(wanted)[:ROTATION_PROBES], 0
+    try:
+        best: tuple[int, int | None] | None = None
+        for target in probes:
+            frame = None
+            while idx <= target:
+                ok, frame = cap.read()
+                if not ok:
+                    return best[1] if best else None
+                idx += 1
+            got = (frame.shape[1], frame.shape[0])
+            rotations: list[int | None] = (
+                [None, cv2.ROTATE_180]
+                if got == (want_w, want_h)
+                else [cv2.ROTATE_90_COUNTERCLOCKWISE, cv2.ROTATE_90_CLOCKWISE]
+            )
+            scored = [
+                (_unread_grid_lines(frame if r is None else cv2.rotate(frame, r), candidate["geometry"]), r)
+                for r in rotations
+            ]
+            scored.sort(key=lambda s: (s[0], s[1] is not None))  # a passing as-is wins ties
+            if scored[0][0] <= ROTATION_UNREAD_SLACK:
+                return scored[0][1]
+            if best is None or scored[0][0] < best[0]:
+                best = scored[0]
+        raise ValueError(
+            f"{video.name}: no rotation reads the board grid through the stored corners "
+            f"(best left {best[0] if best else '?'} of 18 lines unread) — geometry and decode disagree."
+        )
+    finally:
+        cap.release()
+
+
+def decode_frames(video: Path, wanted: set[int], out_dir: Path, rotate: int | None = None) -> set[int]:
     """Write the wanted source frames as `frames/NNNNNN.png`, decoding STRICTLY forward.
 
     Never `CAP_PROP_POS_FRAMES`: seeking a long clip lands next to the requested index (the
     2026-08-06 stale-index defect class), and an index that is off by one here is a wrong LABEL,
-    not a blurry picture. Returns the indices that actually arrived.
+    not a blurry picture. Returns the indices that actually arrived. [rotate] is `detect_rotation`'s
+    verdict, applied to every written frame.
 
     **Frames already on disk are kept, not decoded again.** A re-export is otherwise a full
     forward decode of the whole video for pixels that cannot have changed, which made re-running
@@ -382,7 +455,7 @@ def decode_frames(video: Path, wanted: set[int], out_dir: Path) -> set[int]:
             if not ok:
                 break
             if idx in todo:
-                cv2.imwrite(str(out_dir / f"{idx:06d}.png"), frame)
+                cv2.imwrite(str(out_dir / f"{idx:06d}.png"), frame if rotate is None else cv2.rotate(frame, rotate))
                 decoded.add(idx)
             idx += 1
             if idx % 1000 == 0:
@@ -511,10 +584,16 @@ def export_session(
     session_dir = config.DATA.sessions / f"rg-{name}"
     if not report_only:
         ensure_export_profile(EXPORT_PROFILE, candidate)
+        planned = {int(Path(r["frame"]).stem) for r in rows}
+        rotation = detect_rotation(video_path(name, candidate), candidate, planned)
+        if rotation is not None:
+            names = {cv2.ROTATE_90_CLOCKWISE: "90° cw", cv2.ROTATE_90_COUNTERCLOCKWISE: "90° ccw", cv2.ROTATE_180: "180°"}
+            print(f"  decode rotation: {names[rotation]} (cv2 and the candidate geometry disagree on orientation)")
         arrived = decode_frames(
             video_path(name, candidate),
-            {int(Path(r["frame"]).stem) for r in rows},
+            planned,
             session_dir / "frames",
+            rotate=rotation,
         )
         rows = [r for r in rows if int(Path(r["frame"]).stem) in arrived]
         if (session_dir / "frames" / "lens.json").is_file():

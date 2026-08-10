@@ -181,6 +181,31 @@ def test_a_pair_commit_marks_both_moves_squares_unknown():
     )
 
 
+def test_decode_frames_applies_the_rotation(tmp_path):
+    """Phone recordings: cv2 delivers a different orientation than the Kotlin reader the
+    candidate geometry was measured in (2026-08-10) — `rotate` is `detect_rotation`'s verdict
+    and every written frame must carry it."""
+    import cv2
+    import numpy as np
+
+    from chesslab.realgames import decode_frames
+
+    video = tmp_path / "v.avi"
+    w = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*"MJPG"), 5, (64, 32))
+    frame = np.zeros((32, 64, 3), np.uint8)
+    frame[0:4, 0:4] = 255  # a corner dot that moves under rotation
+    for _ in range(3):
+        w.write(frame)
+    w.release()
+
+    out = tmp_path / "frames"
+    arrived = decode_frames(video, {1}, out, rotate=cv2.ROTATE_90_COUNTERCLOCKWISE)
+    assert arrived == {1}
+    png = cv2.imread(str(out / "000001.png"))
+    assert png.shape[:2] == (64, 32), "rotated 90°: width and height swap"
+    assert png[-4:, 0:4].mean() > 100, "the top-left dot lands bottom-left under ccw"
+
+
 def test_export_refuses_unconfirmed(tmp_path, monkeypatch):
     _export_candidate(tmp_path, monkeypatch, confirmed=False)
     with pytest.raises(ValueError, match="not confirmed"):
