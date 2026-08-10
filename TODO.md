@@ -6,6 +6,15 @@
 
 ## Next up (agreed, not started)
 
+- **Lens end-to-end für die Rig-Kamera** (2026-08-10: *"ich würde gerne überall die Bilder sehen
+  die auch der Algo sieht"*). Der Hebel ist an die DATEN gekoppelt (CLAUDE.md, specs/52: lens-
+  korrigierte Inferenz gegen den roh trainierten Korpus = 003957 von 67 auf 15 Plies), deshalb in
+  dieser Reihenfolge und nie einzeln: (1) alle Rig-Sessions im Pool undistorten + re-slicen
+  (rg-2026-08-08-00-39-57 ist schon durch), (2) Modell auf dem korrigierten Korpus neu trainieren,
+  Path-A gegen den Champion, (3) erst dann Label-Replays und Serving auf `lens` default. Bis dahin
+  zeigen die gelabelten Burst-Bilder im Confirm bewusst das ROHE Algo-Bild und nur `frames-extra`
+  ist korrigiert — die Mischung im ◀ ▶ ist bekannt und gewollt.
+
 - **The static takes still miss the gap they were filmed for.** Take 1 covers a1-e4 — White's
   half again, mostly empty squares. The corpus is already 57 % "occluded over empty" with 8
   examples of a covered black king. The next takes have to reach over ranks 7 and 8.
