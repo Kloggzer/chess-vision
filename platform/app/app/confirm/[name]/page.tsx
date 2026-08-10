@@ -67,6 +67,7 @@ export default async function ConfirmPage({ params }: PageProps<"/confirm/[name]
       group: group.length > 1 ? group : [],
       lastOfGroup: moves.findLast((m) => m.frame === move.frame) === move,
       collapsed: squares === null && ["cnn_pair", "cnn_recovery"].includes(move.decider ?? ""),
+      decider: move.decider ?? null,
       duplicate: missedSans.has(move.san),
       squares,
     };

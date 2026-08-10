@@ -23,6 +23,8 @@ export type UnmatchedCard = {
   lastOfGroup: boolean;
   /** Pre-fix pair row: ONE entry holding several halves — the picture shows the position after ALL. */
   collapsed: boolean;
+  /** How the tracker decided this ply — `cnn_recovery` means committed LATE, the photo may show more. */
+  decider: string | null;
   duplicate: boolean;
   squares: { from: string; to: string } | null;
 };
@@ -174,6 +176,14 @@ export function UnmatchedCards({ name, cards }: { name: string; cards: Unmatched
                     </span>
                   ) : null}
                   <span className="text-muted-foreground text-xs">@frame {card.frame}</span>
+                  {card.decider === "cnn_recovery" ? (
+                    <Badge
+                      title="Recovery = der Tracker hat den Zug NACHTRÄGLICH aufgeholt. Das Foto zeigt oft schon spätere Züge — dann drop; keep nur, wenn es exakt die Stellung nach DIESEM Ply zeigt."
+                      variant="secondary"
+                    >
+                      spät committet (recovery)
+                    </Badge>
+                  ) : null}
                   {card.group.length > 0 ? (
                     <Badge
                       title={
