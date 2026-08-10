@@ -13,7 +13,10 @@
   (rg-2026-08-08-00-39-57 ist schon durch), (2) Modell auf dem korrigierten Korpus neu trainieren,
   Path-A gegen den Champion, (3) erst dann Label-Replays und Serving auf `lens` default. Bis dahin
   zeigen die gelabelten Burst-Bilder im Confirm bewusst das ROHE Algo-Bild und nur `frames-extra`
-  ist korrigiert — die Mischung im ◀ ▶ ist bekannt und gewollt.
+  ist korrigiert — die Mischung im ◀ ▶ ist bekannt und gewollt. Umfang gemessen 2026-08-10: NUR
+  die Rig-Kamera (OBS-Videos: k1 ≈ −0,23, Bow halbiert, Fit akzeptiert); die vier Phone-Videos
+  lehnt der Grid-Fit dreimal unabhängig ab (k1 ≈ 0) — die Handykamera entzerrt selbst, dort gibt
+  es nichts zu tun.
 
 - **The static takes still miss the gap they were filmed for.** Take 1 covers a1-e4 — White's
   half again, mostly empty squares. The corpus is already 57 % "occluded over empty" with 8
