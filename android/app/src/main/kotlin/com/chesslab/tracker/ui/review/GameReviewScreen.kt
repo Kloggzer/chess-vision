@@ -200,7 +200,7 @@ private fun GameReviewScreen(
             }
             when (section) {
                 ReviewSection.REVIEW -> {
-                    item(key = "board") { ReviewBoard(game, review.selected, grade, review.fromHere) }
+                    item(key = "board") { ReviewBoard(game, review.selected, grade, review.advice) }
                     item(key = "verdict") { ReviewVerdict(review, game, grade) { overlays.mateLine = it } }
                     item(key = "nav") { PlyNav(review.selected, game.plies.size) { seek = it } }
                 }
@@ -330,10 +330,21 @@ private fun rememberReviewListState(
     return listState
 }
 
-private data class ReviewSelection(
+internal data class ReviewSelection(
     val selected: Int,
     val ply: PlyGrade?,
-    val fromHere: PlyGrade?,
+    /**
+     * The ply whose ENGINE MOVE this screen is showing — the same one the board's accent arrow
+     * draws and the verdict's right column names.
+     *
+     * It is the selected ply itself: its `bestUci` is what the engine wanted INSTEAD of what was
+     * played, which is the question a review answers and the one the left column has just posed.
+     * The board drew the NEXT ply's engine move while the card named this one's, so the arrow and
+     * the move beside it were a ply apart — *"die Zuordnung der Pfeile stimmt nicht, die werden um
+     * ein[s] versetzt dargestellt"*. At the start position there is no played ply, so the advice is
+     * the first one's: the engine's opening move.
+     */
+    val advice: PlyGrade?,
     val mateHint: MateLineRequest?,
     val checkmate: Boolean,
 )
@@ -351,7 +362,8 @@ private fun ReviewVerdict(
         selected = review.selected,
         grade = grade,
         playedBy = review.ply?.let { playerAndSide(game, it) },
-        engineMove = review.ply?.bestSan ?: grade?.of(review.selected + 1)?.bestSan,
+        // The same ply the board's accent arrow draws — see [ReviewSelection.advice].
+        engineMove = review.advice?.bestSan,
         mateHint = review.mateHint,
         checkmate = review.checkmate,
     ) { review.mateHint?.let(onExploreMate) }
@@ -367,7 +379,7 @@ internal fun playerAndSide(
     return if (player == "?") side else "$player · $side"
 }
 
-private fun reviewSelection(
+internal fun reviewSelection(
     game: GameView,
     grade: GameGrade?,
     selected: Int,
@@ -378,7 +390,7 @@ private fun reviewSelection(
     return ReviewSelection(
         selected = selected,
         ply = ply,
-        fromHere = next?.takeIf { it.quality != MoveQuality.BEST },
+        advice = if (selected == 0) next else ply,
         // A finding opens the position before its move, so the mate belongs to `next` there.
         // Stepping normally still shows the same hint on the move after it was played.
         mateHint =
@@ -542,24 +554,37 @@ private fun LazyListScope.movesSection(
     }
 }
 
+/**
+ * The board, the two arrows, and the bar above them.
+ *
+ * **Both arrows belong to the SAME ply**: what was played (in the last-move colour) and what the
+ * engine wanted instead (accent). That pairing is the whole review — *"weiß Zug war …, dann die
+ * Veränderung anzeigen, und bester Zug wäre … mit Pfeil zeigen, selbiges auch für Schwarz"* — and it
+ * is what the verdict card below spells out in words, for either side's ply without distinction.
+ *
+ * The arrow was the NEXT ply's engine move until this change, i.e. the move to play FROM here, so
+ * the board's arrow and the card's "Engine move" named two different moves. The board still shows
+ * the position AFTER the played move, which is why the two are drawn together: read alone, an
+ * alternative to a move that has already happened is the ambiguity the pairing removes.
+ *
+ * An engine move identical to the played one draws nothing extra — one arrow under another is a
+ * thicker arrow, not a second statement, and the card already says "best".
+ */
 @Composable
 private fun ReviewBoard(
     game: GameView,
     selected: Int,
     grade: GameGrade?,
-    fromHere: PlyGrade?,
+    advice: PlyGrade?,
 ) {
+    val played = game.plies.getOrNull(selected - 1)?.uci
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
         ReviewWinBar(grade?.winWhite?.getOrNull(selected))
-        // The advice on the BOARD has to be a move from the position the board is showing. A ply's
-        // own `bestUci` is the engine's move in the position BEFORE it, so drawing that here would
-        // put an arrow for one position on top of another — it did, and `e4-e5` was rendered over a
-        // board where that had already happened. The engine's move from THIS position is the next
-        // ply's, and the verdict card names exactly this move.
         BoardCanvas(
             fen = game.fenAt(selected),
-            lastMoveUci = game.plies.getOrNull(selected - 1)?.uci,
-            suggestedUci = fromHere?.bestUci,
+            lastMoveUci = played,
+            suggestedUci = advice?.bestUci?.takeIf { it != played },
+            lastMoveArrow = true,
         )
     }
 }

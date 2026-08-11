@@ -1,5 +1,6 @@
 package com.chesslab.tracker.ui.review
 
+import com.chesslab.engine.api.STARTPOS
 import com.chesslab.tracker.analysis.GameGrade
 import com.chesslab.tracker.analysis.MoveQuality
 import com.chesslab.tracker.analysis.OpeningSummary
@@ -7,12 +8,17 @@ import com.chesslab.tracker.analysis.PlyGrade
 import com.chesslab.tracker.analysis.ReviewBudget
 import com.chesslab.tracker.analysis.SideSummary
 import com.chesslab.tracker.games.GameView
+import com.chesslab.tracker.games.ReviewPly
+import com.chesslab.tracker.games.ReviewSegment
 import com.chesslab.tracker.ui.analysisLine
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+
+private const val AFTER_E4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
+private const val AFTER_E5 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
 
 class ReviewUiModelTest {
     @Test
@@ -220,6 +226,41 @@ class ReviewUiModelTest {
             ),
         )
     }
+
+    /**
+     * The arrow on the board and the move named beside it are ONE ply's engine move.
+     *
+     * They were a ply apart: the card showed the alternative to the move just played while the board
+     * drew the best move from the resulting position. *"Die Zuordnung der Pfeile stimmt nicht, die
+     * werden um ein[s] versetzt dargestellt"* — and it is the same answer for a White ply and a
+     * Black one, which is the second half of the same report.
+     */
+    @Test
+    fun theBoardsArrowAndTheVerdictsEngineMoveAreTheSamePly() {
+        val game =
+            GameView(
+                id = "2026-08-11_1200",
+                live = false,
+                startFen = STARTPOS,
+                result = "*",
+                segments = listOf(ReviewSegment(STARTPOS, listOf(ply(1, "e4", AFTER_E4), ply(2, "e5", AFTER_E5)), null)),
+            )
+        val grade =
+            gameGrade(
+                plyGrade(MoveQuality.BEST, 50.0, 50.0).copy(ply = 1, bestUci = "e2e4", bestSan = "e4"),
+                plyGrade(MoveQuality.BLUNDER, 50.0, 20.0).copy(ply = 2, bestUci = "c7c5", bestSan = "c5"),
+            )
+
+        assertEquals(1, reviewSelection(game, grade, 0).advice?.ply, "the start position advises the opening move")
+        assertEquals("e2e4", reviewSelection(game, grade, 1).advice?.bestUci, "White's ply advises White's alternative")
+        assertEquals("c7c5", reviewSelection(game, grade, 2).advice?.bestUci, "and Black's ply advises Black's")
+    }
+
+    private fun ply(
+        number: Int,
+        san: String,
+        fenAfter: String,
+    ) = ReviewPly(number, san, "", fenAfter, decider = null)
 
     private fun plyGrade(
         quality: MoveQuality,

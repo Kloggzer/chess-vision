@@ -87,6 +87,11 @@ private fun glyph(piece: Char): String =
  * instead", and it must be visibly a SUGGESTION rather than a move that happened — so it never
  * touches a piece and never tints a square, both of which mean "this was played".
  *
+ * [lastMoveArrow] draws [lastMoveUci] as an arrow too, in the last-move colour rather than the
+ * accent. The review wants it: a suggestion beside the move it is an alternative TO is a comparison,
+ * while an accent arrow alone on a board is just a move with no stated relation to the one played.
+ * The tracker does not — there the tint is the whole story and the board must stay quiet.
+ *
  * [alarmed] paints the whole board with the danger scrim — while the alarm is latched the engine
  * blocks every commit (invariant 9), so this position is provably NOT what is on the table.
  */
@@ -96,6 +101,7 @@ fun BoardCanvas(
     modifier: Modifier = Modifier,
     lastMoveUci: String? = null,
     suggestedUci: String? = null,
+    lastMoveArrow: Boolean = false,
     alarmed: Boolean = false,
     whitePov: Boolean = true,
 ) {
@@ -129,20 +135,27 @@ fun BoardCanvas(
                 drawGlyph(palette, paint, piece, topLeft, cell)
             }
         }
-        suggestedUci?.let { drawSuggestion(palette.accent, it, cell, whitePov) }
+        // Played first, engine's move on top: where the two share a square the advice must be the
+        // one that stays readable.
+        if (lastMoveArrow) lastMoveUci?.let { drawMoveArrow(palette.primary, it, cell, whitePov, PLAYED_STROKE) }
+        suggestedUci?.let { drawMoveArrow(palette.accent, it, cell, whitePov, ARROW_STROKE) }
         if (alarmed) drawAlarm(palette.danger, cell)
     }
 }
 
 private const val ARROW_STROKE = 0.13f
+
+/** Thinner than the advice: the played move is context, and the two must not read as one weight. */
+private const val PLAYED_STROKE = 0.08f
 private const val ARROW_HEAD = 0.34f
 
-/** The engine's move as an arrow from square centre to square centre. */
-private fun DrawScope.drawSuggestion(
-    accent: Color,
+/** One move as an arrow from square centre to square centre. */
+private fun DrawScope.drawMoveArrow(
+    color: Color,
     uci: String,
     cell: Float,
     whitePov: Boolean,
+    stroke: Float,
 ) {
     val squares = lastMoveSquares(uci).toList()
     val from = squares.getOrNull(0)?.let { squareCentre(it, cell, whitePov) }
@@ -154,7 +167,7 @@ private fun DrawScope.drawSuggestion(
     val unit = along / length
     val head = cell * ARROW_HEAD
     // The shaft stops where the head begins, so the two do not overlap into a blob at short range.
-    drawLine(accent, from, to - unit * head, strokeWidth = cell * ARROW_STROKE, cap = StrokeCap.Round)
+    drawLine(color, from, to - unit * head, strokeWidth = cell * stroke, cap = StrokeCap.Round)
     val side = Offset(-unit.y, unit.x) * (head / 2f)
     drawPath(
         Path().apply {
@@ -163,7 +176,7 @@ private fun DrawScope.drawSuggestion(
             lineTo(to.x - unit.x * head - side.x, to.y - unit.y * head - side.y)
             close()
         },
-        accent,
+        color,
     )
 }
 
