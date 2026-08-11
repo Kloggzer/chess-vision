@@ -26,6 +26,9 @@ val GAMES_JSON: Json =
  * exactly one segment — carrying its seam, which is the only record of the plies that caused it.
  * `ignoreUnknownKeys` would otherwise drop that field silently on the first read and the next
  * write would erase it from disk.
+ *
+ * It decodes and nothing more — closing the seams that can be closed is [GameStore.open]'s job,
+ * because that one can also write the result back.
  */
 fun decodeStoredGame(text: String): StoredGame {
     val obj = GAMES_JSON.parseToJsonElement(text).jsonObject
@@ -104,6 +107,19 @@ data class SeamOrigin(
     val ucis: List<String>,
     /** Almost always `cnn_recovery`: recovery is what jumps off the line. */
     val decider: String,
+    /**
+     * How deep [seamBridge] has already searched this gap **without finding anything**.
+     *
+     * The search is the expensive half of [closeSeams] and its FAILURE is the expensive case — a
+     * gap nothing explains is only proved by walking the whole tree. That answer never changes, so
+     * it is written down: a seam recorded as searched to the current depth is skipped outright, and
+     * the games with unexplainable gaps stop costing a full search on every single open.
+     *
+     * It stores the DEPTH rather than a flag so that raising the limit re-opens the question by
+     * itself. Zero means "not searched yet", which is what every seam the tracker writes starts as
+     * and what every file written before this field says.
+     */
+    val searchedPlies: Int = 0,
 )
 
 /**

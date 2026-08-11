@@ -76,6 +76,26 @@ class GameStoreTest {
         assertEquals("Alice", store.list().single().white)
     }
 
+    /**
+     * The games recorded before `closeSeams` existed are split on disk, and the split is in three
+     * places: the move list, the stored PGN and the index row. `list()` never opens a game, so
+     * without writing the closed record back the library would go on calling a continuous game
+     * "rebuilt 1×" — with a review beside it that shows no seam at all.
+     */
+    @Test
+    fun openingAnOldSplitGameClosesItAndWritesItBack() {
+        val store = store()
+        store.save(splitGame())
+
+        val opened = store.open("split")!!
+
+        assertEquals(listOf("e4", "e5", "Nf3", "Nc6"), opened.moves.map { it.san })
+        assertEquals(1, opened.segments.size)
+        assertEquals(0, store.list().single().seams, "the library row is not left claiming a rebuild")
+        assertEquals(4, store.list().single().moveCount)
+        assertFalse(store.pgn("split").orEmpty().contains("position rebuilt"), "and neither is the stored PGN")
+    }
+
     @Test
     fun deleteRemovesPgnProvenanceAndIndexRow() {
         val store = store()
@@ -103,6 +123,29 @@ fun sampleProvenance() =
         cnnAgreement = 0.98,
         verifyOutcomes = listOf("ok"),
     )
+
+/** 1.e4, then a recovery that committed 2.Nf3 from a position one ply ahead of the record. */
+private fun splitGame(): StoredGame {
+    val e4 = StoredMove(1, "e4", "e2e4", 1_700_000_010_000L, sampleProvenance())
+    val nc6 = StoredMove(2, "Nc6", "b8c6", 1_700_000_020_000L, sampleProvenance())
+    return sampleGame(id = "split").copy(
+        moves = listOf(e4, nc6),
+        segments =
+            listOf(
+                GameSegment("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", listOf(e4)),
+                GameSegment(
+                    "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+                    listOf(nc6),
+                    SeamOrigin(
+                        fenBefore = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+                        sans = listOf("Nf3"),
+                        ucis = listOf("g1f3"),
+                        decider = "cnn_recovery",
+                    ),
+                ),
+            ),
+    )
+}
 
 fun sampleGame(id: String = "g1") =
     StoredGame(

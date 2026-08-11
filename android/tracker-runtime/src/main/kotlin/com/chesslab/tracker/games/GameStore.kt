@@ -31,7 +31,21 @@ class GameStore(
             .getOrDefault(emptyList())
             .sortedByDescending { it.startedAtEpochMs }
 
-    fun open(id: String): StoredGame? = runCatching { decodeStoredGame(File(root, "$id.json").readText()) }.getOrNull()
+    /**
+     * One game, with the seams that CAN be closed already closed — and written back when any were.
+     *
+     * The rewrite is a migration and it runs at most once per game: the games recorded before
+     * `closeSeams` existed were split wherever a CNN recovery committed from ahead of the record,
+     * and the split is in three places at once. The move list is the visible one; the stored PGN and
+     * the index row are the other two, and [list] never opens a game, so a stale `seams: 1` would go
+     * on calling a continuous game rebuilt for as long as the file existed.
+     */
+    fun open(id: String): StoredGame? {
+        val stored = runCatching { decodeStoredGame(File(root, "$id.json").readText()) }.getOrNull() ?: return null
+        val closed = stored.closeSeams()
+        if (closed !== stored) runCatching { save(closed) }
+        return closed
+    }
 
     /**
      * Persists the game and its PGN. Returns `null` for an empty game: a library row for zero moves

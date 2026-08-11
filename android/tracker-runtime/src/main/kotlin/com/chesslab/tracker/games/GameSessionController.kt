@@ -7,6 +7,15 @@ import com.chesslab.tracker.record.SessionCaptureController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
+/**
+ * How long a rolled-back position must stand before the record accepts it as a take-back.
+ *
+ * Several times `STATUS_SAMPLE_MS` (100 ms): long enough that a status delivered late is overtaken
+ * by the current one first, short enough that a real take-back is honoured before the player has
+ * finished putting the piece down.
+ */
+private const val UNDO_CONFIRM_MS = 500L
+
 data class GameSessionState(
     val moveCount: Int = 0,
     /**
@@ -47,6 +56,10 @@ class GameSessionController(
     private var startFen: String = STARTPOS
     private var profile: String = "default"
 
+    /** The rolled-back position waiting to prove it is a take-back, and since when — [onStatus]. */
+    private var undoFen: String? = null
+    private var undoSince: Long = 0L
+
     val state: StateFlow<GameSessionState> = mutable
 
     /** The position the tracker is on before the first move — a game may be seeded with any FEN. */
@@ -83,8 +96,34 @@ class GameSessionController(
         publish()
     }
 
-    /** An undo is only visible as a position that went backwards; see [LiveGame.onFen]. */
+    /**
+     * An undo is only visible as a position that went backwards ([LiveGame.wouldUndo]) — and it has
+     * to STAY there before the record believes it.
+     *
+     * A commit event and a status update are two collectors on two flows, and the status is sampled
+     * (`STATUS_SAMPLE_MS`). A status captured a moment before a commit and delivered a moment after
+     * it carries exactly the position the record has just moved on from — indistinguishable from a
+     * take-back, and the record deleted the ply it had just written. Measured on the game of
+     * 2026-08-10: the engine committed and announced 69 plies, the record kept 39. Every one of its
+     * eleven seams is a ply deleted this way and the commit after it no longer fitting the line.
+     *
+     * A real take-back stays: the pieces are back on the board and every following status says so.
+     * A late sample is a single blip, overtaken by the current position within one interval. So the
+     * rolled-back position must survive [UNDO_CONFIRM_MS] before it counts, which costs a genuine
+     * undo a fraction of a second of latency and costs the record nothing.
+     */
     fun onStatus(status: TrackerStatus) {
+        if (live?.wouldUndo(status.fen) != true) {
+            undoFen = null
+            return
+        }
+        if (status.fen != undoFen) {
+            undoFen = status.fen
+            undoSince = now()
+            return
+        }
+        if (now() - undoSince < UNDO_CONFIRM_MS) return
+        undoFen = null
         if (live?.onFen(status.fen) == true) {
             capture.undo()
             publish()
@@ -145,7 +184,11 @@ class GameSessionController(
         // Still NO `capture.queue` here, and deliberately: a seam is the moment the engine's own
         // FEN is least trustworthy, so a frame labelled with it is the poisoned-data case the
         // recording gates exist to prevent. A gap in the training set beats a wrong label in it.
-        live?.takeUnless { it.continues(ucis) }?.let { game ->
+        //
+        // A gap the plies THEMSELVES explain is not a seam at all — `closeGapBefore` appends the one
+        // legal sequence that reaches the position the engine committed from, and the commit below
+        // then continues the line normally. Only a gap nothing explains opens a segment.
+        live?.takeUnless { it.continues(ucis) || it.closeGapBefore(ucis, fenAfter, now(), decider) }?.let { game ->
             game.openSegment(
                 fenAfter,
                 SeamOrigin(fenBefore = game.currentFen, sans = sans, ucis = ucis, decider = decider),

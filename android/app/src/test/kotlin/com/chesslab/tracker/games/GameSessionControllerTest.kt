@@ -29,6 +29,15 @@ private const val AFTER_JUMP = "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1
 private const val AFTER_JUMP_NC6 = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
 private const val FOOLS_MATE = "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3"
 
+/**
+ * A jump nothing explains: [AFTER_JUMP] with White's queen's rook gone.
+ *
+ * [AFTER_JUMP] itself is no longer a seam — the record misses exactly 1...e5 there and `closeSeams`
+ * finds it — so a test about seams needs a gap that has no legal explanation at all.
+ */
+private const val AFTER_LOST_BOARD = "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/1NBQKB1R b Kkq - 1 2"
+private const val AFTER_LOST_BOARD_NC6 = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/1NBQKB1R w Kkq - 2 3"
+
 /** Placement and side to move — the two fields the board actually renders. */
 private fun position(fen: String) = fen.split(' ').take(2).joinToString(" ")
 
@@ -185,11 +194,48 @@ class GameSessionControllerTest {
         controller.onEvent(move("e2e4", "e4", AFTER_E4), null)
         assertEquals(1, capture.recorder?.count)
         assertEquals("s", controller.state.value.recordingSessionId)
-        // The published position went BACK to the one before the move: that is an undo, and a
-        // taken-back move must survive neither in the library nor as labeled data.
+        // The published position went BACK to the one before the move, and STAYED there: that is an
+        // undo, and a taken-back move must survive neither in the library nor as labeled data.
+        controller.onStatus(idleTrackerStatus(STARTPOS))
+        now += 1_000
         controller.onStatus(idleTrackerStatus(STARTPOS))
         assertEquals(0, controller.state.value.moveCount)
         assertEquals(0, capture.recorder?.count)
+    }
+
+    /**
+     * The bug behind every seam in the games on the device.
+     *
+     * Commits and status updates are two collectors on two flows, and the status is sampled — so a
+     * status captured a moment BEFORE a commit and delivered a moment after it carries the position
+     * the record has just left. That is bit-for-bit what a take-back looks like, and the record used
+     * to delete the ply it had just written; the next commit then no longer fitted the line and
+     * opened a seam. Measured on 2026-08-10: the engine committed and announced 69 plies, all of
+     * them cleanly, and the stored game kept 39.
+     *
+     * What separates the two is TIME, not shape: a take-back stays on the board, a late sample is
+     * overtaken by the current position within one interval.
+     */
+    @Test
+    fun aStatusThatArrivesOnePlyLateDoesNotDeleteTheMoveItMissed() {
+        val controller = controller()
+        controller.onIdle(STARTPOS, "board-a")
+        controller.onEvent(move("e2e4", "e4", AFTER_E4), null)
+
+        // Sampled before the commit, delivered after it.
+        now += 40
+        controller.onStatus(idleTrackerStatus(STARTPOS))
+        // And the very next status is the real position again.
+        now += 100
+        controller.onStatus(idleTrackerStatus(AFTER_E4))
+        now += 1_000
+        controller.onStatus(idleTrackerStatus(AFTER_E4))
+
+        assertEquals(1, controller.state.value.moveCount, "the ply was really played and really announced")
+        controller.onEvent(move("e7e5", "e5", AFTER_E5), null)
+        val stored = store.open(controller.endAndSave()!!.id)!!
+        assertEquals(listOf("e4", "e5"), stored.moves.map { it.san })
+        assertEquals(1, stored.segments.size, "and no seam: the line was never broken")
     }
 
     /**
@@ -232,6 +278,8 @@ class GameSessionControllerTest {
         controller.onEvent(move("e7e5", "e5", AFTER_E5), null)
         controller.onEvent(pair(), null)
         controller.onStatus(idleTrackerStatus(afterNf3()))
+        now += 1_000
+        controller.onStatus(idleTrackerStatus(afterNf3()))
         assertEquals(3, controller.state.value.moveCount)
     }
 
@@ -247,19 +295,22 @@ class GameSessionControllerTest {
      * game: one played game came off the device as three files ("für mich als Nutzer ist so ne Naht
      * in der Game-Historie unverständlich"). So the seam opens a SEGMENT — a new legal line inside
      * the same record — and one played game stays one stored record.
+     *
+     * Only for a gap nothing explains, though: see
+     * [aGapTheMissedPlyExplainsIsClosedInsteadOfSplit].
      */
     @Test
     fun aCommitThatLeftTheRecordsLineOpensASegmentNotANewRecord() {
         val controller = controller()
         controller.onIdle(STARTPOS, "board-a")
         controller.onEvent(move("e2e4", "e4", AFTER_E4), null)
-        // White again, with black to move: only reachable if the engine's board moved on without us.
-        controller.onEvent(move("g1f3", "Nf3", AFTER_JUMP), null)
+        // A rook nobody can have taken: the engine's board is somewhere this record cannot reach.
+        controller.onEvent(move("g1f3", "Nf3", AFTER_LOST_BOARD), null)
 
         assertTrue(store.list().isEmpty(), "a seam stores nothing — the game is still being played")
         assertEquals(1, controller.state.value.moveCount, "and the plies before it are still the game's")
 
-        controller.onEvent(move("b8c6", "Nc6", AFTER_JUMP_NC6), null)
+        controller.onEvent(move("b8c6", "Nc6", AFTER_LOST_BOARD_NC6), null)
         val saved = controller.endAndSave()!!
         assertEquals(1, store.list().size, "one played game is ONE stored record")
         val stored = store.open(saved.id)!!
@@ -267,9 +318,37 @@ class GameSessionControllerTest {
         assertEquals(STARTPOS, stored.startFen)
         assertEquals(STARTPOS, stored.segments[0].startFen)
         assertEquals(listOf("e4"), stored.segments[0].moves.map { it.san })
-        assertEquals(AFTER_JUMP, stored.segments[1].startFen, "the second segment is anchored where the engine is")
+        assertEquals(AFTER_LOST_BOARD, stored.segments[1].startFen, "the second segment is anchored where the engine is")
         assertEquals(listOf("Nc6"), stored.segments[1].moves.map { it.san })
         assertEquals(1, store.list().single().seams, "and the library row can say the app rebuilt the board once")
+    }
+
+    /**
+     * A CNN recovery commits from where the BOARD is, and the record is behind it by the plies the
+     * tracker missed behind a hand. That is not a lost board: there is exactly one legal sequence
+     * that gets from here to there, so the plies are appended and the line simply carries on.
+     *
+     * The user's report, on a game full of these: *"die Segmente sind mit einer Warnung voneinander
+     * getrennt obwohl sie sich einfach schließen lassen, da dort ein CNN recovery stattfand"*.
+     */
+    @Test
+    fun aGapTheMissedPlyExplainsIsClosedInsteadOfSplit() {
+        val controller = controller()
+        controller.onIdle(STARTPOS, "board-a")
+        controller.onEvent(move("e2e4", "e4", AFTER_E4), null)
+        // 2.Nf3 is illegal after 1.e4 alone — 1...e5 happened while the tracker was not looking.
+        controller.onEvent(TrackerEvent.MoveCommitted("g1f3", "Nf3", AFTER_JUMP, "cnn_recovery", false), null)
+        controller.onEvent(move("b8c6", "Nc6", AFTER_JUMP_NC6), null)
+
+        assertEquals(4, controller.state.value.moveCount, "the missed ply is in the running game too")
+        val stored = store.open(controller.endAndSave()!!.id)!!
+        assertEquals(1, stored.segments.size, "one line, no seam, nothing to warn about")
+        assertEquals(listOf("e4", "e5", "Nf3", "Nc6"), stored.moves.map { it.san })
+        assertEquals(listOf(1, 2, 3, 4), stored.moves.map { it.ply })
+        assertEquals(0, store.list().single().seams)
+        val deciders = stored.moves.associate { it.san to it.provenance?.decider }
+        assertEquals(DECIDER_SEAM_BRIDGE, deciders["e5"], "the derived ply says it was derived")
+        assertEquals("cnn_recovery", deciders["Nf3"], "the committed one says who committed it")
     }
 
     /**
@@ -282,8 +361,8 @@ class GameSessionControllerTest {
         val controller = controller()
         controller.onIdle(STARTPOS, "board-a")
         controller.onEvent(move("e2e4", "e4", AFTER_E4), null)
-        controller.onEvent(move("g1f3", "Nf3", AFTER_JUMP), null)
-        controller.onEvent(move("b8c6", "Nc6", AFTER_JUMP_NC6), null)
+        controller.onEvent(move("g1f3", "Nf3", AFTER_LOST_BOARD), null)
+        controller.onEvent(move("b8c6", "Nc6", AFTER_LOST_BOARD_NC6), null)
 
         val saved = controller.endAndSave()!!
         assertEquals(2, saved.moveCount)
@@ -384,10 +463,10 @@ class GameSessionControllerTest {
         val controller = controller()
         controller.onIdle(STARTPOS, "board-a")
         controller.onEvent(move("e2e4", "e4", AFTER_E4), idleTrackerStatus(AFTER_E4))
-        // Nf3 is illegal after 1.e4 alone: the engine jumped, so a segment opens here.
-        val jump = TrackerEvent.MoveCommitted("g1f3", "Nf3", AFTER_JUMP, "cnn_recovery", false)
-        controller.onEvent(jump, idleTrackerStatus(AFTER_JUMP))
-        controller.onEvent(move("b8c6", "Nc6", AFTER_JUMP_NC6), idleTrackerStatus(AFTER_JUMP_NC6))
+        // Nf3 onto a board that also lost a rook: no missed ply explains it, so a segment opens.
+        val jump = TrackerEvent.MoveCommitted("g1f3", "Nf3", AFTER_LOST_BOARD, "cnn_recovery", false)
+        controller.onEvent(jump, idleTrackerStatus(AFTER_LOST_BOARD))
+        controller.onEvent(move("b8c6", "Nc6", AFTER_LOST_BOARD_NC6), idleTrackerStatus(AFTER_LOST_BOARD_NC6))
 
         val saved = controller.endAndSave()!!
         val stored = store.open(saved.id)!!
@@ -409,12 +488,14 @@ class GameSessionControllerTest {
         val controller = controller()
         controller.onIdle(STARTPOS, "board-a")
         controller.onEvent(move("e2e4", "e4", AFTER_E4), null)
-        controller.onEvent(TrackerEvent.MoveCommitted("g1f3", "Nf3", AFTER_JUMP, "cnn_recovery", false), null)
-        controller.onEvent(move("b8c6", "Nc6", AFTER_JUMP_NC6), null)
+        controller.onEvent(TrackerEvent.MoveCommitted("g1f3", "Nf3", AFTER_LOST_BOARD, "cnn_recovery", false), null)
+        controller.onEvent(move("b8c6", "Nc6", AFTER_LOST_BOARD_NC6), null)
         assertEquals(2, controller.state.value.moveCount)
 
-        // Back to the position the segment started on: Nc6 was taken back.
-        controller.onStatus(idleTrackerStatus(AFTER_JUMP))
+        // Back to the position the segment started on, and staying there: Nc6 was taken back.
+        controller.onStatus(idleTrackerStatus(AFTER_LOST_BOARD))
+        now += 1_000
+        controller.onStatus(idleTrackerStatus(AFTER_LOST_BOARD))
         assertEquals(1, controller.state.value.moveCount, "the segment's only move is gone")
 
         val saved = controller.endAndSave()!!
@@ -434,14 +515,14 @@ class GameSessionControllerTest {
         val controller = controller()
         controller.onIdle(STARTPOS, "board-a")
         controller.onEvent(move("e2e4", "e4", AFTER_E4), null)
-        controller.onEvent(TrackerEvent.MoveCommitted("g1f3", "Nf3", AFTER_JUMP, "cnn_recovery", false), null)
-        controller.onEvent(move("b8c6", "Nc6", AFTER_JUMP_NC6), null)
+        controller.onEvent(TrackerEvent.MoveCommitted("g1f3", "Nf3", AFTER_LOST_BOARD, "cnn_recovery", false), null)
+        controller.onEvent(move("b8c6", "Nc6", AFTER_LOST_BOARD_NC6), null)
         val saved = controller.endAndSave()!!
 
         val blocks = store.pgn(saved.id).orEmpty().split("[Event ")
         assertEquals(3, blocks.size, "two [Event] blocks, one per segment: $blocks")
         assertFalse(blocks[1].contains("[FEN"), "the first game starts at the start position")
-        assertTrue(blocks[2].contains("[FEN \"$AFTER_JUMP\"]"), blocks[2])
+        assertTrue(blocks[2].contains("[FEN \"$AFTER_LOST_BOARD\"]"), blocks[2])
         assertTrue(blocks[2].contains("{position rebuilt by cnn_recovery: Nf3"), blocks[2])
     }
 

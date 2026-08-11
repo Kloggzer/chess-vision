@@ -114,6 +114,43 @@ class LiveGame(
     }
 
     /**
+     * The engine committed [ucis] from a position this record cannot reach, and this closes the gap
+     * BEFORE giving up and opening a segment.
+     *
+     * A CNN recovery is the normal cause, and it is normally no mystery: the tracker missed a ply or
+     * two behind a hand, and there is exactly one legal sequence that reaches the position the
+     * recovery committed from. Those plies happened — [seamBridge] refuses to answer unless they are
+     * the only ones that can have — so they are appended as real plies under their own decider and
+     * the record simply carries on. Only a gap nothing explains becomes a seam.
+     *
+     * It searches to [LIVE_BRIDGE_PLIES] rather than the full depth: this runs on the commit itself,
+     * and a deeper gap is closed by `closeSeams` when the finished game is opened.
+     */
+    fun closeGapBefore(
+        ucis: List<String>,
+        fenAfter: String,
+        tsEpochMs: Long,
+        decider: String,
+    ): Boolean {
+        val bridge = seamBridge(currentFen, ucis, fenAfter, LIVE_BRIDGE_PLIES) ?: return false
+        val plies = playedFrom(currentFen, bridge) ?: return false
+        plies.forEach { ply ->
+            current.moves +=
+                LiveMove(
+                    StoredMove(
+                        ply = moveCount + 1,
+                        san = ply.san,
+                        uci = ply.uci,
+                        tsEpochMs = tsEpochMs,
+                        provenance = provenanceOf(derived = true, decider = decider),
+                    ),
+                    fenAfter = ply.fenAfter,
+                )
+        }
+        return true
+    }
+
+    /**
      * The engine's board jumped to [fenAfter] and [seam] is what it committed to get there. The
      * plies fit no line this record holds — that is what a seam IS — so they open a new one instead
      * of ending the record. They stay OUT of every move list and are kept on the segment, because
@@ -143,19 +180,32 @@ class LiveGame(
     }
 
     /**
-     * Detects an undo from the published position, because the engine emits no undo event
-     * (`TrackerEngine.undo` only sets a note). A position that equals the one BEFORE the last move
-     * can only mean the last move was taken back — and a taken-back move must not survive in the
-     * library or as labeled training data.
+     * Does [fen] look like the last recorded ply was taken back — i.e. is it the position BEFORE it?
+     *
+     * Looking like it is NOT enough to act on, and that is the whole point of splitting this out of
+     * [onFen]. The engine emits no undo event (`TrackerEngine.undo` only sets a note), so the record
+     * reads the published position — and that position is sampled and delivered by a different
+     * coroutine than the commit events. A status sampled a moment BEFORE a commit and delivered a
+     * moment after it is bit-for-bit the same thing as a take-back. See
+     * `GameSessionController.onStatus` for what turns this into a decision.
+     */
+    fun wouldUndo(fen: String): Boolean {
+        val moves = current.moves
+        val last = moves.lastOrNull() ?: return false
+        return fen != last.fenAfter && fen == current.fenBefore(moves.size - 1)
+    }
+
+    /**
+     * Takes the last ply back. A taken-back move must not survive in the library or as labeled
+     * training data.
      *
      * Undoing the only move of a segment removes the segment too: a segment with no moves claims
      * the app rebuilt the board for nothing, and the detail screen would render its seam note above
      * an empty list. The first segment stays whatever happens — it carries the record's `startFen`.
      */
     fun onFen(fen: String): Boolean {
+        if (!wouldUndo(fen)) return false
         val moves = current.moves
-        val last = moves.lastOrNull() ?: return false
-        if (fen == last.fenAfter || fen != current.fenBefore(moves.size - 1)) return false
         moves.removeAt(moves.size - 1)
         if (moves.isEmpty() && segments.size > 1) segments.removeAt(segments.size - 1)
         return true
