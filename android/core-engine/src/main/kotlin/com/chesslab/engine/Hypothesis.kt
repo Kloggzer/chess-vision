@@ -142,8 +142,13 @@ private fun EngineState.tooMuchChangeGate(
     // stays on the RAW tainted count — `cnnConfirmedUnchanged` refuses occluded-reading squares,
     // so a resting hand cannot talk itself out of the ceiling.
     val confirmed = cnnConfirmedUnchanged(changed or tainted)
-    val changedEff = changed.without(confirmed).countOneBits()
-    val blockedEff = tainted.without(confirmed).countOneBits()
+    // EXPERIMENT (`handTolerantCells`): a hand covers about eight squares and the ceiling is six,
+    // so invariant 4 — latched squares COUNT — refuses every hypothesis formed while a hand is on
+    // the board. Under the knob the LOCATED hand's own squares stop counting; everything else,
+    // including the pair path's `blockedN == 0` precondition below, is untouched.
+    val excused = if (config.handTolerantCells > 0) locatedHand() else 0L
+    val changedEff = changed.without(confirmed).without(excused).countOneBits()
+    val blockedEff = tainted.without(confirmed).without(excused).countOneBits()
     if (changedEff + blockedEff <= config.maxChanged) return null
     if (blockedN == 0 && changedEff <= config.maxChanged + 2) {
         pairCandidate(z, moves.best)?.let { return Outcome(it) }

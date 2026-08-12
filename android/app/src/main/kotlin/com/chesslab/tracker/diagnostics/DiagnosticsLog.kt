@@ -43,6 +43,10 @@ private sealed interface Entry {
         val seq: Long,
         val decision: DebugDecision,
     ) : Entry
+
+    class State(
+        val row: StateRow,
+    ) : Entry
 }
 
 /**
@@ -91,6 +95,18 @@ class DiagnosticsLog(
         queue.trySend(Entry.Row(seq.getAndIncrement(), decision))
     }
 
+    /**
+     * A frame-loop state transition, from the engine's sink on the analyzer thread. Same contract
+     * as [offer]: one increment, one non-blocking send, no JSON here.
+     */
+    fun state(
+        from: String,
+        to: String,
+        tsS: Double,
+    ) {
+        queue.trySend(Entry.State(StateRow(seq.getAndIncrement(), tsS, from, to)))
+    }
+
     /** Once per built tracker stack, from whichever thread learns the execution provider. */
     fun runStart(row: RunStart) {
         queue.trySend(Entry.Start(row.copy(seq = seq.getAndIncrement())))
@@ -105,6 +121,7 @@ class DiagnosticsLog(
             when (entry) {
                 is Entry.Start -> DIAGNOSTICS_JSON.encodeToString(RunStart.serializer(), entry.row)
                 is Entry.Row -> DIAGNOSTICS_JSON.encodeToString(DecisionRow.serializer(), entry.decision.toRow(entry.seq))
+                is Entry.State -> DIAGNOSTICS_JSON.encodeToString(StateRow.serializer(), entry.row)
             }
         // A full disk, a revoked directory, a device that unmounted mid-game: none of them are
         // worth taking the tracker down for. The gap in `seq` records that something was lost.

@@ -10,6 +10,7 @@ import com.chesslab.tracker.geometry.CalibrationStore
 import com.chesslab.tracker.geometry.ProfileLoad
 import com.chesslab.tracker.record.LiveCaptureSource
 import com.chesslab.tracker.record.RecordingGates
+import com.chesslab.tracker.record.RecordingHooks
 import com.chesslab.tracker.record.RecordingSettings
 import com.chesslab.tracker.record.SessionCaptureController
 import com.chesslab.tracker.record.SessionMeta
@@ -49,6 +50,7 @@ fun wireGameSession(
     frames: CalibrationFrames<*>,
     publisher: StatusPublisher,
     calibration: CalibrationStore,
+    recordingHooks: RecordingHooks = RecordingHooks(),
 ): GameSessionController {
     scope.launch { settings.load() }
     // A recalibration replaces the profile under a running game; the capture path reads the latest.
@@ -56,9 +58,14 @@ fun wireGameSession(
     calibration.profile.onEach { latest.value = (it as? ProfileLoad.Ok)?.profile }.launchIn(scope)
     val profile = latest::value
     val controller =
-        buildController(paths, settings, profile, frames::latestCalibrationFrame) {
-            publisher.status.value?.corners
-        }
+        buildController(
+            paths,
+            settings,
+            profile,
+            frames::latestCalibrationFrame,
+            { publisher.status.value?.corners },
+            recordingHooks,
+        )
     attachGameSession(scope, controller, publisher.events, publisher.status) { profile()?.name ?: DEFAULT_PROFILE }
     return controller
 }
@@ -93,6 +100,7 @@ private fun buildController(
     profile: () -> CalibrationProfile?,
     frame: () -> Mat?,
     corners: () -> FloatArray?,
+    recordingHooks: RecordingHooks,
 ): GameSessionController {
     val sessions = SessionStore(paths.sessions)
     val source = LiveCaptureSource(frame, corners) { profile()?.let { it.sourceWidth to it.sourceHeight } }
@@ -105,6 +113,7 @@ private fun buildController(
             gates = RecordingGates(),
             prefs = { settings.prefs.value },
             existingBytes = { baseline },
+            hooks = recordingHooks,
         )
     return GameSessionController(GameStore(paths.games), capture, System::currentTimeMillis, ::gameId)
 }

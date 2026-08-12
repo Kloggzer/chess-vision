@@ -84,6 +84,14 @@ class CameraAxisTest {
     }
 
     @Test
+    fun dialSnappingUsesCameraMeaningfulIncrementsAndKeepsEndStopsReachable() {
+        assertEquals(0.613f, snapDialValue(0.6126f, 0f..1f, 0.001f), 0.00001f)
+        assertEquals(1f, snapDialValue(1.2f, 0f..1f, 0.001f))
+        assertEquals(-24f, snapDialValue(-30f, -24f..24f, 1f))
+        assertEquals(24f, snapDialValue(30f, -24f..24f, 1f))
+    }
+
+    @Test
     fun theSavedQuadIsDrawnWhenTheProfileMatchesThePictureShape() {
         assertTrue(canDrawQuad(profileAt(1920, 1080), 1280, 720))
         assertTrue(canDrawQuad(profileAt(1281, 720), 1280, 720), "a pixel of rounding is not a different shape")

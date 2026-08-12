@@ -27,11 +27,16 @@ import kotlinx.serialization.json.Json
  * would decode without complaint (`ignoreUnknownKeys`), which is exactly why the version has to
  * say so: the config a user exported at 2 is not the config this build runs.
  *
+ * **4 splits `motionHoldS`**: the occlusion latch reads `occluderHoldS` now, so a stored `0.20`
+ * that used to mean both things means only the settle delay in this build. A knob whose meaning
+ * narrowed is exactly the case this counter exists for. Checked before bumping: every value stored
+ * on the device was the default anyway, `boardSize` excepted, and that one is re-measured.
+ *
  * Note what a bump costs, because it is not free: it resets every knob to the defaults, and
  * `boardSize` is a measurement the calibration profile owns rather than a default anyone chose.
  * `TrackerService`'s `onMeasuredBoard` is what keeps that reset from silently stopping detection.
  */
-const val CONFIG_SCHEMA_VERSION = 3
+const val CONFIG_SCHEMA_VERSION = 4
 
 @Serializable
 private data class ConfigEnvelope(

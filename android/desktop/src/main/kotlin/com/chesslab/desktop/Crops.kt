@@ -1,13 +1,28 @@
+@file:Suppress("TooManyFunctions")
+
 package com.chesslab.desktop
 
 import com.chesslab.cnn.ALL_SQUARES
+import com.chesslab.cnn.expectedLabels
 import com.chesslab.geometry.cornersFromFlat
+import com.chesslab.geometry.cropBorderPx
 import com.chesslab.geometry.cropSquare
+import com.chesslab.geometry.gridOccludedSquares
 import com.chesslab.geometry.warpBoardForCrops
 import com.chesslab.tracker.geometry.boardGeometryFor
 import com.chesslab.tracker.geometry.quadOf
+import com.github.bhlangonijr.chesslib.Board
+import org.opencv.core.Mat
+import org.opencv.core.Size
 import org.opencv.imgcodecs.Imgcodecs
+import org.opencv.imgproc.Imgproc
+import java.awt.image.BufferedImage
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.nio.charset.StandardCharsets.UTF_8
+import java.security.MessageDigest
+import javax.imageio.ImageIO
 
 /**
  * `crops <video> <outDir> [frames=<file>|every=N] [out=WxH]` — the 64 square crops, as the device cuts them.
@@ -75,3 +90,221 @@ private fun cutEach(
 }
 
 private const val CROPS_EVERY = 400
+
+/** `turntable-preview <packDir> <out.png>` — an 8x8 contact sheet of the pack's first clean board. */
+fun previewTurntablePack(args: List<String>) {
+    val pack = File(args.getOrNull(0) ?: previewUsage())
+    val out = File(args.getOrNull(1) ?: previewUsage())
+    val data = File(pack, "packed_images.u8")
+    require(data.isFile) { "no packed memmap: ${data.absolutePath}" }
+    require(!out.exists()) { "refusing to overwrite preview: ${out.absolutePath}" }
+    val image = BufferedImage(PREVIEW_SIDE, PREVIEW_SIDE, BufferedImage.TYPE_INT_RGB)
+    val crop = ByteArray(PACK_CROP_BYTES)
+    FileInputStream(data).use { input ->
+        for (index in ALL_SQUARES.indices) {
+            require(input.readNBytes(crop, 0, crop.size) == crop.size) { "pack ends before first board" }
+            putRgbCrop(image, crop, index)
+        }
+    }
+    out.parentFile?.mkdirs()
+    check(ImageIO.write(image, "png", out)) { "no PNG writer available" }
+    println("previewed first clean board -> ${out.absolutePath}")
+}
+
+private fun previewUsage(): Nothing = error("usage: turntable-preview <packDir> <out.png>")
+
+private fun putRgbCrop(
+    sheet: BufferedImage,
+    data: ByteArray,
+    index: Int,
+) {
+    val col = index % BOARD_SIDE
+    val row = BOARD_SIDE - 1 - index / BOARD_SIDE
+    for (y in 0 until PACK_CROP_SIDE) {
+        for (x in 0 until PACK_CROP_SIDE) {
+            val at = (y * PACK_CROP_SIDE + x) * BGR_CHANNELS
+            val rgb =
+                ((data[at].toInt() and 0xff) shl 16) or
+                    ((data[at + 1].toInt() and 0xff) shl 8) or
+                    (data[at + 2].toInt() and 0xff)
+            sheet.setRGB(col * PACK_CROP_SIDE + x, row * PACK_CROP_SIDE + y, rgb)
+        }
+    }
+}
+
+/**
+ * `turntable-pack <video> <fen> <outDir> [every=N] [max=N] [id=name]` — video straight to a
+ * training-compatible RGB uint8 memmap.  A frame is admitted only when the tracker's per-frame
+ * quad and grid-groove hand sensor both say it is clean; no Python geometry or crop PNGs exist.
+ */
+@Suppress("LongMethod", "CyclomaticComplexMethod", "NestedBlockDepth", "LoopWithTooManyJumpStatements")
+fun packTurntableVideo(args: List<String>) {
+    // Gradle's `--args` tokenizes on spaces. `~` is the portable spelling for spaces in paths.
+    val video = File((args.getOrNull(0) ?: packUsage()).replace('~', ' '))
+    // Gradle's `--args` tokenizes on spaces. The CLI therefore accepts `_` as the portable
+    // spelling of a FEN field separator, while the metadata always records the canonical FEN.
+    val fen = (args.getOrNull(1) ?: packUsage()).replace('_', ' ')
+    val outDir = File(args.getOrNull(2) ?: packUsage())
+    val rest = args.drop(3)
+    val every = rest.optionInt("every", TURN_TABLE_EVERY)
+    val maxFrames = rest.optionInt("max", TURN_TABLE_MAX_FRAMES)
+    val id = rest.option("id") ?: video.nameWithoutExtension
+    require(video.isFile) { "no such video: ${video.absolutePath}" }
+    require(every >= 1 && maxFrames >= 1) { "every and max must both be at least 1" }
+    require(!outDir.exists()) { "refusing to overwrite existing pack: ${outDir.absolutePath}" }
+    val labels = expectedLabels(Board().apply { loadFromFen(fen) })
+    outDir.mkdirs()
+    val partial = File(outDir, "packed_images.u8.partial")
+    val manifest = StringBuilder()
+    val paths = StringBuilder("[")
+    val digest = MessageDigest.getInstance("SHA-256")
+    var decoded = 0
+    var noBoard = 0
+    var hand = 0
+    var accepted = 0
+    FileOutputStream(partial).use { bytes ->
+        VideoFileSource(video).use { source ->
+            while (accepted < maxFrames) {
+                val frame = source.next() ?: break
+                val frameNo = decoded++
+                if (frameNo % every != 0) continue
+                val quad = quadOf(frame)
+                if (quad == null) {
+                    noBoard++
+                    continue
+                }
+                val geom = boardGeometryFor(quad)
+                val warped = warpBoardForCrops(frame, geom, cornersFromFlat(quad))
+                try {
+                    if (isHandShape(gridOccludedSquares(warped, geom, cropBorderPx(geom)))) {
+                        hand++
+                        continue
+                    }
+                    val stem = frameNo.toString().padStart(STEM_DIGITS, '0')
+                    for (square in ALL_SQUARES) {
+                        val crop = cropSquare(warped, square, geom)
+                        try {
+                            val packed = resizeForPacking(crop)
+                            try {
+                                val data = ByteArray(PACK_CROP_BYTES)
+                                packed.get(0, 0, data)
+                                bgrToRgbInPlace(data)
+                                bytes.write(data)
+                            } finally {
+                                packed.release()
+                            }
+                        } finally {
+                            crop.release()
+                        }
+                        val path = "mm://$id/$stem/$square"
+                        manifest.append(turntableRow(path, id, stem, square, labels.getValue(square), geom)).append('\n')
+                        if (paths.length > 1) paths.append(',')
+                        paths.append('"').append(json(path)).append('"')
+                        digest.update(path.toByteArray(UTF_8))
+                        digest.update(NUL)
+                        digest.update(labels.getValue(square).toByteArray(UTF_8))
+                        digest.update(NUL)
+                        digest.update("[$PACK_CROP_SIDE, $PACK_CROP_SIDE]".toByteArray(UTF_8))
+                        digest.update(NEWLINE)
+                    }
+                    accepted++
+                } finally {
+                    warped.release()
+                }
+            }
+        }
+    }
+    require(accepted > 0) { "no clean frame: board missed=$noBoard, grid-hand=$hand" }
+    val image = File(outDir, "packed_images.u8")
+    check(partial.renameTo(image)) { "could not finalize ${image.absolutePath}" }
+    File(outDir, "manifest.jsonl").writeText(manifest.toString())
+    paths.append(']')
+    File(outDir, "packed_meta.json").writeText(
+        "{\"n\":${accepted * ALL_SQUARES.size},\"h\":$PACK_CROP_SIDE,\"w\":$PACK_CROP_SIDE," +
+            "\"source\":\"${json(video.absolutePath)}\",\"session_id\":\"${json(id)}\"," +
+            "\"fen\":\"${json(fen)}\",\"every\":$every,\"max\":$maxFrames," +
+            "\"decoded\":$decoded,\"board_missed\":$noBoard,\"grid_hand_rejected\":$hand," +
+            "\"accepted_frames\":$accepted,\"digest\":\"${digestHex(digest)}\",\"paths\":$paths}\n",
+    )
+    println(
+        "packed ${accepted * ALL_SQUARES.size} crops from $accepted clean frames " +
+            "(board missed $noBoard, grid-hand rejected $hand) -> ${outDir.absolutePath}",
+    )
+}
+
+private fun List<String>.option(name: String): String? = firstOrNull { it.startsWith("$name=") }?.removePrefix("$name=")
+
+private fun List<String>.optionInt(
+    name: String,
+    fallback: Int,
+): Int = option(name)?.toIntOrNull() ?: fallback
+
+private fun packUsage(): Nothing = error("usage: turntable-pack <video> <fen> <outDir> [every=N] [max=N] [id=name]")
+
+/** Grid flags are a hand only when at least two orthogonally neighbouring cells are flagged. */
+@Suppress("MagicNumber")
+internal fun isHandShape(bits: Long): Boolean =
+    ALL_SQUARES.anyIndexed { index, square ->
+        if ((bits and (1L shl index)) == 0L) return@anyIndexed false
+        val file = square[0] - 'a'
+        val rank = square[1] - '1'
+        listOf(file - 1 to rank, file + 1 to rank, file to rank - 1, file to rank + 1).any { (f, r) ->
+            f in 0..7 && r in 0..7 && (bits and (1L shl (f * 8 + r))) != 0L
+        }
+    }
+
+private inline fun <T> Iterable<T>.anyIndexed(predicate: (Int, T) -> Boolean): Boolean {
+    forEachIndexed { index, value -> if (predicate(index, value)) return true }
+    return false
+}
+
+internal fun bgrToRgbInPlace(data: ByteArray) {
+    for (i in data.indices step BGR_CHANNELS) {
+        val blue = data[i]
+        data[i] = data[i + 2]
+        data[i + 2] = blue
+    }
+}
+
+internal fun resizeForPacking(crop: Mat): Mat =
+    Mat().also {
+        Imgproc.resize(crop, it, Size(PACK_CROP_SIDE.toDouble(), PACK_CROP_SIDE.toDouble()), 0.0, 0.0, Imgproc.INTER_AREA)
+    }
+
+private fun turntableRow(
+    path: String,
+    id: String,
+    frame: String,
+    square: String,
+    label: String,
+    geom: com.chesslab.geometry.BoardGeometry,
+): String =
+    "{\"path\":\"${json(path)}\",\"session_id\":\"${json(id)}\",\"frame\":\"$frame\"," +
+        "\"square\":\"$square\",\"label\":\"$label\",\"out_size\":[$PACK_CROP_SIDE,$PACK_CROP_SIDE]," +
+        "\"pad_side\":${geom.padSide},\"pad_up\":${geom.padUp}}"
+
+internal fun json(value: String): String = value.replace("\\", "\\\\").replace("\"", "\\\"")
+
+@Suppress("MagicNumber")
+internal fun digestHex(digest: MessageDigest): String =
+    digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }.take(DIGEST_CHARS)
+
+private const val TURN_TABLE_EVERY = 150
+
+private const val TURN_TABLE_MAX_FRAMES = 32
+
+private const val BGR_CHANNELS = 3
+
+private const val BOARD_SIDE = 8
+
+internal const val PACK_CROP_SIDE = 80
+
+internal const val PACK_CROP_BYTES = PACK_CROP_SIDE * PACK_CROP_SIDE * BGR_CHANNELS
+
+private const val PREVIEW_SIDE = PACK_CROP_SIDE * BOARD_SIDE
+
+private const val DIGEST_CHARS = 32
+
+private val NUL = byteArrayOf(0)
+
+private val NEWLINE = byteArrayOf('\n'.code.toByte())

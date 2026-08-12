@@ -370,6 +370,7 @@ NORMALIZE_STD: tuple[float, float, float] = (0.229, 0.224, 0.225)
 DEFAULT_BACKBONE: str = "smallcnn"
 DEFAULT_EPOCHS: int = 30      # also the cosine schedule's T_max — see training/train.py
 DEFAULT_BATCH_SIZE: int = 256
+DEFAULT_NUM_WORKERS: int = 8  # Verified stable with Windows spawn; keeps the GPU fed from memmaps.
 # INHERITED, NOT MEASURED. No sweep and no learning-rate range test has ever been run on this
 # project (the range test is docs/references.md#smith-2015, and costs a few epochs). It is also
 # the rate at which every BatchNorm-vs-GroupNorm comparison on record ran, while the claim about

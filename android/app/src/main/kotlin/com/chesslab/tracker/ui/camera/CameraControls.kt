@@ -9,8 +9,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
@@ -91,7 +93,7 @@ fun CameraAxis.reading(
     abilities: CameraAbilities,
 ): String =
     when (this) {
-        CameraAxis.FOCUS -> look.focus?.let { "%.0f%%".format((1f - it) * PERCENT) } ?: AUTO
+        CameraAxis.FOCUS -> look.focus?.let { "%.1f%%".format((1f - it) * PERCENT) } ?: AUTO
         CameraAxis.ZOOM -> "%.1f×".format(look.zoomRatio)
         CameraAxis.EXPOSURE -> abilities.exposure?.takeIf { look.evIndex != 0 }?.let { "%+.1f".format(it.ev(look.evIndex)) } ?: AUTO
         CameraAxis.WHITE_BALANCE -> look.whiteBalance.label
@@ -160,10 +162,11 @@ fun CameraDial(
     reading: String,
     value: Float,
     range: ClosedFloatingPointRange<Float>,
+    step: Float,
     onValue: (Float) -> Unit,
 ) {
     var dragged by remember { mutableStateOf<Float?>(null) }
-    val shown = dragged ?: value
+    val shown = snapDialValue(dragged ?: value, range, step)
     LaunchedEffect(dragged) {
         val next = dragged ?: return@LaunchedEffect
         delay(LIVE_APPLY_MS)
@@ -178,27 +181,64 @@ fun CameraDial(
         // where the palm rests and where an edge-swipe gesture lives, so the last part of the
         // travel is the part you cannot reach comfortably — on a phone that is being held over a
         // board with one hand, that is most of the time.
-        Slider(
-            modifier = Modifier.padding(horizontal = SLIDER_INSET),
-            value = shown.coerceIn(range.start, range.endInclusive),
-            onValueChange = { dragged = it },
-            onValueChangeFinished = {
-                dragged?.let(onValue)
-                dragged = null
-            },
-            valueRange = range,
-            colors =
-                SliderDefaults.colors(
-                    thumbColor = Chrome.accent,
-                    activeTrackColor = Chrome.accent,
-                    inactiveTrackColor = Chrome.outline,
-                ),
-        )
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = SLIDER_INSET),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Space.xs),
+        ) {
+            DialNudge("−", shown > range.start) { onValue(snapDialValue(shown - step, range, step)) }
+            Slider(
+                modifier = Modifier.weight(1f),
+                value = shown,
+                onValueChange = { dragged = snapDialValue(it, range, step) },
+                onValueChangeFinished = {
+                    dragged?.let(onValue)
+                    dragged = null
+                },
+                valueRange = range,
+                colors =
+                    SliderDefaults.colors(
+                        thumbColor = Chrome.accent,
+                        activeTrackColor = Chrome.accent,
+                        inactiveTrackColor = Chrome.outline,
+                    ),
+            )
+            DialNudge("+", shown < range.endInclusive) { onValue(snapDialValue(shown + step, range, step)) }
+        }
+    }
+}
+
+/** Snap both dragging and button nudges to meaningful camera increments. */
+internal fun snapDialValue(
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    step: Float,
+): Float {
+    require(step > 0f)
+    val stepsFromStart = kotlin.math.round((value - range.start) / step)
+    return (range.start + stepsFromStart * step).coerceIn(range.start, range.endInclusive)
+}
+
+@Composable
+private fun DialNudge(
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    FilledTonalButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.size(48.dp),
+        contentPadding =
+            androidx.compose.foundation.layout
+                .PaddingValues(0.dp),
+    ) {
+        Text(label, style = MaterialTheme.typography.headlineSmall)
     }
 }
 
 @Composable
-private fun DialReading(
+internal fun DialReading(
     caption: String,
     reading: String,
 ) {

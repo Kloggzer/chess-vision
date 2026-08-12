@@ -24,6 +24,7 @@ import androidx.lifecycle.Observer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.io.File
 import java.util.concurrent.Executors
 
 /**
@@ -32,20 +33,22 @@ import java.util.concurrent.Executors
  * binder, and a second `ProcessCameraProvider` binding from the calibration screen froze the
  * analyzer feed dead on tab switch. Two owners is a coin flip, not a race that can be fixed.
  *
- * `ImageAnalysis` is the only use case — no preview, no still capture. A second use case
- * fighting for the stream is the same bug class. What the user sees is rendered from the analyzer
- * frames by 06b. `STRATEGY_KEEP_ONLY_LATEST` is the Android `LatestFrame` (`chesslab/camera.py`,
+ * `ImageAnalysis` is the single camera stream. What the user sees and the optional QHD encoder
+ * both consume those analyzer frames; no second camera use case or owner is introduced.
+ * `STRATEGY_KEEP_ONLY_LATEST` is the Android `LatestFrame` (`chesslab/camera.py`,
  * "Latest frame, but NEVER the same frame twice"): CameraX keeps only the newest frame and never
  * re-delivers one, because a repeated frame diffs to zero and reads as "board stable" while a
  * hand is moving (entry.md invariant 14).
  *
  * Nothing here converts, warps or scales anything; `camera/` hands out a raw [ImageProxy].
  */
+@Suppress("TooManyFunctions")
 class TrackerCamera(
     private val context: Context,
     request: CameraRequest,
     private val sink: FrameSink,
     private val policy: ReconnectPolicy = ReconnectPolicy(),
+    private val onVideoAvailability: (Size?, String?) -> Unit = { _, _ -> },
 ) : AutoCloseable {
     private val analyzerExecutor = Executors.newSingleThreadExecutor { r -> Thread(r, "chesslab-analyzer") }
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -53,6 +56,7 @@ class TrackerCamera(
     private val optics = OpticsLock()
     private val health = MutableStateFlow<CameraHealth>(CameraHealth.Up)
     private val lamp = TorchLamp()
+    private val video = CameraVideo()
 
     /** Camera-down is a status, not a freeze. 06c maps this into `TrackerStatus.note`. */
     val cameraState: StateFlow<CameraHealth> = health.asStateFlow()
@@ -82,6 +86,12 @@ class TrackerCamera(
     private var owner: LifecycleOwner? = null
     private var observed: CameraInfo? = null
     private var rebindPending = false
+
+    @Volatile
+    private var videoEnabled = false
+
+    val videoFailure: String? get() = video.failure
+    val videoResolution: Size? get() = video.resolution
 
     /**
      * Set by [stop] and cleared only by [resume].
@@ -123,6 +133,22 @@ class TrackerCamera(
         mainHandler.post(::bindAnalysis)
     }
 
+    /** Enable/disable encoding of the one analyzer stream. No camera rebind is needed. */
+    fun setVideoEnabled(enabled: Boolean) {
+        if (videoEnabled == enabled) return
+        videoEnabled = enabled
+        if (!enabled) video.stop()
+        if (!enabled) onVideoAvailability(null, null)
+    }
+
+    fun startVideo(
+        file: File,
+        maxBytes: Long,
+        onProgress: (VideoProgress) -> Unit,
+    ): Boolean = video.start(file, maxBytes, onProgress)
+
+    fun stopVideo() = video.stop()
+
     /**
      * Release the DEVICE, keep the object.
      *
@@ -134,6 +160,7 @@ class TrackerCamera(
     fun stop() {
         if (stopped) return
         stopped = true
+        video.stop()
         rebindPending = false
         mainHandler.removeCallbacksAndMessages(null)
         mainHandler.post {
@@ -172,10 +199,12 @@ class TrackerCamera(
         provider?.unbindAll()
         provider = null
         owner = null
+        video.close()
         analyzerExecutor.shutdownNow()
     }
 
     @OptIn(ExperimentalCamera2Interop::class)
+    @Suppress("ReturnCount")
     private fun bindAnalysis() {
         // `takeUnless` rather than a fourth guard clause: a stopped camera and a camera with no
         // provider yet are the same answer here — do not bind.
@@ -187,7 +216,7 @@ class TrackerCamera(
                 .Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
-                .setResolutionSelector(resolutionSelector())
+                .setResolutionSelector(resolutionSelector(requestedSize))
         // ONE extender for the whole request: a second `Camera2Interop.Extender` over the same
         // builder is a second view of one config, and splitting the options across two reads as if
         // they were independent.
@@ -255,12 +284,12 @@ class TrackerCamera(
      * pixel: asking for 1920x1080 under `FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER` got us
      * 1920x1440, and that 4:3 frame is the source of the convert and of all three warps.
      */
-    private fun resolutionSelector(): ResolutionSelector =
+    private fun resolutionSelector(requested: Size): ResolutionSelector =
         ResolutionSelector
             .Builder()
             .setAspectRatioStrategy(AspectRatioStrategy(aspectRatioFor(target), AspectRatioStrategy.FALLBACK_RULE_AUTO))
             .setResolutionStrategy(
-                ResolutionStrategy(requestedSize, ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER),
+                ResolutionStrategy(requested, ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER),
             ).build()
 
     /**
@@ -288,6 +317,12 @@ class TrackerCamera(
         try {
             val delivered = deliveredSizeOf(image)
             deliveredSize = delivered
+            if (videoEnabled) {
+                if (video.sourceAvailable(Size(delivered.width, delivered.height), image.imageInfo.rotationDegrees)) {
+                    mainHandler.post { onVideoAvailability(video.resolution, video.failure) }
+                }
+                video.encode(image)
+            }
             noteSensorRate(image)
             mismatch.report(target.width, target.height, delivered)
             policy.onFrameDelivered(System.currentTimeMillis())

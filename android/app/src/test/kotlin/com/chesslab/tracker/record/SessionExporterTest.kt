@@ -19,9 +19,10 @@ class SessionExporterTest {
     fun zipCarriesTheWholeSessionUnderItsId() {
         val rec = SessionRecorder(File(dir, "20260724-1822"), SessionMeta("20260724-1822", "default", 1920, 1080))
         rec.capture(fakeFrame(), 1, FEN, "e4", CORNERS)
+        File(rec.dir, "video.mp4").writeBytes(ByteArray(128))
         rec.finish()
         val out = ByteArrayOutputStream()
-        assertEquals(3, zipSession(rec.dir, out))
+        assertEquals(4, zipSession(rec.dir, out))
         val names = mutableListOf<String>()
         ZipInputStream(ByteArrayInputStream(out.toByteArray())).use { zip ->
             generateSequence { zip.nextEntry }.forEach { names += it.name }
@@ -29,6 +30,7 @@ class SessionExporterTest {
         assertTrue(names.contains("20260724-1822/session.yaml"), names.toString())
         assertTrue(names.contains("20260724-1822/log.jsonl"), names.toString())
         assertTrue(names.contains("20260724-1822/frames/0000.jpg"), names.toString())
+        assertTrue(names.contains("20260724-1822/video.mp4"), names.toString())
     }
 
     @Test

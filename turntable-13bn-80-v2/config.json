@@ -1,0 +1,79 @@
+{
+  "backbone": "mobilenetv4_conv_small_035",
+  "epochs": 15,
+  "batch_size": 256,
+  "lr": 0.0003,
+  "sched": "cosine",
+  "sched_t_max": 15,
+  "aug_jitter_translate": 0.03,
+  "seed": 42,
+  "amp": true,
+  "norm": "batchnorm",
+  "classes": [
+    "empty",
+    "wP",
+    "wN",
+    "wB",
+    "wR",
+    "wQ",
+    "wK",
+    "bP",
+    "bN",
+    "bB",
+    "bR",
+    "bQ",
+    "bK"
+  ],
+  "out_size": [
+    80,
+    80
+  ],
+  "dataset": "turntable-13bn-80-v2",
+  "resumed_from": null,
+  "head": "combined",
+  "pad_side": 0.05,
+  "pad_up": 0.0,
+  "normalize": {
+    "mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "std": [
+      0.229,
+      0.224,
+      0.225
+    ],
+    "mode": "fixed"
+  },
+  "input_repr": "rgb",
+  "in_chans": 3,
+  "variant": {
+    "geometry": "warp",
+    "photometry": "none",
+    "piece_height_cells": 1.6
+  },
+  "scales": null,
+  "aug": {
+    "erase_p": 0.25,
+    "bg_p": 0.0
+  },
+  "loss": "ce",
+  "focal_gamma": null,
+  "class_weight_override": {},
+  "effective_class_weights": {
+    "empty": 0.15379999577999115,
+    "wP": 0.6154000163078308,
+    "wN": 2.4614999294281006,
+    "wB": 2.4614999294281006,
+    "wR": 2.4614999294281006,
+    "wQ": 4.923099994659424,
+    "wK": 4.923099994659424,
+    "bP": 0.6154000163078308,
+    "bN": 2.4614999294281006,
+    "bB": 2.4614999294281006,
+    "bR": 2.4614999294281006,
+    "bQ": 4.923099994659424,
+    "bK": 4.923099994659424
+  }
+}

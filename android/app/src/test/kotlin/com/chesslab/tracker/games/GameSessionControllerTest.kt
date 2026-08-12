@@ -411,9 +411,9 @@ class GameSessionControllerTest {
         controller.onIdle(STARTPOS, "board-a")
         val occluded = idleTrackerStatus(AFTER_E4).copy(occlusionVetoed = setOf("e2", "e4"))
         controller.onEvent(move("e2e4", "e4", AFTER_E4), occluded)
-        assertNull(capture.recorder, "an occluded board defers the photo")
+        assertEquals(0, capture.recorder?.count, "an occluded board writes no reference photo")
         controller.onEvent(TrackerEvent.ReAnchored, occluded)
-        assertNull(capture.recorder, "and a re-anchor that still sees a hand must not take it")
+        assertEquals(0, capture.recorder?.count, "and a re-anchor that still sees a hand must not take it")
         controller.onEvent(TrackerEvent.ReAnchored, idleTrackerStatus(AFTER_E4))
         assertEquals(1, capture.recorder?.count, "the clean re-anchor takes it")
     }
@@ -442,9 +442,9 @@ class GameSessionControllerTest {
                 alarm = TrackerEvent.Alarm("illegal_move", listOf("e4"), "e2e4", "e4"),
             )
         controller.onEvent(move("e2e4", "e4", AFTER_E4), alarmed)
-        assertNull(capture.recorder, "a commit seen while alarmed must not photograph the board")
+        assertEquals(0, capture.recorder?.count, "a commit seen while alarmed must not photograph the board")
         controller.onEvent(TrackerEvent.ReAnchored, alarmed)
-        assertNull(capture.recorder, "and neither may a re-anchor while the latch is still up")
+        assertEquals(0, capture.recorder?.count, "and neither may a re-anchor while the latch is still up")
         // Cleared by the user: the deferred photo is still owed and is taken on the next clean tick.
         controller.onEvent(TrackerEvent.ReAnchored, idleTrackerStatus(AFTER_E4))
         assertEquals(1, capture.recorder?.count, "once the alarm is gone the pending photo is taken")

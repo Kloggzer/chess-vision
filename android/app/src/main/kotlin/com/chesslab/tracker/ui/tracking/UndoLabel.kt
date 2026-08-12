@@ -16,6 +16,14 @@ fun commitSans(event: TrackerEvent): List<String> =
         else -> emptyList()
     }
 
+/** The position a commit event produced, for whoever has to wait until the screen shows it. */
+fun fenAfter(event: TrackerEvent): String? =
+    when (event) {
+        is TrackerEvent.MoveCommitted -> event.fenAfter
+        is TrackerEvent.SequenceCommitted -> event.fenAfter
+        else -> null
+    }
+
 /**
  * What one press of Undo will take back.
  *
