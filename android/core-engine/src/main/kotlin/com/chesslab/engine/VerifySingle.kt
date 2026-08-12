@@ -90,13 +90,32 @@ internal object VerifySingle {
             // fabricated `g4` committed at rung 2 through a resting hand whose pixels read
             // "confidently occupied" on the destination square. Same contract as the arm above:
             // no vote, no verdict, liveness advances.
-            state.gridHandSquares(snap) != 0L -> {
+            // EXPERIMENT (`handTolerantCells`): board-wide at 0, otherwise only a hand within the
+            // clearance of the candidate's own squares withholds the verdict.
+            state.handHoldsVerdict(snap, pend) -> {
                 state.pending = pend.copy(lastTickS = state.nowS)
                 emptyList()
             }
             else -> state.evaluate(cnn, snap, pend)
         }
     }
+}
+
+/**
+ * Does the hand in [snap] withhold a verdict about [pend]?
+ *
+ * Board-wide unless `handTolerantCells` is set, which is the shipped behaviour and the one every
+ * measurement on record was taken under.
+ */
+private fun EngineState.handHoldsVerdict(
+    snap: CnnSnapshot,
+    pend: PendingVerify,
+): Boolean {
+    val hand = gridHandSquares(snap)
+    if (hand == 0L) return false
+    if (config.handTolerantCells <= 0) return true
+    val touched = ofSquares(pend.ucis.flatMap { listOf(it.substring(0, 2), it.substring(2, UCI_SQUARES)) })
+    return handNear(hand, touched)
 }
 
 private fun EngineState.discardOnAlarm(): List<TrackerEvent> {
