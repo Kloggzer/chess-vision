@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The chesslab mark: a camera viewfinder's four corners around a pawn — the two things the app
+  is, in one shape. Source of truth: `specs/54-a-screen-anyone-can-read/logo/chesslab-mark.svg`.
+
+  It is ONE colour and takes it from `@color/chesslab_logo`, which is defined per scheme, so the
+  splash (which cannot be tinted at the use site) is legible on both grounds. Where Compose
+  draws it, `Icon`'s tint wins and the resource colour is irrelevant.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp"
+    android:height="96dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+
+    <path
+        android:pathData="M14,34 V22 A8,8 0 0 1 22,14 H34"
+        android:strokeColor="@color/chesslab_logo"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M62,14 H74 A8,8 0 0 1 82,22 V34"
+        android:strokeColor="@color/chesslab_logo"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M82,62 V74 A8,8 0 0 1 74,82 H62"
+        android:strokeColor="@color/chesslab_logo"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M34,82 H22 A8,8 0 0 1 14,74 V62"
+        android:strokeColor="@color/chesslab_logo"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <path
+        android:pathData="M48,21.5 a9.5,9.5 0 1,0 0,19 a9.5,9.5 0 1,0 0,-19 Z"
+        android:fillColor="@color/chesslab_logo" />
+    <path
+        android:pathData="M39.75,42 h16.5 a2.25,2.25 0 0,1 0,4.5 h-16.5 a2.25,2.25 0 0,1 0,-4.5 Z"
+        android:fillColor="@color/chesslab_logo" />
+    <path
+        android:pathData="M41,48.5 C41,58 36,62 33.5,67 h29 C60,62 55,58 55,48.5 Z"
+        android:fillColor="@color/chesslab_logo" />
+    <path
+        android:pathData="M33.75,68.5 h28.5 a3.75,3.75 0 0,1 0,7.5 h-28.5 a3.75,3.75 0 0,1 0,-7.5 Z"
+        android:fillColor="@color/chesslab_logo" />
+</vector>

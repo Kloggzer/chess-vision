@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Android 12+ draws its own splash from the theme, so the logo needs no library and no
+      activity of its own: `androidx.core:core-splashscreen` is deliberately NOT a dependency.
+      `minSdk = 29`, so API 29-30 keep what they have today — the themed launch window with no
+      icon on it. Two API levels this app is not used on are not worth a dependency.
+
+      The icon is `ic_logo` and it MUST be a square drawable: the splash slot scales to a square
+      and does not preserve aspect. `ic_pawn` (viewport 36x54.5) was tried here on 2026-08-13 and
+      came out visibly squashed - a lens-shaped head on a barrel body. The platform then masks
+      the result to a CIRCLE, which clips `ic_logo`'s four corner brackets away, so what the
+      splash actually shows is the piece alone. That crop is accepted, not fought: fixing it
+      would mean a third drawable whose only job is to be a square pawn.
+
+      Its colour resolves through `@color/chesslab_logo` and is therefore legible on the night
+      ground too; the values-night-v31 twin only swaps the background.
+
+      The app's NAME rides in `windowSplashScreenBrandingImage`, the platform's one text slot,
+      at the bottom of the splash. There is no text attribute; the icon slot cannot carry a
+      wordmark because of that same circular mask.
+    -->
+    <style name="Theme.ChesslabTracker" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/chesslab_background</item>
+        <item name="android:windowSplashScreenBackground">@color/chesslab_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_logo</item>
+        <item name="android:windowSplashScreenBrandingImage">@drawable/ic_wordmark</item>
+    </style>
+</resources>

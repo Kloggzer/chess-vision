@@ -2,11 +2,14 @@ package com.chesslab.tracker.ui.home
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
@@ -21,9 +24,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.chesslab.tracker.R
 import com.chesslab.tracker.analysis.ReviewStore
 import com.chesslab.tracker.games.GameSessionState
 import com.chesslab.tracker.games.GameStore
@@ -39,11 +47,42 @@ import com.chesslab.tracker.ui.games.GameSessionHost
 import com.chesslab.tracker.ui.games.gamesDir
 import com.chesslab.tracker.ui.percent
 import com.chesslab.tracker.ui.review.resultHeadline
+import com.chesslab.tracker.ui.theme.Background
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import com.chesslab.tracker.ui.theme.PieceWhite
 import com.chesslab.tracker.ui.theme.Space
 import kotlinx.coroutines.flow.MutableStateFlow
+
+/** The mark in the app bar: reads at a glance, and does not compete with the title. */
+private val LOGO_SIZE = 28.dp
+
+/** The watermark's height. Big enough to read as ground, small enough to stay inside the panel. */
+private val WATERMARK_HEIGHT = 260.dp
+
+/**
+ * And its width, which must be given: `Icon` fills an unspecified dimension from the drawable's
+ * INTRINSIC size, not from the aspect of the one you did specify — so height-only produced a
+ * 36 dp-wide box that the piece was then fitted into at 54 dp tall. 36 / 54.5 * 260.
+ */
+private val WATERMARK_WIDTH = 172.dp
+
+/**
+ * On the ink ground the cream has 236/255 of headroom, so a tenth of it is already a clear
+ * shape: measured 24/255 from the ground on the emulator at 1440x3200.
+ */
+private const val WATERMARK_ALPHA_INK = 0.10f
+
+/**
+ * On paper it is the opposite problem. `PieceWhite` is only **18/255** from
+ * `PaperPalette.background` in total, so the piece can never be loud there whatever this says —
+ * even 1.0 would be a whisper. 0.85 spends most of that ceiling and lands near the ink side.
+ */
+private const val WATERMARK_ALPHA_PAPER = 0.85f
+
+/** Below this the ground is ink, above it paper. Half is the only non-arbitrary place to cut. */
+private const val DARK_GROUND = 0.5f
 
 /** The screen renders before the service is bound; an unbound live game is simply an empty one. */
 private val NO_LIVE_GAME = MutableStateFlow(GameSessionState())
@@ -84,6 +123,17 @@ fun HomeRoute(
     ChesslabScaffold(
         "chesslab",
         onBack = null,
+        // No `contentDescription`: the word "chesslab" is right beside it, and a screen reader
+        // announcing "chesslab logo, chesslab" is noise. Tinted `OnSurface` — an identity is not
+        // an accent (specs/48 rule 2).
+        titleIcon = {
+            Icon(
+                painter = painterResource(R.drawable.ic_logo),
+                contentDescription = null,
+                tint = OnSurface,
+                modifier = Modifier.size(LOGO_SIZE),
+            )
+        },
         // Settings is a destination people go to on purpose and rarely, which is exactly what the
         // bar's action slot is for. As a row at the bottom of Home it took a full-width seat below
         // the games — the thing the screen is actually about — for the least frequent act on it.
@@ -93,24 +143,66 @@ fun HomeRoute(
             }
         },
     ) { bars ->
-        LazyColumn(
-            Modifier.fillMaxSize().padding(bars),
-            verticalArrangement = Arrangement.spacedBy(Space.sm),
-        ) {
-            item(key = "primary") {
-                if (running) {
-                    ResumeCard(live, onResume = onStartGame, onEnd = { controller?.endAndSave() })
-                } else {
-                    StartCard(fresh = ui.games == 0, onStart = onStartGame)
+        Box(Modifier.fillMaxSize().padding(bars)) {
+            Watermark()
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(Space.sm),
+            ) {
+                item(key = "primary") {
+                    if (running) {
+                        ResumeCard(live, onResume = onStartGame, onEnd = { controller?.endAndSave() })
+                    } else {
+                        StartCard(fresh = ui.games == 0, onStart = onStartGame)
+                    }
                 }
-            }
-            if (ui.loaded && ui.games == 0) {
-                item(key = "empty") { NoGamesYet() }
-            } else {
-                recentGames(ui, onOpenGame, onOpenGames)
+                if (ui.loaded && ui.games == 0) {
+                    item(key = "empty") { NoGamesYet() }
+                } else {
+                    recentGames(ui, onOpenGame, onOpenGames)
+                }
             }
         }
     }
+}
+
+/**
+ * The pawn alone, centred in the content area and almost invisible.
+ *
+ * **The piece, not the mark:** the viewfinder brackets are a frame, and a frame drawn behind
+ * framed content (cards, rules) fights it. `ic_pawn` is the same geometry with the brackets
+ * dropped and the viewport cropped to the piece, so the height requested here is the height that
+ * appears.
+ *
+ * Decoration is allowed exactly here: Home is where the app is entered and the one screen whose
+ * job is identity rather than a task. It never appears on the board — a brand mark over a
+ * position is what specs/48 spent a pack removing.
+ *
+ * The alpha is the whole design: anything that can be *identified* at a glance competes with the
+ * cards on top of it. It sits BEHIND the list and does not scroll — a watermark that moves is a
+ * graphic.
+ *
+ * It takes [PieceWhite] — the app's beige, `#FCF8F0`, and the ONE colour that is identical in
+ * both palettes, because a white piece is white under either scheme. It is also the honest
+ * semantic: this is a white pawn. `Accent` was tried and dropped — specs/48 rule 2 reserves it
+ * for state, and a brand green behind the cards spent that meaning on decoration. The mark in
+ * the app bar stays `OnSurface`, because THAT one is meant to be read.
+ *
+ * **The alpha is per scheme, and it has to be.** The same cream is 236/255 bright on an ink
+ * ground and 18/255 from the paper one, so one number cannot serve both: at 0.10 it measured
+ * 24/255 on ink and 3/255 on paper. The scheme is read off the ground itself rather than from
+ * `isSystemInDarkTheme()`, because what matters here is the colour actually behind the piece,
+ * which is `Background` — the same source the palette is chosen from.
+ */
+@Composable
+private fun BoxScope.Watermark() {
+    val onInk = Background.luminance() < DARK_GROUND
+    Icon(
+        painter = painterResource(R.drawable.ic_pawn),
+        contentDescription = null,
+        tint = PieceWhite.copy(alpha = if (onInk) WATERMARK_ALPHA_INK else WATERMARK_ALPHA_PAPER),
+        modifier = Modifier.align(Alignment.Center).size(WATERMARK_WIDTH, WATERMARK_HEIGHT),
+    )
 }
 
 private fun LazyListScope.recentGames(

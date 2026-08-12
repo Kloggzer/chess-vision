@@ -111,6 +111,11 @@ fun ChesslabScaffold(
     /** Null on the start destination, which has nowhere to go back to and therefore no arrow. */
     onBack: (() -> Unit)?,
     actions: @Composable RowScope.() -> Unit = {},
+    /**
+     * Drawn before the title. Home passes the mark here and nothing else does — a brand is shown
+     * where the app is entered, not on every screen, and never on the board (specs/48).
+     */
+    titleIcon: (@Composable () -> Unit)? = null,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     Scaffold(
@@ -124,12 +129,18 @@ fun ChesslabScaffold(
             Column {
                 TopAppBar(
                     title = {
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.titleLarge,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            titleIcon?.let {
+                                it()
+                                Spacer(Modifier.width(Space.sm))
+                            }
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.titleLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     },
                     navigationIcon = {
                         // The platform affordance, and the ONLY one: it calls the same `onBack` the

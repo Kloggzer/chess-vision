@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The adaptive icon's foreground: the same mark as `ic_logo.xml` on the 108 canvas, scaled to
+  0.6875 and offset by 21 so it sits inside the 72-unit safe zone the launcher may crop to.
+  96 * 0.6875 = 66, (108 - 66) / 2 = 21.
+
+  Its colour is FIXED ink, not `@color/chesslab_logo`: the adaptive background is always paper,
+  so a night-aware foreground would paint paper on paper. The `<monochrome>` layer of
+  `mipmap-anydpi-v26/ic_launcher.xml` points at this same file, where the system recolours it.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group
+        android:pivotX="0"
+        android:pivotY="0"
+        android:scaleX="0.6875"
+        android:scaleY="0.6875"
+        android:translateX="21"
+        android:translateY="21">
+
+        <path
+            android:pathData="M14,34 V22 A8,8 0 0 1 22,14 H34"
+            android:strokeColor="#FF2B2620"
+            android:strokeWidth="6"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M62,14 H74 A8,8 0 0 1 82,22 V34"
+            android:strokeColor="#FF2B2620"
+            android:strokeWidth="6"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M82,62 V74 A8,8 0 0 1 74,82 H62"
+            android:strokeColor="#FF2B2620"
+            android:strokeWidth="6"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M34,82 H22 A8,8 0 0 1 14,74 V62"
+            android:strokeColor="#FF2B2620"
+            android:strokeWidth="6"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+
+        <path
+            android:pathData="M48,21.5 a9.5,9.5 0 1,0 0,19 a9.5,9.5 0 1,0 0,-19 Z"
+            android:fillColor="#FF2B2620" />
+        <path
+            android:pathData="M39.75,42 h16.5 a2.25,2.25 0 0,1 0,4.5 h-16.5 a2.25,2.25 0 0,1 0,-4.5 Z"
+            android:fillColor="#FF2B2620" />
+        <path
+            android:pathData="M41,48.5 C41,58 36,62 33.5,67 h29 C60,62 55,58 55,48.5 Z"
+            android:fillColor="#FF2B2620" />
+        <path
+            android:pathData="M33.75,68.5 h28.5 a3.75,3.75 0 0,1 0,7.5 h-28.5 a3.75,3.75 0 0,1 0,-7.5 Z"
+            android:fillColor="#FF2B2620" />
+    </group>
+</vector>

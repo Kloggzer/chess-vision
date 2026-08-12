@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The mark's pawn WITHOUT the viewfinder brackets, in a viewport cropped to the piece itself
+  (36 x 54.5 — the same geometry as `ic_logo.xml`, translated by -30/-21.5).
+
+  The tight viewport is the point: as a watermark the drawable is sized by its own bounds, and a
+  96-square canvas with a pawn floating in the middle of it would put a third of the requested
+  size into transparent margin.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="36dp"
+    android:height="54.5dp"
+    android:viewportWidth="36"
+    android:viewportHeight="54.5">
+
+    <path
+        android:pathData="M18,0 a9.5,9.5 0 1,0 0,19 a9.5,9.5 0 1,0 0,-19 Z"
+        android:fillColor="@color/chesslab_logo" />
+    <path
+        android:pathData="M9.75,20.5 h16.5 a2.25,2.25 0 0,1 0,4.5 h-16.5 a2.25,2.25 0 0,1 0,-4.5 Z"
+        android:fillColor="@color/chesslab_logo" />
+    <path
+        android:pathData="M11,27 C11,36.5 6,40.5 3.5,45.5 h29 C30,40.5 25,36.5 25,27 Z"
+        android:fillColor="@color/chesslab_logo" />
+    <path
+        android:pathData="M3.75,47 h28.5 a3.75,3.75 0 0,1 0,7.5 h-28.5 a3.75,3.75 0 0,1 0,-7.5 Z"
+        android:fillColor="@color/chesslab_logo" />
+</vector>

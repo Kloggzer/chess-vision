@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.ChesslabTracker" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/chesslab_background</item>
+        <item name="android:windowSplashScreenBackground">@color/chesslab_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_logo</item>
+        <item name="android:windowSplashScreenBrandingImage">@drawable/ic_wordmark</item>
+    </style>
+</resources>
