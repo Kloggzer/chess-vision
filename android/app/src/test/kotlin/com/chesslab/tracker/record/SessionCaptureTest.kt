@@ -56,6 +56,16 @@ class SessionCaptureTest {
     }
 
     @Test
+    fun sessionCanStartBeforeTheFirstCommittedMove() {
+        val controller = controller()
+        val recorder = controller.start()
+        assertNotNull(recorder)
+        assertEquals(0, recorder?.count, "opening the video bundle must not invent a labeled frame")
+        assertEquals(1, opened)
+        assertTrue(File(dir, "s1/session.yaml").isFile)
+    }
+
+    @Test
     fun captureDefersWhileOccludedOrTainted() {
         val controller = controller()
         controller.queue(1, FEN, "e4", clean = false)

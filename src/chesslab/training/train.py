@@ -105,7 +105,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               loss: str = "ce", focal_gamma: float = 2.0,
               class_weight: dict[str, float] | None = None,
               sched: str = "cosine",
-              jitter_translate: float | None = None) -> int:
+              jitter_translate: float | None = None,
+              hard_negative_multiplier: float = 1.0) -> int:
     """`scales`: Multi-Scale-Training (YOLO-Stil). Ist eine Liste wie [64,96,128] gesetzt, wird
     JEDER Batch zufällig auf eine dieser Eingabegrößen skaliert → das size-agnostische Modell
     (AdaptiveAvgPool) lernt alle Auflösungen in EINEM Lauf. So deckt das Training die
@@ -139,7 +140,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     import numpy as np
     import torch
     import torch.nn as nn
-    from torch.utils.data import DataLoader
+    from torch.utils.data import DataLoader, WeightedRandomSampler
 
     from .engine import evaluate_dataset, get_device
     from .model import build_model
@@ -388,13 +389,29 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
 
     # DataLoader-Tuning: der Crop-Datensatz ist I/O-gebunden (Mio. kleine PNGs). Parallele Worker
     # sind der größte Hebel; auf Windows empirisch bis 8 stabil verifiziert (kein Deadlock) → Default
-    # 6 statt 0. persistent_workers spart das Neu-Spawnen je Epoche (teuer bei Windows-spawn),
+    # 8 statt 0. persistent_workers spart das Neu-Spawnen je Epoche (teuer bei Windows-spawn),
     # prefetch_factor hält Batches vor. Mit --num-workers 0 überschreibbar, falls doch Probleme.
-    nw = num_workers if num_workers is not None else (6 if sys.platform.startswith("win") else 8)
+    nw = num_workers if num_workers is not None else config.DEFAULT_NUM_WORKERS
     loader_kw = {"batch_size": batch_size, "pin_memory": True, "num_workers": nw}
     if nw > 0:
         loader_kw.update(persistent_workers=True, prefetch_factor=4)
-    train_loader = DataLoader(train_ds, shuffle=True, drop_last=False, **loader_kw)
+    sampler = None
+    if hard_negative_multiplier != 1.0:
+        if hard_negative_multiplier < 1.0:
+            print("[FAIL] --hard-negative-multiplier must be at least 1.")
+            return 1
+        if not priority_paths:
+            print("[FAIL] --hard-negative-multiplier needs data/manifests/hard_empty.jsonl.")
+            return 1
+        sample_weights = torch.tensor(
+            [hard_negative_multiplier if row.get("path") in priority_paths else 1.0 for row in train_rows],
+            dtype=torch.double,
+        )
+        generator = torch.Generator().manual_seed(seed)
+        sampler = WeightedRandomSampler(sample_weights, len(train_rows), replacement=True, generator=generator)
+        hard_count = sum(row.get("path") in priority_paths for row in train_rows)
+        print(f"[hard-negative] {hard_count} protected crops sampled at {hard_negative_multiplier:g}x weight")
+    train_loader = DataLoader(train_ds, shuffle=sampler is None, sampler=sampler, drop_last=False, **loader_kw)
 
         # Runs are self-describing: geometry/photometry/extrusion height from the first
     # manifest line (same derivation as `labeling.variant_of_run`, which supplies old runs without
@@ -439,6 +456,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "aug": {"erase_p": policy.erase_p, "bg_p": policy.bg_p},
         "loss": loss, "focal_gamma": focal_gamma if loss == "focal" else None,
         "class_weight_override": dict(class_weight or {}),
+        "hard_negative_multiplier": hard_negative_multiplier,
         "effective_class_weights": dict(zip(classes, [float(w) for w in weights.tolist()],
                                             strict=True)),
     }, indent=2), encoding="utf-8")

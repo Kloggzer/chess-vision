@@ -874,7 +874,11 @@ def train_cmd(
     seed: int = typer.Option(config.SEED, "--seed"),
     out: str = typer.Option(None, "--out", help="Run directory (default: data/models/run-<ts>)."),
     patience: int = typer.Option(config.DEFAULT_PATIENCE, "--patience", help="Early stopping patience."),
-    num_workers: int | None = typer.Option(None, "--num-workers", help="DataLoader workers (default: 0 on Windows, 4 otherwise)."),
+    num_workers: int | None = typer.Option(
+        None,
+        "--num-workers",
+        help=f"DataLoader workers (default: {config.DEFAULT_NUM_WORKERS}).",
+    ),
     crop_norm: str = typer.Option("fixed", "--crop-norm",
                                  help="fixed | per-crop. per-crop standardises EACH crop by its own "
                                       "mean/std instead of the dataset's. It is the contrast stretch "
@@ -898,13 +902,18 @@ def train_cmd(
                                       "Auflösungen (size-agnostisch, für günstige Low-Res-Inferenz)."),
     erase_p: float | None = typer.Option(None, "--erase-p", help="Override RandomErasing/Cutout prob (anti-shortcut)."),
     bg_p: float | None = typer.Option(None, "--bg-p", help="Override background-randomization prob on occupied crops."),
-    jitter_translate: float | None = typer.Option(None, "--jitter-translate",
+      jitter_translate: float | None = typer.Option(None, "--jitter-translate",
                                                   help="Override the affine translation jitter, as a "
                                                        "fraction of the crop. The default 0.03 is ~3.3 % "
                                                        "of a cell, and real footage arrives at ~9 % "
                                                        "(measured on the test clips) - the corpus used "
                                                        "to supply that variation by being mis-cut, and "
-                                                       "since it was aligned it no longer does."),
+                                                         "since it was aligned it no longer does."),
+      hard_negative_multiplier: float = typer.Option(
+          1.0,
+          "--hard-negative-multiplier",
+          help="Sampling weight for paths in data/manifests/hard_empty.jsonl (1 = disabled).",
+      ),
     loss: str = typer.Option("ce", "--loss", help="ce | focal — focal down-weights the easy, "
                                                   "already-solved crops (needs --head combined)."),
     focal_gamma: float = typer.Option(2.0, "--focal-gamma", help="Focal loss gamma (0 = weighted CE)."),
@@ -935,8 +944,9 @@ def train_cmd(
                                no_amp=no_amp, seed=seed, out=out, patience=patience,
                                num_workers=num_workers, norm=norm, dataset=dataset, resume=resume,
                                head=head, scales=scale_list, erase_p=erase_p, bg_p=bg_p,
-                               loss=loss, focal_gamma=focal_gamma, class_weight=cw or None,
-                               sched=sched, jitter_translate=jitter_translate))
+                                 loss=loss, focal_gamma=focal_gamma, class_weight=cw or None,
+                                 sched=sched, jitter_translate=jitter_translate,
+                                 hard_negative_multiplier=hard_negative_multiplier))
 
 
 @app.command("eval")

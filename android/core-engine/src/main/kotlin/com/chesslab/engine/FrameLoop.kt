@@ -155,6 +155,15 @@ internal class FrameLoop(
     private fun updateBaselineOcclusion(input: FrameInput) {
         val ref = state.refGray
         val cfg = state.config
+        // A calibration/profile update can replace the detection plane while an earlier baseline is
+        // still live. Comparing pixels from two differently sized warps is meaningless and used to
+        // throw here, which made the camera source drop every following frame. Drop the visual
+        // reference and let the normal stable-frame path establish a fresh one on this geometry.
+        if (ref != null && (ref.width != input.grayDet.width || ref.height != input.grayDet.height)) {
+            state.discardVisualReference()
+            state.note = NOTE_WAITING_CLEAR
+            return
+        }
         if (ref != null && state.state != STATE_WAITING && state.state != STATE_MOVE) {
             val result =
                 state.baselineScratch.baselineOcclusionAndShadow(

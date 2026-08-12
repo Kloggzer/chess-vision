@@ -70,6 +70,7 @@ class GameSessionController(
         if (live == null) {
             startFen = fen
             profile = profileName
+            if (capture.start() != null) publish()
         }
     }
 
@@ -113,6 +114,7 @@ class GameSessionController(
      * undo a fraction of a second of latency and costs the record nothing.
      */
     fun onStatus(status: TrackerStatus) {
+        if (capture.syncEnabled()) publish()
         if (live?.wouldUndo(status.fen) != true) {
             undoFen = null
             return
@@ -138,8 +140,12 @@ class GameSessionController(
         white: String = UNKNOWN,
         black: String = UNKNOWN,
     ): GameSummary? {
-        val game = live ?: return null
         val session = capture.stop()
+        val game = live
+        if (game == null) {
+            mutable.value = GameSessionState(recordingReason = capture.reason)
+            return null
+        }
         live = null
         val saved = store.save(game.finish(idFor(now()), now(), session?.sessionId, white, black))
         mutable.value = GameSessionState(lastSavedId = saved?.id, recordingReason = capture.reason)

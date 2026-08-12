@@ -34,8 +34,8 @@ import com.chesslab.tracker.pipeline.CameraRate
 import com.chesslab.tracker.pipeline.PERF_TAG
 import com.chesslab.tracker.pipeline.StageTimings
 import com.chesslab.tracker.pipeline.cameraStages
-import com.chesslab.tracker.record.RecordingSettings
 import com.chesslab.tracker.record.RecordingBundleHost
+import com.chesslab.tracker.record.RecordingSettings
 import com.chesslab.tracker.record.TimelineFrame
 import com.chesslab.tracker.runtime.AppPaths
 import com.chesslab.tracker.settings.AppSettings
@@ -515,7 +515,6 @@ class TrackerService :
             }
         notification.post(publisher.status.value?.state, moves, cameraRunning.value)
     }
-
 
     /**
      * @param relockOptics whether to let focus/exposure/white balance re-converge afterwards. False

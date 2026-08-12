@@ -9,7 +9,7 @@ plugins {
 
 android {
     namespace = "com.chesslab.tracker"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.chesslab.tracker"
@@ -184,6 +184,7 @@ dependencies {
     implementation(libs.camera.camera2)
     implementation(libs.camera.lifecycle)
     implementation(libs.camera.view)
+    implementation(libs.camera.video)
 
     // OpenCV
     implementation(libs.opencv)

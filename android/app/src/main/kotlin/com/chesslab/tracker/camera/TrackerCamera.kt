@@ -19,11 +19,14 @@ import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.video.Recorder
+import androidx.camera.video.VideoCapture
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.Observer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.io.File
 import java.util.concurrent.Executors
 
 /**
@@ -32,20 +35,22 @@ import java.util.concurrent.Executors
  * binder, and a second `ProcessCameraProvider` binding from the calibration screen froze the
  * analyzer feed dead on tab switch. Two owners is a coin flip, not a race that can be fixed.
  *
- * `ImageAnalysis` is the only use case — no preview, no still capture. A second use case
- * fighting for the stream is the same bug class. What the user sees is rendered from the analyzer
- * frames by 06b. `STRATEGY_KEEP_ONLY_LATEST` is the Android `LatestFrame` (`chesslab/camera.py`,
+ * `ImageAnalysis` is always present; optional [VideoCapture] is bound beside it by this SAME
+ * owner. What the user sees is rendered from the analyzer frames by 06b.
+ * `STRATEGY_KEEP_ONLY_LATEST` is the Android `LatestFrame` (`chesslab/camera.py`,
  * "Latest frame, but NEVER the same frame twice"): CameraX keeps only the newest frame and never
  * re-delivers one, because a repeated frame diffs to zero and reads as "board stable" while a
  * hand is moving (entry.md invariant 14).
  *
  * Nothing here converts, warps or scales anything; `camera/` hands out a raw [ImageProxy].
  */
+@Suppress("TooManyFunctions")
 class TrackerCamera(
     private val context: Context,
     request: CameraRequest,
     private val sink: FrameSink,
     private val policy: ReconnectPolicy = ReconnectPolicy(),
+    private val onVideoAvailability: (Size?, String?) -> Unit = { _, _ -> },
 ) : AutoCloseable {
     private val analyzerExecutor = Executors.newSingleThreadExecutor { r -> Thread(r, "chesslab-analyzer") }
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -53,6 +58,8 @@ class TrackerCamera(
     private val optics = OpticsLock()
     private val health = MutableStateFlow<CameraHealth>(CameraHealth.Up)
     private val lamp = TorchLamp()
+    private val videoExecutor = Executors.newSingleThreadExecutor { r -> Thread(r, "chesslab-video") }
+    private val video = CameraVideo(context, videoExecutor)
 
     /** Camera-down is a status, not a freeze. 06c maps this into `TrackerStatus.note`. */
     val cameraState: StateFlow<CameraHealth> = health.asStateFlow()
@@ -82,6 +89,12 @@ class TrackerCamera(
     private var owner: LifecycleOwner? = null
     private var observed: CameraInfo? = null
     private var rebindPending = false
+
+    @Volatile
+    private var videoEnabled = false
+
+    val videoFailure: String? get() = video.failure
+    val videoResolution: Size? get() = video.resolution
 
     /**
      * Set by [stop] and cleared only by [resume].
@@ -123,6 +136,23 @@ class TrackerCamera(
         mainHandler.post(::bindAnalysis)
     }
 
+    /** Include/exclude VideoCapture in the ONE camera session. Call before [bind] for no rebind. */
+    fun setVideoEnabled(enabled: Boolean) {
+        if (videoEnabled == enabled) return
+        videoEnabled = enabled
+        if (!enabled) video.stop()
+        if (!enabled) onVideoAvailability(null, null)
+        if (provider != null) mainHandler.post(::bindAnalysis)
+    }
+
+    fun startVideo(
+        file: File,
+        maxBytes: Long,
+        onProgress: (VideoProgress) -> Unit,
+    ): Boolean = video.start(file, maxBytes, onProgress)
+
+    fun stopVideo() = video.stop()
+
     /**
      * Release the DEVICE, keep the object.
      *
@@ -134,6 +164,7 @@ class TrackerCamera(
     fun stop() {
         if (stopped) return
         stopped = true
+        video.stop()
         rebindPending = false
         mainHandler.removeCallbacksAndMessages(null)
         mainHandler.post {
@@ -172,10 +203,13 @@ class TrackerCamera(
         provider?.unbindAll()
         provider = null
         owner = null
+        video.close()
+        videoExecutor.shutdown()
         analyzerExecutor.shutdownNow()
     }
 
     @OptIn(ExperimentalCamera2Interop::class)
+    @Suppress("ReturnCount")
     private fun bindAnalysis() {
         // `takeUnless` rather than a fourth guard clause: a stopped camera and a camera with no
         // provider yet are the same answer here — do not bind.
@@ -196,16 +230,49 @@ class TrackerCamera(
         optics.prepare(extender)
         val analysis = builder.build()
         analysis.setAnalyzer(analyzerExecutor, ::deliver)
+        val videoCapture: VideoCapture<Recorder>? = if (videoEnabled) video.useCase() else null
 
         stopObserving()
         optics.detach()
         cameraProvider.unbindAll()
-        val camera =
-            runCatching { cameraProvider.bindToLifecycle(lifecycleOwner, selector, analysis) }
-                .getOrElse { failure ->
+        var camera =
+            runCatching {
+                if (videoCapture == null) {
+                    cameraProvider.bindToLifecycle(lifecycleOwner, selector, analysis)
+                } else {
+                    cameraProvider.bindToLifecycle(lifecycleOwner, selector, analysis, videoCapture)
+                }
+            }.getOrElse { failure ->
+                // Recording is optional; a stream-combination failure must never take tracking
+                // down with it. Keep the reason and immediately restore analysis-only operation.
+                if (videoCapture != null) {
+                    video.bindFailed(failure)
+                    onVideoAvailability(null, video.failure)
+                    cameraProvider.unbindAll()
+                    runCatching { cameraProvider.bindToLifecycle(lifecycleOwner, selector, analysis) }
+                        .getOrElse {
+                            scheduleRebind("bind failed (${it.javaClass.simpleName})")
+                            return
+                        }
+                } else {
                     scheduleRebind("bind failed (${failure.javaClass.simpleName})")
                     return
                 }
+            }
+        if (videoCapture != null && !video.bound(videoCapture)) {
+            onVideoAvailability(null, video.failure)
+            // Binding may legally negotiate another size. It is a valid camera session but not a
+            // valid training recording, so tear only VideoCapture back out.
+            cameraProvider.unbindAll()
+            camera =
+                runCatching { cameraProvider.bindToLifecycle(lifecycleOwner, selector, analysis) }
+                    .getOrElse {
+                        scheduleRebind("analysis restore failed (${it.javaClass.simpleName})")
+                        return
+                    }
+        } else if (videoCapture != null) {
+            onVideoAvailability(video.resolution, null)
+        }
         camera.cameraInfo.cameraState.observe(lifecycleOwner, stateObserver)
         observed = camera.cameraInfo
         optics.attach(camera)

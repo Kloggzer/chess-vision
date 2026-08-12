@@ -43,7 +43,9 @@ def main() -> int:
     from chesslab.training.data import filter_rows_by_split, load_manifest, load_split
     from chesslab.training.engine import get_device
     from chesslab.training.model import build_model
+    from chesslab.training.pack import load_packed
     from chesslab.training.torch_data import (
+        PackedSquareDataset,
         SquareDataset,
         build_transform,
         class_weights_tensor,
@@ -55,10 +57,11 @@ def main() -> int:
     ap.add_argument("--norm", required=True, choices=("batchnorm", "groupnorm", "none"))
     ap.add_argument("--backbone", default="mobilenetv4_conv_small_035")
     ap.add_argument("--head", default="combined")
+    ap.add_argument("--resume", default=None, help="warm-start from data/models/<run>/best.pt")
     ap.add_argument("--scales", default="48,64,80,96",
                     help="mirror the training recipe: one size drawn per batch")
     ap.add_argument("--batch-size", type=int, default=256)
-    ap.add_argument("--num-workers", type=int, default=8)
+    ap.add_argument("--num-workers", type=int, default=config.DEFAULT_NUM_WORKERS)
     ap.add_argument("--iters", type=int, default=300)
     ap.add_argument("--lr-min", type=float, default=1e-7)
     ap.add_argument("--lr-max", type=float, default=1.0)
@@ -83,13 +86,27 @@ def main() -> int:
     from dataclasses import replace
     policy = replace(config.AUGMENT, erase_p=args.erase_p, bg_p=args.bg_p)
     tf = build_transform(out_size, train=True, policy=policy, per_crop=False, input_repr="rgb")
-    ds = SquareDataset(train_rows, classes, tf, bg_randomize=True, policy=policy)
+    packed = load_packed(args.dataset)
+    if packed is not None and policy.bg_p <= 0:
+        ds = PackedSquareDataset(train_rows, classes, tf, packed)
+        print(f"[range] packed memmap loader: {len(train_rows)} crops")
+    elif any(str(row["path"]).startswith("mm://") for row in train_rows):
+        raise RuntimeError("fused dataset has no valid packed memmap")
+    else:
+        ds = SquareDataset(train_rows, classes, tf, bg_randomize=True, policy=policy)
     dl = DataLoader(ds, batch_size=args.batch_size, shuffle=True, drop_last=True,
                     num_workers=args.num_workers, persistent_workers=args.num_workers > 0)
 
     device = get_device(require_gpu=True)
     model = build_model(args.backbone, len(classes), pretrained=False, norm=args.norm,
                         head=args.head, classes=classes, in_chans=3).to(device)
+    if args.resume:
+        checkpoint = config.DATA.models / args.resume / "best.pt"
+        if not checkpoint.is_file():
+            raise FileNotFoundError(checkpoint)
+        state = torch.load(checkpoint, map_location=device)
+        model.load_state_dict(state)
+        print(f"[range] warm start: {checkpoint}")
     crit = nn.CrossEntropyLoss(weight=class_weights_tensor(split, classes).to(device))
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr_min)
     scales = [int(s) for s in args.scales.split(",") if s.strip()]

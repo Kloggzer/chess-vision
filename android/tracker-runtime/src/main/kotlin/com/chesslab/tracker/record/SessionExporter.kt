@@ -2,6 +2,7 @@ package com.chesslab.tracker.record
 
 import java.io.File
 import java.io.OutputStream
+import java.util.zip.Deflater
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -19,6 +20,9 @@ fun zipSession(
     var entries = 0
     ZipOutputStream(out.buffered()).use { zip ->
         dir.walkTopDown().filter(File::isFile).forEach { file ->
+            // MP4 is already compressed. Deflating multi-gigabyte video again buys essentially
+            // nothing and turns an otherwise streaming export into minutes of hot CPU time.
+            zip.setLevel(if (file.extension.equals("mp4", ignoreCase = true)) Deflater.NO_COMPRESSION else Deflater.DEFAULT_COMPRESSION)
             zip.putNextEntry(ZipEntry("${dir.name}/${file.relativeTo(dir).invariantSeparatorsPath}"))
             file.inputStream().use { it.copyTo(zip) }
             zip.closeEntry()

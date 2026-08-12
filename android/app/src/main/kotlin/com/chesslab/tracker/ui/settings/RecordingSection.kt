@@ -120,8 +120,8 @@ fun RecordingSection() {
 
     Column {
         SwitchPreference(
-            title = "Record training frames",
-            summary = "Save one camera frame and board position for every committed move",
+            title = "Record training video",
+            summary = "Save QHD video, tracker timeline and one reference frame per committed move",
             checked = ui.prefs.enabled,
             onCheckedChange = { model.setPrefs(ui.prefs.copy(enabled = it)) },
         )
@@ -179,11 +179,14 @@ private fun SessionRow(
     model: RecordingViewModel,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val export =
         rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
             uri ?: return@rememberLauncherForActivityResult
             // SAF: the user picks the destination, so no storage permission is involved.
-            context.contentResolver.openOutputStream(uri)?.use { zipSession(model.sessionDir(session.id), it) }
+            scope.launch(Dispatchers.IO) {
+                context.contentResolver.openOutputStream(uri)?.use { zipSession(model.sessionDir(session.id), it) }
+            }
         }
     var confirming by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

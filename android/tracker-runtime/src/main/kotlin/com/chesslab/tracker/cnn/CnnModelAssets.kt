@@ -54,7 +54,8 @@ const val ASSET_ROOT_DIR = "cnn_model"
 const val DEFAULT_MODEL = "id35-80"
 
 /** Default first, so Settings presents the model a fresh install actually runs at the top. */
-val BUNDLED_MODELS = listOf(DEFAULT_MODEL, "bn100-80", "bn50-80", "bn35-80", "v6-80", "v4-128", "shipped")
+val BUNDLED_MODELS =
+    listOf(DEFAULT_MODEL, "real14-80", "bn100-80", "bn50-80", "bn35-80", "v6-80", "v4-128", "shipped")
 
 /**
  * [name] when the APK really bundles it, else [DEFAULT_MODEL].

@@ -53,6 +53,7 @@ fun SourceFramedPreview(
     sourceHeight: Int,
     modifier: Modifier = Modifier,
     fill: Boolean = false,
+    magnification: Float = 1f,
     empty: @Composable () -> Unit = {},
     overlay: @Composable BoxScope.() -> Unit = {},
 ) {
@@ -78,7 +79,8 @@ fun SourceFramedPreview(
         val contain = if (byWidth.height <= maxHeight) byWidth else byHeight
         val cover = if (byWidth.height >= maxHeight) byWidth else byHeight
         val shown = if (fill) cover else contain
-        val built = if (quarterTurn) DpSize(shown.height, shown.width) else shown
+        val enlarged = DpSize(shown.width * magnification, shown.height * magnification)
+        val built = if (quarterTurn) DpSize(enlarged.height, enlarged.width) else enlarged
         Box(
             Modifier
                 .requiredSize(built)

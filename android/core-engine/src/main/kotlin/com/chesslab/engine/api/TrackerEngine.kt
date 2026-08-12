@@ -137,9 +137,9 @@ class TrackerEngine(
      *
      * The decision rows cannot carry this and that is the point. Measured on rec-20260808-003957:
      * 67 commits produce 131 decision rows, so the typical move is committed on the FIRST row it
-     * appears in and everything a player experiences as waiting happened BEFORE it — in states
-     * that write nothing. "Why did that move take a while to be announced" was therefore
-     * unanswerable from a log, which is the same gap the decision sink itself was added to close.
+     * appears in and everything a player experiences as waiting happened BEFORE it — in states that
+     * write nothing. "Why did that move take a while to be announced" was therefore unanswerable
+     * from a log, which is the same gap the decision sink itself was added to close.
      *
      * One call per TRANSITION, never per frame: a quiet board writes nothing.
      */
@@ -408,7 +408,8 @@ class TrackerEngine(
     /**
      * Live tuning. Mirrors `app.py`'s `_live_tuning_kwargs` side effects: the averaging buffers and
      * the confirmers are rebuilt when their length changed, and the cached square boxes follow
-     * `detSize` / `overhang`. It must NOT touch the reference.
+     * `detSize` / `overhang`. Ordinary live tuning preserves the reference; changing the detection
+     * plane invalidates it, because a baseline from a different warp cannot be compared safely.
      */
     fun updateConfig(config: TrackerConfig) {
         val previous = state.config
@@ -425,6 +426,9 @@ class TrackerEngine(
         state.syncConfirmWindow()
         if (config.detSize != previous.detSize || config.overhang != previous.overhang) {
             state.rebuildBoxes()
+        }
+        if (config.detSize != previous.detSize) {
+            state.discardVisualReference()
         }
     }
 }
