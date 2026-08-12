@@ -1,6 +1,7 @@
 package com.chesslab.tracker.record
 
 import kotlinx.serialization.Serializable
+import java.io.File
 
 private const val KB: Long = 1024L
 
@@ -8,8 +9,8 @@ private const val KB: Long = 1024L
 const val DEFAULT_CAP_BYTES: Long = KB * KB * KB
 
 /**
- * Off by default — recording writes full-resolution JPEGs of every committed move, and that cost
- * is the whole reason this is a choice and not a behaviour.
+ * Off by default — recording writes QHD video plus full-resolution reference JPEGs, and that
+ * storage cost is the whole reason this is a choice and not a behaviour.
  */
 @Serializable
 data class RecordingPrefs(
@@ -31,6 +32,9 @@ interface CaptureSource {
     /** `null` = no frame or no corners yet, exactly Python's `_last_frame is None` guard. */
     fun grab(): CaptureFrame?
 
+    /** A frame size is enough to open the video bundle; labeled stills still require [grab]. */
+    fun sessionFrame(): CaptureFrame? = grab()
+
     /** Non-null while the profile and the delivered frame size disagree — see [RecordingGates]. */
     fun geometryNote(): String?
 }
@@ -39,6 +43,12 @@ private data class Pending(
     val ply: Int,
     val fen: String,
     val san: String?,
+)
+
+data class RecordingHooks(
+    val opened: (SessionRecorder) -> Unit = {},
+    val finished: (SessionResult) -> Unit = {},
+    val reason: () -> String? = { null },
 )
 
 /**
@@ -57,8 +67,7 @@ class SessionCaptureController(
     // Bytes already on disk from EARLIER sessions. A supplier, and deliberately a cached one: the
     // sessions directory is never walked on the capture path.
     private val existingBytes: () -> Long,
-    private val onOpened: (SessionRecorder) -> Unit = {},
-    private val onFinished: (SessionResult) -> Unit = {},
+    private val hooks: RecordingHooks = RecordingHooks(),
 ) {
     private var pending: Pending? = null
 
@@ -77,29 +86,33 @@ class SessionCaptureController(
      * Why nothing is being written, most severe first: recording halted, then data actually lost,
      * then a skip that is by design (geometry suspended, inventory violation).
      */
-    val reason: String? get() = stoppedReason ?: writeFailure() ?: gates.reason
+    val reason: String? get() = stoppedReason ?: writeFailure() ?: gates.reason ?: hooks.reason().takeIf { prefs().enabled }
 
     /** Apply a live preference change at a frame/status boundary. Returns true on lifecycle change. */
     fun syncEnabled(): Boolean {
         val before = recorder
-        if (prefs().enabled) start() else stop()
+        if (prefs().enabled) {
+            if (recorder == null) start() else capReached()
+        } else {
+            stop()
+        }
         return before !== recorder
     }
 
     /**
-     * Open the session as soon as tracking has a frame and valid geometry.
+     * Open the session as soon as tracking has a frame. Geometry is required only for labeled
+     * reference stills; the video must also capture the periods in which geometry is broken.
      *
      * The original still-only recorder could wait for the first committed move. A video cannot:
      * the lead-in is where a bad first move, focus settling and the initial anchor are debugged.
-     * [grab] does encode one JPEG-sized buffer here, but it is immediately released and never
-     * written; this happens once per session and keeps the platform-free capture seam small.
+     * [CaptureSource.sessionFrame] need not encode pixels because this initial frame supplies only
+     * the source dimensions used in session metadata.
      */
     fun start(): SessionRecorder? {
         val active = recorder
         if (active != null) return active
         if (!prefs().enabled || stoppedReason != null || capReached()) return null
-        val frame = if (source.geometryNote() == null) source.grab() else null
-        return frame?.let(::startRecorder)
+        return source.sessionFrame()?.let(::startRecorder)
     }
 
     /**
@@ -159,22 +172,24 @@ class SessionCaptureController(
         recorder = null
         pending = null
         failedWrites = 0
-        return active.finish().also(onFinished)
+        return active.finish().also(hooks.finished)
     }
 
     private fun startRecorder(frame: CaptureFrame): SessionRecorder? {
         if (!prefs().enabled || stoppedReason != null) return null
         return open(frame)?.also {
             recorder = it
-            onOpened(it)
+            hooks.opened(it)
         }
     }
 
     private fun capReached(): Boolean {
         val cap = prefs().capBytes
-        if (cap <= 0L || existingBytes() + (recorder?.bytes ?: 0L) < cap) return false
+        val active = recorder
+        val videoBytes = active?.let { File(it.dir, "video.mp4").length() } ?: 0L
+        if (cap <= 0L || existingBytes() + (active?.bytes ?: 0L) + videoBytes < cap) return false
         stoppedReason = "recording stopped: ${cap / (KB * KB)} MB limit reached"
-        recorder?.finish()?.also(onFinished)
+        recorder?.finish()?.also(hooks.finished)
         recorder = null
         pending = null
         return true

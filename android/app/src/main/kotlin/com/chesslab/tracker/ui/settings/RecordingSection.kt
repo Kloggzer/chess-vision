@@ -168,8 +168,8 @@ fun RecordingSection() {
 private fun recordingStatus(live: GameSessionState): String {
     val session = live.recordingSessionId
     return when {
-        session != null -> "Recording $session · ${live.recordedFrames} frames written"
-        else -> "The first committed move starts a session"
+        session != null -> "Recording $session · ${live.recordedFrames} reference frames written"
+        else -> "Start the tracker to open a recording session"
     }
 }
 

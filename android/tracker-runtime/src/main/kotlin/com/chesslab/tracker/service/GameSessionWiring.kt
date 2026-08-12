@@ -10,11 +10,11 @@ import com.chesslab.tracker.geometry.CalibrationStore
 import com.chesslab.tracker.geometry.ProfileLoad
 import com.chesslab.tracker.record.LiveCaptureSource
 import com.chesslab.tracker.record.RecordingGates
+import com.chesslab.tracker.record.RecordingHooks
 import com.chesslab.tracker.record.RecordingSettings
 import com.chesslab.tracker.record.SessionCaptureController
 import com.chesslab.tracker.record.SessionMeta
 import com.chesslab.tracker.record.SessionRecorder
-import com.chesslab.tracker.record.SessionResult
 import com.chesslab.tracker.record.SessionStore
 import com.chesslab.tracker.runtime.AppPaths
 import kotlinx.coroutines.CoroutineScope
@@ -43,7 +43,6 @@ private const val DEFAULT_PROFILE = "default"
  * The session scope is the service's, not a stack's: a tracker restart rebuilds the pipeline and
  * the engine, but the game the user is playing is not a config knob (see [TrackerStack]).
  */
-@Suppress("LongParameterList")
 fun wireGameSession(
     paths: AppPaths,
     settings: RecordingSettings,
@@ -51,8 +50,7 @@ fun wireGameSession(
     frames: CalibrationFrames<*>,
     publisher: StatusPublisher,
     calibration: CalibrationStore,
-    onRecordingOpened: (SessionRecorder) -> Unit = {},
-    onRecordingFinished: (SessionResult) -> Unit = {},
+    recordingHooks: RecordingHooks = RecordingHooks(),
 ): GameSessionController {
     scope.launch { settings.load() }
     // A recalibration replaces the profile under a running game; the capture path reads the latest.
@@ -66,8 +64,7 @@ fun wireGameSession(
             profile,
             frames::latestCalibrationFrame,
             { publisher.status.value?.corners },
-            onRecordingOpened,
-            onRecordingFinished,
+            recordingHooks,
         )
     attachGameSession(scope, controller, publisher.events, publisher.status) { profile()?.name ?: DEFAULT_PROFILE }
     return controller
@@ -103,8 +100,7 @@ private fun buildController(
     profile: () -> CalibrationProfile?,
     frame: () -> Mat?,
     corners: () -> FloatArray?,
-    onRecordingOpened: (SessionRecorder) -> Unit,
-    onRecordingFinished: (SessionResult) -> Unit,
+    recordingHooks: RecordingHooks,
 ): GameSessionController {
     val sessions = SessionStore(paths.sessions)
     val source = LiveCaptureSource(frame, corners) { profile()?.let { it.sourceWidth to it.sourceHeight } }
@@ -117,8 +113,7 @@ private fun buildController(
             gates = RecordingGates(),
             prefs = { settings.prefs.value },
             existingBytes = { baseline },
-            onOpened = onRecordingOpened,
-            onFinished = onRecordingFinished,
+            hooks = recordingHooks,
         )
     return GameSessionController(GameStore(paths.games), capture, System::currentTimeMillis, ::gameId)
 }

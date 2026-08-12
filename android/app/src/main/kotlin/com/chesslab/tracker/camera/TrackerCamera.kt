@@ -19,8 +19,6 @@ import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.video.Recorder
-import androidx.camera.video.VideoCapture
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.Observer
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,8 +33,8 @@ import java.util.concurrent.Executors
  * binder, and a second `ProcessCameraProvider` binding from the calibration screen froze the
  * analyzer feed dead on tab switch. Two owners is a coin flip, not a race that can be fixed.
  *
- * `ImageAnalysis` is always present; optional [VideoCapture] is bound beside it by this SAME
- * owner. What the user sees is rendered from the analyzer frames by 06b.
+ * `ImageAnalysis` is the single camera stream. What the user sees and the optional QHD encoder
+ * both consume those analyzer frames; no second camera use case or owner is introduced.
  * `STRATEGY_KEEP_ONLY_LATEST` is the Android `LatestFrame` (`chesslab/camera.py`,
  * "Latest frame, but NEVER the same frame twice"): CameraX keeps only the newest frame and never
  * re-delivers one, because a repeated frame diffs to zero and reads as "board stable" while a
@@ -58,8 +56,7 @@ class TrackerCamera(
     private val optics = OpticsLock()
     private val health = MutableStateFlow<CameraHealth>(CameraHealth.Up)
     private val lamp = TorchLamp()
-    private val videoExecutor = Executors.newSingleThreadExecutor { r -> Thread(r, "chesslab-video") }
-    private val video = CameraVideo(context, videoExecutor)
+    private val video = CameraVideo()
 
     /** Camera-down is a status, not a freeze. 06c maps this into `TrackerStatus.note`. */
     val cameraState: StateFlow<CameraHealth> = health.asStateFlow()
@@ -136,13 +133,12 @@ class TrackerCamera(
         mainHandler.post(::bindAnalysis)
     }
 
-    /** Include/exclude VideoCapture in the ONE camera session. Call before [bind] for no rebind. */
+    /** Enable/disable encoding of the one analyzer stream. No camera rebind is needed. */
     fun setVideoEnabled(enabled: Boolean) {
         if (videoEnabled == enabled) return
         videoEnabled = enabled
         if (!enabled) video.stop()
         if (!enabled) onVideoAvailability(null, null)
-        if (provider != null) mainHandler.post(::bindAnalysis)
     }
 
     fun startVideo(
@@ -204,7 +200,6 @@ class TrackerCamera(
         provider = null
         owner = null
         video.close()
-        videoExecutor.shutdown()
         analyzerExecutor.shutdownNow()
     }
 
@@ -221,7 +216,7 @@ class TrackerCamera(
                 .Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
-                .setResolutionSelector(resolutionSelector())
+                .setResolutionSelector(resolutionSelector(requestedSize))
         // ONE extender for the whole request: a second `Camera2Interop.Extender` over the same
         // builder is a second view of one config, and splitting the options across two reads as if
         // they were independent.
@@ -230,49 +225,16 @@ class TrackerCamera(
         optics.prepare(extender)
         val analysis = builder.build()
         analysis.setAnalyzer(analyzerExecutor, ::deliver)
-        val videoCapture: VideoCapture<Recorder>? = if (videoEnabled) video.useCase() else null
 
         stopObserving()
         optics.detach()
         cameraProvider.unbindAll()
-        var camera =
-            runCatching {
-                if (videoCapture == null) {
-                    cameraProvider.bindToLifecycle(lifecycleOwner, selector, analysis)
-                } else {
-                    cameraProvider.bindToLifecycle(lifecycleOwner, selector, analysis, videoCapture)
-                }
-            }.getOrElse { failure ->
-                // Recording is optional; a stream-combination failure must never take tracking
-                // down with it. Keep the reason and immediately restore analysis-only operation.
-                if (videoCapture != null) {
-                    video.bindFailed(failure)
-                    onVideoAvailability(null, video.failure)
-                    cameraProvider.unbindAll()
-                    runCatching { cameraProvider.bindToLifecycle(lifecycleOwner, selector, analysis) }
-                        .getOrElse {
-                            scheduleRebind("bind failed (${it.javaClass.simpleName})")
-                            return
-                        }
-                } else {
+        val camera =
+            runCatching { cameraProvider.bindToLifecycle(lifecycleOwner, selector, analysis) }
+                .getOrElse { failure ->
                     scheduleRebind("bind failed (${failure.javaClass.simpleName})")
                     return
                 }
-            }
-        if (videoCapture != null && !video.bound(videoCapture)) {
-            onVideoAvailability(null, video.failure)
-            // Binding may legally negotiate another size. It is a valid camera session but not a
-            // valid training recording, so tear only VideoCapture back out.
-            cameraProvider.unbindAll()
-            camera =
-                runCatching { cameraProvider.bindToLifecycle(lifecycleOwner, selector, analysis) }
-                    .getOrElse {
-                        scheduleRebind("analysis restore failed (${it.javaClass.simpleName})")
-                        return
-                    }
-        } else if (videoCapture != null) {
-            onVideoAvailability(video.resolution, null)
-        }
         camera.cameraInfo.cameraState.observe(lifecycleOwner, stateObserver)
         observed = camera.cameraInfo
         optics.attach(camera)
@@ -322,12 +284,12 @@ class TrackerCamera(
      * pixel: asking for 1920x1080 under `FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER` got us
      * 1920x1440, and that 4:3 frame is the source of the convert and of all three warps.
      */
-    private fun resolutionSelector(): ResolutionSelector =
+    private fun resolutionSelector(requested: Size): ResolutionSelector =
         ResolutionSelector
             .Builder()
             .setAspectRatioStrategy(AspectRatioStrategy(aspectRatioFor(target), AspectRatioStrategy.FALLBACK_RULE_AUTO))
             .setResolutionStrategy(
-                ResolutionStrategy(requestedSize, ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER),
+                ResolutionStrategy(requested, ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER),
             ).build()
 
     /**
@@ -355,6 +317,12 @@ class TrackerCamera(
         try {
             val delivered = deliveredSizeOf(image)
             deliveredSize = delivered
+            if (videoEnabled) {
+                if (video.sourceAvailable(Size(delivered.width, delivered.height), image.imageInfo.rotationDegrees)) {
+                    mainHandler.post { onVideoAvailability(video.resolution, video.failure) }
+                }
+                video.encode(image)
+            }
             noteSensorRate(image)
             mismatch.report(target.width, target.height, delivered)
             policy.onFrameDelivered(System.currentTimeMillis())

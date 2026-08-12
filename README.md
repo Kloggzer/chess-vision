@@ -86,6 +86,18 @@ because the two things that cost the most debugging time — which config value 
 the DataStore, and which model was really loaded — were both invisible from the source.
 Format and a parsing snippet: [`docs/diagnostics.md`](docs/diagnostics.md).
 
+**Training recordings preserve the whole run.** Enable **Settings → Recording → Record
+training video** before starting the tracker. The app encodes the same QHD analyzer frames used by
+the tracker as H.264 and rejects any delivered size below 2560×1440 instead of silently recording
+1080p. This avoids requiring a separate CameraX video profile or a second camera stream. A session starts
+before the first move and contains `video.mp4`, an ordered `timeline.jsonl` with frame/FEN,
+geometry, tracker events and video-clock sync points, the existing per-move reference JPEGs,
+and `session.yaml`. Exporting the session produces one ZIP containing the complete bundle.
+Recording is off by default and the configured storage cap stops both video and reference
+capture without deleting older sessions. Camera stream combinations are device-dependent, so
+QHD acceptance must be checked once on the physical phone; a rejected mode is shown as the
+recording reason while analysis-only tracking continues.
+
 **Models.** Seven CNNs are bundled under `android/app/src/main/assets/cnn_model/`, switchable
 in Settings (restart required). A fresh install runs `id35-80`: the hard-negative-finetuned
 BatchNorm model, width 0.35 at 80 px, measured at 0 phantoms / 3 misses on the difficult warm-light

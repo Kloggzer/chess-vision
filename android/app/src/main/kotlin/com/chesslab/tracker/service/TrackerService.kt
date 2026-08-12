@@ -35,6 +35,7 @@ import com.chesslab.tracker.pipeline.PERF_TAG
 import com.chesslab.tracker.pipeline.StageTimings
 import com.chesslab.tracker.pipeline.cameraStages
 import com.chesslab.tracker.record.RecordingBundleHost
+import com.chesslab.tracker.record.RecordingHooks
 import com.chesslab.tracker.record.RecordingSettings
 import com.chesslab.tracker.record.TimelineFrame
 import com.chesslab.tracker.runtime.AppPaths
@@ -391,9 +392,9 @@ class TrackerService :
                 frames,
                 publisher,
                 calibration,
-                recording::opened,
-                { recording.finished() },
+                RecordingHooks(recording::opened, { recording.finished() }, { camera.videoFailure }),
             )
+        GameSessionHost.publish(games)
     }
 
     /** Persisted truth first, then the stack, then the camera — a frame with no stack is wasted. */

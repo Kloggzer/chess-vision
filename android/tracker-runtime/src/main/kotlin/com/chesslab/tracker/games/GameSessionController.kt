@@ -114,7 +114,8 @@ class GameSessionController(
      * undo a fraction of a second of latency and costs the record nothing.
      */
     fun onStatus(status: TrackerStatus) {
-        if (capture.syncEnabled()) publish()
+        val recordingChanged = capture.syncEnabled()
+        if (recordingChanged || mutable.value.recordingReason != capture.reason) publish()
         if (live?.wouldUndo(status.fen) != true) {
             undoFen = null
             return

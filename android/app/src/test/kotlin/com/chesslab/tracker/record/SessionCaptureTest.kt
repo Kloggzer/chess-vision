@@ -66,6 +66,14 @@ class SessionCaptureTest {
     }
 
     @Test
+    fun videoSessionStartsWhileGeometryIsBroken() {
+        source.note = "profile 2560x1440, camera delivers 1920x1080"
+        val recorder = controller().start()
+        assertNotNull(recorder, "geometry failures belong in the debug video instead of preventing it")
+        assertEquals(0, recorder?.count)
+    }
+
+    @Test
     fun captureDefersWhileOccludedOrTainted() {
         val controller = controller()
         controller.queue(1, FEN, "e4", clean = false)
@@ -143,6 +151,17 @@ class SessionCaptureTest {
         // Nothing is wrapped or overwritten: the frame written before the cap is still there.
         assertTrue(File(dir, "s1/frames/0000.jpg").isFile)
         assertEquals(1, File(dir, "s1/log.jsonl").readLines().size)
+    }
+
+    @Test
+    fun videoBytesCountAgainstTheSessionCap() {
+        prefs = RecordingPrefs(enabled = true, capBytes = 2000L)
+        val controller = controller()
+        val recorder = requireNotNull(controller.start())
+        File(recorder.dir, "video.mp4").writeBytes(ByteArray(2000))
+        assertTrue(controller.syncEnabled(), "the status-boundary check closes a video that reached the cap")
+        assertNull(controller.recorder)
+        assertTrue(controller.stoppedReason.orEmpty().contains("limit reached"))
     }
 
     /**
