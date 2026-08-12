@@ -4,7 +4,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -64,64 +67,61 @@ object OpenTracker {
 fun ChesslabNavHost(navController: NavHostController = rememberNavController()) {
     // The running game and its recording are NOT attached here: they belong to the service, which
     // outlives the whole UI (D08a-4). Screens observe them through `GameSessionHost`.
-    val resumeTracker: () -> Unit = { navController.navigate(ROUTE_TRACKING) }
-    LaunchedEffect(navController) { OpenTracker.flow.collect { resumeTracker() } }
+    LaunchedEffect(navController) { OpenTracker.flow.collect { navController.navigate(ROUTE_TRACKING) } }
     NavHost(navController = navController, startDestination = ROUTE_HOME) {
         // Home and the tracker are the two screens where a "return to the game" banner would be
         // either redundant or a link to itself, so neither provides one.
-        composable(ROUTE_HOME) {
+        composable(ROUTE_HOME) { entry ->
+            val nav = remember(entry) { Nav(navController, entry) }
             HomeRoute(
-                onStartGame = resumeTracker,
-                onOpenGames = { navController.navigate(ROUTE_GAMES) },
-                onOpenSettings = { navController.navigate(ROUTE_SETTINGS) },
-                onOpenGame = { navController.navigate("$ROUTE_REVIEW/$it") },
+                onStartGame = { nav.to(ROUTE_TRACKING) },
+                onOpenGames = { nav.to(ROUTE_GAMES) },
+                onOpenSettings = { nav.to(ROUTE_SETTINGS) },
+                onOpenGame = { nav.to("$ROUTE_REVIEW/$it") },
             )
         }
-        composable(ROUTE_TRACKING) {
-            TrackingRoute(
-                onBack = { navController.popBackStack() },
-                onCamera = { navController.navigate(ROUTE_CAMERA) },
-            )
+        composable(ROUTE_TRACKING) { entry ->
+            val nav = remember(entry) { Nav(navController, entry) }
+            TrackingRoute(onBack = nav::back, onCamera = { nav.to(ROUTE_CAMERA) })
         }
         // The camera screen is the tracker's viewfinder, in board mode when it is recalibrating. It
         // cannot function without the tracker — unbound it is one sentence on an empty screen — so
         // it is reached from there and nowhere else.
-        composable(ROUTE_CAMERA) {
-            Resumable(resumeTracker) { CameraRoute(onBack = { navController.popBackStack() }) }
+        composable(ROUTE_CAMERA) { entry ->
+            val nav = remember(entry) { Nav(navController, entry) }
+            Resumable(nav) { CameraRoute(onBack = nav::back) }
         }
-        composable(ROUTE_SETTINGS) {
+        composable(ROUTE_SETTINGS) { entry ->
+            val nav = remember(entry) { Nav(navController, entry) }
             // Null until the service has published its restart action, and the settings screen
             // renders the honest "close and reopen the app" text for exactly that window.
             val restart by TrackerRestartHost.restart.collectAsStateWithLifecycle()
-            Resumable(resumeTracker) {
+            Resumable(nav) {
                 SettingsRoute(
-                    onBack = { navController.popBackStack() },
-                    onOpenDebug = { navController.navigate(ROUTE_DEBUG) },
+                    onBack = nav::back,
+                    onOpenDebug = { nav.to(ROUTE_DEBUG) },
                     // The second door to the camera screen, from where somebody looks for setup.
-                    onOpenCalibration = { navController.navigate(ROUTE_CAMERA) },
+                    onOpenCalibration = { nav.to(ROUTE_CAMERA) },
                     onRestartTracker = restart?.let { { it.restartTracker() } },
                 )
             }
         }
         // Reachable ONLY from the settings screen: `TrackerStatus.debug` is assembled while this
         // screen is composed, and a top-level entry would make that cost permanent.
-        composable(ROUTE_DEBUG) {
-            Resumable(resumeTracker) { DebugRoute(onBack = { navController.popBackStack() }) }
+        composable(ROUTE_DEBUG) { entry ->
+            val nav = remember(entry) { Nav(navController, entry) }
+            Resumable(nav) { DebugRoute(onBack = nav::back) }
         }
-        composable(ROUTE_GAMES) {
-            Resumable(resumeTracker) {
-                GamesRoute(
-                    onBack = { navController.popBackStack() },
-                    onOpenGame = { navController.navigate("$ROUTE_REVIEW/$it") },
-                )
+        composable(ROUTE_GAMES) { entry ->
+            val nav = remember(entry) { Nav(navController, entry) }
+            Resumable(nav) {
+                GamesRoute(onBack = nav::back, onOpenGame = { nav.to("$ROUTE_REVIEW/$it") })
             }
         }
         composable("$ROUTE_REVIEW/{id}") { entry ->
-            Resumable(resumeTracker) {
-                ArchiveReviewRoute(
-                    id = entry.arguments?.getString("id").orEmpty(),
-                    onBack = { navController.popBackStack() },
-                )
+            val nav = remember(entry) { Nav(navController, entry) }
+            Resumable(nav) {
+                ArchiveReviewRoute(id = entry.arguments?.getString("id").orEmpty(), onBack = nav::back)
             }
         }
         // No analysis route, and there will not be one: 07c shipped the eval bar as a SLOT beside
@@ -129,11 +129,43 @@ fun ChesslabNavHost(navController: NavHostController = rememberNavController()) 
     }
 }
 
+/**
+ * One destination's navigation, dead the moment that destination stops being the current one.
+ *
+ * **Two taps on the same back arrow are two clicks on the SAME composition.** The first pops the
+ * screen; the second runs before its entry has left the composition and pops whatever was
+ * underneath — from Settings that is Home, the start destination, and a NavHost with an empty back
+ * stack draws NOTHING. That is a black window that also swallows nothing: the nav controller's back
+ * callback is disabled with the stack empty, so system back closes the app outright and every tap
+ * lands on an empty composition. Measured on the phone 2026-08-12: two taps 0.1 s apart on the
+ * Settings arrow, and the app sat black until the task was killed — a cold start into the same
+ * screen was black again within the minute.
+ *
+ * The guard is the entry's own lifecycle, which leaves `RESUMED` the moment the pop is issued, so
+ * the second click of a double tap is a no-op. It covers the pushes for the same reason: a
+ * double-tapped game row used to stack two copies of the review screen.
+ */
+private class Nav(
+    private val controller: NavHostController,
+    private val entry: NavBackStackEntry,
+) {
+    private val current get() = entry.lifecycle.currentState == Lifecycle.State.RESUMED
+
+    fun to(route: String) {
+        if (current) controller.navigate(route)
+    }
+
+    fun back() {
+        if (current) controller.popBackStack()
+    }
+}
+
 /** A screen a running game can be returned FROM — see [LocalResumeTracker]. */
 @Composable
 private fun Resumable(
-    resume: () -> Unit,
+    nav: Nav,
     content: @Composable () -> Unit,
 ) {
+    val resume = remember(nav) { { nav.to(ROUTE_TRACKING) } }
     CompositionLocalProvider(LocalResumeTracker provides resume, content = content)
 }
