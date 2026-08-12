@@ -131,6 +131,19 @@ class TrackerEngine(
      * in a 64-entry in-memory ring behind an off-by-default debug switch.
      */
     private val decisionSink: (DebugDecision) -> Unit = {},
+    /**
+     * Frame-loop STATE transitions, on the engine's own clock — `waiting -> moving`,
+     * `moving -> occluded`, and back.
+     *
+     * The decision rows cannot carry this and that is the point. Measured on rec-20260808-003957:
+     * 67 commits produce 131 decision rows, so the typical move is committed on the FIRST row it
+     * appears in and everything a player experiences as waiting happened BEFORE it — in states
+     * that write nothing. "Why did that move take a while to be announced" was therefore
+     * unanswerable from a log, which is the same gap the decision sink itself was added to close.
+     *
+     * One call per TRANSITION, never per frame: a quiet board writes nothing.
+     */
+    private val stateSink: (String, String, Double) -> Unit = { _, _, _ -> },
 ) {
     internal val state = EngineState(config, startFen, decisionSink = decisionSink)
 
@@ -145,6 +158,7 @@ class TrackerEngine(
     fun onFrame(input: FrameInput): List<TrackerEvent> {
         val noteBefore = state.note
         val stuckBefore = state.stuckReason
+        val stateBefore = state.state
         val events = mutableListOf<TrackerEvent>()
         // `avgFrames` and `confirmFrames` are CNN-conditional, and `cnnOn` has a third input the two
         // call sites below do not cover: `cnnFailed`. This used to say "which the verify path raises
@@ -161,6 +175,7 @@ class TrackerEngine(
         if (stuck != null && stuck != stuckBefore) events += TrackerEvent.Stuck(stuck)
         val note = state.note
         if (note != null && note != noteBefore) events += TrackerEvent.Note(note)
+        if (state.state != stateBefore) stateSink(stateBefore, state.state, state.nowS)
         return events
     }
 

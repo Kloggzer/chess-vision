@@ -271,6 +271,13 @@ private fun usage(): Nothing {
         "  undistort <video> <outDir> [every=N]  write the frames with the barrel taken out",
         "  rectify <video> <outDir> [frames=<f>|every=N] [size=N] [lens]  the straightened board, per frame",
         "  crops <video> <outDir> [frames=<f>|every=N] [out=WxH]  the 64 square crops, as the device cuts them",
+        "  turntable-pack <video> <fen> <outDir> [every=N] [max=N] [id=name]  clean video -> RGB memmap",
+        "  turntable-preview <packDir> <out.png>  contact sheet of the first clean packed board",
+        "  turntable-dataset <outDir> <testPack> <valPack> <trainPack>... [emptyRatio=N]  fixed roles",
+        "  labeled-video-pack <video> <log> <corrections> <outDir> [every=N] [id=name]  labels -> 80px memmap",
+        "  occlusion-video-pack <video> <log> <corrections> <outDir> [session=name] [id=name]  manual occlusions -> 80px memmap",
+        "  labeled-session-pack <sessionDir> <outDir> [corrections=file] [id=name]  stored frames -> memmap",
+        "  legacy-synth-dataset <root> <manifest> <outDir> [prefix=x]  parked crops -> 80px memmap",
         "  replay <video.mp4> [options]  drive a recorded clip through the shipping tracker",
         "  track <camera-index> [options]  the same, live",
         "",
@@ -449,6 +456,10 @@ private fun buildStack(
                 println("decision: ply=${it.ply} ${it.san ?: "-"} decider=${it.decider}")
                 collector?.offer(it)
             },
+            // The frame loop's own account of where a move's latency went, on the video clock. The
+            // phone writes the same transitions into its diagnostics file; here they go to stdout
+            // beside the decisions, which is what makes a replay's timeline readable end to end.
+            onState = { from, to, tsS -> println("state: %s -> %s at %.2fs".format(from, to, tsS)) },
             logs = logs,
             stages = { geo, cfg, store, frameBus, boardBus ->
                 OpenCvStages({ it }, {}, geo, cfg, store, frameBus, boardBus, optics)
@@ -623,4 +634,11 @@ private val FILE_TOOLS: Map<String, (List<String>) -> Unit> =
         "undistort" to ::undistortVideo,
         "rectify" to ::rectifyVideo,
         "crops" to ::cropsOfVideo,
+        "turntable-pack" to ::packTurntableVideo,
+        "turntable-preview" to ::previewTurntablePack,
+        "turntable-dataset" to ::assembleTurntableDataset,
+        "labeled-video-pack" to ::packLabeledVideo,
+        "occlusion-video-pack" to ::packOcclusionVideo,
+        "labeled-session-pack" to ::packLabeledSession,
+        "legacy-synth-dataset" to ::buildLegacySynthDataset,
     )

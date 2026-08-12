@@ -65,6 +65,11 @@ class TrackerSeed<T>(
      */
     val onDecision: (DebugDecision) -> Unit,
     /**
+     * Where the frame loop's STATE transitions go — see `TrackerEngine`'s `stateSink` for why the
+     * decision rows cannot answer "why did that move take a while".
+     */
+    val onState: (String, String, Double) -> Unit = { _, _, _ -> },
+    /**
      * How the stack reaches a log. Seeded rather than constructed for the same reason [onDecision]
      * is: the host owns the platform, the stack owns the CHANNEL NAMES — and those names are what
      * `adb logcat -s` is pointed at, so they are behaviour, not decoration.
@@ -130,7 +135,20 @@ class TrackerStack<T>(
             // Its own channel, not `chesslabTracker`: `adb logcat -s chesslabDecision` then gives the
             // move-by-move provenance with nothing else in it, which is the form these lines get read in.
             log = seed.logs("chesslabDecision"),
+            onState = stateSink(seed),
         ) { pipeline.onConfigChanged(it) }
+
+    /**
+     * The frame loop's state transitions: a line on their OWN channel (`adb logcat -s chesslabState`
+     * is then the timeline with nothing else in it) and the host's structured sink beside it.
+     */
+    private fun stateSink(seed: TrackerSeed<T>): (String, String, Double) -> Unit {
+        val log = seed.logs("chesslabState")
+        return { from, to, tsS ->
+            log.info("%s -> %s at %.2fs".format(from, to, tsS))
+            seed.onState(from, to, tsS)
+        }
+    }
 
     /** 07b's crop tap. Inert until the debug switch arms it; the service re-arms it after a restart. */
     val cropTap = DebugCropTap(cropFrameSource(cropStore, seed.geometry))
@@ -164,7 +182,15 @@ class TrackerStack<T>(
     private fun submitObserved(snap: CnnSnapshot) {
         observed.incrementAndGet()
         val occluded = allSquares().count { snap.obs.pOccluded(it) > LEDGER_OCCLUDED_THR }
-        obsLog.info("obs frame=${snap.seq} t=${"%.2f".format(Locale.US, snap.tsMs / MS_PER_S_D)} occl=$occluded")
+        // `grid` beside `occl`, because `occl` is the MODEL's occluded head and that head is
+        // identically 0.0 under every 13-class model the device serves (CLAUDE.md's standing
+        // pitfall) — a ledger of zeroes that reads like a clean board. The grid map is the
+        // model-free arm of the same question and it is where the hand actually is, as a bitboard
+        // in `Squares.ALL` order, so a reader can ask WHERE and not only WHETHER.
+        val grid = "0x%016x".format(snap.gridOccluded)
+        obsLog.info(
+            "obs frame=${snap.seq} t=${"%.2f".format(Locale.US, snap.tsMs / MS_PER_S_D)} occl=$occluded grid=$grid",
+        )
         host.submit(snap)
     }
 

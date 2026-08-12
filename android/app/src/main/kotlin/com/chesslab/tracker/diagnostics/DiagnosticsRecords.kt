@@ -25,6 +25,8 @@ internal const val KIND_RUN_START = "run_start"
 
 internal const val KIND_DECISION = "decision"
 
+internal const val KIND_STATE = "state"
+
 /**
  * NaN travels: three config knobs are `Int?` and encode their "no override" as NaN
  * (`ConfigKnobs.optInt`), and refusing it here would throw on the writer coroutine and take the
@@ -239,3 +241,21 @@ fun runStartOf(
             ),
         config = DIAGNOSTICS_JSON.parseToJsonElement(ConfigCodec.encode(config)).jsonObject,
     )
+
+/**
+ * One frame-loop STATE transition — `waiting -> moving`, `moving -> occluded`, and back.
+ *
+ * Two numbers and two words, against the decision row's forty, because it is written far more
+ * often and says one thing. It is here because the decision rows cannot answer the question a
+ * player actually asks: measured on rec-20260808-003957, 67 commits produce 131 decision rows, so
+ * the typical move is committed on the FIRST row it appears in — and all the time the player spent
+ * waiting was spent in states that wrote nothing at all.
+ */
+@Serializable
+data class StateRow(
+    val seq: Long,
+    val tsS: Double,
+    val from: String,
+    val to: String,
+    val kind: String = KIND_STATE,
+)
