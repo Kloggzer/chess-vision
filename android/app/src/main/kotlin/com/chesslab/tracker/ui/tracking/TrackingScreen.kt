@@ -1,5 +1,6 @@
 package com.chesslab.tracker.ui.tracking
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -36,9 +37,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.chesslab.tracker.R
 import com.chesslab.tracker.analysis.AnalysisSettingsHost
 import com.chesslab.tracker.games.GameSessionController
 import com.chesslab.tracker.games.GameSessionState
@@ -400,7 +404,7 @@ private fun ColumnScope.Watching(
     if (running) {
         ActionBar(
             onUndo = viewModel::onUndo,
-            undoLabel = undoLabel(lastCommit),
+            undoLabel = pluralStringResource(R.plurals.tracking_take_back, undoCount(lastCommit), undoCount(lastCommit)),
             // Ending a game that has moves USED to throw it away without a word.
             onEndGame = onEndGame,
         )
@@ -509,7 +513,7 @@ private fun StatusLine(ui: TrackingUiState) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(ui.stateText, style = MaterialTheme.typography.titleMedium, color = tone, maxLines = 1)
+        Text(stringResource(labelText(ui.state)), style = MaterialTheme.typography.titleMedium, color = tone, maxLines = 1)
         Row(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalAlignment = Alignment.CenterVertically) {
             ui.fpsDetail?.let {
                 Text(it, style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted, maxLines = 1)
@@ -518,6 +522,18 @@ private fun StatusLine(ui: TrackingUiState) {
         }
     }
 }
+
+/** [TrackerLabel] -> the words for it. The only place those words exist outside `strings.xml`. */
+@StringRes
+private fun labelText(label: TrackerLabel): Int =
+    when (label) {
+        TrackerLabel.LIVE -> R.string.tracking_state_live
+        TrackerLabel.HAND_OVER_BOARD -> R.string.tracking_state_hand
+        TrackerLabel.NO_DETECTION -> R.string.tracking_state_no_detection
+        TrackerLabel.POSITION_LOST -> R.string.tracking_state_lost
+        TrackerLabel.CAMERA_OFF -> R.string.tracking_state_camera_off
+        TrackerLabel.NOT_TRACKING -> R.string.tracking_state_off
+    }
 
 @Composable
 private fun toneColor(tone: StateTone): Color =

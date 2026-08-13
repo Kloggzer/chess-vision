@@ -1,14 +1,22 @@
 package com.chesslab.tracker.ui.review
 
+import androidx.annotation.StringRes
+import com.chesslab.tracker.R
 import com.chesslab.tracker.analysis.GameGrade
 import com.chesslab.tracker.analysis.PlyGrade
+import com.chesslab.tracker.games.GameResult
 
-internal fun resultHeadline(result: String): String =
+/**
+ * What a result is CALLED, as a string resource. It resolves nothing itself: this file is reached
+ * from plain functions as well as from composables, and an `@StringRes` id travels through both.
+ */
+@StringRes
+internal fun resultHeadline(result: GameResult): Int =
     when (result) {
-        "1-0" -> "White wins"
-        "0-1" -> "Black wins"
-        "1/2-1/2" -> "Draw"
-        else -> "Game in progress"
+        GameResult.WHITE -> R.string.games_result_white
+        GameResult.BLACK -> R.string.games_result_black
+        GameResult.DRAW -> R.string.games_result_draw
+        GameResult.UNFINISHED -> R.string.games_result_unfinished
     }
 
 internal fun mateStory(grade: GameGrade): String {

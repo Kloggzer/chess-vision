@@ -201,6 +201,29 @@ fun StoredGame.summary(): GameSummary =
 fun StoredGame.segmentsOrOne(): List<GameSegment> = segments.ifEmpty { listOf(GameSegment(startFen, moves, null)) }
 
 /**
+ * **How a game ended, as the four things it can be.**
+ *
+ * The tag is the PGN spelling and is what [StoredGame.result] keeps on disk — the file format does
+ * not change and needs no migration. This type exists for every boundary that asks a HUMAN: a
+ * result is a fact with four values, and passing it as a string made "Game in progress" the only
+ * word the library had for a game that was simply stopped.
+ */
+enum class GameResult(
+    val tag: String,
+) {
+    WHITE("1-0"),
+    BLACK("0-1"),
+    DRAW("1/2-1/2"),
+    UNFINISHED("*"),
+    ;
+
+    companion object {
+        /** Anything unrecognised is [UNFINISHED] — an old or hand-edited file may hold anything. */
+        fun of(tag: String): GameResult = entries.firstOrNull { it.tag == tag } ?: UNFINISHED
+    }
+}
+
+/**
  * The PGN result tag for a position. `*` (unfinished) is the honest default: a tracked game
  * normally ends because the players stopped, not because the board reached a terminal position.
  */

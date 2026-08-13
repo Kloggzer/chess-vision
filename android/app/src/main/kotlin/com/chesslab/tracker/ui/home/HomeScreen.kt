@@ -29,10 +29,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.R
 import com.chesslab.tracker.analysis.ReviewStore
+import com.chesslab.tracker.games.GameResult
 import com.chesslab.tracker.games.GameSessionState
 import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.service.TrackerRun
@@ -287,7 +289,7 @@ private fun RecentGameCard(
     Card {
         Column(Modifier.fillMaxWidth().clickable(onClick = onOpen), verticalArrangement = Arrangement.spacedBy(Space.hair)) {
             Text(
-                "${row.date} · ${resultHeadline(row.result)}",
+                "${row.date} · ${stringResource(resultHeadline(GameResult.of(row.result)))}",
                 style = MaterialTheme.typography.titleMedium,
                 color = OnSurface,
             )

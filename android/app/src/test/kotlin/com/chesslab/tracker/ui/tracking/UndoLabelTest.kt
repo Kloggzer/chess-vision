@@ -12,17 +12,17 @@ import org.junit.jupiter.api.Test
  */
 class UndoLabelTest {
     @Test
-    fun anOrdinaryCommitLeavesTheControlUnadorned() {
-        assertEquals("Undo", undoLabel(emptyList()))
-        assertEquals("Undo", undoLabel(listOf("Nf3")))
+    fun anOrdinaryCommitCountsAsOne() {
+        assertEquals(1, undoCount(emptyList()), "nothing committed still unwinds at most one")
+        assertEquals(1, undoCount(listOf("Nf3")))
         assertNull(undoDetail(listOf("Nf3")), "one move needs no spelling out")
     }
 
     @Test
-    fun aBridgeSaysHowManyPliesOnePressTakesBack() {
+    fun aBridgeCountsEveryPlyOnePressTakesBack() {
         val bridge = listOf("Bxb5", "Kb8", "Bd4", "Nf3")
-        assertEquals("Undo 4 moves", undoLabel(bridge))
-        assertEquals("One press takes back: Bxb5 + Kb8 + Bd4 + Nf3", undoDetail(bridge))
+        assertEquals(4, undoCount(bridge))
+        assertEquals(bridge, undoDetail(bridge), "SAN is never translated — the moves travel as moves")
     }
 
     /** What the label counts. Deliberately not a score sheet — that is `GameSessionState.game`. */

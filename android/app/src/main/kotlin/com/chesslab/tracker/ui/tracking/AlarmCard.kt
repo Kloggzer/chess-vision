@@ -16,7 +16,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.chesslab.tracker.R
 import com.chesslab.tracker.ui.FilledAction
 import com.chesslab.tracker.ui.OutlineAction
 import com.chesslab.tracker.ui.theme.Danger
@@ -55,7 +58,7 @@ fun AlarmCard(
     onAcceptCnn: () -> Unit,
     onUndo: () -> Unit,
     onNewBaseline: () -> Unit,
-    /** The SANs of the last commit — see [undoLabel]; this card is where Undo is usually pressed. */
+    /** The SANs of the last commit — see [undoCount]; this card is where Undo is usually pressed. */
     lastCommit: List<String> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
@@ -104,7 +107,11 @@ fun AlarmCard(
         // not an accent (rule 2). The stripe and the headline carry the alarm.
         FilledAction("Accept CNN position", onAcceptCnn, Modifier.fillMaxWidth())
         Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-            OutlineAction(undoLabel(lastCommit), onUndo, Modifier.weight(1f))
+            OutlineAction(
+                pluralStringResource(R.plurals.tracking_take_back, undoCount(lastCommit), undoCount(lastCommit)),
+                onUndo,
+                Modifier.weight(1f),
+            )
             OutlineAction("New baseline", onNewBaseline, Modifier.weight(1f))
         }
     }
@@ -130,7 +137,7 @@ private fun AlarmFacts(
                     if (more > 0) " (+$more)" else ""
             },
             alarm.guessSan?.let { "looks like: $it" },
-            undoDetail(lastCommit),
+            undoDetail(lastCommit)?.let { stringResource(R.string.tracking_take_back_detail, it.joinToString(" + ")) },
         )
     lines.forEach {
         Text(

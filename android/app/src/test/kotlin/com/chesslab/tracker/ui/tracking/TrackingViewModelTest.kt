@@ -157,7 +157,7 @@ class TrackingViewModelTest {
      * ordinary single-move undo, exactly as the engine treats it.
      */
     @Test
-    fun theUndoControlNamesTheWholeLastCommit() =
+    fun theUndoControlCountsTheWholeLastCommit() =
         runTest(dispatcher) {
             val session = FakeTrackerSession()
             val vm = TrackingViewModel()
@@ -165,7 +165,7 @@ class TrackingViewModelTest {
             advanceUntilIdle()
             session.events.emit(TrackerEvent.MoveCommitted("e2e4", "e4", "fen", "diff", false))
             advanceUntilIdle()
-            assertEquals("Undo", undoLabel(vm.lastCommit.value))
+            assertEquals(1, undoCount(vm.lastCommit.value))
 
             session.events.emit(
                 TrackerEvent.SequenceCommitted(
@@ -176,11 +176,11 @@ class TrackingViewModelTest {
                 ),
             )
             advanceUntilIdle()
-            assertEquals("Undo 4 moves", undoLabel(vm.lastCommit.value))
+            assertEquals(4, undoCount(vm.lastCommit.value))
 
             vm.onUndo()
             advanceUntilIdle()
-            assertEquals("Undo", undoLabel(vm.lastCommit.value), "the record is of the LAST commit only")
+            assertEquals(1, undoCount(vm.lastCommit.value), "the record is of the LAST commit only")
         }
 
     @Test
@@ -191,18 +191,18 @@ class TrackingViewModelTest {
             vm.attach(session)
             session.status.value = idleTrackerStatus().copy(state = "waiting", fps = 14.8)
             advanceUntilIdle()
-            assertEquals("WAITING", vm.ui.value.stateText)
+            assertEquals(TrackerLabel.LIVE, vm.ui.value.state)
 
             vm.onToggleCamera()
             advanceUntilIdle()
             assertEquals(listOf("setCameraOn:false"), session.calls)
             // The last status stands forever once frames stop; the header must not keep reporting it.
-            assertEquals("STOPPED", vm.ui.value.stateText)
+            assertEquals(TrackerLabel.CAMERA_OFF, vm.ui.value.state)
             assertEquals("camera off", vm.ui.value.fpsText)
 
             vm.onToggleCamera()
             advanceUntilIdle()
-            assertEquals("WAITING", vm.ui.value.stateText)
+            assertEquals(TrackerLabel.LIVE, vm.ui.value.state)
         }
 
     /**
@@ -225,7 +225,7 @@ class TrackingViewModelTest {
             vm.tracking = false
             advanceUntilIdle()
             assertEquals(played, vm.ui.value.fen)
-            assertEquals("NOT TRACKING", vm.ui.value.stateText)
+            assertEquals(TrackerLabel.NOT_TRACKING, vm.ui.value.state)
         }
 
     @Test

@@ -1,12 +1,14 @@
 package com.chesslab.tracker.ui.review
 
 import com.chesslab.engine.api.STARTPOS
+import com.chesslab.tracker.R
 import com.chesslab.tracker.analysis.GameGrade
 import com.chesslab.tracker.analysis.MoveQuality
 import com.chesslab.tracker.analysis.OpeningSummary
 import com.chesslab.tracker.analysis.PlyGrade
 import com.chesslab.tracker.analysis.ReviewBudget
 import com.chesslab.tracker.analysis.SideSummary
+import com.chesslab.tracker.games.GameResult
 import com.chesslab.tracker.games.GameView
 import com.chesslab.tracker.games.ReviewPly
 import com.chesslab.tracker.games.ReviewSegment
@@ -56,7 +58,7 @@ class ReviewUiModelTest {
                 black = "Bob",
             )
 
-        assertEquals("Alice – Bob", reviewTitle(game))
+        assertEquals("Alice – Bob", reviewTitle(game, "White wins"))
         assertEquals("Alice · White", playerAndSide(game, plyGrade(MoveQuality.MISTAKE, 60.0, 45.0)))
         assertEquals(
             "Bob · Black",
@@ -134,7 +136,17 @@ class ReviewUiModelTest {
 
         assertEquals("White missed 1 mating chance · Black missed 1 mating chance.", mateStory(grade))
         assertEquals("2/3 moves graded", accuracyDenominator(2, 3))
-        assertEquals("White wins", resultHeadline("1-0"))
+        // The words live in strings.xml now; what this pins is that each result maps to its own key.
+        assertEquals(R.string.games_result_white, resultHeadline(GameResult.WHITE))
+        assertEquals(R.string.games_result_unfinished, resultHeadline(GameResult.UNFINISHED))
+        assertEquals(
+            GameResult.entries.size,
+            GameResult.entries
+                .map { resultHeadline(it) }
+                .toSet()
+                .size,
+            "two results that read the same are one result",
+        )
     }
 
     @Test

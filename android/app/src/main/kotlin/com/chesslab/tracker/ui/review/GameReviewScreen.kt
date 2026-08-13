@@ -49,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -63,6 +64,7 @@ import com.chesslab.tracker.analysis.ResolvedMateLine
 import com.chesslab.tracker.analysis.SideSummary
 import com.chesslab.tracker.analysis.lineFrames
 import com.chesslab.tracker.analysis.missedMate
+import com.chesslab.tracker.games.GameResult
 import com.chesslab.tracker.games.GameView
 import com.chesslab.tracker.ui.Card
 import com.chesslab.tracker.ui.ChesslabScaffold
@@ -171,7 +173,7 @@ private fun GameReviewScreen(
     val listState = rememberReviewListState(game, section, review.selected, model::focus)
 
     ChesslabScaffold(
-        title = reviewTitle(game),
+        title = reviewTitle(game, stringResource(resultHeadline(GameResult.of(game.result)))),
         onBack = onBack,
         actions = { ReviewActions({ overlays.editingDetails = true }, { overlays.showingAnalysisDetails = true }) },
     ) { bars ->
@@ -302,8 +304,16 @@ private fun ReviewDetailsEditor(
     }
 }
 
-/** Player names are the identity of a game; the timestamp is only the fallback file identity. */
-internal fun reviewTitle(game: GameView): String {
+/**
+ * Player names are the identity of a game; the timestamp is only the fallback file identity.
+ *
+ * [resultName] is passed in rather than looked up: this is a plain function so it stays testable
+ * on a JVM, and resolving a resource needs a composition.
+ */
+internal fun reviewTitle(
+    game: GameView,
+    resultName: String,
+): String {
     val named = game.white != "?" || game.black != "?"
     if (named) return "${game.white} – ${game.black}"
     val date =
@@ -312,7 +322,7 @@ internal fun reviewTitle(game: GameView): String {
             ?.let {
                 REVIEW_DATE_FORMAT.format(Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()))
             } ?: game.id.replace('_', ' ')
-    return "$date · ${resultHeadline(game.result)}"
+    return "$date · $resultName"
 }
 
 private val REVIEW_DATE_FORMAT = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH)

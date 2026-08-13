@@ -2,7 +2,7 @@
 
 | Phase | State | Branch | Note |
 |---|---|---|---|
-| 00 — the models speak no language | `todo` | `specs-54-00` | lands alone; owns `TrackerLabel`, `GameResult`, the guard |
+| 00 — the models speak no language | `done` | on `main` | see the session log |
 | 01 — the game ends with a result | `todo` | `specs-54-01` | after 00 |
 | 02 — the screen reads like a game | `todo` | `specs-54-02` | after 01 (same file) |
 | 03 — when it goes wrong, it says what to do | `todo` | `specs-54-03` | after 02 (same file); touches `core-engine` additively |
@@ -37,6 +37,31 @@
 | Results a stored game can express | mate, stalemate, draw-by-rule, `*` — **no resignation, no agreed draw** |
 
 ## Session log
+
+### 2026-08-13 — phase 00, on `main`
+
+`TrackerLabel` (6 values), `GameResult` (4), `undoCount`, `resultHeadline` -> `@StringRes Int`,
+`strings.xml` 171 -> 15 strings + 1 plural, `StringLiteralGuardTest`. Gate green with
+`--rerun-tasks`: `:app:testDebugUnitTest :tracker-runtime:test` plus ktlint and detekt on both.
+
+What the spec did not foresee, all recorded rather than worked around:
+
+- **`reviewTitle` is not a composable.** It builds the review screen's title as a plain string and
+  is unit-tested as one, so it cannot resolve a resource id. It takes the resolved word as a
+  parameter now (`reviewTitle(game, resultName)`); the composable caller resolves it. Keeping the
+  function pure was worth one argument.
+- **`resultHeadline` returns an id, not an enum.** The spec said id and that turned out to be the
+  load-bearing choice: an `@StringRes Int` travels through both a composable (Home's row) and a
+  plain function (the review title), and the enum would have forced a `when` at each site.
+- **`resultFromFen` still returns `String`.** Phase 01 gives it the type. `GameResultTest` pins
+  that every tag it can emit is one `GameResult.of` knows, so that change stays a rename.
+- **The tone table had to be kept by hand.** `waiting`/`moving`/`move` collapse into one LABEL but
+  keep three TONES, and the test asserts both — the collapse is the readable half of the change and
+  the tones are the half that must not be lost with it.
+
+The guard ships with an EMPTY package list and therefore passes vacuously; phases 02-04 add their
+packages as they convert them. Its KDoc says out loud what it cannot see (a literal alone on a
+continuation line, a sentence built from pieces) so nobody reads it as a proof.
 
 ### 2026-08-13 — phase 06, in the working tree, **not committed**
 

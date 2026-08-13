@@ -33,19 +33,51 @@ private fun status(
     )
 
 class StatusUiModelTest {
+    /**
+     * `waiting`, `moving` and `move` are ONE label and three tones. They are visible for a fraction
+     * of a second each, so the word cannot tell them apart — but the colour still does, and that is
+     * the only live feedback the header has.
+     */
     @Test
-    fun stateTextAndColourPerTrackerState() {
-        assertEquals(StateTone.Idle, trackingUiState(status(STATE_WAITING)).tone)
-        assertEquals("WAITING", trackingUiState(status(STATE_WAITING)).stateText)
-        assertEquals(StateTone.Busy, trackingUiState(status(STATE_MOVING)).tone)
-        assertEquals("MOVING", trackingUiState(status(STATE_MOVING)).stateText)
-        assertEquals(StateTone.Busy, trackingUiState(status(STATE_OCCLUDED)).tone)
-        assertEquals("HAND OVER BOARD", trackingUiState(status(STATE_OCCLUDED)).stateText)
-        assertEquals(StateTone.Active, trackingUiState(status(STATE_MOVE)).tone)
-        assertEquals("MOVE", trackingUiState(status(STATE_MOVE)).stateText)
-        // Every tone is distinguishable — three states that read the same are one state.
-        val tones = listOf(STATE_WAITING, STATE_MOVING, STATE_MOVE).map { trackingUiState(status(it)).tone }
+    fun theThreeRunningStatesShareALabelAndKeepTheirTones() {
+        val running = listOf(STATE_WAITING, STATE_MOVING, STATE_MOVE)
+        running.forEach { assertEquals(TrackerLabel.LIVE, trackingUiState(status(it, fps = 12.0)).state, it) }
+        val tones = running.map { trackingUiState(status(it, fps = 12.0)).tone }
         assertEquals(tones.size, tones.toSet().size)
+        assertEquals(StateTone.Idle, trackingUiState(status(STATE_WAITING, fps = 12.0)).tone)
+        assertEquals(StateTone.Busy, trackingUiState(status(STATE_MOVING, fps = 12.0)).tone)
+        assertEquals(StateTone.Active, trackingUiState(status(STATE_MOVE, fps = 12.0)).tone)
+        assertEquals(TrackerLabel.HAND_OVER_BOARD, trackingUiState(status(STATE_OCCLUDED, fps = 12.0)).state)
+        assertEquals(StateTone.Busy, trackingUiState(status(STATE_OCCLUDED, fps = 12.0)).tone)
+    }
+
+    /** The fallback may not print an engine identifier at a user. */
+    @Test
+    fun anUnknownEngineStateIsStillJustLive() {
+        assertEquals(TrackerLabel.LIVE, trackingUiState(status("some_new_engine_state", fps = 12.0)).state)
+    }
+
+    /**
+     * Frames arrive, the board is fitted, and nothing ticks. This used to live only in `fpsDetail`;
+     * as a label it survives the frame rate leaving the screen.
+     */
+    @Test
+    fun aStalledEngineOnALiveCameraIsItsOwnLabel() {
+        val stalled = trackingUiState(status(fps = 0.0, cameraFps = 30.0))
+        assertEquals(TrackerLabel.NO_DETECTION, stalled.state)
+        assertEquals(StateTone.Busy, stalled.tone)
+        val alarm = TrackerEvent.Alarm("illegal_move", listOf("e4"), "g1f3", "Nf3")
+        assertEquals(
+            TrackerLabel.POSITION_LOST,
+            trackingUiState(status(fps = 0.0, alarm = alarm)).state,
+            "a latched alarm outranks a stalled engine",
+        )
+    }
+
+    @Test
+    fun aReleasedCameraAndNoTrackerAreDifferentLabels() {
+        assertEquals(TrackerLabel.CAMERA_OFF, trackingUiState(status(fps = 12.0), cameraOn = false).state)
+        assertEquals(TrackerLabel.NOT_TRACKING, trackingUiState(status(fps = 12.0), tracking = false).state)
     }
 
     @Test
@@ -54,8 +86,8 @@ class StatusUiModelTest {
         val ui = trackingUiState(status(state = STATE_MOVING, alarm = alarm))
         assertTrue(ui.boardTinted)
         assertEquals(StateTone.Alarm, ui.tone)
-        // The engine blocks every commit while alarmed: the line may not say "MOVING".
-        assertNotEquals("MOVING", ui.stateText)
+        // The engine blocks every commit while alarmed: the line may not report progress.
+        assertNotEquals(TrackerLabel.LIVE, ui.state)
         assertEquals("illegal_move", ui.alarm?.kind)
         assertEquals(listOf("e4", "d5"), ui.alarm?.conflicts)
         assertEquals("Nf3", ui.alarm?.guessSan)
@@ -125,13 +157,13 @@ class StatusUiModelTest {
     @Test
     fun notTrackingOutranksThePausedCameraAndEveryEngineState() {
         val off = trackingUiState(status(state = STATE_MOVING, fps = 14.8), tracking = false)
-        assertEquals("NOT TRACKING", off.stateText)
+        assertEquals(TrackerLabel.NOT_TRACKING, off.state)
         assertEquals(StateTone.Idle, off.tone)
         assertEquals("camera off", off.fpsText)
         assertNull(off.fpsDetail)
         // A paused camera keeps its game and says so; no tracker has none to keep.
         val paused = trackingUiState(status(fps = 14.8), cameraOn = false)
-        assertEquals("STOPPED", paused.stateText)
+        assertEquals(TrackerLabel.CAMERA_OFF, paused.state)
         assertNotEquals(paused.infoLine, off.infoLine)
     }
 

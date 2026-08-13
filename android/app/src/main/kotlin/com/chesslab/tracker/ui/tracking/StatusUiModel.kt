@@ -16,6 +16,28 @@ import java.util.Locale
  */
 enum class StateTone { Idle, Busy, Active, Alarm }
 
+/**
+ * **What the header is saying, as a fact rather than as words.** The Compose layer names it.
+ *
+ * This file's KDoc already insists that no Compose type appears in it, so the mapping stays a
+ * plain-JVM function. The same argument runs one step further: an English sentence in here is a
+ * second place the wording lives, and it made every test assert prose it did not care about.
+ *
+ * Three engine states collapse into [LIVE] deliberately — `waiting`, `moving` and `move` are
+ * visible for a fraction of a second each and are not distinguishable to a reader. [StateTone]
+ * still separates them, which is where that difference belongs.
+ */
+enum class TrackerLabel {
+    LIVE,
+    HAND_OVER_BOARD,
+
+    /** Frames arrive, the board is fitted, and the engine still is not ticking. */
+    NO_DETECTION,
+    POSITION_LOST,
+    CAMERA_OFF,
+    NOT_TRACKING,
+}
+
 /** The three evidence sets, kept apart. Merging them hides invariant 2 (shadow keeps z, occlusion zeroes it). */
 data class OverlayLayers(
     val changed: Set<String> = emptySet(),
@@ -97,7 +119,7 @@ enum class TrackerTask {
 
 data class TrackingUiState(
     val fen: String,
-    val stateText: String,
+    val state: TrackerLabel,
     val tone: StateTone,
     val fpsText: String,
     /** The second, smaller line under [fpsText]; null when one line says everything. */
@@ -125,15 +147,6 @@ internal const val STATE_MOVING = "moving"
 internal const val STATE_OCCLUDED = "occluded"
 internal const val STATE_MOVE = "move"
 
-/**
- * The one-word state while the latch is up. "ILLEGAL MOVE?" read as a question about the player's
- * move; what it actually reports is that the app has stopped believing its own board, which is why
- * every commit is blocked until the card below is answered.
- */
-private const val ALARM_STATE_TEXT = "POSITION LOST"
-
-private const val STOPPED_STATE_TEXT = "STOPPED"
-
 private const val STOPPED_FPS_TEXT = "camera off"
 
 /** The camera is bound and nothing is arriving — a dead feed, which is NOT a discarded one. */
@@ -148,9 +161,6 @@ private const val NO_DETECTION_TEXT = "no detection"
 private const val FPS_SAME = 1.0
 
 private const val STOPPED_INFO = "No frames are arriving — the camera is released. Resume to continue; the game is kept."
-
-/** No service at all — a legitimate state, and the one the app now opens in. */
-private const val OFF_STATE_TEXT = "NOT TRACKING"
 
 private const val OFF_INFO = "No camera is running. Start tracking to detect moves — Games and Review need none."
 
@@ -180,8 +190,8 @@ fun trackingUiState(
         }
     return TrackingUiState(
         fen = status.fen,
-        stateText = stateText(feed, alarm, status.state),
-        tone = tone(feed, alarm, status.state),
+        state = label(feed, alarm, status),
+        tone = tone(feed, alarm, status),
         fpsText = if (feed == Feed.LIVE) fpsText(status) else STOPPED_FPS_TEXT,
         fpsDetail = if (feed == Feed.LIVE) fpsDetail(status) else null,
         infoLine =
@@ -225,39 +235,40 @@ private fun task(
     }
 
 /**
- * While alarmed the engine blocks every commit, so showing "moving" would imply the game is
- * progressing when it provably is not: the state line is pinned to the alarm instead.
+ * The ranking, and it is the same one [task] uses. While alarmed the engine blocks every commit, so
+ * reporting "moving" would imply the game is progressing when it provably is not.
+ *
+ * [TrackerLabel.NO_DETECTION] is the rung that used to exist only inside `fpsDetail`: frames
+ * arrive, the board is fitted, and nothing ticks. Without it a screen that has dropped the frame
+ * rate would report a confident LIVE over a stopped engine.
+ *
+ * An unknown engine state maps to [TrackerLabel.LIVE] rather than to the raw string uppercased —
+ * the fallback path may not print an engine identifier at a user.
  */
-private fun stateText(
+private fun label(
     feed: Feed,
     alarm: AlarmUi?,
-    state: String,
-): String =
+    status: TrackerStatus,
+): TrackerLabel =
     when {
-        feed == Feed.OFF -> OFF_STATE_TEXT
-        feed == Feed.PAUSED -> STOPPED_STATE_TEXT
-        alarm != null -> ALARM_STATE_TEXT
-        else -> stateLabel(state)
+        feed == Feed.OFF -> TrackerLabel.NOT_TRACKING
+        feed == Feed.PAUSED -> TrackerLabel.CAMERA_OFF
+        alarm != null -> TrackerLabel.POSITION_LOST
+        status.state == STATE_OCCLUDED -> TrackerLabel.HAND_OVER_BOARD
+        status.corners != null && status.fps <= 0.0 -> TrackerLabel.NO_DETECTION
+        else -> TrackerLabel.LIVE
     }
 
 private fun tone(
     feed: Feed,
     alarm: AlarmUi?,
-    state: String,
+    status: TrackerStatus,
 ): StateTone =
     when {
         feed != Feed.LIVE -> StateTone.Idle
         alarm != null -> StateTone.Alarm
-        else -> stateTone(state)
-    }
-
-private fun stateLabel(state: String): String =
-    when (state) {
-        STATE_WAITING -> "WAITING"
-        STATE_MOVING -> "MOVING"
-        STATE_OCCLUDED -> "HAND OVER BOARD"
-        STATE_MOVE -> "MOVE"
-        else -> state.uppercase(Locale.ROOT)
+        status.corners != null && status.fps <= 0.0 -> StateTone.Busy
+        else -> stateTone(status.state)
     }
 
 private fun stateTone(state: String): StateTone =
