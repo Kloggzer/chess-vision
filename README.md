@@ -86,6 +86,10 @@ because the two things that cost the most debugging time — which config value 
 the DataStore, and which model was really loaded — were both invisible from the source.
 Format and a parsing snippet: [`docs/diagnostics.md`](docs/diagnostics.md).
 
+Measured Android costs and the repeatable on-device benchmark are documented in
+[`docs/android-performance.md`](docs/android-performance.md). It distinguishes shared phone wins
+from the desktop-only video decoder, cache and multi-worker paths.
+
 **Training recordings preserve the whole run.** Enable **Settings → Recording → Record
 training video** before starting the tracker. The app encodes the same QHD analyzer frames used by
 the tracker as H.264 and rejects any delivered size below 2560×1440 instead of silently recording
@@ -97,6 +101,41 @@ Recording is off by default and the configured storage cap stops both video and 
 capture without deleting older sessions. Camera stream combinations are device-dependent, so
 QHD acceptance must be checked once on the physical phone; a rejected mode is shown as the
 recording reason while analysis-only tracking continues.
+
+On Windows, turn an exported recording and its saved game directly into separate clean and
+occlusion training packs with the same Kotlin tracker the phone runs:
+
+```powershell
+cd android
+.\gradlew.bat :desktop:run --args="training-video-pack <video.mp4> <game.json> <outDir>"
+```
+
+Repeated tracker/debug or packing passes can reuse a compact visual-observation cache:
+
+```powershell
+.\gradlew.bat :desktop:run --args="replay <video.mp4> quiet visualcache=../../tmp/visual-cache/game.cvo"
+```
+
+The first invocation builds the cache; later invocations consume it. The cache is bound to the
+video path, size, modification time and model, and a missing requested frame is an error rather
+than a fallback to neighbouring pixels. All decoded frames still pass through the detection and
+engine stages in order; only the already-computed full-resolution crop/grid/CNN observation is
+reused. On the 196 s QHD recording this reduced a warm full-rate replay from 199.3 s to 94.5 s
+(2.08x realtime) with the identical 42 commit/reject rows, 2,575 observations and zero drops.
+Building the cache still costs one ordinary pass, so this currently accelerates repeated analysis,
+not the first and only pass over a new video.
+
+The video pixels and tracker states decide which frames are usable; `timeline.jsonl` is not an
+input. Quiet `waiting` plateaus whose FEN belongs to the saved game become ordinary piece labels.
+Motion, alarms, unknown positions and take-backs are excluded. Grid-groove hand detections are
+written separately as concrete `occluded` square crops. `audit.jsonl` records every sampled frame
+and its outcome, so discarded intervals remain reviewable.
+
+By default every decoded source frame reaches the tracker. `fps=N` is an explicit experiment mode
+that deliberately strides the tracker input while preserving the video clock; it must not be used
+when full phone-equivalent frame coverage is required. On the 196 s QHD recording, full coverage
+means all 5,150 frames at the stream's measured 26.25 fps (the encoder advertises 30 fps, but the
+recorded stream contains fewer actual frames).
 
 **Models.** Seven CNNs are bundled under `android/app/src/main/assets/cnn_model/`, switchable
 in Settings (restart required). A fresh install runs `id35-80`: the hard-negative-finetuned

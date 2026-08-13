@@ -59,21 +59,23 @@ fun desktopCnnAssets(
 fun openDesktopCnn(
     model: String,
     log: TrackerLog,
+    cache: Boolean = true,
+    intraOpThreads: Int = DESKTOP_INTRA_OP_THREADS,
 ): (() -> Attached)? =
     runCatching { desktopCnnAssets(model) }
         .onFailure { println("no CNN: ${it.message}") }
         .getOrNull()
-        // ONE intra-op thread, always, on this host: parallel float reductions are not bit-exact
-        // and a wobbling logit flips thresholded decisions — the desktop exists to make runs that
-        // REPEAT. 47 ms against 19 per observation, a fraction of the replay cadence. The cache
+        // The shared four-thread budget is bit-exact for this graph: all 2,575 probability rows
+        // matched the former single-thread run on the full reference video, while a fully cold
+        // replay dropped from 101.0 to 87.1 seconds. The cache
         // in front remembers what this model said about pixels it has seen (keyed by the crops
         // themselves, per model) — deterministic replays cut identical crops, so every re-run of
         // a known video answers from disk instead of the graph.
         ?.let { assets ->
             {
-                val attached = openClassifier(assets, AppSettings(), CnnRuntimeProbe(), log, intraOpThreads = 1)
+                val attached = openClassifier(assets, AppSettings(), CnnRuntimeProbe(), log, intraOpThreads)
                 Attached(
-                    CachingClassifier(attached.classifier, File(OBS_CACHE, model)),
+                    if (cache) CachingClassifier(attached.classifier, File(OBS_CACHE, model)) else attached.classifier,
                     attached.backend,
                     attached.model,
                 )
@@ -88,6 +90,8 @@ private const val STAGING = "../../tmp/cnn-staging"
 
 /** What the model said about crops it has seen, per model. Under tmp/, which is not the corpus. */
 private const val OBS_CACHE = "../../tmp/obs-cache"
+
+private const val DESKTOP_INTRA_OP_THREADS = 4
 
 /**
  * What the chosen model declares its crops must be, or null when it cannot be read.

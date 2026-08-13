@@ -10,6 +10,7 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $uiScript = Join-Path $PSScriptRoot "android-ui.ps1"
+$adb = (Get-Command adb.exe -ErrorAction Stop).Source
 if (-not $ArtifactDir) {
     if (-not $Serial) { throw "-Serial is required so parallel smoke tests stay isolated." }
     $ArtifactDir = Join-Path $repoRoot "tmp\android-emulator\$Serial"
@@ -45,6 +46,23 @@ function Wait-ForTextPattern([string]$Pattern, [int]$TimeoutSeconds = 45) {
     throw "Timed out waiting for UI text matching '$Pattern'. Last visible text: $($visible -join ' | ')"
 }
 
+# The player-facing tracking header no longer exposes an FPS counter. Prove that frames reach the
+# analyzer from its once-per-second performance line instead: an open camera alone is not a feed.
+function Wait-ForCameraFeed([int]$TimeoutSeconds = 60) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        $lines = @(& $adb -s $Serial logcat -d -t 200 -s chesslabPerf:D '*:S' 2>$null)
+        $rate =
+            $lines |
+                Where-Object { $_ -match 'fps=([1-9][0-9]*(?:\.[0-9]+)?)' } |
+                ForEach-Object { $Matches[1] } |
+                Select-Object -Last 1
+        if ($rate) { return $rate }
+        Start-Sleep -Milliseconds 750
+    } while ((Get-Date) -lt $deadline)
+    throw "Timed out waiting for camera frames to reach the analyzer."
+}
+
 & $uiScript stop -Serial $Serial -ArtifactDir $ArtifactDir | Out-Null
 & $uiScript launch -Serial $Serial -ArtifactDir $ArtifactDir | Out-Host
 # specs/47: the app opens on Home, not on the tracker. There is no tab row and no bottom bar —
@@ -65,10 +83,11 @@ if ($described -notcontains "Settings") { throw "Home destination 'Settings' is 
 if (-not $LaunchOnly) {
     & $uiScript tap-text -Serial $Serial -Text "Start a game" -ArtifactDir $ArtifactDir | Out-Host
     Wait-ForText "Start tracking" 30
+    & $adb -s $Serial logcat -c
     & $uiScript tap-text -Serial $Serial -Text "Start tracking" -ArtifactDir $ArtifactDir | Out-Host
     Wait-ForText "Stop tracking" 45
-    $cameraRate = Wait-ForTextPattern '^camera [0-9]+(?:\.[0-9]+)? fps$' 60
-    Write-Host "Camera feed confirmed: $cameraRate"
+    $cameraRate = Wait-ForCameraFeed 60
+    Write-Host "Camera feed confirmed: $cameraRate fps"
 }
 
 & $uiScript screenshot -Serial $Serial -Output $screenPath -ArtifactDir $ArtifactDir | Out-Host

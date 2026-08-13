@@ -1,6 +1,7 @@
 package com.chesslab.geometry
 
 import org.opencv.core.Mat
+import java.util.stream.IntStream
 
 // The coverage gate (GridLines.kt) counts WHOLE lines, so a hand in a corner cannot reach it:
 // erasing a third of three lines leaves every line above its 50 % hit fraction and coverage near
@@ -32,10 +33,11 @@ fun gridOccludedSquares(
     warped: Mat,
     geom: BoardGeometry,
     pad: Int,
+    parallel: Boolean = false,
 ): Long {
     val p = ProfileParams(geom.boardSize, SEARCH_FRAC, outer = true)
     val readOuter = pad >= p.outerSpan
-    val found = gridSegments(BoardGray(warped), geom.boardSize, pad, p, readOuter)
+    val found = gridSegments(BoardGray(warped), geom.boardSize, pad, p, readOuter, parallel)
     var out = 0L
     for (col in 0 until BOARD_SIDE) {
         for (row in 0 until BOARD_SIDE) {
@@ -61,6 +63,7 @@ private fun gridSegments(
     pad: Int,
     p: ProfileParams,
     readOuter: Boolean,
+    parallel: Boolean,
 ): Array<Array<BooleanArray>> {
     val bh = boardSize.toDouble() / BOARD_SIDE
     val found =
@@ -71,12 +74,13 @@ private fun gridSegments(
         }
     // One flat loop over axis x band, not two nested ones — the slot arithmetic is the whole
     // difference and it keeps the groove-marking loop inside detekt's depth budget.
-    for (slot in 0 until 2 * BOARD_SIDE) {
+    val slots = IntStream.range(0, 2 * BOARD_SIDE).let { if (parallel) it.parallel() else it }
+    slots.forEach { slot ->
         val axis = slot / BOARD_SIDE
         val b = slot % BOARD_SIDE
         val s0 = pyRound(pad + b * bh)
         val s1 = pyRound(pad + (b + 1) * bh)
-        if (s1 <= s0) continue
+        if (s1 <= s0) return@forEach
         val prof = if (axis == 0) g.columnMedians(s0, s1) else g.rowMedians(s0, s1)
         val pos = profileLines(prof, p.cell, p.span, p.csp, pad.toDouble(), if (readOuter) p.outerSpan else 0)
         for (k in 0 until LINES_PER_AXIS) {

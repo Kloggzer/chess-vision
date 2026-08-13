@@ -520,6 +520,9 @@ internal data class PromoPending(
     val cur: GrayImage,
     val curBgr: BgrImage?,
     val fen: String,
+    var cnnPiece: Char? = null,
+    var cnnVotes: Int = 0,
+    var lastCnnSeq: Long = -1L,
 )
 
 /** `_record_decision` — the per-move provenance row. */

@@ -82,7 +82,12 @@ fun ChesslabNavHost(navController: NavHostController = rememberNavController()) 
         }
         composable(ROUTE_TRACKING) { entry ->
             val nav = remember(entry) { Nav(navController, entry) }
-            TrackingRoute(onBack = nav::back, onCamera = { nav.to(ROUTE_CAMERA) })
+            TrackingRoute(
+                onBack = nav::back,
+                onCamera = { nav.to(ROUTE_CAMERA) },
+                onGameSaved = { nav.replace("$ROUTE_REVIEW/$it") },
+                onGameDiscarded = { nav.replace(ROUTE_HOME) },
+            )
         }
         // The camera screen is the tracker's viewfinder, in board mode when it is recalibrating. It
         // cannot function without the tracker — unbound it is one sentence on an empty screen — so
@@ -157,6 +162,15 @@ private class Nav(
 
     fun back() {
         if (current) controller.popBackStack()
+    }
+
+    /** Leave a completed flow without keeping its now-invalid screen in the back stack. */
+    fun replace(route: String) {
+        if (!current) return
+        controller.navigate(route) {
+            popUpTo(entry.destination.id) { inclusive = true }
+            launchSingleTop = true
+        }
     }
 }
 

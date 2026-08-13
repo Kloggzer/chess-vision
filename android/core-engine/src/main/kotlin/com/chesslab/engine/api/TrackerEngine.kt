@@ -73,8 +73,6 @@ private const val ALARM_ACCEPTED = "illegal_move_accepted"
 
 private const val ALARM_UNDONE = "illegal_move_undone"
 
-private val PROMO_PIECES = setOf('q', 'r', 'b', 'n')
-
 private const val NOTE_NO_CNN_IDENTITY = "no CNN observation with piece identity — use Undo or a FEN resync"
 
 private const val NOTE_CNN_KINGS = "CNN position has missing/extra kings — use Undo or a FEN resync"
@@ -202,17 +200,19 @@ class TrackerEngine(
      * Observer results (`_cnn_worker`). Storing the snapshot is `_observe_snapshot`; the taint
      * filter reads it from there.
      *
-     * A pending candidate has **priority** over the periodic check — that is what makes the
-     * pre-commit ghost filter responsive. `VerifySingle` forks to the pair ladder internally.
+     * Pending work has **priority** over the periodic check. A promotion prompt consumes identity
+     * observations first; an ordinary candidate goes through the pre-commit ghost filter.
      */
     fun onCnnSnapshot(snap: CnnSnapshot): List<TrackerEvent> {
         state.cnnSnap = snap
         state.cnnSnapsSeen += 1
-        return if (state.pending != null) {
-            state.cnnSnapsToVerify += 1
-            VerifySingle.tick(state, cnn, snap)
-        } else {
-            state.cnnTick(cnn, snap)
+        return when {
+            state.promoPending != null -> confirmPromotionFromCnn(state, snap, ::choosePromotion)
+            state.pending != null -> {
+                state.cnnSnapsToVerify += 1
+                VerifySingle.tick(state, cnn, snap)
+            }
+            else -> state.cnnTick(cnn, snap)
         }
     }
 

@@ -115,58 +115,45 @@ class StatusUiModelTest {
         assertNull(trackingUiState(status()).infoLine)
     }
 
-    @Test
-    fun fpsIsRoundedToOneDecimal() {
-        assertEquals("12.4 fps", trackingUiState(status(fps = 12.44, cameraFps = 12.44)).fpsText)
-        assertEquals("12.5 fps", trackingUiState(status(fps = 12.45123, cameraFps = 12.45)).fpsText)
-    }
-
     /**
-     * The bug this pair exists for: an uncalibrated board discards every frame, so the engine rate
-     * is 0 while the camera runs at 30 — and a bare "0.0 fps" reads as a dead camera.
+     * The frame rate is GONE from the screen, and with it the largest number a player could do
+     * nothing about. Both rates and their 5-second medians remain on the debug Timings panel; what
+     * the header carries instead is the game.
      */
     @Test
-    fun aStalledDetectionOverALiveCameraSaysSoInsteadOfShowingZero() {
-        val uncalibrated = trackingUiState(status(fps = 0.0, cameraFps = 29.6, corners = null))
-        assertEquals("camera 30 fps", uncalibrated.fpsText)
-        assertEquals("not calibrated", uncalibrated.fpsDetail)
-        // Calibrated and still not ticking is a DIFFERENT problem (dark frame, degenerate warp).
-        val stalled = trackingUiState(status(fps = 0.0, cameraFps = 29.6))
-        assertEquals("camera 30 fps", stalled.fpsText)
-        assertEquals("no detection", stalled.fpsDetail)
+    fun theHeaderCarriesTheMoveAndNotTheFrameRate() {
+        val start = trackingUiState(status(fps = 12.0))
+        assertEquals(Turn.WHITE, start.turn)
+        assertEquals(1, start.moveNumber)
+
+        val afterE4C5Nf3 =
+            trackingUiState(
+                status(fps = 12.0).copy(fen = "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"),
+            )
+        assertEquals(Turn.BLACK, afterE4C5Nf3.turn)
+        assertEquals(2, afterE4C5Nf3.moveNumber)
     }
 
+    /** A FEN the app cannot read shows NEITHER half rather than a wrong one. */
     @Test
-    fun aDeadFeedIsNeverReportedAsARate() {
-        assertEquals("no frames", trackingUiState(status(fps = 0.0, cameraFps = 0.0)).fpsText)
-        assertNull(trackingUiState(status(fps = 0.0, cameraFps = 0.0)).fpsDetail)
-        // The camera being released outranks every engine number (see the class doc).
-        assertEquals("camera off", trackingUiState(status(fps = 14.8), cameraOn = false).fpsText)
-        assertNull(trackingUiState(status(fps = 14.8), cameraOn = false).fpsDetail)
-    }
-
-    @Test
-    fun theCameraRateIsShownOnlyWhenDetectionIsBehindIt() {
-        // Both rates equal: the second number would be the first one again.
-        assertNull(trackingUiState(status(fps = 29.4, cameraFps = 30.0)).fpsDetail)
-        val dropping = trackingUiState(status(fps = 15.0, cameraFps = 30.0))
-        assertEquals("15.0 fps", dropping.fpsText)
-        assertEquals("camera 30", dropping.fpsDetail)
+    fun anUnreadableFenYieldsNoMoveAtAll() {
+        val truncated = trackingUiState(status(fps = 12.0).copy(fen = "8/8/8/8/8/8/8/8"))
+        assertNull(truncated.turn)
+        assertNull(truncated.moveNumber)
     }
 
     /**
      * Not tracking is not the same as a paused camera, and neither may be reported as engine state.
      *
      * The app now opens with no service at all (specs/43), so the header's top rung is "there is no
-     * tracker" — a stale "WAITING · 14.8 fps" over nothing at all is the lie this outranks.
+     * tracker" — a stale running state over nothing at all is the lie this outranks.
      */
     @Test
     fun notTrackingOutranksThePausedCameraAndEveryEngineState() {
         val off = trackingUiState(status(state = STATE_MOVING, fps = 14.8), tracking = false)
         assertEquals(TrackerLabel.NOT_TRACKING, off.state)
         assertEquals(StateTone.Idle, off.tone)
-        assertEquals("camera off", off.fpsText)
-        assertNull(off.fpsDetail)
+        assertFalse(off.ready, "with no tracker there is no game line to show either")
         // A paused camera keeps its game and says so; no tracker has none to keep.
         val paused = trackingUiState(status(fps = 14.8), cameraOn = false)
         assertEquals(TrackerLabel.CAMERA_OFF, paused.state)

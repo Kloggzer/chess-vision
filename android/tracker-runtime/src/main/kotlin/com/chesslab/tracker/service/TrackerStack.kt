@@ -91,6 +91,18 @@ class TrackerSeed<T>(
      * is `observerIntervalS` — synchronous at 0 would mean inference on every frame.
      */
     val observerDispatcher: CoroutineDispatcher? = null,
+    /** Desktop-only acceleration: independent square crops retain encounter order. */
+    val parallelCrops: Boolean = false,
+    /** Offline two-pass source; absence keeps the phone and ordinary replay path unchanged. */
+    val cachedVisual: ((Long) -> CropFrameStore.CachedVisual)? = null,
+    /** Records emitted observations during the visual-cache build pass. */
+    val observationSink: ((CnnSnapshot) -> Unit)? = null,
+    /** Offline replay of the corners LiveAlign applied after a particular processed frame. */
+    val cachedAlignment: ((Long) -> FloatArray?)? = null,
+    /** Records successful LiveAlign corner updates during the visual-cache build pass. */
+    val alignmentSink: ((Long, FloatArray) -> Unit)? = null,
+    /** Offline cold path: raw marker detections precomputed independently per alignment frame. */
+    val cachedMarkerDetections: ((Long) -> Map<Int, DoubleArray>)? = null,
 )
 
 /**
@@ -115,7 +127,7 @@ class TrackerStack<T>(
     /** A child of the service scope, cancelled with the stack: no collector outlives its stack. */
     val scope = CoroutineScope(parent.coroutineContext + SupervisorJob())
 
-    private val cropStore = CropFrameStore()
+    private val cropStore = CropFrameStore(seed.cachedVisual)
     private val guard = FrameSizeGuard()
     private val pipeline =
         FramePipeline(
@@ -151,9 +163,10 @@ class TrackerStack<T>(
     }
 
     /** 07b's crop tap. Inert until the debug switch arms it; the service re-arms it after a restart. */
-    val cropTap = DebugCropTap(cropFrameSource(cropStore, seed.geometry))
+    val cropTap = DebugCropTap(cropFrameSource(cropStore, seed.parallelCrops, seed.geometry))
 
     private val observed = AtomicLong()
+    private val observationSink = seed.observationSink
 
     /** Successful glances of THIS stack — a restart legitimately restarts the count. */
     val observations: Long get() = observed.get()
@@ -180,6 +193,7 @@ class TrackerStack<T>(
      * `occl=0` lines had a clean look and wasted it; one without never had a chance.
      */
     private fun submitObserved(snap: CnnSnapshot) {
+        observationSink?.invoke(snap)
         observed.incrementAndGet()
         val occluded = allSquares().count { snap.obs.pOccluded(it) > LEDGER_OCCLUDED_THR }
         // `grid` beside `occl`, because `occl` is the MODEL's occluded head and that head is
@@ -240,6 +254,9 @@ class TrackerStack<T>(
                 { pipeline.corners = it },
                 seed.logs("chesslabTracker"),
                 dispatcher = seed.observerDispatcher ?: Dispatchers.Default,
+                cachedCorners = seed.cachedAlignment,
+                cornerSink = seed.alignmentSink,
+                cachedMarkers = seed.cachedMarkerDetections,
             ),
             timings,
             seed.nowMs,

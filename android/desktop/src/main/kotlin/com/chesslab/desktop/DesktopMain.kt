@@ -276,6 +276,7 @@ private fun usage(): Nothing {
         "  turntable-dataset <outDir> <testPack> <valPack> <trainPack>... [emptyRatio=N]  fixed roles",
         "  labeled-video-pack <video> <log> <corrections> <outDir> [every=N] [id=name]  labels -> 80px memmap",
         "  occlusion-video-pack <video> <log> <corrections> <outDir> [session=name] [id=name]  manual occlusions -> 80px memmap",
+        "  training-video-pack <video> <game.json> <outDir> [every=N] [stable=N] [fps=N] [model=name] [visualcache=file]  visual packs",
         "  labeled-session-pack <sessionDir> <outDir> [corrections=file] [id=name]  stored frames -> memmap",
         "  legacy-synth-dataset <root> <manifest> <outDir> [prefix=x]  parked crops -> 80px memmap",
         "  replay <video.mp4> [options]  drive a recorded clip through the shipping tracker",
@@ -296,6 +297,10 @@ private fun usage(): Nothing {
         "                        model=<name>  one of the bundled graphs",
         "                        fps=<n>  process every k-th frame (realtime emulation, counted",
         "                               as dropped(stride); the clock still ticks every frame)",
+        "                        visualcache=<file>  build once when absent, then replay cached",
+        "                               visual observations while still processing every frame",
+        "                        visualworkers=<n>  EXPERIMENT: regenerate cached visual rows",
+        "                               through a bounded cross-frame worker pipeline",
         "",
         "  The board view opens unless 'quiet' or 'dump': it shows the rectified warp the engine",
         "  reasons about with its per-square verdicts, and STOPS when the engine gets stuck",
@@ -304,12 +309,14 @@ private fun usage(): Nothing {
     exitProcess(2)
 }
 
-private fun replay(
+@Suppress("LongMethod", "CyclomaticComplexMethod")
+internal fun replay(
     source: FrameSource,
     name: String,
     options: ReplayOptions,
     camera: String? = null,
     video: File? = null,
+    training: ReplayTrainingSink? = null,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val console: TrackerLogs = { tag -> ConsoleLog(tag) }
@@ -346,6 +353,7 @@ private fun replay(
             optics?.close()
             return
         }
+        val replayStartFrame = (source as? VideoFileSource)?.framesRead ?: 0L
         // The MODEL owns the crop composition (specs/45), and the desktop was not asking it: crops
         // were cut at `BoardGeometry`'s 128x128 while `id35-80` takes 80x80, so every observation
         // threw inside `CnnObserver` and was swallowed as a warning while the run reported
@@ -358,12 +366,18 @@ private fun replay(
         println("crops: ${cropLine(spec, geometry)}")
         if (camera == null) println("observer: synchronous and free-running on video time — runs repeat")
         val publisher = StatusPublisher(scope)
-        val cnn = if (options.cnn) openDesktopCnn(options.model, console("chesslabCnn")) else null
+        val cnn =
+            if (options.cnn) {
+                openDesktopCnn(options.model, console("chesslabCnn"), cache = options.observationCache)
+            } else {
+                null
+            }
         if (!options.cnn) println("cnn: off — the engine uses its no-observation occlusion fallback")
         val frameClock = FrameClock(source.fps, live = camera != null)
         // The label's plies and the score's run come off the decision sink — streaming, one row
         // per move (a recovery bridge writes per-move rows), so collecting rows collects plies.
         val session = plan?.session(quad, geometry.boardSize, source.fps) { publisher.status.value }
+        training?.configure(geometry, quad, source.fps)
         // Held here rather than read back off the stack: `TrackerStack` takes the bus as a
         // constructor argument and does not expose it, and widening a shared seam for one host's
         // debugging window would be the wrong trade.
@@ -371,7 +385,15 @@ private fun replay(
         // and calibration tap to 200 ms — measured on the WALL by default, which made the frame
         // LiveAlign detects on depend on how fast this host decodes. Video time makes it the same
         // frame on every run (and live, FrameClock IS the wall clock).
-        val bus = CameraFrameBus(MutableStateFlow(CameraHealth.Up), scope, ::matToImage, nowMs = frameClock::now)
+        val needsPreview = camera != null || options.watch || options.dumpEvery > 0
+        val bus =
+            CameraFrameBus(
+                MutableStateFlow(CameraHealth.Up),
+                scope,
+                ::matToImage,
+                nowMs = frameClock::now,
+                publishPreviews = needsPreview,
+            )
         val view = openView(options, name)
         // NOT seeded with this run's config, deliberately. Seeding it (`settings.update(config)`)
         // was tried on 2026-08-08 and collapsed rec-20260808 from 67 plies to 26 with a phantom on
@@ -380,6 +402,72 @@ private fun replay(
         // repository at codec defaults; that state is now declared rather than accidental, and
         // the one knob where the two sources disagreed (observerIntervalS) is 0.0 in both.
         val settings = SettingsRepository(MemoryConfigStore, scope)
+        val stride = strideOf(options.fps, source.fps, live = camera != null)
+        val visualCache =
+            options.visualCache?.let { path ->
+                require(video != null && camera == null) { "visualcache= is only valid for a recorded video" }
+                VisualObservationCache.open(
+                    File(path.replace('~', ' ')),
+                    video,
+                    options.model,
+                    visualCacheSignature(config, settings.config.value, geometry, quad, source, stride, options.lens),
+                )
+            }
+        val alignConfig = settings.config.value
+        val parallelVisual =
+            if (options.visualWorkers > 0) {
+                require(video != null && camera == null && !options.lens) {
+                    "visualworkers= requires a recorded replay without lens correction"
+                }
+                require(options.cnn) { "visualworkers= requires the CNN" }
+                val sequences =
+                    requireNotNull(visualCache?.observationSequences) {
+                        "visualworkers= currently requires an existing visualcache= as its parity oracle"
+                    }
+                val alignment =
+                    requireNotNull(visualCache.alignmentLookup) {
+                        "visualworkers= requires a current visual cache with an alignment stream"
+                    }
+                val workerClassifier =
+                    requireNotNull(
+                        openDesktopCnn(
+                            options.model,
+                            console("chesslabParallelCnn"),
+                            cache = false,
+                            intraOpThreads = 1,
+                        ),
+                    ) { "visualworkers= could not open the CNN" }
+                ParallelVisualPrepass.build(
+                    requireNotNull(video),
+                    replayStartFrame,
+                    stride,
+                    geometry,
+                    quad,
+                    sequences,
+                    alignment,
+                    requireNotNull(visualCache.expectedObservation),
+                    options.visualWorkers,
+                    workerClassifier,
+                )
+            } else {
+                null
+            }
+        val canPrecomputeMarkers = video != null && !options.lens
+        val needsMarkerDetections = visualCache?.alignmentLookup == null && alignConfig.liveAlign && alignConfig.alignEvery > 0
+        val markerPrepass =
+            if (canPrecomputeMarkers && needsMarkerDetections) {
+                AlignmentMarkerPrepass.build(
+                    requireNotNull(video),
+                    replayStartFrame,
+                    stride,
+                    source.fps,
+                    alignConfig.alignEvery,
+                    alignConfig.alignScale,
+                    geometry.markerDict,
+                )
+            } else {
+                null
+            }
         val stack =
             buildStack(
                 config,
@@ -394,10 +482,21 @@ private fun replay(
                 settings,
                 session?.collector,
                 live = camera != null,
+                visualCache = visualCache,
+                markerPrepass = markerPrepass,
+                parallelVisual = parallelVisual,
             )
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
-        val stride = strideOf(options.fps, source.fps, live = camera != null)
-        val frames = drive(source, stack, bus, publisher, view, frameClock, options.dumpEvery, session?.frameHook, stride)
+        val frameHook: ((Int, Mat) -> Unit)? =
+            if (session == null && training == null) {
+                null
+            } else {
+                { index, frame ->
+                    session?.frameHook?.invoke(index, frame)
+                    training?.frame(index, frame, publisher.status.value, frameClock.now().toDouble())
+                }
+            }
+        val frames = drive(source, stack, bus, publisher, view, frameClock, options.dumpEvery, frameHook, stride)
         println("tracked $frames frames of $name at ${"%.2f".format(source.fps)} fps")
         // Where the CNN chain stopped. `observations` counts snapshots the observer EMITTED;
         // the engine's own `cnnSnaps` counts what arrived. Two numbers, one seam between them.
@@ -405,7 +504,9 @@ private fun replay(
         println(stack.dropLine())
         val totals = RunTotals(publisher.status.value?.note, stack.observations.toInt(), frames, stack.dropLine())
         session?.finish(video, options, config, geometry, totals)
+        training?.finish()
         stack.close()
+        visualCache?.close()
         view?.close()
     }
     scope.cancel()
@@ -442,6 +543,9 @@ private fun buildStack(
     settings: SettingsRepository,
     collector: DecisionCollector? = null,
     live: Boolean = false,
+    visualCache: VisualObservationCache? = null,
+    markerPrepass: AlignmentMarkerPrepass? = null,
+    parallelVisual: ParallelVisualPrepass? = null,
 ): TrackerStack<Mat> =
     TrackerStack(
         TrackerSeed<Mat>(
@@ -470,6 +574,12 @@ private fun buildStack(
             // decoded — the last wall-clock dependence, and the source of 54-vs-39-ply runs of
             // one unchanged file. Live keeps the phone's shape: a dedicated observer thread.
             observerDispatcher = if (live) null else Dispatchers.Unconfined,
+            parallelCrops = !live,
+            cachedVisual = parallelVisual?.lookup ?: visualCache?.lookup,
+            observationSink = visualCache?.sink,
+            cachedAlignment = visualCache?.alignmentLookup,
+            alignmentSink = visualCache?.alignmentSink,
+            cachedMarkerDetections = markerPrepass?.lookup,
         ),
         settings,
         publisher,
@@ -639,6 +749,7 @@ private val FILE_TOOLS: Map<String, (List<String>) -> Unit> =
         "turntable-dataset" to ::assembleTurntableDataset,
         "labeled-video-pack" to ::packLabeledVideo,
         "occlusion-video-pack" to ::packOcclusionVideo,
+        "training-video-pack" to ::packTrainingVideo,
         "labeled-session-pack" to ::packLabeledSession,
         "legacy-synth-dataset" to ::buildLegacySynthDataset,
     )

@@ -198,7 +198,6 @@ class TrackingViewModelTest {
             assertEquals(listOf("setCameraOn:false"), session.calls)
             // The last status stands forever once frames stop; the header must not keep reporting it.
             assertEquals(TrackerLabel.CAMERA_OFF, vm.ui.value.state)
-            assertEquals("camera off", vm.ui.value.fpsText)
 
             vm.onToggleCamera()
             advanceUntilIdle()

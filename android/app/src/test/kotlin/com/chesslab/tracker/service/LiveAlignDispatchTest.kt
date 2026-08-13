@@ -6,11 +6,13 @@ import com.chesslab.tracker.camera.CameraHealth
 import com.chesslab.tracker.camera.DeliveredSize
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.bytedeco.javacpp.Loader
 import org.bytedeco.opencv.opencv_java
+import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -21,6 +23,7 @@ import org.opencv.core.Mat
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -37,6 +40,51 @@ import java.util.concurrent.atomic.AtomicReference
  */
 @EnabledIf(OPENCV_GATE)
 class LiveAlignDispatchTest {
+    @Test
+    fun cachedAlignmentBypassesFrameSourceAndAppliesAtRecordedFrame() {
+        val applied = AtomicReference<FloatArray?>()
+        val align =
+            LiveAlign(
+                CoroutineScope(Dispatchers.Unconfined),
+                { BoardGeometry(boardSize = BOARD_SIZE) },
+                { CONFIG },
+                { applied.set(it) },
+                dispatcher = Dispatchers.Unconfined,
+                cachedCorners = { frame -> if (frame == 2L) CACHED_CORNERS else null },
+            )
+        val source =
+            object : CalibrationFrames<Unit> by OneBlankFrame {
+                override fun latestCalibrationSample(): CalibrationFrame = error("cached replay must not read pixels")
+            }
+
+        align.maybeAlign(source, DeliveredSize(FRAME_SIDE, FRAME_SIDE, 0))
+        assertEquals(null, applied.get())
+        align.maybeAlign(source, DeliveredSize(FRAME_SIDE, FRAME_SIDE, 0))
+        assertArrayEquals(CACHED_CORNERS, applied.get())
+    }
+
+    @Test
+    fun retainedCalibrationFrameIsAlignedOnlyOnce() {
+        val calls = AtomicInteger()
+        val source = VersionedBlankFrame(version = 7L)
+        val align =
+            LiveAlign(
+                CoroutineScope(Dispatchers.Unconfined),
+                {
+                    calls.incrementAndGet()
+                    BoardGeometry(boardSize = BOARD_SIZE)
+                },
+                { CONFIG },
+                {},
+                dispatcher = Dispatchers.Unconfined,
+            )
+
+        align.maybeAlign(source, DeliveredSize(FRAME_SIDE, FRAME_SIDE, 0))
+        align.maybeAlign(source, DeliveredSize(FRAME_SIDE, FRAME_SIDE, 0))
+
+        assertEquals(1, calls.get(), "the retained bus frame must not update the marker smoother twice")
+    }
+
     @Test
     fun alignRunsOffTheScopesOwnThread() {
         val ran = runAlignOn(dispatcher = null)
@@ -100,9 +148,20 @@ class LiveAlignDispatchTest {
         override val cameraHealth: StateFlow<CameraHealth> = MutableStateFlow(CameraHealth.Up)
     }
 
+    private class VersionedBlankFrame(
+        private val version: Long,
+    ) : CalibrationFrames<Unit> by OneBlankFrame {
+        override fun latestCalibrationSample(): CalibrationFrame =
+            CalibrationFrame(
+                version,
+                Mat(FRAME_SIDE, FRAME_SIDE, CvType.CV_8UC3),
+            )
+    }
+
     private companion object {
         /** Stands in for the phone's UI thread: what `lifecycleScope` gave `LiveAlign` for months. */
         const val SCOPE_THREAD = "pretend-main"
+        val CACHED_CORNERS = floatArrayOf(1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f)
 
         /** Belongs to neither the scope nor `Dispatchers.Default` — only the parameter reaches it. */
         const val NAMED_THREAD = "somewhere-else"

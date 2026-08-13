@@ -40,6 +40,7 @@ import kotlinx.coroutines.CoroutineScope
 fun rememberBoardModel(
     host: CalibrationHost,
     scope: CoroutineScope,
+    stopAfterSaved: Boolean = false,
 ): CalibrationViewModel {
     val context = LocalContext.current
     val model =
@@ -51,7 +52,7 @@ fun rememberBoardModel(
                 scope = scope,
             )
         }
-    LaunchedEffect(model) { model.autoDetect() }
+    LaunchedEffect(model, stopAfterSaved) { model.autoDetect(stopAfterSaved) }
     return model
 }
 

@@ -30,6 +30,7 @@ fun observationFromProbs(
     val pOccluded = LinkedHashMap<String, Double>(perSquareProbs.size)
     val label = LinkedHashMap<String, String>(perSquareProbs.size)
     val conf = LinkedHashMap<String, Double>(perSquareProbs.size)
+    val runnerUpConf = LinkedHashMap<String, Double>(perSquareProbs.size)
     for ((square, probs) in perSquareProbs) {
         val pe = probs[iEmpty]
         val po = if (iOccluded >= 0) probs[iOccluded] else 0.0
@@ -39,11 +40,19 @@ fun observationFromProbs(
         val top = argmaxFirst(probs)
         label[square] = classes[top]
         conf[square] = probs[top]
+        runnerUpConf[square] = probs.indices.filter { it != top }.maxOfOrNull { probs[it] } ?: 0.0
     }
     if (!classesHaveIdentity(classes)) {
         return OccupancyObservation(pOcc = pOcc, pEmpty = pEmpty, pOccluded = pOccluded)
     }
-    return OccupancyObservation(pOcc = pOcc, pEmpty = pEmpty, pOccluded = pOccluded, label = label, conf = conf)
+    return OccupancyObservation(
+        pOcc = pOcc,
+        pEmpty = pEmpty,
+        pOccluded = pOccluded,
+        label = label,
+        conf = conf,
+        runnerUpConf = runnerUpConf,
+    )
 }
 
 /**

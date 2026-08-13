@@ -29,6 +29,12 @@ class GridOcclusionTest {
     }
 
     @Test
+    fun `parallel bands are bit exact`() {
+        val image = erased()
+        assertEquals(gridOccludedSquares(image, geom, PAD), gridOccludedSquares(image, geom, PAD, parallel = true))
+    }
+
+    @Test
     fun `the flipped board names the mirror squares`() {
         val flipped = geom.copy(whitePov = false)
         assertEquals(bits("b6", "a6", "b7", "a7"), gridOccludedSquares(erased(), flipped, PAD))

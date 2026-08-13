@@ -15,6 +15,8 @@ data class OccupancyObservation(
     val label: Map<String, String>? = null,
     // top-class confidence per square
     val conf: Map<String, Double>? = null,
+    // second-best class probability; used to reject uncertain automatic promotion choices
+    val runnerUpConf: Map<String, Double>? = null,
 ) : CnnObservation {
     /** `cnn_recovery.py:43` — strict `>`. */
     override fun occupied(square: String): Boolean = pOcc.getValue(square) > pEmpty.getValue(square)
@@ -54,8 +56,10 @@ data class OccupancyObservation(
 
     override fun conf(square: String): Double = conf?.get(square) ?: 0.0
 
+    override fun runnerUpConf(square: String): Double = runnerUpConf?.get(square) ?: 1.0
+
     override fun pOccluded(square: String): Double = pOccluded.getValue(square)
 
     /** The `_cnn_tick` fallback: identity stripped, occupancy preserved. */
-    override fun occupancyOnly(): OccupancyObservation = copy(label = null, conf = null)
+    override fun occupancyOnly(): OccupancyObservation = copy(label = null, conf = null, runnerUpConf = null)
 }

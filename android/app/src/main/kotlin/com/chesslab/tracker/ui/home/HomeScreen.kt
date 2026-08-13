@@ -1,19 +1,19 @@
 package com.chesslab.tracker.ui.home
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -26,13 +26,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.chesslab.tracker.R
 import com.chesslab.tracker.analysis.ReviewStore
 import com.chesslab.tracker.games.GameResult
 import com.chesslab.tracker.games.GameSessionState
@@ -40,51 +38,18 @@ import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.service.TrackerRun
 import com.chesslab.tracker.ui.Card
 import com.chesslab.tracker.ui.ChesslabScaffold
-import com.chesslab.tracker.ui.DisclosureRow
 import com.chesslab.tracker.ui.EmptyState
 import com.chesslab.tracker.ui.FilledAction
 import com.chesslab.tracker.ui.OutlineAction
-import com.chesslab.tracker.ui.SectionHeading
+import com.chesslab.tracker.ui.Rule
 import com.chesslab.tracker.ui.games.GameSessionHost
 import com.chesslab.tracker.ui.games.gamesDir
 import com.chesslab.tracker.ui.percent
-import com.chesslab.tracker.ui.review.resultHeadline
-import com.chesslab.tracker.ui.theme.Background
-import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
-import com.chesslab.tracker.ui.theme.PieceWhite
 import com.chesslab.tracker.ui.theme.Space
+import com.chesslab.tracker.ui.theme.Surface
 import kotlinx.coroutines.flow.MutableStateFlow
-
-/** The mark in the app bar: reads at a glance, and does not compete with the title. */
-private val LOGO_SIZE = 28.dp
-
-/** The watermark's height. Big enough to read as ground, small enough to stay inside the panel. */
-private val WATERMARK_HEIGHT = 260.dp
-
-/**
- * And its width, which must be given: `Icon` fills an unspecified dimension from the drawable's
- * INTRINSIC size, not from the aspect of the one you did specify — so height-only produced a
- * 36 dp-wide box that the piece was then fitted into at 54 dp tall. 36 / 54.5 * 260.
- */
-private val WATERMARK_WIDTH = 172.dp
-
-/**
- * On the ink ground the cream has 236/255 of headroom, so a tenth of it is already a clear
- * shape: measured 24/255 from the ground on the emulator at 1440x3200.
- */
-private const val WATERMARK_ALPHA_INK = 0.10f
-
-/**
- * On paper it is the opposite problem. `PieceWhite` is only **18/255** from
- * `PaperPalette.background` in total, so the piece can never be loud there whatever this says —
- * even 1.0 would be a whisper. 0.85 spends most of that ceiling and lands near the ink side.
- */
-private const val WATERMARK_ALPHA_PAPER = 0.85f
-
-/** Below this the ground is ink, above it paper. Half is the only non-arbitrary place to cut. */
-private const val DARK_GROUND = 0.5f
 
 /** The screen renders before the service is bound; an unbound live game is simply an empty one. */
 private val NO_LIVE_GAME = MutableStateFlow(GameSessionState())
@@ -125,135 +90,91 @@ fun HomeRoute(
     ChesslabScaffold(
         "chesslab",
         onBack = null,
-        // No `contentDescription`: the word "chesslab" is right beside it, and a screen reader
-        // announcing "chesslab logo, chesslab" is noise. Tinted `OnSurface` — an identity is not
-        // an accent (specs/48 rule 2).
-        titleIcon = {
-            Icon(
-                painter = painterResource(R.drawable.ic_logo),
-                contentDescription = null,
-                tint = OnSurface,
-                modifier = Modifier.size(LOGO_SIZE),
-            )
-        },
-        // Settings is a destination people go to on purpose and rarely, which is exactly what the
-        // bar's action slot is for. As a row at the bottom of Home it took a full-width seat below
-        // the games — the thing the screen is actually about — for the least frequent act on it.
+        titleStyle = MaterialTheme.typography.titleLarge.copy(fontSize = 22.sp),
         actions = {
             IconButton(onClick = onOpenSettings) {
                 Icon(Icons.Filled.Settings, contentDescription = "Settings")
             }
         },
+        // Settings is a destination people go to on purpose and rarely, which is exactly what the
+        // bar's action slot is for. As a row at the bottom of Home it took a full-width seat below
+        // the games — the thing the screen is actually about — for the least frequent act on it.
     ) { bars ->
-        Box(Modifier.fillMaxSize().padding(bars)) {
-            Watermark()
-            LazyColumn(
-                Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(Space.sm),
-            ) {
-                item(key = "primary") {
-                    if (running) {
-                        ResumeCard(live, onResume = onStartGame, onEnd = { controller?.endAndSave() })
-                    } else {
-                        StartCard(fresh = ui.games == 0, onStart = onStartGame)
-                    }
-                }
-                if (ui.loaded && ui.games == 0) {
-                    item(key = "empty") { NoGamesYet() }
-                } else {
-                    recentGames(ui, onOpenGame, onOpenGames)
-                }
+        Column(
+            Modifier.fillMaxSize().padding(bars).padding(horizontal = HOME_EXTRA_SIDE_INSET),
+        ) {
+            if (running) {
+                ResumeCard(live, onResume = onStartGame, onEnd = { controller?.endAndSave() })
+            } else {
+                StartCard(onStartGame)
+            }
+            if (ui.loaded && ui.games == 0) {
+                Spacer(Modifier.height(Space.sm))
+                NoGamesYet()
+            } else {
+                RecentHeading()
+                ui.recent.forEach { row -> RecentGameCard(row) { onOpenGame(row.id) } }
+                Spacer(Modifier.weight(1f))
+                AllGamesRow(ui.games, onOpenGames)
             }
         }
     }
 }
 
-/**
- * The pawn alone, centred in the content area and almost invisible.
- *
- * **The piece, not the mark:** the viewfinder brackets are a frame, and a frame drawn behind
- * framed content (cards, rules) fights it. `ic_pawn` is the same geometry with the brackets
- * dropped and the viewport cropped to the piece, so the height requested here is the height that
- * appears.
- *
- * Decoration is allowed exactly here: Home is where the app is entered and the one screen whose
- * job is identity rather than a task. It never appears on the board — a brand mark over a
- * position is what specs/48 spent a pack removing.
- *
- * The alpha is the whole design: anything that can be *identified* at a glance competes with the
- * cards on top of it. It sits BEHIND the list and does not scroll — a watermark that moves is a
- * graphic.
- *
- * It takes [PieceWhite] — the app's beige, `#FCF8F0`, and the ONE colour that is identical in
- * both palettes, because a white piece is white under either scheme. It is also the honest
- * semantic: this is a white pawn. `Accent` was tried and dropped — specs/48 rule 2 reserves it
- * for state, and a brand green behind the cards spent that meaning on decoration. The mark in
- * the app bar stays `OnSurface`, because THAT one is meant to be read.
- *
- * **The alpha is per scheme, and it has to be.** The same cream is 236/255 bright on an ink
- * ground and 18/255 from the paper one, so one number cannot serve both: at 0.10 it measured
- * 24/255 on ink and 3/255 on paper. The scheme is read off the ground itself rather than from
- * `isSystemInDarkTheme()`, because what matters here is the colour actually behind the piece,
- * which is `Background` — the same source the palette is chosen from.
- */
 @Composable
-private fun BoxScope.Watermark() {
-    val onInk = Background.luminance() < DARK_GROUND
-    Icon(
-        painter = painterResource(R.drawable.ic_pawn),
-        contentDescription = null,
-        tint = PieceWhite.copy(alpha = if (onInk) WATERMARK_ALPHA_INK else WATERMARK_ALPHA_PAPER),
-        modifier = Modifier.align(Alignment.Center).size(WATERMARK_WIDTH, WATERMARK_HEIGHT),
-    )
-}
-
-private fun LazyListScope.recentGames(
-    ui: HomeUi,
-    onOpenGame: (String) -> Unit,
-    onOpenGames: () -> Unit,
-) {
-    item(key = "recent-heading") { SectionHeading("Recent games") }
-    items(ui.recent, key = { it.id }) { row -> RecentGameCard(row) { onOpenGame(row.id) } }
-    // Home KEEPS the chevron and takes no icon, deliberately (specs/51). Android's Settings could
-    // drop the arrow because a leading pictogram and a summary stating the current VALUE carry the
-    // affordance between them; this row has neither — it is a launcher door, not a setting — so the
-    // chevron is the only thing on it that says it goes somewhere.
-    item(key = "all-games") {
-        DisclosureRow("All games", "${ui.games} stored · statistics, rename, delete and share", onOpen = onOpenGames)
-    }
-}
-
-@Composable
-private fun StartCard(
-    fresh: Boolean,
-    onStart: () -> Unit,
-) {
-    Card(accented = true) {
+private fun StartCard(onStart: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().background(Surface, RoundedCornerShape(NEW_GAME_RADIUS)).padding(NEW_GAME_PADDING),
+        verticalArrangement = Arrangement.spacedBy(NEW_GAME_GAP),
+    ) {
         Text(
-            if (fresh) "Welcome" else "Welcome back",
-            style = MaterialTheme.typography.titleLarge,
+            "New game",
+            style = MaterialTheme.typography.titleLarge.copy(fontSize = 23.sp),
             color = OnSurface,
         )
-        if (fresh) {
-            Text(
-                "chesslab watches a real board through the camera and writes the game down.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = OnSurfaceMuted,
-            )
-        }
+        Text(
+            "Point the phone at your board and I'll write down every move.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = OnSurfaceMuted,
+        )
+        Spacer(Modifier.height(NEW_GAME_TEXT_SPACER))
         // The ONE control on this screen that needs the camera, and the screen's one filled button.
         // It opens the tracker; the camera and its permission belong to the tracker's own switch.
         //
         // The label does NOT change with the library's state — the greeting above it carries that.
         // A control whose wording moves is a control no agent and no smoke test can tap by text.
-        FilledAction("Start a game", onStart, Modifier.fillMaxWidth())
-        Text(
-            "The camera starts when you do.",
-            style = MaterialTheme.typography.labelSmall,
-            color = OnSurfaceMuted,
-        )
+        FilledAction("Start a game", onStart, Modifier.fillMaxWidth().height(NEW_GAME_BUTTON_HEIGHT))
     }
 }
+
+private val NEW_GAME_RADIUS = 22.dp
+
+private val NEW_GAME_PADDING = 24.dp
+
+private val NEW_GAME_GAP = 10.dp
+
+private val NEW_GAME_TEXT_SPACER = 6.dp
+
+private val NEW_GAME_BUTTON_HEIGHT = 52.dp
+
+private val HOME_EXTRA_SIDE_INSET = 8.dp
+
+@Composable
+private fun RecentHeading() {
+    Text(
+        text = "RECENT",
+        style =
+            MaterialTheme.typography.labelMedium.copy(
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.08.sp,
+            ),
+        color = OnSurfaceMuted,
+        modifier = Modifier.padding(start = Space.xs, top = Space.xl, bottom = RECENT_BOTTOM_GAP),
+    )
+}
+
+private val RECENT_BOTTOM_GAP = 2.dp
 
 @Composable
 private fun ResumeCard(
@@ -286,25 +207,66 @@ private fun RecentGameCard(
     row: HomeGame,
     onOpen: () -> Unit,
 ) {
-    Card {
-        Column(Modifier.fillMaxWidth().clickable(onClick = onOpen), verticalArrangement = Arrangement.spacedBy(Space.hair)) {
-            Text(
-                "${row.date} · ${stringResource(resultHeadline(GameResult.of(row.result)))}",
-                style = MaterialTheme.typography.titleMedium,
-                color = OnSurface,
-            )
-            Text(
-                "${row.moveCount} moves · ${accuracyLine(row)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = OnSurfaceMuted,
-            )
-            // A game the app lost and rebuilt is not the same evidence as one it tracked cleanly.
-            if (row.seams > 0) {
-                Text("rebuilt ${row.seams}×", style = MaterialTheme.typography.bodySmall, color = Danger)
+    Column {
+        Row(
+            Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(horizontal = Space.xs, vertical = RECENT_ROW_PADDING),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(Space.hair)) {
+                Text(
+                    "${sideLabel(row.white, "White")} vs. ${sideLabel(row.black, "Black")}",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                    color = OnSurface,
+                )
+                Text(row.date, style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp), color = OnSurfaceMuted)
+            }
+            Text(resultMark(GameResult.of(row.result)), style = MaterialTheme.typography.bodyMedium, color = OnSurface)
+        }
+        Rule()
+    }
+}
+
+private val RECENT_ROW_PADDING = 13.dp
+
+@Composable
+private fun AllGamesRow(
+    games: Int,
+    onOpen: () -> Unit,
+) {
+    Column {
+        Rule()
+        Row(
+            Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(horizontal = Space.xs, vertical = Space.lg),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("All games", style = MaterialTheme.typography.bodyMedium, color = OnSurface)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(Space.sm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("$games", style = MaterialTheme.typography.bodySmall.copy(fontSize = 14.sp), color = OnSurfaceMuted)
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = OnSurfaceMuted,
+                    modifier = Modifier.size(ALL_GAMES_CHEVRON_SIZE),
+                )
             }
         }
     }
 }
+
+private val ALL_GAMES_CHEVRON_SIZE = 20.dp
+
+private fun resultMark(result: GameResult): String =
+    when (result) {
+        GameResult.WHITE -> "1–0"
+        GameResult.BLACK -> "0–1"
+        GameResult.DRAW -> "½–½"
+        GameResult.UNFINISHED -> "—"
+    }
 
 /** Named by whoever was captured for the game, never by "you" — the app does not know which side. */
 internal fun accuracyLine(row: HomeGame): String {

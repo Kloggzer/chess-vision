@@ -51,6 +51,7 @@ class CameraFrameBus<B>(
     private val toPreview: (Mat) -> B?,
     private val log: TrackerLog = NoopTrackerLog,
     private val nowMs: () -> Long = System::currentTimeMillis,
+    private val publishPreviews: Boolean = true,
 ) : CalibrationFrames<B>,
     AutoCloseable {
     private val gate = InFlightGate()
@@ -60,6 +61,7 @@ class CameraFrameBus<B>(
     private val rotation = MutableStateFlow(0)
     private val lock = Any()
     private var latest: Mat? = null
+    private var latestVersion = 0L
     private var lastMs = 0L
     private var lastBoardMs = 0L
 
@@ -106,8 +108,9 @@ class CameraFrameBus<B>(
         synchronized(lock) {
             latest?.release()
             latest = frame
+            latestVersion += 1
         }
-        publishPreview()
+        if (publishPreviews) publishPreview()
     }
 
     /**
@@ -118,6 +121,7 @@ class CameraFrameBus<B>(
      * tap only ever wants the raw frame.
      */
     fun offerBoard(warp: Mat) {
+        if (!publishPreviews) return
         val now = nowMs()
         if (now - lastBoardMs < PUBLISH_INTERVAL_MS) return
         lastBoardMs = now
@@ -133,6 +137,12 @@ class CameraFrameBus<B>(
 
     /** A CLONE — the caller releases it. Null until the first frame arrives. */
     override fun latestCalibrationFrame(): Mat? = synchronized(lock) { latest?.clone() }
+
+    /** Frame and version captured under one lock, so LiveAlign cannot pair mismatched values. */
+    override fun latestCalibrationSample(): CalibrationFrame? =
+        synchronized(lock) {
+            latest?.let { CalibrationFrame(latestVersion, it.clone()) }
+        }
 
     override fun close() {
         synchronized(lock) {
@@ -161,6 +171,12 @@ class CameraFrameBus<B>(
 interface CalibrationFrames<B> {
     fun latestCalibrationFrame(): Mat?
 
+    /**
+     * A versioned clone for consumers that must not process the retained latest image twice.
+     * Implementations without a version remain unversioned and are never de-duplicated.
+     */
+    fun latestCalibrationSample(): CalibrationFrame? = latestCalibrationFrame()?.let { CalibrationFrame(null, it) }
+
     val rawPreview: StateFlow<B?>
 
     /**
@@ -184,3 +200,9 @@ interface CalibrationFrames<B> {
 
     val cameraHealth: StateFlow<CameraHealth>
 }
+
+/** The caller owns [frame] and releases it. */
+class CalibrationFrame(
+    val version: Long?,
+    val frame: Mat,
+)

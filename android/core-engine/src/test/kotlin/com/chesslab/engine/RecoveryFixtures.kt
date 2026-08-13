@@ -24,6 +24,7 @@ internal class RecoveryObs(
     private val labels: Map<String, String>,
     private val identity: Boolean = true,
     private val confidence: Double = 0.99,
+    private val runnerUpConfidence: Double = 0.0,
     /** Squares whose `occluded` class dominates — a hand, as the observer itself reports it. */
     private val occluded: Set<String> = emptySet(),
 ) : CnnObservation {
@@ -43,9 +44,11 @@ internal class RecoveryObs(
 
     override fun conf(square: String): Double = confidence
 
+    override fun runnerUpConf(square: String): Double = runnerUpConfidence
+
     override fun pOccluded(square: String): Double = if (square in occluded) 1.0 else 0.0
 
-    override fun occupancyOnly(): CnnObservation = RecoveryObs(labels, identity = false, confidence, occluded)
+    override fun occupancyOnly(): CnnObservation = RecoveryObs(labels, identity = false, confidence, runnerUpConfidence, occluded)
 
     private fun labelOf(square: String): String = labels[square] ?: LABEL_EMPTY
 }

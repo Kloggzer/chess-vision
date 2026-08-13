@@ -1,5 +1,6 @@
 package com.chesslab.geometry
 
+import org.opencv.core.Core
 import org.opencv.core.Mat
 import org.opencv.imgproc.Imgproc
 import kotlin.math.max
@@ -19,6 +20,7 @@ internal class BoardGray(
     val width: Int
     val height: Int
     private val data: ByteArray
+    private val transposed: ByteArray
 
     init {
         val gray = Mat()
@@ -28,6 +30,18 @@ internal class BoardGray(
             height = gray.rows()
             data = ByteArray(width * height)
             gray.get(0, 0, data)
+            // Vertical bands used to walk `data` with a full-row stride. They dominate the grid
+            // sensor despite reading no more pixels than the horizontal bands. A single native
+            // transpose makes every later column scan contiguous; the values and therefore every
+            // exact median remain unchanged.
+            val t = Mat()
+            try {
+                Core.transpose(gray, t)
+                transposed = ByteArray(width * height)
+                t.get(0, 0, transposed)
+            } finally {
+                t.release()
+            }
         } finally {
             gray.release()
         }
@@ -48,10 +62,11 @@ internal class BoardGray(
         val hi = min(height, y1)
         val out = DoubleArray(width)
         if (hi <= lo) return out
-        val buf = DoubleArray(hi - lo)
+        val median = ByteMedian()
         for (x in 0 until width) {
-            for (y in lo until hi) buf[y - lo] = (data[y * width + x].toInt() and BYTE_MASK).toDouble()
-            out[x] = medianOf(buf)
+            val column = x * height
+            for (y in lo until hi) median.add(transposed[column + y])
+            out[x] = median.take(hi - lo)
         }
         return out
     }
@@ -65,13 +80,61 @@ internal class BoardGray(
         val hi = min(width, x1)
         val out = DoubleArray(height)
         if (hi <= lo) return out
-        val buf = DoubleArray(hi - lo)
+        val median = ByteMedian()
         for (y in 0 until height) {
             val row = y * width
-            for (x in lo until hi) buf[x - lo] = (data[row + x].toInt() and BYTE_MASK).toDouble()
-            out[y] = medianOf(buf)
+            for (x in lo until hi) median.add(data[row + x])
+            out[y] = median.take(hi - lo)
         }
         return out
+    }
+}
+
+/** One band-local accumulator makes [BoardGray] safe for independent parallel band reads. */
+private class ByteMedian {
+    private val histogram = IntArray(BYTE_VALUES)
+    private val coarse = IntArray(COARSE_BINS)
+    private val touched = IntArray(BYTE_VALUES)
+    private var touchedCount = 0
+
+    fun add(byte: Byte) {
+        val value = byte.toInt() and BYTE_MASK
+        if (histogram[value] == 0) {
+            touched[touchedCount] = value
+            touchedCount += 1
+        }
+        histogram[value] += 1
+        coarse[value ushr COARSE_SHIFT] += 1
+    }
+
+    /** Exact equivalent of sorting and reading the middle one/two values, then resets the bins used. */
+    fun take(count: Int): Double {
+        val lowerRank = (count - 1) / 2
+        val upperRank = count / 2
+        val lower = valueAt(lowerRank)
+        val upper = if (lowerRank == upperRank) lower else valueAt(upperRank)
+        for (i in 0 until touchedCount) histogram[touched[i]] = 0
+        coarse.fill(0)
+        touchedCount = 0
+        return (lower + upper) / 2.0
+    }
+
+    /** Locate one exact rank through 16 coarse bins, then at most 16 byte values. */
+    private fun valueAt(rank: Int): Int {
+        var before = 0
+        var bin = 0
+        while (bin < coarse.size && before + coarse[bin] <= rank) {
+            before += coarse[bin]
+            bin += 1
+        }
+        var value = bin shl COARSE_SHIFT
+        val end = value + COARSE_WIDTH
+        while (value < end) {
+            before += histogram[value]
+            if (before > rank) return value
+            value += 1
+        }
+        error("median rank $rank is outside the accumulated histogram")
     }
 }
 
@@ -81,3 +144,8 @@ internal fun medianOf(values: DoubleArray): Double {
     val mid = sorted.size / 2
     return if (sorted.size % 2 == 1) sorted[mid] else (sorted[mid - 1] + sorted[mid]) / 2.0
 }
+
+private const val BYTE_VALUES = 256
+private const val COARSE_SHIFT = 4
+private const val COARSE_WIDTH = 1 shl COARSE_SHIFT
+private const val COARSE_BINS = BYTE_VALUES / COARSE_WIDTH

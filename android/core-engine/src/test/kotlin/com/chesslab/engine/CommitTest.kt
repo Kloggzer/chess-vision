@@ -307,6 +307,63 @@ class CommitTest {
     }
 
     @Test
+    fun cnnConfirmsUnderpromotionAfterTwoDecisiveIdentityReads() {
+        val engine = TrackerEngine(detectConfig(), "8/P6k/8/8/8/8/7K/8 w - - 0 1")
+        val state = engine.state
+        engine.attachCnn(RecoveryEvaluator())
+        state.refGray = grayFrame(listOf("a7"))
+        state.refFen = state.board.fen()
+        state.tryDetect(grayFrame(listOf("a8")), null, seq = 1)
+        assertNotNull(state.promoPending)
+        val knight = RecoveryObs(Squares.ALL.associateWith { if (it == "a8") "wN" else LABEL_EMPTY })
+
+        val first = recoverySnap(state, knight, seq = 2)
+        assertEquals(emptyList<TrackerEvent>(), engine.onCnnSnapshot(first))
+        assertEquals(emptyList<TrackerEvent>(), engine.onCnnSnapshot(first), "one snapshot cannot vote twice")
+        assertNotNull(state.promoPending)
+        val events = engine.onCnnSnapshot(recoverySnap(state, knight, seq = 3))
+
+        assertEquals(1, events.filterIsInstance<TrackerEvent.MoveCommitted>().size)
+        assertTrue(state.history.single().startsWith("a8=N"), "history was ${state.history}")
+        assertNull(state.promoPending)
+    }
+
+    @Test
+    fun cnnLeavesPromotionPromptOpenForWrongColour() {
+        val engine = TrackerEngine(detectConfig(), "8/P6k/8/8/8/8/7K/8 w - - 0 1")
+        val state = engine.state
+        engine.attachCnn(RecoveryEvaluator())
+        state.refGray = grayFrame(listOf("a7"))
+        state.refFen = state.board.fen()
+        state.tryDetect(grayFrame(listOf("a8")), null, seq = 1)
+        val blackRook = RecoveryObs(Squares.ALL.associateWith { if (it == "a8") "bR" else LABEL_EMPTY })
+
+        engine.onCnnSnapshot(recoverySnap(state, blackRook, seq = 2))
+        engine.onCnnSnapshot(recoverySnap(state, blackRook, seq = 3))
+
+        assertNotNull(state.promoPending)
+        assertEquals(emptyList<String>(), state.history)
+    }
+
+    @Test
+    fun cnnLeavesPromotionPromptOpenWithoutClearClassMargin() {
+        val engine = TrackerEngine(detectConfig(), "8/P6k/8/8/8/8/7K/8 w - - 0 1")
+        val state = engine.state
+        engine.attachCnn(RecoveryEvaluator())
+        state.refGray = grayFrame(listOf("a7"))
+        state.refFen = state.board.fen()
+        state.tryDetect(grayFrame(listOf("a8")), null, seq = 1)
+        val labels = Squares.ALL.associateWith { if (it == "a8") "wR" else LABEL_EMPTY }
+        val uncertainRook = RecoveryObs(labels, confidence = 0.95, runnerUpConfidence = 0.80)
+
+        engine.onCnnSnapshot(recoverySnap(state, uncertainRook, seq = 2))
+        engine.onCnnSnapshot(recoverySnap(state, uncertainRook, seq = 3))
+
+        assertNotNull(state.promoPending)
+        assertEquals(emptyList<String>(), state.history)
+    }
+
+    @Test
     fun statusIsAPureFunctionOfState() {
         val engine = TrackerEngine(detectConfig())
         val state = engine.state

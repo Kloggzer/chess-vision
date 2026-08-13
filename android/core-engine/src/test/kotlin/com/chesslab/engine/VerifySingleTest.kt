@@ -50,12 +50,6 @@ class VerifySingleTest {
     }
 
     /**
-     * `test_confirm_acts_on_one_glance_contradiction_still_needs_two`. One observation is a full
-     * observer round trip (~0.21 s on the SM8650); the CONFIRM rung concurs with a candidate the
-     * diff already carried through `confirmFrames`, the ambiguity margin and `commitLlFloor`, so it
-     * acts on the first. Contradicting rungs still need `verifyObsVotes`.
-     */
-    /**
      * The 003957 ply-39 incident (2026-08-09): a resting hand over the destination read
      * "confidently occupied" — `pOccluded` is identically 0.0 under a 13-class model — and the
      * confirm rung committed a fabricated `g4` through it. The grid-groove read of the observed
@@ -101,6 +95,12 @@ class VerifySingleTest {
         assertEquals(listOf("e4"), scattered.history, "two non-adjacent flags must not hold the commit")
     }
 
+    /**
+     * `test_confirm_acts_on_one_glance_contradiction_still_needs_two`. One observation is a full
+     * observer round trip (~0.21 s on the SM8650); the CONFIRM rung concurs with a candidate the
+     * diff already carried through `confirmFrames`, the ambiguity margin and `commitLlFloor`, so it
+     * acts on the first. Contradicting rungs still need `verifyObsVotes`.
+     */
     @Test
     fun confirmActsOnOneGlanceContradictionStillNeedsTwo() {
         val state = pendingState()

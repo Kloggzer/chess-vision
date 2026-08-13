@@ -207,6 +207,26 @@ class DecisionLogTest {
     }
 
     /**
+     * A diff verification window and a whole-board recovery vote are independent evidence.
+     *
+     * The live Nf6 incident repeatedly spent eight observations rejecting a noisy diff candidate.
+     * Each rejection used to erase the clean recovery vote gathered between those windows, so the
+     * correct two-vote CNN recovery could never finish until the motion gate aged out after 20 s.
+     */
+    @Test
+    fun rejectingADiffCandidateKeepsTheIndependentRecoveryVote() {
+        val state = pairState(ucis = listOf("e2e4"), verifyWindow = 1)
+        assertFalse(state.recoveryConfirmer.feed("g8f6"))
+        assertEquals(1, state.recoveryConfirmer.count)
+
+        VerifySingle.tick(state, PairRecovery(), snapshotOf(state, FakeObs(emptyMap(), emptySet())))
+
+        assertNull(state.pending)
+        assertEquals("g8f6", state.recoveryConfirmer.key)
+        assertEquals(1, state.recoveryConfirmer.count)
+    }
+
+    /**
      * An observation about an OLDER frame is an observer that answered, not one that died.
      *
      * `expireStalledVerify`'s own KDoc calls itself "a watchdog for an observer that STOPPED, not

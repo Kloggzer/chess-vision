@@ -9,6 +9,8 @@ import org.opencv.videoio.VideoCapture
 import org.opencv.videoio.Videoio
 import java.io.File
 import java.nio.ByteBuffer
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Where a desktop run gets its pictures.
@@ -36,6 +38,8 @@ interface FrameSource : AutoCloseable {
 /** A recorded clip, decoded with FFmpeg. Streamed: a 1080p video does not fit in memory twice. */
 class VideoFileSource(
     video: File,
+    /** Zero-based decoded frame index; false skips the costly FFmpeg-plane -> OpenCV copy. */
+    private val select: (Long) -> Boolean = { true },
 ) : FrameSource {
     private val grabber =
         FFmpegFrameGrabber(video).apply {
@@ -44,24 +48,100 @@ class VideoFileSource(
             pixelFormat = avutil.AV_PIX_FMT_BGR24
             start()
         }
-    private var mat: Mat? = null
-
     override val fps: Double = grabber.frameRate
 
     override val delivered: DeliveredSize = DeliveredSize(grabber.imageWidth, grabber.imageHeight, 0)
+
+    /**
+     * One decoder-owned transfer plane, reused for the whole stream.
+     *
+     * The old row loop allocated an 11 MB byte array per QHD frame and crossed JNI once per row.
+     * Across this benchmark that was roughly 57 GB of short-lived heap and 7.4 million `Mat.put`
+     * calls. Packing the padded FFmpeg plane here and publishing it with one `put` preserves the
+     * exact BGR bytes while removing both sources of churn.
+     */
+    private val packed = ByteArray(delivered.width * delivered.height * BGR_CHANNELS)
+
+    private val free = ArrayBlockingQueue<Mat>(VIDEO_PREFETCH_DEPTH + 2)
+    private val ready = ArrayBlockingQueue<DecodedVideoFrame>(VIDEO_PREFETCH_DEPTH)
+    private val closed = AtomicBoolean(false)
+    private var current: Mat? = null
+
+    @Volatile
+    private var decoderHeld: Mat? = null
+    private val decoder =
+        Thread(::decode, "chesslab-video-decode").apply {
+            isDaemon = true
+            repeat(VIDEO_PREFETCH_DEPTH + 2) {
+                free.add(Mat(delivered.height, delivered.width, CvType.CV_8UC3))
+            }
+            start()
+        }
 
     /**
      * Presentation timestamp of the frame the last [next] returned, in ms of VIDEO time.
      * The geometry scan's clock check reads this per frame — a variable-rate source makes every
      * wall-clock knob mean a different number of seconds in every second of the video.
      */
-    val timestampMs: Double get() = grabber.timestamp / MICROS_PER_MS
+    @Volatile
+    private var currentTimestampMs = 0.0
+
+    var framesRead: Long = 0
+        private set
+
+    var currentDecodedIndex: Long = -1
+        private set
+
+    val timestampMs: Double get() = currentTimestampMs
 
     override fun next(): Mat? {
-        val frame = generateSequence { grabber.grabImage() }.firstOrNull() ?: return null
-        val out = mat ?: Mat(frame.imageHeight, frame.imageWidth, CvType.CV_8UC3).also { mat = it }
-        copyInto(frame.image[0] as ByteBuffer, frame.imageStride, out)
-        return out
+        current?.let { free.put(it) }
+        current = null
+        return when (val decoded = ready.take()) {
+            is DecodedVideoFrame.Image -> {
+                currentTimestampMs = decoded.timestampMs
+                currentDecodedIndex = decoded.decodedIndex
+                framesRead += 1
+                current = decoded.mat
+                decoded.mat
+            }
+            DecodedVideoFrame.End -> null
+            is DecodedVideoFrame.Failed -> throw IllegalStateException("video decode failed", decoded.cause)
+        }
+    }
+
+    private fun decode() {
+        try {
+            val failure = runCatching { decodeFrames() }.exceptionOrNull()
+            if (failure is InterruptedException) {
+                Thread.currentThread().interrupt()
+            } else if (failure != null) {
+                // Never lose a decoder error behind a full prefetch queue. The consumer first
+                // drains the already decoded frames, then receives the failure in sequence.
+                ready.put(DecodedVideoFrame.Failed(failure))
+            }
+        } finally {
+            grabber.stop()
+            grabber.release()
+        }
+    }
+
+    private fun decodeFrames() {
+        var decodedIndex = 0L
+        while (!closed.get()) {
+            val frame = generateSequence { grabber.grabImage() }.firstOrNull()
+            if (frame == null) {
+                ready.put(DecodedVideoFrame.End)
+                return
+            }
+            val index = decodedIndex
+            decodedIndex += 1
+            if (!select(index)) continue
+            val out = free.take().also { decoderHeld = it }
+            copyInto(frame.image[0] as ByteBuffer, frame.imageStride, out)
+            ready.put(DecodedVideoFrame.Image(out, grabber.timestamp / MICROS_PER_MS, index))
+            decoderHeld = null
+        }
     }
 
     /**
@@ -76,24 +156,49 @@ class VideoFileSource(
         stride: Int,
         out: Mat,
     ) {
-        val row = ByteArray(out.cols() * BGR_CHANNELS)
+        val rowBytes = out.cols() * BGR_CHANNELS
         for (y in 0 until out.rows()) {
             buffer.position(y * stride)
-            buffer.get(row, 0, row.size)
-            out.put(y, 0, row)
+            buffer.get(packed, y * rowBytes, rowBytes)
         }
+        out.put(0, 0, packed)
     }
 
     override fun close() {
-        mat?.release()
-        grabber.stop()
-        grabber.release()
+        if (!closed.compareAndSet(false, true)) return
+        decoder.interrupt()
+        decoder.join()
+        decoderHeld?.release()
+        decoderHeld = null
+        current?.release()
+        current = null
+        ready.forEach { if (it is DecodedVideoFrame.Image) it.mat.release() }
+        ready.clear()
+        free.forEach(Mat::release)
+        free.clear()
     }
+}
+
+private sealed interface DecodedVideoFrame {
+    data class Image(
+        val mat: Mat,
+        val timestampMs: Double,
+        val decodedIndex: Long,
+    ) : DecodedVideoFrame
+
+    data object End : DecodedVideoFrame
+
+    data class Failed(
+        val cause: Throwable,
+    ) : DecodedVideoFrame
 }
 
 private const val BGR_CHANNELS = 3
 
 private const val MICROS_PER_MS = 1000.0
+
+/** Decoder plus three frames ahead; bounded to keep QHD memory predictable. */
+private const val VIDEO_PREFETCH_DEPTH = 3
 
 /**
  * A camera attached to this PC, through OpenCV's `videoio`.

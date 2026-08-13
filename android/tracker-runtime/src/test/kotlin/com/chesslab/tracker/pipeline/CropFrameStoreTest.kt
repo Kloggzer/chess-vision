@@ -18,7 +18,7 @@ class CropFrameStoreTest {
         assertEquals(1L, store.overwritten)
         val taken = requireNotNull(store.take())
         assertEquals(2L, taken.seq, "newest wins — the displaced one is the OLDER warp")
-        taken.cropWarp.release()
+        requireNotNull(taken.cropWarp).release()
         assertEquals(1L, store.overwritten, "a take is a hand-off, never a drop")
         store.close()
     }

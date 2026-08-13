@@ -22,7 +22,7 @@ private const val NEAR_NOTE_LIMIT = 3
  *
  * [move] `null` means the FRAME IS HANDLED (promotion pending, or an ambiguous note was set) and
  * `generateHypothesis` returns `null`. Otherwise [move] is the resolved candidate — either the
- * unchanged `obsMove`, the queen promotion variant (with CNN), or the prior's rerank winner.
+ * unchanged `obsMove` or the prior's rerank winner.
  */
 internal class Resolution(
     val move: Move?,
@@ -35,9 +35,9 @@ internal class Resolution(
  * The margin is in LL units and therefore light-independent. Three mutually exclusive branches:
  *
  * 1. **Promotion** — all near candidates are promo variants of the same from/to. The diff channel
- *    fundamentally cannot tell a queen from a knight, so without CNN the UI is asked
- *    ([EngineState.promoPending]) and with CNN the best variant (queen) is passed through for
- *    verify to correct via the target square's label. This branch NEVER runs the prior rerank.
+ *    fundamentally cannot tell a queen from a knight, so the UI is always asked
+ *    ([EngineState.promoPending]). Identity-capable CNN snapshots may answer that same prompt,
+ *    but never bypass it. This branch NEVER runs the prior rerank.
  * 2. **Prior rerank** (`usePrior`) — the near set is rescored with `movePrior` and accepted only
  *    when the reranked top beats #2 by the FULL margin. A single near candidate can never pass:
  *    the guard is `size > 1`, so the margin check cannot be skipped.
@@ -51,7 +51,7 @@ internal fun EngineState.resolveAmbiguity(
     if (moves.best - moves.second >= config.ambiguityMarginLl) return Resolution(moves.obsMove, priorUsed = false)
     val near = moves.viable.filter { moves.best - it.second < config.ambiguityMarginLl }
     return when {
-        isPromotionTie(near) -> resolvePromotion(near, cur, curBgr, moves.obsMove)
+        isPromotionTie(near) -> resolvePromotion(near, cur, curBgr)
         config.usePrior -> rerankWithPrior(near)
         else -> {
             confirmer.reset()
@@ -67,16 +67,14 @@ private fun isPromotionTie(near: List<Pair<Move, Double>>): Boolean =
         near.map { it.first.from to it.first.to }.toSet().size == 1
 
 /**
- * Without CNN the promotion waits for `choosePromotion`; with CNN the caller falls through with
- * the best variant (queen) and verify corrects it via the target square's label.
+ * Every promotion waits for `choosePromotion`. An identity-capable CNN may call the same public
+ * path after stable high-confidence observations; otherwise the Q/R/B/N dialog remains open.
  */
 private fun EngineState.resolvePromotion(
     near: List<Pair<Move, Double>>,
     cur: GrayImage,
     curBgr: BgrImage?,
-    obsMove: Move?,
 ): Resolution {
-    if (cnnOn) return Resolution(obsMove, priorUsed = false)
     val mv = near[0].first
     promoPending =
         PromoPending(

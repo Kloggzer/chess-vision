@@ -32,6 +32,21 @@
     <string name="tracking_state_camera_off">Camera off</string>
     <string name="tracking_state_off">Not tracking</string>
 
+    <!-- Tracking: the game line, opposite the state. `tracking_move_number` looks pointless in
+         English and is not — German writes "14." with the period, and the "·" between the two
+         halves is layout, not language. -->
+    <string name="tracking_turn_white">White to move</string>
+    <string name="tracking_turn_black">Black to move</string>
+    <string name="tracking_move_number">%1$d</string>
+
+    <!-- Tracking: the two camera controls in the app bar. The words are also their accessible
+         names, so they stay the same whichever way the toggle stands. -->
+    <string name="tracking_light">Camera light</string>
+    <string name="tracking_camera_view">Camera view</string>
+
+    <!-- Setting the board up: a framing aid, never a claim that the board was found. -->
+    <string name="tracking_aim">Fit the whole board inside the frame</string>
+
     <!-- Tracking: taking a move back. One press unwinds the last COMMIT, which a CNN recovery can
          make several plies long — hence a plural rather than a fixed word. -->
     <plurals name="tracking_take_back">
@@ -42,7 +57,7 @@
 
     <!-- Ending a game where it is played. It always saves; deleting lives on the Games screen,
          where you can see what you are deleting. -->
-    <string name="endgame_title">End game</string>
+    <string name="endgame_title">How did the game end?</string>
     <string name="endgame_new_title">Start a new game?</string>
     <string name="endgame_moves">%1$d moves recorded.</string>
     <string name="endgame_nothing">Nothing is recorded yet. This re-seeds the tracker from the starting position.</string>

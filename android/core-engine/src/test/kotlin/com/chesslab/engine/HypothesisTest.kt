@@ -232,8 +232,14 @@ class HypothesisTest {
         // The observation agrees the whole set changed: occupied squares read empty and vice versa.
         val flips =
             mapOf(
-                "e2" to LABEL_EMPTY, "e4" to "wP", "d1" to LABEL_EMPTY, "e1" to LABEL_EMPTY,
-                "b2" to LABEL_EMPTY, "d2" to LABEL_EMPTY, "f1" to LABEL_EMPTY, "c3" to "wN",
+                "e2" to LABEL_EMPTY,
+                "e4" to "wP",
+                "d1" to LABEL_EMPTY,
+                "e1" to LABEL_EMPTY,
+                "b2" to LABEL_EMPTY,
+                "d2" to LABEL_EMPTY,
+                "f1" to LABEL_EMPTY,
+                "c3" to "wN",
             )
         state.armDetection(changed = flips.keys)
         state.cnnSnap = recoverySnap(state, obsForBoard(state.board, flips), seq = 1)
@@ -258,8 +264,13 @@ class HypothesisTest {
         // 9 changed; only d1/e1 match the board in the observation -> 2 discounted, 7 still count.
         val flips =
             mapOf(
-                "e2" to LABEL_EMPTY, "e4" to "wP", "b2" to LABEL_EMPTY, "d2" to LABEL_EMPTY,
-                "f1" to LABEL_EMPTY, "c3" to "wN", "a6" to "bP",
+                "e2" to LABEL_EMPTY,
+                "e4" to "wP",
+                "b2" to LABEL_EMPTY,
+                "d2" to LABEL_EMPTY,
+                "f1" to LABEL_EMPTY,
+                "c3" to "wN",
+                "a6" to "bP",
             )
         state.armDetection(changed = flips.keys + setOf("d1", "e1"))
         state.cnnSnap = recoverySnap(state, obsForBoard(state.board, flips), seq = 1)
@@ -391,9 +402,9 @@ class HypothesisTest {
         assertEquals("a7a8q", state.confirmer.key, "the promotion branch does not touch the confirmer")
     }
 
-    /** With CNN the best variant is passed through and verify corrects it via the label. */
+    /** With CNN the prompt still opens; identity observations may answer it later. */
     @Test
-    fun promotionWithCnnPassesQueenVariant() {
+    fun promotionWithCnnStillYieldsPromoPending() {
         val state = cnnState(PROMOTION_FEN)
         val z = zOf("a7" to HOT, "a8" to HOT)
         state.armDetection(changed = setOf("a7", "a8"))
@@ -401,15 +412,10 @@ class HypothesisTest {
 
         val cand = state.generateHypothesis(z, moves, DUMMY_GRAY, null)
 
-        assertNotNull(cand)
-        assertEquals(1, cand!!.moves.size)
-        assertEquals(true, cand.vote)
-        // The four variants tie exactly, so WHICH one leads is legal-move-generation order and is
-        // not order-comparable against python-chess (STATUS D03c-4). from/to and "is a promotion"
-        // are the load-bearing part.
-        assertTrue(uciOf(cand.moves[0]).startsWith("a7a8"), uciOf(cand.moves[0]))
-        assertEquals(PROMOTION_UCI_LENGTH, uciOf(cand.moves[0]).length, "a promotion variant, not the bare push")
-        assertNull(state.promoPending)
+        assertNull(cand)
+        assertNotNull(state.promoPending)
+        assertEquals("a7", state.promoPending!!.from)
+        assertEquals("a8", state.promoPending!!.to)
     }
 
     /** No prior at all -> the plain ambiguity note. */

@@ -48,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.games.GameSessionState
@@ -116,6 +117,7 @@ fun ChesslabScaffold(
      * where the app is entered, not on every screen, and never on the board (specs/48).
      */
     titleIcon: (@Composable () -> Unit)? = null,
+    titleStyle: TextStyle? = null,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     Scaffold(
@@ -136,7 +138,7 @@ fun ChesslabScaffold(
                             }
                             Text(
                                 text = title,
-                                style = MaterialTheme.typography.titleLarge,
+                                style = titleStyle ?: MaterialTheme.typography.titleLarge,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )

@@ -3,6 +3,7 @@ package com.chesslab.tracker.cnn
 import com.chesslab.cnn.SquareClassifier
 import com.chesslab.cnn.observationFromProbs
 import com.chesslab.engine.api.BgrImage
+import com.chesslab.engine.api.CnnObservation
 import com.chesslab.engine.api.CnnSnapshot
 import com.chesslab.engine.api.GrayImage
 import com.chesslab.tracker.log.NoopTrackerLog
@@ -36,6 +37,8 @@ class CnnFrame(
     val gray: GrayImage?,
     /** Grid-groove hand map of the same frame, cut with the crops (`gridOccludedSquares`). */
     val gridOccluded: Long = 0L,
+    /** Offline replay may supply the byte-identical result of an earlier visual pass. */
+    val cachedObservation: CnnObservation? = null,
 )
 
 fun interface CnnFrameSource {
@@ -237,8 +240,7 @@ class CnnObserver(
                 return
             }
         val started = nowMs()
-        val probs = cnn.classify(frame.crops)
-        val obs = observationFromProbs(probs, cnn.classes)
+        val obs = frame.cachedObservation ?: observationFromProbs(cnn.classify(frame.crops), cnn.classes)
         val inferMs = (nowMs() - started).toDouble()
         logObservation(cnn, inferMs, frame.crops.size)
         emitted += 1

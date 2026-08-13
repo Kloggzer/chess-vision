@@ -75,6 +75,7 @@ class ObservationTest {
         val obs = observationFromProbs(mapOf("e4" to tied), classes)
         assertEquals("wN", obs.label("e4"))
         assertClose(0.5, obs.conf("e4"), "tie conf")
+        assertClose(0.5, obs.runnerUpConf("e4"), "tie runner-up")
     }
 
     @Test
@@ -90,6 +91,7 @@ class ObservationTest {
             )
         assertEquals(null, obs.label)
         assertEquals(null, obs.conf)
+        assertEquals(null, obs.runnerUpConf)
         assertEquals(null, obs.label("e4"))
         assertClose(0.9, obs.pOcc.getValue("e4"), "pOcc e4")
         assertClose(0.0, obs.pOccluded.getValue("e4"), "pOccluded e4")

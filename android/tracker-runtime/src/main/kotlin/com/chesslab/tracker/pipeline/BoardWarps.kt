@@ -1,6 +1,7 @@
 package com.chesslab.tracker.pipeline
 
 import com.chesslab.engine.api.BgrImage
+import com.chesslab.engine.api.CnnObservation
 import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
@@ -34,18 +35,26 @@ private const val BGR_CHANNELS = 3
  * [wantsFrame] is true only while the observer has asked AND has consumed the previous frame —
  * that is what keeps the expensive warp off the per-frame path.
  */
-class CropFrameStore {
+class CropFrameStore(
+    private val cachedVisual: ((Long) -> CachedVisual)? = null,
+) {
+    class CachedVisual(
+        val observation: CnnObservation,
+        val gridOccluded: Long,
+    )
+
     /**
      * The bordered warp plus the SAME frame's detection warps and signature. The observer needs
      * all of it: a recovery commit anchors on the frame the CNN actually looked at, and the
      * decision seq must be the one that frame carried (entry.md invariants 1, 5 and Spec 11).
      */
     class Pending(
-        val cropWarp: Mat,
+        val cropWarp: Mat?,
         val seq: Long,
         val tsMs: Long,
         val bgrDet: BgrImage,
         val grayDet: GrayImage,
+        val cached: CachedVisual? = null,
     )
 
     private var pending: Pending? = null
@@ -93,6 +102,9 @@ class CropFrameStore {
         pending = null
         wanted = false
     }
+
+    /** Strict replay cache: a configured cache must contain every requested observation seq. */
+    fun cached(seq: Long): CachedVisual? = cachedVisual?.invoke(seq)
 }
 
 /**
@@ -229,15 +241,16 @@ class OpenCvStages<T>(
         bgr: BgrImage,
         gray: GrayImage,
     ) {
-        val src = frame ?: return
-        val warp = warpBoardForCrops(src, geometry, cornersFromFlat(corners))
+        val cached = cropStore.cached(seq)
+        val warp = if (cached == null) frame?.let { warpBoardForCrops(it, geometry, cornersFromFlat(corners)) } else null
+        if (cached == null && warp == null) return
         // COPIES of the two seam planes, and this is the one place that must copy them. `Pending`
         // crosses to the OBSERVER thread, becomes `CnnSnapshot.gray`/`.warped`, and the engine can
         // hold that snapshot for seconds — or adopt it as `refGray`/`refBgr` on a recovery commit,
         // i.e. forever. That lifetime is unbounded, so it can never come out of the ring.
         // It costs one 2.5 MB copy on the frames the observer asked for, next to the full-resolution
         // bordered warp on the line above; on every other frame nothing is copied at all.
-        cropStore.update(CropFrameStore.Pending(warp, seq, tsMs, bgr.copyPlane(), gray.copyPlane()))
+        cropStore.update(CropFrameStore.Pending(warp, seq, tsMs, bgr.copyPlane(), gray.copyPlane(), cached))
     }
 
     override fun onConfigChanged(newConfig: TrackerConfig) {

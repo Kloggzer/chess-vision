@@ -88,6 +88,12 @@ data class ReplayOptions(
      * runs on `nowS`.
      */
     val fps: Double? = null,
+    /** Build this cache when absent; consume it strictly by frame sequence when present. */
+    val visualCache: String? = null,
+    /** Benchmark/investigation arm: force the real graph even when identical crop hashes exist. */
+    val observationCache: Boolean = true,
+    /** Experimental bounded cross-frame visual prepass; zero keeps the established path. */
+    val visualWorkers: Int = 0,
 ) {
     companion object {
         /** The plain flag words, each one field. Assignments (`x=`) live in [assigned]. */
@@ -102,6 +108,7 @@ data class ReplayOptions(
                 "score" to { it.copy(watch = false, score = true) },
                 "frames" to { it.copy(frames = true) },
                 "cleanonly" to { it.copy(cleanOnly = true) },
+                "noobscache" to { it.copy(observationCache = false) },
             )
 
         /** Every word after the verb and its subject. Unknown words are an error, not a shrug. */
@@ -112,7 +119,7 @@ data class ReplayOptions(
                     FLAGS[word]?.invoke(options) ?: assigned(options, word)
                         ?: error(
                             "unknown option '$word' (${FLAGS.keys.joinToString(" | ")} " +
-                                "| dump=<n> | name=<x> | model=<name> | fps=<n>)",
+                                "| dump=<n> | name=<x> | model=<name> | fps=<n> | visualcache=<file>)",
                         )
             }
             return options
@@ -138,6 +145,13 @@ data class ReplayOptions(
                                 ?: error("fps= wants a positive frame rate, got '$word'"),
                     )
                 word.startsWith("model=") -> options.copy(model = word.removePrefix("model="))
+                word.startsWith("visualcache=") -> options.copy(visualCache = word.removePrefix("visualcache="))
+                word.startsWith("visualworkers=") ->
+                    options.copy(
+                        visualWorkers =
+                            word.removePrefix("visualworkers=").toIntOrNull()?.takeIf { it in 1..MAX_VISUAL_WORKERS }
+                                ?: error("visualworkers= wants 1..$MAX_VISUAL_WORKERS workers, got '$word'"),
+                    )
                 word.startsWith("set:") -> options.copy(overrides = options.overrides + knobOverride(word))
                 else -> null
             }
@@ -157,6 +171,7 @@ data class ReplayOptions(
         }
     }
 
+    @Suppress("CyclomaticComplexMethod")
     override fun toString(): String =
         "watch=$watch dump=${if (dumpEvery > 0) dumpEvery else "off"} " +
             "lens=$lens cnn=${if (cnn) model else "off"} motionGate=$motionGate" +
@@ -165,6 +180,9 @@ data class ReplayOptions(
             (if (cleanOnly) " cleanonly" else "") +
             (name?.let { " name=$it" } ?: "") +
             (fps?.let { " fps=$it" } ?: "") +
+            (visualCache?.let { " visualcache=$it" } ?: "") +
+            (if (observationCache) "" else " noobscache") +
+            (if (visualWorkers > 0) " visualworkers=$visualWorkers" else "") +
             overrides.entries.joinToString("") { " set:${it.key}=${it.value}" }
 }
 
@@ -217,3 +235,4 @@ internal const val REPLAY_OBSERVER_INTERVAL_S = 0.0
  * wrong went wrong inside one interval. `dump=<n>` is for looking there.
  */
 private const val DUMP_EVERY = 150
+private const val MAX_VISUAL_WORKERS = 16

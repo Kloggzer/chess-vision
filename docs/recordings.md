@@ -50,6 +50,7 @@ otherwise decide is the same one the labels are meant to train.
 | `2026-08-07 13-52-38.mp4` | game | fixed | yes | = `rec-20260807-135238`, the 25-ply scored clip. |
 | `2026-08-08 00-39-57.mp4` | game | fixed | yes | = `rec-20260808-003957`. |
 | `2026-08-08 11-59-12.mp4` | game | fixed | yes | = `rec-20260808-115912`. |
+| `20260813-134818/video.mp4` | game | fixed | yes | QHD Android training recording, mapped by `2026-08-13_1351.json`. Contains deliberate/accidental move-forward-and-back regions. Full coverage is 5,150 actual stream frames at 26.25 fps: 117 clean boards (7,488 crops), 76 hand frames (837 `occluded` crops), and 19 excluded sampled `illegal_move` alarm frames. A `fps=9 every=6 stable=2` experiment reached ply 25 in 123.6 s and retained more samples, but deliberately tracked only every third frame and is therefore not the default. |
 | `VID_20260812_112853.mp4` | `rnbqkb1r/ppp1pppp/5n2/3p4/3PP3/2N5/PPP2PPP/R1BQKBNR` | turntable | no | Position from the preceding tracked game: `1. d4 d5 2. Nc3 Nf6 3. e4`. 1080p, 199 s. Kotlin `rectify` sampled 20/20 frames (every 300), none missed; mean worst square offset 1.75 px. Lens fit was rejected, so use the raw per-frame geometry path. |
 
 Unclassified, measured but not yet confirmed by a human: `2026-08-08 11-53-53`, `11-55-19`,

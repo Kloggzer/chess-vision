@@ -9,6 +9,7 @@ import com.chesslab.geometry.toBgrImage
 import com.chesslab.tracker.cnn.CnnFrame
 import com.chesslab.tracker.cnn.CnnFrameSource
 import com.chesslab.tracker.pipeline.CropFrameStore
+import java.util.concurrent.CompletableFuture
 
 /**
  * 05b's `CropFrameStore` as 05c's `CnnFrameSource`.
@@ -22,6 +23,7 @@ import com.chesslab.tracker.pipeline.CropFrameStore
  */
 fun cropFrameSource(
     store: CropFrameStore,
+    parallel: Boolean = false,
     geometry: () -> BoardGeometry,
 ): CnnFrameSource =
     CnnFrameSource {
@@ -30,18 +32,44 @@ fun cropFrameSource(
             store.request()
             null
         } else {
+            pending.cached?.let { cached ->
+                return@CnnFrameSource CnnFrame(
+                    emptyList(),
+                    pending.seq,
+                    pending.tsMs,
+                    pending.bgrDet,
+                    pending.grayDet,
+                    cached.gridOccluded,
+                    cached.observation,
+                )
+            }
             val geom = geometry()
-            val crops =
-                allSquares().map { square ->
-                    val crop = cropSquare(pending.cropWarp, square, geom)
-                    val image = toBgrImage(crop)
+            val cropWarp = requireNotNull(pending.cropWarp)
+            val squares = allSquares()
+            val cropOne = { square: String ->
+                val crop = cropSquare(cropWarp, square, geom)
+                try {
+                    toBgrImage(crop)
+                } finally {
                     crop.release()
-                    image
+                }
+            }
+            val visual =
+                if (parallel) {
+                    val grid =
+                        CompletableFuture.supplyAsync {
+                            gridOccludedSquares(cropWarp, geom, cropBorderPx(geom), parallel = true)
+                        }
+                    // Each task reads the immutable board warp and owns its output Mat. The
+                    // ordered stream collector keeps a1..h8 byte-for-byte aligned with the
+                    // phone even though independent squares are resized on separate PC cores.
+                    squares.parallelStream().map(cropOne).toList() to grid.join()
+                } else {
+                    squares.map(cropOne) to gridOccludedSquares(cropWarp, geom, cropBorderPx(geom))
                 }
             // The model-free hand read, on the SAME full-resolution warp the crops came from —
             // at detSize the grooves are 1-2 px and the read drowns in noise (GridOcclusion.kt).
-            val gridOccluded = gridOccludedSquares(pending.cropWarp, geom, cropBorderPx(geom))
-            pending.cropWarp.release()
-            CnnFrame(crops, pending.seq, pending.tsMs, pending.bgrDet, pending.grayDet, gridOccluded)
+            cropWarp.release()
+            CnnFrame(visual.first, pending.seq, pending.tsMs, pending.bgrDet, pending.grayDet, visual.second)
         }
     }

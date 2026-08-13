@@ -21,6 +21,9 @@ interface CnnObservation {
 
     fun conf(square: String): Double
 
+    /** Probability of the second-best identity class. Unknown implementations stay conservative. */
+    fun runnerUpConf(square: String): Double = 1.0
+
     fun pOccluded(square: String): Double
 
     // identity stripped (the _cnn_tick fallback)

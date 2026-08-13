@@ -54,6 +54,8 @@ class TrackerBinder(
     /** A CLONE; the caller releases it. 06a's only source of pixels — it binds no camera. */
     override fun latestCalibrationFrame(): Mat? = frames.latestCalibrationFrame()
 
+    override fun latestCalibrationSample(): CalibrationFrame? = frames.latestCalibrationSample()
+
     /**
      * Queued, applied on the engine thread before the next detection.
      *

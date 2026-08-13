@@ -114,15 +114,16 @@ internal class ClipPipeline(
      */
     fun crops(): List<BgrImage>? {
         val pending = cropStore.take() ?: return null
+        val cropWarp = requireNotNull(pending.cropWarp)
         val mark = System.nanoTime()
         val out =
             allSquares().map { square ->
-                val crop = cropSquare(pending.cropWarp, square, geometry)
+                val crop = cropSquare(cropWarp, square, geometry)
                 val image = toBgrImage(crop)
                 crop.release()
                 image
             }
-        pending.cropWarp.release()
+        cropWarp.release()
         timings.cropMs += elapsed(mark)
         return out
     }

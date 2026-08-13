@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -20,9 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.chesslab.tracker.service.TrackerRun
 import com.chesslab.tracker.ui.FilledAction
-import com.chesslab.tracker.ui.OutlineAction
 import com.chesslab.tracker.ui.theme.Danger
-import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
 
 /** Notifications are only needed for the foreground-service notification, and only from API 33. */
@@ -58,33 +57,30 @@ fun TrackingSwitch(
             denied = !granted
             if (granted) TrackerRun.start()
         }
+    val start = {
+        denied = false
+        if (hasCamera(context)) TrackerRun.start() else request.launch(REQUESTED_PERMISSIONS)
+    }
+
+    // Entering this route means the user already chose "Start a game" on Home. Requiring a second
+    // button press here made that first action a navigation button rather than the promised start.
+    // Android's permission dialog is the only unavoidable interaction on a fresh installation.
+    LaunchedEffect(Unit) {
+        if (!running) start()
+    }
+
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
-        val onClick = {
-            when {
-                running -> TrackerRun.stop(context)
-                hasCamera(context) -> TrackerRun.start()
-                else -> request.launch(REQUESTED_PERMISSIONS)
-            }
-        }
         // Starting is what this screen is for, so it is the screen's ONE filled button. Stopping is
         // not: while a game runs the screen is for the board, and the alarm card — when it exists —
         // is then the one thing the screen is for. It gets no confirmation either; the game is saved.
-        if (running) {
-            OutlineAction("Stop tracking", onClick, Modifier.fillMaxWidth())
-        } else {
-            FilledAction("Start tracking", onClick, Modifier.fillMaxWidth())
+        if (!running && denied) {
+            FilledAction("Allow camera & start", start, Modifier.fillMaxWidth())
         }
         if (denied) {
             Text(
                 "Camera access is required to detect the board. Grant it in the system settings.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Danger,
-            )
-        } else if (!running) {
-            Text(
-                "Starts the camera and the foreground service. Stop it here or from the notification.",
-                style = MaterialTheme.typography.bodySmall,
-                color = OnSurfaceMuted,
             )
         }
     }

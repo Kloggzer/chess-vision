@@ -61,16 +61,16 @@ val ChesslabTypography =
         titleLarge =
             TextStyle(
                 fontFamily = FontFamily.Default,
-                fontWeight = FontWeight.Bold,
-                fontSize = 22.sp,
-                lineHeight = 26.sp,
+                fontWeight = FontWeight.Medium,
+                fontSize = 20.sp,
+                lineHeight = 24.sp,
             ),
         bodyLarge =
             TextStyle(
                 fontFamily = FontFamily.Default,
                 fontWeight = FontWeight.Normal,
-                fontSize = 17.sp,
-                lineHeight = 22.sp,
+                fontSize = 16.sp,
+                lineHeight = 21.sp,
             ),
         bodyMedium =
             TextStyle(
@@ -82,8 +82,8 @@ val ChesslabTypography =
         labelLarge =
             TextStyle(
                 fontFamily = FontFamily.Default,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+                fontSize = 15.sp,
                 lineHeight = 20.sp,
             ),
         // The LABEL role: section headings, tab labels, chips, the banner. Tracked rather than
@@ -91,10 +91,10 @@ val ChesslabTypography =
         labelMedium =
             TextStyle(
                 fontFamily = FontFamily.Default,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp,
-                lineHeight = 18.sp,
-                letterSpacing = 1.sp,
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                letterSpacing = 1.08.sp,
             ),
         // Material's own labelSmall/bodySmall are 11sp and 12sp. Both are used across the settings,
         // debug and analysis screens, and both break the "nothing below 14sp" rule by default.
@@ -109,7 +109,7 @@ val ChesslabTypography =
             TextStyle(
                 fontFamily = FontFamily.Default,
                 fontWeight = FontWeight.Normal,
-                fontSize = 14.sp,
-                lineHeight = 18.sp,
+                fontSize = 13.sp,
+                lineHeight = 17.sp,
             ),
     )

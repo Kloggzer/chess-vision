@@ -309,7 +309,12 @@ private fun EngineState.reject(
     recordRejection(pending?.ucis?.firstOrNull() ?: "", "$verify — $reason")
     pending = null
     confirmer.reset()
-    recoveryConfirmer.reset()
+    // Verification and recovery answer different questions. This rejection only says that the
+    // diff candidate failed its local check; it says nothing about a clean whole-board recovery
+    // vote collected between verify windows. Resetting that independent vote here let the same
+    // bad diff candidate repeatedly consume all eight verify observations and erase recovery's
+    // progress each time. On the live Nf6 incident this starved two-vote recovery for 22 seconds,
+    // until the motion-recency gate finally stopped opening another verify window.
     verifyState = verify
     cnnStatus = verify
     cnnConflicts = conflicts

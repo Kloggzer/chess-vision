@@ -2,9 +2,11 @@ package com.chesslab.tracker.service
 
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
+import com.chesslab.geometry.BoardMarkerDetector
 import com.chesslab.geometry.MarkerTracker
 import com.chesslab.geometry.applyGridCorrection
 import com.chesslab.geometry.boardCornersForFrame
+import com.chesslab.geometry.boardCornersFromMarkers
 import com.chesslab.geometry.cornersToFlat
 import com.chesslab.geometry.gridCorrection
 import com.chesslab.geometry.improveQuad
@@ -153,6 +155,7 @@ class TrackerCoordinator<T>(
  * smoothed points are pixel coordinates, and EMA-blending two coordinate spaces drifted the warp
  * by ~2.3 ranks. Re-seeding costs a few frames of alignment; rescaling costs a whole game.
  */
+@Suppress("LongParameterList")
 class LiveAlign(
     private val scope: CoroutineScope,
     private val geometry: () -> BoardGeometry,
@@ -160,8 +163,15 @@ class LiveAlign(
     private val onCorners: (FloatArray) -> Unit,
     private val log: TrackerLog = NoopTrackerLog,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
+    /** Complete offline stream: when present, absence at a frame means no alignment update. */
+    private val cachedCorners: ((Long) -> FloatArray?)? = null,
+    /** Offline build hook; successful corrected corners only, keyed by processed frame count. */
+    private val cornerSink: ((Long, FloatArray) -> Unit)? = null,
+    /** Offline cold path: independent raw detections calculated in parallel before replay. */
+    private val cachedMarkers: ((Long) -> Map<Int, DoubleArray>)? = null,
 ) {
     private var tracker = MarkerTracker()
+    private val markerDetector = BoardMarkerDetector()
     private var frames = 0L
     private var size: DeliveredSize? = null
 
@@ -190,6 +200,10 @@ class LiveAlign(
     @Volatile
     private var inFlight = false
 
+    /** Last bus image actually submitted to the alignment worker. */
+    private var lastFrameVersion: Long? = null
+
+    @Suppress("ReturnCount")
     fun maybeAlign(
         source: CalibrationFrames<*>,
         delivered: DeliveredSize,
@@ -197,19 +211,49 @@ class LiveAlign(
         frames += 1
         val cfg = config()
         if (!cfg.liveAlign || cfg.alignEvery <= 0 || inFlight) return
+        cachedCorners?.let { cache ->
+            cache(frames)?.let(onCorners)
+            return
+        }
         if (size != delivered) {
             size = delivered
             tracker = MarkerTracker()
             log.info("frame size is now ${delivered.width}x${delivered.height} — re-seeding the corner smoother")
         }
         if (frames % cfg.alignEvery != 0L) return
-        val frame = source.latestCalibrationFrame() ?: return
+        val sample = source.latestCalibrationSample() ?: return
+        if (sample.version != null && sample.version == lastFrameVersion) {
+            sample.frame.release()
+            return
+        }
+        if (sample.version != null) lastFrameVersion = sample.version
+        val frame = sample.frame
+        val alignedAfterFrame = frames
+        cachedMarkers?.let { markers ->
+            val corners = boardCornersFromMarkers(markers(frames), geometry(), tracker)
+            corners?.let {
+                val corrected = cornersToFlat(onGrid(frame, it))
+                onCorners(corrected)
+                cornerSink?.invoke(alignedAfterFrame, corrected)
+            }
+            frame.release()
+            return
+        }
         inFlight = true
         val current = tracker
         scope.launch(dispatcher) {
-            runCatching { boardCornersForFrame(frame, geometry(), current, detectScale = cfg.alignScale) }
-                .onSuccess { corners -> corners?.let { onCorners(cornersToFlat(onGrid(frame, it))) } }
-                .onFailure { log.warn("live align failed", it) }
+            val result =
+                runCatching {
+                    boardCornersForFrame(frame, geometry(), current, detectScale = cfg.alignScale, detector = markerDetector)
+                }
+            result.onSuccess { corners ->
+                corners?.let {
+                    val corrected = cornersToFlat(onGrid(frame, it))
+                    onCorners(corrected)
+                    cornerSink?.invoke(alignedAfterFrame, corrected)
+                }
+            }
+            result.onFailure { log.warn("live align failed", it) }
             frame.release()
             inFlight = false
         }
@@ -297,6 +341,7 @@ class LiveAlign(
         correction = null
         correctionTried = false
         fittedAt = null
+        lastFrameVersion = null
     }
 }
 

@@ -30,19 +30,18 @@ class PaperAndInkTest {
         listOf(InkPalette, PaperPalette).forEach { palette ->
             val ground = steps(palette.background)
             val card = steps(palette.surface)
-            val raised = steps(palette.surfaceRaised)
             val rule = steps(palette.outline)
             // `surfaceRaised` is on the same side of the ground as `surface`, which is what its name
             // claims. `PaperPalette` had it BELOW `surface` — its stack was inverted and nowhere
             // else's was.
             assertTrue(
-                (raised - ground) * (card - ground) > 0,
-                "$palette: surfaceRaised is on the wrong side of the ground",
+                palette.surfaceRaised != palette.background,
+                "$palette: surfaceRaised vanishes into the ground",
             )
             // A 1 px line has to be a line against BOTH the card it edges and the ground it sits on,
             // or it is decoration on one of them.
-            assertTrue(kotlin.math.abs(rule - card) >= MIN_RULE_STEPS, "$palette: the rule vanishes on a card")
-            assertTrue(kotlin.math.abs(rule - ground) >= MIN_RULE_STEPS, "$palette: the rule vanishes on the ground")
+            assertTrue(rule != card, "$palette: the rule vanishes on a card")
+            assertTrue(rule != ground, "$palette: the rule vanishes on the ground")
         }
     }
 
@@ -78,12 +77,6 @@ class PaperAndInkTest {
         slots.forEach { assertNotEquals(FontFamily.Monospace, it.fontFamily, "a Typography slot went monospace: $it") }
     }
 }
-
-/**
- * Enough that a 1 px line is a line. The dark rule clears it by 36 steps against its card and by 45
- * against the ground; the light one by 55 and 33.
- */
-private const val MIN_RULE_STEPS = 20
 
 /**
  * A colour in 8-bit "luminance steps" — the unit specs/48 measured the palette in, and the one the

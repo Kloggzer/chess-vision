@@ -2,7 +2,6 @@ package com.chesslab.tracker.ui.tracking
 
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
-import java.util.Locale
 
 /**
  * `TrackerStatus` -> what the screen shows, as a PURE function.
@@ -16,6 +15,9 @@ import java.util.Locale
  */
 enum class StateTone { Idle, Busy, Active, Alarm }
 
+/** Whose move it is, straight off the FEN. */
+enum class Turn { WHITE, BLACK }
+
 /**
  * **What the header is saying, as a fact rather than as words.** The Compose layer names it.
  *
@@ -27,6 +29,7 @@ enum class StateTone { Idle, Busy, Active, Alarm }
  * visible for a fraction of a second each and are not distinguishable to a reader. [StateTone]
  * still separates them, which is where that difference belongs.
  */
+
 enum class TrackerLabel {
     LIVE,
     HAND_OVER_BOARD,
@@ -121,9 +124,15 @@ data class TrackingUiState(
     val fen: String,
     val state: TrackerLabel,
     val tone: StateTone,
-    val fpsText: String,
-    /** The second, smaller line under [fpsText]; null when one line says everything. */
-    val fpsDetail: String?,
+    /**
+     * Side to move, and the FEN's fullmove number — "White to move · 14".
+     *
+     * They replace the frame rate, which was the largest number on the screen and the one thing on
+     * it a player could do nothing about; both rates, with their 5-second medians, sit on the debug
+     * Timings panel, where they were always the more useful. Null when the FEN cannot be read.
+     */
+    val turn: Turn?,
+    val moveNumber: Int?,
     val infoLine: String?,
     val alarm: AlarmUi?,
     val overlay: OverlayLayers,
@@ -138,7 +147,7 @@ data class TrackingUiState(
      */
     val ready: Boolean = true,
 ) {
-    /** The board scrim and the frozen fps colour are the SAME condition — a latched alarm. */
+    /** The board scrim and the header's alarm colour are the SAME condition — a latched alarm. */
     val boardTinted: Boolean get() = alarm != null
 }
 
@@ -146,19 +155,6 @@ internal const val STATE_WAITING = "waiting"
 internal const val STATE_MOVING = "moving"
 internal const val STATE_OCCLUDED = "occluded"
 internal const val STATE_MOVE = "move"
-
-private const val STOPPED_FPS_TEXT = "camera off"
-
-/** The camera is bound and nothing is arriving — a dead feed, which is NOT a discarded one. */
-private const val NO_FRAMES_TEXT = "no frames"
-
-private const val NOT_CALIBRATED_TEXT = "not calibrated"
-
-/** Frames arrive, the board is calibrated, and still nothing ticks — the case worth catching. */
-private const val NO_DETECTION_TEXT = "no detection"
-
-/** Below this the two rates are the same number twice, and the second one is noise. */
-private const val FPS_SAME = 1.0
 
 private const val STOPPED_INFO = "No frames are arriving — the camera is released. Resume to continue; the game is kept."
 
@@ -170,7 +166,7 @@ private const val OFF_INFO = "No camera is running. Start tracking to detect mov
  *
  * With no service there is no status at all and the last position stands; with the camera merely
  * released the status stops arriving, so the last sample stands forever and the screen would keep
- * showing "WAITING · 14.8 fps" over a dead feed. The two are not the same state — one has no game,
+ * reporting a running game over a dead feed. The two are not the same state — one has no game,
  * the other has one and is holding it.
  */
 private enum class Feed { OFF, PAUSED, LIVE }
@@ -192,8 +188,8 @@ fun trackingUiState(
         fen = status.fen,
         state = label(feed, alarm, status),
         tone = tone(feed, alarm, status),
-        fpsText = if (feed == Feed.LIVE) fpsText(status) else STOPPED_FPS_TEXT,
-        fpsDetail = if (feed == Feed.LIVE) fpsDetail(status) else null,
+        turn = turnOf(status.fen),
+        moveNumber = moveNumberOf(status.fen),
         infoLine =
             when (feed) {
                 Feed.LIVE -> infoLine(status)
@@ -293,32 +289,21 @@ private fun stateTone(state: String): StateTone =
 private fun infoLine(status: TrackerStatus): String? = status.note
 
 /**
- * The headline rate, and it is NOT always the engine's.
+ * The two FEN fields a player reads: side to move and the move number.
  *
- * `status.fps` counts frames that reached the engine, so an uncalibrated board shows "0.0 fps"
- * beside a camera running at 30 — which reads as a defect and sends the user after the wrong thing.
- * Whenever detection is not running, the camera rate is the number that is actually true, and
- * [fpsDetail] carries the reason it is the one being shown.
+ * Split rather than parsed with a board — the FEN is the app's own output, two fields cost nothing
+ * and cannot throw. Anything shorter than a real FEN's six fields yields nulls, and the screen then
+ * shows neither half rather than a wrong one.
  */
-private fun fpsText(status: TrackerStatus): String =
-    when {
-        status.cameraFps <= 0.0 -> NO_FRAMES_TEXT
-        status.fps <= 0.0 -> "camera ${formatRate(status.cameraFps)} fps"
-        else -> formatFps(status.fps)
+private fun turnOf(fen: String): Turn? =
+    when (fen.split(' ').getOrNull(FEN_SIDE)) {
+        "w" -> Turn.WHITE
+        "b" -> Turn.BLACK
+        else -> null
     }
 
-private fun fpsDetail(status: TrackerStatus): String? =
-    when {
-        status.cameraFps <= 0.0 -> null
-        // Corners are the calibration: `StatusPublisher` fills in the ones the frame was warped
-        // with, and null means the pipeline has never had a board to warp to.
-        status.fps <= 0.0 -> if (status.corners == null) NOT_CALIBRATED_TEXT else NO_DETECTION_TEXT
-        status.cameraFps - status.fps < FPS_SAME -> null
-        // Detection is running but behind the sensor: the gap is the whole message.
-        else -> "camera ${formatRate(status.cameraFps)}"
-    }
+private fun moveNumberOf(fen: String): Int? = fen.split(' ').getOrNull(FEN_FULLMOVE)?.toIntOrNull()
 
-private fun formatFps(fps: Double): String = String.format(Locale.ROOT, "%.1f fps", fps)
+private const val FEN_SIDE = 1
 
-/** Whole frames: the second rate is context, and a decimal point costs width the header lacks. */
-private fun formatRate(fps: Double): String = String.format(Locale.ROOT, "%.0f", fps)
+private const val FEN_FULLMOVE = 5

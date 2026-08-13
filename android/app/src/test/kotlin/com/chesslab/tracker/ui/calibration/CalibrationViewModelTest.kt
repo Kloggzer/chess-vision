@@ -114,7 +114,7 @@ class CalibrationViewModelTest {
             advanceUntilIdle()
         }
 
-    /** A full four-code read is adopted with nobody pressing anything. */
+    /** Three matching four-code reads are adopted with nobody pressing anything. */
     @Test
     fun aFullReadIsAdoptedOnItsOwn() =
         runTest {
@@ -124,7 +124,11 @@ class CalibrationViewModelTest {
             vm.onAdopted = { adopted = it }
             launch { vm.autoDetect() }
             runCurrent()
-            advanceTimeBy(1)
+            assertFalse(vm.state.value.saved, "one frame is not a stable calibration")
+            advanceTimeBy(500)
+            runCurrent()
+            assertFalse(vm.state.value.saved, "two frames are not a stable calibration")
+            advanceTimeBy(500)
             runCurrent()
             assertTrue(vm.state.value.saved)
             assertEquals(1, backing.writes)
@@ -153,6 +157,29 @@ class CalibrationViewModelTest {
             coroutineContext.cancelChildren()
         }
 
+    /** Three projective markers may repair a stale profile, but only after five matching reads. */
+    @Test
+    fun threeStableMarkersAreAdopted() =
+        runTest {
+            val backing = FakeProfileBacking()
+            val vm =
+                CalibrationViewModel(
+                    FakeDetector(ok(markers = listOf(0, 1, 2))),
+                    CalibrationStore(backing),
+                    this,
+                ) { 7L }
+            launch { vm.autoDetect() }
+            runCurrent()
+            advanceTimeBy(1_500)
+            runCurrent()
+            assertFalse(vm.state.value.saved)
+            advanceTimeBy(500)
+            runCurrent()
+            assertTrue(vm.state.value.saved)
+            assertEquals(1, backing.writes)
+            coroutineContext.cancelChildren()
+        }
+
     /** A steady camera must not rewrite the profile twice a second. */
     @Test
     fun aSteadyBoardIsWrittenOnce() =
@@ -178,8 +205,9 @@ class CalibrationViewModelTest {
 class BoardNoteTest {
     @Test
     fun everyBranchSaysWhatToDo() {
-        assertEquals("Board found.", boardNote(ok = true, markers = 4))
-        assertTrue(boardNote(ok = true, markers = 3).contains("estimated"))
+        assertEquals("Board calibrated.", boardNote(ok = true, markers = 4))
+        assertTrue(boardNote(ok = true, markers = 4, stableReads = 1).contains("hold", ignoreCase = true))
+        assertTrue(boardNote(ok = true, markers = 3, stableReads = 5).contains("calibrated", ignoreCase = true))
         assertTrue(boardNote(ok = false, markers = 2).contains("move the camera"))
         assertTrue(boardNote(ok = false, markers = 0).contains("point the camera", ignoreCase = true))
     }
