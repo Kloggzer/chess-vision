@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.analysis.ReviewStore
+import com.chesslab.tracker.games.GameResult
 import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.games.GameSummary
 import com.chesslab.tracker.record.SessionStore
@@ -112,9 +113,10 @@ private fun GamesScreen(
             initialWhite = row.white,
             initialBlack = row.black,
             initialEvent = row.event,
+            initialResult = GameResult.of(row.result),
             onDismiss = { renaming = null },
-        ) { white, black, event ->
-            model.rename(row.id, white, black, event)
+        ) { white, black, event, result ->
+            model.updateDetails(row.id, white, black, event, result)
             renaming = null
         }
     }

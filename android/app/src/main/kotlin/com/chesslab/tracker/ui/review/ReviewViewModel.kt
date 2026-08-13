@@ -11,6 +11,7 @@ import com.chesslab.tracker.analysis.ReviewBudget
 import com.chesslab.tracker.analysis.ReviewStore
 import com.chesslab.tracker.analysis.UciEngine
 import com.chesslab.tracker.analysis.grade
+import com.chesslab.tracker.games.GameResult
 import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.games.GameView
 import com.chesslab.tracker.games.buildPgn
@@ -125,11 +126,12 @@ class ReviewViewModel(
         white: String,
         black: String,
         event: String,
+        result: GameResult,
     ) {
         val game = mutable.value.game ?: return
         val token = generation.get()
         scope.launch(Dispatchers.IO) {
-            store.rename(game.id, white, black, event)
+            store.updateDetails(game.id, white, black, event, result)
             val stored = store.open(game.id) ?: return@launch
             if (owns(token, game.id)) {
                 mutable.value =

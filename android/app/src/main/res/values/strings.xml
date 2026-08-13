@@ -40,6 +40,29 @@
     </plurals>
     <string name="tracking_take_back_detail">One press takes back: %1$s</string>
 
+    <!-- Ending a game where it is played. It always saves; deleting lives on the Games screen,
+         where you can see what you are deleting. -->
+    <string name="endgame_title">End game</string>
+    <string name="endgame_new_title">Start a new game?</string>
+    <string name="endgame_moves">%1$d moves recorded.</string>
+    <string name="endgame_nothing">Nothing is recorded yet. This re-seeds the tracker from the starting position.</string>
+    <string name="endgame_question">How did it end?</string>
+    <string name="endgame_mate_white">Black is checkmated — White wins.</string>
+    <string name="endgame_mate_black">White is checkmated — Black wins.</string>
+    <string name="endgame_drawn">The position is a draw.</string>
+    <string name="endgame_names_hint">Leave blank to skip.</string>
+    <string name="endgame_save">Save &amp; new game</string>
+    <string name="endgame_new">New game</string>
+
+    <!-- The stored game's editor, which is where a stated result can be corrected. -->
+    <string name="games_edit_title">Edit game details</string>
+    <string name="games_white">White</string>
+    <string name="games_black">Black</string>
+    <string name="games_event">Event</string>
+    <string name="games_result_edit">Result</string>
+    <string name="games_save">Save</string>
+    <string name="games_cancel">Cancel</string>
+
     <!-- How a game ended. One result, one word, in the library and in the review alike. -->
     <string name="games_result_white">White wins</string>
     <string name="games_result_black">Black wins</string>

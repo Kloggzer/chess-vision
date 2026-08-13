@@ -222,7 +222,7 @@ class LiveGame(
             id = "",
             live = true,
             startFen = startFen,
-            result = resultFromFen(currentFen),
+            result = resultFromFen(currentFen).tag,
             segments =
                 segments.map { segment ->
                     ReviewSegment(
@@ -247,6 +247,14 @@ class LiveGame(
         sessionId: String? = null,
         white: String = UNKNOWN,
         black: String = UNKNOWN,
+        /**
+         * What the players SAY happened. Null means read it off the board, which is right for a
+         * mate and for the service's own auto-save — and wrong for every other way a game ends,
+         * which is why it can be given at all: `resultFromFen` can only see terminal positions, so
+         * a resignation and an agreed draw were both stored as "unfinished" and read, in the
+         * library, as "Game in progress".
+         */
+        result: GameResult? = null,
     ): StoredGame =
         StoredGame(
             id = id,
@@ -254,7 +262,7 @@ class LiveGame(
             startedAtEpochMs = startedAtEpochMs,
             finishedAtEpochMs = finishedAtEpochMs,
             profileName = profileName,
-            result = resultFromFen(currentFen),
+            result = (result ?: resultFromFen(currentFen)).tag,
             moves = segments.flatMap { segment -> segment.moves.map { it.move } },
             white = white,
             black = black,

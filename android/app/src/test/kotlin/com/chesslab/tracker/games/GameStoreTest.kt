@@ -64,16 +64,43 @@ class GameStoreTest {
     }
 
     @Test
-    fun renameRewritesPgnHeadersKeepsId() {
+    fun updatingDetailsRewritesPgnHeadersKeepsId() {
         val store = store()
         store.save(sampleGame())
-        val renamed = store.rename("g1", "Alice", "Bob", "Club night")
+        val renamed = store.updateDetails("g1", "Alice", "Bob", "Club night", GameResult.WHITE)
         assertEquals("g1", renamed?.id)
         val pgn = store.pgn("g1").orEmpty()
         assertTrue(pgn.contains("[White \"Alice\"]"), pgn)
         assertTrue(pgn.contains("[Black \"Bob\"]"), pgn)
         assertTrue(pgn.contains("[Event \"Club night\"]"), pgn)
         assertEquals("Alice", store.list().single().white)
+    }
+
+    /**
+     * A stated result reaches all THREE places a result is kept: the record, the index row the
+     * library reads without opening anything, and the PGN that gets shared.
+     *
+     * This is what makes the end-game dialog's "unfinished" default honest — it is correctable.
+     */
+    @Test
+    fun aCorrectedResultReachesTheRecordTheIndexAndThePgn() {
+        val store = store()
+        store.save(sampleGame().copy(result = GameResult.UNFINISHED.tag))
+        assertEquals(GameResult.UNFINISHED.tag, store.list().single().result)
+
+        store.updateDetails("g1", "Alice", "Bob", "Club night", GameResult.DRAW)
+
+        assertEquals(GameResult.DRAW.tag, store.open("g1")?.result)
+        assertEquals(GameResult.DRAW.tag, store.list().single().result)
+        assertTrue(store.pgn("g1").orEmpty().contains("[Result \"1/2-1/2\"]"), store.pgn("g1").orEmpty())
+    }
+
+    /** `closeSeams` rebuilds the move list and must not quietly re-derive the result while it does. */
+    @Test
+    fun aStatedResultSurvivesTheSeamMigration() {
+        val store = store()
+        store.save(splitGame().copy(result = GameResult.BLACK.tag))
+        assertEquals(GameResult.BLACK.tag, store.open("split")?.result)
     }
 
     /**

@@ -72,6 +72,12 @@ class StatusUiModelTest {
             trackingUiState(status(fps = 0.0, alarm = alarm)).state,
             "a latched alarm outranks a stalled engine",
         )
+        // An unfitted board is the other reason nothing is being read, and it is the same sentence.
+        assertEquals(
+            TrackerLabel.NO_DETECTION,
+            trackingUiState(status(fps = 0.0, corners = null)).state,
+            "\"Live\" over a board the app has not found is a claim it cannot make",
+        )
     }
 
     @Test

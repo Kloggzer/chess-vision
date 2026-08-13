@@ -2,6 +2,7 @@ package com.chesslab.tracker.spectate
 
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerStatus
+import com.chesslab.tracker.games.GameResult
 import com.chesslab.tracker.games.GameView
 import com.chesslab.tracker.games.resultFromFen
 import kotlinx.serialization.Serializable
@@ -77,4 +78,8 @@ private fun spectatorStatus(
  * [resultFromFen] is the library's own rule and returns `*` for a game still running; this only
  * turns that into the null the wire uses. It used to be a second copy of the same board reading.
  */
-private fun outcome(fen: String): String? = runCatching { resultFromFen(fen) }.getOrNull()?.takeIf { it != "*" }
+private fun outcome(fen: String): String? =
+    runCatching { resultFromFen(fen) }
+        .getOrNull()
+        ?.takeIf { it != GameResult.UNFINISHED }
+        ?.tag

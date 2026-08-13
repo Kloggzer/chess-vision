@@ -2,6 +2,7 @@ package com.chesslab.tracker.ui.games
 
 import com.chesslab.tracker.analysis.ReviewBudget
 import com.chesslab.tracker.analysis.ReviewStore
+import com.chesslab.tracker.games.GameResult
 import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.games.GameSummary
 import com.chesslab.tracker.record.SessionStore
@@ -44,13 +45,14 @@ class GamesViewModel(
 
     fun refresh() = io { reload() }
 
-    fun rename(
+    fun updateDetails(
         id: String,
         white: String,
         black: String,
         event: String,
+        result: GameResult,
     ) = io {
-        games.rename(id, white, black, event)
+        games.updateDetails(id, white, black, event, result)
         reload()
     }
 

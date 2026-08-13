@@ -96,6 +96,31 @@ class GameSessionControllerTest {
                 doMove(Move("g1f3", Side.WHITE))
             }.fen
 
+    /**
+     * The four ways a game ends that the BOARD cannot see: a resignation, an agreed draw, a game
+     * simply stopped. `resultFromFen` returns `*` for all of them, so before this every normally
+     * ended game read "Game in progress" in the library.
+     */
+    @Test
+    fun theStatedResultIsWhatIsStored() {
+        val controller = controller()
+        controller.onIdle(STARTPOS, "board-a")
+        controller.onEvent(move("e2e4", "e4", AFTER_E4), null)
+        val saved = controller.endAndSave(result = GameResult.BLACK)!!
+        assertEquals(GameResult.BLACK.tag, store.open(saved.id)?.result, "White resigned; the board cannot know")
+        assertEquals(GameResult.BLACK.tag, saved.result)
+    }
+
+    /** No result stated = read it off the board, which is what the service's auto-save does. */
+    @Test
+    fun withoutAStatedResultTheBoardStillDecides() {
+        val controller = controller()
+        controller.onIdle(STARTPOS, "board-a")
+        controller.onEvent(move("e2e4", "e4", AFTER_E4), null)
+        val saved = controller.endAndSave()!!
+        assertEquals(GameResult.UNFINISHED.tag, store.open(saved.id)?.result)
+    }
+
     @Test
     fun committedMovesBecomeASavedGame() {
         val controller = controller()

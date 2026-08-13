@@ -3,13 +3,13 @@
 | Phase | State | Branch | Note |
 |---|---|---|---|
 | 00 — the models speak no language | `done` | on `main` | see the session log |
-| 01 — the game ends with a result | `todo` | `specs-54-01` | after 00 |
+| 01 — the game ends with a result | `done` | on `main` | see the session log |
 | 02 — the screen reads like a game | `todo` | `specs-54-02` | after 01 (same file) |
 | 03 — when it goes wrong, it says what to do | `todo` | `specs-54-03` | after 02 (same file); touches `core-engine` additively |
 | 04-A — home/games/camera/chrome → resources | `todo` | `specs-54-04a` | after 01; ∥ 04-B |
 | 04-B — review/analysis/settings → resources | `todo` | `specs-54-04b` | after 00; may run ∥ 01–03 |
 | 05 — Deutsch | `todo` | `specs-54-05` | last |
-| 06 — the app has a face | `done (uncommitted)` | working tree | mark **A** chosen by the user 2026-08-13; see the session log |
+| 06 — the app has a face | `done` | on `main` (`9c136ec`) | mark **A** chosen by the user 2026-08-13; see the session log |
 
 ## Open decisions, carried into the phases
 
@@ -38,6 +38,38 @@
 
 ## Session log
 
+### 2026-08-13 — phase 01, on `main`
+
+`resultFromFen` returns `GameResult`; `LiveGame.finish` and `GameSessionController.endAndSave`
+take an optional one (null = read the board, which is what the service's auto-save keeps doing);
+`GameStore.rename` became `updateDetails` and writes the result too; `TrackerModal.DISCARDING` and
+the `Discard…` action are gone; the end-game dialog always saves and asks how the game ended, or
+states it when the board already answers. `ResultChips` is one control used by both places a
+result can be stated.
+
+Discrepancies and findings:
+
+- **The phase-00 pin did its job.** `GameResultTest` stopped compiling the moment `resultFromFen`
+  changed type, which is exactly what it was written for: the change had to be a rename with the
+  same four outcomes, not a new opinion about what a position means.
+- **`NO_DETECTION` no longer requires corners** — a deviation from phase 00's table, found by
+  looking at the running app rather than at the model: an uncalibrated board read `Live` while the
+  layout beside it said "not calibrated yet". An unfitted board and a stalled engine are the same
+  sentence to a player ("Not reading the board"), and "Live" over a board the app has not found is
+  a claim it cannot make.
+- **The end-game dialog was NOT exercised on a device.** It needs a fitted board and committed
+  moves; `blender-opening` reaches the calibration screen with "No board yet", and per
+  `docs/android-emulator.md` the emulator run verifies the camera feed and the running state, not a
+  tracked game. Its data path is covered by unit tests (a stated result is stored; the auto-save is
+  unaffected); the DIALOG itself is unverified outside them, and that is stated rather than
+  implied.
+- **The correction path IS verified on the device**, which is the half that makes the dialog's
+  `UNFINISHED` default honest: emulator, stored game `2026-08-02_2159`, edited from "White wins" to
+  "Draw". The library row went `1-0` -> `1/2-1/2` and `files/games/2026-08-02_2159.pgn` reads
+  `[Result "1/2-1/2"]` — record, index row and PGN, the three places a result is kept.
+  `ResultChips` wraps to two rows at 1440 px, which is why it is a `FlowRow`: the German words are
+  longer.
+
 ### 2026-08-13 — phase 00, on `main`
 
 `TrackerLabel` (6 values), `GameResult` (4), `undoCount`, `resultHeadline` -> `@StringRes Int`,
@@ -63,7 +95,7 @@ The guard ships with an EMPTY package list and therefore passes vacuously; phase
 packages as they convert them. Its KDoc says out loud what it cannot see (a literal alone on a
 continuation line, a sentence built from pieces) so nobody reads it as a proof.
 
-### 2026-08-13 — phase 06, in the working tree, **not committed**
+### 2026-08-13 — phase 06, on `main` as `9c136ec`
 
 Landed: `res/drawable/ic_logo.xml` (the mark, colour through `@color/chesslab_logo`),
 `ic_launcher_foreground.xml` (108 canvas, group `scale 0.6875` + `translate 21`),

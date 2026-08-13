@@ -227,11 +227,11 @@ enum class GameResult(
  * The PGN result tag for a position. `*` (unfinished) is the honest default: a tracked game
  * normally ends because the players stopped, not because the board reached a terminal position.
  */
-fun resultFromFen(fen: String): String {
+fun resultFromFen(fen: String): GameResult {
     val board = Board().apply { loadFromFen(fen) }
     return when {
-        board.isMated -> if (board.sideToMove == Side.WHITE) "0-1" else "1-0"
-        board.isDraw || board.isStaleMate -> "1/2-1/2"
-        else -> "*"
+        board.isMated -> if (board.sideToMove == Side.WHITE) GameResult.BLACK else GameResult.WHITE
+        board.isDraw || board.isStaleMate -> GameResult.DRAW
+        else -> GameResult.UNFINISHED
     }
 }

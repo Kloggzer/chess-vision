@@ -44,11 +44,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.chesslab.tracker.R
 import com.chesslab.tracker.analysis.AnalysisSettingsHost
+import com.chesslab.tracker.games.GameResult
 import com.chesslab.tracker.games.GameSessionController
 import com.chesslab.tracker.games.GameSessionState
 import com.chesslab.tracker.games.GameStore
 import com.chesslab.tracker.games.GameView
 import com.chesslab.tracker.games.UNKNOWN
+import com.chesslab.tracker.games.resultFromFen
 import com.chesslab.tracker.service.TrackerRun
 import com.chesslab.tracker.ui.ChesslabScaffold
 import com.chesslab.tracker.ui.ConfirmDialog
@@ -58,6 +60,7 @@ import com.chesslab.tracker.ui.OutlineAction
 import com.chesslab.tracker.ui.SourceFramedPreview
 import com.chesslab.tracker.ui.analysis.EvalBarSlot
 import com.chesslab.tracker.ui.games.GameSessionHost
+import com.chesslab.tracker.ui.games.ResultChips
 import com.chesslab.tracker.ui.games.gamesDir
 import com.chesslab.tracker.ui.review.MoveList
 import com.chesslab.tracker.ui.review.SpectatorShareCard
@@ -100,7 +103,6 @@ fun TrackingRoute(
 private enum class TrackerModal {
     NONE,
     ENDING,
-    DISCARDING,
     RECALIBRATING,
     SHARE,
 }
@@ -189,22 +191,15 @@ private fun TrackingModals(
         TrackerModal.ENDING ->
             EndGameDialog(
                 moves = moves,
-                onSave = { white, black ->
-                    games?.endAndSave(white, black)
+                fen = ui.fen,
+                onSave = { white, black, result ->
+                    games?.endAndSave(white, black, result)
                     viewModel.onResetGame()
                     close()
                 },
-                // With moves on the board this only OPENS the confirmation; with none there is
-                // nothing to confirm and the same control re-seeds the tracker outright.
-                onDiscard = { if (moves > 0) onModal(TrackerModal.DISCARDING) else discard() },
-                onDismiss = close,
-            )
-        TrackerModal.DISCARDING ->
-            ConfirmDialog(
-                title = "Discard this game?",
-                body = "$moves moves and everything recorded for them. This cannot be undone.",
-                verb = "Discard",
-                onConfirm = discard,
+                // Nothing is recorded, so there is nothing to save and nothing to throw away: the
+                // same control simply re-seeds the tracker.
+                onReseed = discard,
                 onDismiss = close,
             )
         TrackerModal.RECALIBRATING ->
@@ -568,26 +563,39 @@ private fun ActionBar(
 }
 
 /**
- * Ending a game where it is PLAYED, and the one place the app asks who played it.
+ * Ending a game where it is PLAYED: the one place the app asks who played it and how it ended.
  *
- * "Reset game" used to discard a played game without a word, and the only save action lived on the
- * Games tab — a place you are not looking at while a game is running. Both outcomes are now named,
- * and the destructive one is not the default.
+ * **It always saves.** "Reset game" used to discard a played game without a word; then it asked,
+ * with `Discard…` as the dismiss action — a destructive branch two taps from the board you are
+ * playing on. Deleting belongs where you can see what you are deleting, and the Games screen has
+ * had it all along, with the recorded frames as a second, explicit checkbox.
+ *
+ * **The result is asked for, not guessed.** `resultFromFen` can only see mate, stalemate and the
+ * draw rules, so every game that ended because the players stopped — a resignation, an agreed
+ * draw, a session cut short — was stored as `*` and read in the library as "Game in progress".
+ * Where the board HAS the answer the question is not asked: it is stated, and there is one button.
+ *
+ * The default is [GameResult.UNFINISHED] rather than a guess. It is the honest reading of a game
+ * nobody has said anything about, and it is correctable in the game's own editor — which is what
+ * makes a default acceptable here at all.
  *
  * The two name fields are optional and pre-filled from the last saved game, because the same two
- * people normally play again. Nothing is asked before the first move: a dialog in front of somebody
- * who wants to press one button and play is the reason this was never captured.
+ * people normally play again. Nothing is asked before the first move: a dialog in front of
+ * somebody who wants to press one button and play is the reason this was never captured.
  */
 @Composable
 private fun EndGameDialog(
     moves: Int,
-    onSave: (String, String) -> Unit,
-    onDiscard: () -> Unit,
+    fen: String,
+    onSave: (String, String, GameResult) -> Unit,
+    onReseed: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
     var white by remember { mutableStateOf("") }
     var black by remember { mutableStateOf("") }
+    val onBoard = remember(fen) { runCatching { resultFromFen(fen) }.getOrDefault(GameResult.UNFINISHED) }
+    var result by remember(onBoard) { mutableStateOf(onBoard) }
     LaunchedEffect(Unit) {
         val last = withContext(Dispatchers.IO) { GameStore(gamesDir(context)).list().firstOrNull() }
         white = last?.white?.takeUnless { it == UNKNOWN }.orEmpty()
@@ -595,45 +603,53 @@ private fun EndGameDialog(
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (moves > 0) "End this game?" else "Start a new game?") },
+        title = { Text(stringResource(if (moves > 0) R.string.endgame_title else R.string.endgame_new_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
-                Text(
-                    if (moves > 0) {
-                        "$moves moves are recorded. Saving keeps them in Games together with this " +
-                            "session's frames; discarding drops the game — frames already written stay " +
-                            "on disk and are deleted from the Games screen."
-                    } else {
-                        "Nothing is recorded yet. This re-seeds the tracker from the starting position."
-                    },
-                )
-                if (moves > 0) {
-                    OutlinedTextField(white, { white = it }, label = { Text("White") }, singleLine = true)
-                    OutlinedTextField(black, { black = it }, label = { Text("Black") }, singleLine = true)
-                    Text("Leave blank to skip.", style = MaterialTheme.typography.labelSmall, color = OnSurfaceMuted)
+                if (moves == 0) {
+                    Text(stringResource(R.string.endgame_nothing))
+                    return@Column
                 }
+                Text(stringResource(R.string.endgame_moves, moves))
+                // A question whose answer is on the board in front of the player is not a question.
+                if (onBoard == GameResult.UNFINISHED) {
+                    Text(stringResource(R.string.endgame_question))
+                    ResultChips(result, { result = it })
+                } else {
+                    Text(stringResource(terminalText(onBoard)))
+                }
+                OutlinedTextField(white, { white = it }, label = { Text(stringResource(R.string.games_white)) }, singleLine = true)
+                OutlinedTextField(black, { black = it }, label = { Text(stringResource(R.string.games_black)) }, singleLine = true)
+                Text(
+                    stringResource(R.string.endgame_names_hint),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = OnSurfaceMuted,
+                )
             }
         },
         confirmButton = {
             TextButton(
-                onClick = {
-                    if (moves > 0) onSave(named(white), named(black)) else onDiscard()
-                },
+                onClick = { if (moves > 0) onSave(named(white), named(black), result) else onReseed() },
             ) {
-                Text(if (moves > 0) "Save & new game" else "New game", color = Accent)
+                Text(stringResource(if (moves > 0) R.string.endgame_save else R.string.endgame_new), color = Accent)
             }
         },
+        // Never destructive: closing changes nothing, and the game keeps running.
         dismissButton = {
-            // Never the default action, and never silent: discarding a played game is the one
-            // outcome here that cannot be undone, so it does not act — it opens the confirmation.
-            if (moves > 0) {
-                TextButton(onClick = onDiscard) { Text("Discard…", color = Danger) }
-            } else {
-                TextButton(onClick = onDismiss) { Text("Cancel", color = OnSurfaceMuted) }
-            }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.games_cancel), color = OnSurfaceMuted) }
         },
     )
 }
+
+/** What the board itself says, when it says anything. */
+@StringRes
+private fun terminalText(result: GameResult): Int =
+    when (result) {
+        GameResult.WHITE -> R.string.endgame_mate_white
+        GameResult.BLACK -> R.string.endgame_mate_black
+        GameResult.DRAW -> R.string.endgame_drawn
+        GameResult.UNFINISHED -> R.string.endgame_question
+    }
 
 /** A blank field is not a player called "", it is the same "nobody said" the store already has. */
 private fun named(value: String): String = value.trim().ifBlank { UNKNOWN }

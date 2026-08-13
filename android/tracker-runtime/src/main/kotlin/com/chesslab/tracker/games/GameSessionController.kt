@@ -140,6 +140,8 @@ class GameSessionController(
     fun endAndSave(
         white: String = UNKNOWN,
         black: String = UNKNOWN,
+        /** Null = read it off the board. The service's own auto-save never states one. */
+        result: GameResult? = null,
     ): GameSummary? {
         val session = capture.stop()
         val game = live
@@ -148,7 +150,7 @@ class GameSessionController(
             return null
         }
         live = null
-        val saved = store.save(game.finish(idFor(now()), now(), session?.sessionId, white, black))
+        val saved = store.save(game.finish(idFor(now()), now(), session?.sessionId, white, black, result))
         mutable.value = GameSessionState(lastSavedId = saved?.id, recordingReason = capture.reason)
         return saved
     }
@@ -217,7 +219,7 @@ class GameSessionController(
                 ?: MoveProvenance(decider = decider, reason = decider, priorUsed = priorUsed)
         game.onCommitted(ucis, sans, fenAfter, now(), decision)
         capture.queue(game.moveCount, fenAfter, sans.last(), isClean(status))
-        if (resultFromFen(fenAfter) != "*") endAndSave()
+        if (resultFromFen(fenAfter) != GameResult.UNFINISHED) endAndSave()
     }
 
     /**

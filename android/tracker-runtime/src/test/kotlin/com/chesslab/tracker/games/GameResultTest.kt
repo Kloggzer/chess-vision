@@ -32,17 +32,22 @@ class GameResultTest {
     }
 
     /**
-     * The tags `resultFromFen` writes are exactly the ones this type knows.
+     * What the board reports, now as the type itself.
      *
-     * It still returns a `String` — phase 01 is what gives it the type, and this pin is what makes
-     * that change a rename rather than a discovery.
+     * This test was written in phase 00 around a `String` return and failed to compile the moment
+     * phase 01 gave `resultFromFen` its type — which is what the pin was for: the change had to be
+     * a rename with the same four outcomes, not a new opinion about what a position means.
      */
     @Test
-    fun whatTheBoardReportsIsAlwaysAKnownTag() {
-        val start = resultFromFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
-        assertEquals(GameResult.UNFINISHED, GameResult.of(start))
+    fun theBoardReportsTheSameFourOutcomes() {
+        assertEquals(
+            GameResult.UNFINISHED,
+            resultFromFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"),
+        )
         // Fool's mate: White is mated, so Black won.
-        val mated = resultFromFen("rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3")
-        assertEquals(GameResult.BLACK, GameResult.of(mated))
+        assertEquals(
+            GameResult.BLACK,
+            resultFromFen("rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3"),
+        )
     }
 }

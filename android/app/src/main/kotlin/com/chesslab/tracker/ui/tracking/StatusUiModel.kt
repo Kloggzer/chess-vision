@@ -238,9 +238,12 @@ private fun task(
  * The ranking, and it is the same one [task] uses. While alarmed the engine blocks every commit, so
  * reporting "moving" would imply the game is progressing when it provably is not.
  *
- * [TrackerLabel.NO_DETECTION] is the rung that used to exist only inside `fpsDetail`: frames
- * arrive, the board is fitted, and nothing ticks. Without it a screen that has dropped the frame
- * rate would report a confident LIVE over a stopped engine.
+ * [TrackerLabel.NO_DETECTION] is the rung that used to exist only inside `fpsDetail`: the camera is
+ * delivering and the engine is not ticking. Without it a screen that has dropped the frame rate
+ * would report a confident LIVE over a stopped engine — seen on the emulator 2026-08-13, where an
+ * uncalibrated board read "Live" while the layout beside it said "not calibrated yet". It does NOT
+ * require corners: an unfitted board is one of the two reasons nothing is being read, and both are
+ * the same sentence to the player.
  *
  * An unknown engine state maps to [TrackerLabel.LIVE] rather than to the raw string uppercased —
  * the fallback path may not print an engine identifier at a user.
@@ -255,7 +258,7 @@ private fun label(
         feed == Feed.PAUSED -> TrackerLabel.CAMERA_OFF
         alarm != null -> TrackerLabel.POSITION_LOST
         status.state == STATE_OCCLUDED -> TrackerLabel.HAND_OVER_BOARD
-        status.corners != null && status.fps <= 0.0 -> TrackerLabel.NO_DETECTION
+        status.fps <= 0.0 -> TrackerLabel.NO_DETECTION
         else -> TrackerLabel.LIVE
     }
 
@@ -267,7 +270,7 @@ private fun tone(
     when {
         feed != Feed.LIVE -> StateTone.Idle
         alarm != null -> StateTone.Alarm
-        status.corners != null && status.fps <= 0.0 -> StateTone.Busy
+        status.fps <= 0.0 -> StateTone.Busy
         else -> stateTone(status.state)
     }
 

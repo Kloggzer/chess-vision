@@ -64,18 +64,27 @@ class GameStore(
         return row
     }
 
-    /** Player/event names only — the id is the identity of the game and its files. */
-    fun rename(
+    /**
+     * Everything a stored game can be corrected about — never the id, which is its identity and
+     * that of its files.
+     *
+     * The RESULT is in here because the end-game dialog is allowed to default to "unfinished"
+     * without asking twice: a default is only safe where it can be fixed later, and this is later.
+     * Rewriting it re-renders the PGN and the index row, which is what `save` already does.
+     */
+    fun updateDetails(
         id: String,
         white: String,
         black: String,
         event: String,
+        result: GameResult,
     ): GameSummary? =
         open(id)
             ?.copy(
                 white = white.trim().ifBlank { UNKNOWN },
                 black = black.trim().ifBlank { UNKNOWN },
                 event = event.trim().ifBlank { "chesslab" },
+                result = result.tag,
             )?.let(::save)
 
     fun delete(id: String) {

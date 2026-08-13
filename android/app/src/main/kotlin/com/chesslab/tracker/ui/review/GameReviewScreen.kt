@@ -297,9 +297,10 @@ private fun ReviewDetailsEditor(
         initialWhite = game.white,
         initialBlack = game.black,
         initialEvent = game.event,
+        initialResult = GameResult.of(game.result),
         onDismiss = onDismiss,
-    ) { white, black, event ->
-        model.editGameDetails(white, black, event)
+    ) { white, black, event, result ->
+        model.editGameDetails(white, black, event, result)
         onDismiss()
     }
 }
