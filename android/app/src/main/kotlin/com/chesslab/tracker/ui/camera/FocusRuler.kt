@@ -25,6 +25,12 @@ import kotlin.math.roundToInt
 private val TICK_PITCH = 10.dp
 private val RULER_HEIGHT = 78.dp
 
+/** The four tick heights, longest to shortest: the centre mark, every tenth, every fifth, the rest. */
+private val TICK_SELECTED = 56.dp
+private val TICK_MAJOR = 42.dp
+private val TICK_MEDIUM = 30.dp
+private val TICK_MINOR = 20.dp
+
 /**
  * A controlled horizontal wheel picker for focus. It follows the interaction model of a wheel
  * picker (scrolling marks through a fixed centre) but retains camera-specific 0.1-percent steps
@@ -90,10 +96,10 @@ private fun FocusTick(
     val medium = index % 5 == 0
     val height =
         when {
-            selected -> 56.dp
-            major -> 42.dp
-            medium -> 30.dp
-            else -> 20.dp
+            selected -> TICK_SELECTED
+            major -> TICK_MAJOR
+            medium -> TICK_MEDIUM
+            else -> TICK_MINOR
         }
     val alpha = if (edgeDistance < 4) 0.35f + edgeDistance * 0.16f else 1f
     Canvas(Modifier.width(TICK_PITCH).height(RULER_HEIGHT).alpha(alpha)) {

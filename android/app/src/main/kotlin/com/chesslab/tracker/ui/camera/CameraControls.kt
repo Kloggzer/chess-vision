@@ -35,6 +35,7 @@ import com.chesslab.tracker.camera.CameraAbilities
 import com.chesslab.tracker.camera.CameraLook
 import com.chesslab.tracker.camera.WhiteBalance
 import com.chesslab.tracker.ui.theme.Space
+import com.chesslab.tracker.ui.theme.Touch
 import kotlinx.coroutines.delay
 
 /**
@@ -228,7 +229,7 @@ private fun DialNudge(
     FilledTonalButton(
         onClick = onClick,
         enabled = enabled,
-        modifier = Modifier.size(48.dp),
+        modifier = Modifier.size(Touch.min),
         contentPadding =
             androidx.compose.foundation.layout
                 .PaddingValues(0.dp),
