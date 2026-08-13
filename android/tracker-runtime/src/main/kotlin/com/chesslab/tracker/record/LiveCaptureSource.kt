@@ -23,6 +23,13 @@ class LiveCaptureSource(
     // The calibration profile's own source size.
     private val profileSize: () -> Pair<Int, Int>?,
 ) : CaptureSource {
+    override fun sessionFrame(): CaptureFrame? {
+        val mat = frame() ?: return null
+        val (width, height) = mat.cols() to mat.rows()
+        mat.release()
+        return CaptureFrame(width, height, floatArrayOf(), FrameWriter { 0L })
+    }
+
     override fun grab(): CaptureFrame? {
         val quad = corners() ?: return null
         val mat = frame() ?: return null

@@ -342,4 +342,17 @@ class CommitTest {
         assertEquals(2, engine.state.confirmer.count)
         assertTrue(engine.state.confirmer.feed("e2e4"), "confirmFrames = 3 confirms on the third feed")
     }
+
+    @Test
+    fun updateConfigDropsReferenceWhenDetectionPlaneSizeChanges() {
+        val config = detectConfig()
+        val engine = TrackerEngine(config)
+        engine.state.refGray = grayFrame()
+        engine.state.refFen = engine.state.board.fen()
+
+        engine.updateConfig(config.copy(boardSize = config.boardSize / 2))
+
+        assertNull(engine.state.refGray)
+        assertEquals(STATE_WAITING, engine.state.state)
+    }
 }

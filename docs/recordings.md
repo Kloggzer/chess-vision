@@ -50,6 +50,7 @@ otherwise decide is the same one the labels are meant to train.
 | `2026-08-07 13-52-38.mp4` | game | fixed | yes | = `rec-20260807-135238`, the 25-ply scored clip. |
 | `2026-08-08 00-39-57.mp4` | game | fixed | yes | = `rec-20260808-003957`. |
 | `2026-08-08 11-59-12.mp4` | game | fixed | yes | = `rec-20260808-115912`. |
+| `VID_20260812_112853.mp4` | `rnbqkb1r/ppp1pppp/5n2/3p4/3PP3/2N5/PPP2PPP/R1BQKBNR` | turntable | no | Position from the preceding tracked game: `1. d4 d5 2. Nc3 Nf6 3. e4`. 1080p, 199 s. Kotlin `rectify` sampled 20/20 frames (every 300), none missed; mean worst square offset 1.75 px. Lens fit was rejected, so use the raw per-frame geometry path. |
 
 Unclassified, measured but not yet confirmed by a human: `2026-08-08 11-53-53`, `11-55-19`,
 `11-57-07`, `VID_20260726_155132`, `VID_20260726_233432`, `VID_20260727_124440`,

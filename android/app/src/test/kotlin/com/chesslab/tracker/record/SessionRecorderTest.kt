@@ -89,4 +89,15 @@ class SessionRecorderTest {
         assertEquals(1, result.frames)
         assertEquals(2048L, result.bytes)
     }
+
+    @Test
+    fun videoMetadataIsWrittenWithoutChangingTheSliceLog() {
+        val rec = recorder()
+        rec.updateVideo(SessionVideoMeta(2560, 1440, 12_000_000_000L, 42_000_000L))
+        val yaml = File(rec.dir, "session.yaml").readText()
+        assertTrue(yaml.contains("video_file: video.mp4"))
+        assertTrue(yaml.contains("video_size: [2560, 1440]"))
+        assertTrue(yaml.contains("video_duration_ns: 12000000000"))
+        assertEquals("", File(rec.dir, "log.jsonl").readText())
+    }
 }

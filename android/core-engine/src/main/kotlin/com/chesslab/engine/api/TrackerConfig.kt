@@ -99,6 +99,24 @@ data class TrackerConfig(
     // the only instrument that can settle it. If moves start committing while a hand is still over
     // the board, or a mating move goes missing, this is the knob.
     val motionHoldS: Double = 0.20,
+    /**
+     * The same length of time, for the OCCLUDER instead of the motion — split off `motionHoldS` on
+     * 2026-08-12 so that one of the two can be turned off without the other.
+     *
+     * `motionHoldS` had four readers and only one of them was the settle delay it is named after
+     * and documented as. The other three are the occlusion latch: how long a tainted square holds
+     * (`applyTaints`, `restingHandVeto`), the window in which motion counts as having happened
+     * since the taint (`releaseLatches`, which reconstructs the taint's time as `expiry - hold` and
+     * therefore MUST read the same knob that set it), and the doubled hold after the grid-occlusion
+     * gate clears, whose comment says "never optimise this away" because residual hand pixels
+     * pollute the first detection.
+     *
+     * So `motionHoldS = 0` did not mean "read the move sooner". It also expired every hand taint
+     * the moment it was set, i.e. it disarmed the occlusion veto that was supposed to take over —
+     * the opposite of the experiment anyone would be running by setting it. Same default, same
+     * behaviour, until one of them is deliberately moved.
+     */
+    val occluderHoldS: Double = 0.20,
     val occlusionColorThr: Double = 3.0,
     val minGridLineCoverage: Double = 0.5,
     val diffClaheClip: Double = 2.0,
@@ -126,6 +144,31 @@ data class TrackerConfig(
      * the off position exists so a replay can A/B the gate, not because off is a candidate.
      */
     val gridHandGate: Boolean = true,
+    /**
+     * EXPERIMENT (2026-08-12, unmeasured until the replay that follows it): commit while the hand
+     * is still in frame, as long as it keeps this many cells of clearance from the move's own
+     * squares. **0 is off and is the shipped behaviour.**
+     *
+     * ONE knob for three gates, because opening any of them alone is measurably the worst of both
+     * worlds — that is the lesson of the same day's distance-rule attempt, which relaxed only the
+     * verify gate: it gave up the safety and unlocked no time at all (65 -> 38 plies, 0 ms earlier),
+     * because the frame loop had already refused to look while the hand moved. The three, in the
+     * order a move meets them:
+     *
+     * 1. `FrameLoop`: motion no longer stops detection outright when the CNN's grid map says WHERE
+     *    the hand is. The motion bookkeeping stays — `requireMotionForMove` still needs it.
+     * 2. `Hypothesis.tooMuchChangeGate`: a hand covers ~8 squares and `maxChanged` is 6, so
+     *    invariant 4 (latched squares COUNT) would refuse every hypothesis formed with a hand on
+     *    the board. Under this knob the latched squares stop counting — the pair path keeps its
+     *    `blockedN == 0` precondition, which is a different question.
+     * 3. `VerifySingle`: the vote is refused only for a hand WITHIN this clearance of the
+     *    candidate's squares, instead of anywhere on the board.
+     *
+     * What it can win is measured and small: 0.60 s median per move (rec-20260808-003957, the time
+     * between the hand leaving the move's squares and the commit). What it risks is the incident
+     * this whole sensor exists for — `g4` fabricated one cell from the hand that caused it.
+     */
+    val handTolerantCells: Int = 0,
     /**
      * Distinct desync observations after which an unreconcilable conflict set raises the alarm
      * even without a move-shaped guess. `0` = off, the way 0 means off for every other knob in

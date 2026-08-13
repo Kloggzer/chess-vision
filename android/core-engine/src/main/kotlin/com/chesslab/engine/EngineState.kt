@@ -76,6 +76,26 @@ internal class EngineState(
         gamutPending = bgr
     }
 
+    /**
+     * The warped detection-plane size changed. A visual baseline from the previous plane is not
+     * comparable with the next frame and must not survive into the detector.
+     */
+    fun discardVisualReference() {
+        refGray = null
+        refBgr = null
+        refFen = null
+        refCorners = null
+        refGamut = null
+        refCensus = null
+        refCensusFor = null
+        curCensus = null
+        curCensusFor = null
+        grayBuf.clear()
+        bgrBuf.clear()
+        cnnSnap = null
+        state = STATE_WAITING
+    }
+
     /** `_ref_census` — cached census codes of [refGray]. */
     var refCensus: ByteArray? = null
 

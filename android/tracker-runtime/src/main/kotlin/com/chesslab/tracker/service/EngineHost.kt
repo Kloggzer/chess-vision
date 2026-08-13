@@ -177,6 +177,7 @@ fun engineHost(
     startFen: String,
     onDecision: (DebugDecision) -> Unit,
     log: TrackerLog = NoopTrackerLog,
+    onState: (String, String, Double) -> Unit = { _, _, _ -> },
     onConfigApplied: (TrackerConfig) -> Unit,
 ): EngineHost {
     // Not gated on the debug switch. A decision row is written at most once per committed or
@@ -187,10 +188,17 @@ fun engineHost(
     // HERE, so a second consumer does not have to re-parse a sentence to count rejections. logcat
     // stays because it is what makes a live look possible over adb, with nothing to export first.
     val engine =
-        TrackerEngine(config, startFen) {
-            log.info(it.toLogLine())
-            onDecision(it)
-        }
+        TrackerEngine(
+            config,
+            startFen,
+            decisionSink = {
+                log.info(it.toLogLine())
+                onDecision(it)
+            },
+            // Unlogged here, unlike the rows above: the caller owns this one, because its channel
+            // is not `chesslabDecision` — that name is move provenance and nothing else, by contract.
+            stateSink = onState,
+        )
     engine.attachCnn(cnn)
     return EngineHost(TrackerEngineOps(engine, onConfigApplied))
 }

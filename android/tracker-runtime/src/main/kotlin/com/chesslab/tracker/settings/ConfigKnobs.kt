@@ -83,12 +83,16 @@ val KNOBS: List<Knob> =
         Knob("alignScale", DOUBLE, { it.alignScale }, { c, v -> c.copy(alignScale = v) }),
         Knob("cornerJumpPx", DOUBLE, { it.cornerJumpPx }, { c, v -> c.copy(cornerJumpPx = v) }),
         Knob("motionHoldS", DOUBLE, { it.motionHoldS }, { c, v -> c.copy(motionHoldS = v) }),
+        // NOT in LIVE_TUNABLE_KEYS: that list is `app.py::_live_tuning_kwargs` verbatim and this
+        // knob has no Python counterpart. It takes a tracker restart, and the catalog says so.
+        Knob("occluderHoldS", DOUBLE, { it.occluderHoldS }, { c, v -> c.copy(occluderHoldS = v) }),
         Knob("occlusionColorThr", DOUBLE, { it.occlusionColorThr }, { c, v -> c.copy(occlusionColorThr = v) }),
         Knob("minGridLineCoverage", DOUBLE, { it.minGridLineCoverage }, { c, v -> c.copy(minGridLineCoverage = v) }),
         Knob("diffClaheClip", DOUBLE, { it.diffClaheClip }, { c, v -> c.copy(diffClaheClip = v) }),
         Knob("requireMotionForMove", BOOL, { bool(it.requireMotionForMove) }, { c, v -> c.copy(requireMotionForMove = v != 0.0) }),
         Knob("cleanCommitsOnly", BOOL, { bool(it.cleanCommitsOnly) }, { c, v -> c.copy(cleanCommitsOnly = v != 0.0) }),
         Knob("gridHandGate", BOOL, { bool(it.gridHandGate) }, { c, v -> c.copy(gridHandGate = v != 0.0) }),
+        Knob("handTolerantCells", INT, { it.handTolerantCells.toDouble() }, { c, v -> c.copy(handTolerantCells = v.toInt()) }),
         Knob("motionRecencyS", DOUBLE, { it.motionRecencyS }, { c, v -> c.copy(motionRecencyS = v) }),
         Knob("commitLlFloor", DOUBLE, { it.commitLlFloor }, { c, v -> c.copy(commitLlFloor = v) }),
         Knob("detectScale", DOUBLE, { it.detectScale }, { c, v -> c.copy(detectScale = v) }),

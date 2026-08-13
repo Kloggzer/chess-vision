@@ -20,8 +20,17 @@ import java.util.concurrent.ConcurrentHashMap
 class AndroidTts(
     context: Context,
     private val onState: (SpeechState) -> Unit,
+    /**
+     * When the utterance handed to `speak` actually became AUDIBLE, in ms since it was queued.
+     *
+     * `speak` returning is not a sound: the engine synthesises first, and the gap between the two
+     * is the only part of "how long until I hear the move" that neither the tracker nor this app
+     * controls. `onStart` is where the audio begins, so it is where the number is.
+     */
+    private val onSpoken: (Long) -> Unit = {},
 ) : Tts {
     private val callbacks = ConcurrentHashMap<String, () -> Unit>()
+    private val queuedAtMs = ConcurrentHashMap<String, Long>()
     private var counter = 0L
     private var ready = false
     private var deferred: (() -> Unit)? = null
@@ -49,7 +58,9 @@ class AndroidTts(
         )
         tts.setOnUtteranceProgressListener(
             object : UtteranceProgressListener() {
-                override fun onStart(utteranceId: String) = Unit
+                override fun onStart(utteranceId: String) {
+                    queuedAtMs.remove(utteranceId)?.let { onSpoken(System.currentTimeMillis() - it) }
+                }
 
                 override fun onDone(utteranceId: String) {
                     callbacks.remove(utteranceId)?.invoke()
@@ -58,6 +69,7 @@ class AndroidTts(
                 // A failed utterance must still free its queue slot, or speech stops forever.
                 @Deprecated("Base class only declares the deprecated overload as abstract.")
                 override fun onError(utteranceId: String) {
+                    queuedAtMs.remove(utteranceId)
                     callbacks.remove(utteranceId)?.invoke()
                 }
             },
@@ -80,6 +92,7 @@ class AndroidTts(
         }
         val id = "u${counter++}"
         callbacks[id] = onDone
+        queuedAtMs[id] = System.currentTimeMillis()
         val mode = if (flush) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
         if (tts.speak(text, mode, null, id) != TextToSpeech.SUCCESS) callbacks.remove(id)?.invoke()
     }
@@ -139,5 +152,14 @@ class AndroidSilence(
     }
 }
 
-/** The composition root's one-liner: a speech engine wired to this device. */
-fun androidSpeechEngine(context: Context): SpeechEngine = SpeechEngine(AndroidSilence(context)) { onState -> AndroidTts(context, onState) }
+/**
+ * The composition root's one-liner: a speech engine wired to this device.
+ *
+ * [onSpoken] receives the synthesis latency of each utterance — see [AndroidTts]. Together with
+ * `MoveAnnouncer`'s own line it closes the last unmeasured leg of "move played -> move heard":
+ * the replay measures the board up to the commit, this measures the commit up to the sound.
+ */
+fun androidSpeechEngine(
+    context: Context,
+    onSpoken: (Long) -> Unit = {},
+): SpeechEngine = SpeechEngine(AndroidSilence(context)) { onState -> AndroidTts(context, onState, onSpoken) }

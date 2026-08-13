@@ -144,6 +144,7 @@ private fun CameraScreen(
     var open by remember { mutableStateOf<CameraAxis?>(null) }
     var chrome by remember { mutableStateOf(true) }
     var fill by remember { mutableStateOf(false) }
+    val focusPreview = open == CameraAxis.FOCUS
     val scope = rememberCoroutineScope()
     val board = rememberBoardModel(host, scope)
     board.onAdopted = { p -> host.onCalibrated(p.geometry(), p.corners, p.name) }
@@ -162,7 +163,9 @@ private fun CameraScreen(
                 if (open != null) open = null else chrome = !chrome
             },
     ) {
-        Viewfinder(preview, rotation, fill = fill) {
+        // Focusing is judged from detail, not from whether the whole board fits. Give it the same
+        // magnified view as the explicit Fill mode while the focus panel is open.
+        Viewfinder(preview, rotation, fill = fill || focusPreview, magnification = if (focusPreview) FOCUS_PREVIEW_ZOOM else 1f) {
             // The live outline is the aiming instrument; the saved quad answers a different question
             // ("has it drifted since last time") and only shows with the rest of the chrome.
             BoardOutline(boardState)
@@ -184,7 +187,7 @@ private fun CameraScreen(
         AnimatedVisibility(chrome, Modifier.align(Alignment.BottomCenter), enter = fadeIn(), exit = fadeOut()) {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                 BoardDeck(boardState)
-                LookDeck(look, abilities, saved, fill, open, { open = it }, torchOn, hasTorch, onTorch, viewModel)
+                LookDeck(look, abilities, saved, fill || focusPreview, open, { open = it }, torchOn, hasTorch, onTorch, viewModel)
             }
         }
     }
@@ -240,6 +243,7 @@ private fun BoxScope.Viewfinder(
     preview: Bitmap?,
     rotationDegrees: Int,
     fill: Boolean,
+    magnification: Float,
     overlay: @Composable BoxScope.() -> Unit,
 ) {
     SourceFramedPreview(
@@ -249,6 +253,7 @@ private fun BoxScope.Viewfinder(
         sourceHeight = preview?.height ?: 0,
         modifier = Modifier.matchParentSize(),
         fill = fill,
+        magnification = magnification,
         empty = { Text("no camera frame yet", color = Chrome.onSurfaceMuted) },
         overlay = overlay,
     )
@@ -388,11 +393,12 @@ private fun FocusPanel(
         onSelect = { manual -> onLook(look.copy(focus = if (manual) DEFAULT_FOCUS else null)) },
     )
     look.focus?.let { focus ->
-        CameraDial(
+        FocusRuler(
             caption = "Near ← → Far",
             reading = CameraAxis.FOCUS.reading(look, abilities),
             value = 1f - focus,
             range = 0f..1f,
+            step = 0.001f,
             onValue = { onLook(look.copy(focus = 1f - it)) },
         )
     }
@@ -411,6 +417,7 @@ private fun ZoomPanel(
         reading = CameraAxis.ZOOM.reading(look, abilities),
         value = look.zoomRatio,
         range = range,
+        step = 0.1f,
         onValue = { onLook(look.copy(zoomRatio = it)) },
     )
     if (look.zoomRatio != 1f) {
@@ -431,6 +438,7 @@ private fun ExposurePanel(
         reading = CameraAxis.EXPOSURE.reading(look, abilities),
         value = look.evIndex.toFloat(),
         range = exposure.indices.first.toFloat()..exposure.indices.last.toFloat(),
+        step = 1f,
         onValue = { onLook(look.copy(evIndex = it.toInt())) },
     )
 }
@@ -450,6 +458,8 @@ private fun WhiteBalancePanel(
 }
 
 private const val PANEL_CORNER = 14
+
+private const val FOCUS_PREVIEW_ZOOM = 2.5f
 
 /** Manual focus opens at the far end: a board is metres away, not centimetres. */
 private const val DEFAULT_FOCUS = 0f

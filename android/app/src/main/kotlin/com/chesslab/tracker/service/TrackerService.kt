@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.os.IBinder
+import android.os.SystemClock
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.chesslab.engine.api.STARTPOS
@@ -33,6 +34,10 @@ import com.chesslab.tracker.pipeline.CameraRate
 import com.chesslab.tracker.pipeline.PERF_TAG
 import com.chesslab.tracker.pipeline.StageTimings
 import com.chesslab.tracker.pipeline.cameraStages
+import com.chesslab.tracker.record.RecordingBundleHost
+import com.chesslab.tracker.record.RecordingHooks
+import com.chesslab.tracker.record.RecordingSettings
+import com.chesslab.tracker.record.TimelineFrame
 import com.chesslab.tracker.runtime.AppPaths
 import com.chesslab.tracker.settings.AppSettings
 import com.chesslab.tracker.settings.SettingsHost
@@ -54,6 +59,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.io.File
 
 private const val PREVIEW_MAX_SIDE = 640
 
@@ -89,6 +95,8 @@ class TrackerService :
     private lateinit var speech: MoveAnnouncer
     private lateinit var games: GameSessionController
     private lateinit var diagnostics: DiagnosticsLog
+    private lateinit var recordingSettings: RecordingSettings
+    private lateinit var recording: RecordingBundleHost
 
     /** Read once: `PackageManager` is a binder call and the answer cannot change under us. */
     private val host by lazy { androidHostIdentity(this) }
@@ -118,7 +126,14 @@ class TrackerService :
                     ::geometry,
                     corners,
                     publisher.lastFen ?: STARTPOS,
-                    diagnostics::offer,
+                    {
+                        diagnostics.offer(it)
+                        recording.decision(it)
+                    },
+                    { from, to, tsS ->
+                        diagnostics.state(from, to, tsS)
+                        recording.state(from, to, tsS)
+                    },
                     androidTrackerLogs,
                     ::cameraStages,
                 ),
@@ -277,6 +292,7 @@ class TrackerService :
         games.endAndSave()
         // Reverse construction order: nothing may deliver a frame into a closed pipeline.
         speech.close()
+        recording.close()
         camera.close()
         stacks.close()
         frames.close()
@@ -286,6 +302,7 @@ class TrackerService :
     }
 
     /** The long-lived half. Nothing here is rebuilt by a restart — see the class doc. */
+    @Suppress("LongMethod")
     private fun wireSession() {
         publisher = StatusPublisher(lifecycleScope, timings, cameraRate)
         // Before the stack, which is wired to its sink at construction. Session-lived on purpose:
@@ -299,16 +316,34 @@ class TrackerService :
             stacks.current?.host?.submit(EngineAction.UpdateConfig(onMeasuredBoard(settings.config.value, geometry)))
         }
         camera =
-            TrackerCamera(this, cameraRequestFor(settings.appSettings.value.resolutionMode), { image, delivered ->
-                binder.deliveredSize = delivered
-                publisher.cameraHealth = camera.cameraState.value
-                // Here, not in the coordinator: this is the last point that sees EVERY delivered
-                // frame, including the ones dropped below while a restart swaps the stack.
-                publisher.onCameraFrame()
-                // Dropped, not queued, while a restart swaps the stack: `StackSwitch` detaches
-                // before it closes, so this is the window in which there is nothing to run.
-                stacks.current?.coordinator?.onFrame(image, delivered)
-            })
+            TrackerCamera(
+                this,
+                cameraRequestFor(settings.appSettings.value.resolutionMode),
+                { image, delivered ->
+                    binder.deliveredSize = delivered
+                    publisher.cameraHealth = camera.cameraState.value
+                    // Here, not in the coordinator: this is the last point that sees EVERY delivered
+                    // frame, including the ones dropped below while a restart swaps the stack.
+                    publisher.onCameraFrame()
+                    // Dropped, not queued, while a restart swaps the stack: `StackSwitch` detaches
+                    // before it closes, so this is the window in which there is nothing to run.
+                    stacks.current?.coordinator?.onFrame(image, delivered)
+                    recording.frame(
+                        TimelineFrame(
+                            image.imageInfo.timestamp,
+                            SystemClock.elapsedRealtimeNanos(),
+                            System.currentTimeMillis(),
+                            delivered.width,
+                            delivered.height,
+                            delivered.rotationDegrees,
+                            publisher.lastFen,
+                            publisher.status.value,
+                            publisher.corners,
+                        ),
+                    )
+                },
+                onVideoAvailability = { size, error -> recording.videoAvailability(size, error) },
+            )
         frames =
             CameraFrameBus<Bitmap>(
                 camera.cameraState,
@@ -332,18 +367,40 @@ class TrackerService :
         TrackerRestartHost.publish(binder)
         // 08c: speech collects the same events off `Dispatchers.Default`; it opens no speech engine
         // until an announcement is actually due, so it costs nothing while disabled.
-        speech = MoveAnnouncer(lifecycleScope, androidSpeechEngine(this), settings).also { it.attach(publisher.events) }
+        // `chesslabSpeech`: one line when a commit is handed to the speaker, one when that
+        // utterance becomes audible. The two ends of the leg the replay cannot see.
+        val speechLog = androidTrackerLogs("chesslabSpeech")
+        speech =
+            MoveAnnouncer(
+                lifecycleScope,
+                androidSpeechEngine(this) { speechLog.info("audible after $it ms") },
+                settings,
+            ) { san, queuedMs -> speechLog.info("queued $san in $queuedMs ms") }
+                .also { it.attach(publisher.events) }
         cnnProbe.observations = { stacks.current?.observations ?: 0L }
         // Pulled like the other two: the geometry moves on every calibration and the panel must
         // show the box the crops are being cut with NOW, not the one they were cut with at wiring.
         cnnProbe.crop = { cropLine(modelSpec, geometry) }
         // 08a's recorder, in the SESSION half: it must outlive both the UI and a tracker restart.
-        games = wireGameSession(AppPaths(filesDir), RecordingSettingsHost.get(this), lifecycleScope, frames, publisher, calibration)
+        recordingSettings = RecordingSettingsHost.get(this)
+        recording = RecordingBundleHost(camera, recordingSettings, File(filesDir, "sessions"), lifecycleScope)
+        games =
+            wireGameSession(
+                AppPaths(filesDir),
+                recordingSettings,
+                lifecycleScope,
+                frames,
+                publisher,
+                calibration,
+                RecordingHooks(recording::opened, { recording.finished() }, { camera.videoFailure }),
+            )
+        GameSessionHost.publish(games)
     }
 
     /** Persisted truth first, then the stack, then the camera — a frame with no stack is wasted. */
     private suspend fun start() {
         settings.awaitLoaded()
+        camera.setVideoEnabled(recordingSettings.load().enabled)
         // The saved picture, straight onto the camera. The port holds it as a WANT even before a
         // device is bound and re-asserts it on every rebind, so this is the only place the stored
         // value has to be handed over.
@@ -357,6 +414,7 @@ class TrackerService :
         camera.retarget(cameraRequestFor(settings.appSettings.value.resolutionMode))
         camera.bind(this)
         publisher.events.onEach(::onEvent).launchIn(lifecycleScope)
+        recordingSettings.prefs.onEach { camera.setVideoEnabled(it.enabled) }.launchIn(lifecycleScope)
         settings.debugEnabled.onEach { if (it) setDebugEnabled(true) }.launchIn(lifecycleScope)
     }
 
@@ -443,6 +501,7 @@ class TrackerService :
     }
 
     private fun onEvent(event: TrackerEvent) {
+        recording.event(event)
         // An alarmed engine blocks every commit, so a notification re-posted only on a committed
         // move freezes at the moment things went wrong and never mentions it — while the app is in
         // the background, which is precisely when it is the only channel left. `StatusPublisher`

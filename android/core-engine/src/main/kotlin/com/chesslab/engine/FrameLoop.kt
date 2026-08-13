@@ -112,7 +112,13 @@ internal class FrameLoop(
         updateFps()
         updateMotion(input)
         updateBaselineOcclusion(input)
-        return if (state.motion > cfg.motionThr) motionBranch(input) else stableBranch(input)
+        return when {
+            state.motion <= cfg.motionThr -> stableBranch(input)
+            // EXPERIMENT (`handTolerantCells`): motion the grid map can LOCATE as a hand no longer
+            // stops detection — the per-square vetoes downstream decide what that hand costs.
+            state.locatedHand() != 0L -> throughLocatedHand(input)
+            else -> motionBranch(input)
+        }
     }
 
     /** Display only, but it is state and it is part of the loop's order. */
@@ -149,6 +155,15 @@ internal class FrameLoop(
     private fun updateBaselineOcclusion(input: FrameInput) {
         val ref = state.refGray
         val cfg = state.config
+        // A calibration/profile update can replace the detection plane while an earlier baseline is
+        // still live. Comparing pixels from two differently sized warps is meaningless and used to
+        // throw here, which made the camera source drop every following frame. Drop the visual
+        // reference and let the normal stable-frame path establish a fresh one on this geometry.
+        if (ref != null && (ref.width != input.grayDet.width || ref.height != input.grayDet.height)) {
+            state.discardVisualReference()
+            state.note = NOTE_WAITING_CLEAR
+            return
+        }
         if (ref != null && state.state != STATE_WAITING && state.state != STATE_MOVE) {
             val result =
                 state.baselineScratch.baselineOcclusionAndShadow(
@@ -176,6 +191,19 @@ internal class FrameLoop(
         state.motionOccluded = live
         state.occludedVetoed = live
         state.expireStalledVerify()
+    }
+
+    /**
+     * The experiment's branch: `motionBranch`'s bookkeeping without the two lines that END the
+     * frame — the buffers survive (there is nothing to diff without them) and no `Skip` is
+     * returned. `requireMotionForMove` still has to see this frame as motion, or the commit it
+     * protects would be refused as drift.
+     */
+    private fun throughLocatedHand(input: FrameInput): FrameOutcome {
+        state.motionSinceRef = true
+        state.lastMotionTs = state.nowS
+        state.holdUntil = state.nowS + state.config.motionHoldS
+        return stableBranch(input)
     }
 
     /** Hand or camera moving: discard the buffers, hold detection off. */
@@ -219,7 +247,7 @@ internal class FrameLoop(
                     // buffers, or residual hand pixels (half-shadows, the averaging mix) pollute
                     // the first detection after occlusion. Never "optimise" this away.
                     state.occlGridActive = false
-                    state.holdUntil = max(state.holdUntil, state.nowS + state.config.motionHoldS)
+                    state.holdUntil = max(state.holdUntil, state.nowS + state.config.occluderHoldS)
                     state.grayBuf.clear()
                     state.bgrBuf.clear()
                     ready = false

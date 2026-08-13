@@ -24,6 +24,14 @@ data class SessionResult(
     val bytes: Long,
 )
 
+data class SessionVideoMeta(
+    val width: Int,
+    val height: Int,
+    val durationNs: Long,
+    val bytes: Long,
+    val error: String? = null,
+)
+
 /**
  * Writes the frame. A seam because encoding a camera frame is OpenCV/Android work and the
  * recorder's rules — which capture is written, which is skipped, which is taken back — must be
@@ -64,6 +72,7 @@ class SessionRecorder(
     private val framesDir = File(dir, "frames")
     private val logFile = File(dir, "log.jsonl")
     private val entries = mutableListOf<LogEntry>()
+    private var video: SessionVideoMeta? = null
 
     val sessionId: String get() = meta.sessionId
     val count: Int get() = entries.size
@@ -120,6 +129,12 @@ class SessionRecorder(
         return SessionResult(meta.sessionId, entries.size, bytes)
     }
 
+    @Synchronized
+    fun updateVideo(value: SessionVideoMeta) {
+        video = value
+        writeSessionYaml()
+    }
+
     private fun writeSessionYaml() {
         val yaml =
             buildString {
@@ -131,6 +146,13 @@ class SessionRecorder(
                 // claim these frames came from the rig's first camera.
                 appendLine("camera_index: -1")
                 appendLine("frame_size: [${meta.frameWidth}, ${meta.frameHeight}]")
+                video?.let {
+                    appendLine("video_file: video.mp4")
+                    appendLine("video_size: [${it.width}, ${it.height}]")
+                    appendLine("video_duration_ns: ${it.durationNs}")
+                    appendLine("video_bytes: ${it.bytes}")
+                    it.error?.let { error -> appendLine("video_error: '${error.replace("'", "''")}'") }
+                }
                 appendLine("notes: '${meta.notes.replace("'", "''")}'")
             }
         File(dir, "session.yaml").writeText(yaml)

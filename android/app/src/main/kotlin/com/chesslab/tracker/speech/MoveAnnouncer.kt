@@ -23,6 +23,13 @@ class MoveAnnouncer(
     private val scope: CoroutineScope,
     private val speaker: Speaker,
     private val settings: SettingsRepository,
+    /**
+     * How long the commit waited here before it was handed to the speaker, in ms — the app's own
+     * share of "move played -> move heard". The engine's share is the frame loop's state timeline
+     * (`chesslabState`) and the speech engine's share is the utterance's synthesis latency; this is
+     * the piece in between, and without it the three could not be added up.
+     */
+    private val onQueued: (String, Long) -> Unit = { _, _ -> },
 ) {
     private var latched: String? = null
     private var job: Job? = null
@@ -43,7 +50,11 @@ class MoveAnnouncer(
             is TrackerEvent.Alarm -> onAlarm(event, app)
             is TrackerEvent.AlarmCleared -> onCleared(app)
             is TrackerEvent.MoveCommitted ->
-                if (latched == null) speaker.say(phrase(event.san, ply(event.fenAfter), app))
+                if (latched == null) {
+                    val started = System.currentTimeMillis()
+                    speaker.say(phrase(event.san, ply(event.fenAfter), app))
+                    onQueued(event.san, System.currentTimeMillis() - started)
+                }
             is TrackerEvent.SequenceCommitted -> onSequence(event, app)
             // Stuck, Note, ReAnchored and PromotionPending are screen business, not speech.
             else -> Unit

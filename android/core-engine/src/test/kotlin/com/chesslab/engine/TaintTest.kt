@@ -183,6 +183,38 @@ class TaintTest {
         assertFalse(state.tainted.has(Squares.index("f5")), "release path B (evidence back to baseline)")
     }
 
+    /**
+     * Turning the settle wait off must not turn the occlusion latch off with it.
+     *
+     * `motionHoldS` had four readers and only one was the wait it is named after; the other three
+     * were this latch — how long a taint holds, and the window in which motion counts as having
+     * happened since it. Setting the wait to zero to read moves sooner therefore expired every hand
+     * taint the instant it was set, disarming the veto that is supposed to carry the load. The two
+     * are separate knobs now, and this is the test that keeps them separate.
+     */
+    @Test
+    fun theOcclusionLatchKeepsItsHoldWhenTheSettleWaitIsOff() {
+        val state = EngineState(testConfig(boardSize = BOARD).copy(motionHoldS = 0.0), STARTPOS, whitePov = true)
+        state.nowS = 100.0
+        // Three squares: without a CNN snapshot the filter falls back to the size heuristic.
+        state.motionOccluded = ofSquares("e3", "e4", "e5")
+        state.setZ("e3", "e4", "e5")
+
+        state.applyTaints()
+        assertEquals(ofSquares("e3", "e4", "e5"), state.tainted, "the hand latches")
+
+        // A frame later, with motion still fresh: under one shared knob the taint would already be
+        // expired (`nowS > nowS + 0.0`) and released on the motion arm.
+        state.nowS += 0.1
+        state.lastMotionTs = state.nowS
+        state.motionOccluded = 0L
+        state.setZ("e3", "e4", "e5")
+        state.applyTaints()
+
+        assertEquals(ofSquares("e3", "e4", "e5"), state.tainted, "and holds for occluderHoldS, not for motionHoldS")
+        state.assertZeroed("e3", "e4", "e5")
+    }
+
     /** `test_stale_snapshot_does_not_taint` — an old observation says nothing about this frame. */
     @Test
     fun staleSnapshotFallsBackToHeuristic() {

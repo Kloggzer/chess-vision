@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.chesslab.engine.api.TrackerEvent
+import com.chesslab.tracker.log.TrackerLog
+import com.chesslab.tracker.log.androidTrackerLogs
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,6 +26,8 @@ import kotlinx.coroutines.launch
  * current.
  */
 class TrackingViewModel : ViewModel() {
+    private val drawLatency = DrawLatency(androidTrackerLogs("chesslabUi"))
+
     private var session: TrackerSession = NoTrackerSession
     private val jobs = mutableListOf<Job>()
 
@@ -108,6 +112,7 @@ class TrackingViewModel : ViewModel() {
                     // start position. It is still the ONE source the board draws from.
                     statusState.value = published ?: idleTrackerStatus(statusState.value.fen)
                     render()
+                    published?.fen?.let(drawLatency::drew)
                 }
             }
         jobs += session.events.onEach(::onEvent).launchIn(viewModelScope)
@@ -139,6 +144,7 @@ class TrackingViewModel : ViewModel() {
     private fun onEvent(event: TrackerEvent) {
         commitSans(event).takeIf { it.isNotEmpty() }?.let { lastCommitState.value = it }
         promotionState.value = promotionAfter(promotionState.value, event)
+        drawLatency.committed(fenAfter(event))
     }
 
     fun onUndo() {
@@ -209,5 +215,32 @@ class TrackingViewModel : ViewModel() {
     override fun onCleared() {
         jobs.forEach { it.cancel() }
         jobs.clear()
+    }
+}
+
+/**
+ * How long after a commit the board actually shows it.
+ *
+ * The screen renders from `status`, which the service SAMPLES (`STATUS_SAMPLE_MS`), while the commit
+ * arrives on the event flow — two clocks, and the gap between them is the last leg of "move played
+ * -> move seen" that nothing measured. The replay can see the board up to the commit and no
+ * further; this is the rest, and it only exists on a device.
+ *
+ * One line per commit on `chesslabUi`, cleared as soon as the position is drawn.
+ */
+private class DrawLatency(
+    private val log: TrackerLog,
+) {
+    private var awaited: Pair<String, Long>? = null
+
+    fun committed(fen: String?) {
+        awaited = fen?.let { it to System.currentTimeMillis() }
+    }
+
+    fun drew(fen: String) {
+        val (wanted, since) = awaited ?: return
+        if (fen != wanted) return
+        awaited = null
+        log.info("board drew the commit after ${System.currentTimeMillis() - since} ms")
     }
 }

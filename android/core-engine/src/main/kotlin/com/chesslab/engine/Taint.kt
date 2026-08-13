@@ -2,6 +2,7 @@ package com.chesslab.engine
 
 import com.chesslab.engine.api.CnnObservation
 import com.chesslab.engine.api.CnnSnapshot
+import kotlin.math.abs
 
 /**
  * Maximum age of a CNN snapshot that may still arbitrate an occlusion (`_OBS_MAX_AGE_S`). Older
@@ -39,7 +40,7 @@ internal fun EngineState.applyTaints() {
         cnnOcclusionFilter(motionOccluded).forEachSquare { i ->
             lastZ[i] = 0.0
             tainted = tainted.with(i)
-            taintExpiry[i] = nowS + config.motionHoldS
+            taintExpiry[i] = nowS + config.occluderHoldS
         }
     }
     restingHandVeto()
@@ -112,6 +113,14 @@ internal fun EngineState.handInFrame(): Boolean {
  * no temporal extension (the user's call of 2026-08-10; the labeling deadzone is the exporter's
  * business, not this gate's).
  *
+ * A DISTANCE rule is measured and rejected too (2026-08-12): let the vote through when the hand
+ * keeps 3 cells of clearance from the candidate's own squares, since the map already says where the
+ * hand is. On rec-20260808-003957 that scores 38 found / 29 missed / 1 invented against this gate's
+ * 65 / 2 / 2, and the one invented ply is `g4` at frame 5421 — this sensor's founding incident, at
+ * its own frame, with the rest of the game lost behind the desync it causes. It also buys nothing:
+ * over the 38 plies it keeps, the commit frames are identical to this gate's. The gate is board-wide
+ * because a hand two squares from a move is still a hand over the evidence for it.
+ *
  * Both rejected alternatives are measured, on opposite videos. Counting ANY flag: one square
  * (c8, a piece leaning over its own grooves) reads flagged on 73 % of VID_20260802_222741's
  * frames and blanked that whole replay to ZERO plies. A plain count threshold of 3: the LEAVING
@@ -125,6 +134,40 @@ internal fun EngineState.gridHandSquares(snap: CnnSnapshot): Long {
     var paired = false
     squares.forEachSquare { if ((SQ_NEIGHBOURS[it] and squares) != 0L) paired = true }
     return if (paired) squares else 0L
+}
+
+/**
+ * Where the hand is, if a fresh observation can say so — the experiment's precondition.
+ *
+ * `handTolerantCells` lets detection continue through motion, and it may only do that when the
+ * motion can be LOCATED. A stale or absent snapshot, or flags that are not hand-shaped, means the
+ * engine does not know what is moving, and then the old rule stands.
+ */
+internal fun EngineState.locatedHand(): Long {
+    if (config.handTolerantCells <= 0) return 0L
+    val snap = freshSnapshot() ?: return 0L
+    return gridHandSquares(snap)
+}
+
+/**
+ * Is the located hand within `handTolerantCells` of [squares], in king-move distance?
+ *
+ * An empty hand map is not near anything: the caller has already decided what an unlocatable hand
+ * means, and it is never "carry on".
+ */
+internal fun EngineState.handNear(
+    hand: Long,
+    squares: Long,
+): Boolean {
+    val clear = config.handTolerantCells
+    if (hand == 0L || squares == 0L || clear <= 0) return false
+    var near = false
+    squares.forEachSquare { s ->
+        hand.forEachSquare { h ->
+            if (maxOf(abs(s % Squares.N - h % Squares.N), abs(s / Squares.N - h / Squares.N)) < clear) near = true
+        }
+    }
+    return near
 }
 
 /** Any square whose `occluded` class dominates — the observer's own hand report. */
@@ -177,7 +220,7 @@ internal fun EngineState.cnnConfirmedUnchanged(candidates: Long): Long {
  */
 private fun EngineState.restingHandVeto() {
     val obs = freshSnapshot()?.obs ?: return
-    val expiry = nowS + config.motionHoldS
+    val expiry = nowS + config.occluderHoldS
     for (i in 0 until Squares.COUNT) {
         if (obs.pOccluded(Squares.ALL[i]) > P_OCCLUDED_THR) {
             lastZ[i] = 0.0
@@ -199,7 +242,7 @@ private fun EngineState.restingHandVeto() {
  * outlived the 0.4 s timer and surfaced as "change".
  */
 private fun EngineState.releaseLatches() {
-    val hold = config.motionHoldS
+    val hold = config.occluderHoldS
     tainted.forEachSquare { i ->
         val exp = taintExpiry[i]
         val motionSinceTaint = lastMotionTs >= exp - hold
@@ -213,7 +256,7 @@ private fun EngineState.releaseLatches() {
 }
 
 /** The cached observation, or `null` when there is none or it is older than [OBS_MAX_AGE_S]. */
-private fun EngineState.freshSnapshot() = cnnSnap?.takeIf { nowS - it.tsMs / MS_PER_S <= OBS_MAX_AGE_S }
+internal fun EngineState.freshSnapshot() = cnnSnap?.takeIf { nowS - it.tsMs / MS_PER_S <= OBS_MAX_AGE_S }
 
 /** `{sq for sq, exp in expiry.items() if now < exp}` — an unset slot is 0.0 and never live. */
 internal fun EngineState.liveExpiry(expiry: DoubleArray): Long {

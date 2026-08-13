@@ -258,6 +258,21 @@ class FrameLoopTest {
         assertEquals(HALF_SCALE_DET, ref.height)
     }
 
+    @Test
+    fun staleBaselineAtAnotherPlaneSizeIsDiscardedInsteadOfDroppingFrames() {
+        val h = Harness()
+        h.state.refGray = grayFrame(boardSize = TEST_BOARD_SIZE / 2)
+        h.state.refFen = h.state.board.fen()
+        h.state.state = STATE_MOVING
+
+        val outcome = h.feed(motionRoi = 5.0)
+
+        assertEquals(FrameOutcome.Skip(SKIP_MOVING), outcome)
+        assertNull(h.state.refGray)
+        assertEquals(STATE_MOVING, h.state.state, "the current moving frame still arms the normal motion hold")
+        assertEquals(NOTE_WAITING_CLEAR, h.state.note)
+    }
+
     /** `:1596-1600` — the FPS EMA seeds with the first measurable interval. */
     @Test
     fun fpsIsAnEmaOverTheLoopRate() {
