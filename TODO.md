@@ -6,6 +6,14 @@
 
 ## Next up (agreed, not started)
 
+- **Datensatz-Qualität per Zwei-Hälften-Kreuztest** (User, 2026-08-15: *"2 halbe Modelle die die
+  andere Hälfte testen, dann die Flags nochmal nachlabeln"*). Korpus in zwei Session-Hälften
+  teilen, je ein Modell pro Hälfte trainieren, jedes proposed auf der FREMDEN Hälfte — nie
+  zirkulär, per Konstruktion. Die Disagreements Modell-vs-Label sind die Nachlabel-Flags.
+  Voraussetzungen liegen seit heute: `check_not_circular` sieht durch Varianten-Präfixe
+  (`occ-rg-…`), der Proposer bekommt `--model`, und Proposals tragen `probs`. Interim bis dahin:
+  Modell-Rotation pro Session (erstes nicht-zirkuläres Modell aus einer Präferenzliste).
+
 - **Der Vorlauf kam mit ~1,4 s statt 20 s an** (gemessen am Handy 2026-08-14, Session
   `20260814-142947`). Rechnung: Commit (Verzeichnis) 14:29:47.998, Segment 0 geschlossen
   14:30:47.154 → 59,2 s Wanduhr, `mvhd`-Dauer 60,6 s, also ~1,4 s vor dem Commit — ziemlich genau
@@ -31,17 +39,32 @@
   Grid-Arm die ruhende Hand bezeugt. A/B über Replays desselben Videos (`set:modelHandGate=…`).
   Offen bleibt das MODELL selbst (Kopf neu kalibrieren oder 13c + Grid-Arm als Default).
 
-- **Der Engine-Log schweigt an der Quiet-Kante** (2026-08-14, aus der Live-vs-Replay-Jagd): wenn
-  der Diff-Pfad gar keinen Kandidaten formt, entsteht KEINE Decision-Zeile — ein Replay, das an
-  einer Stelle nichts committet, wo das Handy etwas sah, ist im Log unsichtbar statt erklärbar.
-  Nächster Hebel für die Replay-Parität: eine Zeile (oder ein Zähler), wenn ein Frame mit
-  `changed != 0` ohne Hypothese endet.
+### Erledigt 2026-08-14 (Abend, Agenten-Runde) — was es gemessen hat
 
-- **`config=<file>` Replay-Option ist verplombt, aber falsch verdrahtet** (gemessen 2026-08-14,
-  Drei-Läufe-Diskriminator: All-Defaults-Envelope ≠ kein config — 4 Commits/350 Rejects vs 8
-  Commits auf demselben Video). Evidenz in scratchpad `parity-phonecfg.log` / `parity-align3.log`
-  / `parity-noboard.log`. Der Agent, der es fixen sollte, wurde gestoppt; der Bug gehört wieder
-  hierher.
+- **Session-Dateien verlieren nicht mehr still.** `SessionCapture` zählt überschriebene
+  Pending-Fotos (`supersededFrames`, Nc6/Nf3-Vorfall) und sagt es in `reason`;
+  `RecordingBundleHost` puffert die EINE Decision-Zeile, die die Session erst erzeugt, und
+  reicht sie in die frische Timeline nach (Ply 1 fehlte in beiden Abend-Sessions). Referenzen
+  sind ab jetzt trotzdem als Union aus `log.jsonl` + `timeline.jsonl` zu lesen — die Timeline
+  trägt jeden Commit mit SAN und FEN, Rekonstruieren ist nie nötig.
+
+- **Ein Arm-Owner statt zwei.** Der Doppel-„armed" beim Session-Wechsel kam nicht vom
+  Prefs-Kollektor, sondern von `finalizeVideo`: die Encoder-final-Notification armte sich
+  selbst neu, und ein Partie-Ende feuert sie zweimal (Session-Ende + Kamera-Stop). Re-Arm wohnt
+  jetzt in `finished()`; `VideoRecorderPort`-Naht macht es JVM-testbar, Test beißt (alter Code
+  = 3 Arms).
+
+- **Die Quiet-Kante schreibt jetzt.** Einziger wirklich stummer Exit war der Ambiguity-Trichter;
+  der schreibt eine gefaltete `QUIET ambiguous`-Zeile (eine pro Evidenzlage, nicht pro Frame,
+  `foldOnChanged`). Alle anderen Exits sind über `markStuck` bereits sichtbar oder tragen kein
+  changed-Set. Verhalten unverändert, Parity-Fixtures unberührt.
+
+- **`config=` erreicht jetzt wirklich den Lauf.** Der Defekt war die GEGENRICHTUNG der
+  notierten Messung (die 4-vs-8-Commits hatten Videos gekreuzt; All-Defaults war schon immer
+  No-Op): drei Stellen lasen Restart-Knobs aus dem Settings-Repository, das ein Replay auf
+  Defaults lässt — `alignEvery=2` aus einer Aufnahme kam nie an, `set:cnnVerify=false` wurde
+  still zurückgedreht (882 Observations vorher, 0 nachher). Fix: `withLiveKnobsOf` — die zwölf
+  Live-Knobs kommen aus dem Repo, alles andere aus der Config, mit der der Lauf gebaut wurde.
 
 - **Emulator-Kamera: `videofile:` ist ein Feed-Test, kein Tracking-Test** (gemessen 2026-08-14).
   Drei Befunde: (1) Die 640x640-Blender-Clips können auf dem 16:9-Sensor NIE alle vier Marker
