@@ -24,6 +24,7 @@
 - **Geometry:** Squares `a1`..`h8`; Corners `[a8, h8, h1, a1]`.
 - **Config:** Paths/Parameters in YAML. Classes only in `config.CLASSES`.
 - **Cache:** Web Read-Paths via `manifest_cache.py` (mtime-keyed).
+- **Comments:** Target is **3 lines**. Up to **5** when it genuinely does not fit — 5 will be enforced soon. Comments say *why*, never what the code already says. Longer prose belongs in `docs/` with a one-line pointer.
 
 ## Known Pitfalls (Critical)
 
@@ -49,6 +50,7 @@
 ## Verification
 - **Python:** `uv run pytest`, `ruff`, `vulture` (min_confidence 80).
 - **Android:** `gradlew.bat :app:ktlintCheck ...` (check all modules!). Emulator via `scripts/android-emulator.ps1` (never use `installEmulator` due to shared devices).
+- **Comment budget:** `CommentBudgetTest` (in `:app`) is a ratchet over all Kotlin modules — enforcement currently fires at **8** consecutive comment lines, target is 3. `android/config/comment-budget.txt` may only shrink; after cleaning a file run `uv run python android/scripts/comment_budget.py`.
 
 ## Model Guidelines (2026-08-14)
 - **BatchNorm Only:** We only use BatchNorm-trained models. Others are too slow.
