@@ -242,6 +242,13 @@ val KNOB_CATALOG: List<KnobUi> =
                 " observed frame, no move is confirmed or bridged. Covers the hand the occlusion model cannot" +
                 " see (13-class models report no occlusion at all).",
         ),
+        flag(
+            "modelHandGate",
+            VETOES,
+            "Plausibility filter on the model's occluded reads: they count as a hand only when hand-shaped" +
+                " (an adjacent pair) and either the board just stirred or the grid grooves corroborate. Off =" +
+                " trust every raw flag, which let one phantom square starve recovery (2026-08-14).",
+        ),
         row(
             "minGridLineCoverage",
             VETOES,

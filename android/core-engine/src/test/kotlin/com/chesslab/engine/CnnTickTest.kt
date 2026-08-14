@@ -403,9 +403,11 @@ class CnnTickTest {
     @Test
     fun aGlanceWithAHandInItBlocksTheVoteAndResetsTheStreak() {
         val state = recoveryState()
+        // The hand ARRIVED: fresh motion lets the model head through the plausibility filter.
+        state.lastMotionTs = state.nowS
         val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.99)
         val clean = obsForBoard(state.board)
-        val hand = RecoveryObs(Squares.ALL.associateWith { state.board.labelAt(it) }, occluded = setOf("h4"))
+        val hand = RecoveryObs(Squares.ALL.associateWith { state.board.labelAt(it) }, occluded = setOf("h4", "h5"))
 
         state.cnnTick(cnn, recoverySnap(state, clean, seq = 1, gray = grayFrame()))
         assertTrue(state.note!!.contains("(1/2)"), state.note!!)
@@ -420,6 +422,25 @@ class CnnTickTest {
 
         state.cnnTick(cnn, recoverySnap(state, clean, seq = 4, gray = grayFrame()))
         assertEquals(listOf("e4"), state.history, "two clean agreeing glances commit")
+    }
+
+    /**
+     * The starvation of session 20260814-142947: `real14-80` flags phantom `occluded` squares on a
+     * quiet board, and with `RECOVERY_OCCLUDED_LIMIT = 0` every raw flag refused every vote —
+     * recovery never ran for the rest of the session. A lone flag is not hand-shaped, so the
+     * plausibility filter (`modelHandSquares`) lets the vote proceed.
+     */
+    @Test
+    fun aPhantomOccludedFlagCannotStarveRecovery() {
+        val state = recoveryState()
+        val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.99)
+        val phantom = RecoveryObs(Squares.ALL.associateWith { state.board.labelAt(it) }, occluded = setOf("h4"))
+
+        state.cnnTick(cnn, recoverySnap(state, phantom, seq = 1, gray = grayFrame()))
+        assertTrue(state.note!!.contains("(1/2)"), state.note!!)
+
+        state.cnnTick(cnn, recoverySnap(state, phantom, seq = 2, gray = grayFrame()))
+        assertEquals(listOf("e4"), state.history, "a lone misread flag must not refuse the vote")
     }
 
     /** One snapshot, one vote: re-feeding the same `seq` must not count the second time. */

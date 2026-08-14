@@ -292,9 +292,10 @@ class DispatchTest {
 
         state.tainted = 0L
         state.cnnRun = true
+        state.lastMotionTs = state.nowS // the hand arrived — the plausibility filter lets it speak
         val labels = Squares.ALL.associateWith { state.board.labelAt(it) }
-        state.cnnSnap = recoverySnap(state, RecoveryObs(labels, occluded = setOf("h4")), seq = 1)
-        assertFalse(state.commitGates(cand), "one occluded-reading square in a fresh glance is a hand")
+        state.cnnSnap = recoverySnap(state, RecoveryObs(labels, occluded = setOf("h4", "h5")), seq = 1)
+        assertFalse(state.commitGates(cand), "occluded-reading squares in a fresh glance are a hand")
 
         state.cnnSnap = recoverySnap(state, RecoveryObs(labels), seq = 2)
         assertTrue(state.commitGates(cand), "clean everywhere — the funnel opens")
@@ -318,8 +319,9 @@ class DispatchTest {
         val state = pendingState()
         state.config = state.config.copy(cleanCommitsOnly = true)
         state.nowS = 5.0
+        state.lastMotionTs = state.nowS // arrival motion — the filter lets the head speak
         val labels = Squares.ALL.associateWith { state.board.labelAt(it) }
-        val hand = RecoveryObs(labels, occluded = setOf("h4"))
+        val hand = RecoveryObs(labels, occluded = setOf("h4", "h5"))
 
         val events = VerifySingle.tick(state, VerifyEvaluator(), snapOf(state, hand, seq = 1))
 

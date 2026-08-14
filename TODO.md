@@ -25,9 +25,23 @@
   der Sensor, sondern was daran hängt: mit einem Modell OHNE `occluded` war `pOccluded = 0.0` und
   die Sperren (Hand-Veto, Recovery-Gate auf sauberem Brett, Count-Discount) liefen strukturell
   leer — dieses Modell schaltet sie zum ersten Mal scharf, und zwar mit einem unvalidierten Kopf.
-  Zu messen, bevor daran geschraubt wird: wie viele Commits pro Partie tatsächlich an
-  `occluded` scheitern (Timeline-Reasons zählen), dann erst Schwelle oder Vorrang des
-  MODELLFREIEN Arms (`gridHandGate`, MEMORY `grid-hand-veto-milestone`) gegen den CNN-Arm.
+  *Teilantwort seit 2026-08-14:* der Head hängt nicht mehr roh an der Engine — `modelHandSquares`
+  (`core-engine/Taint.kt`, Knob `modelHandGate`) zählt occluded-Flags nur noch, wenn sie
+  handförmig sind (adjazentes Paar, die Regel des Grid-Arms) UND Motion frisch ist oder der
+  Grid-Arm die ruhende Hand bezeugt. A/B über Replays desselben Videos (`set:modelHandGate=…`).
+  Offen bleibt das MODELL selbst (Kopf neu kalibrieren oder 13c + Grid-Arm als Default).
+
+- **Der Engine-Log schweigt an der Quiet-Kante** (2026-08-14, aus der Live-vs-Replay-Jagd): wenn
+  der Diff-Pfad gar keinen Kandidaten formt, entsteht KEINE Decision-Zeile — ein Replay, das an
+  einer Stelle nichts committet, wo das Handy etwas sah, ist im Log unsichtbar statt erklärbar.
+  Nächster Hebel für die Replay-Parität: eine Zeile (oder ein Zähler), wenn ein Frame mit
+  `changed != 0` ohne Hypothese endet.
+
+- **`config=<file>` Replay-Option ist verplombt, aber falsch verdrahtet** (gemessen 2026-08-14,
+  Drei-Läufe-Diskriminator: All-Defaults-Envelope ≠ kein config — 4 Commits/350 Rejects vs 8
+  Commits auf demselben Video). Evidenz in scratchpad `parity-phonecfg.log` / `parity-align3.log`
+  / `parity-noboard.log`. Der Agent, der es fixen sollte, wurde gestoppt; der Bug gehört wieder
+  hierher.
 
 - **Emulator-Kamera: `videofile:` ist ein Feed-Test, kein Tracking-Test** (gemessen 2026-08-14).
   Drei Befunde: (1) Die 640x640-Blender-Clips können auf dem 16:9-Sensor NIE alle vier Marker

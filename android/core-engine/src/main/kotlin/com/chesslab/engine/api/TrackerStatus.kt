@@ -23,7 +23,10 @@ data class TrackerStatus(
      * misread piece TYPE is not. Empty when the last observation is stale or agrees.
      */
     val cnnConflicts: Set<String> = emptySet(),
-    /** Fresh squares whose 14-class observation is dominated by `occluded`. Empty for 13c models. */
+    /**
+     * Fresh squares whose 14-class observation is dominated by `occluded`, filtered to
+     * hand-plausible flags (`modelHandSquares`). Empty for 13c models.
+     */
     val cnnOccluded: Set<String> = emptySet(),
     val bestLl: Double,
     val secondLl: Double,

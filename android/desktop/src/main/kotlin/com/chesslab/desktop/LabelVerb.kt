@@ -110,28 +110,28 @@ internal fun prepareLabel(
             null
         }
     val scan =
-        openRecording(video).use { src ->
-            val scan = GeometryScan(src.fps) { println("  $it") }
-            if (lens == null) {
-                while (true) {
-                    val frame = src.next() ?: break
-                    scan.offer(frame, src.timestampMs)
-                }
-            } else {
-                Undistorter(lens, src.delivered.width, src.delivered.height).use { optics ->
-                    while (true) {
-                        val frame = src.next() ?: break
-                        scan.offer(optics.apply(frame), src.timestampMs)
-                    }
-                }
+        openRecording(video).use { src -> src.scanGeometry(lens) }
+            ?: run {
+                println("no sampled frame aligned to the board's grid — is the board in shot?")
+                exitProcess(1)
             }
-            scan.result()
-        } ?: run {
-            println("no sampled frame aligned to the board's grid — is the board in shot?")
-            exitProcess(1)
-        }
     reportGeometry(scan, video)
     return LabelRun(name, File(REALGAMES_DIR, name), cornersToFlat(scan.corners), scan, lens)
+}
+
+/** Every frame, undistorted when [lens] is given, offered to one scan over the whole video. */
+private fun FrameSource.scanGeometry(lens: LensModel?): ScannedGeometry? {
+    val scan = GeometryScan(fps) { println("  $it") }
+    val optics = lens?.let { Undistorter(it, delivered.width, delivered.height) }
+    try {
+        while (true) {
+            val frame = next() ?: break
+            scan.offer(optics?.apply(frame) ?: frame, timestampMs)
+        }
+    } finally {
+        optics?.close()
+    }
+    return scan.result()
 }
 
 /**

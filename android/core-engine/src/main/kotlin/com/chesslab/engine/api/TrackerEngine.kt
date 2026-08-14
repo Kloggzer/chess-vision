@@ -23,8 +23,8 @@ import com.chesslab.engine.debugPayload
 import com.chesslab.engine.desyncEvidence
 import com.chesslab.engine.detectGuards
 import com.chesslab.engine.dispatch
-import com.chesslab.engine.freshCnnOccludedSquares
 import com.chesslab.engine.flushSessionCapture
+import com.chesslab.engine.freshCnnOccludedSquares
 import com.chesslab.engine.generateHypothesis
 import com.chesslab.engine.learnNoise
 import com.chesslab.engine.legalMoveFor

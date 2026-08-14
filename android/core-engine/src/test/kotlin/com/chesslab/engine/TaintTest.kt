@@ -137,6 +137,8 @@ class TaintTest {
     @Test
     fun restingHandTaintsAndBlocksReanchor() {
         val state = handState()
+        // The hand ARRIVED: motion is fresh, so the plausibility filter lets the head speak.
+        state.lastMotionTs = state.nowS
         state.cnnSnap = snapshot(state, FakeObservation(pOccluded = mapOf("e3" to 0.9, "e4" to 0.9)))
         state.setZ("e3", "e4")
 
@@ -145,6 +147,73 @@ class TaintTest {
         assertEquals(ofSquares("e3", "e4"), state.tainted, "the resting hand must latch")
         state.assertZeroed("e3", "e4")
         assertExactList(listOf("e3", "e4"), state.occludedVetoed.sortedSquareNames(), "latched squares are occluded")
+    }
+
+    /**
+     * The model-head plausibility filter (2026-08-14): `real14-80` flags phantom `occluded`
+     * squares, and each raw flag used to latch a taint and read as a hand. A LONE flag is not
+     * hand-shaped, and a hand-shaped cluster on a board that has been QUIET longer than the
+     * observation is fresh cannot be an arriving hand — unless the groove read corroborates a
+     * resting one.
+     */
+    @Test
+    fun aLoneOccludedFlagIsAMisreadNotAHand() {
+        val state = handState()
+        state.lastMotionTs = state.nowS
+        state.cnnSnap = snapshot(state, FakeObservation(pOccluded = mapOf("e3" to 0.9)))
+        state.setZ("e3")
+
+        state.applyTaints()
+
+        assertEquals(0L, state.tainted, "a lone flag with fresh motion must not latch")
+        assertTrue(state.lastZ[Squares.index("e3")] >= state.config.zThr, "e3 keeps its evidence")
+    }
+
+    /** The queenside-flank incident: a connected phantom cluster on a quiet board, grid arm silent. */
+    @Test
+    fun aQuietBoardCannotGrowAHand() {
+        val state = handState()
+        state.lastMotionTs = 0.0 // nowS is 10.0 — quiet for longer than OBS_MAX_AGE_S
+        state.cnnSnap =
+            snapshot(state, FakeObservation(pOccluded = mapOf("a3" to 0.9, "a4" to 0.9, "b3" to 0.9, "b4" to 0.9)))
+        state.setZ("a3", "a4", "b3", "b4")
+
+        state.applyTaints()
+
+        assertEquals(0L, state.tainted, "phantom flags on a quiet board must not latch")
+        assertFalse(state.handInFrame(), "and must not read as a hand in frame")
+    }
+
+    /** The grid arm vouches for a hand at REST beyond the motion window (003957's incident shape). */
+    @Test
+    fun theGrooveReadCarriesARestingHandPastStaleMotion() {
+        val state = handState()
+        state.lastMotionTs = 0.0
+        state.cnnSnap =
+            snapshot(
+                state,
+                FakeObservation(pOccluded = mapOf("e3" to 0.9, "e4" to 0.9)),
+                gridOccluded = ofSquares("e3", "e4"),
+            )
+        state.setZ("e3", "e4")
+
+        state.applyTaints()
+
+        assertEquals(ofSquares("e3", "e4"), state.tainted, "grid corroboration keeps the resting hand latched")
+    }
+
+    /** `modelHandGate=false` restores the raw head — the A/B arm a replay measures against. */
+    @Test
+    fun theGateOffPositionRestoresTheRawHead() {
+        val state = handState()
+        state.config = state.config.copy(modelHandGate = false)
+        state.lastMotionTs = 0.0
+        state.cnnSnap = snapshot(state, FakeObservation(pOccluded = mapOf("e3" to 0.9)))
+        state.setZ("e3")
+
+        state.applyTaints()
+
+        assertEquals(ofSquares("e3"), state.tainted, "the raw head taints a lone quiet flag")
     }
 
     /** `test_taint_persists_without_motion_while_evidence_hot` — a still hand cannot vanish. */
@@ -413,6 +482,7 @@ class TaintTest {
         state: EngineState,
         obs: CnnObservation,
         ageS: Double = 0.0,
+        gridOccluded: Long = 0L,
     ) = CnnSnapshot(
         obs = obs,
         seq = 0,
@@ -421,6 +491,7 @@ class TaintTest {
         warped = null,
         gray = null,
         fen = state.board.fen(),
+        gridOccluded = gridOccluded,
     )
 
     private fun classify(
