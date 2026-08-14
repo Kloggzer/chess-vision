@@ -646,9 +646,20 @@ def export_session(
         raise ValueError(f"{name}: not confirmed — run `chesslab realgames confirm {name}` first")
     margin_frames = int(round(quiet_margin_s * video_fps(candidate)))
     settle = None
-    if measure and not report_only:
+    rotation = None
+    if not report_only:
+        # Detected ONCE, before the settle pass: its crops read the candidate's quad, and on a
+        # phone decode without the rotation every anchor pair sits below SETTLE_MIN_DELTA — the
+        # measurement silently returned nothing. Commit frames are quiet, so they probe cleanly.
         ensure_export_profile(EXPORT_PROFILE, candidate)
-        settle = measure_settle(video_path(name, candidate), candidate, load_profile(EXPORT_PROFILE))
+        rotation = detect_rotation(
+            video_path(name, candidate), candidate, {int(m["frame"]) for m in candidate["moves"]}
+        )
+        if rotation is not None:
+            names = {cv2.ROTATE_90_CLOCKWISE: "90° cw", cv2.ROTATE_90_COUNTERCLOCKWISE: "90° ccw", cv2.ROTATE_180: "180°"}
+            print(f"  decode rotation: {names[rotation]} (cv2 and the candidate geometry disagree on orientation)")
+    if measure and not report_only:
+        settle = measure_settle(video_path(name, candidate), candidate, load_profile(EXPORT_PROFILE), rotate=rotation)
         found = sum(len(v) for v in settle.values())
         print(f"  settle measured for {found} squares over {len(settle)} plies")
     rows = plan_rows(candidate, margin_frames=margin_frames, every=every, dirty=dirty, settle=settle)
@@ -656,12 +667,7 @@ def export_session(
         raise ValueError(f"{name}: no reviewed interval survives a {quiet_margin_s}s margin")
     session_dir = config.DATA.sessions / f"rg-{name}"
     if not report_only:
-        ensure_export_profile(EXPORT_PROFILE, candidate)
         planned = {int(Path(r["frame"]).stem) for r in rows}
-        rotation = detect_rotation(video_path(name, candidate), candidate, planned)
-        if rotation is not None:
-            names = {cv2.ROTATE_90_CLOCKWISE: "90° cw", cv2.ROTATE_90_COUNTERCLOCKWISE: "90° ccw", cv2.ROTATE_180: "180°"}
-            print(f"  decode rotation: {names[rotation]} (cv2 and the candidate geometry disagree on orientation)")
         arrived = decode_frames(
             video_path(name, candidate),
             planned,
@@ -882,8 +888,12 @@ SETTLE_BACK, SETTLE_AHEAD = 180, 40
 SETTLE_MIN_DELTA = 8.0
 
 
-def measure_settle(video: Path, candidate: dict, profile) -> dict[int, dict[str, int]]:
+def measure_settle(video: Path, candidate: dict, profile,
+                   rotate: int | None = None) -> dict[int, dict[str, int]]:
     """`ply -> {square: the frame from which the image already shows the move}`.
+
+    [rotate] is `detect_rotation`'s verdict, applied before cropping — the quad lives in the
+    rotated view, and against an unrotated phone decode every anchor pair reads as noise.
 
     The engine commits on QUIET, not on arrival: a piece that is placed while the hand lingers is
     visible for as long as the hand stays. Measured on VID_20260726_233432 (2026-08-09): the image
@@ -913,6 +923,8 @@ def measure_settle(video: Path, candidate: dict, profile) -> dict[int, dict[str,
         cells = {}
         with closing(recording.frames(lo)) as stream:
             for idx, frame in stream:
+                if rotate is not None:
+                    frame = cv2.rotate(frame, rotate)
                 crops = crops_for_frame(frame, quad, profile, out_size=(48, 48))
                 cells[idx] = {sq: crops[squares.index(sq)].astype(np.int16) for sq in touched}
                 if idx >= hi:
