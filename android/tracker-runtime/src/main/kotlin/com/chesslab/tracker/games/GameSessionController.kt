@@ -70,7 +70,9 @@ class GameSessionController(
         if (live == null) {
             startFen = fen
             profile = profileName
-            if (capture.start() != null) publish()
+            // No `capture.start()` here any more: the session directory opens with the first
+            // committed ply (`SessionCaptureController.queue`), never with the first frame — a
+            // run that only aims, tapes markers or calibrates must leave nothing on disk.
         }
     }
 

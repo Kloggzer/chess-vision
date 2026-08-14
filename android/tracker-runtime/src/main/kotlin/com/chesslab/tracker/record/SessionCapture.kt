@@ -71,6 +71,17 @@ class SessionCaptureController(
 ) {
     private var pending: Pending? = null
 
+    /**
+     * Whether the running game has committed a ply — the gate in front of the session DIRECTORY.
+     *
+     * Until the first commit, nothing exists on disk: no `session.yaml`, no timeline, no video
+     * (the encoder buffers in memory, `PreRollRing`). Board setup, ArUco taping, calibration and
+     * empty-board tests all run the tracker without committing, and they used to leave a full
+     * recording each — nine of eleven transferred recordings on 2026-08-13/14, 4.7 GB deleted by
+     * hand. A run that never commits leaves nothing to delete.
+     */
+    private var committed = false
+
     var recorder: SessionRecorder? = null
         private set
 
@@ -100,18 +111,21 @@ class SessionCaptureController(
     }
 
     /**
-     * Open the session as soon as tracking has a frame. Geometry is required only for labeled
-     * reference stills; the video must also capture the periods in which geometry is broken.
+     * Open the session — but only once a ply has committed ([committed]).
      *
-     * The original still-only recorder could wait for the first committed move. A video cannot:
-     * the lead-in is where a bad first move, focus settling and the initial anchor are debugged.
-     * [CaptureSource.sessionFrame] need not encode pixels because this initial frame supplies only
-     * the source dimensions used in session metadata.
+     * This used to open "as soon as tracking has a frame", because the VIDEO could not wait for
+     * the first move: the lead-in is where a bad first move, focus settling and the initial
+     * anchor are debugged. The pre-roll ring made that reasoning obsolete — the encoder now runs
+     * from tracking start and the last 20 s land in the file retroactively — so the eager open
+     * only manufactured the moveless junk sessions the gate above describes. Geometry is still
+     * not required here: [CaptureSource.sessionFrame] supplies only the source dimensions, and
+     * the video must also capture the periods in which geometry is broken.
      */
     fun start(): SessionRecorder? {
         val active = recorder
         if (active != null) return active
-        if (!prefs().enabled || stoppedReason != null || capReached()) return null
+        val recordingOff = !prefs().enabled || stoppedReason != null
+        if (!committed || recordingOff || capReached()) return null
         return source.sessionFrame()?.let(::startRecorder)
     }
 
@@ -127,6 +141,11 @@ class SessionCaptureController(
     ) {
         // Python: nothing is queued while neither a recorder nor auto-record exists.
         if (recorder == null && !prefs().enabled) return
+        // The first committed ply is what turns a run into a recording. The session opens HERE,
+        // before the photo gates: a geometry mismatch or an inventory violation blocks the still,
+        // never the video bundle the commit has just earned.
+        committed = true
+        if (recorder == null) start()
         gates.inventoryFilter = prefs().inventoryFilter
         if (gates.blocks(fen, source.geometryNote())) {
             pending = null
@@ -168,6 +187,8 @@ class SessionCaptureController(
     }
 
     fun stop(): SessionResult? {
+        // The next game earns its own directory with its own first commit.
+        committed = false
         val active = recorder ?: return null
         recorder = null
         pending = null

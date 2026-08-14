@@ -55,30 +55,46 @@ class SessionCaptureTest {
         assertEquals(1, controller.recorder?.count)
     }
 
+    /**
+     * The pre-roll rule (2026-08-14): until a ply commits, nothing exists on disk. This test used
+     * to assert the OPPOSITE ("session can start before the first committed move") — that eager
+     * open is what produced nine moveless recordings out of eleven transferred, 4.7 GB of board
+     * setup, marker taping and calibration deleted by hand.
+     */
     @Test
-    fun sessionCanStartBeforeTheFirstCommittedMove() {
+    fun noSessionDirectoryBeforeTheFirstCommittedMove() {
         val controller = controller()
-        val recorder = controller.start()
-        assertNotNull(recorder)
-        assertEquals(0, recorder?.count, "opening the video bundle must not invent a labeled frame")
-        assertEquals(1, opened)
-        assertTrue(File(dir, "s1/session.yaml").isFile)
+        assertNull(controller.start(), "an eager open is the moveless-junk bug, not a feature")
+        assertEquals(0, opened)
+        assertFalse(File(dir, "s1").exists())
     }
 
     @Test
-    fun videoSessionStartsWhileGeometryIsBroken() {
+    fun aMovelessRunLeavesNothingOnDisk() {
+        val controller = controller()
+        // The status-boundary sync used to auto-open the session; now it may not, commits or none.
+        controller.syncEnabled()
+        assertNull(controller.stop())
+        assertEquals(0, opened)
+        assertTrue(dir.listFiles().isNullOrEmpty(), "a run without a move must leave no session directory")
+    }
+
+    @Test
+    fun videoSessionOpensOnCommitWhileGeometryIsBroken() {
         source.note = "profile 2560x1440, camera delivers 1920x1080"
-        val recorder = controller().start()
-        assertNotNull(recorder, "geometry failures belong in the debug video instead of preventing it")
-        assertEquals(0, recorder?.count)
+        val controller = controller()
+        controller.queue(1, FEN, "e4", clean = true)
+        // The commit earns the video bundle; the broken geometry blocks only the labeled still.
+        assertNotNull(controller.recorder, "geometry failures belong in the debug video instead of preventing it")
+        assertEquals(0, controller.recorder?.count)
     }
 
     @Test
     fun captureDefersWhileOccludedOrTainted() {
         val controller = controller()
         controller.queue(1, FEN, "e4", clean = false)
-        assertNull(controller.recorder)
-        assertEquals(0, source.grabs)
+        // The commit opened the session (video bundle), but no still is written while unclean.
+        assertEquals(0, controller.recorder?.count)
         assertNotNull(controller.flush())
         assertEquals(1, controller.recorder?.count)
     }
@@ -103,7 +119,8 @@ class SessionCaptureTest {
     fun recorderSkipsInventoryViolation() {
         val controller = controller()
         controller.queue(1, THREE_BISHOPS, "Bf3", clean = true)
-        assertNull(controller.recorder)
+        // The session opens — a committed ply is a game — but the impossible still is refused.
+        assertEquals(0, controller.recorder?.count)
         assertTrue(gates.reason.orEmpty().contains("wB 3/2"))
     }
 
@@ -115,7 +132,7 @@ class SessionCaptureTest {
         controller.queue(2, FEN, "e4", clean = false)
         source.note = "profile 1920x1080, camera delivers 1280x720"
         assertNull(controller.flush())
-        assertNull(controller.recorder)
+        assertEquals(0, controller.recorder?.count)
     }
 
     @Test
@@ -157,7 +174,8 @@ class SessionCaptureTest {
     fun videoBytesCountAgainstTheSessionCap() {
         prefs = RecordingPrefs(enabled = true, capBytes = 2000L)
         val controller = controller()
-        val recorder = requireNotNull(controller.start())
+        controller.queue(1, FEN, "e4", clean = false)
+        val recorder = requireNotNull(controller.recorder)
         File(recorder.dir, "video.mp4").writeBytes(ByteArray(2000))
         assertTrue(controller.syncEnabled(), "the status-boundary check closes a video that reached the cap")
         assertNull(controller.recorder)

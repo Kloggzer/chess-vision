@@ -93,11 +93,13 @@ class SessionRecorderTest {
     @Test
     fun videoMetadataIsWrittenWithoutChangingTheSliceLog() {
         val rec = recorder()
-        rec.updateVideo(SessionVideoMeta(2560, 1440, 12_000_000_000L, 42_000_000L))
+        rec.updateVideo(SessionVideoMeta(2560, 1440, 12_000_000_000L, 42_000_000L, preRollNs = 19_000_000_000L))
         val yaml = File(rec.dir, "session.yaml").readText()
         assertTrue(yaml.contains("video_file: video.mp4"))
         assertTrue(yaml.contains("video_size: [2560, 1440]"))
         assertTrue(yaml.contains("video_duration_ns: 12000000000"))
+        // Nothing downstream can measure the pre-roll from the frames, so the session states it.
+        assertTrue(yaml.contains("video_pre_roll_ns: 19000000000"))
         assertEquals("", File(rec.dir, "log.jsonl").readText())
     }
 }

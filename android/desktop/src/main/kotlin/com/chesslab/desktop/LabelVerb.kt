@@ -4,12 +4,15 @@ import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerStatus
 import com.chesslab.geometry.BoardGeometry
+import com.chesslab.geometry.LensModel
+import com.chesslab.geometry.Undistorter
 import com.chesslab.geometry.cornersToFlat
 import com.chesslab.tracker.geometry.GeometryScan
 import com.chesslab.tracker.geometry.ScannedGeometry
 import com.chesslab.tracker.geometry.ffmpegCfrHint
 import com.chesslab.tracker.geometry.geometryRefusals
 import com.chesslab.tracker.geometry.geometryReport
+import com.chesslab.tracker.geometry.geometryWarnings
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
@@ -39,6 +42,9 @@ internal class ReplayPlan(
 ) {
     /** The quad the run is pinned to, when the plan carries one — measured or the label's own. */
     fun quad(): FloatArray? = labelRun?.quad ?: scoreCandidate?.let(::quadFromCandidate)
+
+    /** The exact per-recording fit used to measure a label's quad; replay must use the same pixels. */
+    fun lens(): LensModel? = labelRun?.lens
 
     fun session(
         quad: FloatArray,
@@ -80,6 +86,7 @@ internal class LabelRun(
     val dir: File,
     val quad: FloatArray,
     val scan: ScannedGeometry,
+    val lens: LensModel?,
 )
 
 /**
@@ -95,28 +102,58 @@ internal fun prepareLabel(
 ): LabelRun {
     val name = options.name ?: video.nameWithoutExtension
     println("measuring ${video.name} with the shipping geometry stack (markers -> grid refit -> alignmentOf)")
+    val lens =
+        if (options.lens) {
+            openRecording(video).use { fitLensFrom(it) }
+                ?: error("no accepted lens fit for ${video.name} — refusing an uncorrected label preview")
+        } else {
+            null
+        }
     val scan =
-        VideoFileSource(video).use { src ->
+        openRecording(video).use { src ->
             val scan = GeometryScan(src.fps) { println("  $it") }
-            while (true) {
-                val frame = src.next() ?: break
-                scan.offer(frame, src.timestampMs)
+            if (lens == null) {
+                while (true) {
+                    val frame = src.next() ?: break
+                    scan.offer(frame, src.timestampMs)
+                }
+            } else {
+                Undistorter(lens, src.delivered.width, src.delivered.height).use { optics ->
+                    while (true) {
+                        val frame = src.next() ?: break
+                        scan.offer(optics.apply(frame), src.timestampMs)
+                    }
+                }
             }
             scan.result()
         } ?: run {
             println("no sampled frame aligned to the board's grid — is the board in shot?")
             exitProcess(1)
         }
+    reportGeometry(scan, video)
+    return LabelRun(name, File(REALGAMES_DIR, name), cornersToFlat(scan.corners), scan, lens)
+}
+
+/**
+ * What the scan found: the report, then what it costs, then what it forbids.
+ *
+ * A WARNING names the next step (a moving board needs a per-frame re-fit after export); a REFUSAL
+ * ends the run. Keeping the two apart is the point — the spread measures movement, never
+ * correctness, and reading it as a gate refused a recording that aligns on 97.2 % of its samples.
+ */
+private fun reportGeometry(
+    scan: ScannedGeometry,
+    video: File,
+) {
     println(geometryReport(scan))
+    geometryWarnings(scan).forEach { println("  ! $it") }
     val refusals = geometryRefusals(scan)
-    if (refusals.isNotEmpty()) {
-        println("this footage cannot become a candidate:")
-        refusals.forEach { println("  - $it") }
-        println("  to re-encode:")
-        println("    ${ffmpegCfrHint(video.path, scan.fps)}")
-        exitProcess(1)
-    }
-    return LabelRun(name, File(REALGAMES_DIR, name), cornersToFlat(scan.corners), scan)
+    if (refusals.isEmpty()) return
+    println("this footage cannot become a candidate:")
+    refusals.forEach { println("  - $it") }
+    println("  to re-encode:")
+    println("    ${ffmpegCfrHint(video.path, scan.fps)}")
+    exitProcess(1)
 }
 
 internal fun candidateFileFor(
@@ -251,6 +288,7 @@ private fun sourceJson(
 ) = buildJsonObject {
     val cnnOn = options.cnn
     if (cnnOn) put("cnn_run", options.model) else put("cnn_run", JsonNull)
+    put("lens", options.lens)
     put("obs_s", config.observerIntervalS)
     put("profile", "desktop")
     put(

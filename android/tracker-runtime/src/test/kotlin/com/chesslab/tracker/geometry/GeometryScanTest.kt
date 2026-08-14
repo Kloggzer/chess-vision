@@ -63,8 +63,12 @@ class GeometryScanTest {
         val sparse = scanned(alignPassRate = 0.5, aligned = 40, spreadP90 = 0.9, clockP90 = 0.0)
         assertTrue(geometryRefusals(sparse).single().contains("align to the board's own grid"))
 
+        // A moving board is a WARNING, not a refusal: the spread compares the quads against their
+        // own median, so it measures movement and never correctness (CLAUDE.md). Reading it as a
+        // gate refused `2026-08-13-19-34-23`, whose absolute gate passes on 97.2 % of its samples.
         val nudged = scanned(alignPassRate = 0.98, aligned = 939, spreadP90 = 9.0, clockP90 = 0.0)
-        assertTrue(geometryRefusals(nudged).single().contains("Did the board move?"))
+        assertTrue(geometryRefusals(nudged).isEmpty())
+        assertTrue(geometryWarnings(nudged).single().contains("does not stand for every frame"))
 
         val vfr = scanned(alignPassRate = 0.98, aligned = 939, spreadP90 = 0.9, clockP90 = 20.0)
         val reason = geometryRefusals(vfr).single()

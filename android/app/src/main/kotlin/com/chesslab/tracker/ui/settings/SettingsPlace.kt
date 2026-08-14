@@ -50,6 +50,9 @@ sealed interface SettingsPlace {
 
     data object Recording : SettingsPlace
 
+    /** Where a finished recording goes: the pairing with the PC and what is still on the phone. */
+    data object Transfer : SettingsPlace
+
     data object Device : SettingsPlace
 }
 
@@ -61,6 +64,7 @@ fun settingsTitle(place: SettingsPlace): String =
         SettingsPlace.Speech -> "Spoken moves"
         SettingsPlace.Analysis -> "Analysis"
         SettingsPlace.Recording -> "Recording"
+        SettingsPlace.Transfer -> "Transfer"
         SettingsPlace.Device -> "Device & model"
         SettingsPlace.Board -> "Board orientation"
         SettingsPlace.Developer -> "Developer"
@@ -83,6 +87,7 @@ fun parentOf(place: SettingsPlace): SettingsPlace? =
         SettingsPlace.Speech,
         SettingsPlace.Analysis,
         SettingsPlace.Recording,
+        SettingsPlace.Transfer,
         -> SettingsPlace.Groups
         is SettingsPlace.Group, SettingsPlace.Modified, SettingsPlace.Device -> SettingsPlace.Developer
     }

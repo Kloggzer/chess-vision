@@ -102,8 +102,8 @@ capture without deleting older sessions. Camera stream combinations are device-d
 QHD acceptance must be checked once on the physical phone; a rejected mode is shown as the
 recording reason while analysis-only tracking continues.
 
-On Windows, turn an exported recording and its saved game directly into separate clean and
-occlusion training packs with the same Kotlin tracker the phone runs:
+On Windows, turn an exported recording and its saved game into an accepted pack plus explicit
+review queues with the same Kotlin tracker the phone runs:
 
 ```powershell
 cd android
@@ -126,10 +126,13 @@ Building the cache still costs one ordinary pass, so this currently accelerates 
 not the first and only pass over a new video.
 
 The video pixels and tracker states decide which frames are usable; `timeline.jsonl` is not an
-input. Quiet `waiting` plateaus whose FEN belongs to the saved game become ordinary piece labels.
-Motion, alarms, unknown positions and take-backs are excluded. Grid-groove hand detections are
-written separately as concrete `occluded` square crops. `audit.jsonl` records every sampled frame
-and its outcome, so discarded intervals remain reviewable.
+input. Quiet `waiting` plateaus whose FEN belongs to the saved game enter `accepted/` only when the
+grid detector, the CNN `occluded` head, the CNN/FEN occupancy check and the engine's occlusion veto
+all agree that the board is clean. Any warning routes the whole board to `quarantine/`. Grid-hand
+detections go to `occluded-proposals/`. Both review packs deliberately use the invalid training
+label `unreviewed` and retain the intended value only as `proposed_label`, so accidentally feeding
+one to the trainer fails closed instead of poisoning a run. Motion, alarms, unknown positions and
+take-backs are excluded. `audit.jsonl` records every sampled frame and its outcome.
 
 By default every decoded source frame reaches the tracker. `fps=N` is an explicit experiment mode
 that deliberately strides the tracker input while preserving the video clock; it must not be used
@@ -137,13 +140,12 @@ when full phone-equivalent frame coverage is required. On the 196 s QHD recordin
 means all 5,150 frames at the stream's measured 26.25 fps (the encoder advertises 30 fps, but the
 recorded stream contains fewer actual frames).
 
-**Models.** Seven CNNs are bundled under `android/app/src/main/assets/cnn_model/`, switchable
-in Settings (restart required). A fresh install runs `id35-80`: the hard-negative-finetuned
-BatchNorm model, width 0.35 at 80 px, measured at 0 phantoms / 3 misses on the difficult warm-light
-holdout. Existing installs on older defaults migrate to it once. It is a 13-class *identity* model
-which reads piece type as well as occupancy. `id35-80` is
-what `CLAUDE.md` records at **16 ms median for 64 crops** on an SM8650 over 534 live
-observations; that figure belongs to that model on that phone and to nothing else.
+**Models.** Eight CNNs are bundled under `android/app/src/main/assets/cnn_model/`, switchable
+in Settings (restart required). A fresh install runs `real14-80`, the 14-class identity model
+whose explicit `occluded` class lets the tracker veto a hand even when the model-free grid-groove
+detector misses it. Existing installs on older defaults migrate to it once. `id35-80` remains
+available as the hard-negative-finetuned 13-class comparison arm; it is the model for which
+`CLAUDE.md` records **16 ms median for 64 crops** on an SM8650 over 534 live observations.
 
 **Settings offer decisions, not fields.** 45 knobs are persisted, 37 are on the screen, and
 8 are withheld by an explicit table that carries a written reason for each — a knob that is
@@ -307,6 +309,14 @@ tracker: everything it could still do that the CLI could not is now a command
 (`chesslab session scan | autofix | adopt | flag | review | archive | restore | trim`),
 except placing board corners by hand, which needs an image to click on and comes back with the
 new one.
+
+## Recordings from the phone, over Wi-Fi
+
+`platform/app` takes the phone's recordings by itself: the tracker pushes a finished session to the
+chesslab server on the same network, the files land where the USB tar used to put them
+(`data/realgames/<name>/files/`), and `:desktop training-video-pack` is queued behind it (one worker).
+Pair once with the token on `/transfers`, and see [`docs/phone-transfer.md`](docs/phone-transfer.md)
+for the protocol, the firewall rule and what a skipped pack means.
 
 ## Sessions: geometry repair before slicing
 

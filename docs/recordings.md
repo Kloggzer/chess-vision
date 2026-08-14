@@ -50,8 +50,45 @@ otherwise decide is the same one the labels are meant to train.
 | `2026-08-07 13-52-38.mp4` | game | fixed | yes | = `rec-20260807-135238`, the 25-ply scored clip. |
 | `2026-08-08 00-39-57.mp4` | game | fixed | yes | = `rec-20260808-003957`. |
 | `2026-08-08 11-59-12.mp4` | game | fixed | yes | = `rec-20260808-115912`. |
-| `20260813-134818/video.mp4` | game | fixed | yes | QHD Android training recording, mapped by `2026-08-13_1351.json`. Contains deliberate/accidental move-forward-and-back regions. Full coverage is 5,150 actual stream frames at 26.25 fps: 117 clean boards (7,488 crops), 76 hand frames (837 `occluded` crops), and 19 excluded sampled `illegal_move` alarm frames. A `fps=9 every=6 stable=2` experiment reached ply 25 in 123.6 s and retained more samples, but deliberately tracked only every third frame and is therefore not the default. |
+| `20260813-134818/video.mp4` | game | fixed | yes | QHD Android training recording, mapped by `2026-08-13_1351.json`. Contains deliberate/accidental move-forward-and-back regions. The original pack admitted visible hands in frames 2736 and 4584 as `clean`; its denser experiment also admitted 2970. The fail-closed pack added 2026-08-13 exposes fresh CNN occlusion/conflict state and writes only warning-free boards to `accepted/`: the full-rate `every=6 stable=2` verification produced 142 accepted boards (9,088 crops), 30 quarantined boards and 1,179 unreviewed grid-hand proposals. None of 2736/2970/4584 entered `accepted/`. Review packs use the invalid class `unreviewed`, so they cannot silently enter training. |
+| `20260813-193423/video.mp4` | game | fixed | yes | QHD Android training recording, mapped by `2026-08-13_1941.json` (8 saved plies). Imported 2026-08-13: 11,532 frames at 27.97 fps; the default full-rate `every=8 stable=3` pack produced 35 nominally clean boards (2,240 crops) and 444 `occluded` crops. It excluded 901 sampled frames as `not_in_game`, so keep this pack outside the aggregate dataset until the clean-board review is complete. |
 | `VID_20260812_112853.mp4` | `rnbqkb1r/ppp1pppp/5n2/3p4/3PP3/2N5/PPP2PPP/R1BQKBNR` | turntable | no | Position from the preceding tracked game: `1. d4 d5 2. Nc3 Nf6 3. e4`. 1080p, 199 s. Kotlin `rectify` sampled 20/20 frames (every 300), none missed; mean worst square offset 1.75 px. Lens fit was rejected, so use the raw per-frame geometry path. |
+
+## Gelöscht
+
+- `2026-08-13-12-24-07` (1,9 GB), auf Anweisung des Nutzers am 2026-08-14. Kein Game-Record,
+  Quad-Spread p90 10,77 px (Brett bewegt sich), 2327 von 2559 Stichproben ausgerichtet. War die
+  REFERENZ, aus der `repair-recording` die Codec-Parameter der drei geretteten Aufnahmen zog — die
+  sind geschrieben, es hängt nichts mehr daran; eine künftige Reparatur nimmt eine beliebige
+  gesunde Aufnahme desselben Geräts.
+- `2026-08-13-12-42-19` (252 MB, 2:30), auf Anweisung des Nutzers am 2026-08-14: *"hier ist 2,5 min
+  nur ein Brett auf dem nichts passiert"*. Geometrisch die beste Aufnahme des Tages — 326 von 326
+  Stichproben ausgerichtet, Quad-Spread p90 0,55 px — aber ohne Spiel darauf ist sie kein Datensatz.
+  (Der Label-Lauf hatte sie ohnehin abgelehnt, an der variablen Bildrate: p90 16,89 ms.)
+- `2026-08-13-12-45-12` (148 MB, 46 s), auf Anweisung des Nutzers am 2026-08-14 — samt seinem
+  geparkten Originalvideo. Die Reparatur war erfolgreich (1 337 Frames, Brett in allen Stichproben,
+  2,74 px), aber der Label-Lauf misst **Quad-Spread p90 143,95 px, max 292,21** gegen ein Kriterium
+  von 4: das Handy wurde während der Aufnahme bewegt. Kein Game-Record.
+- `2026-08-13-12-12-16` (4,2 MB, **2 s**) und `2026-08-13-01-39-15` (69 MB, 52 s), auf Anweisung des
+  Nutzers am 2026-08-14. Beide durch den Label-Lauf gegangen, beide mit **0 committeten Plies**:
+  01-39-15 schrieb einen Kandidaten mit leerer Zugliste (drei Entscheidungen, alle `rejected`),
+  12-12-16 ist zwei Sekunden lang. Kein Game-Record, keine exportierte Session, keine
+  Korrekturzeilen.
+- `2026-08-13-12-10-55` (185 MB, 77 s), auf Anweisung des Nutzers am 2026-08-14. Gemessen
+  unbrauchbar: **16 von 232** gesampelten Frames richten sich am Gitter aus (100 sind nötig) und der
+  Quad-Spread p90 liegt bei 70 px — das Brett war überwiegend nicht im Bild. Kein Game-Record, keine
+  exportierte Session, keine Korrekturzeilen. `data/inbox/transfers.jsonl` führt es weiterhin als
+  gelandet; die Kopie auf dem Handy (`20260813-121055`) trägt ihre `transfer.json` und wird deshalb
+  auch nicht erneut übertragen.
+
+## The four repaired recordings (2026-08-14)
+
+`20260813-121218`, `-123904`, `-124512`, `-124624` were killed mid-capture by an `adb install` and
+had no MP4 index. Rebuilt with `:desktop repair-recording` from `2026-08-13-12-24-07`'s parameter
+sets; the payload is untouched, the frame rate (28.63 fps) is ASSUMED from that reference. Geometry
+is sound — 70 of 70 sampled frames find the board at 2.52-2.83 px — and none of them carries a game
+record, so their move list has to come from a replay and a human. Originals in
+`data/_parked/2026-08-14-unfinalized-originals/`.
 
 Unclassified, measured but not yet confirmed by a human: `2026-08-08 11-53-53`, `11-55-19`,
 `11-57-07`, `VID_20260726_155132`, `VID_20260726_233432`, `VID_20260727_124440`,

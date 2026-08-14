@@ -6,6 +6,8 @@ import android.app.NotificationManager
 import android.system.Os
 import android.util.Log
 import com.chesslab.tracker.service.NOTIFICATION_CHANNEL_ID
+import com.chesslab.tracker.sync.scheduleSync
+import com.chesslab.tracker.sync.sweepEmptyRecordings
 import org.opencv.android.OpenCVLoader
 import java.io.File
 
@@ -43,6 +45,23 @@ class ChesslabApp : Application() {
                 NotificationManager.IMPORTANCE_LOW,
             )
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        // Idempotent (KEEP), so it simply runs at every start: the periodic transfer must survive a
+        // reboot, and nothing else in the process is guaranteed to be created after one.
+        scheduleSync(this)
+        sweepEmptySessions()
+    }
+
+    /**
+     * Remove zero-commit session leftovers — killed processes and pre-2026-08-14 builds; a live
+     * recorder cannot be racing this, because the service starts long after `onCreate` and the
+     * sweep skips anything modified within the settle window anyway. Off the main thread: it
+     * walks the sessions tree, and process start is the one moment jank is guaranteed visible.
+     */
+    private fun sweepEmptySessions() {
+        Thread {
+            val swept = sweepEmptyRecordings(File(filesDir, "sessions"), System.currentTimeMillis())
+            if (swept.isNotEmpty()) Log.i(TAG, "removed ${swept.size} moveless session(s): ${swept.joinToString()}")
+        }.apply { name = "chesslabJanitor" }.start()
     }
 
     /**

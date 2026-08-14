@@ -28,4 +28,18 @@ class TrainingVideoPackTest {
         assertEquals(VideoPositionMatch(null, 2, "not_in_game"), gate.accept(listOf(2, 3, 4)))
         assertEquals(VideoPositionMatch(null, 0, "ambiguous_position"), gate.accept(listOf(0, 0, 3)))
     }
+
+    @Test
+    fun `any independent warning quarantines the whole board`() {
+        val risk =
+            trainingFrameRisk(
+                cnnOccluded = setOf("a5"),
+                cnnConflicts = setOf("e2"),
+                engineOccluded = setOf("d4", "e2"),
+            )
+
+        assertEquals(listOf("cnn_occluded", "cnn_conflict", "engine_occluded"), risk.reasons)
+        assertEquals(setOf("a5", "d4", "e2"), risk.squares)
+        assertEquals(TrainingFrameRisk(emptyList(), emptySet()), trainingFrameRisk(emptySet(), emptySet(), emptySet()))
+    }
 }

@@ -29,7 +29,7 @@ What *is* measured, and does hurt:
   outright: *"These frames are the only copy: nothing on the phone reads them back, so a deletion is
   discovered on the PC or not at all."*
 - **The model the device runs can silently differ from the one selected.** `bundledModelOrDefault`
-  (`CnnModelAssets.kt:66`) coerces any unknown name to `id35-80` with no signal, in two places
+  (`CnnModelAssets.kt`) coerces any unknown name to `real14-80` with no signal, in two places
   (`CnnModelAssets.kt:130`, `AppSettings.kt:164`). `AppSettings.kt:132` records the consequence: a
   phone found running an asset three model releases behind, so every accuracy number quoted for it had
   been measured on a graph it was not executing.
@@ -216,7 +216,7 @@ one a day, replaced rather than stacked.
 |---|---|---|
 | **Backup not getting through** | N days since the last success **and** data is pending (default 3, settable) | the classified cause: `server not reachable` (connect/timeout) · `sign-in expired` (401, refresh failed) · `a different server answered` (issuer mismatch) · `server out of space` (507/413) · `server error` (5xx). No Wi-Fi is not a failure and never notifies. |
 | **Recording is about to stop** | recorded bytes ≥ 80 % of the cap, and again at the halt | how much is already safe on the server, and the one action that frees space. Today this state is silent and permanent. |
-| **A new model is available** | the server publishes a model the phone lacks | offers it; never installs silently. The same surface carries the **fallback** notice — *"running `id35-80`, not the `x` you chose, because …"* — which is the silence described in §1. |
+| **A new model is available** | the server publishes a model the phone lacks | offers it; never installs silently. The same surface carries the **fallback** notice — *"running `real14-80`, not the `x` you chose, because …"* — which is the silence described in §1. |
 | **Tracker / analysis trouble** | tracker stopped unexpectedly, camera lost, an alarm latched while you were away, an analysis run died | **needs no server at all** — on-device state on an existing foreground notification. It can ship before any of this exists. |
 
 **Retention is the user's decision only.** The ack writes `uploaded.json` into the session directory;

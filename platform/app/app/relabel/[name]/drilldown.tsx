@@ -36,6 +36,19 @@ export type DrilldownProps = {
   queueNote?: string;
 };
 
+/**
+ * Every control on this screen, thumb-sized.
+ *
+ * The board draws 44 px squares on a 375 px phone and paints fine; the BUTTONS around it were 28 px
+ * — "nahezu unmöglich zu bedienen" (2026-08-13). A fingertip is about 9 mm, so 44 px is the floor
+ * on touch; from `sm` up the density of a desktop tool is worth more than the target size.
+ *
+ * Written as `max-sm:` rather than `h-11 sm:h-8`: both are equally specific and Tailwind emits the
+ * plain utility last, so the desktop kept the phone's height. Only touching the small end cannot
+ * lose that argument.
+ */
+const TOUCH = "max-sm:h-11 max-sm:px-3";
+
 const SQUARES = Array.from({ length: 64 }, (_, i) => `${FILES[i % 8]}${8 - Math.floor(i / 8)}`);
 
 /**
@@ -297,12 +310,13 @@ export function Drilldown(props: DrilldownProps) {
           {queueNote ? ` · ${queueNote}` : ""}
         </span>
         <PhaseChip frame={frame} />
-        <Button disabled={at === 0} onClick={() => void go(-1)} size="sm" variant="outline">
+        <Button disabled={at === 0} onClick={() => void go(-1)} className={TOUCH} size="sm" variant="outline">
           previous
         </Button>
         <Button
           disabled={at + 1 >= frames.length}
           onClick={() => void go(1)}
+          className={TOUCH}
           size="sm"
           variant="outline"
         >
@@ -310,6 +324,7 @@ export function Drilldown(props: DrilldownProps) {
         </Button>
         <Button
           onClick={() => setEraser((e) => !e)}
+          className={TOUCH}
           size="sm"
           variant={eraser ? "default" : "outline"}
         >
@@ -320,6 +335,7 @@ export function Drilldown(props: DrilldownProps) {
             event.currentTarget.blur();
             flood();
           }}
+          className={TOUCH}
           size="sm"
           title="alles occluded, Radierer an — dann die sichtbaren Zellen freiradieren"
           variant="outline"
@@ -334,7 +350,7 @@ export function Drilldown(props: DrilldownProps) {
         </span>
         <Legend />
         <Button
-          className="ml-auto"
+          className={`ml-auto ${TOUCH}`}
           disabled={pending.length === 0}
           onClick={() => void flush(pending)}
           size="sm"
@@ -345,14 +361,14 @@ export function Drilldown(props: DrilldownProps) {
 
       {Object.keys(accept).length > 0 ? (
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-sky-800 bg-sky-950/40 p-3 text-sm">
-          <Button autoFocus={false} onClick={() => void confirmQueue()} size="sm">
+          <Button autoFocus={false} className={TOUCH} onClick={() => void confirmQueue()} size="sm">
             {pending.length > 0
               ? `✓ ${pending.length} gemalte Zellen schreiben, übrige Flags = sauber → next board`
               : `✓ confirm ${acceptCells.length} ${acceptCells.length === 1 ? "cell" : "cells"}` +
                 `${acceptLabels.length === 1 ? ` as ${acceptLabels[0]}` : ""} → next board`}
           </Button>
           {pending.length === 0 ? (
-            <Button onClick={() => void rejectQueue()} size="sm" variant="secondary">
+            <Button onClick={() => void rejectQueue()} className={TOUCH} size="sm" variant="secondary">
               ✗ nichts verdeckt — FEN stimmt → next board
             </Button>
           ) : null}
@@ -367,7 +383,7 @@ export function Drilldown(props: DrilldownProps) {
             )}
             . Unflagged cells keep the FEN&apos;s word and stay unjudged.
           </span>
-          <Button className="ml-auto" onClick={() => void go(1)} size="sm" variant="outline">
+          <Button className={`ml-auto ${TOUCH}`} onClick={() => void go(1)} size="sm" variant="outline">
             skip this board →
           </Button>
         </div>
@@ -382,7 +398,8 @@ export function Drilldown(props: DrilldownProps) {
               setBrush(label);
               setEraser(false);
             }}
-            size="sm"
+            className={TOUCH}
+          size="sm"
             variant={brush === label && !eraser ? "default" : "outline"}
           >
             <span className="text-muted-foreground mr-1 font-mono">{key}</span>

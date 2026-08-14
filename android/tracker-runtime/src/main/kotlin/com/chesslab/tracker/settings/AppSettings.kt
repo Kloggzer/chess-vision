@@ -52,8 +52,8 @@ enum class BoardOrientation(
     BLACK_BOTTOM("Black plays from the bottom", false),
 }
 
-private const val CURRENT_MODEL_RELEASE = 3
-private val LEGACY_DEFAULT_MODELS = setOf("shipped", "bn100-80")
+private const val CURRENT_MODEL_RELEASE = 4
+private val LEGACY_DEFAULT_MODELS = setOf("shipped", "bn100-80", "id35-80")
 
 @Serializable
 data class AppSettings(

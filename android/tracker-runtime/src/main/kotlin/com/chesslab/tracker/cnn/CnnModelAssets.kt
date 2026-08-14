@@ -50,12 +50,17 @@ const val ASSET_ROOT_DIR = "cnn_model"
  * three occupancy-identical alternatives. Phantom-free at 0 phantoms / 3 misses, matching the
  * 2-class full-width champion at a third of its width, with piece identity at 0.882 (specs/29,
  * 2026-08-01).
+ *
+ * `real14-80` adds the explicit `occluded` class. It is the default because the physical-phone
+ * tracker has proved stable with it and, unlike a 13-class model, it can directly veto a hand that
+ * the model-free grid-groove detector misses. `id35-80` remains bundled as the conservative
+ * 13-class fallback and comparison arm.
  */
-const val DEFAULT_MODEL = "id35-80"
+const val DEFAULT_MODEL = "real14-80"
 
 /** Default first, so Settings presents the model a fresh install actually runs at the top. */
 val BUNDLED_MODELS =
-    listOf(DEFAULT_MODEL, "real14-80", "bn100-80", "bn50-80", "bn35-80", "v6-80", "v4-128", "shipped")
+    listOf(DEFAULT_MODEL, "id35-80", "bn100-80", "bn50-80", "bn35-80", "v6-80", "v4-128", "shipped")
 
 /**
  * [name] when the APK really bundles it, else [DEFAULT_MODEL].

@@ -28,7 +28,7 @@ export type Candidate = {
   geometry?: { corners?: number[][]; margin?: number | number[]; board_size?: number };
   /** The recording's own frame rate — commit distances are reported in seconds off it. */
   clock?: { fps?: number };
-  source?: { crop?: { pad_up?: number; pad_side?: number; out_size?: number[] } };
+  source?: { lens?: boolean; crop?: { pad_up?: number; pad_side?: number; out_size?: number[] } };
 };
 
 /** `..` and separators would let a URL segment walk out of the data dir. */
@@ -125,7 +125,7 @@ export async function framePng(name: string, stem: string): Promise<Buffer> {
  * so numbers are carried through as raw source text. Write is tmp + rename, like
  * `realgames.write_confirmation` — a half-written label is worse than none.
  */
-export async function writeConfirmation(name: string, kept: number[]): Promise<number[]> {
+export async function writeConfirmation(name: string, kept: number[], drop: number[] = []): Promise<number[]> {
   const file = path.join(gameDir(name), "candidate.json");
   const text = await readFile(file, "utf8");
   const doc = JSON.parse(text, function (_key, value, context?: { source?: string }) {
@@ -143,7 +143,15 @@ export async function writeConfirmation(name: string, kept: number[]): Promise<n
     ? lcsReport(truth, candidate.moves.map((m) => m.san))
     : { matched: [] as [number, number][], invented: all };
   const inventedSet = new Set(invented);
-  const plies = reviewedPlies(candidate.moves, matched, kept.filter((j) => inventedSet.has(j)));
+  // A matched ply is not automatically a TRUE one. The LCS compares SAN sequences, and a
+  // transposition makes it match a move to the same move played later: `2026-08-13-19-34-23`'s
+  // replay committed `Nf6` where the board actually showed `e5`, and the LCS matched that `Nf6` to
+  // the reference's own — four plies later. The position it stamps on its commit window never
+  // existed, so the human must be able to strike it.
+  const dropped = new Set(drop);
+  const plies = reviewedPlies(candidate.moves, matched, kept.filter((j) => inventedSet.has(j))).filter(
+    (ply) => !dropped.has(ply),
+  );
 
   doc.confirmed = true;
   doc.confirmed_at = new Date().toISOString().replace(/\.\d+Z$/, "Z");

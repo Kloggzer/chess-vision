@@ -2,6 +2,8 @@ package com.chesslab.desktop
 
 import com.chesslab.engine.api.DebugDecision
 import com.chesslab.engine.api.TrackerConfig
+import com.chesslab.tracker.settings.KNOBS
+import com.chesslab.tracker.settings.KnobKind
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
@@ -75,6 +77,13 @@ internal class DecisionCollector(
  * The config the engine ACTUALLY ran, key-compatible with the fixture spelling `trackerConfigOf`
  * reads (camelCase, resolved `settleFrames`/`avgFrames`/`confirmFrames`, derived `detSize`).
  *
+ * Driven by the KNOBS catalog since 2026-08-14, because the hand-kept list drifted the way any
+ * second copy of a table does: five fields were missing, and one of them — `handTolerantCells` —
+ * was exactly the experiment knob `2026-08-13-19-34-23` needed on record and did not have. Each
+ * knob is emitted under its own key with its native JSON type; an OPTIONAL_INT carrying NaN (the
+ * codec's "no override") is written as `null` rather than dropped, so "unset" is stated, not
+ * inferred. The four resolved/derived keys stay verbatim — consumers key on them.
+ *
  * Two keys the Python files carry are deliberately absent because the Kotlin engine does not have
  * them: `llK` (a constant internal to `Scoring.kt`, not config) and `reconnectGraceS` (camera
  * reconnect is host-side here). Recording them anyway would be inventing provenance.
@@ -84,53 +93,15 @@ internal fun effectiveConfigJson(
     cnnOn: Boolean,
 ): JsonObject =
     buildJsonObject {
-        put("motionThr", config.motionThr)
-        put("motionPxThr", config.motionPxThr)
-        put("zThr", config.zThr)
-        put("ambiguityMarginLl", config.ambiguityMarginLl)
-        put("reanchorLlFloor", config.reanchorLlFloor)
-        put("nudgeTimeoutS", config.nudgeTimeoutS)
-        put("driftWindowS", config.driftWindowS)
-        put("maxChanged", config.maxChanged)
-        put("censusThr", config.censusThr)
-        put("censusZWeight", config.censusZWeight)
-        put("occlCensusThr", config.occlCensusThr)
-        put("cnnConfThr", config.cnnConfThr)
-        put("cnnCooldownS", config.cnnCooldownS)
-        put("cnnCheckIntervalS", config.cnnCheckIntervalS)
-        put("verifyWindow", config.verifyWindow)
-        put("verifyTimeoutS", config.verifyTimeoutS)
-        put("cnnMinAgreement", config.cnnMinAgreement)
-        put("cnnMarginSquares", config.cnnMarginSquares)
-        put("cnnPlyCostSquares", config.cnnPlyCostSquares)
-        put("recoveryMaxPlies", config.recoveryMaxPlies)
-        put("minConfidentBoard", config.minConfidentBoard)
-        put("minConfidentRecovery", config.minConfidentRecovery)
-        put("motionMargin", config.motionMargin)
-        put("overhang", config.overhang)
-        put("alignEvery", config.alignEvery)
-        put("alignScale", config.alignScale)
-        put("cornerJumpPx", config.cornerJumpPx)
-        put("motionHoldS", config.motionHoldS)
-        put("occlusionColorThr", config.occlusionColorThr)
-        put("minGridLineCoverage", config.minGridLineCoverage)
-        put("diffClaheClip", config.diffClaheClip)
-        put("requireMotionForMove", config.requireMotionForMove)
-        put("cleanCommitsOnly", config.cleanCommitsOnly)
-        put("gridHandGate", config.gridHandGate)
-        put("motionRecencyS", config.motionRecencyS)
-        put("commitLlFloor", config.commitLlFloor)
-        put("detectScale", config.detectScale)
-        put("desyncObsN", config.desyncObsN)
-        put("desyncStandoffObsN", config.desyncStandoffObsN)
-        put("autoResyncObsN", config.autoResyncObsN)
-        put("verifyObsVotes", config.verifyObsVotes)
-        put("observerIntervalS", config.observerIntervalS)
-        put("darkLumaThr", config.darkLumaThr)
-        put("cnnVerify", config.cnnVerify)
-        put("liveAlign", config.liveAlign)
-        put("usePrior", config.usePrior)
-        put("boardSize", config.boardSize)
+        KNOBS.forEach { knob ->
+            val value = knob.get(config)
+            when (knob.kind) {
+                KnobKind.DOUBLE -> put(knob.key, value)
+                KnobKind.INT -> put(knob.key, value.toInt())
+                KnobKind.BOOL -> put(knob.key, value != 0.0)
+                KnobKind.OPTIONAL_INT -> if (value.isNaN()) put(knob.key, JsonNull) else put(knob.key, value.toInt())
+            }
+        }
         put("detSize", config.detSize)
         put("settleFrames", config.settleFrames(cnnOn))
         put("avgFrames", config.avgFrames(cnnOn))

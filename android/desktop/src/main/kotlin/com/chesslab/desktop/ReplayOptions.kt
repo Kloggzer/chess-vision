@@ -3,7 +3,11 @@ package com.chesslab.desktop
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.cnn.DEFAULT_MODEL
+import com.chesslab.tracker.settings.ConfigCodec
 import com.chesslab.tracker.settings.KNOBS
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import java.io.File
 
 /**
  * How one run is configured, parsed once.
@@ -88,6 +92,15 @@ data class ReplayOptions(
      * runs on `nowS`.
      */
     val fps: Double? = null,
+    /**
+     * `config=<file>` — a RECORDED config as the run's base, instead of the defaults: a session's
+     * `settings.json` (the phone writes one per recording since 2026-08-14; its `config` block is
+     * read) or a raw ConfigCodec envelope (the `tracker_config_json` DataStore slot). This is what
+     * lets a recording be replayed under the phone's true knobs rather than a guess at them.
+     * Geometry still wins where geometry must: `boardSize` (and with it `detSize`) is a
+     * measurement of THIS footage, applied after the file.
+     */
+    val configFile: String? = null,
     /** Build this cache when absent; consume it strictly by frame sequence when present. */
     val visualCache: String? = null,
     /** Benchmark/investigation arm: force the real graph even when identical crop hashes exist. */
@@ -119,7 +132,7 @@ data class ReplayOptions(
                     FLAGS[word]?.invoke(options) ?: assigned(options, word)
                         ?: error(
                             "unknown option '$word' (${FLAGS.keys.joinToString(" | ")} " +
-                                "| dump=<n> | name=<x> | model=<name> | fps=<n> | visualcache=<file>)",
+                                "| dump=<n> | name=<x> | model=<name> | config=<file> | fps=<n> | visualcache=<file>)",
                         )
             }
             return options
@@ -145,6 +158,11 @@ data class ReplayOptions(
                                 ?: error("fps= wants a positive frame rate, got '$word'"),
                     )
                 word.startsWith("model=") -> options.copy(model = word.removePrefix("model="))
+                word.startsWith("config=") ->
+                    options.copy(
+                        configFile =
+                            word.removePrefix("config=").ifEmpty { error("config= wants a settings.json or envelope file") },
+                    )
                 word.startsWith("visualcache=") -> options.copy(visualCache = word.removePrefix("visualcache="))
                 word.startsWith("visualworkers=") ->
                     options.copy(
@@ -179,6 +197,7 @@ data class ReplayOptions(
             (if (frames) " frames" else "") +
             (if (cleanOnly) " cleanonly" else "") +
             (name?.let { " name=$it" } ?: "") +
+            (configFile?.let { " config=$it" } ?: "") +
             (fps?.let { " fps=$it" } ?: "") +
             (visualCache?.let { " visualcache=$it" } ?: "") +
             (if (observationCache) "" else " noobscache") +
@@ -196,14 +215,52 @@ data class ReplayOptions(
 internal fun ReplayOptions.trackerConfig(
     geometry: BoardGeometry,
     live: Boolean,
-): TrackerConfig =
-    TrackerConfig()
+): TrackerConfig {
+    // The recorded file FIRST, the geometry copy AFTER: `boardSize` (and with it `detSize`) is a
+    // measurement of THIS footage, and a phone's recorded size would poison the warp of any other
+    // video — the same rule `options.trackerConfig` has always kept for the defaults.
+    val base = configFile?.let(::loadRecordedConfig) ?: TrackerConfig()
+    return base
         .copy(
             boardSize = geometry.boardSize,
-            requireMotionForMove = motionGate,
-            cleanCommitsOnly = cleanOnly,
-            observerIntervalS = if (live) TrackerConfig().observerIntervalS else REPLAY_OBSERVER_INTERVAL_S,
+            // The CLI arms are one-directional: `nomotion`/`cleanonly` override the file, but
+            // their ABSENCE leaves the recorded value standing instead of stamping the default
+            // back over it — otherwise `config=` could never reproduce a phone that had one on.
+            requireMotionForMove = base.requireMotionForMove && motionGate,
+            cleanCommitsOnly = base.cleanCommitsOnly || cleanOnly,
+            // A file replay keeps the REPLAY's cadence, not the phone's: free-running is what
+            // every good measurement ran at (see REPLAY_OBSERVER_INTERVAL_S). When the phone's
+            // cadence IS the experiment, `set:observerIntervalS=<s>` says so explicitly.
+            observerIntervalS = if (live) base.observerIntervalS else REPLAY_OBSERVER_INTERVAL_S,
         ).withOverrides(overrides)
+}
+
+/**
+ * `config=<file>`, loaded and announced. Accepts a session's `settings.json` (its `config` block)
+ * or a raw ConfigCodec envelope — the two forms are the same bytes, because the phone embeds the
+ * envelope verbatim (`SessionSettingsWriter`). Refuses loudly what it cannot read: ConfigCodec's
+ * own fallback is "defaults with a note", and a replay that silently ran defaults under a
+ * `config=` flag would measure nothing while claiming to measure the recording.
+ */
+private fun loadRecordedConfig(path: String): TrackerConfig {
+    val json = Json { allowSpecialFloatingPointValues = true }
+    val root =
+        runCatching { json.parseToJsonElement(File(path).readText()) }
+            .getOrElse { error("config=$path could not be read: ${it.message}") }
+    val obj = root as? JsonObject ?: error("config=$path: expected a JSON object")
+    val envelope = obj["config"] as? JsonObject ?: obj
+    val decoded = ConfigCodec.decode(json.encodeToString(JsonObject.serializer(), envelope))
+    decoded.note?.let { error("config=$path: $it") }
+    val changed = ConfigCodec.changedKeys(ConfigCodec.defaults, decoded.config)
+    val diff =
+        if (changed.isEmpty()) {
+            "no knob differs from defaults"
+        } else {
+            "differs from defaults: " + changed.joinToString(" ") { "${it.key}=${it.get(decoded.config)}" }
+        }
+    println("config: $path applied — $diff")
+    return decoded.config
+}
 
 /**
  * `set:<knob>=<value>` words applied through the settings catalog — the generic one-knob

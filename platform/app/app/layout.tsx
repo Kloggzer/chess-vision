@@ -9,7 +9,8 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className="dark font-sans">
-      <body className="mx-auto max-w-5xl px-6 py-8">{children}</body>
+      {/* The side margin is 48 px of a 390 px phone — a tenth of the screen the crops need. */}
+      <body className="mx-auto max-w-5xl px-3 py-4 sm:px-6 sm:py-8">{children}</body>
     </html>
   );
 }

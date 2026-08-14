@@ -114,6 +114,8 @@ export function Streams({ name, sessionId, streams, decided, frames, next, filte
               event.currentTarget.blur();
               setTab(key);
             }}
+            // The first thing a thumb has to hit on this screen, and it was 28 px tall.
+            className="max-sm:h-11 max-sm:px-3"
             size="sm"
             variant={tab === key ? "default" : "outline"}
           >
@@ -162,7 +164,7 @@ export function Streams({ name, sessionId, streams, decided, frames, next, filte
           {boardQueue ? (
             <div className="flex flex-wrap items-center gap-3 text-sm">
               <Badge variant="secondary">queue: {boardQueue.label}</Badge>
-              <Button onClick={() => setBoardQueue(null)} size="sm" variant="outline">
+              <Button className="max-sm:h-11 max-sm:px-3" onClick={() => setBoardQueue(null)} size="sm" variant="outline">
                 clear queue — back to all {frames.length} boards
               </Button>
             </div>

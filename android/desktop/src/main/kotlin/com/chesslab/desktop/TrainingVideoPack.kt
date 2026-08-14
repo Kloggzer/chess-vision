@@ -11,6 +11,7 @@ import com.chesslab.geometry.cropBorderPx
 import com.chesslab.geometry.cropSquare
 import com.chesslab.geometry.gridOccludedSquares
 import com.chesslab.geometry.warpBoardForCrops
+import com.chesslab.tracker.cnn.DEFAULT_MODEL
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.move.Move
 import kotlinx.serialization.json.Json
@@ -29,6 +30,7 @@ private const val DEFAULT_STABLE_SAMPLES = 3
 private const val MAX_OCCUPANCY_MISMATCHES = 1
 private const val PACK_SIDE = 80
 private const val PACK_BYTES = PACK_SIDE * PACK_SIDE * 3
+private const val UNREVIEWED_LABEL = "unreviewed"
 
 /** Result of matching one visually stable board against the known positions of the played game. */
 internal data class VideoPositionMatch(
@@ -36,6 +38,26 @@ internal data class VideoPositionMatch(
     val mismatches: Int,
     val reason: String,
 )
+
+internal data class TrainingFrameRisk(
+    val reasons: List<String>,
+    val squares: Set<String>,
+)
+
+/** A frame with any independent warning is review material, never automatic training truth. */
+internal fun trainingFrameRisk(
+    cnnOccluded: Set<String>,
+    cnnConflicts: Set<String>,
+    engineOccluded: Set<String>,
+): TrainingFrameRisk {
+    val reasons =
+        buildList {
+            if (cnnOccluded.isNotEmpty()) add("cnn_occluded")
+            if (cnnConflicts.isNotEmpty()) add("cnn_conflict")
+            if (engineOccluded.isNotEmpty()) add("engine_occluded")
+        }
+    return TrainingFrameRisk(reasons, cnnOccluded + cnnConflicts + engineOccluded)
+}
 
 /**
  * Keeps extraction monotonic. A physical take-back is useful evidence, but it is not part of the
@@ -77,15 +99,21 @@ fun packTrainingVideo(args: List<String>) {
     val every = options.intOption("every", DEFAULT_SAMPLE_EVERY)
     val stableNeeded = options.intOption("stable", DEFAULT_STABLE_SAMPLES)
     val trackerFps = options.doubleOption("fps")
-    val model = options.stringOption("model") ?: "id35-80"
+    val model = options.stringOption("model") ?: DEFAULT_MODEL
     val visualCache = options.stringOption("visualcache")
+    // The pack's rows are keyed by this, and `corrections.jsonl` dedups on
+    // `(session_id, frame, square)` with LAST LINE WINNING — so an id that is not unique per
+    // recording makes one human's verdict apply to another recording's crop. The video's own stem
+    // was unique while videos came off a camera roll; every LAN-transferred phone recording is
+    // `files/sessions/<id>/video.mp4`, so the stem is now the constant "video" for all of them.
+    val id = options.stringOption("id") ?: video.nameWithoutExtension
     require(video.isFile && gameFile.isFile) { "video and game.json must exist" }
     require(every >= 1 && stableNeeded >= 2) { "every must be >= 1 and stable must be >= 2" }
     require(!outDir.exists()) { "refusing to overwrite ${outDir.absolutePath}" }
 
-    val capture = TrainingVideoCapture(video, gameFile, outDir, every, stableNeeded, trackerFps, model)
+    val capture = TrainingVideoCapture(video, gameFile, outDir, every, stableNeeded, trackerFps, model, id)
     replay(
-        VideoFileSource(video),
+        openRecording(video),
         video.name,
         ReplayOptions(watch = false, model = model, fps = trackerFps, visualCache = visualCache),
         video = video,
@@ -129,6 +157,7 @@ internal interface ReplayTrainingSink {
     fun finish()
 }
 
+@Suppress("LongParameterList")
 private class TrainingVideoCapture(
     private val video: File,
     gameFile: File,
@@ -137,13 +166,15 @@ private class TrainingVideoCapture(
     private val stableNeeded: Int,
     private val trackerFps: Double?,
     private val model: String,
+    private val id: String,
 ) : ReplayTrainingSink {
     private val positions = gamePositions(gameFile)
     private val gate = VideoPositionGate()
     private lateinit var geometry: BoardGeometry
     private lateinit var initialCorners: FloatArray
-    private lateinit var clean: VideoPackSink
-    private lateinit var occluded: VideoPackSink
+    private lateinit var accepted: VideoPackSink
+    private lateinit var quarantine: VideoPackSink
+    private lateinit var occludedProposals: VideoPackSink
     private lateinit var audit: BufferedWriter
     private var sampled = 0
     private var stable = 0
@@ -157,8 +188,10 @@ private class TrainingVideoCapture(
         this.geometry = geometry
         initialCorners = corners
         outDir.mkdirs()
-        clean = VideoPackSink(File(outDir, "clean"), "${video.nameWithoutExtension}-clean")
-        occluded = VideoPackSink(File(outDir, "occluded"), "${video.nameWithoutExtension}-occluded")
+        accepted = VideoPackSink(File(outDir, "accepted"), "$id-accepted")
+        quarantine = VideoPackSink(File(outDir, "quarantine"), "$id-quarantine")
+        occludedProposals =
+            VideoPackSink(File(outDir, "occluded-proposals"), "$id-occluded-proposals")
         audit = File(outDir, "audit.jsonl").bufferedWriter()
     }
 
@@ -182,8 +215,8 @@ private class TrainingVideoCapture(
             if (isHandShape(handBits)) {
                 stable = 0
                 val squares = bitSquares(handBits)
-                occluded.writeSquares(frameNo, warped, geometry, squares, "occluded")
-                audit.row(frameNo, timeMs, "occluded", extras = ",\"squares\":${jsonArray(squares)}")
+                occludedProposals.writeProposals(frameNo, warped, geometry, squares, "occluded", "grid_hand")
+                audit.row(frameNo, timeMs, "quarantine_occluded", extras = ",\"squares\":${jsonArray(squares)}")
                 return
             }
             // `verifyState` is the last verdict as well as the active verifier state: after a
@@ -206,8 +239,23 @@ private class TrainingVideoCapture(
                 audit.row(frameNo, timeMs, match.reason)
                 return
             }
-            clean.writeBoard(frameNo, warped, geometry, positions[match.ply].labels)
-            audit.row(frameNo, timeMs, "clean", extras = ",\"ply\":${match.ply}")
+            val risk = trainingFrameRisk(status.cnnOccluded, status.cnnConflicts, status.occlusionVetoed)
+            if (risk.reasons.isNotEmpty()) {
+                quarantine.writeReviewBoard(frameNo, warped, geometry, positions[match.ply].labels, risk.reasons.joinToString("+"))
+                audit.row(
+                    frameNo,
+                    timeMs,
+                    "quarantine",
+                    extras =
+                        ",\"ply\":${match.ply},\"reasons\":${jsonArray(risk.reasons)}," +
+                            "\"squares\":${jsonArray(risk.squares.sorted())}",
+                )
+                stable = 0
+                lastFen = null
+                return
+            }
+            accepted.writeBoard(frameNo, warped, geometry, positions[match.ply].labels)
+            audit.row(frameNo, timeMs, "accepted", extras = ",\"ply\":${match.ply}")
         } finally {
             warped.release()
         }
@@ -215,17 +263,23 @@ private class TrainingVideoCapture(
 
     override fun finish() {
         audit.close()
-        clean.close(video, sampled)
-        occluded.close(video, sampled)
+        accepted.close(video, sampled)
+        quarantine.close(video, sampled)
+        occludedProposals.close(video, sampled)
         val recordedTrackerFps = trackerFps?.toString() ?: "\"full\""
         File(outDir, "summary.json").writeText(
             "{\"source\":\"${escape(video.absolutePath)}\",\"sampled_frames\":$sampled," +
-                "\"clean_frames\":${clean.frames},\"occluded_frames\":${occluded.frames}," +
-                "\"clean_crops\":${clean.crops},\"occluded_crops\":${occluded.crops}," +
+                "\"accepted_frames\":${accepted.frames},\"accepted_crops\":${accepted.crops}," +
+                "\"quarantine_frames\":${quarantine.frames},\"quarantine_crops\":${quarantine.crops}," +
+                "\"occluded_proposal_frames\":${occludedProposals.frames}," +
+                "\"occluded_proposal_crops\":${occludedProposals.crops}," +
                 "\"tracker_fps\":$recordedTrackerFps,\"every\":$every,\"stable\":$stableNeeded," +
                 "\"model\":\"${escape(model)}\",\"decision_source\":\"windows_kotlin_tracker\"}\n",
         )
-        println("tracker extraction: ${clean.frames} clean boards + ${occluded.crops} occluded crops -> ${outDir.absolutePath}")
+        println(
+            "tracker extraction: ${accepted.frames} accepted boards + ${quarantine.frames} quarantined boards + " +
+                "${occludedProposals.crops} occluded proposals -> ${outDir.absolutePath}",
+        )
     }
 
     private fun reject(
@@ -268,19 +322,31 @@ private class VideoPackSink(
         writeSquares(frameNo, warped, geometry, ALL_SQUARES) { labels.getValue(it) }
     }
 
-    fun writeSquares(
+    fun writeReviewBoard(
+        frameNo: Int,
+        warped: Mat,
+        geometry: BoardGeometry,
+        labels: Map<String, String>,
+        reason: String,
+    ) {
+        writeSquares(frameNo, warped, geometry, ALL_SQUARES, reason) { labels.getValue(it) }
+    }
+
+    fun writeProposals(
         frameNo: Int,
         warped: Mat,
         geometry: BoardGeometry,
         squares: List<String>,
-        label: String,
-    ) = writeSquares(frameNo, warped, geometry, squares) { label }
+        proposedLabel: String,
+        reason: String,
+    ) = writeSquares(frameNo, warped, geometry, squares, reason) { proposedLabel }
 
     private fun writeSquares(
         frameNo: Int,
         warped: Mat,
         geometry: BoardGeometry,
         squares: List<String>,
+        reviewReason: String? = null,
         labelOf: (String) -> String,
     ) {
         val stem = frameNo.toString().padStart(8, '0')
@@ -300,12 +366,19 @@ private class VideoPackSink(
             }
             bgrToRgbInPlace(data)
             bytes.write(data)
-            val label = labelOf(square)
+            val proposedLabel = labelOf(square)
+            val label = if (reviewReason == null) proposedLabel else UNREVIEWED_LABEL
             val path = "mm://$id/$stem/$square"
+            val reviewFields =
+                reviewReason
+                    ?.let {
+                        ",\"proposed_label\":\"${escape(proposedLabel)}\",\"review_status\":\"quarantine\"," +
+                            "\"review_reason\":\"${escape(it)}\""
+                    }.orEmpty()
             manifest.append(
                 "{\"path\":\"${escape(path)}\",\"session_id\":\"${escape(id)}\"," +
                     "\"frame\":\"$stem\",\"square\":\"$square\",\"label\":\"$label\"," +
-                    "\"out_size\":[$PACK_SIDE,$PACK_SIDE],\"pad_side\":0.05,\"pad_up\":0.0}\n",
+                    "\"out_size\":[$PACK_SIDE,$PACK_SIDE],\"pad_side\":0.05,\"pad_up\":0.0$reviewFields}\n",
             )
             digest.update(path.toByteArray(UTF_8))
             digest.update(0)
@@ -364,5 +437,5 @@ private fun List<String>.doubleOption(name: String): Double? = stringOption(name
 private fun trainingVideoUsage(): Nothing =
     error(
         "usage: training-video-pack <video> <game.json> <outDir> " +
-            "[every=N] [stable=N] [fps=N] [model=name] [visualcache=file]",
+            "[every=N] [stable=N] [fps=N] [model=name] [visualcache=file] [id=name]",
     )

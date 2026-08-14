@@ -67,6 +67,9 @@ android {
 
     buildFeatures {
         compose = true
+        // For `BuildConfig.VERSION_NAME`/`VERSION_CODE` in the session provenance
+        // (`settings.json`) — a recording must say which build produced it.
+        buildConfig = true
     }
 
     testOptions {
@@ -194,6 +197,9 @@ dependencies {
     // KotlinX
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
+
+    // WorkManager (LAN transfer): the upload has to outlive the screen it was started from.
+    implementation(libs.work.runtime)
 
     // Ktor CIO (phase 08b: LAN spectator server)
     implementation(libs.ktor.server.cio)

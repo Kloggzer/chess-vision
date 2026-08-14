@@ -6,6 +6,43 @@
 
 ## Next up (agreed, not started)
 
+- **Der Vorlauf kam mit ~1,4 s statt 20 s an** (gemessen am Handy 2026-08-14, Session
+  `20260814-142947`). Rechnung: Commit (Verzeichnis) 14:29:47.998, Segment 0 geschlossen
+  14:30:47.154 → 59,2 s Wanduhr, `mvhd`-Dauer 60,6 s, also ~1,4 s vor dem Commit — ziemlich genau
+  EINE GOP. Der Ring ist es nicht: `PreRollRing` hält unter einem realistischen Feed (30 fps,
+  1-s-GOPs, 83 kB/Sample, gedeckelt wie ausgeliefert) 19-20 s, und der Test dazu steht jetzt in
+  `PreRollRingTest`. Verdacht ist damit der ZEITPUNKT der Scharfschaltung: `startVideo()` gibt
+  still auf, solange `camera.videoResolution == null` ist, und der einzige zweite Auslöser ist
+  `videoAvailability` — schlägt der fehl, armt erst `opened()`, also der Commit selbst. Beweisbar
+  war das bisher nicht, weil die Armed-Phase keine Session hat und ihre Progress-Zeilen am
+  `null`-Timeline verfallen. Jetzt loggt `CameraVideo` Arm, Ringtiefe (alle 5 s) und die geflushte
+  Vorlauflänge, und `session.yaml` trägt `video_pre_roll_ns`. Nächster 60-Sekunden-Lauf am Handy
+  beantwortet es ohne Forensik: `adb logcat -s chesslabVideo`.
+
+- **Das 14er-Modell ist bei `occluded` zu aggressiv** (User am Brett, 2026-08-14). Deckt sich mit
+  den Replay-Logs vom selben Tag: real14-80 las beim Start eine ganze Damenflügel-Flanke
+  (`occlVeto=a3,a4,a5,a6,a7,b3,b4,b5,b6,…`) auf freiem Brett als verdeckt. Der Punkt ist nicht nur
+  der Sensor, sondern was daran hängt: mit einem Modell OHNE `occluded` war `pOccluded = 0.0` und
+  die Sperren (Hand-Veto, Recovery-Gate auf sauberem Brett, Count-Discount) liefen strukturell
+  leer — dieses Modell schaltet sie zum ersten Mal scharf, und zwar mit einem unvalidierten Kopf.
+  Zu messen, bevor daran geschraubt wird: wie viele Commits pro Partie tatsächlich an
+  `occluded` scheitern (Timeline-Reasons zählen), dann erst Schwelle oder Vorrang des
+  MODELLFREIEN Arms (`gridHandGate`, MEMORY `grid-hand-veto-milestone`) gegen den CNN-Arm.
+
+- **Emulator-Kamera: `videofile:` ist ein Feed-Test, kein Tracking-Test** (gemessen 2026-08-14).
+  Drei Befunde: (1) Die 640x640-Blender-Clips können auf dem 16:9-Sensor NIE alle vier Marker
+  zeigen — der Füll-Crop schneidet zwei ab, "No board yet" ist damit strukturell, nicht zufällig;
+  der Smoke hat Tracking durch den Clip nie verifiziert ("this never worked", User). (2) Echtes
+  QHD-Material wird erkannt und live-aligned (Quad folgt einem schräg hängenden Brett bei 2/4
+  Codes). Die Wiedergabegeschwindigkeit passt bei längerem Zusehen ("die geschwindigkeit passt",
+  User) — der Sensor tickt mit 33 ms (~30 fps) gegen 27,97 fps Clip, also ~7 % schnell, praktisch
+  unauffällig; der erste Eindruck "zu schnell" hielt nicht. Für exakte Timing-/Engine-Fragen bleibt
+  trotzdem der Desktop-Replay das Werkzeug, weil nur er die Uhr des Materials fährt. (3) Ein Loop, der mitten in der
+  Partie startet, matcht nie die Startaufstellung — Commit-Pfade sind so nicht testbar. Will man
+  den Smoke zum Tracking-Test machen: Clips auf 16:9 padden, kurz halten (Loop-Start = Partiestart)
+  und die erwarteten UI-Texte gegen die specs/54-Wortlaute aktualisieren (scheitert heute an
+  "Start tracking").
+
 - **Lens end-to-end für die Rig-Kamera** (2026-08-10: *"ich würde gerne überall die Bilder sehen
   die auch der Algo sieht"*). Der Hebel ist an die DATEN gekoppelt (CLAUDE.md, specs/52: lens-
   korrigierte Inferenz gegen den roh trainierten Korpus = 003957 von 67 auf 15 Plies), deshalb in
@@ -28,7 +65,11 @@
 - **Video upload in the web UI** — today a new video is a `copy` into `data/testclip-raw/` plus
   four CLI steps (label → confirm → export-session → propose-occluded). The platform should
   take the file, put it where it belongs and run the chain. Asked 2026-08-09; the CLI path is
-  written up in the answer of that day.
+  written up in the answer of that day. *Mostly done since 2026-08-13:* a PHONE recording arrives
+  by itself over the LAN, queues `training-video-pack`, and the whole
+  label → confirm → export-session → propose-occluded chain is a button per card on `/`
+  (`docs/phone-transfer.md`, `platform/app/README.md`). What is left is the RIG videos — a file the
+  browser hands over, so the chain has something to start on.
 - **Review provenance** — "keep" in the tinder band writes nothing, by design (a row repeating
   the FEN is noise in a global training input). Consequence: *looked at and correct* is
   indistinguishable from *never looked at*. If that distinction should survive a reload, it
@@ -45,6 +86,45 @@
   3. Der TypeScript-Warp der Weboberfläche, sobald 1 steht.
   Nicht bewegbar: PyTorch-Training und der Datensatzbau. Ein `throw` in `chesslab slice` schaltet
   den Datensatzbau ab — der Umzug braucht vorher einen Kotlin-Weg, der die Crops liefert.
+
+### Erledigt 2026-08-14 — was es gemessen hat
+
+- **Der Recorder behält nur noch Footage, die ein Spiel trägt.** Der Encoder läuft ab
+  Tracking-Start SCHARF: die Samples liegen in einem Ringpuffer (20 s / 80 MB hart, getrimmt nur
+  an Keyframe-Grenzen — `camera/PreRollRing.kt`), der Muxer öffnet erst beim ersten committeten
+  Zug und schreibt den Vorlauf mit auf 0 rebasten Timestamps als Segment 0 (`CameraVideo.keep`).
+  Der Vorlauf gilt EINMAL, nicht pro Zug: die ruhigen Strecken zwischen den Zügen sind die
+  gelabelten Trainingsdaten. Kill vor dem ersten Zug = Puffer stirbt mit dem Prozess, nichts auf
+  der Platte (gewollt); Kill danach = wie bisher maximal ein Minuten-Segment weg. Auch das
+  SESSION-Verzeichnis entsteht erst beim ersten Commit (`SessionCaptureController.queue`) —
+  Aufbau, Markerkleben und Kalibrierung hinterlassen gar nichts mehr, und ein Janitor beim
+  App-Start räumt Altlasten (`sync/UploadPlan.kt::sweepEmptyRecordings`, nie über `transfer.json`
+  hinweg). Settings-Zeile sagt es ehrlich: "Armed — video starts with the first move".
+  **Am Gerät noch NICHT verifiziert** — bewusst dem Nutzer überlassen (Installs auf dem Handy nur
+  mit Backup, CLAUDE.md); JVM-Tests decken Ring, Commit-Gate und Janitor ab.
+
+- **Jede Aufnahme trägt jetzt ihre Settings.** Das Handy schreibt beim Session-Start
+  `settings.json` neben `session.yaml`: die volle TrackerConfig als ConfigCodec-Envelope
+  (identische Wire-Form wie der DataStore-Slot), Modell/EP/Auflösung/Orientierung aus den
+  AppSettings, Build-Version, plus `history` für jeden Knob, der mitten in der Session bewegt
+  wurde (`tracker-runtime record/SessionSettings.kt`, verdrahtet in `TrackerService`). Der
+  Replay-Dump `effective_config` ist seitdem KNOBS-getrieben statt handgepflegt — die
+  handgepflegte Liste war fünf Keys kurz, darunter `handTolerantCells`, exakt der Knob, den
+  `2026-08-13-19-34-23` gebraucht hätte. Wiederholen unter der echten Config:
+  `:desktop … replay <video> config=<session>/settings.json` (Geometrie gewinnt weiterhin bei
+  `boardSize`/`detSize`). Ein Vollständigkeitstest (`ConfigKnobsCompletenessTest`) hält den
+  Katalog ab jetzt deckungsgleich mit `TrackerConfig`.
+
+- **Eine abgebrochene Aufnahme kostet jetzt eine Minute statt der ganzen Partie.** Vier der elf
+  übertragenen Aufnahmen (1,99 GB) hatten kein `moov`; Androids Exit-Log nannte den Täter:
+  `reason=16 (PACKAGE UPDATED)` — ein `adb install` über die laufende Aufnahme, also SIGKILL ohne
+  Callback. Der Recorder schließt seinen Muxer seither einmal pro Minute an einer Sync-Frame
+  (`CameraVideo.SEGMENT_SECONDS`), Dateien `video.mp4`, `video-001.mp4`, … Am Gerät reproduziert:
+  drei Segmente, Install mitten hinein, **die ersten beiden tragen `moov` und dekodieren
+  (3600 Frames als ein Strom), verloren sind 4 Sekunden**. Die PC-Seite liest sie über
+  `openRecording` als eine Aufnahme und nennt das abgeschnittene letzte Segment, statt daran zu
+  scheitern. Die Segmentliste kommt von der PLATTE, nicht aus `session.yaml` — ein Kill verhindert
+  auch das Schreiben der Metadaten.
 
 ## Open questions the measurements left behind
 

@@ -12,6 +12,7 @@ import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.geometry.BoardGeometry
+import com.chesslab.tracker.BuildConfig
 import com.chesslab.tracker.camera.CameraLookPort
 import com.chesslab.tracker.camera.DeliveredSize
 import com.chesslab.tracker.camera.TrackerCamera
@@ -34,9 +35,11 @@ import com.chesslab.tracker.pipeline.CameraRate
 import com.chesslab.tracker.pipeline.PERF_TAG
 import com.chesslab.tracker.pipeline.StageTimings
 import com.chesslab.tracker.pipeline.cameraStages
+import com.chesslab.tracker.record.BuildStamp
 import com.chesslab.tracker.record.RecordingBundleHost
 import com.chesslab.tracker.record.RecordingHooks
 import com.chesslab.tracker.record.RecordingSettings
+import com.chesslab.tracker.record.SessionSettingsHost
 import com.chesslab.tracker.record.TimelineFrame
 import com.chesslab.tracker.runtime.AppPaths
 import com.chesslab.tracker.settings.AppSettings
@@ -45,6 +48,8 @@ import com.chesslab.tracker.settings.SettingsRepository
 import com.chesslab.tracker.settings.cameraLook
 import com.chesslab.tracker.speech.MoveAnnouncer
 import com.chesslab.tracker.speech.androidSpeechEngine
+import com.chesslab.tracker.sync.SETTLE_MINUTES
+import com.chesslab.tracker.sync.syncNow
 import com.chesslab.tracker.ui.debug.DebugSessionHost
 import com.chesslab.tracker.ui.debug.debugSession
 import com.chesslab.tracker.ui.games.GameSessionHost
@@ -384,6 +389,20 @@ class TrackerService :
         // 08a's recorder, in the SESSION half: it must outlive both the UI and a tracker restart.
         recordingSettings = RecordingSettingsHost.get(this)
         recording = RecordingBundleHost(camera, recordingSettings, File(filesDir, "sessions"), lifecycleScope)
+        // `settings.json` beside the recording: the config and model the session ACTUALLY ran.
+        // 2026-08-13-19-34-23 could not answer "was handTolerantCells on?" — the phone wrote
+        // neither its TrackerConfig nor its model choice anywhere (TODO 2026-08-14).
+        val sessionSettings =
+            SessionSettingsHost(
+                BuildStamp(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE.toLong()),
+                { settings.appSettings.value },
+                // The config the ENGINE runs, measured boardSize included — the stored knobs
+                // alone would claim config.py's 1600 while the profile served something else.
+                { onMeasuredBoard(settings.config.value, geometry) },
+            )
+        settings.config
+            .onEach { sessionSettings.configChanged(onMeasuredBoard(it, geometry)) }
+            .launchIn(lifecycleScope)
         games =
             wireGameSession(
                 AppPaths(filesDir),
@@ -392,7 +411,15 @@ class TrackerService :
                 frames,
                 publisher,
                 calibration,
-                RecordingHooks(recording::opened, { recording.finished() }, { camera.videoFailure }),
+                // The end of a recording is the moment the PC can have it — see `SyncWorker`.
+                RecordingHooks({
+                    recording.opened(it)
+                    sessionSettings.opened(it.dir)
+                }, {
+                    sessionSettings.finished()
+                    recording.finished()
+                    syncNow(this, SETTLE_MINUTES)
+                }, { camera.videoFailure }),
             )
         GameSessionHost.publish(games)
     }
@@ -414,7 +441,13 @@ class TrackerService :
         camera.retarget(cameraRequestFor(settings.appSettings.value.resolutionMode))
         camera.bind(this)
         publisher.events.onEach(::onEvent).launchIn(lifecycleScope)
-        recordingSettings.prefs.onEach { camera.setVideoEnabled(it.enabled) }.launchIn(lifecycleScope)
+        recordingSettings.prefs
+            .onEach {
+                camera.setVideoEnabled(it.enabled)
+                // Arm the pre-roll encoder as soon as recording is wanted; the ring must already
+                // be rolling when the first move commits. No-op while disabled or camera-less.
+                recording.armVideo()
+            }.launchIn(lifecycleScope)
         settings.debugEnabled.onEach { if (it) setDebugEnabled(true) }.launchIn(lifecycleScope)
     }
 

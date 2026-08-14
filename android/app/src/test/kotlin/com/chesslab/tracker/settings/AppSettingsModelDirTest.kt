@@ -14,8 +14,8 @@ import org.junit.jupiter.api.Test
  */
 class AppSettingsModelDirTest {
     @Test
-    fun aFreshInstallRunsTheHardNegativeTrainedBatchNormModel() {
-        assertEquals("id35-80", DEFAULT_MODEL)
+    fun aFreshInstallRunsTheOcclusionAwareIdentityModel() {
+        assertEquals("real14-80", DEFAULT_MODEL)
         assertEquals(DEFAULT_MODEL, AppSettings().modelDir)
         assertEquals(DEFAULT_MODEL, decodeAppSettings(null).modelDir)
     }
@@ -27,7 +27,10 @@ class AppSettingsModelDirTest {
         val briefBn100Default = """{"modelRelease":2,"modelDir":"bn100-80","modelAsset":"model.onnx"}"""
         assertEquals(DEFAULT_MODEL, decodeAppSettings(briefBn100Default).modelDir)
 
-        listOf("shipped", "bn100-80").forEach { model ->
+        val previousIdentityDefault = """{"modelRelease":3,"modelDir":"id35-80","modelAsset":"model.onnx"}"""
+        assertEquals(DEFAULT_MODEL, decodeAppSettings(previousIdentityDefault).modelDir)
+
+        listOf("shipped", "bn100-80", "id35-80").forEach { model ->
             val explicitCurrentChoice = AppSettings(modelDir = model)
             assertEquals(explicitCurrentChoice, decodeAppSettings(encodeAppSettings(explicitCurrentChoice)))
         }

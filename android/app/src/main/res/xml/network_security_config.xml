@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext HTTP, deliberately, for exactly one reason: the transfer target is a `next dev` server
+  on the user's own LAN (`docs/phone-transfer.md`). It has no certificate and no name — the phone
+  finds it by sweeping its /24 for an IP — so TLS is not something this feature can opt into.
+
+  Without this file `targetSdk = 35` blocks every outbound `http://`, which is how the feature
+  failed on its first live run on 2026-08-13: every probe threw, the sweep reported "no chesslab
+  server on this Wi-Fi", and the phone's own `curl` reached the same URL fine.
+
+  It permits cleartext for OUTBOUND requests only; the app's inbound spectator server
+  (`SpectatorServer.kt`) was never affected by the flag. The app makes no other HTTP request.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

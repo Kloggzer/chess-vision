@@ -93,6 +93,12 @@ class TrackerCamera(
     val videoFailure: String? get() = video.failure
     val videoResolution: Size? get() = video.resolution
 
+    /** Files this recording is spread over — see `CameraVideo.SEGMENT_SECONDS`. */
+    val videoSegments: Int get() = video.segments
+
+    /** The pre-roll the last recording actually carried — see `CameraVideo.preRollUs`. */
+    val videoPreRollNs: Long get() = video.preRollUs * 1000L
+
     /**
      * Set by [stop] and cleared only by [resume].
      *
@@ -141,11 +147,14 @@ class TrackerCamera(
         if (!enabled) onVideoAvailability(null, null)
     }
 
+    /** Arms the encoder: samples buffer in memory until [keepVideo] — see `CameraVideo`. */
     fun startVideo(
-        file: File,
         maxBytes: Long,
         onProgress: (VideoProgress) -> Unit,
-    ): Boolean = video.start(file, maxBytes, onProgress)
+    ): Boolean = video.start(maxBytes, onProgress)
+
+    /** The first committed move: the pre-roll becomes [file] and the recording goes live. */
+    fun keepVideo(file: File) = video.keep(file)
 
     fun stopVideo() = video.stop()
 

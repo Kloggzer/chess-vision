@@ -1,3 +1,6 @@
+import Link from "next/link";
+import { chainState } from "@/lib/chain";
+import { jobs, type Job } from "@/lib/jobs";
 import { judgedKeys } from "@/lib/corrections";
 import { listGames, loadCandidate, truthSans } from "@/lib/data";
 import { loadMeta } from "@/lib/meta";
@@ -15,9 +18,10 @@ async function progress(name: string) {
   return { total: rows.length, done: rows.filter((r) => decided.has(proposalKey(r))).length, source };
 }
 
-async function gameInfo(name: string): Promise<GameInfo> {
+async function gameInfo(name: string, lastJob: Job | null): Promise<GameInfo> {
   const meta = await loadMeta(name);
   const candidate = await loadCandidate(name).catch(() => null);
+  const chain = await chainState(name);
   const pgn = await truthSans(name).catch(() => null);
   return {
     name,
@@ -29,18 +33,27 @@ async function gameInfo(name: string): Promise<GameInfo> {
     plies: candidate?.moves.length ?? 0,
     reviewed: candidate?.reviewed_plies?.length ?? 0,
     pgnPlies: pgn ? pgn.length : null,
+    chain,
+    lastJob,
     ...(await progress(name)),
   };
 }
 
 export default async function Home() {
-  const games = await Promise.all((await listGames()).map(gameInfo));
+  // One read of the job ledger for the whole list, not one per card.
+  const recent = new Map((await jobs(200)).map((job) => [job.name, job]));
+  const games = await Promise.all((await listGames()).map((name) => gameInfo(name, recent.get(name) ?? null)));
   const active = games.filter((g) => !g.archived);
   const archived = games.filter((g) => g.archived);
 
   return (
     <main className="space-y-4">
-      <h1 className="text-2xl font-semibold">Real-game candidates</h1>
+      <div className="flex items-baseline justify-between">
+        <h1 className="text-2xl font-semibold">Real-game candidates</h1>
+        <Link className="text-muted-foreground text-sm underline" href="/transfers">
+          transfers from the phone
+        </Link>
+      </div>
       <ul className="space-y-2">
         {active.map((game) => (
           <GameCard game={game} key={game.name} />

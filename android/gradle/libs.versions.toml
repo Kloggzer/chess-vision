@@ -10,6 +10,9 @@ kotlinx-serialization = "1.7.3"
 kotlinx-coroutines = "1.9.0"
 chesslib = "1.3.4"
 ktor = "3.0.3"
+# WorkManager: the transfer runs when the phone is on Wi-Fi and idle, which is exactly the
+# constraint set this library exists for — and it survives the app being closed.
+work = "2.10.0"
 zxing = "3.5.3"
 # ONNX Runtime (MIT license, GPL-compatible). JVM artifact for desktop unit tests,
 # Android AAR for the device — same ai.onnxruntime API. See the two AAR aliases below
@@ -60,6 +63,7 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinx-coroutines" }
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
 chesslib = { group = "com.github.bhlangonijr", name = "chesslib", version.ref = "chesslib" }
+work-runtime = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
 ktor-server-cio = { group = "io.ktor", name = "ktor-server-cio", version.ref = "ktor" }
 ktor-server-content-negotiation = { group = "io.ktor", name = "ktor-server-content-negotiation", version.ref = "ktor" }
 ktor-serialization-kotlinx-json = { group = "io.ktor", name = "ktor-serialization-kotlinx-json", version.ref = "ktor" }

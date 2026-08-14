@@ -30,6 +30,22 @@ data class SessionVideoMeta(
     val durationNs: Long,
     val bytes: Long,
     val error: String? = null,
+    /**
+     * How many files the recording is spread over: `video.mp4`, then `video-001.mp4`, …
+     *
+     * A consumer that reads only `video_file` gets the FIRST minute of a long recording and no
+     * hint that the rest exists, so the count is written even when it is 1 — an absent field is a
+     * pre-segment session, a present one states the truth.
+     */
+    val segments: Int = 1,
+    /**
+     * Footage ahead of the first committed move, in nanoseconds.
+     *
+     * The pre-roll is the one part of a recording nothing downstream can measure: a slicer sees
+     * frames, not the commit they preceded. Written so a session states its own answer — 0 means
+     * the encoder was armed at the commit and the reach-and-think is gone.
+     */
+    val preRollNs: Long = 0L,
 )
 
 /**
@@ -148,9 +164,11 @@ class SessionRecorder(
                 appendLine("frame_size: [${meta.frameWidth}, ${meta.frameHeight}]")
                 video?.let {
                     appendLine("video_file: video.mp4")
+                    appendLine("video_segments: ${it.segments}")
                     appendLine("video_size: [${it.width}, ${it.height}]")
                     appendLine("video_duration_ns: ${it.durationNs}")
                     appendLine("video_bytes: ${it.bytes}")
+                    appendLine("video_pre_roll_ns: ${it.preRollNs}")
                     it.error?.let { error -> appendLine("video_error: '${error.replace("'", "''")}'") }
                 }
                 appendLine("notes: '${meta.notes.replace("'", "''")}'")

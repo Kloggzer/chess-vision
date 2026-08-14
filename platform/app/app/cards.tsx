@@ -4,6 +4,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { ChainActions } from "@/app/chain-actions";
+import type { ChainState } from "@/lib/chain";
+import type { Job } from "@/lib/jobs";
 
 export type GameInfo = {
   name: string;
@@ -19,6 +22,10 @@ export type GameInfo = {
   total: number;
   done: number;
   source: "pack" | "fixture" | "none";
+  /** Where this game sits on the label → confirm → export → propose → relabel ladder. */
+  chain: ChainState;
+  /** The last job this game ran, so a reload still shows what failed and what answers it. */
+  lastJob: Job | null;
 };
 
 /** ISO timestamps rendered deterministically (no locale) so SSR and client agree. */
@@ -73,11 +80,14 @@ export function GameCard({ game }: { game: GameInfo }) {
         title="Anzeigename — leer lassen für den Verzeichnisnamen"
       />
       {game.title ? <span className="text-muted-foreground font-mono text-xs">{game.name}</span> : null}
-      <Link className="underline underline-offset-4" href={`/confirm/${game.name}`}>
-        confirm
-      </Link>
-      {game.total > 0 ? (
-        <Link className="underline underline-offset-4" href={`/relabel/${game.name}`}>
+      <ChainActions name={game.name} state={game.chain} lastJob={game.lastJob} />
+      {game.chain.step !== "confirm" && game.chain.hasCandidate ? (
+        <Link className="text-muted-foreground text-xs underline underline-offset-4" href={`/confirm/${game.name}`}>
+          confirm
+        </Link>
+      ) : null}
+      {game.total > 0 && game.chain.step !== "relabel" ? (
+        <Link className="text-muted-foreground text-xs underline underline-offset-4" href={`/relabel/${game.name}`}>
           relabel
         </Link>
       ) : null}

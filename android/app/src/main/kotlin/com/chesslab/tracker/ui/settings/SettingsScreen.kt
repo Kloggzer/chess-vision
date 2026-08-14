@@ -47,6 +47,7 @@ import com.chesslab.tracker.settings.AppSettings
 import com.chesslab.tracker.settings.SettingsHost
 import com.chesslab.tracker.speech.ui.SPEECH_LANGUAGES
 import com.chesslab.tracker.speech.ui.SpeechSection
+import com.chesslab.tracker.sync.SyncHost
 import com.chesslab.tracker.ui.ChesslabScaffold
 import com.chesslab.tracker.ui.ConfirmDialog
 import com.chesslab.tracker.ui.DangerAction
@@ -371,6 +372,7 @@ private fun LazyListScope.subpage(
         SettingsPlace.Speech -> item(key = "speech") { SpeechSection() }
         SettingsPlace.Analysis -> item(key = "analysis") { AnalysisSettingsSection() }
         SettingsPlace.Recording -> item(key = "recording") { RecordingSection() }
+        SettingsPlace.Transfer -> item(key = "transfer") { TransferSection() }
         SettingsPlace.Device -> item(key = "device") { AppSettingsSection(app) { viewModel.setApp(it) } }
         SettingsPlace.Board -> item(key = "board") { BoardOrientationSection(app) { viewModel.setApp(it) } }
         else -> Unit
@@ -423,6 +425,7 @@ private fun LazyListScope.landing(
     }
     item(key = "analysis-row") { AnalysisRow(nav) }
     item(key = "recording-row") { RecordingRow(nav) }
+    item(key = "transfer-row") { TransferRow(nav) }
     item(key = "advanced-heading") { SectionHeading("Advanced") }
     item(key = "developer-row") {
         DisclosureRow(
@@ -463,6 +466,23 @@ private fun RecordingRow(nav: SettingsNav) {
         subtitle = recordingSummary(prefs),
         onOpen = { nav.openGroup(SettingsPlace.Recording) },
         icon = Icons.Filled.PlayArrow,
+        chevron = false,
+    )
+}
+
+/** The recordings' way off the phone. Loaded like [RecordingRow], and for the same reason. */
+@Composable
+private fun TransferRow(nav: SettingsNav) {
+    val context = LocalContext.current
+    val settings = remember(context) { SyncHost.get(context) }
+    LaunchedEffect(settings) { settings.load() }
+    val prefs by settings.prefs.collectAsStateWithLifecycle()
+    val report by SyncHost.report.collectAsStateWithLifecycle()
+    DisclosureRow(
+        title = "Transfer",
+        subtitle = transferSummary(prefs, report),
+        onOpen = { nav.openGroup(SettingsPlace.Transfer) },
+        icon = Icons.Filled.Refresh,
         chevron = false,
     )
 }

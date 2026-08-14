@@ -1,7 +1,8 @@
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, describe, expect, it, test } from "vitest";
+import { writeConfirmation } from "@/lib/data";
 import { lcsReport } from "@/lib/lcs";
 
 /** Same fixture as `tests/test_realgames.py::_candidate`. */
@@ -69,4 +70,24 @@ test("the confirm POST writes only the three keys", async () => {
   expect(after.reviewed_plies).toEqual([1, 3, 4]); // "d4" is invented and was not kept
   expect(text.endsWith("\n")).toBe(true);
   expect(text).toContain('"margin": 0.0'); // untouched keys keep their bytes, not just their value
+});
+
+describe("a matched ply the human strikes", () => {
+  it("leaves the reviewed set — a transposition matches SANs, not positions", async () => {
+    // The replay's order against the reference's: its `Nf6` matches the reference's own `Nf6`, two
+    // plies later, so the LCS calls it reviewed while its commit window still showed `e5` on the
+    // board. The position that ply stamps never existed, so a human must be able to strike it.
+    const dir = path.join(process.env.CHESSLAB_DATA_DIR!, "realgames", "t");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      path.join(dir, "candidate.json"),
+      JSON.stringify({
+        moves: ["e4", "Nf6", "Nf3", "e5", "Nc3"].map((san, i) => ({ ply: i + 1, san, frame: 100 * (i + 1) })),
+      }),
+    );
+    await writeFile(path.join(dir, "reference.pgn"), "1. e4 e5 2. Nf3 Nf6 3. Nc3 *");
+
+    expect(await writeConfirmation("t", [], [])).toContain(2);
+    expect(await writeConfirmation("t", [], [2])).not.toContain(2);
+  });
 });

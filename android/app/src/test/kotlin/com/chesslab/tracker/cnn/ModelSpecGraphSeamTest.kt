@@ -112,8 +112,8 @@ class ModelSpecGraphSeamTest {
 
 /**
  * The inference size the default model is served at — **80 px**, the trained deployment size of
- * `id35-80`. This is the hard-negative-finetuned width-0.35 BatchNorm model measured at 0 phantoms
- * / 3 misses on the difficult warm-light holdout, with piece identity as an additional output.
+ * `real14-80`. This is the 14-class identity model whose explicit `occluded` output is used by
+ * the tracker as a hand veto in addition to the model-free grid-groove detector.
  *
  * A literal on purpose, and the only one. `config.json` remains the single source the CODE reads
  * (`ModelSpec.parse`); this is a tripwire on the DECISION, so that re-exporting the asset at another

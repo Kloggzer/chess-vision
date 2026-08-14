@@ -1,14 +1,28 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { Proposal } from "@/lib/proposals";
 import { writeRows } from "./write";
 
 const PAGE = 60;
-const COLS = 10;
-const CROP = 96;
+
+/**
+ * The smallest a crop may be drawn, in CSS pixels — the grid fits as many columns as that allows.
+ *
+ * A fixed ten columns is ten crops of ~34 px on a 390 px phone, which is what "die Bilder sind viel
+ * zu klein, nahezu unmöglich zu bedienen" (2026-08-13) describes: a piece is not identifiable and
+ * the tap target is smaller than a fingertip. Three big ones beat ten unreadable ones; the desktop
+ * still gets its ten because the same rule fills a wide screen.
+ */
+const MIN_CELL = 104;
+
+/** A fingertip is ~9 mm: 44 px below `sm`, the desktop's own density above it. See `drilldown.tsx`. */
+const TOUCH = "max-sm:h-11 max-sm:px-3";
+
+/** Fetched at 2x so the crop stays sharp on a phone's 3x display — detail IS the decision here. */
+const CROP = 192;
 
 export type BucketProps = {
   name: string;
@@ -39,6 +53,8 @@ export function BucketGrid(props: BucketProps) {
   const [page, setPage] = useState(0);
   const [cursor, setCursor] = useState(0);
   const [marked, setMarked] = useState<Set<number>>(new Set());
+  const grid = useRef<HTMLDivElement>(null);
+  const [cols, setCols] = useState(10);
   const [handled, setHandled] = useState<Set<string>>(new Set());
   const [note, setNote] = useState("");
 
@@ -106,6 +122,19 @@ export function BucketGrid(props: BucketProps) {
     }
   }, [slice, marked, kind, sessionId, onException, onWritten, onError]);
 
+  // The column count is the browser's answer, not ours: `auto-fill` decides it from the width, and
+  // the arrow keys have to move by the row the user actually sees.
+  useEffect(() => {
+    const element = grid.current;
+    if (!element) return;
+    const measure = () =>
+      setCols(Math.max(1, window.getComputedStyle(element).gridTemplateColumns.split(" ").filter(Boolean).length));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [slice.length]);
+
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       const keys = ["Enter", " ", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"];
@@ -113,12 +142,14 @@ export function BucketGrid(props: BucketProps) {
       event.preventDefault();
       if (event.key === "Enter") return void confirmPage();
       if (event.key === " ") return toggle(cursor);
-      const delta = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -COLS, ArrowDown: COLS }[event.key]!;
+      // Up/down move a ROW, and the row width is now whatever fits the screen — measured, not
+      // assumed, or the arrows jump a different distance than the eye sees.
+      const delta = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -cols, ArrowDown: cols }[event.key]!;
       setCursor((c) => Math.max(0, Math.min(slice.length - 1, c + delta)));
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [confirmPage, cursor, slice.length, toggle]);
+  }, [cols, confirmPage, cursor, slice.length, toggle]);
 
   if (emptied) {
     return (
@@ -137,16 +168,23 @@ export function BucketGrid(props: BucketProps) {
         </strong>
         <span className="text-muted-foreground">
           {remaining.length} offen von {cells.length} · page {safePage + 1}/{pages} ·{" "}
-          {marked.size} exceptions · <kbd>Enter</kbd> confirms the page, <kbd>Space</kbd>/click
-          marks an exception, arrows move
+          {marked.size} exceptions
+          <span className="hidden sm:inline">
+            {" "}· <kbd>Enter</kbd> confirms the page, <kbd>Space</kbd>/click marks an exception,
+            arrows move
+          </span>
         </span>
-        <Button className="ml-auto" onClick={() => void confirmPage()} size="sm">
+        <Button className={`ml-auto ${TOUCH}`} onClick={() => void confirmPage()} size="sm">
           {kind === "confirm" ? `confirm ${slice.length - marked.size} as occluded` : "checked"}
         </Button>
       </div>
       {note ? <p className="text-muted-foreground text-sm">{note}</p> : null}
 
-      <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))` }}>
+      <div
+        className="grid gap-1.5"
+        ref={grid}
+        style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${MIN_CELL}px, 1fr))` }}
+      >
         {slice.map((cell, i) => (
           <div
             className={`relative cursor-pointer overflow-hidden rounded border-2 ${
@@ -162,12 +200,13 @@ export function BucketGrid(props: BucketProps) {
           >
             <Image
               alt={`${cell.square} @ ${cell.frame}`}
+              className="h-auto w-full"
               height={CROP}
               src={`/api/cell/${name}/${cell.frame}/${cell.square}?size=${CROP}`}
               unoptimized
               width={CROP}
             />
-            <span className="bg-background/70 absolute bottom-0 left-0 px-1 font-mono text-[10px]">
+            <span className="bg-background/70 absolute bottom-0 left-0 px-1 font-mono text-[11px]">
               {cell.square} {cell.score.toFixed(2)}
             </span>
           </div>
@@ -176,6 +215,7 @@ export function BucketGrid(props: BucketProps) {
 
       <div className="flex gap-2">
         <Button
+          className={TOUCH}
           disabled={safePage === 0}
           onClick={() => setPage(Math.max(0, safePage - 1))}
           size="sm"
@@ -184,6 +224,7 @@ export function BucketGrid(props: BucketProps) {
           previous page
         </Button>
         <Button
+          className={TOUCH}
           disabled={safePage + 1 >= pages}
           onClick={() => setPage(safePage + 1)}
           size="sm"

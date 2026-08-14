@@ -145,6 +145,16 @@ data class TrackerConfig(
      */
     val gridHandGate: Boolean = true,
     /**
+     * Plausibility filter on the MODEL's occluded head (2026-08-14): `pOccluded` flags count as a
+     * hand only when they are hand-shaped (an orthogonally adjacent pair, the grid arm's measured
+     * rule) AND recent motion or the grid arm can vouch for an occluder being there at all.
+     * `real14-80` read a whole quiet queenside as occluded (session 20260814-142947) and every raw
+     * consumer — the resting-hand veto, `handInFrame`, the recovery clean gate — treated each flag
+     * as a hand; one phantom square starved recovery indefinitely. The off position restores the
+     * raw head so a replay can A/B the filter, not because off is a candidate.
+     */
+    val modelHandGate: Boolean = true,
+    /**
      * EXPERIMENT (2026-08-12, unmeasured until the replay that follows it): commit while the hand
      * is still in frame, as long as it keeps this many cells of clearance from the move's own
      * squares. **0 is off and is the shipped behaviour.**

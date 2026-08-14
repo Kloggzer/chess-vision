@@ -3,6 +3,8 @@ package com.chesslab.tracker.ui.home
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,11 +28,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.chesslab.tracker.R
 import com.chesslab.tracker.analysis.ReviewStore
 import com.chesslab.tracker.games.GameResult
 import com.chesslab.tracker.games.GameSessionState
@@ -45,8 +50,10 @@ import com.chesslab.tracker.ui.Rule
 import com.chesslab.tracker.ui.games.GameSessionHost
 import com.chesslab.tracker.ui.games.gamesDir
 import com.chesslab.tracker.ui.percent
+import com.chesslab.tracker.ui.theme.Background
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
+import com.chesslab.tracker.ui.theme.PieceWhite
 import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.theme.Surface
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -91,6 +98,18 @@ fun HomeRoute(
         "chesslab",
         onBack = null,
         titleStyle = MaterialTheme.typography.titleLarge.copy(fontSize = 22.sp),
+        // No `contentDescription`: the word "chesslab" is right beside it, and a screen reader
+        // announcing "chesslab logo, chesslab" is noise. Tinted `OnSurface` — an identity is not
+        // an accent (specs/48 rule 2). Restored 2026-08-14: the nav restructure of `7927fff`
+        // dropped it without mention, and losing the mark was never a decision anyone made.
+        titleIcon = {
+            Icon(
+                painter = painterResource(R.drawable.ic_logo),
+                contentDescription = null,
+                tint = OnSurface,
+                modifier = Modifier.size(LOGO_SIZE),
+            )
+        },
         actions = {
             IconButton(onClick = onOpenSettings) {
                 Icon(Icons.Filled.Settings, contentDescription = "Settings")
@@ -100,25 +119,56 @@ fun HomeRoute(
         // bar's action slot is for. As a row at the bottom of Home it took a full-width seat below
         // the games — the thing the screen is actually about — for the least frequent act on it.
     ) { bars ->
-        Column(
-            Modifier.fillMaxSize().padding(bars).padding(horizontal = HOME_EXTRA_SIDE_INSET),
-        ) {
-            if (running) {
-                ResumeCard(live, onResume = onStartGame, onEnd = { controller?.endAndSave() })
-            } else {
-                StartCard(onStartGame)
-            }
-            if (ui.loaded && ui.games == 0) {
-                Spacer(Modifier.height(Space.sm))
-                NoGamesYet()
-            } else {
-                RecentHeading()
-                ui.recent.forEach { row -> RecentGameCard(row) { onOpenGame(row.id) } }
-                Spacer(Modifier.weight(1f))
-                AllGamesRow(ui.games, onOpenGames)
+        Box(Modifier.fillMaxSize().padding(bars)) {
+            Watermark()
+            Column(
+                Modifier.fillMaxSize().padding(horizontal = HOME_EXTRA_SIDE_INSET),
+            ) {
+                if (running) {
+                    ResumeCard(live, onResume = onStartGame, onEnd = { controller?.endAndSave() })
+                } else {
+                    StartCard(onStartGame)
+                }
+                if (ui.loaded && ui.games == 0) {
+                    Spacer(Modifier.height(Space.sm))
+                    NoGamesYet()
+                } else {
+                    RecentHeading()
+                    ui.recent.forEach { row -> RecentGameCard(row) { onOpenGame(row.id) } }
+                    Spacer(Modifier.weight(1f))
+                    AllGamesRow(ui.games, onOpenGames)
+                }
             }
         }
     }
+}
+
+/**
+ * The pawn alone, centred in the content area and almost invisible.
+ *
+ * **The piece, not the mark:** the viewfinder brackets are a frame, and a frame drawn behind
+ * framed content (cards, rules) fights it. `ic_pawn` is the same geometry with the brackets
+ * dropped and the viewport cropped to the piece, so the height requested here is the height that
+ * appears.
+ *
+ * Decoration is allowed exactly here: Home is where the app is entered and the one screen whose
+ * job is identity rather than a task. It never appears on the board — a brand mark over a
+ * position is what specs/48 spent a pack removing.
+ *
+ * **The alpha is per scheme, and it has to be.** The same cream is 236/255 bright on an ink
+ * ground and 18/255 from a paper one; measured 23-24/255 keeps the two sides reading alike. The
+ * scheme is read off the ground itself rather than `isSystemInDarkTheme()`, because what matters
+ * is the colour actually behind the piece, which is `Background`.
+ */
+@Composable
+private fun BoxScope.Watermark() {
+    val onInk = Background.luminance() < DARK_GROUND
+    Icon(
+        painter = painterResource(R.drawable.ic_pawn),
+        contentDescription = null,
+        tint = PieceWhite.copy(alpha = if (onInk) WATERMARK_ALPHA_INK else WATERMARK_ALPHA_PAPER),
+        modifier = Modifier.align(Alignment.Center).size(WATERMARK_WIDTH, WATERMARK_HEIGHT),
+    )
 }
 
 @Composable
@@ -158,6 +208,14 @@ private val NEW_GAME_TEXT_SPACER = 6.dp
 private val NEW_GAME_BUTTON_HEIGHT = 52.dp
 
 private val HOME_EXTRA_SIDE_INSET = 8.dp
+
+// The brand geometry of `9c136ec` ("chesslab has a face"), unchanged.
+private val LOGO_SIZE = 28.dp
+private val WATERMARK_HEIGHT = 260.dp
+private val WATERMARK_WIDTH = 172.dp
+private const val WATERMARK_ALPHA_INK = 0.10f
+private const val WATERMARK_ALPHA_PAPER = 0.85f
+private const val DARK_GROUND = 0.5f
 
 @Composable
 private fun RecentHeading() {

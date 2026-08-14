@@ -59,7 +59,7 @@ fun main(args: Array<String>) {
         "replay" -> {
             val video = File(args.getOrNull(1) ?: usage())
             check(video.isFile) { "no such video: ${video.absolutePath}" }
-            replay(VideoFileSource(video), video.name, ReplayOptions.parse(args.drop(2)), video = video)
+            replay(openRecording(video), video.name, ReplayOptions.parse(args.drop(2)), video = video)
         }
         "calibrate" -> {
             val index = args.getOrNull(1)?.toIntOrNull() ?: usage()
@@ -276,9 +276,11 @@ private fun usage(): Nothing {
         "  turntable-dataset <outDir> <testPack> <valPack> <trainPack>... [emptyRatio=N]  fixed roles",
         "  labeled-video-pack <video> <log> <corrections> <outDir> [every=N] [id=name]  labels -> 80px memmap",
         "  occlusion-video-pack <video> <log> <corrections> <outDir> [session=name] [id=name]  manual occlusions -> 80px memmap",
-        "  training-video-pack <video> <game.json> <outDir> [every=N] [stable=N] [fps=N] [model=name] [visualcache=file]  visual packs",
+        "  training-video-pack <video> <game.json> <outDir> [every=N] [stable=N] [fps=N] [model=name]",
+        "                       [visualcache=file] [id=name]  visual packs; id keys the manifest rows",
         "  labeled-session-pack <sessionDir> <outDir> [corrections=file] [id=name]  stored frames -> memmap",
         "  legacy-synth-dataset <root> <manifest> <outDir> [prefix=x]  parked crops -> 80px memmap",
+        "  repair-recording <broken.mp4> <reference.mp4> <out.mp4>  rebuild an index a kill never wrote",
         "  replay <video.mp4> [options]  drive a recorded clip through the shipping tracker",
         "  track <camera-index> [options]  the same, live",
         "",
@@ -341,12 +343,22 @@ internal fun replay(
         // Fitted from the board in THIS footage, not loaded from a file: a stored calibration
         // assumes the optics have not moved since, and on this rig a fit from the footage beat the
         // stored one by 1.2 px. It goes through `Stage.LENS` — the frame source never undistorts.
+        val fittedLens = plan?.lens() ?: if (options.lens) fitLensFrom(source) else null
+        if (options.lens && video != null && fittedLens == null) {
+            error("no accepted lens fit for ${video.name} — refusing to replay raw frames as corrected")
+        }
         val optics =
-            (if (options.lens) fitLensFrom(source) else null)
+            fittedLens
                 ?.let { Undistorter(it, source.delivered.width, source.delivered.height) }
                 ?: camera?.let { openLens(source, it, wanted = true) }
         val corrected = { source.next()?.let { frame -> optics?.apply(frame) ?: frame } }
-        val quad = plan?.quad() ?: locateBoard(corrected)
+        // Which quad a run stood on is part of its provenance: the two sources are a measured
+        // ±6-25 plies apart on real videos (specs/52 "geometry A/B", still open), and on
+        // 2026-08-14 a label-plan baseline was compared against locateBoard runs without anyone
+        // being able to see it — a day of suspecting `config=` for a difference the quad made.
+        val quad =
+            plan?.quad()?.also { println("quad: from the label plan's geometry scan") }
+                ?: locateBoard(corrected)?.also { println("quad: located on the first decoded frames") }
         if (quad == null) {
             println("no board found: the markers never decoded")
             // Nothing takes ownership on this path, because the stages that would are never built.
@@ -750,6 +762,7 @@ private val FILE_TOOLS: Map<String, (List<String>) -> Unit> =
         "labeled-video-pack" to ::packLabeledVideo,
         "occlusion-video-pack" to ::packOcclusionVideo,
         "training-video-pack" to ::packTrainingVideo,
+        "repair-recording" to ::repairRecording,
         "labeled-session-pack" to ::packLabeledSession,
         "legacy-synth-dataset" to ::buildLegacySynthDataset,
     )

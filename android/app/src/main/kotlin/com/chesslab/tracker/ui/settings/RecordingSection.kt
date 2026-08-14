@@ -27,11 +27,13 @@ import com.chesslab.tracker.record.SessionInfo
 import com.chesslab.tracker.record.SessionStore
 import com.chesslab.tracker.record.formatBytes
 import com.chesslab.tracker.record.zipSession
+import com.chesslab.tracker.sync.readMark
 import com.chesslab.tracker.ui.ConfirmDialog
 import com.chesslab.tracker.ui.TextAction
 import com.chesslab.tracker.ui.games.GameSessionHost
 import com.chesslab.tracker.ui.games.RecordingSettingsHost
 import com.chesslab.tracker.ui.games.sessionsDir
+import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Busy
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
@@ -56,6 +58,8 @@ data class RecordingUi(
     val prefs: RecordingPrefs = RecordingPrefs(),
     val sessions: List<SessionInfo> = emptyList(),
     val sessionBytes: Long = 0L,
+    /** Sessions the PC has acknowledged — the one thing that makes deleting one here safe. */
+    val transferred: Set<String> = emptySet(),
 )
 
 /**
@@ -72,7 +76,17 @@ class RecordingViewModel(
     private val mutable = MutableStateFlow(RecordingUi())
     val ui: StateFlow<RecordingUi> = mutable
 
-    fun refresh() = io { mutable.value = RecordingUi(settings.load(), sessions.list(), sessions.totalBytes()) }
+    fun refresh() =
+        io {
+            val list = sessions.list()
+            mutable.value =
+                RecordingUi(
+                    settings.load(),
+                    list,
+                    sessions.totalBytes(),
+                    list.filter { readMark(sessions.dir(it.id)) != null }.map { it.id }.toSet(),
+                )
+        }
 
     fun setPrefs(prefs: RecordingPrefs) =
         io {
@@ -83,7 +97,13 @@ class RecordingViewModel(
     fun deleteSession(id: String) =
         io {
             sessions.delete(id)
-            mutable.value = mutable.value.copy(sessions = sessions.list(), sessionBytes = sessions.totalBytes())
+            val list = sessions.list()
+            mutable.value =
+                mutable.value.copy(
+                    sessions = list,
+                    sessionBytes = sessions.totalBytes(),
+                    transferred = list.filter { readMark(sessions.dir(it.id)) != null }.map { it.id }.toSet(),
+                )
         }
 
     fun sessionDir(id: String): File = sessions.dir(id)
@@ -125,7 +145,7 @@ fun RecordingSection() {
             checked = ui.prefs.enabled,
             onCheckedChange = { model.setPrefs(ui.prefs.copy(enabled = it)) },
         )
-        PreferenceRow("Recording status", recordingStatus(live))
+        PreferenceRow("Recording status", recordingStatus(live, tracking = controller != null, enabled = ui.prefs.enabled))
         live.recordingReason?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Danger) }
         ValuePreference(
             title = "Storage limit",
@@ -153,7 +173,7 @@ fun RecordingSection() {
             value = if (expanded) "Hide" else "Show",
             onClick = { expanded = !expanded },
         )
-        if (expanded) ui.sessions.forEach { SessionRow(it, model) }
+        if (expanded) ui.sessions.forEach { SessionRow(it, model, it.id in ui.transferred) }
     }
 }
 
@@ -164,11 +184,21 @@ fun RecordingSection() {
  * opened. A recorder that had silently stopped writing — cap reached, geometry suspended, a frame
  * that would not encode — was indistinguishable from one that was working, which is why the only
  * report this feature ever got was "recording doesn't work well".
+ *
+ * ARMED is its own state since the pre-roll (2026-08-14): while the tracker runs and no move has
+ * committed, nothing is on disk BY DESIGN — the encoder holds the last 20 s in memory and the
+ * first committed move writes them out. A row that implied "recording" here would be the lie the
+ * measurement caught from the other side: eleven recordings, nine without a game.
  */
-private fun recordingStatus(live: GameSessionState): String {
+private fun recordingStatus(
+    live: GameSessionState,
+    tracking: Boolean,
+    enabled: Boolean,
+): String {
     val session = live.recordingSessionId
     return when {
         session != null -> "Recording $session · ${live.recordedFrames} reference frames written"
+        tracking && enabled -> "Armed — video starts with the first move"
         else -> "Start the tracker to open a recording session"
     }
 }
@@ -177,6 +207,7 @@ private fun recordingStatus(live: GameSessionState): String {
 private fun SessionRow(
     session: SessionInfo,
     model: RecordingViewModel,
+    transferred: Boolean,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -191,9 +222,9 @@ private fun SessionRow(
     var confirming by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(
-            "${session.id} · ${session.frames} frames · ${formatBytes(session.bytes)}",
+            "${session.id} · ${session.frames} frames · ${formatBytes(session.bytes)}" + if (transferred) " · on the PC" else "",
             style = MaterialTheme.typography.bodySmall,
-            color = OnSurfaceMuted,
+            color = if (transferred) Accent else OnSurfaceMuted,
             modifier = Modifier.weight(1f).padding(end = Space.sm),
         )
         Row {
@@ -207,8 +238,13 @@ private fun SessionRow(
         ConfirmDialog(
             title = "Delete ${session.id}?",
             body =
-                "${session.frames} recorded frames, ${formatBytes(session.bytes)}. They exist nowhere else unless " +
-                    "this session was exported. This cannot be undone.",
+                if (transferred) {
+                    "${session.frames} recorded frames, ${formatBytes(session.bytes)}. This session has been transferred " +
+                        "to the PC, so the copy that matters survives. This cannot be undone."
+                } else {
+                    "${session.frames} recorded frames, ${formatBytes(session.bytes)}. They exist nowhere else unless " +
+                        "this session was exported. This cannot be undone."
+                },
             verb = "Delete",
             onConfirm = {
                 model.deleteSession(session.id)

@@ -212,16 +212,35 @@ fun geometryRefusals(g: ScannedGeometry): List<String> {
             "(need $MIN_ALIGNED_SAMPLES for a median quad to stand on). Is the board mostly out of " +
             "shot, or the footage very short?"
     }
-    val spreadP90 = g.quadSpreadPx.p90
-    if (spreadP90 != null && spreadP90 > QUAD_SPREAD_P90_MAX) {
-        out += "quad spread p90 ${"%.2f".format(spreadP90)} px > $QUAD_SPREAD_P90_MAX px: one static quad does not " +
-            "stand for this footage. Did the board move? Cut the clip where it did, or re-film."
-    }
+    // The SPREAD is deliberately not here. It compares each frame's quad against the median of the
+    // same quads, so it measures MOVEMENT, not correctness — "must never be read as a correctness
+    // gate" (CLAUDE.md), and reading it as one refused `2026-08-13-19-34-23`, a recording whose
+    // absolute gate passes on 97.2 % of its samples. What a spread does mean is that ONE STORED
+    // QUAD will not do, and that is a fact about the export, not about the footage: `chesslab
+    // session scan` measures it per frame and `autofix` re-fits it. It is a warning, and the
+    // absolute gate above is what refuses.
     val clockP90 = g.clockErrorMs.p90
     val clockLimit = CLOCK_P90_PERIOD_FRAC * MS_PER_SECOND / max(g.fps, 1.0)
     if (clockP90 != null && clockP90 > clockLimit) {
         out += "frame interval p90 off by ${"%.2f".format(clockP90)} ms > ${"%.2f".format(clockLimit)} ms: the source " +
             "is not constant-rate, and fps is the replay's CLOCK. Re-encode first."
+    }
+    return out
+}
+
+/**
+ * What the footage will cost downstream, without refusing it.
+ *
+ * A warning is not a smaller refusal: it names the next step. A wandering quad means the stored
+ * median does not describe every frame, and the repair for that already exists per frame.
+ */
+fun geometryWarnings(g: ScannedGeometry): List<String> {
+    val out = mutableListOf<String>()
+    val spreadP90 = g.quadSpreadPx.p90
+    if (spreadP90 != null && spreadP90 > QUAD_SPREAD_P90_MAX) {
+        out += "quad spread p90 ${"%.2f".format(spreadP90)} px > $QUAD_SPREAD_P90_MAX px: the board moves in this " +
+            "footage, so the stored quad is a MEDIAN and does not stand for every frame. Re-fit per frame after " +
+            "export: `chesslab session scan <sid>` then `autofix`."
     }
     return out
 }

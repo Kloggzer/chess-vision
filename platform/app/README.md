@@ -31,5 +31,68 @@ drag cycles FEN → occluded → empty; writes on navigate-away).
 - Without a proposals file the routes fall back to `test-fixtures/occluded-proposals.<name>.jsonl`
   and say so in the header; both go through the same parser.
 
+## `/transfers` — the phone's recordings arrive by themselves
+
+The tracker pushes a finished recording to this server over the LAN; the files land in
+`data/realgames/<name>/files/` (the layout the USB tar produced) and `:desktop training-video-pack`
+is queued behind it, one job at a time. Full path, protocol and failure modes:
+[`docs/phone-transfer.md`](../../docs/phone-transfer.md).
+
+- `GET /api/ingest/hello` — the probe the phone sweeps the subnet with; says whether the token matches.
+- `POST /api/ingest/session` — declare a bundle, get back what this machine already holds per file.
+- `PUT /api/ingest/session/<name>/chunk?path=&offset=` — 8 MiB, streamed to a `.partial`; a wrong
+  offset is answered with 409 and the true length, never a write.
+- `POST /api/ingest/session/<name>/complete` — sizes checked, tree moved, ledger appended, pack queued.
+- `GET /api/ingest/jobs` — what the page polls.
+
+Bearer token from `CHESSLAB_INGEST_TOKEN` or `$CHESSLAB_DATA_DIR/inbox/token` (generated on first
+use, printed on the page). `CHESSLAB_REPO_DIR` / `CHESSLAB_DESKTOP_BIN` override where the pack
+binary is looked for; without it the job fails **with the `installDist` command in its reason**.
+
+## The chain, as buttons
+
+Every card on `/` shows the ONE step that can run now, read off the disk rather than remembered:
+
+| state on disk | control |
+|---|---|
+| no `candidate.json` | **Label** — queues `:desktop replay <video> label lens name=<name> model=real14-80` |
+| candidate, not confirmed | **Confirm →** `/confirm/<name>`, the human step |
+| confirmed, no `data/sessions/rg-<name>/` | **Export session** — `uv run chesslab realgames export-session` |
+| session, no `occluded-proposals.jsonl` | **Propose occluded** — `uv run chesslab realgames propose-occluded` |
+| everything there | **Relabel →** `/relabel/<name>` |
+
+`POST /api/chain/<name>` takes `{step}` and REFUSES a step that is not the disk's next one (409 with
+the state), so a stale tab cannot export an unconfirmed candidate. `{step: "adopt-pgn"}` copies a
+transferred phone game's `.pgn` in as `reference.pgn` — never over an existing one.
+
+The two chesslab steps are spawned as a CLI (`uv`, or `CHESSLAB_UV`), never imported: the file
+formats stay the only bridge. They share the packs' single-slot queue — same machine, same CPU.
+
+While a job runs the card polls `GET /api/chain/<name>/progress` every two seconds and shows what
+the tool has actually reached: its position in the recording (against `video_duration_ns` from the
+phone's `session.yaml`), the number of COMMITTED plies, and its last line of output. No denominator,
+no bar — a replay that has printed nothing says "no output yet" rather than spinning.
+
+A label that fails because no lens fit was accepted offers **Label ohne Linsen-Korrektur** as a
+second, explicit press. `replay … label lens` is fail-closed by design (specs/52), and the phone
+camera corrects itself — its grid fit is refused every time (TODO.md, 2026-08-10), so without that
+second button the step is impossible for exactly the recordings the LAN transfer delivers.
+
+## On a phone
+
+The labeling screens are used from the phone's browser (`http://<pc>:3000`), so they are measured
+there, not assumed:
+
+| screen | before | now, at 375 px |
+|---|---|---|
+| bucket grid | 10 fixed columns → 34 px crops | `auto-fill` → **3 columns, 109 px crops**, fetched at 192 px for a 3x display |
+| board brush | board fine, controls 28 px | board 351 px (**44 px per square**), every control ≥ 44 px |
+| card list `/` | chain links 16–21 px | chain controls 44 px |
+
+Two rules came out of it. Touch sizes are written `max-sm:h-11`, never `h-11 sm:h-8` — both are
+equally specific and Tailwind emits the plain utility last, so the desktop inherited the phone's
+height. And an overlay on a picture that scales must be positioned in per cent, not in the pixels
+of a fixed thumbnail; the tinder card's square marker was the one that broke.
+
 Note for agents: Next 16 has breaking changes against most training data - read the guides
 in node_modules/next/dist/docs before writing code here.

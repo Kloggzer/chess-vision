@@ -11,7 +11,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -32,17 +31,11 @@ class ModelSpecTest {
         // bundled run is a 14-class model or the 2-class occupancy one (specs/18) depending on
         // what was staged, and `requireExpectedClasses` is what pins the accepted orders.
         assertEquals(rawClasses(json), spec.classes)
-        // The same rule for the input size, and on the default asset it is no longer the trivial
-        // case: `id35-80` declares `infer_size` 80 while its crops on disk were built at 128, so
-        // this asserts the reader picked the right KEY on the file that
-        // actually ships — which the old `assertEquals(128, …)` could not have noticed.
-        val declared = rawInts(json, "infer_size")
+        // Read the key the real default actually declares. `real14-80` uses `out_size`; dedicated
+        // tests below exercise both that compatibility path and an explicit `infer_size`.
+        val root = Json.parseToJsonElement(json).jsonObject
+        val declared = rawInts(json, if ("infer_size" in root) "infer_size" else "out_size")
         assertEquals(declared, listOf(spec.outWidth, spec.outHeight))
-        assertNotEquals(
-            rawInts(json, "out_size"),
-            declared,
-            "the bundled asset no longer exercises the `infer_size` path — this test has gone vacuous",
-        )
         assertEquals(listOf(0.485f, 0.456f, 0.406f), spec.mean)
         assertEquals(listOf(0.229f, 0.224f, 0.225f), spec.std)
     }

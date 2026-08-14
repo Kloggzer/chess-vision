@@ -7,8 +7,15 @@ import { Button } from "@/components/ui/button";
 import type { Proposal } from "@/lib/proposals";
 import { writeRows } from "./write";
 
-const BIG = 256;
-const THUMB = 320;
+/**
+ * Fetch size, not display size.
+ *
+ * The card draws the crop as wide as the screen allows (`w-full`), so on a phone at 3x device pixels
+ * a 256 px source is a blurred guess about a piece — and the guess IS the work here. 512 costs one
+ * warp on a machine that is otherwise idle waiting for the human.
+ */
+const BIG = 512;
+const THUMB = 640;
 /** FEN's own convention: digits pick the white piece, the lower-case letter its black twin. */
 const PALETTE: [string, string][] = [
   ["1", "wP"], ["2", "wN"], ["3", "wB"], ["4", "wR"], ["5", "wQ"], ["6", "wK"],
@@ -189,14 +196,15 @@ export function TinderBand(props: TinderProps) {
             same event: {group.length + 1} cards · Shift+←/→ decides them all
           </Badge>
         ) : null}
-        <span className="text-muted-foreground ml-auto">
+        <span className="text-muted-foreground ml-auto hidden sm:inline">
           <kbd>←</kbd> keep · <kbd>→</kbd> occluded · <kbd>Shift</kbd> = whole event ·{" "}
           <kbd>↓</kbd> skip · <kbd>z</kbd> undo · digits/letters = piece, <kbd>x</kbd> empty
         </span>
+        <span className="text-muted-foreground ml-auto sm:hidden">swipe: ← keep · → occluded</span>
       </div>
 
       <div
-        className="grid gap-4 md:grid-cols-[repeat(3,max-content)]"
+        className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[repeat(3,max-content)]"
         onPointerDown={(e) => (swipe.current = e.clientX)}
         onPointerUp={(e) => {
           const dx = e.clientX - (swipe.current ?? e.clientX);
@@ -206,41 +214,58 @@ export function TinderBand(props: TinderProps) {
         style={{ touchAction: "pan-y" }}
       >
         <figure>
-          <Image alt="cell now" height={BIG} src={src} unoptimized width={BIG} />
+          <Image alt="cell now" className="h-auto w-full rounded" height={BIG} src={src} unoptimized width={BIG} />
           <figcaption className="text-muted-foreground text-xs">now — is this an occluder?</figcaption>
         </figure>
         <figure>
-          <Image alt="clean median" height={BIG} src={`${src}&median=1`} unoptimized width={BIG} />
+          <Image
+            alt="clean median"
+            className="h-auto w-full rounded"
+            height={BIG}
+            src={`${src}&median=1`}
+            unoptimized
+            width={BIG}
+          />
           <figcaption className="text-muted-foreground text-xs">
             clean median of this ply&apos;s interval
           </figcaption>
         </figure>
-        <figure className="relative">
-          <Image
-            alt={`board ${cell.frame}`}
-            height={THUMB}
-            src={`/api/board/${name}/${cell.frame}?size=${THUMB}`}
-            unoptimized
-            width={THUMB}
-          />
-          <span
-            className="pointer-events-none absolute border-2 border-amber-400"
-            style={{
-              left: (cell.square.charCodeAt(0) - 97) * (THUMB / 8),
-              top: (8 - Number(cell.square[1])) * (THUMB / 8),
-              width: THUMB / 8,
-              height: THUMB / 8,
-            }}
-          />
+        <figure className="sm:col-span-2 lg:col-span-1">
+          {/* The marker is positioned against the PICTURE, so the caption must not be inside the
+              box it measures itself against — percentages of a figure that includes text put the
+              square a few pixels too high. */}
+          <div className="relative">
+            <Image
+              alt={`board ${cell.frame}`}
+              className="h-auto w-full rounded"
+              height={THUMB}
+              src={`/api/board/${name}/${cell.frame}?size=${THUMB}`}
+              unoptimized
+              width={THUMB}
+            />
+            <span
+              className="pointer-events-none absolute border-2 border-amber-400"
+              style={{
+                left: `${(cell.square.charCodeAt(0) - 97) * 12.5}%`,
+                top: `${(8 - Number(cell.square[1])) * 12.5}%`,
+                width: "12.5%",
+                height: "12.5%",
+              }}
+            />
+          </div>
           <figcaption className="text-muted-foreground text-xs">the whole board</figcaption>
         </figure>
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <Button onClick={() => void decide(null)} variant="outline">
+        {/* A fingertip is ~9 mm. The two decisions that carry the session get a row of their own on
+            a phone and go back to being ordinary buttons from `sm` up. */}
+        <Button className="max-sm:h-12 max-sm:flex-1 max-sm:text-base" onClick={() => void decide(null)} variant="outline">
           ← keep {cell.fen_label}
         </Button>
-        <Button onClick={() => void decide("occluded")}>→ occluded</Button>
+        <Button className="max-sm:h-12 max-sm:flex-1 max-sm:text-base" onClick={() => void decide("occluded")}>
+          → occluded
+        </Button>
         {group.length > 0 ? (
           <>
             <Button onClick={() => void decide("occluded", true)} variant="default">
@@ -259,7 +284,7 @@ export function TinderBand(props: TinderProps) {
         </Button>
         <span className="ml-2 flex flex-wrap gap-1">
           {PALETTE.map(([key, label]) => (
-            <Button key={label} onClick={() => void decide(label)} size="sm" variant="ghost">
+            <Button className="max-sm:h-11" key={label} onClick={() => void decide(label)} size="sm" variant="ghost">
               <span className="text-muted-foreground mr-1 font-mono">{key}</span>
               {label}
             </Button>

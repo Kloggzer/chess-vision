@@ -79,7 +79,7 @@ internal object VerifySingle {
             // nor reject — no vote, no verdict, for the single AND the pair ladder (the pair is
             // only reached through `evaluate`). Alive though: the liveness clock advances exactly
             // like the too-old case above, so a covered board does not read as a dead observer.
-            state.config.cleanCommitsOnly && snap.obs.readsOccludedAnywhere() -> {
+            state.config.cleanCommitsOnly && state.modelHandSquares(snap) != 0L -> {
                 state.pending = pend.copy(lastTickS = state.nowS)
                 emptyList()
             }

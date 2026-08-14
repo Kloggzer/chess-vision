@@ -23,6 +23,7 @@ import com.chesslab.engine.debugPayload
 import com.chesslab.engine.desyncEvidence
 import com.chesslab.engine.detectGuards
 import com.chesslab.engine.dispatch
+import com.chesslab.engine.freshCnnOccludedSquares
 import com.chesslab.engine.flushSessionCapture
 import com.chesslab.engine.generateHypothesis
 import com.chesslab.engine.learnNoise
@@ -583,6 +584,7 @@ internal fun EngineState.toStatus(debugEnabled: Boolean = false): TrackerStatus 
         occlusionVetoed = occludedVetoed.sortedSquareNames().toSet(),
         // The same computation the re-anchor veto uses, surfaced instead of only counted.
         cnnConflicts = cnnDesync()?.conflicts?.toSet() ?: emptySet(),
+        cnnOccluded = freshCnnOccludedSquares(),
         bestLl = bestScore,
         secondLl = secondScore,
         bestUci = candidateUci,

@@ -1,8 +1,29 @@
+import Link from "next/link";
 import { Chess } from "chess.js";
+import { ChainActions } from "@/app/chain-actions";
+import { chainState } from "@/lib/chain";
 import { Badge } from "@/components/ui/badge";
 import { listFrameStems, loadCandidate, truthSans } from "@/lib/data";
 import { lcsReport } from "@/lib/lcs";
 import { UnmatchedCards } from "./cards";
+
+/** The recording is here, the tracker's reading of it is not. */
+async function NoCandidate({ name }: { name: string }) {
+  const state = await chainState(name);
+  return (
+    <main className="space-y-4">
+      <h1 className="text-2xl font-semibold">{name}</h1>
+      <p className="text-muted-foreground text-sm">
+        No <code>candidate.json</code>: nothing has read this recording yet, so there are no plies to
+        judge. {state.video ? "The replay below writes one — it decodes the whole video and takes minutes." : "This bundle carries no video, so there is nothing to read."}
+      </p>
+      <ChainActions name={name} state={state} />
+      <Link className="text-muted-foreground text-sm underline underline-offset-4" href="/">
+        ← all games
+      </Link>
+    </main>
+  );
+}
 
 /** From/to squares of a SAN, replayed from the TRACKER's own position chain (the ply may be
  *  illegal against the reference game, but it was legal against the tracker's board). */
@@ -21,7 +42,11 @@ export const dynamic = "force-dynamic";
 
 export default async function ConfirmPage({ params }: PageProps<"/confirm/[name]">) {
   const { name } = await params;
-  const candidate = await loadCandidate(name);
+  // A transferred recording has no candidate until the tracker has read it — 29 of them arrived
+  // over the LAN on 2026-08-13 and every one of their `confirm` links was a runtime error. There
+  // is nothing to confirm yet, and the page that says so is also the page that offers the step.
+  const candidate = await loadCandidate(name).catch(() => null);
+  if (!candidate) return <NoCandidate name={name} />;
   const truth = await truthSans(name);
   const moves = candidate.moves;
   // Without a `reference.pgn` there is nothing to match against, so EVERY ply is the human's to
@@ -78,6 +103,9 @@ export default async function ConfirmPage({ params }: PageProps<"/confirm/[name]
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold">{name}</h1>
         <p className="text-muted-foreground text-sm">
+          <Badge className="mr-2" variant={candidate.source?.lens ? "default" : "destructive"}>
+            {candidate.source?.lens ? "Barrel korrigiert" : "Barrel-Korrektur nicht belegt"}
+          </Badge>
           {truth ? (
             <>
               {moves.length} candidate plies vs {truth.length} in reference.pgn — matched{" "}

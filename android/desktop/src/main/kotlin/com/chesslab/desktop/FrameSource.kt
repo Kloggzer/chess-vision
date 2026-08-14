@@ -33,6 +33,14 @@ interface FrameSource : AutoCloseable {
 
     /** Frames per second as the source reports them; the virtual clock is derived from it. */
     val fps: Double
+
+    /**
+     * Position in the recording, in milliseconds — CONTINUOUS across a segmented one.
+     *
+     * `GeometryScan` reads it to check that the source is constant-rate, so a value that restarted
+     * at every segment boundary would report the recorder as broken once a minute.
+     */
+    val timestampMs: Double get() = 0.0
 }
 
 /** A recorded clip, decoded with FFmpeg. Streamed: a 1080p video does not fit in memory twice. */
@@ -92,7 +100,7 @@ class VideoFileSource(
     var currentDecodedIndex: Long = -1
         private set
 
-    val timestampMs: Double get() = currentTimestampMs
+    override val timestampMs: Double get() = currentTimestampMs
 
     override fun next(): Mat? {
         current?.let { free.put(it) }

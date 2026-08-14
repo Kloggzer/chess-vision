@@ -43,7 +43,7 @@ fun rectifyVideo(args: List<String>) {
     // grid does not accept aborts loudly rather than silently delivering raw boards.
     val model =
         if ("lens" in rest) {
-            VideoFileSource(video).use { fitLensFrom(it) }
+            openRecording(video).use { fitLensFrom(it) }
                 ?: error("no accepted lens fit for ${video.name} — rerun without `lens` for raw boards")
         } else {
             null
@@ -51,7 +51,7 @@ fun rectifyVideo(args: List<String>) {
     outDir.mkdirs()
 
     val r =
-        VideoFileSource(video).use { source ->
+        openRecording(video).use { source ->
             if (model == null) {
                 rectifyEach(source, outDir, every, wanted, size)
             } else {
@@ -96,7 +96,7 @@ private class Rectified(
 
 /** The loop alone, so the `use` block above stays one statement (detekt's nesting rule). */
 private fun rectifyEach(
-    source: VideoFileSource,
+    source: FrameSource,
     outDir: File,
     every: Int,
     wanted: Set<Int>?,

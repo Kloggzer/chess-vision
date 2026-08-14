@@ -14,6 +14,14 @@ internal const val OBS_MAX_AGE_S: Double = 3.0
 /** `p > 0.5` — the observer's `occluded` class dominates. Shared with the recovery clean gate. */
 internal const val P_OCCLUDED_THR: Double = 0.5
 
+/** Fresh per-square hand reads surfaced for hosts that must prove a frame is safe to persist. */
+internal fun EngineState.freshCnnOccludedSquares(): Set<String> {
+    val snap = freshSnapshot() ?: return emptySet()
+    if (snap.fen != board.fen()) return emptySet()
+    val hand = modelHandSquares(snap)
+    return buildSet { hand.forEachSquare { add(Squares.ALL[it]) } }
+}
+
 /** `len(squares) > 2` — the no-CNN hand heuristic. */
 private const val HAND_HEURISTIC_LIMIT: Int = 2
 
@@ -102,9 +110,9 @@ private fun EngineState.occupancyAgreesWithBoard(
 internal fun EngineState.handInFrame(): Boolean {
     if (tainted != 0L || occludedVetoed != 0L) return true
     val snap = freshSnapshot() ?: return false
-    // The grid arm is the model-free half of the snapshot signal: `readsOccludedAnywhere` is
-    // identically false under every 13-class model (CLAUDE.md pitfall), the groove read is not.
-    return snap.obs.readsOccludedAnywhere() || gridHandSquares(snap) != 0L
+    // The grid arm is the model-free half of the snapshot signal: the model head is identically
+    // silent under every 13-class model (CLAUDE.md pitfall), the groove read is not.
+    return modelHandSquares(snap) != 0L || gridHandSquares(snap) != 0L
 }
 
 /**
@@ -134,6 +142,39 @@ internal fun EngineState.gridHandSquares(snap: CnnSnapshot): Long {
     var paired = false
     squares.forEachSquare { if ((SQ_NEIGHBOURS[it] and squares) != 0L) paired = true }
     return if (paired) squares else 0L
+}
+
+/**
+ * The MODEL's occluded head, filtered to what a hand can physically be (2026-08-14).
+ *
+ * `real14-80` over-predicts `occluded`: on a quiet, clean board it read the whole queenside flank
+ * as covered (session 20260814-142947), and every raw consumer of the head — the resting-hand
+ * veto, [handInFrame], the recovery clean gate — treated each flag as a hand, so one phantom
+ * square starved recovery indefinitely (`RECOVERY_OCCLUDED_LIMIT` is 0 by design). The grid arm
+ * already carries a measured plausibility rule ([gridHandSquares]); this is the head's
+ * counterpart, built on two physical facts:
+ * - a hand covers neighbours: flags with no orthogonally adjacent pair anywhere are misreads —
+ *   the same adjacency argument the grid rule is measured on;
+ * - a hand cannot APPEAR without motion ([releaseLatches] states the converse — it cannot vanish
+ *   without it). An occluded read describes a frame at most [OBS_MAX_AGE_S] old, and the hand that
+ *   arrived on that frame moved to get there, so genuine flags come with motion no staler than the
+ *   observation itself. The exception is a hand at REST beyond that window, and that is exactly
+ *   what the grid arm's groove read vouches for (003957's founding incident) — so quiet-board
+ *   flags count only when the grid corroborates them.
+ *
+ * `modelHandGate = false` restores the raw head, for A/B replays only.
+ */
+internal fun EngineState.modelHandSquares(snap: CnnSnapshot): Long {
+    var flagged = 0L
+    for (i in 0 until Squares.COUNT) {
+        if (snap.obs.pOccluded(Squares.ALL[i]) > P_OCCLUDED_THR) flagged = flagged.with(i)
+    }
+    if (flagged == 0L || !config.modelHandGate) return flagged
+    var paired = false
+    flagged.forEachSquare { if ((SQ_NEIGHBOURS[it] and flagged) != 0L) paired = true }
+    if (!paired) return 0L
+    val quiet = nowS - lastMotionTs > OBS_MAX_AGE_S
+    return if (quiet && gridHandSquares(snap) == 0L) 0L else flagged
 }
 
 /**
@@ -168,14 +209,6 @@ internal fun EngineState.handNear(
         }
     }
     return near
-}
-
-/** Any square whose `occluded` class dominates — the observer's own hand report. */
-internal fun CnnObservation.readsOccludedAnywhere(): Boolean {
-    for (i in 0 until Squares.COUNT) {
-        if (pOccluded(Squares.ALL[i]) > P_OCCLUDED_THR) return true
-    }
-    return false
 }
 
 /**
@@ -216,17 +249,16 @@ internal fun EngineState.cnnConfirmedUnchanged(candidates: Long): Long {
  * The baseline occlusion detector only runs OUTSIDE the stable states (the state gate in the frame
  * loop) and skin sits inside the wood gamut, so a motionless hand surfaced as plain "change". The
  * free-running observer sees it as the trained `occluded` class: taint those squares with the SAME
- * latch, so the hand can never be baked into the reference.
+ * latch, so the hand can never be baked into the reference. Through [modelHandSquares], because a
+ * hand that RESTS long enough to need this veto arrived with motion and stands in the groove read.
  */
 private fun EngineState.restingHandVeto() {
-    val obs = freshSnapshot()?.obs ?: return
+    val snap = freshSnapshot() ?: return
     val expiry = nowS + config.occluderHoldS
-    for (i in 0 until Squares.COUNT) {
-        if (obs.pOccluded(Squares.ALL[i]) > P_OCCLUDED_THR) {
-            lastZ[i] = 0.0
-            tainted = tainted.with(i)
-            taintExpiry[i] = expiry
-        }
+    modelHandSquares(snap).forEachSquare { i ->
+        lastZ[i] = 0.0
+        tainted = tainted.with(i)
+        taintExpiry[i] = expiry
     }
 }
 
