@@ -100,12 +100,12 @@ export function buildGalleryCards({
 
 /**
  * A ply owns an interval when the NEXT commit is on a later frame — the same rule
- * `realgames.known_segments` applies (`end <= start` contributes nothing, and the last move of
- * the file has no end at all).
+ * `realgames.known_segments` applies (`end <= start` contributes nothing). The last move of the
+ * file has no closer but owns `LAST_INTERVAL_S` after its commit, so it carries frames too.
  */
 function ownsFrames(moves: ReviewMove[], i: number): boolean {
   const next = moves[i + 1];
-  return next !== undefined && next.frame > moves[i].frame;
+  return next === undefined || next.frame > moves[i].frame;
 }
 
 /** Runs of CONSECUTIVE reviewable indices that share a commit frame — frame equality is the key,
@@ -173,9 +173,9 @@ export function buildReviewCards({
       frame,
       stems: window,
       start,
-      // Nothing of this card owns an interval (its frame-mate was matched, or the file ends
-      // here): keeping it exports nothing, so post the plies themselves and stay wire-identical
-      // to the per-ply cards this replaced.
+      // Nothing of this card owns an interval (its frame-mate was matched): keeping it exports
+      // nothing, so post the plies themselves and stay wire-identical to the per-ply cards this
+      // replaced.
       keep: owning.length > 0 ? owning : members,
       group: moves.filter((m) => m.frame === frame).map((m) => m.san),
       carriesFrames: owning.length > 0,

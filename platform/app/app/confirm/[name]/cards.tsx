@@ -286,7 +286,7 @@ export function ConfirmReview({
                   ) : null}
                   {!card.carriesFrames ? (
                     <Badge
-                      title="Dieser Commit besitzt kein Intervall — der nächste Commit liegt auf demselben Frame oder es gibt keinen mehr. Er trägt 0 Frames zum Export bei."
+                      title="Dieser Commit besitzt kein Intervall — der nächste Commit liegt auf demselben Frame. Er trägt 0 Frames zum Export bei."
                       variant="secondary"
                     >
                       trägt 0 Frames bei

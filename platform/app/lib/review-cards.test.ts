@@ -127,8 +127,9 @@ test("single-ply commits stay one card each", () => {
   expect(cards[0].stems.map((s) => Number(s.stem))).toEqual([133, 200]);
   expect(cards[0].decider).toBe("cnn_recovery");
   expect(cards[1].duplicate).toBe(true);
-  // The last commit has no next one, so it closes no interval — and says so.
-  expect(cards[2].carriesFrames).toBe(false);
+  // The last commit has no next one, but `known_segments` grants it LAST_INTERVAL_S after the
+  // commit — keeping it DOES export frames, and the card must not claim otherwise.
+  expect(cards[2].carriesFrames).toBe(true);
   expect(cards[2].keep).toEqual([2]);
 });
 
