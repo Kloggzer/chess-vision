@@ -231,6 +231,14 @@ private fun EngineState.noSingleFitsGate(
     return out
 }
 
+/**
+ * The ambiguity arm — the ONE exit of [generateHypothesis] that used to leave nothing behind. The
+ * other two ([refuseTooMuchChange], [noSingleFitsGate]) `markStuck` first and its transition writes
+ * a row; this one only set a `note`, which the next frame overwrote.
+ *
+ * Promotion is excluded on purpose: it sets [EngineState.promoPending], which raises
+ * `TrackerEvent.PromotionPending` and blocks detection until the user answers.
+ */
 private fun EngineState.ambiguityOutcome(
     moves: ViableMoves,
     cur: GrayImage,
@@ -238,6 +246,11 @@ private fun EngineState.ambiguityOutcome(
 ): Outcome {
     val res = resolveAmbiguity(moves, cur, curBgr)
     val move = res.move
+    if (move == null && promoPending == null) {
+        // Folded on the changed set: the gate re-fires on every stable frame while the same
+        // standoff sits there, so one row per EVIDENCE SET is the whole budget this may spend.
+        recordRejection("", REASON_QUIET_EDGE, foldOnChanged = true)
+    }
     return Outcome(if (move == null) null else Candidate(listOf(move), res.priorUsed, vote = true))
 }
 
@@ -246,3 +259,10 @@ internal const val STUCK_TOO_MANY_CHANGED = "too_many_changed"
 
 /** `_mark_stuck("no_legal_move")`. */
 internal const val STUCK_NO_LEGAL_MOVE = "no_legal_move"
+
+/**
+ * The quiet edge's reason string. Deliberately unlike `STUCK no_legal_move`: that one means the
+ * evidence fitted no legal move, this one means the evidence fitted too MANY and the engine refused
+ * to choose — same silence on the board, opposite cause on the log.
+ */
+internal const val REASON_QUIET_EDGE = "QUIET ambiguous — evidence, but no candidate formed"

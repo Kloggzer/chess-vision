@@ -6,6 +6,7 @@ import com.chesslab.engine.parity.ParityFrame
 import com.chesslab.engine.parity.assertClose
 import com.chesslab.engine.parity.toTrackerConfig
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -428,6 +429,64 @@ class HypothesisTest {
 
         assertNull(state.generateHypothesis(z, moves, DUMMY_GRAY, null))
         assertEquals(NOTE_AMBIGUOUS_PLAIN, state.note)
+    }
+
+    // -- step 6: the quiet edge ----------------------------------------------------------------------
+
+    /**
+     * The silent exit, made visible: evidence, no candidate, no stuck — and until this row existed,
+     * no trace either. A replay that commits nothing where the live phone committed something has to
+     * say WHICH of the two it was, and only `markStuck` used to say it.
+     */
+    @Test
+    fun anAmbiguousFrameLeavesExactlyOneFoldedQuietEdgeRow() {
+        val state = hypothesisState(TWO_KNIGHTS_FEN)
+        val z = zOf("b1" to HOT, "f3" to 7.0, "d2" to HOT)
+        state.armDetection(changed = setOf("b1", "f3", "d2"))
+        val moves = state.scoreViableMoves(z)
+
+        assertNull(state.generateHypothesis(z, moves, DUMMY_GRAY, null))
+
+        assertNull(state.stuckReason, "the ambiguity arm never marks stuck — that is why it was silent")
+        val row = state.decisionLog.single()
+        assertFalse(row.accepted)
+        assertEquals(DECIDER_REJECTED, row.decider)
+        assertEquals(REASON_QUIET_EDGE, row.reason)
+        assertEquals("", row.move, "no candidate formed, so there is no uci to name")
+        assertEquals(listOf("b1", "d2", "f3"), row.changed, "the row carries the evidence set")
+
+        assertNull(state.generateHypothesis(z, moves, DUMMY_GRAY, null))
+        assertEquals(1, state.decisionLog.size, "an identical quiet frame folds into the row at the tail")
+    }
+
+    /** A different evidence set is a different event — the fold must not swallow it. */
+    @Test
+    fun aQuietEdgeOnAnotherChangedSetGetsItsOwnRow() {
+        val state = hypothesisState(TWO_KNIGHTS_FEN)
+        val z = zOf("b1" to HOT, "f3" to 7.0, "d2" to HOT)
+        val moves = state.scoreViableMoves(z)
+        state.armDetection(changed = setOf("b1", "f3", "d2"))
+        state.generateHypothesis(z, moves, DUMMY_GRAY, null)
+
+        state.armDetection(changed = setOf("b1", "f3", "d2", "a3"))
+        state.generateHypothesis(z, moves, DUMMY_GRAY, null)
+
+        assertEquals(2, state.decisionLog.size)
+        assertEquals(listOf("a3", "b1", "d2", "f3"), state.decisionLog.last().changed)
+    }
+
+    /** The promotion prompt is the loudest state there is; it does not also need a row. */
+    @Test
+    fun aPendingPromotionWritesNoQuietEdgeRow() {
+        val state = hypothesisState(PROMOTION_FEN)
+        val z = zOf("a7" to HOT, "a8" to HOT)
+        state.armDetection(changed = setOf("a7", "a8"))
+        val moves = state.scoreViableMoves(z)
+
+        assertNull(state.generateHypothesis(z, moves, DUMMY_GRAY, null))
+
+        assertNotNull(state.promoPending)
+        assertTrue(state.decisionLog.isEmpty(), "the pending promotion IS the provenance")
     }
 
     // -- parity ------------------------------------------------------------------------------------

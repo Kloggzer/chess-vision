@@ -12,7 +12,8 @@ import com.chesslab.engine.api.DebugPayload
  * It is no longer one row per committed or rejected move, though. Since [markStuck] started writing
  * a row on every stuck-REASON TRANSITION (`Guards.kt`), a board that alternates between
  * `too_many_changed` and `no_legal_move` — a hand hovering, which is the ordinary case — can burn
- * rows without a candidate ever forming. Only the transition writes and `recordRejection` folds an
+ * rows without a candidate ever forming, and the quiet edge (`Hypothesis.ambiguityOutcome`) writes
+ * one more per distinct changed set. Only the transition writes and `recordRejection` folds an
  * identical consecutive row, so the rate is still bounded by events rather than by frames; but "64
  * rows is several games" is the wrong mental model for reading a ring that has filled up.
  */
@@ -126,7 +127,7 @@ fun DebugDecision.toLogLine(): String {
  * there, so an identical consecutive rejection is folded into the row already at the tail; without
  * that fold one static phantom would evict the whole ring in a second.
  *
- * **Five callers, and two of them are not rejections of a candidate** — the name is narrower than
+ * **Six callers, and three of them are not rejections of a candidate** — the name is narrower than
  * the function, and a reader who trusts it will mis-read the log:
  * - `TrackerEngine.commitGates` twice — the LL floor and the motion gate, the original case: a
  *   candidate existed and a gate threw it away. [key] is its uci sequence.
@@ -135,15 +136,26 @@ fun DebugDecision.toLogLine(): String {
  *   happened, because "blocked before a candidate could form" and "nothing happened at all" used
  *   to look identical in the log. [key] is the EMPTY string, so `toLogLine`'s `uci ?: "-"` does
  *   not fire (it guards null, not blank) and the line carries a double space where a uci goes.
+ * - `Hypothesis.ambiguityOutcome` — the QUIET EDGE: evidence, no candidate, and no stuck either,
+ *   so none of the rows above is written. [key] is empty like the stuck row's. This is the one
+ *   caller that folds on the changed set ([foldOnChanged]).
  * - `Alarm.latchAlarm` — the opposite end: the board was declared LOST. [key] is the guessed
  *   illegal move, or empty when there is no guess. Not a rejection in any sense; it is here
  *   because the most consequential act of the engine used to leave no provenance at all.
+ *
+ * @param foldOnChanged also require the tail's changed set to match before folding. OFF by default,
+ * because the four gate/ladder callers name a concrete candidate in [key] and their evidence set
+ * flickers by a square while the same phantom sits there — folding on it would write the row per
+ * frame, which is what the fold exists to stop. The quiet-edge caller has no [key] at all, so the
+ * changed set is the ONLY thing separating two different silent events; without this a hand event
+ * an hour later folds into a row that belongs to a different position.
  */
 internal fun EngineState.recordRejection(
     key: String,
     why: String,
+    foldOnChanged: Boolean = false,
 ) {
-    if (decisionLog.lastOrNull()?.isSameRejection(key, why) == true) return
+    if (decisionLog.lastOrNull()?.foldsInto(key, why, changed, foldOnChanged) == true) return
     decisionLog.add(
         DecisionRecord(
             tsS = nowS,
@@ -185,6 +197,22 @@ private fun DecisionRecord.isSameRejection(
     key: String,
     why: String,
 ): Boolean = !accepted && move == key && reason == why
+
+/**
+ * Whether the row at the tail already says this. [changedNow] is compared only under [onChanged] —
+ * `sortedSquareNames` allocates, and the callers that fold on the key alone take this path on every
+ * stable frame.
+ */
+private fun DecisionRecord.foldsInto(
+    key: String,
+    why: String,
+    changedNow: Long,
+    onChanged: Boolean,
+): Boolean {
+    var folds = isSameRejection(key, why)
+    if (folds && onChanged) folds = changed == changedNow.sortedSquareNames()
+    return folds
+}
 
 /**
  * The whole debug payload, assembled only while debug is on (see `TrackerEngine.setDebugEnabled`).
